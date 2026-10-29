@@ -1,5 +1,5 @@
 #if DEBUG || CMUX_BENCH_HOOKS
-/// The oracle's `turn` checkpoints (p15-oracle-032): at the end of every outermost perform turn it
+/// The oracle's `turn` checkpoints: at the end of every outermost perform turn it
 /// reads the armed main-actor facets and keeps their values in a ring of 256 (``OracleTurnRing``),
 /// read back by `debug.oracle.turns`. The runner arms it, runs a step, then marks the settled state,
 /// normalizes both checkpoints with normalize.py, and invariant I3 compares the two projections.

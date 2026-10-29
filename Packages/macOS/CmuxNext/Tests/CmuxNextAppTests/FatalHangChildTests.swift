@@ -6,7 +6,7 @@ import Darwin
 import Foundation
 import Testing
 
-/// p09-observability-110, the fatal case of the hang matrix: a child process marks its run, starts the main-thread
+/// The fatal case of the hang matrix: a child process marks its run, starts the main-thread
 /// watchdog with the app's fatal-hang recorder, hangs its main thread for 3 s and is killed with SIGKILL (Force Quit,
 /// the system's kill of a hung app). The folder it leaves is read as the next launch reads it: a killed run that no
 /// crash report covers, and one fatal-hang record with the main thread's stack, taken once.

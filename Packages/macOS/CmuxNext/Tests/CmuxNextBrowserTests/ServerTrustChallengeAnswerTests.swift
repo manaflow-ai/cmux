@@ -3,7 +3,7 @@ import Foundation
 import Security
 import Testing
 
-/// WebKit's server-trust challenge (p10-stability-058): the answer and Page Info's certificate failure for
+/// WebKit's server-trust challenge: the answer and Page Info's certificate failure for
 /// an excepted host and for one without an exception, with the evaluation injected, also when it cannot
 /// start. The handler is called exactly once in every case.
 @MainActor

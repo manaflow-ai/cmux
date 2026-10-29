@@ -1,5 +1,5 @@
 public import AppKit
-import CmuxNextCompat
+import CmuxNextCompatAppKit
 public import CmuxNextSettings
 public import CmuxNextWakeups
 import UniformTypeIdentifiers

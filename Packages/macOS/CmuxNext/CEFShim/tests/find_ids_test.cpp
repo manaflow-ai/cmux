@@ -1,6 +1,6 @@
 // Checks cmux_shim::FindIds (CEFShim/src/find_ids.h): the find id a
 // FIND_RESULT event carries is the caller's, from its browser's last
-// cmux_shim_find (p01-process-048; scripts/cmux-next/tests/shim-find-ids.test.sh).
+// cmux_shim_find (scripts/cmux-next/tests/shim-find-ids.test.sh).
 #include <cstdio>
 
 #include "../src/find_ids.h"

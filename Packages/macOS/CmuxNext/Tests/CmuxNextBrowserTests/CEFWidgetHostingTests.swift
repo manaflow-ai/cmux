@@ -3,7 +3,7 @@ import AppKit
 import Foundation
 import Testing
 
-/// Per-widget hosting and attach (p03-rendering-056): every kind of page window a cmux view shows, not only a
+/// Per-widget hosting and attach: every kind of page window a cmux view shows, not only a
 /// pane's page, hosts (Track A) or attaches (Track B) where the fork does it for that kind
 /// (`Fork.hostedWidgets`, `Fork.attachedWidgets`): an embedded DevTools (docked, and in cmux's DevTools window
 /// after a dock move), a `window.open` popup host's window and an extension's attached popup window

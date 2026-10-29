@@ -37,7 +37,7 @@ public struct LogFileErrorSource: ErrorHarvestSource {
         try harvest(after: cursor)
     }
 
-    /// ``collect(after:)`` as a plain call, for the synchronous fuzz entry (p10-stability-029).
+    /// ``collect(after:)`` as a plain call, for the synchronous fuzz entry.
     func harvest(after cursor: String?) throws -> ErrorHarvest {
         guard let attributes: [FileAttributeKey: Any] = try? FileManager.checked.attributesOfItem(atPath: url.path),
               let size = (attributes[.size] as? NSNumber)?.intValue else { return ErrorHarvest(events: [], cursor: cursor) }

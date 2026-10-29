@@ -3,7 +3,7 @@ import AppKit
 import CmuxNextWakeups
 import Testing
 
-/// Recipe R-hide in the terminal (p06-scheduler-215, PL-ghostty): a surface is shown by its node, under its
+/// Recipe R-hide in the terminal (PL-ghostty): a surface is shown by its node, under its
 /// tab's node, not by an ancestor walk. Its tab unselected or its workspace hidden makes it not shown with no
 /// AppKit change; AppKit hiding it forwards to the same node; an occluded window keeps it shown (its own
 /// occlusion watch pauses the drawing).

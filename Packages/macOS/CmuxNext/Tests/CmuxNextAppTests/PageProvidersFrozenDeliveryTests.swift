@@ -4,7 +4,7 @@ import CmuxNextSettings
 import Foundation
 import Testing
 
-/// The frozen-delivery policies of PageProviders.swift (p13-webui-024): the daemon relay's change
+/// The frozen-delivery policies of PageProviders.swift: the daemon relay's change
 /// notices resync, never `.latest`, and the policy gate passes the wrapped stream's policy through.
 @MainActor
 @Suite struct PageProvidersFrozenDeliveryTests {

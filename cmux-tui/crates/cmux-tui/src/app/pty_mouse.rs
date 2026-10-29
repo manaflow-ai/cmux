@@ -454,6 +454,10 @@ impl App {
                 | Drag::RailResize(_),
             )
             | None => {}
+            #[allow(
+                clippy::unreachable,
+                reason = "INVARIANT: the PtyMouse check above returns before this take"
+            )]
             Some(Drag::PtyMouse { .. }) => unreachable!("PTY drag returned before take"),
         }
         if had_drag {

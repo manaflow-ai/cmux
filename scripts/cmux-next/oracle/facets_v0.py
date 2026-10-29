@@ -180,6 +180,10 @@ V0_VOLATILE: Dict[str, Dict[str, str]] = {
                   "p15-oracle-029)",
         "task": TASK},
 }
+# Step receipts (driver_cli.py p15-oracle-048, driver_mcp.py p15-oracle-209, driver_tui.py p15-oracle-234): the
+# runner's record of one `cmux` or MCP call or `cmux-tui attach` frame, read from the shipped binary at any SHA,
+# not from a facet method. v0 keeps their v1 schema.
+STEP_RECEIPTS = frozenset({"cli", "mcp", "tui"})
 PRODUCT_FACETS: Dict[str, Tuple[str, ...]] = {
     "app": ("topology", "daemon", "focus", "settings", "invariants", "switches"),
     # The daemon product's settings state is daemon.settings; the settings facet is the app's applied config.
@@ -275,6 +279,8 @@ def derive_schema(v1: Mapping[str, Any]) -> Dict[str, Any]:
     if unknown:
         raise V0Error(f"FIELDS names facets the v1 schema does not have: {unknown}")
     for name, node in facets.items():
+        if "oneOf" not in node and node.get("x-oracle-source", {}).get("method") in STEP_RECEIPTS:
+            continue
         branches = node.get("oneOf") or []
         if len(branches) != 2 or branches[1] != {"$ref": "#/definitions/notComparable"}:
             raise V0Error(f"{name}: a v1 facet is oneOf [its object, notComparable]")

@@ -397,3 +397,21 @@ fn claude_code_plugin_records_name_the_claude_harness() {
     let rows = roster::agent_rows(&snapshot);
     assert!(rows.iter().any(|row| row.harness == "claude" && row.source == "hook"));
 }
+
+#[test]
+fn reply_anchor_handles_a_message_longer_than_the_screen_and_a_last_line_match() {
+    // The message is longer than every non-blank character on screen.
+    let screen = strings(&["› hi", "ok"]);
+    let reply = reply::reply_after(&screen, "a message much longer than the whole screen text");
+    assert!(!reply.anchored);
+
+    // The echo is the last line: the reply after it is empty.
+    let screen = strings(&["older", "› what is the answer?"]);
+    let reply = reply::reply_after(&screen, "what is the answer?");
+    assert!(reply.anchored);
+    assert_eq!(reply.text, "");
+
+    // An echo wrapped over two lines anchors after its last line.
+    let screen = strings(&["› what is", "  the answer?", "forty-two"]);
+    assert_eq!(reply::anchor(&screen, "what is the answer?"), Some(2));
+}

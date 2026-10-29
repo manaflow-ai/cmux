@@ -151,7 +151,7 @@ PROCESS_KINDS = {
 # Q8 covers every thread of the browser process (the app: CrBrowserMain, ThreadPool*Worker, Chrome_IOThread), the
 # renderers (CrRendererMain, Compositor), the GPU process (CrGpuMain, VizCompositorThread), the network, storage and
 # audio services, and any other utility service. Out: the probe's own tracing service, extension renderers (the
-# built-in uBlock Origin is measured as its own kind, p14-energy-108) and processes the trace does not name.
+# built-in uBlock Origin is measured as its own kind) and processes the trace does not name.
 QUEUE_KINDS = frozenset({"browser", "renderer", "gpu", "network", "storage", "audio", "utility"})
 
 # Q8's seed list, checked against Chromium main: where each candidate posts from, the source that shows it, and the
@@ -422,7 +422,7 @@ def main():
         report["pump_per_s"] = {k: round((after.get(k, 0) - before.get(k, 0)) / seconds, 2)
                                 for k in after if isinstance(after.get(k), (int, float))}
         print("CEF-IDLE-PUMP " + json.dumps(report["pump_per_s"]), flush=True)
-        # Delayed passes before Chromium's task was due (CEFPumpStats.earlyPasses, p14-energy-018, -046).
+        # Delayed passes before Chromium's task was due (CEFPumpStats.earlyPasses).
         report["early_passes"] = after.get("early_passes", 0) - before.get("early_passes", 0)
         print("CEF-IDLE-EARLY-PASSES " + json.dumps({"count": report["early_passes"], "seconds": round(seconds, 2)}), flush=True)
         report["chromium"] = chromium_summary(os.path.join(opts.out, "chromium-trace.json"), seconds)

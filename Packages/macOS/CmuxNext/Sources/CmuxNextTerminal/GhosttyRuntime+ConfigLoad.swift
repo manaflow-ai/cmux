@@ -2,7 +2,7 @@ import GhosttyNextKit
 
 /// Config loads: each build runs on the loader (``GhosttyConfigLoading``, the app's files lane) and its result is
 /// applied on the main actor once, in one `ghostty_app_update_config`. No `ghostty_config_load_*` runs on the main
-/// actor (p02-threads-129).
+/// actor.
 extension GhosttyRuntime {
     /// Builds the first config on `loader` with the overrides set now (cmux.json's appearance, primed), keeps
     /// `loader` for every later build, starts libghostty's app with the config when it lands on the main actor, then

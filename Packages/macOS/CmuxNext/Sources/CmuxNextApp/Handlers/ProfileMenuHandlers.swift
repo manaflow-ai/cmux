@@ -1,6 +1,6 @@
 import AppKit
 import CmuxNextActions
-import CmuxNextCompat
+import CmuxNextCompatAppKit
 
 /// The sidebar profile menu (SIDEBAR-FOOTER-AND-SPACE-MENU amendment 2):
 /// `sidebar.profileMenu` opens it over the active window's profile control

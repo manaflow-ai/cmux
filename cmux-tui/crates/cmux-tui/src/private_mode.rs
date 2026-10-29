@@ -7,12 +7,13 @@ use crate::client_log;
 /// Runs the mode `args` names and returns its exit code; nil for
 /// every other invocation.
 pub(crate) fn run(args: &[String]) -> Option<i32> {
+    let rest = crate::panic_free::rest_after(args, 1);
     match args.first().map(String::as_str) {
         #[cfg(unix)]
         Some("__agent-browser-provider") => Some(crate::agent_browser_provider::run()),
         // The store schemas this build reads, or (`--stored`) the state
         // directory holds: the app's build stamp and rollback check.
-        Some("__store-schemas") => Some(match cmux_tui_core::store_schemas::run(&args[1..]) {
+        Some("__store-schemas") => Some(match cmux_tui_core::store_schemas::run(rest) {
             Ok(json) => {
                 println!("{json}");
                 0
@@ -25,19 +26,19 @@ pub(crate) fn run(args: &[String]) -> Option<i32> {
         // cmux NEXT's one-time adoption of its pre-isolation homes, run by the
         // app before it starts acpmux or the Chief owner (build_adopt.rs).
         #[cfg(unix)]
-        Some("__adopt-build-homes") => Some(crate::build_adopt::run(&args[1..])),
+        Some("__adopt-build-homes") => Some(crate::build_adopt::run(rest)),
         // The machine side of `cmux link machine update` (cx-rppd.13).
         #[cfg(unix)]
         Some(crate::link::machine_update::apply::MODE) => {
-            Some(crate::link::machine_update::apply::run(&args[1..]))
+            Some(crate::link::machine_update::apply::run(rest))
         }
         // What every daemon of this build advertises, with none running: the
         // app bundle records it for the web pages (daemon-capabilities.json).
-        Some(DAEMON_CAPABILITIES) => Some(capabilities(&args[1..])),
+        Some(DAEMON_CAPABILITIES) => Some(capabilities(rest)),
         // One api-compat translation in this build: the oracle's api-compat
         // suite (scripts/cmux-next/oracle/gen_api_compat.py).
         #[cfg(any(debug_assertions, feature = "oracle"))]
-        Some(ORACLE_API_COMPAT) => Some(oracle_api_compat(&args[1..])),
+        Some(ORACLE_API_COMPAT) => Some(oracle_api_compat(rest)),
         _ => None,
     }
 }

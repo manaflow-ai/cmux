@@ -9,7 +9,7 @@ import Testing
 /// a new row opens one. Before, the move waited on `ui.animations.newWorkspace`, a switch for new
 /// workspace rows, so with it off every reorder snapped and a leaving row vanished over a gap.
 /// With motion off (Reduce Motion, the master switch) every change lands in one frame.
-/// The rows move on the render server (p03-rendering-103): each model frame is at its slot in the
+/// The rows move on the render server: each model frame is at its slot in the
 /// change's turn and an additive spring carries what shows, so a slide is read from the layer's
 /// presentation (`inFlight`), not from the frame.
 @MainActor

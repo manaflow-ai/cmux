@@ -3,7 +3,7 @@ import Foundation
 import Testing
 @testable import CmuxNextHangReports
 
-/// p10-stability-029: a hang report is built from untrusted input: MetricKit's call stack tree
+/// A hang report is built from untrusted input: MetricKit's call stack tree
 /// JSON, its histogram and signpost values, and the pending file the previous launch saved,
 /// which a crash or a person can damage. Any input gives a bounded report (or no stack, or no
 /// saved aggregate); never a trap. Seeded property tests on CmuxFuzzSupport (long mode:
@@ -40,7 +40,7 @@ import Testing
         nil, Double.nan, Double.infinity, -Double.infinity, -1, 0, 0.4, 1_000, 1_000.000_1, Double.greatestFiniteMagnitude,
     ]
 
-    /// One input of the report pipeline, its choices read from `data` (the libFuzzer entry, p10-stability-182).
+    /// One input of the report pipeline, its choices read from `data` (the libFuzzer entry).
     static func oneInput(_ data: Data) throws {
         var rng = FuzzRNG(replaying: data)
         switch rng.below(5) {

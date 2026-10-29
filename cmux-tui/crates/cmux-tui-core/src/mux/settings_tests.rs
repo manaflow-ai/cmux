@@ -1,4 +1,4 @@
-//! The settings owner's watch (p04-input-084): a hint's reload runs on the
+//! The settings owner's watch: a hint's reload runs on the
 //! mux's Files lane, never on the utility `cmux-config-watch` thread, which
 //! must not hold the store lock a request waits for.
 

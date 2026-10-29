@@ -5,7 +5,7 @@ import CmuxNextActions
 import CmuxNextWakeups
 import Testing
 
-/// p08-startup-074: the launch window opens when the launch snapshot's read ends, not in
+/// The launch window opens when the launch snapshot's read ends, not in
 /// `applicationDidFinishLaunching`'s turn. A Dock click or a second `open -a cmux` in that gap
 /// (`applicationShouldHandleReopen` with no visible window) found no registered window to reopen, so it
 /// created a workspace in a new window, and the launch window opened beside it: two windows.

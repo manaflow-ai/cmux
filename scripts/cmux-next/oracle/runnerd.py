@@ -100,7 +100,7 @@ CGROUP_DRAIN_SECONDS = 10.0
 CGROUP_FS = Path("/sys/fs/cgroup")
 SCOPES = ("systemd", "none")
 # Jobs get this environment and nothing else from the submit that created them. CMUX_GHOSTTY_SRC is
-# left out on purpose: each SHA builds the ghostty-next of its own worktree (p15-oracle-024), and so is
+# left out on purpose: each SHA builds the ghostty-next of its own worktree, and so is
 # RUSTUP_TOOLCHAIN: each SHA builds with the toolchain its rust-toolchain.toml pins.
 ENV_PASS = ("PATH", "HOME", "USER", "LOGNAME", "LANG", "LC_ALL", "LC_CTYPE", "TZ", "TERM", "TMPDIR",
             "RUSTUP_HOME", "CARGO_HOME", "SSL_CERT_FILE", "SSL_CERT_DIR",

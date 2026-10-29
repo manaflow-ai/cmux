@@ -232,11 +232,15 @@ impl Mux {
             return;
         }
         let mux = Arc::downgrade(self);
-        if let Err(error) =
-            supervised::spawn("kitty-image-budget", Fatal, ShutdownBehavior::Continue, move || {
+        if let Err(error) = supervised::spawn_at(
+            "kitty-image-budget",
+            cmux_threads::ThreadQos::Utility,
+            Fatal,
+            ShutdownBehavior::Continue,
+            move || {
                 Self::run_kitty_image_budget_worker(mux);
-            })
-        {
+            },
+        ) {
             self.kitty_image_budget.lock().recover_poison().worker_running = false;
             self.kitty_image_budget_changed.notify_all();
             self.emit(MuxEvent::GraphicsStatus(

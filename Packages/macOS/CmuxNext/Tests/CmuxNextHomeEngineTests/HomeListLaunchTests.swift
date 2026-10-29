@@ -4,7 +4,7 @@ import CmuxNextWakeups
 import Foundation
 import Testing
 
-/// The Home list's launch read on the main thread (p08-startup-076): a slow disk never holds the main thread.
+/// The Home list's launch read on the main thread: a slow disk never holds the main thread.
 /// The steps that need the last list run in their turn when the read has ended, else on its landing, in order.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(1))) struct HomeListLaunchTests {
     static let owner = "cmux-chief-home-list-launch-test"

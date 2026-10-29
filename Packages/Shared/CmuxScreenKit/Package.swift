@@ -24,13 +24,13 @@ let package = Package(
         .library(name: "CmuxScreenKitUI", targets: ["CmuxScreenKitUI"]),
     ],
     dependencies: [
-        // OnceContinuation, the continuation that resumes exactly once (p10-stability-089).
+        // OnceContinuation, the continuation that resumes exactly once.
         .package(path: "../CmuxSafeConcurrency"),
         .package(path: "../CmuxVNC"),
         .package(path: "../CmuxVNCWebRTC"),
-        // blockingCall and Mutex of the app-linked packages (p02-threads-130, 146).
+        // blockingCall and Mutex of the app-linked packages.
         .package(path: "../CmuxThreading"),
-        // Test-only: the seeded fuzz suites (p10-stability-023).
+        // Test-only: the seeded fuzz suites.
         .package(path: "../CmuxFuzzSupport"),
     ],
     targets: [

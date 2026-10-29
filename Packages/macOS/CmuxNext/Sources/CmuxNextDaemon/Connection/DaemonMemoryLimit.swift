@@ -1,7 +1,7 @@
 public import CmuxNextCompat
 public import CmuxNextWakeups
 
-/// `memory.limit` (cmux-tui-core server/memory_limit.rs, p07-memory-109): the app's memory pressure level (its
+/// `memory.limit` (cmux-tui-core server/memory_limit.rs): the app's memory pressure level (its
 /// debug override folded in), its Memory Saver mode and the debug override itself. The daemon votes the level
 /// next to its own kernel source and its consumers hear the worse of the two, as Chrome's browser hands each
 /// child process its limit through `ChildMemoryConsumerRegistryHost` and the most restrictive one wins

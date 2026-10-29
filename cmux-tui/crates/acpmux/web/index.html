@@ -343,8 +343,20 @@
   // ?session=X&draft=1 starts a draft in X's project, as "New session" does.
   const wantDraft = new URLSearchParams(location.search).get('draft') === '1';
   if (theme === 'dark' || theme === 'light') document.documentElement.dataset.theme = theme;
-  const token = new URLSearchParams(location.search).get('token') || '';
-  const wsUrl = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/?token=' + encodeURIComponent(token);
+  // The token comes in the URL fragment (`acpmux web` prints it), which the
+  // browser never sends to a server or in a Referer. It moves to this tab's
+  // session storage (a reload keeps working) and out of the address bar.
+  const fragmentToken = new URLSearchParams(location.hash.slice(1)).get('token') || '';
+  if (fragmentToken) {
+    try { sessionStorage.setItem('acpmux.token', fragmentToken); } catch (e) {}
+    history.replaceState(null, '', location.pathname + location.search);
+  }
+  let token = fragmentToken;
+  if (!token) { try { token = sessionStorage.getItem('acpmux.token') || ''; } catch (e) {} }
+  const wsUrl = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/';
+  // A browser cannot set an Authorization header on a WebSocket: the token
+  // goes as a subprotocol, and the daemon answers with acpmux.v1 only.
+  const wsProtocols = ['acpmux.v1', 'acpmux.token.' + token];
   // ---------- transport
   let ws, nextId = 1, pending = new Map(), backoff = 500;
   const call = (method, params = {}) => new Promise((res, rej) => {
@@ -355,7 +367,13 @@
   });
   const notify = (method, params = {}) => ws && ws.readyState === 1 && ws.send(JSON.stringify({ jsonrpc: '2.0', method, params }));
   function connect() {
-    ws = new WebSocket(wsUrl);
+    if (!token) {
+      $('#conn').title = 'This dashboard needs its token. Run acpmux web in a terminal to get the full link.';
+      toast('This dashboard needs its token. Run "acpmux web" in a terminal to get the full link.');
+      clearTimeout(toastEl._t);
+      return;
+    }
+    try { ws = new WebSocket(wsUrl, wsProtocols); } catch (e) { toast('The dashboard token is not valid here: ' + e.message); clearTimeout(toastEl._t); return; }
     ws.onopen = async () => {
       backoff = 500;
       $('#conn').classList.remove('off'); $('#conn').title = 'connected';
@@ -783,7 +801,7 @@
     const act = (label, fn, bad) => { const b = document.createElement('button'); b.textContent = label; if (bad) b.className = 'bad'; b.onclick = () => { closeMenu(); fn(); }; menuEl.appendChild(b); };
     act('Rename…', async () => { const name = prompt('New name:', s.name.replace(/^[^/]+\//, '')); if (!name) return; try { await call('_acpmux/rename', { sessionId: s.sessionId, newName: name }); } catch (e) { toast('error: ' + e.message); } });
     act('Fork with history', async () => { const p = { sessionId: s.sessionId, mcpServers: [], _meta: { acpmux: {} } }; try { const r = await call('session/fork', p); const ns = r._meta && r._meta.acpmux; if (ns) upsertSession(ns); select(r.sessionId); } catch (e) { toast('error: ' + e.message); } });
-    act('Open in a new tab', () => window.open(location.pathname + location.search.replace(/&session=[^&]*/, '') + '&session=' + encodeURIComponent(s.sessionId), '_blank'));
+    act('Open in a new tab', () => { const q = new URLSearchParams(location.search); q.set('session', s.sessionId); window.open(location.pathname + '?' + q + '#token=' + encodeURIComponent(token), '_blank'); });
     if (s.status !== 'closed' && s.status !== 'idle') act('Stop agent (keeps history)', async () => { try { await call('_acpmux/kill', { sessionId: s.sessionId, purge: false }); } catch (e) { toast('error: ' + e.message); } });
     menuEl.appendChild(document.createElement('hr'));
     act('Delete session…', async () => { if (!confirm('Delete "' + titleOf(s) + '" and its history?')) return; try { await call('_acpmux/kill', { sessionId: s.sessionId, purge: true }); state.sessions = state.sessions.filter((x) => x.sessionId !== s.sessionId); if (selected === s.sessionId) { selected = null; renderBar(); renderLog(true); } renderList(); } catch (e) { toast('error: ' + e.message); } }, true);

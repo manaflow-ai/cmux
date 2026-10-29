@@ -1,5 +1,5 @@
-// Input on Chromium's UI thread the way Chrome runs it (task p04-input-065,
-// plans/cmux-next/chrome-parity/p04-input.md (H)): on the user-input queue,
+// Input on Chromium's UI thread the way Chrome runs it
+// (plans/cmux-next/chrome-parity/p04-input.md (H)): on the user-input queue,
 // with the OS event's time. Needs no CEF: tests/host_user_input_test.cpp
 // (scripts/cmux-next/tests/chromium-host-wire.test.sh) compiles it alone.
 //

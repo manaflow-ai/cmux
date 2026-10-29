@@ -1,4 +1,4 @@
-// A hidden Files tab's page may be discarded (`memoryDiscardInternalPages`, p07-memory-026): the host
+// A hidden Files tab's page may be discarded (`memoryDiscardInternalPages`): the host
 // asks `cmux.files.viewState` first and gives the answer back once in the next page's `root` reply,
 // so the tree opens the same folders, keeps its selected row and scrolls back.
 import { expect, test } from "bun:test";

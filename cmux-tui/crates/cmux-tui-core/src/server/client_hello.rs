@@ -23,7 +23,7 @@
 //! and a refused proof is `client_hello.refused` (no retry). Either prover sets the
 //! connection's `verified_app`; neither changes its `peer_key`.
 //!
-//! Features (p12-perf-process-150): the daemon outlives the app, so a role
+//! Features: the daemon outlives the app, so a role
 //! `main` hello may carry the app's daemon features, `features: {hash,
 //! values: {name: bool}}` (its `daemon` and `both` features). The reply's
 //! `features: {hash, applied, pending}` says what the daemon did
@@ -33,7 +33,7 @@
 //! step 1 reports with no kill; its step 2, once proved, reports again with
 //! the kills. Nothing here reads a file or the network.
 //!
-//! Bridges (p01-process-237, spec/transports.md "Framed IPC grants"): a byte
+//! Bridges (spec/transports.md "Framed IPC grants"): a byte
 //! bridge that splices a far client onto this socket may send `{cmd:
 //! "bridge-hello", features: [name]}` as the connection's very first line.
 //! With `bridge-frames-v1` it says that it reads each `0xFF` message by its

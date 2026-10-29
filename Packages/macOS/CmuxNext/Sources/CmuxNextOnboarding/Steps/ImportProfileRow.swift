@@ -1,6 +1,6 @@
 public import AppKit
 public import CmuxNextBrowserImport
-public import CmuxNextCompat
+public import CmuxNextCompatAppKit
 import CmuxNextDesign
 import CmuxNextIcons
 

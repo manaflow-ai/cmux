@@ -418,7 +418,7 @@ func minimumAlpha(_ url: URL) throws -> UInt8 {
         #expect(!fm.fileExists(atPath: stale.path))
     }
 
-    /// p14-energy-067b: the prune deadline fires while a prepare runs, so
+    /// The prune deadline fires while a prepare runs, so
     /// the pass skips; that prepare then fails and arms nothing. The
     /// deadline arms itself again, and the later pass deletes the stale
     /// blob. `preparing` stands for the in-flight prepare, so the deadline
@@ -450,7 +450,7 @@ func minimumAlpha(_ url: URL) throws -> UInt8 {
         #expect(!fm.fileExists(atPath: stale.path))
     }
 
-    /// p14-energy-067b: a prepare that starts right after `start` (a share
+    /// A prepare that starts right after `start` (a share
     /// handed over at launch) makes the start pass skip; that prepare then
     /// fails and arms nothing. The skipped pass arms one prune, and it
     /// deletes the stale blob `blobCachePruneInterval` later.
@@ -477,7 +477,7 @@ func minimumAlpha(_ url: URL) throws -> UInt8 {
         #expect(!fm.fileExists(atPath: stale.path))
     }
 
-    /// p14-energy-067b: a store that prepares nothing never wakes to prune
+    /// A store that prepares nothing never wakes to prune
     /// (it pruned at `start`; only a prepare grows the cache). The periodic
     /// prune loop kept a 6 h sleeper armed for the store's whole life.
     @MainActor @Test func anIdleStoreArmsNoPrune() async throws {

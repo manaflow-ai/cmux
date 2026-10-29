@@ -5,7 +5,7 @@ import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 
-/// A press's drag on its window's frame-aligned input (``PointerFrameDrag``, p04-input-089): the frame interval's
+/// A press's drag on its window's frame-aligned input (``PointerFrameDrag``): the frame interval's
 /// first drag event moves at once and the rest once at the frame, at the latest point, as Chromium delivers
 /// rAF-aligned moves (main_thread_event_queue.cc); the release lands the pending point first; a window without
 /// drag frames moves on every event.

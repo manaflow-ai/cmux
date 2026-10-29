@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Compiles the Chromium Host's blocked widget handler
-# (ChromiumHost/src/host_blocked_widgets.h, task p01-process-068; no CEF, no
+# (ChromiumHost/src/host_blocked_widgets.h; no CEF, no
 # AppKit) with -Werror and runs its test (ChromiumHost/tests/
 # host_blocked_widgets_test.cpp): one dismissal and one BLOCKED_WIDGET line per
 # shown widget, a widget that hid first logged as gone, a refused close kept,

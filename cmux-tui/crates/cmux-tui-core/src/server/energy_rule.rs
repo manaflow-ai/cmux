@@ -1,4 +1,4 @@
-//! The rule the daemon's own Energy Saver reading follows (p14-energy-137):
+//! The rule the daemon's own Energy Saver reading follows:
 //! the app's `EnergyPolicyResolver.reason(setting:inputs:)` (CmuxNextEnergy),
 //! so after the app quits, or before it connects, the daemon decides as the
 //! app would.

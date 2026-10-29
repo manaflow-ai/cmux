@@ -3,7 +3,7 @@
 import CmuxNextMemory
 import Testing
 
-/// p07-memory-111: the Chromium engine's shared-renderer memory caps come from the app's memory budget, so
+/// The Chromium engine's shared-renderer memory caps come from the app's memory budget, so
 /// Chromium starts with `cmux-shared-renderer-memory-limit` at Chrome's 2 GiB and the subframe limit at 512 MiB
 /// on every Mac.
 struct ChromiumSharedRendererMemoryCapsTests {

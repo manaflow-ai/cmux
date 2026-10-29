@@ -37,6 +37,13 @@ where
     start(Builder::new().stack_size(stack_size), name.into(), qos, f)
 }
 
+/// The class of a helper thread its caller waits for (a pipe drain the
+/// caller joins): the caller's class, so the wait is never a priority
+/// inversion, or `fallback` when the caller is not a registered thread.
+pub fn caller_qos(fallback: ThreadQos) -> ThreadQos {
+    registry::current_slot().map_or(fallback, |slot| slot.desired())
+}
+
 /// [`spawn`] for a thread that follows `desired`: it starts at `qos` and
 /// runs at the class last requested through `desired` from its first
 /// [`registry::apply_pending_qos`] on (a terminal's threads follow the
@@ -73,14 +80,58 @@ where
     F: FnOnce() -> T + Send + 'static,
     T: Send + 'static,
 {
-    builder.name(name.clone()).spawn(move || {
+    // The one std spawn every cmux thread goes through.
+    #[allow(clippy::disallowed_methods)]
+    let started = builder.name(name.clone()).spawn(move || {
         match desired {
             Some(desired) => registry::register_current_following(name, qos, desired),
             None => registry::register_current(name, qos),
         };
         let _deregister = Deregister;
         f()
-    })
+    });
+    started
+}
+
+/// Runs `f` with a [`Scope`] whose threads may borrow from the caller and
+/// are all joined before `scope` returns (`std::thread::scope`), each one
+/// named, registered and at a declared QoS like [`spawn`]'s.
+pub fn scope<'env, F, T>(f: F) -> T
+where
+    F: for<'scope> FnOnce(&Scope<'scope, 'env>) -> T,
+{
+    // The one std scope every cmux scoped thread goes through.
+    #[allow(clippy::disallowed_methods)]
+    let result = std::thread::scope(|inner| f(&Scope { inner }));
+    result
+}
+
+/// The threads of one [`scope`] call.
+pub struct Scope<'scope, 'env: 'scope> {
+    inner: &'scope std::thread::Scope<'scope, 'env>,
+}
+
+impl<'scope> Scope<'scope, '_> {
+    /// Starts scoped thread `name` at `qos`, registered like [`spawn`]'s.
+    pub fn spawn<F, T>(
+        &self,
+        name: impl Into<String>,
+        qos: ThreadQos,
+        f: F,
+    ) -> io::Result<std::thread::ScopedJoinHandle<'scope, T>>
+    where
+        F: FnOnce() -> T + Send + 'scope,
+        T: Send + 'scope,
+    {
+        let name = name.into();
+        #[allow(clippy::disallowed_methods)]
+        let started = Builder::new().name(name.clone()).spawn_scoped(self.inner, move || {
+            registry::register_current(name, qos);
+            let _deregister = Deregister;
+            f()
+        });
+        started
+    }
 }
 
 struct Deregister;
@@ -139,6 +190,46 @@ mod tests {
         .join()
         .unwrap()
             == QosChange::Applied
+    }
+
+    #[test]
+    fn caller_qos_is_the_registered_callers_class_else_the_fallback() {
+        use crate::caller_qos;
+        assert_eq!(caller_qos(ThreadQos::Utility), ThreadQos::Utility);
+        let (inherited, helper) =
+            spawn("cmux-threads-test-caller", ThreadQos::UserInitiated, || {
+                let inherited = caller_qos(ThreadQos::Background);
+                let helper = spawn("cmux-threads-test-helper", inherited, || {
+                    current_slot().expect("registered").desired()
+                })
+                .unwrap()
+                .join()
+                .unwrap();
+                (inherited, helper)
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+        assert_eq!(inherited, ThreadQos::UserInitiated);
+        assert_eq!(helper, ThreadQos::UserInitiated);
+    }
+
+    #[test]
+    fn scoped_threads_borrow_and_are_registered_while_running() {
+        const NAME: &str = "cmux-threads-test-scoped";
+        let borrowed = [1, 2, 3];
+        let (sum, declared) = crate::scope(|scope| {
+            scope
+                .spawn(NAME, ThreadQos::Utility, || {
+                    (borrowed.iter().sum::<i32>(), own_row().declared)
+                })
+                .unwrap()
+                .join()
+                .unwrap()
+        });
+        assert_eq!(sum, 6);
+        assert_eq!(declared, ThreadQos::Utility);
+        assert_eq!(row(NAME), None);
     }
 
     #[test]

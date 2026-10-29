@@ -116,7 +116,7 @@ ROOT_KEYWORDS = {"x-oracle-id-patterns", "x-oracle-precision-default", "x-oracle
 # Rules an x-oracle-open-keys entry may apply to the members of open objects whose key it matches.
 OPEN_KEY_RULES = ("x-oracle-time", "x-oracle-volatile")
 DECIMAL_PATTERN = "^(0|[1-9][0-9]*)$"
-# Case-schema keywords (schemas/oracle/case-v1.schema.json, p15-oracle-012); case_checks.py runs them.
+# Case-schema keywords (schemas/oracle/case-v1.schema.json); case_checks.py runs them.
 CASE_KEYWORDS = {"x-oracle-unique", "x-oracle-step-ref", "x-oracle-crash-scope", "x-oracle-error"}
 ANNOTATION_KEYWORDS = {
     "$schema", "$id", "$comment", "title", "description", "default", "examples", "format",
@@ -315,7 +315,7 @@ class Schema:
                 else:
                     self._lint_root_keyword(key, value, pointer(here), problems)
             elif key in CASE_KEYWORDS:
-                pass  # checked by scripts/cmux-next/oracle/case_checks.py (p15-oracle-012)
+                pass  # checked by scripts/cmux-next/oracle/case_checks.py
             elif key in ANNOTATION_KEYWORDS:
                 if key == "$id" and at:
                     problems.append(f"{pointer(here)}: only the root may have $id (refs are local)")
@@ -2464,7 +2464,7 @@ def selftest(seed: int, out: Any) -> int:
 
     @case
     def wire_keywords_of_the_snapshot_schema() -> None:
-        # snapshot-v1 (p15-oracle-011): decimal strings, a list of id kinds, open-key rules, unpatterned kinds.
+        # snapshot-v1: decimal strings, a list of id kinds, open-key rules, unpatterned kinds.
         decimal = {"pattern": DECIMAL_PATTERN, "x-oracle-decimal": True}
         root = {"$schema": DRAFT_07_URI, "x-oracle-id-patterns": {"term": "^term_[0-9a-f]{4}$",
                                                                   "browser": "^browser_[0-9a-f]{4}$"},
@@ -2745,7 +2745,7 @@ def selftest(seed: int, out: Any) -> int:
     @case
     def caller_drop_comes_before_set_order() -> None:
         # Two panes whose set order the engine decides ("engine" sorts before "url"): an engine arm drops it
-        # first, so both arms order and label the panes alike (oracle.py --engine, p15-oracle-113).
+        # first, so both arms order and label the panes alike (oracle.py --engine).
         real = Schema.load(DEFAULT_SCHEMA)
         example = parse_json(EXAMPLE_SNAPSHOT.read_text(encoding="utf-8"))
         tab = example["facets"]["tabs"]["panes"][0]["tabs"][0]

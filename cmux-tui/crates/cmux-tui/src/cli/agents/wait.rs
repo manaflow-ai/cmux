@@ -19,6 +19,7 @@ use super::super::command::{RequestPlan, ResponseView, WireOperation};
 use super::super::mcp::{Backend, CallFailure, FailureKind};
 use super::super::{UsageError, app};
 use super::{AgentFailure, fresh_state, snapshot_plan};
+use crate::cli::json_fields::JsonFields;
 
 pub(in crate::cli) const DEFAULT_TIMEOUT_SECONDS: u64 = 30;
 /// Below the tool-call timeout of MCP clients.
@@ -80,10 +81,10 @@ pub(super) fn parse(args: &[&str]) -> Result<WaitRequest, UsageError> {
     let usage = |message: String| UsageError::new(format!("agents wait: {message}"));
     let (mut until, mut target, mut text, mut regex, mut timeout) = (None, None, None, false, None);
     let mut index = 0;
-    while index < args.len() {
-        let (flag, inline) = match args[index].split_once('=') {
+    while let Some(&arg) = args.get(index) {
+        let (flag, inline) = match arg.split_once('=') {
             Some((flag, value)) if flag.starts_with("--") => (flag, Some(value)),
-            _ => (args[index], None),
+            _ => (arg, None),
         };
         if flag == "--regex" {
             if inline.is_some() || regex {
@@ -302,13 +303,13 @@ fn wait_text<B: Backend>(
             return Err(AgentFailure::Owner(failure));
         }
     };
-    Ok((result["matched"] == true).then(|| {
+    Ok((result.field("matched") == true).then(|| {
         json!({
             "target": target,
             "terminal": terminal,
             "text": text,
             "regex": request.regex,
-            "screen": result["text"],
+            "screen": result.field("text"),
         })
     }))
 }
@@ -395,12 +396,14 @@ fn activity(target: &str, daemon: Option<&Value>, app_tabs: &[&Value]) -> Activi
         .filter_map(|agent| agent["state"].as_str())
         .collect::<Vec<_>>();
     if let Some(terminal) = terminal {
-        let records = terminal["extra"]["program_status"].as_array();
+        let records = terminal.field("extra").field("program_status").as_array();
         states.extend(records.into_iter().flatten().filter_map(|record| record["state"].as_str()));
     }
     states.extend(app_tab.and_then(|tab| tab["agent_state"].as_str()));
     let shell_runs = states.is_empty()
-        && terminal.is_some_and(|terminal| terminal["extra"]["activity"]["state"] == "running");
+        && terminal.is_some_and(|terminal| {
+            terminal.field("extra").field("activity").field("state") == "running"
+        });
     if shell_runs || states.contains(&"working") {
         return Activity::Working;
     }

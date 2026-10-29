@@ -7,7 +7,7 @@ import Foundation
 import Observation
 import Testing
 
-/// p06-scheduler-331, the sweep of CmuxNextAgentPane's second half, FreeTier and Approvals: one case per migrated
+/// The sweep of CmuxNextAgentPane's second half, FreeTier and Approvals: one case per migrated
 /// owner class (plans/cmux-next/chrome-parity/p06-scheduler.md, rule 9).
 @MainActor @Suite(.serialized, .timeLimit(.minutes(1))) struct AgentPaneSchedulerSweepTests {
     final class Count { var value = 0 }

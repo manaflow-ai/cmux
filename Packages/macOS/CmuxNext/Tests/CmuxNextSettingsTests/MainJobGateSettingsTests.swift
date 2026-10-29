@@ -1,7 +1,7 @@
 @testable import CmuxNextSettings
 import Testing
 
-/// `debug.mainJobGate` (``MainJobGateSettings``, p04-input-076): on by default, a non-boolean falls
+/// `debug.mainJobGate` (``MainJobGateSettings``): on by default, a non-boolean falls
 /// back, and the row is in the schema, off the page while the `mainJobGate` feature is off, and not
 /// settable by agents (a debug switch).
 struct MainJobGateSettingsTests {

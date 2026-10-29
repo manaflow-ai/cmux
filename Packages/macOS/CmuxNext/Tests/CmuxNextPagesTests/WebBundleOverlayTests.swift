@@ -42,7 +42,7 @@ struct WebBundleOverlayTests {
         #expect(await overlay.root(for: Self.bundledPane) == Self.bundledPane)
     }
 
-    /// One React for every tree (p13-webui-072): Agent Activity imports React from the pages' `_shared`
+    /// One React for every tree: Agent Activity imports React from the pages' `_shared`
     /// (`cmux-page://cmux.shared/`), so once the app registers it both come from the active update.
     @Test func agentActivityAndTheSharedChunksComeFromTheSameUpdate() async {
         let overlay = Self.overlay()
@@ -56,7 +56,7 @@ struct WebBundleOverlayTests {
         #expect(await overlay.root(for: activity).path == Self.tree.path + "/" + WebBundleOverlay.agentActivityOutput)
     }
 
-    /// A frozen page kept across a swap (p13-webui-071): its document pinned the tree it loaded from, so
+    /// A frozen page kept across a swap: its document pinned the tree it loaded from, so
     /// its lazy chunk and its `cmux.shared` files still come from there, never from the new tree, and
     /// the updater keeps that tree until the document goes.
     @Test func anOldFrozenDocumentLoadsItsLazyChunkFromItsOwnTree() async {

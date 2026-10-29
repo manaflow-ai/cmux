@@ -1426,7 +1426,7 @@ def report(repo, exported, names, all_modules=False):
     return 0
 
 
-# ---------------------------------------------------------------- trap classes (--classify, p10-stability-205, Q21)
+# ---------------------------------------------------------------- trap classes (--classify, Q21)
 TRAP_CLASSES = os.path.join(HERE, "trap-classes.json")
 TRAP_CLASS_NAMES = ("input", "invariant")
 TRAP_LANGS = ("swift", "rust")
@@ -1761,8 +1761,8 @@ def classify(repo, exported, names, all_modules=False):
     return 1 if document["errors"] else 0
 
 
-# ---------------------------------------------------------------- notFatalUntil builds only go up (p10-stability-205)
-# Invariant.notFatalUntil(cond, id, build: N) reports until build N, then traps (p10-stability-099), like Chrome's
+# ---------------------------------------------------------------- notFatalUntil builds only go up
+# Invariant.notFatalUntil(cond, id, build: N) reports until build N, then traps, like Chrome's
 # base::NotFatalUntil::M<n>. Lowering N, or turning the site into check / dumpWillBeCheck, changes when users crash, so
 # it needs a written reason. Local only: guardrails.py's `not-fatal-until-lowered` runs this on a push's changed files.
 INVARIANT_CALL = re.compile(r"\bInvariant\s*\.\s*(?P<api>check|notFatalUntil|dumpWillBeCheck)\s*\(")

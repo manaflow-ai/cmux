@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Rust sanitizer and Miri lane for cmux-tui (p10-stability-014).
+# Rust sanitizer and Miri lane for cmux-tui.
 #
 # Runs the tests of the listed crates under ASan, TSan or LSan (nextest with
 # -Zbuild-std, so std is instrumented too) and the pure crates under Miri, with

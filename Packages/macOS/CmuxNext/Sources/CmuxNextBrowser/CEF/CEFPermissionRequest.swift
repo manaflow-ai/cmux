@@ -3,7 +3,7 @@ import Foundation
 /// What a PERMISSION_PROMPT asks (`CEFShim/src/permission_prompt_policy.h`):
 /// the event's `a` holds the `cef_permission_request_types_t` bits of
 /// `OnShowPermissionPrompt`. Screen sharing is not one: it keeps Chromium's
-/// desktop media picker path (task p01-process-228).
+/// desktop media picker path.
 nonisolated struct CEFPermissionRequest: Equatable, Sendable {
     let bits: Int64
 

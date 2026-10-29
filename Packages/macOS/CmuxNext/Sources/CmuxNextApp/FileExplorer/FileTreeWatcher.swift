@@ -15,7 +15,7 @@ nonisolated struct FileTreeWatcher: FileTreeWatching {
     /// Called once the FSEvents stream runs (tests wait for it before changing a file).
     var started: (@Sendable () -> Void)?
     /// The line that made the watcher: each of its watches is in the arm census under it (Debug and bench builds,
-    /// startup-queue.py arms, p08-startup-085).
+    /// startup-queue.py arms).
     private let file: StaticString
     private let line: UInt
 

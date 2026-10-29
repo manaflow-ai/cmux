@@ -4,7 +4,7 @@ import Foundation
 import GhosttyNextKit
 
 /// Takes one session's IO events off the main actor, in stream order (ghostty-integration-DESIGN.md
-/// G4, p03-rendering-085). Output, echo marks, grid locks and snapshot restores go straight to the
+/// G4). Output, echo marks, grid locks and snapshot restores go straight to the
 /// surface's output lane; the grid, status, chip, exit and content bookkeeping the main actor shows
 /// goes to the session's ``TerminalEventMailbox``, applied once per frame. The loop waits for the main
 /// actor only for a replay into a surface that has content: Ghostty has no reset API, so the session
@@ -29,7 +29,7 @@ nonisolated struct TerminalEventRouter: Sendable {
     /// Swaps in a fresh surface for a replay on the main actor and queues the replay on its lane;
     /// returns that lane (nil: the session is gone).
     let replace: @Sendable (TerminalIOEvent) async -> TerminalOutputLane??
-    /// Names the lane the IO's reader may feed live output to (p04-input-083): the live surface's once
+    /// Names the lane the IO's reader may feed live output to: the live surface's once
     /// it has content, after each event (nil: the IO keeps every chunk on its events).
     let outputLane: TerminalOutputLaneNamer?
 

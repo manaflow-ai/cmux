@@ -2,6 +2,7 @@
 //! latest-authority enqueue paths, pointer releases, and the sender.
 
 use super::*;
+use crate::panic_free::RecoverPoison;
 
 impl BrowserSurface {
     pub(super) fn maybe_nudge_stalled_external(&self, session: &BrowserSession) {
@@ -11,7 +12,7 @@ impl BrowserSurface {
             return;
         }
         let should_nudge = {
-            let mut state = self.state.lock().unwrap();
+            let mut state = self.state.lock().recover_poison();
             if frames_stalled_locked(&state, Instant::now(), self.is_dead()) && !state.stall_nudged
             {
                 state.stall_nudged = true;
@@ -35,7 +36,7 @@ impl BrowserSurface {
             anyhow::bail!("browser surface is closed");
         }
         let tx = self.command_sender()?;
-        let mut order = self.command_order.lock().unwrap();
+        let mut order = self.command_order.lock().recover_poison();
         let command = order.sequence(command);
         match tx.try_send(command) {
             Ok(()) | Err(TrySendError::Full(_)) => Ok(()),
@@ -55,7 +56,7 @@ impl BrowserSurface {
             anyhow::bail!("browser surface is closed");
         }
         let tx = self.command_sender()?;
-        let mut order = self.command_order.lock().unwrap();
+        let mut order = self.command_order.lock().recover_poison();
         let command = order.sequence(command);
         match tx.try_send(command) {
             Ok(()) => Ok(()),
@@ -92,7 +93,7 @@ impl BrowserSurface {
             anyhow::bail!("browser surface is closed");
         }
         let tx = self.command_sender()?;
-        let mut order = self.command_order.lock().unwrap();
+        let mut order = self.command_order.lock().recover_poison();
         let command = order.sequence(command);
         match tx.try_send(command) {
             Ok(()) => Ok(()),
@@ -128,7 +129,7 @@ impl BrowserSurface {
                 return Err(error);
             }
         };
-        let mut order = self.command_order.lock().unwrap();
+        let mut order = self.command_order.lock().recover_poison();
         let command = order.sequence(command);
         match tx.try_send(command) {
             Ok(()) => Ok(()),
@@ -152,14 +153,14 @@ impl BrowserSurface {
             anyhow::bail!("browser surface is closed");
         }
         let tx = self.command_sender()?;
-        let mut order = self.command_order.lock().unwrap();
+        let mut order = self.command_order.lock().recover_poison();
         let command = order.sequence(command);
-        let displaced = self.latest_authority.lock().unwrap().replace(command);
+        let displaced = self.latest_authority.lock().recover_poison().replace(command);
         let wake = order.sequence(BrowserCommand::WakeLatest);
         let (result, rejected) = match tx.try_send(wake) {
             Ok(()) | Err(TrySendError::Full(_)) => (Ok(()), None),
             Err(TrySendError::Disconnected(_)) => {
-                let rejected = self.latest_authority.lock().unwrap().take();
+                let rejected = self.latest_authority.lock().recover_poison().take();
                 (Err(anyhow::anyhow!("browser command worker is closed")), rejected)
             }
         };
@@ -184,7 +185,7 @@ impl BrowserSurface {
             return;
         };
         self.cancel_screencast_capture(reservation_id);
-        if let Some(session) = self.session.lock().unwrap().clone() {
+        if let Some(session) = self.session.lock().recover_poison().clone() {
             let _ = session.runtime.client.cancel_timestampless_screencast_capture(
                 &session_id,
                 reservation_id,
@@ -196,7 +197,7 @@ impl BrowserSurface {
 
     pub(crate) fn wake_pointer_cleanup(&self) {
         let Ok(tx) = self.command_sender() else { return };
-        let mut order = self.command_order.lock().unwrap();
+        let mut order = self.command_order.lock().recover_poison();
         let wake = order.sequence(BrowserCommand::WakeLatest);
         let _ = tx.try_send(wake);
     }
@@ -204,7 +205,7 @@ impl BrowserSurface {
     pub(super) fn command_sender(&self) -> anyhow::Result<SyncSender<SequencedBrowserCommand>> {
         self.command_tx
             .lock()
-            .unwrap()
+            .recover_poison()
             .clone()
             .ok_or_else(|| anyhow::anyhow!("browser command worker is closed"))
     }
@@ -218,11 +219,11 @@ impl BrowserSurface {
     }
 
     pub(super) fn close_command_sender(&self) {
-        let _ = self.command_tx.lock().unwrap().take();
+        let _ = self.command_tx.lock().recover_poison().take();
     }
 
     pub(super) fn claim_not_responding_report(&self) -> bool {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         if state.not_responding_reported {
             false
         } else {

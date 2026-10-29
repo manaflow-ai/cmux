@@ -13,7 +13,7 @@ import Testing
 /// stall timeout while the display sleeps); the review-1 fix handles each frame as it is read. The
 /// provider dials a stand-in host here: a call's reply leaves with no display frame.
 ///
-/// p06-scheduler-036: each frame is one task of the automation class on the injected scheduler, so a
+/// Each frame is one task of the automation class on the injected scheduler, so a
 /// command read while the person's input is pending runs after that input; it runs on the next run
 /// loop turn even while frames run. The tab list is read only in automation tasks, never in the
 /// person's turn. Turns and frames fire by hand (the stall clock never moves): the tests await the
@@ -331,6 +331,14 @@ actor StandInHost {
         }
     }
 
+    /// Ends the accepted connection only (the host keeps listening).
+    func dropLink() {
+        guard fd >= 0 else { return }
+        _ = Darwin.shutdown(fd, SHUT_RDWR)
+        Darwin.close(fd)
+        fd = -1
+    }
+
     func close() {
         if fd >= 0 { Darwin.close(fd) }
         Darwin.close(listener)
@@ -406,6 +414,16 @@ final class StandInSources: ProviderCredentialsSource, ProviderTabSource, Provid
         fromBrowser = nil
         closedByBrowser = nil
     }
+
+    /// How the Chromium Host relays a prepared tab by itself (`cdp.prepare`); nil: the app relays it.
+    var direct: CEFAgentDirectTarget?
+
+    func directTarget(targetID: String) -> CEFAgentDirectTarget? { direct }
+
+    /// Each ``keepRendering(targetID:)`` call, as it happens.
+    var onKeepRendering: ((String) -> Void)?
+
+    func keepRendering(targetID: String) { onKeepRendering?(targetID) }
 
     /// Waits until the provider started a relay.
     func started() async {

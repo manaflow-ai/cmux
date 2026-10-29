@@ -29,7 +29,7 @@ sys.path.insert(0, str(HERE))
 
 import driver_app  # noqa: E402
 import oracle  # noqa: E402
-import switches  # noqa: E402 - the ArmNotApplied a driver raises (p15-oracle-049)
+import switches  # noqa: E402 - the ArmNotApplied a driver raises
 
 HAS_EXPECTATIONS = (HERE / "expectations.py").is_file()
 EXAMPLE_SNAPSHOT_TEXT = (oracle.REPO / "schemas" / "oracle" / "fixtures" / "snapshot-example.json").read_text(
@@ -858,7 +858,7 @@ class SwitchDiffTests(unittest.TestCase):
                 for i in range(6)}
         write_corpus(self.tmp / "corpus", suites=("layout", "other"), per_suite=4, extra=tabs)
         self.registry = write_registry(self.tmp / "switches")
-        # run_one checks each switch's key in the product catalog before anything starts (p15-oracle-049);
+        # run_one checks each switch's key in the product catalog before anything starts;
         # the registry's app key is in this test's catalog, not in the checkout's.
         catalog = self.tmp / "RefactorSwitches.swift"
         catalog.write_text(f'public enum RefactorSwitchKey: String {{\n    case layerHosting = "{APP_KEY}"\n}}\n')

@@ -4,8 +4,9 @@
 Launches one tagged Debug cmux-next app with `browserHost.helper` and `browserResize.layerHostingEveryPage` (the
 bench-only feature `cefLayerHostingEveryPage`'s local override: every page window hosts from fork API 26, without the
 Track A calls the shipping feature `cefLayerHosting` needs) on, and measures the same probe page twice. Chromium tabs
-stay in cmux (`browserHost.tabs` off) except with `--modes profiles`, `--modes tcc` and `--kill-host`, which need them
-in the host: profiles and tcc run in a launch without the in-process rows (inproc, --baseline, --stress), and
+stay in cmux (`browserHost.tabs` off) except with `--modes profiles`, `--modes tcc`, `--modes agentcdp` and
+`--kill-host`, which need them in the host: profiles, tcc and agentcdp run in a launch without the in-process rows
+(inproc, --baseline, --stress), and
 --kill-host runs instead of the modes; an in-process row of a launch whose tabs run in the host says not_run (its
 numbers would be the host's):
 
@@ -118,6 +119,13 @@ Per mode:
            `debug.cef`'s `page_drag` counts one more DragTarget drop and at least one DRAG_OPERATION answer (the
            page view, not the DevTools relay, took it). In process, or with a fork API below 31 (p01-process-178,
            where the relay takes the drops), the row says not_measurable with the reason instead of passing.
+  agentcdp `--modes agentcdp` (task p01-process-233), feature chromiumHostAgentRelay on: an agent session of the app's
+           browser host sends --agent-rate CDP messages a second to a hidden Chromium tab in the Chromium Host for
+           --agent-seconds while the bench types into the terminal in front of it; the app's main-thread tasks per
+           `browser-host.cdp*` owner (pass: 0 per message) and terminal key-to-frame (pass: p99 <= 16.7 ms)
+           (chromium_host_agent_cdp.py; run the bench under trace.py's wrap mode for the turns' timeline). With
+           --kill-app, last (it kills cmux): SIGKILL to cmux with the agent's tab open, cmux launched again, and the
+           agent drives the same page (performance.timeOrigin unchanged; needs browserHost.survivesAppCrash, task 150).
   display  `--modes display` (task 221): a Chromium tab of the app's backend in the Chromium Host follows the cmux
            window's display: rAF/s against the display's refresh rate and devicePixelRatio against its scale, then,
            with a second display (cmux20-bench has an external one), frames until both are the new display's after
@@ -228,6 +236,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from bench_launch import BenchApp, LaunchError, RecordError, build_config, build_sha, tag_of  # noqa: E402
 import browser_engine_bench_report as results  # noqa: E402
+import chromium_host_agent_cdp  # noqa: E402
 import chromium_host_baseline  # noqa: E402
 import chromium_host_crash_records  # noqa: E402
 import chromium_host_display  # noqa: E402
@@ -271,6 +280,12 @@ def parse(argv=None):
     parser.add_argument("--list-failing", action="store_true",
                         help="with --native-ui: print one FAILING line per failing row at the end")
     parser.add_argument("--find", action="store_true", help="only the find rows (chromium_host_find.py)")
+    parser.add_argument("--agent-rate", type=int, default=chromium_host_agent_cdp.RATE,
+                        help="agentcdp: CDP messages a second (commands and replies)")
+    parser.add_argument("--agent-seconds", type=float, default=chromium_host_agent_cdp.SECONDS,
+                        help="agentcdp: how long the burst runs")
+    parser.add_argument("--kill-app", action="store_true",
+                        help="agentcdp: last, SIGKILL cmux with the agent's tab open and launch it again (it ends cmux)")
     parser.add_argument("--helper-kill", action="store_true",
                         help="only the helper-kill rows (chromium_host_helper_kill.py): GPU, renderer, utility")
     parser.add_argument("--renderer-hang", action="store_true",
@@ -294,6 +309,8 @@ def parse(argv=None):
     parser.add_argument("--build-config", choices=["bench", "bench-checks", "release", "debug"],
                         help="result-v1 build config of a bench-hooks bundle that does not stamp it (BenchApp.record)")
     args = parser.parse_args(argv)
+    if args.kill_app and "agentcdp" not in args.modes.split(","):
+        parser.error("--kill-app needs --modes agentcdp (it kills cmux with the agent's tab open)")
     if sum([args.native_ui is not None, args.find, args.helper_kill, args.kill_host, args.renderer_hang,
             args.hang is not None]) > 1:
         parser.error("--native-ui, --find, --helper-kill, --kill-host, --renderer-hang and --hang each run instead of "
@@ -471,8 +488,9 @@ TUNABLES = {"version": 1, "values": {"browserHost.helper": True, "browserResize.
 
 
 # The modes whose rows need every Chromium tab in the host: profiles (task 080) and tcc (task 089: the host's own
-# privacy requests and keychain reads come only from a host-backed tab).
-HOST_TAB_MODES = ("profiles", "tcc")
+# privacy requests and keychain reads come only from a host-backed tab) and agentcdp (the
+# Chromium Host relays the agent's CDP only for a tab it runs).
+HOST_TAB_MODES = ("profiles", "tcc", "agentcdp")
 
 
 def launch_tunables(modes, kill_host=False):
@@ -897,6 +915,9 @@ def main():
         find_page = os.path.join(opts.out, "find.html")
         open(find_page, "w").write(chromium_host_find.PAGE)
         url = pathlib.Path(find_page).as_uri()
+    if "agentcdp" in opts.modes.split(","):
+        env["CMUX_ENABLE_FEATURES"] = ",".join(filter(None, [env.get("CMUX_ENABLE_FEATURES"), "chromiumHostAgentRelay"]))
+        env["CMUX_NEXT_TYPING_PROBE"] = os.path.join(opts.out, "typing.csv")
     if opts.renderer_hang:
         env["CMUX_ENABLE_FEATURES"] = ",".join(filter(None, [env.get("CMUX_ENABLE_FEATURES"), chromium_host_renderer_hang.FEATURES]))
     if opts.kill_host and opts.restore:
@@ -1008,6 +1029,16 @@ def main():
             RESULT["modes"]["display"], ran = chromium_host_display.run(
                 rpc, wait, lambda script: page_eval(rpc, script, None), pathlib.Path(display_probe).as_uri(), time.sleep)
             ok = ran and ok
+        agent_url = None
+        if "agentcdp" in modes:
+            agent_probe = os.path.join(opts.out, "agent-cdp.html")
+            open(agent_probe, "w").write(chromium_host_agent_cdp.PAGE)
+            agent_url = pathlib.Path(agent_probe).as_uri()
+            RESULT["modes"]["agentcdp"], ran = chromium_host_agent_cdp.run(
+                rpc, wait, lambda script: page_eval(rpc, script, None), agent_url, lambda script, timeout:
+                AgentRun(app, script, timeout), lambda seconds: type_terminal(rpc, seconds), typed_key_ms,
+                rate=opts.agent_rate, seconds=opts.agent_seconds)
+            ok = ran and ok
         if "profiles" in modes:
             RESULT["modes"]["profiles"], ran = chromium_host_profiles.run(
                 rpc, wait, lambda script, tab: page_eval(rpc, script, tab), url, bundled_cli, chromium_host_pids,
@@ -1025,6 +1056,14 @@ def main():
                 before_heavy, RESULT["baseline"]["census_heavy"])
         if "helper" in modes and RESULT["modes"].get("helper", {}).get("kill"):
             ok = run_lifetime(app, url) and ok
+        if opts.kill_app and agent_url:
+            # Last: it kills cmux.
+            row, ran = chromium_host_agent_cdp.kill_app(
+                app.process.pid if app.process else None, chromium_host_pid(), lambda: app.launch(validate_host=False),
+                lambda script, timeout: AgentRun(app, script, timeout), agent_url, lambda pid: not pid_gone(pid),
+                time.sleep)
+            RESULT["modes"]["agentcdp"]["kill_app"] = row
+            ok = ran and ok
     except LaunchError as error:
         RESULT["error"] = error.reason
         ok = False
@@ -1048,6 +1087,61 @@ def main():
             finally:
                 app.stop()
     return 0 if ok else 1
+
+
+class AgentRun:
+    """One `cmux-browser-host eval` of the agentcdp session against `app`'s own browser host (bench_renderer_sharing's
+    CLI helpers), started now; `result()` waits for it: (exit code, stdout, stderr)."""
+
+    def __init__(self, app, script, timeout):
+        import bench_renderer_sharing as sharing
+        self.timeout, self.process, self.error = timeout, None, None
+        bundle = os.path.realpath(opts.app)
+        socket = wait(lambda: sharing.host_socket(sharing.bm.process_table(), bundle), 60, 0.5)
+        if socket is None:
+            self.error = f"no browser host of {bundle} runs"
+            return
+        cli = os.path.join(bundle, "Contents/Resources/bin/cmux-browser-host")
+        self.process = subprocess.Popen(
+            [cli, "eval", "--session", chromium_host_agent_cdp.SESSION, "--engine", "cef", script, "--socket", socket],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=sharing.host_cli_env(socket, app.socket))
+
+    def result(self):
+        if self.process is None:
+            return 1, "", self.error
+        try:
+            out, err = self.process.communicate(timeout=self.timeout)
+        except subprocess.TimeoutExpired:
+            self.process.kill()
+            out, err = self.process.communicate()
+            return 124, out, (err or "") + " (timed out)"
+        return self.process.returncode, out, err
+
+
+def type_terminal(rpc, seconds):
+    """Keys into the focused terminal, one every KEY_INTERVAL_S for `seconds` (the typing probe records each)."""
+    keys = "abcdefghijklmnopqrstuvwxyz"
+    end, index = time.monotonic() + seconds, 0
+    while time.monotonic() < end:
+        sent = time.monotonic()
+        rpc("debug.key", {"key": keys[index % len(keys)], "timestamp": time.clock_gettime(time.CLOCK_UPTIME_RAW)},
+            timeout=10)
+        index += 1
+        rest = chromium_host_agent_cdp.KEY_INTERVAL_S - (time.monotonic() - sent)
+        if rest > 0:
+            time.sleep(rest)  # one key in flight at a time
+    time.sleep(0.5)  # the last echo lands
+
+
+def typed_key_ms():
+    """The typing probe's key-to-frame values (`contents_ms` of complete rows), oldest first."""
+    import csv
+    try:
+        with open(os.path.join(opts.out, "typing.csv")) as handle:
+            rows = list(csv.DictReader(handle))
+    except OSError:
+        return []
+    return [float(row["contents_ms"]) for row in rows if row.get("complete") == "1" and row.get("contents_ms")]
 
 
 def native_ui_rows(rpc, url, chooser_url, app_pid, permission_url=None, child_windows=None):
@@ -1251,7 +1345,7 @@ def run_inproc(rpc, url):
     return tab
 
 
-FIRST_WHEEL_LIMIT_US = 500  # p01-process-042: the first wheel tick of a gesture leaves cmux in < 0.5 ms
+FIRST_WHEEL_LIMIT_US = 500  # The first wheel tick of a gesture leaves cmux in < 0.5 ms
 
 
 def route_report(rpc):
@@ -1746,7 +1840,7 @@ def run_helper(rpc, url, inproc_tab):
                 "front_after_input": front_pid()}
     # 10 clicks on the page and a key after each: the frontmost app stays cmux's process the whole time, and the
     # host never becomes active nor owns the key window (its own counters, debug.chromium_host.measure input).
-    # The overlay host re-adds its panel above no page across those event cycles in host mode (p01-process-223):
+    # The overlay host re-adds its panel above no page across those event cycles in host mode:
     # debug.overlay reorders_per_event stays 0.
     rpc("debug.overlay", {"reset": True})
     fronts = []
@@ -1761,7 +1855,7 @@ def run_helper(rpc, url, inproc_tab):
     counters = rpc("debug.chromium_host.measure", {"op": "input"}) or {}
     identity["clicks"] = {"fronts": sorted(set(p for p in fronts if p is not None)), "host_frontmost": fronts.count(host_pid),
                           "activations": counters.get("activations"), "key_windows": counters.get("key_windows")}
-    # The host's page windows are detached and its own windows never ordered in (task p01-process-053): with the
+    # The host's page windows are detached and its own windows never ordered in: with the
     # page shown and after the clicks, the window server lists no window of the host on screen.
     host_windows = on_screen_windows(host_pid) if host_pid else None
     identity["host_windows_on_screen"] = {"count": None if host_windows is None else len(host_windows),

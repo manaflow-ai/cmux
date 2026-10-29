@@ -124,6 +124,7 @@ impl LogWriter {
         let thread = crate::supervised::owned_thread(
             supervisor,
             THREAD,
+            cmux_threads::ThreadQos::Utility,
             Fatal,
             ShutdownBehavior::Continue,
             move || run(&worker),
@@ -461,7 +462,7 @@ mod tests {
     }
 
     /// 100 chats that stream at once keep their logs open under the daemon's raised limit: no
-    /// record closes another chat's log to open its own (p07-memory-064).
+    /// record closes another chat's log to open its own.
     #[test]
     fn a_hundred_chats_written_in_turn_keep_their_logs_open() {
         let dir = root("hundred");

@@ -3,7 +3,7 @@ public import CmuxNextWakeups
 import Observation
 
 /// The highest cause of one workspace's layout tree changes since the owner last applied it
-/// (p06-scheduler-038, feature `automationBurstSnap`). It changes no scheduling: the owner still
+/// (feature `automationBurstSnap`). It changes no scheduling: the owner still
 /// applies on its own observation's hop, where ``ObservationCauses/currentCause`` is gone, and
 /// asks this recorder who caused what it applies, so an agent's burst of splits lands with no spring.
 ///

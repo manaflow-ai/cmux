@@ -5,7 +5,7 @@ import Testing
 @testable import CmuxNextBrowser
 
 /// The CEF pump runs on the main thread, so it is a phase of the main thread's episode, not a
-/// hang-watch scope (p10-stability-031): each pass runs with the crash keys' CEF state at `inPump`, which
+/// hang-watch scope: each pass runs with the crash keys' CEF state at `inPump`, which
 /// the main-thread watchdog reads while the main thread is suspended and names `cef_pump` in its records.
 @MainActor
 @Suite struct CEFMessagePumpCrashKeyTests {

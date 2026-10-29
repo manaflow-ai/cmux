@@ -1,8 +1,9 @@
 //! An accepted Unix connection in the detector's panic mode, the Debug
-//! default (`CMUX_DAEMON_BLOCKING` unset). Its reader (`mux-conn`) and its
-//! writer (`mux-line-out`) disallow blocking, so a blocking call on either
-//! is a panic that leaves the client with no reply and no close: the test
-//! suite's daemon tests then waited for their 120 s timeout.
+//! default (`CMUX_DAEMON_BLOCKING` unset). The `mux-io` loop that reads and
+//! writes it and the pool workers that run its line sequence disallow
+//! blocking, so a blocking call on either is a panic. It must never leave
+//! the client with no reply and no close: the test suite's daemon tests
+//! then waited for their 120 s timeout.
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::Shutdown;
@@ -103,7 +104,7 @@ fn a_unix_connection_the_client_closes_ends_in_panic_mode() {
 }
 
 /// A frame lane whose route panics, as a request handler that reaches a
-/// blocking call on the reader does in panic mode.
+/// blocking call on the line sequence does in panic mode.
 struct PanickingFrames;
 
 impl super::FrameLane for PanickingFrames {
@@ -116,7 +117,7 @@ impl super::FrameLane for PanickingFrames {
         _frame: cmux_ipc::Frame,
         _connection: &super::FrameConnection<'_>,
     ) -> Result<bool, super::ConnectionBadMessage> {
-        panic!("a handler on the connection's reader panicked");
+        panic!("a handler on the connection's line sequence panicked");
     }
 }
 
@@ -140,33 +141,31 @@ fn request_frame(request_id: u32, payload: &[u8]) -> Vec<u8> {
     bytes
 }
 
-/// A panic on the connection's reader fails that connection, not the
+/// A panic in a connection's handler fails that connection, not the
 /// daemon: the connection is torn down as on any other end, so the client
 /// reads the end of stream at once. The teardown ran only when the reader
 /// returned, so a panicking reader left its client registered, its writer
 /// waiting and its socket open, and the client waited forever (the suite's
-/// 120 s timeouts after each blocking-call panic).
+/// 120 s timeouts after each blocking-call panic). With no reader thread
+/// the handler runs on the connection's line sequence,
+/// whose pool worker survives the panic: the connection still ends.
 #[test]
-fn a_panic_on_the_connections_reader_closes_the_connection() {
-    let mux = Mux::new_for_test("panic-mode-reader-unwind", crate::SurfaceOptions::default());
+fn a_panic_in_a_connections_handler_closes_the_connection() {
+    let mux = Mux::new_for_test("panic-mode-handler-unwind", crate::SurfaceOptions::default());
     let (mut socket, server) = UnixStream::pair().unwrap();
     let served = {
         let mux = mux.clone();
-        cmux_threads::spawn("panic-mode-reader-test", cmux_threads::ThreadQos::Default, move || {
-            let stream: Box<dyn transport::Stream> = Box::new(server);
-            let peer = origin_gate::AcceptedPeer::resolve(&mux, &*stream);
-            super::serve_connection(
+        std::thread::spawn(move || {
+            serve_connection(
                 mux,
-                stream,
-                peer,
+                Box::new(server),
                 Arc::new(RenderService::new()),
                 None,
                 ClientTransport::Unix,
-                &admission::LocalAdmission,
-                &mut PanickingFrames,
+                Box::new(admission::LocalAdmission),
+                Box::new(PanickingFrames),
             )
         })
-        .unwrap()
     };
     let mut replies = BufReader::new(socket.try_clone().unwrap());
     replies.get_ref().set_read_timeout(Some(Duration::from_secs(10))).unwrap();
@@ -175,7 +174,7 @@ fn a_panic_on_the_connections_reader_closes_the_connection() {
     socket.write_all(&request_frame(7, b"{}")).unwrap();
     let mut rest = Vec::new();
     replies.read_to_end(&mut rest).expect("the daemon closes the connection after the panic");
-    assert!(served.join().is_err(), "the reader's panic still ends its thread as a panic");
+    assert_eq!(served.join().unwrap(), super::ConnectionEnd::Dropped, "the panic drops it");
     assert!(
         mux.control_clients.client_ids().is_empty(),
         "the panicked connection's client is gone"

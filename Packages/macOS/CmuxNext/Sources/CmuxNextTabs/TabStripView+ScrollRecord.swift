@@ -1,6 +1,6 @@
 public import AppKit
 
-// The strip's scroll in a remount record (`WorkspaceViewRecord`, p07-memory-033): saved when its
+// The strip's scroll in a remount record (`WorkspaceViewRecord`): saved when its
 // workspace unmounts, given back to the new strip before its first frame.
 extension TabStripView {
     /// Where the strip's scroll settles (`scrollOffset` is the target of any reveal in flight).

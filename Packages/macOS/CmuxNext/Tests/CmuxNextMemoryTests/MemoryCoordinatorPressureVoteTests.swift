@@ -2,7 +2,7 @@ import CmuxNextCompat
 import CmuxNextMemory
 import Testing
 
-/// p07-memory-051: the coordinator's vote in in-process Chromium's pressure aggregator is its level: the debug
+/// The coordinator's vote in in-process Chromium's pressure aggregator is its level: the debug
 /// override when set, else the cmux level from the kernel's events; normal (Chromium's none) once the override
 /// clears to a normal kernel level. Observers hear each change of the level once, after the new limits.
 @MainActor @Suite struct MemoryCoordinatorPressureVoteTests {
@@ -67,7 +67,7 @@ import Testing
         withExtendedLifetime((pressure, coordinator)) {}
     }
 
-    /// p07-memory-109: override observers hear each change of the override, also one that keeps the level
+    /// Override observers hear each change of the override, also one that keeps the level
     /// (which no level consumer and no vote hears), after the level it makes; a repeat is no change.
     @Test func overrideObserversHearChangesThatKeepTheLevel() {
         let clock = ManualClock()

@@ -29,9 +29,11 @@ pub(crate) fn run_as(args: Vec<OsString>, display_name: &str) -> i32 {
             rest.iter().map(|arg| arg.to_string_lossy().into_owned()).collect();
         return chats_open(&words);
     }
-    if args.first().is_some_and(|arg| arg == "open") {
+    if let [open_word, rest @ ..] = args.as_slice()
+        && open_word == "open"
+    {
         let words: Vec<String> =
-            args[1..].iter().map(|arg| arg.to_string_lossy().into_owned()).collect();
+            rest.iter().map(|arg| arg.to_string_lossy().into_owned()).collect();
         return open(&words);
     }
     if let [harness, run, rest @ ..] = args.as_slice()

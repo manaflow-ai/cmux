@@ -319,7 +319,7 @@ fn random_hex(length: usize) -> anyhow::Result<String> {
     let mut encoded = String::with_capacity(length * 2);
     use std::fmt::Write as _;
     for byte in &bytes {
-        write!(&mut encoded, "{byte:02x}").expect("writing to String cannot fail");
+        write!(&mut encoded, "{byte:02x}")?;
     }
     bytes.zeroize();
     Ok(encoded)

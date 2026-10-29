@@ -234,9 +234,10 @@ pub(super) fn forward_new(
     let mut sent = 0;
     let mut failure = None;
     while sent < max {
-        let rest = &bytes[offset..];
+        let Some(rest) = bytes.get(offset..) else { break };
         let Some(end) = rest.iter().position(|byte| *byte == b'\n') else { break };
-        let line = String::from_utf8_lossy(&rest[..end]);
+        let Some(line) = rest.get(..end) else { break };
+        let line = String::from_utf8_lossy(line);
         if let Some(event) = event_for(&line, home) {
             if let Err(error) = send(&envelope(&event)) {
                 failure = Some(error);
@@ -339,7 +340,7 @@ pub(super) fn start(logs: Vec<PathBuf>) -> Option<Forwarder> {
     let forwarder = Forwarder { dsn, home: env("HOME"), sending: Default::default() };
     let worker = forwarder.clone();
     // supervise-allow: one best-effort pass over the logs present at start; a panic loses only this pass (the lines stay unsent and the next owner start sends them).
-    let _ = std::thread::Builder::new().name("crash-forward".into()).spawn(move || {
+    let _ = cmux_threads::spawn("crash-forward", cmux_threads::ThreadQos::Utility, move || {
         let mut sent = 0;
         let mut failures = Vec::new();
         for log in &logs {

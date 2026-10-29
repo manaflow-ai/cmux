@@ -1,4 +1,4 @@
-//! The panic log of `cmux mcp serve` (p09-observability-099).
+//! The panic log of `cmux mcp serve`.
 //!
 //! An MCP client (Claude Code, Codex) starts the server with its stdio as
 //! the JSON-RPC wire and drops stderr, so a panic on a watch or upstream

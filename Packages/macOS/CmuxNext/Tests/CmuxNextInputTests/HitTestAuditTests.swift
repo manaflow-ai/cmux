@@ -7,7 +7,7 @@ import Foundation
 import ObjectiveC
 import Testing
 
-/// HitTestAudit (p04-input-098): installed on request only, it records views visited and time per hit test, per
+/// HitTestAudit: installed on request only, it records views visited and time per hit test, per
 /// event and per `hitTest:` implementation, lists the costly ones in a stable JSON report, and uninstalled it leaves
 /// every original IMP in place. One serialized suite: the hooks are process-wide.
 @MainActor

@@ -1,5 +1,5 @@
-//! The render, browser and byte views of attach streams as drains
-//! (p05-ipc-079): what each sends, in which order, and how each ends.
+//! The render, browser and byte views of attach streams as drains:
+//! what each sends, in which order, and how each ends.
 
 use std::sync::Arc;
 use std::time::Duration;

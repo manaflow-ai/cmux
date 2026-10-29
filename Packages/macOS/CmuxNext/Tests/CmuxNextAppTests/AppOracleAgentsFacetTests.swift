@@ -13,7 +13,7 @@ import Observation
 import os
 import Testing
 
-/// The app's agents facet (p15-oracle-043): an agent chat tab's row takes its session and harness from the store
+/// The app's agents facet: an agent chat tab's row takes its session and harness from the store
 /// record and its state, turn count and open permission requests from acpmux's lane (`turnCount`,
 /// `pendingPermissions` of the session summary); a new chat's kept composer text goes in only as its sha256. Each
 /// Home Messages view reports the conversation the person sees (none on New Message), and every value is heard

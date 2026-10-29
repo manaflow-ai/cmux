@@ -3,7 +3,7 @@ import CmuxNextWakeups
 import CoreFoundation
 import Testing
 
-/// The per-launch idle wakeup histogram (`debug.energy`, p14-energy-008), fed through injected
+/// The per-launch idle wakeup histogram (`debug.energy`), fed through injected
 /// uptime, interrupt wakeup and input counters and an injected wake registration. The app is idle
 /// 60 s after its last input (and after launch); each sample is one window after that.
 @MainActor

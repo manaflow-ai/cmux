@@ -239,7 +239,7 @@ fn terminal_resource_attach_acknowledges_before_styled_snapshot_and_cancels() {
         item["item"]["render"]["rows"].as_array().unwrap().len(),
         item["item"]["render"]["size"]["rows"].as_u64().unwrap() as usize
     );
-    // p04-input-084, p05-ipc-080: the stream worker that sent the snapshot
+    // The stream worker that sent the snapshot
     // is registered as a control stream (user-initiated): it waits for its
     // attach to commit, so it is not an echo path thread.
     let workers: Vec<_> = cmux_threads::snapshot()

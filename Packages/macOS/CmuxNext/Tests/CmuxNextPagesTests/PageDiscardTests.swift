@@ -8,6 +8,7 @@ import CmuxNextHibernation
 @testable import CmuxNextPages
 import CmuxNextPagesTestSupport
 @testable import CmuxNextWakeups
+import CmuxNextWakeupsTestSupport
 import Foundation
 import ImageIO
 import CmuxNextSettings
@@ -15,7 +16,7 @@ import Testing
 import WebKit
 
 /// A page keeps its picture and its state from the turn it hides, and a discard makes no call into the
-/// page (p13-webui-088): a frozen page cannot answer, so the old design's discard-time save call kept a
+/// page: a frozen page cannot answer, so the old design's discard-time save call kept a
 /// page frozen for 300 s from ever being discarded.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(1)))
 struct PageDiscardTests {
@@ -107,7 +108,7 @@ struct PageDiscardTests {
 
     private func chromiumView(root: URL) async throws -> (PageWebView, FakeChromiumPage) {
         let hosting = FakeChromiumHosting()
-        let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], route: "#/", chromium: hosting))
+        let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], route: "#/", chromium: hosting, deadlines: .testing()))
         view.chromiumDeadlines = LifecycleDeadlineRig.never
         await view.chromiumStart?.value
         view.frame = NSRect(x: 0, y: 0, width: 100, height: 80)
@@ -206,7 +207,7 @@ struct PageDiscardTests {
     @Test func aWebKitPageEncodesItsHideFrameAsItComesAndIsDiscardedWithNoPageCall() async throws {
         let root = try pageRoot()
         defer { try? FileManager.default.removeItem(at: root) }
-        let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], route: "#/", chromium: nil))
+        let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], route: "#/", chromium: nil, deadlines: .testing()))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 100, height: 80), styleMask: [.borderless],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -260,7 +261,7 @@ struct PageDiscardTests {
     @Test func aPageKeepsTheStateItPostsWhenItHides() throws {
         let root = try pageRoot()
         defer { try? FileManager.default.removeItem(at: root) }
-        let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], route: "#/", chromium: nil))
+        let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], route: "#/", chromium: nil, deadlines: .testing()))
         let post = try #require(view.chromiumMessageHandlers[PageWebView.pageStateHandler], "no state handler installed")
         post(#"{"scroll":120}"#)
         #expect(view.hideState.savedState == #"{"scroll":120}"#)
@@ -436,7 +437,7 @@ struct PageDiscardRestoreTests {
     private func makeView(_ hosting: FakeChromiumHosting?) throws -> PageWebView {
         let view = try #require(PageWebView(descriptor: descriptor, root: root,
                                             routes: [PageRoute(prefix: "test.discard.", provider: provider)],
-                                            route: "#/a", chromium: hosting))
+                                            route: "#/a", chromium: hosting, deadlines: .testing()))
         view.chromiumDeadlines = LifecycleDeadlineRig.never
         view.frame = NSRect(x: 0, y: 0, width: 200, height: 100)
         return view
@@ -509,7 +510,7 @@ struct PageDiscardRestoreTests {
         let view = PageWebView(descriptor: descriptor, configuration: configuration,
                                inputReadiness: PageInputReadiness(configuration: configuration), routes: [], route: "#/a",
                                options: .standard, surface: nil, dynamicResources: nil, pooled: true, load: false,
-                               chromium: nil)
+                               chromium: nil, deadlines: .testing())
         defer { view.close() }
         #expect(view.isPooled)
         let parking = PagePreloadParkingView(frame: .zero)

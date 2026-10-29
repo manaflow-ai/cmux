@@ -3,7 +3,7 @@ import CmuxNextWakeups
 import CmuxNextWakeupsTestSupport
 import Testing
 
-/// The launch's hold on panes off screen (p08-startup-065, `launchVisiblePanesOnly`): it holds from launch
+/// The launch's hold on panes off screen (`launchVisiblePanesOnly`): it holds from launch
 /// until startup completes, never with no scheduler or once quit began; a held pane's afterStartup post
 /// runs only after completion; the views built while it holds are counted and reported once, at completion.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(1))) struct LaunchPaneGateTests {

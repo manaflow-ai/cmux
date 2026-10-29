@@ -94,9 +94,15 @@ impl RelaySet {
             emit,
             gone,
         };
-        supervised::spawn("cmux-link-accept", Fatal, ShutdownBehavior::Continue, move || {
-            accept.run();
-        })?;
+        supervised::spawn_at(
+            "cmux-link-accept",
+            cmux_threads::ThreadQos::UserInitiated,
+            Fatal,
+            ShutdownBehavior::Continue,
+            move || {
+                accept.run();
+            },
+        )?;
         self.relays.lock().recover_poison().insert(channel.to_owned(), relay);
         Ok(path)
     }

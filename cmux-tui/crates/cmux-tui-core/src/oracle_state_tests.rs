@@ -116,7 +116,7 @@ fn a_dead_terminal_counts_as_dead_not_attached() {
     assert_eq!((after.attached, after.detached, after.dead), (0, 0, 1));
 }
 
-/// I17's daemon source (p15-oracle-188): `childExits.holder` is the holder
+/// I17's daemon source: `childExits.holder` is the holder
 /// exits this owner counted where it logged them. The loss log in the state
 /// root is not read: its lines from other sessions sharing the root, an owner
 /// stop on a requested signal and a rotation that drops the old file change

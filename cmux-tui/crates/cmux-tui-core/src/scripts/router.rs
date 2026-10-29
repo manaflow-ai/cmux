@@ -112,8 +112,12 @@ impl ScriptRouter for DaemonRouter {
         mux.wake_journal_waiters_on(&interrupt);
         // Without a thread the session gets no events: `cmux.wait` then ends
         // at its own timeout.
-        let _ =
-            supervised::spawn("cmux-script-events", Fatal, ShutdownBehavior::Continue, move || {
+        let _ = supervised::spawn_at(
+            "cmux-script-events",
+            cmux_threads::ThreadQos::Utility,
+            Fatal,
+            ShutdownBehavior::Continue,
+            move || {
                 let mut epoch = mux.journal_event_epoch();
                 loop {
                     let next = mux.wait_for_journal_event_until_interrupted(epoch, &interrupt);
@@ -127,7 +131,8 @@ impl ScriptRouter for DaemonRouter {
                         }
                     }
                 }
-            });
+            },
+        );
         guard
     }
 }

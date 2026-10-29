@@ -2,7 +2,7 @@
 import CmuxNextOracle
 import Testing
 
-/// The oracle's facet list (p15-oracle-030): a facet with no provider answers not-comparable with its
+/// The oracle's facet list: a facet with no provider answers not-comparable with its
 /// task, never absent; only the requested providers run; the main-actor facets are read in one call
 /// and the background ones after it; a failing provider fails the whole snapshot, naming its facet in
 /// catalog order. Run: `swift test --filter OracleFacetsTests`.

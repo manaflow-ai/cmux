@@ -4,7 +4,7 @@ import CmuxNextWakeups
 import Foundation
 import Testing
 
-/// p07-memory-051: cmux's vote reaches the fork's `cmux_memory_pressure_vote` through
+/// cmux's vote reaches the fork's `cmux_memory_pressure_vote` through
 /// `cmux_shim_memory_pressure_vote` once per change of the coordinator's vote, none (0) when the vote returns
 /// to normal, never for a repeated vote, and never before Chromium is ready or once quit began; a vote made
 /// before Chromium starts reaches it at the start.

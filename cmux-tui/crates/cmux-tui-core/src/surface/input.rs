@@ -110,8 +110,50 @@ impl Surface {
         self.write_bytes_flow(bytes, 0)
     }
 
-    /// [`Self::write_bytes`] of the key press `flow` (0: none,
-    /// p09-observability-018). The PTY owner's first read after the bytes
+    /// [`Self::write_bytes_flow`] of a key press the daemon received at
+    /// `received_ns` (trace clock; 0: unknown): the terminal's stage ring
+    /// records the receive before the write, since the echo
+    /// can be read before the write returns, and the PTY write after it.
+    /// Tests only: `send` writes its parts in one turn ([`Self::write_key_flow_in`]).
+    #[cfg(test)]
+    pub(crate) fn write_key_flow(
+        &self,
+        bytes: &[u8],
+        flow: u64,
+        received_ns: u64,
+    ) -> std::io::Result<()> {
+        let turn = self.input_turn().ok_or_else(not_a_terminal)?;
+        self.write_key_flow_in(&turn, bytes, flow, received_ns)
+    }
+
+    /// [`Self::write_key_flow`] in the input turn `turn` of this terminal.
+    pub(crate) fn write_key_flow_in(
+        &self,
+        turn: &InputTurn<'_>,
+        bytes: &[u8],
+        flow: u64,
+        received_ns: u64,
+    ) -> std::io::Result<()> {
+        let stages = self.as_pty().map(|pty| &*pty.input_stages);
+        if let Some(stages) = stages {
+            stages.received(flow, received_ns);
+        }
+        let result = self.write_bytes_in(turn, bytes, flow);
+        if let (Ok(()), Some(stages)) = (&result, stages)
+            && flow != 0
+        {
+            stages.written(flow, crate::input_stages::now_ns());
+        }
+        result
+    }
+
+    /// The terminal's key-stage ring; `None` for a browser surface.
+    pub(crate) fn input_stages(&self) -> Option<Arc<crate::input_stages::InputStageRing>> {
+        self.as_pty().map(|pty| pty.input_stages.clone())
+    }
+
+    /// [`Self::write_bytes`] of the key press `flow` (0: none).
+    /// The PTY owner's first read after the bytes
     /// reached the PTY echoes it, and that read's `output` event carries
     /// `flow`, once: a hosted terminal's host stamps its read
     /// (`FLAG_INPUT_FLOW`); a master the daemon writes itself, its reader's

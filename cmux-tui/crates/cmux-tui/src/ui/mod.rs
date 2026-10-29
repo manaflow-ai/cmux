@@ -432,8 +432,9 @@ fn draw_status_bar(app: &mut App, frame: &mut Frame) {
             // Powerline transition: the separator's foreground takes this
             // segment's background and its background the next segment's
             // (or the bar's own, after the last segment).
-            let next_bg = left_segments[index + 1..]
+            let next_bg = left_segments
                 .iter()
+                .skip(index.saturating_add(1))
                 .find(|next| !next.text.is_empty())
                 .map(segment_bg)
                 .unwrap_or(status_bg);
@@ -523,8 +524,7 @@ fn draw_status_bar(app: &mut App, frame: &mut Frame) {
     let right_separator = app.config.status_bar.right_separator.as_deref();
     // Empty texts are normal before a command's first result; later
     // segments still draw.
-    for index in (0..right_segments.len()).rev() {
-        let segment = &right_segments[index];
+    for (index, segment) in right_segments.iter().enumerate().rev() {
         if segment.text.is_empty() {
             continue;
         }
@@ -548,8 +548,9 @@ fn draw_status_bar(app: &mut App, frame: &mut Frame) {
             // Mirrored powerline transition: the separator sits left of its
             // segment, foreground from the segment, background from the
             // next segment to the left (or the bar itself).
-            let left_bg = right_segments[..index]
+            let left_bg = right_segments
                 .iter()
+                .take(index)
                 .rev()
                 .find(|previous| !previous.text.is_empty())
                 .map(segment_bg)
@@ -716,7 +717,8 @@ pub(crate) fn truncate(s: &str, max: usize) -> String {
         prefix_end -= 1;
     }
     let byte_truncated = prefix_end < s.len();
-    let bounded_prefix = &s[..prefix_end];
+    // The loop above stops on a char boundary (`is_char_boundary(0)` holds).
+    let bounded_prefix = s.get(..prefix_end).unwrap_or_default();
 
     if !byte_truncated && usize::from(bounded_prefix.cell_width()) <= max {
         return bounded_prefix.to_string();
@@ -726,9 +728,11 @@ pub(crate) fn truncate(s: &str, max: usize) -> String {
     // discard that final grapheme so a pathological first grapheme becomes
     // just an ellipsis instead of leaking a partial combining sequence.
     let complete_prefix = if byte_truncated {
-        let last_grapheme_start =
-            bounded_prefix.grapheme_indices(true).next_back().map(|(index, _)| index).unwrap_or(0);
-        &bounded_prefix[..last_grapheme_start]
+        bounded_prefix
+            .grapheme_indices(true)
+            .next_back()
+            .and_then(|(index, _)| bounded_prefix.split_at_checked(index))
+            .map_or("", |(complete, _)| complete)
     } else {
         bounded_prefix
     };

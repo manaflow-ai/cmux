@@ -1,4 +1,4 @@
-//! Attach streams on the daemon-wide sequenced pool (p05-ipc-079).
+//! Attach streams on the daemon-wide sequenced pool.
 //!
 //! A legacy attach holds a thread per view for its output and one for its
 //! notifications, each blocked on its source. A client-minted attach stream
@@ -122,7 +122,7 @@ impl AttachPump {
     }
 
     /// The hook that moves the drain to another priority's workers and runs
-    /// a turn there (`set-stream-priority`, p05-ipc-142). It holds the pump
+    /// a turn there (`set-stream-priority`). It holds the pump
     /// weakly, as [`Self::hook`] does.
     pub(crate) fn priority_hook(&self) -> impl Fn(SequencePriority) + Send + Sync + 'static {
         let pump = Arc::downgrade(&self.inner);

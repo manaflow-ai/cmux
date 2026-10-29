@@ -282,11 +282,36 @@ class RunTests(FleetHarness):
         self.assertTrue(all(cid.startswith("alpha/") for cid in receipt["cases"]))
 
 
-class DiffTests(FleetHarness):
+class DiffFixture(FleetHarness):
+    """A base commit and a head with one p15-oracle commit (an app file and a runner file), a bare remote for the
+    overlay commit (overlay.py, p15-oracle-202); FleetHarness points fleet.REPO at that checkout."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.git = ["git", "-C", str(self.checkout), "-c", "user.email=t@t", "-c", "user.name=t"]
+        self.base = self.rev("HEAD")
+        oracle_swift = self.checkout / "Packages/macOS/CmuxNext/Sources/Fixture/Oracle.swift"
+        oracle_swift.parent.mkdir(parents=True)
+        oracle_swift.write_text("let oracle = 1\n")
+        (self.checkout / "tests" / "oracle" / "fixture-head.json").write_text("{}\n")
+        subprocess.run(self.git + ["add", "-A"], check=True)
+        subprocess.run(self.git + ["commit", "-q", "-m", "p15-oracle-998: fixture oracle registration"], check=True)
+        self.head = self.rev("HEAD")
+        self.remote = self.tmp / "remote.git"
+        subprocess.run(["git", "init", "-q", "--bare", str(self.remote)], check=True)
+
+    def rev(self, ref: str) -> str:
+        return subprocess.run(self.git + ["rev-parse", ref], check=True, stdout=subprocess.PIPE, text=True).stdout.strip()
+
+    def diff(self, out: Path, *extra: str) -> int:
+        return self.fleet("diff", "--base", self.base, "--head", self.head, "--out", str(out),
+                          "--remote", str(self.remote), *extra)
+
+
+class DiffTests(DiffFixture):
     def test_head_runs_on_the_base_steps_worker(self) -> None:
         out = self.tmp / "out"
-        code = self.fleet("diff", "--base", self.sha, "--head", self.other_sha, "--shards", "3", "--out", str(out),
-                          "--run-id", "d1")
+        code = self.diff(out, "--shards", "3", "--run-id", "d1")
         record = self.record(out)
         for base, head in zip(record["sides"]["base"]["shards"], record["sides"]["head"]["shards"]):
             self.assertEqual(head["target_worker"], base["worker"])
@@ -317,12 +342,47 @@ class DiffTests(FleetHarness):
     def test_a_cross_host_pair_is_refused(self) -> None:
         os.environ["FAKE_IGNORE_TARGET"] = "1"
         out = self.tmp / "out"
-        code = self.fleet("diff", "--base", self.sha, "--head", self.other_sha, "--shards", "1", "--out", str(out),
-                          "--run-id", "d2")
+        code = self.diff(out, "--shards", "1", "--run-id", "d2")
         self.assertEqual(code, fleet.EXIT_INCOMPLETE)
         head = self.record(out)["sides"]["head"]["shards"][0]
         self.assertIn("ignored --target-worker", head["error"])
         self.assertNotIn("comparison", self.record(out))
+
+    def test_the_base_side_builds_the_pushed_overlay_commit(self) -> None:
+        out = self.tmp / "out"
+        self.diff(out, "--shards", "2", "--run-id", "d3")
+        record = self.record(out)
+        plan = record["overlay"]
+        self.assertEqual((plan["mode"], plan["facets"], plan["base"], plan["head"]),
+                         ("overlay", "v1", self.base, self.head))
+        sha = plan["overlaySha"]
+        self.assertEqual({s["sha"] for s in record["sides"]["base"]["shards"]}, {sha})
+        self.assertEqual({s["sha"] for s in record["sides"]["head"]["shards"]}, {self.head})
+        pushed = subprocess.run(["git", "-C", str(self.remote), "rev-parse", f"refs/heads/oracle-overlay/{sha}"],
+                                check=True, stdout=subprocess.PIPE, text=True).stdout.strip()
+        self.assertEqual(pushed, sha)
+        refs = {row["args"][row["args"].index("--ref") + 1] for row in self.calls("run")}
+        self.assertEqual(refs, {sha, self.head})
+        self.assertFalse(any("--arg=--facets=v0" in row["args"] for row in self.calls("run")))
+        comparison = json.loads((out / "compare" / "comparison.json").read_text())
+        self.assertEqual(comparison["overlay"]["overlaySha"], sha)
+
+    def test_v0_runs_both_sides_on_v0_facets(self) -> None:
+        out = self.tmp / "out"
+        self.diff(out, "--shards", "1", "--run-id", "d4", "--v0", "the overlay does not build")
+        record = self.record(out)
+        self.assertEqual((record["overlay"]["mode"], record["overlay"]["reason"]), ("v0", "the overlay does not build"))
+        runs = self.calls("run")
+        self.assertEqual(len(runs), 2)
+        self.assertTrue(all("--arg=--facets=v0" in row["args"] for row in runs))
+        self.assertEqual(record["sides"]["head"]["args"], {"facets": "v0"})
+        step = json.loads((out / "shards" / "base" / "0" / "unpacked" / "fleet-step.json").read_text())
+        self.assertIn("--facets=v0", step["argv"])
+
+    def test_v0_needs_base_and_head(self) -> None:
+        code = self.fleet("diff", "--switch", "x", "--ref", self.head, "--v0", "why")
+        self.assertEqual(code, fleet.EXIT_USAGE)
+        self.assertIn("--v0 goes with --base/--head", self.output)
 
     def test_the_receipts_name_exact_shas_and_gitlinks(self) -> None:
         """Task 112: fleet.json, builds.json and comparison.json name each side's exact SHA and every gitlink."""
@@ -349,9 +409,10 @@ class DiffTests(FleetHarness):
 
     def test_head_defaults_to_this_checkouts_head(self) -> None:
         out = self.tmp / "out"
-        self.assertEqual(self.fleet("diff", "--base", self.sha, "--out", str(out), "--run-id", "d4"), 3, self.output)
+        self.assertEqual(self.fleet("diff", "--base", self.base, "--out", str(out), "--run-id", "d4",
+                                    "--remote", str(self.remote)), 3, self.output)
         head = self.record(out)["sides"]["head"]
-        self.assertEqual((head["ref"], head["sha"]), ("HEAD", self.other_sha))
+        self.assertEqual((head["ref"], head["sha"]), ("HEAD", self.head))
         self.assertEqual(self.fleet("diff", "--head", self.sha, "--out", str(self.tmp / "o2")), fleet.EXIT_USAGE)
         self.assertIn("--head needs --base", self.output)
 
@@ -392,12 +453,11 @@ class DiffTests(FleetHarness):
             return run
 
         with unittest.mock.patch.object(fleet.Fleet, "fetch", fetch):
-            return self.fleet("diff", "--base", self.sha, "--head", self.other_sha, "--shards", "2",
-                              "--out", str(self.tmp / run_id), "--run-id", run_id)
+            return self.diff(self.tmp / run_id, "--shards", "2", "--run-id", run_id)
 
     def test_every_receipt_records_host_os_and_display(self) -> None:
         out = self.tmp / "out"
-        self.fleet("diff", "--base", self.sha, "--head", self.other_sha, "--shards", "1", "--out", str(out), "--run-id", "h0")
+        self.diff(out, "--shards", "1", "--run-id", "h0")
         for side in ("base", "head"):
             host = json.loads((out / "shards" / side / "0" / "unpacked" / "run" / "receipt.json").read_text())["host"]
             self.assertEqual(set(host), {"name", "os", "osVersion", "arch", "display"})

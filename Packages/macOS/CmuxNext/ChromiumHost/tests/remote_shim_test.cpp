@@ -231,7 +231,7 @@ uint64_t stats_unhandled_input_acks() {
   return stats.input_acks_unhandled;
 }
 
-// The input acks (kOpInputAck, task p01-process-042) the callback got, in order.
+// The input acks (kOpInputAck) the callback got, in order.
 struct InputAck {
   int32_t browser, kind;
   uint32_t seq;
@@ -521,7 +521,7 @@ void SayHello(Host* host, std::vector<const char*> exports) {
   CHECK(PumpUntil([&] { return seen.ready == ready + 1; }));
 }
 
-// cmux_shim_set_energy_saver in host mode (task p14-energy-045): the host's end sees kOpEnergySaver,
+// cmux_shim_set_energy_saver in host mode: the host's end sees kOpEnergySaver,
 // versioned, on each edge; the call answers 1 only for a host whose HELLO listed the saver; a new
 // host gets the saver once while it is on, and nothing while it is off; a host without the saver
 // gets no frame.
@@ -577,7 +577,19 @@ void TestEnergySaver() {
   PumpUntil([] { return false; }, std::chrono::milliseconds(100));
 }
 
-// The host watch (task p01-process-084): a host whose HELLO lists kHangWatchHelloName has the
+// The provider link frames among `messages`: "<socket or <none>> <link id>".
+std::vector<std::string> ProviderLinkFrames(const std::vector<Message>& messages) {
+  std::vector<std::string> out;
+  for (const Message& m : messages) {
+    if (m.op != cmux_host::kOpProviderLink) continue;
+    const std::optional<cmux_host::ProviderLinkConfig> config = cmux_host::DecodeProviderLink(m.fields);
+    CHECK(config.has_value() && m.token == 0);
+    if (config) out.push_back(config->socket.value_or("<none>") + " " + config->link_id);
+  }
+  return out;
+}
+
+// The host watch: a host whose HELLO lists kHangWatchHelloName has the
 // seqs cmux_remote_shim_order_input gives counted against its kOpInputDispatched. The callback
 // hears the first waiting seq, a dispatch that leaves later ones waiting, the dispatch that
 // settles them, and each kOpHostHang; a detach settles what waited. A host without the name
@@ -752,6 +764,43 @@ std::vector<int> LockHandlerFrames(const std::vector<Message>& messages) {
     out.push_back(installed.value_or(false) ? 1 : 0);
   }
   return out;
+}
+
+// cmux_remote_shim_set_provider_link: the host's end sees kOpProviderLink after its HELLO; the call
+// answers 1 only for a host whose HELLO listed the link; every later host gets it once; a host
+// without the link gets no frame; a socket with no credential is refused.
+void TestProviderLink() {
+  CHECK(cmux_remote_shim_set_provider_link("/s.sock", "", "L1", 1, 2) == 0);
+  CHECK(cmux_remote_shim_set_provider_link("/s.sock", "cred", "L1", 1, 2) == 0);  // no host: kept
+  Host first;
+  CHECK(AttachNew(&first) == 1);
+  CHECK(ProviderLinkFrames(Drain(&first)).empty());  // it waits for the HELLO
+  SayHello(&first, {cmux_host::kProviderLinkHelloName});
+  CHECK(ProviderLinkFrames(Drain(&first)) == std::vector<std::string>({"/s.sock L1"}));
+  CHECK(cmux_remote_shim_set_provider_link("/t.sock", "cred2", "L1", 1, 2) == 1);
+  CHECK(ProviderLinkFrames(Drain(&first)) == std::vector<std::string>({"/t.sock L1"}));
+  cmux_remote_shim_detach();
+  ::close(first.fd);
+
+  Host second;  // a restarted host gets the last one
+  CHECK(AttachNew(&second) == 1);
+  SayHello(&second, {cmux_host::kProviderLinkHelloName});
+  CHECK(ProviderLinkFrames(Drain(&second)) == std::vector<std::string>({"/t.sock L1"}));
+  CHECK(cmux_remote_shim_set_provider_link(nullptr, nullptr, nullptr, 0, 0) == 1);  // the link ends
+  CHECK(ProviderLinkFrames(Drain(&second)) == std::vector<std::string>({"<none> "}));
+  cmux_remote_shim_detach();
+  ::close(second.fd);
+
+  CHECK(cmux_remote_shim_set_provider_link("/s.sock", "cred", "L1", 1, 2) == 0);
+  Host third;  // a host without the link
+  CHECK(AttachNew(&third) == 1);
+  SayHello(&third, {});
+  CHECK(cmux_remote_shim_set_provider_link("/s.sock", "cred", "L1", 1, 2) == 0);
+  CHECK(ProviderLinkFrames(Drain(&third)).empty());
+  CHECK(cmux_remote_shim_set_provider_link(nullptr, nullptr, nullptr, 0, 0) == 0);
+  cmux_remote_shim_detach();
+  ::close(third.fd);
+  PumpUntil([] { return false; }, std::chrono::milliseconds(100));
 }
 
 // cmux_shim_set_lock_handler in host mode (task 229): only the handler's on/off goes to a host
@@ -1012,8 +1061,7 @@ int main() {
     cmux_remote_shim_set_reply(nullptr, &OnReply);
   }
 
-  // A password reveal's REPLY goes to its own sink, never to the reply callback (task
-  // p01-process-025).
+  // A password reveal's REPLY goes to its own sink, never to the reply callback.
   {
     static std::vector<std::pair<uint32_t, std::string>> revealed;
     static bool null_password = false;
@@ -1169,7 +1217,7 @@ int main() {
     }
   }
 
-  // The page's IME ops are ordered too (p04-input-064): a commit is applied after the key frame
+  // The page's IME ops are ordered too: a commit is applied after the key frame
   // written before it, never ahead of it.
   {
     uint32_t ctl = 0;
@@ -1416,7 +1464,7 @@ int main() {
   PumpUntil([] { return false; }, std::chrono::milliseconds(100));
 
   // A reveal no answer reaches ends once as not found, revealed(token, NULL, 0): a detach, the
-  // host's exit, a malformed answer, a queued op that was then not sent (task p01-process-025).
+  // host's exit, a malformed answer, a queued op that was then not sent.
   {
     static std::vector<std::pair<uint32_t, bool>> ended;  // token, and whether password was NULL
     const cmux_remote::PasswordRevealedFn sink = [](uint32_t token, const char* password, size_t) {
@@ -1555,6 +1603,7 @@ int main() {
 
   TestOrderingThroughTheRuntime();
   TestEnergySaver();
+  TestProviderLink();
   TestHostWatch();
   TestLocks();
 

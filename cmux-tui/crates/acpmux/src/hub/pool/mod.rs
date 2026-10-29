@@ -28,7 +28,7 @@
 //! Shutdown ends every entry; a crashed daemon's entries are ended by the
 //! next daemon before it adopts hosts (`sweep_pool_hosts`).
 //!
-//! Priority (p14-energy-038, the `idleHelperBackgroundPriority` feature): an
+//! Priority (the `idleHelperBackgroundPriority` feature): an
 //! entry's host and harness run best-effort from the moment it is ready
 //! until a `session/new` claims it, as Chromium runs its spare
 //! renderer at `kBestEffort` (`RenderProcessHostImpl::UpdateProcessPriority`).
@@ -45,6 +45,7 @@
 use super::*;
 use crate::agent::Attached;
 use crate::agent_host::{self, HostRecord, Liveness};
+use crate::no_panic::JsonExt;
 use cmux_tui_platform::process_priority::{PriorityError, ProcessPriority};
 use std::hash::{Hash, Hasher};
 use std::sync::OnceLock;
@@ -689,7 +690,7 @@ impl Hub {
             "hostBuild": p.record.host_build.clone()
         });
         if session.meta().remote_origin {
-            started["remoteEnvPolicy"] = crate::agent::REMOTE_ENV_POLICY_ID.into();
+            started.set("remoteEnvPolicy", crate::agent::REMOTE_ENV_POLICY_ID.into());
         }
         self.append(session, "mux", "host_started", started);
         {

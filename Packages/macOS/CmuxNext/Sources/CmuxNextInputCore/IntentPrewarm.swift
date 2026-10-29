@@ -1,4 +1,4 @@
-// Intent prewarm's pure state (p04-input-042/043/044): the held prewarms and what started them (its inputs
+// Intent prewarm's pure state: the held prewarms and what started them (its inputs
 // and counters are in IntentPrewarmInputs.swift). The main-actor service (CmuxNextInput's IntentPrewarmService) owns the dwell timer,
 // the pressure and power gating and the calls into the warmer; the decisions are here.
 
@@ -6,16 +6,16 @@
 /// pointerdown, `moderate` after the pointer rests 200 ms on the link
 /// (third_party/blink/renderer/core/html/anchor_element_interaction_tracker.cc, `kHoverEventDelay`).
 public enum IntentPrewarmTrigger: String, Sendable, CaseIterable {
-    /// A press on a target that commits only on its release (p04-input-042): the press-to-release time is
+    /// A press on a target that commits only on its release: the press-to-release time is
     /// the head start.
     case pointerDown
-    /// The pointer rested on a target for the service's dwell (p04-input-043).
+    /// The pointer rested on a target for the service's dwell.
     case hoverDwell
-    /// A next/previous key stepped toward the target (p04-input-044).
+    /// A next/previous key stepped toward the target.
     case keyStep
 }
 
-/// Which way a next/previous key stepped (p04-input-044): a step the other way cancels what the old
+/// Which way a next/previous key stepped: a step the other way cancels what the old
 /// direction prewarmed.
 public enum IntentPrewarmDirection: Sendable, Equatable {
     /// Next.

@@ -170,6 +170,9 @@ final class CEFRuntime {
     private(set) var loadsUnpackedExtensions = false
     /// `browser.builtInAdBlocker`, asked at start (the App supplies it).
     var builtInAdBlockerSetting: @MainActor () -> Bool = { true }
+    /// `browser.builtInAdBlocker` set to true by the person (not its default), asked at start: on a fork without the
+    /// first-tab load it keeps the start-time load (``CEFBuiltInExtensionLoader/start(_:forkSupports:personChose:)``).
+    var builtInAdBlockerChosen: @MainActor () -> Bool = { false }
     /// The managed preference domain Chromium reads Chrome enterprise policies
     /// from, asked at start (the App supplies it); nil reads none.
     var chromePolicyIDSetting: @MainActor () -> String? = { nil }
@@ -181,7 +184,7 @@ final class CEFRuntime {
     var spareAfterFirstTabFeature: @MainActor () -> Bool = { false }
     private(set) var builtInAdBlockerLoaded = false  // this Chromium has the built-in uBlock Origin (at start or first tabs)
     let builtInLoader = CEFBuiltInExtensionLoader()  // built-in extensions at each profile's first tab (chromiumAdBlockerAtFirstTab)
-    let surfaceCopies = CEFSurfaceCopies()  // pages' surface copies waiting for Chromium (fork API 40, p13-webui-078)
+    let surfaceCopies = CEFSurfaceCopies()  // pages' surface copies waiting for Chromium (fork API 40)
     /// True when this Chromium started with `cmux-process-reuse-per-renderer-devtools` (`debug.cef` `windows`).
     private(set) var processReusePerRendererDevTools = false
     private var terminationObserver: (any NSObjectProtocol)?
@@ -240,7 +243,9 @@ final class CEFRuntime {
     private(set) var signInCallbacks = CEFSignInCallbacks()
     /// The main thread's one deadline queue (`MainWorkScheduler.wakeUps`, from the engine's `adopt`): the
     /// pump's delayed fire dates and the pages' keyed waits. A queue of the runtime's own until then (a
-    /// spy runtime in tests).
+    /// spy runtime in tests, and the queue an engine made without one shares): the process's one runtime is
+    /// made on Chromium's first use, before any engine can hand it the app's. Its timer stays parked while it
+    /// holds no entry, and every app path adopts first.
     private(set) var wakeUps = MainWakeUpQueue(energy: EnergyPolicySource())
     /// The pages' keyed waits on ``wakeUps``.
     var waitDeadlines: AlignedWakeups { AlignedWakeups(queue: wakeUps) }
@@ -544,15 +549,18 @@ final class CEFRuntime {
         }
 
         let builtInPlan = inputs.builtInPlan
+        let builtIn = builtInLoader.begin(builtInPlan.folders, forkSupports: shim.extLoadLaterSupported() == 1,
+                                          personChose: inputs.adBlockerChosen)
+            .switchInputs(folders: builtInPlan.folders, keepsUnpackedEnabled: builtInPlan.keepsUnpackedEnabled)
         let switchSet = CEFSwitches.current(
             forkAPIVersion: shim.forkAPIVersion(), rendererPaths: CEFForkFeatures(shim).rendererPaths,
             chromiumFeatures: chromiumFeatures, disabledChromiumFeatures: disabledChromiumFeatures,
             spareAfterFirstTab: spareAfterFirstTabFeature(), embedderColorChooser: drawsChoosersInCmux,
             chromiumSpareOff: !spareWindow.chromiumStarting(placeholderSupported: shim.placeholderSupported() == 1),
             bundleIdentifier: Bundle.main.bundleIdentifier,
-            environment: environment, builtInExtensions: builtInPlan.folders,
-            builtInExtensionsAtFirstTab: builtInLoader.start(builtInPlan.folders, forkSupports: shim.extLoadLaterSupported() == 1),
-            keepsUnpackedEnabled: builtInPlan.keepsUnpackedEnabled, pageSiteCaps: CEFPageSchemes.siteCaps(CEFPageSchemes.firstParty),
+            environment: environment, builtInExtensions: builtIn.folders,
+            builtInExtensionsAtFirstTab: builtIn.atFirstTab,
+            keepsUnpackedEnabled: builtIn.keepsUnpackedEnabled, pageSiteCaps: CEFPageSchemes.siteCaps(CEFPageSchemes.firstParty),
             sharedRendererMemoryCaps: sharedRendererMemoryCaps
         )
         builtInAdBlockerLoaded = !switchSet.builtInExtensions.isEmpty

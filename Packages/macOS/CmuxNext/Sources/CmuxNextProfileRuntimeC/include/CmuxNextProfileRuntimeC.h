@@ -8,7 +8,7 @@ extern "C" {
 // link brings in. Declared here as Chromium declares them
 // (base/test/clang_profiling.cc), so Swift calls them with the C calling
 // convention. Only the profile build (CMUX_PGO_PROFILE) calls them, so no
-// other build references the symbols (p08-startup-103, ProfileFlush).
+// other build references the symbols (ProfileFlush).
 
 // Writes the counters to the current file; 0 on success.
 int __llvm_profile_write_file(void);

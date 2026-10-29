@@ -16,6 +16,7 @@ use serde_json::{Map, Value, json};
 use super::codex_app_server;
 use super::resolve::{Failure, call, call_as};
 use super::{GlobalArgs, OutputMode, UsageError};
+use crate::cli::json_fields::JsonFields;
 
 /// Every delivery state `agent inbox --state` takes.
 const DELIVERY_STATES: [&str; 8] =
@@ -340,7 +341,8 @@ pub(super) fn send_and_deliver(
     let key = plan.idempotency_key.as_deref().or(global.idempotency_key.as_deref());
     let message =
         connection.mutate(ResourceOperation::AgentMessageSend, Value::Object(fields), key)?;
-    let recipients: Vec<String> = message["recipients"]
+    let recipients: Vec<String> = message
+        .field("recipients")
         .as_array()
         .into_iter()
         .flatten()
@@ -366,8 +368,8 @@ fn await_pump(connection: &mut Connection, recipients: &[String], sent: &mut Sen
     if acp.is_empty() {
         return;
     }
-    let id = sent.message["id"].as_str().unwrap_or_default().to_owned();
-    let sender = sent.message["sender"].clone();
+    let id = sent.message.field("id").as_str().unwrap_or_default().to_owned();
+    let sender = sent.message.field("sender").clone();
     let deadline = std::time::Instant::now() + PUMP_WAIT;
     loop {
         match connection
@@ -396,7 +398,9 @@ fn await_pump(connection: &mut Connection, recipients: &[String], sent: &mut Sen
     for recipient in acp {
         match delivery_state(&sent.message, recipient) {
             Some("failed") => {
-                let error = sent.message["deliveries"]
+                let error = sent
+                    .message
+                    .field("deliveries")
                     .as_array()
                     .into_iter()
                     .flatten()
@@ -475,11 +479,11 @@ fn codex_thread(agents: &Value, terminal: &str) -> Option<String> {
         .iter()
         .filter(|agent| {
             agent["terminal_id"] == terminal
-                && agent["extra"]["agent"] == "codex"
+                && agent.field("extra").field("agent") == "codex"
                 && agent["state"] != "done"
         })
         .max_by(|left, right| updated(left).total_cmp(&updated(right)))
-        .and_then(|agent| agent["extra"]["agent_session_id"].as_str())
+        .and_then(|agent| agent.field("extra").field("agent_session_id").as_str())
         .filter(|thread| !thread.is_empty())
         .map(str::to_owned)
 }
@@ -519,7 +523,7 @@ fn deliver_codex_batch(
         claimed.iter().filter_map(|message| message["id"].as_str()).collect();
     let text = cmux_tui_core::agent_message_prompt::render(&claimed);
     if let Err(error) = send(&text, &client_id) {
-        let own_id = sent.message["id"].as_str().unwrap_or_default().to_owned();
+        let own_id = sent.message.field("id").as_str().unwrap_or_default().to_owned();
         sent.failed |= claimed_ids.contains(&own_id.as_str());
         sent.problems.push(format!(
             "{} could not be handed to Codex in {terminal}: {error}",
@@ -565,7 +569,7 @@ fn claimed(batch: &[Value], marked: &Value, recipient: &str) -> Vec<Value> {
 /// Take the sent message's receipts from a mark result, or report a mark
 /// that failed.
 fn record_mark(marked: Result<Value, Failure>, recipient: &str, ids: &str, sent: &mut Sent) {
-    let own_id = sent.message["id"].as_str().unwrap_or_default().to_owned();
+    let own_id = sent.message.field("id").as_str().unwrap_or_default().to_owned();
     match marked {
         Ok(marked) => {
             if let Some(current) =
@@ -593,11 +597,9 @@ fn failure_text(failure: &Failure) -> String {
 }
 
 fn truncate(text: &str, max_bytes: usize) -> String {
-    let mut end = text.len().min(max_bytes);
-    while !text.is_char_boundary(end) {
-        end -= 1;
-    }
-    text[..end].to_owned()
+    text.split_at_checked(text.floor_char_boundary(max_bytes))
+        .map_or("", |(head, _)| head)
+        .to_owned()
 }
 
 fn sent_summary(message: &Value) -> String {
@@ -715,7 +717,7 @@ fn inbox_text(messages: &[Value], recipient: Option<&str>) -> String {
     for message in messages {
         let state = match recipient {
             Some(recipient) => delivery_state(message, recipient),
-            None => message["deliveries"][0]["state"].as_str(),
+            None => message["deliveries"].element(0).field("state").as_str(),
         }
         .unwrap_or("-");
         let sender = message["sender_name"]

@@ -4,7 +4,7 @@ import CmuxNextWakeups
 import CmuxNextWakeupsTestSupport
 import Testing
 
-/// p06-scheduler-325 (rule 9): the overlays, dialogs, toasts, tooltips, quit and window helpers of
+/// The overlays, dialogs, toasts, tooltips, quit and window helpers of
 /// CmuxNextDesign take their notices through the event fan-outs in the notice's own turn, their
 /// hidden state from a node, and their deadlines and coalesced passes from the app's scheduler with
 /// a class and an owner, instead of a raw observer plus a main-queue Task.

@@ -74,10 +74,9 @@ impl LaunchPolicy {
         if launch.eq_ignore_ascii_case("deny") {
             return Self::Deny;
         }
-        match launch.get(..ONLY_PREFIX.len()) {
-            Some(prefix) if prefix.eq_ignore_ascii_case(ONLY_PREFIX) => Self::Only(
-                launch[ONLY_PREFIX.len()..]
-                    .split(',')
+        match launch.split_at_checked(ONLY_PREFIX.len()) {
+            Some((prefix, ids)) if prefix.eq_ignore_ascii_case(ONLY_PREFIX) => Self::Only(
+                ids.split(',')
                     .map(str::trim)
                     .filter(|id| !id.is_empty())
                     .map(str::to_owned)

@@ -1,5 +1,5 @@
 public import AppKit
-import CmuxNextCompat
+import CmuxNextCompatAppKit
 
 /// What a picker needs from its host: the file system, the recents store,
 /// the explainer's memory, and how it asks before replacing a file. Every

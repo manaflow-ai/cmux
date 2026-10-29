@@ -19,14 +19,14 @@ final class CEFLoadedStart {
 
     /// Returns once the framework load ended, or in host mode once the host attached (at once when
     /// neither runs), and the start's inputs are prepared; keeps both for ``start(trigger:)``. Never
-    /// promotes a fenced preload read: the warm start waits behind the startup fence (p08-startup-045).
+    /// promotes a fenced preload read: the warm start waits behind the startup fence.
     func loadEnded() async {
         guard runtime.startError() == nil, runtime.state != .ready else { return }
         if let hostStart = runtime.hostStart {
             boot = await hostStart.attached().map(CEFRuntimeBoot.host)
-            runtime.publishHelperParent()  // the attached host's pid (task p01-process-225), as `CEFRuntime.start` does
+            runtime.publishHelperParent()  // the attached host's pid, as `CEFRuntime.start` does
         } else {
-            // Behind the startup fence the preload's map is made only after its framework read (p08-startup-045).
+            // Behind the startup fence the preload's map is made only after its framework read.
             await runtime.libraryLoadEnded()
             guard let loadTask = runtime.loadTask else { return }
             boot = await loadTask.value.map(CEFRuntimeBoot.inProcess)

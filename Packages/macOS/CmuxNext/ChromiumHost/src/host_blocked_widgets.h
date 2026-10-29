@@ -1,5 +1,5 @@
 // No window of the Chromium Host on screen (plans/cmux-next/chrome-parity/
-// p01-process.md, task p01-process-068): the host's half of the fork's
+// p01-process.md): the host's half of the fork's
 // blocked widgets (task 176, fork API 31).
 //
 // While the host's handler is set, every Views widget of a detached page (or

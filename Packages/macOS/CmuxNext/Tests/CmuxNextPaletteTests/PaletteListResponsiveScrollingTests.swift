@@ -2,7 +2,7 @@ import AppKit
 @testable import CmuxNextPalette
 import Testing
 
-/// The palette's results keep AppKit's responsive scrolling (p03-rendering-110): the list opts in, neither
+/// The palette's results keep AppKit's responsive scrolling: the list opts in, neither
 /// it nor its table takes wheel events, and the table draws nothing of its own, so AppKit scrolls it off the
 /// main thread and a main-thread stall does not stop the scroll.
 @MainActor

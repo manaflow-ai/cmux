@@ -14,14 +14,14 @@ import CmuxNextSettings
 /// helper that hosts no frame of any browser (``MemoryDiagnosticsProcesses/rendererClientsWithFrames``).
 /// Chromium's own spare is one of those, but so is a renderer whose page has not committed yet: the fork
 /// has no read of the spare's id, which Chrome's Task Manager matches its "Spare Renderer" row on, so the
-/// row does not claim to be the spare. With `chromiumOneSpareRenderer`, Home keeps at most one (p07-memory-113).
+/// row does not claim to be the spare. With `chromiumOneSpareRenderer`, Home keeps at most one.
 ///
 /// It owns the pressure history, so `debug.hibernation.pressure` records its overrides in the same one.
 /// A read records nothing: the histograms' footprints come from ``MemoryFootprintEmitter``, as a
 /// `chrome://memory-internals` read adds no sample to Chrome's memory histograms.
 ///
 /// Socket policy of the memory diagnostics (`debug.memory`, ``DebugHibernationControl``'s
-/// `debug.discards`; p07-memory-076):
+/// `debug.discards`):
 /// - Lane: one short main-actor copy in the automation class, after the person's input; parsing,
 ///   sampling and encoding run off the main actor. Not an input method (``ControlMethod/injectingInput()``).
 /// - Focus: none. It changes nothing: no selection, window, activation or pressure change.

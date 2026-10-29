@@ -1,7 +1,7 @@
 import AppKit
 import AVFoundation
 import CmuxNextAgentPermissions
-import CmuxNextCompat
+import CmuxNextCompatAppKit
 import CmuxNextWakeups
 
 /// Takes the person to a grant after they pressed Continue on the card:

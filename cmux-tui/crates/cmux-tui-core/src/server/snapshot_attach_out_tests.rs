@@ -1,6 +1,5 @@
 //! A snapshot viewer's bulk work never takes a worker the person's echo
-//! runs on, and automation's viewers run below the person's
-//! (p01-process-125).
+//! runs on, and automation's viewers run below the person's.
 //!
 //! Each test holds every utility worker of the daemon's pool busy: bulk
 //! work and automation's views then cannot run, and what still arrives ran

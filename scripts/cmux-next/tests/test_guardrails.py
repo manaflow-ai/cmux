@@ -594,7 +594,7 @@ class SpeedTests(unittest.TestCase):
         self.assertLess(elapsed, 1.0)
 
 
-# raw-blocking-ext (p02-threads-126).
+# raw-blocking-ext.
 REPO = SCRIPTS.parents[1]
 INVENTORY_REV = "772cdfc45ac"
 EXT_RULE = next(rule for rule in guardrails.RULES if rule.id == "raw-blocking-ext")
@@ -789,7 +789,7 @@ class RawBlockingExtTests(unittest.TestCase):
         self.assertGreaterEqual(int(counts["raw-blocking-ext"]), 600, out)
 
 
-# awaited-low-priority (p02-threads-113): a low-priority task whose value main-actor code awaits.
+# awaited-low-priority: a low-priority task whose value main-actor code awaits.
 AWAITED_RULE = next(rule for rule in guardrails.RULES if rule.id == "awaited-low-priority")
 AWAITED_REV = "d842bcdc673"  # origin/perf/chrome-parity when the rule landed
 AWAITED_COUNT = 21  # threading-inventory.py --rev d842bcdc673 --rule awaited-low-priority --count
@@ -966,6 +966,108 @@ class AwaitedLowPriorityTests(unittest.TestCase):
                              capture_output=True, text=True, check=True).stdout
         counts = dict(line.rsplit(" ", 1) for line in out.strip().splitlines())
         self.assertEqual(int(counts["awaited-low-priority"]), AWAITED_COUNT, out)
+
+
+class TaskIdTests(unittest.TestCase):
+    """task-id-comment and task_ids.py: a plan task id goes in the commit message, never in a new code comment."""
+
+    @property
+    def ids(self):
+        return guardrails.task_ids_module()
+
+    def hits(self, path: str, base: str, head: str) -> list[tuple[str, int]]:
+        base_lines, head_lines = base.split("\n"), head.split("\n")
+        diff = difflib.SequenceMatcher(a=base_lines, b=head_lines, autojunk=False)
+        added, removed = [], []
+        for tag, i1, i2, j1, j2 in diff.get_opcodes():
+            if tag in ("replace", "delete"):
+                removed += [guardrails.Added(path, n + 1, base_lines[n]) for n in range(i1, i2)]
+            if tag in ("replace", "insert"):
+                added += [guardrails.Added(path, n + 1, head_lines[n]) for n in range(j1, j2)]
+        change = guardrails.FileChange(path, head_lines, added, removed=removed, base_lines=base_lines)
+        return [(h.path.rsplit("/", 1)[-1], h.number) for h in guardrails.task_id_comments([change], collections.Counter())]
+
+    def test_a_new_comment_with_an_id_is_refused_in_every_comment_form(self):
+        for path, line in ((UI + "/A.swift", "let a = 1 // the rows load later (p08-startup-064)"),
+                           (UI + "/A.swift", "/// p07-memory-082: the engine loads on demand"),
+                           (UI + "/A.swift", "/* see cp/p10-stability-083/084 */"),
+                           ("cmux-tui/crates/x/src/a.rs", "// the frame (p03-rendering-100) goes first"),
+                           ("webviews/src/a.ts", "// drafts flush on blur (p13-webui-082)")):
+            with self.subTest(line=line):
+                self.assertEqual(self.hits(path, "let x = 0\n", f"let x = 0\n{line}\n"), [(path.rsplit('/', 1)[-1], 2)])
+
+    def test_ids_in_code_strings_paths_and_generated_blocks_pass(self):
+        for line in ('let key = "p04-input-053"',
+                     "// see plans/cmux-next/chrome-parity/p01-process.md",
+                     "// the corpus file p04-input-053.json",
+                     "let p04 = 1 // a plain comment",
+                     "// BEGIN tool.py: generated from x.json; do not edit.\n// (p10-stability-039)\n// END tool.py"):
+            with self.subTest(line=line):
+                self.assertEqual(self.hits(UI + "/A.swift", "let x = 0\n", f"let x = 0\n{line}\n"), [])
+
+    def test_an_edited_or_moved_comment_that_keeps_its_id_is_not_new(self):
+        base = "let x = 0\n// the rows load later (p08-startup-064)\n"
+        self.assertEqual(self.hits(UI + "/A.swift", base, "let x = 0\n// the rows load much later (p08-startup-064)\n"), [])
+        self.assertEqual(self.hits(UI + "/A.swift", base, "let x = 0\n// the rows load later (cp/p08-startup-064)\n"), [],
+                         "a branch prefix around a kept id made it new")
+        self.assertEqual(self.hits(UI + "/A.swift", base, "let x = 0\n// rows (p08-startup-064, p08-startup-065)\n"),
+                         [("A.swift", 2)])
+
+    def test_the_rule_is_in_the_local_tier(self):
+        rule = next(r for r in guardrails.RULES if r.id == "task-id-comment")
+        self.assertTrue(rule.local_only)
+
+    def strip(self, text: str, path: str = "a.swift") -> str:
+        return self.ids.rewrite(path, text)[0]
+
+    def test_strip_keeps_the_sentence(self):
+        cases = {
+            "/// Built once per change (p04-input-053):\n": "/// Built once per change:\n",
+            "x = 1  // not AppKit (p08-startup-087)\n": "x = 1  // not AppKit\n",
+            "/// `start` post, p08-startup-031). Needs it.\n": "/// `start` post). Needs it.\n",
+            "/// p07-memory-082: the engine loads\n": "/// The engine loads\n",
+            "/// A slide (`x`, chrome-parity p03-rendering-100): notes\n": "/// A slide (`x`): notes\n",
+            "/// The calls (p02-threads-130, 146).\n": "/// The calls.\n",
+            "/// drives `oneInput(_:)`\n/// (p10-stability-182). Once the input\n":
+                "/// drives `oneInput(_:)`.\n/// Once the input\n",
+            "// handlers (choosers.h, task\n// p01-process-228). Plain C++\n": "// handlers (choosers.h).\n// Plain C++\n",
+            "let a = 1 // p04-input-005\n": "let a = 1\n",
+            "// foo\n// p04-input-006\n// bar\n": "// foo\n// bar\n",
+            "/* A block (p04-input-001)\n * p04-input-003\n */\n": "/* A block\n */\n",
+            "/// ``skip()`` and `run()` (p04-input-001): it calls `foo()`.\n":
+                "/// ``skip()`` and `run()`: it calls `foo()`.\n",
+            "// The Mutex the caches live in (p10-stability-172, -055).\n": "// The Mutex the caches live in.\n",
+            "/// p08-startup-087: cmux restores its windows.\n": "/// cmux restores its windows.\n",
+            "//! The hang reporter\n//! (p10-stability-207). It runs\n": "//! The hang reporter.\n//! It runs\n",
+            "//! p04-input-001: a reader\n": "//! A reader\n",
+            "/*\n * - the interactions (cmux's INP,\n *   p04-input-097);\n */\n": "/*\n * - the interactions (cmux's INP);\n */\n",
+            "/*\n *   field data (chrome-parity p09-observability-063 and 064;\n *   plans/x.md, \"Upload\");\n */\n":
+                "/*\n *   field data\n *   (plans/x.md, \"Upload\");\n */\n",
+        }
+        for before, after in cases.items():
+            with self.subTest(before=before):
+                self.assertEqual(self.strip(before), after)
+
+    def test_strip_changes_only_comments_and_lists_what_needs_a_person(self):
+        text = ('let s = "p04-input-053 (p04-input-054)" // the flip is p02-threads-021\n'
+                "// BEGIN tool.py: generated from x.json; do not edit.\n// (p10-stability-039)\n// END tool.py\n")
+        out, left = self.ids.rewrite("a.swift", text)
+        self.assertEqual(out, text)
+        self.assertEqual(left, [1])
+        py = 'x = "p04-input-053"  # the queue (p05-ipc-142)\n'
+        self.assertEqual(self.strip(py, "a.py"), 'x = "p04-input-053"  # the queue\n')
+        self.assertEqual(self.strip("// generated by gen.py; do not edit\n// (p01-process-001)\n"),
+                         "// generated by gen.py; do not edit\n// (p01-process-001)\n")
+
+    def test_strip_leaves_hash_inputs_whole(self):
+        for path in self.ids.HASHED:
+            with self.subTest(path=path):
+                self.assertEqual(self.ids.tracked(guardrails.Path(__file__).resolve().parents[3], [path]), [])
+
+    def test_strip_is_idempotent(self):
+        text = "/// Built once (p04-input-053): the facts\n/// (p10-stability-182). Once the input\n"
+        once = self.strip(text)
+        self.assertEqual(self.strip(once), once)
 
 
 if __name__ == "__main__":

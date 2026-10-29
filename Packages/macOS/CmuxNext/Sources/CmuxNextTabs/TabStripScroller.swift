@@ -4,7 +4,7 @@ import CmuxNextInput
 import CmuxNextWakeups
 import QuartzCore
 
-/// The tab strip's wheel and trackpad scroll by translation (p04-input-087), as Chrome scrolls its tab
+/// The tab strip's wheel and trackpad scroll by translation, as Chrome scrolls its tab
 /// strip: `TabStripScrollContainer` (chrome/browser/ui/views/tabs/tab_strip_scroll_container.cc) holds the
 /// tabs in a `views::ScrollView` that scrolls with layers (ui/views/controls/scroll_view.cc,
 /// `ScrollsWithLayers`): a scroll moves the contents layer and lays nothing out.

@@ -61,7 +61,7 @@ final class ChiefPetBubblePanel: NSPanel {
     }
 
     /// Fades the capsules in from clear on the render server. The window's alpha stays 1, so the
-    /// window server gets no call per frame (chrome-parity task p03-rendering-105; Chromium fades
+    /// window server gets no call per frame (Chromium fades
     /// a widget's layer, ui/wm/core/window_animations.cc `AnimateShowWindowCommon`).
     func fadeIn() {
         guard let layer = bubble.layer else { return }

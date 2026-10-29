@@ -2,7 +2,9 @@
 import AppKit
 import CmuxNextBridge
 import CmuxNextEnergy
+import CmuxNextFocusUI
 import CmuxNextHibernation
+import CmuxNextInput
 import CmuxNextPages
 import CmuxNextResources
 import CmuxNextSettings
@@ -113,6 +115,8 @@ final class CaptureSceneRegistry {
         // The Settings tab covers the agent pane: the scene waits for its own page and row.
         let isSettingsEnergy = definition.name == Self.settingsEnergyScene
         let ownsReadiness = isHome || isTaskManager || isSettingsEnergy
+        // The latency HUD is a panel over the showcase window: the window settles as usual.
+        let isLatencyHUD = definition.name == Self.latencyHUDScene
         let readiness = await DebugAgentPane.handle(["action": .string("readiness")], services)
         guard ownsReadiness || readinessIsComplete(readiness) else {
             return .object([
@@ -130,15 +134,19 @@ final class CaptureSceneRegistry {
         } else if isSettingsEnergy {
             // `showEnergySetting` waited for the page and its row; its error is the scene's.
             actionReadiness = sceneAction
+        } else if isLatencyHUD {
+            actionReadiness = await showLatencyHUD(windowID: targetWindowID)
         } else {
             actionReadiness = await waitForSceneAnimation()
         }
         guard case .object(let actionReadinessReport) = actionReadiness,
               actionReadinessReport["error"] == nil,
-              ownsReadiness || actionReadinessReport["animations_pending"]?.boolValue == false else {
+              ownsReadiness || isLatencyHUD || actionReadinessReport["animations_pending"]?.boolValue == false else {
+            if isLatencyHUD { services.actionLatencyHUD.hide() }
             let failure = isHome ? "Home scene did not settle"
                 : isTaskManager ? "Task Manager scene did not settle"
-                : isSettingsEnergy ? "Settings did not show the Energy Saver row" : "scene popover did not become opaque before capture"
+                : isSettingsEnergy ? "Settings did not show the Energy Saver row"
+                : isLatencyHUD ? "latency HUD scene did not settle" : "scene popover did not become opaque before capture"
             return .object(["error": .string(failure),
                             "scene": .string(definition.name), "readiness": actionReadiness,
                             "scene_action": sceneAction])
@@ -148,6 +156,7 @@ final class CaptureSceneRegistry {
         let snapshot = await DebugWindowSnapshot.captureAsync(snapshotParams, services: services)
         let click = isHome ? await clickHomeAgent(params, windowID: targetWindowID) : nil
         if isHome { clearShowcaseAgent(windowID: targetWindowID) }
+        if isLatencyHUD { services.actionLatencyHUD.hide() }
         guard case .object(var result) = snapshot else { return snapshot }
         result["click"] = click
         guard ownsReadiness || (result["webviews_composited"]?.intValue ?? 0) > 0 else {
@@ -216,7 +225,7 @@ final class CaptureSceneRegistry {
 
     static let energySaverScene = "energy-saver"
 
-    /// `energy-saver` (p14-energy-026): Low Power Mode laid over the Mac's inputs through the app's one
+    /// `energy-saver`: Low Power Mode laid over the Mac's inputs through the app's one
     /// energy monitor (`debug.energy.simulate`), so the policy driver turns the saver on as it would on
     /// a real Mac; then the active sidebar's leaf card opens and the scene waits until both show.
     private func showEnergySaver() async -> JSONValue {
@@ -249,7 +258,7 @@ final class CaptureSceneRegistry {
 
     static let settingsEnergyScene = "settings-energy"
 
-    /// `settings-energy` (p14-energy-129): Settings opened on General > Energy Saver, with the choices
+    /// `settings-energy`: Settings opened on General > Energy Saver, with the choices
     /// this Mac offers ("On Battery" only with a battery). Waits until the Settings page has painted
     /// (its paint is held until its reads finish) and its `energy.saver` row is in the page, then for
     /// the frames after it. The report says what the page leaves out; an error names what never showed.
@@ -313,7 +322,7 @@ final class CaptureSceneRegistry {
 
     static let highEnergyTabScene = "high-energy-tab"
 
-    /// `high-energy-tab` (p14-energy-125): a browser tab opens in the focused pane as a person opens one and hides behind
+    /// `high-energy-tab`: a browser tab opens in the focused pane as a person opens one and hides behind
     /// the tab the pane showed; fixture renderer readings (``HighEnergySceneReadings``) give it 8 % of a core over a
     /// whole window; then the pointer rests on it until its card shows "Using high energy" with Discard. The fixtures
     /// and the card's pointer stay until the next scene. An error names the step that never happened.
@@ -399,6 +408,36 @@ final class CaptureSceneRegistry {
         return .object(report)
     }
 
+    static let latencyHUDScene = "latency-hud"
+
+    /// `latency-hud`: publishes ``ActionLatencyHUD/captureInputs`` to the app's input latency feed, shows the action latency
+    /// HUD over window `windowID` and waits until its input section lists them. The capture's floating windows
+    /// include the panel. An error names what never appeared.
+    private func showLatencyHUD(windowID: String) async -> JSONValue {
+        guard let window = services.windows.controller(for: windowID)?.window else {
+            return .object(["error": .string("capture window is gone")])
+        }
+        let fixture = ActionLatencyHUD.captureInputs
+        for slot in fixture { services.inputLatencyFeed.publish(slot) }
+        let hud = services.actionLatencyHUD
+        hud.hide()
+        hud.show(over: window)
+        frames.start()
+        let settled = await frames.settled(
+            until: { hud.isShown && hud.inputRows.count >= fixture.count },
+            start: .now,
+            window: 100,
+            deadline: 5_000,
+        )
+        var report: [String: JSONValue] = [
+            "latency_hud_frames": frames.stop(),
+            "input_rows": .number(Double(hud.inputRows.count)),
+            "action_rows": .number(Double(hud.rows.count)),
+        ]
+        if settled == nil { report["error"] = .string("the latency HUD did not list the fixture inputs before the deadline") }
+        return .object(report)
+    }
+
     /// The agent pane drew the worked turn and shows its composer.
     private func readinessIsComplete(_ readiness: JSONValue) -> Bool {
         guard case .object(let report) = readiness else { return false }
@@ -433,6 +472,8 @@ final class CaptureSceneRegistry {
                                description: "A hidden browser tab whose renderer used 8 percent of one core over the last minute (feature highEnergyTabs, fixture readings): its hover card says Using high energy, with Discard."),
         CaptureSceneDefinition(name: "task-manager",
                                description: "The Task Manager with taskManagerMemorySaved on: the app's processes, then two pages Memory Saver discarded (one saved about 182 MB, one with no measurement) and the Memory Saver freed footer."),
+        CaptureSceneDefinition(name: "latency-hud",
+                               description: "The action latency HUD over the showcase window, its input section with three fixture inputs: a terminal key under one 120 Hz frame, a page scroll over it (danger color) and a sidebar click with no presented frame."),
     ]
 }
 #endif

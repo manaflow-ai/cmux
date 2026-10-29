@@ -161,7 +161,7 @@ extension MainPaneLayout {
         // The stand-in tab shows at once: by its id (and the store's tab that replaces it), not as any new tab.
         outbound?.made(key: pending.key)
         let locate: TabMirror.Locate = { key in
-            // view-observation-allow: one MachineTabIndex lookup (p06-scheduler-051) per read of TabMirror's wait
+            // view-observation-allow: one MachineTabIndex lookup per read of TabMirror's wait
             services.locateTab(key).map { (pane: $0.1.handle, daemon: services.machines.daemon(forTab: $0.0)) }
         }
         let end = services.registry.completion(on: services.mainWork)
@@ -196,7 +196,7 @@ extension MainPaneLayout {
             dockChat(of: target, keeping: tab.surface, focus: focus, services: services, outbound: outbound) { _ in finished?(true) }
             return
         }
-        // view-observation-allow: one MachineTabIndex lookup (p06-scheduler-051), once
+        // view-observation-allow: one MachineTabIndex lookup, once
         if focus, let model = services.locateTab(tab.key)?.0 {
             target.select(StripTabID(model.id))
             if let content = target.workspace { PaneHandlers.focus(target.layoutPaneID, in: content) }
@@ -210,7 +210,7 @@ extension MainPaneLayout {
     /// The pane chat tab `id` moved into from `anchor`, once the store lists it there (nil after
     /// ``listLimit``). One `ServiceObservation` reads the tab's pane again only when the tab index moves.
     @MainActor private static func movedPane(of id: String, from anchor: PaneModel, services: AppServices) async -> PaneModel? {
-        // view-observation-allow: one MachineTabIndex lookup (p06-scheduler-051) per read
+        // view-observation-allow: one MachineTabIndex lookup per read
         let moved: @MainActor () -> PaneModel? = { services.locateTab(id).flatMap { $0.1 !== anchor ? $0.1 : nil } }
         await ObservedCondition(owner: "MainPaneLayout.chatDock", .visible, on: services.mainWork)
             .until(timeout: listLimit, deadlines: services.mainDeadlines) { moved() != nil }
