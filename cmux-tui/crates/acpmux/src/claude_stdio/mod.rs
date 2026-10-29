@@ -467,6 +467,10 @@ pub struct Translator {
     /// A compaction just ended: the synthetic user line Claude writes next
     /// is its summary (`compaction_summary`).
     awaiting_summary: AtomicBool,
+    /// Claude Code is compacting the active turn. Compaction can ignore the
+    /// interrupt control request, so the hub ends that turn without waiting
+    /// for the normal cancel grace period.
+    compacting: AtomicBool,
     /// The model id the chat's main loop last ran (its `message_start`): the
     /// `modelUsage` key for its window, which a picker alias is not.
     loop_model: Mutex<String>,
@@ -577,6 +581,7 @@ impl Translator {
             context_window: AtomicU64::new(0),
             context_used: AtomicU64::new(0),
             awaiting_summary: AtomicBool::new(false),
+            compacting: AtomicBool::new(false),
             loop_model: Mutex::new(String::new()),
             message_ids: Mutex::new(HashMap::new()),
             streamed_subagents: Mutex::new(HashSet::new()),
@@ -584,6 +589,11 @@ impl Translator {
             announced: Mutex::new(HashMap::new()),
             usage_limits: Mutex::new(Default::default()),
         })
+    }
+
+    /// Whether Claude Code has reported that it is currently compacting.
+    pub fn is_compacting(&self) -> bool {
+        self.compacting.load(Ordering::SeqCst)
     }
 
     /// Take the lines `inbound` queued for claude's stdin.

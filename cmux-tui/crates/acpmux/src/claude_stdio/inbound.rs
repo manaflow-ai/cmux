@@ -11,6 +11,22 @@ impl Translator {
         self.end_background_asks(false, |_, deadline| deadline.is_some_and(|d| d <= now)).await;
         let kind = line.get("type").and_then(Value::as_str).unwrap_or("");
         let sub = line.get("subtype").and_then(Value::as_str).unwrap_or("");
+        if kind == "system" && sub == "status" {
+            if line.get("status").and_then(Value::as_str) == Some("compacting") {
+                self.compacting.store(true, Ordering::SeqCst);
+            } else if line.get("compact_result").is_some() {
+                // A successful compaction still has its boundary and summary
+                // to deliver; the boundary below is the point at which Claude
+                // can take another prompt. Failed compactions end at result.
+                if line.get("compact_result").and_then(Value::as_str) != Some("success") {
+                    self.compacting.store(false, Ordering::SeqCst);
+                }
+            }
+        } else if kind == "system" && sub == "compact_boundary" {
+            self.compacting.store(false, Ordering::SeqCst);
+        } else if kind == "result" {
+            self.compacting.store(false, Ordering::SeqCst);
+        }
         // A subagent's lines stream under its own session, ended or not (`subagent_route`).
         let parent = line.get("parent_tool_use_id").and_then(Value::as_str);
         let sid = self.line_session(parent);

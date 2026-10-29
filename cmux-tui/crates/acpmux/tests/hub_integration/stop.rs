@@ -152,6 +152,49 @@ async fn a_slow_stop_does_not_fold_the_next_prompt_into_the_stopped_turn() {
     );
 }
 
+/// Claude Code can ignore `interrupt` while it is compacting. A repeated Stop
+/// still settles that turn once, before Claude's late compaction result, and
+/// does not let the late result start another turn.
+#[tokio::test]
+async fn a_compacting_claude_stop_is_prompt_and_idempotent() {
+    let (_hub, mut c) = claude_setup().await;
+    let s = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []})).await.unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    let prompt_id = "compact-stop-prompt";
+    c.send(method::SESSION_PROMPT, prompt(&id, "compact-stop", Some(prompt_id))).await;
+    c.wait_for(method::SESSION_UPDATE, |p| {
+        p["update"]["sessionUpdate"] == "compaction" && p["update"]["state"] == "running"
+    })
+    .await;
+    let stopped = std::time::Instant::now();
+    for _ in 0..2 {
+        c.tx.send(
+            Message::notification(method::SESSION_CANCEL, json!({"sessionId": id})).to_line(),
+        )
+        .await
+        .unwrap();
+    }
+    let result = tokio::time::timeout(
+        Duration::from_secs(2),
+        c.wait_for(method::MUX_EVENT, |p| p["kind"] == "turn_result"),
+    )
+    .await
+    .expect("Stop waited for Claude's compaction to finish");
+    assert!(stopped.elapsed() < Duration::from_secs(2));
+    assert_eq!(result["msg"]["status"], "cancelled", "{result}");
+    assert_eq!(result["msg"]["cancelForced"], true, "{result}");
+    assert_eq!(result["msg"]["promptId"], prompt_id, "{result}");
+    assert!(result["msg"]["turnId"].as_str().is_some(), "{result}");
+    assert!(result["msg"]["turnSeq"].as_u64().is_some(), "{result}");
+    // The fake emits its compaction result after 800 ms. It is stale after the
+    // forced end: no second turn or forced result is recorded for the stop.
+    tokio::time::sleep(Duration::from_millis(900)).await;
+    let events = _hub.events(&id, 0, 10_000).unwrap();
+    let results: Vec<_> = events.iter().filter(|e| e.kind == "turn_result").collect();
+    assert_eq!(results.len(), 1, "{results:?}");
+    assert_eq!(events.iter().filter(|e| e.kind == "turn_started").count(), 1, "{events:?}");
+}
+
 /// How soon after Stop a person sees it (Lawrence 2026-10-19: "interrupt them
 /// faster"): the cancel's answer must not wait for the agent, and an agent
 /// that honours the cancel has its turn end within the budget.

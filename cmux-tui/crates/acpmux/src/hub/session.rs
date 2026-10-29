@@ -134,6 +134,9 @@ pub struct Session {
     /// How many times its turn was stopped (`cancel.rs`): a prompt whose model-sized copies were
     /// made meanwhile is not written (`turns.rs`).
     pub(super) cancels: AtomicU64,
+    /// The turn id whose forced cancellation was already published. A second
+    /// Stop for the same turn must not publish another forced answer.
+    pub(super) cancel_forced_turn: StdMutex<Option<String>>,
     /// Status writes under way: each sets the status, then logs it (`Hub::write_status`). Log
     /// retention leaves a chat alone while one is (`retention.rs` `untouched`).
     pub(super) status_writes: AtomicU64,
