@@ -614,8 +614,12 @@ cat > node_modules/.bin/vp <<'VP'
         import next_batch
         files = [path for path in subprocess.run(["git", "ls-files", "-z"], cwd=SOURCE, check=True,
                                                  capture_output=True, text=True).stdout.split("\0") if path]
-        attributes = subprocess.run(["git", "check-attr", "merge", "--stdin", "-z"], cwd=SOURCE, check=True,
-                                    input="\0".join(files), capture_output=True, text=True).stdout.split("\0")
+        # The paths go through a file, never `input=`: a pipe write can block for good (scripts/cmux-next/git_batch.py).
+        with tempfile.TemporaryFile() as paths:
+            paths.write("\0".join(files).encode())
+            paths.seek(0)
+            attributes = subprocess.run(["git", "check-attr", "merge", "--stdin", "-z"], cwd=SOURCE, check=True,
+                                        stdin=paths, capture_output=True, text=True).stdout.split("\0")
         kept = [path for path, _, value in zip(attributes[0::3], attributes[1::3], attributes[2::3])
                 if value == "cmux-generated-v1"]
         self.assertTrue(kept)
