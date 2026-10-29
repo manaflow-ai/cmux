@@ -187,6 +187,27 @@ import Testing
         #expect(fixture.states("swarm").last == .updated(build: "abc123def"))
     }
 
+    /// Offline for six hours, a machine that then connects already on this build (updated by
+    /// hand meanwhile) leaves the board: its offline line does not stay.
+    @Test func anOfflineTargetThatConnectsCurrentAfterSixHoursClearsItsLine() async throws {
+        let fixture = try PolicyFixture()
+        defer { fixture.remove() }
+        let clock = PolicyTestClock()
+        let minutes: [Int64] = [2, 4, 8, 16] + Array(repeating: 30, count: 11)
+        let target = fixture.target("swarm", build: Self.older,
+                                    outcomes: Array(repeating: .unreachable, count: minutes.count + 1))
+        let policy = fixture.policy([target], clock: clock)
+        await policy.run()
+        #expect(fixture.states("swarm").last == .offline)
+
+        target.reach(Self.bundled)
+        await policy.offer(target)
+        await policy.drained()
+        #expect(fixture.calls.count == minutes.count + 1)
+        #expect(fixture.states("swarm").last == .cleared)
+        #expect(fixture.ledger.targets.isEmpty)
+    }
+
     /// An offline machine the daemon then reports disconnected (no build) keeps its offline line
     /// rather than leaving the board, until it connects and is offered again.
     @Test func anOfflineTargetThatDisconnectsKeepsItsLine() async throws {

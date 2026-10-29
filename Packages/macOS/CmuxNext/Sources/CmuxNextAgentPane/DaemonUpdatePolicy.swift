@@ -126,6 +126,9 @@ public actor DaemonUpdatePolicy {
     /// Targets the person asked to update again (``retry(_:)``) whose turn has not come: neither the
     /// ledger nor this run's memory holds them back.
     private var retried: Set<String> = []
+    /// Targets whose line says offline after their entry left the queue (still unreachable after
+    /// 6 hours): their next offer clears that line when they need no update.
+    private var offlineShown: Set<String> = []
 
     public init(_ dependencies: Dependencies) {
         self.dependencies = dependencies
@@ -295,6 +298,8 @@ public actor DaemonUpdatePolicy {
         // Before the run's own memory (`settled`): a machine reinstalled since it said it cannot
         // update is asked again at its next offer, in this run too.
         if let known = ledger.cannotUpdate?[target.id] {
+            // Each answer below replaces an offline line.
+            offlineShown.remove(target.id)
             let now = await target.currentBuild()
             if now == nil, !(await target.urgent) {
                 // Nothing to say now: it serves all this app uses (repaired), it is gone, or the
@@ -337,13 +342,14 @@ public actor DaemonUpdatePolicy {
         }
         guard current != nil || urgent else {
             // Still offline: its line stays until it connects and is offered again.
-            if pending.offline, !clearLine { return nil }
+            if pending.offline || offlineShown.contains(target.id), !clearLine { return nil }
             return await dropped(pending, asked: clearLine)
         }
         // Busy for ``Dependencies/updateBusyAfter`` or longer (at once when it is zero): this update
         // does not wait for an idle moment.
         let asked = elapsed()
         let whileBusy = asked - (pending.firstBusy ?? asked) >= deps.updateBusyAfter
+        offlineShown.remove(target.id)
         await deps.report(DaemonUpdateEvent(target, .updating))
         // A click until now is answered by this update.
         retried.remove(target.id)
@@ -360,6 +366,7 @@ public actor DaemonUpdatePolicy {
                 // Not settled: its next offer, once it connects, updates it in this run. Its line stays.
                 if again.offline {
                     Self.logger.info("\(target.displayName, privacy: .public) stayed offline; updated when it connects")
+                    offlineShown.insert(target.id)
                     await deps.report(DaemonUpdateEvent(target, .offline))
                     return nil
                 }
@@ -402,9 +409,11 @@ public actor DaemonUpdatePolicy {
     /// Drops `pending`, which no longer needs an update; one asked again before leaves the board,
     /// since no retry comes.
     /// `asked`: the person's click (``retry(_:)``) asked for it, or it could not update before and
-    /// runs another build now, so its line (a machine that could not update) goes too.
+    /// runs another build now, so its line (a machine that could not update) goes too. An offline
+    /// line kept after 6 hours (``offlineShown``) goes as well: it connected needing no update.
     private func dropped(_ pending: Pending, asked: Bool = false) async -> Pending? {
-        if pending.firstBusy != nil || asked { await dependencies.report(DaemonUpdateEvent(pending.target, .cleared)) }
+        let wasOffline = offlineShown.remove(pending.target.id) != nil
+        if pending.firstBusy != nil || asked || wasOffline { await dependencies.report(DaemonUpdateEvent(pending.target, .cleared)) }
         return nil
     }
 
