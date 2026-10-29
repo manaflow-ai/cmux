@@ -45,11 +45,19 @@ release() {
   kill "$lease_pid" 2>/dev/null || true
 }
 trap release EXIT
-# Up to 10 minutes: the exclusive drain (300 s) and acquire's own retries.
-for _ in $(seq 1 300); do
+# Until acquire prints a lease or exits: it bounds itself (its timeout, plus an exclusive drain of up to
+# CAPTURE_HOST_EXCLUSIVE_DRAIN_SECONDS per busy host), so a fixed wait here would stop it mid-drain.
+lease=
+while :; do
   lease=$(grep -o 'slot-[A-Za-z0-9._-]*' "$out/lease.txt" 2>/dev/null | head -1 || true)
   [ -n "$lease" ] && capture-host slot-info "$lease" >/dev/null 2>&1 && break
-  kill -0 "$lease_pid" 2>/dev/null || { cat "$out/lease.err" >&2; exit 1; }
+  if ! kill -0 "$lease_pid" 2>/dev/null; then
+    # It may have printed the lease just before it exited.
+    lease=$(grep -o 'slot-[A-Za-z0-9._-]*' "$out/lease.txt" 2>/dev/null | head -1 || true)
+    [ -n "$lease" ] && break
+    echo "no exclusive capture slot: $(tail -3 "$out/lease.err" 2>/dev/null)" >&2
+    exit 1
+  fi
   sleep 2
 done
 # The lease's 10 minutes start when it is granted, after the exclusive drain.

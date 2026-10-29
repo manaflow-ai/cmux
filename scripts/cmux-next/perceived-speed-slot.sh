@@ -54,13 +54,16 @@ stage() {
   ssh "$1" "export PATH=\$HOME/.local/bin:\$PATH; rm -rf $cache.part && mkdir -p $cache.part && cmux-ci artifact '$job' $cache.part/app.zip >/dev/null \
     && cd $cache.part && ditto -x -k app.zip . && rm app.zip && rm -rf $cache && mv $cache.part $cache"
 }
+prefer=()
 for attempt in 1 2 3; do
   # The lease lives as long as the acquire process; keep it in its own session.
   # Exclusive: no fleet step and no other capture on the mini while it records (its timings are
   # evidence only then; 2026-10-29 a run beside other agents' steps saw a 1-minute load of 14-24).
-  setsid capture-host acquire --slot --exclusive >"$work/lease" 2>&1 </dev/null &
+  # After staging, ask for the host the app was staged on first (acquire moves one host on per call).
+  setsid capture-host acquire --slot --exclusive ${prefer[@]+"${prefer[@]}"} >"$work/lease" 2>&1 </dev/null &
   acquire=$!
-  for _ in $(seq 1 300); do grep -q '^slot-' "$work/lease" && break; kill -0 "$acquire" 2>/dev/null || break; sleep 2; done
+  # Until acquire prints a lease or exits: it bounds itself, an exclusive drain included.
+  while ! grep -q '^slot-' "$work/lease" && kill -0 "$acquire" 2>/dev/null; do sleep 2; done
   lease=$(grep '^slot-' "$work/lease" | tail -1)
   [ -n "$lease" ] || { echo "no capture slot: $(tail -3 "$work/lease")" >&2; exit 3; }
   eval "$(capture-host slot-info "$lease" | grep -E '^(host|slot|root)=')"
@@ -69,6 +72,7 @@ for attempt in 1 2 3; do
   capture-host release "$lease" >/dev/null 2>&1; lease=""; kill "$acquire" 2>/dev/null; acquire=""
   echo "perceived-speed: staging job $job on $host"
   stage "$host" || { echo "could not stage the app on $host" >&2; exit 3; }
+  prefer=(--prefer "$host")
 done
 [ -n "$lease" ] || { echo "no lease on a host with the app staged" >&2; exit 3; }
 app=$(ssh "$host" "ls -d $cache/*.app | head -1")

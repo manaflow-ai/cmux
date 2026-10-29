@@ -16,6 +16,10 @@ echo "capture-host: no lease (test stand-in)" >&2
 exit 1
 SH
 chmod +x "$tmp/bin/capture-host"
+# perceived-speed-slot.sh starts acquire with setsid, which macOS lacks.
+command -v setsid >/dev/null || { printf '#!/bin/sh\nexec "$@"\n' >"$tmp/bin/setsid"; chmod +x "$tmp/bin/setsid"; }
+# A bound with no GNU timeout (macOS): perl's alarm.
+bounded() { perl -e 'alarm shift; exec @ARGV or exit 127' "$@"; }
 export CAPTURE_HOST_ARGS_LOG="$tmp/args.log" PATH="$tmp/bin:$PATH"
 
 check() { # check NAME: the runner asked for an exclusive slot lease
@@ -29,8 +33,8 @@ check() { # check NAME: the runner asked for an exclusive slot lease
   : >"$CAPTURE_HOST_ARGS_LOG"
 }
 
-timeout 60 bash "$ROOT/scripts/cmux-next/restore-journey-slot.sh" 0123456789abcdef01234567 "$tmp/rj" >/dev/null 2>&1 || true
+bounded 60 bash "$ROOT/scripts/cmux-next/restore-journey-slot.sh" 0123456789abcdef01234567 "$tmp/rj" >/dev/null 2>&1 || true
 check restore-journey-slot.sh
-timeout 60 bash "$ROOT/scripts/cmux-next/perceived-speed-slot.sh" --job 0123456789abcdef01234567 --out "$tmp/ps" >/dev/null 2>&1 || true
+bounded 60 bash "$ROOT/scripts/cmux-next/perceived-speed-slot.sh" --job 0123456789abcdef01234567 --out "$tmp/ps" >/dev/null 2>&1 || true
 check perceived-speed-slot.sh
 printf 'capture-runners-exclusive tests: ok\n'
