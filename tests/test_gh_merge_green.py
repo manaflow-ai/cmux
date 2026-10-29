@@ -1460,7 +1460,8 @@ class WorkflowPresenceRegression(unittest.TestCase):
                     Path(os.environ['MERGE_MARKER']).touch()
                 elif a[:2] == ['api', 'graphql']:
                     expr = next((arg.removeprefix('expr=') for arg in a if arg.startswith('expr=')), '')
-                    body = x['graphql_workflows'].get(expr)
+                    if expr not in x['graphql_workflows']: sys.exit(2)
+                    body = x['graphql_workflows'][expr]
                     print(json.dumps({'data': {'repository': {'object': {'text': body} if body is not None else None}}}))
                 elif a[0] == 'api' and any('contents/scripts/ci/check-paths.txt' in arg for arg in a):
                     print('gh: Not Found (HTTP 404)', file=sys.stderr)
@@ -1574,6 +1575,7 @@ class WorkflowPresenceRegression(unittest.TestCase):
                 result, merged, queries = self.run_case(
                     probe_status=500,
                     graphql_workflows={
+                        "main:.github/workflows/ci.yml": None,
                         "main:.github/workflows/ci-macos.yml": large_workflow,
                     },
                     checks=[{'id': 1, 'name': name, 'status': 'completed', 'conclusion': conclusion}],
