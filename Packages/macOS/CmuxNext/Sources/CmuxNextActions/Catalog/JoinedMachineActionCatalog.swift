@@ -12,13 +12,13 @@ nonisolated enum JoinedMachineActionCatalog: ActionCatalogGroup {
                 id: "machine.joined.check", title: t("action.machine.joined.check", "Check Joined Machine"),
                 keywords: ["machine", "joined", "join", "doctor", "health", "check", "mesh", "heartbeat"],
                 category: .remote, symbol: "stethoscope", surfaces: [.contextMenu], targets: machine,
-                surfacePlan: plan(.inspect, 0, label: t("menu.machine.joined.check", "Check"))
+                surfacePlan: plan(.connection, 0, label: t("menu.machine.joined.check", "Check"))
             ),
             ActionDescriptor(
                 id: "machine.joined.rotate", title: t("action.machine.joined.rotate", "Rotate Joined Machine's Credential"),
                 keywords: ["machine", "joined", "join", "credential", "rotate", "key", "token", "secret"],
                 category: .remote, symbol: "key", surfaces: [.contextMenu], targets: machine,
-                surfacePlan: plan(.connection, 0, label: t("menu.machine.joined.rotate", "Rotate Credential"))
+                surfacePlan: plan(.connection, 1, label: t("menu.machine.joined.rotate", "Rotate Credential"))
             ),
             ActionDescriptor(
                 id: "machine.joined.revoke", title: t("action.machine.joined.revoke", "Revoke Joined Machine…"),

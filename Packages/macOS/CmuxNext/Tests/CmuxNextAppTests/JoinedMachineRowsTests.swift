@@ -131,7 +131,8 @@ import Testing
         #expect(Self.rows(menu).map { $0.enabled } == [true, true, true])
         let gone = MachineSectionHostView.joinedMenu(store.machines[1], rowID: "joined:m_2", registry: registry)
         #expect(Self.rows(gone).map { $0.title } == ["Check"], "a revoked machine offers only Check")
-        let off = MachineSectionHostView.joinedMenu(store.machines[0], rowID: "joined:m_1", registry: Self.registry(store, labs: { false }))
+        let offRegistry = Self.registry(store, labs: { false })
+        let off = MachineSectionHostView.joinedMenu(store.machines[0], rowID: "joined:m_1", registry: offRegistry)
         #expect(Self.rows(off).map { $0.enabled } == [false, false, false], "nothing runs while labs.machineJoin is off")
     }
 
@@ -224,7 +225,9 @@ import Testing
         let first = Task { await store.perform(.revoke, "m_1") }
         await gate.waitEntered()
         #expect(store.busy.contains("m_1"))
-        let busyMenu = MachineSectionHostView.joinedMenu(rows[0], rowID: "joined:m_1", registry: Self.registry(store))
+        // The menu target holds the registry weakly, as the app's long-lived one is: keep it here.
+        let registry = Self.registry(store)
+        let busyMenu = MachineSectionHostView.joinedMenu(rows[0], rowID: "joined:m_1", registry: registry)
         #expect(Self.rows(busyMenu).map { $0.enabled } == [true, false, false], "Rotate and Revoke wait; Check can still run")
         #expect(!(await store.perform(.rotate, "m_1")), "a second change while the first is in flight is refused")
         gate.release()
