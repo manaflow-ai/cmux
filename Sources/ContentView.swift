@@ -517,6 +517,7 @@ private final class WindowCommandPaletteOverlayController: NSObject {
 
     func update(
         isVisible: Bool,
+        dismissalPolicy: @MainActor @escaping () -> CommandPaletteDismissalPolicy = { .closesOnAnyInteraction },
         onDismiss: @MainActor @escaping (CommandPaletteInteractionDismissal) -> Void = { _ in },
         makeRootView: @MainActor () -> AnyView = { AnyView(EmptyView()) }
     ) {
@@ -562,7 +563,7 @@ private final class WindowCommandPaletteOverlayController: NSObject {
                     self?.updateFocusLockForWindowState()
                 },
                 onDismiss: { [weak self] dismissal in
-                    guard let self, self.isPaletteVisible else { return }
+                    guard let self, self.isPaletteVisible, dismissalPolicy().dismisses(dismissal) else { return }
                     self.hideOverlay()
                     onDismiss(dismissal)
                 }
@@ -1026,6 +1027,7 @@ struct ContentView: View {
     @State private var agentInboxMoveRequest = 0
     @State private var agentInboxSubmitRequest = 0
     @State private var agentInboxOpenGeneration = 0
+    @State private var remoteTmuxFindWindow = RemoteTmuxFindWindowSlot()
     @State private var commandPaletteQuery: String = ""
     @State private var commandPaletteCurrentWorkSnapshot: CurrentWorkSnapshot?
     @State private var commandPaletteCurrentWorkRevision = 0
@@ -1054,6 +1056,18 @@ struct ContentView: View {
     private var isAgentInboxPresented: Bool {
         commandPaletteOverlayState.isAgentInboxPresented
     }
+
+    /// Whether the overlay can take a palette list or rename request as it is. Find-window
+    /// cannot: the palette has to be presented over it, which closes it.
+    private var canReuseCommandPaletteOverlay: Bool {
+        isCommandPalettePresented && commandPaletteOverlayState != .findTmuxWindow
+    }
+
+    /// The find-window model, only while find-window is the overlay showing.
+    private var remoteTmuxFindWindowModel: RemoteTmuxFindWindowModel? {
+        remoteTmuxFindWindow.activeModel(in: commandPaletteOverlayState)
+    }
+
     @State private var commandPaletteNucleoSearchIndex: CommandPaletteNucleoSearchIndex<String>?
     @State private var commandPaletteTaskStore = MainActorTaskStore<CommandPaletteTaskKey>()
     @State private var commandPaletteSearchIndexBuildGeneration: UInt64 = 0
@@ -3165,6 +3179,29 @@ struct ContentView: View {
             openAgentInbox()
         })
 
+        // Every path that changes the overlay lands here: find-window closes when another
+        // overlay replaces it, and the window's palette-visible flag follows the state. That
+        // flag guards the overlay's field from terminal focus, so it is set while find-window
+        // shows and must drop when it closes, whichever path closed it.
+        view = AnyView(view.onChange(of: commandPaletteOverlayState) { _, state in
+            remoteTmuxFindWindow.overlayDidChange(to: state)
+            syncCommandPaletteDebugStateForObservedWindow()
+        })
+
+        view = AnyView(view.onChange(of: remoteTmuxFindWindowModel.map { [$0.query] + $0.results.map(\.id) }) { _, _ in
+            syncCommandPaletteDebugStateForObservedWindow()
+        })
+
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .findTmuxWindowRequested)) { notification in
+            guard Self.shouldHandleCommandPaletteRequest(
+                observedWindow: observedWindow,
+                requestedWindow: notification.object as? NSWindow,
+                keyWindow: NSApp.keyWindow,
+                mainWindow: NSApp.mainWindow
+            ) else { return }
+            toggleRemoteTmuxFindWindow()
+        })
+
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .savedLayoutSaveRequested)) { notification in
             if Self.shouldHandleSavedLayoutSaveRequest(observedWindow: observedWindow, requestedWindow: notification.object as? NSWindow, keyWindow: NSApp.keyWindow, mainWindow: NSApp.mainWindow) {
                 presentSavedLayoutSavePrompt()
@@ -3197,6 +3234,8 @@ struct ContentView: View {
             ) else { return }
             if isAgentInboxPresented {
                 agentInboxSubmitRequest &+= 1
+            } else if let remoteTmuxFindWindowModel {
+                remoteTmuxFindWindowModel.activateSelection()
             } else {
                 handleCommandPaletteSubmitRequest()
             }
@@ -3213,6 +3252,8 @@ struct ContentView: View {
             ) else { return }
             if isAgentInboxPresented {
                 dismissAgentInbox()
+            } else if remoteTmuxFindWindowModel != nil {
+                dismissRemoteTmuxFindWindow(restoreFocus: true)
             } else {
                 dismissCommandPalette()
             }
@@ -3283,6 +3324,8 @@ struct ContentView: View {
             guard let delta = notification.userInfo?["delta"] as? Int, delta != 0 else { return }
             if isAgentInboxPresented {
                 agentInboxMoveRequest &+= delta
+            } else if let remoteTmuxFindWindowModel {
+                remoteTmuxFindWindowModel.moveSelection(by: delta)
             } else {
                 guard case .commands = commandPaletteMode else { return }
                 moveCommandPaletteSelection(by: delta)
@@ -3330,9 +3373,12 @@ struct ContentView: View {
             let overlayController = commandPaletteWindowOverlayController(for: window)
             overlayController.update(
                 isVisible: isCommandPalettePresented,
+                dismissalPolicy: { commandPaletteOverlayState.dismissalPolicy },
                 onDismiss: { dismissal in
                     if isAgentInboxPresented {
                         dismissAgentInbox()
+                    } else if remoteTmuxFindWindowModel != nil {
+                        dismissRemoteTmuxFindWindow(restoreFocus: false)
                     } else {
                         dismissCommandPalette(for: dismissal, in: window)
                     }
@@ -3608,9 +3654,12 @@ struct ContentView: View {
             commandPaletteWindowOverlayController(for: window)
                 .update(
                     isVisible: isCommandPalettePresented,
+                    dismissalPolicy: { commandPaletteOverlayState.dismissalPolicy },
                     onDismiss: { dismissal in
                         if isAgentInboxPresented {
                             dismissAgentInbox()
+                        } else if remoteTmuxFindWindowModel != nil {
+                            dismissRemoteTmuxFindWindow(restoreFocus: false)
                         } else {
                             dismissCommandPalette(for: dismissal, in: window)
                         }
@@ -3980,7 +4029,7 @@ struct ContentView: View {
             let maxAllowedWidth = max(340, proxy.size.width - 260)
             let targetWidth = isAgentInboxPresented
                 ? min(920, maxAllowedWidth)
-                : min(560, maxAllowedWidth)
+                : min(remoteTmuxFindWindowModel == nil ? 560 : 760, maxAllowedWidth)
             let workspaceDescriptionMaxEditorHeight = max(
                 CommandPaletteMultilineTextEditorRepresentable.defaultMinimumHeight,
                 proxy.size.height - 120
@@ -4003,6 +4052,11 @@ struct ContentView: View {
                             onDismiss: dismissAgentInbox,
                             moveRequest: agentInboxMoveRequest,
                             submitRequest: agentInboxSubmitRequest
+                        )
+                    } else if let remoteTmuxFindWindowModel {
+                        RemoteTmuxFindWindowView(
+                            model: remoteTmuxFindWindowModel,
+                            onDismiss: { dismissRemoteTmuxFindWindow(restoreFocus: true) }
                         )
                     } else {
                         switch commandPaletteMode {
@@ -4031,6 +4085,8 @@ struct ContentView: View {
         .onExitCommand {
             if isAgentInboxPresented {
                 dismissAgentInbox()
+            } else if remoteTmuxFindWindowModel != nil {
+                dismissRemoteTmuxFindWindow(restoreFocus: true)
             } else {
                 dismissCommandPalette()
             }
@@ -4326,242 +4382,6 @@ struct ContentView: View {
                 "fr=\(debugCommandPaletteResponderSummary((observedWindow ?? NSApp.keyWindow ?? NSApp.mainWindow)?.firstResponder))"
             )
 #endif
-        }
-    }
-
-    private final class CommandPaletteNativeTextField: NSTextField {
-        var onHandleKeyEvent: ((NSEvent, NSTextView?) -> Bool)?
-
-        override init(frame frameRect: NSRect) {
-            super.init(frame: frameRect)
-            isBordered = false
-            isBezeled = false
-            drawsBackground = false
-            focusRingType = .none
-            usesSingleLineMode = true
-        }
-
-        required init?(coder: NSCoder) {
-            fatalError("init(coder:) has not been implemented")
-        }
-
-        override func keyDown(with event: NSEvent) {
-            if (currentEditor() as? NSTextView)?.hasMarkedText() == true {
-                super.keyDown(with: event)
-                return
-            }
-            if onHandleKeyEvent?(event, currentEditor() as? NSTextView) == true {
-                return
-            }
-            super.keyDown(with: event)
-        }
-
-        override func performKeyEquivalent(with event: NSEvent) -> Bool {
-            if (currentEditor() as? NSTextView)?.hasMarkedText() == true {
-                return super.performKeyEquivalent(with: event)
-            }
-            if onHandleKeyEvent?(event, currentEditor() as? NSTextView) == true {
-                return true
-            }
-            return super.performKeyEquivalent(with: event)
-        }
-    }
-
-    // Keep navigation on the AppKit field editor so scope switches preserve arrow-key handlers.
-    private struct CommandPaletteSearchFieldRepresentable: NSViewRepresentable {
-        let placeholder: String
-        @Binding var text: String
-        @Binding var isFocused: Bool
-        let onSubmit: () -> Void
-        let onEscape: () -> Void
-        let onMoveSelection: (Int) -> Void
-        let onUnhandledNavigationKey: (NSEvent) -> Bool
-        @Environment(\.cmuxGlobalFontMagnificationPercent) private var globalFontPercent
-
-        @MainActor final class Coordinator: NSObject, NSTextFieldDelegate {
-            var parent: CommandPaletteSearchFieldRepresentable
-            var isProgrammaticMutation = false
-            weak var parentField: CommandPaletteNativeTextField?
-            var pendingFocusRequest: Bool?
-            nonisolated(unsafe) var editorTextDidChangeObserver: NSObjectProtocol?
-            weak var observedEditor: NSTextView?
-
-            init(parent: CommandPaletteSearchFieldRepresentable) {
-                self.parent = parent
-            }
-
-            deinit { editorTextDidChangeObserver.map(NotificationCenter.default.removeObserver) }
-
-            func controlTextDidChange(_ obj: Notification) {
-                guard !isProgrammaticMutation else { return }
-                guard let field = obj.object as? NSTextField else { return }
-                parent.text = field.stringValue
-            }
-
-            func controlTextDidBeginEditing(_ obj: Notification) {
-                if let field = obj.object as? NSTextField,
-                   let editor = field.currentEditor() as? NSTextView {
-                    attachEditorTextDidChangeObserverIfNeeded(editor)
-                }
-                if !parent.isFocused {
-                    DispatchQueue.main.async {
-                        self.parent.isFocused = true
-                    }
-                }
-            }
-
-            func controlTextDidEndEditing(_ obj: Notification) {
-                detachEditorTextDidChangeObserver()
-            }
-
-            func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
-                let event = NSApp.currentEvent
-                if let delta = commandPaletteSelectionDeltaForFieldEditorCommand(commandSelector, event: event),
-                   event.map({ contextAwareCommandPaletteSelectionDelta(for: $0) == delta }) ?? true {
-                    parent.onMoveSelection(delta); return true
-                }
-
-                switch commandSelector {
-                case #selector(NSResponder.moveDown(_:)), #selector(NSResponder.moveUp(_:)):
-                    return NSApp.currentEvent.map(parent.onUnhandledNavigationKey) ?? false
-                case #selector(NSResponder.insertNewline(_:)):
-                    guard !textView.hasMarkedText() else { return false }
-                    parent.onSubmit()
-                    return true
-                case #selector(NSResponder.cancelOperation(_:)):
-                    guard !textView.hasMarkedText() else { return false }
-                    parent.onEscape()
-                    return true
-                default:
-                    return false
-                }
-            }
-
-            func handleKeyEvent(_ event: NSEvent, editor: NSTextView?) -> Bool {
-                guard !(editor?.hasMarkedText() ?? false) else { return false }
-
-                if let delta = contextAwareCommandPaletteSelectionDelta(for: event) {
-                    parent.onMoveSelection(delta)
-                    return true
-                }
-
-                if shouldSubmitCommandPaletteWithReturn(
-                    keyCode: event.keyCode,
-                    flags: event.modifierFlags,
-                    mode: "single_line"
-                ) {
-                    parent.onSubmit()
-                    return true
-                }
-
-                if event.keyCode == 53,
-                   event.modifierFlags
-                    .intersection(.deviceIndependentFlagsMask)
-                    .subtracting([.numericPad, .function, .capsLock])
-                    .isEmpty {
-                    parent.onEscape()
-                    return true
-                }
-
-                return false
-            }
-
-            func attachEditorTextDidChangeObserverIfNeeded(_ editor: NSTextView) {
-                if observedEditor !== editor {
-                    detachEditorTextDidChangeObserver()
-                }
-                guard editorTextDidChangeObserver == nil else { return }
-                observedEditor = editor
-                editorTextDidChangeObserver = NotificationCenter.default.addObserver(
-                    forName: NSText.didChangeNotification,
-                    object: editor,
-                    queue: .main
-                ) { [weak self, weak editor] _ in
-                    MainActor.assumeIsolated { if let self, !self.isProgrammaticMutation, let editor { self.parent.text = editor.string } }
-                }
-            }
-
-            func detachEditorTextDidChangeObserver() {
-                if let editorTextDidChangeObserver {
-                    NotificationCenter.default.removeObserver(editorTextDidChangeObserver)
-                    self.editorTextDidChangeObserver = nil
-                }
-                observedEditor = nil
-            }
-        }
-
-        func makeCoordinator() -> Coordinator {
-            Coordinator(parent: self)
-        }
-
-        func makeNSView(context: Context) -> CommandPaletteNativeTextField {
-            let field = CommandPaletteNativeTextField(frame: .zero)
-            field.font = GlobalFontMagnification.systemFont(ofSize: 13)
-            field.placeholderString = placeholder
-            field.setAccessibilityIdentifier("CommandPaletteSearchField")
-            field.delegate = context.coordinator
-            field.stringValue = text
-            field.isEditable = true
-            field.isSelectable = true
-            field.isEnabled = true
-            field.onHandleKeyEvent = { [weak coordinator = context.coordinator] event, editor in
-                coordinator?.handleKeyEvent(event, editor: editor) ?? false
-            }
-            context.coordinator.parentField = field
-            return field
-        }
-
-        func updateNSView(_ nsView: CommandPaletteNativeTextField, context: Context) {
-            context.coordinator.parent = self
-            context.coordinator.parentField = nsView
-            nsView.appearance = WindowAppearanceSnapshot.appKitAppearance(for: context.environment.colorScheme)
-            nsView.placeholderString = placeholder
-            nsView.font = GlobalFontMagnification.systemFont(ofSize: 13)
-
-            if let editor = nsView.currentEditor() as? NSTextView {
-                context.coordinator.attachEditorTextDidChangeObserverIfNeeded(editor)
-                if editor.string != text, !editor.hasMarkedText() {
-                    context.coordinator.isProgrammaticMutation = true
-                    editor.string = text
-                    nsView.stringValue = text
-                    context.coordinator.isProgrammaticMutation = false
-                }
-            } else if nsView.stringValue != text {
-                context.coordinator.detachEditorTextDidChangeObserver()
-                nsView.stringValue = text
-            } else {
-                context.coordinator.detachEditorTextDidChangeObserver()
-            }
-
-            guard let window = nsView.window else { return }
-            let firstResponder = window.firstResponder
-            let isFirstResponder =
-                firstResponder === nsView ||
-                nsView.currentEditor() != nil ||
-                ((firstResponder as? NSTextView)?.delegate as? NSTextField) === nsView
-
-            if isFocused, !isFirstResponder, context.coordinator.pendingFocusRequest != true {
-                context.coordinator.pendingFocusRequest = true
-                DispatchQueue.main.async { [weak nsView, weak coordinator = context.coordinator] in
-                    coordinator?.pendingFocusRequest = nil
-                    guard let coordinator, coordinator.parent.isFocused else { return }
-                    guard let nsView, let window = nsView.window else { return }
-                    let firstResponder = window.firstResponder
-                    let alreadyFocused =
-                        firstResponder === nsView ||
-                        nsView.currentEditor() != nil ||
-                        ((firstResponder as? NSTextView)?.delegate as? NSTextField) === nsView
-                    guard !alreadyFocused else { return }
-                    window.makeFirstResponder(nsView)
-                }
-            }
-        }
-
-        static func dismantleNSView(_ nsView: CommandPaletteNativeTextField, coordinator: Coordinator) {
-            nsView.delegate = nil
-            nsView.onHandleKeyEvent = nil
-            coordinator.detachEditorTextDidChangeObserver()
-            coordinator.parentField = nil
         }
     }
 
@@ -10283,6 +10103,70 @@ struct ContentView: View {
         }
     }
 
+    /// Records what had focus before the overlay opened, so dismissing it can put
+    /// focus back.
+    private func captureCommandPaletteRestoreFocusTarget() {
+        commandPaletteFocusRestoreCoordinator.clear()
+        let browserTarget = AppDelegate.shared?.focusedBrowserActionTarget(
+            preferredWindow: observedWindow ?? NSApp.keyWindow
+                ?? NSApp.mainWindow
+        )
+        commandPaletteBrowserActionTarget = browserTarget
+        if let browserTarget,
+           let browserPanel = AppDelegate.shared?.browserPanel(
+               resolving: browserTarget
+           ) {
+            commandPaletteRestoreFocusTarget =
+                CommandPaletteRestoreFocusTarget(
+                    host: browserTarget.host,
+                    panelId: browserTarget.panelId,
+                    intent: browserPanel.captureFocusIntent(
+                        in: observedWindow
+                    )
+                )
+        } else if let panelContext = focusedPanelContext {
+            commandPaletteRestoreFocusTarget = CommandPaletteRestoreFocusTarget(
+                workspaceId: panelContext.workspace.id,
+                panelId: panelContext.panelId,
+                intent: panelContext.panel.captureFocusIntent(in: observedWindow)
+            )
+        } else {
+            commandPaletteRestoreFocusTarget = nil
+        }
+    }
+
+    /// Opens find-window over this window, or closes it when it is already open.
+    private func toggleRemoteTmuxFindWindow() {
+        guard remoteTmuxFindWindowModel == nil else {
+            dismissRemoteTmuxFindWindow(restoreFocus: true)
+            return
+        }
+        if isAgentInboxPresented { dismissAgentInbox() }
+        if isCommandPalettePresented { dismissCommandPalette(restoreFocus: false) }
+        guard let app = AppDelegate.shared else { return }
+        captureCommandPaletteRestoreFocusTarget()
+        let model = app.makeRemoteTmuxFindWindowModel(
+            focusedWorkspaceId: tabManager.selectedTabId,
+            jumper: remoteTmuxFindWindow.jumper,
+            didJump: { dismissRemoteTmuxFindWindow(restoreFocus: false) }
+        )
+        remoteTmuxFindWindow.present(model)
+        commandPaletteOverlayState = .findTmuxWindow
+        model.open()
+    }
+
+    /// Closes find-window; `restoreFocus` puts focus back where it was when it opened.
+    private func dismissRemoteTmuxFindWindow(restoreFocus: Bool) {
+        commandPaletteOverlayState = .closed
+        remoteTmuxFindWindow.overlayDidChange(to: .closed)
+        let focusTarget = commandPaletteRestoreFocusTarget
+        commandPaletteRestoreFocusTarget = nil
+        commandPaletteBrowserActionTarget = nil
+        if let window = observedWindow { _ = window.makeFirstResponder(nil) }
+        guard restoreFocus, let focusTarget else { return }
+        requestCommandPaletteFocusRestore(target: focusTarget)
+    }
+
     private func dismissAgentInbox() {
         agentInboxOpenGeneration &+= 1
         commandPaletteOverlayState = .closed
@@ -10296,7 +10180,7 @@ struct ContentView: View {
 
     private func handleCommandPaletteListRequest(scope: CommandPaletteListScope) {
         let initialQuery = (scope == .commands) ? Self.commandPaletteCommandsPrefix : ""
-        guard isCommandPalettePresented else {
+        guard canReuseCommandPaletteOverlay else {
             presentCommandPalette(initialQuery: initialQuery)
             return
         }
@@ -10311,21 +10195,21 @@ struct ContentView: View {
     }
 
     private func openCommandPaletteRenameTabInput() {
-        if !isCommandPalettePresented {
+        if !canReuseCommandPaletteOverlay {
             presentCommandPalette(initialQuery: Self.commandPaletteCommandsPrefix)
         }
         beginRenameTabFlow()
     }
 
     private func openCommandPaletteRenameInput(_ target: CommandPaletteRenameTarget) {
-        if !isCommandPalettePresented {
+        if !canReuseCommandPaletteOverlay {
             presentCommandPalette(initialQuery: Self.commandPaletteCommandsPrefix)
         }
         startRenameFlow(target)
     }
 
     private func openCommandPaletteRenameWorkspaceInput() {
-        if !isCommandPalettePresented {
+        if !canReuseCommandPaletteOverlay {
             presentCommandPalette(initialQuery: Self.commandPaletteCommandsPrefix)
         }
         beginRenameWorkspaceFlow()
@@ -10339,7 +10223,7 @@ struct ContentView: View {
             "window={\(debugCommandPaletteWindowSummary(observedWindow ?? NSApp.keyWindow ?? NSApp.mainWindow))}"
         )
 #endif
-        if !isCommandPalettePresented {
+        if !canReuseCommandPaletteOverlay {
             presentCommandPalette(initialQuery: Self.commandPaletteCommandsPrefix)
         }
         beginWorkspaceDescriptionFlow()
@@ -10409,6 +10293,22 @@ struct ContentView: View {
 
     private func commandPaletteDebugSnapshot() -> CommandPaletteDebugSnapshot {
         guard isCommandPalettePresented else { return .empty }
+        // Find-window shares the overlay; its own mode lets a socket test tell it apart.
+        if let model = remoteTmuxFindWindowModel {
+            return CommandPaletteDebugSnapshot(
+                query: model.query,
+                mode: "find_tmux_window",
+                results: model.results.prefix(20).map {
+                    CommandPaletteDebugResultRow(
+                        commandId: $0.id,
+                        title: $0.candidate.windowName,
+                        shortcutHint: nil,
+                        trailingLabel: nil,
+                        score: $0.score
+                    )
+                }
+            )
+        }
 
         let mode: String
         switch commandPaletteMode {
@@ -10443,33 +10343,7 @@ struct ContentView: View {
     private func presentCommandPalette(initialQuery: String) {
         ProductAnalytics.app.featureUsed(.commandPalette)
         refreshCachedDefaultTerminalStatus(refreshSearchCorpusIfPresented: false)
-        commandPaletteFocusRestoreCoordinator.clear()
-        let browserTarget = AppDelegate.shared?.focusedBrowserActionTarget(
-            preferredWindow: observedWindow ?? NSApp.keyWindow
-                ?? NSApp.mainWindow
-        )
-        commandPaletteBrowserActionTarget = browserTarget
-        if let browserTarget,
-           let browserPanel = AppDelegate.shared?.browserPanel(
-               resolving: browserTarget
-           ) {
-            commandPaletteRestoreFocusTarget =
-                CommandPaletteRestoreFocusTarget(
-                    host: browserTarget.host,
-                    panelId: browserTarget.panelId,
-                    intent: browserPanel.captureFocusIntent(
-                        in: observedWindow
-                    )
-                )
-        } else if let panelContext = focusedPanelContext {
-            commandPaletteRestoreFocusTarget = CommandPaletteRestoreFocusTarget(
-                workspaceId: panelContext.workspace.id,
-                panelId: panelContext.panelId,
-                intent: panelContext.panel.captureFocusIntent(in: observedWindow)
-            )
-        } else {
-            commandPaletteRestoreFocusTarget = nil
-        }
+        captureCommandPaletteRestoreFocusTarget()
         commandPaletteOverlayState = .palette
         commandPaletteAgentLauncherAvailabilityGeneration &+= 1
         commandPaletteAgentLauncherAvailability = nil

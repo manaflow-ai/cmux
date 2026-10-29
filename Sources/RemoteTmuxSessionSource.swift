@@ -197,6 +197,13 @@ protocol RemoteTmuxSessionSource: AnyObject {
     /// carry one, so every call through the source names it.
     @discardableResult
     func seedPane(paneId: Int, clearScrollback: Bool) -> UUID?
+    /// Repaints a pane with its whole tmux history instead of the attach seed's
+    /// newest rows, and reports how that ended once the paint is delivered.
+    func reseedPaneWithFullHistory(paneId: Int) async -> RemoteTmuxFullHistorySeedOutcome
+    /// Sends one command on the stream that carries this session and returns its
+    /// reply, or `.unanswered` after `timeout` seconds or a stream reset. A timeout
+    /// does not reconnect.
+    func queryOutcome(_ command: String, timeout: Double) async -> RemoteTmuxRawQueryOutcome
     /// Reports a pane's terminal colors to the remote tmux (kept across reconnects).
     func setPaneColors(_ colors: RemoteTmuxPaneColors, paneId: Int)
     /// Forgets a pane's reported colors when its mirror goes away.
