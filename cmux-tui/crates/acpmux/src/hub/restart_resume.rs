@@ -185,8 +185,9 @@ impl serde::Serialize for MaskedInput<'_> {
             }
             // Sensitive fields must not leak even when their value is not a string.
             // Preserve JSON shape only for non-sensitive scalars.
-            Value::Null | Value::Bool(_) | Value::Number(_)
-                if self.sensitive => serializer.serialize_str("[secret]"),
+            Value::Null | Value::Bool(_) | Value::Number(_) if self.sensitive => {
+                serializer.serialize_str("[secret]")
+            }
             value => serde::Serialize::serialize(value, serializer),
         }
     }
