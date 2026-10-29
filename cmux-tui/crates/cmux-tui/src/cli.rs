@@ -30,6 +30,8 @@ mod capability_cache;
 mod chief;
 mod chief_target;
 #[cfg(unix)]
+mod cloud_client_session;
+#[cfg(unix)]
 mod cloud_machines;
 #[cfg(unix)]
 mod cloud_secret;
@@ -67,6 +69,14 @@ pub(crate) use host_mount::early_unix_scope;
 pub(crate) fn remote_host_requested(raw_args: &[String]) -> bool {
     Surface::current() == Surface::Cmux && crate::remote_host::handles(raw_args)
 }
+#[cfg(unix)]
+mod machine_doctor;
+#[cfg(unix)]
+mod machine_join;
+#[cfg(unix)]
+pub(crate) use machine_join::{
+    device_credential as joined_machine_credential, rows_for_devices as joined_machine_rows,
+};
 mod machine_server;
 #[cfg(test)]
 use machine_server::ServerRoute;
@@ -398,6 +408,17 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         }
         None => args,
     };
+    // `machine list --cloud-token-file F`: the flags are for its joined rows, not the daemon.
+    #[cfg(unix)]
+    let list_args;
+    #[cfg(unix)]
+    let args = match machine_join::take_list_auth(args) {
+        Some(rest) => {
+            list_args = rest;
+            list_args.as_slice()
+        }
+        None => args,
+    };
     #[cfg(unix)]
     if let Some(code) = mcp::run_if_requested(args)
         .or_else(|| agents::run_if_requested(args))
@@ -408,6 +429,9 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| sandbox_run::run_if_requested(args))
         .or_else(|| vm::run_if_requested(args))
         .or_else(|| cloud_secret::run_if_requested(args))
+        .or_else(|| cloud_client_session::run_if_requested(args))
+        .or_else(|| machine_join::run_if_requested(args))
+        .or_else(|| machine_doctor::run_if_requested(args))
         .or_else(|| apps_run::run_if_requested(args))
         .or_else(|| script::run_if_requested(args))
         .or_else(|| setup::run_if_requested(args))
@@ -1187,6 +1211,11 @@ const CLOUD_HELP: &str = "\
 USAGE
   cmux cloud <action> [--target machine:MACHINE_ID] [--<argument> VALUE]...
 
+Most machine actions need --target machine:MACHINE_ID, even with one machine.
+Run `cmux cloud list-machines` to get its id and target.
+hand-off-machine returns hand-off text; move sends a chat tab to Cloud and
+bring-back returns a previously moved chat to this Mac.
+
 CLI actions (the live action catalog is authoritative):
   new-workspace             new-machine
   fork-machine              snapshot-machine
@@ -1216,6 +1245,17 @@ CLI actions (the live action catalog is authoritative):
   open-desktop              apply-machine-config
   deliver-secrets           start-session
 
+Secrets (stored in this Mac's Keychain):
+  cmux cloud secret set NAME [--repo OWNER/NAME]
+  cmux cloud secret ls
+  cmux cloud secret rm NAME [--repo OWNER/NAME]
+set reads the value from a hidden prompt or stdin, never a command argument.
+deliver-secrets sends the secrets declared by a finished machine config.
+
+Client sessions (a scoped token for one of your machines, no app needed):
+  cmux cloud client-session create --target machine:VM_ID [--ttl SECONDS] [--token-file PATH]
+  cmux cloud client-session exec --target machine:VM_ID -- COMMAND...
+
 Run `cmux action list --category cloud --json` for the current catalog and
 `cmux action describe <action> --json` for an action's arguments.
 ";
@@ -1223,6 +1263,11 @@ Run `cmux action list --category cloud --json` for the current catalog and
 const CLOUD_HELP_JA: &str = "\
 使い方
   cmux cloud <アクション> [--target machine:MACHINE_ID] [--<引数> VALUE]...
+
+マシンを操作する大半のアクションには、マシンが 1 台でも --target machine:MACHINE_ID が必要です。
+`cmux cloud list-machines` で ID と target を確認できます。
+hand-off-machine は引き継ぎ用のテキストを返します。move はチャットタブを Cloud に移し、
+bring-back は以前移したチャットをこの Mac に戻します。
 
 CLI アクション（現在の一覧はアクションカタログを参照）:
   new-workspace             new-machine
@@ -1252,6 +1297,17 @@ CLI アクション（現在の一覧はアクションカタログを参照）:
   machine-link              enroll-machine
   open-desktop              apply-machine-config
   deliver-secrets           start-session
+
+シークレット（この Mac のキーチェーンに保存）:
+  cmux cloud secret set NAME [--repo OWNER/NAME]
+  cmux cloud secret ls
+  cmux cloud secret rm NAME [--repo OWNER/NAME]
+set は値を非表示の入力プロンプトまたは標準入力から読み取ります。コマンドの引数には指定しません。
+deliver-secrets は適用が完了したマシン設定で宣言されたシークレットを送信します。
+
+クライアントセッション（自分のマシン 1 台だけに使える短期トークン、アプリ不要）:
+  cmux cloud client-session create --target machine:VM_ID [--ttl SECONDS] [--token-file PATH]
+  cmux cloud client-session exec --target machine:VM_ID -- COMMAND...
 
 現在のカタログは `cmux action list --category cloud --json`、引数は
 `cmux action describe <action> --json` で確認できます。
