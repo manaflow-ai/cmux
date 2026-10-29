@@ -683,7 +683,7 @@ export default agentPaneEntry({
       },
     },
     "attachment-menu": {
-      note: "The New Tab composer keeps the chat composer's leading + attachment control: opening it exposes the same Attach option without moving the field.",
+      note: "The New Tab composer keeps the chat composer's leading + attachment control: opening it exposes the same Attach option, then Search chats and Search pages, without moving the field.",
       ready: newTab(),
       snapshot: noChat(manySessions(3)),
       play: async (ctx) => {
@@ -694,6 +694,12 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelector('.acpmux-newtab-plus [data-value="attach"]') !== null);
         const input = ctx.document.querySelector<HTMLInputElement>(".nt-composer .acpmux-attach-input");
         if (!input || !input.multiple) throw new Error("the New Tab attachment chooser is missing or single-file");
+        // The ChatGPT-style + searches (Search chats, Search pages); the page has no Search files.
+        for (const id of ["agentPane.searchChats", "history.search"])
+          if (!ctx.document.querySelector(`.acpmux-newtab-plus [data-value="${id}"]`))
+            throw new Error(`the New Tab + lost ${id}`);
+        if (ctx.document.querySelector('.acpmux-newtab-plus [data-value="files.search"]'))
+          throw new Error("the New Tab + offers Search files, which it cannot run");
       },
     },
     // The widget view (Debug Settings `newTab.widgets`, Leo 2026-10-18): soft cards under the create

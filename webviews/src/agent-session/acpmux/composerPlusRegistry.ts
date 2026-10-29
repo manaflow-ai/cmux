@@ -188,6 +188,36 @@ export function composerPlusRegistry(options: ComposerPlusRegistryOptions = {}):
   });
 }
 
+/**
+ * The app's search pages the + menu opens (the ChatGPT desktop app's + searches): the command
+ * palette's chats page and its History search page. Both ids are app actions an agent tab may run
+ * (AgentPaneModel.paletteActions); a host that cannot run them leaves these rows out.
+ */
+export const PLUS_SEARCH_ACTIONS = { chats: "agentPane.searchChats", pages: "history.search" } as const;
+
+export function composerPlusSearchExtensions(t: Translate = translate): ComposerPlusExtension[] {
+  return [
+    {
+      id: PLUS_SEARCH_ACTIONS.chats,
+      section: "files",
+      name: t("sidebar.search"),
+      description: t("composer.plusChatsHint"),
+      icon: "agent.chat.list",
+      keywords: ["chats", "conversations", "search"],
+      action: { kind: "command", id: PLUS_SEARCH_ACTIONS.chats },
+    },
+    {
+      id: PLUS_SEARCH_ACTIONS.pages,
+      section: "files",
+      name: t("composer.plusSearchPages"),
+      description: t("composer.plusPagesHint"),
+      icon: "history",
+      keywords: ["pages", "history", "browser", "web", "search"],
+      action: { kind: "command", id: PLUS_SEARCH_ACTIONS.pages },
+    },
+  ];
+}
+
 export function composerPlusSections(
   entries: readonly ComposerPlusEntry[],
 ): Map<ComposerPlusSection, ComposerPlusEntry[]> {

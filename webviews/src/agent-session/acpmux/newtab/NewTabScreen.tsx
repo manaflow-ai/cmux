@@ -76,6 +76,7 @@ import { Icon } from "../icons/Icon";
 import { type NewTabTranslate, useNt } from "./strings";
 import { screenSections, type ScreenTemplate } from "./templates";
 import { type Translate, useT } from "../i18n";
+import { composerPlusSearchExtensions } from "../composerPlusRegistry";
 import { ChromeArea } from "../../../ui/HideableChrome";
 import { Popover } from "../../../ui/Popover";
 import { PromptFocus } from "../promptFocus";
@@ -129,6 +130,9 @@ export type NewTabScreenActions = {
   /// One page of All chats from the host (`chats.page`); without it the page shows no All chats list.
   loadChatsPage?: LoadChatsPage;
   onShowAll(): void;
+  /// The + menu's Search chats and Search pages: runs that app action (PLUS_SEARCH_ACTIONS). Without
+  /// it the + menu leaves both rows out.
+  onPlusCommand?(id: string): void;
   onInputReady?(token: string): void;
   /// The first user input reached the page (the host recycles only an untouched page, R81).
   onTouched?(): void;
@@ -1141,6 +1145,8 @@ export function NewTabScreen(props: Props) {
   /// split draws the chat composer's box instead.
   const pill = template === "cards" && !split;
 
+  const onPlusCommand = props.onPlusCommand;
+  const plusSearchRows = useMemo(() => composerPlusSearchExtensions(t), [t]);
   const attachmentPicker = (
     <>
       <input
@@ -1171,6 +1177,22 @@ export function NewTabScreen(props: Props) {
               if (id === "attach") chooser.current?.click();
             },
           },
+          // Search chats and Search pages, as the chat composer's + (the page has no folder to
+          // search files in, so it offers no Search files).
+          ...(onPlusCommand
+            ? [
+                {
+                  title: t("sidebar.searchPlaceholder"),
+                  choices: plusSearchRows.map((row) => ({
+                    id: row.id,
+                    name: row.name,
+                    description: row.description,
+                    icon: <Icon name={row.icon} size={18} />,
+                  })),
+                  onPick: (id: string) => onPlusCommand(id),
+                },
+              ]
+            : []),
         ]}
       />
     </>

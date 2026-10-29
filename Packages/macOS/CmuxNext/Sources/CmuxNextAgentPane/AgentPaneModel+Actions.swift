@@ -12,6 +12,10 @@ extension AgentPaneModel {
     ]
     /// The arguments a connect action runs with.
     static let connectArguments: [String: [String: String]] = ["palette.openCloudPane": ["route": "/get"]]
+    /// The command palette pages any agent tab may open: the chats page (Show all, the + menu's
+    /// Search chats) and the History search page (the + menu's Search pages). They open the app's own
+    /// palette, as Cmd-K does, so they need no gesture credit.
+    static let paletteActions: Set<String> = ["agentPane.searchChats", "history.search"]
     /// What runs when a connect is refused: signed out, cmux Cloud… starts sign-in.
     static let connectFallbacks: [String: String] = ["newCloudMachine": "palette.auth.signIn"]
 
@@ -25,7 +29,7 @@ extension AgentPaneModel {
     /// no fallback that ran, is an `unavailable` failure, so the page can say so; one that ran and
     /// then stopped reports itself in the app (its refusal or toast).
     func runAction(_ id: String) -> [String: Any] {
-        guard id == "newTab.page" || id == "agentPane.searchChats" || Self.connectActions.contains(id),
+        guard id == "newTab.page" || Self.paletteActions.contains(id) || Self.connectActions.contains(id),
               let onRunAction else {
             return Self.unsupported("action.run")
         }

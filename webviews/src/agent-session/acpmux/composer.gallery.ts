@@ -1606,13 +1606,17 @@ export default agentPaneEntry({
       },
     },
     "add-menu": {
-      note: "Play: open +; Attach files or images comes first and opens the file chooser, and the menu rises out of +.",
+      note: "Play: open +; Attach files or images comes first and opens the file chooser, the Search section offers Search chats and Search pages, and the menu rises out of +.",
       snapshot: chat(finished, {
         commands: [{ name: "compact", description: "Clear conversation history but keep a summary in context" }],
       }),
       play: async (ctx) => {
         await ctx.click({ selector: ".acpmux-composer-plus .acpmux-picker-button" });
         await ctx.waitFor(() => ctx.document.querySelector('.acpmux-composer-plus [data-value="add.files"]'));
+        // The Search section: Search chats and Search pages open the app's palette pages.
+        for (const id of ["agentPane.searchChats", "history.search"])
+          if (!ctx.document.querySelector(`.acpmux-composer-plus [data-value="${id}"]`))
+            throw new Error(`the + menu lost ${id}`);
       },
     },
     // cx-ncc.71 (Codex parity): + > Attach Screenshot… and Attach Window… take a capture through the
