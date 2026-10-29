@@ -391,16 +391,16 @@ def owed_ids(entries):
 class RedispatchTests(unittest.TestCase):
     def move(self, github, decisions, saved=None, **kw):
         saved = saved or Store()
-        clock = iter(range(0, 10**6, kw.pop("step", 1)))
+        clock = iter(range(10**6))
         out = dead_labels.redispatch(github, decisions, dry_run=False, store=saved.store, save=saved,
-                                     now=lambda: next(clock), sleep=lambda _: None, **kw)
+                                     now=lambda: next(clock), **kw)
         return out, saved
 
     def next_sweep(self, github, saved):
         return dead_labels.resume(github, saved.last, now=100.0)
 
     def test_owed_before_the_cancel_and_cleared_only_once_the_rerun_is_seen(self) -> None:
-        github = FakeGitHub(settle_after=2)
+        github = FakeGitHub()
         github.add(run(1))
         (results, failures), saved = self.move(github, [go(run(1)), dead_labels.Redispatch(run(2), "lint", B16, "held")])
         self.assertEqual(github.calls, [("force-cancel", 1), ("rerun", 1)])
@@ -606,7 +606,7 @@ class RedispatchTests(unittest.TestCase):
     def test_a_cancel_that_never_settles_stays_owed_for_the_next_sweep(self) -> None:
         github = FakeGitHub(settle_after=10**9)
         github.add(run(1))
-        (results, failures), saved = self.move(github, [go(run(1))], step=50)
+        (results, failures), saved = self.move(github, [go(run(1))])
         self.assertEqual(failures, 0)
         self.assertIn("next sweep", results[1])
         self.assertNotIn(("rerun", 1), github.calls)
@@ -615,7 +615,7 @@ class RedispatchTests(unittest.TestCase):
     def test_someone_elses_rerun_clears_it_without_a_second(self) -> None:
         github = FakeGitHub(settle_after=10**9)
         github.add(run(1))
-        _, saved = self.move(github, [go(run(1))], step=50)
+        _, saved = self.move(github, [go(run(1))])
         github.state[1].update(run_attempt=2, status="queued")
         owed, _, _ = self.next_sweep(github, saved)
         self.assertEqual(owed, [])

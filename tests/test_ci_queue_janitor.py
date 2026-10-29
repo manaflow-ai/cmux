@@ -3621,8 +3621,7 @@ class TwoPhaseTests(unittest.TestCase):
         decisions = [janitor.dead_labels.Redispatch(r, "lint", "blacksmith-16vcpu-ubuntu-2404", None) for r in (a, b)]
         with redirect_stderr(io.StringIO()):
             results, _ = janitor.dead_labels.redispatch(fake, decisions, dry_run=False, store=store,
-                                                        save=lambda entries: None, hold=janitor.READS.hold,
-                                                        sleep=lambda _: None)
+                                                        save=lambda entries: None, hold=janitor.READS.hold)
         self.assertIn("could not be read", results[a["id"]])
         self.assertIn("not moved", results[b["id"]])
         self.assertEqual(fake.posts(), [])
@@ -3862,8 +3861,7 @@ class ReviewNineTests(unittest.TestCase):
         decisions = [janitor.dead_labels.Redispatch(r, "lint", "blacksmith-16vcpu-ubuntu-2404", None) for r in (a, b)]
         with redirect_stderr(io.StringIO()):
             results, _ = janitor.dead_labels.redispatch(fake, decisions, dry_run=False, store=store,
-                                                        save=lambda entries: None, hold=janitor.READS.hold,
-                                                        sleep=lambda _: None)
+                                                        save=lambda entries: None, hold=janitor.READS.hold)
         self.assertIn([str(a["id"]), "force-cancel"], fake.posts())
         self.assertNotIn([str(b["id"]), "force-cancel"], fake.posts())
         self.assertIn("not moved", results[b["id"]])

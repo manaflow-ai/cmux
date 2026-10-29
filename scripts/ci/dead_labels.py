@@ -77,8 +77,6 @@ MAX_REDISPATCH_LIMIT = 50
 # These states alone can represent a runner queue. A gated run can still expose a downstream queued job,
 # so waiting/pending/requested and unknown states must not authorize cancellation, including on a fresh read.
 RUNNER_QUEUE_STATES = frozenset({"queued", "in_progress"})
-SETTLE_SECONDS = 90
-POLL_SECONDS = 5
 
 # The labels a job may be routed to, by family. "Live member" means a label of
 # the job's family that started a job within DEAD_AFTER. GitHub-hosted labels
@@ -659,14 +657,13 @@ def resume(github: Any, obligations: Sequence[Mapping[str, Any]], *, now: float)
 def redispatch(github: Any, decisions: Sequence[Redispatch], *, dry_run: bool, store: Any,
                save: Callable[[list[dict[str, Any]]], None] | None,
                hold: Callable[[], str | None] = lambda: None, now: Callable[[], float] = time.time,
-               pr_check: Callable[[Mapping[str, Any]], str | None] | None = None,
-               sleep: Callable[[float], None] = time.sleep,
-               settle_seconds: float = SETTLE_SECONDS) -> tuple[dict[int, str], int]:
+               pr_check: Callable[[Mapping[str, Any]], str | None] | None = None
+               ) -> tuple[dict[int, str], int]:
     """Move every run that goes, one at a time: read it again (recheck(), with `pr_check` for its pull requests),
     write its obligation into the janitor's one store (`store`, a janitor_guard.OwedStore; save() publishes this
-    pass's list), force-cancel it, and read it once (settle()) before the next run is touched. Cancels still
-    finishing after all of them are read again until `settle_seconds` passed; those reads come after every cancel. ({run id: result}, failures). Nothing is cancelled with `save`
-    None, while hold() names a failed listing, for a run any list of the store owes, or with no room in the store.
+    pass's list), force-cancel it, and read it once (settle()) before the next run is touched. An unfinished
+    cancel stays owed for the next scheduled sweep; no cancellation is polled. ({run id: result}, failures).
+    Nothing is cancelled with `save` None, while hold() names a failed listing, for a run any list of the store owes, or with no room in the store.
     `github` is queue_janitor.GitHub: run(id), jobs(id), force_cancel(id), rerun_failed(id). A rate limit is
     raised; every obligation it leaves is saved first."""
     going = [d for d in decisions if d.why_not is None]
@@ -677,7 +674,6 @@ def redispatch(github: Any, decisions: Sequence[Redispatch], *, dry_run: bool, s
     if save is None:
         return {int(d.run["id"]): "not moved: no snapshot to carry its re-run" for d in going}, 0
     obligations = store.entries(OBLIGATIONS_KEY)
-    mine: list[dict[str, Any]] = []
     for decision in going:
         run_id = int(decision.run["id"])
         why_held = hold()
@@ -709,32 +705,11 @@ def redispatch(github: Any, decisions: Sequence[Redispatch], *, dry_run: bool, s
         # Its own cancel read once, right away and before any other run is touched: a read that fails here holds the
         # rest (GitHub.request() records it, and hold() is asked before the next run).
         cleared, what, failed = settle(github, entry, now=now())
-        if "still finishing" in what:
-            mine.append(entry)
-            continue
         results[run_id] = what
         failures += failed
         if cleared:
             obligations.remove(entry)
             save(list(obligations))
-    deadline = now() + settle_seconds
-    while mine:
-        for entry in list(mine):
-            cleared, what, failed = settle(github, entry, now=now())
-            if "still finishing" in what and now() < deadline:
-                continue
-            mine.remove(entry)
-            results[entry["run_id"]] = what
-            failures += failed
-            if cleared:
-                obligations.remove(entry)
-                save(list(obligations))
-        if mine and now() >= deadline:
-            for entry in mine:
-                results[entry["run_id"]] = f"force-cancelled, still finishing after {int(settle_seconds)} s; owed"
-            break
-        if mine:
-            sleep(POLL_SECONDS)
     return results, failures
 
 
