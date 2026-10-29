@@ -14,15 +14,31 @@ const agent = (id: string, fields: Partial<Subagent> = {}): Subagent => ({
   startedAt: 1_000,
   ...fields,
 });
-const group = (agents: Subagent[]): AcpmuxRow => ({ id: `g-${agents[0]!.id}`, version: 1, at: 1_000, kind: SUBAGENTS, subagents: agents });
+const group = (agents: Subagent[]): AcpmuxRow => ({
+  id: `g-${agents[0]!.id}`,
+  version: 1,
+  at: 1_000,
+  kind: SUBAGENTS,
+  subagents: agents,
+});
 const call = (id: string, status: string, startedAt: number, endedAt?: number, description?: string) => ({
   kind: "tool",
   text: id,
   tool: { id, title: `title ${id}`, status, startedAt, endedAt, description },
 });
-const activity = (id: string, items: ReturnType<typeof call>[]): AcpmuxRow => ({ id, version: 1, at: 2_000, kind: "activity", items });
+const activity = (id: string, items: ReturnType<typeof call>[]): AcpmuxRow => ({
+  id,
+  version: 1,
+  at: 2_000,
+  kind: "activity",
+  items,
+});
 
-const input = (rows: AcpmuxRow[], views: Record<string, AcpmuxRow[]> = {}, extra: Partial<Parameters<typeof backgroundGroups>[0]> = {}) => ({
+const input = (
+  rows: AcpmuxRow[],
+  views: Record<string, AcpmuxRow[]> = {},
+  extra: Partial<Parameters<typeof backgroundGroups>[0]> = {},
+) => ({
   rows,
   views,
   commands: [] as BackgroundCommand[],
@@ -37,7 +53,11 @@ describe("backgroundGroups", () => {
     const views = {
       a: [
         activity("r1", [call("t1", "completed", 1_000, 1_500), call("t2", "failed", 1_600, 1_700, "Run the tests")]),
-        activity("r2", [call("t3", "in_progress", 3_000), call("t4", "in_progress", 2_500), call("t5", "completed", 1_800, 4_000)]),
+        activity("r2", [
+          call("t3", "in_progress", 3_000),
+          call("t4", "in_progress", 2_500),
+          call("t5", "completed", 1_800, 4_000),
+        ]),
       ],
     };
     const [only] = backgroundGroups(input(rows, views));
@@ -67,7 +87,13 @@ describe("backgroundGroups", () => {
     const groups = backgroundGroups(input(rows, views));
     expect(groups.map((g) => g.id)).toEqual(["agent:a"]);
     expect(groups[0]!.running).toHaveLength(1);
-    expect(groups[0]!.running[0]).toMatchObject({ id: "b", kind: "agent", title: "Explore", agentId: "b", stop: { kind: "agent", id: "b" } });
+    expect(groups[0]!.running[0]).toMatchObject({
+      id: "b",
+      kind: "agent",
+      title: "Explore",
+      agentId: "b",
+      stop: { kind: "agent", id: "b" },
+    });
   });
 
   test("running groups first oldest first, then ended groups latest first; cleared ended groups leave", () => {
@@ -81,13 +107,22 @@ describe("backgroundGroups", () => {
     ];
     const ids = backgroundGroups(input(rows)).map((g) => g.id);
     expect(ids).toEqual(["agent:early", "agent:late", "agent:done2", "agent:done1"]);
-    const cleared = backgroundGroups(input(rows, {}, { dismissed: new Set(finishedGroupIds(backgroundGroups(input(rows)))) }));
+    const cleared = backgroundGroups(
+      input(rows, {}, { dismissed: new Set(finishedGroupIds(backgroundGroups(input(rows)))) }),
+    );
     expect(cleared.map((g) => g.id)).toEqual(["agent:early", "agent:late"]);
   });
 
   test("the chat's background commands are one group under the chat's name, a registry command stoppable", () => {
     const commands: BackgroundCommand[] = [
-      { id: "p1", command: "bun run dev", description: "Dev server", state: "running", processId: "p1", startedAt: 1_000 },
+      {
+        id: "p1",
+        command: "bun run dev",
+        description: "Dev server",
+        state: "running",
+        processId: "p1",
+        startedAt: 1_000,
+      },
       { id: "c2", command: "make", state: "failed", startedAt: 500, endedAt: 900 },
     ];
     const [commandsGroup] = backgroundGroups(input([], {}, { commands }));

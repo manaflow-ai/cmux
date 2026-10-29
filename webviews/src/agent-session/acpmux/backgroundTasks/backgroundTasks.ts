@@ -123,11 +123,7 @@ const toolTitle = (item: AcpmuxActivity): string =>
   item.tool?.description?.trim() || item.tool?.title?.trim() || item.text.trim();
 
 /// The tool calls in subagent `agent`'s own rows, in order, as tasks. Read once per view array.
-function toolTasks(
-  agent: Subagent,
-  view: readonly AcpmuxRow[] | undefined,
-  cache: TaskCache,
-): BackgroundTask[] {
+function toolTasks(agent: Subagent, view: readonly AcpmuxRow[] | undefined, cache: TaskCache): BackgroundTask[] {
   if (!view || view.length === 0) return [];
   const running = agent.state === "running";
   const kept = cache.get(view);
@@ -252,10 +248,7 @@ export function backgroundGroups(input: BackgroundInput, cache: TaskCache = new 
   const live = groups.filter((group) => group.state === "running").sort(byStart);
   const ended = groups
     .filter((group) => group.state !== "running" && !dismissed?.has(group.id))
-    .sort(
-      (a, b) =>
-        (b.endedAt ?? b.startedAt ?? 0) - (a.endedAt ?? a.startedAt ?? 0) || a.id.localeCompare(b.id),
-    );
+    .sort((a, b) => (b.endedAt ?? b.startedAt ?? 0) - (a.endedAt ?? a.startedAt ?? 0) || a.id.localeCompare(b.id));
   return [...live, ...ended];
 }
 
