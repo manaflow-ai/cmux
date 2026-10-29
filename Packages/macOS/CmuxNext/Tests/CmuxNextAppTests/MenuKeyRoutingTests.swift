@@ -66,6 +66,8 @@ import CmuxNextFocusUI
 
         // The Ghostty config as the app loads it: cmux's keybind defaults, then the user's lines.
         let user = try #require(ghostty_config_new())
+        var themeOwnsUser = false
+        defer { if !themeOwnsUser { ghostty_config_free(user) } }
         GhosttyRuntime.loadKeybindDefaults(into: user)
         userConfig.withCString { ghostty_config_load_string(user, $0, UInt(userConfig.utf8.count), "cmux-next-test") }
         ghostty_config_finalize(user)
@@ -82,10 +84,12 @@ import CmuxNextFocusUI
                                                claims: claims, keyNames: keyNames)
 
         let io = ScriptedTerminalIO()
+        defer { if !completed { io.finish() } }
         let session = TerminalSession(io: io)
         try #require(session.surfaceView.surface != nil, "libghostty created no surface")
         // The theme config owns `user` (and frees it).
         session.setTheme(GhosttyThemeConfig(config: user, themeName: "cmux-next-test", colors: nil))
+        themeOwnsUser = true
         let terminalWindow = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 480, height: 240), styleMask: [.borderless],
                                       backing: .buffered, defer: false)
         terminalWindow.isReleasedWhenClosed = false

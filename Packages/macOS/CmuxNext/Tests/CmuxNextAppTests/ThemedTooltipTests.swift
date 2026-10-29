@@ -28,6 +28,7 @@ import Testing
         let window = NSWindow(contentRect: NSRect(x: 200, y: 400, width: 300, height: 200), styleMask: [.titled],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
+        defer { window.close() }
         let button = NSButton(title: "", target: nil, action: nil)
         button.frame = NSRect(x: 20, y: 20, width: 80, height: 24)
         window.contentView?.addSubview(button)
@@ -41,7 +42,6 @@ import Testing
         defer {
             presenter.timing = nil
             Self.closeTooltip(presenter)
-            window.close()
         }
         let tracker = try #require(TooltipTracker.whole(of: button))
         presenter.dismiss()

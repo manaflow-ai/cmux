@@ -39,6 +39,10 @@ import Testing
     func make() async throws -> Harness {
         _ = NSApplication.shared
         let directory = FileManager.default.temporaryDirectory.appending(path: "cnc-palette-setting-\(UUID().uuidString)")
+        var completed = false
+        defer {
+            if !completed { try? FileManager.default.removeItem(at: directory) }
+        }
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let url = directory.appending(path: "cmux.json")
         try Data("{}".utf8).write(to: url)
@@ -54,6 +58,7 @@ import Testing
         #expect(palette.show(scope: PaletteScopeID.settings))
         palette.model.send(.setQuery(descriptor.title))
         await palette.model.settle()
+        completed = true
         return Harness(settings: settings, palette: palette, descriptor: descriptor, url: url)
     }
 
