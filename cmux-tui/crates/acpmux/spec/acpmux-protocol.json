@@ -379,6 +379,18 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/github_action",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/github_app_lease",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/bookmark_get",
       "params": true,
       "result": true
@@ -3633,6 +3645,13 @@
           "minimum": 0,
           "type": "integer"
         },
+        "effort": {
+          "description": "The harness's current reasoning effort, when it reports one.\nAdditive for older clients and peers.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "enforcement": {
           "$ref": "#/types/Enforcement"
         },
@@ -3889,6 +3908,11 @@
             "null"
           ]
         },
+        "state": {
+          "default": "",
+          "description": "Effective liveness: `stuck` after three classified harness failures, else `status`.",
+          "type": "string"
+        },
         "stateSeq": {
           "format": "uint64",
           "minimum": 0,
@@ -3901,6 +3925,35 @@
         "steering": {
           "description": "The agent takes a prompt mid-turn.",
           "type": "boolean"
+        },
+        "stuckError": {
+          "default": null,
+          "description": "Last classified error, redacted and bounded. Omitted for peers.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "stuckReason": {
+          "anyOf": [
+            {
+              "$ref": "#/types/StuckReason"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "stuckSince": {
+          "default": null,
+          "description": "Unix milliseconds when the third failure established stuck. Omitted for peers.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "tags": {
           "additionalProperties": {
@@ -4113,6 +4166,13 @@
           "format": "uint32",
           "minimum": 0,
           "type": "integer"
+        },
+        "effort": {
+          "description": "The harness's current reasoning effort, when it reports one.\nAdditive for older clients and peers.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "enforcement": {
           "$ref": "#/types/Enforcement"
@@ -4358,6 +4418,11 @@
             "null"
           ]
         },
+        "state": {
+          "default": "",
+          "description": "Effective liveness: `stuck` after three classified harness failures, else `status`.",
+          "type": "string"
+        },
         "stateSeq": {
           "format": "uint64",
           "minimum": 0,
@@ -4370,6 +4435,35 @@
         "steering": {
           "description": "The agent takes a prompt mid-turn.",
           "type": "boolean"
+        },
+        "stuckError": {
+          "default": null,
+          "description": "Last classified error, redacted and bounded. Omitted for peers.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "stuckReason": {
+          "anyOf": [
+            {
+              "$ref": "#/types/StuckReason"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "stuckSince": {
+          "default": null,
+          "description": "Unix milliseconds when the third failure established stuck. Omitted for peers.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "tags": {
           "additionalProperties": {
@@ -4542,6 +4636,15 @@
         "sessions"
       ],
       "type": "object"
+    },
+    "StuckReason": {
+      "enum": [
+        "harness_unavailable",
+        "capacity",
+        "auth",
+        "spawn_failed"
+      ],
+      "type": "string"
     },
     "ToolSummary": {
       "description": "One row of a chat's tool list (`store::ToolRow`).",

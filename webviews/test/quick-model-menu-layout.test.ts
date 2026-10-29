@@ -187,7 +187,7 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
     try {
       expect(await page.getByRole("menuitem", { name: /^Profile/ }).count()).toBe(0);
       expect(await page.getByRole("button", { name: "Claude Code (sr)", exact: true }).count()).toBe(1);
-      await page.getByRole("menuitem", { name: /^Account/ }).hover();
+      await page.getByRole("menuitem", { name: /^Provider/ }).hover();
       await page.getByRole("menuitemradio", { name: "API key", exact: true }).waitFor();
     } finally {
       await page.close();
@@ -225,13 +225,13 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
     }
   });
 
-  test("a long account name keeps the Account control readable in a narrow pane", async () => {
+  test("a long account name keeps the Provider control readable in a narrow pane", async () => {
     for (const width of [320, 420]) {
       const page = await open("claude", width);
       try {
-        const label = page.getByRole("menuitem", { name: /^Account/ }).locator(".acpmux-menu-label");
+        const label = page.getByRole("menuitem", { name: /^Provider/ }).locator(".acpmux-menu-label");
         expect(await label.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
-        await page.getByRole("menuitem", { name: /^Account/ }).hover();
+        await page.getByRole("menuitem", { name: /^Provider/ }).hover();
         await page.getByRole("menuitemradio", { name: "API key", exact: true }).waitFor();
       } finally {
         await page.close();
