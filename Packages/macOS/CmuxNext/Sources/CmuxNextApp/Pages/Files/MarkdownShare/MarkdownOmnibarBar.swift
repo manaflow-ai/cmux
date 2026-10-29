@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextBrowser
-import CmuxNextCompat
+import CmuxNextCompatAppKit
+import CmuxNextPages
 import CmuxNextWakeups
 
 /// What the Markdown omnibar asks of its tab's owner (``FilePageService``).
@@ -11,9 +12,9 @@ struct MarkdownOmnibarActions {
     /// Gives the keyboard back to the page (after a commit or Escape).
     var returnFocus: () -> Void
     /// The local live link of a file (``MarkdownLiveShareServer``).
-    var liveLink: (URL) async -> URL?
+    var liveLink: @MainActor (URL) async -> URL?
     /// Opens a web URL in a cmux browser tab beside the page.
-    var openInBrowser: (URL) -> Void
+    var openInBrowser: @MainActor (URL) -> Void
     /// Back, Forward and Reload (Cmd-[, Cmd-], Cmd-R): the page's link history and the file again
     /// from disk (the page's `back`, `forward` and `reload` commands).
     var back: () -> Void
@@ -33,6 +34,8 @@ final class MarkdownOmnibarBar: NSView {
     private var file: URL?
     private(set) var location: MarkdownFileLocation?
     private var reading: Task<Void, Never>?
+    /// The repository read's reply: the bar belongs to the tab that shows it; a plain visible task.
+    private let replies: PageTabReplies
     private var canBack = false
     private var canForward = false
     private lazy var height = heightAnchor.constraint(equalToConstant: toolbar.preferredHeight)
@@ -42,6 +45,7 @@ final class MarkdownOmnibarBar: NSView {
         toolbar = OmnibarToolbarView(suggestionEngine: suggestionEngine, navigation: true, mainWork: mainWork)
         self.reader = reader
         self.actions = actions
+        replies = PageTabReplies(owner: "markdown.omnibar.location", on: mainWork) { _ in nil }
         super.init(frame: .zero)
         toolbar.translatesAutoresizingMaskIntoConstraints = false
         addSubview(toolbar)
@@ -83,9 +87,9 @@ final class MarkdownOmnibarBar: NSView {
         toolbar.addressBar.setMachineBadge(nil, help: nil)
         reading?.cancel()
         guard let file else { return }
-        reading = Task { [weak self, reader] in
-            let location = await reader.read(file)
-            guard let self, !Task.isCancelled, self.file == file else { return }
+        // The reader's git commands run in its runner, off main; the chip follows in the reply.
+        reading = replies.reply(for: nil) { [reader] in await reader.read(file) } apply: { [weak self] location in
+            guard let self, self.file == file else { return }
             self.apply(location)
         }
     }
@@ -169,14 +173,17 @@ final class MarkdownOmnibarBar: NSView {
             none.isEnabled = false
             menu.addItem(none)
         }
-        let actions = actions
+        let liveLink = actions.liveLink, openInBrowser = actions.openInBrowser, replies = replies
+        // Each choice requests the link (the server answers when it listens), then copies or opens it in the reply.
         menu.addItem(MarkdownMenuAction.item(MarkdownShareStrings.copyLiveLink) {
-            // task-owner: one link request; ends when the server answers
-            Task { if let link = await actions.liveLink(file) { Self.copy(link.absoluteString) } }
+            _ = replies.reply(for: nil) { await liveLink(file) } apply: { link in
+                if let link { Self.copy(link.absoluteString) }
+            }
         })
         menu.addItem(MarkdownMenuAction.item(MarkdownShareStrings.openLiveLink) {
-            // task-owner: one link request; ends when the server answers
-            Task { if let link = await actions.liveLink(file) { actions.openInBrowser(link) } }
+            _ = replies.reply(for: nil) { await liveLink(file) } apply: { link in
+                if let link { openInBrowser(link) }
+            }
         })
         menu.addItem(MarkdownMenuAction.item(MarkdownShareStrings.revealInFinder) {
             NSWorkspace.shared.revealInBackground([file])

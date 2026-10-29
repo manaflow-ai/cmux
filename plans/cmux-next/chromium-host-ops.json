@@ -1242,6 +1242,32 @@
       "reason": "Returns 1 when sent: a caller checks fork_api_version (mirror) >= 31 for support and loads the URL itself without it, as tab_restore_navigation's callers do (task 093)."
     },
     {
+      "name": "cmux_shim_browser_composition_bounds_watch",
+      "class": "local",
+      "args": [
+        {
+          "name": "browser_id",
+          "type": "int"
+        },
+        {
+          "name": "fn",
+          "type": "void (*)(void* context, int browser_id, const void* bounds)",
+          "function_pointer": true
+        },
+        {
+          "name": "context",
+          "type": "void*"
+        }
+      ],
+      "returns": "int",
+      "result_used_by": [],
+      "mirror_key": null,
+      "refresh_events": [],
+      "pending_keys": [],
+      "reply_event": null,
+      "reason": "Function-pointer arg. As text_input_watch, the client code is task 014b's (client/remote_shim_local.mm): it keeps fn per browser and calls it on main in the event batch from the host's push of the composition bounds (task 044, with TEXT_INPUT_STATE); only the watch on/off crosses the wire."
+    },
+    {
       "name": "cmux_shim_set_new_tab_page_url",
       "class": "preinit",
       "args": [
@@ -1374,6 +1400,25 @@
       "pending_keys": [],
       "reply_event": null,
       "reason": "The external message pump does not exist in host mode (CefRunMessageLoop runs in the host, task 034): a no-op."
+    },
+    {
+      "name": "cmux_shim_set_pump_time_slice",
+      "class": "local",
+      "args": [
+        {
+          "name": "slice_us",
+          "type": "int64_t"
+        }
+      ],
+      "returns": "int",
+      "result_used_by": [
+        "CmuxNextBrowser/CEF/CEFInProcessPump.swift"
+      ],
+      "mirror_key": null,
+      "refresh_events": [],
+      "pending_keys": [],
+      "reply_event": null,
+      "reason": "The slice of the next external message pump pass, which does not exist in host mode (CefRunMessageLoop runs in the host, task 034): the remote shim returns 0, and CEFInProcessPump calls it only in process (p03-rendering-116)."
     },
     {
       "name": "cmux_shim_set_schedule_delayed",
@@ -3953,7 +3998,7 @@
     },
     {
       "name": "cmux_shim_renderer_client_ids",
-      "class": "async",
+      "class": "mirror",
       "args": [
         {
           "name": "browser_id",
@@ -3972,11 +4017,18 @@
       "result_used_by": [
         "CmuxNextBrowser/CEF/CEFTab+Processes.swift"
       ],
-      "mirror_key": null,
-      "refresh_events": [],
+      "mirror_key": "tab.renderer_client_ids[browser_id]",
+      "refresh_events": [
+        "CMUX_SHIM_AFTER_CREATED",
+        "CMUX_SHIM_ADDRESS",
+        "CMUX_SHIM_LOAD_END",
+        "CMUX_SHIM_RENDER_TERMINATED",
+        "CMUX_SHIM_FRAME_RENDERERS",
+        "CMUX_SHIM_BEFORE_CLOSE"
+      ],
       "pending_keys": [],
-      "reply_event": "wire:REPLY",
-      "reason": "Out buffer of renderer ids (task 018); the hover card can show the previous value until the reply."
+      "reply_event": null,
+      "reason": "The renderer client ids of the tab's frames, which the resource hover card maps to the host's renderer helpers (task p01-process-225). host_mirror.mm pushes them for every open tab, with no watch, at the events that change a tab's frame processes: its first frame (AFTER_CREATED), a main-frame navigation (ADDRESS, LOAD_END), a main-frame renderer's end (RENDER_TERMINATED) and FRAME_RENDERERS, which the shim sends when any frame's renderer set changed (CefFrameHandler: an iframe added after the load, an out-of-process iframe's swap or its renderer's end); BEFORE_CLOSE forgets them. Chrome's task manager follows a tab's processes through the same frame changes (RenderFrameCreated, RenderFrameDeleted, RenderFrameHostChanged in chrome/browser/task_manager/providers/web_contents/web_contents_task_provider.cc). The value holds kMirrorOutCapacity ids; a read copies what fits."
     },
     {
       "name": "cmux_shim_renderer_frames",
@@ -4561,6 +4613,7 @@
         "tab.navigation_entries[browser_id]",
         "tab.navigation_state[browser_id]",
         "tab.omnibox_keywords[browser_id]",
+        "tab.renderer_client_ids[browser_id]",
         "tab.side_panel_state[browser_id]",
         "tab.window_id[browser_id]"
       ],
@@ -4580,6 +4633,7 @@
         "tab.navigation_entries[browser_id]",
         "tab.navigation_state[browser_id]",
         "tab.omnibox_keywords[browser_id]",
+        "tab.renderer_client_ids[browser_id]",
         "tab.side_panel_state[browser_id]",
         "tab.window_id[browser_id]"
       ]
@@ -4590,7 +4644,8 @@
       "refreshes": [
         "tab.ext_actions[browser_id,icon_px]",
         "tab.navigation_entries[browser_id]",
-        "tab.navigation_state[browser_id]"
+        "tab.navigation_state[browser_id]",
+        "tab.renderer_client_ids[browser_id]"
       ]
     },
     {
@@ -4620,7 +4675,8 @@
       "kind": "CMUX_SHIM_LOAD_END",
       "value": 9,
       "refreshes": [
-        "tab.ext_actions[browser_id,icon_px]"
+        "tab.ext_actions[browser_id,icon_px]",
+        "tab.renderer_client_ids[browser_id]"
       ]
     },
     {
@@ -4710,7 +4766,9 @@
     {
       "kind": "CMUX_SHIM_RENDER_TERMINATED",
       "value": 23,
-      "refreshes": []
+      "refreshes": [
+        "tab.renderer_client_ids[browser_id]"
+      ]
     },
     {
       "kind": "CMUX_SHIM_RENDER_UNRESPONSIVE",
@@ -4907,6 +4965,14 @@
       "kind": "CMUX_SHIM_WINDOW_REQUEST_RESULT",
       "value": 66,
       "refreshes": []
+    },
+    {
+      "kind": "CMUX_SHIM_FRAME_RENDERERS",
+      "value": 67,
+      "refreshes": [
+        "tab.renderer_client_ids[browser_id]"
+      ],
+      "reason": "The renderers of a tab's frames changed (task p01-process-225): the shim's CefFrameHandler saw a frame attach, detach or become the main frame, and the set of the frames' renderer client ids is new (CEFShim/src/frame_renderers.h). tab.renderer_client_ids is pushed before it, so the hover card and debug.webui see an iframe renderer that came after LOAD_END or one that ended."
     }
   ],
   "optional_exports": [
@@ -5112,7 +5178,7 @@
       "pending_keys": [],
       "reply_event": "wire:REPLY",
       "reason": "A first-party page's renderer group (p13-webui-011) is set before initialize, after its page_scheme_add_first_party; the client returns its own check when it queues the op, and the host's refusal is the reply.",
-      "fork_api": 29
+      "fork_api": 42
     },
     {
       "name": "cmux_shim_tab_discard",
@@ -5132,7 +5198,7 @@
       "pending_keys": [],
       "reply_event": "wire:REPLY",
       "reason": "WebContents::Discard refuses a page Chromium counts visible, which only the host knows. In process CEFTab.discard() reads the answer and the page host closes the page on a refusal; in host mode the return only says the op was sent, so CEFShimLibrary binds no tabDiscard there and the page host closes the page until CEFTab.discard() awaits the reply (host_mode_rewrites, p13-webui-031).",
-      "fork_api": 29
+      "fork_api": 39
     },
     {
       "name": "cmux_shim_widget_set_geometry",
@@ -5411,7 +5477,7 @@
       "pending_keys": [],
       "reply_event": "CMUX_SHIM_REPLY",
       "reason": "The fork's cmux_browser_capture (p13-webui-077): the page as it last drew, fitted inside max_width x max_height and encoded on Chromium's thread pool (format 0 PNG with alpha, 1 JPEG), with no DevTools agent. Answered as cmux_shim_download_favicon is: CMUX_SHIM_REPLY under the caller's reply id, value = width | height << 32 in pixels (0: no picture), json = the encoded image in base64. 1 when started (p13-webui-078).",
-      "fork_api": 38
+      "fork_api": 40
     },
     {
       "name": "cmux_shim_tab_send_mouse_move",
@@ -5443,7 +5509,7 @@
       "pending_keys": [],
       "reply_event": null,
       "reason": "CefBrowserHost::SendMouseMoveEvent with no button held (p13-webui-077 and 078): a scripted hover with no DevTools agent, in call order with other input as cmux_shim_tab_send_click.",
-      "fork_api": 38
+      "fork_api": 40
     }
   ],
   "optional_events": [
@@ -5482,6 +5548,12 @@
       "value": 56,
       "refreshes": [],
       "reason": "Host mode only (task 234): Chromium's ack of one of the page's non-momentum wheels, paired in order with the wheels the host sent (GestureScrollEventAck and DidOverscroll, the fork's cmux_set_wheel_ack_handler). request = the wheel frame's input seq, a = DIPs scrolled in hundredths (x low 32 bits, y high), b = flags (1 scroll update, 2 consumed, 4 overscrolled; overscroll-behavior-x in bits 8-9) low and overscroll x in hundredths high (HOST/src/host_wheel_ack.h). cmux's swipe navigation decides from it (CEFSwipeNavigation)."
+    },
+    {
+      "kind": "CMUX_SHIM_HELPER_EXIT",
+      "value": 68,
+      "refreshes": [],
+      "reason": "Host mode only (task p01-process-225): a Chromium helper of the host (renderer, GPU, utility, extension renderer) ended. browser_id = 0, request = its pid, a = its wait status (signal in the low 7 bits, exit code in bits 8-15), b = 1 for an extension renderer, s1 = its --type, s2 = its --utility-sub-type. The host watches its own children with kqueue as cmux's CEFChildProcessMonitor watches the app's in process (HOST/src/host_helper_exits.h), since CEF reports only renderer ends; Chrome's browser hears every child's end (BrowserChildProcessObserver::BrowserChildProcessCrashed and Killed, content/browser/browser_child_process_host_impl.cc). cmux records each abnormal one in debug.crashes (CEFRuntime.childExited)."
     }
   ],
   "host_mode_rewrites": [
@@ -5587,15 +5659,6 @@
       "needs": "reply",
       "change": "The remote-localhost proxy check takes the token form (sendAsync, task 021): in host mode machineProxyGate is .waiting, and createAfterMachineProxy asks for the tab's window in the turn after the REPLY says the proxy is stored (state 1 or 2); creationFailed() runs when it does not.",
       "task": "p01-process-023"
-    },
-    {
-      "site": "CmuxNextBrowser/CEF/CEFTab+Processes.swift: CEFTab.contentProcesses() (computed property)",
-      "exports": [
-        "cmux_shim_renderer_client_ids"
-      ],
-      "needs": "reply",
-      "change": "The out buffer comes back in the reply: Take the token with CEFHostStart.expectReply() and await it in CEFHostStart.replies (count, then int32Array) and keep the last value, which the property returns; the hover card shows the previous value until the reply.",
-      "task": "p01-process-022"
     },
     {
       "site": "CmuxNextBrowser/CEF/CEFTab+UserClose.swift: CEFTab.beginUserClose()",

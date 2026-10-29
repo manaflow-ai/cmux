@@ -324,14 +324,14 @@ impl Store {
             .iter()
             .position(|d| d.revoked_ms.is_none() && d.name == name && d.role == Role::Phone);
         // Names are unique among live records: set the old one aside for the issue's check.
-        if let Some(at) = old {
-            self.devices[at].revoked_ms = Some(now_ms);
+        if let Some(device) = old.and_then(|at| self.devices.get_mut(at)) {
+            device.revoked_ms = Some(now_ms);
         }
         let mut device = match self.issue(name, Role::Phone, token, id, None, now_ms) {
             Ok(device) => device,
             Err(e) => {
-                if let Some(at) = old {
-                    self.devices[at].revoked_ms = None;
+                if let Some(device) = old.and_then(|at| self.devices.get_mut(at)) {
+                    device.revoked_ms = None;
                 }
                 return Err(e);
             }
@@ -349,16 +349,14 @@ impl Store {
     /// on or off. Only a `client` machine or a `phone` drives chats here, so
     /// only one can have it on; turning it off is always accepted.
     pub fn set_full_access(&mut self, key: &str, on: bool) -> Result<Device, RpcError> {
-        let at = self
-            .devices
-            .iter()
-            .position(|d| d.id == key && d.revoked_ms.is_none())
-            .or_else(|| self.devices.iter().position(|d| d.name == key && d.revoked_ms.is_none()))
-            .ok_or_else(|| {
-                RpcError::not_found(format!("no paired machine {key:?}; see `cmux host ticket ls`"))
-                    .with_data(json!({"reason": "not_found"}))
-            })?;
-        let d = &mut self.devices[at];
+        let at =
+            self.devices.iter().position(|d| d.id == key && d.revoked_ms.is_none()).or_else(|| {
+                self.devices.iter().position(|d| d.name == key && d.revoked_ms.is_none())
+            });
+        let d = at.and_then(|at| self.devices.get_mut(at)).ok_or_else(|| {
+            RpcError::not_found(format!("no paired machine {key:?}; see `cmux host ticket ls`"))
+                .with_data(json!({"reason": "not_found"}))
+        })?;
         if on && !d.role.drives_chats() {
             return Err(RpcError::invalid_params(format!(
                 "{} is paired {}: only a client machine or a phone drives chats here, so only one can run them in Full access",
@@ -379,18 +377,16 @@ impl Store {
             t.revoked_ms.get_or_insert(now_ms);
             return Ok(Revoked::Ticket(t.clone(), already));
         }
-        let at = self
-            .devices
-            .iter()
-            .position(|d| d.id == key)
-            .or_else(|| self.devices.iter().position(|d| d.name == key && d.revoked_ms.is_none()))
-            .ok_or_else(|| {
-                RpcError::not_found(format!(
-                    "no ticket or paired machine {key:?}; see `cmux host ticket ls`"
-                ))
-                .with_data(json!({"reason": "not_found"}))
-            })?;
-        let d = &mut self.devices[at];
+        let at =
+            self.devices.iter().position(|d| d.id == key).or_else(|| {
+                self.devices.iter().position(|d| d.name == key && d.revoked_ms.is_none())
+            });
+        let d = at.and_then(|at| self.devices.get_mut(at)).ok_or_else(|| {
+            RpcError::not_found(format!(
+                "no ticket or paired machine {key:?}; see `cmux host ticket ls`"
+            ))
+            .with_data(json!({"reason": "not_found"}))
+        })?;
         let already = d.revoked_ms.is_some();
         d.revoked_ms.get_or_insert(now_ms);
         Ok(Revoked::Device(d.clone(), already))

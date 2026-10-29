@@ -11,6 +11,7 @@
 
 use super::Origin;
 use crate::hub::Hub;
+use crate::no_panic::JsonExt;
 use crate::rpc::RpcError;
 use serde_json::{Value, json};
 use std::time::{Duration, Instant};
@@ -51,27 +52,29 @@ pub(super) async fn host_health(hub: &Hub, origin: Origin) -> Value {
     // nearest folder that is.
     let home = crate::config::home();
     if let Some((free, total)) = home.ancestors().find_map(disk) {
-        v["disk"] = json!({"freeBytes": free, "totalBytes": total});
+        v.set("disk", json!({"freeBytes": free, "totalBytes": total}));
     }
     if let Some(load) = load() {
-        v["load"] = json!(load);
+        v.set("load", json!(load));
     }
     let pressure = hub.host_pressure_status().await;
-    let fraction = pressure["available_ram_fraction"].as_f64();
+    let fraction = pressure.field("available_ram_fraction").as_f64();
     if let Some(total) = ram_total() {
         let mut ram = json!({"totalBytes": total});
         if let Some(f) = fraction {
-            ram["freeBytes"] = json!((total as f64 * f.clamp(0.0, 1.0)) as u64);
+            ram.set("freeBytes", json!((total as f64 * f.clamp(0.0, 1.0)) as u64));
         }
-        v["ram"] = ram;
+        v.set("ram", ram);
     }
     if let Some((used, total)) = swap() {
-        v["swap"] = json!({"usedBytes": used, "totalBytes": total});
+        v.set("swap", json!({"usedBytes": used, "totalBytes": total}));
     }
-    v["pressure"] =
-        PRESSURE_KEYS.iter().filter_map(|k| Some((*k, pressure.get(*k)?.clone()))).collect();
+    v.set(
+        "pressure",
+        PRESSURE_KEYS.iter().filter_map(|k| Some((*k, pressure.get(*k)?.clone()))).collect(),
+    );
     if !origin.web_class() {
-        v["host"] = json!(crate::hub::host_label());
+        v.set("host", json!(crate::hub::host_label()));
     }
     v
 }
@@ -95,9 +98,9 @@ pub(super) async fn peer_status(
     let mut hosts = Vec::new();
     if only.is_none() {
         let mut me = host_health(hub, origin).await;
-        me["name"] = me.get("host").cloned().unwrap_or_else(|| json!("this machine"));
-        me["self"] = json!(true);
-        me["reachable"] = json!(true);
+        me.set("name", me.get("host").cloned().unwrap_or_else(|| json!("this machine")));
+        me.set("self", json!(true));
+        me.set("reachable", json!(true));
         hosts.push(me);
     }
     // A peer's connection gets this machine's row only (module docs).
@@ -116,44 +119,50 @@ async fn peer_row(hub: &Hub, listed: &Value) -> Value {
     let mut row = json!({"name": name, "self": false, "reachable": false});
     for key in ["state", "lastSeen", "downSince", "remoteBuild", "outdated", "sessions"] {
         if let Some(v) = listed.get(key).filter(|v| !v.is_null()) {
-            row[key] = v.clone();
+            row.set(key, v.clone());
         }
     }
     let peer = hub.connected_peers().into_iter().find(|p| p.name == name);
     let Some(peer) = peer else {
         let why = listed["error"].as_str().unwrap_or("not connected");
-        row["error"] = json!(format!("{why}; `{NEXT} {name}` checks it step by step"));
+        row.set("error", json!(format!("{why}; `{NEXT} {name}` checks it step by step")));
         return row;
     };
     let started = Instant::now();
     match tokio::time::timeout(PEER_BUDGET, peer.request("_acpmux/host_health", json!({}))).await {
         Ok(Ok(health)) => {
-            row["reachable"] = json!(true);
-            row["latencyMs"] = json!(started.elapsed().as_millis() as u64);
+            row.set("reachable", json!(true));
+            row.set("latencyMs", json!(started.elapsed().as_millis() as u64));
             if let Some(fields) = health.as_object() {
                 for (k, v) in fields {
-                    row[k.as_str()] = v.clone();
+                    row.set(k.as_str(), v.clone());
                 }
             }
-            row["name"] = json!(name);
-            row["self"] = json!(false);
-            row["outdated"] = json!(health["build"].as_str() != Some(crate::hub::BUILD));
+            row.set("name", json!(name));
+            row.set("self", json!(false));
+            row.set("outdated", json!(health.field("build").as_str() != Some(crate::hub::BUILD)));
         }
         // It answered, so it is up: an older build without this method.
         Ok(Err(e)) => {
-            row["reachable"] = json!(true);
-            row["latencyMs"] = json!(started.elapsed().as_millis() as u64);
-            row["healthUnsupported"] = json!(true);
-            row["error"] = json!(format!(
-                "{}; `acpmux host update {name}` brings it to this build",
-                e.message
-            ));
+            row.set("reachable", json!(true));
+            row.set("latencyMs", json!(started.elapsed().as_millis() as u64));
+            row.set("healthUnsupported", json!(true));
+            row.set(
+                "error",
+                json!(format!(
+                    "{}; `acpmux host update {name}` brings it to this build",
+                    e.message
+                )),
+            );
         }
         Err(_) => {
-            row["error"] = json!(format!(
-                "no answer in {} s; `{NEXT} {name}` checks it step by step",
-                PEER_BUDGET.as_secs()
-            ));
+            row.set(
+                "error",
+                json!(format!(
+                    "no answer in {} s; `{NEXT} {name}` checks it step by step",
+                    PEER_BUDGET.as_secs()
+                )),
+            );
         }
     }
     row

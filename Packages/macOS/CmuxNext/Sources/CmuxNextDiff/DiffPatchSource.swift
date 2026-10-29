@@ -1,4 +1,4 @@
-import CmuxNextCompat
+public import CmuxNextCompat
 public import CmuxNextPages
 import Darwin
 import Foundation
@@ -61,8 +61,8 @@ nonisolated struct DiffPatchResolver: Sendable {
         guard Self.isValidToken(token) else { return nil }
         let url = root.appending(path: ".manifest-\(token).json")
         var info = stat()
-        guard lstat(url.path, &info) == 0, info.st_mode & S_IFMT == S_IFREG, info.st_size <= Self.maximumManifestBytes,
-              // concurrency-allow: nonisolated resolver; DiffPatchSource calls it from a @concurrent read
+        guard blockingLstat(url.path, &info) == 0, info.st_mode & S_IFMT == S_IFREG, info.st_size <= Self.maximumManifestBytes,
+              // concurrency-allow: nonisolated resolver; DiffPatchSource calls it on the files lane
               let data = try? Data(contentsOf: url),
               let object = try? JSONSerialization.blockingJSONObject(with: data) as? [String: Any],
               object["token"] as? String == token,
@@ -83,12 +83,12 @@ nonisolated struct DiffPatchResolver: Sendable {
         guard fileComponents.count > rootComponents.count, Array(fileComponents.prefix(rootComponents.count)) == rootComponents
         else { return nil }
         var info = stat()
-        guard stat(filePath, &info) == 0, info.st_mode & S_IFMT == S_IFREG, info.st_size <= Self.maximumPatchBytes else { return nil }
+        guard blockingStat(filePath, &info) == 0, info.st_mode & S_IFMT == S_IFREG, info.st_size <= Self.maximumPatchBytes else { return nil }
         return URL(fileURLWithPath: filePath)
     }
 
     static func realPath(_ path: String) -> String? {
-        guard let resolved = Darwin.realpath(path, nil) else { return nil }
+        guard let resolved = blockingRealpath(path, nil) else { return nil }
         defer { free(resolved) }
         return String(cString: resolved)
     }
@@ -101,28 +101,27 @@ nonisolated struct DiffPatchResolver: Sendable {
 
 /// The diff page's `__patch/` prefix (diff-host.md decision c): serves one
 /// tab's patches through ``DiffPatchResolver`` with that tab's current grant,
-/// read off the main actor, with the sidecar's MIME type. Nothing is served
+/// read on the runner's files lane, with the sidecar's MIME type. Nothing is served
 /// while the tab has no grant. The tab's page view keeps it alive.
 public final class DiffPatchSource: PageDynamicResourceSource {
     private let current: () -> Task<DiffTabReady, any Error>?
+    private let runner: any MayBlockRunner
 
-    /// `current` is the tab's grant now (its provider's).
-    public init(current: @escaping () -> Task<DiffTabReady, any Error>?) {
+    /// `current` is the tab's grant now (its provider's); `runner` reads the patches.
+    public init(runner: any MayBlockRunner, current: @escaping () -> Task<DiffTabReady, any Error>?) {
+        self.runner = runner
         self.current = current
-    }
-
-    convenience init(ready: Task<DiffTabReady, any Error>) {
-        self.init { ready }
     }
 
     public func resource(for request: PageResourceRequest) async -> PageResource? {
         guard let grant = try? await current()?.value.grant else { return nil }
-        return await Self.read(DiffPatchResolver(root: grant.root, token: grant.token), request)
-    }
-
-    @concurrent private static func read(_ resolver: DiffPatchResolver, _ request: PageResourceRequest) async -> PageResource? {
-        // concurrency-allow: @concurrent, so this mapped read never runs on the main actor
-        guard let file = resolver.file(for: request), let data = try? Data(contentsOf: file, options: .mappedIfSafe) else { return nil }
+        let resolver = DiffPatchResolver(root: grant.root, token: grant.token)
+        // The page waits for the patch it asked for.
+        let data = try? await runner.runFiles(.userVisible) { () -> Data? in
+            guard let file = resolver.file(for: request) else { return nil }
+            return try? Data(blockingContentsOf: file, options: .mappedIfSafe)
+        }
+        guard let data = data ?? nil else { return nil }
         return PageResource(data: data, mimeType: DiffPatchResolver.mimeType + "; charset=utf-8")
     }
 }

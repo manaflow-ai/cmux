@@ -119,6 +119,7 @@ impl PlacementWatch {
             let mut poll =
                 libc::pollfd { fd: self.inotify.as_raw_fd(), events: libc::POLLIN, revents: 0 };
             // SAFETY: one valid pollfd for the duration of the call.
+            // wakeup-allow: deadline the placement's one bound; an inotify event ends each wait first
             let ready = unsafe { libc::poll(&mut poll, 1, millis) };
             if ready < 0
                 && std::io::Error::last_os_error().kind() != std::io::ErrorKind::Interrupted

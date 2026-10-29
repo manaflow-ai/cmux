@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import CmuxNextCompat
 
 /// The check a link socket path passes before the app connects to it. The
 /// path comes from an app server's answer, so the app connects only to a
@@ -27,7 +28,7 @@ enum CloudLinkSocketPolicy {
         let directory = components.dropLast().joined(separator: "/")
         // Every ancestor as written (symbolic links included) and as resolved
         // is owned by root or this user and, when others can write it, sticky.
-        guard let resolved = realpath(directory, nil) else { throw CloudLinkError.unsafeSocket("no directory") }
+        guard let resolved = blockingRealpath(directory, nil) else { throw CloudLinkError.unsafeSocket("no directory") }
         let real = String(cString: resolved)
         free(resolved)
         try checkAncestors(of: directory, uid: uid)
@@ -65,6 +66,6 @@ enum CloudLinkSocketPolicy {
     /// `lstat`: a symbolic link is reported as itself, never followed.
     private static func status(_ path: String) -> stat? {
         var info = stat()
-        return lstat(path, &info) == 0 ? info : nil
+        return blockingLstat(path, &info) == 0 ? info : nil
     }
 }

@@ -9,7 +9,7 @@ public protocol PageRelayIdleDeadline: AnyObject {
 
 extension MainDeadline: PageRelayIdleDeadline {}
 
-/// When a page relay closes its daemon connection (p13-webui-066): ``delay`` after its last use
+/// When a page relay closes its daemon connection: ``delay`` after its last use
 /// ends. A call is a use while it runs, a listener while it is live (not paused by a frozen page).
 /// 30 s is the idle timeout after which Chrome stops a service worker with no work
 /// (content/browser/service_worker/service_worker_version.cc, `kIdleWorkerTimeout`): a tab switched
@@ -18,6 +18,7 @@ extension MainDeadline: PageRelayIdleDeadline {}
 /// Settings > Agents > Chiefs) both close this way.
 @MainActor
 public final class PageRelayIdleClose {
+    /// How long the relay stays open after its last use ends.
     public static let delay: Duration = .seconds(30)
 
     /// Closes the connection; the owner sets it once.
@@ -25,6 +26,7 @@ public final class PageRelayIdleClose {
     private let deadline: any PageRelayIdleDeadline
     private var uses = 0
 
+    /// A closer whose idle deadline is `deadline`.
     public init(deadline: any PageRelayIdleDeadline) {
         self.deadline = deadline
     }

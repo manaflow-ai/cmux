@@ -145,14 +145,20 @@ final class AcpmuxPermissionFeedBridge {
     }
 
     /// The `initialize` reply: the person proof for its challenge as the SECOND request (acpmux
-    /// `hub/person.rs`, transport unix), then `_acpmux/watch` over every session.
+    /// `hub/person.rs`, transport unix), made and sent on the line's queue, then `_acpmux/watch`
+    /// over every session, queued after it.
     private func initialized(_ result: [String: Any]?, on line: AcpmuxCheckedLine) {
         let challenge = ((result?["_meta"] as? [String: Any])?["acpmux"] as? [String: Any])?["personChallenge"] as? [String: Any]
-        if let nonce = challenge?["nonce"] as? String, let id = challenge?["connection"] as? String,
-           let proof = line.personProof(nonce: nonce, connection: id) {
-            line.send(Data(acpmuxRequest: 2, method: "_acpmux/person_prove", params: ["proof": proof]))
-        } else {
+        let logger = logger
+        let refused: @Sendable () -> Void = {
             logger.error("feed bridge: no person challenge or no key for this daemon; phone answers stay refused")
+        }
+        if let nonce = challenge?["nonce"] as? String, let id = challenge?["connection"] as? String {
+            line.sendPersonProof(nonce: nonce, connection: id, request: { proof in
+                Data(acpmuxRequest: 2, method: "_acpmux/person_prove", params: ["proof": proof])
+            }, refused: refused)
+        } else {
+            refused()
         }
         line.send(Data(acpmuxRequest: 3, method: "_acpmux/watch", params: ["enabled": true]))
     }

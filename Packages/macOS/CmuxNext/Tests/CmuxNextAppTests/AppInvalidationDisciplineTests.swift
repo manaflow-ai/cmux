@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextApp
 import CmuxNextDaemon
+import CmuxNextWakeups
 import Testing
 
 /// CmuxNextApp's invalidation discipline (plans/cmux-next/chrome-parity/p03-rendering.md R4, task
@@ -23,7 +24,7 @@ import Testing
         let row = NotificationsPanelRow(id: "n1", title: "Build finished", subtitle: nil, body: "All green", level: .info,
                                         workspaceTitle: "cmux", createdAt: Date(timeIntervalSince1970: 0), unread: true,
                                         surface: nil, terminal: nil)
-        let view = NotificationRowView(row: row, now: Date(timeIntervalSince1970: 60),
+        let view = NotificationRowView(row: row, now: Date(timeIntervalSince1970: 60), node: VisibilityNode(root: "test.row", own: .visible),
                                        callbacks: .init(open: {}, dismiss: {}, menu: { NSMenu() }))
         view.needsDisplay = false
         view.isSelected = false

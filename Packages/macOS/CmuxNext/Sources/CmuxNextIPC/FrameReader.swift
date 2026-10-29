@@ -1,8 +1,8 @@
 // STAND-IN for p05-ipc-054 (Swift FrameReader with pooled buffers and small-copy rule). The round-3
 // compile fixer of perf/chrome-parity wrote it so that p05-ipc-057's FrameFuzzTests compiles before 054
 // lands. It is the interface that the 054 paragraph of plans/cmux-next/chrome-parity/p05-ipc.md pins,
-// over a plain byte array: a line-for-line port of cmux-tui/crates/cmux-ipc/src/reader.rs and frame.rs
-// (p05-ipc-050), with the same check order and reason strings. It has no recvmsg path, no pooled
+// over a plain byte array: a line-for-line port of cmux-tui/crates/cmux-ipc/src/reader.rs and frame.rs,
+// with the same check order and reason strings. It has no recvmsg path, no pooled
 // refcounted buffers, no no-copy slices for large OUTPUT/SNAPSHOT/REPLAY payloads and no fd FIFO.
 // p05-ipc-054 must replace this whole file (its FrameHeader.swift, FrameReader.swift and ReadBuffer.swift)
 // and keep the interface, or change FrameFuzzTests with it.

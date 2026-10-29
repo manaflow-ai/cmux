@@ -1,7 +1,7 @@
 import CmuxNextCompat
 import Testing
 
-/// CmuxNextCompat's platform layer (p15-oracle-120): importing the module gives the C library and `Logger`
+/// CmuxNextCompat's platform layer: importing the module gives the C library and `Logger`
 /// on every platform (this file imports neither Darwin, Glibc nor os), `pthread_main_np` tells the main thread
 /// apart on Linux too, and the Linux `Logger` writes what the unified log would: privacy redactions, formats,
 /// alignment, the level mapping, and no value read for a level that is off.

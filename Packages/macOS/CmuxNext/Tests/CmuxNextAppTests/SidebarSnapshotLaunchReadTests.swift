@@ -4,7 +4,7 @@ import CmuxNextWakeups
 import Foundation
 import Testing
 
-/// p08-startup-075: `SidebarSnapshotStore.init` read and decoded `sidebar-snapshot-v1.json` on the main thread inside
+/// `SidebarSnapshotStore.init` read and decoded `sidebar-snapshot-v1.json` on the main thread inside
 /// `AppServices.init`. The file is now read on a launch lane from `main`; the store takes that read, and a change
 /// made before it ends is applied on the saved document, so the next write never drops the last run's windows.
 @Suite("Sidebar snapshot read on a launch lane", .serialized)

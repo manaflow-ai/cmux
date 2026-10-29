@@ -343,11 +343,9 @@ impl UnixWorkspaceRoot {
         if components.len() > MAX_PROTOCOL_PATH_COMPONENTS {
             return Err(invalid_path("resolved path has too many components"));
         }
-        let name = components
-            .last()
-            .ok_or_else(|| invalid_path("path does not name a file"))
-            .and_then(|name| component_cstring(name))?;
-        let parent_components = &components[..components.len() - 1];
+        let (name, parent_components) =
+            components.split_last().ok_or_else(|| invalid_path("path does not name a file"))?;
+        let name = component_cstring(name)?;
         let parent = self.open_canonical_directory(parent_components)?;
         Ok(UnixWorkspaceTarget { parent, name, display: canonical.to_owned() })
     }
@@ -377,6 +375,10 @@ impl UnixWorkspaceRoot {
         relative: &Path,
         create_missing: bool,
     ) -> Result<UnixWorkspaceDirectory, RpcError> {
+        #[allow(
+            clippy::unreachable,
+            reason = "INVARIANT: resolve_path returns Entry only when allow_final_entry is true"
+        )]
         let UnixResolvedPath::Directory { directory, resolved } =
             self.resolve_path(relative, create_missing, false)?
         else {
@@ -853,10 +855,9 @@ fn path_to_protocol(path: &Path) -> String {
 }
 
 fn looks_like_windows_absolute(input: &str) -> bool {
-    let bytes = input.as_bytes();
     input.starts_with("\\\\")
         || input.starts_with("//")
-        || (bytes.len() >= 2 && bytes[1] == b':' && bytes[0].is_ascii_alphabetic())
+        || matches!(input.as_bytes(), [drive, b':', ..] if drive.is_ascii_alphabetic())
 }
 
 pub(crate) fn invalid_path(message: impl Into<String>) -> RpcError {

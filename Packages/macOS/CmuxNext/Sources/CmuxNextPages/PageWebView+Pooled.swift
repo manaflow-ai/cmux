@@ -10,7 +10,7 @@ final class PagePooledOwner {
 }
 
 extension PageWebView {
-    /// `dataStore` is the store of the page's process group (``WebProcessGroups/dataStore``); nil
+    /// `dataStore` is the store of the page's process group (``WebProcessGroups/dataStore(for:)``); nil
     /// gives the page a store of its own.
     static func hostConfiguration(handler: PageSchemeHandler, documentAttributes: [String: String],
                                   options: PageEngineOptions, dataStore: WKWebsiteDataStore? = nil)
@@ -61,10 +61,5 @@ extension PageWebView {
             controller.addUserScript(WKUserScript(source: script, injectionTime: .atDocumentStart,
                                                    forMainFrameOnly: true, in: .page))
         }
-        #if DEBUG || CMUX_BENCH_HOOKS
-        // The refactor oracle's page state (p15-oracle-215): pages serve it only in DEV and bench builds.
-        controller.addUserScript(WKUserScript(source: oracleStateScript, injectionTime: .atDocumentStart,
-                                               forMainFrameOnly: true, in: .page))
-        #endif
     }
 }

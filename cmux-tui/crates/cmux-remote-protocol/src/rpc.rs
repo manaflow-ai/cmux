@@ -5,6 +5,12 @@ use serde::{Deserialize, Serialize};
 
 pub const MUX_INPUT_V1_FEATURE: &str = "mux-input-v1";
 
+/// Mux open feature: the bridge reads each `0xFF` message of the local mux
+/// socket by its 16-byte frame header (cmux-ipc `FrameHeader`) instead of as
+/// a line, and keeps every frame of one stream on one lane, so binary frames
+/// (`ipc-frames-v2`, `attach-frames-v1`) cross the bridge byte for byte.
+pub const BRIDGE_FRAMES_V1_FEATURE: &str = "bridge-frames-v1";
+
 /// Optional `terminal-bytes-v1` open metadata key. With the value
 /// [`TERMINAL_BYTES_VIEWER_SIZE_PRIORITY_PREFERRED`], the stream's renderer
 /// negotiates terminal-host viewer-size priority when the host supports it.

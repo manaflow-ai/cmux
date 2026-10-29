@@ -1,7 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextCloud
-import CmuxNextCompat
+import CmuxNextCompatAppKit
 import class CmuxSafeConcurrency.OnceContinuation
 import enum CmuxSafeConcurrency.OnceContinuationError
 import func CmuxSafeConcurrency.withOnceContinuation

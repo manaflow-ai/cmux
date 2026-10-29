@@ -1,5 +1,6 @@
 public import AppKit
 public import CmuxNextDesignTokens
+public import CmuxNextAppearance
 
 /// The theme one part of the UI draws in (plans/cmux-next/data-model.md 6).
 ///

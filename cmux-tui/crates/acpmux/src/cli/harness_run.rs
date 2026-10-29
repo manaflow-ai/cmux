@@ -90,15 +90,18 @@ pub fn run_cmd(id: &str, cwd: Option<PathBuf>, model: Option<String>) -> Result<
     let env_lookup = |var: &str| std::env::var(var).ok();
     let lookups = Lookups { env: &env_lookup, keychain: &crate::config::profiles::keychain_lookup };
     let plan = run_plan(&cfg, id, &cwd, model.as_deref(), &lookups)?;
-    let mut cmd = std::process::Command::new(&plan.argv[0]);
+    let Some((program, args)) = plan.argv.split_first() else {
+        return Err(anyhow!("harness {id} has no command"));
+    };
+    let mut cmd = std::process::Command::new(program);
     // Scrub the caller's nested Claude keys first, then apply the profile's
     // env, so a value the profile sets on purpose wins (as for an agent the
     // daemon starts, agent/command.rs).
     crate::config::scrub_nested_claude_env(&mut cmd);
-    cmd.args(&plan.argv[1..]).envs(&plan.env).current_dir(&plan.cwd);
+    cmd.args(args).envs(&plan.env).current_dir(&plan.cwd);
     // exec only returns on failure.
     let error = cmd.exec();
-    Err(anyhow!("cannot start {}: {error}", plan.argv[0]))
+    Err(anyhow!("cannot start {program}: {error}"))
 }
 
 /// Windows port: Windows has no exec; `cmux harness run` comes in a later

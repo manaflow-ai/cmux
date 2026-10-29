@@ -629,6 +629,18 @@
       "why": "p05-ipc-027 CmuxNextWireGen: the SwiftPM build-tool executable that reads cmux-tui/spec and writes one file into the plugin work directory. It runs on the build host as its own short process, never inside the app, so the app's main-thread detector does not apply; routing it through the CmuxNextCompat seams would compile Compat and swift-atomics for the host and rerun the generator on every Compat edit. One read and one write."
     },
     {
+      "date": "2026-10-28",
+      "row": "blocking_allow_escapes",
+      "allow": 2,
+      "why": "CmuxNextWireGen GeneratedFile.write (the same build-tool executable as the p05-ipc-027 entry above): the atomic write is now its own temporary file in the output directory and a rename(2), not Data.write(.atomic), whose sandboxed path asks coreservicesd for an item-replacement directory and blocked forever in a non-GUI fleet step (swift-build waited 95 min, step 8c7b9f60, 2026-10-28). The write, the rename and the removal of a failed write's temporary file are three escapes where there was one; the tool still runs only on the build host, never in the app, and still does not link the CmuxNextCompat seams."
+    },
+    {
+      "date": "2026-10-27",
+      "row": "blocking_allow_escapes",
+      "allow": 5,
+      "why": "p15-oracle-104 OracleReplay: the oracle-replay executable, its own short process on the Linux VM or a fleet Mac, never inside the app, so the app's main-thread detector does not apply (it has no app main thread; the journal reads run in task-group children, where the seams would only record cooperative-pool sites). Five file calls: is the input a directory, list it, read a journal, create --out, write a result file. Like CmuxNextWireGen, it stays off CmuxNextCompat so the tool needs only CmuxNextInputModel."
+    },
+    {
       "date": "2026-10-26",
       "row": "observer_sites",
       "allow": 17,
@@ -783,6 +795,18 @@
       "row": "blocking_allow_escapes",
       "allow": 1,
       "why": "p15-oracle-120: StandardErrorLogSink (CmuxNextCompat/Platform, Linux only) writes a Logger line to stderr synchronously, as Chromium's LOG() does on Linux (base/logging.cc, LOG_TO_STDERR, no ScopedBlockingCall), so the last lines before a crash are not lost. The blocking detector reports its violations through Logger, so a checked write would report itself. The file is not compiled on Darwin, where Logger is os.Logger."
+    },
+    {
+      "date": "2026-10-27",
+      "row": "global_mutable_statics",
+      "allow": 1,
+      "why": "p06-scheduler-202: MainExecutorHook.installedBits (CmuxNextWakeups), the one word through which the priority-ordered main executor reaches its queues. swift_task_enqueueMainExecutor_hook is a thin function with no context argument, so the hook the composition root makes (MainWorkScheduler.installMainExecutorHook) is published here once (a compare-exchange from 0; a second install is refused). Off unless the mainExecutorHook feature or CMUX_MAIN_EXECUTOR_HOOK=1 asks. The same shape as GlobalJobCensus.installedBits (p08-startup-082); Chrome reaches its process-wide task observers from the posting thread the same way (base/task/common/task_annotator.cc)."
+    },
+    {
+      "date": "2026-10-28",
+      "row": "blocking_allow_escapes",
+      "allow": 4,
+      "why": "cp/fix-server-helper-sources: CmuxNextCompatCore is the seam module the privileged server helper compiles whole without CmuxNextCompat (swift-atomics, the detector), so the Mac build's helper phase never compiles a hand-picked Compat file list again. Its four escapes are not main-thread blocking: Process.runOnOwnThread's process.run() moved unchanged from CmuxNextCompat/Threading (a seam folder the rule exempts) and runs on the dedicated thread it makes; RunningCodeSigningTeam's three Security calls each run inside the blockingCall its caller passes (the app's SigningTeamInstall passes CmuxNextCompat's checked blockingCall(.systemCall), so the detector still sees each; the helper passes CmuxThreading's). Chrome: the same ScopedBlockingCall seam in a lower component (base/threading/scoped_blocking_call.h)."
     }
   ],
   "observer_wrappers": [

@@ -5,7 +5,7 @@ import CoreGraphics
 import Foundation
 import Testing
 
-/// p07-memory-005: the tab hover card had its own kernel memory pressure source, which emptied its
+/// The tab hover card had its own kernel memory pressure source, which emptied its
 /// thumbnails and samples at every warning, apart from the app's one pressure source. Now the
 /// thumbnails and samples are one small, lossless memory consumer that the app's memory coordinator
 /// limits: a new limit frees nothing, a release frees down to it least recently used first, and at

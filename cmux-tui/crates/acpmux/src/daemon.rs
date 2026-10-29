@@ -4,6 +4,7 @@
 use crate::client::Client;
 use crate::config::{Config, home, socket_path};
 use crate::hub::Hub;
+use crate::supervised::{Fatal, ShutdownBehavior};
 use anyhow::{Context, Result, anyhow};
 use serde_json::Value;
 use std::sync::Arc;
@@ -21,6 +22,9 @@ pub(crate) use router_owner::open_router_owner;
 pub(crate) use router_owner::router_owner_path;
 use router_owner::{ensure_router, release_router};
 mod notify;
+mod panic_log;
+use panic_log::install_panic_log;
+pub use panic_log::panic_log_path;
 #[cfg(all(tokio_unstable, feature = "cmux-stability"))]
 mod poll_watch_lab;
 #[cfg(windows)]
@@ -29,6 +33,9 @@ mod windows;
 pub struct DaemonOptions {
     pub ws_listen: Option<String>,
     pub ws_token: Option<String>,
+    /// `--insecure-network-listen`: bind a network (non-loopback) listen
+    /// address this run, as `websocket.allowInsecureNetwork` does.
+    pub insecure_network_listen: bool,
     pub memory: bool,
     /// Write one JSON readiness line to this file descriptor once the
     /// socket and the listen address are bound, then close it.
@@ -42,66 +49,12 @@ pub struct DaemonOptions {
     pub dev: bool,
 }
 
-/// The daemon's panic log, `$ACPMUX_HOME/panics.jsonl` (cmux-panic-log): a panic in a request task
-/// ends only that task and used to leave just two lines in `daemon.log` (the 2026-10-14 sort
-/// panic). The cmux-next app sends new lines to Sentry.
-pub fn panic_log_path() -> std::path::PathBuf {
-    home().join("panics.jsonl")
-}
-
-/// Debug builds only: `thread` makes a worker thread panic once the hook
-/// is installed (tests/panic_log.rs). Its line carries `"test": true`.
-#[cfg(debug_assertions)]
-const TEST_PANIC_ENV: &str = "ACPMUX_TEST_PANIC";
-#[cfg(debug_assertions)]
-const TEST_PANIC_THREAD: &str = "acpmux-panic-test";
-
-/// Install the panic log hook; the previous hook (stderr, so `daemon.log`) still runs.
-fn install_panic_log() {
-    let mut fields = cmux_panic_log::Fields::new();
-    fields.insert("process".into(), "acpmux".into());
-    fields.insert("pid".into(), std::process::id().into());
-    fields.insert("version".into(), env!("CARGO_PKG_VERSION").into());
-    let path = panic_log_path();
-    cmux_panic_log::install_with_opener(
-        move || {
-            crate::config::private_state_append(&path)
-                .map_err(|error| std::io::Error::other(error.to_string()))
-        },
-        fields,
-        is_test_panic_thread,
-    );
-    #[cfg(debug_assertions)]
-    #[allow(
-        clippy::panic,
-        reason = "debug-build test trigger for the acpmux panic log; release builds have no seam"
-    )]
-    if std::env::var(TEST_PANIC_ENV).as_deref() == Ok("thread") {
-        let _ = std::thread::Builder::new()
-            .name(TEST_PANIC_THREAD.into())
-            // crash-allow: debug-only test trigger for the acpmux panic log
-            .spawn(|| panic!("acpmux test panic"));
-    }
-}
-
-/// The debug test trigger's thread; its line carries `"test": true`.
-fn is_test_panic_thread(thread: &str) -> bool {
-    #[cfg(debug_assertions)]
-    {
-        thread == TEST_PANIC_THREAD
-    }
-    #[cfg(not(debug_assertions))]
-    {
-        let _ = thread;
-        false
-    }
-}
-
 /// How long SIGTERM or `_acpmux/shutdown` may take before the daemon exits
 /// anyway.
 pub const SHUTDOWN_BUDGET: Duration = Duration::from_secs(5);
 
 pub async fn run(opts: DaemonOptions) -> Result<()> {
+    drop(cmux_trace::init_blackbox(cmux_trace::process_dir(), cmux_trace::Role::Acpmux));
     // The CLI restores default SIGPIPE so `acpmux ls | head` ends quietly. A
     // daemon must not die when its launcher or a client goes away mid-write:
     // a closed pipe is an ordinary write error here.
@@ -137,7 +90,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     // State holds tokens, prompts and tool output. Older builds created the
     // home with the process umask; narrow it before reading any of them.
     crate::config::private_state_dir(&home())?;
-    install_panic_log();
+    let supervisor = install_panic_log();
     // Before the hub's threads start, so each one registers; hangs go beside the panic log.
     hang_watch::init(&home());
     #[cfg(all(tokio_unstable, feature = "cmux-stability"))]
@@ -183,7 +136,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     if std::env::var("ACPMUX_LOCAL_ROUTER").as_deref() == Ok("1") {
         ensure_router();
     }
-    let store = crate::store::open(&config.store, &home())?;
+    let store = crate::store::open_supervised(&config.store, &home(), &supervisor)?;
     // The dashboard and WebSocket always run. First run picks a loopback port
     // and a random token and saves both, so the URL is stable afterwards.
     // The token is mandatory (plans/cmux-next/identity.md section 4): a saved
@@ -204,10 +157,10 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             .as_ref()
             .and_then(|w| w.token.clone())
             .filter(|t| !t.trim().is_empty());
-        let (allowed_origins, allowed_hosts) = config
+        let (allowed_origins, allowed_hosts, allow_insecure_network) = config
             .websocket
             .as_ref()
-            .map(|w| (w.allowed_origins.clone(), w.allowed_hosts.clone()))
+            .map(|w| (w.allowed_origins.clone(), w.allowed_hosts.clone(), w.allow_insecure_network))
             .unwrap_or_default();
         config.websocket = Some(crate::config::WebSocketConfig {
             listen: first_run_listen(shared_home, saved_listen.as_deref()).to_owned(),
@@ -216,6 +169,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             allowed_hosts,
             // A kept token was rotated just above; a new one is new.
             token_rotated: TOKEN_ROTATION,
+            allow_insecure_network,
         });
         if let Err(e) = config.save() {
             tracing::warn!("could not save generated web config: {e}");
@@ -236,6 +190,17 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         })
         .or_else(|| config.websocket.clone().map(|w| (w.listen, w.token)));
 
+    // Plain ws:// on a network address sends the token in clear: only with
+    // the person's opt-in, on every path below (`server/ws_auth.rs`).
+    let allow_network = opts.insecure_network_listen
+        || config.websocket.as_ref().is_some_and(|w| w.allow_insecure_network);
+    if let Some((listen, _)) = &ws {
+        crate::server::check_listen_address(listen, allow_network).await.map_err(|e| {
+            let from = if explicit_listen { "--listen" } else { "websocket.listen" };
+            e.context(format!("refusing {from} {listen}"))
+        })?;
+    }
+
     // Bind before any slow startup work, so clients can connect and ask
     // `_acpmux/status` at once. Agent spawns wait for `finish_startup`.
     let unix_listener = crate::server::bind_unix(&socket_path()).await?;
@@ -247,7 +212,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         // which it reports and saves; the app reads the port from status
         // and checks its listener before it connects, and a proof names its
         // transport, so a squatter on the old port relays nothing.
-        Some((listen, token)) => match crate::server::bind_ws(listen).await {
+        Some((listen, token)) => match crate::server::bind_ws_with(listen, allow_network).await {
             Ok(l) => Some((l, token.clone())),
             Err(e) if explicit_listen => {
                 let _ = tokio::fs::remove_file(socket_path()).await;
@@ -276,10 +241,10 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     // `--listen 127.0.0.1:0` asked for any free port; report the real one.
     let bound = ws_listener.as_ref().and_then(|(l, _)| l.local_addr().ok()).map(|a| a.to_string());
     if let (Some(addr), Some((_, token))) = (&bound, &ws) {
-        let (allowed_origins, allowed_hosts) = config
+        let (allowed_origins, allowed_hosts, allow_insecure_network) = config
             .websocket
             .as_ref()
-            .map(|w| (w.allowed_origins.clone(), w.allowed_hosts.clone()))
+            .map(|w| (w.allowed_origins.clone(), w.allowed_hosts.clone(), w.allow_insecure_network))
             .unwrap_or_default();
         let token_rotated = config.websocket.as_ref().map_or(0, |w| w.token_rotated);
         // A later save (policy, peers, presets) writes the saved token, never
@@ -294,6 +259,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             allowed_origins,
             allowed_hosts,
             token_rotated,
+            allow_insecure_network,
         });
         // The new port is this home's port from now on.
         if moved_listener && let Err(e) = config.save() {
@@ -303,10 +269,13 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     let mailbox = crate::mailbox::Mailbox::open(home().join("mailbox"))?;
     let memory_store = config.store.mode == crate::config::StoreMode::Memory;
     // Only the session list before the ready line; the chat logs load right after it.
-    let hub = Hub::new_deferred(config, store, mailbox);
+    let hub = Hub::new_deferred(config, store, mailbox, supervisor);
     // The kernel's memory pressure reaches the hub's consumers (`memory.rs`),
     // with the `memoryAcpmuxPressure` feature on.
     hub.memory().watch_if_enabled();
+    // Pooled agents and this daemon run best-effort while nobody needs them,
+    // with the `idleHelperBackgroundPriority` feature on.
+    let idle_priority = crate::daemon_lifecycle::idle_priority::install(&hub).await;
     // Temporary folders of sessions this daemon no longer has, before the
     // socket serves (`agent/session_tmp.rs`).
     #[cfg(unix)]
@@ -336,7 +305,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     }
     // Periodic upkeep (catalog, harness health, upload sweep) shares one clock (`maintenance.rs`).
     let phase = crate::maintenance::install_phase(&home().join(crate::maintenance::PHASE_FILE));
-    if let Err(e) = hub.maintenance.start(phase) {
+    if let Err(e) = hub.maintenance.start(phase, hub.supervisor()) {
         tracing::warn!("the maintenance clock did not start, periodic upkeep is off: {e}");
     }
     // The curated model catalog (`catalog/`): the last good copy now, then a fetch at
@@ -481,8 +450,9 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     // Profile files hot-reload (no polling); before startup work writes the config.
     hub.start_harness_watch();
     {
-        let hub = hub.clone();
-        tokio::spawn(async move {
+        let startup = hub.clone();
+        hub.supervise("daemon.startup", Fatal, ShutdownBehavior::Skip, async move {
+            let hub = startup;
             // Debug builds only: `ACPMUX_TEST_DELAY_LOAD_LOGS_MS` holds the chat-log
             // load, as a large log store does, so integration tests can ask in that
             // window. Bounded; release builds have no seam.
@@ -510,7 +480,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             }
         });
     }
-    tokio::spawn(notify::notify_loop(hub.clone()));
+    hub.supervise("daemon.notify", Fatal, ShutdownBehavior::Skip, notify::notify_loop(hub.clone()));
 
     let shutdown = async {
         #[cfg(unix)]
@@ -539,6 +509,11 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     if let Some(t) = ws_task {
         t.abort();
     }
+    // The shutdown's own work runs at the daemon's normal priority.
+    if let Some(t) = idle_priority {
+        t.abort();
+    }
+    hub.clients.foreground();
     // How many hosted agents this shutdown kept running for the next
     // daemon; unknown (a timeout) counts as kept.
     let kept = match tokio::time::timeout(SHUTDOWN_BUDGET, hub.shutdown_all()).await {
@@ -549,6 +524,14 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             usize::MAX
         }
     };
+    // The agents are stopped: no supervised task runs again, and a failure from here on
+    // ends its task, not the daemon. Off the runtime: shutdown waits for Block workers.
+    let supervisor = hub.supervisor().clone();
+    if let Ok(report) = tokio::task::spawn_blocking(move || supervisor.shutdown()).await
+        && !report.late.is_empty()
+    {
+        tracing::warn!(late = ?report.late, "supervised workers missed their shutdown deadline");
+    }
     // After the agents: their model streams go through the router. Waits for the router's exit:
     // a WILL_BLOCK item, unwatched.
     let _ = tokio::task::spawn_blocking(move || release_router(kept == 0)).await;

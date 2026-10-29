@@ -37,7 +37,7 @@ public import QuartzCore
 /// // After FrameScheduler.install(displays:energy:): the window schedulers made later are watched with the app's.
 /// let starvation = RenderStarvationGuard(holdsWork: features.isEnabled(.renderStarvationGuard), signposts: true)
 /// let mainWork = MainWorkScheduler(budget: MainFrameBudget(input: SessionInputPending(events: WindowServerInputEvents(input: inputTap)), signposts: true,
-///                                                          starvation: starvation), displays: displays)
+///                                                          starvation: starvation), displays: displays, wakeUps: mainWakeUps)
 /// starvation.watch(mainWork.frames, FrameScheduler.app)
 /// ```
 @MainActor
@@ -70,12 +70,14 @@ public final class RenderStarvationGuard {
         /// The late frame (its scheduler's last tick) the source last ran a slice in.
         fileprivate var lateFrame: CFTimeInterval?
 
+        /// A source that ran no slice yet.
         public init() {}
     }
 
     /// Whether a starvation holds work (feature `renderStarvationGuard`). Off, the guard only
     /// reports. The composition root sets it once its feature list is built.
     public var holdsWork: Bool
+    /// What the guard saw and held since it was made (`debug.main_budget`, tests).
     public private(set) var stats = Stats()
     /// The last starvation reported (debug and tests).
     public private(set) var last: RenderStarvation?

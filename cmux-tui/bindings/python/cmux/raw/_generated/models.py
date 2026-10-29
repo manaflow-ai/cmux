@@ -823,6 +823,12 @@ class BookmarkImportNode:
 
 
 @dataclass(frozen=True)
+class BridgeHelloResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/BridgeHelloResult'
+    features: List[str]
+
+
+@dataclass(frozen=True)
 class BrowserFrame:
     __cmux_schema_path__: ClassVar[str] = 'types/BrowserFrame'
     data: Base64
@@ -1199,6 +1205,21 @@ class CopyResult:
 
 
 @dataclass(frozen=True)
+class DaemonStartupMarks:
+    __cmux_schema_path__: ClassVar[str] = 'types/DaemonStartupMarks'
+    main_start_unix_us: int
+    config_loaded: Union[int, MissingType] = field(default=MISSING)
+    first_identify_served: Union[int, MissingType] = field(default=MISSING)
+    launch_snapshot_writer_started: Union[int, MissingType] = field(default=MISSING)
+    lifecycle_ready: Union[int, MissingType] = field(default=MISSING)
+    mux_restored: Union[int, MissingType] = field(default=MISSING)
+    owner_event_loop: Union[int, MissingType] = field(default=MISSING)
+    owner_prepared: Union[int, MissingType] = field(default=MISSING)
+    socket_bound: Union[int, MissingType] = field(default=MISSING)
+    websocket_ready: Union[int, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class DeadPane:
     __cmux_schema_path__: ClassVar[str] = 'types/DeadPane'
     dead: Literal[True]
@@ -1525,6 +1546,7 @@ class IdentifyResult:
     min_api_revision: Union[int, None, MissingType] = field(default=MISSING)
     sdk_schema_digest: Union[str, None, MissingType] = field(default=MISSING)
     session_id: Union[str, MissingType] = field(default=MISSING)
+    startup_marks: Union[DaemonStartupMarks, None, MissingType] = field(default=MISSING)
     update_command: Union[str, None, MissingType] = field(default=MISSING)
 
 
@@ -2423,6 +2445,13 @@ class SetSizeCountsResult:
 class SetSizePolicyResult:
     __cmux_schema_path__: ClassVar[str] = 'types/SetSizePolicyResult'
     state: Union[SizeState, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class SetStreamPriorityResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/SetStreamPriorityResult'
+    outcome: Literal['applied', 'ended']
+    stream: int
 
 
 @dataclass(frozen=True)
@@ -3591,6 +3620,12 @@ class BindConversationTabSessionResult:
     surface: Id
     conversation: ConversationTabRecord
     replayed: bool
+
+
+@dataclass(frozen=True)
+class BridgeHelloRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/bridge-hello/request'
+    features: List[str]
 
 
 @dataclass(frozen=True)
@@ -4966,6 +5001,7 @@ class IdentifyRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/identify/request'
     machine_metadata: Union[bool, MissingType] = field(default=MISSING)
     revisions: Union[bool, MissingType] = field(default=MISSING)
+    startup_marks: Union[bool, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -5177,6 +5213,12 @@ class MachineUsageRequest:
 class MarkWorkspacesProviderManagedRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/mark-workspaces-provider-managed/request'
     authority: str
+
+
+@dataclass(frozen=True)
+class MemoryReportRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/memory-report/request'
+    pass
 
 
 @dataclass(frozen=True)
@@ -6180,6 +6222,13 @@ class SetSplitRatioRequest:
     split: Id
     ratio: float
     transaction: Union[int, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class SetStreamPriorityRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/set-stream-priority/request'
+    priority: Literal['focused', 'visible', 'hidden']
+    stream: int
 
 
 @dataclass(frozen=True)
@@ -7812,6 +7861,7 @@ __all__ = [
     'Bookmark',
     'BookmarkChangeResult',
     'BookmarkImportNode',
+    'BridgeHelloResult',
     'BrowserFrame',
     'BrowserHostProviderResult',
     'BrowserProviderSnapshot',
@@ -7851,6 +7901,7 @@ __all__ = [
     'ConversationThreadState',
     'ConversationThreadSummary',
     'CopyResult',
+    'DaemonStartupMarks',
     'DeadPane',
     'DeclarativeLayoutLeaf',
     'DeclarativeLayoutSplit',
@@ -7974,6 +8025,7 @@ __all__ = [
     'SetHostSizePolicyResult',
     'SetSizeCountsResult',
     'SetSizePolicyResult',
+    'SetStreamPriorityResult',
     'SetTerminalIdlePolicyResult',
     'SetTerminalKeepResult',
     'ShownProgramStatus',
@@ -8109,6 +8161,7 @@ __all__ = [
     'AttachSurfaceRequest',
     'BindConversationTabSessionRequest',
     'BindConversationTabSessionResult',
+    'BridgeHelloRequest',
     'BrowserActivateRequest',
     'BrowserBackRequest',
     'BrowserForwardRequest',
@@ -8309,6 +8362,7 @@ __all__ = [
     'MachineListeningTcpRequest',
     'MachineUsageRequest',
     'MarkWorkspacesProviderManagedRequest',
+    'MemoryReportRequest',
     'MintTerminalRendererRequest',
     'MintTerminalRendererByTerminalRequest',
     'MoveBookmarkRequest',
@@ -8421,6 +8475,7 @@ __all__ = [
     'SetSizeCountsRequest',
     'SetSizePolicyRequest',
     'SetSplitRatioRequest',
+    'SetStreamPriorityRequest',
     'SetTabPinnedRequest',
     'SetTerminalCommandHistoryRequest',
     'SetTerminalIdlePolicyRequest',

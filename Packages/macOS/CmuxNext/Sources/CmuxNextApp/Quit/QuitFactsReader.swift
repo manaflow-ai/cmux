@@ -27,9 +27,9 @@ enum QuitFactsReader {
         // Immutable copies: the `async let` reads below capture them, and a captured
         // `var` is shared mutable state across the child tasks (a TSan build refuses it).
         let kept = keptSurfaces, incognito = incognitoSurfaces
-        let remote = !services.machines.remoteDaemons.isEmpty
+        let remote = !services.machines.remoteDaemons.isEmpty, work = services.work
         // The agent census runs beside the terminal reads, under the same deadline.
-        async let agents = QuitAgents.facts(await QuitAgents.resolvedEnvironment(services))
+        async let agents = QuitAgents.facts(await QuitAgents.resolvedEnvironment(services), runner: work)
         guard let connection = local.connection, !(kept.isEmpty && incognito.isEmpty) else {
             return QuitFacts(terminals: kept.count, programs: [], incognitoPrograms: [], remoteSessions: remote,
                              agents: await agents)

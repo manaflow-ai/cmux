@@ -3,7 +3,7 @@
   "name": "pageHangNotice",
   "owner": "PL-webui",
   "description": "A cmux page tab whose Chromium renderer stops answering shows the Page unresponsive card while the page shows: Wait restarts the hang timer and Exit page ends the renderer, which the crash recovery reloads.",
-  "defaults": { "dev": false, "nightly": false, "release": false },
+  "defaults": { "dev": true, "nightly": true, "release": false },
   "kind": "labs",
   "process": "app",
   "params": [],

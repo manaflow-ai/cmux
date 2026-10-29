@@ -32,17 +32,20 @@ final class MarkdownLiveShareServer {
     private var tokens: [String: String] = [:]
     private var connections: [ObjectIdentifier: NWConnection] = [:]
     private let renderer = MarkdownHTMLRenderer()
-    private let clock: any Clock<Duration>
     /// The blocking-work lanes a page request's file read runs on.
     private let work: BackgroundWork
+    /// The app's deadline scheduler: a shared file's change watch debounces on it.
+    private let deadlines: MainDeadlineScheduler
 
     /// Largest request head accepted; a longer one is dropped.
     static let headLimit = 16 * 1024
 
-    /// - Parameter work: the process's one set of blocking-work lanes (`AppServices.work`); a test passes its own.
-    init(clock: any Clock<Duration> = ContinuousClock(), work: BackgroundWork) {
-        self.clock = clock
+    /// - Parameters:
+    ///   - work: the process's one set of blocking-work lanes (`AppServices.work`); a test passes its own.
+    ///   - deadlines: the app's deadline scheduler (`AppServices.mainDeadlines`); a test passes its own.
+    init(work: BackgroundWork, deadlines: MainDeadlineScheduler) {
         self.work = work
+        self.deadlines = deadlines
     }
 
     /// The live link of `file`: the same link for the same file while the server runs.
@@ -205,7 +208,7 @@ final class MarkdownLiveShareServer {
     // MARK: Changes
 
     private func watch(_ file: URL, token: String) -> FileChangeWatch {
-        let watch = FileChangeWatch(url: file, inWorkspace: { true }, clock: clock) { [weak self] _ in
+        let watch = FileChangeWatch(url: file, inWorkspace: { true }, deadlines: deadlines, work: work) { [weak self] _ in
             self?.changed(token)
         }
         watch.start()

@@ -8,12 +8,10 @@ use std::os::fd::AsRawFd;
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, anyhow};
 use base64::Engine;
-use cmux_build_identity::BUILD_IDENTITY;
 use cmux_process::{Child, Command, Stdio};
 #[cfg(test)]
 use cmux_remote::admin::UnixPeerAuthError;
@@ -32,10 +30,8 @@ use cmux_remote::provider::{
     WireGuardDialer, sanitized_route,
 };
 use cmux_remote::secure_directory::{DirectoryAccess, ensure_secure_directory};
-use cmux_remote::ssh_bootstrap::{DISTRIBUTION_VERSION, NPM_BOOTSTRAP_VERSION};
 use cmux_remote_protocol::{
-    LanePolicy, REMOTE_PROTOCOL_VERSION, RoutePolicy, SessionId, WorkspaceRequest,
-    WorkspaceResponse,
+    LanePolicy, RoutePolicy, SessionId, WorkspaceRequest, WorkspaceResponse,
 };
 use serde_json::Value;
 use url::Url;
@@ -53,6 +49,10 @@ use crate::remote_runtime::{
 };
 use crate::session::{RemoteSession, Session};
 mod acpmux_peer;
+mod probe;
+use probe::{run_probe, run_update_need};
+#[cfg(test)]
+mod panic_free_tests;
 #[cfg(test)]
 mod remote_link_binding_tests;
 mod remote_link_mux;
@@ -91,26 +91,29 @@ fn run_inner(
     usage: &str,
     load_config: impl FnOnce() -> crate::config::StartupConfigSnapshot,
 ) -> anyhow::Result<()> {
-    if remote_help_requested(&args[1..]) {
-        print!("{}", remote_help(args.first().map(String::as_str)));
+    let Some((command, rest)) = args.split_first() else {
+        return Err(anyhow!("unknown remote command\n\n{usage}"));
+    };
+    if remote_help_requested(rest) {
+        print!("{}", remote_help(Some(command.as_str())));
         return Ok(());
     }
-    match args.first().map(String::as_str) {
-        Some("connect") => run_connect(&args[1..], None, load_config),
-        Some("ssh") => run_ssh(&args[1..], load_config),
-        Some("forward") => run_forward(&args[1..]),
-        Some("browser-proxy") => run_browser_proxy(&args[1..]),
-        Some("rpc") => run_rpc(&args[1..]),
-        Some("enroll") => run_enroll(&args[1..], load_config),
-        Some("known-daemons") => run_known_daemons(&args[1..]),
-        Some("remote-probe") => run_probe(&args[1..]),
-        Some("remote-link") => run_remote_link(&args[1..]),
-        Some("remote-sidecar") => run_remote_sidecar(&args[1..]),
-        Some("remote-stop") => run_remote_stop(&args[1..]),
-        Some("remote-update-need") => run_update_need(&args[1..]),
-        Some("install-self") => run_install_self(&args[1..]),
-        Some("wg") => run_wg(&args[1..]),
-        Some("remote") => Err(anyhow!(catalog().remote_client.remote_lifecycle_help)),
+    match command.as_str() {
+        "connect" => run_connect(rest, None, load_config),
+        "ssh" => run_ssh(rest, load_config),
+        "forward" => run_forward(rest),
+        "browser-proxy" => run_browser_proxy(rest),
+        "rpc" => run_rpc(rest),
+        "enroll" => run_enroll(rest, load_config),
+        "known-daemons" => run_known_daemons(rest),
+        "remote-probe" => run_probe(rest),
+        "remote-link" => run_remote_link(rest),
+        "remote-sidecar" => run_remote_sidecar(rest),
+        "remote-stop" => run_remote_stop(rest),
+        "remote-update-need" => run_update_need(rest),
+        "install-self" => run_install_self(rest),
+        "wg" => run_wg(rest),
+        "remote" => Err(anyhow!(catalog().remote_client.remote_lifecycle_help)),
         _ => Err(anyhow!("unknown remote command\n\n{usage}")),
     }
 }
@@ -164,8 +167,8 @@ fn remote_help_requested(args: &[String]) -> bool {
 
     let mut index = 0;
     let mut requested = false;
-    while index < args.len() {
-        match args[index].as_str() {
+    while let Some(argument) = args.get(index) {
+        match argument.as_str() {
             "-h" | "--help" => {
                 requested = true;
                 index += 1;
@@ -274,8 +277,7 @@ fn parse_connect_flags(args: &[String]) -> anyhow::Result<ConnectFlags> {
         ..ConnectFlags::default()
     };
     let mut index = 0;
-    while index < args.len() {
-        let argument = &args[index];
+    while let Some(argument) = args.get(index) {
         index += 1;
         let mut value = |name: &str| -> anyhow::Result<String> {
             let value = args
@@ -620,7 +622,7 @@ fn connect_with_flags(
                 && !connected.runtime.is_finished()
                 && owner.is_none_or(parent_process_is)
             {
-                thread::sleep(Duration::from_millis(100));
+                cmux_blocking::thread::sleep(Duration::from_millis(100));
             }
         }
         return connected.runtime.shutdown();
@@ -717,7 +719,7 @@ fn start_connected(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> 
     )?);
     let explicit_route = flags.route.take();
     let explicit_route_for_refresh = explicit_route.clone();
-    let (route_strings, auth, expected_daemon, known, carrier_auth) = if let Some(invitation) =
+    let (route_strings, auth, expected_daemon, known, carrier_route) = if let Some(invitation) =
         &invitation
     {
         if let Some(fingerprint) = flags.daemon.as_deref()
@@ -743,7 +745,7 @@ fn start_connected(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> 
             },
             Some(invitation_daemon_key(invitation)?),
             None,
-            false,
+            None,
         )
     } else if let Some(route) = explicit_route {
         let endpoint = parse_route(&route, "route")?;
@@ -753,13 +755,8 @@ fn start_connected(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> 
             &route,
             providers.supported_client_auth(endpoint.scheme())?,
         ))?;
-        (
-            vec![route],
-            selected.auth,
-            selected.expected_daemon,
-            selected.known,
-            selected.carrier_discovery,
-        )
+        let carrier_route = selected.carrier_discovery.then(|| route.clone());
+        (vec![route], selected.auth, selected.expected_daemon, selected.known, carrier_route)
     } else {
         let known =
             async_runtime.block_on(select_known_daemon(&store, flags.daemon.as_deref(), None))?;
@@ -773,7 +770,7 @@ fn start_connected(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> 
             KnownDaemonAuth::Enrolled => ClientAuthMode::Enrolled,
             KnownDaemonAuth::Carrier => ClientAuthMode::Carrier,
         };
-        (known.route_hints.clone(), auth, Some(key), Some(known), false)
+        (known.route_hints.clone(), auth, Some(key), Some(known), None)
     };
 
     let mut routes = resolve_route_candidates(&route_strings, &flags.routing, &providers)?;
@@ -815,8 +812,8 @@ fn start_connected(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> 
             invitation_daemon_key(invitation)?,
             route_strings,
         ))?;
-    } else if carrier_auth {
-        let name = credential_free_route_hint(&route_strings[0])?;
+    } else if let Some(route) = &carrier_route {
+        let name = credential_free_route_hint(route)?;
         async_runtime.block_on(store.pin_carrier_daemon(
             name,
             runtime.info().daemon_public_key,
@@ -910,9 +907,10 @@ fn client_relay_options(
         return Err(anyhow!(messages.relay_credential_pair_required));
     }
     if routes.is_empty() {
-        return match slots.len() {
-            0 => Ok(BTreeMap::new()),
-            1 => {
+        let mut pairs = slots.into_iter().zip(credentials);
+        return match (pairs.next(), pairs.next()) {
+            (None, _) => Ok(BTreeMap::new()),
+            (Some((slot, credential)), None) => {
                 let endpoint = explicit_route
                     .ok_or_else(|| anyhow!(messages.relay_credentials_require_explicit_route))
                     .and_then(|route| parse_route(route, "relay connection route"))?;
@@ -922,15 +920,10 @@ fn client_relay_options(
                 }
                 Ok(BTreeMap::from([(
                     endpoint.to_string(),
-                    RelayClientOptions {
-                        slot: slots.into_iter().next().unwrap(),
-                        credentials: client_relay_credential(
-                            credentials.into_iter().next().unwrap(),
-                        )?,
-                    },
+                    RelayClientOptions { slot, credentials: client_relay_credential(credential)? },
                 )]))
             }
-            _ => Err(anyhow!(messages.multiple_relay_credentials_require_routes)),
+            (Some(_), Some(_)) => Err(anyhow!(messages.multiple_relay_credentials_require_routes)),
         };
     }
     if routes.len() != slots.len() {
@@ -1006,7 +999,7 @@ fn reachable_unix_route(route: &Url) -> bool {
         && route
             .to_file_path()
             .ok()
-            .and_then(|path| fs::symlink_metadata(path).ok())
+            .and_then(|path| cmux_blocking::fs::symlink_metadata(path).ok())
             .is_some_and(|metadata| metadata.file_type().is_socket())
 }
 
@@ -1027,7 +1020,7 @@ fn run_forward(args: &[String]) -> anyhow::Result<()> {
         flags.forward_port.ok_or_else(|| anyhow!(catalog().remote_client.forward_port_required))?;
     let listen = flags
         .forward_listen
-        .unwrap_or_else(|| "127.0.0.1:0".parse().expect("loopback address is valid"));
+        .unwrap_or(std::net::SocketAddr::from((std::net::Ipv4Addr::LOCALHOST, 0)));
     let scheme = flags.forward_scheme.clone();
     let connected = start_connected(flags)?;
     let runtime = tokio_runtime()?;
@@ -1116,9 +1109,9 @@ fn run_browser_proxy(args: &[String]) -> anyhow::Result<()> {
 
 fn spawn_rpc_stdin_reader() -> anyhow::Result<tokio::sync::mpsc::Receiver<io::Result<String>>> {
     let (sender, receiver) = tokio::sync::mpsc::channel(1);
-    let _reader = thread::Builder::new()
-        .name("cmux-rpc-stdin".into())
-        .spawn(move || {
+    // supervise-allow: one-shot helper of this CLI process; a panic drops its sender, so the async side sees the end.
+    let _reader =
+        cmux_threads::spawn("cmux-rpc-stdin", cmux_threads::ThreadQos::UserInitiated, move || {
             let stdin = io::stdin();
             let mut stdin = stdin.lock();
             loop {
@@ -1431,8 +1424,7 @@ fn parse_enroll_admin_args(args: &[String]) -> anyhow::Result<EnrollAdminArgs> {
     };
     let mut seen = BTreeSet::new();
     let mut options_ended = false;
-    while index < args.len() {
-        let argument = &args[index];
+    while let Some(argument) = args.get(index) {
         index += 1;
         if !options_ended && argument == "--" {
             options_ended = true;
@@ -1543,8 +1535,10 @@ fn run_enroll(
     args: &[String],
     load_config: impl FnOnce() -> crate::config::StartupConfigSnapshot,
 ) -> anyhow::Result<()> {
-    if args.first().is_some_and(|action| action == "connect") {
-        return run_connect(&args[1..], None, load_config);
+    if let Some((action, rest)) = args.split_first()
+        && action == "connect"
+    {
+        return run_connect(rest, None, load_config);
     }
     let parsed = parse_enroll_admin_args(args)?;
     let admin_socket = parsed.admin_socket.clone().unwrap_or_else(|| {
@@ -1556,29 +1550,27 @@ fn run_enroll(
             })
             .unwrap_or_else(|_| PathBuf::from("/nonexistent"))
     });
-    let request = match parsed.action {
-        EnrollAdminAction::Status => AdminRequest::Status,
-        EnrollAdminAction::Create => AdminRequest::CreateInvitation {
+    let request = match (parsed.action, parsed.positionals.as_slice()) {
+        (EnrollAdminAction::Status, []) => AdminRequest::Status,
+        (EnrollAdminAction::Create, []) => AdminRequest::CreateInvitation {
             ttl_seconds: parsed.ttl_seconds,
             route_hints: parsed.advertised_routes.clone(),
             relay_access: invitation_relay_access(&parsed)?,
         },
-        EnrollAdminAction::Pending => AdminRequest::Pending,
-        EnrollAdminAction::Approve => {
-            AdminRequest::Approve { invitation_id: parsed.positionals[0].clone() }
+        (EnrollAdminAction::Pending, []) => AdminRequest::Pending,
+        (EnrollAdminAction::Approve, [id]) => AdminRequest::Approve { invitation_id: id.clone() },
+        (EnrollAdminAction::Deny, [id]) => AdminRequest::Deny { invitation_id: id.clone() },
+        (EnrollAdminAction::Devices, []) => AdminRequest::Devices,
+        (EnrollAdminAction::Connections, []) => AdminRequest::Connections,
+        (EnrollAdminAction::Revoke, [device]) => AdminRequest::Revoke { device_id: device.clone() },
+        (EnrollAdminAction::Disconnect, [device, session]) => {
+            AdminRequest::Disconnect { device_id: device.clone(), session_id: session.clone() }
         }
-        EnrollAdminAction::Deny => {
-            AdminRequest::Deny { invitation_id: parsed.positionals[0].clone() }
+        (action, _) => {
+            return Err(anyhow!(
+                catalog().remote_client.enroll_arity(action.name(), action.positional_arity())
+            ));
         }
-        EnrollAdminAction::Devices => AdminRequest::Devices,
-        EnrollAdminAction::Connections => AdminRequest::Connections,
-        EnrollAdminAction::Revoke => {
-            AdminRequest::Revoke { device_id: parsed.positionals[0].clone() }
-        }
-        EnrollAdminAction::Disconnect => AdminRequest::Disconnect {
-            device_id: parsed.positionals[0].clone(),
-            session_id: parsed.positionals[1].clone(),
-        },
     };
     let response = tokio_runtime()?.block_on(call_admin(&admin_socket, &request))?;
     print_admin_response(parsed.action.name(), response, parsed.json)
@@ -1604,8 +1596,7 @@ fn parse_known_daemons_args(args: &[String]) -> anyhow::Result<KnownDaemonsArgs>
     let mut positionals = Vec::new();
     let mut options_ended = false;
     let mut index = 0;
-    while index < args.len() {
-        let argument = &args[index];
+    while let Some(argument) = args.get(index) {
         index += 1;
         if !options_ended && argument == "--" {
             options_ended = true;
@@ -1770,9 +1761,11 @@ async fn wait_for_parent_exit(expected: u32) {
         return;
     }
     let (sender, receiver) = tokio::sync::oneshot::channel();
-    let waiter = thread::Builder::new().name("cmux-parent-exit".into()).spawn(move || {
-        let _ = sender.send(wait_for_process_exit(expected));
-    });
+    // supervise-allow: one-shot helper of this CLI process; a panic drops its sender, so the async side sees the end.
+    let waiter =
+        cmux_threads::spawn("cmux-parent-exit", cmux_threads::ThreadQos::Utility, move || {
+            let _ = sender.send(wait_for_process_exit(expected));
+        });
     if waiter.is_ok() && matches!(receiver.await, Ok(Ok(()))) {
         return;
     }
@@ -1977,125 +1970,10 @@ fn print_admin_response(action: &str, response: AdminResponse, json: bool) -> an
     if json {
         println!("{}", serde_json::to_string_pretty(&result)?);
     } else if action == "create" {
-        println!("{}", result["uri"].as_str().ok_or_else(|| anyhow!("missing invitation URI"))?);
+        let uri = result.get("uri").and_then(Value::as_str);
+        println!("{}", uri.ok_or_else(|| anyhow!("missing invitation URI"))?);
     } else {
         println!("{}", serde_json::to_string_pretty(&result)?);
-    }
-    Ok(())
-}
-
-/// Advertised by `remote-probe --json` so a control plane can choose routes the client can use.
-///
-/// `direct-ws-user-agent`: direct WebSocket dials carry a User-Agent, which
-/// hosted ingress on branded machine domains requires.
-/// `wireguard-hub`: `remote connect --wireguard-hub` and `wg hub` exist, so the
-/// app may reach private-network machines through a shared in-process tunnel.
-/// `remote-link-mux-socket` and `remote-link-strict-flags`: see
-/// `cmux_remote::provider::REMOTE_LINK_MUX_SOCKET_CAPABILITY`; an SSH client
-/// that needs one refuses a remote without it (cx-z3zh).
-/// `cloud-browser-network`: Cloud browser proxy routes preserve the guest
-/// machine's network and loopback context.
-/// `ssh-payload-download` and `ssh-payload-macos-from-client`: see
-/// `cmux_remote::SSH_PAYLOAD_DOWNLOAD_CAPABILITY` and
-/// `cmux_remote::SSH_PAYLOAD_MACOS_FROM_CLIENT_CAPABILITY`.
-pub const PROBE_CAPABILITIES: &[&str] = &[
-    "direct-ws-user-agent",
-    "wireguard-hub",
-    "browser-proxy",
-    "cloud-browser-network",
-    cmux_remote::provider::REMOTE_LINK_MUX_SOCKET_CAPABILITY,
-    cmux_remote::provider::REMOTE_LINK_STRICT_FLAGS_CAPABILITY,
-    cmux_remote::SSH_PAYLOAD_DOWNLOAD_CAPABILITY,
-    cmux_remote::SSH_PAYLOAD_MACOS_FROM_CLIENT_CAPABILITY,
-];
-
-/// `remote update-need --probe-json <file|->` (cx-3r9mt): whether the machine
-/// whose `remote-probe --json` this is runs an older, the same or a newer
-/// cmux-tui than this binary, by `cmux_remote::update_need`. Exit 0 for every
-/// answer; only bad input fails.
-fn run_update_need(args: &[String]) -> anyhow::Result<()> {
-    use cmux_remote::update_need::{BuildFacts, update_need};
-    let source = match args {
-        [flag, source] if flag == "--probe-json" => source.as_str(),
-        [single] if single.starts_with("--probe-json=") => &single["--probe-json=".len()..],
-        _ => return Err(anyhow!(catalog().remote.remote_update_need_help)),
-    };
-    let text = if source == "-" {
-        let mut text = String::new();
-        io::stdin().read_to_string(&mut text).context("read the probe JSON from stdin")?;
-        text
-    } else {
-        fs::read_to_string(source).with_context(|| format!("read {source}"))?
-    };
-    let probe: Value = serde_json::from_str(&text).context("the probe is not JSON")?;
-    let object = probe.as_object().ok_or_else(|| anyhow!("the probe is not a JSON object"))?;
-    let remote = BuildFacts {
-        commit: object.get("build_identity").and_then(Value::as_str).map(str::to_owned),
-        time: object.get("build_time").and_then(Value::as_u64).unwrap_or(0),
-        capabilities: object
-            .get("daemon_capabilities")
-            .and_then(Value::as_array)
-            .map(|list| list.iter().filter_map(Value::as_str).map(str::to_owned).collect()),
-    };
-    let local = BuildFacts {
-        commit: Some(BUILD_IDENTITY.to_owned()),
-        time: cmux_build_identity::BUILD_TIME,
-        capabilities: Some(
-            cmux_tui_core::server::build_capabilities().into_iter().map(str::to_owned).collect(),
-        ),
-    };
-    let (need, reason) = update_need(&local, &remote);
-    let side = |facts: &BuildFacts| {
-        serde_json::json!({
-            "commit": facts.commit,
-            "time": facts.time,
-            "capabilities_count": facts.capabilities.as_ref().map(BTreeSet::len),
-        })
-    };
-    let mut answer = serde_json::json!({
-        "need": need, "reason": reason, "remote": side(&remote), "local": side(&local),
-    });
-    if reason == cmux_remote::update_need::Reason::Incomparable {
-        answer["warning"] = serde_json::json!(
-            "each build serves a capability the other lacks; neither replaces the other"
-        );
-    }
-    println!("{answer}");
-    Ok(())
-}
-
-fn run_probe(args: &[String]) -> anyhow::Result<()> {
-    let value = serde_json::json!({
-        "app": "cmux-tui",
-        "version": env!("CARGO_PKG_VERSION"),
-        "distribution_version": DISTRIBUTION_VERSION,
-        "npm_bootstrap_version": NPM_BOOTSTRAP_VERSION,
-        "build_identity": BUILD_IDENTITY,
-        // cx-3r9mt: what `remote update-need` orders builds by.
-        "build_time": cmux_build_identity::BUILD_TIME,
-        "remote_protocol": REMOTE_PROTOCOL_VERSION,
-        "os": std::env::consts::OS,
-        "arch": std::env::consts::ARCH,
-        // Client-side transport capabilities a control plane can key routing on.
-        "capabilities": PROBE_CAPABILITIES,
-    });
-    // The capability list only on request: the SSH bootstrap of every client reads at most
-    // 4096 bytes of this output, and the list alone is larger (cx-3r9mt).
-    let mut value = value;
-    if args.iter().any(|argument| argument == "--build-facts") {
-        value["daemon_capabilities"] =
-            serde_json::json!(cmux_tui_core::server::build_capabilities());
-    }
-    if args.iter().any(|argument| argument == "--json") {
-        println!("{}", serde_json::to_string(&value)?);
-    } else {
-        println!(
-            "cmux-tui {} remote-protocol={} {}-{}",
-            env!("CARGO_PKG_VERSION"),
-            REMOTE_PROTOCOL_VERSION,
-            std::env::consts::OS,
-            std::env::consts::ARCH
-        );
     }
     Ok(())
 }
@@ -2133,11 +2011,11 @@ fn open_install_parent(path: &Path) -> anyhow::Result<std::os::fd::OwnedFd> {
     use std::os::unix::fs::{MetadataExt as _, OpenOptionsExt as _};
 
     // std opens close-on-exec; read-only is O_RDONLY.
-    let parent = OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW)
-        .open(path)
-        .context("could not open install parent")?;
+    let parent = crate::blocking::fs::open_with(
+        OpenOptions::new().read(true).custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW),
+        path,
+    )
+    .context("could not open install parent")?;
     let status = parent.metadata().context("could not inspect install parent")?;
     if status.uid() != cmux_tui_core::platform::effective_uid() || status.mode() & 0o022 != 0 {
         return Err(anyhow!(
@@ -2164,8 +2042,9 @@ fn run_install_self(args: &[String]) -> anyhow::Result<()> {
         return Err(anyhow!("destination has an invalid file name"));
     }
     let destination_name = install_path_component(destination_name, "destination file name")?;
-    fs::create_dir_all(parent)?;
+    cmux_blocking::fs::create_dir_all(parent)?;
     let parent = open_install_parent(parent)?;
+    #[allow(clippy::expect_used, reason = "INVARIANT: a formatted UUID is ASCII hex, never NUL")]
     let temporary_name =
         std::ffi::CString::new(format!(".cmux-tui-install-{}", uuid::Uuid::new_v4()))
             .expect("UUID staging name has no NUL bytes");
@@ -2186,16 +2065,17 @@ fn run_install_self(args: &[String]) -> anyhow::Result<()> {
     let mut temporary = unsafe { fs::File::from_raw_fd(temporary_descriptor) };
     let mut pending =
         PendingInstall { parent_fd: parent.as_raw_fd(), name: temporary_name, armed: true };
-    let mut source_file =
-        fs::File::open(&source).with_context(|| format!("could not open {}", source.display()))?;
+    let mut source_file = cmux_blocking::fs::open(&source)
+        .with_context(|| format!("could not open {}", source.display()))?;
     io::copy(&mut source_file, &mut temporary)
         .with_context(|| format!("could not copy {}", source.display()))?;
     temporary.flush().context("could not flush staged install")?;
-    temporary.sync_all().context("could not sync staged install")?;
+    crate::blocking::fs::sync_all(&temporary).context("could not sync staged install")?;
     temporary
         .set_permissions(fs::Permissions::from_mode(0o755))
         .context("could not set staged install permissions")?;
-    temporary.sync_all().context("could not sync staged install permissions")?;
+    crate::blocking::fs::sync_all(&temporary)
+        .context("could not sync staged install permissions")?;
     // SAFETY: both names are NUL-terminated CStrings that outlive the call and `parent` is open.
     if unsafe {
         libc::renameat(
@@ -2241,10 +2121,9 @@ fn parse_remote_link_args(args: &[String]) -> anyhow::Result<RemoteLinkArgs> {
     let mut stdio = false;
     let mut seen = BTreeSet::new();
     let mut index = 0;
-    while index < args.len() {
-        let argument = args[index].as_str();
+    while let Some(argument) = args.get(index) {
         index += 1;
-        match argument {
+        match argument.as_str() {
             "--stdio" => {
                 require_unique_flag(&mut seen, "--stdio")?;
                 stdio = true;
@@ -2333,7 +2212,7 @@ fn install_agent_hooks(providers: Vec<String>) {
         crate::client_log::stderr_log!(
             "remote",
             "{BIN}: agent hook install failed: {}",
-            result.value["errors"]
+            result.value.get("errors").unwrap_or(&Value::Null)
         );
     }
 }
@@ -2352,8 +2231,7 @@ fn parse_remote_stop_args(args: &[String]) -> anyhow::Result<RemoteStopArgs> {
     let mut acknowledge_legacy_finalization = false;
     let mut seen = BTreeSet::new();
     let mut index = 0;
-    while index < args.len() {
-        let argument = &args[index];
+    while let Some(argument) = args.get(index) {
         index += 1;
         match argument.as_str() {
             "--session" => {
@@ -2416,7 +2294,7 @@ fn run_remote_stop(args: &[String]) -> anyhow::Result<()> {
                 ));
             }
             let runtime_path = state_dir.join("runtime.json");
-            match fs::symlink_metadata(&runtime_path) {
+            match cmux_blocking::fs::symlink_metadata(&runtime_path) {
                 Ok(_) => {
                     return Err(anyhow!(
                         catalog()
@@ -2479,7 +2357,10 @@ fn run_remote_stop(args: &[String]) -> anyhow::Result<()> {
     while Instant::now() < deadline {
         let process_exited =
             peer_exit.has_exited().context(catalog().remote.observe_daemon_exit)?;
-        if process_exited && UnixStream::connect(&link).is_err() && !runtime_file.exists() {
+        if process_exited
+            && UnixStream::connect(&link).is_err()
+            && cmux_blocking::fs::metadata(&runtime_file).is_err()
+        {
             match lifecycle_id.as_deref() {
                 Some(lifecycle_id) => verify_shutdown_outcome(&state_dir, lifecycle_id),
                 None => Ok(()),
@@ -2488,7 +2369,7 @@ fn run_remote_stop(args: &[String]) -> anyhow::Result<()> {
                 .block_on(complete_verified_daemon_stop(&state_dir, &parsed.session))?;
             return Ok(());
         }
-        thread::sleep(Duration::from_millis(50));
+        cmux_blocking::thread::sleep(Duration::from_millis(50));
     }
     Err(anyhow!(catalog().remote.daemon_stop_timeout))
 }
@@ -2504,7 +2385,7 @@ fn shutdown_request_for_lifecycle(lifecycle_id: Option<&str>) -> AdminRequest {
 
 fn verify_inactive_shutdown_outcome(state_dir: &Path) -> anyhow::Result<()> {
     let path = state_dir.join("shutdown.json");
-    match fs::symlink_metadata(&path) {
+    match cmux_blocking::fs::symlink_metadata(&path) {
         Ok(_) => {}
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
         Err(error) => {
@@ -2748,7 +2629,7 @@ fn wait_for_detached_socket(
                 };
             }
         }
-        thread::sleep(Duration::from_millis(50));
+        cmux_blocking::thread::sleep(Duration::from_millis(50));
     }
     match terminate_detached_process(child) {
         Ok(()) => Err(anyhow!("{process_name} did not create {}", socket.display())),
@@ -2797,7 +2678,7 @@ fn wait_for_child_exit(child: &mut Child, timeout: Duration) -> io::Result<bool>
         if Instant::now() >= deadline {
             return Ok(false);
         }
-        thread::sleep(Duration::from_millis(10));
+        cmux_blocking::thread::sleep(Duration::from_millis(10));
     }
 }
 
@@ -2816,7 +2697,7 @@ fn open_mux_monitor(path: &Path) -> anyhow::Result<UnixStream> {
 fn mux_monitor_disconnected(stream: &mut UnixStream, path: &Path) -> anyhow::Result<bool> {
     use std::os::unix::fs::FileTypeExt;
 
-    match fs::symlink_metadata(path) {
+    match cmux_blocking::fs::symlink_metadata(path) {
         Ok(metadata) if metadata.file_type().is_socket() => {}
         Ok(_) => return Ok(true),
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(true),
@@ -2864,7 +2745,7 @@ fn open_private_daemon_file(path: &Path, append: bool) -> io::Result<fs::File> {
         // Opening a hostile FIFO must return so its type can be rejected
         // below, rather than waiting for a peer that never arrives.
         .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK);
-    let file = options.open(path)?;
+    let file = crate::blocking::fs::open_with(&options, path)?;
     let metadata = file.metadata()?;
     if !metadata.is_file() {
         return Err(io::Error::new(
@@ -2987,14 +2868,13 @@ async fn select_known_daemon(
         })
         .cloned()
         .collect::<Vec<_>>();
-    match matching.as_slice() {
-        [daemon] => Ok(daemon.clone()),
-        [] if daemons.len() == 1 => Ok(daemons[0].clone()),
-        [] if route.is_some() => {
+    match (matching.as_slice(), daemons.as_slice()) {
+        ([daemon], _) | ([], [daemon]) => Ok(daemon.clone()),
+        ([], _) if route.is_some() => {
             Err(anyhow!("no known daemon matches this route; connect with an invitation"))
         }
-        [] if daemons.len() > 1 => Err(anyhow!("multiple known daemons; use --daemon FINGERPRINT")),
-        [] => Err(anyhow!("no known daemons; connect with an invitation or trusted carrier")),
+        ([], [_, _, ..]) => Err(anyhow!("multiple known daemons; use --daemon FINGERPRINT")),
+        ([], []) => Err(anyhow!("no known daemons; connect with an invitation or trusted carrier")),
         _ => Err(anyhow!("multiple known daemons match this route; use --daemon FINGERPRINT")),
     }
 }
@@ -3076,7 +2956,10 @@ fn tokio_runtime() -> anyhow::Result<tokio::runtime::Runtime> {
 }
 
 fn flag_value(args: &[String], flag: &str) -> Option<String> {
-    args.windows(2).find(|pair| pair[0] == flag).map(|pair| pair[1].clone())
+    args.windows(2).find_map(|pair| match pair {
+        [name, value] if name == flag => Some(value.clone()),
+        _ => None,
+    })
 }
 
 fn expand_home(path: String) -> anyhow::Result<PathBuf> {
@@ -3114,12 +2997,6 @@ mod tests {
             .is_err()
         );
         assert_eq!(load_count.get(), 0);
-    }
-
-    #[test]
-    fn probe_capabilities_include_direct_ws_user_agent() {
-        assert!(PROBE_CAPABILITIES.contains(&"direct-ws-user-agent"));
-        assert!(PROBE_CAPABILITIES.contains(&"wireguard-hub"));
     }
 
     #[test]
@@ -3162,6 +3039,7 @@ mod tests {
     }
 
     use super::*;
+    use std::thread;
 
     fn seed_legacy_authorization_state(state_dir: &Path) {
         let auth_state_dir = state_dir.join("auth");

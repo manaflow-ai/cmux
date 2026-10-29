@@ -1,5 +1,5 @@
 import AppKit
-import CmuxNextCompat
+import CmuxNextCompatAppKit
 import CmuxNextDesign
 import CmuxNextPages
 import CmuxNextSettings
@@ -97,11 +97,18 @@ final class SettingsPageProvider: PageProvider {
     private var replies: [(key: String, value: JSONValue)] = []
     private static let replayLimit = 64
 
+    /// The app's main-thread scheduler: each stream's observation flushes on it.
+    private let work: MainWorkScheduler
+
+    /// - Parameter work: The app's main-thread scheduler (`AppServices.mainWork`): a stream's
+    ///   follower writes to the page's router (which holds it while the page is hidden), so it is a
+    ///   ``ServiceObservation`` there, one flush per frame behind the person's input.
     init(settings: SettingsController, domains: @escaping @MainActor () async -> [String: [String]] = { [:] },
-         hostLists: (@MainActor () -> JSONValue)? = nil) {
+         hostLists: (@MainActor () -> JSONValue)? = nil, on work: MainWorkScheduler) {
         self.settings = settings
         self.domains = domains
         self.hostLists = hostLists
+        self.work = work
     }
 
     /// A theme's colors as the page reads them (`GhosttyTheme` in webviews/src/theme/ghosttyTheme.ts).
@@ -273,74 +280,64 @@ final class SettingsPageProvider: PageProvider {
     func subscribe(_ stream: String, filter: JSONValue, context: PageCallContext,
                    onEvent: @escaping @MainActor (JSONValue) -> Void) async throws -> PageSubscription {
         if stream == "cmux.settings.accounts.changed", let accountsState {
-            return Self.watch(accountsState, onEvent: onEvent)
+            return watch(stream, accountsState, onEvent: onEvent)
         }
         if stream == "cmux.settings.agents.changed", let agents {
             // The daemon's harness events reach the list only while a page shows it.
             agents.beginWatching()
-            let watch = Self.watch({ agents.pageState }, onEvent: onEvent)
-            return PageSubscription(frozenDelivery: watch.frozenDelivery) {
-                watch.cancel()
-                Task { @MainActor in agents.endWatching() }
+            let state = watch(stream, { agents.pageState }, onEvent: onEvent)
+            return PageSubscription(frozenDelivery: state.frozenDelivery) {
+                state.cancel()
+                agents.endWatching()
             }
         }
         if stream == "cmux.settings.devices.changed", let devicesState {
             // The history follows the hub's pushes only while a page shows the card.
             devicesWatching?(true)
-            let watch = Self.watch(devicesState, onEvent: onEvent)
+            let state = watch(stream, devicesState, onEvent: onEvent)
             let watching = devicesWatching
-            return PageSubscription(frozenDelivery: watch.frozenDelivery) {
-                watch.cancel()
-                Task { @MainActor in watching?(false) }
+            return PageSubscription(frozenDelivery: state.frozenDelivery) {
+                state.cancel()
+                watching?(false)
             }
         }
         if stream == "cmux.settings.harnesses.changed", let harnessesState {
-            return Self.watch(harnessesState, onEvent: onEvent)
+            return watch(stream, harnessesState, onEvent: onEvent)
         }
         if stream == "cmux.settings.host.changed", let hostLists {
-            return Self.watch(hostLists, onEvent: onEvent)
+            return watch(stream, hostLists, onEvent: onEvent)
         }
         guard stream == "cmux.settings.changed" else { throw PageError.unknownOp(stream) }
         let settings = settings
         // Capture before returning the subscription so an immediate mutation cannot become
-        // the task's baseline and disappear from the first event.
+        // the observation's baseline and disappear from the first event.
         let initialRoot = settings.snapshot.root
         let initialFileRoots = settings.fileRoot.value(at: ChatSettings.rootsPath)
         let initialManagedRoots = settings.managedChatRoots
-        let task = Task { @MainActor in
-            var last = initialRoot
-            var lastFileRoots = initialFileRoots
-            var lastManagedRoots = initialManagedRoots
-            for await (count, root, fileRoots, managedRoots) in ObservationStream({
-                (settings.loadCount, settings.snapshot.root, settings.fileRoot.value(at: ChatSettings.rootsPath), settings.managedChatRoots)
-            }) {
-                let keys = SettingsSchema.all.filter {
-                    $0.storedValue(in: root) != $0.storedValue(in: last)
-                        || ($0.path == ChatSettings.rootsPath && (fileRoots != lastFileRoots || managedRoots != lastManagedRoots))
-                }.map(\.id)
-                lastFileRoots = fileRoots
-                lastManagedRoots = managedRoots
-                last = root
-                if !keys.isEmpty { onEvent(["revision": .number(Double(count)), "keys": .array(keys.map(JSONValue.string))]) }
-            }
+        let changes = SettingsChanges((initialRoot, initialFileRoots, initialManagedRoots))
+        let observation = ServiceObservation(.visible, owner: "settings-page.changed", on: work) {
+            (count: settings.loadCount, root: settings.snapshot.root, fileRoots: settings.fileRoot.value(at: ChatSettings.rootsPath),
+             managedRoots: settings.managedChatRoots)
+        } apply: { read in
+            let keys = changes.keys(after: (read.root, read.fileRoots, read.managedRoots))
+            if !keys.isEmpty { onEvent(["revision": .number(Double(read.count)), "keys": .array(keys.map(JSONValue.string))]) }
         }
         // Each event names only the keys that changed since the last one: a delta. After a drop the
         // page gets `meta.gap`; SettingsStore then clears every refusal and re-reads every row.
-        return PageSubscription(frozenDelivery: .resync) { task.cancel() }
+        return PageSubscription(frozenDelivery: .resync) { observation.cancel() }
     }
 
     /// One event per change of `read`'s value (the stores it reads are observable); the event
     /// carries the new value, so while the page is held only the newest one matters (`.latest`).
-    private static func watch(_ read: @escaping @MainActor () -> JSONValue,
-                              onEvent: @escaping @MainActor (JSONValue) -> Void) -> PageSubscription {
-        let task = Task { @MainActor in
-            var last = read()
-            for await value in ObservationStream({ read() }) where value != last {
-                last = value
-                onEvent(value)
-            }
+    /// The value at the subscription is the page's own read: only later ones are events.
+    private func watch(_ stream: String, _ read: @escaping @MainActor () -> JSONValue,
+                       onEvent: @escaping @MainActor (JSONValue) -> Void) -> PageSubscription {
+        let subscribed = PageStreamStart()
+        let observation = ServiceObservation(.visible, owner: stream, on: work, read: read) { value in
+            if subscribed.isDone { onEvent(value) }
         }
-        return PageSubscription(frozenDelivery: .latest) { task.cancel() }
+        subscribed.finish()
+        return PageSubscription(frozenDelivery: .latest) { observation.cancel() }
     }
 
     // MARK: Reads
@@ -462,12 +459,28 @@ enum SettingsPageDomains {
     }()
 
     /// The sounds in /System/Library/Sounds, listed on the files lane while the page's snapshot waits (a
-    /// directory read: never a static initializer on whichever thread reads it first, p02-threads-122).
+    /// directory read: never a static initializer on whichever thread reads it first).
     static func sounds(work: BackgroundWork) async -> [String] {
         let folder = URL(fileURLWithPath: "/System/Library/Sounds")
         let urls = (try? await work.run(.userVisible, mayBlock: .files) {
             try FileManager.checked.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)
         }) ?? []
         return urls.map { $0.deletingPathExtension().lastPathComponent }.sorted()
+    }
+}
+
+/// What `cmux.settings.changed` compared last: each read names the schema keys that changed since it.
+private final class SettingsChanges {
+    private var last: (root: JSONValue, fileRoots: JSONValue?, managedRoots: [String])
+
+    init(_ last: (root: JSONValue, fileRoots: JSONValue?, managedRoots: [String])) { self.last = last }
+
+    /// The ids of the keys `read` changed since the last read; `read` becomes the last.
+    func keys(after read: (root: JSONValue, fileRoots: JSONValue?, managedRoots: [String])) -> [String] {
+        defer { last = read }
+        return SettingsSchema.all.filter {
+            $0.storedValue(in: read.root) != $0.storedValue(in: last.root)
+                || ($0.path == ChatSettings.rootsPath && (read.fileRoots != last.fileRoots || read.managedRoots != last.managedRoots))
+        }.map(\.id)
     }
 }

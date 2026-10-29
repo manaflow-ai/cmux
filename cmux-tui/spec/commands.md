@@ -371,6 +371,8 @@ With `launch-snapshot-v1`, `launch_snapshot_path` is the absolute path of the se
 
 With `daemon-build-v1`, `build_id` names the exact build of the binary that serves the socket (its source commit, with a hash of uncommitted source changes for a dirty build), and `cli_path` is the absolute, symlink-resolved path of that binary, which is also the `cmux` CLI that matches the daemon (`null` when it cannot be resolved). A daemon advertises the capability only when its entry point recorded both at start. A CLI of another build uses them to run the matching CLI (plans/cmux-next/version-skew.md); it must check the path itself and never trust it for a remote daemon. Remote attach forwards `identify` unchanged, so these fields then describe the remote machine's binary.
 
+With `startup-marks-v1`, the optional request flag `startup_marks: true` adds `startup_marks`, the serving daemon's startup timeline: `object{main_start_unix_us:uint64, config_loaded?, owner_prepared?, socket_bound?, mux_restored?, owner_event_loop?, websocket_ready?, launch_snapshot_writer_started?, lifecycle_ready?, first_identify_served?}`. `main_start_unix_us` is the wall clock (Unix microseconds) when the binary's `main` began; each step is the monotonic time in microseconds after it at which the daemon first reached that step, absent until reached. The steps are listed in the order the server reaches them. `first_identify_served` is the first `identify` answered once `lifecycle_ready` is reached; an `identify` from a client parked during the restore or connected before readiness does not count, so it is always the last step. Each step is recorded once per process into a fixed array, so a later `identify` never moves `first_identify_served`. A mux no daemon serves reports `null` and does not advertise the capability. The flag is off by default so strict older SDK decoders keep reading the reply; older daemons ignore it. The app records each step as a `daemon.<step>` launch mark (`DaemonLaunchTimings`).
+
 `capabilities` is additive build-level feature negotiation within a protocol version. Clients must treat a missing field as an empty list. `daemon-handoff-force-v1` advertises the optional `force` field on `shutdown-daemon`. `browser-provider-v1` advertises the trusted-local, connection-scoped native browser provider lease used by cmux-browser and local automation. `browser-provider-native-hosting-v1` advertises the optional `hosting` field of `register-browser-provider`: a `"native"` provider presents its pages itself, so the daemon never overrides their device metrics and screencasts them only while a frame viewer is attached. `browser-pointer-frame-guard-v1` advertises authoritative `pointer_frame_seq` and `pointer_frame_floor_seq` browser attach/frame state plus the additive `browser-frame-presented`, `browser-mouse-guarded`, and `browser-wheel-guarded` commands. Each admitted bitmap receives a new guard even when its document and dimensions match the previous bitmap. The reported floor through latest range proves route membership only. `browser-frame-presented` advances one exact acknowledged token for that connection, and only that token authorizes a new guarded pointer action. A guarded pointer command implicitly acknowledges its own token. Each connection retains one token, while the bounded browser input queue owns actions admitted before a later presentation. Navigation or geometry changes clear the range and all acknowledgements. An accepted press keeps its original guard for motion across ordinary repaints while document and geometry remain valid; invalidation suppresses further motion but retains its balancing release. A capable client echoes that value in `set-client-info`; browser attach requires the bilateral capability while PTY attach remains available without it. The legacy `browser-mouse` and `browser-wheel` schemas retain their optional guard, but guarded servers reject a missing guard before surface lookup. `viewport-splits-v1` advertises `new-pane-right` and the `Screen.viewport_splits` field. `viewport-column-resize-v1` advertises `set-viewport-pane-width` and `Screen.viewport_base_width`. `pane-browser-kind-v1` advertises `kind` and `url` on `split` and `new-pane-right`: `kind:"browser"` with a non-empty `url` puts a browser tab at that URL in the new pane, through the same `pane.split` commit and restart recovery as a terminal pane; public `pane.split` stays terminal-only. `layout-undo-v1` advertises server-owned structural layout history and `undo-layout`. `view-attachment-lease-v1` returns a connection-owned lease for each attach and enables lease-fenced sizing. `view-attachment-detach-v1` enables targeted stream cleanup. `creation-receipts-v1` enables idempotent destination creation, `creation-attempt-keys-v1` separates a stable correlation from the same-key or new-key execution attempt selected by `session.creation.resolve`, and `creation-selector-fallbacks-v1` adds bounded ordered destination continuations. `provider-managed-workspace-authority-v2` advertises pre-provisioned provider ownership and authority-gated post-provider rename and close commits. `terminal-idle-close-v1` advertises `set-terminal-idle-policy` and the owner-side reaper that closes a terminal after its policy elapses with no attached view. `resume-command` advertises `terminal-resume-command`: a person's resume command for one terminal, typed on the new prompt when the owner respawns it. `terminal-pending-sequence-v1` advertises the separate `pending` field on byte-attach `vt-state` and `resized` events; a client that echoes it in `set-client-info` receives it (see `events.md`). `terminal-placement-env-v1` advertises a caller-chosen `terminal_id` on `new-tab`, `split`, `new-pane`, and `new-pane-right`, `cwd` and `env` on `new-pane` and `new-pane-right`, and `terminal_id`/`terminal_incarnation` in all four results. `split-client-keys-v1` advertises the client-minted `pane_id` and `tab_id` on `split`, `new-pane`, and `new-pane-right`, keyed retries that return the first result with `replayed`, and `pane_id`/`tab_id` in their results (see "Client-minted pane ids"). `row-client-keys-v1` advertises the same client-minted `pane_id` and `tab_id` on `new-row`, and `pane_id`/`tab_id` in its result. `split-client-split-id-v1` advertises the client-minted `split_id` on `split` and on the `split` of `new-conversation-tab`, and `split_id` (the split's public id) on every split node of a layout (see "Client-minted split ids"). `terminal-resources-v1` advertises `terminal-resources`, which reads the CPU time and memory of each terminal's shell, descendants, and terminal host at request time. `batch-close-v1` advertises `close-tabs` and the optional `end_terminals` field on `close-pane`, `close-screen`, `close-workspace`, and `close-tab-group`: many placements and the terminals they end close in one durable commit. `close-workspace-if-empty-v1` advertises the optional `if_empty` field on `close-workspace`: the close commits only when the workspace has no tab at commit time, else it fails with `workspace_not_empty` and changes nothing. `end-terminals-keep-layout-v1` advertises `keep_layout` on `shutdown-daemon`: with `end_terminals`, placed terminals keep their tabs across the handoff. `tab-restart-kept-layout-v1` (Unix owners, with `tab-restart-v1`) advertises that `restart-tab` of a tab kept by `keep_layout` starts the new shell in the directory the keep recorded and ends the keep once the new shell is in the tab: the tab's `relaunch` is null again, its shell's exit closes it, and a host loss respawns it. `tab-park-v1` (Unix owners) advertises `park-tabs`, which ends the shells of terminal tabs and keeps the tabs as `keep_layout` does, each with `relaunch.on_show: true` so a frontend restarts it when its workspace is first shown. `terminal-reap-v1` advertises the owner-side reaper that ends a terminal after it has had no tab placement for the reap grace period (active only when the daemon was started with `--terminal-reap-grace-seconds`), `set-terminal-keep`, the `keep` field on `new-tab`, `split`, and `create-terminal`, the `terminal-reaped` event, and `end_terminals` on `shutdown-daemon`. `dock-columns-v1` advertises `set-column-dock` and the optional `Screen.columns[].dock` field for every edge; the resource API operation `column.update` (resource-operations-v2.json) sets the same flag and the column width. `terminal-env-v1` advertises the per-terminal `env` object on `new-tab`, `split`, and `create-terminal`, and `cwd` on `split`. `tab-groups-v1` advertises Chrome-style tab groups: the `*-tab-group` commands, `Pane.tab_groups`, and `Tab.group`. `saved-tab-groups-v1` advertises saved groups: `save-tab-group`, `unsave-tab-group`, `delete-saved-tab-group`, `list-saved-tab-groups`, and `reopen-saved-tab-group`. `notification-ack-v1` advertises `ack-tab-notifications`, `list-notifications`, durable notification acknowledgement, and `Workspace.unread_count`. `tab-drag-v1` advertises the single-command tab drag outcomes `move-tab-to-split`, `move-tab-to-column`, and `move-tab-to-new-workspace`, layout undo for same-screen tab drags and cross-pane `move-tab`, and the optional `transaction` field on every drag command, echoed in the resulting `tab-changed` delta. `tab-workspace-name-v1` advertises the optional `name` field on `move-tab-to-new-workspace`: the new workspace takes that name in the same commit. `workspace-name-source-v1` advertises workspace name provenance: `source`, `expected_generation` and `expected_name_revision` on `rename-workspace` and `workspace.rename`, and `name_source` (`user` or `auto`) and `name_revision` (a decimal string) on every workspace (`Workspace.name_source`/`Workspace.name_revision` in the raw tree, `extra.name_source`/`extra.name_revision` in resource snapshots). A workspace the daemon names itself (no requested name) starts `auto`; a requested name, any rename without `source` and every name stored by an older daemon are `user`. An automatic rename never replaces a non-empty user name, never empties a name, and fails when the name revision moved since the caller read it; every rename advances the revision. `frontend-browser-tabs-v1` advertises `new-frontend-browser-tab`, `update-frontend-browser-tab`, and the frontend browser tab fields. `tab-metadata-v1` advertises `set-tab-pinned`, pinned-first tab order, the `Tab.pinned`, `Tab.cwd`, `Tab.git_branch`, and `Tab.git_detached` fields, and the `tab-changed` delta. `workspace-metadata-v1` advertises `set-workspace-metadata`, the `Workspace.color`, `Workspace.icon`, and `Workspace.title` fields, and the `workspace-changed` delta. `workspace-pin-v1` advertises the `pinned` field on `set-workspace-metadata` and `Workspace.pinned`. `notification-mark-unread-v1` advertises the `marked_unread` field on `set-workspace-metadata` and `Workspace.marked_unread`. `workspace-groups-v1` advertises durable sidebar groups: the `*-workspace-group` commands, `move-workspace-to-group`, `Tree.groups`, and `Workspace.group`. `loopback-forward-v1` advertises multiplexed TCP streams to the daemon machine's own loopback services (see "Loopback forwarding"); a Unix client echoes it in `set-client-info` before its first `loopback-open`. `fs-v1` advertises the `fs.*` file ops and their byte streams (see "File system (fs-v1)"); only cmux Cloud hosts serve it. `session-identity-v1` advertises `identify.session_id` (the durable `registry_id`, stable across restarts and upgrades) and `identify.machine_name` (the host name, at most 255 bytes, no control characters). `remote-terminal-tabs-v1` advertises `new-remote-terminal-tab`, `update-remote-terminal-tab`, `remote-terminal-snapshot`, and the `kind:"remote-terminal"` tab with its `remote` object. `detached-terminals-v1` advertises `detached` on `create-terminal` and `terminal_resource_id` in its detached result. `profiles-v1` advertises the home session's personal state: `list-personal`, the `*-profile` room commands, `set-profile-follows`, `pin-workspace`, `unpin-workspace`, `put-session`, `forget-session`, `import-session-organization`, the `*-personal-group` commands, `set-personal-workspace`, and the `personal-changed` event. `personal-terminals-v1` advertises `set-personal-terminal` and `list-personal.terminals`. `screen-metadata-v1` advertises `set-screen-metadata`, `set-screen-pinned`, `move-screen`, the `screen_name`, `color`, `icon`, `pinned`, `index`, `group`, and `cwd` fields on `new-screen` (whose result then also carries `screen`), the `Screen.color`, `Screen.icon`, `Screen.pinned`, and `Screen.group` fields, and the `screen-changed` delta. `screen-groups-v1` advertises Chrome-style screen groups: the `*-screen-group` commands, saved screen groups, and `Workspace.screen_groups`. `browser-profiles-v1` advertises browser profile records in personal state: `browser_profiles` in `list-personal` and `create-browser-profile`, `update-browser-profile`, `move-browser-profile`, and `delete-browser-profile`. `notification-source-v1` advertises `source` on `notify`, the `notification` event, the tab `notification` marker, and `list-notifications` rows (`extra.source` in resource notification snapshots), and daemon-side desktop notifications from terminal output (OSC 9, OSC 777 `notify`, kitty OSC 99) with source `terminal`. `terminal-shell-args-v1` advertises `shell_args` on `new-tab`, `split`, `new-pane`, `new-pane-right`, and `create-terminal`: the terminal runs its `SHELL` from `env` (else the daemon's default shell) with those arguments, so a frontend can apply Ghostty's argv-based shell integration (bash `--posix` with `ENV`, nushell `--execute`). `terminal-frontend-shell-integration-v1` lets a frontend that resolves Ghostty's shell integration itself (from the user's `shell-integration` and `shell-integration-features`, into the terminal's `env` and `shell_args`) echo it in `set-client-info`; the terminals that connection creates with a `SHELL` in `env` then run that shell exactly as given (stored as `argv`), with no host-added integration, on `new-tab`, `split`, `new-pane`, `new-pane-right`, `new-row`, `create-terminal`, and a terminal `respawn`; without a `SHELL` the host integrates as before. `new-workspace`, `new-screen` and the reopen-saved-group commands take no `env` and keep the host integration. `screen-terminal-env-v1` advertises `env`, `terminal_id`, and `shell_args` on `new-screen` (the first terminal takes them as on `new-pane`, including `terminal-frontend-shell-integration-v1`) and `terminal_id` in its result. `launch-snapshot-v1` advertises `launch_snapshot_path` in `identify` and the launch snapshot file described there. `state-resources-v1` advertises the `cmux.protocol/2` state resources (workspace metadata, tab pins and tab groups, personal workspace groups, rooms and saved tab groups, screen metadata, order and screen groups, closed history, ephemeral workspaces, and workspace status, progress and log; see `resource-api-v2.md`), `extra.state` on session snapshots, and `state_upsert`/`state_delete` changes on `session.events`. `window-records-v1` advertises `window_record.list`, `window_record.put` and `window_record.delete` (see `resource-api-v2.md`). `sidebar-layout-v1` advertises `sidebar_layout.get`, `sidebar_layout.update` and `extra.state.sidebar_layout` on session snapshots (see `resource-api-v2.md`). `sidebar-doc-v1` advertises the sidebar document: `sidebar.get`, `sidebar.move`, `sidebar.pin`, `sidebar.unpin`, the `sidebar.item.*`, `sidebar.section.*` and `sidebar.group.*` mutations, `sidebar.adopt`, `sidebar.apply`, `extra.state.sidebar` on session snapshots, and `state_upsert`/`state_delete` changes of resources `sidebar_item`, `sidebar_section` and `sidebar_doc` on `session.events` (see `resource-api-v2.md`). `placement-shift-v1` advertises the placement shift: a client that echoes it in `set-client-info` or `client.metadata.update` gets no `workspace_placement` restatement on `session.events` for rows that a new or moved workspace only shifts; every other connection still gets them (see "Placement shift" in `resource-api-v2.md`). `project-list-v1` advertises the project list: `project.list`, `project.observe`, `project.add`, `project.update`, `project.remove` and `project.sync`, and `state_upsert`/`state_delete` changes of resource `project` on `session.events` (see `resource-api-v2.md` and plans/cmux-next/projects.md). `project-sources-v1` advertises `project.source.update` (a source turned off or on) and `sources` (each source with its on state and project count) in the `project.list` result. `browser-devices-v1` advertises `browser.devices.list`, `browser.devices.add_custom`, `browser.devices.remove_custom`, `browser.tab.emulate` and `browser.tab.emulate.clear`, and a browser tab's `extra.emulation` (the resolved device emulation every engine applies; see `resource-api-v2.md`). `browser-fit-v1` advertises `fit` on `browser.tab.emulate` (a desktop layout of aspect W:H, such as 16:9, scaled to the tab's view width with the full view height) and the `mode: "fit"` form of `extra.emulation` (see `resource-operations-v2.json`). `browser-fit-width-v1` advertises a fixed layout width as `fit` (a bare number of CSS px, such as 1280) and `fit.value` in that record. `browser-profile-agent-v1` advertises `browser.tab.set_profile` (moves a frontend browser tab to another browser profile in place, as `update-frontend-browser-tab {profile_id}` does; `frontend-browser-tab-profile-v1`) and a frontend browser tab's `extra.browser_profile_id` (see `resource-api-v2.md`). `palette-usage-v1` advertises `palette_usage.get`, `palette_usage.record`, `palette_usage.import`, `palette_usage.hide` and `palette_usage.forget`, the user's local palette usage history (see `resource-api-v2.md`). `stash-v1` advertises `stash.create`, `stash.list`, `stash.restore`, `stash.delete` and `stash.import`, the user's stashed web pages (a native OneTab; see `resource-api-v2.md`). `stash-workspaces-v1` advertises `workspaces` and `name` on `stash.create`: whole workspaces, terminals included, close into one stash of `kind: "workspace"` members, and `stash.restore` reopens each as its own workspace (see `resource-api-v2.md`). `frontend-browser-owner-v1` advertises `owner` on `new-frontend-browser-tab` and `update-frontend-browser-tab`, `Tab.browser_owner`, `tab.update {owner}` and the tab's `extra.owner`. `frontend-browser-tab-keys-v1` advertises `idempotency_key` on `new-frontend-browser-tab` and `replayed` in its result: a retry with the same key returns the tab the first request created. The raw screen commands of `screen-metadata-v1` and `screen-groups-v1` and the v2 `screen.*` and `screen_group.*` operations read and write one storage and publish the same changes. `workspace-kind-v1` advertises `workspace.ensure_home` and `extra.kind` on workspace snapshots (see `resource-api-v2.md`). `workspace-agent-folder-v1` advertises `workspace.agent_folder.set` and `extra.agent_folder` on workspace snapshots (see `resource-api-v2.md`). `personal-mixed-order-v1` advertises one personal order for groups and loose workspaces: `top_index` on `workspace_group.update`, on `WorkspaceGroupSnapshot` and on `list-personal` groups, `workspace.list {order}`, and the personal row of a new workspace in its creation commit (see `resource-api-v2.md`). `workspace-group-icon-v1` advertises a personal workspace group's icon: `icon` on `workspace_group.update`, on `WorkspaceGroupSnapshot` and on `list-personal` groups (see `resource-api-v2.md`). `screen-group-icon-v1` advertises a screen group's icon: `icon` on `update-screen-group`, on screen group runs (`Workspace.screen_groups`), on saved screen groups (`list-saved-screen-groups`, kept by `reopen-saved-screen-group`), on `screen_group.update` and on `ScreenGroupSnapshot` (see `resource-api-v2.md`). `tab-group-icon-v1` advertises a tab group's icon: `icon` on `update-tab-group`, on tab group runs (`Pane.tab_groups`), on saved tab groups (`list-saved-tab-groups`, kept by `reopen-saved-tab-group`), on `tab_group.update`, on `TabGroupSnapshot` and on `SavedTabGroupSnapshot` (see `resource-api-v2.md`). `workspace-group-pin-v1` advertises pinned (saved) personal workspace groups: `pinned` on `workspace_group.update`, on `WorkspaceGroupSnapshot` and on `list-personal` groups (see `resource-api-v2.md`). `chief-inspect-v1` advertises `chief-inspect`, the Chief memory inspector's read-only API for the owner's trusted connection. `conversation-tabs-v1` advertises `new-conversation-tab`, the canonical `conversation` tab kind, and `capabilities` on `client.metadata.update`; a client that echoes it in `set-client-info` or `client.metadata.update` reads conversation tabs in their canonical form. `agent-session-tabs-v1` advertises the `agent_session` source of `new-conversation-tab` (an acpmux agent session on the install `host`; its tabs are ordinary store tabs that move, split and close like any tab) and `bind-conversation-tab-session`; a client that echoes it as well reads agent session tabs in their canonical form, and any other connection reads them as `browser` tabs without `conversation`. `page-tabs-v1` advertises the `page` source of `new-conversation-tab` (one of the app's own pages, such as the App Store or Settings; its tabs are ordinary store tabs); a client that echoes it as well reads page tabs in their canonical form, and any other connection reads them as `browser` tabs without `conversation`. `page-tab-route-v1` advertises the optional `route` of a page tab on `new-conversation-tab` and in its `conversation` record. `close-reason-v1` advertises `reason` on `close-tabs` and, with `end_terminals`, on `close-workspace`: `session_end` closes without a closed-history record. `conversation-tab-transaction-v1` advertises `transaction` on `new-conversation-tab`: the created tab's `tab-added` delta and the result echo it. `conversation-tab-split-v1` advertises `split` on `new-conversation-tab`: the tab is created in a new pane split from `pane`, in one `pane-added` delta. `browser-host-provider-v1` advertises `browser-host-provider`: the verified local app gets the provider credentials of the daemon's own browser host. `frontend-browser-activate-v1` advertises `activate` on `new-frontend-browser-tab`. `frontend-browser-insert-after-v1` advertises `after` on `new-frontend-browser-tab`. `bookmarks-v1` advertises one bookmark tree per browser profile: `list-bookmarks`, `create-bookmark`, `update-bookmark`, `move-bookmark`, `delete-bookmark`, `import-bookmarks`, the `bookmarks-changed` event, and `deleted_bookmarks` in the `delete-browser-profile` result. `bookmark-icon-v1` advertises a bookmark folder's `icon`: set or cleared by `update-bookmark` and shown in `list-bookmarks` (see "Icon values" under `put-blob`). `session-icon-v1` advertises a session's (machine's) `icon` in the home session registry: set or cleared by `set-session-icon`, kept by `put-session`, and shown on each `list-personal` session record. `icon-assets-v1` advertises the asset blob store (`put-blob`, `get-blob`) and the asset icon values `image:sha256-<hex>` and `svg:sha256-<hex>` on the workspace, screen, room, browser profile and workspace status icon fields (see "Icon values" under `put-blob`). `origin-claim-v1` advertises `client-hello` step 1, the optional `origin` claim on `cmux.protocol/2` requests, and `origin.confirmation.issue` (see "client-hello" and `resource-api-v2.md`, "Request origin") `page-router-v1` advertises the daemon page router (`page-router.md`): the optional `page` on a page relay's `client-hello` (the reply carries that page's `page_operations`), the page of a WebSocket connection whose handshake Origin is `cmux-page://cmux.<page>`, the per-page allow list of `cmux.protocol/2` operations in `page-router.json`, and the routed v2 namespaces (`apps.catalog.list`, `apps.catalog.get`, `apps.installed.list`, `apps.grants.get`, `apps.logs`, `apps.asset.get`, `apps.set`, `apps.install`, `apps.uninstall`, `apps.hidden.set`, `apps.grant.set`, `apps.grant.revoke`) answered by their owner outside the operation catalog. `ws-listen-origins-v1` advertises `allow_origins` on `ws-listen` and `origins` in its reply. `page-events-v1` advertises `page_events` in a page relay's `client-hello` reply (the `events` of its page in `page-router.json`) and `subscribe` on a page relay whose page names events: the stream carries only those events (no `surface` output stream, no pairing requests). `terminal-clipboard-read-v1` advertises the OSC 52 clipboard-read broker: `terminal-clipboard-subscribe`, `terminal-clipboard-reply`, and the targeted `terminal-clipboard-read` and `terminal-clipboard-read-cancelled` control events (see "Terminal clipboard reads"). `launch-credential-v1` advertises the optional `credential` member of `cmux.protocol/2` requests and `credential.verify`, `credential.mint` and `credential.rotate` (see `resource-api-v2.md`, "Launch credentials"); a client sends a credential only to a daemon that advertises it. `feed-local-owner-v1` advertises the daemon's local feed owner (plans/cmux-next/feed.md section 9.1): every notification is also a local feed item committed in the same transaction, `select-tab`, `select-workspace`, `select-screen`, `focus-pane` and `focus-direction` no longer clear unread (a client acknowledges with `ack-tab-notifications`, which also reads the tab's local items and reports `refused` items), the `feed-local-list`, `feed-local-read`, `feed-local-handoff-begin`, `feed-local-handoff-abort` and `feed-local-handoff-done` commands, and the error codes `feed.moving`, `owner.unreachable` (both retryable), `feed.invalid_state`, `not_found` and `forbidden` (a handoff step from a connection that is not the verified cmux app). `workspace-open-url-v1` advertises `workspace.open_url`: a web link opens on the right side of a workspace (the home workspace when none is named), reusing its browser tab, never in the agent chat dock and without moving the keyboard focus (see `resource-api-v2.md`).
 .
 
@@ -743,7 +745,7 @@ count grows by at most four a second (plus one) under any request pattern.
 The same thread is the daemon's one hang watcher: it also watches each batch
 commit of the journal writer, each frame a holder link routes and each item of
 the key echo path threads' work (a `mux-line-out` write, a `mux-pty-input`
-write, a `mux-attach-out` or `mux-render-attach-out` frame encode; never their
+write, a `mux-attach-out` or `mux-render-attach-out` item of a view's drain; never their
 wait for the next one), and writes a scope busy past its hang tier (`hang_ms`,
 2000, for a request or a journal commit; 1 s for a holder-link frame; 100 ms for
 an echo item, scope named after its thread) once to the owner's hang log
@@ -777,15 +779,17 @@ creates and splits are `create`). A request a worker answers later
 (`url-open`, `chief-inspect`, the cloud commands) counts when the worker's
 reply is queued. The time a reply then waits for the writer thread's socket
 write is not counted. `dispatch_queue_us` is the time from a request's parse
-to its handler's start: the wait in the connection's request queue (0 for a
-line answered inline).
+to its handler's start: the wait in the connection's control sequence, which
+every request line joins in arrival order (0 for a line refused on the
+reader).
 
 `ipc` counts the IPC layer since daemon start, over the connections of every
 transport: the local socket, the remote entry and WebSocket. `streams`
 counts each connection's stream 0 (`open` now, `peak`, `opened` in total);
 no connection opens a second stream yet, so `open` is the open connections.
 `sequence_depth` samples the requests in a connection's sequence as each
-`cmd` request arrives at it, itself included, also when the full sequence
+request line (a `cmd` command, a `cmux.protocol/2` request or a feature
+route's line) arrives at it, itself included, also when the full sequence
 refuses it. `received` and `sent` list messages and bytes by kind, only kinds
 seen at least once: `line` (a JSON line, bytes counting its delimiter, or a
 WebSocket text message) first, then frame kinds by name in wire order (a
@@ -1045,132 +1049,6 @@ violation reports `sites: []` and `overflow: 0`.
 
 Errors: `daemon thread diagnostics require a trusted local connection`.
 
-### oracle-state
-
-| Field | Value |
-| --- | --- |
-| name | `oracle-state` |
-| status | implemented in debug builds and `--features oracle` builds only |
-| since | protocol 12, no capability |
-
-The correctness oracle's daemon facet
-(`plans/cmux-next/chrome-parity/p15-oracle.md`, task 021). A release daemon
-has no such command and answers `bad request: unknown variant`, which the
-oracle reads as a build without it. Trusted local connections only.
-
-The facet is `session.snapshot`, `settings.snapshot` and the journal head of
-the snapshot's cut. This command returns that cut from the same snapshot
-builder as `session.snapshot` and adds only what the public reads lack.
-
-Params: none.
-
-Result:
-
-```text
-object{
-  journal_head:uint64,
-  session:ResourceSnapshot,
-  switches:map<string,string>,
-  terminalAttach:object{attached:uint64,detached:uint64,dead:uint64},
-  liveObjects:map<string,uint64>,
-  panicLog:object{path:string|null,bytes:uint64},
-  childExits:object{holder:uint64}
-}
-```
-
-`journal_head` is the session journal head read under the same registry and
-state lock as `session`: every journal record at or below it is in `session`,
-and no later one is. `session` is the asking connection's `session.snapshot`
-result, `clients` included (the connections are read just after the cut).
-`terminalAttach` and `liveObjects`, except `subscriptions`, are counted from
-the same locked state as `session`; `subscriptions` is read just after it.
-`switches` maps each daemon refactor switch to the arm this daemon runs,
-`old` or `new`, frozen at the first read. The one switch so far is
-`terminal-holder` (`new` when the `terminalHolder` feature is on, the default;
-`old` with a disable of it or the alias `CMUX_TUI_TERMINAL_HOST_MODEL=hosts`); the
-`CMUX_TUI_SWITCHES` parse of p15-oracle task 020 replaces that source.
-`terminalAttach` counts the terminal catalog: `dead`
-terminals have no process, `attached` ones are shown in at least one pane
-tab, `detached` ones are live with no placement. `liveObjects` counts runtime
-objects: `browsers`, `holders` (live terminals hosted out of process),
-`panes`, `screens`, `subscriptions` (live event subscriptions), `terminals`
-(the terminal catalog), `views` (pane tab placements) and `workspaces`.
-`panicLog` is the owner's panic log (`owner-panics-<session>.jsonl` at the
-state root) and its length in bytes; `path` is null when there is no state
-root. `childExits` counts the child exits this owner saw since it started
-(p15-oracle task 188, invariant I17): `holder` is each terminal host of this
-session that was lost or replaced on its running shell, counted where the
-owner logs it to `terminal-losses.jsonl`, so the log's rotation and other
-sessions' lines in the same state root never change it. It starts at 0 with
-each owner. The owner's own end is not here: a crashed owner cannot count
-it, so the app counts drops without `daemon-shutdown`. Every map has sorted
-keys.
-
-Errors: `oracle state requires a trusted local connection`, `bad request: ...`.
-
-### oracle-restore-preview
-
-| Field | Value |
-| --- | --- |
-| name | `oracle-restore-preview` |
-| status | implemented in debug builds and `--features oracle` builds only |
-| since | protocol 12, no capability |
-
-The input of the correctness oracle's invariant I9
-(`plans/cmux-next/chrome-parity/p15-oracle.md`, task 205): a journal
-checkpoint reduced through the journal head must equal the live
-`session.snapshot` on the sections a restore rebuilds. Like `oracle-state`,
-a release daemon answers `bad request: unknown variant`, and only trusted
-local connections get a reply.
-
-The reduction is the one `session.journal.restore.preview` runs, on a
-read-only journal reader of its own, in one read transaction: it takes no
-registry lock and never waits on the journal writer.
-
-Params: `checkpoint` (optional string): a checkpoint id, or `latest` (the
-default). `through` (optional uint64): reduce through this journal sequence,
-not through the head. Send the `journal_head` of an `oracle-state` reply, so
-that the preview and that facet are one cut, even when records were written
-between the two requests. With `through`, `latest` is the latest checkpoint
-at or before it. A named checkpoint after it, or a `through` ahead of the
-journal head, is an error.
-
-Result:
-
-```text
-object{
-  sections:map<string,object{restore:"compared"}|object{restore:"excluded",reason:string}>,
-  preview:null|object{
-    checkpointId:string,
-    checkpointSequence:uint64,
-    headSequence:uint64,
-    unsupportedCount:uint64,
-    unsupported:array<object{sequence:decimal,event_id:string,kind:string}>,
-    stateChangesNotReduced:uint64,
-    session:map<string,JsonValue>
-  }
-}
-```
-
-`sections` maps every top-level key of `session.snapshot` to how I9 treats
-it: `compared`, or `excluded` with the reason the journal does not restore
-it (`machine` and `clients` today). `preview` is null when the session has
-no journal checkpoint yet. `headSequence` is the journal head the reduction
-ended at (`through` when it is given): I9 compares it with a daemon facet
-whose `journal_head` is the same sequence. `unsupportedCount` counts
-required journal records the reducer could not apply (a restore loses
-them); at most 1,024 of them are listed in `unsupported`.
-`stateChangesNotReduced` counts the `state_upsert`/`state_delete` changes
-of applied records, which the reducer does not reduce
-(`session-journal.md`, "Restoration"): `extra` is then the checkpoint's,
-and I9 fails on the lost changes instead of comparing it. `session` holds
-the compared sections of the reduced snapshot.
-
-Errors: `oracle state requires a trusted local connection`,
-`oracle restore preview requires a persistent session` (an in-memory
-session has no journal file to read), `bad request: ...`, and the reducer's
-errors (a gap in the journal, an unknown reducer version).
-
 ### debug-panic
 
 | Field | Value |
@@ -1266,6 +1144,73 @@ Errors: `trace control requires a trusted local connection`, `another trace
 control call is running`, `this session has no state root to record into (it is
 ephemeral)`, `unknown trace category ...`, `the key category records per-key
 records: ask for it with keys: true`.
+
+### memory-report
+
+| Field | Value |
+| --- | --- |
+| name | `memory-report` |
+| status | implemented |
+| since | protocol 12 |
+
+Where this daemon's memory goes, read when the request arrives (no sampler,
+cache or timer; like Chrome's memory-infra dump, which asks each provider for
+its size only when a dump is requested). Read only and owner only: a client
+that is not on the trusted local socket gets `memory report requires a trusted
+local connection` before anything is read, and a remote relay client is
+refused earlier by its frame gate (`remote_denied`). The reply names no title,
+path, URL or command.
+
+Per PTY terminal, from the daemon's libghostty-vt terminal (for a hosted
+terminal this is the daemon's mirror; the host process's own memory is in
+`terminal-resources`): primary-screen pages (`scrollback`; `live_bytes` are
+the resident bytes of pages that are not compressed, `compressed_bytes` the
+compressed page data), the alternate screen's resident bytes, Kitty image
+bytes of both screens, and for a holder terminal the size of the ring segment
+the daemon keeps a copy of. A field libghostty-vt cannot report is `null`.
+`state` is `cold` for a terminal the cold-scrollback codec compressed whole:
+the report reads its size without restoring it, `cold` gives the bytes it
+holds (`held_bytes`: compressed snapshot and Kitty replay) and the snapshot's
+size before compression, and the libghostty fields are `null`. `unknown` is a
+terminal moving between the two states. `totals` sums the terminal rows.
+`consumers` lists the daemon's memory registry (cmux-memory) in registration
+order; `bytes` is `null` when the consumer's memory is held in another
+process. `process` is the daemon's private footprint (macOS `phys_footprint`;
+Linux `RssAnon + VmSwap`) and resident set, `null` where the platform does not
+report it.
+
+Params: none.
+
+Result:
+
+```text
+object{
+  schema:1,
+  pid:uint32,
+  process:object{private_footprint_bytes:uint64, resident_bytes:uint64}|null,
+  pressure:"normal"|"warning"|"critical",
+  terminals:array<object{
+    surface:SurfaceId,
+    terminal_id:string|null,
+    home:"daemon"|"holder"|"host"|"exited",
+    state:"hot"|"cold"|"unknown",
+    cold:object{held_bytes:uint64, snapshot_bytes:uint64}|null,
+    scrollback:object{live_bytes:uint64, compressed_bytes:uint64,
+      virtual_bytes:uint64, pages:uint64, compressed_pages:uint64}|null,
+    compression_supported:bool|null,
+    alternate_screen_bytes:uint64|null,
+    kitty_image_bytes:uint64|null,
+    holder_ring_bytes:uint64|null
+  }>,
+  totals:object{terminals:uint64, cold_terminals:uint64, cold_held_bytes:uint64,
+    scrollback_live_bytes:uint64,
+    scrollback_compressed_bytes:uint64, alternate_screen_bytes:uint64,
+    kitty_image_bytes:uint64, holder_ring_bytes:uint64},
+  consumers:array<object{name:string, retention:"lossless"|"lossy", bytes:uint64|null}>
+}
+```
+
+Errors: `memory report requires a trusted local connection`.
 
 ### browser-host-provider
 
@@ -2150,7 +2095,7 @@ Example:
 | status | implemented |
 | since | protocol 5 |
 
-Returns the current plain-text viewport of a PTY surface. The text is produced by the Ghostty VT terminal state and does not include prior scrollback beyond the current screen.
+Returns the current plain-text screen of a PTY surface: the live screen that output writes to, even while a render viewport is scrolled back with `scroll-surface`. The text is produced by the Ghostty VT terminal state and does not include prior scrollback beyond the current screen.
 
 Params:
 
@@ -8776,7 +8721,7 @@ character boundary and answers `truncated: true`. Errors: `range_evicted`,
 | status | implemented |
 | since | protocol 5 |
 
-Scrolls a PTY surface viewport by row delta. Negative values scroll up. Positive values scroll down. This changes the terminal viewport state used by `read-screen` and renderers.
+Scrolls a PTY surface viewport by row delta. Negative values scroll up. Positive values scroll down. This moves the terminal's render viewport, which every render attach of the terminal shows ([render.md](render.md#stream-ordering)), and the named placement's in-process frontend view. It does not change what `read-screen`, `wait-for`, `copy` mode `screen`, `terminal.screen.read` or `terminal.wait` read: they read the live screen. A move emits `scroll-changed` to subscribers and to the attach streams of the surface, including render attaches on other connections; a render attach receives it before the `render-delta` that shows the moved rows.
 
 Params:
 
@@ -9381,7 +9326,7 @@ Example:
 | status | implemented |
 | since | protocol 6 |
 
-Extracts text from a surface. `screen` returns the current plain-text viewport. `selection` returns the current mux-owned selection. `scrollback` returns available scrollback followed by the current viewport.
+Extracts text from a surface. `screen` returns the current plain-text live screen, as `read-screen` does. `selection` returns the current mux-owned selection. `scrollback` returns available scrollback followed by the current viewport.
 
 Params:
 
@@ -10945,6 +10890,43 @@ the reply. Idempotent: an id with no open stream (it ended already, or was
 never opened) answers `outcome:"ended"` and changes nothing.
 
 Params: required `stream:uint16`.
+
+Result:
+
+```text
+object{stream:uint16,outcome:"applied"|"ended"}
+```
+
+### set-stream-priority
+
+| Field | Value |
+| --- | --- |
+| name | `set-stream-priority` |
+| status | implemented |
+| since | protocol 12, capability `attach-streams-v1` |
+
+Sets how one client-minted attach stream of this connection competes with the
+others (stream visibility, p05-ipc-142), as Chrome ranks a renderer by its
+widgets' visibility (`RenderWidgetHostImpl::WasShown`/`WasHidden`) and moves its
+task runners with `UpdateableSequencedTaskRunner::UpdatePriority`:
+
+- `focused`: the stream's items ride the input lane, ahead of control replies,
+  and its view drains on the input workers. The view the person types into.
+- `visible`: the bulk lane, and the view drains on the utility workers, so a
+  flooding visible terminal never delays a focused echo.
+- `hidden`: a snapshot view (`terminal-snapshot-v1`) gets no output and no
+  digest; the daemon still parses the terminal's output and marks the view
+  dirty. When the stream is set `focused` or `visible` again, a dirty view gets
+  one READY snapshot (with its history) before any new output; a clean one
+  continues where it was. Any other view rides the background lane at
+  background priority.
+
+A stream never set keeps what it opened with: the bulk lane and input
+priority. Idempotent: an id with no open stream answers `outcome:"ended"` and
+changes nothing; the same priority again is `applied` and changes nothing.
+
+Params: required `stream:uint16`, required
+`priority:"focused"|"visible"|"hidden"`.
 
 Result:
 

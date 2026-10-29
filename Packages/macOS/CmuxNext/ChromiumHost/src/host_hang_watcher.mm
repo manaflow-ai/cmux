@@ -1,5 +1,5 @@
-// The Chromium Host's hang watch on its main run loop (host_hang_watcher.h,
-// task p01-process-084): run loop observers open and close each turn of the
+// The Chromium Host's hang watch on its main run loop (host_hang_watcher.h):
+// run loop observers open and close each turn of the
 // UI thread, the clock is CLOCK_UPTIME_RAW (base::TimeTicks on macOS, which
 // stops while the Mac sleeps, so a sleep is never a hang), and a turn still
 // open after kDumpNs gets CEF's DumpWithoutCrashing, as Chrome's HangWatcher
@@ -29,8 +29,8 @@ uint64_t UptimeNs() {
   return clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
 }
 
-// False when crash reporting is off (no crash_reporter.cfg, task
-// p01-process-226), when throttled, or when the CEF build has no dump call.
+// False when crash reporting is off (no crash_reporter.cfg),
+// when throttled, or when the CEF build has no dump call.
 bool DumpHang() {
 #if CMUX_HOST_HAS_CEF_DUMP
   // At most one hang dump an hour: CEF throttles by call site, as

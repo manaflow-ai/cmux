@@ -6,7 +6,7 @@ import CmuxNextRemoteFetch
 import Foundation
 import Testing
 
-/// p07-memory-055: the tab strips' `TabFaviconStore` and the favicon loader's per-profile LRU caches
+/// The tab strips' `TabFaviconStore` and the favicon loader's per-profile LRU caches
 /// hold the same icons and are one memory consumer ("browser-favicons"). The limit scales how many
 /// icons each loader profile keeps: a new limit frees nothing, a release frees both caches down to it
 /// least recently used first, at 0 % the loader keeps nothing, and an icon dropped by a release is

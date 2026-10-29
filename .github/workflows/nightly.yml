@@ -2030,11 +2030,7 @@ jobs:
           CMUX_TUI_BUILD_COMMIT="$(git -C .. rev-parse HEAD)"
           CMUX_TUI_GHOSTTY_COMMIT="$(git -C ../ghostty-next rev-parse HEAD)"
           export CMUX_TUI_BUILD_COMMIT CMUX_TUI_GHOSTTY_COMMIT
-          # The daemon's pinned PGO profile, as the published build uses (scripts/cmux-next/pgo/rust-pgo.sh, task 056).
-          pgo="$(../scripts/cmux-next/pgo/rust-pgo.sh rustflags cmux-tui --target aarch64-apple-darwin --strict)"
-          pgo_env=(); [[ -z "$pgo" ]] || pgo_env=("RUSTFLAGS=${RUSTFLAGS:+$RUSTFLAGS }$pgo")
-          env ${pgo_env[@]+"${pgo_env[@]}"} \
-            cargo build -p cmux-tui --bin cmux-tui --bin cmux-tui-host --release --locked --target aarch64-apple-darwin
+          cargo build -p cmux-tui --bin cmux-tui --bin cmux-tui-host --release --locked --target aarch64-apple-darwin
           # The terminal holder, installed beside cmux-tui (its own invocation: std and libc only).
           cargo build -p cmux-holder --bin cmux-holder --release --locked --target aarch64-apple-darwin
           cargo build -p acpmux --bin acpmux --release --locked --target aarch64-apple-darwin

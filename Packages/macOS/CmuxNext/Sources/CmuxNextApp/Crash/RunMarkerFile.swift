@@ -10,8 +10,9 @@ import func CmuxSafeConcurrency.withOnceContinuation
 /// Writes `run.json` for `AppRunMarker` on a serial background queue, so
 /// the main thread never waits on the disk.
 ///
-/// - Coalesced: a write that is still queued is replaced by a newer one, and
-///   bytes equal to what is already on disk are not written again.
+/// - Coalesced: a write that is still queued is replaced by a newer one (and
+///   never encoded: ``submit(encoding:)`` encodes on the queue), and bytes
+///   equal to what is already on disk are not written again.
 /// - Atomic without fsync: a temporary file in the same folder, then
 ///   rename(2). The marker only has to survive the end of this process
 ///   (SIGKILL, a crash): data in the kernel's file cache does. Only a power
@@ -27,6 +28,8 @@ nonisolated final class RunMarkerFile: Sendable {
 
     let url: URL
     let signalURL: URL
+    /// The launch's `run.launch` (`LaunchSafeMode.Beacon`), removed with `run.json` at close; nil keeps none.
+    let beaconURL: URL?
     private let queue = DispatchQueue(label: "com.cmuxterm.app.next.run-marker", qos: .utility)
     private let writer: Writer
     private let state = Mutex(State())
@@ -38,8 +41,8 @@ nonisolated final class RunMarkerFile: Sendable {
     }
 
     private struct State {
-        /// The newest bytes asked for and their ticket.
-        var latest: Data?
+        /// What makes the newest bytes asked for, until a drain takes it, and their ticket.
+        var latest: (@Sendable () -> Data?)?
         var latestTicket: UInt64 = 0
         /// The bytes on disk and the newest ticket they satisfy.
         var written: Data?
@@ -51,9 +54,10 @@ nonisolated final class RunMarkerFile: Sendable {
         var writes = 0
     }
 
-    init(url: URL, signalURL: URL, writer: @escaping Writer = RunMarkerFile.replaceAtomically) {
+    init(url: URL, signalURL: URL, beaconURL: URL? = nil, writer: @escaping Writer = RunMarkerFile.replaceAtomically) {
         self.url = url
         self.signalURL = signalURL
+        self.beaconURL = beaconURL
         self.writer = writer
     }
 
@@ -61,10 +65,17 @@ nonisolated final class RunMarkerFile: Sendable {
     /// once these bytes, or newer ones, are written.
     @discardableResult
     func submit(_ data: Data) -> UInt64 {
+        submit(encoding: { data })
+    }
+
+    /// Asks for the bytes `encode` makes on disk; returns at once. They are made on the writer's queue, and only
+    /// for the newest ask: asks that a newer one replaced before the queue ran are never encoded.
+    @discardableResult
+    func submit(encoding encode: @escaping @Sendable () -> Data?) -> UInt64 {
         let ticket: UInt64? = state.withLock { state in
             guard !state.closed else { return nil }
             state.latestTicket &+= 1
-            state.latest = data
+            state.latest = encode
             return state.latestTicket
         }
         guard let ticket else { return 0 }
@@ -99,7 +110,7 @@ nonisolated final class RunMarkerFile: Sendable {
         }) ?? false
     }
 
-    /// Removes `run.json` and `run.signal` after any write in progress, and
+    /// Removes `run.json`, `run.signal` and `run.launch` after any write in progress, and
     /// writes nothing more (a normal quit). Called at exit: it waits for at
     /// most one in-flight write of about 100 bytes without fsync.
     func close() {
@@ -113,8 +124,9 @@ nonisolated final class RunMarkerFile: Sendable {
         allowBlocking(.terminate) {
             queue.blockingSync {
                 // SAFETY: unlink reads the NUL-terminated copy of each path Swift makes for the call.
-                unsafe unlink(url.path)
-                unsafe unlink(signalURL.path)
+                unsafe _ = blockingUnlink(url.path)
+                unsafe _ = blockingUnlink(signalURL.path)
+                if let beaconURL { unsafe _ = blockingUnlink(beaconURL.path) }
             }
         }
     }
@@ -123,15 +135,17 @@ nonisolated final class RunMarkerFile: Sendable {
     var writeCount: Int { state.withLock { $0.writes } }
 
     private func drain() {
-        let job: (Data, UInt64)? = state.withLock { state in
+        let job: (@Sendable () -> Data?, UInt64, Data?)? = state.withLock { state in
             guard !state.closed, let latest = state.latest else { return nil }
-            if latest == state.written {
-                complete(&state, ticket: state.latestTicket)
-                return nil
-            }
-            return (latest, state.latestTicket)
+            state.latest = nil
+            return (latest, state.latestTicket, state.written)
         }
-        guard let (data, ticket) = job else { return resumeFinished() }
+        // Encoded here, on the queue, never under the lock; `written` changes only on this serial queue.
+        guard let (encode, ticket, written) = job, let data = encode() else { return resumeFinished() }
+        if data == written {
+            state.withLock { complete(&$0, ticket: ticket) }
+            return resumeFinished()
+        }
         do {
             try writer(data, url)
             state.withLock { state in
@@ -172,20 +186,20 @@ nonisolated final class RunMarkerFile: Sendable {
     static func replaceAtomically(_ data: Data, to url: URL) throws {
         let temporary = url.deletingLastPathComponent().appending(path: ".\(url.lastPathComponent).\(getpid()).tmp").path
         // SAFETY: open, unlink and rename read the NUL-terminated copies of the paths Swift makes for each call.
-        let descriptor = unsafe open(temporary, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0o600)
+        let descriptor = unsafe blockingOpen(temporary, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0o600)
         guard descriptor >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
         do {
             // concurrency-allow: nonisolated; runs on RunMarkerFile's background queue, never on the main actor.
             try FileHandle(fileDescriptor: descriptor, closeOnDealloc: false).blockingWrite(contentsOf: data)
         } catch {
             Darwin.close(descriptor)
-            unsafe unlink(temporary)
+            unsafe _ = blockingUnlink(temporary)
             throw error
         }
         Darwin.close(descriptor)
-        guard unsafe rename(temporary, url.path) == 0 else {
+        guard unsafe blockingRename(temporary, url.path) == 0 else {
             let renameError = errno
-            unsafe unlink(temporary)
+            unsafe _ = blockingUnlink(temporary)
             throw POSIXError(POSIXErrorCode(rawValue: renameError) ?? .EIO)
         }
     }

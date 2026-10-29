@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# chromium_host_baseline.py and chromium-host-bench.py --baseline (task p01-process-005): the per-role budgets sum to
+# chromium_host_baseline.py and chromium-host-bench.py --baseline: the per-role budgets sum to
 # the program targets, perf-lead.md holds the same budget table, a canned bench result becomes one section 5 row per
 # number and session, and the bench's own baseline steps (census argv, per-kind wake rates, the 10-tab idle
 # scenarios, the probe's tab binding) run against a fake app socket and a fake census tool. No app, no Mac.
@@ -264,7 +264,7 @@ c4 '[w["id"] for w in out["after_tabs10"]["workspaces"]] == ["w1"]
 c4 'out["probe_tab"].startswith("t-new") and out["probe_evals"] and all(t == out["probe_tab"] for t in out["probe_evals"])' \
   "every eval after open_inproc_probe must go to the tab it opened"
 
-# 5. Tabs in the host (p01-process-080, 089): only --modes profiles or tcc moves Chromium tabs to the host, in a
+# 5. Tabs in the host: only --modes profiles or tcc moves Chromium tabs to the host, in a
 # launch without the in-process rows; an in-process row of a launch whose tabs run in the host says not_run.
 python3 -I - "$bench" "$tmp" > "$tmp/host-tabs.json" <<'PY'
 import contextlib, importlib.util, io, json, sys

@@ -1,7 +1,7 @@
 import CmuxNextSettings
 import Testing
 
-/// `terminal.predictiveEcho` (p04-input-046): off unless the person picks remote or always; a bad
+/// `terminal.predictiveEcho`: off unless the person picks remote or always; a bad
 /// value stays off and says why; the Settings row offers the same three values.
 struct TerminalPredictiveEchoSettingTests {
     private func snapshot(_ value: JSONValue?) -> CmuxConfigSnapshot {

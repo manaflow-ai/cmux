@@ -43,7 +43,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     /// Times this window's workspace switches (`switch.workspace`): ``DebugWorkspaceSwitch/timer`` unless a test passes its own.
     var workspaceSwitchTimer = DebugWorkspaceSwitch.timer
     /// This window in the visibility tree, under the app's node: occlusion, miniaturize, a hidden
-    /// app and sleeping displays feed it (`WindowVisibilitySource`, p06-scheduler-022). The parent
+    /// app and sleeping displays feed it (`WindowVisibilitySource`). The parent
     /// of every mounted workspace's node.
     let visibility: VisibilityNode
     unowned let services: AppServices
@@ -78,7 +78,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     private(set) lazy var topPages = TopPageHost(services: services, windowNode: visibility)
 
     /// - Parameter premade: The window to take instead of making one: the launch window that showed its saved
-    ///   picture before this controller existed (`LaunchSnapshotWindow`, p08-startup-059).
+    ///   picture before this controller existed (`LaunchSnapshotWindow`).
     init(state: WindowState, services: AppServices, frame: NSRect?, window premade: ShellWindow? = nil) {
         self.state = state
         self.services = services
@@ -90,7 +90,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         sidebar.container.sidebarView.onSearch = { [weak registry = services.registry] _ in
             _ = registry?.perform("palette.open", invocation: ActionInvocation(arguments: ["scope": .string("search")], origin: .user))
         }
-        // The Energy Saver card's "Turn Off for Now" runs the palette's action (p14-energy-025).
+        // The Energy Saver card's "Turn Off for Now" runs the palette's action.
         sidebar.container.sidebarView.onTurnOffEnergySaver = { [weak registry = services.registry] in
             _ = registry?.perform("energy.saver.turnOffForNow", invocation: ActionInvocation(origin: .user))
         }
@@ -131,6 +131,9 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         focus.crashKeys = services.crashKeys
         focus.keyInput = services.keyRouter.keyInput
         focus.inputDispatch = services.inputDispatch
+        focus.personIntent = { [weak services, weak window] input in
+            services?.keyRouter.creationInputCoordinator.personActed(in: window, event: input)
+        }
         focus.send(.appActive(NSApp.isActive))
         startShortcutHints()
         observeRoom()
@@ -138,7 +141,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         followContentChanges()
         if rightSidebar.isVisible { showRightSidebar() }
         // From the next turn: the manager registers this window and shows its first workspace first. Behind the
-        // launch picture the build starts it once its slices ran (`LaunchWindowBuild`, p08-startup-060).
+        // launch picture the build starts it once its slices ran (`LaunchWindowBuild`).
         if premade == nil {
             services.mainWork.post(.visible, owner: "WindowController.followWorkspace") { [weak self] in self?.observeWorkspace() }
         }
@@ -149,6 +152,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
 
     func teardown() {
         tornDown = true
+        services.keyRouter.creationInputCoordinator.windowClosed(window)
         stopShortcutHints()
         (window as? ShellWindow)?.overlayLayer.teardown()
         focusApplier.teardown()
@@ -337,10 +341,12 @@ final class WindowController: NSWindowController, NSWindowDelegate {
 
     /// Closes the window as its close button does (the incognito check runs). Only the person's
     /// close fades (`WindowCloseMotion.isPersonsClose`): a scripted close is done when it returns.
+    /// Never `performClose(_:)`: its button flash is a nested run loop of about 100 ms on the key turn
+    /// (`NSWindow.closeWithoutButtonFlash()`).
     func performClose(by origin: ActionOrigin) {
         closeOrigin = origin
         defer { closeOrigin = .user }
-        window?.performClose(nil)
+        window?.closeWithoutButtonFlash()
     }
 
     /// An incognito window closes its workspaces: it asks first while one

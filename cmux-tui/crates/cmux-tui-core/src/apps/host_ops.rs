@@ -23,6 +23,7 @@
 //!   `op:cmux.credential.relay` allows; no user credential enters the daemon.
 //! - Any other `cmux.host.*` op answers `host.error` `apps.op.unknown`.
 
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 use cmux_threads::checked::fs as files;
 use cmux_threads::checked::sync as waits;
 use serde_json::{Value, json};
@@ -30,6 +31,7 @@ use serde_json::{Value, json};
 use super::mirror::Tier;
 use super::servers::line;
 use super::supervisor::{Inner, Supervisor};
+use crate::panic_free::RecoverPoison;
 
 /// Why the link details could not be given.
 pub(super) enum HostLinkError {
@@ -126,7 +128,7 @@ impl Supervisor {
     /// Stops `app`'s server after its socket folder failed a check (cx-wmd8x).
     pub(super) fn stop_for_unsafe_folder(&self, app: &str, reason: &str) {
         let outs = {
-            let mut inner = self.inner.lock().unwrap();
+            let mut inner = self.inner.lock().recover_poison();
             let mut outs = self.log_locked(&mut inner, app, "error", reason.to_string());
             outs.extend(self.stop_server_locked(
                 &mut inner,
@@ -182,7 +184,7 @@ impl Supervisor {
 
     fn host_link_changed_round(&self) -> usize {
         let servers: Vec<(String, std::sync::Arc<super::servers::ServerProcess>)> = {
-            let inner = self.inner.lock().unwrap();
+            let inner = self.inner.lock().recover_poison();
             inner
                 .servers
                 .iter()
@@ -225,13 +227,17 @@ const LINK_PROBE: std::time::Duration = std::time::Duration::from_millis(500);
 fn hub_socket() -> Option<Option<std::path::PathBuf>> {
     let Some(dir) = crate::platform::workspace_state_dir() else { return Some(None) };
     let (sender, receiver) = std::sync::mpsc::sync_channel(1);
-    std::thread::Builder::new()
-        .name("cmux-apps-link-probe".into())
-        .spawn(move || {
+    supervised::spawn_at(
+        "cmux-apps-link-probe",
+        cmux_threads::ThreadQos::Utility,
+        Fatal,
+        ShutdownBehavior::Continue,
+        move || {
             let live = cmux_link::registration::read_live(&dir).map(|r| r.socket);
             let _ = sender.send(live);
-        })
-        .ok()?;
+        },
+    )
+    .ok()?;
     waits::recv_timeout(&receiver, LINK_PROBE).ok()
 }
 
@@ -240,7 +246,7 @@ fn device_name() -> String {
     let mut buf = [0u8; 256];
     // SAFETY: gethostname writes at most buf.len() bytes into our buffer.
     let ok = unsafe { libc::gethostname(buf.as_mut_ptr().cast(), buf.len()) } == 0;
-    let end = buf.iter().position(|b| *b == 0).unwrap_or(buf.len());
-    let name = if ok { String::from_utf8_lossy(&buf[..end]).into_owned() } else { String::new() };
+    let used = buf.split(|b| *b == 0).next().unwrap_or_default();
+    let name = if ok { String::from_utf8_lossy(used).into_owned() } else { String::new() };
     if name.is_empty() || name.chars().any(char::is_control) { "cmux".into() } else { name }
 }

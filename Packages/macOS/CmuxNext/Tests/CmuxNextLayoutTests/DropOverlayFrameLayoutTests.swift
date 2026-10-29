@@ -3,7 +3,7 @@ import CmuxNextDesign
 @testable import CmuxNextLayout
 import Testing
 
-/// p03-rendering-073: the drop overlay's glass fill, inset card and tab ghost frame their glyph and
+/// The drop overlay's glass fill, inset card and tab ghost frame their glyph and
 /// label from ``ChipLayout`` on every `update`, not by constraints. The overlay's surface resizes every
 /// frame of its motion, so before, each frame of a drag solved the content's constraints.
 @MainActor @Suite struct DropOverlayFrameLayoutTests {

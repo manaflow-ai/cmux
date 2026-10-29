@@ -47,7 +47,7 @@ public struct ProcessRunner {
             // child's stdin, which clears the flag there only).
             _ = fcntl(input.fileHandleForReading.fileDescriptor, F_SETFD, FD_CLOEXEC)
             _ = fcntl(input.fileHandleForWriting.fileDescriptor, F_SETFD, FD_CLOEXEC)
-            try input.fileHandleForWriting.write(contentsOf: stdin)
+            try input.fileHandleForWriting.blockingWrite(contentsOf: stdin)
             try input.fileHandleForWriting.close()
             process.standardInput = input
         } else {
@@ -72,7 +72,9 @@ public struct ProcessRunner {
         let status: Int32 = try await withTaskCancellationHandler {
             try await withThrowingTaskGroup(of: Int32?.self) { group in
                 group.addTask {
-                    // Set before the launch: a child that exits at once still reports its status.
+                    // Set before the launch: a child that exits at once still reports its status. Resolved only by
+                    // the child's exit (after a kill too), never by a cancel: a cancelled run still reaps its child,
+                    // and nil always means it did not start.
                     let exit = FirstOutcome<Int32>()
                     box.process.terminationHandler = { process in exit.resolve(process.terminationStatus) }
                     do {
@@ -81,8 +83,8 @@ public struct ProcessRunner {
                         box.process.terminationHandler = nil
                         return nil
                     }
-                    // A cancel or timeout during the launch found no child to kill: this kill reaches it.
-                    if Task.isCancelled { box.kill() }
+                    // A cancel or a timeout that came during the launch could not reach a child not started yet.
+                    if box.stopRequested { box.kill() }
                     return await exit.value()
                 }
                 group.addTask {
@@ -146,16 +148,23 @@ final class ProcessBox: Sendable {
     let process: Process
     /// Sends a signal (tests record it instead).
     private let signal: @Sendable (pid_t, Int32) -> Void
+    /// A kill was asked for (cancel or timeout): the spawn kills a child that started after it.
+    private let stopped = Atomic<Bool>(false)
 
     init(_ process: Process, signal: @escaping @Sendable (pid_t, Int32) -> Void = { _ = Darwin.kill($0, $1) }) {
         self.process = process
         self.signal = signal
     }
 
+    /// Whether ``kill()`` was called, also before the child started.
+    var stopRequested: Bool { stopped.load(ordering: .sequentiallyConsistent) }
+
     /// SIGKILL to this child only, and only while it runs: never before launch
     /// (pid 0 would be our own process group) and never after exit (the pid
-    /// may belong to another process by then).
+    /// may belong to another process by then). A call before launch is
+    /// remembered: the spawn kills the child as soon as it starts.
     func kill() {
+        stopped.store(true, ordering: .sequentiallyConsistent)
         let pid = process.processIdentifier
         guard pid > 0, process.isRunning else { return }
         signal(pid, SIGKILL)

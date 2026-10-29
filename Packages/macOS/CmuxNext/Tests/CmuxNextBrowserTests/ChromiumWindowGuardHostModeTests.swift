@@ -3,7 +3,7 @@ import AppKit
 import os
 import Testing
 
-/// p01-process-223: the guard against Chromium's own top-level windows is in-process machinery. The
+/// The guard against Chromium's own top-level windows is in-process machinery. The
 /// runtime starts it only after an in-process boot; in host mode Chromium's windows are the host's, so
 /// the guard that never started watches nothing and reports none (`debug.cef` `chromium_windows`).
 @MainActor @Suite struct ChromiumWindowGuardHostModeTests {

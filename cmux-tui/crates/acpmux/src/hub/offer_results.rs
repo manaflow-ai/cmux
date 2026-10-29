@@ -22,8 +22,10 @@
 //! - The person may accept after the child's first turn ended: the answer sends it then.
 
 use super::{Hub, PromptOptions, Session};
+use crate::no_panic::JsonExt;
 use crate::rpc::method;
 use crate::store::EventRecord;
+use crate::supervised::{Fatal, ShutdownBehavior};
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -54,7 +56,7 @@ impl Hub {
         }
         let (hub, child) = (self.clone(), child.clone());
         // Off the turn's path: the logs are read from disk, and the parent's turn runs.
-        tokio::spawn(async move {
+        self.supervise("hub.offer-result", Fatal, ShutdownBehavior::Skip, async move {
             if !hub.offer_result(&child, &parent_id).await {
                 hub.offers.results.lock().unwrap_or_else(|e| e.into_inner()).remove(&child.id);
             }
@@ -111,8 +113,8 @@ impl Hub {
                 }
                 "session_offer_decision"
                     if started.is_none()
-                        && e.msg["outcome"] == "accepted"
-                        && e.msg["childSessionId"] == child =>
+                        && e.msg.field("outcome") == "accepted"
+                        && e.msg.field("childSessionId") == child =>
                 {
                     let offer_id = text(&e, "offerId");
                     let title = titles.remove(&offer_id).unwrap_or_default();

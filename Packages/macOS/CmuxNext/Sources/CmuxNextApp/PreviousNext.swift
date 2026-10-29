@@ -108,7 +108,7 @@ extension PreviousNext {
 
 extension PreviousNext {
     /// A person's step from a key binding (the key dispatcher gives its run a key context), not the CLI's or a
-    /// script's: only such a step prewarms the item past it (`directionalPrewarm`, p04-input-044).
+    /// script's: only such a step prewarms the item past it (`directionalPrewarm`).
     static func isKeyStep(_ invocation: ActionInvocation) -> Bool {
         invocation.origin == .user && invocation.keyContext != nil
     }

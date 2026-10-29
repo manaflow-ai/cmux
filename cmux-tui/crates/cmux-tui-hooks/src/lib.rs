@@ -1039,6 +1039,7 @@ fn spawn_hermes_reaper(state: Arc<HermesReapState>) -> io::Result<()> {
         drop(reaper_state);
         return Err(io::Error::other("forced Hermes reaper spawn failure"));
     }
+    // supervise-allow: one timed-out Hermes child's reaper; a panic leaves that one child unreaped until the daemon exits, and no caller waits on it.
     cmux_threads::spawn("hermes-command-reaper", HERMES_HELPER_QOS, move || reaper_state.reap())
         .map(|_| ())
 }
@@ -1143,6 +1144,7 @@ fn run_hermes_command_with_timeout(
             anyhow::bail!("Hermes stderr pipe is unavailable");
         }
     };
+    // supervise-allow: joined below in this function, bounded by `deadline`; a panic is returned as the command's error.
     let stdout = match cmux_threads::spawn("hermes-command-stdout", HERMES_HELPER_QOS, move || {
         read_hermes_output(stdout_pipe, deadline)
     }) {
@@ -1155,6 +1157,7 @@ fn run_hermes_command_with_timeout(
             return Err(error).context("start Hermes stdout reader");
         }
     };
+    // supervise-allow: joined below in this function, bounded by `deadline`; a panic is returned as the command's error.
     let stderr = match cmux_threads::spawn("hermes-command-stderr", HERMES_HELPER_QOS, move || {
         read_hermes_output(stderr_pipe, deadline)
     }) {

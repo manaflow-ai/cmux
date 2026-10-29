@@ -156,7 +156,7 @@ final class AppBrowserHostTabs: ProviderTabSource, ProviderAccessSource, Automat
     func openAutomationTab(url: URL?) async throws -> WebKitTab {
         guard let services else { throw AutomationTabError.unavailable }
         let tab = try await openSessionTab(.webkit, url: nil)
-        await services.cache.enginesReady()  // at launch, the page waits for the browser profiles (p08-startup-028)
+        await services.cache.enginesReady()  // at launch, the page waits for the browser profiles
         guard let page = services.cache.browser(for: tab)?.tab as? WebKitTab else {
             throw AutomationTabError.unavailable
         }

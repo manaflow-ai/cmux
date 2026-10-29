@@ -9,7 +9,7 @@ import Testing
 
 private typealias StripTab = CmuxNextTabs.TabID
 
-/// The reorder drags left on per-event work at the close of MQ-pointer-per-event (p04-input-089) move once per frame
+/// The reorder drags left on per-event work at the close of MQ-pointer-per-event move once per frame
 /// on their window's drag frames (``PointerFrameDrag``, feature `pointerFrameDrags`): a space dot, a pinned sidebar item and section header, a sidebar list row and a tab. The drag's start acts on its own
 /// event; after it, a frame interval's first event moves at once and the rest once at the frame, at the latest
 /// point, as Chromium delivers rAF-aligned moves (main_thread_event_queue.cc); the release lands the pending point.

@@ -1,11 +1,11 @@
 import AppKit
 import CmuxNextDesign
 
-/// A Chromium page in a pane that springs (a split, a close, a zoom) with the `pageSpringResizeOnce` feature
-/// (p03-rendering-036), as a terminal holds its final grid (`TerminalSurfaceView+PaneMotion`):
+/// A Chromium page in a pane that springs (a split, a close, a zoom) with the `pageSpringResizeOnce` feature,
+/// as a terminal holds its final grid (`TerminalSurfaceView+PaneMotion`):
 /// - `once`: the page takes the size its pane rests at when the spring starts, held at its top-left, and
 ///   keeps it until the landing, which resizes nothing more. A hosted page's frame at that size joins the
-///   fence of the turn that resized it (p03-rendering-043), so it shows with the spring's first frame, as
+///   fence of the turn that resized it, so it shows with the spring's first frame, as
 ///   Chrome's surface synchronization shows a tab's new size with its browser frame (`cc/layers/deadline_policy.h`).
 /// - `perFrame`: the page resizes with the pane on every frame.
 /// In both, the gaps beside the page show its background (Chrome's gutter,

@@ -12,7 +12,7 @@ extension PaletteController {
 
     /// Binds the palette's own catalog actions and the registry's argument
     /// collector to the palette `resolve` returns when each one runs. An App
-    /// binds them before it builds its palette (p08-startup-023): the first
+    /// binds them before it builds its palette: the first
     /// palette key builds it in that key's turn, as Chrome's keyed services
     /// are made at their first `GetForProfile` (components/keyed_service/core/
     /// keyed_service_factory.cc).

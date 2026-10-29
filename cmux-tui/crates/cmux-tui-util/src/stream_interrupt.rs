@@ -9,7 +9,7 @@
 //! then returns so the loop re-checks its conditions and exits.
 //!
 //! A consumer that runs as tasks on a sequence instead of a blocked thread
-//! (the daemon's attach streams, p05-ipc-079) does not wait on a source: it
+//! (the daemon's attach streams) does not wait on a source: it
 //! sets the source's [`ReadyHook`], which the source runs where it notifies
 //! its condition variable, and the hook posts the consumer's next task.
 

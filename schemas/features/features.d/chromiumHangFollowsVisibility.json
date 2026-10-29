@@ -1,0 +1,13 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "chromiumHangFollowsVisibility",
+  "owner": "PL-cef-layer",
+  "description": "A Chromium tab's Page unresponsive prompt follows Chrome's rules for hidden tabs: a hang reported while the tab is hidden shows nothing, hiding a tab takes its prompt down, and showing it again restarts its 15 second hang timer.",
+  "defaults": { "dev": false, "nightly": false, "release": false },
+  "kind": "labs",
+  "process": "app",
+  "params": [],
+  "stories": [],
+  "sticky": false,
+  "runtimeMutable": false
+}

@@ -31,9 +31,10 @@ import CmuxNextCompat
 /// Energy Saver), read at each schedule; an owner with no source gets 8 ms. A
 /// caller's explicit tolerance replaces the leeway, never the policy.
 ///
-/// In Debug and bench builds each timer also tells its ledger's ``ArmCensus`` (startup-queue.py arms, p08-startup-085)
+/// In Debug and bench builds each timer also tells its ledger's ``ArmCensus`` (startup-queue.py arms)
 /// when it is armed during the launch and when it first fires, under the owner and the line that made it.
 public final class DemandTimer: Sendable {
+    /// Who the deadline is for: each fire is one ledger record under it.
     public let owner: String
     /// How strictly each deadline is honored; `.flexibleNoSooner` by default.
     public let policy: DelayPolicy
@@ -174,6 +175,7 @@ public final class DemandTimer: Sendable {
         scheduleOnMain(after: delay, tolerance: tolerance, action)
     }
 
+    /// Drops the pending deadline, if any; its action never runs.
     public func cancel() {
         drop(state.withLock { $0.supersede() })
     }
@@ -222,8 +224,8 @@ public final class DemandTimer: Sendable {
         drop(dropped)
     }
 
-    /// Runs a main-actor deadline's action. In a launch the main-job census armed (Debug and bench builds,
-    /// p08-startup-080) the fire is timed as a `timer` job named by ``owner``, since its stack shows only the queue.
+    /// Runs a main-actor deadline's action. In a launch the main-job census armed (Debug and bench builds)
+    /// the fire is timed as a `timer` job named by ``owner``, since its stack shows only the queue.
     @MainActor private func fire(_ action: @MainActor () -> Void) {
         #if DEBUG || CMUX_BENCH_HOOKS
         if let ring = MainJobRing.installed(),

@@ -16,6 +16,8 @@ use super::agent::{Agents, HARNESSES};
 use super::config::HandConfig;
 use super::requests::{Ctx, handle};
 use super::{HandError, pair};
+use crate::no_panic::JsonExt;
+use crate::supervised::{Fatal, ShutdownBehavior};
 use anyhow::Result;
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};
@@ -52,7 +54,7 @@ pub async fn run(cfg: HandConfig) -> Result<()> {
     pair::check_api(&cfg.api)?;
     // A sandbox starts its agent daemon now, so the first agent.start does not wait for it (about 1.3 s).
     if cfg.profile == super::config::Profile::Sandbox {
-        tokio::spawn(async {
+        crate::supervised::spawn_scoped(async {
             let _ = super::daemon::connect().await;
         });
     }
@@ -72,13 +74,17 @@ pub async fn run(cfg: HandConfig) -> Result<()> {
     // connection is the proven person that answers their permission prompts.
     agents.set_ask(owner_ask(&out_tx, &approvals));
     let idle = agents.clone();
-    tokio::spawn(async move {
+    // The hand's supervisor: a panic in its work on the shared agent list ends the hand,
+    // and its service manager starts it again.
+    let supervisor = crate::supervised::embedded();
+    let idle_ticker = async move {
         let mut tick = tokio::time::interval(Duration::from_secs(60));
         loop {
             tick.tick().await;
             idle.stop_idle().await;
         }
-    });
+    };
+    crate::supervised::task(&supervisor, "hand.idle", Fatal, ShutdownBehavior::Skip, idle_ticker);
     let mut backoff = Duration::from_secs(1);
     loop {
         let mut connected = false;
@@ -258,7 +264,7 @@ async fn serve(
                 let Some(frame) = frame else { return Ok(()) };
                 if let Err(e) = sink.send(Ws::Text(frame.to_string().into())).await {
                     // Keep the frame for the next connection when it is an answer.
-                    if frame["t"] == "res" || frame["t"] == "approve" { let _ = out_tx.try_send(frame); }
+                    if *frame.field("t") == "res" || *frame.field("t") == "approve" { let _ = out_tx.try_send(frame); }
                     return Err(Ended::Failed(e.to_string()));
                 }
             }
@@ -307,7 +313,8 @@ fn on_frame(
             let params = frame.get("params").cloned().unwrap_or(json!({}));
             let (cfg, agents, out, approvals) =
                 (cfg.clone(), agents.clone(), out.clone(), approvals.clone());
-            tokio::spawn(async move {
+            let (failed_out, failed_id) = (out.clone(), id.clone());
+            let request = async move {
                 let ctx = Ctx { cfg: &cfg, agents: &agents, sink: out.clone() };
                 let ask_out = out.clone();
                 let req_id = id.clone();
@@ -341,6 +348,12 @@ fn on_frame(
                     Err(e) => json!({ "t": "res", "id": id, "ok": false, "error": e.to_json() }),
                 };
                 let _ = out.send(reply).await;
+            };
+            // A panic ends this request with an internal error, not the hand.
+            crate::supervised::spawn_request(request, async move {
+                let error = HandError::new("hand.internal", "the request failed").to_json();
+                let reply = json!({ "t": "res", "id": failed_id, "ok": false, "error": error });
+                let _ = failed_out.send(reply).await;
             });
         }
         _ => {}

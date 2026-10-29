@@ -11,7 +11,7 @@ public enum FileEntryKind: Equatable, Sendable {
 extension FileManager {
     /// What is at `path`, a final symlink followed; nil when nothing is. The one place that passes
     /// `fileExists(atPath:isDirectory:)` its flag pointer, so callers stay pointer-free (strict
-    /// memory safety, p10-stability-072).
+    /// memory safety).
     ///
     /// - Parameter path: The path to look at.
     /// - Returns: The kind of what exists there, or nil.

@@ -141,40 +141,45 @@ impl PreparedWorkspaceResponse {
 }
 
 pub(crate) struct PreparedRpcResponse {
-    response: Option<RpcResponse>,
-    delivery: Option<ContinuationDelivery>,
+    response: RpcResponse,
+    delivery: PreparedDelivery,
+}
+
+/// The continuation a prepared page hands out. `commit` keeps it once the
+/// client has the page; dropping it restores the client's input cursor.
+pub(crate) struct PreparedDelivery(Option<ContinuationDelivery>);
+
+impl PreparedDelivery {
+    pub(crate) fn commit(self) {
+        if let Some(delivery) = self.0 {
+            delivery.commit();
+        }
+    }
 }
 
 impl PreparedRpcResponse {
     pub(crate) fn plain(response: RpcResponse) -> Self {
-        Self { response: Some(response), delivery: None }
+        Self { response, delivery: PreparedDelivery(None) }
     }
 
     fn from_result(id: RequestId, result: Result<PreparedWorkspaceResponse, RpcError>) -> Self {
         match result {
             Ok(prepared) => Self {
-                response: Some(RpcResponse { id, result: Ok(prepared.response) }),
-                delivery: prepared.delivery,
+                response: RpcResponse { id, result: Ok(prepared.response) },
+                delivery: PreparedDelivery(prepared.delivery),
             },
             Err(error) => Self::plain(RpcResponse { id, result: Err(error) }),
         }
     }
 
-    fn commit_into_response(mut self) -> RpcResponse {
-        if let Some(delivery) = self.delivery.take() {
-            delivery.commit();
-        }
-        self.response.take().expect("prepared RPC response remains present")
+    fn commit_into_response(self) -> RpcResponse {
+        self.delivery.commit();
+        self.response
     }
 
-    pub(crate) fn take_response(&mut self) -> RpcResponse {
-        self.response.take().expect("prepared RPC response remains present")
-    }
-
-    pub(crate) fn commit_delivery(mut self) {
-        if let Some(delivery) = self.delivery.take() {
-            delivery.commit();
-        }
+    /// The response to send, and the delivery to commit after it was sent.
+    pub(crate) fn into_parts(self) -> (RpcResponse, PreparedDelivery) {
+        (self.response, self.delivery)
     }
 }
 
@@ -478,7 +483,14 @@ impl WorkspaceService {
                 let root = self.workspace_for(scope, &workspace).await?;
                 files::write_file(&root, &path, &data, &precondition, create_parents).await
             }
-            WorkspaceRequest::ListDirectory { .. } | WorkspaceRequest::Search { .. } => {
+            #[allow(
+                clippy::unreachable,
+                reason = "INVARIANT: prepare_request_for handles ListDirectory, Search and Diff \
+                          itself and passes every other request here"
+            )]
+            WorkspaceRequest::ListDirectory { .. }
+            | WorkspaceRequest::Search { .. }
+            | WorkspaceRequest::Diff { .. } => {
                 unreachable!("paginated requests are prepared before plain dispatch")
             }
             WorkspaceRequest::ApplyPatch { workspace, patch: source, dry_run, preconditions } => {
@@ -493,9 +505,6 @@ impl WorkspaceService {
             WorkspaceRequest::GitStatus { workspace } => {
                 let root = self.workspace_for(scope, &workspace).await?;
                 git::status(&root).await
-            }
-            WorkspaceRequest::Diff { .. } => {
-                unreachable!("paginated requests are prepared before plain dispatch")
             }
             WorkspaceRequest::SpawnProcess {
                 workspace,

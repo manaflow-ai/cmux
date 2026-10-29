@@ -3,9 +3,9 @@ import CmuxNextWakeups
 import CmuxNextWakeupsTestSupport
 import Testing
 
-/// The launch's first-open warm-ups are afterStartup posts (p08-startup-016): nothing runs before
+/// The launch's first-open warm-ups are afterStartup posts: nothing runs before
 /// startup completes, then one per frame in post order, each a named startup record; the palette's
-/// string tables load before, on a lane at the first frame (p08-startup-034).
+/// string tables load before, on a lane at the first frame.
 @MainActor
 @Suite(.timeLimit(.minutes(1))) struct LaunchFirstOpenWarmupsTests {
     @Test func eachWarmUpRunsAfterCompletionOnePerFrameInOrder() {
@@ -48,7 +48,7 @@ import Testing
         #expect(main.allSatisfy { $0.durationNanos != nil }, "each ran after completion and is recorded")
     }
 
-    /// p08-startup-034: the palette's string tables load on the files lane once the first frame
+    /// The palette's string tables load on the files lane once the first frame
     /// committed, while startup is still held open, so no prepare step (and no open before
     /// completion) reads them first on main.
     @Test func thePaletteStringsLoadOffMainAtTheFirstFrameBeforeAnyPrepareStep() async {

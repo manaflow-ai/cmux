@@ -7,6 +7,8 @@ use std::collections::HashMap;
 
 use serde_json::{Value, json};
 
+use crate::cli::json_fields::JsonFields;
+
 /// What a terminal agent does now, in the words the Chief uses.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(in crate::cli) enum AgentState {
@@ -127,7 +129,7 @@ pub(in crate::cli) fn agent_of_terminal(terminal: &Value, agents: &[Value]) -> O
         .max_by_key(|agent| number(&agent["updated_at_ms"]).unwrap_or(0));
     let terminal_title = text(&terminal["title"]);
     if let Some(record) = record {
-        let harness = text(&record["extra"]["agent"])
+        let harness = text(record.field("extra").field("agent"))
             .or_else(|| text(&record["agent"]))
             .unwrap_or_else(|| "agent".to_owned());
         // Hooks say `claude`, the screen-detection plugin `claude-code`.
@@ -150,7 +152,7 @@ pub(in crate::cli) fn agent_of_terminal(terminal: &Value, agents: &[Value]) -> O
             source: text(&record["source"]).unwrap_or_else(|| "agent".to_owned()),
         });
     }
-    let status = terminal["extra"]["program_status"].as_array()?;
+    let status = terminal.field("extra").field("program_status").as_array()?;
     let status = status
         .iter()
         .filter(|record| text(&record["app"]).is_some())
@@ -231,12 +233,12 @@ pub(in crate::cli) fn table(rows: &[AgentRow], now_ms: u64) -> String {
     }
     let line = |row: &[String]| {
         let mut out = String::new();
-        for (index, cell) in row.iter().enumerate() {
-            let cell: String = cell.chars().take(widths[index]).collect();
+        for (index, (cell, &width)) in row.iter().zip(&widths).enumerate() {
+            let cell: String = cell.chars().take(width).collect();
             if index + 1 == row.len() {
                 out.push_str(&cell);
             } else {
-                let pad = widths[index] - cell.chars().count();
+                let pad = width - cell.chars().count();
                 out.push_str(&cell);
                 out.push_str(&" ".repeat(pad + 2));
             }

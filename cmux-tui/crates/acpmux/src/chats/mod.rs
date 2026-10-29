@@ -21,6 +21,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
 
+use crate::no_panic::JsonExt;
 use cmux_chat_index::{
     AdapterKind, ChatChange, ChatIndex, ChatKey, Discovery, DiscoveryInput, IndexedChat,
     RecordedRoots, RefusedRoot, RootSource, RootSpec, discover,
@@ -56,6 +57,8 @@ pub struct ChatService {
     /// Connection ids with a live `_acpmux/chats_watch`, each with the
     /// generation of its forwarding task (a re-enable starts a new one).
     watching: Mutex<(u64, HashMap<String, u64>)>,
+    /// The daemon's supervisor: the watch thread updates the index (`crate::supervised`).
+    supervisor: crate::supervised::Supervisor,
 }
 
 struct State {
@@ -78,7 +81,7 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 impl ChatService {
     /// Discovers the roots, starts the watcher, then scans every root
     /// (incremental from the cache). Blocking: call it off the executor.
-    pub fn start(sources: ChatSources) -> Arc<Self> {
+    pub fn start(sources: ChatSources, supervisor: crate::supervised::Supervisor) -> Arc<Self> {
         let recorded = RecordedRoots::load(sources.acpmux_home.join("chat-roots.json"));
         let settings = ChatSettings::load(&settings_path(&sources));
         let (found, settings_refused) = discover_roots(&sources, recorded.roots(), &settings);
@@ -98,6 +101,7 @@ impl ChatService {
             }),
             changes,
             watching: Mutex::new((0, HashMap::new())),
+            supervisor,
         });
         // Watch first: a file written during the scan is applied after it.
         service.rewatch();
@@ -163,7 +167,7 @@ impl ChatService {
             state.index.chats().into_iter().filter(|chat| query.matches(chat)).collect();
         let start = query.cursor.start(&matching);
         let held = matching.get(start..).unwrap_or_default();
-        let held = &held[..held.len().min(query.limit)];
+        let held = held.get(..query.limit).unwrap_or(held);
         let page: Vec<Value> = held.iter().map(|c| chat_value(c)).collect();
         let more = start + held.len() < matching.len();
         let next = held.last().filter(|_| more).map(|last| ChatCursor::after(last).to_text());
@@ -182,7 +186,7 @@ impl ChatService {
             .roots()
             .map(|root| {
                 let mut value = serde_json::to_value(root).unwrap_or(Value::Null);
-                value["id"] = Value::String(root.id());
+                value.set("id", Value::String(root.id()));
                 value
             })
             .collect();
@@ -285,7 +289,7 @@ impl ChatService {
         };
         let (found, settings_refused) = discover_roots(&self.sources, &recorded, &settings);
         let paths: Vec<PathBuf> = found.roots.iter().map(|root| root.real_path.clone()).collect();
-        let (watcher, errors) = watch::start(&paths, Arc::downgrade(self));
+        let (watcher, errors) = watch::start(&paths, Arc::downgrade(self), &self.supervisor);
         let mut state = lock(&self.state);
         let known: HashSet<String> = state.index.roots().map(|root| root.id()).collect();
         let fresh: Vec<String> =
@@ -390,7 +394,7 @@ impl ChatService {
     fn rewatch(self: &Arc<Self>) {
         let paths: Vec<PathBuf> =
             lock(&self.state).index.roots().map(|root| root.real_path.clone()).collect();
-        let (watcher, errors) = watch::start(&paths, Arc::downgrade(self));
+        let (watcher, errors) = watch::start(&paths, Arc::downgrade(self), &self.supervisor);
         let mut state = lock(&self.state);
         state.watch_errors = errors;
         let old = std::mem::replace(&mut state.watcher, watcher);
@@ -462,8 +466,8 @@ pub fn parse_key(text: &str) -> Option<ChatKey> {
 pub fn chat_value(chat: &IndexedChat) -> Value {
     let mut value = serde_json::to_value(chat).unwrap_or(Value::Null);
     let key = chat.entry.key();
-    value["brand"] = json!(brand::harness_brand(key.harness));
-    value["key"] = Value::String(key_text(&key));
+    value.set("brand", json!(brand::harness_brand(key.harness)));
+    value.set("key", Value::String(key_text(&key)));
     value
 }
 
@@ -485,7 +489,8 @@ impl crate::hub::Hub {
         if self.chats.get().is_some() {
             return Ok(());
         }
-        let service = tokio::task::spawn_blocking(move || ChatService::start(sources))
+        let supervisor = self.supervisor.clone();
+        let service = tokio::task::spawn_blocking(move || ChatService::start(sources, supervisor))
             .await
             .map_err(|e| format!("chat index start: {e}"))?;
         let _ = self.chats.set(service.clone());

@@ -1,6 +1,6 @@
 import CmuxNextCompat
 
-/// The `blocking_sites` part of a report (p12-perf-process-226): the main thread's blocking call counts by hashed
+/// The `blocking_sites` part of a report: the main thread's blocking call counts by hashed
 /// site id, kind, count and milliseconds only.
 extension HangReportBuilder {
     /// The site id pattern: ``HangReport/BlockingSiteCount/siteID(location:)``'s 16 lowercase hex digits.

@@ -143,7 +143,7 @@ import Testing
         off.trackerDidRead()
         #expect(fake.calls.isEmpty)
 
-        #expect(CEFLayerHosting.Fork(shim: nil, apiVersion: 30) == nil)
+        #expect(CEFLayerHosting.Fork(shim: nil, apiVersion: 30, fences: CEFResizeFences()) == nil)
         let old = makeHosting()
         old.pageWindowCreated(browser: 3, fork: nil)
         old.pageShown(browser: 3)
@@ -152,7 +152,7 @@ import Testing
         #expect(old.forkCalls == 0)
     }
 
-    /// p03-rendering-042: fork API 32 takes the resize deadline without effect and returns 1, so
+    /// Fork API 32 takes the resize deadline without effect and returns 1, so
     /// from API 32 no deadline is sent and none is recorded as applied.
     @Test func theResizeDeadlineReachesOnlyForkAPI27To31() {
         #expect(!CEFLayerHosting.hasResizeSync(apiVersion: 26))

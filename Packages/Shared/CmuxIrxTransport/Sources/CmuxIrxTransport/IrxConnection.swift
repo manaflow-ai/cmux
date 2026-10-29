@@ -90,6 +90,7 @@ public actor IrxStreamReader {
 
     /// One length-prefixed control frame body, or nil on EOF.
     public func readControlFrameBody() async throws -> Data? {
+        // wakeup-allow: bounded each pass awaits stream data; a whole frame, EOF or an error ends it
         while true {
             if let body = try takeControlFrameBody() { return body }
             guard !eof else { return nil }
@@ -346,6 +347,7 @@ public actor IrxConnection {
     /// Accepts the next bidirectional lane. A malformed descriptor retires
     /// only that stream; native connection termination ends acceptance.
     public func acceptLane() async -> IrxLaneStream? {
+        // wakeup-allow: bounded each pass awaits the peer's next stream; connection closure ends it
         while !Task.isCancelled {
             do {
                 let stream = try await connection.acceptBi()
@@ -370,6 +372,7 @@ public actor IrxConnection {
     /// Accepts the next usable server event lane without treating a malformed
     /// descriptor or stream EOF as complete-connection closure.
     public func acceptUniLane() async throws -> (IrxLaneDescriptor, IrxStreamReader)? {
+        // wakeup-allow: bounded each pass awaits the peer's next stream; connection closure ends it
         while !Task.isCancelled {
             // The tuple is built outside every do/catch: Swift -O drops tuple elements returned
             // from an awaiting do (swiftlang/swift#92698, cx-21wc5).
@@ -466,12 +469,25 @@ public actor IrxConnection {
         guard applicationActive, !isClosed, keepaliveTask == nil, let settings = keepaliveSettings else { return }
         keepaliveGeneration &+= 1
         let generation = keepaliveGeneration
-        keepaliveProbingSince = .now
+        let launchedAt = ContinuousClock.now
+        keepaliveProbingSince = launchedAt
+        let schedule = IrxKeepaliveSchedule(interval: settings.interval)
         keepaliveTask = Task {
+            var lastProbe = launchedAt
+            // wakeup-allow: deadline one probe deadline at a time, `interval` after the last probe or
+            // the peer's last bytes; traffic pushes it out, an inactive app or a new generation ends it.
             while !Task.isCancelled, self.applicationActive, self.keepaliveGeneration == generation {
-                do { try await Task.sleep(for: settings.interval) } catch { return }
-                guard !Task.isCancelled, self.applicationActive, self.keepaliveGeneration == generation else { return }
+                let due = schedule.nextProbe(afterProbe: lastProbe, lastInbound: self.inboundActivity.lastActivity)
+                let wait = ContinuousClock.now.duration(to: due)
+                if wait > .zero {
+                    // wakeup-allow: deadline the next probe's due time, with leeway; on waking the loop
+                    // reads the due time again, because the peer's bytes may have pushed it out.
+                    do { try await Task.sleep(for: wait, tolerance: IrxWakeLeeway(delay: wait).tolerance) }
+                    catch { return }
+                    continue
+                }
                 let alive = await self.probeLiveness(deadline: settings.deadline)
+                lastProbe = .now
                 guard !Task.isCancelled, self.applicationActive, self.keepaliveGeneration == generation else { return }
                 if alive { continue }
                 self.journal.record("keepalive", "miss", ["path": self.selectedPathDescription()])
@@ -571,6 +587,7 @@ public actor IrxConnection {
     /// Server-side keepalive responder for one accepted keepalive lane.
     public nonisolated func respondKeepalive(on lane: IrxLaneStream) -> Task<Void, Never> {
         Task { [journal] in
+            // wakeup-allow: bounded each pass awaits the client's next ping; EOF or an error ends it
             while !Task.isCancelled {
                 do {
                     guard let ping = try await lane.reader.readControlFrame(IrxPing.self)

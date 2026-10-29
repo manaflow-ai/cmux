@@ -247,9 +247,10 @@ RUNNERS = {"file_picker": file_picker_row, "certificate_error": certificate_row,
            "unresponsive": unresponsive_row}
 
 
-def run(rpc, wait, page_eval, out, host_pid, front, windows, rows_to_run=ROWS):
+def run(rpc, wait, page_eval, out, host_pid, front, windows, rows_to_run=ROWS, on_row=lambda name, row: row):
     """The rows of `rows_to_run`, in ROWS order. `host_pid` gives the running host's pid, `front` the frontmost app's,
-    `windows(pid)` that pid's on-screen windows (chromium-host-bench.py's on_screen_windows). Returns (rows, ok)."""
+    `windows(pid)` that pid's on-screen windows (chromium-host-bench.py's on_screen_windows). `on_row(name, row)` runs
+    right after each row and returns the row to keep. Returns (rows, ok)."""
     rows = {}
     clear = lambda: host_ui_clear(host_pid, front, windows)  # noqa: E731
     for name in ROWS:
@@ -259,6 +260,7 @@ def run(rpc, wait, page_eval, out, host_pid, front, windows, rows_to_run=ROWS):
             rows[name] = RUNNERS[name](rpc, wait, page_eval, out, clear)
         except Exception as error:  # noqa: BLE001 - a row's failure is that row's result
             rows[name] = {"ok": False, "error": f"{type(error).__name__}: {error}"[:300]}
+        rows[name] = on_row(name, rows[name])
     return rows, bool(rows) and all(row.get("ok") for row in rows.values())
 
 

@@ -26,6 +26,12 @@ public final class AgentCursorOverlayModel: AgentCursorRendering {
 
     private struct Cursor {
         var point: CGPoint?
+        /// Nothing of this cursor is drawn in this window (never placed, or hidden since): an input
+        /// to a target this window does not show applies nothing (a hidden overlay draws nothing).
+        var hidden = true
+        /// Where the indicator of a target this window lists but does not show was put, and the
+        /// `tMs` of the input that put or last refreshed it; nil while the arrow is placed or hidden.
+        var indicated: (anchor: CGPoint, tMs: Double)?
         var paused = false
         /// The session's last input: re-placed when its target's visibility changes.
         var lastEvent: AutomationInputEvent?
@@ -127,16 +133,37 @@ public final class AgentCursorOverlayModel: AgentCursorRendering {
                 }
             }
             cursor.point = drop ?? target
+            cursor.hidden = false
+            cursor.indicated = nil
             if pulse {
                 host.apply(.pulse(session: session))
             }
         case let .hidden(anchor):
-            host.apply(.indicate(session: session, anchor: CGPoint(x: anchor.midX, y: anchor.midY)))
+            let point = CGPoint(x: anchor.midX, y: anchor.midY)
+            if Self.indicatorNeedsApply(cursor.indicated, at: point, tMs: event.tMs) {
+                host.apply(.indicate(session: session, anchor: point))
+                cursor.indicated = (point, event.tMs)
+            }
             cursor.point = nil
+            cursor.hidden = false
         case .elsewhere:
-            host.apply(.hide(session: session))
+            if !cursor.hidden { host.apply(.hide(session: session)) }
             cursor.point = nil
+            cursor.hidden = true
+            cursor.indicated = nil
         }
+    }
+
+    /// Whether an input at `tMs` to a target shown only by the indicator at `anchor` applies
+    /// `.indicate`: when the indicator is not up there yet (first input, or the anchor moved), or
+    /// half its idle fade (``AgentCursorLayerHost/idleHideDelay``) has passed since it was last
+    /// put or refreshed, so it stays up while the agent keeps working. Every other input to a
+    /// workspace this window lists but does not show applies nothing, and rebuilds no tags (a
+    /// hidden overlay draws nothing, Chromium's `WebContentsImpl::WasHidden`).
+    static func indicatorNeedsApply(_ indicated: (anchor: CGPoint, tMs: Double)?, at anchor: CGPoint, tMs: Double) -> Bool {
+        guard let indicated, indicated.anchor == anchor else { return true }
+        let refresh = AgentCursorLayerHost.idleHideDelay * 1000 / 2
+        return tMs < indicated.tMs || tMs - indicated.tMs >= refresh
     }
 
     /// The seconds since the session's previous move when `event` continues

@@ -177,54 +177,74 @@ pub fn accept_viewers(
     let (admitted, viewers) = mpsc::channel::<Admitted>();
     let pending: Arc<Mutex<VecDeque<(u64, TcpStream)>>> = Arc::default();
     let secret: Option<Arc<str>> = secret.map(Arc::from);
-    std::thread::spawn(move || {
-        for (id, conn) in (0u64..).zip(listener.incoming()) {
-            // A failed accept or a peer that reset before setsockopt ends
-            // only that connection, never the listener.
-            let mut stream = match conn {
-                Ok(conn) => conn,
-                Err(e) => {
-                    eprintln!("serve: accept failed: {e}");
-                    continue;
-                }
-            };
-            let waiting = match stream.set_nodelay(true).and_then(|()| stream.try_clone()) {
-                Ok(waiting) => waiting,
-                Err(e) => {
-                    eprintln!("serve: connection dropped: {e}");
-                    continue;
-                }
-            };
-            {
-                let mut pending = pending.lock().unwrap_or_else(PoisonError::into_inner);
-                if pending.len() >= MAX_PENDING_HELLOS
-                    && let Some((_, oldest)) = pending.pop_front()
-                {
-                    // Its admission reads end of file and refuses it.
-                    let _ = oldest.shutdown(Shutdown::Both);
-                }
-                pending.push_back((id, waiting));
-            }
-            let (waiters, secret, admitted) = (pending.clone(), secret.clone(), admitted.clone());
-            let admission = move || {
-                let outcome = admit_within(&mut stream, secret.as_deref(), deadline);
-                waiters.lock().unwrap_or_else(PoisonError::into_inner).retain(|(p, _)| *p != id);
-                match outcome {
-                    Ok(Admission::Admitted { hello, deframer }) => {
-                        let _ = admitted.send(Admitted { stream, hello, deframer });
+    // supervise-allow: the acceptor of accept_viewers; a panic drops its `admitted` sender, so once in-flight admissions end `viewers` closes and accept_viewers returns to its caller, as when the listener ends.
+    let accept =
+        cmux_threads::spawn("rb-accept", cmux_threads::ThreadQos::UserInitiated, move || {
+            for (id, conn) in (0u64..).zip(listener.incoming()) {
+                // A failed accept or a peer that reset before setsockopt ends
+                // only that connection, never the listener.
+                let mut stream = match conn {
+                    Ok(conn) => conn,
+                    Err(e) => {
+                        eprintln!("serve: accept failed: {e}");
+                        continue;
                     }
-                    Ok(Admission::Refused(reason)) => eprintln!("serve: session ended: {reason}"),
-                    Err(e) => eprintln!("serve: session failed: {e}"),
+                };
+                let waiting = match stream.set_nodelay(true).and_then(|()| stream.try_clone()) {
+                    Ok(waiting) => waiting,
+                    Err(e) => {
+                        eprintln!("serve: connection dropped: {e}");
+                        continue;
+                    }
+                };
+                {
+                    let mut pending = pending.lock().unwrap_or_else(PoisonError::into_inner);
+                    if pending.len() >= MAX_PENDING_HELLOS
+                        && let Some((_, oldest)) = pending.pop_front()
+                    {
+                        // Its admission reads end of file and refuses it.
+                        let _ = oldest.shutdown(Shutdown::Both);
+                    }
+                    pending.push_back((id, waiting));
                 }
-            };
-            if let Err(e) = std::thread::Builder::new().spawn(admission) {
-                // The closure (and its stream) is dropped; the slot it took
-                // in `pending` closes with it.
-                eprintln!("serve: connection dropped: {e}");
-                pending.lock().unwrap_or_else(PoisonError::into_inner).retain(|(p, _)| *p != id);
+                let (waiters, secret, admitted) =
+                    (pending.clone(), secret.clone(), admitted.clone());
+                let admission = move || {
+                    let outcome = admit_within(&mut stream, secret.as_deref(), deadline);
+                    waiters
+                        .lock()
+                        .unwrap_or_else(PoisonError::into_inner)
+                        .retain(|(p, _)| *p != id);
+                    match outcome {
+                        Ok(Admission::Admitted { hello, deframer }) => {
+                            let _ = admitted.send(Admitted { stream, hello, deframer });
+                        }
+                        Ok(Admission::Refused(reason)) => {
+                            eprintln!("serve: session ended: {reason}")
+                        }
+                        Err(e) => eprintln!("serve: session failed: {e}"),
+                    }
+                };
+                // supervise-allow: one viewer's admission, bounded by `deadline`; a panic drops its stream (refused) and its `pending` slot is cut by the next accept's cap.
+                if let Err(e) = cmux_threads::spawn(
+                    "rb-admission",
+                    cmux_threads::ThreadQos::UserInitiated,
+                    admission,
+                ) {
+                    // The closure (and its stream) is dropped; the slot it took
+                    // in `pending` closes with it.
+                    eprintln!("serve: connection dropped: {e}");
+                    pending
+                        .lock()
+                        .unwrap_or_else(PoisonError::into_inner)
+                        .retain(|(p, _)| *p != id);
+                }
             }
-        }
-    });
+        });
+    if let Err(e) = accept {
+        // No viewer can arrive: `viewers` ends at once with its sender dropped.
+        eprintln!("serve: accept loop did not start: {e}");
+    }
     for viewer in viewers {
         session(viewer);
     }

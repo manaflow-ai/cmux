@@ -33,7 +33,8 @@ Inputs (paths relative to --root, the repository by default):
            post     one-way: the remote returns at once (1 for an int); a Swift caller that reads
                     the result is refused (--check-return-use)
            mirror   served from cmux's main-thread cache; `mirror_key` is scope.field[args], its
-                    params the export's arguments (out-parameters excluded); `refresh_events` are
+                    params the export's arguments (out-parameters excluded: an int buffer's capacity
+                    is the reader's, and the host pushes MIRROR_OUT_CAPACITY ints); `refresh_events` are
                     event kinds, KIND:<request> (a CMUX_SHIM_TAB_EVENT sub-kind) or a pseudo event
            async    sent with a token and awaited by it: the REPLY frame carries the result and the
                     out-parameters (the start result, when `reply_event` is an event that answers it
@@ -150,21 +151,6 @@ Commands:
   ... --check-pre-attach                    exit 1 for a mirror read on the startup path
                                             (STARTUP_ROOTS and the functions they pass the shim to)
                                             that no host_mode_rewrites entry (after_attach) lists
-  ... --check-view-parity [--list-unmapped] every method of the vendored remote_cocoa mojoms
-      [--list-pending]                      (plans/cmux-next/remote_cocoa_mojom/) maps to one of:
-                                            op (a header or optional export), event (a header or
-                                            optional event kind), wire (a Kind of chromium_host_wire.h)
-                                            or not_needed (the reason) in
-                                            plans/cmux-next/chromium-host-view-parity.json. A pending
-                                            row (the design task that builds its carrier, with a note
-                                            naming it) is not a mapping: it stays unmapped, so the
-                                            check fails and --list-unmapped lists it until the row
-                                            names the carrier; --list-pending prints those rows and
-                                            their tasks. Each mojom is listed with its Chromium path,
-                                            version and commit (the version
-                                            scripts/cmux-next/cef-manifest.json pins) and sha256;
-                                            prints the method and [Sync] counts it parsed from the
-                                            files, by interface and target
   ... --dump-header                         the parsed header as JSON (counts, exports, events)
 
 No CI job runs this (p01-process section 4, rule 4); scripts/cmux-next/tests/
@@ -193,16 +179,11 @@ SHIM_LIBRARY = CEFS + "/CEFShimLibrary.swift"
 # CEFShimLibrary's initializer, which binds every export (p10-stability-067 moved it out of SHIM_LIBRARY).
 SHIM_LIBRARY_BIND = CEFS + "/CEFShimLibrary+Bind.swift"
 OPS = "plans/cmux-next/chromium-host-ops.json"
-PARITY = "plans/cmux-next/chromium-host-view-parity.json"
-MOJOM_DIR = "plans/cmux-next/remote_cocoa_mojom"
-DESIGN_RESULT = "plans/cmux-next/chrome-parity/design-result.json"
-CEF_MANIFEST = "scripts/cmux-next/cef-manifest.json"  # "chromium": the fork's Chromium version
 HOST_INC = HOST + "/src/generated/host_dispatch.inc"
 CLIENT_INC = HOST + "/client/generated/remote_shim.inc"
 SWIFT_OUT = CEFS + "/ChromiumHost/Generated/ChromiumHostOps.swift"
 HOST_SRC = HOST + "/src"
 CLIENT_SRC = HOST + "/client"
-HOST_WIRE = HOST_SRC + "/chromium_host_wire.h"  # the page view's input and push frames (enum Kind)
 
 CLASSES = ("post", "mirror", "async", "mint", "policy", "view", "local", "preinit")
 GENERATED_CLIENT = {"post", "mirror", "async", "mint", "policy", "view", "preinit"}
@@ -244,6 +225,10 @@ STARTUP_ROOTS = (("CmuxNextBrowser/CEF/CEFLibraryLoader.swift", "CEFLibraryLoade
 CHANNELS = ("control", "input")
 MAX_RECORDS = 1 << 16
 MAX_OUT_CAPACITY = 1 << 16
+# A mirror's int buffer (an int* with its capacity) as the host pushes it: the capacity is the reader's,
+# not part of the key, so the host fills this many and each read copies what fits its own buffer
+# (TlvReader::I32Array). Far under the frame bound (control::kMaxBody).
+MIRROR_OUT_CAPACITY = 64
 EVENT_OP, REPLY_OP, MIRROR_OP, ACK_OP = 0x8001, 0x8002, 0x8003, 0x8004
 
 # Wire kinds of one C argument. Sent: i u l d s b v L R; out-params (in the reply): I A B;
@@ -975,8 +960,8 @@ def class_problems(op: Op) -> list[str]:
             out.append("a mirror export needs mirror_key")
         if not op.refresh_events:
             out.append("a mirror export needs refresh_events")
-        if any(k in ("v", "b", "L", "R", "C", "A", "B") for k in kinds):
-            out.append("a mirror key is ints and strings only; its only out-parameters are int*")
+        if any(k in ("v", "b", "L", "R", "C", "B") for k in kinds):
+            out.append("a mirror key is ints and strings only; its only out-parameters are int* and int buffers")
     elif op.mirror_key or op.refresh_events:
         out.append("mirror_key and refresh_events are for mirror exports")
     if op.pending_keys and cls not in ("post", "view", "preinit", "mint", "async"):
@@ -1068,6 +1053,8 @@ def sent_result(export: Export, sent: str) -> str:
 
 
 WIRE_NUMBER = {"i": "I32", "u": "U32", "l": "I64", "d": "F64"}
+# Number fields of a record struct (an R argument): C type -> wire kind.
+RECORD_NUMBER = {"int": "i", "unsigned int": "u", "int64_t": "l"}
 
 
 def client_encode(a: Arg, w: str, structs: dict[str, list[Arg]], lines: list[str], ind: str) -> None:
@@ -1091,14 +1078,19 @@ def client_encode(a: Arg, w: str, structs: dict[str, list[Arg]], lines: list[str
             if f[0] == "b":
                 lines.append(f"{ind}  {w}.Bytes({n}[i].{f[1]}, {n}[i].{f[2]});")
             else:
-                lines.append(f"{ind}  {w}.I64({n}[i].{f[1]});")
+                lines.append(f"{ind}  {w}.{WIRE_NUMBER[f[0]]}({n}[i].{f[1]});")
         lines.append(f"{ind}}}")
     elif k in ("A", "B"):
         lines.append(f"{ind}{w}.I32(static_cast<int32_t>({a.pair.var}));")
 
 
+def record_has_bytes(a: Arg, structs: dict[str, list[Arg]]) -> bool:
+    """Whether a record argument carries strings (the host keeps them in `<arg>_s` and wipes them)."""
+    return any(f[0] == "b" for f in record_fields(structs[a.ctype[6:-1]]))
+
+
 def record_fields(fields: list[Arg]) -> list[tuple[str, str, str]]:
-    """(b, pointer, length) or (l, name, '') per wire field of a struct."""
+    """(b, pointer, length), or (i|u|l, name, '') for an int, unsigned int or int64_t, per wire field of a struct."""
     out, i = [], 0
     while i < len(fields):
         f = fields[i]
@@ -1106,8 +1098,8 @@ def record_fields(fields: list[Arg]) -> list[tuple[str, str, str]]:
         if f.ctype == "const char*" and nxt is not None and nxt.name == f.name + "_length":
             out.append(("b", f.name, nxt.name))
             i += 2
-        elif f.ctype == "int64_t":
-            out.append(("l", f.name, ""))
+        elif f.ctype in RECORD_NUMBER:
+            out.append((RECORD_NUMBER[f.ctype], f.name, ""))
             i += 1
         else:
             raise Failure(f"cannot marshal the struct field '{f.decl}'")
@@ -1283,7 +1275,8 @@ def host_decode(a: Arg, structs: dict[str, list[Arg]], lines: list[str]) -> str:
         nb = sum(1 for f in fields if f[0] == "b")
         lines.append(f"      const int32_t {n}_n = r.I32();")
         lines.append(f"      if (!r.ok() || {n}_n < 0 || {n}_n > kMaxRecords) return false;")
-        lines.append(f"      std::vector<std::string> {n}_s(static_cast<size_t>({n}_n) * {nb});")
+        if nb:
+            lines.append(f"      std::vector<std::string> {n}_s(static_cast<size_t>({n}_n) * {nb});")
         lines.append(f"      std::vector<{struct}> {n}(static_cast<size_t>({n}_n));")
         lines.append(f"      for (size_t i = 0; i < {n}.size(); ++i) {{")
         slot = 0
@@ -1298,7 +1291,7 @@ def host_decode(a: Arg, structs: dict[str, list[Arg]], lines: list[str]) -> str:
                 # A browser id in a record is cmux's, as a browser argument is: mapped to Chromium's.
                 lines.append(f"        {n}[i].{f[1]} = ctx.Browser(static_cast<int32_t>(r.I64()));")
             else:
-                lines.append(f"        {n}[i].{f[1]} = r.I64();")
+                lines.append(f"        {n}[i].{f[1]} = r.{WIRE_NUMBER[f[0]]}();")
         lines.append("      }")
         return f"{n}.data(), {n}_n"
     if k in ("A", "B"):
@@ -1410,15 +1403,23 @@ def host_case(op: Op, model: Model) -> list[str]:
             lines.append("      (void)call_result;")
     host_refresh(op, model, lines)
     lines.append(answer)
-    lines += [f"      Wipe({a.var}_s);" for a in e.wire if a.kind == "R"]
+    lines += [f"      Wipe({a.var}_s);" for a in e.wire if a.kind == "R" and record_has_bytes(a, model.header.structs)]
     lines += ["      return true;", "    }"]
     return lines
+
+
+def mirror_out_buffer(a: Arg, lines: list[str]) -> str:
+    """A mirror's int buffer: kMirrorOutCapacity ints, never read from the key (key_args leaves the
+    capacity out, as the client's MirrorLookup key does)."""
+    lines.append(f"      std::vector<int> {a.var}(static_cast<size_t>(kMirrorOutCapacity));")
+    return f"{a.var}.data(), static_cast<{a.pair.ctype}>(kMirrorOutCapacity)"
 
 
 def mirror_case(op: Op, model: Model) -> list[str]:
     e = op.export
     lines = [f"    case {op_const(e)}: {{"]
-    call_args = [host_decode(a, model.header.structs, lines) for a in e.wire]
+    call_args = [mirror_out_buffer(a, lines) if a.kind == "A" else host_decode(a, model.header.structs, lines)
+                 for a in e.wire]
     lines.append("      if (!r.ok() || !r.AtEnd()) return false;")
     host_call(e, call_args, lines, "call_result")
     lines.append("      TlvWriter key_w;")
@@ -1427,8 +1428,6 @@ def mirror_case(op: Op, model: Model) -> list[str]:
             lines.append(f"      key_w.{WIRE_NUMBER[a.kind]}({a.var});")
         elif a.kind == "s":
             lines.append(f"      key_w.Str({a.var} ? {a.var}->c_str() : nullptr);")
-        elif a.kind in ("A", "B"):
-            lines.append(f"      key_w.I32({a.var}_capacity);")
     lines.append("      TlvWriter value_w;")
     host_value(e, "value_w", lines, "call_result")
     lines += [f"      ctx.PushMirror({op_const(e)}, key_w, value_w);", "      return true;", "    }"]
@@ -1443,7 +1442,8 @@ def render_host(model: Model) -> str:
            "",
            "namespace cmux_host {", *op_enum(model),
            f"inline constexpr int32_t kMaxRecords = {MAX_RECORDS};",
-           f"inline constexpr int32_t kMaxOutCapacity = {MAX_OUT_CAPACITY};", ""]
+           f"inline constexpr int32_t kMaxOutCapacity = {MAX_OUT_CAPACITY};",
+           f"inline constexpr int32_t kMirrorOutCapacity = {MIRROR_OUT_CAPACITY};", ""]
     optional = [e for e in model.exports if e.optional]
     out += ["// Exports the header does not declare yet (fork API symbols): the host resolves each in its shim,",
             "// lists the ones it found in the HELLO, and answers an op whose symbol is missing with zero.",
@@ -2377,223 +2377,6 @@ def startup_bodies(root: Path) -> tuple[dict[str, list[tuple[int, int]]], list[s
     return bodies, problems
 
 # ---------------------------------------------------------------------------------------------
-# View parity
-
-
-@dataclass(frozen=True)
-class MojomMethod:
-    interface: str
-    name: str
-    sync: bool  # [Sync]: the caller waits for the reply
-
-
-def mojom_methods(text: str) -> list[MojomMethod]:
-    code = re.sub(r"//[^\n]*", "", re.sub(r"/\*.*?\*/", "", text, flags=re.S))
-    out = []
-    for m in re.finditer(r"\binterface\s+(\w+)\s*\{", code):
-        close = matching_close(code, m.end() - 1, "{", "}")
-        body = code[m.end():close]
-        depth, cur, statements = 0, [], []
-        for ch in body:
-            depth += ch == "{"
-            depth -= ch == "}"
-            if ch == ";" and depth == 0:
-                statements.append("".join(cur))
-                cur = []
-            else:
-                cur.append(ch)
-        for statement in statements:
-            attributes = re.match(r"\s*((?:\[[^\]]*\]\s*)*)", statement)
-            s = statement[attributes.end():]
-            if re.match(r"(enum|struct|const|union)\b", s):
-                continue
-            mm = re.match(r"(\w+)\s*@?\d*\s*\(", s)
-            if mm:
-                sync = re.search(r"[\[,]\s*Sync\s*[\],=]", attributes.group(1)) is not None
-                out.append(MojomMethod(m.group(1), mm.group(1), sync))
-    return out
-
-
-PARITY_TARGETS = ("op", "event", "wire", "not_needed", "pending")
-PARITY_ROW_FIELDS = {"mojom", "interface", "method", "note", *PARITY_TARGETS}
-TASK_ID = re.compile(r"p\d{2}-[a-z][a-z0-9-]*-\d{3}[a-z]?")
-
-
-class ParityCarriers:
-    """What a parity row may name: exports and event kinds of the header and the ops JSON's
-    optional lists, the Kinds of chromium_host_wire.h, and the design's task ids (for pending)."""
-
-    def __init__(self, root: Path, header: Header) -> None:
-        self.exports = {e.name for e in header.exports}
-        self.events = {k for k, _ in header.events}
-        ops = root / OPS
-        if ops.exists():
-            data = json.loads(ops.read_text(encoding="utf-8"))
-            self.exports |= {e.get("name") for e in data.get("optional_exports", [])}
-            self.events |= {e.get("kind") for e in data.get("optional_events", [])}
-        self.wire: set[str] | None = None
-        wire = root / HOST_WIRE
-        if wire.exists():
-            code = blank_out(wire.read_text(encoding="utf-8"))
-            m = re.search(r"\benum\s+Kind\b[^{;]*\{", code)
-            body = code[m.end():matching_close(code, m.end() - 1, "{", "}")] if m else ""
-            self.wire = set(re.findall(r"\b(k\w+)\s*=", body))
-        self.tasks: set[str] | None = None
-        design = root / DESIGN_RESULT
-        if design.exists():
-            programs = json.loads(design.read_text(encoding="utf-8")).get("programs", {})
-            self.tasks = {t["id"] for p in programs.values() for t in p.get("tasks", []) if "id" in t}
-
-    def row_problem(self, row: dict, label: str) -> str | None:
-        unknown = sorted(set(row) - PARITY_ROW_FIELDS)
-        if unknown:
-            return f"{label}: unknown field(s) {', '.join(unknown)}"
-        targets = [t for t in PARITY_TARGETS if t in row]
-        if len(targets) != 1:
-            return f"{label}: needs exactly one of {', '.join(PARITY_TARGETS)}"
-        target, value = targets[0], row[targets[0]]
-        if not isinstance(value, str) or not value.strip():
-            return f"{label}: {target} must be a non-empty string"
-        if target == "op" and value not in self.exports:
-            return f"{label}: op {value!r} is neither a header export nor an optional export"
-        if target == "event" and value not in self.events:
-            return f"{label}: event {value!r} is neither a header event kind nor an optional event"
-        if target == "wire" and self.wire is None:
-            return f"{label}: wire {value!r}, but {HOST_WIRE} is missing"
-        if target == "wire" and value not in self.wire:
-            return f"{label}: wire {value!r} is not a Kind of {HOST_WIRE}"
-        if target == "pending":
-            if not TASK_ID.fullmatch(value):
-                return f"{label}: pending {value!r} is not a task id (pNN-program-NNN)"
-            if self.tasks is not None and value not in self.tasks:
-                return f"{label}: pending task {value} is not in {DESIGN_RESULT}"
-            if not str(row.get("note", "")).strip():
-                return f"{label}: a pending row needs a note naming the carrier its task builds"
-        return None
-
-
-MOJOM_FIELDS = {"file", "source", "chromium", "commit", "sha256", "role"}
-HEX40, HEX64 = re.compile(r"[0-9a-f]{40}"), re.compile(r"[0-9a-f]{64}")
-
-
-@dataclass
-class ViewParity:
-    problems: list[str] = field(default_factory=list)
-    unmapped: list[str] = field(default_factory=list)
-    pending: list[str] = field(default_factory=list)  # "label\ttask"
-    counts: list[str] = field(default_factory=list)  # parsed from the vendored texts, never constants
-
-
-def mojom_provenance(root: Path, mojoms: list) -> tuple[list[str], str | None]:
-    """(problems, "version (commit)") for the parity JSON's mojoms list: every file names its Chromium
-    path, version, commit and sha256, all at one revision, the one cef-manifest.json pins."""
-    problems: list[str] = []
-    revisions = set()
-    for entry in mojoms:
-        name = entry.get("file", "?")
-        unknown = sorted(set(entry) - MOJOM_FIELDS)
-        if unknown:
-            problems.append(f"{name}: unknown mojoms field(s) {', '.join(unknown)}")
-        source = str(entry.get("source", ""))
-        if source.rsplit("/", 1)[-1] != name:
-            problems.append(f"{name}: source {source!r} is not the Chromium path of this file")
-        if not HEX40.fullmatch(str(entry.get("commit", ""))):
-            problems.append(f"{name}: commit must be the 40-hex Chromium commit it was copied at")
-        if not HEX64.fullmatch(str(entry.get("sha256", ""))):
-            problems.append(f"{name}: sha256 must be the file's 64-hex sha256")
-        if not str(entry.get("chromium", "")).strip():
-            problems.append(f"{name}: chromium must be the Chromium version it was copied at")
-        revisions.add((str(entry.get("chromium", "")), str(entry.get("commit", ""))))
-    if len(revisions) > 1:
-        problems.append("the mojoms come from more than one Chromium revision: "
-                        + ", ".join(f"{v} ({c[:12]})" for v, c in sorted(revisions)))
-    if len(revisions) != 1:
-        return problems, None
-    version, commit = next(iter(revisions))
-    manifest = root / CEF_MANIFEST
-    if manifest.exists():
-        pinned = json.loads(manifest.read_text(encoding="utf-8")).get("chromium")
-        if pinned != version:
-            problems.append(f"the mojoms are Chromium {version} but {CEF_MANIFEST} pins {pinned}: vendor them "
-                            f"again at the pinned revision and re-check their rows")
-    return problems, f"{version} ({commit[:12]})"
-
-
-def view_parity(root: Path, header: Header) -> ViewParity:
-    out = ViewParity()
-    parity_path, mojom_dir = root / PARITY, root / MOJOM_DIR
-    if not parity_path.exists():
-        out.problems.append(f"{PARITY} is missing (task p01-process-055)")
-    if not mojom_dir.is_dir():
-        out.problems.append(f"{MOJOM_DIR}/ is missing: vendor the remote_cocoa mojoms (task p01-process-059)")
-    if out.problems:
-        return out
-    data = json.loads(parity_path.read_text(encoding="utf-8"))
-    listed = {m.get("file"): m for m in data.get("mojoms", [])}
-    provenance_problems, revision = mojom_provenance(root, data.get("mojoms", []))
-    out.problems += provenance_problems
-    on_disk = sorted(p.name for p in mojom_dir.glob("*.mojom"))
-    for name in on_disk:
-        if name not in listed:
-            out.problems.append(f"{MOJOM_DIR}/{name} is not listed in {PARITY}")
-    methods: dict[tuple[str, str, str], str | None] = {}  # -> the target that maps it
-    sync: set[tuple[str, str, str]] = set()
-    for name in sorted({str(n) for n in listed} | set(on_disk)):
-        path = mojom_dir / name
-        if not path.exists():
-            out.problems.append(f"{PARITY} lists {name}, which is not in {MOJOM_DIR}/")
-            continue
-        raw = path.read_bytes()
-        if name in listed and listed[name].get("sha256") != hashlib.sha256(raw).hexdigest():
-            out.problems.append(f"{name} changed since it was mapped (sha256 differs): re-check its rows")
-        for m in mojom_methods(raw.decode("utf-8")):
-            methods[(name, m.interface, m.name)] = None
-            if m.sync:
-                sync.add((name, m.interface, m.name))
-    carriers = ParityCarriers(root, header)
-    seen: set[tuple[str, str, str]] = set()
-    pending: dict[tuple[str, str, str], str] = {}
-    for row in data.get("methods", []):
-        key = (row.get("mojom"), row.get("interface"), row.get("method"))
-        label = f"{key[0]} {key[1]}.{key[2]}"
-        if key not in methods:
-            out.problems.append(f"{label}: mapped, but the mojom has no such method (stale row)")
-            continue
-        if key in seen:
-            out.problems.append(f"{label}: mapped twice")
-        seen.add(key)
-        problem = carriers.row_problem(row, label)
-        if problem:
-            out.problems.append(problem)
-        elif "pending" in row:
-            pending[key] = row["pending"]
-            continue  # no carrier yet: the method stays unmapped
-        methods[key] = next((t for t in PARITY_TARGETS if t in row), "?")
-    unmapped = [key for key, target in sorted(methods.items()) if not target]
-    out.unmapped = [f"{m} {i}.{n}" for m, i, n in unmapped]
-    for key in unmapped:
-        label = f"{key[0]} {key[1]}.{key[2]}"
-        task = pending.get(key)
-        out.problems.append(f"{label}: unmapped, pending on {task}" if task else f"{label}: unmapped")
-    out.pending = [f"{m} {i}.{n}\t{task}" for (m, i, n), task in sorted(pending.items())]
-
-    def tally(keys: list[tuple[str, str, str]]) -> str:
-        targets = [methods[k] for k in keys]
-        mapped = ", ".join(f"{t} {targets.count(t)}" for t in PARITY_TARGETS if t in targets)
-        waiting = sum(k in pending for k in keys)
-        return (f"{len(keys)} methods, {sum(k in sync for k in keys)} [Sync]; "
-                f"{len(keys) - targets.count(None)} mapped" + (f" ({mapped})" if mapped else "")
-                + (f", {waiting} pending" if waiting else ""))
-
-    keys = sorted(methods)
-    out.counts.append(f"view parity: {len(on_disk)} vendored mojoms at Chromium {revision or '?'}: {tally(keys)}")
-    for mojom, interface in sorted({(k[0], k[1]) for k in keys}):
-        out.counts.append(f"  {mojom} {interface}: "
-                          + tally([k for k in keys if k[0] == mojom and k[1] == interface]))
-    return out
-
-
-# ---------------------------------------------------------------------------------------------
 # Main
 
 
@@ -2611,9 +2394,6 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--by-file", action="store_true")
     parser.add_argument("--check-return-use", action="store_true")
     parser.add_argument("--check-pre-attach", action="store_true")
-    parser.add_argument("--check-view-parity", action="store_true")
-    parser.add_argument("--list-unmapped", action="store_true")
-    parser.add_argument("--list-pending", action="store_true")
     parser.add_argument("--dump-header", action="store_true")
     args = parser.parse_args(argv)
     root = args.root.resolve()
@@ -2627,17 +2407,6 @@ def main(argv: list[str]) -> int:
                        "events": [{"kind": k, "value": v} for k, v in header.events]}, sys.stdout, indent=1)
             print()
             return 0
-        if args.check_view_parity or args.list_unmapped or args.list_pending:
-            parity = view_parity(root, header)
-            if args.list_unmapped:
-                print("\n".join(parity.unmapped))
-            if args.list_pending:
-                print("\n".join(parity.pending))
-            if args.check_view_parity and parity.counts:
-                print("\n".join(parity.counts))
-            for p in parity.problems:
-                print(f"view parity: {p}", file=sys.stderr)
-            return 1 if parity.problems and args.check_view_parity else 0
         model, problems, per_export = load_ops(header, root)
         if args.swift_sites or args.check_return_use or args.check_pre_attach:
             if model is None:

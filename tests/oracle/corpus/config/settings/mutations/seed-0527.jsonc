@@ -1,7 +1,0 @@
-{/* {"k": 1} */ "browser":{"omnibar":{"shadow":false,},},// a { brace
-"editor":{/* {"k": 1} */ "wordWrap":1},"sidebar":{"workspaceRow":{// url: https://localhost/x
-"terminal":{// url: https://localhost/x
-"lastActivity":"true",},},},"agents":{// url: https://localhost/x
-"subsessions":{/* block */ "maxDepth":10,}},// a { brace
-"palette":{/* block */ "scopes":{/* {"k": 1} */ "commands":{// a { brace
-"prefix":"*",},}},}

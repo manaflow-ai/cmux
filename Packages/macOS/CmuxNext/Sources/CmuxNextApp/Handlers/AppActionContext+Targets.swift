@@ -21,14 +21,7 @@ extension AppActionContext {
     func observeRefusals() {
         let registry = registry
         let services = services
-        #if DEBUG || CMUX_BENCH_HOOKS
-        // The oracle's turn observer counts a turn whose handler refused (the `intents` facet).
-        registry.willRunObservers.append { [turns = services.oracleTurns] _, _ in turns.runStarted() }
-        #endif
         registry.refusalObserver = { reason, quiet in
-            #if DEBUG || CMUX_BENCH_HOOKS
-            services.oracleTurns.noteRefusal()
-            #endif
             Self.logger.notice("action refused: \(reason, privacy: .public)")
             guard Self.showsNotice(quiet: quiet, hasCaller: registry.refusalHasCaller) else { return }
             // Keyed by the key event that ran the refused action, so the burst bench matches it to its press.
@@ -179,7 +172,7 @@ extension AppActionContext {
     /// The daemon tabs Move Tab to New Workspace or Window takes for `tab`: on one of several
     /// selected tabs, every selected tab that may move, in strip order (`tab` among them); else `tab`.
     func movingTabs(_ invocation: ActionInvocation, _ tab: TabModel) -> [TabModel] {
-        // view-observation-allow: one MachineTabIndex lookup (p06-scheduler-051), once
+        // view-observation-allow: one MachineTabIndex lookup, once
         guard let pane = services.locateTab(tab.id).flatMap({ services.paneController(for: $0.1) }) else { return [tab] }
         return actingTabs(invocation, pane, StripTabID(tab.id)).compactMap { pane.tab($0) }.filter { $0.id == tab.id || TabPromotion.refusal(tab: $0.id, services: services) == nil }
     }
@@ -187,7 +180,7 @@ extension AppActionContext {
     /// The targeted daemon tab, found in any workspace (shown or not).
     func daemonTab(_ invocation: ActionInvocation) -> (tab: TabModel, pane: PaneModel)? {
         if let target = explicitTarget(invocation, kinds: [.tab]) {
-            // view-observation-allow: one MachineTabIndex lookup (p06-scheduler-051), once
+            // view-observation-allow: one MachineTabIndex lookup, once
             return services.locateTab(target.id) ?? notFound(RefusalStrings.noTab(target.id))
         }
         guard let (pane, id) = tab(invocation) else { return nil }

@@ -6,7 +6,7 @@ import Foundation
 import Testing
 
 /// The Chief editor's calls go on one `home-channels` page stream of the owner's page-relay
-/// connection (p05-ipc-108): no connection of the relay's own, the stream's epoch is the owner
+/// connection: no connection of the relay's own, the stream's epoch is the owner
 /// pid/generation check, and a gesture's token is bound to the stream.
 @MainActor
 @Suite struct ChiefProfilePageRelayTests {
@@ -105,7 +105,7 @@ import Testing
                             .object(["claim": .string("page")])])
     }
 
-    /// Settings > Agents > Chiefs and Home (p13-webui-066): 30 s after the editor's last call the
+    /// Settings > Agents > Chiefs and Home: 30 s after the editor's last call the
     /// owner has no page-relay client of this relay; a call in between keeps it, and the next call
     /// opens a new stream.
     @Test func theStreamClosesThirtySecondsAfterTheLastCall() async throws {

@@ -3,11 +3,12 @@ import AppKit
 @testable import CmuxNextDaemon
 import CmuxNextPages
 import CmuxNextWakeups
+import CmuxNextWakeupsTestSupport
 import Foundation
 import Observation
 import Testing
 
-/// App services whose observation hops became FrameObservations (p04-input-026): the changes of one turn reach each
+/// App services whose observation hops became FrameObservations: the changes of one turn reach each
 /// one once, in its delivery's class, on a scheduler with no display link, and never inside the change's will-set.
 /// ``drainMainTurns(rounds:)`` runs the deliveries.
 @MainActor @Suite(.serialized)
@@ -61,7 +62,7 @@ struct AppObservationDeliveryTests {
         defer { try? FileManager.default.removeItem(at: directory) }
         try Data("<html><body></body></html>".utf8).write(to: directory.appending(path: "index.html"))
         let descriptor = PageDescriptor(id: "test.page-connection", resource: "page-connection", processGroup: .solo, namespaces: [])
-        let page = try #require(PageWebView(descriptor: descriptor, root: directory, routes: []))
+        let page = try #require(PageWebView(descriptor: descriptor, root: directory, routes: [], deadlines: .testing()))
         let store = DaemonStore()
         _ = store.apply(.connected(DaemonIdentity(generation: "boot"), generationChanged: true))
         let watch = PageConnectionWatch(page: page, store: store, on: Self.work())

@@ -4,7 +4,7 @@ import CmuxNextInput
 import CmuxNextWakeups
 import Testing
 
-/// The shortcut-hint hold watcher on the app's input tap (p04-input-016): observe subscriptions while
+/// The shortcut-hint hold watcher on the app's input tap: observe subscriptions while
 /// hints are enabled and none while they are off. It hears its own window's modifier changes and, only
 /// while a modifier is held there, its key-downs and any window's mouse-downs, so a plain key does no
 /// hint work. An intentional hold shows hints and sets the tap's `hintsShowing` flag; a key-down
@@ -116,7 +116,7 @@ struct ShortcutHintTests {
     }
 
     /// The hold deadline is a wake of the main thread's one queue with WakeLeeway's slack (8 ms at 300 ms), so it
-    /// shares a wake with other deadlines (p14-energy-019a), and its fire shows the hints.
+    /// shares a wake with other deadlines, and its fire shows the hints.
     @Test func theHoldDeadlineIsAMainDeadlineInWakeLeewaysWindow() async throws {
         let tap = InputEventTap()
         let rig = MainDeadlineRig()
@@ -217,7 +217,7 @@ struct ShortcutHintTests {
     }
 
     /// The app's resign-active notice reaches the watcher through the app's one observer (AppEvents) and hides the
-    /// hints in the notice's own turn; another window's resign-key leaves them up (p06-scheduler-311).
+    /// hints in the notice's own turn; another window's resign-key leaves them up.
     @Test func resigningActiveHidesTheHintsInItsTurnAndAnotherWindowsResignKeyDoesNot() throws {
         let tap = InputEventTap()
         let rig = MainDeadlineRig()

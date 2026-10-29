@@ -6,7 +6,7 @@ use serde_json::Value;
 
 use super::JsoncError;
 use super::lex::{line_end_if_blank, line_indent, line_start_if_blank, same_line_trivia_end};
-use super::tree::{Node, ObjectNode, parse_root};
+use super::tree::{Member, Node, ObjectNode, parse_root};
 use crate::render::{pretty, quote};
 use crate::value::nest;
 
@@ -36,7 +36,7 @@ pub(super) fn set(source: &str, path: &[String], value: &Value) -> Result<String
         return Err(JsoncError::RootIsNotObject);
     };
     let mut edits = Vec::new();
-    set_in(value, path, &object, bytes, &mut edits);
+    set_in(value, path, &object, bytes, &mut edits)?;
     Ok(apply(edits, bytes))
 }
 
@@ -61,10 +61,12 @@ pub(super) fn remove(source: &str, path: &[String]) -> Result<String, JsoncError
         };
         object = child;
     }
-    let Some(index) = object.members.iter().rposition(|member| &member.key == last) else {
+    let found = object.members.iter().enumerate().rev().find(|(_, member)| &member.key == last);
+    let Some((index, member)) = found else {
         return Ok(source.to_string());
     };
-    Ok(apply(removal_edits(index, &object, bytes), bytes))
+    let previous = index.checked_sub(1).and_then(|previous| object.members.get(previous));
+    Ok(apply(removal_edits(member, previous, bytes)?, bytes))
 }
 
 fn set_in(
@@ -73,18 +75,18 @@ fn set_in(
     object: &ObjectNode,
     bytes: &[u8],
     edits: &mut Vec<Edit>,
-) {
-    let Some((key, rest)) = path.split_first() else { return };
+) -> Result<(), JsoncError> {
+    let Some((key, rest)) = path.split_first() else { return Ok(()) };
     // The last duplicate wins, as in the parser that reads the file.
     if let Some(member) = object.members.iter().rev().find(|member| &member.key == key) {
-        let indent = line_indent(bytes, member.key_start);
+        let indent = line_indent(bytes, member.key_start)?;
         if rest.is_empty() {
             edits.push(Edit {
                 range: member.value_start..member.value_end,
                 text: pretty(value, &indent),
             });
         } else if let Node::Object(child) = &member.node {
-            set_in(value, rest, child, bytes, edits);
+            set_in(value, rest, child, bytes, edits)?;
         } else {
             let nested = nest(value.clone(), rest);
             edits.push(Edit {
@@ -92,14 +94,14 @@ fn set_in(
                 text: pretty(&nested, &indent),
             });
         }
-        return;
+        return Ok(());
     }
     let nested = if rest.is_empty() { value.clone() } else { nest(value.clone(), rest) };
-    let brace_indent = line_indent(bytes, object.open);
-    let member_indent = object
-        .members
-        .first()
-        .map_or_else(|| format!("{brace_indent}  "), |first| line_indent(bytes, first.key_start));
+    let brace_indent = line_indent(bytes, object.open)?;
+    let member_indent = match object.members.first() {
+        Some(first) => line_indent(bytes, first.key_start)?,
+        None => format!("{brace_indent}  "),
+    };
     let member_text = format!("{}: {}", quote(key), pretty(&nested, &member_indent));
     let Some(last) = object.members.last() else {
         let at = object.open + 1;
@@ -107,14 +109,14 @@ fn set_in(
             range: at..at,
             text: format!("\n{member_indent}{member_text}\n{brace_indent}"),
         });
-        return;
+        return Ok(());
     };
     if let Some(comma) = last.comma_after {
         // Keep the file's trailing-comma style and any comment that follows
         // the comma on its line.
         let at = same_line_trivia_end(bytes, comma + 1);
         edits.push(Edit { range: at..at, text: format!("\n{member_indent}{member_text},") });
-        return;
+        return Ok(());
     }
     // Put the comma right after the value and the new member after any
     // same-line comment, so `"a": 1 // note` keeps its note on its line.
@@ -125,23 +127,26 @@ fn set_in(
         edits.push(Edit { range: last.value_end..last.value_end, text: ",".to_string() });
         edits.push(Edit { range: at..at, text: format!("\n{member_indent}{member_text}") });
     }
+    Ok(())
 }
 
-fn removal_edits(index: usize, object: &ObjectNode, bytes: &[u8]) -> Vec<Edit> {
-    let member = &object.members[index];
-    let start = line_start_if_blank(bytes, member.key_start);
+/// The edits that remove `member`; `previous` is the member before it.
+fn removal_edits(
+    member: &Member,
+    previous: Option<&Member>,
+    bytes: &[u8],
+) -> Result<Vec<Edit>, JsoncError> {
+    let start = line_start_if_blank(bytes, member.key_start)?;
     if let Some(comma) = member.comma_after {
         let end = line_end_if_blank(bytes, comma + 1);
-        return vec![Edit { range: start..end, text: String::new() }];
+        return Ok(vec![Edit { range: start..end, text: String::new() }]);
     }
     let end = line_end_if_blank(bytes, member.value_end);
     let mut edits = vec![Edit { range: start..end, text: String::new() }];
-    if index > 0
-        && let Some(previous) = object.members[index - 1].comma_after
-    {
+    if let Some(previous) = previous.and_then(|previous| previous.comma_after) {
         edits.push(Edit { range: previous..previous + 1, text: String::new() });
     }
-    edits
+    Ok(edits)
 }
 
 fn apply(mut edits: Vec<Edit>, bytes: &[u8]) -> String {

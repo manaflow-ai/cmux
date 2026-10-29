@@ -90,7 +90,7 @@ public final class SystemCrashForwarder: Sendable {
     private let queue = DispatchQueue(label: "com.cmuxterm.app.next.crash-forwarder", qos: .utility)
     private let watcher = Mutex<(any DispatchSourceFileSystemObject)?>(nil)
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "crash")
-    /// The folder watch's record in the launch's arm census (Debug and bench builds, p08-startup-085).
+    /// The folder watch's record in the launch's arm census (Debug and bench builds).
     private let census: ArmCensusWatch
 
     /// - Parameters:
@@ -258,7 +258,7 @@ public final class SystemCrashForwarder: Sendable {
         // macOS creates the folder at the first crash report; watch it from now on.
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         // SAFETY: open reads the NUL-terminated copy of the path made for the call.
-        let descriptor = unsafe open(directory.path, O_EVTONLY | O_CLOEXEC)
+        let descriptor = unsafe blockingOpen(directory.path, O_EVTONLY | O_CLOEXEC)
         guard descriptor >= 0 else { return }
         let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: descriptor, eventMask: [.write, .rename],
                                                                queue: queue)

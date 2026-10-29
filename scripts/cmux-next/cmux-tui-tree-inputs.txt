@@ -20,10 +20,6 @@ blob scripts/ci/macos-cross.sh
 blob scripts/ci/macos_stubs.py
 blob scripts/ci/macho_weaken.py
 tree scripts/ci/macos-stubs
-# The daemon's PGO flag (task 056): macos-cross.sh and cmux-tui-build-package.yml
-# build cmux-tui with what rust-pgo.sh rustflags prints for the pinned profile
-# (its pointer, cmux-tui/crates/cmux-tui/pgo.txt, is under `tree cmux-tui`).
-blob scripts/cmux-next/pgo/rust-pgo.sh
 # cmux-cloud, a tree companion (cmux-tui-cloud-server-*), builds from its own
 # crate outside cmux-tui/ (macos-cross.sh, cmux-tui-build-package.yml). Its
 # cmux-tui path dependencies are covered by `tree cmux-tui`.

@@ -49,17 +49,18 @@ fn revalidated_argv(row: &HarnessHealth, cli: &str, home: &Path) -> Option<Vec<S
         }
         // Capture this owner's manager path once. Never leave PATH lookup
         // to a later frontend or the terminal's shell environment.
-        let manager = if argv[0] == "npm" {
+        let program = argv.first_mut()?;
+        let manager = if program == "npm" {
             crate::config::which("npm")?
-        } else if Path::new(&argv[0]).is_absolute() {
-            argv[0].clone()
+        } else if Path::new(program.as_str()).is_absolute() {
+            program.clone()
         } else {
             return None;
         };
         if !Path::new(&manager).is_absolute() || !executable(Path::new(&manager)) {
             return None;
         }
-        argv[0] = manager;
+        *program = manager;
     } else if row.channel == channel::Channel::Bun {
         let manager = argv.len().checked_sub(4)?;
         if fresh.argv.len() != argv.len()

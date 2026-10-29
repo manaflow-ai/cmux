@@ -1,4 +1,4 @@
-//! The framed IPC grant rules (p05-ipc-060; spec/transports.md "Framed IPC
+//! The framed IPC grant rules (spec/transports.md "Framed IPC
 //! grants"): what `identify` advertises and what `set-client-info` grants to a
 //! local, bridged, unverified, WebSocket, remote-entry and page-relay
 //! connection, and to a client one API revision behind. Every request takes
@@ -125,7 +125,7 @@ fn mux(name: &str) -> Arc<Mux> {
 fn ipc_grant_unbound_transports_are_never_advertised_or_granted() {
     let mux = Mux::new_for_test("ipc-grant-unbound", crate::SurfaceOptions::default());
     let local = Connection::local(&mux);
-    // The stream table is bound (p05-ipc-074); no frame reader or ring yet.
+    // The stream table is bound; no frame reader or ring yet.
     assert_eq!(local.advertised(), ["attach-streams-v1"]);
     assert_eq!(local.ask(13)["ok"], true);
     assert_eq!(local.granted(), ["attach-streams-v1"]);
@@ -142,7 +142,7 @@ fn ipc_grant_frames_follow_the_ipc_frames_feature() {
         assert!(!Snapshot::defaults(channel).is_enabled(cmux_features::feature::IPC_FRAMES));
     }
 
-    // Other bound transports (attach streams, p05-ipc-074) are offered
+    // Other bound transports (attach streams) are offered
     // either way; only the frame route follows the feature.
     fn frames<S: AsRef<str>>(names: Vec<S>) -> bool {
         names.iter().any(|name| name.as_ref() == "ipc-frames-v2")
@@ -223,6 +223,76 @@ fn ipc_grant_byte_bridge_executable_gets_streams_only() {
     assert_eq!(relay.advertised(), ["attach-streams-v1"]);
     assert_eq!(relay.ask(13)["ok"], true);
     assert_eq!(relay.granted(), ["attach-streams-v1"]);
+    mux.shutdown();
+}
+
+/// A bridge that said `bridge-hello` with `bridge-frames-v1` (the SSH
+/// bridge's remote end) gets frames at the current revision,
+/// never the ring, and streams only one revision behind.
+#[test]
+fn ipc_grant_framed_bridge_gets_frames_but_never_the_ring() {
+    let mux = mux("ipc-grant-framed-bridge");
+    for peer in [PeerProcess::ByteBridge, PeerProcess::SameUser] {
+        let bridge = Connection::open(&mux, ClientTransport::Unix, peer);
+        assert!(origin_gate::declare_frame_bridge(&mux, bridge.client), "{peer:?}");
+        assert_eq!(bridge.advertised(), &ALL[..3], "{peer:?}");
+        assert_eq!(bridge.ask(13)["ok"], true);
+        assert_eq!(bridge.granted(), &ALL[..3], "{peer:?}");
+        assert_eq!(bridge.recorded(), &ALL[..3], "the ring is not even recorded");
+
+        let older = Connection::open(&mux, ClientTransport::Unix, peer);
+        assert!(origin_gate::declare_frame_bridge(&mux, older.client));
+        assert_eq!(older.ask(12)["ok"], true);
+        assert_eq!(older.granted(), ["attach-streams-v1"], "{peer:?}");
+    }
+    mux.shutdown();
+}
+
+/// Only a peer the kernel showed to be of the daemon's user, with no role,
+/// may say it reads frames: the phone host's lane, an unverified peer, a page
+/// relay and a WebSocket stay where their rule puts them.
+#[test]
+fn ipc_grant_frame_bridge_needs_kernel_facts_and_no_role() {
+    let mux = mux("ipc-grant-framed-refused");
+    let unknown = Connection::open(&mux, ClientTransport::Unix, PeerProcess::Unverified);
+    assert!(!origin_gate::declare_frame_bridge(&mux, unknown.client));
+    assert_eq!(unknown.advertised(), ["attach-streams-v1"]);
+
+    let phone = Connection::local(&mux);
+    origin_gate::set_mobile_host_peer_for_test(&mux, phone.client);
+    assert!(!origin_gate::declare_frame_bridge(&mux, phone.client));
+    assert_eq!(phone.ask(13)["ok"], true);
+    assert_eq!(phone.granted(), ["attach-streams-v1"]);
+
+    let page = Connection::local(&mux);
+    assert!(origin_gate::set_hello(
+        &mux,
+        page.client,
+        HelloRole::PageRelay,
+        None,
+        false,
+        None,
+        false
+    ));
+    assert!(!origin_gate::declare_frame_bridge(&mux, page.client));
+    assert!(page.advertised().is_empty());
+
+    let web = Connection::open(&mux, ClientTransport::WebSocket, PeerProcess::SameUser);
+    origin_gate::declare_frame_bridge(&mux, web.client);
+    assert!(web.advertised().is_empty(), "a WebSocket gets none, whatever its origin says");
+
+    let bridge = Connection::open(&mux, ClientTransport::Unix, PeerProcess::ByteBridge);
+    assert!(origin_gate::declare_frame_bridge(&mux, bridge.client));
+    assert!(origin_gate::set_hello(
+        &mux,
+        bridge.client,
+        HelloRole::PageRelay,
+        None,
+        false,
+        None,
+        false
+    ));
+    assert!(bridge.advertised().is_empty(), "a later page hello still ends every grant");
     mux.shutdown();
 }
 
@@ -344,6 +414,14 @@ fn ipc_grant_rule_table() {
     assert_eq!(IpcCapability::offered(IpcPeer::Local, false, &bound), [AttachStreams]);
     assert_eq!(IpcCapability::offered(IpcPeer::Bridged, true, &bound), [AttachStreams]);
     assert_eq!(IpcCapability::offered(IpcPeer::Unverified, true, &bound), [AttachStreams]);
+    assert_eq!(
+        IpcCapability::offered(IpcPeer::FramedBridge, true, &bound),
+        [Frames, AttachStreams, AttachFrames]
+    );
+    assert_eq!(IpcCapability::offered(IpcPeer::FramedBridge, false, &bound), [AttachStreams]);
+    assert!(!OutputRing.allowed(IpcPeer::FramedBridge, true));
+    assert!(IpcPeer::Local.passes_descriptors());
+    assert!(!IpcPeer::FramedBridge.passes_descriptors());
     assert_eq!(
         IpcCapability::offered(IpcPeer::Local, true, &IpcTransports::default()),
         [AttachStreams]

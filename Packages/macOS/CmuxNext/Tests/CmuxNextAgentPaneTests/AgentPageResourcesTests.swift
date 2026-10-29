@@ -1,5 +1,6 @@
 @testable import CmuxNextAgentPane
 @testable import CmuxNextPages
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -33,7 +34,7 @@ struct AgentPageResourcesTests {
 
     @Test func aLibraryIsServedOnThePagesOwnOrigin() async throws {
         defer { try? FileManager.default.removeItem(at: folder) }
-        let resources = AgentPageResources(libraryFolder: folder, grants: AgentPaneMediaGrants())
+        let resources = AgentPageResources(libraryFolder: folder, grants: AgentPaneMediaGrants(), runner: BackgroundWork(label: "test.agent-page"))
         let handler = handler(resources)
         let url = try #require(URL(string: "cmux-page://cmux.agent/__lib/mermaid.js"))
         let reply = try #require(await handler.reply(to: url))
@@ -51,7 +52,7 @@ struct AgentPageResourcesTests {
     @Test func grantedMediaIsServedInByteRanges() async throws {
         defer { try? FileManager.default.removeItem(at: folder) }
         let grants = AgentPaneMediaGrants()
-        let resources = AgentPageResources(libraryFolder: nil, grants: grants)
+        let resources = AgentPageResources(libraryFolder: nil, grants: grants, runner: BackgroundWork(label: "test.agent-page"))
         let handler = handler(resources)
         let src = grants.grant(clip)
         #expect(src.hasPrefix("cmux-page://cmux.agent/__media/"))
@@ -114,7 +115,7 @@ struct AgentPageResourcesTests {
 
     @Test func theRenderFrameRunsInItsOwnSandboxedPolicy() async throws {
         defer { try? FileManager.default.removeItem(at: folder) }
-        let resources = AgentPageResources(libraryFolder: nil, grants: AgentPaneMediaGrants())
+        let resources = AgentPageResources(libraryFolder: nil, grants: AgentPaneMediaGrants(), runner: BackgroundWork(label: "test.agent-page"))
         let url = try #require(URL(string: AgentPaneRenderFrame.source))
         #expect(url.absoluteString == PageDescriptor.agent.origin + "/__render/frame")
         let reply = try #require(await handler(resources).reply(to: url))

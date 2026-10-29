@@ -20,11 +20,23 @@ pub const PERSONAL_REMOTE_LOCALHOST_CAPABILITY: &str = "personal-remote-localhos
 /// it leaves the pinned column alone instead of being refused.
 pub const PINNED_DOCK_ALONE_CAPABILITY: &str = "pinned-dock-alone-v1";
 
+/// A byte bridge may send `bridge-hello` as its connection's first line
+/// (server/client_hello.rs), and the far client's own hello window stays open
+/// behind it.
+#[cfg(unix)]
+pub(super) const BRIDGE_HELLO_CAPABILITY: &str = "bridge-hello-v1";
+
+/// The `bridge-hello` feature of a bridge that reads each `0xFF` message by
+/// its frame header (cmux-remote's `bridge-frames-v1` open feature): its
+/// connection may be granted frames ([`IpcPeer::FramedBridge`]).
+pub(super) const BRIDGE_FRAMES_FEATURE: &str = "bridge-frames-v1";
+
 /// `identify`'s capabilities: [`always_identified`] plus `cloud-conversations-v1`
 /// and `cloud-lease-app-only-v1` when the binary installed a cloud transport, `history-search-v1` when it
 /// installed the search index,
-/// `terminal-reaper-active-v1` while the unplaced-terminal reaper runs, and
-/// `daemon-build-v1` when the binary installed its build identity.
+/// `terminal-reaper-active-v1` while the unplaced-terminal reaper runs,
+/// `daemon-build-v1` when the binary installed its build identity, and
+/// `startup-marks-v1` when the serving daemon installed its startup timeline.
 pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
     let mut capabilities = always_identified();
     if mux.cloud_conversations().is_some() {
@@ -80,11 +92,16 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
     if mux.on_cloud_host() {
         capabilities.push(agent_transfer::access_requests::ACCESS_REQUEST_CAPABILITY);
     }
+    #[cfg(unix)]
+    capabilities.push(BRIDGE_HELLO_CAPABILITY);
     if mux.terminal_reaper_running() {
         capabilities.push(TERMINAL_REAPER_ACTIVE_CAPABILITY);
     }
     if daemon_build::installed() {
         capabilities.push(DAEMON_BUILD_CAPABILITY);
+    }
+    if mux.startup_marks().is_some() {
+        capabilities.push(crate::startup_marks::CAPABILITY);
     }
     if crate::chief_brains::taken().is_some() {
         capabilities.push(chief_control::CAPABILITY);
@@ -122,7 +139,8 @@ fn hide_for_tests(_: &mut Vec<&'static str>) {}
 /// state no longer allows, and every use checks the rule again.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum IpcCapability {
-    /// 16-byte framed messages beside JSON lines, SHARED_BUFFER included.
+    /// 16-byte framed messages beside JSON lines. SHARED_BUFFER goes only
+    /// to a peer that [passes descriptors](IpcPeer::passes_descriptors).
     Frames,
     /// Client-minted streams on one connection; their items stay JSON lines.
     AttachStreams,
@@ -166,19 +184,24 @@ impl IpcCapability {
 
     /// The grant rule. Streams are JSON lines, so any peer that reaches the
     /// full local surface may have them, through a bridge and at any revision
-    /// the daemon translates. Frames, the ring and shared buffers carry
-    /// payloads untranslated and descriptors over SCM_RIGHTS, so only a direct
-    /// same-user local peer at exactly this revision gets them: Mojo passes
-    /// platform handles only on a channel endpoint that can carry them
-    /// (mojo/core/channel_posix.cc), and its unversioned interfaces assume both
-    /// ends come from one build (mojo/public/tools/bindings/README.md,
-    /// "Versioning"). WebSocket, the remote entry and page relays get none.
+    /// the daemon translates. Frames carry payloads untranslated, so they need
+    /// exactly this revision: Mojo's unversioned interfaces assume both ends
+    /// come from one build (mojo/public/tools/bindings/README.md,
+    /// "Versioning"). A direct same-user peer gets them, and so does a bridge
+    /// that declared it reads frames by header (`bridge-frames-v1`). The ring
+    /// passes descriptors over SCM_RIGHTS, so only a peer that can receive
+    /// them gets it: Mojo passes platform handles only on a channel endpoint
+    /// that can carry them (mojo/core/channel_posix.cc). WebSocket, the remote
+    /// entry and page relays get none.
     pub(super) const fn allowed(self, peer: IpcPeer, current_revision: bool) -> bool {
         match (self, peer) {
             (_, IpcPeer::WebSocket | IpcPeer::RemoteEntry | IpcPeer::PageRelay) => false,
-            (Self::AttachStreams, IpcPeer::Local | IpcPeer::Bridged | IpcPeer::Unverified) => true,
-            (_, IpcPeer::Local) => current_revision,
-            (_, IpcPeer::Bridged | IpcPeer::Unverified) => false,
+            (Self::AttachStreams, _) => true,
+            (Self::OutputRing, _) => peer.passes_descriptors() && current_revision,
+            (Self::Frames | Self::AttachFrames, IpcPeer::Local | IpcPeer::FramedBridge) => {
+                current_revision
+            }
+            (Self::Frames | Self::AttachFrames, IpcPeer::Bridged | IpcPeer::Unverified) => false,
         }
     }
 
@@ -203,9 +226,9 @@ impl IpcCapability {
 /// has none is never advertised or granted: Mojo exposes an interface only
 /// once its implementation is bound. The task that lands a transport adds its
 /// capability to [`Self::BOUND`], or binds it behind its feature
-/// ([`Self::apply_features`]): the frame route (p05-ipc-071) `Frames` behind
-/// `ipcFrames`, streams and `cancel-stream` (p05-ipc-074) `AttachStreams`,
-/// attach frames `AttachFrames`, the ring (p05-ipc-111) `OutputRing`.
+/// ([`Self::apply_features`]): the frame route `Frames` behind `ipcFrames`,
+/// streams and `cancel-stream` `AttachStreams`, attach frames `AttachFrames`,
+/// the ring `OutputRing`.
 pub(super) struct IpcTransports(AtomicU8);
 
 impl IpcTransports {
@@ -217,7 +240,7 @@ impl IpcTransports {
     }
 
     /// Binds the transports `features` turns on: the REQUEST frame route
-    /// (p05-ipc-071) behind `ipcFrames`. The daemon calls it once, before its
+    /// behind `ipcFrames`. The daemon calls it once, before its
     /// first client.
     pub(super) fn apply_features(&self, features: &cmux_features::Snapshot) {
         if features.is_enabled(cmux_features::feature::IPC_FRAMES) {
@@ -257,6 +280,11 @@ pub(super) enum IpcPeer {
     /// A Unix peer whose euid and executable the kernel did not report, or
     /// whose euid is not the daemon's (root). It fails closed like a bridge.
     Unverified,
+    /// A same-user peer or a kernel-identified byte bridge whose first line
+    /// was `bridge-hello` with `bridge-frames-v1` (the SSH bridge's remote
+    /// end, cmux-remote): it reads frames by header, so it may carry them,
+    /// but it cannot carry a descriptor.
+    FramedBridge,
     WebSocket,
     /// A `cmux link` peer through the remote entry.
     RemoteEntry,
@@ -278,11 +306,20 @@ impl IpcPeer {
             }
             ClientTransport::Unix if origin.mobile_host => Self::Bridged,
             ClientTransport::Unix => match origin.peer_process {
+                PeerProcess::SameUser | PeerProcess::ByteBridge if origin.frame_bridge => {
+                    Self::FramedBridge
+                }
                 PeerProcess::SameUser => Self::Local,
                 PeerProcess::ByteBridge => Self::Bridged,
                 PeerProcess::Unverified => Self::Unverified,
             },
         }
+    }
+
+    /// Whether a descriptor sent over SCM_RIGHTS reaches the process that
+    /// asked for it: only on a direct connection.
+    pub(super) const fn passes_descriptors(self) -> bool {
+        matches!(self, Self::Local)
     }
 }
 
@@ -382,6 +419,7 @@ fn always_identified() -> Vec<&'static str> {
     capabilities.push(activity::CAPABILITY);
     capabilities.push(energy_op::CAPABILITY);
     capabilities.push(energy_op::RULE_CAPABILITY);
+    capabilities.push(frontend_visibility::CAPABILITY);
     capabilities.push(memory_limit::CAPABILITY);
     capabilities.push(page_credential::PAGE_CREDENTIAL_CAPABILITY);
     capabilities.push(page_credential::SCOPED_PAGE_CREDENTIAL_CAPABILITY);

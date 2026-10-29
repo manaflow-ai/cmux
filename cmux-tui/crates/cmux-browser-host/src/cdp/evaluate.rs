@@ -2,6 +2,7 @@
 
 use super::driver::{Inner, Session};
 use super::state::{AGENT_WORLD, HOST_WORLD, World, error_message};
+use crate::panic_free::JsonFields;
 use crate::protocol::{DriverError, ErrorCode, required_str, timeout_of};
 use serde_json::value::RawValue;
 use serde_json::{Value, json};
@@ -192,7 +193,7 @@ impl Inner {
             json!({"expression": AGENT_CURRENT, "contextId": context.id, "returnByValue": true}),
             deadline,
         )?;
-        if probe["result"]["value"].as_bool() != Some(true) {
+        if probe.field("result").field("value").as_bool() != Some(true) {
             let installed = self.send_on(
                 &context.session,
                 "Runtime.evaluate",
@@ -232,14 +233,17 @@ impl Inner {
         if let Some(details) = resolved.get("exceptionDetails") {
             return Err(evaluation_error(details));
         }
-        resolved["result"].get("objectId").and_then(Value::as_str).map(str::to_owned).ok_or_else(
-            || {
+        resolved
+            .field("result")
+            .get("objectId")
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+            .ok_or_else(|| {
                 DriverError::new(
                     ErrorCode::Stale,
                     format!("Element handle {handle} is no longer attached"),
                 )
-            },
-        )
+            })
     }
 
     /// A script's value, parsed (internal callers read fields of it).
@@ -383,7 +387,7 @@ impl Inner {
                 json!({"objectId": object}),
                 deadline,
             )?;
-            let backend = node["node"]["backendNodeId"].as_i64().ok_or_else(|| {
+            let backend = node.field("node").field("backendNodeId").as_i64().ok_or_else(|| {
                 DriverError::new(ErrorCode::Stale, format!("Element handle {handle} is detached"))
             })?;
             let moved = self.send_on(
@@ -392,7 +396,7 @@ impl Inner {
                 json!({"backendNodeId": backend, "executionContextId": page.id, "objectGroup": group}),
                 deadline,
             )?;
-            let object_id = moved["object"]["objectId"].as_str().ok_or_else(|| {
+            let object_id = moved.field("object").field("objectId").as_str().ok_or_else(|| {
                 DriverError::new(ErrorCode::Stale, format!("Element handle {handle} is detached"))
             })?;
             objects.push(object_id.to_owned());
@@ -412,7 +416,8 @@ impl Inner {
     /// The tab's whole frame tree: the main session's tree with every
     /// out-of-process frame's tree grafted under its parent frame.
     fn frame_tree(&self, session: &Session) -> Result<Value, DriverError> {
-        let mut tree = self.send(session, "Page.getFrameTree", json!({}))?["frameTree"].clone();
+        let mut tree =
+            self.send(session, "Page.getFrameTree", json!({}))?.field("frameTree").clone();
         let children: Vec<String> = self
             .lock()
             .tabs
@@ -427,14 +432,15 @@ impl Inner {
                 json!({}),
                 super::driver::INTERNAL_TIMEOUT,
             ) {
-                pending.push(reply["frameTree"].clone());
+                pending.push(reply.field("frameTree").clone());
             }
         }
         // Graft until no subtree finds its parent (nested out-of-process frames).
         loop {
             let before = pending.len();
             pending.retain(|subtree| {
-                let parent = subtree["frame"]["parentId"].as_str().unwrap_or("").to_owned();
+                let parent =
+                    subtree.field("frame").field("parentId").as_str().unwrap_or("").to_owned();
                 !graft(&mut tree, &parent, subtree)
             });
             if pending.is_empty() || pending.len() == before {
@@ -447,11 +453,12 @@ impl Inner {
     pub(super) fn frames_list(&self, params: &Value) -> Result<Value, DriverError> {
         let session = self.session(params)?;
         let tree = self.frame_tree(&session)?;
-        let main_origin = tree["frame"]["securityOrigin"].as_str().unwrap_or("").to_owned();
+        let main_origin =
+            tree.field("frame").field("securityOrigin").as_str().unwrap_or("").to_owned();
         let mut out = Vec::new();
         let mut queue = std::collections::VecDeque::from([(tree, Value::Null)]);
         while let Some((node, parent)) = queue.pop_front() {
-            let frame = &node["frame"];
+            let frame = node.field("frame");
             let frame_id = frame["id"].clone();
             out.push(json!({
                 "frameId": frame_id,
@@ -460,7 +467,7 @@ impl Inner {
                 "name": frame.get("name").and_then(Value::as_str).unwrap_or(""),
                 "crossOrigin": frame["securityOrigin"].as_str().unwrap_or("") != main_origin,
             }));
-            for child in node["childFrames"].as_array().into_iter().flatten() {
+            for child in node.field("childFrames").as_array().into_iter().flatten() {
                 queue.push_back((child.clone(), frame_id.clone()));
             }
         }
@@ -481,7 +488,7 @@ impl Inner {
             self.send_on(&agent.session, "DOM.describeNode", json!({"objectId": object}), deadline)
         });
         self.release_handles(&agent.session, &group);
-        Ok(match node?["node"].get("frameId").and_then(Value::as_str) {
+        Ok(match node?.field("node").get("frameId").and_then(Value::as_str) {
             Some(child) => json!({"frameId": child}),
             None => Value::Null,
         })
@@ -515,7 +522,7 @@ impl Inner {
                 if let Some(details) = reply.get("exceptionDetails") {
                     return Err(evaluation_error(details));
                 }
-                let result = &reply["result"];
+                let result = reply.field("result");
                 if let Some(url) = result["value"].as_str() {
                     return Ok(Err(json!({"frameId": frame_id, "url": url})));
                 }
@@ -528,7 +535,7 @@ impl Inner {
                     json!({"objectId": object}),
                     deadline,
                 )?;
-                Ok(match node["node"]["frameId"].as_str() {
+                Ok(match node.field("node").field("frameId").as_str() {
                     Some(child) => Ok(child.to_owned()),
                     None => Err(Value::Null),
                 })
@@ -584,7 +591,7 @@ impl Inner {
             json!({"frameId": frame_id}),
             deadline,
         )?;
-        let backend = owner["backendNodeId"].as_i64().ok_or_else(|| {
+        let backend = owner.field("backendNodeId").as_i64().ok_or_else(|| {
             DriverError::not_found(format!("Frame {frame_id} has no owner element"))
         })?;
         let page = self.context(&session, &parent, World::Page, deadline)?;
@@ -595,7 +602,9 @@ impl Inner {
             json!({"backendNodeId": backend, "executionContextId": page.id, "objectGroup": group}),
             deadline,
         )?;
-        let object_id = resolved["object"]["objectId"]
+        let object_id = resolved
+            .field("object")
+            .field("objectId")
             .as_str()
             .ok_or_else(|| {
                 DriverError::new(ErrorCode::Stale, "The frame's owner element is detached")
@@ -619,18 +628,20 @@ impl Inner {
         if let Some(details) = reply.get("exceptionDetails") {
             return Err(evaluation_error(details));
         }
-        Ok(reply["result"].get("value").cloned().unwrap_or(Value::Null))
+        Ok(reply.field("result").get("value").cloned().unwrap_or(Value::Null))
     }
 }
 
 /// Appends `subtree` to the children of `parent_id` inside `node`.
 fn graft(node: &mut Value, parent_id: &str, subtree: &Value) -> bool {
-    if node["frame"]["id"].as_str() == Some(parent_id) {
-        if !node["childFrames"].is_array() {
-            node["childFrames"] = json!([]);
+    if node.field("frame").field("id").as_str() == Some(parent_id) {
+        if !node.field("childFrames").is_array() {
+            node.insert("childFrames", json!([]));
         }
-        if let Some(children) = node["childFrames"].as_array_mut() {
-            children.retain(|child| child["frame"]["id"] != subtree["frame"]["id"]);
+        if let Some(children) = node.get_mut("childFrames").and_then(Value::as_array_mut) {
+            children.retain(|child| {
+                child.field("frame").field("id") != subtree.field("frame").field("id")
+            });
             children.push(subtree.clone());
         }
         return true;
@@ -648,10 +659,10 @@ fn is_stale_context(error: &DriverError) -> bool {
 }
 
 fn parent_of(node: &Value, frame_id: &str, parent: Option<&str>) -> Option<String> {
-    if node["frame"]["id"].as_str() == Some(frame_id) {
+    if node.field("frame").field("id").as_str() == Some(frame_id) {
         return parent.map(str::to_owned);
     }
-    let id = node["frame"]["id"].as_str();
+    let id = node.field("frame").field("id").as_str();
     node["childFrames"]
         .as_array()
         .into_iter()

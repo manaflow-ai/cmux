@@ -98,8 +98,8 @@ pub(super) fn validate_requested_terminal_id(value: &str) -> anyhow::Result<()> 
     anyhow::ensure!(
         bytes.len() == 32
             && bytes.iter().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(byte))
-            && bytes[12] == b'4'
-            && matches!(bytes[16], b'8'..=b'b'),
+            && bytes.get(12) == Some(&b'4')
+            && matches!(bytes.get(16), Some(b'8'..=b'b')),
         "bad request: terminal_id must be a 32-character lowercase UUIDv4 hex value"
     );
     Ok(())

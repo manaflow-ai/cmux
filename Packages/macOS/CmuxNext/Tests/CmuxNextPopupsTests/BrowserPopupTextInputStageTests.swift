@@ -8,7 +8,7 @@ import Testing
 import CmuxNextWakeups
 
 /// A popup window's omnibar is the browser tab's (`OmnibarFieldEditor`), so its typing gets the same text input
-/// stage as a main window's (p04-input-101): the popup window carries the app's stage (`TextInputStageHosting`) and
+/// stage as a main window's: the popup window carries the app's stage (`TextInputStageHosting`) and
 /// the field editor stamps the key's `textInputStart` and `textInputEnd`.
 @MainActor @Suite(.serialized) struct BrowserPopupTextInputStageTests {
     @Test func aKeyTypedInAPopupsOmnibarStampsItsTextInputStages() throws {

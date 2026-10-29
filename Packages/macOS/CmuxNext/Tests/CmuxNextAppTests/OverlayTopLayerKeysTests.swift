@@ -8,7 +8,7 @@ import CmuxNextFocus
 import Foundation
 import Testing
 
-/// p03-rendering-052, "dialog key handling unchanged", through the real main window (`ShellWindow`) with
+/// "dialog key handling unchanged", through the real main window (`ShellWindow`) with
 /// the feature `overlayTopLayer` on: a dialog in the window's top layer keeps every key the key overlay
 /// panel had. A key equivalent reaches only the dialog (an empty workspace's Return never makes a terminal
 /// under it), a real Tab cycles inside it, and the focus model gets the keyboard back when it goes.

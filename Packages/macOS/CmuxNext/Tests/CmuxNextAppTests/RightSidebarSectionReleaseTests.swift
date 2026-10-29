@@ -13,7 +13,7 @@ import Foundation
 import Testing
 
 /// Right sidebar sections and docked Home views are released when hidden (`ContentKind.sidebarSection`, feature
-/// `memoryDiscardSidebarSections`, p07-memory-100): a section hidden 10 min, or hidden at critical memory pressure,
+/// `memoryDiscardSidebarSections`): a section hidden 10 min, or hidden at critical memory pressure,
 /// lets its view go on the planner's one-shot deadline after its owner saved a view-state record; the next show
 /// makes it again from that record. The shown section never goes. Time and pressure are the test's own.
 @MainActor

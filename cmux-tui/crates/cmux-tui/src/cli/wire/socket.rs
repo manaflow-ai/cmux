@@ -9,6 +9,7 @@ use std::path::PathBuf;
 use serde_json::{Value, json};
 
 use super::super::GlobalArgs;
+use crate::cli::json_fields::JsonFields;
 
 /// Why [`resolve_socket_with_origin`] gave no socket, as the typed local
 /// error (`{code, message, details, retryable}`) every caller reports
@@ -29,7 +30,7 @@ pub(in crate::cli) fn resolve_failure(error: &anyhow::Error) -> Value {
 /// (the app and Chief routes, which are unix-only).
 #[cfg(unix)]
 pub(in crate::cli) fn resolve_failure_message(error: &anyhow::Error) -> String {
-    resolve_failure(error)["message"].as_str().unwrap_or_default().to_owned()
+    resolve_failure(error).field("message").as_str().unwrap_or_default().to_owned()
 }
 
 /// The exit code of a [`resolve_failure`]: the caller must change its route.

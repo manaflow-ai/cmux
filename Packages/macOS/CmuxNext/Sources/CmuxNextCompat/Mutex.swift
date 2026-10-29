@@ -1,4 +1,4 @@
-public import CmuxSafeConcurrency
+internal import CmuxSafeConcurrency
 #if (DEBUG || CMUX_BLOCKING_CHECKS) && canImport(Darwin)
 internal import Darwin
 #endif
@@ -14,19 +14,13 @@ public struct Mutex<Value: ~Copyable>: ~Copyable {
     private let base: CmuxSafeConcurrency.Mutex<Value>
 
     /// Makes a mutex that holds `initialValue`.
-    ///
-    /// - Parameter rank: Its place in cmux-next's lock order (``MutexRank``, the table in
-    ///   MutexRank+CmuxNext.swift): in Debug builds a `withLock` that takes it while this thread holds a
-    ///   ranked mutex at the same or a later order stops the process, naming both locks. Nil (the default)
-    ///   checks nothing. Release builds drop it.
-    public init(_ initialValue: consuming sending Value, rank: CmuxSafeConcurrency.MutexRank? = nil) {
-        base = CmuxSafeConcurrency.Mutex(initialValue, rank: rank)
+    public init(_ initialValue: consuming sending Value) {
+        base = CmuxSafeConcurrency.Mutex(initialValue)
     }
 
     /// Runs `body` with exclusive access to the value and returns its result.
     /// Do not call `withLock` on the same mutex from inside `body`: the lock
-    /// is not recursive. A ranked mutex taken out of order stops the process
-    /// in Debug (``MutexRank``).
+    /// is not recursive.
     ///
     /// In Debug and bench-checks builds (Nightly to come) a wait for the lock longer than
     /// ``BlockingKind/lockWaitLimitNanos`` on the main thread, or in a `BackgroundWork` lane item (a

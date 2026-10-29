@@ -1,6 +1,6 @@
 // The Command and Control key-downs the Chromium Host sent to each page, by
 // the input seq of the frame that carried each (Header::seq, task 092), until
-// the page leaves one unhandled (p01-process-030; no CEF needed:
+// the page leaves one unhandled (no CEF needed:
 // scripts/cmux-next/tests/shim-host-key-seqs.test.sh).
 //
 // In host mode cmux's KeyRouter decides first, in CmuxApplication.sendEvent;

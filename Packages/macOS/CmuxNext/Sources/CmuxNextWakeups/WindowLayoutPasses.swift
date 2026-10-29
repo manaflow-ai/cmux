@@ -27,6 +27,7 @@ public protocol WindowLayoutPassHosting: NSWindow {
     private var order: [UInt64] = []
     private var nextID: UInt64 = 0
 
+    /// A window's passes with no observer.
     public init() {}
 
     /// Calls `handler` after each outermost layout pass of the window, until the returned token is

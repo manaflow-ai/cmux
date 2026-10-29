@@ -1053,7 +1053,7 @@ def collect(procs, queue, timeout):
 # Bench
 
 
-# The daemon's bulk frame cut (p05-ipc.md 3.2, p05-ipc-072): identify with `revisions` reports it in
+# The daemon's bulk frame cut (p05-ipc.md 3.2): identify with `revisions` reports it in
 # bytes and the daemon takes it from this environment variable at start.
 BULK_FRAME_MAX_FIELD = "bulk_frame_max"
 BULK_FRAME_MAX_ENV = "CMUX_IPC_BULK_FRAME_MAX"

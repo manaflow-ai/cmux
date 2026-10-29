@@ -5,7 +5,7 @@ import Dispatch
 import Foundation
 import Testing
 
-/// The off-main job census (p08-startup-082, queue Q12): a task kept once at its first enqueue, the counts of what is
+/// The off-main job census (queue Q12): a task kept once at its first enqueue, the counts of what is
 /// not kept, the bounds, the creator the report names, and the payload `startup-queue.py globaljobs` reads.
 nonisolated struct GlobalJobCensusTests {
     private static let ms: UInt64 = 1_000_000

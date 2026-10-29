@@ -4,6 +4,7 @@
 
 use super::screen_groups::locate_screen;
 use super::*;
+use std::sync::PoisonError;
 
 /// Orders `layout-changed` payloads (`Mux::emit_layout_changed`). Taken
 /// only there, never while the state lock is held.
@@ -26,7 +27,7 @@ impl Mux {
     ) {
         let decorations = self.tree_decorations();
         let deltas = {
-            let mut state = self.state.lock().unwrap();
+            let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
             screens
                 .iter()
                 .filter_map(|screen| {
@@ -40,7 +41,7 @@ impl Mux {
                     )?;
                     Some(TreeDelta {
                         kind: TreeDeltaKind::ScreenChanged,
-                        workspace: state.workspaces[wi].id,
+                        workspace: state.workspace_at(wi).ok()?.id,
                         screen: Some(*screen),
                         pane: None,
                         surface: None,
@@ -70,7 +71,7 @@ impl Mux {
         // them in stream order ends on the newest.
         let _ordered = LAYOUT_EMIT.lock().unwrap_or_else(PoisonError::into_inner);
         let delta = {
-            let mut state = self.state.lock().unwrap();
+            let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
             (|| {
                 let (wi, si) = locate_screen(&state, screen)?;
                 name_screen_splits(&mut state, (wi, si));

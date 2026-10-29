@@ -6,6 +6,9 @@
 //! `cmux-tui attach` connects the same TUI to an existing (usually
 //! headless) session over that socket, which is how detach/reattach works.
 
+// Threads start through cmux_threads (named, registered, at a declared QoS):
+// plans/cmux-next/chrome-parity/p02-threads.md, tasks 213-218.
+#![cfg_attr(not(test), deny(clippy::disallowed_methods))]
 #[cfg(unix)]
 mod acp;
 #[cfg(unix)]
@@ -17,6 +20,7 @@ mod agent_start_host;
 mod app;
 #[cfg(unix)]
 mod app_identity;
+mod blocking;
 mod browser_input;
 #[cfg(unix)]
 mod build_adopt;
@@ -49,6 +53,7 @@ mod feature_flags;
 #[path = "bin/cmux-tui-hook.rs"]
 mod hook_helper;
 mod host_colors;
+mod json_fields;
 mod keys;
 mod layout_undo;
 // Tests build it everywhere so the upgrade checks run on Linux CI too.
@@ -66,6 +71,7 @@ mod machine_provider_client;
 #[cfg(unix)]
 mod machine_provider_runtime;
 mod machine_runtime;
+mod panic_free;
 mod plugin_manager;
 mod process_diagnostics;
 #[cfg(target_os = "linux")]
@@ -113,6 +119,7 @@ mod version_report;
 
 use headless::run_headless;
 pub(crate) use headless::wake_headless;
+use json_fields::JsonFields;
 #[cfg(unix)]
 use loopback_policy::deny_daemon_listener_ports;
 use loopback_policy::loopback_forward_policy;
@@ -134,6 +141,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use anyhow::Context;
 use cmux_tui_core::resource::TerminalPublicId;
+use cmux_tui_core::startup_marks::{StartupMark, StartupMarks};
 use cmux_tui_core::{Mux, ProviderWorkspaceAuthority, SurfaceOptions, echo_thread::ECHO_PATH_QOS};
 #[cfg(unix)]
 use cmux_tui_machine_protocol::BearerToken;
@@ -509,7 +517,10 @@ impl CapturedProviderWorkspaceAuthority {
             return Ok(None);
         }
         require_non_dumpable_provider_process()?;
-        let mut bytes = self.0.take().expect("presence checked").into_encoded_bytes();
+        let Some(raw) = self.0.take() else {
+            return Ok(None);
+        };
+        let mut bytes = raw.into_encoded_bytes();
         let value = std::str::from_utf8(&bytes)
             .map(str::to_owned)
             .map_err(|_| anyhow::anyhow!("provider workspace authority is not valid UTF-8"));
@@ -661,8 +672,10 @@ fn parse_owner_host_color(flag: &str, value: &str) -> Result<cmux_tui_core::Rgb,
         return Err(format!("{flag} must be a six-digit hexadecimal color"));
     }
     let parse = |range: std::ops::Range<usize>| {
-        u8::from_str_radix(&value[range], 16)
-            .map_err(|_| format!("{flag} must be a six-digit hexadecimal color"))
+        value
+            .get(range)
+            .and_then(|digits| u8::from_str_radix(digits, 16).ok())
+            .ok_or_else(|| format!("{flag} must be a six-digit hexadecimal color"))
     };
     Ok(cmux_tui_core::Rgb { r: parse(0..2)?, g: parse(2..4)?, b: parse(4..6)? })
 }
@@ -1036,7 +1049,8 @@ fn version_report_json() -> serde_json::Value {
     );
     #[cfg(not(unix))]
     let (build_identity, build_time, remote_protocol) = (None, 0, None);
-    let executable = std::env::current_exe().ok().and_then(|path| std::fs::canonicalize(path).ok());
+    let executable =
+        std::env::current_exe().ok().and_then(|path| cmux_blocking::fs::canonicalize(path).ok());
     let mut report = version_report::version_json(
         &version_report::BuildFacts {
             build_identity,
@@ -1049,8 +1063,8 @@ fn version_report_json() -> serde_json::Value {
     );
     // The invite wave this tester is in and what its signed flags turn off (#10).
     let (cohort, disabled_features) = feature_flags::report();
-    report["cohort"] = serde_json::json!(cohort);
-    report["disabled_features"] = serde_json::json!(disabled_features);
+    report.insert("cohort", serde_json::json!(cohort));
+    report.insert("disabled_features", serde_json::json!(disabled_features));
     report
 }
 
@@ -1144,27 +1158,33 @@ fn schema_socket_owner(
     let Ok(response) = serde_json::from_str::<serde_json::Value>(&line) else {
         return SchemaSocketOwner::Unverified;
     };
-    let data = &response["data"];
-    if response["id"] != 0 || response["ok"] != true || data["app"] != "cmux-tui" {
+    let data = response.field("data");
+    if *response.field("id") != 0
+        || *response.field("ok") != true
+        || *data.field("app") != "cmux-tui"
+    {
         return SchemaSocketOwner::Unverified;
     }
     let Some(expected_registry_id) = expected_registry_id else {
         return SchemaSocketOwner::Unverified;
     };
-    if data["session"] != expected_session || data["registry_id"] != expected_registry_id {
+    if *data.field("session") != expected_session
+        || *data.field("registry_id") != expected_registry_id
+    {
         return SchemaSocketOwner::Different;
     }
-    if !data["capabilities"].as_array().is_some_and(|capabilities| {
+    if !data.field("capabilities").as_array().is_some_and(|capabilities| {
         capabilities
             .iter()
             .any(|capability| capability == cmux_tui_core::server::DAEMON_HANDOFF_FORCE_CAPABILITY)
     }) {
         return SchemaSocketOwner::ForcedHandoffUnsupported;
     }
-    let Some(pid) = data["pid"].as_u64().and_then(|pid| u32::try_from(pid).ok()) else {
+    let Some(pid) = data.field("pid").as_u64().and_then(|pid| u32::try_from(pid).ok()) else {
         return SchemaSocketOwner::Unverified;
     };
-    let Some(generation) = data["generation"].as_str().filter(|generation| !generation.is_empty())
+    let Some(generation) =
+        data.field("generation").as_str().filter(|generation| !generation.is_empty())
     else {
         return SchemaSocketOwner::Unverified;
     };
@@ -1185,14 +1205,14 @@ fn workspace_schema_startup_error(
     let socket = socket_path.display().to_string();
     let socket_recovery = match schema_socket_owner(socket_path, session, schema.registry_id()) {
         SchemaSocketOwner::Matching { pid, generation } => {
-            let request = serde_json::to_string(&serde_json::json!({
+            let request = serde_json::json!({
                 "cmd": "shutdown-daemon",
                 "force": true,
                 "generation": generation,
                 "id": 1,
                 "pid": pid,
-            }))
-            .expect("daemon shutdown request is serializable");
+            })
+            .to_string();
             let stop_command = format!(
                 "{}cmux --socket {} raw command --request-json {}",
                 shell_prompt(),
@@ -1442,8 +1462,8 @@ fn validate_provider_process_args(args: &Args) -> anyhow::Result<()> {
 fn rewrite_server_start(args: &mut Vec<String>) {
     let mut index = 0;
     let mut output_mode = false;
-    while index < args.len() {
-        match args[index].as_str() {
+    while let Some(arg) = args.get(index) {
+        match arg.as_str() {
             "--socket" | "--session" | "--machine" => {
                 if args.get(index + 1).is_none() {
                     return;
@@ -1459,7 +1479,9 @@ fn rewrite_server_start(args: &mut Vec<String>) {
                 if cli::is_lifecycle_scope(scope)
                     && args.get(index + 1).map(String::as_str) == Some("start") =>
             {
-                let start_args = &args[index + 2..];
+                let Some(start_args) = args.get(index + 2..) else {
+                    return;
+                };
                 if (output_mode && !has_inline_relay_ticket_argument(start_args))
                     || server_start_has_cli_routing_flag(start_args)
                 {
@@ -1521,10 +1543,12 @@ fn startup_option_value_end(args: &[String], index: usize) -> Option<usize> {
         return args.get(index + 1).map(|_| index + 2);
     }
     if option == "--machine-provider-command" {
-        let mut end = index + 1;
-        while end < args.len() && args[end] != "--" {
-            end += 1;
-        }
+        let end = args
+            .iter()
+            .enumerate()
+            .skip(index + 1)
+            .find(|(_, argument)| *argument == "--")
+            .map_or(args.len(), |(end, _)| end);
         return Some(end + 1);
     }
     None
@@ -1536,8 +1560,8 @@ fn is_inline_relay_ticket(value: &str) -> bool {
 
 fn has_inline_relay_ticket_argument(args: &[String]) -> bool {
     let mut index = 0;
-    while index < args.len() {
-        let option = args[index].as_str();
+    while let Some(option) = args.get(index) {
+        let option = option.as_str();
         if is_inline_relay_ticket(option) {
             return true;
         }
@@ -1564,8 +1588,8 @@ fn server_start_has_cli_routing_flag(args: &[String]) -> bool {
         return false;
     }
     let mut index = 0;
-    while index < args.len() {
-        match args[index].as_str() {
+    while let Some(arg) = args.get(index) {
+        match arg.as_str() {
             "-h" | "--help" | "--json" | "--jsonl" | "--quiet" => return true,
             _ => index = startup_option_value_end(args, index).unwrap_or(index + 1),
         }
@@ -1580,8 +1604,8 @@ fn is_cli_invocation(args: &[String]) -> bool {
         return false;
     }
     let mut index = 0;
-    while index < args.len() {
-        let value = args[index].as_str();
+    while let Some(value) = args.get(index) {
+        let value = value.as_str();
         if value == "--machine-provider-command" {
             return false;
         }
@@ -1620,10 +1644,10 @@ fn is_cli_invocation(args: &[String]) -> bool {
 fn normalize_remote_resource_args(raw_args: &mut Vec<String>) -> Result<(), String> {
     let mut index = 0;
     let mut leading = Vec::new();
-    while index < raw_args.len() {
-        match raw_args[index].as_str() {
+    while let Some(arg) = raw_args.get(index) {
+        match arg.as_str() {
             "--socket" | "--session" | "--machine" => {
-                leading.extend(raw_args[index..].iter().take(2).cloned());
+                leading.extend(raw_args.iter().skip(index).take(2).cloned());
                 index += 2;
             }
             value
@@ -1631,11 +1655,11 @@ fn normalize_remote_resource_args(raw_args: &mut Vec<String>) -> Result<(), Stri
                     || value.starts_with("--session=")
                     || value.starts_with("--machine=") =>
             {
-                leading.push(raw_args[index].clone());
+                leading.push(arg.clone());
                 index += 1;
             }
             "--json" | "--jsonl" | "--quiet" => {
-                leading.push(raw_args[index].clone());
+                leading.push(arg.clone());
                 index += 1;
             }
             _ => break,
@@ -1647,15 +1671,15 @@ fn normalize_remote_resource_args(raw_args: &mut Vec<String>) -> Result<(), Stri
     if !cli::is_remote_invocation(raw_args) {
         return Ok(());
     }
-    let rest = raw_args[index + 1..].to_vec();
+    let rest = raw_args.iter().skip(index + 1).cloned().collect::<Vec<_>>();
     *raw_args = std::iter::once(command.clone()).chain(leading).chain(rest).collect();
     if command != "remote" {
         return Ok(());
     }
     if command == "remote" {
         let mut action_index = 1;
-        while action_index < raw_args.len() {
-            match raw_args[action_index].as_str() {
+        while let Some(arg) = raw_args.get(action_index) {
+            match arg.as_str() {
                 "--socket" | "--session" | "--machine" => action_index += 2,
                 "--json" | "--jsonl" | "--quiet" => action_index += 1,
                 value
@@ -1689,8 +1713,9 @@ fn normalize_remote_resource_args(raw_args: &mut Vec<String>) -> Result<(), Stri
         }
         Some("-h" | "--help") | None => {}
         Some(_)
-            if raw_args[2..]
+            if raw_args
                 .iter()
+                .skip(2)
                 .any(|argument| matches!(argument.as_str(), "-h" | "--help")) => {}
         Some(action) => {
             return Err(localization::catalog().remote_client.unknown_action("remote", action));
@@ -1705,6 +1730,7 @@ fn normalize_remote_resource_args(raw_args: &mut Vec<String>) -> Result<(), Stri
 pub fn main() -> std::process::ExitCode {
     // SAFETY: the first statement of main: no other thread runs yet (G4).
     unsafe { startup_env::take_link_token_from_env() };
+    let startup = Arc::new(StartupMarks::starting_now());
     // Before any mode can serve `identify` or `ping`.
     cmux_tui_core::server::install_build_stamp(build_stamp());
     // `cmux` (CLI and mux) and `acpmux` (a symlink) are one binary, one version.
@@ -1722,7 +1748,7 @@ pub fn main() -> std::process::ExitCode {
     if let Some(code) = classic_hooks::run() {
         return code;
     }
-    run_main();
+    run_main(startup);
     // Reached only by the normal return paths (never client_log::exit): flush
     // so the last queued records reach the client log on every platform.
     client_log::flush_for_exit();
@@ -1757,7 +1783,7 @@ struct CloudTemplateEnv {
 static CLOUD_TEMPLATE_ENV: std::sync::OnceLock<CloudTemplateEnv> = std::sync::OnceLock::new();
 
 /// Routes argv to a private mode, the CLI, or the interactive or headless mux.
-fn run_main() {
+fn run_main(startup: Arc<StartupMarks>) {
     startup_env::take_cloud_template_env();
     // The pane's `claude` shim lands here. Dispatch before the signal
     // handlers and argv decoding: the wrapper execs Claude with arguments
@@ -1790,7 +1816,7 @@ fn run_main() {
     #[cfg(unix)]
     if raw_args.first().map(String::as_str) == Some("__holder") {
         set_default_task_role();
-        if let Err(error) = cmux_holder::serve_process(&raw_args[1..]) {
+        if let Err(error) = cmux_holder::serve_process(panic_free::rest_after(&raw_args, 1)) {
             crate::client_log::stderr_log!("startup", "cmux-tui holder: {error}");
             client_log::exit(1);
         }
@@ -1798,7 +1824,7 @@ fn run_main() {
     }
     if raw_args.first().map(String::as_str) == Some("__terminal-host") {
         set_default_task_role();
-        if let Err(error) = run_terminal_host_process(&raw_args[1..]) {
+        if let Err(error) = run_terminal_host_process(panic_free::rest_after(&raw_args, 1)) {
             crate::client_log::stderr_log!("startup", "cmux-tui terminal host: {error}");
             client_log::exit(1);
         }
@@ -1821,7 +1847,7 @@ fn run_main() {
     // machine supervisor's (`early_unix_scope`).
     if cli::remote_host_requested(&raw_args) {
         discard_provider_secret_environment();
-        client_log::exit(remote_host::run(&raw_args[1..]));
+        client_log::exit(remote_host::run(panic_free::rest_after(&raw_args, 1)));
     }
     // `cmux device list|remove|audit|network|invite` and `add --yes`: one
     // device list over every store (plans/cmux-next/add-device-DESIGN.md).
@@ -1829,7 +1855,7 @@ fn run_main() {
     // surfaces: the app runs its bundled `cmux-tui device list --json`.
     if devices::handles(&raw_args) {
         discard_provider_secret_environment();
-        client_log::exit(devices::run(&raw_args[1..]));
+        client_log::exit(devices::run(panic_free::rest_after(&raw_args, 1)));
     }
     // `cmux route` was removed with the route CLI. Refuse it before the generic
     // unknown-command app fallback or daemon skew re-exec can touch a socket or
@@ -1841,7 +1867,7 @@ fn run_main() {
     #[cfg(unix)]
     if let Some(run) = cli::early_unix_scope(&raw_args) {
         discard_provider_secret_environment();
-        client_log::exit(run(&raw_args[1..]));
+        client_log::exit(run(panic_free::rest_after(&raw_args, 1)));
     }
     if config::is_ghostty_config_helper_invocation(&raw_args) {
         if let Err(error) = harden_provider_secret_process() {
@@ -1893,7 +1919,7 @@ fn run_main() {
     #[cfg(unix)]
     if raw_args.first().map(|arg| arg.as_str()) == Some("machine-agent") {
         discard_provider_secret_environment();
-        if let Err(error) = machine_agent::run(&raw_args[1..]) {
+        if let Err(error) = machine_agent::run(panic_free::rest_after(&raw_args, 1)) {
             crate::client_log::stderr_log!("startup", "{BIN}: {error}");
             if error.show_help() {
                 crate::client_log::stderr_log!(
@@ -1926,6 +1952,7 @@ fn run_main() {
     }
     let headless = args.headless;
     let config = config::StartupConfigSnapshot::load();
+    startup.mark(StartupMark::ConfigLoaded);
     let provider = resolve_provider_launch(&args, &config)
         .unwrap_or_else(|error| usage_exit(&error.to_string()));
     #[cfg(unix)]
@@ -1961,13 +1988,13 @@ fn run_main() {
             run_provider_machine_client(provider, local_machines, connect_external, config)
         }
         None if args.attach => run_attach(args, config),
-        None => run_server(args, provider_workspace_authority, config),
+        None => run_server(args, provider_workspace_authority, config, startup),
     };
     #[cfg(not(unix))]
     let result = match provider {
         Some(_) => Err(anyhow::anyhow!("dynamic machine providers require Unix")),
         None if args.attach => run_attach(args, config),
-        None => run_server(args, provider_workspace_authority, config),
+        None => run_server(args, provider_workspace_authority, config, startup),
     };
     if result.is_ok() && !headless {
         // After the TUI restored the terminal: the one update line (#8).
@@ -2102,6 +2129,7 @@ fn run_relay(args: Args) -> anyhow::Result<()> {
         crossterm::terminal::enable_raw_mode()?;
     }
 
+    // supervise-allow: this relay's stdin pump; it ends at stdin EOF or when the relay shuts its write side, and run_relay joins it once finished, returning a panic as an error.
     let input = cmux_threads::spawn("relay-input", ECHO_PATH_QOS, move || {
         let result = io::copy(&mut io::stdin().lock(), &mut writer);
         let _ = writer.shutdown(Shutdown::Write);
@@ -2114,7 +2142,8 @@ fn run_relay(args: Args) -> anyhow::Result<()> {
     }
     output_result?;
     if input.is_finished() {
-        input.join().map_err(|_| anyhow::anyhow!("relay input thread panicked"))??;
+        blocking::thread::join(input)
+            .map_err(|_| anyhow::anyhow!("relay input thread panicked"))??;
     }
     Ok(())
 }
@@ -2126,72 +2155,9 @@ fn new_mux_generation() -> anyhow::Result<String> {
     let mut generation = String::with_capacity(32);
     use std::fmt::Write as _;
     for byte in bytes {
-        write!(&mut generation, "{byte:02x}").expect("writing to String cannot fail");
+        write!(&mut generation, "{byte:02x}")?;
     }
     Ok(generation)
-}
-
-#[cfg(target_os = "linux")]
-fn take_provider_management_listener() -> anyhow::Result<Option<std::os::unix::net::UnixListener>> {
-    use std::os::fd::{FromRawFd, OwnedFd, RawFd};
-
-    const SYSTEMD_FIRST_FD: RawFd = 3;
-    const FD_NAME: &str = "cmux-provider-authority";
-    // Taken from the environment as the first statement of `main`, before
-    // this function's caller started its threads.
-    let startup_env::SystemdListenEnv { pid: listen_pid, fds: listen_fds, names: listen_names } =
-        startup_env::take_systemd_listen_env();
-    if listen_pid.is_none() && listen_fds.is_none() && listen_names.is_none() {
-        return Ok(None);
-    }
-    let pid = listen_pid
-        .as_deref()
-        .and_then(|value| value.parse::<u32>().ok())
-        .ok_or_else(|| anyhow::anyhow!("invalid systemd LISTEN_PID"))?;
-    if pid != std::process::id() {
-        anyhow::bail!("systemd listener belongs to a different process");
-    }
-    if listen_fds.as_deref() != Some("1") || listen_names.as_deref() != Some(FD_NAME) {
-        anyhow::bail!("expected exactly one named provider management listener");
-    }
-    let socket_type = socket_option(SYSTEMD_FIRST_FD, libc::SO_TYPE)?;
-    let accepting = socket_option(SYSTEMD_FIRST_FD, libc::SO_ACCEPTCONN)?;
-    if socket_type != libc::SOCK_STREAM || accepting != 1 {
-        anyhow::bail!("provider management descriptor is not a listening stream socket");
-    }
-    // SAFETY: F_GETFD takes no pointer; descriptor 3 was checked above to be the listening socket
-    // systemd passed to this process.
-    let flags = unsafe { libc::fcntl(SYSTEMD_FIRST_FD, libc::F_GETFD) };
-    if flags < 0
-        // SAFETY: F_SETFD takes an integer flag set; descriptor 3 is open (checked above).
-        || unsafe { libc::fcntl(SYSTEMD_FIRST_FD, libc::F_SETFD, flags | libc::FD_CLOEXEC) } < 0
-    {
-        return Err(io::Error::last_os_error().into());
-    }
-    // SAFETY: systemd passed descriptor 3 to this process (LISTEN_PID and LISTEN_FDS checked
-    // above), and only the first take of the variables reaches this line, so this is its one owner.
-    let owned = unsafe { OwnedFd::from_raw_fd(SYSTEMD_FIRST_FD) };
-    Ok(Some(std::os::unix::net::UnixListener::from(owned)))
-}
-
-#[cfg(target_os = "linux")]
-fn socket_option(fd: std::os::fd::RawFd, option: libc::c_int) -> io::Result<libc::c_int> {
-    use std::mem::size_of;
-
-    let mut value = 0;
-    let mut length = size_of::<libc::c_int>() as libc::socklen_t;
-    // SAFETY: getsockopt writes at most `length` bytes into `value` and updates `length`; both are
-    // live locals and `length` starts as the size of `value`.
-    let result = unsafe {
-        libc::getsockopt(fd, libc::SOL_SOCKET, option, (&raw mut value).cast(), &raw mut length)
-    };
-    if result != 0 {
-        return Err(io::Error::last_os_error());
-    }
-    if length as usize != size_of::<libc::c_int>() {
-        return Err(io::Error::new(io::ErrorKind::InvalidData, "invalid socket option length"));
-    }
-    Ok(value)
 }
 
 struct ServedMuxCleanup {
@@ -2238,7 +2204,8 @@ impl LocalOwnerEventLoop {
             stop.close();
         }
         self.thread.take().map_or(Ok(()), |thread| {
-            thread.join().map_err(|_| anyhow::anyhow!("local owner event loop panicked"))
+            blocking::thread::join(thread)
+                .map_err(|_| anyhow::anyhow!("local owner event loop panicked"))
         })
     }
 }
@@ -2263,6 +2230,7 @@ fn run_server(
     args: Args,
     provider_workspace_authority: Option<ProviderWorkspaceAuthority>,
     config: config::StartupConfigSnapshot,
+    startup: Arc<StartupMarks>,
 ) -> anyhow::Result<()> {
     #[cfg(not(unix))]
     reject_unsupported_remote_options(&args)?;
@@ -2271,10 +2239,11 @@ fn run_server(
     // Windows hosts get no orphan grace (no app bundles there to classify).
     #[cfg(unix)]
     host_orphan_policy::install();
-    owner_start::start_server_process(&args)?;
+    let supervisor = owner_start::start_server_process(&args)?;
+    startup.mark(StartupMark::OwnerPrepared);
     let owner_host_colors = args.owner_host_colors();
     #[cfg(target_os = "linux")]
-    let provider_management_listener = take_provider_management_listener()?;
+    let provider_management_listener = provider_authority::take_management_listener()?;
     #[cfg(not(target_os = "linux"))]
     let provider_management_listener: Option<()> = None;
     if provider_workspace_authority.is_some() && provider_management_listener.is_some() {
@@ -2295,7 +2264,7 @@ fn run_server(
     };
     let socket_is_derived = args.socket.is_none();
     if args.should_attach_existing(&ws_addr, &ws_token)
-        && socket_path.exists()
+        && cmux_blocking::fs::metadata(&socket_path).is_ok()
         && let Ok(remote) = RemoteSession::connect_session(&socket_path, socket_is_derived)
     {
         return run_connected_session_client(
@@ -2430,6 +2399,7 @@ fn run_server(
     let restoring_server =
         cmux_tui_core::server::bind_session_socket(&args.session, args.socket.clone())?
             .serve_restoring()?;
+    startup.mark(StartupMark::SocketBound);
     let mux =
         match (state_root.as_deref(), provider_workspace_authority, provider_management_pending) {
             (Some(root), Some(authority), false) => Mux::open_persistent_provider_managed(
@@ -2456,9 +2426,9 @@ fn run_server(
                 new_mux_generation()?,
             ),
             (None, None, false) => Mux::try_new(args.session.clone(), surface_options),
-            (_, Some(_), true) => {
-                unreachable!("conflicting provider authority inputs rejected above")
-            }
+            (_, Some(_), true) => Err(anyhow::anyhow!(
+                "a machine provider authority cannot be combined with pending provider management"
+            )),
         };
     let mux = match mux {
         Ok(mux) => mux,
@@ -2475,6 +2445,8 @@ fn run_server(
             ));
         }
     };
+    mux.install_startup_marks(startup);
+    mux.mark_startup(StartupMark::MuxRestored);
     // Cloud's trusted-carrier daemon owns the initial session shape. It creates
     // workspace-1 with one terminal before accepting clients, and the
     // idempotent Session bootstrap preserves existing names and sessions.
@@ -2534,6 +2506,7 @@ fn run_server(
                 start_local_owner_event_loop(&mux)
             }
         });
+    mux.mark_startup(StartupMark::OwnerEventLoop);
     let pending_server = restoring_server.attach(mux.clone());
     // Kept alive until this function returns; dropping it removes the socket.
     #[cfg(unix)]
@@ -2618,6 +2591,7 @@ fn run_server(
         // A forwarded page must never reach the daemon's own control port.
         loopback_forward_policy.deny_port(server.local_addr().port());
     }
+    mux.mark_startup(StartupMark::WebsocketReady);
     let websocket_server = websocket_server.map(|server| {
         websocket_credential::attach(server, &socket_path, ws_token_minted, &ws_token)
     });
@@ -2704,6 +2678,7 @@ fn run_server(
             None
         }
     };
+    mux.mark_startup(StartupMark::LaunchSnapshotWriterStarted);
 
     let machine_runtime = (config.machine_sidebar.enabled
         || !config.machine_sidebar.create_sources.is_empty()
@@ -2722,7 +2697,7 @@ fn run_server(
         }
         #[cfg(unix)]
         {
-            run_headless(&mux, &socket_path, || {
+            run_headless(&mux, &socket_path, &supervisor, || {
                 remote_runtime
                     .as_ref()
                     .is_some_and(remote_runtime::DaemonRuntimeHandle::is_finished)
@@ -2730,7 +2705,7 @@ fn run_server(
         }
         #[cfg(not(unix))]
         {
-            run_headless(&mux, &socket_path, || false)
+            run_headless(&mux, &socket_path, &supervisor, || false)
         }
     } else if let Some(runtime) = machine_runtime {
         run_machine_client(runtime, mux.clone(), config)
@@ -2748,6 +2723,7 @@ fn run_server(
             Err(error) => Err(error),
         }
     };
+    owner_start::stop_supervised(&supervisor, &result);
     // The owner's loop ended (a termination signal, shutdown-daemon or the
     // last client): record the session shutdown before any teardown, so a
     // shell that dies of the same logout signal is a host loss
@@ -2822,22 +2798,30 @@ fn start_local_owner_event_loop_with_completion(
     let weak_mux = Arc::downgrade(mux);
     let events = local_owner_reload_events(mux);
     let stop = events.clone();
-    let thread = std::thread::spawn(move || {
-        while let Ok(event) = events.recv() {
-            let mux = weak_mux.upgrade();
-            dispatch_local_owner_event(&event, move || {
-                if let Some(mux) = mux {
-                    let request = mux.begin_config_reload_application();
-                    let config = config::load();
-                    session::apply_config_to_local_owner(&mux, &config);
-                    if complete_reload {
-                        mux.complete_config_reload_application(request);
+    // supervise-allow: owned by LocalOwnerEventLoop, which closes its events and joins it at finish, returning a panic as the owner's error.
+    let thread = cmux_threads::spawn(
+        "local-owner-events",
+        cmux_threads::ThreadQos::UserInitiated,
+        move || {
+            while let Ok(event) = events.recv() {
+                let mux = weak_mux.upgrade();
+                dispatch_local_owner_event(&event, move || {
+                    if let Some(mux) = mux {
+                        let request = mux.begin_config_reload_application();
+                        let config = config::load();
+                        session::apply_config_to_local_owner(&mux, &config);
+                        if complete_reload {
+                            mux.complete_config_reload_application(request);
+                        }
                     }
-                }
-            });
-        }
-    });
-    LocalOwnerEventLoop { stop: Some(stop), thread: Some(thread) }
+                });
+            }
+        },
+    );
+    let thread = thread
+        .inspect_err(|error| eprintln!("cmux-tui: local owner event loop did not start: {error}"))
+        .ok();
+    LocalOwnerEventLoop { stop: Some(stop), thread }
 }
 
 /// `CMUX_TUI_REMOTE_WS_TRUSTED_CARRIER=1` is how a systemd drop-in turns the
@@ -3089,7 +3073,7 @@ fn run_machine_client(
     owner_mux: Arc<Mux>,
     config: config::StartupConfigSnapshot,
 ) -> anyhow::Result<()> {
-    let active = runtime.initial_key();
+    let active = runtime.initial_key()?;
     let connections = MachineConnectionHub::new(runtime.connection_connectors());
     let session = connections.connect(active)?;
     run_machine_client_with_hub(runtime, session, connections, Some(owner_mux), config, None)
@@ -3102,7 +3086,7 @@ fn run_machine_client_with_initial(
     config: config::StartupConfigSnapshot,
     host_colors: Option<cmux_tui_core::DefaultColors>,
 ) -> anyhow::Result<()> {
-    let active = runtime.initial_key();
+    let active = runtime.initial_key()?;
     let connections = MachineConnectionHub::new(runtime.connection_connectors());
     connections
         .insert_ready(active, MachineConnection { session: session.clone(), _lease: active_lease });
@@ -3117,7 +3101,7 @@ fn run_machine_client_with_hub(
     config: config::StartupConfigSnapshot,
     host_colors: Option<cmux_tui_core::DefaultColors>,
 ) -> anyhow::Result<()> {
-    let active = runtime.initial_key();
+    let active = runtime.initial_key()?;
     let label = runtime.name(active).unwrap_or("machine").to_string();
     let mut machine_ui = runtime.ui_state(active);
     machine_ui.set_connection_phases(connections.phases());

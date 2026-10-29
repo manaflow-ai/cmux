@@ -6,7 +6,7 @@ import Foundation
 import Sentry
 import Testing
 
-/// p09-observability-084, role-aware: the `cef.fatal` tag comes from the log of the process that ran
+/// role-aware: the `cef.fatal` tag comes from the log of the process that ran
 /// `CefInitialize`, written while it ran: the app's own log for the app's crash event, the host's for the host's.
 struct CEFFatalLineRoleTests {
     private static let pid: Int32 = 4242

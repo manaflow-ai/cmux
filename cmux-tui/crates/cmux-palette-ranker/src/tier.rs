@@ -49,21 +49,39 @@ pub(crate) struct Field {
     pub weight: i64,
 }
 
-pub(crate) fn fields_for(entry: &Entry) -> Vec<Field> {
-    let mut fields = vec![Field { text: FoldedText::new(&entry.title), weight: TITLE_WEIGHT }];
+/// A row's matchable text: its title first, then keywords, subtitle and accessory.
+pub(crate) struct Fields {
+    title: Field,
+    others: Vec<Field>,
+}
+
+impl Fields {
+    pub(crate) fn title(&self) -> &FoldedText {
+        &self.title.text
+    }
+
+    /// Every field, the title first.
+    pub(crate) fn iter(&self) -> impl Iterator<Item = &Field> {
+        std::iter::once(&self.title).chain(&self.others)
+    }
+}
+
+pub(crate) fn fields_for(entry: &Entry) -> Fields {
+    let title = Field { text: FoldedText::new(&entry.title), weight: TITLE_WEIGHT };
+    let mut others = Vec::new();
     if !entry.keywords.is_empty() {
-        fields.push(Field {
+        others.push(Field {
             text: FoldedText::new(&entry.keywords.join(" ")),
             weight: KEYWORD_WEIGHT,
         });
     }
     if let Some(subtitle) = entry.subtitle.as_deref().filter(|text| !text.is_empty()) {
-        fields.push(Field { text: FoldedText::new(subtitle), weight: SUBTITLE_WEIGHT });
+        others.push(Field { text: FoldedText::new(subtitle), weight: SUBTITLE_WEIGHT });
     }
     if let Some(accessory) = entry.accessory.as_deref().filter(|text| !text.is_empty()) {
-        fields.push(Field { text: FoldedText::new(accessory), weight: ACCESSORY_WEIGHT });
+        others.push(Field { text: FoldedText::new(accessory), weight: ACCESSORY_WEIGHT });
     }
-    fields
+    Fields { title, others }
 }
 
 struct TokenMatch {
@@ -81,9 +99,10 @@ fn substring_start(
     if needle.is_empty() || needle.len() > folded.len() {
         return None;
     }
-    (0..=folded.len() - needle.len()).find(|&start| {
-        (!require_boundary || bonuses[start] >= 7) && folded[start..start + needle.len()] == *needle
-    })
+    folded
+        .windows(needle.len())
+        .zip(bonuses)
+        .position(|(window, &bonus)| (!require_boundary || bonus >= 7) && window == needle)
 }
 
 fn window_score(token: &[char], folded: &[char], bonuses: &[i64], start: usize, end: usize) -> i64 {
@@ -91,10 +110,11 @@ fn window_score(token: &[char], folded: &[char], bonuses: &[i64], start: usize, 
     let mut token_index = 0;
     let mut previous_match: i64 = -2;
     let mut run_bonus = 0;
-    let mut index = start;
-    while index <= end && token_index < token.len() {
-        if folded[index] == token[token_index] {
-            let mut bonus = bonuses[index];
+    let window = folded.iter().zip(bonuses).enumerate().take(end + 1).skip(start);
+    for (index, (&scalar, &index_bonus)) in window {
+        let Some(&wanted) = token.get(token_index) else { break };
+        if scalar == wanted {
+            let mut bonus = index_bonus;
             if index as i64 == previous_match + 1 {
                 bonus = bonus.max(run_bonus);
                 score += 5;
@@ -110,18 +130,19 @@ fn window_score(token: &[char], folded: &[char], bonuses: &[i64], start: usize, 
         } else {
             score -= if index as i64 == previous_match + 1 { 3 } else { 1 };
         }
-        index += 1;
     }
     score - start.min(12) as i64
 }
 
+/// Where the first in-order match of every scalar of `token` from `start` ends.
 fn forward_window_end(token: &[char], folded: &[char], start: usize) -> Option<usize> {
-    let mut token_index = 0;
-    for (index, &scalar) in folded.iter().enumerate().skip(start) {
-        if scalar == token[token_index] {
-            token_index += 1;
-            if token_index == token.len() {
-                return Some(index);
+    let mut wanted = token.iter();
+    let mut next = wanted.next()?;
+    for (index, scalar) in folded.iter().enumerate().skip(start) {
+        if scalar == next {
+            match wanted.next() {
+                Some(following) => next = following,
+                None => return Some(index),
             }
         }
     }
@@ -129,9 +150,9 @@ fn forward_window_end(token: &[char], folded: &[char], start: usize) -> Option<u
 }
 
 fn token_score(token: &[char], text: &FoldedText) -> Option<TokenMatch> {
-    if token.is_empty() {
+    let Some(&first) = token.first() else {
         return Some(TokenMatch { score: 0, start: 0, end: 0 });
-    }
+    };
     if token.len() > text.folded.len() {
         return None;
     }
@@ -144,31 +165,32 @@ fn token_score(token: &[char], text: &FoldedText) -> Option<TokenMatch> {
         });
     }
     let end = forward_window_end(token, &text.folded, 0)?;
-    let mut token_index = token.len() - 1;
+    // Walk back from `end` to the latest start that still matches the whole token.
+    let mut wanted = token.iter().rev();
+    let mut next = wanted.next()?;
     let mut start = end;
-    for index in (0..=end).rev() {
-        if text.folded[index] == token[token_index] {
-            if token_index == 0 {
-                start = index;
-                break;
+    for (index, scalar) in text.folded.iter().enumerate().take(end + 1).rev() {
+        if scalar == next {
+            match wanted.next() {
+                Some(previous) => next = previous,
+                None => {
+                    start = index;
+                    break;
+                }
             }
-            token_index -= 1;
         }
     }
     let mut end = end;
     let mut best = window_score(token, &text.folded, &text.bonus, start, end);
-    if text.bonus[start] < 9 {
-        let first = token[0];
-        if let Some(index) = (0..text.folded.len())
-            .find(|&index| text.folded[index] == first && text.bonus[index] >= 7 && index != start)
-            && let Some(alternate_end) = forward_window_end(token, &text.folded, index)
-        {
-            let alternate = window_score(token, &text.folded, &text.bonus, index, alternate_end);
-            if alternate > best {
-                best = alternate;
-                start = index;
-                end = alternate_end;
-            }
+    if text.bonus.get(start).is_some_and(|&bonus| bonus < 9)
+        && let Some(index) = word_start_of(first, text, |index| index != start)
+        && let Some(alternate_end) = forward_window_end(token, &text.folded, index)
+    {
+        let alternate = window_score(token, &text.folded, &text.bonus, index, alternate_end);
+        if alternate > best {
+            best = alternate;
+            start = index;
+            end = alternate_end;
         }
     }
     Some(TokenMatch { score: best, start, end })
@@ -195,9 +217,7 @@ fn phrase_bonus(query: &Query, text: &FoldedText) -> i64 {
 /// How well one token matches one field: 3 starts a word, 2 contiguous, 1 in order from a word
 /// start, 0 none.
 fn token_level(token: &[char], token_mask: u64, text: &FoldedText) -> u8 {
-    if token.is_empty() {
-        return 3;
-    }
+    let Some(&first) = token.first() else { return 3 };
     if text.mask & token_mask != token_mask {
         return 0;
     }
@@ -207,18 +227,30 @@ fn token_level(token: &[char], token_mask: u64, text: &FoldedText) -> u8 {
     if substring_start(token, &text.folded, &text.bonus, false).is_some() {
         return 2;
     }
-    let from_word_start = (0..text.folded.len()).any(|index| {
-        text.folded[index] == token[0]
-            && text.bonus[index] >= 7
-            && forward_window_end(token, &text.folded, index).is_some()
+    let from_word_start = word_start_of(first, text, |index| {
+        forward_window_end(token, &text.folded, index).is_some()
     });
-    u8::from(from_word_start)
+    u8::from(from_word_start.is_some())
+}
+
+/// The first word start (bonus 7 or more) where `text` has `scalar` and `accept` holds.
+fn word_start_of(
+    scalar: char,
+    text: &FoldedText,
+    mut accept: impl FnMut(usize) -> bool,
+) -> Option<usize> {
+    text.folded
+        .iter()
+        .zip(&text.bonus)
+        .enumerate()
+        .find(|&(index, (&candidate, &bonus))| candidate == scalar && bonus >= 7 && accept(index))
+        .map(|(index, _)| index)
 }
 
 /// The tier one token reaches through its best field; -1 when no field matches.
-fn token_tier(token: &[char], token_mask: u64, fields: &[Field]) -> i64 {
+fn token_tier(token: &[char], token_mask: u64, fields: &Fields) -> i64 {
     let mut best = -1;
-    for field in fields {
+    for field in fields.iter() {
         let level = token_level(token, token_mask, &field.text);
         if level == 0 {
             continue;
@@ -246,10 +278,7 @@ fn within_one_edit(a: &[char], b: &[char]) -> bool {
     if a.len().abs_diff(b.len()) > 1 {
         return false;
     }
-    let mut i = 0;
-    while i < a.len() && i < b.len() && a[i] == b[i] {
-        i += 1;
-    }
+    let i = a.iter().zip(b).take_while(|(x, y)| x == y).count();
     if i == a.len() && i == b.len() {
         return true;
     }
@@ -263,7 +292,10 @@ fn within_one_edit(a: &[char], b: &[char]) -> bool {
         if rest_equal(i + 1, i + 1) {
             return true;
         }
-        return i + 1 < a.len() && a[i] == b[i + 1] && a[i + 1] == b[i] && rest_equal(i + 2, i + 2);
+        return i + 1 < a.len()
+            && a.get(i) == b.get(i + 1)
+            && a.get(i + 1) == b.get(i)
+            && rest_equal(i + 2, i + 2);
     }
     if a.len() > b.len() { rest_equal(i + 1, i) } else { rest_equal(i, i + 1) }
 }
@@ -273,11 +305,14 @@ fn is_transposition(a: &[char], b: &[char]) -> bool {
     if a.len() != b.len() {
         return false;
     }
-    let diff: Vec<usize> = (0..a.len()).filter(|&i| a[i] != b[i]).collect();
-    diff.len() == 2
-        && diff[1] == diff[0] + 1
-        && a[diff[0]] == b[diff[1]]
-        && a[diff[1]] == b[diff[0]]
+    let diff: Vec<usize> =
+        a.iter().zip(b).enumerate().filter(|(_, (x, y))| x != y).map(|(i, _)| i).collect();
+    match diff.as_slice() {
+        &[first, second] => {
+            second == first + 1 && a.get(first) == b.get(second) && a.get(second) == b.get(first)
+        }
+        _ => false,
+    }
 }
 
 /// The query with each mistyped token replaced by the title word it is one edit from.
@@ -285,8 +320,8 @@ fn typo_correction(query: &Query, title: &FoldedText) -> Option<Query> {
     let words = title.words();
     let mut typos = 0;
     let mut corrected: Vec<String> = Vec::with_capacity(query.tokens.len());
-    for (token_index, token) in query.tokens.iter().enumerate() {
-        if token_level(token, query.token_masks[token_index], title) >= 2 {
+    for (token, &token_mask) in query.tokens.iter().zip(&query.token_masks) {
+        if token_level(token, token_mask, title) >= 2 {
             corrected.push(token.iter().collect());
             continue;
         }
@@ -297,7 +332,8 @@ fn typo_correction(query: &Query, title: &FoldedText) -> Option<Query> {
             if word.len() + 1 < token.len() {
                 return false;
             }
-            let head = |n: usize| &word[..n.min(word.len())];
+            // The first `n` scalars, or the whole word when it is shorter.
+            let head = |n: usize| word.get(..n).unwrap_or(word);
             if token.len() == 3 {
                 return is_transposition(token, head(3));
             }
@@ -322,7 +358,8 @@ fn starts_with_whole_words(query: &Query, text: &FoldedText) -> bool {
     match text.original.get(query.phrase.len()) {
         None => true,
         Some(&next) => {
-            char_class(next) == CharClass::Delimiter || text.bonus[query.phrase.len()] >= 7
+            char_class(next) == CharClass::Delimiter
+                || text.bonus.get(query.phrase.len()).is_some_and(|&bonus| bonus >= 7)
         }
     }
 }
@@ -364,10 +401,10 @@ impl QueryRef<'_> {
 fn text_tier<'q>(
     entry: &Entry,
     query: &'q Query,
-    fields: &[Field],
+    fields: &Fields,
     allows_typo: bool,
 ) -> Option<TierMatch<'q>> {
-    let title = &fields[0].text;
+    let title = fields.title();
     let tiered = |tier: i64| Some(TierMatch { tier, query: QueryRef::Original(query) });
     let title_has_letters = title.mask & query.mask == query.mask;
     if title_has_letters && title_is_query(&entry.title, &query.raw) {
@@ -426,7 +463,7 @@ pub(crate) fn entry_tier<'q>(
     entry: &Entry,
     id: Option<&[char]>,
     query: &'q Query,
-    fields: &[Field],
+    fields: &Fields,
     allows_typo: bool,
 ) -> Option<TierMatch<'q>> {
     let mut found = text_tier(entry, query, fields, allows_typo);
@@ -445,32 +482,38 @@ pub(crate) fn entry_tier<'q>(
 
 pub(crate) fn highlights_for(query: &Query, title: &FoldedText) -> Vec<usize> {
     if let Some(phrase_start) = substring_start(&query.phrase, &title.folded, &title.bonus, false) {
-        return (phrase_start..phrase_start + query.phrase.len())
-            .filter(|&index| title.folded[index] != ' ')
+        return title
+            .folded
+            .iter()
+            .enumerate()
+            .skip(phrase_start)
+            .take(query.phrase.len())
+            .filter(|(_, scalar)| **scalar != ' ')
+            .map(|(index, _)| index)
             .collect();
     }
     let mut positions = std::collections::BTreeSet::new();
     for token in &query.tokens {
         let Some(found) = token_score(token, title) else { continue };
-        let mut matched = 0;
-        let mut index = found.start;
-        while index <= found.end && matched < token.len() {
-            if title.folded[index] == token[matched] {
+        let mut wanted = token.iter().peekable();
+        let window = title.folded.iter().enumerate().take(found.end + 1).skip(found.start);
+        for (index, scalar) in window {
+            let Some(&next) = wanted.peek() else { break };
+            if scalar == next {
                 positions.insert(index);
-                matched += 1;
+                wanted.next();
             }
-            index += 1;
         }
     }
     positions.into_iter().collect()
 }
 
 /// The match quality inside a tier.
-pub(crate) fn match_quality(query: &Query, fields: &[Field]) -> i64 {
+pub(crate) fn match_quality(query: &Query, fields: &Fields) -> i64 {
     let mut total = 0;
     for (token, &token_mask) in query.tokens.iter().zip(&query.token_masks) {
         let mut best = 0;
-        for field in fields {
+        for field in fields.iter() {
             if field.text.mask & token_mask != token_mask {
                 continue;
             }
@@ -481,12 +524,12 @@ pub(crate) fn match_quality(query: &Query, fields: &[Field]) -> i64 {
         total += best;
     }
     let mut bonus = 0;
-    for field in fields {
+    for field in fields.iter() {
         if field.text.mask & query.mask == query.mask {
             bonus = bonus.max(phrase_bonus(query, &field.text) * field.weight / 100);
         }
     }
-    let title = &fields[0].text;
+    let title = fields.title();
     let initials_bonus = if query.joined.len() >= 2
         && title.initials.len() == query.joined.len()
         && has_prefix(&title.initials, &query.joined)

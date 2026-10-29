@@ -16,9 +16,9 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../../Shared/CMUXMobileCore"),
-        // The portable Mutex the timeout cancellation bridge keeps its state in (p10-stability-172).
+        // The portable Mutex the timeout cancellation bridge keeps its state in.
         .package(path: "../../Shared/CmuxSafeConcurrency"),
-        // The Mutex of the client lifecycle gate (p02-threads-146).
+        // The Mutex of the client lifecycle gate.
         .package(path: "../../Shared/CmuxThreading"),
         .package(path: "../../Shared/CmuxTerminalSizing"),
         .package(path: "../CmuxMobileShellModel"),

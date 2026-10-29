@@ -53,9 +53,9 @@ nonisolated struct AgentPaneProjectIcon: Sendable {
             return File(size: size, modified: values.contentModificationDate ?? .distantPast)
         }
         read = { path in
-            guard let handle = FileHandle(forReadingAtPath: path) else { return nil }
+            guard let handle = try? FileHandle.blockingForReading(from: URL(fileURLWithPath: path)) else { return nil }
             defer { try? handle.close() }
-            return try? handle.read(upToCount: AgentPaneProjectIcon.maximumBytes + 1)
+            return try? handle.blockingRead(upToCount: AgentPaneProjectIcon.maximumBytes + 1)
         }
         list = { path in try? FileManager.default.contentsOfDirectory(atPath: path) }
     }
@@ -159,7 +159,7 @@ nonisolated struct AgentPaneProjectIcon: Sendable {
     private static func realPath(_ path: String) -> String? {
         // SAFETY: realpath reads the NUL-terminated copy of `path` made for the call and returns a malloc'd
         // NUL-terminated string or nil; it is copied once into the result, then freed once.
-        guard let resolved = unsafe realpath(path, nil) else { return nil }
+        guard let resolved = unsafe blockingRealpath(path, nil) else { return nil }
         defer { unsafe free(resolved) }
         return unsafe String(cString: resolved)
     }

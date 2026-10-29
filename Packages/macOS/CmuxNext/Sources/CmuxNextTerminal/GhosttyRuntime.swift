@@ -87,6 +87,8 @@ public final class GhosttyRuntime {
     let context = RuntimeCallbackContext()
     /// The tick on the app's board and its scheduler (``attach(to:holdsHiddenActions:)``); nil before that, and in tests.
     var ticks: GhosttyTickClass?
+    /// Paces the ticks to the display frame while output streams (``attach(to:holdsHiddenActions:)``); nil before that.
+    var tickPacer: GhosttyTickPacer?
     /// A hidden terminal's state actions wait for it to show (``attach(to:holdsHiddenActions:)``).
     var holdsHiddenActions = false
     let hostKeybindCache = HostKeybindCache()
@@ -94,12 +96,14 @@ public final class GhosttyRuntime {
     /// ASCII map); the app starts it with its runner, this runtime's observers keep it current.
     public let inputSources = TerminalInputSources()
     /// The terminals' key-to-echo stages and the process's contents gate; the app installs its input
-    /// latency tracker here (``TerminalEchoStages/install(_:)``, p04-input-094) before its first terminal.
+    /// latency tracker here (``TerminalEchoStages/install(_:)``) before its first terminal.
     public let echoStages: TerminalEchoStages
-    /// Ghostty's frames into the trace ring (p09-observability-049); the app wires ``GhosttyTraceHook/connect(on:presents:)``.
+    /// Splits this runtime's first surface's cost into phases; later surfaces take no split.
+    let firstSurfaceSplit = TerminalFirstSurfaceSplit()
+    /// Ghostty's frames into the trace ring; the app wires ``GhosttyTraceHook/connect(on:presents:)``.
     public let traceHook: GhosttyTraceHook
     /// The process's secure keyboard entry for its terminals (HIToolbox counts it per process); it holds the
-    /// app trace runtime's keystroke-timing gate closed while on (p09-observability-128).
+    /// app trace runtime's keystroke-timing gate closed while on.
     public let secureInput = TerminalSecureInput(trace: .shared)
     private var observers: [any NSObjectProtocol] = []
     private var appearanceObservation: NSKeyValueObservation?
@@ -232,7 +236,7 @@ public final class GhosttyRuntime {
     /// Test hook: when set, only this file (plus its `config-file` includes)
     /// is loaded instead of the user's default Ghostty config files, so
     /// visual checks can run a tagged build under another theme.
-    static let configOverrideKey = "CMUX_NEXT_GHOSTTY_CONFIG"
+    nonisolated static let configOverrideKey = "CMUX_NEXT_GHOSTTY_CONFIG"
 
     /// cmux's own theme (`appearance.theme` in cmux.json, a Ghostty theme
     /// name or `light:A,dark:B`), loaded after the Ghostty config files so

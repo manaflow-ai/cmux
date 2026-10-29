@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 import CmuxNextIcons
+import CmuxNextWakeups
 
 /// One notification in the panel: unread dot, title and time, the source
 /// workspace, the body (two lines), and a dismiss button. A press opens it;
@@ -26,8 +27,12 @@ final class NotificationRowView: NSView {
         return formatter
     }()
 
-    init(row: NotificationsPanelRow, now: Date, callbacks: Callbacks) {
+    /// The panel's node: an appearance change while the panel is closed recolors the row when it shows.
+    private let node: VisibilityNode
+
+    init(row: NotificationsPanelRow, now: Date, node: VisibilityNode, callbacks: Callbacks) {
         self.row = row
+        self.node = node
         self.callbacks = callbacks
         super.init(frame: .zero)
         wantsLayer = true
@@ -75,7 +80,7 @@ final class NotificationRowView: NSView {
 
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
-        applyColors()
+        node.deferUntilVisible(key: ObjectIdentifier(self)) { [weak self] in self?.applyColors() }
     }
 
     private func applyColors() {

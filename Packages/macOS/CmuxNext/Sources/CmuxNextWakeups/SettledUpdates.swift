@@ -20,6 +20,7 @@ public func assignIfChanged<Root: AnyObject, Value: Equatable>(
 /// re-entry and count it in the ledger under `owner` with reason
 /// "reentrant update"; release builds only count.
 public final class UpdateCycleDetector: Sendable {
+    /// The owner re-entries are counted under in the ledger.
     public let owner: String
     /// Nesting beyond this depth is reported.
     public let maxDepth: Int
@@ -28,6 +29,10 @@ public final class UpdateCycleDetector: Sendable {
     private let ledger: WakeupLedger
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "wakeups")
 
+    /// - Parameters:
+    ///   - owner: The ledger owner of its re-entries.
+    ///   - maxDepth: The deepest nesting that is not a re-entry.
+    ///   - ledger: Where re-entries are counted.
     public init(owner: String, maxDepth: Int = 1, ledger: WakeupLedger = .shared) {
         self.owner = owner
         self.maxDepth = maxDepth

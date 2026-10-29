@@ -144,9 +144,16 @@ impl Hub {
         // Weak: dropping the hub drops the watcher, which closes the channel
         // and ends the thread.
         let watch = Arc::downgrade(&watch);
-        let thread = std::thread::Builder::new()
-            .name(THREAD.into())
-            .spawn(move || run(&rx, &watch, &sources, &signal));
+        // It feeds the hub: a panic in it is fatal. It ends with its channel, when the hub
+        // drops the watcher, so shutdown does not wait for it.
+        let thread = crate::supervised::thread(
+            &self.supervisor,
+            THREAD,
+            cmux_threads::ThreadQos::Utility,
+            Fatal,
+            ShutdownBehavior::Continue,
+            move |_stop| run(&rx, &watch, &sources, &signal),
+        );
         if let Err(e) = thread {
             tracing::warn!("harness watch thread cannot start: {e}");
         }
@@ -182,7 +189,7 @@ impl Hub {
                 let _ = self
                     .harness_watch
                     .changes
-                    .send(json!({"harnesses": reply["harnesses"], "diagnostics": diagnostics}));
+                    .send(json!({"harnesses": reply.get("harnesses"), "diagnostics": diagnostics}));
                 true
             }
             Err(e) => {

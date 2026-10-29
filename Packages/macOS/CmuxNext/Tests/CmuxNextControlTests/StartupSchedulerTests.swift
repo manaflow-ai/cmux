@@ -58,7 +58,7 @@ import Testing
         #expect(f.ran.names == ["Updater.start"], "the released work ran once")
     }
 
-    /// p08-startup-068: work that measures the frame waits for a committed frame, not for a missed deadline.
+    /// Work that measures the frame waits for a committed frame, not for a missed deadline.
     @Test func whenFirstFrameCommittedWaitsForTheRealFrameNotAMissedOne() {
         let f = StartupFixture()
         f.startup.whenFirstFrameCommitted { [ran = f.ran] in ran.names.append("Census.early") }
@@ -389,7 +389,7 @@ import Testing
         #expect(f.startup.log.phase == .quitting)
     }
 
-    /// p08-startup-065: a value the completion's own mark must follow (`launch.views_built` before `startup_complete`)
+    /// A value the completion's own mark must follow (`launch.views_built` before `startup_complete`)
     /// registers late and still runs before every earlier `whenComplete` observer.
     @Test func aFirstObserverRegisteredLateRunsBeforeTheEarlierObservers() {
         let f = StartupFixture()

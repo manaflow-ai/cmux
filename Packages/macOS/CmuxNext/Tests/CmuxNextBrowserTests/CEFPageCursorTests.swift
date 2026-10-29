@@ -76,7 +76,7 @@ import Testing
     /// the page window shows Chromium's cursor).
     @Test func thePageViewCoversThePageWithItsCursor() {
         let page = ChromiumHostPageView(frame: NSRect(x: 0, y: 0, width: 300, height: 200), inputTarget: .view,
-                                        makeLayerHost: { _ in CALayer() }, pageUpdateCenter: NotificationCenter())
+                                        makeLayerHost: { _ in CALayer() }, windowEventCenter: NotificationCenter())
         #expect(page.pageCursor == nil)
         #expect(page.shownCursor == nil)
         #expect(page.pageCursorName == nil)
@@ -129,7 +129,7 @@ import Testing
         }
     }
 
-    /// The page cursor lives in `.cursorUpdate` areas over the uncovered pieces (p04-input-090): a divider
+    /// The page cursor lives in `.cursorUpdate` areas over the uncovered pieces: a divider
     /// grab moving over the page on each of 20 drag frames swaps the areas and invalidates none of the
     /// window's cursor rects, where each move rebuilt them before. No cursor: no areas.
     @Test func aHoleMovingEveryFrameRebuildsNoCursorRects() throws {
@@ -140,7 +140,7 @@ import Testing
         let container = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 200))
         window.contentView = container
         let page = ChromiumHostPageView(frame: container.bounds, inputTarget: .view,
-                                        makeLayerHost: { _ in CALayer() }, pageUpdateCenter: NotificationCenter())
+                                        makeLayerHost: { _ in CALayer() }, windowEventCenter: NotificationCenter())
         container.addSubview(page)
         page.updateTrackingAreas()
         #expect(page.cursorAreas.isEmpty, "no page cursor yet")
@@ -172,9 +172,9 @@ import Testing
     /// Host mode: the page view's cursor holes follow its host view's occlusion rects (the find bar and
     /// prompt bar over the page), and the crash page covers all of it.
     @Test func thePageCursorNeverShowsOverNativeUIOnThePage() {
-        let host = CEFHostView(frame: NSRect(x: 0, y: 0, width: 300, height: 200), pageUpdateCenter: NotificationCenter())
+        let host = CEFHostView(frame: NSRect(x: 0, y: 0, width: 300, height: 200))
         let page = ChromiumHostPageView(frame: host.bounds, inputTarget: .pageWindow,
-                                        makeLayerHost: { _ in CALayer() }, pageUpdateCenter: NotificationCenter())
+                                        makeLayerHost: { _ in CALayer() }, windowEventCenter: NotificationCenter())
         host.addSubview(page, positioned: .below, relativeTo: nil)
         let findBar = CGRect(x: 180, y: 160, width: 110, height: 30)
         host.occlusionRects = [findBar]
@@ -186,7 +186,7 @@ import Testing
         let crash = NSView()
         #expect(page.setCrashOverlay(crash) == false, "a page window page shows no crash overlay")
         let hosted = ChromiumHostPageView(frame: host.bounds, inputTarget: .view,
-                                          makeLayerHost: { _ in CALayer() }, pageUpdateCenter: NotificationCenter())
+                                          makeLayerHost: { _ in CALayer() }, windowEventCenter: NotificationCenter())
         #expect(hosted.setCrashOverlay(crash))
         #expect(hosted.coveredRects == [hosted.bounds])
         #expect(ChromiumHostPageView.uncovered(hosted.bounds, by: hosted.coveredRects).isEmpty)

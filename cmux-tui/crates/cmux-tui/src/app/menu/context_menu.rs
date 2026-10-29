@@ -221,7 +221,7 @@ impl ContextMenu {
         };
         self.levels.truncate(depth + 1);
         self.scrollbar_drag = None;
-        self.levels[depth].scroll_rows(if down { 3 } else { -3 })
+        self.levels.get_mut(depth).is_some_and(|level| level.scroll_rows(if down { 3 } else { -3 }))
     }
 
     pub(in crate::app) fn start_scrollbar_drag(&mut self, x: u16, y: u16) -> bool {
@@ -229,7 +229,9 @@ impl ContextMenu {
             return false;
         };
         self.levels.truncate(depth + 1);
-        let level = &mut self.levels[depth];
+        let Some(level) = self.levels.get_mut(depth) else {
+            return false;
+        };
         let relative = y.saturating_sub(track.y).min(track.height.saturating_sub(1));
         let (thumb_y, thumb_height) = viewport_thumb_geometry(
             level.items.len(),

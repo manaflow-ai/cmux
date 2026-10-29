@@ -1,7 +1,8 @@
 public import Foundation
 
 /// Where an attach link's live output goes without the event stream: the view's output lane
-/// (``TerminalAttachment/setOutputSink(_:)``). Called on the link's reader thread, in stream order.
+/// (``TerminalAttachment/setOutputSink(_:)``). Called on the link's decode lane (or its reader inline), in
+/// stream order.
 public final class TerminalEchoSink: Sendable {
     /// Queues one output chunk, and the echo of key press `flow` it carries, for parsing. Returns true
     /// when the lane is now above its capacity: the reader then waits until the lane calls `wake`, which

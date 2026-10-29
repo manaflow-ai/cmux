@@ -1,5 +1,5 @@
-//! The command history worker's pass class under `daemonRequestQos`
-//! (p04-input-084): a store or expiry pass runs at utility, except while a
+//! The command history worker's pass class under `daemonRequestQos`:
+//! a store or expiry pass runs at utility, except while a
 //! client waits for a delete queued behind it. The worker runs on the test
 //! thread, so `request_qos::tests::take_entered` sees the classes it entered.
 

@@ -1,7 +1,7 @@
 @testable import CmuxNextSettings
 import Testing
 
-/// `input.resampleDrags` and `input.resampleFrameAheadMs` (``DragResampleSettings``, p04-input-040): on and 0
+/// `input.resampleDrags` and `input.resampleFrameAheadMs` (``DragResampleSettings``): on and 0
 /// by default, invalid values fall back, and both rows are in the schema, off the page while the
 /// `resampledDrags` feature is off, and settable by agents (looks only).
 struct DragResampleSettingsTests {

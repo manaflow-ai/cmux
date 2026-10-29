@@ -3,10 +3,11 @@
 //! thread, runtime and shutdown handshake that feed it.
 
 use std::collections::VecDeque;
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
+use cmux_threads::sync::Condvar;
 use crossbeam_channel::{Sender as SyncSender, TrySendError};
 use crossterm::event::{Event, KeyEvent, MouseEvent, MouseEventKind};
 
@@ -237,30 +238,24 @@ impl HostInputIngress {
 
     pub(super) fn enqueue(&self, event: HostInputMessage) -> Result<bool, ()> {
         let retained_bytes = event.retained_bytes();
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if state.closed {
             return Err(());
         }
-        if event.is_passive_motion()
-            && state.events.back().is_some_and(HostInputMessage::is_passive_motion)
+        // Passive motion replaces adjacent passive motion. Crossterm can also
+        // report several intermediate sizes while a terminal is being resized:
+        // keep only the latest adjacent resize so the app always applies the
+        // final dimensions instead of spending queue space on stale events.
+        let queue = &mut *state;
+        if let Some(previous) = queue.events.back_mut()
+            && ((event.is_passive_motion() && previous.is_passive_motion())
+                || (event.is_resize() && previous.is_resize()))
         {
-            let previous_bytes =
-                state.events.back().map(HostInputMessage::retained_bytes).unwrap_or(0);
-            state.retained_bytes =
-                state.retained_bytes.saturating_sub(previous_bytes).saturating_add(retained_bytes);
-            *state.events.back_mut().unwrap() = event;
-            return Ok(false);
-        }
-        // Crossterm can report several intermediate sizes while a terminal is
-        // being resized. Keep only the latest adjacent resize so the app
-        // always applies the final dimensions instead of spending queue space
-        // on stale events.
-        if event.is_resize() && state.events.back().is_some_and(HostInputMessage::is_resize) {
-            let previous_bytes =
-                state.events.back().map(HostInputMessage::retained_bytes).unwrap_or(0);
-            state.retained_bytes =
-                state.retained_bytes.saturating_sub(previous_bytes).saturating_add(retained_bytes);
-            *state.events.back_mut().unwrap() = event;
+            queue.retained_bytes = queue
+                .retained_bytes
+                .saturating_sub(previous.retained_bytes())
+                .saturating_add(retained_bytes);
+            *previous = event;
             return Ok(false);
         }
         while !state.closed
@@ -269,7 +264,8 @@ impl HostInputIngress {
                     && state.retained_bytes.saturating_add(retained_bytes)
                         > MAX_DEFERRED_INPUT_BYTES))
         {
-            state = self.space_available.wait(state).unwrap();
+            state =
+                self.space_available.wait(state).unwrap_or_else(std::sync::PoisonError::into_inner);
         }
         if state.closed {
             return Err(());
@@ -285,11 +281,11 @@ impl HostInputIngress {
         &self,
         accept: impl FnOnce(&HostInputMessage) -> bool,
     ) -> Option<HostInputMessage> {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if !accept(state.events.front()?) {
             return None;
         }
-        let event = state.events.pop_front().unwrap();
+        let event = state.events.pop_front()?;
         state.retained_bytes = state.retained_bytes.saturating_sub(event.retained_bytes());
         if state.events.is_empty() {
             state.wake_queued = false;
@@ -300,12 +296,12 @@ impl HostInputIngress {
     }
 
     pub(super) fn close(&self) {
-        self.state.lock().unwrap().closed = true;
+        self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner).closed = true;
         self.space_available.notify_all();
     }
 
     pub(super) fn is_closed(&self) -> bool {
-        self.state.lock().unwrap().closed
+        self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner).closed
     }
 
     #[cfg(test)]
@@ -347,16 +343,18 @@ impl HostInputRuntime {
         body: impl FnOnce() + Send + 'static,
     ) -> std::io::Result<()> {
         let control = self.reader.clone();
-        let reader = std::thread::Builder::new().name(name.into()).spawn(move || {
-            let _exit = HostInputReaderExit(control);
-            body();
-        })?;
+        // supervise-allow: owned by HostInputRuntime (attach_reader); HostInputReaderExit reports its end, a panic included.
+        let reader =
+            cmux_threads::spawn(name, cmux_threads::ThreadQos::UserInitiated, move || {
+                let _exit = HostInputReaderExit(control);
+                body();
+            })?;
         self.attach_reader(reader);
         Ok(())
     }
 
     fn attach_reader(&self, reader: JoinHandle<()>) {
-        let mut state = self.reader.state.lock().unwrap();
+        let mut state = self.reader.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         assert!(!state.shutting_down, "host input reader cannot attach during shutdown");
         assert!(state.reader.is_none(), "host input reader can only be attached once");
         state.reader_thread = Some(reader.thread().id());
@@ -399,7 +397,8 @@ impl HostInputShutdown {
         // same process.
         let current_thread = std::thread::current().id();
         let reader = {
-            let mut state = self.reader.state.lock().unwrap();
+            let mut state =
+                self.reader.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             if state.complete {
                 return;
             }
@@ -408,7 +407,11 @@ impl HostInputShutdown {
                     return;
                 }
                 while !state.complete {
-                    state = self.reader.complete.wait(state).unwrap();
+                    state = self
+                        .reader
+                        .complete
+                        .wait(state)
+                        .unwrap_or_else(std::sync::PoisonError::into_inner);
                 }
                 return;
             }
@@ -421,7 +424,7 @@ impl HostInputShutdown {
             if self.reader.wait_for_exit(HOST_INPUT_READER_EXIT_DEADLINE) {
                 // The exit report is the reader's last action, so this join
                 // only waits for the thread itself to finish.
-                let _ = reader.join();
+                let _ = crate::blocking::thread::join(reader);
             } else {
                 crate::client_log::warn(
                     "input",
@@ -432,7 +435,7 @@ impl HostInputShutdown {
                 );
             }
         }
-        let mut state = self.reader.state.lock().unwrap();
+        let mut state = self.reader.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         state.complete = true;
         self.reader.complete.notify_all();
     }
@@ -508,18 +511,15 @@ impl HostInputProducer {
         // the reader even when the app event channel is full.
         match self.events.try_send(AppEvent::HostInputReady) {
             Ok(()) => true,
-            Err(TrySendError::Full(AppEvent::HostInputReady)) => {
+            Err(TrySendError::Full(_)) => {
                 // A full channel already has queued work. The event loop
                 // drains retained host input before each wait and after every
                 // queued event, so this wake hint is redundant.
                 true
             }
-            Err(TrySendError::Disconnected(AppEvent::HostInputReady)) => {
+            Err(TrySendError::Disconnected(_)) => {
                 self.ingress.close();
                 false
-            }
-            Err(TrySendError::Full(_)) | Err(TrySendError::Disconnected(_)) => {
-                unreachable!("host-input wake returned a different event")
             }
         }
     }

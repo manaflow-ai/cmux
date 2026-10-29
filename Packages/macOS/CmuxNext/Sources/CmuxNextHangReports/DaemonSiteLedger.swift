@@ -4,7 +4,7 @@ public import Foundation
 /// The daemon sites this install already reported, per daemon life (``DaemonDiagnosticSite/Sighting``). The
 /// headless daemon outlives app launches and replays every site of its life to each launch's connection; the
 /// ledger, saved across launches, lets each pair through once, so a relaunch adds no sample and no event
-/// (p02-threads-233, "one event per daemon life"). A new daemon life starts a new entry.
+/// ("one event per daemon life"). A new daemon life starts a new entry.
 ///
 /// A pure value: `BlockingReportSink` holds one, loads it at the first daemon site and saves it after each
 /// admitted one.

@@ -191,14 +191,17 @@ fn permute_request_id_payload(value: u128, key: &[u8; 32], decrypt: bool) -> u12
 }
 
 fn request_id_round(key: &[u8; 32], round: u8, input: u128) -> u128 {
-    let mut mac = RequestIdMac::new_from_slice(key).expect("a 32-byte HMAC key is always valid");
+    #[allow(
+        clippy::expect_used,
+        reason = "INVARIANT: HMAC takes a key of any length, so new_from_slice never fails"
+    )]
+    let mut mac = RequestIdMac::new_from_slice(key).expect("an HMAC key of any length is valid");
     mac.update(b"cmux-workspace-request-id-v1");
     mac.update(&[round]);
     mac.update(&input.to_be_bytes());
-    let digest = mac.finalize().into_bytes();
-    let mut bytes = [0_u8; 8];
-    bytes.copy_from_slice(&digest[..8]);
-    u128::from(u64::from_be_bytes(bytes)) & REQUEST_ID_FEISTEL_HALF_MASK
+    let digest: [u8; 32] = mac.finalize().into_bytes().into();
+    let [b0, b1, b2, b3, b4, b5, b6, b7, ..] = digest;
+    u128::from(u64::from_be_bytes([b0, b1, b2, b3, b4, b5, b6, b7])) & REQUEST_ID_FEISTEL_HALF_MASK
 }
 
 struct DroppedWorkspaceRequest {
@@ -318,7 +321,7 @@ impl WorkspaceClient {
         };
         let mut pending = PendingWorkspaceRequest {
             id,
-            receiver: Some(receiver),
+            receiver,
             deadline,
             requests: channel.requests.clone(),
             cancellable,
@@ -423,7 +426,7 @@ impl WorkspaceClient {
 
 pub struct PendingWorkspaceRequest {
     id: RequestId,
-    receiver: Option<oneshot::Receiver<PendingResponse>>,
+    receiver: oneshot::Receiver<PendingResponse>,
     deadline: Option<tokio::time::Instant>,
     requests: RequestRegistry,
     cancellable: bool,
@@ -438,7 +441,7 @@ impl PendingWorkspaceRequest {
     }
 
     pub async fn receive(mut self) -> Result<WorkspaceResponse, RpcError> {
-        let receiver = self.receiver.take().expect("pending workspace request has a receiver");
+        let receiver = &mut self.receiver;
         let response = match self.deadline {
             Some(deadline) => match tokio::time::timeout_at(deadline, receiver).await {
                 Ok(response) => response,
@@ -524,8 +527,12 @@ async fn connect_rpc_channel(
     let failure_shutdown = shutdown.clone();
     let channel =
         WorkspaceRpcChannel { messages: messages.clone(), requests: requests.clone(), shutdown };
-    tokio::spawn(async move {
-        let failure = loop {
+    let reader_messages = messages.clone();
+    let reader_requests = requests.clone();
+    let reader = tokio::spawn(async move {
+        let messages = reader_messages;
+        let requests = reader_requests;
+        loop {
             let received = tokio::select! {
                 biased;
                 changed = shutdown_rx.changed() => {
@@ -549,13 +556,30 @@ async fn connect_rpc_channel(
                 failure_shutdown.send_replace(true);
                 break error;
             }
-        };
-        let _ = messages.close().await;
-        for (_, sender) in request_registry(&requests).pending.drain() {
-            let _ = sender.send(Err(failure.clone()));
         }
     });
+    let close = async move {
+        let _ = messages.close().await;
+    };
+    // supervise-allow: the channel's reader monitor; it only awaits the reader and fails the channel's pending requests, so a reader panic ends those requests with an error instead of leaving them waiting.
+    tokio::spawn(settle_when_reader_ends(reader, close, requests));
     Ok(channel)
+}
+
+/// Awaits the channel's reader, closes the stream, then fails every pending
+/// request with the reader's failure. A reader that panicked fails them with
+/// "workspace RPC reader stopped" instead of leaving them waiting.
+async fn settle_when_reader_ends(
+    reader: tokio::task::JoinHandle<String>,
+    close: impl Future<Output = ()>,
+    requests: RequestRegistry,
+) {
+    let failure =
+        reader.await.unwrap_or_else(|error| format!("workspace RPC reader stopped: {error}"));
+    close.await;
+    for (_, sender) in request_registry(&requests).pending.drain() {
+        let _ = sender.send(Err(failure.clone()));
+    }
 }
 
 fn request_registry(
@@ -587,6 +611,7 @@ fn cancellation_worker(
 ) -> mpsc::Sender<DroppedWorkspaceRequest> {
     let (sender, mut receiver) =
         mpsc::channel::<DroppedWorkspaceRequest>(DROPPED_CANCELLATION_QUEUE);
+    // supervise-allow: the channel's cancellation sender; it ends with the channel, and a panic drops `receiver`, so later cancellations fail to queue and their callers shut their origin down as on a full queue.
     tokio::spawn(async move {
         while let Some(dropped) = receiver.recv().await {
             let Some(cancel_id) = request_registry(&requests).allocate() else {
@@ -750,5 +775,37 @@ fn attach_process_handle(
             "invalid-argument",
             "process handle can be attached only to a spawn-process request",
         )),
+    }
+}
+
+#[cfg(test)]
+mod reader_monitor_tests {
+    use super::*;
+
+    /// A workspace RPC reader that panics fails the channel's pending
+    /// requests with an error; they do not wait forever.
+    #[tokio::test]
+    async fn a_reader_panic_fails_pending_requests() {
+        let requests: RequestRegistry =
+            Arc::new(Mutex::new(WorkspaceRequestRegistry::new().unwrap()));
+        let (sender, pending) = oneshot::channel();
+        {
+            let mut registry = request_registry(&requests);
+            let id = registry.allocate().unwrap();
+            registry.pending.insert(id, sender);
+        }
+        let reader = tokio::spawn(async { panic!("workspace RPC response handling failed") });
+        let (closed_tx, closed) = oneshot::channel();
+        let close = async move {
+            let _ = closed_tx.send(());
+        };
+        let monitor = tokio::spawn(settle_when_reader_ends(reader, close, Arc::clone(&requests)));
+
+        let wait = Duration::from_secs(10);
+        let failure = tokio::time::timeout(wait, pending).await.unwrap().unwrap().unwrap_err();
+        assert!(failure.starts_with("workspace RPC reader stopped"), "{failure}");
+        closed.await.expect("the stream was closed");
+        monitor.await.unwrap();
+        assert!(request_registry(&requests).pending.is_empty());
     }
 }
