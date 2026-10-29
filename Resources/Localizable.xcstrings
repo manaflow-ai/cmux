@@ -671652,65 +671652,6 @@
           }
         }
       }
-    },
-    "socket.sidebarMetadata.invalidURL": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ERROR: Invalid metadata URL '%@' — must include a scheme (e.g. https://, obsidian://, file://)"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ERROR: メタデータ URL '%@' が無効です — スキームを含める必要があります（例: https://、obsidian://、file://）"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ERROR: Ungültige Metadaten-URL '%@' — muss ein Schema enthalten (z. B. https://, obsidian://, file://)"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ERROR: URL de métadonnées '%@' non valide — doit inclure un schéma (par ex. https://, obsidian://, file://)"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ERROR: عنوان URL للبيانات الوصفية '%@' غير صالح — يجب أن يتضمن مخططًا (مثل https:// أو obsidian:// أو file://)"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ERROR: URL de metadatos '%@' no válida — debe incluir un esquema (p. ej., https://, obsidian://, file://)"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ERROR: 無效的中繼資料 URL '%@' — 必須包含通訊協定（例如 https://、obsidian://、file://）"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ERROR: 元数据 URL '%@' 无效 — 必须包含协议（例如 https://、obsidian://、file://）"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ERROR: 메타데이터 URL '%@'이(가) 올바르지 않습니다 — 스킴을 포함해야 합니다(예: https://, obsidian://, file://)"
-          }
-        }
-      }
     }
   },
   "version": "1.0"
