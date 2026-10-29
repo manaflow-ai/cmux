@@ -1,16 +1,15 @@
 import CmuxNextFeatures
 import Testing
 
-/// Terminal views attach as streams on the control connection by default in DEV and NIGHTLY (so in
-/// dogfood builds), and `CMUX_DISABLE_FEATURES=terminalStreams` keeps one connection per view
-/// (plans/cmux-next/app-daemon-connection-DESIGN.md section 6). Release stays off until the spec's optimized-build
-/// benches pass and NIGHTLY has run it for 7 days (plans/cmux-next/feature-switch-policy.md rule 5).
+/// Terminal views keep one connection per view by default: `terminalStreams` is off in every channel until its redesign is judged PRINCIPLED by the principled-optimization audit (R4, on/off parity, is unproven; cmux-ad 2026-10-29).
+/// `CMUX_ENABLE_FEATURES=terminalStreams` still attaches them as streams on the control connection
+/// (plans/cmux-next/app-daemon-connection-DESIGN.md section 6), and `CMUX_DISABLE_FEATURES` keeps them off.
 struct TerminalStreamsDefaultTests {
-    @Test func terminalStreamsAreOnByDefaultInDevAndNightlyAndOffInRelease() {
+    @Test func terminalStreamsAreOffByDefaultInEveryChannel() {
         for channel in Feature.Channel.allCases {
             let list = FeatureList(registry: FeatureRegistry(), channel: channel)
             #expect(list.resolution(of: Feature.terminalStreams)
-                == Feature.Resolution(isEnabled: channel != .release, source: .channelDefault), "\(channel)")
+                == Feature.Resolution(isEnabled: false, source: .channelDefault), "\(channel)")
         }
     }
 
