@@ -101,27 +101,24 @@ await requireBrowserLane("find-import-pressed.test.tsx", async () => {
           const page = await setup();
           try {
             const button = page.getByRole("button", { name, exact: true });
+            const selectedPaint = await button.evaluate(() => {
+              const probe = document.createElement("span");
+              probe.style.backgroundColor = "color-mix(in srgb, var(--cmux-accent) 30%, transparent)";
+              probe.style.color = "var(--cmux-accent)";
+              document.body.append(probe);
+              const style = getComputedStyle(probe);
+              const result = { background: style.backgroundColor, color: style.color };
+              probe.remove();
+              return result;
+            });
             await button.hover();
             const hovered = await paint(button);
             const box = await button.boundingBox();
             await page.mouse.down();
-            expect(await paint(button)).not.toEqual(hovered);
+            const held = await paint(button);
+            expect(held).not.toEqual(hovered);
             if (name === "Match case") {
-              const selected = await button.evaluate((element) => {
-                const probe = document.createElement("span");
-                probe.style.backgroundColor = "color-mix(in srgb, var(--cmux-accent) 30%, transparent)";
-                probe.style.color = "var(--cmux-accent)";
-                element.append(probe);
-                const expected = getComputedStyle(probe);
-                const actual = getComputedStyle(element);
-                const result = {
-                  actual: { background: actual.backgroundColor, color: actual.color },
-                  expected: { background: expected.backgroundColor, color: expected.color },
-                };
-                probe.remove();
-                return result;
-              });
-              expect(selected.actual).toEqual(selected.expected);
+              expect({ background: held.background, color: held.color }).toEqual(selectedPaint);
             }
             expect(await button.boundingBox()).toEqual(box);
             await page.mouse.up();
