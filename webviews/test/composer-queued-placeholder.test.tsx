@@ -287,3 +287,27 @@ test("a Return the input method passed on as a new paragraph sends, never adds a
     inserted: false,
   });
 });
+
+// Leo, 2026-10-29: "the fucking rendering is stupid as hell": a running composer ("↵ steer · ⌘↵
+// queue") drawn with an idle one ("Type / for commands") over it, at another width. The page draws
+// exactly one composer: the same form and field through running↔idle and a pane resize, never a
+// kept copy beside it.
+test("one composer element, the same one, through running↔idle switches and a pane resize", async () => {
+  await render(steering());
+  const form = host.querySelector(".acpmux-composer");
+  const field = host.querySelector(".acpmux-composer-prompt");
+  expect(form).not.toBeNull();
+  expect(field).not.toBeNull();
+  for (const [index, working] of [true, false, true, false, true].entries()) {
+    await render(steering({ isWorking: working }));
+    // Every other switch, the pane changes width too (Session Info opening or closing beside it).
+    if (index % 2 === 0) await act(async () => void window.dispatchEvent(new window.Event("resize")));
+    expect(host.querySelectorAll(".acpmux-composer")).toHaveLength(1);
+    expect(host.querySelectorAll(".acpmux-composer-box")).toHaveLength(1);
+    expect(host.querySelectorAll(".acpmux-composer-prompt")).toHaveLength(1);
+    expect(host.querySelector(".acpmux-composer")).toBe(form);
+    expect(host.querySelector(".acpmux-composer-prompt")).toBe(field);
+    expect(host.querySelectorAll(".acpmux-md-placeholder")).toHaveLength(1);
+    expect(shown()).toBe(working ? "↵ steer · ⌘↵ queue" : "Type / for commands");
+  }
+});
