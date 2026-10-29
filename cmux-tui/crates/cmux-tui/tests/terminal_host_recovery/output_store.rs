@@ -99,6 +99,37 @@ fn journal_output_rows(state: &Path) -> i64 {
         .unwrap()
 }
 
+/// Every registry table with its row count and largest rowid, so a failure
+/// names the tables an idle daemon wrote (a WITHOUT ROWID table reports 0).
+fn registry_table_rows(state: &Path) -> Vec<(String, i64, i64)> {
+    let connection = rusqlite::Connection::open_with_flags(
+        registry_path(state),
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+    )
+    .unwrap();
+    let tables = connection
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
+        .unwrap()
+        .query_map([], |row| row.get::<_, String>(0))
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    tables
+        .into_iter()
+        .map(|table| {
+            let count = connection
+                .query_row(&format!("SELECT count(*) FROM \"{table}\""), [], |row| row.get(0))
+                .unwrap_or(-1);
+            let max_rowid = connection
+                .query_row(&format!("SELECT coalesce(max(rowid), 0) FROM \"{table}\""), [], |row| {
+                    row.get(0)
+                })
+                .unwrap_or(0);
+            (table, count, max_rowid)
+        })
+        .collect()
+}
+
 /// (bytes written by write calls, CPU time) of `pid` (Linux; `None` elsewhere).
 fn process_io(pid: u32) -> Option<(u64, Duration)> {
     if !cfg!(target_os = "linux") {
@@ -130,6 +161,7 @@ fn idle_terminals_write_nothing(mode: &str) {
     // First frames, the first snapshots and the startup commits settle.
     std::thread::sleep(Duration::from_secs(3));
     let pid = harness.child.as_ref().unwrap().id();
+    let rows_before = registry_table_rows(&harness.state);
     let before = file_states(&harness.state);
     let io_before = process_io(pid);
     let window = idle_window();
@@ -154,9 +186,19 @@ fn idle_terminals_write_nothing(mode: &str) {
         .filter(|state| !before.contains(state))
         .map(|(path, len, _)| format!("{} ({len} bytes)", path.display()))
         .collect::<Vec<_>>();
+    // Read after `after`: this read-only connection may touch the -shm file.
+    let rows_changed = registry_table_rows(&harness.state)
+        .into_iter()
+        .filter(|row| !rows_before.contains(row))
+        .map(|(table, count, max_rowid)| {
+            let was = rows_before.iter().find(|(name, _, _)| *name == table);
+            format!("{table}: {was:?} -> rows {count}, max rowid {max_rowid}")
+        })
+        .collect::<Vec<_>>();
     assert!(
         changed.is_empty(),
-        "idle redrawing terminals changed files in {mode} mode: {changed:#?}"
+        "idle redrawing terminals changed files in {mode} mode: {changed:#?}; \
+         registry tables written in the window: {rows_changed:#?}"
     );
     assert_eq!(journal_output_rows(&harness.state), 0, "the journal holds terminal output");
     if mode == "memory" {
