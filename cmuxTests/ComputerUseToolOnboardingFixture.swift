@@ -23,6 +23,7 @@ final class ComputerUseToolOnboardingFixture {
     let usesProductionPresenter: Bool
     var featureEnabled = true
     var presentations: [ComputerUseOnboardingWindowController.StartingPoint] = []
+    let helperLaunches = AsyncStream<Void>.makeStream()
 
     lazy var coordinator: ComputerUseUXCoordinator = {
         let catalog = SettingCatalog()
@@ -50,11 +51,14 @@ final class ComputerUseToolOnboardingFixture {
         )
     }()
 
-    init(hasLiveSession: Bool = true, usesProductionPresenter: Bool = false) throws {
+    init(
+        hasLiveSession: Bool = true,
+        usesProductionPresenter: Bool = false,
+        simulatesFailedHelperLaunch: Bool = false
+    ) throws {
         self.usesProductionPresenter = usesProductionPresenter
         persistence = try ComputerUseOnboardingFixture()
-        // A fixture bundle with no helper prevents this test from ever launching
-        // the test host's real helper or touching the user's TCC grants.
+        // Never use the test host's real helper or touch the user's TCC grants.
         let bundleURL = persistence.root.appendingPathComponent("Fixture.bundle")
         let contents = bundleURL.appendingPathComponent("Contents")
         try FileManager.default.createDirectory(at: contents, withIntermediateDirectories: true)
@@ -64,15 +68,33 @@ final class ComputerUseToolOnboardingFixture {
             options: 0
         )
         try info.write(to: contents.appendingPathComponent("Info.plist"))
+        if simulatesFailedHelperLaunch {
+            let helper = contents.appendingPathComponent("Library/cmux Computer Use.app/Contents")
+            let executable = helper.appendingPathComponent("MacOS/cmux-cua")
+            try FileManager.default.createDirectory(
+                at: executable.deletingLastPathComponent(), withIntermediateDirectories: true
+            )
+            try Data("synthetic helper; never executed".utf8).write(to: executable)
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+            try info.write(to: helper.appendingPathComponent("Info.plist"))
+        }
         runtime = ComputerUseRuntimeService(
             bundle: try #require(Bundle(url: bundleURL)),
             paths: persistence.paths,
             userDefaults: persistence.defaults,
+            // Freeze launch backoff so recovery must come from the hook.
+            uptime: { 100 },
             isDisabledByPolicy: { false },
             // No helper runs here, so every status refresh would otherwise wait
             // out the full production deadline (5 s per first tool call).
-            permissionStatusDeadline: .zero
+            permissionStatusDeadline: .zero,
+            helperTrust: ComputerUseHelperTrust(isSigned: { _ in true }, installedCandidates: { [] })
         )
+        runtime.helperLauncher = { [helperLaunches] _, _ in
+            helperLaunches.continuation.yield(())
+            return nil
+        }
+        runtime.helperRegistrar = { _ in }
         let pid = ProcessInfo.processInfo.processIdentifier
         let identity = try #require(AgentPIDProcessIdentity(pid: pid))
         let hookDirectory = persistence.root.appendingPathComponent("hooks")
@@ -128,6 +150,7 @@ final class ComputerUseToolOnboardingFixture {
 
     func remove() {
         coordinator.teardownForTermination()
+        helperLaunches.continuation.finish()
         persistence.remove()
     }
 }
