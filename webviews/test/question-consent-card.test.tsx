@@ -189,10 +189,17 @@ test("⌘↩ trusts, and Return on a focused Not now is left to the button, neve
   expect(no.replies).toEqual([]);
 });
 
-test("a consent ignores the list's number and arrow keys", async () => {
+test("a consent consumes the list's number and arrow keys and picks nothing", async () => {
   const { container, replies } = await renderCard(folderTrust);
   const card = container.querySelector(".acpmux-question")!;
-  for (const key of ["1", "2", "ArrowDown", "ArrowUp"]) await press(card, key);
+  for (const key of ["1", "2", "ArrowDown", "ArrowUp"]) {
+    const event = new dom!.window.KeyboardEvent("keydown", { key, bubbles: true, cancelable: true });
+    await act(async () => {
+      card.dispatchEvent(event);
+    });
+    // Consumed, so the composer's type-to-focus never inserts the digit into the draft.
+    expect(event.defaultPrevented).toBe(true);
+  }
   expect(replies).toEqual([]);
 });
 
