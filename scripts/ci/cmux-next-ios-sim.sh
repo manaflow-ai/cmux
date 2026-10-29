@@ -21,6 +21,13 @@
 #           Each recording is replayed at the rate the program wrote it (capped
 #           at 50 Mbit/s), with screenshots during and after the flood.
 #   all     build, test and bench.
+#   shots   build, plus one screenshot per scene, in dark and in light, from
+#           the app's own DEBUG launch arguments and demo drivers (mock data,
+#           setup marked complete). Scenes come from the next argument or
+#           CMUX_NEXT_IOS_SHOTS: `name=ARGS` separated by `;`, where ARGS are
+#           launch arguments and leading KEY=VALUE words are environment, e.g.
+#             "devices=-cmux-mobile-settings-page devices;chief=-cmux-mobile-demo chief-open"
+#           Run it at the base and at the head for a PR's before and after.
 #   pair-e2e
 #           build, plus a tagged DEBUG cmux NEXT Mac app built here
 #           (reload.sh), and pairing by its QR code end to end
@@ -45,7 +52,11 @@ cmux_next_require_fleet cmux-next-ios-sim.sh "xcodebuild and an iOS simulator" "
   "cmux-ci run --class simulator --script scripts/ci/cmux-next-ios-sim.sh --ref SHA --arg bench --artifact artifacts/ios-sim/evidence.zip"
 
 mode="${1:-build}"
-case "$mode" in build|test|bench|all|pair-e2e) ;; *) echo "cmux-next-ios-sim.sh: MODE is build, test, bench, all or pair-e2e, got '$mode'" >&2; exit 2 ;; esac
+case "$mode" in build|test|bench|all|pair-e2e|shots) ;; *) echo "cmux-next-ios-sim.sh: MODE is build, test, bench, all, pair-e2e or shots, got '$mode'" >&2; exit 2 ;; esac
+shots_spec="${2:-${CMUX_NEXT_IOS_SHOTS:-}}"
+if [[ "$mode" == shots && -z "$shots_spec" ]]; then
+  echo "cmux-next-ios-sim.sh: shots needs scenes (\"name=ARGS;...\") as its second argument or in CMUX_NEXT_IOS_SHOTS" >&2; exit 2
+fi
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$root"
@@ -284,6 +295,40 @@ PY
   note ""
   note "Workload top ran: $top_name. Recordings: 50 columns x 45 rows; replayed in a loop for 10 s at the rate the program wrote them (capped at 50 Mbit/s)."
   tail -n +1 "$summary" | tail -8
+fi
+
+# --- Screens ----------------------------------------------------------------
+if [[ "$mode" == shots ]]; then
+  t0=$SECONDS
+  # Setup marked complete, so a deep link lands on its screen instead of "Choose a space".
+  simctl spawn "$udid" defaults write "$bundle_id" cmuxMobile.setupComplete -bool YES
+  note ""
+  note "## Screens (mock data, DEBUG launch arguments)"
+  note ""
+  IFS=';' read -r -a scenes <<< "$shots_spec"
+  for scene in "${scenes[@]}"; do
+    scene="${scene#"${scene%%[![:space:]]*}"}"
+    [[ -n "$scene" ]] || continue
+    name="${scene%%=*}"
+    [[ "$name" =~ ^[A-Za-z0-9._-]+$ && "$scene" == *=* ]] || { note "- skipped scene '$scene': want name=ARGS"; continue; }
+    read -r -a words <<< "${scene#*=}"
+    envs=(SIMCTL_CHILD_CMUX_MOBILE_MOCK_AUTH=1)
+    args=()
+    for w in ${words[@]+"${words[@]}"}; do
+      if [[ ${#args[@]} -eq 0 && "$w" =~ ^[A-Z_][A-Z0-9_]*= ]]; then envs+=("SIMCTL_CHILD_$w"); else args+=("$w"); fi
+    done
+    for look in dark light; do
+      simctl ui "$udid" appearance "$look" >/dev/null 2>&1 || true
+      env "${envs[@]}" xcrun simctl --set "$sims" launch "$udid" "$bundle_id" ${args[@]+"${args[@]}"} >/dev/null
+      # A bounded wait for the scene to draw; demo drivers have no signal to wait on.
+      sleep "${CMUX_NEXT_IOS_SHOT_WAIT:-5}"
+      simctl io "$udid" screenshot "$out/screens/$name-$look.png" >/dev/null
+      simctl terminate "$udid" "$bundle_id" >/dev/null 2>&1 || true
+    done
+    note "- $name: screens/$name-dark.png, screens/$name-light.png"
+  done
+  simctl ui "$udid" appearance dark >/dev/null 2>&1 || true
+  note "- screens: $((SECONDS - t0)) s"
 fi
 
 # --- Pairing by QR code ----------------------------------------------------
