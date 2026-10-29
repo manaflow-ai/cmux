@@ -1,5 +1,6 @@
 #if os(macOS)
 import CoreGraphics
+import CoreVideo
 @testable import CmuxVNCWebRTC
 import Foundation
 import Testing
@@ -27,8 +28,8 @@ struct ScreenInputInjectionTests {
 
     /// The viewer sends a modifier down, the click, then the modifier up:
     /// the click is a modified click, and the pointer after the up is not.
-    @Test(arguments: [(command, CGEventFlags.maskCommand), (shift, .maskShift), (option, .maskAlternate)])
-    func aClickWhileAModifierIsDownCarriesIt(keysym: UInt32, flag: CGEventFlags) {
+    @Test(arguments: [(Self.command, CGEventFlags.maskCommand), (Self.shift, .maskShift), (Self.option, .maskAlternate)] as [(UInt32, CGEventFlags)])
+    func aClickWhileAModifierIsDownCarriesIt(keysym: UInt32, flag: CGEventFlags) throws {
         let (injector, posted) = injector()
         injector.handle(ScreenInput(t: "key", k: keysym, d: true))
         injector.handle(ScreenInput(t: "move", x: 0.5, y: 0.5, b: 0))
@@ -39,6 +40,7 @@ struct ScreenInputInjectionTests {
 
         let mouse = posted.of([.mouseMoved, .leftMouseDown, .leftMouseUp])
         #expect(mouse.map(\.type) == [.mouseMoved, .leftMouseDown, .leftMouseUp, .mouseMoved])
+        try #require(mouse.count == 4)
         #expect(mouse.prefix(3).allSatisfy { $0.flags.contains(flag) })
         #expect(!mouse[3].flags.contains(flag))
     }
@@ -80,19 +82,20 @@ struct ScreenInputInjectionTests {
         injector.handle(ScreenInput(t: "chord", k: 0x63, m: [Self.command]))
         injector.handle(ScreenInput(t: "move", x: 0.5, y: 0.5, b: 1))
         let keys = posted.of([.keyDown, .keyUp]).filter { $0.getIntegerValueField(.keyboardEventKeycode) == 8 }
+        #expect(keys.count == 2)
         #expect(keys.allSatisfy { $0.flags.contains(.maskCommand) })
         #expect(posted.of([.leftMouseDown]).first?.flags.contains(.maskCommand) == false)
     }
 
     /// A move with a button held is that button's drag, with its button number.
-    @Test(arguments: [(UInt8(1), CGEventType.leftMouseDragged, Int64(0)), (4, .rightMouseDragged, 1), (2, .otherMouseDragged, 2)])
-    func aMoveWithAButtonHeldIsThatButtonsDrag(mask: UInt8, drag: CGEventType, button: Int64) {
+    @Test(arguments: [(1, .leftMouseDragged, 0), (4, .rightMouseDragged, 1), (2, .otherMouseDragged, 2)] as [(UInt8, CGEventType, Int64)])
+    func aMoveWithAButtonHeldIsThatButtonsDrag(mask: UInt8, drag: CGEventType, button: Int64) throws {
         let (injector, posted) = injector()
         injector.handle(ScreenInput(t: "move", x: 0.1, y: 0.1, b: mask))
         injector.handle(ScreenInput(t: "move", x: 0.3, y: 0.4, b: mask))
         injector.handle(ScreenInput(t: "move", x: 0.3, y: 0.4, b: 0))
         let types = posted.all.map(\.type)
-        #expect(types.count == 3)
+        try #require(types.count == 3)
         #expect(types.dropFirst().first == drag)
         let dragged = posted.all[1]
         #expect(dragged.getIntegerValueField(.mouseEventButtonNumber) == button)
@@ -138,9 +141,39 @@ struct ScreenInputInjectionTests {
         #expect(posted.all.map(\.type) == [.leftMouseDown, .leftMouseDragged, .scrollWheel])
     }
 
+    /// A session that ends (the viewer dropped) lets go of what the viewer
+    /// held, and input after that posts nothing.
+    @Test func endingLetsGoOfHeldButtonsAndModifiers() {
+        let (injector, posted) = injector()
+        injector.handle(ScreenInput(t: "key", k: Self.command, d: true))
+        injector.handle(ScreenInput(t: "move", x: 0.5, y: 0.5, b: 5))
+        let before = posted.all.count
+        injector.releaseAll()
+        let released = posted.all.dropFirst(before)
+        #expect(Set(released.map(\.type)).isSuperset(of: [.leftMouseUp, .rightMouseUp]))
+        let commandUp = released.filter { $0.getIntegerValueField(.keyboardEventKeycode) == 55 && $0.type != .leftMouseUp && $0.type != .rightMouseUp }
+        #expect(commandUp.count == 1)
+        #expect(released.last.map { !$0.flags.contains(.maskCommand) } == true)
+        let after = posted.all.count
+        injector.handle(ScreenInput(t: "move", x: 0.5, y: 0.5, b: 1))
+        injector.handle(ScreenInput(t: "key", k: Self.command, d: true))
+        #expect(posted.all.count == after)
+    }
+
     @Test func theCaptureBackendAdvertisesPixelScrollAndModifiedClicks() {
         #expect(ScreenCaptureBackend(log: { _ in }).inputCapabilities == ["scroll-px", "mods"])
     }
+}
+
+/// A backend that takes pixel scrolls, recording what reaches it.
+final class CapableBackend: ScreenBackend, @unchecked Sendable {
+    private let recorder = RecordingBackend()
+    var handled: [String] { recorder.handled }
+    var inputCapabilities: [String] { [ScreenHostMessage.pixelScrollCapability] }
+    func start(frame: @escaping @Sendable (CVPixelBuffer, CGRect) -> Void, displays: @escaping @Sendable ([CGSize], Int) -> Void) async throws {}
+    func select(display index: Int) {}
+    func handle(_ input: ScreenInput) { recorder.handle(input) }
+    func stop() {}
 }
 
 struct ScreenInputWireTests {
@@ -194,6 +227,22 @@ struct ScreenInputWireTests {
         let displays = ScreenHostMessage(t: "displays", displays: [.init(w: 10, h: 10)], current: 0)
         #expect(ScreenStreamViewer.capabilities(in: displays) == nil)
         #expect(ScreenStreamViewer.isDisplays(displays))
+    }
+
+    /// A px scroll reaches only a backend that advertised `scroll-px` (the
+    /// Screen Sharing loopback would take 40 px as 40 lines); a scroll in an
+    /// unknown unit reaches none. Line scrolls reach every backend.
+    @Test func aPixelScrollReachesOnlyABackendThatAdvertisedIt() {
+        let plain = RecordingBackend(), capable = CapableBackend()
+        let host = ScreenStreamHost(name: "Studio", backend: { plain }, log: { _ in })
+        let scrolls = [ScreenInput(t: "scroll", x: 0.5, y: 0.5, dy: 40, u: ScreenInput.pixelUnit),
+                       ScreenInput(t: "scroll", x: 0.5, y: 0.5, dy: 2, u: "furlongs"), ScreenInput(t: "scroll", x: 0.5, y: 0.5, dy: 2)]
+        for input in scrolls {
+            host.deliver(input, to: plain)
+            host.deliver(input, to: capable)
+        }
+        #expect(plain.handled == ["scroll"])
+        #expect(capable.handled == ["scroll", "scroll"])
     }
 
     /// Pixel scrolls and modifier keys from a view-only viewer never reach the Mac.

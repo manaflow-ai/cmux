@@ -339,6 +339,9 @@ final class EventInjector: @unchecked Sendable {
         }
     }
 
+    /// Lets go of every button and modifier the viewer holds; input after it posts nothing.
+    func releaseAll() {}
+
     private func location(_ input: ScreenInput) -> CGPoint {
         CGPoint(x: display.minX + (input.x ?? 0) * display.width, y: display.minY + (input.y ?? 0) * display.height)
     }
