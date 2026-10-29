@@ -275,3 +275,16 @@ Status per crate: section 9 (updated with each landing).
 ## 9. Status
 
 Landing 1 (this page, the ratchet and its CI step): every crate at its section 2 count; 12 crates at deny.
+
+Re-baseline 2026-10-29 (the ratchet step was red Oct 23-29, so lanes landed
+~700 new deny hits unchecked). Every new slice, array, string-slice and
+expect hit was removed (about 290; cmux-holder, cmux-flow-trace, cmux-process
+and cmux-git now at deny). The one deliberate raise: `indexing_slicing` in
+acpmux, cmux-tui, cmux-tui-core, cmux-server, cmux-server-core,
+cmux-browser-host, cmux-host and cmux-tui-cloud-conversations, for
+string-key indexing of `serde_json::Value` (`v["key"]`). A read returns
+`Null` and never panics. A write panics only if the value is neither an object
+nor null; most of the ~217 new writes are on values built by `json!({..})`,
+but they were sampled, not all reviewed. Clippy cannot tell these from slice indexing, so they are counted.
+Next step for them: a non-panicking `set` helper, then lower the counts.
+22 crates at deny.
