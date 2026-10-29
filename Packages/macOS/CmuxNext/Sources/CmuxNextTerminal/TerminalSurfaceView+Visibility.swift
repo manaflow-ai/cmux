@@ -1,6 +1,6 @@
 public import AppKit
 import CmuxNextDesign
-import CmuxNextWakeups
+package import CmuxNextWakeups
 
 /// Shown or not (recipe R-hide, plans/cmux-next/main-thread-budget.md section 11): AppKit's hide hooks
 /// only tell the view's ``visibilityNode``, and the window and parking checks only set its child
