@@ -82,7 +82,7 @@ pub fn find(text: &str) -> Option<Result<AgentLink, String>> {
     let named = |key: &str| pairs(query).into_iter().filter(|(k, _)| k == key).collect::<Vec<_>>();
     let mut required: [(&str, Option<Option<String>>); 2] = [("harness", None), ("session", None)];
     for (key, slot) in required.iter_mut() {
-        let key: &str = *key;
+        let key: &str = key;
         let mut values = named(key);
         if values.len() > 1 {
             return Some(Err(format!("the link names {key} more than once")));
