@@ -144,7 +144,12 @@ public final class WebPopupHost {
 
     private func picked(_ id: String) {
         guard model?.items.contains(where: { $0.id == id && !$0.disabled && !$0.separator }) == true else { return }
-        send(["type": "pick", "id": id])
+        // Activation is synchronous with the native row's release. Preserve its modifiers for
+        // page actions such as Option-Fork, including when Option was pressed after opening.
+        let modifiers = NSApp.currentEvent?.modifierFlags ?? NSEvent.modifierFlags
+        send(["type": "pick", "id": id, "altKey": modifiers.contains(.option),
+              "ctrlKey": modifiers.contains(.control), "metaKey": modifiers.contains(.command),
+              "shiftKey": modifiers.contains(.shift)])
         hide()
     }
 
