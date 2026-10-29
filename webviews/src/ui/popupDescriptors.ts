@@ -7,6 +7,28 @@ export type PopupRow = NativePopupRow;
 export type PopupDescription = NativePopupDescription;
 type ResolvedAction = NativePopupAction & { value?: string };
 
+/** Domain values are unbounded; native row identities are short, nonempty protocol keys. */
+function optionIds(values: readonly string[], namespace: string): Map<string, string> {
+  const result = new Map<string, string>();
+  const used = new Set<string>();
+  // Sorting makes collision suffixes independent of the caller's display order.
+  for (const value of [...new Set(values)].sort()) {
+    let first = 0x811c9dc5;
+    let second = 0x9e3779b9;
+    for (let index = 0; index < value.length; index++) {
+      const code = value.charCodeAt(index);
+      first = Math.imul(first ^ code, 0x01000193);
+      second = Math.imul(second ^ code, 0x5bd1e995) ^ (second >>> 15);
+    }
+    const stem = `${namespace}:${(first >>> 0).toString(36)}:${(second >>> 0).toString(36)}:${value.length.toString(36)}`;
+    let id = stem;
+    for (let suffix = 1; used.has(id); suffix++) id = `${stem}:${suffix}`;
+    result.set(value, id);
+    used.add(id);
+  }
+  return result;
+}
+
 /** Resolve a current pick through enabled ancestors, using the native host's action rules. */
 export function popupAction(model: PopupDescription, id: string | undefined): ResolvedAction | undefined {
   if (id === undefined) return undefined;
@@ -65,15 +87,19 @@ export interface SelectDescriptorInput {
   width?: number;
 }
 export function selectDescription(input: SelectDescriptorInput): PopupDescription {
+  const ids = optionIds(
+    input.options.map((option) => option.value),
+    "option",
+  );
   return {
     side: "bottom",
     align: "start",
     width: input.width ?? 220,
     ...(input.label ? { title: input.label } : {}),
-    highlighted: input.value,
+    highlighted: ids.get(input.value),
     rows: input.options.map((option) =>
       choiceRow({
-        id: option.value,
+        id: ids.get(option.value)!,
         value: option.value,
         label: option.label,
         shortcut: option.shortcut,
@@ -95,6 +121,7 @@ export interface ComboboxDescriptorInput {
   width?: number;
 }
 export function comboboxDescription(input: ComboboxDescriptorInput): PopupDescription {
+  const ids = optionIds(input.suggestions, "suggestion");
   const pinned = new Set(input.pinnedSuggestions ?? []);
   const ordered = [
     ...input.suggestions.filter((value) => !pinned.has(value)),
@@ -109,7 +136,7 @@ export function comboboxDescription(input: ComboboxDescriptorInput): PopupDescri
     rows: ordered.map((value) =>
       choiceRow({
         // Keep search identity stable across filtering, in a separate ID namespace.
-        id: `suggestion:${value}`,
+        id: ids.get(value)!,
         value,
         label: value,
         checked: input.current?.(value) ?? false,

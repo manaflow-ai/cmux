@@ -19,11 +19,12 @@ test("select descriptors preserve stable choice ids and selection", () => {
     ],
   });
   expect(d.title).toBe("Theme");
-  expect(d.rows).toEqual([
-    { id: "system", kind: "action", label: "System", shortcut: "⌘0", value: "system", checked: false },
-    { id: "dark", kind: "action", label: "Dark", value: "dark", checked: true },
-    { id: "light", kind: "action", label: "Light", value: "light", disabled: true, checked: false },
+  expect(d.rows.map(({ id: _id, ...row }) => row)).toEqual([
+    { kind: "action", label: "System", shortcut: "⌘0", value: "system", checked: false },
+    { kind: "action", label: "Dark", value: "dark", checked: true },
+    { kind: "action", label: "Light", value: "light", disabled: true, checked: false },
   ]);
+  expect(d.highlighted).toBe(d.rows.find((row) => row.checked)!.id);
 });
 test("combobox descriptors keep pinned actions at the end of keyboard order", () => {
   const d = comboboxDescription({

@@ -104,8 +104,13 @@ export function Combobox({
   const host = usePopupHost();
   const [field, setField] = useState<HTMLInputElement | null>(null);
   const [popup, setPopup] = useState<HTMLElement | null>(null);
+  const [nativeSessionOpen, setNativeSessionOpen] = useState(true);
   const nativePopup = useNativePopup({
-    open: native !== undefined && (inline || suggestions.length > 0) && (native.anchor !== undefined || field !== null),
+    open:
+      native !== undefined &&
+      nativeSessionOpen &&
+      (inline || suggestions.length > 0) &&
+      (native.anchor !== undefined || field !== null),
     model: native?.model ?? { side: "bottom", align: "start", width: 0, rows: [] },
     anchor: native?.anchor ?? (() => field),
     onEvent: (event) => {
@@ -114,11 +119,14 @@ export function Combobox({
       const suggestion = action ? (action.value ?? event.id) : undefined;
       if ((event.type === "search" || event.type === "change") && event.value !== undefined) changeQuery(event.value);
       else if (suggestion !== undefined && suggestions.includes(suggestion) && !isItemDisabled?.(suggestion)) {
-        if (event.type === "pick") onSubmit(suggestion);
-        else if (event.type === "highlight") onHighlight?.(suggestion, "pointer");
+        if (event.type === "pick") {
+          if (!action?.keepOpen) setNativeSessionOpen(false);
+          onSubmit(suggestion);
+        } else if (event.type === "highlight") onHighlight?.(suggestion, "pointer");
       } else if (event.type === "highlight" && event.id === undefined) onHighlight?.(undefined, "pointer");
     },
     onDismiss: () => {
+      setNativeSessionOpen(false);
       native?.onDismiss?.();
       onCancel();
     },
@@ -187,6 +195,7 @@ export function Combobox({
   const hasPinned = Boolean(pinnedSuggestions?.length);
   const deliberatelyHighlighted = useRef(false);
   const changeQuery = (next: string) => {
+    if (native) setNativeSessionOpen(true);
     if (completionRef.current?.text !== next) completionRef.current = undefined;
     deliberatelyHighlighted.current = false;
     update(next);
@@ -208,6 +217,13 @@ export function Combobox({
     onQuery(next);
   };
   const onKeyDown = (event: BaseUIKeyEvent) => {
+    if (
+      native &&
+      (event.key === "ArrowDown" ||
+        event.key === "ArrowUp" ||
+        (event.ctrlKey && (event.key === "n" || event.key === "p")))
+    )
+      setNativeSessionOpen(true);
     onCommand?.(event);
     if (event.defaultPrevented) return;
     if (event.metaKey || event.ctrlKey || event.altKey) return;
@@ -338,7 +354,7 @@ export function Combobox({
       filter={null}
       value={value}
       onValueChange={changeQuery}
-      open={inline || enabledSuggestions.length > 0}
+      open={(!nativeOnly || nativeSessionOpen) && (inline || enabledSuggestions.length > 0)}
       inline={inline}
       autoHighlight={autoHighlight}
       onItemHighlighted={(item, details) => {
@@ -353,6 +369,9 @@ export function Combobox({
         aria-label={label}
         placeholder={placeholder}
         spellCheck={false}
+        onPointerDown={() => {
+          if (native) setNativeSessionOpen(true);
+        }}
         onKeyDown={onKeyDown}
         // A press on a suggestion keeps focus in the field (Base UI items are not focusable).
         onBlur={(event) => {

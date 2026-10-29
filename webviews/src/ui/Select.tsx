@@ -3,6 +3,7 @@ import { Menu, MenuButton, MenuPopup, MenuRadioGroup, MenuRadioItem } from "./Me
 import { cx } from "./cx";
 import type { NativePopupDescription } from "./nativePopup";
 import type { NativePopupEvent, NativePopupRow } from "./generated/popupProtocol";
+import { popupAction } from "./popupDescriptors";
 
 function selectionRows(rows: readonly NativePopupRow[], keepOpen: boolean): NativePopupRow[] {
   return rows.map((row) => ({
@@ -68,12 +69,13 @@ export function Select({
                   ...(native.model.footer ? { footer: selectionRows(native.model.footer, closeOnPick !== true) } : {}),
                 },
                 onEvent: (event: NativePopupEvent) => {
-                  const picked = event.value ?? event.id;
-                  if (
-                    (event.type === "pick" || event.type === "change") &&
-                    picked !== undefined &&
-                    options.some((option) => option.value === picked && !option.disabled)
-                  )
+                  const action = event.type === "pick" ? popupAction(native.model, event.id) : undefined;
+                  const picked = action
+                    ? (action.value ?? event.value ?? event.id)
+                    : event.type === "change"
+                      ? (event.value ?? event.id)
+                      : undefined;
+                  if (picked !== undefined && options.some((option) => option.value === picked && !option.disabled))
                     onChange(picked);
                 },
                 onDismiss: native.onDismiss,
