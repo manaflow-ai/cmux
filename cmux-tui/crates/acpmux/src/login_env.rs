@@ -266,10 +266,6 @@ async fn import_once(read: &str) -> bool {
     pairs() != before
 }
 
-/// Called before each agent spawn: when the startup files changed since the
-/// last resolution (checked at most every `RECHECK`), refresh in the
-/// background. Never waits. The startup-file watcher (`watch.rs`) refreshes
-/// at once on an edit; this check covers what it cannot watch.
 /// A delivered cloud secret file may have changed after acpmux cached the
 /// shell environment. A new harness must use the new values, or refuse to
 /// start rather than inheriting a stale, possibly revoked secret.
@@ -293,6 +289,10 @@ pub async fn machine_env_fresh_before_spawn() -> bool {
     st.outcome == Outcome::Shell && st.applied_machine_stamp == current
 }
 
+/// Called before each agent spawn: when the startup files changed since the
+/// last resolution (checked at most every `RECHECK`), refresh in the
+/// background. Never waits. The startup-file watcher (`watch.rs`) refreshes
+/// at once on an edit; this check covers what it cannot watch.
 pub fn refresh_if_changed() {
     refresh(true);
 }
@@ -1050,8 +1050,6 @@ fn save_cache(fingerprint: &str, login: &[(String, String)], login_path: Option<
     }
 }
 
-/// The startup files and tool-manager configs a login shell reads: path,
-/// size and mtime of each (absent ones count too), plus the shell itself.
 /// Files created by cloud apply-machine-config and deliver-secrets. Their
 /// metadata is enough to detect delivery, rotation and deletion; never read
 /// or hash a credential value on the spawn decision path.
@@ -1089,6 +1087,8 @@ fn machine_files_stamp() -> Option<String> {
     machine_files_stamp_in(&home)
 }
 
+/// The startup files and tool-manager configs a login shell reads: path,
+/// size and mtime of each (absent ones count too), plus the shell itself.
 fn fingerprint() -> String {
     use sha2::{Digest, Sha256};
     let shell = std::env::var("SHELL").unwrap_or_default();
@@ -1158,7 +1158,6 @@ fn startup_files() -> Vec<PathBuf> {
     files.push(PathBuf::from(&shell));
     files
 }
-
 
 #[cfg(test)]
 mod machine_file_tests {
