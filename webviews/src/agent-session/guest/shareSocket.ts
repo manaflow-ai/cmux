@@ -121,6 +121,35 @@ const recordsOf = (value: unknown): EventRecord[] =>
       })
     : [];
 
+const promptStateOf = (value: unknown): GuestPromptState | undefined => {
+  if (
+    !isObject(value) ||
+    typeof value.client_id !== "string" ||
+    !["held", "approved", "declined", "removed", "refused"].includes(String(value.state))
+  )
+    return undefined;
+  return {
+    client_id: value.client_id,
+    ...(typeof value.prompt_id === "string" ? { prompt_id: value.prompt_id } : {}),
+    state: value.state as GuestPromptState["state"],
+    ...(typeof value.reason === "string" ? { reason: value.reason } : {}),
+  };
+};
+
+const participantsOf = (value: unknown): GuestParticipant[] =>
+  Array.isArray(value)
+    ? value.flatMap((entry) => {
+        if (!isObject(entry) || typeof entry.id !== "string" || typeof entry.name !== "string") return [];
+        return [{
+          id: entry.id,
+          name: entry.name,
+          ...(typeof entry.kind === "string" ? { kind: entry.kind } : {}),
+          ...(typeof entry.viewing === "boolean" ? { viewing: entry.viewing } : {}),
+          ...(typeof entry.typing === "boolean" ? { typing: entry.typing } : {}),
+        }];
+      })
+    : [];
+
 /** The wait before reconnect number `attempt` (0 first): doubling to 30 s, with up to half of jitter. */
 export function backoffMs(attempt: number, random = Math.random): number {
   const base = Math.min(BACKOFF_MAX_MS, BACKOFF_FIRST_MS * 2 ** attempt);
@@ -226,10 +255,13 @@ export class ShareSocket {
         if (this.synced) this.listener.page(recordsOf(frame.records), frame.has_more === true);
         return;
       case "presence":
-        if (Array.isArray(frame.participants)) this.listener.presence(frame.participants as GuestParticipant[]);
+        this.listener.presence(participantsOf(frame.participants));
         return;
       case "prompt_state":
-        if (typeof frame.client_id === "string") this.listener.promptState(frame as unknown as GuestPromptState);
+        {
+          const state = promptStateOf(frame);
+          if (state) this.listener.promptState(state);
+        }
         return;
       case "end":
         return this.end(END_REASONS.has(String(frame.reason)) ? (frame.reason as GuestEnd) : "closed");
@@ -246,7 +278,12 @@ export class ShareSocket {
       : records.reduce((newest, record) => Math.max(newest, record.seq), 0);
     this.synced = true;
     this.attempt = 0;
-    const prompts = Array.isArray(frame.prompts) ? (frame.prompts as GuestPromptState[]) : [];
+    const prompts = Array.isArray(frame.prompts)
+      ? frame.prompts.flatMap((prompt) => {
+          const parsed = promptStateOf(prompt);
+          return parsed ? [parsed] : [];
+        })
+      : [];
     this.listener.snapshot({
       chat: (frame.chat as GuestChat) ?? {},
       records,
