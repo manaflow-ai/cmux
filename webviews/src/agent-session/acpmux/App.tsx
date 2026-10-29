@@ -8673,7 +8673,13 @@ function AcpmuxPane() {
     if (client.selectedSession !== sessionId) return;
     await client.archive(archived);
     // Quick Chat's panel has no tab to close.
-    if (archived && !quick && directClient.current === client && client.selectedSession === sessionId)
+    // Archiving hides the chat from the lists, so the client may already have left it for its
+    // fallback (none, or the most recent chat): that is this archive's own completion. Only a
+    // navigation to another chat that is still listed keeps the tab open.
+    const listed = (snapshotRef.current?.sessions ?? []).some((entry) => entry.sessionId === sessionId && !entry.archived);
+    const stillOurs =
+      client.selectedSession === sessionId || client.selectedSession === undefined || !listed;
+    if (archived && !quick && directClient.current === client && stillOurs)
       await callNative("pane.action", { id: "closeTab" });
   };
   const deleteChat = async () => {
