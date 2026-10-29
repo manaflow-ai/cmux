@@ -5,6 +5,7 @@
 // goes to the background and `completed`, `failed` or `stopped` when it ends, often turns later.
 // Before, every end added its own "Background task finished: <raw command>" row under the call's.
 import { expect, test } from "bun:test";
+import { sessionSummary } from "../src/agent-session/acpmux/summary/sessionSummary";
 import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { turnViewFrom, WORKED } from "../src/agent-session/acpmux/conversation/turns";
@@ -123,6 +124,55 @@ const callOf = (rows: AcpmuxRow[], id: string) => {
   return { row, tool: row?.items?.find((item) => item.tool?.id === id)?.tool };
 };
 
+test("background completion invalidates a mixed streaming activity summary", async () => {
+  const thought = update({ sessionUpdate: "agent_thought_chunk", content: { type: "text", text: "thinking" } });
+  const daemon = fakeDaemon(record([...backgroundCall("bg", "npm run dev"), ["in", "agent_thought_chunk", thought]]));
+  const { client, rows } = await connect(daemon);
+  try {
+    expect(sessionSummary(rows()).backgroundTasks[0]?.state).toBe("running");
+    daemon.push(record([task("bg", "npm run dev", "completed")], 4));
+    expect(sessionSummary(rows()).backgroundTasks[0]?.state).toBe("completed");
+    const next = {
+      sessionUpdate: "tool_call",
+      toolCallId: "next",
+      title: "Work",
+      kind: "think",
+      status: "in_progress",
+    };
+    daemon.push(record([["in", "tool_call", update(next)]], 5));
+    expect(sessionSummary(rows()).subagents).toContainEqual({ id: "next", title: "Work", state: "running" });
+  } finally {
+    client.close();
+  }
+});
+
+test("same-state subagent metadata updates refresh the cached summary title", async () => {
+  const agent = (name: string): Step => [
+    "in",
+    "subagent_state_update",
+    {
+      method: "session/update",
+      params: {
+        update: { sessionUpdate: "subagent_state_update" },
+        _meta: {
+          acpmux: {
+            subagents: [{ id: "child", parent: null, name, state: "running" }],
+          },
+        },
+      },
+    },
+  ];
+  const daemon = fakeDaemon(record([agent("Before")]));
+  const { client, rows } = await connect(daemon);
+  try {
+    expect(sessionSummary(rows()).subagents[0]?.title).toBe("Before");
+    daemon.push(record([agent("After")], 2));
+    expect(sessionSummary(rows()).subagents[0]?.title).toBe("After");
+  } finally {
+    client.close();
+  }
+});
+
 test("a background shell's states land on its call's row, a later turn's end included", async () => {
   const daemon = fakeDaemon(
     record([
@@ -239,4 +289,110 @@ test("a shell whose call is not in the transcript is one row, and joins its call
   await client.loadOlder();
   expect(callOf(rows(), "bg3").tool?.background?.state).toBe("completed");
   expect(notes()).toEqual([]);
+});
+
+test("message ID changes preserve the preceding reply Sources after completion", async () => {
+  const say = (messageId: string, text: string): Step => [
+    "in",
+    "agent_message_chunk",
+    update({ sessionUpdate: "agent_message_chunk", messageId, content: { type: "text", text } }),
+  ];
+  const daemon = fakeDaemon(
+    record([
+      ["mux", "user_message", { text: "Find the PR" }],
+      ["mux", "turn_started", {}],
+      say("msg-1", "See https://github.com/acme/app/pull/41"),
+    ]),
+  );
+  const { client, rows } = await connect(daemon);
+  try {
+    expect(sessionSummary(rows(), "acme/app").sources).toEqual([]);
+    daemon.push(record([say("msg-2", "Continue here")], 4));
+    daemon.push(record([["mux", "turn_result", { status: "completed" }]], 5));
+    expect(rows().filter((row) => row.kind === "assistant")).toMatchObject([
+      { text: "See https://github.com/acme/app/pull/41", streaming: false },
+      { text: "Continue here", streaming: false },
+    ]);
+    expect(sessionSummary(rows(), "acme/app").sources).toMatchObject([
+      { url: "https://github.com/acme/app/pull/41", kind: "pullRequest" },
+    ]);
+  } finally {
+    client.close();
+  }
+});
+
+test("running tool metadata refreshes the summary without rescanning output chunks", async () => {
+  const call = {
+    sessionUpdate: "tool_call",
+    toolCallId: "live",
+    title: "Before",
+    kind: "think",
+    status: "in_progress",
+  };
+  const daemon = fakeDaemon(record([["in", "tool_call", update(call)]]));
+  const { client, rows } = await connect(daemon);
+  try {
+    expect(sessionSummary(rows()).subagents).toContainEqual({ id: "live", title: "Before", state: "running" });
+    daemon.push(
+      record(
+        [
+          [
+            "in",
+            "tool_call_update",
+            update({
+              sessionUpdate: "tool_call_update",
+              toolCallId: "live",
+              title: "After",
+              status: "in_progress",
+            }),
+          ],
+        ],
+        2,
+      ),
+    );
+    expect(sessionSummary(rows()).subagents).toContainEqual({ id: "live", title: "After", state: "running" });
+    daemon.push(
+      record(
+        [
+          [
+            "in",
+            "tool_call_update",
+            update({
+              sessionUpdate: "tool_call_update",
+              toolCallId: "live",
+              kind: "execute",
+              title: "npm run dev",
+              rawInput: { command: "npm run dev", description: "Preview", run_in_background: true },
+            }),
+          ],
+        ],
+        3,
+      ),
+    );
+    const summary = sessionSummary(rows());
+    expect(summary.backgroundTasks[0]).toMatchObject({
+      command: "npm run dev",
+      description: "Preview",
+      state: "running",
+    });
+    daemon.push(
+      record(
+        [
+          [
+            "in",
+            "tool_call_update",
+            update({
+              sessionUpdate: "tool_call_update",
+              toolCallId: "live",
+              content: [{ type: "content", content: { type: "text", text: "output" } }],
+            }),
+          ],
+        ],
+        4,
+      ),
+    );
+    expect(sessionSummary(rows())).toBe(summary);
+  } finally {
+    client.close();
+  }
 });
