@@ -42,6 +42,7 @@ sys.path.insert(0, os.path.join(ROOT, "scripts/cmux-next"))
 from tag_teardown import TagTeardown  # noqa: E402
 
 PAGE = "cmux.mobile-pairing"
+RIG_MAC_NAME = "0 e2e rig Mac"
 PAIRED = re.compile(r"phone (\w+) paired from this Mac's pairing code")
 
 
@@ -163,6 +164,10 @@ def main():
     env.update(ls_env)
     env.update(CMUX_NEXT_CONFIG_FILE=config, CMUX_AUTH_CREDENTIALS_FILE=creds, CMUX_NEXT_IPHONE_PAIRING_SEED="",
                CMUX_NEXT_MOBILE_MACHINE_ID=machine_id(mac_bundle), CMUX_NEXT_NO_ACTIVATE="1",
+               # The name phones list this Mac by (DEBUG override): the dev account lists 100+ Macs
+               # by name, and this one sorts first, so the Devices captures show its row on top
+               # (step 423a0bae's showed only other Macs) and name no host.
+               CMUX_NEXT_MOBILE_DEVICE_NAME=RIG_MAC_NAME,
                CMUX_NEXT_SOCKET_MODE="automation")
 
     def rpc(method, params=None, timeout=30):
