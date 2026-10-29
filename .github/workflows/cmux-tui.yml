@@ -412,6 +412,17 @@ jobs:
           cargo clippy --workspace --lib --bins --locked --message-format=json -- "${panic_flags[@]}" > "$RUNNER_TEMP/panic-clippy.jsonl"
           python3 ../scripts/cmux-next/rust_panic_ratchet.py --clippy-json "$RUNNER_TEMP/panic-clippy.jsonl"
 
+      # The red log lists at most 20 hits per crate; the full clippy JSON lets a
+      # fixer (or --update-baseline, which needs a Linux run) work from the laptop.
+      - name: Upload panic ratchet clippy JSON
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: panic-clippy-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/panic-clippy.jsonl
+          if-no-files-found: ignore
+          retention-days: 14
+
       # cmux-rd-ffi is its own Cargo workspace (outside --workspace), so the
       # cmux-tui lint/test steps never build it. Its tests pin the C header
       # against the exports and layouts (plans/cmux-next/remote-desktop.md 3).

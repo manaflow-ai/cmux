@@ -95,7 +95,13 @@ pub(super) async fn sessions(hub: &Hub, conn: &Conn, params: &Value) -> Result<V
             let full = list.full_whole(hub);
             let mut result: Value = serde_json::from_str(&full).unwrap_or_default();
             if !whole(params) {
-                let rows = result["sessions"].take().as_array().cloned().unwrap_or_default();
+                let rows = result
+                    .get_mut("sessions")
+                    .map(Value::take)
+                    .unwrap_or_default()
+                    .as_array()
+                    .cloned()
+                    .unwrap_or_default();
                 result = crate::hub::session_pages::session_list_reply(rows, params)?;
             }
             Ok(Arc::new(if raw { result.to_string() } else { masked(result) }))
