@@ -356,13 +356,16 @@ container, so the hostname there is the runtime's.
 
 Daemon-spawned shells get the TERM the Mac exports (`xterm-256color`, or
 `xterm-ghostty` when passed through) plus `COLORTERM=truecolor`, and inherit
-`TERM_PROGRAM=ghostty` with `TERM_PROGRAM_VERSION` from
-`/etc/cmux/ghostty-version` (the Ghostty .deb pin, written by the bake and
-the Dockerfile) via the supervisor's environment, the same identity the app
-exports to local and SSH shells. Claude Code and other agents gate
+`TERM_PROGRAM=ghostty` via the supervisor's environment, the same identity the
+app exports to local and SSH shells. Claude Code and other agents gate
 synchronized output, progress reporting, strikethrough, and Cmd-click on
 `TERM_PROGRAM`; `verify-devbox-image.ts` reads the daemon's environ to prove
-it. Programs still resolve TERM against the guest's terminfo. Stock ncurses
+it. The daemon's own environment also carries `TERM_PROGRAM_VERSION` from
+`/etc/cmux/ghostty-version` (the Ghostty .deb pin, written by the bake and the
+Dockerfile), which the verifier checks, but no shell inherits it: cmux forwards
+a full-screen TUI's mouse reports instead of providing Ghostty's native
+selection, so a child that read a Ghostty version would turn its own
+copy-on-select drag fallback off (cmux#22585). Programs still resolve TERM against the guest's terminfo. Stock ncurses
 `xterm-256color` advertises no truecolor (`Tc`) or styled underlines (`Su`)
 and emits SGR 90 for `setaf 8`, which the cmux renderer shows as invisible
 ghost text. `cmux-terminfo.src` is the app's `Resources/terminfo-overlay`

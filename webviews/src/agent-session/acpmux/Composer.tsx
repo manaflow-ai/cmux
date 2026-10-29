@@ -499,6 +499,10 @@ export function Composer({
   /// The person edited this chat's prompt before its durable draft read answered (a clear too):
   /// that read keeps their text, empty or not, and a quit before it answers saves it.
   const editedBeforeHydration = useRef(false);
+  /// The text the durable read left in the prompt (acpmux's draft, or what the prompt already held):
+  /// with nothing queued since, a quit compares the editor with it, so an untouched prompt never
+  /// clears a draft another client (the CLI, another window) saved while this page was open.
+  const hydratedText = useRef("");
   const prompts = usePromptHistory(snapshot.rows);
   // Send becomes Stop in place once the turn starts; a second click of a
   // double-click, or a click right after Enter, must not cancel the new turn.
@@ -687,7 +691,10 @@ export function Composer({
         // Before the durable read answers, only what the person typed goes (the read keeps a typed
         // prompt over acpmux's the same way); an untouched editor leaves acpmux's draft alone.
         const ready = hydratedSession.current === session || editedBeforeHydration.current;
-        if (session && ready && !restoringSession.current && typed !== lastQueuedDraftText(session)) {
+        const known =
+          lastQueuedDraftText(session ?? "") ??
+          (hydratedSession.current === session ? hydratedText.current : undefined);
+        if (session && ready && !restoringSession.current && typed !== known) {
           writePersistedDraft(session, typed);
         }
         const unsent = unsentDraft.current;
@@ -790,9 +797,13 @@ export function Composer({
         setText(restored);
         setCaret(restored.length);
         pendingCaret.current = restored.length;
-      } else if (!hasPendingWrite && (currentText.trim() || edited)) {
-        // A local remount cache or keystroke arrived before the daemon read. Preserve it durably.
-        writePersistedDraft(sessionId, currentText);
+        hydratedText.current = restored;
+      } else {
+        hydratedText.current = currentText;
+        if (!hasPendingWrite && (currentText.trim() || edited)) {
+          // A local remount cache or keystroke arrived before the daemon read. Preserve it durably.
+          writePersistedDraft(sessionId, currentText);
+        }
       }
       hydratedSession.current = sessionId;
       flushPendingDraftWrites();
