@@ -183,7 +183,10 @@ await requireBrowserLane("tray-composer-alignment.test.ts", async () => {
                   ...document.querySelectorAll<HTMLElement>(
                     '[data-alignment-surface="tray"] .acpmux-running-tray__list .acpmux-agent-line__stop-slot > .cv-subagent__stop',
                   ),
-                ].map(rectFrom),
+                ].map((stop) => ({
+                  stop: rectFrom(stop),
+                  row: rectFrom(stop.closest<HTMLElement>(".acpmux-agent-line")!),
+                })),
                 noStopRow: (() => {
                   const row = [
                     ...document.querySelectorAll<HTMLElement>(
@@ -224,7 +227,8 @@ await requireBrowserLane("tray-composer-alignment.test.ts", async () => {
                 }
                 // Translate does not resize a box. Trigger the observed action subtree so
                 // this checks a fresh measurement in the inspector's shifted coordinates.
-                document.querySelector(".acpmux-composer-actions")?.classList.add("alignment-measurement-probe");
+                // The composer itself is the observed transformed ancestor; no action-subtree
+                // mutation is needed to make this a real ancestor-change recomputation.
               });
               await page.evaluate(
                 () => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))),
@@ -308,7 +312,7 @@ await requireBrowserLane("tray-composer-alignment.test.ts", async () => {
                   }
                 : {}),
               ...Object.fromEntries(
-                result.subagentStops.map((stop, index) => [
+                result.subagentStops.map(({ stop }, index) => [
                   `subagentStopRightColumn${index}`,
                   Math.abs(center(stop) - center(result.mic)),
                 ]),
@@ -347,6 +351,16 @@ await requireBrowserLane("tray-composer-alignment.test.ts", async () => {
               expect(value, `${name} drifted by ${value.toFixed(2)}px`).toBeLessThanOrEqual(TOLERANCE);
             for (const [name, value] of Object.entries(checks).filter(([name]) => name.startsWith("subagentStopRightColumn")))
               expect(value, `${name} drifted by ${value.toFixed(2)}px`).toBeLessThanOrEqual(TOLERANCE);
+            const expectedSubagentStops = variant.endsWith("expanded") ? 3 : 0;
+            expect(result.subagentStops.length, "running subagent stop controls").toBe(expectedSubagentStops);
+            for (const { stop, row } of result.subagentStops) {
+              expect(stop.width, "subagent stop must be measurable").toBeGreaterThan(0);
+              expect(stop.height, "subagent stop must be measurable").toBeGreaterThan(0);
+              expect(stop.left).toBeGreaterThanOrEqual(row.left - TOLERANCE);
+              expect(stop.right).toBeLessThanOrEqual(row.right + TOLERANCE);
+              expect(stop.top).toBeGreaterThanOrEqual(row.top - TOLERANCE);
+              expect(stop.bottom).toBeLessThanOrEqual(row.bottom + TOLERANCE);
+            }
             if (variant.endsWith("expanded")) {
               expect(result.commandRow, "expanded tray must render a command row").not.toBeNull();
               expect(result.commandStop, "command stop must carry the right-action marker").not.toBeNull();

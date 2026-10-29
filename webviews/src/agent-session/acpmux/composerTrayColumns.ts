@@ -16,6 +16,7 @@ export function followComposerTrayColumns(box: HTMLElement): (() => void) | unde
     let shift = 0;
     for (let current: HTMLElement | null = node; current && current !== stop; current = current.parentElement) {
       const style = getComputedStyle(current);
+      if (style.display === "contents") continue;
       const value = style.translate.trim().split(/\s+/)[0];
       if (value && value !== "none") {
         const parsed = value.endsWith("%")
@@ -28,10 +29,16 @@ export function followComposerTrayColumns(box: HTMLElement): (() => void) | unde
       // partial inverse matrix that could write scaled pixels back as layout margins.
       const transform = style.transform;
       if (transform !== "none") {
-        const matrix = transform.match(/^matrix\(([^)]+)\)$/)?.[1].split(",").map(Number);
-        if (matrix?.length === 6 && matrix.every(Number.isFinite)) {
-          const [a, b, c, d, e] = matrix;
-          if (a === 1 && b === 0 && c === 0 && d === 1) shift += e;
+        const matrix = transform.match(/^matrix(3d)?\(([^)]+)\)$/);
+        const values = matrix?.[2].split(",").map(Number);
+        if (values?.every(Number.isFinite)) {
+          if (!matrix?.[1] && values.length === 6) {
+            const [a, b, c, d, e] = values;
+            if (a === 1 && b === 0 && c === 0 && d === 1) shift += e;
+          } else if (matrix?.[1] && values.length === 16) {
+            const [a, b, c, d, , , , , , , , , e] = values;
+            if (a === 1 && b === 0 && c === 0 && d === 1) shift += e;
+          }
         }
       }
     }
@@ -71,12 +78,18 @@ export function followComposerTrayColumns(box: HTMLElement): (() => void) | unde
   if (dock.parentElement) resize.observe(dock.parentElement);
   // Draft/working state can replace the last action without resizing the action cluster.
   const mutation = new MutationObserver(apply);
-  mutation.observe(actions, {
+  mutation.observe(box, {
     childList: true,
     subtree: true,
     attributes: true,
     attributeFilter: ["class", "style", "hidden"],
   });
+  // The inspector can move or replace the dock's layout parent without changing the action
+  // cluster's size. Observe those attributes too, but omit the dock's own style because `apply`
+  // writes the measured custom properties there and would otherwise retrigger itself.
+  mutation.observe(dock, { attributes: true, attributeFilter: ["class", "hidden"] });
+  if (dock.parentElement)
+    mutation.observe(dock.parentElement, { attributes: true, attributeFilter: ["class", "style", "hidden"] });
   apply();
   return () => {
     resize.disconnect();
