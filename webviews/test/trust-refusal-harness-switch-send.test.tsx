@@ -96,6 +96,7 @@ type Actions = Record<string, (params: Record<string, unknown>) => Promise<unkno
 const actions = () => (dom.window as unknown as { cmuxAcpmuxActions?: Actions }).cmuxAcpmuxActions;
 const trustButton = () =>
   dom.window.document.querySelector<HTMLButtonElement>(".acpmux-trust-ask-primary") ?? undefined;
+const failedTrustButton = () => dom.window.document.querySelector<HTMLButtonElement>(".cv-user__fix") ?? undefined;
 
 test("a prompt held by a harness switch and refused for the folder's trust is sent after Trust", async () => {
   const folder = "/tmp/switch-untrusted-project";
@@ -154,11 +155,12 @@ test("a prompt held by a harness switch and refused for the folder's trust is se
 
   // The session opened, the held prompt went and acpmux refused it for the folder's trust.
   await until(() => trustButton() !== undefined, "the trust question shows");
+  await until(() => failedTrustButton() !== undefined, "the failed prompt trust card shows");
   await act(async () => void (await sent));
   expect(prompts).toEqual([]);
 
   await act(async () => trustButton()!.click());
   await until(() => prompts.includes("hello"), "the held prompt went after Trust");
   expect(prompts.filter((text) => text === "hello")).toEqual(["hello"]);
-  await until(() => trustButton() === undefined, "the Trust card clears after the retried session starts");
+  await until(() => failedTrustButton() === undefined, "the failed prompt trust card clears after the retried session starts");
 }, 60_000);
