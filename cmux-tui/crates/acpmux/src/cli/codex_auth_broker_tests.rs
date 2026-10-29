@@ -202,35 +202,22 @@ for line in sys.stdin:
 
 #[tokio::test]
 async fn owner_stop_unlocks_when_a_detached_child_keeps_the_lock_fd() {
+    inherited_lock_after_shutdown(true).await;
+}
+
+#[tokio::test]
+async fn owner_drop_preserves_the_lock_until_inherited_descriptors_close() {
+    inherited_lock_after_shutdown(false).await;
+}
+
+async fn inherited_lock_after_shutdown(stop: bool) {
     let home = Home::new();
     let holder = prepare(&home.0).unwrap();
-    let codex = home.0.join("forking-codex");
+    let codex = home.0.join("fake-codex");
     std::fs::write(
         &codex,
         r#"#!/usr/bin/env python3
-import json, os, subprocess, sys
-
-fd_root = '/dev/fd' if sys.platform == 'darwin' else '/proc/self/fd'
-lock_fd = None
-for fd in os.listdir(fd_root):
-    try:
-        if os.path.basename(os.readlink(fd_root + '/' + fd)) == 'broker.lock':
-            lock_fd = int(fd)
-            break
-    except OSError:
-        pass
-if lock_fd is None:
-    raise RuntimeError('broker lock fd was not inherited')
-child = subprocess.Popen(
-    ['sleep', '30'],
-    stdin=subprocess.DEVNULL,
-    stdout=subprocess.DEVNULL,
-    stderr=subprocess.DEVNULL,
-    pass_fds=(lock_fd,),
-    start_new_session=True,
-)
-with open(os.path.join(os.environ['CODEX_HOME'], 'detached-child.pid'), 'w') as pid:
-    pid.write(str(child.pid))
+import json, sys
 for line in sys.stdin:
     request = json.loads(line)
     if request.get('id') is not None:
@@ -242,20 +229,38 @@ for line in sys.stdin:
     let mut terminate =
         tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).unwrap();
     let mut owner = Owner::start(&home.0, &codex, &holder, &mut terminate).await.unwrap().unwrap();
-    drop(holder);
-    owner.stop().await;
 
-    // The detached child still has the inherited broker.lock descriptor, so
-    // prepare only succeeds if Owner::stop explicitly releases its lock.
-    assert!(prepare(&home.0).is_ok());
-    let pid = std::fs::read_to_string(home.0.join("detached-child.pid"))
-        .unwrap()
-        .parse::<libc::pid_t>()
-        .unwrap();
-    // SAFETY: the test just spawned this detached child and owns its lifetime.
+    // Model an unrelated fork retaining only this lock's open-file description.
+    // Passing fd 3 explicitly works on every Unix platform without /proc or
+    // /dev/fd symlink assumptions, and keeps other tests' descriptors private.
+    let fd = holder.as_raw_fd();
+    let mut command = Command::new("sleep");
+    command.arg("30").stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+    command.kill_on_drop(true);
+    // SAFETY: the child calls only async-signal-safe dup2/fcntl before exec.
     unsafe {
-        libc::kill(pid, libc::SIGKILL);
+        command.pre_exec(move || {
+            let ok = if fd == 3 {
+                libc::fcntl(fd, libc::F_SETFD, 0) == 0
+            } else {
+                libc::dup2(fd, 3) == 3
+            };
+            if ok { Ok(()) } else { Err(std::io::Error::last_os_error()) }
+        });
     }
+    let mut child = command.spawn().unwrap();
+    drop(holder);
+    assert!(prepare(&home.0).is_err());
+    if stop {
+        owner.stop().await;
+    }
+    drop(owner);
+    let child_is_alive = child.try_wait().unwrap().is_none();
+    let next = prepare(&home.0);
+    child.kill().await.unwrap();
+    child.wait().await.unwrap();
+    assert!(child_is_alive, "the descriptor holder must outlive shutdown");
+    assert_eq!(next.is_ok(), stop, "only confirmed stop may explicitly unlock");
 }
 
 #[tokio::test]

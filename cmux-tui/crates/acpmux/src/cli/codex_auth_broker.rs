@@ -227,9 +227,14 @@ struct Owner {
 
 impl Drop for Owner {
     fn drop(&mut self) {
-        // Keep the release deterministic even on an early-return path that
-        // drops an owner without reaching its async stop routine.
-        let _ = self.lock.unlock();
+        if let Some(pid) = self.child.id() {
+            // SAFETY: this unreaped child leads the group we created. Drop
+            // cannot await Tokio's reaper, so kill the group without unlocking.
+            // Its inherited descriptor keeps the lock until Codex really exits.
+            unsafe {
+                libc::killpg(pid as libc::pid_t, libc::SIGKILL);
+            }
+        }
     }
 }
 
@@ -261,12 +266,15 @@ impl Owner {
             unsafe {
                 libc::killpg(pid as libc::pid_t, libc::SIGKILL);
             }
-            self.child.wait().await.ok();
+            if self.child.wait().await.is_err() {
+                // No confirmed exit: retain the inherited lock protection.
+                return;
+            }
         }
         // A child forked before exec can retain the inherited open file
         // description after its owner exits. Explicitly unlocking our clone
         // releases the flock without waiting for every inherited descriptor
-        // to close. This mirrors the daemon's lock-holder Drop contract.
+        // to close. Only the reaped stop path may explicitly unlock.
         let _ = self.lock.unlock();
     }
 
