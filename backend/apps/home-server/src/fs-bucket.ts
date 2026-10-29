@@ -462,6 +462,9 @@ export class FsBucket {
   resumeMultipartUpload(key: string, uploadId: string): FsMultipartUpload {
     keyPath(this.root, key)
     checkUploadId(uploadId)
+    // Validate the persisted record now, rather than returning a handle that can only
+    // discover a missing or crossed key on its first operation.
+    this.openMultipart(key, uploadId)
     return new FsMultipartUpload(this, uploadId, key)
   }
 
