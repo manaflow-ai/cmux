@@ -168,6 +168,19 @@ class StuckRun(unittest.TestCase):
         tick(gh)
         self.assertEqual(gh.writes(), [], "an unknown dependency completion time is not proof of a stall")
 
+    def test_a_queued_owned_build_protects_its_downstream_jobs_before_each_cancel(self):
+        mixed = [job("build-nightly-app", label="glaeda-trusted-next-nightly"), job("signer")]
+        for case, reads, expected in (
+            ("discovery", [mixed], []),
+            ("before cancel", [STUCK, mixed], []),
+            ("before force-cancel", [STUCK, STUCK, mixed], ["repos/o/r/actions/runs/7/cancel"]),
+        ):
+            with self.subTest(case):
+                gh = FakeGh(runs=[run(7)], jobs={7: reads}, after_cancel={7: [run(7)]})
+                tick(gh)
+                self.assertEqual(gh.writes(), expected,
+                                 "a queued owned build must stay under owned-pool recovery")
+
     def test_a_new_tip_revalidates_dispatch_and_attempt_cap_before_cancel(self):
         for current in (run(7, attempt=3), run(7, event="workflow_dispatch")):
             with self.subTest(run=current):
