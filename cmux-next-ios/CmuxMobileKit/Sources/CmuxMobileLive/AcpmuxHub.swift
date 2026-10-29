@@ -739,7 +739,19 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         attaching = true
         generation += 1
         let generation = generation
-        attachTask = Task { [weak self] in await self?.attach(hub, generation) }
+        // The task holds the source only between its requests, never across one: a chat
+        // nobody keeps goes away while a page is read, and its deinit cancels the read.
+        attachTask = Task { [weak self] in
+            while let read = self?.nextRead(generation) {
+                let pages = await Self.readPages(hub, read) { [weak self] in self?.generation == generation }
+                guard self?.caughtUp(pages, read, generation) == true else { return }
+            }
+        }
+    }
+
+    isolated deinit {
+        attachTask?.cancel()
+        retryTask?.cancel()
     }
 
     /// How long a failed attach waits before the next try: 250 ms, doubling, at most 15 s.
@@ -755,32 +767,108 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         let delay = Self.retryDelay(afterFailures: failures)
         retryTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: delay)
-            guard !Task.isCancelled, let self else { return }
-            self.retryTask = nil
-            self.linkUp()
+            guard !Task.isCancelled else { return }
+            self?.retryTask = nil
+            self?.linkUp()
         }
     }
 
-    private func attach(_ hub: AcpmuxHub, _ generation: Int) async {
-        while true {
-            refillPending = false
-            let caughtUp = await catchUp(hub, generation)
-            guard generation == self.generation else { return }
-            guard caughtUp else {
-                attaching = false
-                attachTask = nil
-                // Live records held meanwhile are newer than the gap: applying them would move
-                // `lastSeq` past it for good. The retry reads to the log's end, them included.
-                held = []
-                scheduleRetry()
-                return
-            }
-            // The Mac dropped records while this catch-up read (`refill`): the held records
-            // may come after one it dropped, so read on from the last record applied first.
-            // Applying them would move `lastSeq` past the dropped one for good.
-            if refillPending { continue }
-            break
+    /// One catch-up's start: from the last record applied (none: a first attach).
+    struct CatchUpRead {
+        let sessionID: String
+        let after: Int
+        var firstAttach: Bool { after == 0 }
+    }
+
+    /// What a catch-up read: the attach reply, its records in seq order, whether older ones
+    /// exist (a first attach), and the error that stopped it, if one did.
+    struct CatchUpPages {
+        var result: JSONValue = .null
+        var page: [JSONValue] = []
+        var earlier = false
+        var failure: (any Error)?
+    }
+
+    /// The next catch-up of attach `generation`, or nil when it is no longer current.
+    private func nextRead(_ generation: Int) -> CatchUpRead? {
+        guard generation == self.generation else { return nil }
+        refillPending = false
+        return CatchUpRead(sessionID: sessionID, after: lastSeq)
+    }
+
+    /// Reads from `read.after` to the log's end (a first attach: the newest page, then older
+    /// ones back to the start or the cap). Each request is bounded, and none is sent once the
+    /// attach is no longer `current` (the link dropped, another attach started, the chat went
+    /// away): the hub's next connection is not its own.
+    private static func readPages(_ hub: AcpmuxHub, _ read: CatchUpRead, current: @escaping () -> Bool) async -> CatchUpPages {
+        var out = CatchUpPages()
+        func request(_ method: String, _ params: [String: JSONValue]) async throws -> JSONValue {
+            guard current(), !Task.isCancelled else { throw CancellationError() }
+            return try await hub.request(method, .object(params), timeout: pageTimeout)
         }
+        do {
+            var params: [String: JSONValue] = [
+                "sessionId": .string(read.sessionID),
+                "limit": .number(Double(pageSize)),
+                "kinds": chatKinds,
+                "eventStream": .bool(true),
+            ]
+            if !read.firstAttach { params["afterSeq"] = .number(Double(read.after)) }
+            out.result = try await request("_acpmux/attach", params)
+            out.page = out.result["events"]?.arrayValue ?? []
+            // A reattach (the link came back, or the Mac said this connection lagged) asks for
+            // what came after the last record applied, oldest first and one page at a time: page
+            // forward until a page reaches the log's end. Otherwise the next live record moves
+            // `lastSeq` past the rest of the gap, and the chat never sees what was in it (a
+            // turn's end, a decision made on the Mac).
+            if !read.firstAttach {
+                var more = out.result["hasMore"] == .bool(true)
+                while more, let newest = out.page.last?["seq"]?.numberValue {
+                    let next = try await request("_acpmux/events", [
+                        "sessionId": .string(read.sessionID), "afterSeq": .number(newest),
+                        "limit": .number(Double(pageSize)), "kinds": chatKinds,
+                    ])
+                    let events = next["events"]?.arrayValue ?? []
+                    out.page += events
+                    more = !events.isEmpty && next["hasMore"] == .bool(true)
+                }
+            }
+            // First attach: page older records back until the history starts or the cap.
+            out.earlier = read.firstAttach && out.result["hasMore"] == .bool(true)
+            if out.earlier {
+                while out.page.count < maxHistory, let oldest = out.page.first?["seq"]?.numberValue {
+                    let older = try await request("_acpmux/events", [
+                        "sessionId": .string(read.sessionID), "beforeSeq": .number(oldest),
+                        "limit": .number(Double(pageSize)), "kinds": chatKinds,
+                    ])
+                    let events = older["events"]?.arrayValue ?? []
+                    out.page = events + out.page
+                    out.earlier = !events.isEmpty && older["hasMore"] == .bool(true)
+                    if !out.earlier { break }
+                }
+            }
+        } catch {
+            out.failure = error
+        }
+        return out
+    }
+
+    /// Applies a catch-up's pages. False when it caught up or ended (failed: a retry is
+    /// scheduled; stale: nothing is applied); true when it must read again first: the Mac
+    /// dropped records while it read (`refill`), and the held records may come after one it
+    /// dropped. Applying them would move `lastSeq` past the dropped one for good.
+    private func caughtUp(_ pages: CatchUpPages, _ read: CatchUpRead, _ generation: Int) -> Bool {
+        guard generation == self.generation else { return false }
+        guard apply(pages, read) else {
+            attaching = false
+            attachTask = nil
+            // Live records held meanwhile are newer than the gap: applying them would move
+            // `lastSeq` past it for good. The retry reads to the log's end, them included.
+            held = []
+            scheduleRetry()
+            return false
+        }
+        if refillPending { return true }
         attaching = false
         attachTask = nil
         failures = 0
@@ -788,77 +876,22 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         let pending = held
         held = []
         for record in pending { apply(record: record) }
+        return false
     }
 
-    /// Reads from the last record applied to the log's end and applies it as one batch.
-    /// False when a request failed: a reattach applies what it read up to its last record
-    /// (no gap: pages are read oldest first from `lastSeq`), and the rest waits for the retry.
-    private func catchUp(_ hub: AcpmuxHub, _ generation: Int) async -> Bool {
-        let after = lastSeq
-        let firstAttach = after == 0
-        var result: JSONValue = .null
-        var page: [JSONValue] = []
-        var earlier = false
-        var failure: (any Error)?
-        // Each request is bounded, and none is sent once this attach is stale (the link
-        // dropped, or another attach started): the hub's next connection is not its own.
-        func read(_ method: String, _ params: [String: JSONValue]) async throws -> JSONValue {
-            guard generation == self.generation, !Task.isCancelled else { throw CancellationError() }
-            return try await hub.request(method, .object(params), timeout: Self.pageTimeout)
-        }
-        do {
-            var params: [String: JSONValue] = [
-                "sessionId": .string(sessionID),
-                "limit": .number(Double(Self.pageSize)),
-                "kinds": Self.chatKinds,
-                "eventStream": .bool(true),
-            ]
-            if !firstAttach { params["afterSeq"] = .number(Double(after)) }
-            result = try await read("_acpmux/attach", params)
-            page = result["events"]?.arrayValue ?? []
-            // A reattach (the link came back, or the Mac said this connection lagged) asks for
-            // what came after the last record applied, oldest first and one page at a time: page
-            // forward until a page reaches the log's end. Otherwise the next live record moves
-            // `lastSeq` past the rest of the gap, and the chat never sees what was in it (a
-            // turn's end, a decision made on the Mac).
-            if !firstAttach {
-                var more = result["hasMore"] == .bool(true)
-                while more, let newest = page.last?["seq"]?.numberValue {
-                    let next = try await read("_acpmux/events", [
-                        "sessionId": .string(sessionID), "afterSeq": .number(newest),
-                        "limit": .number(Double(Self.pageSize)), "kinds": Self.chatKinds,
-                    ])
-                    let events = next["events"]?.arrayValue ?? []
-                    page += events
-                    more = !events.isEmpty && next["hasMore"] == .bool(true)
-                }
-            }
-            // First attach: page older records back until the history starts or the cap.
-            earlier = firstAttach && result["hasMore"] == .bool(true)
-            if earlier {
-                while page.count < Self.maxHistory, let oldest = page.first?["seq"]?.numberValue {
-                    let older = try await read("_acpmux/events", [
-                        "sessionId": .string(sessionID), "beforeSeq": .number(oldest),
-                        "limit": .number(Double(Self.pageSize)), "kinds": Self.chatKinds,
-                    ])
-                    let events = older["events"]?.arrayValue ?? []
-                    page = events + page
-                    earlier = !events.isEmpty && older["hasMore"] == .bool(true)
-                    if !earlier { break }
-                }
-            }
-        } catch {
-            failure = error
-        }
-        guard generation == self.generation else { return false }
-        log.info("attach \(self.sessionID, privacy: .public) after \(after, privacy: .public): \(page.count, privacy: .public) records, through \(page.last?["seq"]?.numberValue ?? 0, privacy: .public), held \(self.held.count, privacy: .public), failed \(failure != nil, privacy: .public)")
-        if let failure {
+    /// Applies what a catch-up read as one batch. False when a request failed: a reattach
+    /// applies what it read up to its last record (no gap: pages are read oldest first from
+    /// `lastSeq`), and the rest waits for the retry.
+    private func apply(_ pages: CatchUpPages, _ read: CatchUpRead) -> Bool {
+        let (result, page) = (pages.result, pages.page)
+        log.info("attach \(self.sessionID, privacy: .public) after \(read.after, privacy: .public): \(page.count, privacy: .public) records, through \(page.last?["seq"]?.numberValue ?? 0, privacy: .public), held \(self.held.count, privacy: .public), failed \(pages.failure != nil, privacy: .public)")
+        if let failure = pages.failure {
             // Said once per run of failures, not on every retry.
             if failures == 0 { emit(.clientError(Self.message(failure))) }
             // A first attach's page is the newest records, with a gap before them until the
             // older pages are in: nothing of it is applied. A reattach's is the oldest after
             // `lastSeq`: what was read has no gap and is applied.
-            guard !firstAttach, !page.isEmpty else { return false }
+            guard !read.firstAttach, !page.isEmpty else { return false }
             beginHistory()
             for record in page { apply(record: record) }
             endHistory()
@@ -873,7 +906,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         // transcript instead of animating every past record in (or, on a reattach, the
         // records missed while the link was down). Records after the reply are live.
         beginHistory()
-        if firstAttach { emit(.earlierHistory(earlier)) }
+        if read.firstAttach { emit(.earlierHistory(pages.earlier)) }
         // The reply's session state is as of its `lastSeq` (read with it, before its page),
         // and a catch-up may read records written after it: a turn that ended in a later page
         // must not show as running again. The state goes in at that seq, among the records.
@@ -881,12 +914,12 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         var stateApplied = false
         for record in page {
             if !stateApplied, Int(record["seq"]?.numberValue ?? 0) > boundary {
-                applyState(result, hub: hub, page: page)
+                applyState(result, page: page)
                 stateApplied = true
             }
             apply(record: record)
         }
-        if !stateApplied { applyState(result, hub: hub, page: page) }
+        if !stateApplied { applyState(result, page: page) }
         endHistory()
         return true
     }
@@ -900,9 +933,9 @@ public final class AcpmuxSessionSource: AgentSessionSource {
 
     /// An attach reply's session state, in the catch-up at its own seq (`stateSeq`): what
     /// the catch-up applies after it is the records in `page` and `held` newer than `lastSeq`.
-    private func applyState(_ result: JSONValue, hub: AcpmuxHub, page: [JSONValue]) {
+    private func applyState(_ result: JSONValue, page: [JSONValue]) {
         // This connection's Full-access setting, before the modes it widens.
-        emit(.fullAccess(hub.fullAccess))
+        emit(.fullAccess(hub?.fullAccess ?? false))
         // The session's models, modes and options as acpmux kept them then (D4: a running
         // chat had no model menu, as they only came with later updates). After the records
         // before it: a pick (set_model, set_mode, set_config_option) writes no record, so an

@@ -204,4 +204,39 @@ import Testing
         #expect(store.turns.last?.status == .completed)
         #expect(store.summary.status == .idle)
     }
+
+    /// A chat nobody keeps any more goes away while its attach waits on the Mac, and the
+    /// attach stops: the attach task used to hold the source until the reply came, which on
+    /// a link that stopped answering was never.
+    @Test func aChatNobodyKeepsGoesAwayWhileItsAttachWaits() async throws {
+        let calls = Calls()
+        // The Mac never answers an attach.
+        let link = MockMacLink { _, data in
+            guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let method = object["method"] as? String else { return [] }
+            let id = object["id"].map { "\($0)" } ?? "null"
+            switch method {
+            case "initialize": return [Self.reply(id, #"{"protocolVersion":1}"#)]
+            case "_acpmux/watch":
+                return [Self.reply(id, #"{"sessions":[{"sessionId":"s1","name":"Fix","harness":"codex","cwd":"/tmp/w","status":"idle"}]}"#)]
+            case "_acpmux/attach":
+                calls.attached(after: 0)
+                return []
+            default:
+                return [Self.reply(id, "{}")]
+            }
+        }
+        let hub = AcpmuxHub()
+        defer { withExtendedLifetime(hub) {} }
+        await hub.bind(try await link.openChannel(service: "acpmux", args: [:]))
+        weak var released: AcpmuxSessionSource?
+        do {
+            let source = hub.source(sessionID: "s1", summary: Chat.summary)
+            released = source
+            await Self.waitUntil { calls.attaches.count == 1 }
+            #expect(calls.attaches.count == 1)
+        }
+        await Self.waitUntil { released == nil }
+        #expect(released == nil)
+    }
 }
