@@ -785,12 +785,6 @@
       "why": "p02-threads-054..055: CmuxNextCompat StaticCodeValidityCache.process, SecStaticCodeCheckValidity answers kept per version of the code on disk (dev, inode, mode, size, mtime, ctime of the item and of every entry of a bundle, which kSecCSCheckNestedCode validates). It serves five checks that were raw on main or the pool: the bundled acpmux team check, which about ten AcpmuxEnvironment.resolve sites in four packages reach, the CUA helper, the CEF load check, the rollback team read and the Chromium runtime installer (which takes it injected). The app resolves its acpmux once on its system lane from main (AppEnvironment.appAcpmux) and its main-thread users take that answer. It goes when AcpmuxEnvironment.resolve takes the check from the composition root."
     },
     {
-      "date": "2026-10-27",
-      "row": "blocking_allow_escapes",
-      "allow": 1,
-      "why": "p15-oracle-120: StandardErrorLogSink (CmuxNextCompat/Platform, Linux only) writes a Logger line to stderr synchronously, as Chromium's LOG() does on Linux (base/logging.cc, LOG_TO_STDERR, no ScopedBlockingCall), so the last lines before a crash are not lost. The blocking detector reports its violations through Logger, so a checked write would report itself. The file is not compiled on Darwin, where Logger is os.Logger."
-    },
-    {
       "date": "2026-10-28",
       "row": "blocking_allow_escapes",
       "allow": 4,

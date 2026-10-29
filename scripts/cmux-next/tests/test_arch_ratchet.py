@@ -1029,38 +1029,6 @@ class LayerTests(Repo):
                                  "CmuxNextUI": ["CmuxNextDomain"], "CFFI": []})
         self.assertEqual(manifest.unreadable, {})
 
-    LINUX_MODE = ('\n#if os(Linux)\nimport Foundation\n'
-                  'if ProcessInfo.processInfo.environment["CMUX_SWIFTPM_TARGET_LINUX"] == "1" {\n'
-                  '    package.targets = package.targets.filter { $0.name != "CmuxNextUI" }\n'
-                  '    package.targets.append(.target(name: kept ? "CZlib" : "X"))\n'
-                  '}\n#endif\n')
-
-    def test_a_linux_only_gate_block_is_not_read(self):
-        # No Apple build runs it (p15-oracle-002's Linux mode); the Apple graph is the one before it.
-        plain = counts.parse_manifest(MANIFEST % "")
-        linux = counts.parse_manifest(MANIFEST % "" + self.LINUX_MODE)
-        self.assertEqual(linux.unreadable, {})
-        self.assertEqual({n: t.deps for n, t in linux.targets.items()}, {n: t.deps for n, t in plain.targets.items()})
-        stripped = counts.without_linux_target_blocks(MANIFEST % "" + self.LINUX_MODE)
-        self.assertEqual(stripped.count("\n"), (MANIFEST % "" + self.LINUX_MODE).count("\n"))
-
-    def test_a_gate_block_not_closed_alone_at_its_indentation_is_read(self):
-        text = MANIFEST % "" + self.LINUX_MODE.replace("\n}\n#endif", "\n} ; package.products = []\n#endif")
-        self.assertTrue(counts.parse_manifest(text).unreadable)
-
-    def test_the_gate_form_is_the_package_resolved_policy_one(self):
-        # check-package-resolved-policy.py drops the same blocks of the real manifest; the two readers must
-        # agree on which blocks are Linux-only.
-        spec = importlib.util.spec_from_file_location(
-            "package_resolved_policy", Path(counts.__file__).resolve().parents[1] / "check-package-resolved-policy.py")
-        policy = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(policy)
-        self.assertEqual(policy.LINUX_TARGET_GATE_RE.pattern, counts._LINUX_TARGET_GATE.pattern)
-        real = (Path(counts.__file__).resolve().parents[2] / "Packages/macOS/CmuxNext/Package.swift").read_text()
-        for text in (real, MANIFEST % "" + self.LINUX_MODE):
-            self.assertEqual(counts.without_linux_target_blocks(text).split(),
-                             policy.without_linux_target_blocks(text).split())
-
     def test_an_upward_edge_from_core_is_counted_and_refused(self):
         # Core -> domain is neither hard nor soft, but edges only point down (DESIGN section 2).
         self.write("Packages/macOS/CmuxNext/Package.swift",

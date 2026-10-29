@@ -1,12 +1,9 @@
 public import Foundation
-#if canImport(CoreGraphics)
 public import CoreGraphics
-#endif
 
 /// A path as plain geometry, built with the `CGMutablePath` calls it mirrors. Design tokens (the
-/// launch mark, the status glyphs) describe their shapes with it in Foundation geometry alone, so
-/// they build and test on Linux (plans/cmux-next/chrome-parity/p15-oracle.md H); on Apple platforms
-/// ``cgPath`` replays the elements, call for call, into the `CGPath` layers and contexts draw.
+/// launch mark, the status glyphs) describe their shapes with it as plain values that tests can
+/// compare; ``cgPath`` replays the elements, call for call, into the `CGPath` layers and contexts draw.
 /// Chromium splits it the same way: portable geometry in `ui/gfx/geometry/` and `SkPath`, converted
 /// to the platform's types only where AppKit draws (`ui/gfx/path_mac.mm`, `ui/gfx/mac/coordinate_conversion.mm`).
 public nonisolated struct OutlinePath: Sendable, Equatable {
@@ -87,12 +84,11 @@ public nonisolated struct ListedWindow: Sendable, Equatable {
     }
 }
 
-/// The window server's list of on-screen windows. Linux has no window server: it lists none.
+/// The window server's list of on-screen windows.
 public nonisolated struct WindowServerList: Sendable {
     public init() {}
 }
 
-#if canImport(CoreGraphics)
 extension OutlinePath {
     /// The path as CoreGraphics draws it: each element replayed into a `CGMutablePath`.
     public var cgPath: CGPath {
@@ -129,9 +125,3 @@ extension WindowServerList {
         }
     }
 }
-#else
-extension WindowServerList {
-    /// No window server, so no window is ever above another.
-    public nonisolated func windows(above number: Int) -> [ListedWindow] { [] }
-}
-#endif

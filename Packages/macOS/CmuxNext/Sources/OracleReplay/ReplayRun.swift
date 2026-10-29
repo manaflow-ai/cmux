@@ -16,9 +16,7 @@ struct ReplayRun {
 
         static func current() -> Host {
             let info = ProcessInfo.processInfo
-            #if os(Linux)
-            let os = "linux"
-            #elseif os(macOS)
+            #if os(macOS)
             let os = "mac"
             #else
             let os = "unknown"

@@ -2745,42 +2745,6 @@ _PACKAGE_CALL = re.compile(r"\bPackage\s*\(")
 _AFTER_BUILD = re.compile(r"\bpackage\s*\.|\.\s*(?:targets|dependencies)\b(?!\s*:)")
 _STRING = re.compile(r'^"((?:[^"\\]|\\.)*)"$')
 _IDENT = re.compile(r"^\w+$")
-# The Linux-only manifest gate: only the Linux package and tier builds set CMUX_SWIFTPM_TARGET_LINUX, so no
-# Apple build (the app, the fleet compile) runs its body. scripts/check-package-resolved-policy.py drops the
-# same exact form (LINUX_TARGET_GATE_RE); a block counts only when its closing brace stands alone at the
-# gate's indentation, so any other form is read as usual.
-_LINUX_TARGET_GATE = re.compile(
-    r'^[ \t]*if[ \t]+ProcessInfo\.processInfo\.environment\["CMUX_SWIFTPM_TARGET_LINUX"\]'
-    r'[ \t]*==[ \t]*"1"[ \t]*\{[ \t]*$',
-    re.MULTILINE,
-)
-
-
-def without_linux_target_blocks(raw: str) -> str:
-    """RAW with each Linux-only gate block blanked to spaces (same length, newlines kept).
-
-    The layer gate reads the Apple manifest; the Linux mode of Packages/macOS/CmuxNext/Package.swift
-    (linux-tier.json) is a subset of it that no Apple build evaluates. Braces are matched with strings
-    and comments blanked.
-    """
-    code, bare = strip(raw, keep_strings=True), strip(raw)
-    out, position = [], 0
-    for gate in _LINUX_TARGET_GATE.finditer(code):
-        if gate.start() < position:
-            continue
-        depth, end = 1, gate.end()
-        while end < len(bare) and depth:
-            depth += {"{": 1, "}": -1}.get(bare[end], 0)
-            end += 1
-        indent = gate.group(0)[: len(gate.group(0)) - len(gate.group(0).lstrip())]
-        line_start = bare.rfind("\n", 0, end - 1) + 1
-        if depth or bare[line_start:end] != indent + "}" or bare[end:end + 1] not in ("", "\n"):
-            continue
-        out.append(raw[position:gate.start()])
-        out.append(_blank(raw[gate.start():end]))
-        position = end
-    out.append(raw[position:])
-    return "".join(out)
 
 
 def _skip_string(text: str, i: int) -> int:
@@ -2932,10 +2896,8 @@ def parse_manifest(raw: str) -> Manifest:
     Everything else that could add a target or an edge is recorded in `unreadable`: a constructor
     whose `name:` is not a string literal (a helper `func`), a `Package(targets:)` entry that is not a
     constructor or a top-level `let X: Target`, and any line that reads or changes the built manifest
-    (`package.`, `.targets`, `.dependencies`). A Linux-only gate block is not read
-    (without_linux_target_blocks).
+    (`package.`, `.targets`, `.dependencies`).
     """
-    raw = without_linux_target_blocks(raw)
     code = strip(raw, keep_strings=True)
     bare = strip(raw)
     dep_vars: dict[str, str] = {}

@@ -1,8 +1,6 @@
 # cargo-fuzz needs a nightly (-Zsanitizer); pinned here only, the rest of
-# cmux-tui stays on ../rust-toolchain.toml (p10-stability.md risk 7). The channel
-# must equal [nightly] in scripts/cmux-next/linux/tool-versions.toml, which the
-# Linux VM setup installs; scripts/cmux-next/rust-fuzz.sh refuses to run when
-# they differ.
+# cmux-tui stays on ../rust-toolchain.toml (p10-stability.md risk 7). This file
+# is the one source of the fuzz nightly; scripts/cmux-next/rust-fuzz.sh reads it.
 [toolchain]
 channel = "nightly-2026-10-20"
 profile = "minimal"

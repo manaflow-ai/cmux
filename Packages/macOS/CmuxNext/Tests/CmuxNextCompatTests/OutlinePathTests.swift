@@ -1,12 +1,10 @@
 import CmuxNextCompat
 import Foundation
 import Testing
-#if canImport(CoreGraphics)
 import CoreGraphics
-#endif
 
-/// ``OutlinePath`` records the `CGMutablePath` calls in Foundation geometry alone (it builds on Linux),
-/// and on Apple platforms ``OutlinePath/cgPath`` replays them into the same `CGPath` the calls give.
+/// ``OutlinePath`` records the `CGMutablePath` calls as plain values, and ``OutlinePath/cgPath`` replays them
+/// into the same `CGPath` the calls give.
 @Suite struct OutlinePathTests {
     @Test func addLinesIsAMoveThenALineToEachNextPoint() {
         var path = OutlinePath()
@@ -46,7 +44,6 @@ import CoreGraphics
         #expect(WindowServerList().windows(above: 0).isEmpty)
     }
 
-    #if canImport(CoreGraphics)
     @Test func cgPathIsThePathTheSameCallsBuild() {
         let center = CGPoint(x: 5, y: 5)
         let start: CGFloat = .pi / 2
@@ -75,5 +72,4 @@ import CoreGraphics
         rounded.addRoundedRect(in: rect, cornerWidth: 2, cornerHeight: 2)
         #expect(rounded.cgPath == CGPath(roundedRect: rect, cornerWidth: 2, cornerHeight: 2, transform: nil))
     }
-    #endif
 }

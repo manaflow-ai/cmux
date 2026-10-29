@@ -40,8 +40,8 @@
 # Exit 0 when every target is clean, 1 on any finding, 2 on a usage error, 75 when the build
 # failed or a run gave no verdict.
 #
-# The fuzz workspace pins its own nightly in cmux-tui/fuzz/rust-toolchain.toml (installed on the
-# Linux VM by scripts/cmux-next/linux/setup-tools.sh). Never run this on a person's Mac: it
+# The fuzz workspace pins its own nightly in cmux-tui/fuzz/rust-toolchain.toml, the one source of
+# that channel (rustup installs it on first use there). Never run this on a person's Mac: it
 # compiles cmux-tui (CLAUDE.md, "Agents never compile or test on the person's Mac").
 #
 # libghostty-vt (Zig) is built for fuzzing by cmux-tui/crates/ghostty-vt-sys/fuzzing/build.zig:
@@ -166,11 +166,6 @@ else
 fi
 
 CHANNEL="$(sed -n 's/^channel *= *"\(.*\)"/\1/p' "$FUZZ_DIR/rust-toolchain.toml")"
-VM_NIGHTLY="$(sed -n '/^\[nightly\]/,/^\[/s/^channel *= *"\(.*\)"/\1/p' "$REPO/scripts/cmux-next/linux/tool-versions.toml")"
-if [[ "$CHANNEL" != "$VM_NIGHTLY" ]]; then
-  echo "rust-fuzz.sh: cmux-tui/fuzz/rust-toolchain.toml pins $CHANNEL but scripts/cmux-next/linux/tool-versions.toml installs $VM_NIGHTLY; change both" >&2
-  exit 75
-fi
 if [[ "$SANITIZER" == none ]]; then
   echo "rust-fuzz.sh: warning: --sanitizer none: libFuzzer cannot enforce -malloc_limit_mb=$MALLOC_LIMIT_MB or find leaks without a sanitizer runtime; the summary records malloc_limit_mb null" >&2
   MALLOC_LIMIT_RECORDED=null LEAK_DETECTION=false
@@ -178,11 +173,11 @@ else
   MALLOC_LIMIT_RECORDED="$MALLOC_LIMIT_MB" LEAK_DETECTION=true
 fi
 if ! rustup run "$CHANNEL" rustc --version >/dev/null 2>&1; then
-  echo "rust-fuzz.sh: toolchain $CHANNEL is not installed (scripts/cmux-next/linux/setup-tools.sh installs it)" >&2
+  echo "rust-fuzz.sh: toolchain $CHANNEL is not installed (rustup toolchain install $CHANNEL --profile minimal --component llvm-tools)" >&2
   exit 75
 fi
 command -v cargo-fuzz >/dev/null || {
-  echo "rust-fuzz.sh: cargo-fuzz is not installed (scripts/cmux-next/linux/setup-tools.sh installs it)" >&2
+  echo "rust-fuzz.sh: cargo-fuzz is not installed (cargo install --locked cargo-fuzz@0.13.2)" >&2
   exit 75
 }
 
