@@ -85,7 +85,7 @@
      /// Outgoing bubbles shade with their position in the window (measured:
      /// lighter near the top, deeper blue near the compose field).
      /// (window y in 2x px, red, green), Display P3.
-@@ -152,10 +175,45 @@
+@@ -152,10 +175,63 @@
      // optional, no force unwrap ; a nil gradient draws nothing.
      private static let darkGradient = gradient { p3($0, $1, 247) }
      private static let lightGradient = gradient(lightGradientColor)
@@ -112,6 +112,24 @@
 +    private static var themedLink: UIColor? { themedAccent ? themed(\.caret) : nil }
 +    static var incomingLink: UIColor { themedLink ?? UIColor(red: 0.27, green: 0.55, blue: 1, alpha: 1) }
 +    static var labelLink: UIColor { themedLink ?? UIColor(red: 0.2, green: 0.55, blue: 1, alpha: 1) }
++    /// cmux: the outline and text of my quoted root above a reply (macOS 27 Messages, dark, the user's 2x reference of
++    /// 2026-10-28: outline sRGB 56/96/139, text 60/124/212 on the dark background). Light mode and a themed accent mix the
++    /// outgoing blue into the background instead: UNVERIFIED against a light Messages reference.
++    static var quoteOutline: UIColor {
++        if !themedAccent, !lightAppearance { return UIColor(srgbRed: 56 / 255, green: 96 / 255, blue: 139 / 255, alpha: 1) }
++        return mix(outgoing, into: background, 0.45)
++    }
++    static var quoteText: UIColor {
++        if !themedAccent, !lightAppearance { return UIColor(srgbRed: 60 / 255, green: 124 / 255, blue: 212 / 255, alpha: 1) }
++        return mix(outgoing, into: background, 0.85)
++    }
++    /// `c` at `amount` over `base`, in sRGB.
++    private static func mix(_ c: UIColor, into base: UIColor, _ amount: CGFloat) -> UIColor {
++        guard let a = c.usingColorSpace(.sRGB), let b = base.usingColorSpace(.sRGB) else { return c }
++        func m(_ x: CGFloat, _ y: CGFloat) -> CGFloat { y + (x - y) * amount }
++        return UIColor(srgbRed: m(a.redComponent, b.redComponent), green: m(a.greenComponent, b.greenComponent),
++                       blue: m(a.blueComponent, b.blueComponent), alpha: 1)
++    }
 +    static var repliesTint: UIColor { themedLink ?? PreviewStyle.repliesBlue }
 +    static var outgoingGradient: CGGradient? {
 +        if let t = theme, themedAccent { return t.active.outgoingGradient }

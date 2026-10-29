@@ -11,6 +11,7 @@ import { useEffect, useRef, useState } from "react";
 import { useT } from "../i18n";
 import type { SubsessionLimits } from "../model";
 import type { StartedSession } from "../started/startedSessions";
+import type { SubsessionRow } from "../subagents/subsessions";
 import { clampRunning, MAX_RUNNING, slotCounts } from "../subsessionLimits";
 import "./SubagentLimitStepper.css";
 
@@ -33,6 +34,7 @@ export function SubagentLimitStepper({
   chatId,
   limits,
   sessions = [],
+  subsessions = [],
   onSet,
 }: {
   /// The chat whose limit this is: a value asked for another chat never shows here.
@@ -40,6 +42,8 @@ export function SubagentLimitStepper({
   limits?: SubsessionLimits;
   /// The chats its agent started, for the live counts.
   sessions?: readonly StartedSession[];
+  /// The folded acpmux `start_session` rows, included in the live slot counts.
+  subsessions?: readonly SubsessionRow[];
   /// `_acpmux/subsession/limits` for this chat: a number sets its own limit, `null` drops it. A step
   /// names the limit it stepped `from`, so a limit that moved meanwhile (an ancestor's, the
   /// workspace's or the settings', which reach this chat as no record) is stepped from instead.
@@ -64,7 +68,7 @@ export function SubagentLimitStepper({
   const pending = standing && asked ? asked.value : undefined;
   const max = pending ?? limits.maxRunning;
   const failed = refused !== undefined && refused.chat === chatId;
-  const { running, queued } = slotCounts(limits, sessions);
+  const { running, queued } = slotCounts(limits, sessions, subsessions);
   const set = (value: number | null, from?: number) => {
     if (!onSet) return;
     const chat = chatId;
