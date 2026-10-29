@@ -152,9 +152,10 @@ pub(super) fn step_of(kind: &str, msg: &Value) -> Option<Step> {
     let named = || named_turn(msg["promptId"].as_str());
     match kind {
         "turn_started" => Some(Step::Began(named())),
-        "auto_resume_settled" | "auto_resume_exhausted" | "auto_resume_skipped" => {
-            Some(Step::NoRetry)
-        }
+        "auto_resume_settled"
+        | "auto_resume_exhausted"
+        | "auto_resume_skipped"
+        | "auto_resume_stopped" => Some(Step::NoRetry),
         "auto_resume_scheduled" => Some(Step::RetryScheduled),
         "permission_request" => Some(Step::Asks(ask_text(&msg["request"]))),
         "reopened" => Some(Step::Reopened),
