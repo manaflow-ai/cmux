@@ -3067,6 +3067,8 @@
 		5C0C4A1E0000000000000003 /* RCChannelIdentityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C0C4A1E0000000000000004 /* RCChannelIdentityTests.swift */; };
 		5C0C4A1E0000000000000005 /* RCChannelSuiteTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C0C4A1E0000000000000006 /* RCChannelSuiteTests.swift */; };
 		A500RG01 /* ReactGrab.swift in Sources */ = {isa = PBXBuildFile; fileRef = A500RG00 /* ReactGrab.swift */; };
+		D1FF1C0A00000000000000B6 /* RecentTextFileLines.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1FF1C0A00000000000000A5 /* RecentTextFileLines.swift */; };
+		D1FF1C0A00000000000000B7 /* RecentTextFileLines.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1FF1C0A00000000000000A5 /* RecentTextFileLines.swift */; };
 		966600019666000196660001 /* RecoverableMainWindowLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 966600029666000296660002 /* RecoverableMainWindowLifecycleTests.swift */; };
 		9666B0019666B0019666B001 /* RecoverableMainWindowRoute.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9666B0029666B0029666B002 /* RecoverableMainWindowRoute.swift */; };
 		C8349011C8349011C8349011 /* RecoverableMainWindowRouteOwnerRegistration.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8349012C8349012C8349012 /* RecoverableMainWindowRouteOwnerRegistration.swift */; };
@@ -7834,6 +7836,7 @@
 		5C0C4A1E0000000000000004 /* RCChannelIdentityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RCChannelIdentityTests.swift; sourceTree = "<group>"; };
 		5C0C4A1E0000000000000006 /* RCChannelSuiteTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RCChannelSuiteTests.swift; sourceTree = "<group>"; };
 		A500RG00 /* ReactGrab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ReactGrab.swift; sourceTree = "<group>"; };
+		D1FF1C0A00000000000000A5 /* RecentTextFileLines.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecentTextFileLines.swift; sourceTree = "<group>"; };
 		966600029666000296660002 /* RecoverableMainWindowLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecoverableMainWindowLifecycleTests.swift; sourceTree = "<group>"; };
 		9666B0029666B0029666B002 /* RecoverableMainWindowRoute.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecoverableMainWindowRoute.swift; sourceTree = "<group>"; };
 		C8349012C8349012C8349012 /* RecoverableMainWindowRouteOwnerRegistration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecoverableMainWindowRouteOwnerRegistration.swift; sourceTree = "<group>"; };
@@ -13071,6 +13074,7 @@
 				D1FF1C0A00000000000000A2 /* CMUXCLI+DifficultyAssessment.swift */,
 				D1FF1C0A00000000000000A3 /* CMUXCLI+DifficultyAssessmentHook.swift */,
 				D1FF1C0A00000000000000A4 /* ClaudeDifficultyAssessmentStore.swift */,
+				D1FF1C0A00000000000000A5 /* RecentTextFileLines.swift */,
 				5257257034CA4729B121116A /* CMUXCLI+AutoNamingDispatch.swift */,
 				5257257034CA4729B1211167 /* CMUXCLI+AutoNamingGenericHooks.swift */,
 				5257257034CA4729B1211168 /* CMUXCLI+AutoNamingHooks.swift */,
@@ -18524,6 +18528,7 @@
 				E15A00000000000000000002 /* NotificationCommands.swift in Sources */,
 					A10240060000000000000001 /* OwnedProcessSupervisor.swift in Sources */,
 						C08672010000000000000007 /* PiCompactedFeedEventExpander.swift in Sources */,
+				D1FF1C0A00000000000000B6 /* RecentTextFileLines.swift in Sources */,
 				835000000000000000000002 /* RemoteInitialCommandBootstrap.swift in Sources */,
 				D7AB12048000000000000005 /* RemoteInteractiveShellBootstrapBuilder+WorkingDirectory.swift in Sources */,
 				B9000028A1B2C3D4E5F60719 /* RemoteInteractiveShellBootstrapBuilder.swift in Sources */,
@@ -19569,6 +19574,7 @@
 				A64610020000000000000001 /* QuitConfirmationAlertPresenterTests.swift in Sources */,
 				5C0C4A1E0000000000000003 /* RCChannelIdentityTests.swift in Sources */,
 				5C0C4A1E0000000000000005 /* RCChannelSuiteTests.swift in Sources */,
+				D1FF1C0A00000000000000B7 /* RecentTextFileLines.swift in Sources */,
 				966600019666000196660001 /* RecoverableMainWindowLifecycleTests.swift in Sources */,
 				A6D1F0400000000000000002 /* ReleasingWindowControllerTests.swift in Sources */,
 				63A6792ED28244D28F5E9A83 /* RemoteClaudeTeamsRespawnRoutingTests.swift in Sources */,
