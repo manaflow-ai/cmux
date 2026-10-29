@@ -405,7 +405,7 @@ function catalogHarness(harness: CatalogHarness, members: AcpmuxHarness[], join:
   const runs = chosen?.id === session?.harness ? runningModel(session, live) : undefined;
   const listed =
     harness.modelSource === "catalog"
-      ? harness.models.filter((model) => includeCatalogIdentity(model, chosen, runs))
+      ? harness.models.filter((model) => includeCatalogIdentity(model, chosen, runs, harness.id, join))
       : [];
   const reported = reportedNames(probed, live);
   const hiddenReleases = hiddenReleaseIds(harness.id, harness.id, reported, join);
@@ -458,7 +458,7 @@ function uncataloguedHarness(entry: AcpmuxHarness, join: Join): PickerHarness {
   // is not one of this profile's releases (applyUserLayer drops it so from its own harness).
   const listed = (kin?.models ?? []).filter(
     (model) =>
-      includeCatalogIdentity(model, entry, runs) &&
+      includeCatalogIdentity(model, entry, runs, kin?.id ?? entry.id, join) &&
       ![...(model.aliases ?? []), model.id].some((id) => isHiddenByUser(entry.id, id, join)) &&
       ![...reported].some(([id, name]) => isHiddenByUser(entry.id, id, join) && namesRelease(name, model, join)),
   );
@@ -752,10 +752,22 @@ function includeCatalogIdentity(
   model: HarnessModel,
   profile: AcpmuxHarness | undefined,
   runs: string | undefined,
+  harnessId: string,
+  join: Join,
 ): boolean {
   if (!isIdentityOnlyCurrentModel(model)) return true;
   if (model.id === runs) return true;
+  if (userDeclaresModel(model.id, profile?.id, harnessId, join)) return true;
   return profile === undefined;
+}
+
+/** User overrides also add models; their explicit entries outrank fallback availability. */
+function userDeclaresModel(id: string, profileId: string | undefined, harnessId: string, join: Join): boolean {
+  const scopes = ["*", harnessId, ...(profileId ? [profileId] : [])];
+  return scopes.some((scope) => {
+    const override = join.overrides[`${scope}/${id}`];
+    return override !== undefined && override.hidden !== true;
+  });
 }
 
 /** Recover identity metadata even when the host's catalog predates the daemon's bundle.
@@ -781,6 +793,7 @@ function includeReportedIdentity(
   return (
     !probe.curated ||
     probe.declared === true ||
+    userDeclaresModel(probe.id, profile?.id, harnessId, join) ||
     probe.id === runs ||
     profile?.topModels?.includes(probe.id) === true ||
     catalogIdentity(probe.id, harnessId, join) === undefined

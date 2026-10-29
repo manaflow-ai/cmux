@@ -229,6 +229,29 @@ test("Retry keeps the running unavailable model and excludes unavailable alterna
 });
 
 for (const harnessId of ["codex", "codex-sr"]) {
+  test(`${harnessId}: explicit user models survive fallback filters and hidden overrides still win`, () => {
+    for (const scope of [harnessId, "*"]) {
+      for (const models of [[], [{ id: "gpt-6.1-terra", name: "Terra", curated: true }]]) {
+        const build = (hidden = false) =>
+          buildPickerCatalog({
+            catalog: BUNDLED_MODEL_CATALOG,
+            user: {
+              overrides: {
+                [`${scope}/gpt-6.1-terra`]: { name: "My Terra", contextWindow: 100000, hidden },
+              },
+            },
+            acpmux: [{ id: harnessId, family: harnessId, name: "Codex", models }],
+          }).harnesses.find((entry) => entry.id === harnessId)!.models;
+        const rows = build();
+        const terra = rows.find((model) => model.id === "gpt-6.1-terra");
+        expect(terra?.name).toBe("My Terra");
+        expect(terra?.contextWindow).toBe(100000);
+        expect(ids(rows)).not.toContain("gpt-6.1-luna");
+        expect(ids(build(true))).not.toContain("gpt-6.1-terra");
+      }
+    }
+  });
+
   test(`${harnessId}: session choices retain a filtered fallback's refusal`, () => {
     const catalog = buildPickerCatalog({
       catalog: BUNDLED_MODEL_CATALOG,
