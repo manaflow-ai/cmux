@@ -3,7 +3,7 @@ import CmuxNextWakeups
 import Foundation
 import os
 
-private let consentHostLogger = Logger(subsystem: "com.cmuxterm.app.next", category: "computer-use")
+nonisolated private let consentHostLogger = Logger(subsystem: "com.cmuxterm.app.next", category: "computer-use")
 
 /// Serves machine-join consent to the legacy cmux Computer Use helper.
 ///
@@ -50,7 +50,7 @@ final class ComputerUseConsentHost {
     }
 
     /// The first line on the connection: an authenticated host request.
-    nonisolated static func attachLine(_ configuration: AgentActivitySocketSource.Configuration) -> Data {
+    static func attachLine(_ configuration: AgentActivitySocketSource.Configuration) -> Data {
         let request: [String: Any] = ["method": "machine_consent_host", "args": [String: Any]()]
         var envelope: [String: Any] = ["auth_token": configuration.authToken ?? "", "request": request]
         if let host = configuration.hostAuthToken { envelope["host_auth_token"] = host }
@@ -60,7 +60,7 @@ final class ComputerUseConsentHost {
     }
 
     /// What one line from the helper asks of the host.
-    enum Line: Equatable {
+    nonisolated enum Line: Equatable {
         case attached
         case refusedAttach
         case question

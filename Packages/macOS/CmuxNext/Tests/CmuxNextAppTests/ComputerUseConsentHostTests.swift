@@ -5,7 +5,7 @@ import Testing
 
 /// The app's machine-consent connection to the legacy helper.
 struct ComputerUseConsentHostTests {
-    @Test func theAttachIsAnAuthenticatedHostRequest() throws {
+    @MainActor @Test func theAttachIsAnAuthenticatedHostRequest() throws {
         let configuration = AgentActivitySocketSource.Configuration(socketPath: "/tmp/h.sock", authToken: "agent",
                                                                     hostAuthToken: "host", machineName: "")
         let line = ComputerUseConsentHost.attachLine(configuration)
