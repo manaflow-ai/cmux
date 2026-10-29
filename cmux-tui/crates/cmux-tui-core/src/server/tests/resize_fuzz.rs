@@ -10,8 +10,10 @@
 //! size twice, heavy output with resizes during it, a mirror that attaches
 //! mid-burst, re-attaches, two and three viewers of different sizes, a first
 //! line wider than the grid written by the child before the first resize, and
-//! (when the daemon offers `live-resize-v1`) live drag steps with and
-//! without their end.
+//! drags with and without their end. A drag marks its steps `live` only when
+//! the daemon offers `live-resize-v1`; this base does not (cp/daemon-h10 adds
+//! it), so the live path and the "a drag with no end settles in 2 s" case are
+//! inactive until it does: drags run as plain resizes.
 //!
 //! After each step that settles, every one of these holds:
 //! - the daemon grid, the PTY winsize (cells and pixels), the surface size and
@@ -35,7 +37,10 @@
 //!   it (skipped when the burst at the widest grid may fill the scrollback
 //!   limit), and every line the child printed during the burst reached each
 //!   viewer that was attached through it with only local READYs, in order,
-//!   once.
+//!   once (the scripted case fails when no viewer was: then no line was
+//!   checked). The child prints a burst in chunks 50 ms apart and each resize
+//!   waits for its chunk, so the resizes and the mirror attach land while
+//!   the output streams; a burst that ends before its last resize fails.
 //!
 //! The test runs one scripted case (each kind of step once, a few seconds)
 //! and then `CMUX_RESIZE_FUZZ_SEEDS` seeded random cases (default 0 here) of
@@ -108,21 +113,36 @@ impl Rng {
     }
 }
 
-/// The child: logs the size it reads after each SIGWINCH to `$1/size`,
-/// prints `$2` (a first line, maybe wider than the grid) at once, then prints
-/// `n` numbered lines `TAG NNNNNN` whenever `$1/go` names `n TAG`, and marks
-/// each burst done with `$1/done-TAG`.
+/// The child: logs `SEQ ROWS COLS` to `$1/size` at start and after each
+/// SIGWINCH (SEQ counts the reports, so a report after a resize is told from
+/// an older one of the same size), prints `$2` (a first line, maybe wider
+/// than the grid) at once, then prints `n` numbered lines `TAG NNNNNN`
+/// whenever `$1/go` names `n TAG k`, in `k` equal chunks 50 ms apart, and
+/// marks each burst done with `$1/done-TAG`.
 const CHILD: &str = r#"
 dir=$1
-report() { stty size > "$dir/size.tmp" 2>/dev/null && mv "$dir/size.tmp" "$dir/size"; }
+seq=0
+report() {
+  seq=$((seq + 1))
+  echo "$seq $(stty size 2>/dev/null)" > "$dir/size.tmp" && mv "$dir/size.tmp" "$dir/size"
+}
 trap report WINCH
 if [ -n "$2" ]; then printf '%s' "$2"; fi
 report
 while :; do
   if [ -e "$dir/go" ]; then
-    read n tag < "$dir/go"
+    read n tag k < "$dir/go"
     rm -f "$dir/go"
-    awk -v n="$n" -v t="$tag" 'BEGIN { for (i = 0; i < n; i++) printf "%s %06d\n", t, i }'
+    per=$((n / k))
+    c=0
+    while [ $c -lt $k ]; do
+      if [ $c -gt 0 ]; then sleep 0.05; fi
+      s=$((c * per))
+      e=$((s + per))
+      if [ $c -eq $((k - 1)) ]; then e=$n; fi
+      awk -v s="$s" -v e="$e" -v t="$tag" 'BEGIN { for (i = s; i < e; i++) printf "%s %06d\n", t, i }'
+      c=$((c + 1))
+    done
     : > "$dir/done-$tag"
   fi
   sleep 0.01
@@ -139,12 +159,14 @@ fn scratch_dir(seed: u64) -> PathBuf {
     dir
 }
 
-fn child_size(dir: &Path) -> Option<(u16, u16)> {
+/// The child's last report: (its sequence number, (cols, rows)).
+fn child_size(dir: &Path) -> Option<(u64, (u16, u16))> {
     let text = std::fs::read_to_string(dir.join("size")).ok()?;
     let mut parts = text.split_whitespace();
+    let seq = parts.next()?.parse().ok()?;
     let rows = parts.next()?.parse().ok()?;
     let cols = parts.next()?.parse().ok()?;
-    Some((cols, rows))
+    Some((seq, (cols, rows)))
 }
 
 fn b64(event: &Value) -> Vec<u8> {
@@ -379,20 +401,10 @@ struct Host {
     ready: Vec<u8>,
     text: String,
     cursor: Option<(u16, u16)>,
-    /// Every visible row, blank ones too, cell by cell with its style: the
-    /// daemon's READY restored into a scratch terminal and rendered (a render
-    /// of the daemon's own terminal would take its renderer's dirty rows).
-    rows: Vec<Vec<ghostty_vt::Cell>>,
-}
-
-/// Every visible row of `terminal`, blank ones too, with each cell's text,
-/// width and style, as a renderer draws them.
-fn visible_rows(
-    terminal: &mut ghostty_vt::Terminal,
-) -> ghostty_vt::Result<Vec<Vec<ghostty_vt::Cell>>> {
-    let mut render = RenderState::new()?;
-    render.update(terminal)?;
-    Ok(render.build_frame()?.styled_rows().to_vec())
+    /// The daemon's READY read the way a viewer shows it (every visible row,
+    /// blank rows too, cell by cell with its style): a render of the
+    /// daemon's own terminal would take its renderer's dirty rows.
+    screen: Option<ghostty_vt::ReadyScreen>,
 }
 
 /// The SCREEN, PAGE and CONTINUATION records of a READY (for a failure
@@ -462,6 +474,10 @@ struct Case {
     applied: Vec<(u16, u16)>,
     /// The grid when no viewer counts (held).
     held: (u16, u16),
+    /// The sequence number of the child's size report at the last settle.
+    child_seq: u64,
+    /// Every burst must reach at least one viewer whole (the scripted case).
+    require_contiguous: bool,
     ops: Vec<String>,
     bursts: u64,
     /// The marker to find after the current burst, and the most columns any
@@ -470,6 +486,21 @@ struct Case {
     burst_tag: Option<String>,
     burst_lines: u64,
     widest: u64,
+}
+
+/// A case ends its child and removes its scratch directory however it ends,
+/// a failed check (a panic) too.
+impl Drop for Case {
+    fn drop(&mut self) {
+        self.surface.kill();
+        if !std::thread::panicking() {
+            for viewer in std::mem::take(&mut self.viewers) {
+                disconnect_client(&self.mux, viewer.client, false);
+            }
+            self.mux.shutdown();
+        }
+        let _ = std::fs::remove_dir_all(&self.dir);
+    }
 }
 
 impl Case {
@@ -511,6 +542,8 @@ impl Case {
             live_resize: false,
             applied: Vec::new(),
             held: (80, 24),
+            child_seq: 0,
+            require_contiguous: false,
             ops: Vec::new(),
             bursts: 0,
             marker: None,
@@ -691,27 +724,43 @@ impl Case {
                 ready: term.encode_snapshot(ghostty_vt::SnapshotPhase::Ready).unwrap_or_default(),
                 text: term.viewport_text().unwrap_or_default(),
                 cursor: term.cursor_position(),
-                rows: Vec::new(),
+                screen: None,
             })
             .unwrap();
-        host.rows = ghostty_vt::Terminal::from_ready_snapshot(&host.ready, SCROLLBACK)
-            .and_then(|mut restored| visible_rows(&mut restored))
-            .unwrap_or_default();
+        host.screen = ghostty_vt::ReadyScreen::read(&host.ready, &[]).ok();
         host
     }
 
-    /// Asks the child for `lines` numbered lines; returns the burst's tag and
-    /// the stream offset the daemon must reach when they are all in.
-    fn start_output(&mut self, lines: u64) -> (String, u64) {
+    /// Asks the child for `lines` numbered lines in `chunks` chunks 50 ms
+    /// apart; returns the burst's tag and the stream offsets where its output
+    /// starts and where the daemon must be when it is all in.
+    fn start_output(&mut self, lines: u64, chunks: u64) -> (String, u64, u64) {
         self.bursts += 1;
         let tag = format!("B{}", self.bursts);
         // `TAG NNNNNN` and CR LF (the PTY's onlcr).
         let bytes = lines * (tag.len() as u64 + 9);
         let from = self.surface.snapshot_stream_position().unwrap_or_default().1;
         let go = self.dir.join("go.tmp");
-        std::fs::write(&go, format!("{lines} {tag}\n")).unwrap();
+        std::fs::write(&go, format!("{lines} {tag} {chunks}\n")).unwrap();
         std::fs::rename(go, self.dir.join("go")).unwrap();
-        (tag, from + bytes)
+        (tag, from, from + bytes)
+    }
+
+    /// Waits until the daemon's stream is at least at `offset` (inside a
+    /// burst: a resize after it lands while the burst streams).
+    fn wait_stream_at(&mut self, offset: u64, what: &str) -> u64 {
+        let deadline = Instant::now() + WAIT;
+        loop {
+            let at = self.surface.snapshot_stream_position().unwrap_or_default().1;
+            if at >= offset {
+                return at;
+            }
+            if Instant::now() > deadline {
+                self.fail(&format!("{what}: the daemon's stream stays at o{at}, below o{offset}"));
+            }
+            self.pump();
+            std::thread::sleep(Duration::from_millis(1));
+        }
     }
 
     fn wait_output_done(&mut self, tag: &str, until: u64) {
@@ -802,16 +851,32 @@ impl Case {
                 master.pixel_width, master.pixel_height
             ));
         }
+        // A grid change since the last settle (A -> B -> A too) sends the
+        // child a SIGWINCH: its report must be newer than the last one seen.
+        let changed = self.applied.iter().any(|grid| *grid != self.held);
         let deadline = Instant::now() + WAIT;
-        while child_size(&self.dir) != Some(expected) {
+        let seq = loop {
+            let seen = child_size(&self.dir);
+            if let Some((seq, size)) = seen
+                && size == expected
+                && (!changed || seq > self.child_seq)
+            {
+                break seq;
+            }
             if Instant::now() > deadline {
-                let seen = child_size(&self.dir);
                 self.fail(&format!(
-                    "{why}: the child reads {seen:?} after SIGWINCH, the grid is {expected:?}"
+                    "{why}: the child's last report (seq, size) is {seen:?} after SIGWINCH; the \
+                     grid is {expected:?}{}",
+                    if changed {
+                        format!(", and it changed since report {}", self.child_seq)
+                    } else {
+                        String::new()
+                    }
                 ));
             }
             std::thread::sleep(Duration::from_millis(3));
-        }
+        };
+        self.child_seq = seq;
         for index in 0..self.viewers.len() {
             if let Some(error) = self.viewer_divergence(index, expected, &host) {
                 let name = self.viewers[index].name.clone();
@@ -834,10 +899,12 @@ impl Case {
         if ready.grid != expected {
             return Some(format!("its last READY is {:?}, the grid is {expected:?}", ready.grid));
         }
-        if let Some(state) = viewer.last_size_state
-            && state != expected
-        {
-            return Some(format!("its last size-state is {state:?}, the grid is {expected:?}"));
+        match viewer.last_size_state {
+            None => return Some("it got no size-state".into()),
+            Some(state) if state != expected => {
+                return Some(format!("its last size-state is {state:?}, the grid is {expected:?}"));
+            }
+            Some(_) => {}
         }
         if let Some((at, grid)) = not_in_order(&viewer.window_readies, &self.applied) {
             return Some(format!(
@@ -853,7 +920,7 @@ impl Case {
                 viewer.window_size_states, self.applied
             ));
         }
-        let mut screen = match ghostty_vt::Terminal::from_ready_snapshot(&ready.data, SCROLLBACK) {
+        let screen = match ghostty_vt::ReadyScreen::read(&ready.data, &viewer.after_cut) {
             Ok(screen) => screen,
             Err(error) => {
                 return Some(format!(
@@ -862,18 +929,14 @@ impl Case {
                 ));
             }
         };
-        screen.vt_write(&viewer.after_cut);
-        let text = screen.viewport_text().unwrap_or_default();
-        let cursor = screen.cursor_position();
-        let encoded = screen.encode_snapshot(ghostty_vt::SnapshotPhase::Ready).unwrap_or_default();
-        let rows = match visible_rows(&mut screen) {
-            Ok(rows) => rows,
-            Err(error) => return Some(format!("its screen does not render: {error:?}")),
+        let Some(host_screen) = &host.screen else {
+            return Some("the daemon's own READY does not restore".into());
         };
-        if text == host.text && cursor == host.cursor && rows == host.rows {
+        let (text, cursor, rows) = (&screen.text, screen.cursor, &screen.cells);
+        if *text == host.text && cursor == host.cursor && *rows == host_screen.cells {
             return None;
         }
-        let first_row = rows.iter().zip(&host.rows).position(|(a, b)| a != b);
+        let first_row = rows.iter().zip(&host_screen.cells).position(|(a, b)| a != b);
         let after = &viewer.after_cut;
         Some(format!(
             "its screen (READY g{} o{} {:?}{}, then {} bytes) differs from the daemon's at g{} o{}: \
@@ -887,12 +950,12 @@ impl Case {
             after.len(),
             host.position.0,
             host.position.1,
-            if text == host.text { "equal" } else { "DIFFERS" },
+            if *text == host.text { "equal" } else { "DIFFERS" },
             cursor,
             host.cursor,
             rows.len(),
-            host.rows.len(),
-            record_diff(&encoded, &host.ready),
+            host_screen.cells.len(),
+            record_diff(&screen.ready, &host.ready),
             host.text,
             String::from_utf8_lossy(&after[after.len().saturating_sub(300)..])
         ))
@@ -920,6 +983,19 @@ impl Case {
             }
         }
         let prefix = format!("{tag} ");
+        let whole = self.viewers.iter().filter(|viewer| viewer.burst_contiguous).count();
+        if self.require_contiguous && whole == 0 {
+            let views = self
+                .viewers
+                .iter()
+                .map(|viewer| format!("{} local_history={}", viewer.name, viewer.local_history))
+                .collect::<Vec<_>>()
+                .join(", ");
+            self.fail(&format!(
+                "{why}: no viewer followed burst {tag} with only local READYs ({views}): a \
+                 READY with history replaced the screen, so the burst's lines were not checked"
+            ));
+        }
         for index in 0..self.viewers.len() {
             let viewer = &self.viewers[index];
             if !viewer.burst_contiguous {
@@ -1030,10 +1106,28 @@ impl Case {
                 self.marker_line();
                 // The marker is in every view before the burst starts.
                 self.settle(&format!("{why}: before the burst"));
-                let (tag, until) = self.start_output(lines);
+                // One chunk of output before each resize and one after the
+                // last: resize i waits for chunk i, so every resize and the
+                // mirror attach land while the burst streams.
+                let count = resizes.len() as u64;
+                let lines = lines.max(count + 1);
+                let (tag, from, until) = self.start_output(lines, count + 1);
                 self.begin_burst_window(&tag, lines);
+                // The child's chunks are `lines / (count + 1)` lines each, the
+                // last one with the remainder.
+                let chunk = (until - from) / lines * (lines / (count + 1));
                 let mut mirror = mirror;
                 for (index, (viewer, size)) in resizes.into_iter().enumerate() {
+                    let at = self.wait_stream_at(
+                        from + (index as u64 + 1) * chunk,
+                        &format!("{why}: resize {index} of burst {tag}"),
+                    );
+                    if at >= until {
+                        self.fail(&format!(
+                            "{why}: burst {tag} ended (o{at}) before its resize {index}: the \
+                             resizes did not land during the output"
+                        ));
+                    }
                     if index == 1
                         && let Some((size, local_history)) = mirror.take()
                     {
@@ -1042,7 +1136,6 @@ impl Case {
                     let viewer = viewer.min(self.viewers.len() - 1);
                     self.resize(viewer, size, None);
                     self.pump();
-                    std::thread::sleep(Duration::from_micros(500));
                 }
                 if let Some((size, local_history)) = mirror {
                     self.connect(size, local_history);
@@ -1089,7 +1182,7 @@ impl Case {
                     Some(size) => self.resize(viewer, size, self.live_resize.then_some(false)),
                     // H10: a drag whose end never comes settles after 2 s.
                     None if self.live_resize => {
-                        std::thread::sleep(LIVE_SETTLE + Duration::from_millis(200))
+                        std::thread::sleep(LIVE_SETTLE + Duration::from_millis(200));
                     }
                     None => {}
                 }
@@ -1098,12 +1191,8 @@ impl Case {
         }
     }
 
-    fn finish(mut self) {
-        for viewer in std::mem::take(&mut self.viewers) {
-            disconnect_client(&self.mux, viewer.client, false);
-        }
-        self.mux.shutdown();
-        let _ = std::fs::remove_dir_all(&self.dir);
+    fn finish(self) {
+        drop(self);
     }
 
     /// Writes a marker line the way the child writes output (between
@@ -1187,6 +1276,7 @@ fn run_scripted() {
     // (a 118-column line in a 110-column grid).
     let first_line = "f".repeat(118);
     let mut case = Case::new(0, &first_line);
+    case.require_contiguous = true;
     case.ops.push("start: a first line of 118 columns on 80x24".into());
     let deadline = Instant::now() + WAIT;
     // No view is attached yet, so the stream position does not move: read
