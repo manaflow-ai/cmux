@@ -213,6 +213,117 @@ class FullWindow(unittest.TestCase):
         self.assertIn("SHIP", receipt.decide(pr([comment(SHIP, at=self.at(0)), *chatter]), HEAD)[0])
 
 
+class NewestIndependentVerdictWins(unittest.TestCase):
+    """cmux#27189 (2026-10-29): SHIP at A, the box review of A said BLOCK, a base merge made C, and a lane's
+    "Review (Astra; carried): SHIP at C" landed it. The newest independent verdict on the PR, on any head, decides,
+    not the newest SHIP; a carried SHIP is a lane's claim, not a verdict (next-autoland, cmuxterm-hq#4975)."""
+    A, B, C = "a1" * 20, "b2" * 20, "c3" * 20
+
+    @staticmethod
+    def at(minute):
+        return f"2026-10-29T05:{minute:02d}:00Z"
+
+    def ship(self, sha, minute, reviewer="codex gpt-6-astra high"):
+        return comment(f"Review ({reviewer}): SHIP at {sha}", at=self.at(minute))
+
+    def carried(self, sha, of, minute):
+        return comment(f"Review (codex gpt-6-astra high; carried): SHIP at {sha}\n\n"
+                       f"{sha[:8]} is a base merge into {of[:8]}; the SHIP at {of[:8]} carries.", at=self.at(minute))
+
+    def box(self, kind, sha, minute, marker=True):
+        # A lane-place review box's verdict (leo-workspace#1455): its receipt line, with or without its markers.
+        body = f"Review (codex-review-box/gpt-6-astra high, lane-place): {kind} at {sha}\n\nFindings.\n"
+        if marker:
+            body += f"<!-- autoreview verdict={kind} sha={sha} -->\n<!-- lane-place-review box=review-1-{sha[:4]} sha={sha} -->"
+        return comment(body, at=self.at(minute))
+
+    def blocks(self, sha, minute):
+        """A BLOCK of `sha` in every form the matcher reads, as (name, comments, reviews)."""
+        return {
+            "a receipt line": ([comment(f"Review (codex, box review-1-a1a1): BLOCK at {sha[:7]}: P2", at=self.at(minute))], []),
+            "the autoreview marker": ([comment(f"Findings.\n<!-- autoreview verdict=BLOCK sha={sha} -->", at=self.at(minute))], []),
+            "a lane-place box with markers": ([self.box("BLOCK", sha, minute)], []),
+            "a lane-place box without markers": ([self.box("BLOCK", sha, minute, marker=False)], []),
+            "a change request": ([], [review("CHANGES_REQUESTED", at=self.at(minute), oid=sha)]),
+        }
+
+    def decide(self, comments, reviews=(), head=None):
+        return receipt.decide(pr(comments, reviews, head=head or self.C), head or self.C)
+
+    def refused(self, comments, reviews=(), head=None):
+        who, why = self.decide(comments, reviews, head)
+        self.assertEqual(who, "", why)
+        return why
+
+    def passes(self, comments, reviews=(), head=None):
+        who, why = self.decide(comments, reviews, head)
+        self.assertNotEqual(who, "", why)
+        return who
+
+    def test_ship_then_block_on_the_same_head_then_a_base_merge_refuses_the_carry(self):
+        for how, (block, reviews) in self.blocks(self.A, 5).items():
+            with self.subTest(how=how):
+                # no receipt at C at all
+                self.refused([self.ship(self.A, 1), *block], reviews)
+                # a lane's carried SHIP at C, posted after the BLOCK, refuses too, and says why
+                why = self.refused([self.ship(self.A, 1), *block, self.carried(self.C, self.A, 9)], reviews)
+                self.assertIn("newest independent verdict", why)
+                self.assertIn("BLOCK", why)
+
+    def test_ship_then_block_on_a_later_head_then_a_base_merge_refuses_the_carry(self):
+        for how, (block, reviews) in self.blocks(self.B, 5).items():
+            with self.subTest(how=how):
+                # C off B: the lane carries B's history to C
+                self.refused([self.ship(self.A, 1), *block, self.carried(self.C, self.B, 9)], reviews)
+                # C off A again, B dropped from the chain: the carry claims A, but the newer BLOCK on B still decides
+                self.refused([self.ship(self.A, 1), *block, self.carried(self.C, self.A, 9)], reviews)
+
+    def test_a_ship_older_than_a_block_on_another_head_refuses(self):
+        # An independent SHIP that names the head is overtaken by a newer independent BLOCK on any head of the PR.
+        for how, (block, reviews) in self.blocks(self.A, 5).items():
+            with self.subTest(how=how):
+                self.refused([self.ship(self.C, 1), *block], reviews)
+
+    def test_a_carried_ship_does_not_clear_a_hold_or_a_bare_block(self):
+        # A carried SHIP is not a review, so it does not become the newest review-like word either.
+        for line in ("Hold: do not merge until #1 lands", f"BLOCK at {self.A[:12]}", "Verdict: BLOCK"):
+            with self.subTest(line=line):
+                self.refused([self.ship(self.A, 1), comment(line, at=self.at(5)), self.carried(self.C, self.A, 9)])
+
+    def test_a_clean_carry_with_no_block_passes(self):
+        self.assertIn("carried", self.passes([self.ship(self.A, 1), self.carried(self.C, self.A, 9)]))
+        self.passes([self.box("SHIP", self.A, 1), self.carried(self.C, self.A, 9)])
+        self.passes([self.carried(self.C, self.A, 9)], [review("APPROVED", at=self.at(1), oid=self.A)])
+
+    def test_a_carried_ship_needs_an_independent_ship_behind_it(self):
+        self.refused([self.carried(self.C, self.A, 9)])
+
+    def test_a_new_independent_review_after_the_block_decides(self):
+        block, _ = self.blocks(self.A, 5)["a receipt line"]
+        base = [self.ship(self.A, 1), *block, self.carried(self.C, self.A, 7)]
+        # a SHIP at C itself lands, in either form
+        self.passes([*base, self.ship(self.C, 9)])
+        self.passes([*base, self.box("SHIP", self.C, 9)])
+        # its BLOCK holds
+        self.refused([*base, self.box("BLOCK", self.C, 9)])
+        # an independent SHIP newer than the BLOCK (the owner's fix, re-reviewed at A, then merged) carries again
+        self.passes([self.ship(self.A, 1), *block, self.ship(self.A, 7), self.carried(self.C, self.A, 9)])
+        # but a carried SHIP is never the newest independent verdict, so it never clears the BLOCK itself
+        self.refused([self.ship(self.A, 1), *block, self.carried(self.A, self.A, 7), self.carried(self.C, self.A, 9)])
+
+    def test_the_command_names_the_block_that_refused(self):
+        block, _ = self.blocks(self.A, 5)["a lane-place box with markers"]
+        payload = pr([self.ship(self.A, 1), *block, self.carried(self.C, self.A, 9)], head=self.C)
+        with tempfile.NamedTemporaryFile("w", suffix=".json") as handle:
+            json.dump(payload, handle)
+            handle.flush()
+            err = io.StringIO()
+            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
+                status = receipt.main(["manaflow-ai/cmux", "42", self.C, "--pr-file", handle.name])
+        self.assertEqual(status, 1)
+        self.assertIn("newest independent verdict", err.getvalue())
+
+
 class Command(unittest.TestCase):
     def run_main(self, payload, sha=HEAD):
         with tempfile.NamedTemporaryFile("w", suffix=".json") as handle:
