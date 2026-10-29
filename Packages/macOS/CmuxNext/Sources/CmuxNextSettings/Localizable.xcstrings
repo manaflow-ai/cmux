@@ -1,6 +1,792 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settings.agents.modelRouter.model": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نموذج موجّه نماذج cmux"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Model cmux usmjerivača modela"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Model for cmux-modelrouteren"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modell des cmux-Modellrouters"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Model Router Model"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modelo del enrutador de modelos de cmux"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modèle du routeur de modèles cmux"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modello del router di modelli cmux"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux モデルルーターのモデル"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ម៉ូដែលរបស់កម្មវិធីបញ្ជូនម៉ូដែល cmux"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 모델 라우터 모델"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modell for cmux-modellruteren"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Model routera modeli cmux"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modelo do roteador de modelos do cmux"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Модель маршрутизатора моделей cmux"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "โมเดลของตัวกำหนดเส้นทางโมเดล cmux"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux model yönlendiricisi modeli"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Модель маршрутизатора моделей cmux"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mô hình của bộ định tuyến mô hình cmux"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 模型路由器的模型"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 模型路由器的模型"
+          }
+        }
+      }
+    },
+    "settings.agents.modelRouter.model.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "النموذج الذي تبدأ به محادثة جديدة على موجّه نماذج cmux. النموذج الذي تختاره في محادثة ينطبق على تلك المحادثة فقط."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Model s kojim počinje novi chat na cmux usmjerivaču modela. Model koji odaberete u chatu važi samo za taj chat."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den model, en ny chat på cmux-modelrouteren starter med. En model, du vælger i en chat, gælder kun den chat."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Modell, mit dem ein neuer Chat über den cmux-Modellrouter startet. Ein in einem Chat gewähltes Modell gilt nur für diesen Chat."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The model a new chat on the cmux model router starts on. A model you pick in a chat applies to that chat only."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El modelo con el que empieza un chat nuevo en el enrutador de modelos de cmux. Un modelo que elijas en un chat solo se aplica a ese chat."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le modèle sur lequel démarre une nouvelle discussion via le routeur de modèles cmux. Un modèle choisi dans une discussion ne s’applique qu’à celle-ci."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il modello con cui inizia una nuova chat sul router di modelli cmux. Un modello scelto in una chat vale solo per quella chat."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux モデルルーターで新しいチャットを始めるときのモデルです。チャット内で選んだモデルはそのチャットにだけ適用されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ម៉ូដែលដែលការជជែកថ្មីនៅលើកម្មវិធីបញ្ជូនម៉ូដែល cmux ចាប់ផ្ដើមប្រើ។ ម៉ូដែលដែលអ្នកជ្រើសក្នុងការជជែកមួយ អនុវត្តចំពោះការជជែកនោះប៉ុណ្ណោះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 모델 라우터에서 새 채팅을 시작할 때 쓰는 모델입니다. 채팅에서 고른 모델은 그 채팅에만 적용됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modellen en ny chat på cmux-modellruteren starter med. En modell du velger i en chat, gjelder bare den chatten."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Model, na którym startuje nowy czat w routerze modeli cmux. Model wybrany w czacie dotyczy tylko tego czatu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O modelo com que um novo chat no roteador de modelos do cmux começa. Um modelo escolhido em um chat vale só para esse chat."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Модель, с которой начинается новый чат через маршрутизатор моделей cmux. Модель, выбранная в чате, действует только в этом чате."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "โมเดลที่แชตใหม่บนตัวกำหนดเส้นทางโมเดล cmux เริ่มใช้ โมเดลที่คุณเลือกในแชตใช้กับแชตนั้นเท่านั้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux model yönlendiricisinde yeni bir sohbetin başladığı model. Bir sohbette seçtiğiniz model yalnızca o sohbete uygulanır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Модель, з якою починається новий чат через маршрутизатор моделей cmux. Модель, вибрана в чаті, діє лише в цьому чаті."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mô hình mà một cuộc trò chuyện mới trên bộ định tuyến mô hình cmux bắt đầu dùng. Mô hình bạn chọn trong một cuộc trò chuyện chỉ áp dụng cho cuộc trò chuyện đó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 cmux 模型路由器上开始新聊天时使用的模型。在聊天中选择的模型只适用于该聊天。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 cmux 模型路由器上開始新聊天時使用的模型。在聊天中選擇的模型只套用於該聊天。"
+          }
+        }
+      }
+    },
+    "settings.choice.modelRouterDeepSeekV41Flash": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DeepSeek V4.1 Flash"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DeepSeek V4.1 Flash"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DeepSeek V4.1 Flash"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DeepSeek V4.1 Flash"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DeepSeek V4.1 Flash"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DeepSeek V4.1 Flash"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DeepSeek V4.1 Flash"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DeepSeek V4.1 Flash"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DeepSeek V4.1 Flash"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DeepSeek V4.1 Flash"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DeepSeek V4.1 Flash"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DeepSeek V4.1 Flash"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DeepSeek V4.1 Flash"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DeepSeek V4.1 Flash"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DeepSeek V4.1 Flash"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DeepSeek V4.1 Flash"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DeepSeek V4.1 Flash"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DeepSeek V4.1 Flash"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DeepSeek V4.1 Flash"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DeepSeek V4.1 Flash"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DeepSeek V4.1 Flash"
+          }
+        }
+      }
+    },
+    "settings.choice.modelRouterDeepSeekV41Flash1017": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DeepSeek V4.1 Flash 1017 (صور)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DeepSeek V4.1 Flash 1017 (Slike)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DeepSeek V4.1 Flash 1017 (Billeder)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DeepSeek V4.1 Flash 1017 (Bilder)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DeepSeek V4.1 Flash 1017 (Images)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DeepSeek V4.1 Flash 1017 (Imágenes)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DeepSeek V4.1 Flash 1017 (Images)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DeepSeek V4.1 Flash 1017 (Immagini)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DeepSeek V4.1 Flash 1017 (画像)"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DeepSeek V4.1 Flash 1017 (រូបភាព)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DeepSeek V4.1 Flash 1017 (이미지)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DeepSeek V4.1 Flash 1017 (Bilder)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DeepSeek V4.1 Flash 1017 (Obrazy)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DeepSeek V4.1 Flash 1017 (Imagens)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DeepSeek V4.1 Flash 1017 (Изображения)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DeepSeek V4.1 Flash 1017 (รูปภาพ)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DeepSeek V4.1 Flash 1017 (Görseller)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DeepSeek V4.1 Flash 1017 (Зображення)"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DeepSeek V4.1 Flash 1017 (Hình ảnh)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DeepSeek V4.1 Flash 1017 (图片)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DeepSeek V4.1 Flash 1017 (圖片)"
+          }
+        }
+      }
+    },
+    "settings.choice.modelRouterDeepSeekV4Flash": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DeepSeek V4 Flash"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DeepSeek V4 Flash"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DeepSeek V4 Flash"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DeepSeek V4 Flash"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DeepSeek V4 Flash"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DeepSeek V4 Flash"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DeepSeek V4 Flash"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DeepSeek V4 Flash"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DeepSeek V4 Flash"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DeepSeek V4 Flash"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DeepSeek V4 Flash"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DeepSeek V4 Flash"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DeepSeek V4 Flash"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DeepSeek V4 Flash"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DeepSeek V4 Flash"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DeepSeek V4 Flash"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DeepSeek V4 Flash"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DeepSeek V4 Flash"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DeepSeek V4 Flash"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DeepSeek V4 Flash"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DeepSeek V4 Flash"
+          }
+        }
+      }
+    },
+    "settings.choice.modelRouterDeepSeekV4Pro": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DeepSeek V4 Pro"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DeepSeek V4 Pro"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DeepSeek V4 Pro"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DeepSeek V4 Pro"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DeepSeek V4 Pro"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DeepSeek V4 Pro"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DeepSeek V4 Pro"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DeepSeek V4 Pro"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DeepSeek V4 Pro"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DeepSeek V4 Pro"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DeepSeek V4 Pro"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DeepSeek V4 Pro"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DeepSeek V4 Pro"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DeepSeek V4 Pro"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DeepSeek V4 Pro"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DeepSeek V4 Pro"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DeepSeek V4 Pro"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DeepSeek V4 Pro"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DeepSeek V4 Pro"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DeepSeek V4 Pro"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DeepSeek V4 Pro"
+          }
+        }
+      }
+    },
     "settings.group.workspaceHibernation": {
       "extractionState": "manual",
       "localizations": {
@@ -83391,127 +84177,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Where Cmd-N, the + button and the CLI put a new workspace in the sidebar. Pinned workspaces stay above it."
+            "value": "Where Cmd-N, the + button and the CLI put a new workspace in the sidebar. A workspace made in a group goes to the same place inside that group. Pinned workspaces stay above it."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "المكان الذي يضع فيه Cmd-N وزر + وواجهة سطر الأوامر مساحة العمل الجديدة في الشريط الجانبي. تبقى مساحات العمل المثبتة فوقها."
+            "value": "المكان الذي يضع فيه Cmd-N وزر + وواجهة سطر الأوامر مساحة العمل الجديدة في الشريط الجانبي. مساحة العمل التي تُنشأ في مجموعة تذهب إلى المكان نفسه داخل تلك المجموعة. تبقى مساحات العمل المثبتة فوقها."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Gdje Cmd-N, dugme + i CLI stavljaju novi radni prostor na bočnoj traci. Prikačeni radni prostori ostaju iznad njega."
+            "value": "Gdje Cmd-N, dugme + i CLI stavljaju novi radni prostor na bočnoj traci. Radni prostor napravljen u grupi ide na isto mjesto unutar te grupe. Prikačeni radni prostori ostaju iznad njega."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hvor Cmd-N, knappen + og CLI'en placerer et nyt arbejdsområde i sidepanelet. Fastgjorte arbejdsområder bliver over det."
+            "value": "Hvor Cmd-N, knappen + og CLI'en placerer et nyt arbejdsområde i sidepanelet. Et arbejdsområde, der laves i en gruppe, kommer samme sted i den gruppe. Fastgjorte arbejdsområder bliver over det."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Wo Cmd-N, die Schaltfläche + und die CLI einen neuen Arbeitsbereich in der Seitenleiste ablegen. Angeheftete Arbeitsbereiche bleiben darüber."
+            "value": "Wo Cmd-N, die Schaltfläche + und die CLI einen neuen Arbeitsbereich in der Seitenleiste ablegen. Ein in einer Gruppe erstellter Arbeitsbereich kommt an dieselbe Stelle innerhalb dieser Gruppe. Angeheftete Arbeitsbereiche bleiben darüber."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Dónde colocan Cmd-N, el botón + y la CLI un nuevo espacio de trabajo en la barra lateral. Los espacios de trabajo fijados quedan encima."
+            "value": "Dónde colocan Cmd-N, el botón + y la CLI un nuevo espacio de trabajo en la barra lateral. Un espacio de trabajo creado en un grupo va al mismo lugar dentro de ese grupo. Los espacios de trabajo fijados quedan encima."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Où Cmd-N, le bouton + et la CLI placent un nouvel espace de travail dans la barre latérale. Les espaces de travail épinglés restent au-dessus."
+            "value": "Où Cmd-N, le bouton + et la CLI placent un nouvel espace de travail dans la barre latérale. Un espace de travail créé dans un groupe va au même endroit dans ce groupe. Les espaces de travail épinglés restent au-dessus."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Dove Cmd-N, il pulsante + e la CLI mettono un nuovo spazio di lavoro nella barra laterale. Gli spazi di lavoro fissati restano sopra."
+            "value": "Dove Cmd-N, il pulsante + e la CLI mettono un nuovo spazio di lavoro nella barra laterale. Uno spazio di lavoro creato in un gruppo va nello stesso punto all’interno di quel gruppo. Gli spazi di lavoro fissati restano sopra."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cmd-N、+ ボタン、CLI で作成した新しいワークスペースをサイドバーのどこに置くか。ピン留めしたワークスペースはその上に残ります。"
+            "value": "Cmd-N、+ ボタン、CLI で作成した新しいワークスペースをサイドバーのどこに置くか。グループ内で作成したワークスペースは、そのグループ内の同じ位置に置かれます。ピン留めしたワークスペースはその上に残ります。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "កន្លែងដែល Cmd-N ប៊ូតុង + និង CLI ដាក់កន្លែងធ្វើការថ្មីនៅក្នុងរបារចំហៀង។ កន្លែងធ្វើការដែលបានខ្ទាស់នៅខាងលើវា។"
+            "value": "កន្លែងដែល Cmd-N ប៊ូតុង + និង CLI ដាក់កន្លែងធ្វើការថ្មីនៅក្នុងរបារចំហៀង។ កន្លែងធ្វើការដែលបង្កើតក្នុងក្រុម ទៅកន្លែងដដែលនៅក្នុងក្រុមនោះ។ កន្លែងធ្វើការដែលបានខ្ទាស់នៅខាងលើវា។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cmd-N, + 버튼, CLI가 새 워크스페이스를 사이드바의 어디에 둘지 정합니다. 고정된 워크스페이스는 그 위에 남습니다."
+            "value": "Cmd-N, + 버튼, CLI가 새 워크스페이스를 사이드바의 어디에 둘지 정합니다. 그룹 안에서 만든 워크스페이스는 그 그룹 안의 같은 위치에 놓입니다. 고정된 워크스페이스는 그 위에 남습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hvor Cmd-N, +-knappen og CLI-en legger et nytt arbeidsområde i sidefeltet. Festede arbeidsområder blir over det."
+            "value": "Hvor Cmd-N, +-knappen og CLI-en legger et nytt arbeidsområde i sidefeltet. Et arbeidsområde som lages i en gruppe, havner på samme sted i den gruppen. Festede arbeidsområder blir over det."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Gdzie Cmd-N, przycisk + i CLI umieszczają nowy obszar roboczy na pasku bocznym. Przypięte obszary robocze zostają nad nim."
+            "value": "Gdzie Cmd-N, przycisk + i CLI umieszczają nowy obszar roboczy na pasku bocznym. Obszar roboczy utworzony w grupie trafia w to samo miejsce wewnątrz tej grupy. Przypięte obszary robocze zostają nad nim."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Onde Cmd-N, o botão + e a CLI colocam um novo espaço de trabalho na barra lateral. Os espaços de trabalho fixados ficam acima dele."
+            "value": "Onde Cmd-N, o botão + e a CLI colocam um novo espaço de trabalho na barra lateral. Um espaço de trabalho criado em um grupo vai para o mesmo lugar dentro desse grupo. Os espaços de trabalho fixados ficam acima dele."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Куда Cmd-N, кнопка + и CLI помещают новое рабочее пространство на боковой панели. Закреплённые рабочие пространства остаются выше."
+            "value": "Куда Cmd-N, кнопка + и CLI помещают новое рабочее пространство на боковой панели. Рабочее пространство, созданное в группе, попадает на то же место внутри этой группы. Закреплённые рабочие пространства остаются выше."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ตำแหน่งที่ Cmd-N ปุ่ม + และ CLI วางพื้นที่ทำงานใหม่ในแถบด้านข้าง พื้นที่ทำงานที่ปักหมุดจะอยู่ด้านบน"
+            "value": "ตำแหน่งที่ Cmd-N ปุ่ม + และ CLI วางพื้นที่ทำงานใหม่ในแถบด้านข้าง พื้นที่ทำงานที่สร้างในกลุ่มจะไปอยู่ตำแหน่งเดียวกันภายในกลุ่มนั้น พื้นที่ทำงานที่ปักหมุดจะอยู่ด้านบน"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cmd-N, + düğmesi ve CLI'nin yeni bir çalışma alanını kenar çubuğunda nereye koyduğu. Sabitlenmiş çalışma alanları üstünde kalır."
+            "value": "Cmd-N, + düğmesi ve CLI'nin yeni bir çalışma alanını kenar çubuğunda nereye koyduğu. Bir grupta oluşturulan çalışma alanı, o grubun içinde aynı yere gider. Sabitlenmiş çalışma alanları üstünde kalır."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Куди Cmd-N, кнопка + і CLI додають новий робочий простір на бічній панелі. Закріплені робочі простори залишаються вище."
+            "value": "Куди Cmd-N, кнопка + і CLI додають новий робочий простір на бічній панелі. Робочий простір, створений у групі, потрапляє на те саме місце всередині цієї групи. Закріплені робочі простори залишаються вище."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nơi Cmd-N, nút + và CLI đặt không gian làm việc mới trong thanh bên. Các không gian làm việc đã ghim vẫn ở phía trên."
+            "value": "Nơi Cmd-N, nút + và CLI đặt không gian làm việc mới trong thanh bên. Không gian làm việc tạo trong một nhóm sẽ ở cùng vị trí bên trong nhóm đó. Các không gian làm việc đã ghim vẫn ở phía trên."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cmd-N、+ 按钮和 CLI 将新工作区放在侧边栏中的位置。已固定的工作区保持在其上方。"
+            "value": "Cmd-N、+ 按钮和 CLI 将新工作区放在侧边栏中的位置。在群组中创建的工作区放在该群组内的同一位置。已固定的工作区保持在其上方。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cmd-N、+ 按鈕和 CLI 將新工作區放在側邊欄中的位置。已釘選的工作區保持在其上方。"
+            "value": "Cmd-N、+ 按鈕和 CLI 將新工作區放在側邊欄中的位置。在群組中建立的工作區放在該群組內的同一位置。已釘選的工作區保持在其上方。"
           }
         }
       }

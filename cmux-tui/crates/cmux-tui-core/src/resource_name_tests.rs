@@ -110,11 +110,11 @@ fn workspace_name_source_auto_replaces_a_created_default_name() {
 
 #[test]
 fn workspace_name_source_requested_default_name_is_auto() {
-    assert_eq!(NameSource::for_requested_workspace(None), NameSource::Auto);
-    assert_eq!(NameSource::for_requested_workspace(Some("workspace-151")), NameSource::Auto);
-    assert_eq!(NameSource::for_requested_workspace(Some("Billing")), NameSource::User);
-    assert_eq!(NameSource::for_requested_workspace(Some("workspace-")), NameSource::User);
-    assert_eq!(NameSource::for_requested_workspace(Some("~")), NameSource::User);
+    assert_eq!(NameSource::for_requested_workspace_name(None), NameSource::Auto);
+    assert_eq!(NameSource::for_requested_workspace_name(Some("workspace-151")), NameSource::Auto);
+    assert_eq!(NameSource::for_requested_workspace_name(Some("Billing")), NameSource::User);
+    assert_eq!(NameSource::for_requested_workspace_name(Some("workspace-")), NameSource::User);
+    assert_eq!(NameSource::for_requested_workspace_name(Some("~")), NameSource::User);
 }
 
 #[test]
