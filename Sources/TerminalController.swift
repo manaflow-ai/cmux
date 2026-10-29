@@ -12314,21 +12314,9 @@ class TerminalController {
         )
     }
 
+    /// Keeps the newest `maxLines` lines. ``SessionScrollbackPersistencePolicy`` owns the cut.
     nonisolated static func tailTerminalLines(_ text: String, maxLines: Int) -> String {
-        guard maxLines > 0 else { return "" }
-        var newlineCount = 0
-        var index = text.endIndex
-        while index > text.startIndex {
-            let previous = text.index(before: index)
-            if text[previous] == "\n" {
-                newlineCount += 1
-                if newlineCount == maxLines {
-                    return String(text[index...])
-                }
-            }
-            index = previous
-        }
-        return text
+        SessionScrollbackPersistencePolicy().tailLines(text, maxLines: maxLines)
     }
 
     private func readTerminalTextBase64(surfaceArg: String, includeScrollback: Bool = false, lineLimit: Int? = nil) -> String {

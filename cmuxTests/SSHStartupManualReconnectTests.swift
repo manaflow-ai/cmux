@@ -1,6 +1,7 @@
 import CmuxCore
 import CmuxFoundation
 import CmuxRemoteSession
+import CmuxWorkspaces
 import Darwin
 import Foundation
 import Testing
@@ -612,7 +613,11 @@ struct SSHStartupManualReconnectTests {
         let panel = try #require(workspace.focusedTerminalPanel)
         let output = "remote-command-output\n"
         workspace.configureRemoteConnection(Self.makeRemoteConfiguration(), autoConnect: false)
-        workspace.restoredTerminalScrollbackByPanelId[panel.id] = output
+        workspace.restoredTerminalScrollbackByPanelId.rememberRestoredScrollback(
+            output,
+            for: panel.id,
+            wasTruncated: false
+        )
 
         manager.closePanelAfterChildExited(tabId: workspace.id, surfaceId: panel.id)
         await workspace.waitForRemoteDisconnectTransition(surfaceId: panel.id)

@@ -1,4 +1,5 @@
 import CmuxFoundation
+import CmuxWorkspaces
 import Bonsplit
 import CmuxSettings
 import CmuxCore

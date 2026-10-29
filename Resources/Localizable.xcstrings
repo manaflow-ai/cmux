@@ -671652,6 +671652,131 @@
           }
         }
       }
+    },
+    "session.scrollback.truncatedRestoreNotice": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Older terminal output was left out of this restore. This restore includes only the latest 4,000 lines or 400,000 characters."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] حُذف إخراج الطرفية الأقدم من هذه الاستعادة. تتضمن هذه الاستعادة آخر 4,000 سطر أو 400,000 حرف فقط."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Ältere Terminalausgabe wurde bei dieser Wiederherstellung weggelassen. Diese Wiederherstellung enthält nur die letzten 4.000 Zeilen oder 400.000 Zeichen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Se omitió la salida de terminal más antigua en esta restauración. Esta restauración incluye solo las últimas 4.000 líneas o 400.000 caracteres."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] La sortie de terminal plus ancienne a été omise de cette restauration. Cette restauration ne comprend que les 4 000 dernières lignes ou 400 000 caractères."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] この復元では古いターミナル出力を省きました。この復元に含まれるのは最新の 4,000 行または 400,000 文字だけです。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] 이번 복원에서는 이전 터미널 출력을 생략했습니다. 이번 복원에는 최근 4,000줄 또는 400,000자만 포함됩니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] 这次恢复省略了较旧的终端输出。这次恢复只包含最新的 4,000 行或 400,000 个字符。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] 這次還原略過了較舊的終端機輸出。這次還原只包含最新的 4,000 行或 400,000 個字元。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Stariji izlaz terminala izostavljen je iz ovog vraćanja. Ovo vraćanje uključuje samo posljednjih 4.000 redova ili 400.000 znakova."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Ældre terminaloutput blev udeladt fra denne gendannelse. Denne gendannelse indeholder kun de seneste 4.000 linjer eller 400.000 tegn."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] L'output del terminale meno recente è stato omesso da questo ripristino. Questo ripristino include solo le ultime 4.000 righe o 400.000 caratteri."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] លទ្ធផល terminal ចាស់ៗមិនត្រូវបានបញ្ចូលក្នុងការស្ដារនេះទេ។ ការស្ដារនេះរួមបញ្ចូលតែ 4,000 បន្ទាត់ ឬ 400,000 តួអក្សរចុងក្រោយប៉ុណ្ណោះ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Eldre terminalutdata ble utelatt fra denne gjenopprettingen. Denne gjenopprettingen inneholder bare de siste 4 000 linjene eller 400 000 tegnene."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Starsze dane wyjściowe terminala zostały pominięte w tym przywróceniu. To przywrócenie obejmuje tylko ostatnie 4000 wierszy lub 400 000 znaków."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] A saída mais antiga do terminal foi omitida desta restauração. Esta restauração inclui apenas as últimas 4.000 linhas ou 400.000 caracteres."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Более старый вывод терминала не вошёл в это восстановление. Это восстановление включает только последние 4000 строк или 400 000 символов."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] การกู้คืนครั้งนี้ไม่ได้รวมเอาต์พุตเทอร์มินัลที่เก่ากว่า การกู้คืนนี้มีเพียง 4,000 บรรทัดหรือ 400,000 อักขระล่าสุด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Daha eski terminal çıktısı bu geri yüklemeye dahil edilmedi. Bu geri yükleme yalnızca en son 4.000 satırı veya 400.000 karakteri içerir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Старіший вивід термінала не ввійшов до цього відновлення. Це відновлення містить лише останні 4000 рядків або 400 000 символів."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

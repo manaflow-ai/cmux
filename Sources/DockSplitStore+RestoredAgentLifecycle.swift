@@ -6,6 +6,7 @@ import Darwin
 import AppKit
 import Foundation
 extension DockSplitStore {
+    /// Drops restore bookkeeping for one Dock panel, including its restored scrollback.
     func clearSessionRestoreState(panelId: UUID) {
         discardPendingTerminalTitleUpdate(panelId: panelId)
         removeDeferredAgentResumeRestore(panelId: panelId)

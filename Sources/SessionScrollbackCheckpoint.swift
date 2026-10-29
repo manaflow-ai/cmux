@@ -211,6 +211,8 @@ struct SessionScrollbackCheckpointRecord: Codable, Equatable, Sendable {
     /// Seconds since 1970, the clock `AppSessionSnapshot.createdAt` uses.
     var capturedAt: TimeInterval
     var scrollback: String
+    /// True when `scrollback` is a tail. Nil on checkpoints written before the marker existed.
+    var scrollbackWasTruncated: Bool? = nil
 }
 
 struct SessionScrollbackCheckpointCapture: Sendable {
@@ -222,6 +224,10 @@ struct SessionScrollbackCheckpointCapture: Sendable {
     let finish: @Sendable () -> String?
     /// Deletes the export file without reading it; used when the capture is dropped.
     var discard: @Sendable () -> Void = {}
+    /// True when `finish` already returns a bounded restored tail whose older
+    /// output was dropped. Fresh captures leave this false and let the policy
+    /// derive the marker from the text.
+    var restoredScrollbackWasTruncated: Bool = false
 }
 
 /// The main-thread half of a capture hands back both halves of the export.
@@ -279,17 +285,20 @@ struct SessionScrollbackCheckpointStore: Sendable {
                 failedSurfaceIds.insert(capture.surfaceId)
                 continue
             }
-            guard let scrollback = SessionPersistencePolicy.truncatedScrollback(captured),
+            let persisted = SessionPersistencePolicy.persistedScrollback(captured)
+            guard let scrollback = persisted.text,
                   scrollback.contains(where: { !$0.isWhitespace }) else {
                 // An empty terminal restores empty, like the quit path.
                 removals.insert(capture.panelId)
                 continue
             }
+            let wasTruncated = persisted.wasTruncated || capture.restoredScrollbackWasTruncated
             let record = SessionScrollbackCheckpointRecord(
                 version: SessionScrollbackCheckpointRecord.currentVersion,
                 panelId: capture.panelId,
                 capturedAt: capture.capturedAt,
-                scrollback: scrollback
+                scrollback: scrollback,
+                scrollbackWasTruncated: wasTruncated ? true : nil
             )
             do {
                 try encoder.encode(record).write(to: fileURL(panelId: capture.panelId), options: .atomic)
@@ -372,6 +381,26 @@ struct SessionScrollbackCheckpointStore: Sendable {
 }
 
 enum SessionScrollbackCheckpointMerge {
+    /// Whether `checkpoint` is the scrollback a restore should keep.
+    ///
+    /// The decision is the timestamps described on ``resolvedScrollback(snapshotScrollback:snapshotCreatedAt:snapshotScrollbackCapturedAt:checkpoint:)``,
+    /// not whether the two texts differ. A newer checkpoint wins even when its
+    /// tail matches the snapshot text, so its truncation marker is copied too.
+    static func selectsCheckpoint(
+        snapshotScrollback: String?,
+        snapshotCreatedAt: TimeInterval,
+        snapshotScrollbackCapturedAt: TimeInterval?,
+        checkpoint: SessionScrollbackCheckpointRecord
+    ) -> Bool {
+        if let scrollbackCapturedAt = snapshotScrollbackCapturedAt {
+            return scrollbackCapturedAt < checkpoint.capturedAt
+        }
+        if let snapshotScrollback, !snapshotScrollback.isEmpty, snapshotCreatedAt >= checkpoint.capturedAt {
+            return false
+        }
+        return true
+    }
+
     /// Chooses between the snapshot's own scrollback and a checkpoint.
     ///
     /// A snapshot saved with scrollback (quit, power-off, update relaunch) records
@@ -380,7 +409,8 @@ enum SessionScrollbackCheckpointMerge {
     /// (running command, cleared terminal). The 8 s autosave never captures
     /// scrollback and leaves the marker nil, so its snapshot is treated as having
     /// no scrollback evidence. Legacy snapshots without the marker keep their own
-    /// non-empty scrollback when they are newer.
+    /// non-empty scrollback when they are newer. The truncation marker follows
+    /// the same choice, including when both sides store the same tail.
     static func resolvedScrollback(
         snapshotScrollback: String?,
         snapshotCreatedAt: TimeInterval,
@@ -388,15 +418,18 @@ enum SessionScrollbackCheckpointMerge {
         checkpoint: SessionScrollbackCheckpointRecord?
     ) -> String? {
         guard let checkpoint else { return snapshotScrollback }
-        if let scrollbackCapturedAt = snapshotScrollbackCapturedAt {
-            return scrollbackCapturedAt >= checkpoint.capturedAt ? snapshotScrollback : checkpoint.scrollback
+        if selectsCheckpoint(
+            snapshotScrollback: snapshotScrollback,
+            snapshotCreatedAt: snapshotCreatedAt,
+            snapshotScrollbackCapturedAt: snapshotScrollbackCapturedAt,
+            checkpoint: checkpoint
+        ) {
+            return checkpoint.scrollback
         }
-        if let snapshotScrollback, !snapshotScrollback.isEmpty, snapshotCreatedAt >= checkpoint.capturedAt {
-            return snapshotScrollback
-        }
-        return checkpoint.scrollback
+        return snapshotScrollback
     }
 
+    /// Every terminal panel id in `snapshot`, including workspace and window docks.
     static func terminalPanelIds(in snapshot: AppSessionSnapshot) -> Set<UUID> {
         var ids = Set<UUID>()
         func collect(_ panels: [SessionPanelSnapshot]) {
@@ -414,23 +447,32 @@ enum SessionScrollbackCheckpointMerge {
         return ids
     }
 
+    /// Copies newer checkpoint scrollback, and its truncation marker, into `snapshot`.
     static func merging(
         _ records: [UUID: SessionScrollbackCheckpointRecord],
         into snapshot: AppSessionSnapshot
     ) -> AppSessionSnapshot {
         let createdAt = snapshot.createdAt
         let scrollbackCapturedAt = snapshot.scrollbackCapturedAt
+        /// Applies the timestamp choice to each terminal, including a matching tail.
         func merge(_ panels: inout [SessionPanelSnapshot]) {
             for index in panels.indices {
                 guard panels[index].terminal != nil,
                       let record = records[panels[index].id] else { continue }
-                let scrollback = resolvedScrollback(
-                    snapshotScrollback: panels[index].terminal?.scrollback,
+                let snapshotScrollback = panels[index].terminal?.scrollback
+                let useCheckpoint = selectsCheckpoint(
+                    snapshotScrollback: snapshotScrollback,
                     snapshotCreatedAt: createdAt,
                     snapshotScrollbackCapturedAt: scrollbackCapturedAt,
                     checkpoint: record
                 )
-                panels[index].terminal?.scrollback = scrollback
+                if useCheckpoint {
+                    panels[index].terminal?.scrollback = record.scrollback
+                    panels[index].terminal?.scrollbackWasTruncated =
+                        record.scrollbackWasTruncated == true ? true : nil
+                } else {
+                    panels[index].terminal?.scrollback = snapshotScrollback
+                }
             }
         }
         var merged = snapshot
@@ -466,10 +508,13 @@ final class SessionScrollbackCheckpointCoordinator {
         let beginCapture: () -> SessionScrollbackCheckpointExport?
     }
 
+    /// Scrollback already known for a restored terminal, written back as a checkpoint.
     struct Seed {
         let panelId: UUID
         let surfaceId: UUID
         let scrollback: String
+        /// True when `scrollback` is a tail that already dropped older output.
+        let scrollbackWasTruncated: Bool
     }
 
     struct Environment {
@@ -516,7 +561,8 @@ final class SessionScrollbackCheckpointCoordinator {
                     panelId: seed.panelId,
                     surfaceId: seed.surfaceId,
                     capturedAt: capturedAt,
-                    finish: { scrollback }
+                    finish: { scrollback },
+                    restoredScrollbackWasTruncated: seed.scrollbackWasTruncated
                 )
             },
             removals: [],
