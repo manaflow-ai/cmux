@@ -1,0 +1,28 @@
+{
+  "id": "zoom-transition",
+  "priority": "P0",
+  "title": "Cmd-Shift-Return zooms and unzooms terminal, Home and browser panes in one transition of at most 150 ms, with every pane's content and tab bar shown",
+  "why": "Lawrence 2026-10-29 on v2.2.7-opt: \"animations for cmd shift enter need to be better\", \"make sure cmd shift enter animation is perfect (all the tabs are perfectly visible)\". His clip: an opaque layer wipes in over the zoomed pane, the browser vanishes at once and pops back over the zoom at the start of the unzoom, and the unzoom ends in a second step about 600 ms later.",
+  "source": "felt 1d (handoff/felt-cmd-shift-enter), motion-cascade.md rules 1 and 4",
+  "budget_seconds": 150,
+  "steps": [
+    {"do": "new_terminal", "via": "key"},
+    {"do": "neutral_prompt"},
+    {"do": "type", "text": "echo zoom-${nonce}", "enter": true, "mark": "typed"},
+    {"do": "expect", "title": "the terminal shows the marker", "since": "typed", "timeout": 10,
+     "all": [{"daemon_prompt": true}, {"app_text_contains": "zoom-${nonce}"}]},
+    {"do": "zoom_layout", "title": "terminal left, Home right-top, browser right-bottom"},
+    {"do": "zoom_round", "title": "zoom and unzoom the Home pane", "pane": "home", "as": "home"},
+    {"do": "zoom_round", "title": "zoom and unzoom the terminal pane", "pane": "terminal", "as": "term"},
+    {"do": "zoom_round", "title": "zoom and unzoom the browser pane", "pane": "browser", "as": "web"},
+    {"do": "zoom_spam", "title": "7 fast presses on the Home pane", "pane": "home", "presses": 7, "as": "spam"},
+    {"do": "expect", "title": "one transition per press, same material, every pane shown, no runoff", "timeout": 5,
+     "all": [
+       {"zoom_transition": {"of": "home"}},
+       {"zoom_transition": {"of": "term"}},
+       {"zoom_transition": {"of": "web"}},
+       {"zoom_settles": {"of": "spam"}},
+       {"frame_text": "zoom-${nonce}"}
+     ]}
+  ]
+}
