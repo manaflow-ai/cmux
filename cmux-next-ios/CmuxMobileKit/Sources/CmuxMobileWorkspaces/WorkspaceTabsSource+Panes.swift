@@ -138,7 +138,7 @@ extension WorkspaceTabsSource {
                 activate(copy.id)
                 openedTab = copy.id
             } else {
-                let landed = store.workspaces.first { ws in ws.tabs.contains { $0.id == copy.id } }
+                let landed = store.workspaces.first { ws in ws.macID == workspace.macID && ws.tabs.contains { $0.id == copy.id } }
                 show("Forked \(tab.title) to \(landed?.title ?? "a new workspace").")
                 CmuxMobileTheme.standard.haptics.success()
             }
