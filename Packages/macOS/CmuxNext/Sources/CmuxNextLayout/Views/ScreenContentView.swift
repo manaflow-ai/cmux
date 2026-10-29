@@ -58,12 +58,6 @@ final class ScreenContentView: NSView {
     var areaScrolls: [SplitID: ScrollAreaScroll] = [:]
     /// A drag's rows, ratios and widths, shown until the next layout arrives (`ScreenDragPreview`).
     var dragPreview = ScreenDragPreview()
-    /// A divider drag event laid out in the current display frame; the frame's tick clears it (`displayFrameBegan`).
-    var dragPresentedInFrame = false
-    /// Divider drag values set but not laid out yet: the next frame tick shows them in one pass.
-    var dragPresentationPending = false
-    /// Frame ticks a divider drag still keeps after its last event (``displayFrameBegan()``).
-    var dragTicksLeft = 0
     var scroll: SpringValue {
         get { scrollState.spring }
         set { scrollState.spring = newValue }

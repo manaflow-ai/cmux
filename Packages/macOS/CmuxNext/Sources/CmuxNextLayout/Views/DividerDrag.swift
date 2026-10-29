@@ -41,7 +41,7 @@ struct DividerDrag {
             screen.activeDrag?.lastWindowPoint = windowPoint
             screen.activeDrag?.sample(contentPoint(fromWindow: windowPoint, kind: kind), at: CACurrentMediaTime())
             screen.resizeGestureMoved()
-            // The pointer drives the layout (`present`): once per display frame, and a still pointer stops the ticks.
+            // The pointer drives the layout in this turn (`present`): a still pointer asks for no frames.
             apply(at: windowPoint, phase: .changed)
         case let .modifiersChanged(flags):
             let modifiers = DividerDragModifiers(flags)
@@ -62,7 +62,6 @@ struct DividerDrag {
                 // The layout this release makes springs on from the pointer's velocity.
                 screen.releasedDivider = (kind, drag.releaseVelocity(at: CACurrentMediaTime()), CACurrentMediaTime())
             }
-            screen.dragPresentationPending = false
             apply(at: windowPoint, phase: .ended)
             screen.activeDrag?.hintToast?.dismiss()
             screen.activeDrag = nil
@@ -79,7 +78,6 @@ struct DividerDrag {
         guard let drag = screen.activeDrag else { return }
         drag.hintToast?.dismiss()
         screen.activeDrag = nil
-        screen.dragPresentationPending = false
         if screen.dragPreview.rows != nil {
             screen.dragPreview.rows = nil
             if redraw { screen.reconcile(animated: false) }
@@ -136,26 +134,9 @@ struct DividerDrag {
     /// Shows the drag's `values` in this turn, as a window resize lays out: one geometry and one presentation
     /// pass, the camera kept on the dragged column (`syncScroll`, its drag anchor). The model stores the live
     /// values without a sync (`LayoutModel.updateScreen`), so a drag event costs no observation turn, no snapshot
-    /// compare and no chrome pass.
-    /// Events faster than the display (a 1 kHz mouse, a trackpad's coalesced bursts) show once per display frame,
-    /// as a strip pan does (`presentPan`): the frame's first event lays out in its own turn, later ones wait for
-    /// the frame's tick (`displayFrameBegan`) and show the latest values in one pass.
-    private func present(_ values: [DividerDragValue]) {
+    /// compare and no chrome pass, and no frame tick unless the camera springs.
+    private func present(_ values: [DividerDragValue]) { // perf-hot: 4ms motion-frame
         screen.dragPreview.values = values
-        screen.dragTicksLeft = ScreenContentView.panTickTail
-        if screen.dragPresentedInFrame {
-            screen.dragPresentationPending = true
-        } else {
-            screen.dragPresentedInFrame = true
-            Self.presentPreview(on: screen)
-        }
-        // The tick that opens the next frame (and shows a waiting event).
-        screen.context.requestFrames()
-    }
-
-    static func presentPreview(on screen: ScreenContentView) { // perf-hot: 4ms motion-frame
-        let model = screen.context.model
-        screen.dragPresentationPending = false
         screen.reconcile(animated: false, presents: false)
         let needsFrames = screen.syncScroll(focused: screen.lastFocused, source: .programmatic, mode: model.centerFocusedColumn,
                                             animated: screen.context.animatesScroll(), reveals: false, showsScrollbarOnSnap: screen.window != nil)
