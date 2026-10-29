@@ -253,6 +253,21 @@ extension WorkspaceRowView {
             titleArrivalScheduled = true
             CATransaction.setCompletionBlock { [weak self] in self?.startTitleArrival() }
         }
+        // A workspace icon, mark or late realization changes the title column without changing
+        // the tab model. Invalidate only this workspace's disclosed children so their anchor is
+        // recomputed on the same layout pass instead of retaining a stale x position.
+        let titleFrame = self.titleFrame
+        if titleFrame != lastTabAnchorTitleFrame {
+            lastTabAnchorTitleFrame = titleFrame
+            if case let .workspace(workspaceID) = key,
+               let list = sequence(first: superview, next: { $0?.superview })
+                   .compactMap({ $0 as? SidebarListView }).first {
+                for (key, view) in list.rowViews {
+                    guard case let .tab(parentID, _) = key, parentID == workspaceID else { continue }
+                    view.needsLayout = true
+                }
+            }
+        }
         // No needsDisplay here: `updateLayer` reads no layout value, and configure, hover, selection,
         // drop target and appearance changes mark display themselves. Each display costs AppKit a
         // contents-scale walk to the window (perf round 4: the top display frames while scrolling).

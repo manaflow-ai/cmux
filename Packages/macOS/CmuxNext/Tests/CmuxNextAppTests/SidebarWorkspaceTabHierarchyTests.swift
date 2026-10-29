@@ -116,8 +116,11 @@ struct SidebarWorkspaceTabHierarchyTests {
                 let tabTitle = try Self.tabTitle(tab, text)
                 let workspaceX = Self.listX(list, workspace, workspace.titleFrame.minX)
                 let tabX = Self.listX(list, tab, tabTitle.frame.minX)
-                #expect(tabX - workspaceX >= Metrics.space6,
-                        "\(c.testDescription): tab \(tab.key) is only \(tabX - workspaceX)pt inside its workspace")
+                let expectedInset = text == "browser"
+                    ? Metrics.space6 + SidebarStyle.labelCellPadding + Metrics.space2
+                    : Metrics.space6
+                #expect(abs((tabX - workspaceX) - expectedInset) < 0.5,
+                        "\(c.testDescription): tab \(tab.key) anchor is \(tabX - workspaceX)pt, expected \(expectedInset)pt")
                 #expect(tabTitle.font?.pointSize ?? 0 < workspace.title.font.pointSize,
                         "\(c.testDescription): child typography is not quieter")
             }
@@ -139,6 +142,34 @@ struct SidebarWorkspaceTabHierarchyTests {
                 #expect(list.frame(for: row).maxX == trailing, "\(c.testDescription): workspace trailing column moved")
             }
         }
+    }
+
+    @Test
+    func disclosedTabsReanchorWhenParentChangesOrArrivesLate() throws {
+        let (list, window) = try Self.list(width: 260)
+        defer { window.close() }
+        let grouped = try Self.workspaceRow(list, Self.grouped)
+        let groupedTab = try Self.tabRow(list, Self.grouped, TabID("grouped-tab"))
+        let groupedRow = try Self.sidebarRow(list, .workspace(Self.grouped))
+        let groupedTitle = try Self.tabTitle(groupedTab, "browser")
+        list.layoutSubtreeIfNeeded()
+        let beforeIcon = Self.listX(list, groupedTab, groupedTitle.frame.minX)
+        var iconWorkspace = try #require(grouped.lastConfiguration?.0)
+        iconWorkspace.icon = .emoji("🧭")
+        grouped.configure(iconWorkspace, row: groupedRow)
+        list.layoutSubtreeIfNeeded()
+        let afterIcon = Self.listX(list, groupedTab, groupedTitle.frame.minX)
+        #expect(afterIcon > beforeIcon, "tab anchor did not follow a parent icon change")
+
+        let parentKey: SidebarRowKey = .workspace(Self.grouped)
+        let parent = try #require(list.rowViews.removeValue(forKey: parentKey) as? WorkspaceRowView)
+        groupedTab.layoutSubtreeIfNeeded()
+        let fallback = Self.listX(list, groupedTab, groupedTitle.frame.minX)
+        list.rowViews[parentKey] = parent
+        parent.needsLayout = true
+        list.layoutSubtreeIfNeeded()
+        let afterLateParent = Self.listX(list, groupedTab, groupedTitle.frame.minX)
+        #expect(afterLateParent > fallback, "tab anchor did not re-anchor after late parent realization")
     }
 
     @Test
