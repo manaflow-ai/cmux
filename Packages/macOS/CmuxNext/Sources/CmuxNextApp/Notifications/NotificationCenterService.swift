@@ -94,8 +94,8 @@ final class NotificationCenterService {
     /// The Chief pet's notices (`NotificationCenterService+ChiefPet`); nil while it is off.
     @ObservationIgnored var chiefPet: ChiefPetController?
     @ObservationIgnored private var lastSeen: UInt64 = 0
-    /// The Dock badge this service set last (nil: none).
-    @ObservationIgnored var dockBadgeLabel: String?
+    /// The Dock icon's unread badge (`notifications.dockBadge`), shown again when the icon returns.
+    @ObservationIgnored let dockBadge = DockBadge(tile: AppDockTile())
     /// `notifications.dockBounce`: the running bounce, ended when nothing is unread.
     @ObservationIgnored let dockAttention = DockAttention()
     /// Hands the daemon's local feed items to the cloud owner (feed.md 9.1).
@@ -135,6 +135,13 @@ final class NotificationCenterService {
         GhosttyRuntime.shared.desktopNotificationsEnabled
     }
     private static let logLimit = 64
+
+    // The Dock badge watcher owns an NSRunningApplication KVO token. Cancel
+    // every watcher before this service goes away so AsyncStream terminates
+    // and invalidates that token while the observed application still exists.
+    nonisolated deinit {
+        tasks.forEach { $0.cancel() }
+    }
 
     func start(services: AppServices) {
         self.services = services
@@ -191,6 +198,8 @@ final class NotificationCenterService {
                 self?.dropReadChiefPetNotices()
             }
         })
+        // The Dock drops the badge while cmux runs windowless with no Dock icon; it comes back with the icon.
+        tasks.append(Task { [dockBadge] in await dockBadge.follow(DockBadge.activationPolicies()) })
     }
 
     /// Follows `notifications.*` in every loaded snapshot.

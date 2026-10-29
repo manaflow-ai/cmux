@@ -197,7 +197,9 @@ mod tests {
         let store = crate::store::open(&cfg.store, &root).unwrap();
         let meta = json!({
             "schema": crate::store::META_SCHEMA, "id": "c1", "name": "c1", "harness": "claude",
-            "cwd": "/tmp", "status": "open", "createdAt": 1, "updatedAt": 2,
+            // `idle`: no child process, which is what a daemon restart leaves behind. "open" is
+            // not a SessionStatus, and serde refused it before the fixture was even built.
+            "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": 2,
         });
         store.save(&serde_json::from_value(meta).unwrap()).unwrap();
         let hub = Hub::new(cfg, store);
@@ -241,11 +243,14 @@ mod tests {
         // The second has no wait left, so the chain gives up instead of running a fixed four.
         let (id, gave_up) = chain(Some(vec![10_000]), 1).await;
         assert_eq!(id, None);
+        // The fields the record is for, not the whole object: a field added to the record later
+        // is not this test's business.
+        assert_eq!(gave_up.len(), 1, "{gave_up:?}");
+        let msg = &gave_up[0];
         assert_eq!(
-            gave_up,
-            vec![json!({
-                "promptId": "p1", "attempts": 1, "turnId": "t1", "reason": "daemon_restart",
-            })]
+            (&msg["promptId"], &msg["attempts"], &msg["turnId"], &msg["reason"]),
+            (&json!("p1"), &json!(1), &json!("t1"), &json!("daemon_restart")),
+            "{msg}"
         );
 
         // A loop longer than the default's four runs all of its attempts.
