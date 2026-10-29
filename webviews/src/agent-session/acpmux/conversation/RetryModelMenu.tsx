@@ -65,7 +65,7 @@ export function RetryModelMenu({
             <MenuSeparator />
             <Submenu
               className="acpmux-quick-item acpmux-quick-sub"
-              popupClassName="acpmux-quick-menu acpmux-quick-more"
+              popupClassName="acpmux-quick-menu acpmux-quick-submenu acpmux-quick-more"
               label={<span className="acpmux-menu-label">{t("picker.moreModels")}</span>}
             >
               {rows(more)}

@@ -1047,12 +1047,6 @@ impl Translator {
         let child = self.line_session(Some(tool_use_id));
         self.subagents.lock().await.insert(tool_use_id.to_owned(), child.clone());
         let workflow = tool == "Workflow";
-        if workflow {
-            self.workflows
-                .lock()
-                .await
-                .insert(tool_use_id.to_owned(), workflows::WorkflowRun::new(input));
-        }
         let background = workflow || input.get("run_in_background") == Some(&Value::Bool(true));
         if background {
             self.background_subagents.lock().await.insert(tool_use_id.to_owned());
@@ -1061,6 +1055,22 @@ impl Translator {
         let task = s("description").or(s("name")).or(s("subagent_type"));
         let task = task.unwrap_or(if workflow { "Workflow" } else { "Agent" });
         let kind = if workflow { Some(&json!("workflow")) } else { input.get("subagent_type") };
+        let model = Some(
+            s("model")
+                .filter(|m| *m != "inherit")
+                .map(str::to_owned)
+                .unwrap_or(self.model.lock().await.clone()),
+        );
+        let effort = s("effort")
+            .or(s("reasoning_effort"))
+            .map(str::to_owned)
+            .or(Some(self.effort.lock().await.clone()));
+        if workflow {
+            self.workflows
+                .lock()
+                .await
+                .insert(tool_use_id.to_owned(), workflows::WorkflowRun::new(input, effort.clone()));
+        }
         let mut update = json!({
             "sessionUpdate": "subagent_spawned",
             "subagentSessionId": child,
@@ -1070,6 +1080,12 @@ impl Translator {
             "capabilities": {},
             "_meta": {"claude": {"subagentType": kind, "toolUseId": tool_use_id}}
         });
+        if let Some(model) = model {
+            update.set("model", json!(model));
+        }
+        if let Some(effort) = effort {
+            update.set("effort", json!(effort));
+        }
         // It outlives a stopped turn: a client keeps it running past one.
         if background {
             update.set("background", json!(true));

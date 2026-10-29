@@ -862,11 +862,13 @@ while True:
         # reply carry its tool_use id as parent_tool_use_id, then the tool's result ends it.
         if said.strip() == "agent-probe":
             send({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "toolu_ag1", "name": "Agent",
-                  "input": {"description": "Find the tests", "prompt": "List the test files", "subagent_type": "Explore"}}]}})
+                  "input": {"description": "Find the tests", "prompt": "List the test files", "subagent_type": "Explore", "model": "haiku", "effort": "high"}}]}})
             send({"type": "assistant", "parent_tool_use_id": "toolu_ag1", "message": {"content": [
                   {"type": "tool_use", "id": "toolu_ag2", "name": "Read", "input": {"file_path": "/a/tests.rs"}}]}})
             send({"type": "user", "parent_tool_use_id": "toolu_ag1", "message": {"content": [
                   {"type": "tool_result", "tool_use_id": "toolu_ag2", "content": "fn t() {}"}]}})
+            send({"type": "assistant", "parent_tool_use_id": "toolu_ag1", "message": {"id": "child-final", "content": [
+                  {"type": "text", "text": "Found one test file"}]}})
             send({"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "toolu_ag1", "content": "one test file"}]}})
         if said.strip().startswith(tuple(AGENT_ERRORS)):
             send({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "toolu_a503", "name": "Agent",

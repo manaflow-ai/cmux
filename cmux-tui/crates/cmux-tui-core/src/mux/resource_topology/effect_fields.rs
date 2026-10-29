@@ -151,7 +151,7 @@ pub(super) fn validate_effect_fields(
             }
             if let Some(width) = fields.get("viewport_width").and_then(Value::as_f64) {
                 anyhow::ensure!(
-                    direction == "right"
+                    matches!(direction, "left" | "right")
                         && width.is_finite()
                         && (f64::from(MIN_VIEWPORT_PANE_WIDTH)
                             ..=f64::from(MAX_VIEWPORT_PANE_WIDTH))

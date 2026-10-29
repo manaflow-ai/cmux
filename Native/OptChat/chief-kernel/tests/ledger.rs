@@ -420,3 +420,24 @@ fn every_ask_owned_acks_the_message_and_declined_counts_as_owned() {
         "{fired}"
     );
 }
+
+#[test]
+fn a_subagent_sent_back_to_work_owes_no_untold_note() {
+    // The Mac host's rule (outcome_ledger.rs `outcome_resumed`): Chief told or
+    // restarted it, so it runs again and its next report is the one to tell.
+    let (state, intents) = run(&[
+        json!({"type": "outcome_reported", "id": "a1"}),
+        json!({"type": "turn_started", "reports": ["a1"]}),
+        json!({"type": "subagent_resumed", "id": "a1"}),
+        json!({"type": "turn_ended", "at": 2_000}),
+        json!({"type": "check_due", "at": 60_000}),
+    ]);
+    assert!(
+        state["untold"].as_array().is_none_or(|u| u.is_empty()),
+        "{state}"
+    );
+    assert!(
+        !intents.iter().any(|i| i["kind"] == "notice"),
+        "no [untold] note: {intents:?}"
+    );
+}
