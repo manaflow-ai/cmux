@@ -202,6 +202,44 @@ class TheBudgetIsMeasured(unittest.TestCase):
         self.assertIs(log["continue-on-error"], True)
         self.assertIn("gh api rate_limit", log["run"])
 
+    # (workflow, job, probe label, first step bracketed, last step bracketed)
+    PROBED = [
+        ("pr-media.yml", "plan", "plan", "Pick the tours for the changed files", None),
+        ("pr-media.yml", "tour", "tour", "Run the tour on the pull request's build", None),
+        ("risk-tier.yml", "evidence", "evidence", "Grade the pull request", "Set the risk label"),
+        ("ci.yml", "changes", "changes-route", "Choose the pull request macOS pool", None),
+        ("ci.yml", "changes", "changes-admitted", "Look for an earlier run that compiled these inputs", None),
+        ("merge-freeze.yml", "check", "check", "Check the pull request against open freezes", None),
+        ("ci-hosted-queue-rescue.yml", "rescue", "rescue", "Rerun only a no-runner hosted queue timeout", None),
+        ("ci-failure-attribution.yml", "attribute", "attribute",
+         "Attribute failures and re-run machine failures", None),
+        ("ci-guard-attribution.yml", "analyze", "analyze", "Analyze", None),
+        ("ci-guard-attribution.yml", "report", "report",
+         "Comment, and open, update or close the tracking issue", None),
+        ("ci-compile-attribution.yml", "analyze", "analyze", "Analyze", None),
+    ]
+
+    def test_the_top_app_readers_log_the_budget_before_and_after(self) -> None:
+        # The probes read only the free rate_limit endpoint (it does not count against the
+        # budget), never fail their job, and never change a token or a permission.
+        for workflow, job, label, first, last in self.PROBED:
+            with self.subTest(workflow=workflow, probe=label):
+                steps = load(workflow)["jobs"][job]["steps"]
+                names = [s.get("name") for s in steps]
+                begin, end = names.index(first), names.index(last or first)
+                before, after = steps[begin - 1], steps[end + 1]
+                for probe, when in ((before, "before"), (after, "after")):
+                    self.assertEqual(probe["name"], f"Log the glaeda-route App budget {when}")
+                    self.assertEqual(probe["env"]["PROBE"], f"${{{{ github.workflow }}}}/{label}/{when}")
+                    self.assertIs(probe["continue-on-error"], True)
+                    self.assertEqual(probe["timeout-minutes"], 1)
+                    self.assertEqual(set(probe), {"name", "if", "continue-on-error", "timeout-minutes", "env", "run"})
+                    self.assertTrue(probe["run"].startswith("gh api rate_limit --jq "), probe["run"])
+                    self.assertNotIn("\n", probe["run"])
+                    token = probe["env"]["GH_TOKEN"].removeprefix("${{ ").removesuffix(" }}")
+                    self.assertIn(f"({token}) != ''", probe["if"])
+                self.assertIn("!cancelled()", after["if"])
+
 
 if __name__ == "__main__":
     unittest.main()

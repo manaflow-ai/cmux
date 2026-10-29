@@ -2578,6 +2578,20 @@ class SideLanes(unittest.TestCase):
         self.assertNotIn("cancel", api.calls)
         self.assertIn("attempt 3 takes the side lane's Blacksmith overflow", summary)
 
+    def test_a_failed_cmux_next_pull_request_or_tip_suite_run_is_watched_when_it_completes(self):
+        # A pull request's swift test the runner hook refused (run 40671913126) and the tip Swift suite's
+        # dispatch had no `completed` wake: they stayed red until the two-hourly sweeper reached them.
+        pull = self.dev_daily_completed(event="pull_request", run_attempt=1, display_title="cmux-next · " + HEAD,
+                                        pull_requests=[{"number": 26809}])
+        target = rescue.completed_target(pull, "manaflow-ai/cmux")
+        self.assertIsInstance(target, rescue.Target, target)
+        self.assertEqual(target.pr_number, 26809)
+        tip = self.dev_daily_completed(run_attempt=1, display_title=f"cmux-next tip Swift suite · {HEAD}")
+        self.assertIsInstance(rescue.completed_target(tip, "manaflow-ai/cmux"), rescue.Target)
+        fork = self.dev_daily_completed(event="pull_request", run_attempt=1, pull_requests=[{"number": 1}],
+                                        head_repository={"full_name": "someone/cmux"})
+        self.assertIsInstance(rescue.completed_target(fork, "manaflow-ai/cmux"), str)
+
     def test_a_completed_event_watches_only_cmux_next_and_never_past_the_bots_attempt_three(self):
         clock = Clock()
         api = FakeAPI(clock, lambda seconds: [])
@@ -5397,15 +5411,18 @@ class Workflow(unittest.TestCase):
         self.assertEqual(step["env"]["WATCH_RUN_ID"], "${{ inputs.run_id }}")
         self.assertIn("inputs.run_id || github.event.workflow_run.id", self.doc["concurrency"]["group"])
 
-    # A failed cmux-next DEV daily dispatch or feat-cmux-next push, at any attempt (completed_target()).
+    # A failed cmux-next DEV daily or tip Swift suite dispatch, base-branch push or same-repository pull
+    # request run, at any attempt (completed_target()).
     COMPLETED_DEV_RUN = (
         "github.event.action == 'completed' && "
         "github.event.workflow_run.path == '.github/workflows/cmux-next.yml' && "
         "github.event.workflow_run.conclusion == 'failure' && "
         "github.event.workflow_run.head_repository.full_name == github.repository && "
         "(github.event.workflow_run.event == 'workflow_dispatch' && "
-        "startsWith(github.event.workflow_run.display_title, 'cmux NEXT DEV daily') || "
-        "github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'feat-cmux-next')")
+        "(startsWith(github.event.workflow_run.display_title, 'cmux NEXT DEV daily') || "
+        "startsWith(github.event.workflow_run.display_title, 'cmux-next tip Swift suite')) || "
+        "github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'feat-cmux-next' || "
+        "github.event.workflow_run.event == 'pull_request')")
 
     def test_a_failed_cmux_next_dev_run_wakes_a_rescue_when_it_completes(self):
         condition = self.doc["jobs"]["rescue"]["if"]
