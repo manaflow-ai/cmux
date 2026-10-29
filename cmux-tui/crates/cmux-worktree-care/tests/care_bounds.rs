@@ -92,7 +92,7 @@ fn trace_git_with_rss(root: &Path) -> (PathBuf, PathBuf, Option<std::ffi::OsStri
     let rss = root.join("merge-tree.rss-kb");
     // Put a tiny logging shim ahead of the first executable in the original
     // PATH; invoking the shim recursively would otherwise hide real git.
-    let real = std::env::var_os("PATH")
+    let path_git = std::env::var_os("PATH")
         .unwrap()
         .to_string_lossy()
         .split(':')
@@ -100,6 +100,13 @@ fn trace_git_with_rss(root: &Path) -> (PathBuf, PathBuf, Option<std::ffi::OsStri
         .map(|dir| dir.join("git"))
         .find(|path| path.is_file())
         .unwrap_or_else(|| PathBuf::from("/usr/bin/git"));
+    // Hosted runners may put a Go caching wrapper on PATH. Its runtime can
+    // exhaust the address-space cap before Git starts, so measure native Git
+    // from its own executable directory for these entirely local fixtures.
+    let exec_path = Command::new(&path_git).arg("--exec-path").output().unwrap();
+    assert!(exec_path.status.success());
+    let native = PathBuf::from(String::from_utf8_lossy(&exec_path.stdout).trim()).join("git");
+    let real = if native.is_file() { native } else { path_git };
     let shim = root.join("git");
     let time = if cfg!(target_os = "linux") { "/usr/bin/time" } else { "/nonexistent" };
     let script = format!(
