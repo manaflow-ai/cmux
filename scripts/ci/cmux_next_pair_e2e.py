@@ -241,11 +241,11 @@ def main():
                                           "--predicate", pairing_logs], os.path.join(a.out, "mac-pairing.log")))
         # Signed in, hostd online, iPhone connections on: the page shows the code. A page still
         # without one at 60 s is sampled once (where the app waits), then the wait goes on.
-        waited = time.monotonic()
+        deadline = time.monotonic() + (300 if expects_code else 60)
         qr = (wait_for(lambda: status().get("qr"), 60, every=2) or {})
         if not qr and expects_code:
             try:  # evidence only: a failure here never replaces the run's own verdict
-                why = preparing_evidence(app, a.out)
+                why = preparing_evidence(app, a.out, deadline)
             except Exception as error:  # noqa: BLE001
                 why = f"no evidence ({type(error).__name__}: {redact(str(error))[:200]})"
             try:
@@ -253,8 +253,10 @@ def main():
                      f"{time.monotonic() - t0:.0f} s; {why}")
             except OSError:
                 pass
-            # The same 300 s deadline as one wait: the evidence's own time is not added to it.
-            qr = (wait_for(lambda: status().get("qr"), max(0.0, 300 - (time.monotonic() - waited)), every=2) or {})
+            # The same 300 s deadline as one wait: the evidence's own time is not added to it, and
+            # a page read after the deadline never counts.
+            left = deadline - time.monotonic()
+            qr = (wait_for(lambda: status().get("qr"), left, every=2) or {}) if left > 0 else {}
         url = qr.get("url")
         note(f"- Mac pairing page: state {last.get('state')}, Mac {last.get('macName')!r}, "
              f"{'code ' + redact(url) if url else 'NO pairing code (FAIL: this ref shows one)' if expects_code else 'NO pairing code (a ref without it: pairing skipped)'} "
@@ -422,16 +424,25 @@ def save_redacted(out, name, text, lines=400):
     return name
 
 
-def preparing_evidence(app, out):
+def preparing_evidence(app, out, deadline):
     """Why the pairing page stays "preparing" (steps 59c5f9eb, c9c9b027, 2026-10-28: a SecurityAgent
     prompt in the console session 2 s after launch, hostd never started, no code in 302 s): which
     thread waits in a Keychain or Authorization call, and from which frame. A 3 s `sample` of the app
     and of its own children (at most 4, cmux-mobile-host first), the Security framework's and
     SecurityAgent's unified log and the app's own subsystem for the last 3 minutes, and the Keychain
     search list and default keychain (preference reads, no keychain is opened). Each read is bounded
-    and best effort; tokens are redacted. Returns the summary's words."""
-    files, waits = [], []
-    rows = run_bounded(["/bin/ps", "-A", "-o", "pid=,ppid=,comm="], 10).splitlines()
+    by its own timeout and by the pairing wait's `deadline` (monotonic; a read with no time left is
+    skipped), best effort; tokens are redacted. Returns the summary's words."""
+    files, waits, skipped = [], [], []
+
+    def run(argv, timeout, what):
+        left = deadline - time.monotonic() - 5  # 5 s stay for the wait's own last read
+        if left < 1:
+            skipped.append(what)
+            return None
+        return run_bounded(argv, min(timeout, left))
+
+    rows = (run(["/bin/ps", "-A", "-o", "pid=,ppid=,comm="], 10, "ps") or "").splitlines()
     kids, agents = [], []
     for row in rows:
         parts = row.split(None, 2)
@@ -443,7 +454,9 @@ def preparing_evidence(app, out):
             if name == "SecurityAgent":
                 agents.append(pid)
     for _, pid, name in [(False, app.pid, "app")] + sorted(kids)[:4]:
-        text = run_bounded(["/usr/bin/sample", str(pid), "3", "-file", "/dev/stdout"], 60)
+        text = run(["/usr/bin/sample", str(pid), "3", "-file", "/dev/stdout"], 60, f"sample {pid}")
+        if text is None:
+            continue
         files.append(save_redacted(out, f"preparing-sample-{re.sub(r'[^A-Za-z0-9.-]', '_', name)}-{pid}.txt", text, 3000))
         hits = sorted({m.group(1) for m in re.finditer(
             r"\b(SecItem\w+|SecKeychain\w+|SecTrust\w+|Authorization\w+|SecAccess\w+|LAContext\w*|"
@@ -451,18 +464,22 @@ def preparing_evidence(app, out):
             r"KeychainStackTokenStore\.\w+|DeviceKeychain\.\w+)", text)})
         if hits:
             waits.append(f"{name} {pid}: {', '.join(hits[:8])}")
-    files.append(save_redacted(out, "preparing-security.log", run_bounded(
-        ["/usr/bin/log", "show", "--last", "3m", "--info", "--style", "compact", "--predicate",
-         'subsystem == "com.apple.securityd" OR process == "SecurityAgent" OR process == "authd" '
-         'OR process == "securityd" OR (processID == %d AND subsystem == "com.apple.securityd")' % app.pid], 90), 1500))
-    files.append(save_redacted(out, "preparing-app.log", run_bounded(
-        ["/usr/bin/log", "show", "--last", "3m", "--info", "--style", "compact", "--predicate",
-         f'processID == {app.pid} AND subsystem == "com.cmuxterm.app.next"'], 90), 1500))
-    keychains = (run_bounded(["/usr/bin/security", "list-keychains", "-d", "user"], 10) +
-                 run_bounded(["/usr/bin/security", "default-keychain", "-d", "user"], 10))
-    files.append(save_redacted(out, "preparing-keychains.txt", keychains, 40))
+    reads = [("preparing-security.log", 1500, 90,
+              ["/usr/bin/log", "show", "--last", "3m", "--info", "--style", "compact", "--predicate",
+               'subsystem == "com.apple.securityd" OR process == "SecurityAgent" OR process == "authd" '
+               'OR process == "securityd"']),
+             ("preparing-app.log", 1500, 90,
+              ["/usr/bin/log", "show", "--last", "3m", "--info", "--style", "compact", "--predicate",
+               f'processID == {app.pid} AND subsystem == "com.cmuxterm.app.next"']),
+             ("preparing-keychains.txt", 40, 10, ["/usr/bin/security", "list-keychains", "-d", "user"]),
+             ("preparing-default-keychain.txt", 10, 10, ["/usr/bin/security", "default-keychain", "-d", "user"])]
+    for name, lines, timeout, argv in reads:
+        text = run(argv, timeout, name)
+        if text is not None:
+            files.append(save_redacted(out, name, text, lines))
     return (f"SecurityAgent pids {agents or 'none'}; Keychain/Authorization frames: "
-            f"{'; '.join(waits) or 'none in the samples'}; {', '.join(files)}")
+            f"{'; '.join(waits) or 'none in the samples'}; {', '.join(files)}"
+            f"{'; skipped at the deadline: ' + ', '.join(skipped) if skipped else ''}")
 
 
 def no_answer_evidence(app, ls_env, tag, sock, out):
