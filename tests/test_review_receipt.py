@@ -310,6 +310,21 @@ class NewestIndependentVerdictWins(unittest.TestCase):
         # but a carried SHIP is never the newest independent verdict, so it never clears the BLOCK itself
         self.refused([self.ship(self.A, 1), *block, self.carried(self.A, self.A, 7), self.carried(self.C, self.A, 9)])
 
+    def test_a_ship_on_another_head_cannot_hide_a_newer_block_of_the_heads_ship(self):
+        self.refused([self.ship(self.C, 1),
+                      comment(f"Review (codex): BLOCK at {self.B}", at=self.at(5)),
+                      self.ship(self.A, 9)])
+
+    def test_a_full_window_cannot_hide_a_prior_target_head_verdict_from_a_carry(self):
+        # An omitted CHANGES_REQUESTED on C at t1 would refuse the carry. Neutral
+        # visible reviews older than the SHIP do not prove that it never existed.
+        neutral_reviews = [review("COMMENTED", at=self.at(i), oid=self.B) for i in range(10, 40)]
+        self.refused([self.ship(self.A, 20), self.carried(self.C, self.A, 40)], neutral_reviews)
+        # The same ambiguity exists when the full comments window hides C's BLOCK.
+        neutral_comments = [comment("progress", at=self.at(i)) for i in range(10, 49)]
+        self.refused([*neutral_comments, self.carried(self.C, self.A, 49)],
+                     [review("APPROVED", at=self.at(20), oid=self.A)])
+
     def test_the_command_names_the_block_that_refused(self):
         # The marker's comment starts "Findings.", no review-like word, so the newest independent verdict decides it.
         block, _ = self.blocks(self.A, 5)["the autoreview marker"]
