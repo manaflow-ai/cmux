@@ -1295,7 +1295,7 @@ export function NewTabScreen(props: Props) {
         projectChoices={props.projects ?? []}
         onProject={(cwd, peer) => pickProject(cwd, peer)}
         onNoProject={pickHeadlineNoProject}
-        noProject={none}
+        noProject={none && !environment}
         {...(browseProject ? { onBrowseProject: browseProject } : {})}
         {...(props.environments ? { environments: true } : {})}
         {...(newWorktreeHere ? { onNewWorktree: newWorktreeHere } : {})}
@@ -1600,7 +1600,7 @@ export function NewTabScreen(props: Props) {
       <EnvironmentCard
         projects={props.projects ?? []}
         {...(envFolder ? { current: envFolder } : {})}
-        noProject={none}
+        noProject={none && !environment}
         {...(props.machineName ? { machineName: props.machineName } : {})}
         onPick={(cwd) => pickProject(cwd)}
         onNoProject={() => pickProject(undefined)}
@@ -1652,7 +1652,7 @@ export function NewTabScreen(props: Props) {
               ...(props.onRefreshMachines ? { onRefreshMachines: props.onRefreshMachines } : {}),
             }
           : {})}
-        noProject={none}
+        noProject={none && !environment}
         onPick={(cwd, peer) =>
           pickProject(cwd, peer ?? (headlineMachineId === "local" ? undefined : headlineMachineId))
         }

@@ -587,7 +587,7 @@ test("switching machines clears a picked saved environment", async () => {
   }
 });
 
-for (const target of ["studio", "oldbox", "no-project"] as const) {
+for (const target of ["studio", "oldbox", "no-project", "no-project-after-machine"] as const) {
   test(`picking ${target} in the headline replaces a saved environment on the same or another machine`, async () => {
     const snapshot = { ...noChat([]), peers: ["oldbox"], peerKinds: { oldbox: "ssh" as const } };
     const asked: unknown[][] = [];
@@ -604,6 +604,13 @@ for (const target of ["studio", "oldbox", "no-project"] as const) {
       onAsk: (...args) => asked.push(args),
     });
     try {
+      if (target === "no-project-after-machine") {
+        await act(async () => host.querySelector<HTMLElement>(".nt-headline-machine-label")!.click());
+        const machine = [...window.document.querySelectorAll<HTMLElement>("[role=option]")].find((row) =>
+          row.textContent?.includes("oldbox"),
+        )!;
+        await act(async () => machine.dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true })));
+      }
       const computer = [
         ...host.querySelectorAll<HTMLButtonElement>('.acpmux-location-picker[data-kind="computer"] button'),
       ].at(-1)!;
@@ -613,13 +620,13 @@ for (const target of ["studio", "oldbox", "no-project"] as const) {
       )!;
       await act(async () => savedRow.dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true })));
       expect(host.querySelector(".nt-headline-machine-label")?.textContent).toBe("oldbox");
-      if (target === "no-project") {
+      if (target.startsWith("no-project")) {
         await act(async () => host.querySelector<HTMLButtonElement>(".nt-headline-choose button")!.click());
       } else {
         await act(async () => host.querySelector<HTMLElement>(".nt-headline-machine-label")!.click());
       }
       const row = [...window.document.querySelectorAll<HTMLElement>("[role=option]")].find((row) =>
-        target === "no-project"
+        target.startsWith("no-project")
           ? row.textContent?.includes("Do not work in a project")
           : row.textContent?.includes(target),
       )!;
