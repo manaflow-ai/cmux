@@ -3889,14 +3889,36 @@ class ReviewNineTests(unittest.TestCase):
             request.assert_called_once_with("GET", path, None, app_only=False)
         self.assertEqual(client.fallback_token, "")
 
-    def test_fresh_runner_pool_read_uses_the_required_variable_and_validator(self):
-        fake = FakeGitHub({})
+    def test_fresh_runner_pool_read_uses_its_own_credential_and_validator(self):
+        mint = mock.Mock(return_value="variable-token")
+        api = janitor.GitHub("cancel-token", "manaflow-ai/cmux", fallback_token="workflow-token", variables_mint=mint)
         expected = object()
-        with mock.patch.object(fake, "request", return_value={"value": "fresh JSON"}) as request, \
+
+        def read(client, method, path, body=None, *, app_only=False):
+            self.assertEqual(client.headers["Authorization"], "Bearer variable-token")
+            self.assertEqual(client.fallback_token, "")
+            self.assertEqual((method, path, body),
+                             ("GET", "/repos/manaflow-ai/cmux/actions/variables/RUNNER_POOLS", None))
+            return {"value": "fresh JSON"}
+        with mock.patch.object(api, "request", side_effect=AssertionError("broad client used")), \
+                mock.patch.object(janitor.RunnerPoolVariables, "_request_retrying", autospec=True, side_effect=read), \
                 mock.patch.object(janitor.dead_labels, "pools_state", return_value=(expected, "")) as validate:
-            self.assertEqual(fake.runner_pools(), (expected, ""))
-        request.assert_called_once_with("GET", "/repos/manaflow-ai/cmux/actions/variables/RUNNER_POOLS")
-        validate.assert_called_once_with("fresh JSON")
+            self.assertEqual(api.runner_pools(), (expected, ""))
+            self.assertEqual(api.runner_pools(), (expected, ""))
+        mint.assert_called_once_with()
+        self.assertEqual(validate.call_args_list, [mock.call("fresh JSON"), mock.call("fresh JSON")])
+        self.assertEqual(api.headers["Authorization"], "Bearer cancel-token")
+
+    def test_missing_or_failed_dedicated_token_never_uses_the_broad_client(self):
+        api = janitor.GitHub("cancel-token", "manaflow-ai/cmux", fallback_token="workflow-token")
+        with mock.patch.object(api, "request", side_effect=AssertionError("broad client used")):
+            self.assertIn("no dedicated App token", api.runner_pools()[1])
+            api.variables_mint = mock.Mock(side_effect=RuntimeError("mint failed with private material"))
+            output = io.StringIO()
+            with redirect_stderr(output), self.assertRaisesRegex(RuntimeError, "could not be minted"):
+                api.runner_pools()
+            self.assertNotIn("private material", output.getvalue())
+            self.assertIn("dedicated RUNNER_POOLS token mint", janitor.READS.hold())
 
     def test_a_no_janitor_label_added_after_phase_one_keeps_a_dead_label_run(self):
         run = make_run(branch="feature", sha="aaa", status="queued")

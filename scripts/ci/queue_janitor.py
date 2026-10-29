@@ -2951,8 +2951,11 @@ class GitHub:
     rate-limit 403 or 429) ends the sweep instead: moving its ~500 calls onto the shared
     GITHUB_TOKEN emptied that budget too, and the nightly's publish then failed (2026-10-25)."""
 
-    def __init__(self, token: str, repo: str, fallback_token: str = "") -> None:
+    def __init__(self, token: str, repo: str, fallback_token: str = "", *,
+                 variables_mint: Callable[[], str] | None = None) -> None:
         self.repo = repo
+        self.variables_mint = variables_mint
+        self._variables_client: RunnerPoolVariables | None = None
         self._token = token
         self.calls = 0
         self.kinds: dict[str, int] = {}  # requests by request_kind(), for the summary's REST line
@@ -3110,7 +3113,27 @@ class GitHub:
 
     def runner_pools(self) -> tuple[dead_labels.PoolsState | None, str]:
         """Fresh validated routing for a dead-label cancel; one required-variable read, never a cached env value."""
-        payload = self.request("GET", f"/repos/{self.repo}/actions/variables/RUNNER_POOLS")
+        if self._variables_client is None:
+            if self.variables_mint is None:
+                return None, "no dedicated App token is configured for the required variable read"
+            try:
+                token = self.variables_mint()
+                if not token:
+                    raise RuntimeError("the token mint returned no token")
+            except Exception as error:  # noqa: BLE001 no fallback to a broader janitor or workflow credential
+                READS.failed("the dedicated RUNNER_POOLS token mint", type(error).__name__)
+                raise RuntimeError("the dedicated RUNNER_POOLS token could not be minted") from error
+            self._variables_client = RunnerPoolVariables(token, self.repo)
+        client = self._variables_client
+        before, kinds = client.calls, dict(client.kinds)
+        try:
+            payload = client.request("GET", f"/repos/{self.repo}/actions/variables/RUNNER_POOLS")
+        finally:
+            # The separate credential still spends this sweep's API budget and uses its one failed-read log.
+            self.calls += client.calls - before
+            for kind, count in client.kinds.items():
+                self.kinds[kind] = self.kinds.get(kind, 0) + count - kinds.get(kind, 0)
+            self.rate_limits.update(client.rate_limits)
         raw = payload.get("value") if isinstance(payload, Mapping) else None
         return dead_labels.pools_state(raw if isinstance(raw, str) else None)
 
@@ -3231,6 +3254,21 @@ class GitHub:
         """pr_runner_pool.GitHub's get() through this client's request(), so owned_warm_state.py's reads are
         recorded in READS like every other."""
         return self.request("GET", f"/repos/{self.repo}{path}")
+
+
+class RunnerPoolVariables(GitHub):
+    """Dedicated credential carrying the App's installed grants, restricted here to one read-only endpoint.
+
+    It has no fallback token and is never used by the janitor's cancel, rerun, GraphQL or artifact paths.
+    """
+
+    def __init__(self, token: str, repo: str) -> None:
+        super().__init__(token, repo)  # no fallback credential is accepted by this client
+
+    def request(self, method: str, path: str, body: Any | None = None, *, app_only: bool = False) -> Any:
+        if method != "GET" or path != f"/repos/{self.repo}/actions/variables/RUNNER_POOLS" or body is not None:
+            raise ValueError("the pool-variable client permits only its required variable GET")
+        return super().request(method, path, body, app_only=app_only)
 
 
 def previous_lost_reruns(github: GitHub, key: str = LOST_RERUNS_KEY) -> list[dict[str, Any]]:
@@ -3412,7 +3450,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 2
     orphan_age = dt.timedelta(minutes=orphan_minutes)
 
+    # Like the existing overflow switch, omit permissions when minting for the route App's installed variable
+    # grant. Keep that token confined to a separate GET-only client, never the janitor's cancellation credential.
+    app_id, app_key = os.environ.get("RUNNER_POOLS_APP_ID"), os.environ.get("RUNNER_POOLS_APP_KEY")
+    variables_mint = rescue.app_token_minter(app_id, app_key, args.repo, permissions=None) if app_id and app_key else None
     github = GitHub(token, args.repo, fallback_token=os.environ.get("GH_FALLBACK_TOKEN") or "")
+    github.variables_mint = variables_mint
     now = utc_now()
     linux_only = linux_only_workflow_paths(args.workflows_dir)
     # One read log for the whole sweep: any listing that fails anywhere holds every cancel (janitor_guard.py).
