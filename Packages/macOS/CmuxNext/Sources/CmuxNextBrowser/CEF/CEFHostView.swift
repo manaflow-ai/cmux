@@ -249,6 +249,9 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
     private let snapshotView = NSImageView()
     /// The page's size through a person's resize drag (`paneResizeGestureDidChange`); nil otherwise.
     private(set) var heldPageSize: CGSize?
+    /// The page windows told of a resize-sync drag (`BrowserDragResize.resizeSync`), to tell its end wherever the
+    /// page is by then; empty otherwise.
+    private(set) var syncedDragHostings: [CEFLayerHosting] = []
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -276,7 +279,11 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        if window == nil { dropHold() }
+        if window == nil {
+            dropHold()
+            // A container leaving the window (its tab closed or moved mid-drag) may never hear the drag's end.
+            endSyncedDrag()
+        }
         guard let tab else { return }
         tab.pageThemeDidChange()
         // A tab parked hidden in its pane (PaneContentView+Parking) shows
@@ -377,11 +384,20 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
     /// frame, the pane clips it (top-left anchored, never stretched), and a pane grown past it shows
     /// the page's own background beside it. It lays out once when the drag lands. Only a plain page
     /// holds: a docked DevTools, a side panel or a device fit lay out as before.
+    ///
+    /// With `dragResize` at `resizeSync` (fork API 27) the page lays out live instead, and each page window over
+    /// the pane (the page's, a docked DevTools') holds every app frame of the drag and its landing for its frame at
+    /// the new size, up to a bounded deadline (`CEFLayerHosting.paneResizeDrag`).
     func paneResizeGestureDidChange(active: Bool) {
         guard active else {
+            endSyncedDrag()
             guard heldPageSize != nil else { return }
             dropHold()
             layoutContent()
+            return
+        }
+        if BrowserResizeTunables.dragResize.value == .resizeSync {
+            startSyncedDrag()
             return
         }
         guard BrowserResizeTunables.dragResize.value == .hold, heldPageSize == nil, window != nil, pageCanHold,
@@ -394,6 +410,25 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
         layer?.masksToBounds = true
         // A see-through page (a cmux page) shows the pane under it, so its gap does too.
         layer?.backgroundColor = tab.host.hostView.pageSeeThrough ? nil : tab.pageBackdropColor
+    }
+
+    /// Every page window over this pane waits for its frame at each size of the drag: the pane's shared one from
+    /// every tab container (a tab switch mid-drag stays synced), a docked DevTools' only from the shown tab's (a
+    /// parked tab's DevTools window draws nothing, so it would only spend the wait).
+    private func startSyncedDrag() {
+        guard syncedDragHostings.isEmpty, window != nil, let tab else { return }
+        syncedDragHostings = [tab.host.hostView.layerHosting]
+        if !isHiddenOrHasHiddenAncestor, let devTools = tab.devToolsController.views?.host.layerHosting {
+            syncedDragHostings.append(devTools)
+        }
+        for hosting in syncedDragHostings { hosting.paneResizeDrag(active: true) }
+    }
+
+    /// Hands back this container's share of a resize-sync drag.
+    private func endSyncedDrag() {
+        let hostings = syncedDragHostings
+        syncedDragHostings = []
+        for hosting in hostings { hosting.paneResizeDrag(active: false) }
     }
 
     /// A plain page shown here: no docked DevTools, side panel or device fit, which place the page themselves.
