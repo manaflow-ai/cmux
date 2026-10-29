@@ -39,7 +39,7 @@ import Testing
         withExtendedLifetime(source) {}
     }
 
-    @Test func dictationsWordsLandInOrderAndItsStopDeadlineEndsTheSession() {
+    @Test func dictationsWordsLandInOrderAndItsStopDeadlineEndsTheSession() async {
         let rig = MainDeadlineRig()
         let engine = OwnerHopTranscriber()
         let updates = OwnerHopUpdates()
@@ -48,11 +48,11 @@ import Testing
         session.onUpdate = { updates.all.append($0) }
         session.start()
         // Each wait also runs frames: a posted task the turn did not run runs at the next frame.
-        #expect(runMainLoop { rig.frame(); return session.phase == .listening }, "the engine's stream opened")
+        #expect(await runMainLoopAndTasks { rig.frame(); return session.phase == .listening }, "the engine's stream opened")
 
         engine.feed.yield(.partial("hel"))
         engine.feed.yield(.final("hello"))
-        #expect(runMainLoop { rig.frame(); return updates.all.last?.text.contains("hello") == true },
+        #expect(await runMainLoopAndTasks { rig.frame(); return updates.all.last?.text.contains("hello") == true },
                 "the words land in the order the engine sent them")
 
         // The engine misses its flush: the stop deadline ends the session with what was heard.
@@ -60,7 +60,7 @@ import Testing
         #expect(session.phase == .finalizing)
         #expect(rig.hasArmedWake, "the stop waits on its deadline")
         rig.fireAndRun()
-        #expect(runMainLoop { rig.frame(); return session.phase == .idle }, "the stop deadline ends the session")
+        #expect(await runMainLoopAndTasks { rig.frame(); return session.phase == .idle }, "the stop deadline ends the session")
         #expect(updates.all.last?.text.contains("hello") == true, "the session ends with the words it heard")
         #expect(!session.holdsResources)
     }
@@ -77,7 +77,7 @@ import Testing
 
         try Data().write(to: folder.appending(path: "new"))
         watcher.feed.yield(.items(["new"]))
-        #expect(runMainLoop { model.entries.map(\.name) == ["new", "old"] }, "the watched change's rows land")
+        #expect(await runMainLoopAndTasks { model.entries.map(\.name) == ["new", "old"] }, "the watched change's rows land")
         model.stop()
     }
 

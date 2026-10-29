@@ -210,6 +210,9 @@ struct ControlSnapshotLazyPublishTests {
         let builds = rig.builds
         let budget = rig.work.budget
         let yielded = budget.stats.yieldedToInputResponse[2]
+        // Past the background class's last task (the rig's first publish) by more than a typing-burst slot, so the
+        // only thing that holds the publish is the open response, not a burst slot (waitedForBurstSlot).
+        rig.clock.advance(ms: 200)
         rig.work.noteDiscreteInput(expectsFrame: true)
         for index in 0..<50 { rig.store.apply(.titleChanged(surface: 1, title: "typed\(index)")) }
         await rig.hops()
