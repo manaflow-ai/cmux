@@ -18,6 +18,7 @@ extension NativePopupModel {
         var identifiers = Set<String>()
         if let search {
             guard !search.id.isEmpty, search.value.count <= 100_000 else { return false }
+            guard search.editSequence.map({ $0 >= 0 && $0 < 9_007_199_254_740_991 }) ?? true else { return false }
             identifiers.insert(search.id)
         }
         guard railWidth.map({ $0.isFinite && $0 >= 40 && $0 <= width / 2 }) ?? true else { return false }
@@ -29,7 +30,7 @@ extension NativePopupModel {
         for row in rows {
             guard !row.id.isEmpty, row.id.count <= 128, identifiers.insert(row.id).inserted,
                   row.label.count <= 10_000 else { return false }
-            guard row.editSequence.map({ $0 >= 0 && row.kind == .textField }) ?? true else { return false }
+            guard row.editSequence.map({ $0 >= 0 && $0 < 9_007_199_254_740_991 && row.kind == .textField }) ?? true else { return false }
             if let completion = row.completion {
                 guard row.kind == .action, completion.count <= 100_000 else { return false }
             }

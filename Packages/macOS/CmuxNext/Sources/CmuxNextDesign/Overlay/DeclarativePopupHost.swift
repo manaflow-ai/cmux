@@ -200,7 +200,7 @@ final class DeclarativePopupHost {
         case .dismiss: return
         }
         let editSequence: Int? = type == .search || (type == .change && row?.kind == .textField) ? content.lastEditSequence : nil
-        deliver(NativePopupEvent(type: type, popupId: model.id, revision: model.revision, id: id, value: value,
+        deliver(NativePopupEvent(type: type, popupId: model.id, revision: content.model?.revision ?? model.revision, id: id, value: value,
                                  reason: type == .submit || type == .highlight ? reason : nil,
                                  editSequence: editSequence))
         if type == .pick, (action?.keepOpen ?? row?.keepOpen) != true { root.hide() }

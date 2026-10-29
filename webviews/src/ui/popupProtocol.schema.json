@@ -54,8 +54,8 @@
         "disabled": { "type": "boolean" },
         "submitOnReturn": { "type": "boolean" },
         "autoHighlight": { "$ref": "#/$defs/NativePopupAutoHighlight" },
-        "completeOnTab": { "type": "boolean" }
-        ,"editSequence": { "type": "integer", "minimum": 0 }
+        "completeOnTab": { "type": "boolean" },
+        "editSequence": { "type": "integer", "minimum": 0 }
       }
     },
     "NativePopupSliderStyle": { "type": "string", "enum": ["accent", "minimal"] },

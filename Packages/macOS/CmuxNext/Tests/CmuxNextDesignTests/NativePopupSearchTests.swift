@@ -141,9 +141,10 @@ import Testing
         #expect(events.isEmpty)
     }
 
-    @Test func delayedDescriptorEchoCannotOverwriteAnewerLocalEdit() throws {
+    @Test func delayedDescriptorEchoCannotOverwriteANewerLocalEdit() throws {
         let content = NativePopupContent()
         var next = try model(policy: "none")
+        next.search?.editSequence = 0
         content.update(next)
         let search = try #require(content.subviews.compactMap { $0 as? NSSearchField }.first)
         search.stringValue = "ab"
@@ -158,5 +159,51 @@ import Testing
         next.search?.editSequence = content.lastEditSequence
         content.update(next)
         #expect(search.stringValue == "AB")
+    }
+
+    @Test(arguments: ["rows", "rail", "footer"])
+    func textFieldAcknowledgmentsPreserveNewerEditsAndRetireRemovedFields(_ placement: String) throws {
+        let content = NativePopupContent()
+        var next = try model(policy: "none")
+        let field = NativePopupRow(id: "text", kind: .textField, label: "Text", value: "", editSequence: 0)
+        switch placement {
+        case "rail": next.rail = [field]
+        case "footer": next.footer = [field]
+        default: next.rows = [field]
+        }
+        content.update(next)
+        let editor = try #require(content.rowView(id: "text") as? NSTextField)
+        for value in ["a", "ab"] {
+            editor.stringValue = value
+            content.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: editor))
+        }
+        let latestSequence = try #require(content.lastEditSequence)
+        func descriptor(_ value: String, _ acknowledgment: Int, disabled: Bool = false) -> NativePopupModel {
+            var updated = next
+            var row = field
+            row.value = value; row.editSequence = acknowledgment; row.disabled = disabled
+            switch placement {
+            case "rail": updated.rail = [row]
+            case "footer": updated.footer = [row]
+            default: updated.rows = [row]
+            }
+            return updated
+        }
+        content.update(descriptor("a", latestSequence - 1))
+        #expect((content.rowView(id: "text") as? NSTextField)?.stringValue == "ab")
+        content.update(descriptor("AB", latestSequence))
+        #expect((content.rowView(id: "text") as? NSTextField)?.stringValue == "AB")
+        let current = try #require(content.rowView(id: "text") as? NSTextField)
+        current.stringValue = "pending"
+        content.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: current))
+        content.update(descriptor("disabled", latestSequence, disabled: true))
+        #expect((content.rowView(id: "text") as? NSTextField)?.stringValue == "disabled")
+        content.update(descriptor("enabled", latestSequence))
+        #expect((content.rowView(id: "text") as? NSTextField)?.stringValue == "enabled")
+        var removed = next
+        removed.rows = []; removed.rail = nil; removed.footer = nil
+        content.update(removed)
+        content.update(descriptor("replacement", 0))
+        #expect((content.rowView(id: "text") as? NSTextField)?.stringValue == "replacement")
     }
 }

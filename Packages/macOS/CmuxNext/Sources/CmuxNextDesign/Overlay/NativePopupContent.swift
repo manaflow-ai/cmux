@@ -11,17 +11,16 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
     var model: NativePopupModel?
     private var rowViews: [(NativePopupRow, NSView)] = []
     private var targets: [NativePopupControlTarget] = []
-    private var fields: [String: NSTextField] = [:]
-    var localFieldValues: [String: (sequence: Int, value: String)] = [:]
-    private var nextEditSequence = 0
-    private(set) var lastEditSequence: Int?
+    var fields: [String: NSTextField] = [:]
+    var inputState = NativePopupInputState()
+    var lastEditSequence: Int? { inputState.lastSequence }
     private var editableControls: [String: NSControl] = [:]
     var selected: String?
-    private var searchHasInput = false
+    var searchHasInput = false
     var selectionReason = "none"
     var search: NSSearchField?
     private var title: ThemedLabel?
-    private var pendingCompositionModel: NativePopupModel?
+    var pendingCompositionModel: NativePopupModel?
     private var typeahead = ""
     private var typeaheadTime: TimeInterval = 0
     private(set) var contentHeight: CGFloat = 0
@@ -33,7 +32,7 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
         model = nil; selected = nil; selectionReason = "none"
         searchHasInput = false; pendingCompositionModel = nil
         typeahead = ""; typeaheadTime = 0
-        localFieldValues = [:]; nextEditSequence = 0; lastEditSequence = nil
+        inputState = NativePopupInputState()
         // A replacement cannot inherit the old field editor or deferred IME commit.
         for field in fields.values { field.delegate = nil; _ = field.abortEditing() }
         subviews.forEach { $0.removeFromSuperview() }
@@ -42,7 +41,8 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
     }
 
     func update(_ incoming: NativePopupModel) {
-        let next = preservingLocalEdits(in: incoming)
+        if model?.id != incoming.id { inputState = NativePopupInputState() }
+        let next = inputState.preservingLocalEdits(in: incoming)
         let focused = fields.first { $0.value.currentEditor() != nil }
         let focusedID = focused?.key ?? editableControls.first(where: { $0.value === window?.firstResponder })?.key
         if let editor = focused?.value.currentEditor() as? NSTextView, editor.hasMarkedText() {
@@ -364,42 +364,6 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
             if key != 124 || row.kind == .submenu { activate(row, view: view); return true }
         }
         return false
-    }
-
-    func controlTextDidChange(_ notification: Notification) {
-        guard let field = notification.object as? NSTextField,
-              let id = fields.first(where: { $0.value === field })?.key else { return }
-        if let editor = field.currentEditor() as? NSTextView, editor.hasMarkedText() { return }
-        let value = field.stringValue
-        nextEditSequence += 1
-        let editSequence = nextEditSequence
-        localFieldValues[id] = (editSequence, value)
-        lastEditSequence = editSequence
-        let isSearch = field === search
-        if isSearch, model?.search?.autoHighlight != nil {
-            searchHasInput = !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            selected = nil; selectionReason = "none"
-            paintSelection()
-        }
-        if var pending = pendingCompositionModel {
-            pendingCompositionModel = nil
-            if isSearch {
-                if pending.search?.id == id { pending.search?.value = value }
-            } else {
-                // The deferred descriptor predates the IME commit. Carry the committed
-                // value into the matching field before rebuilding any native controls.
-                let preserveCommit: (NativePopupRow) -> NativePopupRow = { row in
-                    var row = row
-                    if row.id == id, row.kind == .textField { row.value = value }
-                    return row
-                }
-                pending.rows = pending.rows.map(preserveCommit)
-                pending.rail = pending.rail?.map(preserveCommit)
-                pending.footer = pending.footer?.map(preserveCommit)
-            }
-            update(pending)
-        }
-        emit(isSearch ? .search : .change, id, value)
     }
 
 }

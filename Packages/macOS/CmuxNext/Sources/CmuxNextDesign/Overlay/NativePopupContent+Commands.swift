@@ -39,4 +39,37 @@ extension NativePopupContent {
         default: return false
         }
     }
+    func controlTextDidChange(_ notification: Notification) {
+        guard let field = notification.object as? NSTextField,
+              field.isEnabled,
+              let id = fields.first(where: { $0.value === field })?.key else { return }
+        if let editor = field.currentEditor() as? NSTextView, editor.hasMarkedText() { return }
+        let value = field.stringValue
+        inputState.record(id: id, value: value, model: model)
+        let isSearch = field === search
+        if isSearch, model?.search?.autoHighlight != nil {
+            searchHasInput = !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            selected = nil; selectionReason = "none"
+            paintSelection()
+        }
+        if var pending = pendingCompositionModel {
+            pendingCompositionModel = nil
+            if isSearch {
+                if pending.search?.id == id { pending.search?.value = value }
+            } else {
+                // The deferred descriptor predates the IME commit. Carry the committed
+                // value into the matching field before rebuilding any native controls.
+                let preserveCommit: (NativePopupRow) -> NativePopupRow = { row in
+                    var row = row
+                    if row.id == id, row.kind == .textField { row.value = value }
+                    return row
+                }
+                pending.rows = pending.rows.map(preserveCommit)
+                pending.rail = pending.rail?.map(preserveCommit)
+                pending.footer = pending.footer?.map(preserveCommit)
+            }
+            update(pending)
+        }
+        emit(isSearch ? .search : .change, id, value)
+    }
 }
