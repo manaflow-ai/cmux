@@ -353,6 +353,10 @@ extension CMUXCLI {
         }
 
         let processEnvironment = ProcessInfo.processInfo.environment
+        if agent == "kiro", !client.isRelayBacked,
+           processEnvironment["CMUX_KIRO_GLOBAL_HOOK"] == "1", kiroHookIsHeadlessOrNested() {
+            return
+        }
         // Spooled events published before this one keep their queue position.
         admitSpooledAgentHooks(
             agent: agent,

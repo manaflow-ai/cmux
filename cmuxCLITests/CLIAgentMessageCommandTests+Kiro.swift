@@ -95,6 +95,15 @@ extension CLIAgentMessageCommandTests {
         #expect(run.result.stdout == "same surface\n")
     }
 
+    @Test func globalKiroLifecycleWithoutAncestorDoesNotQueue() throws {
+        let run = try runCLI(
+            arguments: ["hooks", "enqueue", "kiro", "session-start"],
+            extraEnvironment: ["CMUX_KIRO_GLOBAL_HOOK": "1"]
+        )
+        #expect(run.result.status == 0)
+        #expect(run.requests.isEmpty)
+    }
+
     func makeKiroProcess(at root: URL) throws -> String {
         let source = root.appendingPathComponent("kiro.c")
         let binary = root.appendingPathComponent("kiro-cli")

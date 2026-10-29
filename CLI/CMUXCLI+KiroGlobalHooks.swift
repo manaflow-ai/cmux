@@ -74,7 +74,7 @@ extension CMUXCLI {
             disableEnvironmentVariable: def.disableEnvVar,
             identityMarker: kiroGlobalHookIdentityMarker
         )
-        return "{ \(dispatch); } >/dev/null 2>&1; exit 0"
+        return "{ export CMUX_KIRO_GLOBAL_HOOK=1; \(dispatch); } >/dev/null 2>&1; exit 0"
     }
 
     static func kiroGlobalHookEntries(for def: AgentHookDef) -> [[String: Any]] {
@@ -109,11 +109,19 @@ extension CMUXCLI {
     }
 
     static func isCmuxOwnedKiroGlobalHookEntry(_ entry: [String: Any]) -> Bool {
-        guard let action = entry["action"] as? [String: Any],
-              let command = action["command"] as? String else {
-            return false
+        guard let name = entry["name"] as? String,
+              let trigger = entry["trigger"] as? String,
+              let action = entry["action"] as? [String: Any],
+              action["type"] as? String == "command",
+              let command = action["command"] as? String,
+              command.contains(": \(kiroGlobalHookIdentityMarker);") else { return false }
+        // Keep the reserved name/trigger/marker tuple stable across command
+        // upgrades. A marker quoted inside an unrelated user hook is not ours.
+        if name == kiroGlobalOwnershipEntryName {
+            return trigger == "SessionEnd" && entry["enabled"] as? Bool == false
+                && command == ": \(kiroGlobalHookIdentityMarker); exit 0"
         }
-        return command.contains(": \(kiroGlobalHookIdentityMarker);")
+        return kiroGlobalHookEvents.contains { $0.name == name && $0.trigger == trigger }
     }
 
     static var kiroGlobalRequiresKiroMessage: String {
@@ -272,11 +280,7 @@ extension CMUXCLI {
             return
         }
         let remaining = entries.filter { !Self.isCmuxOwnedKiroGlobalHookEntry($0) }
-        let removed = entries.filter {
-            Self.isCmuxOwnedKiroGlobalHookEntry($0)
-                && $0["name"] as? String != Self.kiroGlobalOwnershipEntryName
-        }.count
-        guard removed > 0 else {
+        guard entries.contains(where: Self.isCmuxOwnedKiroGlobalHookEntry) else {
             print(String.localizedStringWithFormat(String(localized: "cli.hooks.kiro.global.noCmuxHooks", defaultValue: "No cmux hooks found in %@; left it unchanged", bundle: CLIExecutableLocator.enclosingAppBundle() ?? .main), filePath))
             return
         }
@@ -308,11 +312,10 @@ extension CMUXCLI {
         defer { _ = flock(descriptor, LOCK_UN) }
         let current = try kiroGlobalHooksData(atPath: path)
         guard current == expected else {
-            print(String(
+            throw CLIError(message: String(
                 localized: "cli.hooks.kiro.global.changedDuringConfirmation",
                 defaultValue: "The Kiro global hooks file changed while cmux was waiting. No changes were made; run the command again.", bundle: CLIExecutableLocator.enclosingAppBundle() ?? .main
             ))
-            return false
         }
         if let replacement {
             try replacement.write(to: URL(fileURLWithPath: path), options: .atomic)
