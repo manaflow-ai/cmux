@@ -13,6 +13,7 @@ use serde_json::{Value, json};
 
 use super::command::{RequestPlan, WireOperation, random_prefixed};
 use super::{GlobalArgs, OutputMode, UsageError};
+use cmux_json::JsonSet as _;
 
 const RESPONSE_LIMIT: usize = 16 * 1024 * 1024;
 pub(super) const SERVER_PREFLIGHT_TIMEOUT: Duration = Duration::from_secs(2);
@@ -147,7 +148,7 @@ fn run_once(global: &GlobalArgs, mut plan: RequestPlan, tries: &retry::Tries) ->
             }
             return failure.report(global.output);
         }
-        request["params"] = plan.params.clone();
+        request.set("params", plan.params.clone());
         encoded = match encode_request(&request) {
             Ok(encoded) => encoded,
             Err(code) => return code,
@@ -465,8 +466,11 @@ pub(super) fn request_value(plan: &RequestPlan) -> Result<Value, UsageError> {
     });
     match class {
         OperationClass::Mutation => {
-            request["idempotency_key"] = Value::String(
-                plan.idempotency_key.clone().map(Ok).unwrap_or_else(random_idempotency_key)?,
+            request.set(
+                "idempotency_key",
+                Value::String(
+                    plan.idempotency_key.clone().map(Ok).unwrap_or_else(random_idempotency_key)?,
+                ),
             );
         }
         _ if plan.idempotency_key.is_some() => {

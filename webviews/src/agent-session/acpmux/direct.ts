@@ -324,6 +324,9 @@ function strayedFrom(watch: AttachWatch, replyOf?: unknown): boolean {
 }
 /// Pages one older read takes at most (about 2 MB, more when a single record is larger).
 const OLDER_PAGES_PER_ASK = 8;
+/// Publish a bounded batch of older pages together so each prepend does not redraw the bottom stack.
+/// This keeps the reader responsive while preserving the eight-page cap for large turns.
+const OLDER_MIN_PAGES_PER_ASK = 4;
 /** How long a session list that failed to load waits before it is read once more. */
 const SESSION_REREAD_MS = 2000;
 /// How often the pane reads the peers again while a missing chat's machine is still connecting.
@@ -2806,6 +2809,45 @@ export class AcpmuxDirectClient {
     return this.request(MCP_RECONNECT_METHOD, { sessionId, server }, 35_000);
   }
 
+  /// Reads only this pane's selected chat; the native relay enforces the same scope.
+  readWorkflowAgent(params: {
+    sessionId: string;
+    runId: string;
+    agentId: string;
+    before?: number;
+    after?: number;
+  }): Promise<unknown> {
+    // l10n-allow: internal selection race; the transcript surface renders its own localized state.
+    if (params.sessionId !== this.selectedSessionId) return Promise.reject(new Error("Session changed"));
+    return this.request("_acpmux/subagent_transcript", params, 15_000);
+  }
+
+  /// Asks the local daemon to retry the configured peer and wait for its doctor result.
+  /// The daemon returns the refreshed peer list; a settled state other than `connected` is a
+  /// doctor refusal, which the offline banner renders as its failure detail.
+  async reconnectPeer(peer: string): Promise<unknown> {
+    const result = await this.request("_acpmux/peer_reconnect", { name: peer, wait: true }, 35_000);
+    this.readPeers(result);
+    const row = Array.isArray(result?.peers)
+      ? result.peers.find((candidate: any) => candidate?.name === peer)
+      : undefined;
+    if (row?.state !== "connected") {
+      const detail =
+        typeof row?.error === "string"
+          ? row.error
+          : typeof row?.error?.message === "string"
+            ? row.error.message
+            : `peer ${peer} is ${typeof row?.state === "string" ? row.state : "unreachable"}`;
+      throw new Error(detail);
+    }
+    // A reconnect can settle without changing the session summary, so no
+    // `session_changed` notice is guaranteed to arrive. Take the held copy
+    // over directly once the daemon's doctor says this peer is connected.
+    const copy = this.peerCopy;
+    if (copy?.offline && copy.peer === peer) await this.reattachPeerCopy(copy.sessionId);
+    return result;
+  }
+
   /// Stops one of the selected session's running subagents (a Claude agent or workflow); acpmux
   /// sends Claude's stop_task and answers with Claude's answer, and the subagent ends as cancelled
   /// when Claude stops it. A Claude that never answers fails it after 10 s.
@@ -2985,7 +3027,14 @@ export class AcpmuxDirectClient {
             );
           }, deadline)
         : undefined;
-      this.pending.set(id, { resolve, reject, timer });
+      this.pending.set(id, {
+        resolve,
+        reject: (error: unknown) => {
+          warnIfNotAllowlisted(method, error);
+          reject(error);
+        },
+        timer,
+      });
       const text = JSON.stringify({ jsonrpc: "2.0", id, method, params });
       this.wire.sent(text, method, id);
       this.socket!.send(text);
@@ -5889,7 +5938,15 @@ export class AcpmuxDirectClient {
   /// returns unknown when no current credential evidence exists. Never use cached harness health.
   async sessionAuth(query: SessionAuthQuery, refresh = false): Promise<unknown> {
     if (!this.features.has("sessionAuth")) return UNKNOWN_AUTH;
-    return this.request("_acpmux/session/auth", { ...query, ...(refresh ? { refresh: true } : {}) });
+    try {
+      return await this.request("_acpmux/session/auth", { ...query, ...(refresh ? { refresh: true } : {}) });
+    } catch (error) {
+      // The pane's host refusing to relay the check (its allowlist, AcpmuxPaneMethods) means no
+      // answer, the same as a daemon without `sessionAuth`: unknown, never a sign-in prompt.
+      // `warnIfNotAllowlisted` already said so in the console.
+      if (error instanceof AcpmuxRpcError && refusedByHost(error)) return UNKNOWN_AUTH;
+      throw error;
+    }
   }
   /// The routes acpmux has (`_acpmux/route/list`) with `sessionId`'s active one: the composer's
   /// Account menu. Each route says whether it `serves` the session's harness family.
@@ -6794,7 +6851,7 @@ export class AcpmuxDirectClient {
     // still moves `historyFrom`, which makes the transcript ask again.
     for (
       let before = this.firstSeq, pages = 0;
-      more && pages < OLDER_PAGES_PER_ASK && !older.some(opensOlderTurn);
+      more && pages < OLDER_PAGES_PER_ASK && (pages < OLDER_MIN_PAGES_PER_ASK || !older.some(opensOlderTurn));
       pages++
     ) {
       const result = await this.typed("_acpmux/events", {
@@ -7307,6 +7364,18 @@ function pageShown(): boolean {
 
 /// JSON-RPC's method-not-found code: a daemon that predates the method.
 const METHOD_NOT_FOUND = -32601;
+
+/// Methods the pane's host refused because they are not on its allowlist, said once each.
+const notAllowlisted = new Set<string>();
+/// A page request the host refuses as `transport.method_refused` is missing from its allowlist
+/// (AcpmuxPaneMethods.swift and cmux-agent-pane-policy policy.json): a bug, not a user error. Say
+/// so once per method in the console, so a missing entry never fails silently.
+function warnIfNotAllowlisted(method: string, error: unknown): void {
+  if (!(error instanceof AcpmuxRpcError) || !refusedByHost(error) || error.code !== "transport.method_refused") return;
+  if (notAllowlisted.has(method)) return;
+  notAllowlisted.add(method);
+  console.warn(`cmux: the host refused ${method}: it is not on the agent pane's relay allowlist`);
+}
 
 /// Whether the pane's host refused to relay a request (`data.origin: "native"`): acpmux never saw it.
 function refusedByHost(error: AcpmuxRpcError): boolean {

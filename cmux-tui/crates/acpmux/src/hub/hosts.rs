@@ -11,6 +11,7 @@ use super::*;
 use crate::agent::Attached;
 use crate::agent_host::{self, Liveness};
 use crate::store::RecordHead;
+use cmux_json::JsonSet as _;
 use futures_util::StreamExt;
 
 /// How long adoption waits for the next replayed entry of one host to be
@@ -1371,7 +1372,7 @@ impl Hub {
             let answered_by = outcome.as_object_mut().and_then(|o| o.remove(ANSWERED_BY_SLOT));
             let mut decision = json!({"permissionId": permission_id, "outcome": outcome.clone()});
             if let Some(by) = answered_by {
-                decision["answeredBy"] = by;
+                decision.set("answeredBy", by);
             }
             hub.append(&s, "mux", "permission_decision", decision);
             {
@@ -1514,7 +1515,7 @@ fn permission_answer(mut outcome: Value) -> Value {
     }
     let mut out = json!({"outcome": outcome});
     if let Some(m) = out["outcome"].get("_meta").cloned() {
-        out["_meta"] = m;
+        out.set("_meta", m);
         if let Some(o) = out["outcome"].as_object_mut() {
             o.remove("_meta");
         }
@@ -1590,6 +1591,11 @@ impl Hub {
         let codex_bridge = command_line.is_none()
             && translator.is_none()
             && crate::codex_app_server::is_profile_launch(&profile.argv);
+        // Host launches receive a complete environment snapshot. It must be
+        // current when that snapshot is made, including on credential revocation.
+        if !crate::login_env::machine_env_fresh_before_spawn().await {
+            return Err(RpcError::internal("machine environment changed; login env refresh failed"));
+        }
         let cmd = crate::agent::harness_command(
             &meta.harness,
             profile,
@@ -1676,7 +1682,7 @@ impl Hub {
             "hostBuild": record.host_build.clone()
         });
         if meta.remote_origin {
-            started["remoteEnvPolicy"] = crate::agent::REMOTE_ENV_POLICY_ID.into();
+            started.set("remoteEnvPolicy", crate::agent::REMOTE_ENV_POLICY_ID.into());
         }
         self.append(session, "mux", "host_started", started);
         // A new host: its log is read back again under MDM's off, no end is pending for it, and
