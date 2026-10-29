@@ -37,12 +37,18 @@
 //!   viewer that was attached through it with only local READYs, in order,
 //!   once.
 //!
-//! Run: `cargo test -p cmux-tui-core --lib resize_fuzz -- --nocapture`.
-//! `CMUX_RESIZE_FUZZ_SEEDS` (default 3) cases from `CMUX_RESIZE_FUZZ_SEED`
-//! (default 0x1e00) of `CMUX_RESIZE_FUZZ_STEPS` (default 60) steps each. A
-//! failure names the seed, the step and the operations so far; rerun it alone
-//! with `CMUX_RESIZE_FUZZ_SEED=<seed> CMUX_RESIZE_FUZZ_SEEDS=1`. Output timing
-//! is real, so a seed fixes the operations, not the interleaving with output.
+//! The test runs one scripted case (each kind of step once, a few seconds)
+//! and then `CMUX_RESIZE_FUZZ_SEEDS` seeded random cases (default 0 here) of
+//! `CMUX_RESIZE_FUZZ_STEPS` steps from `CMUX_RESIZE_FUZZ_SEED`. A failure
+//! names the seed, the step and the operations so far.
+//!
+//! The long random form is not a CI test: run it yourself as a fleet step
+//! before and after each resize fix. Merge the fix branch into the scratch
+//! branch `cp/fix-resize-daemon-fuzz-long` (5 seeds x 200 steps from
+//! 0x1e10, never merged), push, and run at its head:
+//! `cmux-ci run --class light --script scripts/ci/cmux-tui-rust-check.sh
+//! --arg test --arg resize_fuzz --ref <sha>`. Output timing is real, so a
+//! seed fixes the operations, not their interleaving with output.
 #![cfg(unix)]
 
 use super::*;
@@ -1092,6 +1098,14 @@ impl Case {
         }
     }
 
+    fn finish(mut self) {
+        for viewer in std::mem::take(&mut self.viewers) {
+            disconnect_client(&self.mux, viewer.client, false);
+        }
+        self.mux.shutdown();
+        let _ = std::fs::remove_dir_all(&self.dir);
+    }
+
     /// Writes a marker line the way the child writes output (between
     /// bursts: the child is idle, so the line is whole).
     fn marker_line(&mut self) {
@@ -1154,20 +1168,101 @@ fn run_case(seed: u64, steps: usize) {
         let op = case.pick(&mut rng);
         case.run(op);
     }
-    for viewer in std::mem::take(&mut case.viewers) {
-        disconnect_client(&case.mux, viewer.client, false);
-    }
-    case.mux.shutdown();
-    let _ = std::fs::remove_dir_all(&case.dir);
+    case.finish();
     eprintln!("resize fuzz seed=0x{seed:x}: {steps} steps passed");
+}
+
+/// Seeded random cases the test runs after the scripted one: none here (the
+/// test stays a few seconds under the CI per-test limit); the scratch branch
+/// `cp/fix-resize-daemon-fuzz-long` sets 5 x 200 (see the module docs).
+const RANDOM_SEEDS: u64 = 0;
+const RANDOM_STEPS: u64 = 200;
+const RANDOM_FIRST_SEED: u64 = 0x1e10;
+
+/// The fixed regression: one terminal, each kind of step once.
+fn run_scripted() {
+    // The 1e report: a first line wider than the grid, written at once right
+    // after the terminal is made and parsed before any view attaches; the
+    // app attaches at the terminal's grid, then its first resize narrows it
+    // (a 118-column line in a 110-column grid).
+    let first_line = "f".repeat(118);
+    let mut case = Case::new(0, &first_line);
+    case.ops.push("start: a first line of 118 columns on 80x24".into());
+    let deadline = Instant::now() + WAIT;
+    // No view is attached yet, so the stream position does not move: read
+    // the screen (soft wraps break the line over rows).
+    let parsed = |surface: &crate::Surface| {
+        surface
+            .try_with_terminal(|term| term.plain_text().unwrap_or_default())
+            .unwrap()
+            .chars()
+            .filter(|c| *c == 'f')
+            .count()
+    };
+    while parsed(&case.surface) < first_line.len() {
+        if Instant::now() > deadline {
+            case.fail("the child's first line never reached the daemon");
+        }
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    case.connect((80, 24), true);
+    case.ops.push("attach (80, 24) local_history=true".into());
+    case.ops.push("the first resize: (110, 30)".into());
+    case.resize(0, (110, 30), None);
+    case.settle("the first resize");
+    let script = [
+        // Tiny grids (the daemon clamps to 2 x 1).
+        Op::Resize { viewer: 0, size: (1, 1) },
+        Op::Resize { viewer: 0, size: (2, 1) },
+        Op::Resize { viewer: 0, size: (1, 2) },
+        // Huge grids: 500 x 300 and past the clamp (10000 x 400).
+        Op::Resize { viewer: 0, size: (500, 300) },
+        Op::Resize { viewer: 0, size: (u16::MAX, u16::MAX) },
+        Op::Resize { viewer: 0, size: (100, 30) },
+        Op::SameSize { viewer: 0 },
+        Op::Burst {
+            viewer: 0,
+            sizes: vec![(90, 20), (1, 1), (200, 60), (91, 21), (40, 10), (120, 40), (120, 40)],
+        },
+        // Output with resizes during it; a mirror (local history) attaches
+        // after the first resize, mid-burst.
+        Op::Output {
+            lines: 3_000,
+            resizes: vec![(0, (70, 20)), (0, (130, 45)), (0, (15, 36)), (0, (95, 28))],
+            mirror: Some(((117, 58), true)),
+        },
+        // A third viewer without local history: three sizes, smallest wins.
+        Op::Attach { size: (150, 50), local_history: false },
+        Op::Resize { viewer: 2, size: (60, 18) },
+        Op::Resize { viewer: 1, size: (61, 17) },
+        Op::WideLine { extra: 20, newline: false, then: (70, 20) },
+        Op::Drag {
+            viewer: 0,
+            sizes: (0..12).map(|step| (60 + step * 3, 18 + step)).collect(),
+            end: Some((80, 24)),
+        },
+        Op::Marker,
+        Op::Reattach { viewer: 0, size: (90, 30) },
+        Op::Detach { viewer: 2 },
+        Op::Resize { viewer: 1, size: (100, 30) },
+    ];
+    for (step, op) in script.into_iter().enumerate() {
+        case.step = step;
+        case.run(op);
+    }
+    case.finish();
+    eprintln!("resize fuzz: the scripted case passed");
 }
 
 #[test]
 fn resize_fuzz_grid_pty_child_and_every_viewer_agree() {
-    let first = env_u64("CMUX_RESIZE_FUZZ_SEED", 0x1e00);
-    let seeds = env_u64("CMUX_RESIZE_FUZZ_SEEDS", 3);
-    let steps = env_u64("CMUX_RESIZE_FUZZ_STEPS", 60) as usize;
-    eprintln!("resize fuzz: seeds 0x{first:x}..+{seeds}, {steps} steps each");
+    run_scripted();
+    let first = env_u64("CMUX_RESIZE_FUZZ_SEED", RANDOM_FIRST_SEED);
+    let seeds = env_u64("CMUX_RESIZE_FUZZ_SEEDS", RANDOM_SEEDS);
+    let steps = env_u64("CMUX_RESIZE_FUZZ_STEPS", RANDOM_STEPS) as usize;
+    if seeds > 0 {
+        eprintln!("resize fuzz: seeds 0x{first:x}..+{seeds}, {steps} steps each");
+    }
     for seed in first..first + seeds {
         run_case(seed, steps);
     }

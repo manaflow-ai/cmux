@@ -120,16 +120,3 @@ success-output = "final"
 [[profile.ci.overrides]]
 filter = 'binary_id(acpmux::perf_ops)'
 success-output = "final"
-
-# The resize fuzzer (server/tests/resize_fuzz.rs) prints its seeds, step
-# counts and the idle-digest note on stderr; its default run (3 seeds x 60
-# steps, real child output) takes about a minute, and a longer run set by
-# CMUX_RESIZE_FUZZ_SEEDS / _STEPS takes longer, so it gets 20 min.
-[[profile.ci.overrides]]
-filter = 'binary_id(cmux-tui-core) & test(/resize_fuzz::/)'
-success-output = "final"
-slow-timeout = { period = "60s", terminate-after = 20, grace-period = "5s" }
-
-[[profile.default.overrides]]
-filter = 'binary_id(cmux-tui-core) & test(/resize_fuzz::/)'
-slow-timeout = { period = "60s", terminate-after = 20, grace-period = "5s" }
