@@ -199,9 +199,9 @@ try {
       expect(revoked).toEqual(["blob:outside-recording"]);
     } finally {
       if (oldCreate) urlApi.createObjectURL = oldCreate;
-      else delete urlApi.createObjectURL;
+      else Reflect.deleteProperty(urlApi, "createObjectURL");
       if (oldRevoke) urlApi.revokeObjectURL = oldRevoke;
-      else delete urlApi.revokeObjectURL;
+      else Reflect.deleteProperty(urlApi, "revokeObjectURL");
     }
   });
 
