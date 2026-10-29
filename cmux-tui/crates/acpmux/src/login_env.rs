@@ -1088,6 +1088,47 @@ fn startup_files() -> Vec<PathBuf> {
     files
 }
 
+
+#[cfg(test)]
+mod machine_file_tests {
+    use super::{machine_files_stamp_in, startup_files};
+
+    #[test]
+    fn login_watch_includes_delivered_machine_files() {
+        let home = std::env::var_os("HOME")
+            .map(std::path::PathBuf::from)
+            .or_else(dirs::home_dir)
+            .unwrap_or_default();
+        let watched = startup_files();
+        for name in ["machine.env", "machine-secrets.env"] {
+            assert!(watched.contains(&home.join(".config/cmux").join(name)));
+        }
+    }
+
+    #[test]
+    fn stamp_changes_for_delivery_rotation_and_revocation() {
+        let dir = tempfile::tempdir().expect("temp home");
+        let conf = dir.path().join(".config/cmux");
+        std::fs::create_dir_all(&conf).expect("config dir");
+        let env = conf.join("machine.env");
+        let secrets = conf.join("machine-secrets.env");
+        assert_eq!(machine_files_stamp_in(dir.path()), None);
+        std::fs::write(&env, b"export RUN_MODE='dev'\n").expect("write machine env");
+        let applied = machine_files_stamp_in(dir.path());
+        assert!(applied.is_some());
+        std::fs::write(&secrets, b"export SESSION_KEY='dummy-secret-1'\n").expect("deliver");
+        let delivered = machine_files_stamp_in(dir.path());
+        assert_ne!(delivered, applied);
+        std::fs::write(&secrets, b"export SESSION_KEY='different-dummy-secret'\n").expect("rotate");
+        let rotated = machine_files_stamp_in(dir.path());
+        assert_ne!(rotated, delivered);
+        std::fs::remove_file(&secrets).expect("revoke");
+        assert_eq!(machine_files_stamp_in(dir.path()), applied);
+        std::fs::remove_file(&env).expect("remove machine env");
+        assert_eq!(machine_files_stamp_in(dir.path()), None);
+    }
+}
+
 #[cfg(test)]
 mod effective_tests {
     use super::layered;
