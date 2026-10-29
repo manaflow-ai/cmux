@@ -1288,6 +1288,13 @@ impl Peer {
                     // Marked before the write: a frame that is partly written may still run.
                     if let Some(key) = key {
                         self.on_wire.lock_or_recover().insert(key);
+                        // Once the prompt frame reaches the socket, the remote may have
+                        // accepted it even if its acceptance notification is still queued
+                        // behind the frame that caused this link to drop. Retain it for the
+                        // durable outcome lookup across reconnects.
+                        if let Some(prompt) = self.prompts.lock_or_recover().get_mut(&key) {
+                            prompt.accepted = true;
+                        }
                     }
                     let text = line.trim_end_matches('\n').to_owned();
                     let until = write_deadline(tokio::time::Instant::now(), budget, wake_probe);
