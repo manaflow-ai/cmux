@@ -1,6 +1,6 @@
 #if DEBUG
 public import AppKit
-import CmuxNextDaemon
+public import CmuxNextDaemon
 import Foundation
 
 /// A fixed brain answer for captures (`debug.chief_settings`, DEBUG builds): a capture mini runs
@@ -34,6 +34,28 @@ extension HomeChiefSettingsView {
     public func showDiagnosticsDetails(_ shown: Bool) {
         diagnosticsToggle.state = shown ? .on : .off
         toggleDiagnostics()
+    }
+
+    /// `debug.chief_settings` (DEBUG builds), for captures of this popover
+    /// (scripts/cmux-next/media/tours/chief-settings.json): `fixture: "last-turn"` has the open
+    /// popover show the fixed brain answer above, and `details` opens or closes Diagnostics'
+    /// disclosure. The reply says whether a popover was open. The App only registers it.
+    public static func handleCaptureControl(_ params: [String: JSONValue]) -> JSONValue {
+        let shown = NSApp.windows.filter { $0.isVisible && $0.identifier?.rawValue == "cmux.home.chiefSettings" }
+        guard let view = shown.lazy.compactMap({ $0.contentView.flatMap(shownSettingsView(in:)) }).first else {
+            return .object(["error": .string("no Chief Settings popover is open")])
+        }
+        if params["fixture"]?.stringValue == "last-turn" { view.showCaptureFixture() }
+        if let details = params["details"]?.boolValue { view.showDiagnosticsDetails(details) }
+        return .object(["open": .bool(true)])
+    }
+
+    private static func shownSettingsView(in view: NSView) -> HomeChiefSettingsView? {
+        if let settings = view as? HomeChiefSettingsView { return settings }
+        for subview in view.subviews {
+            if let settings = shownSettingsView(in: subview) { return settings }
+        }
+        return nil
     }
 }
 #endif

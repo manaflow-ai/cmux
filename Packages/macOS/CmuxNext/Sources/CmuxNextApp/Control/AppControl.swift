@@ -8,6 +8,7 @@ import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextErrorJournal
+import CmuxNextHomeEngine
 import CmuxNextSettings
 import CmuxNextSidebar
 import CmuxNextTerminal
@@ -277,6 +278,11 @@ final class AppControl {
             .mainActor("debug.crashes") { [weak services] _ in
                 guard let services else { return .value(.null) }
                 return .value(DebugCrashes.report(services))
+            },
+            // The open Chief Settings popover: a fixed brain answer and Diagnostics' disclosure,
+            // for its capture tour (a capture mini runs no Chief brain).
+            .mainActor("debug.chief_settings") { call in
+                .value(HomeChiefSettingsView.handleCaptureControl(call.params))
             },
         ])
         #endif
