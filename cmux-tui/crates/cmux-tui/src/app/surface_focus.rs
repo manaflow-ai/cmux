@@ -38,6 +38,7 @@ impl App {
     /// server has one whose pane still exists in the adopted tree; otherwise
     /// the tree's own focus stays. Sets the report baseline either way.
     pub(super) fn restore_client_focus_from_session(&mut self) {
+        self.restore_docks_from_session();
         let Some(client_id) = self.client_focus_id.clone() else { return };
         let Some(focus) = self.session.client_focus(&client_id) else { return };
         let mut location = None;

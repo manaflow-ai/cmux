@@ -1,6 +1,8 @@
 import { conversation as homeConversation } from "@cmux/home-core"
 import type { Principal } from "@cmux/ownership"
+import { projectionReadMode, shadowRead } from "./projection-reads.ts"
 import type { Env } from "./env.ts"
+import { foldedMatch, isDroppedMark } from "./home-search-fold.ts"
 
 /**
  * `home.search` (home-messaging.md sections 7 and 20): the PlanetScale projection through the
@@ -57,12 +59,24 @@ const findMatch = (chars: ReadonlyArray<string>, needle: ReadonlyArray<string>) 
   return -1
 }
 
-/** The hit for one row: snippet (120 code points around the match) and the match range inside it. */
+/**
+ * The hit for one row: snippet (120 code points around the match) and the match range inside it.
+ * The plain case-insensitive match comes first (what Postgres ILIKE matched, and the cheap path);
+ * only when it finds nothing does the match fold accents as the MySQL collation does
+ * (home-search-fold.ts), so a row that matched only through folding still gets its range.
+ */
 export const hitOf = (row: { conversation_id: string; title: string | null; seq: string | number; message_id: string; author_id: string; created_at: Date | string; body: string }, q: string): SearchHit => {
   const needle = [...q.toLowerCase()]
-  const at = Math.max(0, findMatch([...row.body], needle))
-  const snippet = homeConversation.snippetOf(row.body, at, needle.length)
-  const start = findMatch([...snippet], needle)
+  const chars = [...row.body]
+  const at = findMatch(chars, needle)
+  // A plain match ending before accents the fold drops (`cafe` in a decomposed `café`) covers them too.
+  let end = at + needle.length
+  while (at >= 0 && end < chars.length && isDroppedMark(chars[end]!)) end++
+  const match = at >= 0 ? { start: at, length: end - at } : foldedMatch(row.body, q)
+  const { snippet, from, to, lead } = homeConversation.snippetWindow(row.body, match?.start ?? 0, match?.length ?? needle.length)
+  // The part of the match the snippet shows, in snippet offsets.
+  const shownStart = match ? Math.max(match.start, from) : 0
+  const shownEnd = match ? Math.min(match.start + match.length, to) : 0
   return {
     conversation: row.conversation_id,
     title: row.title,
@@ -71,7 +85,7 @@ export const hitOf = (row: { conversation_id: string; title: string | null; seq:
     author: row.author_id,
     created_at: new Date(row.created_at).toISOString(),
     snippet,
-    ranges: start >= 0 ? [{ start, length: needle.length }] : []
+    ranges: shownEnd > shownStart ? [{ start: shownStart - from + lead, length: shownEnd - shownStart }] : []
   }
 }
 
@@ -94,9 +108,20 @@ export const prepareSearch = (principal: Principal, params: SearchParams): Prepa
   return { me, q, limit, cursor: cursor ?? undefined }
 }
 
+/** The ordered keys of an answer for the shadow-read compare (ids and seqs, never text). */
+const searchKeys = (r: SearchResult): Array<string> =>
+  r.ok ? [...r.value.hits.map((h) => `${h.conversation}/${h.seq}`), `cursor:${r.value.cursor ?? ""}`] : [`error:${r.code}`]
+
 export const homeSearch = async (env: Env, principal: Principal, params: SearchParams): Promise<SearchResult> => {
-  // MySQL reads after the verified cutover (state-placement.md 4.5); Postgres until then.
-  if (env.PROJECTION_READS === "mysql") return (await import("./home-search-mysql.ts")).homeSearchMysql(env, principal, params)
+  // MySQL reads after the verified cutover (vitess-migration-DESIGN.md); shadow compares both first.
+  const mode = projectionReadMode(env)
+  const mysql = async () => (await import("./home-search-mysql.ts")).homeSearchMysql(env, principal, params)
+  if (mode === "mysql") return mysql()
+  if (mode === "shadow") return shadowRead("home.search", () => homeSearchPostgres(env, principal, params), mysql, searchKeys)
+  return homeSearchPostgres(env, principal, params)
+}
+
+const homeSearchPostgres = async (env: Env, principal: Principal, params: SearchParams): Promise<SearchResult> => {
   const prepared = prepareSearch(principal, params)
   if ("ok" in prepared) return prepared
   const { me, q, limit, cursor } = prepared

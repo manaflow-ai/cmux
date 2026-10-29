@@ -5,14 +5,15 @@ name: cmux-next web
 # gh-merge-green's base-aware excusal had no base verdict to compare a PR's web
 # red with. Every push runs them here as the `web` job, under the same
 # `web / ...` names as on a pull request. ci-web routes its subareas from
-# everything the push brought (event.before..sha), so a push that touches no web
-# path runs only the scope job and the status job, two small Linux jobs. Linux only.
+# everything the push brought (event.before..sha); react-apps-check is always
+# included for this base branch so a web red cannot hide, while the other
+# subareas remain path-routed. Linux only.
 #
 # Lawrence took the push trigger off on 2026-10-10 (cx-g34i: push CI is the Swift
 # build only). Without it, direct pushes brought web reds nobody saw until a pull
 # request tripped over them, and a pull request's new web red passed as a base red
 # (#20633). Leo, 2026-10-19: the base stays green by construction. The routing keeps
-# the cost of a Swift-only push to the two small jobs.
+# unrelated Swift-only work cheap while retaining the base React signal.
 on:
   push:
     branches: [feat-cmux-next]
@@ -42,8 +43,8 @@ jobs:
   # Same script as the hook, so the two cannot drift.
   web-lint:
     name: web lint (fast)
-    # GitHub-hosted (free for this public repo), not Blacksmith: the job is small.
-    runs-on: ubuntu-24.04 # github-hosted-required: small advisory lint on the free hosted runner
+    # Blacksmith 4 vCPU, never GitHub-hosted (Leo, 2026-10-27: "just put it on blacksmith").
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     steps:
       - name: Checkout
@@ -55,7 +56,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: "1.4.2"
+          bun-version: "1.4.4"
 
       - name: Cache Bun package cache
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5

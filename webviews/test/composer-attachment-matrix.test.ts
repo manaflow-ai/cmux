@@ -20,7 +20,12 @@ import {
 import { type UploadResult } from "../src/agent-session/acpmux/cloudUploads";
 import { intakeFiles } from "../src/agent-session/acpmux/composer/intakeFiles";
 
-const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);
+// A PNG's signature and IHDR (640x480): the composer reads a picture's size from its header before
+// it decodes it (composer/imageWork.ts imageSize), and refuses to decode one it cannot size.
+const PNG = new Uint8Array([
+  0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52, 0, 0, 2, 0x80, 0, 0, 1, 0xe0, 8,
+  6,
+]);
 
 function file(name: string, type: string, bytes: Uint8Array | string = new Uint8Array([0, 1, 2, 0xff])): File {
   return new File([bytes as BlobPart], name, { type });

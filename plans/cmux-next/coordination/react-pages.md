@@ -1,5 +1,6 @@
 # Lane: react-pages
 
+- 2026-10-26 (`cmux/nx-file-chip-1025`, owner nx-file-chip-1025 for nx-chat): shared transcript `LinkChips.tsx`/`chips.css` uses regular prose metrics, no inset/fill, tinted inline icons; linked code labels share text metrics. Outside-project and other-host locality moves to existing translated tooltips; host open/confirmation/text-only policies remain the authority. `agent-pane.inline-chips` offers before, minimal (recommended), accent and hairline arms in light/dark and narrow widths. No native build or push. Overlaps #24015 only at the shared renderer; that PR owns path preview cards.
 ## Active streams
 - History and App Store as React pages with a Rust backend (React UIs lead, R62 UI-STACK). Design: plans/cmux-next/react-pages.md. Pages live in `webviews/src/pages/<page>/`; `webviews/src/pages/shared/pageClient.ts` is the only transport file (pane-protocol envelope over the `cmuxPage` WebKit bridge until the daemon router lands). Touches: webviews dev server (`/history/` route), CmuxNextHistory xcstrings (page strings source), `cmux-history` crate (H2), daemon `history.*` ops (H3, main window), app platform `cmux.apps.*` ops (theirs).
 

@@ -46,7 +46,9 @@ pub async fn deliver(
         resend: true,
         from_agent: None,
         supersede: None,
+        class: None,
         cli_host: None,
+        attachments: Vec::new(),
     };
     queue_prompt(client, session, text, steer, provenance, &prompt).await
 }

@@ -21,6 +21,8 @@
 pub mod accept;
 mod archive;
 #[cfg(test)]
+mod archive_group_tests;
+#[cfg(test)]
 mod archive_tests;
 pub mod check;
 pub mod doc;

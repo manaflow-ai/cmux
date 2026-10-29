@@ -200,7 +200,7 @@ pub(super) fn put(mux: &Mux, client: u64, params: UploadParams) -> anyhow::Resul
         "commit" => {
             let upload = required(params.upload, "upload")?;
             let taken = mux.with_conversations(|store| store.cloud_upload_take(client, &upload))?;
-            // The files are read after the store lock is released.
+            // The files are opened after the store lock is released.
             Ok(json!({"stored": send_upload(service, taken)?}))
         }
         "cancel" => {
@@ -241,22 +241,23 @@ fn send_upload(service: &CloudConversations, upload: CloudUpload) -> anyhow::Res
     let conversation = upload.conversation.clone();
     let plan = upload.plan.clone();
     let record = upload.record.clone();
-    let pieces = upload.bytes()?;
+    // The partial files stay until both PUTs are done.
+    let (pieces, _partial) = upload.bodies()?;
     let mut original = None;
-    for (piece, bytes) in pieces {
+    for (piece, body) in pieces {
         match variant_name(piece) {
-            None => original = Some(bytes),
+            None => original = Some(body),
             Some(variant) => {
                 let slot = plan.field(&format!("{variant}_upload"));
                 let url = slot
                     .field("upload_url")
                     .as_str()
                     .ok_or_else(|| CloudError::Unavailable(format!("no {variant} upload slot")))?;
-                service.attachment_put(url, &plan_headers(slot.field("headers")), bytes, true)?;
+                service.attachment_put(url, &plan_headers(slot.field("headers")), body, true)?;
             }
         }
     }
-    let bytes = original.ok_or_else(|| anyhow::anyhow!("an upload without its file"))?;
+    let body = original.ok_or_else(|| anyhow::anyhow!("an upload without its file"))?;
     let url = plan
         .field("upload_url")
         .as_str()
@@ -264,7 +265,7 @@ fn send_upload(service: &CloudConversations, upload: CloudUpload) -> anyhow::Res
     let presigned = plan.field("mode") == "presigned";
     // A Worker slot is on the lease's origin; only a presigned object URL may be elsewhere.
     let answer =
-        service.attachment_put(url, &plan_headers(plan.field("headers")), bytes, !presigned)?;
+        service.attachment_put(url, &plan_headers(plan.field("headers")), body, !presigned)?;
     let committed = if presigned {
         let slot = plan
             .field("slot")

@@ -352,6 +352,12 @@ public final class HomeChiefSettingsView: NSView {
         usePicture(nil)
     }
 
+    /// Says `text` on the card's note line (another part's refused change, such as an upload),
+    /// kept until the person's next change, as a refused picture's note is.
+    public func showNote(_ text: String) {
+        note(text, kept: true)
+    }
+
     /// Makes `source` the shown Chief's picture (nil: the default again) through
     /// ``pictureStore`` (the daemon's registry for a Chief of this Mac, else its files),
     /// then has the header (and this panel's avatar) read it; a picture that could not be

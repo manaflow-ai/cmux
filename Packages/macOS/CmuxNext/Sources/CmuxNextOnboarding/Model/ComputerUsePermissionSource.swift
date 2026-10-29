@@ -18,4 +18,8 @@ public protocol ComputerUsePermissionSource: AnyObject {
     /// Turns Computer Use on (Allow while the grants report `isOff`), so
     /// the helper starts and its grants can be read.
     func enable()
+    /// Restarts the helper and reads its grants again.
+    func restart()
+    /// Reads the grants again now (the helper app was dropped into a list).
+    func recheck()
 }
