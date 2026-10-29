@@ -13,20 +13,22 @@ name: nightly-next launch smoke
 #               both attempts. The feed rolls back through nightly-next-rollback.yml
 #               (bad_build = this build), which serves the earlier Nightly build the
 #               feed keeps (publish-nightly-next-r2.py keeps two), and one issue
-#               per build gets the evidence. A rollback is asked for only while the
-#               build is still the feed's newest (scripts/ci/nightly_next_launch_smoke.py
+#               per build gets the evidence. A rollback is asked for only of a build
+#               Nightly apps are offered (never a Dev-only one) and only while it is
+#               still the feed's newest (scripts/ci/nightly_next_launch_smoke.py
 #               decide), and the rollback itself re-checks that on its own read
 #               (if_newest), so a second report of the same build, or a newer build
 #               published meanwhile, is never pulled.
 #
-# Every 10 minutes it checks the feed's newest build: a pass is cached per build,
-# so a tick with no new build stops in the Linux pick job. A cannot-run is cached
+# Every 10 minutes it checks the feed's newest Nightly build (never a Dev-ring or
+# Canary-only one): a pass is cached per build, so a tick with no new build stops
+# in the Linux pick job. A cannot-run is cached
 # for the rest of its UTC hour only, so a build the infrastructure could not
 # smoke is tried again at most an hour later. A crash is not cached, so it is
 # retried until its rollback lands. A schedule and a dispatch register only
 # from the default branch, so this file is on main too; every run takes its
 # tooling from feat-cmux-next (a pull request into feat-cmux-next, from its own
-# head). A pull request's run smokes the newest feed build and never rolls back
+# head). A pull request's run smokes the newest Nightly feed build and never rolls back
 # or files.
 on:
   schedule:
@@ -34,7 +36,7 @@ on:
   workflow_dispatch:
     inputs:
       build:
-        description: Smoke this build from the feed (digits). Empty takes the newest.
+        description: Smoke this build from the feed (digits; a Nightly build, never a Dev-only one). Empty takes the newest Nightly build.
         required: false
         default: ''
         type: string
@@ -74,32 +76,24 @@ jobs:
       checked: ${{ steps.seen.outputs.cache-hit == 'true' || steps.seen-hour.outputs.cache-hit == 'true' }}
       hour: ${{ steps.hour.outputs.hour }}
     steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ env.TOOLING_REF }}
+          persist-credentials: false
+          sparse-checkout: scripts/ci/nightly_next_launch_smoke.py
+          sparse-checkout-cone-mode: false
+
+      # The newest build Nightly apps are offered (nightly_next_launch_smoke.py pick):
+      # a Dev-ring (cmux-next-dev) or Canary-only item is never smoked, so a newer
+      # Dev-only build is skipped and the Nightly build below it is smoked instead.
       - name: Read the feed
         id: feed
         env:
           BUILD: ${{ inputs.build }}
         run: |
           set -euo pipefail
-          curl -fsSL --retry 3 -A "cmux-nightly-next-launch-smoke/1" -H "Cache-Control: no-cache" -o feed.xml "$NIGHTLY_NEXT_FEED?smoke=$GITHUB_RUN_ID"
-          python3 - feed.xml "$BUILD" >> "$GITHUB_OUTPUT" <<'PY'
-          import re, sys
-          text, wanted = open(sys.argv[1], encoding="utf-8").read(), sys.argv[2]
-          items = []
-          for item in re.findall(r"<item>.*?</item>", text, re.S):
-              version = re.search(r"<sparkle:version>\s*(\d+)\s*</sparkle:version>", item)
-              enclosure = re.search(r'<enclosure\s[^>]*?url="([^"]+\.dmg)"[^>]*?length="(\d+)"', item)
-              if version and enclosure:
-                  items.append((int(version.group(1)), enclosure.group(1), enclosure.group(2)))
-          if wanted:
-              items = [i for i in items if str(i[0]) == wanted]
-          if not items:
-              sys.exit(f"no feed item {'for build ' + wanted if wanted else 'with a DMG'}")
-          build, url, length = max(items)
-          if not url.startswith(("https://github.com/manaflow-ai/cmux/releases/download/nightly-next/",
-                                 "https://files-next.cmux.com/nightly-next/next/")):
-              sys.exit(f"{url} is not a nightly-next download")
-          print(f"build={build}\nurl={url}\nlength={length}")
-          PY
+          curl -fsSL --retry 3 -A "cmux-nightly-next-launch-smoke/1" -H "Cache-Control: no-cache" -o "$RUNNER_TEMP/feed.xml" "$NIGHTLY_NEXT_FEED?smoke=$GITHUB_RUN_ID"
+          python3 scripts/ci/nightly_next_launch_smoke.py pick --feed "$RUNNER_TEMP/feed.xml" --build "$BUILD" >> "$GITHUB_OUTPUT"
           cat "$GITHUB_OUTPUT"
 
       # A scheduled tick skips a build an earlier tick passed, and a build an earlier

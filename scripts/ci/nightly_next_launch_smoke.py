@@ -12,12 +12,19 @@ launches it from a fresh home (scripts/ci/fresh_home_launch_smoke.py) and this s
       attempts crashed: a check cut short after one crash (a step timeout) is cannot-run, and so is
       any cannot-run attempt. Prints pass, crash or cannot-run.
 
+  pick --feed LIVE.xml [--build BUILD]
+      The build to smoke, as GITHUB_OUTPUT lines (build=, url=, length=): the newest feed item that
+      Nightly apps are offered (untagged, cmux-next or cmux-next-stable) and that has a nightly-next
+      DMG, or BUILD when given. A Dev-ring (cmux-next-dev) or Canary-only item is never picked, so a
+      newer Dev-only build is skipped and the Nightly build below it is smoked. Exit 1 with no pick.
+
   decide --feed LIVE.xml --build BUILD --verdict VERDICT
       Whether to roll the feed back, as JSON {"action": "rollback"|"none", "why": ...}. Only a crash
-      rolls back, and only while BUILD is still the feed's newest build and an earlier build that
-      Nightly apps are offered (untagged or cmux-next) stays to serve. So a second crash report of
-      the same build, after its rollback, does nothing, and a rollback never pulls a newer build or
-      goes past the kept good one. The rollback itself is nightly-next-rollback.yml (bad_build=BUILD).
+      rolls back, only of a build Nightly apps are offered (never a Dev-only one), only while BUILD
+      is still the feed's newest build, and only while an earlier build that Nightly apps are offered
+      stays to serve. So a second crash report of the same build, after its rollback, does nothing,
+      and a rollback never pulls a newer build (a Dev one included) or goes past the kept good one.
+      The rollback itself is nightly-next-rollback.yml (bad_build=BUILD).
 
   evidence --report report.json --out FILE [--app-log app.log] [--crash FILE]...
       The crash issue's body: the harness failures, the app's system-log errors, the crash
@@ -80,6 +87,37 @@ def read_attempts(directory: Path) -> list[tuple[int, dict]]:
     return found
 
 
+ENCLOSURE = re.compile(r'<enclosure\s[^>]*?url="([^"]+\.dmg)"[^>]*?length="(\d+)"')
+DMG_PREFIXES = ("https://github.com/manaflow-ai/cmux/releases/download/nightly-next/",
+                "https://files-next.cmux.com/nightly-next/next/")
+
+
+def nightly_offered(item: str) -> bool:
+    channel = CHANNEL.search(item)
+    return (channel.group(1) if channel else None) in NIGHTLY_CHANNELS
+
+
+def pick(text: str, wanted: str = "") -> tuple[int, str, str]:
+    """(build, DMG url, length) to smoke: the newest Nightly-offered item with a DMG, or WANTED."""
+    items = []
+    for item in ITEM.findall(text):
+        version = VERSION.search(item)
+        enclosure = ENCLOSURE.search(item)
+        if version and enclosure:
+            items.append((int(version.group(1)), enclosure.group(1), enclosure.group(2), nightly_offered(item)))
+    if wanted:
+        items = [i for i in items if str(i[0]) == wanted]
+        if items and not items[0][3]:
+            raise ValueError(f"build {wanted} is not offered to Nightly apps (a Dev or Canary ring build)")
+    items = [i for i in items if i[3]]
+    if not items:
+        raise ValueError(f"no Nightly feed item {'for build ' + wanted if wanted else 'with a DMG'}")
+    build, url, length, _ = max(items)
+    if not url.startswith(DMG_PREFIXES):
+        raise ValueError(f"{url} is not a nightly-next download")
+    return build, url, length
+
+
 def feed_builds(text: str) -> list[tuple[int, bool]]:
     """(build, offered to Nightly apps) for each feed item."""
     found = []
@@ -87,8 +125,7 @@ def feed_builds(text: str) -> list[tuple[int, bool]]:
         version = VERSION.search(item)
         if version is None:
             continue
-        channel = CHANNEL.search(item)
-        found.append((int(version.group(1)), (channel.group(1) if channel else None) in NIGHTLY_CHANNELS))
+        found.append((int(version.group(1)), nightly_offered(item)))
     return found
 
 
@@ -101,6 +138,9 @@ def decide(feed: str, build: int, result: str) -> dict:
     newest = max(b for b, _ in builds)
     if build not in {b for b, _ in builds}:
         return {"action": "none", "why": f"build {build} is no longer on the feed (already rolled back)"}
+    if build not in {b for b, nightly in builds if nightly}:
+        return {"action": "none", "why": f"build {build} is not offered to Nightly apps (a Dev or Canary ring "
+                                         f"build); the launch smoke never rolls one back"}
     if build != newest:
         return {"action": "none", "why": f"the feed's newest build is {newest}, newer than {build}; "
                                          f"a rollback of {build} would pull it too"}
@@ -155,6 +195,9 @@ def evidence(report: dict, app_log: str | None, crashes: list[Path]) -> str:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = parser.add_subparsers(dest="command", required=True)
+    k = sub.add_parser("pick")
+    k.add_argument("--feed", type=Path, required=True)
+    k.add_argument("--build", default="")
     v = sub.add_parser("verdict")
     v.add_argument("--dir", type=Path, required=True)
     d = sub.add_parser("decide")
@@ -167,7 +210,14 @@ def main(argv: list[str] | None = None) -> int:
     e.add_argument("--crash", type=Path, action="append", default=[])
     e.add_argument("--out", type=Path, required=True)
     args = parser.parse_args(argv)
-    if args.command == "verdict":
+    if args.command == "pick":
+        try:
+            build, url, length = pick(args.feed.read_text(encoding="utf-8"), args.build)
+        except ValueError as error:
+            print(error, file=sys.stderr)
+            return 1
+        print(f"build={build}\nurl={url}\nlength={length}")
+    elif args.command == "verdict":
         print(verdict(read_attempts(args.dir)))
     elif args.command == "decide":
         print(json.dumps(decide(args.feed.read_text(encoding="utf-8"), args.build, args.verdict)))
