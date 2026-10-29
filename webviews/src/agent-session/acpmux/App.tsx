@@ -367,7 +367,8 @@ import { ChatHeaderInlineStatus, ChatHeaderStatus } from "./header/ChatHeaderSta
 import { ChatHeaderTools, HEADER_ACTIONS, menuGroups, type ChatMenuItem } from "./header/ChatHeaderTools";
 import { headerState, setHeaderState, useHeaderState } from "./header/headerState";
 import { setTabRow, tabRowStyle, useTabRow, useTabRowTools } from "./header/tabRow";
-import { PullRequestDock, RowPullRequests, pullRequestRow, useTranscriptPullRequests } from "./summary/PullRequestDock";
+import { PullRequestDock, RowPullRequests, useTranscriptPullRequests } from "./summary/PullRequestDock";
+import { latestMessageRow } from "./conversation/messagePlacement";
 import { SubagentPaneFooter } from "./subagents/SubagentPaneFooter";
 import { RecapCard, useRecapCard } from "./RecapCard";
 import { HarnessStatusCard } from "./HarnessStatusCard";
@@ -2136,10 +2137,6 @@ export function VirtualTranscript({
 }) {
   const t = useT();
   const pullRequests = useTranscriptPullRequests(pullRequestRows ?? sourceRows ?? rows, githubRepository);
-  const prRow = pullRequests.length ? pullRequestRow(rows) : undefined;
-  // A successful tool can open a PR before any reply exists, even if the turn stops there.
-  // Keep its links above the composer until a message can host them inline.
-  const fallbackPullRequests = pullRequests.length > 0 && prRow === undefined;
   // Debug measurement (acpmuxPerf): off until the first debug call.
   const renderStart = acpmuxPerf.enabled ? performance.now() : 0;
   acpmuxPerf.span("vt.renders", 1);
@@ -2783,6 +2780,10 @@ export function VirtualTranscript({
     lastEstimate.current = { rows, layout, width: rowWidth, sessionId };
     return { layout, ms: acpmuxPerf.enabled ? performance.now() - layoutStart : 0 };
   }, [rows, registry, sessionId, width, chatWidth, chatLook]);
+  const prRow = pullRequests.length ? latestMessageRow(rows, estimated.layout) : undefined;
+  // A successful tool can open a PR before any reply exists, even if the turn stops there.
+  // Keep its links above the composer until a message can host them inline.
+  const fallbackPullRequests = pullRequests.length > 0 && prRow === undefined;
   // A row that draws moves only the rows below it: place them again, measuring none.
   const measured = useMemo(() => {
     const layoutStart = acpmuxPerf.enabled ? performance.now() : 0;

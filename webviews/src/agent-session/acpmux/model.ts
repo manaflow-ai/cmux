@@ -23,6 +23,7 @@ import { mcpCall } from "./conversation/mcpCalls";
 import { subsessionCall } from "./conversation/subsessionCalls";
 import type { ChatTool } from "./summary/chatTools";
 import type { TaskGoal } from "./goal";
+import { MessagePlacement } from "./conversation/messagePlacement";
 
 /** One item of an agent's todo list (an ACP `plan` entry). */
 export type AcpmuxPlanEntry = { content: string; status: "pending" | "in_progress" | "completed" };
@@ -1464,6 +1465,7 @@ export function layoutConversation(
 ): ConversationLayout {
   const tops = new Float64Array(rows.length);
   const heights = new Float64Array(rows.length);
+  const messages = new MessagePlacement(rows, previous?.layout);
   let start = 0;
   if (previous) {
     const limit = Math.min(rows.length, previous.rows.length);
@@ -1487,6 +1489,7 @@ export function layoutConversation(
   for (let index = start; index < rows.length; index += 1) {
     tops[index] = top;
     const row = rows[index]!;
+    messages.visit(row, index, previous?.rows[index]);
     if (nextDrawn <= index) {
       nextDrawn = index + 1;
       while (nextDrawn < rows.length && drawsNothing(rows[nextDrawn]!)) nextDrawn += 1;
@@ -1514,7 +1517,9 @@ export function layoutConversation(
     heights[index] = height;
     top += height;
   }
-  return { tops, heights, totalHeight: top };
+  const layout = { tops, heights, totalHeight: top };
+  messages.finish(rows, layout);
+  return layout;
 }
 
 /// Places rows again over `estimate`, taking a row's height from `heightAt` when it has one.

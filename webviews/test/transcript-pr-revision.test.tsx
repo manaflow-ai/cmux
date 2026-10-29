@@ -102,3 +102,48 @@ test("inline PR parsing retains the producer revision across filtered snapshots"
     parse.mockRestore();
   }
 });
+
+test("assistant-only PR URLs invalidate inline parsing when they appear, change or disappear", async () => {
+  const { OrderedRows } = await import("../src/agent-session/acpmux/direct");
+  const { assistant } = await import("../src/gallery/fixtures/acpmux");
+  const parser = await import("../src/agent-session/acpmux/summary/transcriptPullRequests");
+  const parse = spyOn(parser, "transcriptPullRequests");
+  const root = createRoot(dom.window.document.getElementById("root")!);
+  const rows = new OrderedRows();
+  const reply = assistant("Working", 1);
+  let version = reply.version;
+  const render = async (text: string) => {
+    rows.set(reply.id, { ...reply, text, version: ++version, streaming: true });
+    await act(async () =>
+      root.render(
+        <VirtualTranscript
+          rows={[]}
+          sourceRows={[]}
+          pullRequestRows={rows.sorted()}
+          sessionId="assistant-pr-revision"
+          expanded={new Set()}
+          onToggleActivity={() => {}}
+        />,
+      ),
+    );
+    const result = parse.mock.results.at(-1);
+    expect(result?.type).toBe("return");
+    return result?.type === "return" ? result.value.map((pr) => pr.url) : undefined;
+  };
+  try {
+    expect(await render("Working")).toEqual([]);
+    const first = "https://github.com/acme/uploader/pull/42";
+    expect(await render(`See ${first}`)).toEqual([first]);
+    expect(parse).toHaveBeenCalledTimes(2);
+    expect(await render(`See ${first} for details.`)).toEqual([first]);
+    expect(parse).toHaveBeenCalledTimes(2);
+    const updated = "https://github.com/acme/other/pull/43";
+    expect(await render(`See ${updated}`)).toEqual([updated]);
+    expect(parse).toHaveBeenCalledTimes(3);
+    expect(await render("Still working")).toEqual([]);
+    expect(parse).toHaveBeenCalledTimes(4);
+  } finally {
+    act(() => root.unmount());
+    parse.mockRestore();
+  }
+});

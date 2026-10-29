@@ -3,7 +3,6 @@
 import { createContext, useContext, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useT } from "../i18n";
 import type { AcpmuxRow } from "../model";
-import { hasRenderableMarkdown } from "../conversation/safeTail";
 import { useHeaderState } from "../header/headerState";
 import { transcriptPullRequestKey, transcriptPullRequests, type SummaryPullRequest } from "./transcriptPullRequests";
 import { headerStatus, visibleChanges } from "../inspector/ChangesSection";
@@ -28,28 +27,6 @@ export function useTranscriptPullRequests(rows: readonly AcpmuxRow[], repository
     };
   const all = parsed.current.prs;
   return useMemo(() => visibleChanges(all, headerStatus(live)).reverse(), [all, live]);
-}
-
-/// Place the session's links on the latest message, using its existing footer when it has one.
-const renderedRowCache = new WeakMap<AcpmuxRow, boolean>();
-function hasRenderedMessage(row: AcpmuxRow): boolean {
-  const cached = renderedRowCache.get(row);
-  if (cached !== undefined) return cached;
-  const text = row.kind === "user" && row.incoming?.kind === "message" ? row.incoming.message.text : (row.text ?? "");
-  const rendered = hasRenderableMarkdown(text, row.streaming === true);
-  renderedRowCache.set(row, rendered);
-  return rendered;
-}
-
-export function pullRequestRow(rows: readonly AcpmuxRow[]): string | undefined {
-  for (let index = rows.length - 1; index >= 0; index--) {
-    const row = rows[index]!;
-    if (
-      ((row.kind === "turnSummary" || row.kind === "assistant") && hasRenderedMessage(row)) ||
-      (row.kind === "user" && row.incoming?.kind === "message" && hasRenderedMessage(row))
-    )
-      return row.id;
-  }
 }
 
 export function PullRequestDock() {
