@@ -26,7 +26,7 @@ extension AppDelegate {
               let source = locateSurface(surfaceId: panelId) else { return nil }
         let windowId = createMainWindow(shouldActivate: false, sourceWindow: mainWindow(for: source.windowId))
         guard let manager = tabManagerFor(windowId: windowId),
-              let target = manager.tabs.first else {
+              let target = manager.tabs.first(where: { !$0.isChiefHome }) else {
             _ = closeMainWindow(windowId: windowId, recordHistory: false)
             return nil
         }
