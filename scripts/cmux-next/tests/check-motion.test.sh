@@ -51,6 +51,13 @@ fail "a window that animates by itself" '        animationBehavior = .utilityWin
 pass "a window whose animation a gate decides" '        animationBehavior = Motion.overlays.animatesMovement ? .utilityWindow : .none'
 pass "a window that never animates" '        animationBehavior = .none'
 fail "a popover that animates by itself" '        popover.animates = true'
+fail "a popover controlled by an ungated variable" '        popover.animates = flag'
+fail "a popover controlled by an ungated expression" '        popover.animates = false || flag'
+fail "a popover controlled by a false-prefixed variable" '        popover.animates = falseFlag'
+fail "a popover controlled by a comparison" '        popover.animates = false == flag'
+pass "a popover explicitly disables animation" '        popover.animates = false'
+pass "a popover disables animation before another statement" '        popover.animates = false; configure()'
+pass "a popover disables animation at the end of a block" '        if enabled { popover.animates = false }'
 pass "a popover whose animation a gate decides" '        popover.animates = Motion.overlays.animatesMovement'
 fail "an animator change outside any gate group" '        view.animator().alphaValue = 1'
 pass "an animator change inside a gate group" '        Motion.home.animate(.fadeIn, in: view) {
