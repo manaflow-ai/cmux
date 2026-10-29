@@ -13,6 +13,10 @@ import Testing
 /// content (another workspace's dock had focus, a pane shown in two windows, an adopted Web Store
 /// tab) refused with "No browser tab is focused."
 @MainActor @Suite(.serialized, .closesItsWindows) struct BrowserToolbarPressTargetTests {
+    /// AppServices reads `NSApp` (an implicitly unwrapped Optional) from its observers and services;
+    /// a suite run in its own process has no shared application until something makes it.
+    init() { _ = NSApplication.shared }
+
     private func onScreen(_ key: String, in services: AppServices) -> (BrowserEntry, NSWindow) {
         let entry = services.cache.browser(for: key, url: URL(string: "https://example.com/\(key)"))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 600), styleMask: [.titled],

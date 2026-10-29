@@ -2693,6 +2693,7 @@ Params:
 | `width` | `float32` | default `0.6666667` | From 0.1 through 1.0 |
 | `cols` | `uint16` | default null | Paired with `rows`; final value clamped to at least 1 |
 | `rows` | `uint16` | default null | Paired with `cols`; final value clamped to at least 1 |
+| `side` | `string` | default `"right"` | With `column-left-v1`: `"left"` opens the column immediately left of `pane`'s column (New Column Left), `"right"` after it; `"left"` takes a PTY column only |
 | `shell_args` | `string[]` | default null | With `terminal-shell-args-v1`: arguments for the terminal's shell, its `SHELL` in `env` or else the daemon's default shell; none or empty keeps the bare shell |
 | `pane_id` | `string` | default null | With `split-client-keys-v1`: caller-minted id of the new pane, `pane_` and 32 lowercase hex digits; see "Client-minted pane ids" |
 | `tab_id` | `string` | default null | With `split-client-keys-v1`: caller-minted id of the new pane's tab, `tab_` and 32 lowercase hex digits; terminal panes only |
@@ -2712,6 +2713,7 @@ Errors:
 | `pane <id> has no workspace` | Target pane is not in a screen |
 | `viewport pane width must be between 0.1 and 1.0` | `width` is outside the supported range |
 | `pane creation failed` | PTY creation or child spawn fails; raw runtime details are logged internally only |
+| `bad request: side ...` | `side` is not `"left"` or `"right"`, or `"left"` with `kind:"browser"`; nothing is created |
 | `bad request: <cmd> kind ...` | Unknown `kind`, `kind:"browser"` without `url`, `url` without `kind:"browser"`, or `cwd`, `env`, `keep`, `terminal_id` or `shell_args` with `kind:"browser"`; nothing is created |
 | `bad request: ...` | Missing fields or wrong JSON type |
 
@@ -7182,10 +7184,13 @@ increases by one for every step written and every summary change, so a step's
 `{event:"conversation-run-changed", conversation, run, steps}` on `subscribe`
 to the connections that echoed `conversation-runs-v1` in `set-client-info`.
 
-`conversation-runs` `{conversation, turns?:[key], before_started_at?, limit?}`
-answers `{runs:[Run], has_more}`: with `turns` (at most 200 keys) the runs of
-those replies, else the newest runs that started before `before_started_at`
-(`limit` 1-200, default 50).
+`conversation-runs` `{conversation, turns?:[key], answers?:[key],
+before_started_at?, limit?}` answers `{runs:[Run], has_more}`: with `turns` (at
+most 200 keys) the runs of those replies. With `answers` (at most 200 message
+keys), a local owner advertising `conversation-run-answers-v1` returns runs
+whose `answers` include those messages; this exact lookup is for silent runs
+whose start predates the visible message window. Otherwise it returns the
+newest runs that started before `before_started_at` (`limit` 1-200, default 50).
 
 `conversation-run` `{conversation, run, after_rev?, limit?}` answers
 `{run:Run, steps:[Step], has_more}`: the steps written after `after_rev`
@@ -9449,7 +9454,7 @@ own unbound same-user Unix connection may ask (otherwise
 
 ### agent-session-start
 
-`agent-session-start-v1`: `{id, cmd:"agent-session-start", surface, cwd, harness?}`
+`agent-session-start-v1`: `{id, cmd:"agent-session-start", surface, cwd, harness?}` (and, when `agent-session-start-model-v1` is advertised, optional `model`)
 starts a new chat for an agent tab of this store in this machine's own
 acpmux and binds it to the tab, then answers
 `{surface, session, conversation}` (the tab's record, as
@@ -9473,7 +9478,8 @@ Claude and Codex), checked before the agent starts and again for the family
 it runs; otherwise `agent_session.untrusted_folder` (the daemon never answers
 the trust question; the person answers it on the machine or through
 `agent-session-trust`). There is no command, env, policy, mode,
-peer, preset or MCP server param; an unknown param is
+peer, preset or MCP server param; `model` is only accepted with the additive
+`agent-session-start-model-v1` capability and is passed to the first session; an unknown param is
 `agent_session.bad_request`. The machine kind decides first, read again at
 each start: a team VM (kind `team` in the root-owned `/etc/cmux/vm-kind` that
 cmux-host writes at a team enroll, or the team files root `/srv/team`,
