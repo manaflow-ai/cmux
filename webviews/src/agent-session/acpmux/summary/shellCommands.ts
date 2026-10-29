@@ -141,7 +141,10 @@ export function isPullRequestCommand(command: string): boolean {
       } else if (name === "nohup" && words[at] === "--") at++;
       continue;
     }
-    if (word === "$(" || word === "$()") continue;
+    if (word === "$(" || word === "$()") {
+      at++;
+      continue;
+    }
     if (name !== "timeout") return ["gh", "glaeda-gh", "gh-merge-green"].includes(name);
     at++;
     while (words[at]?.startsWith("-")) {
