@@ -31,6 +31,9 @@ const DEV_STACK_PROJECT = "454ecd03-1db2-4050-845e-4ce5b0cd9895"
 const DEV_STACK_CLIENT_KEY = "pck_xb63160bwe9699vtxfzfj6emmxpafg5mkjrtp6ehzxv5g"
 const USER_AGENT = "cmux-machine-join-e2e/1"
 export const HEARTBEAT_LIMIT_S = 90
+/** After a cancel: the whole cleanup's deadline, and the part of it kept for the revoke request. */
+export const CANCEL_BUDGET_MS = 7_500
+export const REVOKE_RESERVE_MS = 2_500
 export const CHILD_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 const NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$/
 const USER = /^[a-z_][a-z0-9_-]{0,31}$/
@@ -104,6 +107,7 @@ class Failed extends Error {}
 export function refusal(opts: Options): string | undefined {
   if (opts.origin !== DEV_PLATFORM) return `origin must be ${DEV_PLATFORM}`
   if (!NAME.test(opts.name)) return "name must be 1-63 letters, digits, dot, underscore or dash"
+  if (!/^\d{1,20}$/.test(opts.runId)) return "run must be the numeric run id"
   if (!USER.test(opts.user) || opts.user === "root") return "user must be a plain disposable login name"
   if (!opts.home.startsWith("/") || opts.home.includes("..")) return "home must be an absolute path"
   if (!opts.acpmux.startsWith("/")) return "acpmux must be an absolute path"
@@ -209,15 +213,21 @@ export async function runE2E(
       return undefined
     }
   }
-  // A cancel aborts every request in flight and shortens the ones cleanup makes to 3 s, so the revoke
-  // fits inside the runner's grace (SIGINT, then SIGTERM 7.5 s later, then SIGKILL).
+  // A cancel aborts every request in flight (cleanup's own included; it retries) and sets one absolute
+  // deadline, CANCEL_BUDGET_MS after the cancel: every later request ends by it, less `reserve`, the time
+  // kept back for the revoke itself. The process exits at 9 s; the runner's grace is SIGINT, then SIGTERM
+  // 7.5 s later, then SIGKILL.
   let cancelled = false
+  let cancelBy = Infinity
+  let reserve = 0
   let inFlight = new AbortController()
+  const left = () => cancelBy - reserve - deps.now()
+  const budget = () => (cancelled ? Math.max(250, Math.min(3_000, left())) : 20_000)
   const call = async (url: string, init: { method: string; headers?: Record<string, string>; body?: unknown }) => {
     const res = await deps.fetch(url, {
       method: init.method,
       redirect: "error",
-      signal: AbortSignal.any([AbortSignal.timeout(cancelled ? 3_000 : 20_000), inFlight.signal]),
+      signal: AbortSignal.any([AbortSignal.timeout(budget()), inFlight.signal]),
       headers: { "user-agent": USER_AGENT, ...(init.body === undefined ? {} : { "content-type": "application/json" }), ...init.headers },
       ...(init.body === undefined ? {} : { body: JSON.stringify(init.body) })
     })
@@ -307,13 +317,20 @@ export async function runE2E(
   const revokeMachine = async () => {
     if (machineRevoked || !evidence.joinTokenId || !joinStarted) return
     // A join that failed or was interrupted after the redeem still left a machine: find it by its join
-    // token, a few times, since the list may not show it at once (6 reads over about 10 s; 3 over 2 s
-    // when cancelled). The join process is already gone here, so no redeem can start later.
+    // token, a few times, since the list may not show it at once (6 reads over about 10 s; after a
+    // cancel, reads until the deadline less the revoke's reserve). The join process is already gone
+    // here, so no redeem can start later.
     let machineId = evidence.machineId ?? undefined
-    for (let attempt = 0; !machineId && attempt < (cancelled ? 3 : 6); attempt++) {
-      if (attempt > 0) await deps.sleep(cancelled ? 1_000 : 2_000)
-      const found = (await listEntry())?.machineId
-      if (typeof found === "string" && found) machineId = found
+    reserve = REVOKE_RESERVE_MS
+    try {
+      for (let attempt = 0; !machineId; attempt++) {
+        if (cancelled ? left() < 500 : attempt >= 6) break
+        if (attempt > 0) await deps.sleep(cancelled ? Math.min(500, Math.max(0, left() - 500)) : 2_000)
+        const found = (await listEntry())?.machineId
+        if (typeof found === "string" && found) machineId = found
+      }
+    } finally {
+      reserve = 0
     }
     if (!machineId) return
     evidence.machineId = machineId
@@ -326,7 +343,7 @@ export async function runE2E(
   // Every process the disposable user runs (the join, status, the daemon and its children), and nothing
   // else: `kill -1` run as that user signals exactly that user's processes.
   const killUser = (signal: "TERM" | "KILL") =>
-    deps.run(["sudo", "-n", "-u", opts.user, "--", "/bin/kill", `-${signal}`, "-1"], { env: childEnv, timeoutMs: 5_000 })
+    deps.run(["sudo", "-n", "-u", opts.user, "--", "/bin/kill", `-${signal}`, "-1"], { env: childEnv, timeoutMs: cancelled ? 1_000 : 5_000 })
 
   // One pass, in this order: no new join or daemon can start (the main flow checks `cleaning`); every
   // process of the disposable user is stopped and awaited; the machine is revoked (found by its join
@@ -334,26 +351,31 @@ export async function runE2E(
   let cleaning: Promise<void> | undefined
   const cleanup = () =>
     (cleaning ??= (async () => {
-      inFlight.abort()
-      inFlight = new AbortController()
       const stopping = daemon?.stop()
       daemon = undefined
       if (joinStarted) {
         await killUser("TERM")
-        const bound = cancelled ? 2_000 : 10_000
+        const bound = cancelled ? 1_000 : 10_000
         await Promise.race([Promise.all([joining?.catch(() => undefined), stopping]), deps.sleep(bound)])
         await killUser("KILL")
       }
       if (stopping) {
-        const r = await Promise.race([stopping, deps.sleep(1_000).then(() => undefined)])
+        const r = await Promise.race([stopping, deps.sleep(cancelled ? 250 : 1_000).then(() => undefined)])
         if (r) childText.push(r.stdout, r.stderr)
       }
-      try {
-        await revokeMachine()
-        // A run that failed before its own revoke check still proves the revoke here.
-        if (machineRevoked && evidence.revoke.revokedListed === null) evidence.revoke.revokedListed = (await listEntry())?.revoked === true
-      } catch (e) {
-        problems.push(e instanceof Failed ? e.message : "revoke failed")
+      // A cancel that lands during this pass aborts the request in flight: try again, on the cancel's budget.
+      for (;;) {
+        const before = cancelled
+        try {
+          await revokeMachine()
+          // A run that failed before its own revoke check still proves the revoke here.
+          if (machineRevoked && evidence.revoke.revokedListed === null && (!cancelled || left() > 1_000)) evidence.revoke.revokedListed = (await listEntry())?.revoked === true
+          break
+        } catch (e) {
+          if (cancelled && !before && !machineRevoked) continue
+          problems.push(e instanceof Failed ? e.message : "revoke failed")
+          break
+        }
       }
       if (evidence.joinTokenId && joinStarted && !machineRevoked && !evidence.machineId) say("no machine was listed for this join token; nothing to revoke")
       if (install && stack) {
@@ -371,8 +393,13 @@ export async function runE2E(
     })())
   /** A signal or the deadline: stop the main flow and clean up now, on short timeouts. */
   const cancel = () => {
-    cancelled = true
-    problems.push("cancelled")
+    if (!cancelled) {
+      cancelled = true
+      cancelBy = deps.now() + CANCEL_BUDGET_MS
+      problems.push("cancelled")
+    }
+    inFlight.abort()
+    inFlight = new AbortController()
     return cleanup()
   }
   // The main flow stops at these points once cleanup has begun.
@@ -415,7 +442,8 @@ export async function runE2E(
 
     // 2. Mint.
     live()
-    const mint = await platform("POST", "/v1/machines/join-tokens", { label: opts.name, ttlSeconds: 600 })
+    // The label is always the run's (the sweep finds a killed run's machine by it); the name is free.
+    const mint = await platform("POST", "/v1/machines/join-tokens", { label: `ci-join-${opts.runId}`, ttlSeconds: 600 })
     if (typeof mint.json?.token === "string") hold(mint.json.token)
     if (mint.status !== 200 || typeof mint.json?.token !== "string" || !/^cmj_[A-Za-z0-9_-]{16,4096}$/.test(mint.json.token)) throw refusedBy("mint", mint)
     token = mint.json.token as string

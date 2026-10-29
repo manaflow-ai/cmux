@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test"
 import {
+  CANCEL_BUDGET_MS,
   CHILD_PATH,
+  REVOKE_RESERVE_MS,
   DEV_API,
   DEV_PLATFORM,
   type ChildResult,
@@ -59,6 +61,11 @@ interface Knobs {
   others?: Array<Record<string, unknown>>
   /** Reading a home file other than the credential file fails. */
   catFails?: boolean
+  /** Each list read takes this long (fake time). */
+  listDelayMs?: number
+  /** The first machine revoke hangs until its request is aborted; `onRevoke` runs when it starts. */
+  hangFirstRevoke?: boolean
+  onRevoke?: () => void
 }
 
 /** One fake world: the stack, cmux-api, the platform, sudo and acpmux. Records every call. */
@@ -78,6 +85,8 @@ function world(k: Knobs = {}) {
   const revokedIds: string[] = []
   const kills: string[] = []
   let releaseJoin: (() => void) | undefined
+  const listAt: number[] = []
+  const revokeAt: number[] = []
 
   const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } })
   const fetch = async (url: string, init: RequestInit) => {
@@ -103,6 +112,8 @@ function world(k: Knobs = {}) {
       return json(200, { token: TOKEN, ...(k.noJoinTokenId ? {} : { joinTokenId: "jt_1" }), expiresAt: "2026-10-29T12:10:00Z", teamId: "team_1", label: parsed.label })
     }
     if (path === "/v1/machines/credentials") {
+      listAt.push(clock)
+      if (k.listDelayMs) clock += k.listDelayMs
       listReads += 1
       const visible = (joined || redeemed) && (redeemed ? listReads > (k.listVisibleAfter ?? 0) : true)
       const ours = visible ? [{ machineId: "m_1", joinTokenId: "jt_1", teamId: "team_1", label: "ci-join-1", mintedBy: "user_1", createdAt: new Date(clock).toISOString(), lastHeartbeat: lastHeartbeat ? "2026-10-29T12:01:00Z" : null, revoked }] : []
@@ -116,6 +127,14 @@ function world(k: Knobs = {}) {
     }
     if (path === "/v1/machines/credentials/m_1/revoke") {
       revokeCalls += 1
+      revokeAt.push(clock)
+      if (k.hangFirstRevoke && revokeCalls === 1) {
+        k.onRevoke?.()
+        await new Promise((_, reject) => {
+          if (init.signal?.aborted) reject(new DOMException("aborted", "AbortError"))
+          init.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")))
+        })
+      }
       if (k.revokeStatus && k.revokeStatus !== 204) return json(k.revokeStatus, { code: "machine.join.unavailable" })
       revoked = true
       return new Response(null, { status: 204 })
@@ -214,6 +233,9 @@ function world(k: Knobs = {}) {
     revokeCalls: () => revokeCalls,
     revokedIds,
     kills,
+    listAt,
+    revokeAt,
+    now: () => clock,
     evidenceText: () => files[`written:${opts.evidence}`] ?? ""
   }
 }
@@ -468,6 +490,64 @@ describe("cancellation, the sweep, masking and the scan", () => {
     const after = w.runs.slice(w.runs.findIndex((r) => r.argv.includes("/bin/kill")))
     expect(after.filter((r) => r.argv.includes(opts.acpmux))).toEqual([])
     assertNoSecretEscaped(w)
+  })
+
+  test("after a cancel, a machine listed late is still revoked before the deadline", async () => {
+    let cancel: (() => Promise<void>) | undefined
+    let cancelled: Promise<void> | undefined
+    let cancelAt = 0
+    const w = world({
+      holdJoin: true,
+      listVisibleAfter: 1,
+      listDelayMs: 2_500,
+      duringJoin: () => queueMicrotask(() => ((cancelAt = w.now()), (cancelled = cancel!())))
+    })
+    await runE2E(opts, env, w.deps, (c) => (cancel = c))
+    await cancelled
+    expect(w.revokeCalls()).toBe(1)
+    expect(w.revokeAt[0]! - cancelAt).toBeLessThanOrEqual(CANCEL_BUDGET_MS - REVOKE_RESERVE_MS + 2_500)
+    expect(w.revokeAt[0]! - cancelAt).toBeLessThan(CANCEL_BUDGET_MS)
+  })
+
+  test("after a cancel, the search for an unlisted machine stops in time for a revoke", async () => {
+    let cancel: (() => Promise<void>) | undefined
+    let cancelled: Promise<void> | undefined
+    let cancelAt = 0
+    const w = world({
+      holdJoin: true,
+      listVisibleAfter: 100,
+      listDelayMs: 2_500,
+      duringJoin: () => queueMicrotask(() => ((cancelAt = w.now()), (cancelled = cancel!())))
+    })
+    const e = await runE2E(opts, env, w.deps, (c) => (cancel = c))
+    await cancelled
+    expect(w.revokeCalls()).toBe(0)
+    const searches = w.listAt.filter((t) => t >= cancelAt)
+    expect(searches.length).toBeGreaterThan(0)
+    // Every read starts early enough to leave the revoke its reserve.
+    for (const t of searches) expect(t - cancelAt).toBeLessThanOrEqual(CANCEL_BUDGET_MS - REVOKE_RESERVE_MS)
+    expect(e.result).toBe("fail")
+  })
+
+  test("a cancel during cleanup's revoke aborts it and revokes again", async () => {
+    let cancel: (() => Promise<void>) | undefined
+    // The run fails before its own revoke (a bad credential file), so the first revoke is cleanup's.
+    const w = world({ credentialFile: JSON.stringify({ machine_id: "m_1" }), hangFirstRevoke: true, onRevoke: () => queueMicrotask(() => void cancel!()) })
+    const e = await runE2E(opts, env, w.deps, (c) => (cancel = c))
+    expect(w.revokeCalls()).toBe(2)
+    expect(e.revoke.revokedListed).toBe(true)
+    expect(e.reason).toContain("cancelled")
+    assertNoSecretEscaped(w)
+  })
+
+  test("a custom name keeps the run's label, so the sweep can find the machine", async () => {
+    const w = world()
+    const e = await runE2E({ ...opts, name: "smoke-test" }, env, w.deps)
+    const mint = w.calls.find((c) => c.url.endsWith("/v1/machines/join-tokens"))!
+    expect(JSON.parse(mint.body).label).toBe("ci-join-1")
+    const join = w.runs.find((r) => r.stdin !== undefined)!
+    expect(join.argv.slice(-3)).toEqual(["--name", "smoke-test", "--json"])
+    expect(e.name).toBe("smoke-test")
   })
 
   test("the sweep revokes only this account's stale CI machines", async () => {
