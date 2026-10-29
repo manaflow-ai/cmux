@@ -33,7 +33,18 @@ if [[ "$dir" == *$'\n'* ]]; then
   exit 2
 fi
 
-namespace="v1/${RUNNER_OS:-$(uname -s)}-${RUNNER_ARCH:-$(uname -m)}"
+# CI_CACHE_R2_PLATFORM (<os>-<arch>) names another runner's platform: a Linux
+# job that saves what a macOS build packed (test-ios.yml's
+# ios-simulator-cache-save) writes where that build's restores look.
+platform="${RUNNER_OS:-$(uname -s)}-${RUNNER_ARCH:-$(uname -m)}"
+if [[ -n "${CI_CACHE_R2_PLATFORM:-}" ]]; then
+  if ! valid_name "$CI_CACHE_R2_PLATFORM"; then
+    echo "r2-cache: CI_CACHE_R2_PLATFORM has characters outside [A-Za-z0-9._-]: $CI_CACHE_R2_PLATFORM" >&2
+    exit 2
+  fi
+  platform="$CI_CACHE_R2_PLATFORM"
+fi
+namespace="v1/$platform"
 set_output() { if [[ -n "${GITHUB_OUTPUT:-}" ]]; then echo "$1=$2" >> "$GITHUB_OUTPUT"; fi; }
 
 fetch() { # <relative object path> <destination file>
