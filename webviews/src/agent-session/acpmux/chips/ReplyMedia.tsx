@@ -12,7 +12,17 @@
 // follows `agentPane.images.remote` like a web image: a placeholder with its site and Load
 // (click, the default), its link only (never), or at once (always). The host fetches it under
 // its network rules and plays a checked copy.
-import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type ReactNode, type Ref, type RefObject } from "react";
+import {
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+  type Ref,
+  type RefObject,
+} from "react";
 import { Dialog } from "../../../ui/Dialog";
 import { keyedIconProps } from "../../../ui/DialogButton";
 import { useT } from "../i18n";
@@ -256,7 +266,13 @@ export function MediaPlayer({
             </div>
             <div className="cv-media-stage">
               {/* Opens paused, like the thumbnail: only Play starts it with sound (never autoplay). */}
-              <VideoThumbnail ref={expandedPlayer} playbackSource={inlinePlayer} src={src} name={name} onError={onError} />
+              <VideoThumbnail
+                ref={expandedPlayer}
+                playbackSource={inlinePlayer}
+                src={src}
+                name={name}
+                onError={onError}
+              />
             </div>
           </div>
         </Dialog>
@@ -296,7 +312,13 @@ type VideoPlaybackHandle = {
   restorePlayback(playback: VideoPlayback): void;
 };
 
-export function VideoThumbnail({ src, name, onError, ref, playbackSource }: {
+export function VideoThumbnail({
+  src,
+  name,
+  onError,
+  ref,
+  playbackSource,
+}: {
   src: string;
   name: string;
   onError(): void;
@@ -313,23 +335,27 @@ export function VideoThumbnail({ src, name, onError, ref, playbackSource }: {
   const { shown, hover: setHover, dismiss } = useHoverIntent<boolean>({ delay: MEDIA_PREVIEW_DWELL });
   const previewing = previewAllowed && shown === true;
 
-  useImperativeHandle(ref, () => ({
-    takePlayback() {
-      const element = video.current;
-      element?.pause();
-      return { currentTime: element?.currentTime ?? 0, started: startedRef.current };
-    },
-    restorePlayback(playback) {
-      const element = video.current;
-      startedRef.current = playback.started;
-      setStarted(playback.started);
-      dismiss();
-      if (element) {
-        element.pause();
-        element.currentTime = playback.currentTime;
-      }
-    },
-  }), [dismiss]);
+  useImperativeHandle(
+    ref,
+    () => ({
+      takePlayback() {
+        const element = video.current;
+        element?.pause();
+        return { currentTime: element?.currentTime ?? 0, started: startedRef.current };
+      },
+      restorePlayback(playback) {
+        const element = video.current;
+        startedRef.current = playback.started;
+        setStarted(playback.started);
+        dismiss();
+        if (element) {
+          element.pause();
+          element.currentTime = playback.currentTime;
+        }
+      },
+    }),
+    [dismiss],
+  );
 
   useEffect(() => {
     if (!previewAllowed) dismiss();

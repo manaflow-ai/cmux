@@ -98,7 +98,12 @@ await requireBrowserLane("inline-video-controls-browser.test.ts", async () => {
         const actions = [...controls];
         // Before it plays, the glass play button is Play's target (the whole poster plays it too).
         const lens = media.querySelector(".cv-media__play");
-        if (lens) controls.push({ name: "Play", rect: lens.getBoundingClientRect(), owner: lens.closest("button")! });
+        if (lens)
+          controls.push({
+            name: "Play",
+            rect: lens.getBoundingClientRect(),
+            owner: lens.closest("button")!,
+          });
         if (playing === Boolean(lens)) out.push(playing ? "the poster is still up" : "no Play button");
         const px = (value: number) => `${Math.round(value * 10) / 10} px`;
         const acting = (x: number, y: number) => document.elementFromPoint(x, y)?.closest("button, video") ?? null;
@@ -198,7 +203,9 @@ await requireBrowserLane("inline-video-controls-browser.test.ts", async () => {
         try {
           const inline = page.locator(".cv-media.is-video > .cv-media__frame video");
           await page.locator("button.cv-media__poster").click();
-          await inline.evaluate((video: HTMLVideoElement) => { video.currentTime = 2; });
+          await inline.evaluate((video: HTMLVideoElement) => {
+            video.currentTime = 2;
+          });
           await page.waitForFunction(() => {
             const video = document.querySelector("video")!;
             return !video.paused && !video.seeking && video.currentTime >= 2;
@@ -224,8 +231,13 @@ await requireBrowserLane("inline-video-controls-browser.test.ts", async () => {
           const state = await page.evaluate(() => {
             const inline = document.querySelector<HTMLVideoElement>(".cv-media.is-video > .cv-media__frame video")!;
             const expanded = document.querySelector<HTMLVideoElement>(".cv-media-stage video")!;
-            return { paused: inline.paused, inlineTime: inline.currentTime, expandedTime: expanded.currentTime,
-              muted: expanded.muted, unrelatedPaused: document.querySelector<HTMLVideoElement>("#unrelated-video")!.paused };
+            return {
+              paused: inline.paused,
+              inlineTime: inline.currentTime,
+              expandedTime: expanded.currentTime,
+              muted: expanded.muted,
+              unrelatedPaused: document.querySelector<HTMLVideoElement>("#unrelated-video")!.paused,
+            };
           });
           console.log("video handoff", state);
           expect(state.paused).toBe(true);
