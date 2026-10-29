@@ -446,10 +446,10 @@ final class CreationInputCoordinator {
 }
 
 extension CreationInputCoordinator {
-    /// False while focus names a terminal whose view does not have the keyboard and the window's
-    /// first responder is another terminal or the window itself (a remounted view), or names the
-    /// pane's selected terminal before its surface is shown: a key now would land in the wrong
-    /// terminal or nowhere. Anything else takes the keys.
+    /// False while focus names a terminal whose view does not have the keyboard (another terminal, the window itself
+    /// while its view is remounted, or another view: an agent's composer, Home's message box), or names the pane's
+    /// selected terminal before its surface is shown: a key now would land in the wrong view or nowhere. Terminal keys
+    /// go only to their terminal; the hold's bound still ends the wait. Anything else takes the keys.
     static func responderTakesKeys(_ controller: WindowController, window: NSWindow) -> Bool {
         guard case .terminal(let pane, let tab) = controller.focus.state.resolved,
               let paneController = controller.content?.paneController(key: pane) else { return true }
@@ -457,8 +457,7 @@ extension CreationInputCoordinator {
         if paneController.currentTabKey != tab { return paneController.stripModel.selectedID?.rawValue != tab }
         guard case .terminal(let entry)? = paneController.currentContent else { return true }
         guard let responder = window.firstResponder as? NSView else { return false }
-        if responder === entry.session.surfaceView || responder.isDescendant(of: entry.session.view) { return true }
-        return !(responder is TerminalSurfaceView)
+        return responder === entry.session.surfaceView || responder.isDescendant(of: entry.session.view)
     }
 }
 
