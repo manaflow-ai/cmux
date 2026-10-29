@@ -839,12 +839,6 @@ button.cv-subagent > :last-child {
   }
 }
 
-/* Legacy scrollbars reserve a lane. Rows continue under that lane like transcript
-   rows, so the pinned header/footer and the list keep the same right edge. */
-:root[data-scrollers="legacy"] .acpmux-running-tray__list {
-  overflow-y: scroll;
-  overflow-x: hidden;
-}
-:root[data-scrollers="legacy"] .acpmux-running-tray__list > li {
-  width: calc(100% + var(--cmux-scroller-size));
-}
+/* The query container is the full tray, outside the list's scrollbar lane. */
+.acpmux-running-tray { container-type: inline-size; }
+.acpmux-running-tray__list > li { width: 100cqw; }

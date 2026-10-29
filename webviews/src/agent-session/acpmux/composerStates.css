@@ -797,12 +797,7 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   outline-offset: -1.5px;
 }
 
-/* A legacy scrollbar occupies its own lane; queued rows span it, as transcript
-   rows do, without moving the final action off the composer's column. */
-:root[data-scrollers="legacy"] .acpmux-composer-queue {
-  overflow-y: scroll;
-  overflow-x: hidden;
-}
-:root[data-scrollers="legacy"] .acpmux-composer-queue > li {
-  margin-inline-end: calc(-1 * var(--cmux-scroller-size));
+/* fitList measures the real scrollbar lane, including platforms with overlay bars. */
+.acpmux-composer-queue > li {
+  margin-inline-end: calc(-1 * var(--acpmux-queue-scrollbar, 0px));
 }

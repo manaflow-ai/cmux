@@ -78,6 +78,9 @@ function fitList(list: HTMLElement) {
   // The list's own window (a test's DOM has no global one).
   const style = list.ownerDocument.defaultView?.getComputedStyle(list);
   if (!style) return;
+  const scrollbar = `${Math.max(0, list.offsetWidth - list.clientWidth)}px`;
+  if (list.style.getPropertyValue("--acpmux-queue-scrollbar") !== scrollbar)
+    list.style.setProperty("--acpmux-queue-scrollbar", scrollbar);
   const pad = parseFloat(style.paddingBottom) || 0;
   const items = [...list.children].filter((el) => !el.hasAttribute("hidden"));
   const rows = items.filter((el) => el.classList.contains("acpmux-queued"));
