@@ -203,9 +203,7 @@ extension BrowserPageService {
             for (index, file) in files.enumerated() {
                 let handle = try FileHandle(forReadingFrom: file.url)
                 defer { try? handle.close() }
-                while true {
-                    try Task.checkCancellation()
-                    guard let chunk = try handle.read(upToCount: uploadChunkBytes), !chunk.isEmpty else { break }
+                while let chunk = try Self.readUploadChunk(handle) {
                     let encoded = chunk.base64EncodedString()
                     _ = try await Self.runInput(engine, call, BrowserPageScripts.uploadChunk(selector, id: uploadID, index: index, base64: encoded)) { _ in nil }
                 }
@@ -218,6 +216,13 @@ extension BrowserPageService {
             _ = try? await Self.runInput(engine, call, BrowserPageScripts.cancelUpload(selector, id: uploadID)) { _ in nil }
             throw error
         }
+    }
+
+    /// Cancellation is checked before every file read, including the EOF read.
+    private static func readUploadChunk(_ handle: FileHandle) throws -> Data? {
+        try Task.checkCancellation()
+        guard let chunk = try handle.read(upToCount: uploadChunkBytes), !chunk.isEmpty else { return nil }
+        return chunk
     }
 
     /// A MIME type for a file extension; `application/octet-stream` when unknown.

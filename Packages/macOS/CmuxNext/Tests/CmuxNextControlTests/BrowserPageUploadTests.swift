@@ -178,7 +178,7 @@ import Testing
         let scripts = engine.scripts.withLock { $0 }
         #expect(scripts.count == 3, "only start, the in-flight chunk and cleanup may execute")
         #expect(!scripts.contains { $0.contains("new W.DataTransfer()") }, "cancelled upload must not commit files")
-        #expect(scripts.last?.contains("delete el.__cmuxUploads[") == true)
+        #expect(scripts.last?.contains("el.__cmuxUploads.delete(") == true)
     }
 
     @Test func aClickThatOpensNoChooserOnAnythingElseIsAnError() async throws {

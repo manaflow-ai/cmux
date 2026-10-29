@@ -52,19 +52,21 @@ extension BrowserPageScripts {
         return wrap(find(selector) + """
         const W = (el.ownerDocument && el.ownerDocument.defaultView) || window;
         if (!(el instanceof W.HTMLInputElement) || String(el.type).toLowerCase() !== 'file') { return { error: 'Element is not a file input: ' + raw, code: 'not_file_input' }; }
-        const uploads = el.__cmuxUploads || (el.__cmuxUploads = Object.create(null));
-        uploads[\(literal(id))] = { files: [\(files.map { "{ name: \(literal($0.name)), type: \(literal($0.type)), parts: [] }" }.joined(separator: ", "))], at: cmuxAt(el) };
-        return { value: { started: true }, at: uploads[\(literal(id))].at };
+        const uploads = el.__cmuxUploads || (el.__cmuxUploads = new Map());
+        const state = { files: [\(files.map { "{ name: \(literal($0.name)), type: \(literal($0.type)), parts: [] }" }.joined(separator: ", "))], at: cmuxAt(el) };
+        uploads.set(\(literal(id)), state);
+        return { value: { started: true }, at: state.at };
         """)
     }
 
     /// Appends one base64 chunk to the file at `index` in a started upload.
     static func uploadChunk(_ selector: String, id: String, index: Int, base64: String) -> String {
         wrap(find(selector) + """
-        const state = el && el.__cmuxUploads && el.__cmuxUploads[\(literal(id))];
-        if (!state || !state.files[\(index)]) { return { error: 'Upload is not active', code: 'upload_not_started' }; }
+        const state = el && el.__cmuxUploads && el.__cmuxUploads.get(\(literal(id)));
+        const file = state && state.files.at(\(index));
+        if (!file) { return { error: 'Upload is not active', code: 'upload_not_started' }; }
         const bytes = Uint8Array.from(atob(\(literal(base64))), (c) => c.charCodeAt(0));
-        state.files[\(index)].parts.push(bytes);
+        file.parts.push(bytes);
         return { value: { appended: bytes.byteLength } };
         """)
     }
@@ -74,7 +76,7 @@ extension BrowserPageScripts {
     static func finishUpload(_ selector: String, id: String) -> String {
         wrap(find(selector) + """
         const W = (el.ownerDocument && el.ownerDocument.defaultView) || window;
-        const state = el && el.__cmuxUploads && el.__cmuxUploads[\(literal(id))];
+        const state = el && el.__cmuxUploads && el.__cmuxUploads.get(\(literal(id)));
         if (!state) { return { error: 'Upload is not active', code: 'upload_not_started' }; }
         const dt = new W.DataTransfer();
         for (const f of state.files) dt.items.add(new W.File(f.parts, f.name, { type: f.type }));
@@ -82,7 +84,7 @@ extension BrowserPageScripts {
         el.files = dt.files;
         el.dispatchEvent(new Event('input', { bubbles: true }));
         el.dispatchEvent(new Event('change', { bubbles: true }));
-        delete el.__cmuxUploads[\(literal(id))];
+        el.__cmuxUploads.delete(\(literal(id)));
         return { value: { files: Array.from(el.files).map((f) => f.name) }, at: cmuxAt(el) };
         """)
     }
@@ -91,7 +93,7 @@ extension BrowserPageScripts {
     /// fails.
     static func cancelUpload(_ selector: String, id: String) -> String {
         wrap(find(selector) + """
-        if (el && el.__cmuxUploads) delete el.__cmuxUploads[\(literal(id))];
+        if (el && el.__cmuxUploads) el.__cmuxUploads.delete(\(literal(id)));
         return { value: { cancelled: true } };
         """)
     }

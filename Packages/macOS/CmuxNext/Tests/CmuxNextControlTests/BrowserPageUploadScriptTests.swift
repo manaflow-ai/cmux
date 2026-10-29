@@ -105,6 +105,6 @@ import WebKit
         _ = try await run(BrowserPageScripts.finishUpload("#upload", id: "D"))
         #expect(try await contents() == "keep")
         #expect(try await page.read("window.changes") == 3)
-        #expect(try await page.read("Object.keys(document.getElementById('upload').__cmuxUploads).length") == 0)
+        #expect(try await page.read("document.getElementById('upload').__cmuxUploads.size") == 0)
     }
 }
