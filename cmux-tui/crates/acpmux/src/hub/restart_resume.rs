@@ -29,6 +29,7 @@ use crate::hub::{Hub, Session};
 use crate::store::{EventRecord, RecordHead};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
+use std::collections::HashSet;
 use std::sync::Arc;
 
 /// Longest quote of one cut prompt or steer, in characters.
@@ -36,6 +37,8 @@ const MAX_QUOTE_CHARS: usize = 4_000;
 /// Longest prefix of one unfinished tool's input shown in a restart prompt.
 const MAX_TOOL_INPUT_CHARS: usize = 300;
 const MAX_TOOL_FIELD_CHARS: usize = 200;
+/// Scan beyond the displayed prefix so secrets crossing its boundary are masked first.
+const MAX_TOOL_SCAN_BYTES: usize = 4096;
 /// Maximum unfinished calls listed in a restart prompt.
 const MAX_UNFINISHED_TOOLS: usize = 32;
 
@@ -69,15 +72,25 @@ fn tool_update(record: &EventRecord) -> Option<&Value> {
 fn input_prefix(update: &Value) -> Option<String> {
     update.get("rawInput").and_then(|raw| {
         (!raw.is_null()).then(|| {
-            let mut bytes = Vec::with_capacity(MAX_TOOL_INPUT_CHARS);
-            let mut writer = BoundedJsonWriter { bytes: &mut bytes, limit: MAX_TOOL_INPUT_CHARS };
-            let _ = serde_json::to_writer(&mut writer, raw);
+            let mut bytes = Vec::with_capacity(MAX_TOOL_SCAN_BYTES);
+            let mut writer = BoundedJsonWriter { bytes: &mut bytes, limit: MAX_TOOL_SCAN_BYTES };
+            let truncated = serde_json::to_writer(&mut writer, raw).is_err();
             let valid = match std::str::from_utf8(&bytes) {
                 Ok(text) => text.len(),
                 Err(error) => error.valid_up_to(),
             };
             bytes.truncate(valid);
-            String::from_utf8(bytes).expect("valid JSON prefix")
+            let text = String::from_utf8(bytes).expect("valid JSON prefix");
+            let masked = safe_tool_text(&text, truncated, MAX_TOOL_INPUT_CHARS);
+            // The input budget is also a byte budget, including multibyte characters.
+            let end = masked
+                .char_indices()
+                .map(|(at, _)| at)
+                .chain([masked.len()])
+                .take_while(|at| *at <= MAX_TOOL_INPUT_CHARS)
+                .last()
+                .unwrap_or(0);
+            masked[..end].to_owned()
         })
     })
 }
@@ -105,7 +118,29 @@ impl std::io::Write for BoundedJsonWriter<'_> {
 }
 
 fn bounded_text(value: &str) -> String {
-    value.chars().take(MAX_TOOL_FIELD_CHARS).collect()
+    let end = value
+        .char_indices()
+        .map(|(at, _)| at)
+        .chain([value.len()])
+        .take_while(|at| *at <= MAX_TOOL_SCAN_BYTES)
+        .last()
+        .unwrap_or(0);
+    safe_tool_text(&value[..end], end < value.len(), MAX_TOOL_FIELD_CHARS)
+}
+
+/// Like the hand-off preview, discard the word crossing the scan boundary: its partial
+/// secret may not match a scanner rule. Mask before the much smaller display cut.
+fn safe_tool_text(text: &str, truncated: bool, max: usize) -> String {
+    let head = if truncated {
+        text.rfind(|c: char| c.is_whitespace() || c.is_control()).map_or("", |at| &text[..at])
+    } else {
+        text
+    };
+    let normalized: String = head.chars().map(|c| if c.is_control() { ' ' } else { c }).collect();
+    crate::hub::session::short_text(&crate::secret_scan::mask(&normalized), max)
+        .chars()
+        .take(max)
+        .collect()
 }
 
 fn enrich_tool(existing: &mut UnfinishedTool, update: &Value) {
@@ -117,17 +152,23 @@ fn enrich_tool(existing: &mut UnfinishedTool, update: &Value) {
     }
 }
 
-/// Folds one model update into the bounded set of calls still in flight. Calls beyond the cap
-/// are deliberately not retained: the prompt only promises a bounded list, and a later terminal
-/// update for one of those calls does not affect any retained entry.
-fn note_unfinished_tool(open: &mut Vec<UnfinishedTool>, omitted: &mut bool, update: &Value) {
+/// Retain display metadata for at most 32 calls. Overflow keeps only fixed-size ID digests,
+/// removed by terminal updates, so the omission notice describes calls still in flight.
+fn note_unfinished_tool(
+    open: &mut Vec<UnfinishedTool>,
+    omitted: &mut HashSet<[u8; 32]>,
+    update: &Value,
+) {
     let Some(id) = update.get("toolCallId").and_then(Value::as_str).filter(|id| !id.is_empty())
     else {
         return;
     };
     let id_digest: [u8; 32] = Sha256::digest(id.as_bytes()).into();
     match update.get("status").and_then(Value::as_str) {
-        Some("completed" | "failed") => open.retain(|tool| tool.id_digest != id_digest),
+        Some("completed" | "failed") => {
+            open.retain(|tool| tool.id_digest != id_digest);
+            omitted.remove(&id_digest);
+        }
         None if update.get("sessionUpdate").and_then(Value::as_str) == Some("tool_call_update") => {
             if let Some(existing) = open.iter_mut().find(|tool| tool.id_digest == id_digest) {
                 enrich_tool(existing, update);
@@ -136,6 +177,8 @@ fn note_unfinished_tool(open: &mut Vec<UnfinishedTool>, omitted: &mut bool, upda
         _ => {
             if let Some(existing) = open.iter_mut().find(|tool| tool.id_digest == id_digest) {
                 enrich_tool(existing, update);
+            } else if omitted.contains(&id_digest) {
+                // Its metadata was omitted already; repeated updates are not new calls.
             } else if open.len() < MAX_UNFINISHED_TOOLS {
                 let name = update
                     .get("title")
@@ -152,7 +195,7 @@ fn note_unfinished_tool(open: &mut Vec<UnfinishedTool>, omitted: &mut bool, upda
                     input: input_prefix(update),
                 });
             } else {
-                *omitted = true;
+                omitted.insert(id_digest);
             }
         }
     }
@@ -162,13 +205,13 @@ fn note_unfinished_tool(open: &mut Vec<UnfinishedTool>, omitted: &mut bool, upda
 #[cfg(test)]
 fn unfinished_tools(records: &[EventRecord]) -> (Vec<UnfinishedTool>, usize) {
     let mut open = Vec::<UnfinishedTool>::new();
-    let mut omitted = false;
+    let mut omitted = HashSet::new();
     for record in records {
         if let Some(update) = tool_update(record) {
             note_unfinished_tool(&mut open, &mut omitted, update);
         }
     }
-    (open, if omitted { 1 } else { 0 })
+    (open, omitted.len())
 }
 
 /// The text the agent gets: the cut turn's prompt, then what was steered into it.
@@ -230,7 +273,7 @@ impl Hub {
         let mut control_ended = false;
         let mut floor_cancelled = false;
         let mut unfinished = Vec::new();
-        let mut omitted_tools = false;
+        let mut omitted_tools = HashSet::new();
         let _ = self.store.scan_heads(&session.id, &mut |head: &RecordHead<'_>| {
             // Headers are cheap to inspect. Parse payloads only after the interrupted turn starts,
             // and stop at its result so a long session does not deserialize historical tool I/O.
@@ -321,7 +364,7 @@ impl Hub {
         }
         let msg = json!({"promptId": root, "attempt": attempt, "turnId": turn_id, "delayMs": 0, "reason": "daemon_restart"});
         self.append(session, "mux", "auto_resume_scheduled", msg);
-        let text = continue_text(&prompts, &unfinished, if omitted_tools { 1 } else { 0 });
+        let text = continue_text(&prompts, &unfinished, omitted_tools.len());
         let provenance = json!({"kind": "auto_resume", "reason": "daemon_restart", "promptId": root, "attempt": attempt, "turnId": turn_id});
         let control = if raised_to_web { "web" } else { control.as_deref().unwrap_or("web") };
         let mut blocks = vec![json!({"type": "text", "text": text})];
@@ -442,13 +485,13 @@ mod tests {
                 input: None,
             })
             .collect::<Vec<_>>();
-        let mut omitted = false;
+        let mut omitted = HashSet::new();
         note_unfinished_tool(
             &mut open,
             &mut omitted,
             &json!({"toolCallId": "call-overflow", "title": "overflow", "status": "in_progress"}),
         );
-        assert!(omitted);
+        assert_eq!(omitted.len(), 1);
         for n in 0..MAX_UNFINISHED_TOOLS {
             note_unfinished_tool(
                 &mut open,
@@ -457,9 +500,81 @@ mod tests {
             );
         }
         assert!(open.is_empty());
-        let text = continue_text(&[], &open, usize::from(omitted));
+        let text = continue_text(&[], &open, omitted.len());
         assert!(text.contains("Tool calls started but not finished:"), "{text}");
         assert!(text.contains("additional unfinished tool calls omitted"), "{text}");
+    }
+
+    #[test]
+    fn completed_overflow_tools_leave_no_unfinished_warning() {
+        let mut records = Vec::new();
+        let update = |id: usize, status: &str| EventRecord {
+            seq: 1,
+            at: 1,
+            dir: "in".into(),
+            kind: "tool_call_update".into(),
+            msg: json!({"params": {"update": {"sessionUpdate": "tool_call_update",
+                "toolCallId": format!("call-{id}"), "status": status}}}),
+            host_seq: None,
+        };
+        for n in 0..MAX_UNFINISHED_TOOLS + 2 {
+            records.push(update(n, "in_progress"));
+        }
+        // Repeated updates must not count the same overflow call more than once.
+        records.push(update(MAX_UNFINISHED_TOOLS, "in_progress"));
+        for n in 0..MAX_UNFINISHED_TOOLS {
+            records.push(update(n, "completed"));
+        }
+        // Even with a free display slot, an overflow update remains the same tracked call.
+        records.push(update(MAX_UNFINISHED_TOOLS, "in_progress"));
+        records.push(update(MAX_UNFINISHED_TOOLS, "completed"));
+        let (tools, omitted) = unfinished_tools(&records);
+        assert!(tools.is_empty());
+        assert_eq!(omitted, 1);
+        assert!(continue_text(&[], &tools, omitted).contains("unfinished tool calls omitted"));
+        records.push(update(MAX_UNFINISHED_TOOLS + 1, "failed"));
+        let (tools, omitted) = unfinished_tools(&records);
+        assert_eq!(omitted, 0, "completed overflow must not leave a permanent warning");
+        assert!(!continue_text(&[], &tools, omitted).contains("Tool calls started"));
+    }
+
+    #[test]
+    fn restart_tool_details_are_single_line_and_mask_secrets_before_truncation() {
+        let credential = ["abcd", "1234"].repeat(8).join("");
+        let record = EventRecord {
+            seq: 1,
+            at: 1,
+            dir: "in".into(),
+            kind: "tool_call".into(),
+            msg: json!({"params": {"update": {"sessionUpdate": "tool_call",
+                "toolCallId": "call\n\t\u{1b}1", "title": "Run\r\n\t\u{0} tests",
+                "status": "in_progress", "rawInput": {"command": format!("curl -H 'Authorization: Bearer {credential}'")}}}}),
+            host_seq: None,
+        };
+        let (tools, omitted) = unfinished_tools(&[record]);
+        let text = continue_text(&[], &tools, omitted);
+        assert!(text.contains("Run tests (id: call 1)"), "{text}");
+        assert!(!text.contains(&credential), "credentials must not enter the continuation");
+        assert!(text.contains("[auth token]"));
+        assert!(!text.contains('\u{1b}') && !text.contains('\u{0}'));
+        for prefix in [" ".repeat(270), "x".repeat(240)] {
+            let masked = input_prefix(
+                &json!({"rawInput": format!("{prefix} Authorization: Bearer {credential}")}),
+            )
+            .unwrap();
+            assert!(!masked.contains(&credential[..24]), "secret straddles display cut");
+        }
+        let masked = input_prefix(&json!({"rawInput": {"password": credential}})).unwrap();
+        assert!(!masked.contains(&credential));
+        assert!(masked.contains("[secret]"));
+        // A token longer than the scan budget is dropped whole, never exposed as a prefix.
+        let huge = credential.repeat(MAX_TOOL_SCAN_BYTES);
+        let masked =
+            input_prefix(&json!({"rawInput": format!("Authorization: Bearer {huge}")})).unwrap();
+        assert!(!masked.contains(&credential[..24]));
+        assert!(
+            !bounded_text(&format!("Authorization: Bearer {credential}")).contains(&credential)
+        );
     }
 
     #[test]
@@ -475,7 +590,7 @@ mod tests {
         assert!(tool_update(&child).is_none());
 
         let mut open = Vec::new();
-        let mut omitted = false;
+        let mut omitted = HashSet::new();
         let huge = "x".repeat(MAX_TOOL_FIELD_CHARS + 100);
         note_unfinished_tool(
             &mut open,
