@@ -113,6 +113,7 @@
 #          CMUX_TUI_TREE_TIP_WAIT_SECONDS (3000), for the tip's active publisher; CMUX_TUI_TREE_SAME_PATHS, space-separated
 #          paths, skips a commit whose copy of any of them differs from the tip's;
 #          no Mac Release compile is required: the nightly compiles the app itself)
+#        | runs-state <commit> (its cmux-tui artifacts runs: active, none, unknown, or "ended <conclusions>")
 #        | active-publisher <key> (the head commit of an active cmux-tui artifacts run whose
 #          commit has tree <key>; nothing when none; "unknown" when the runs cannot all be read)
 #        | verify-key <key> (commit=<publishing commit> when tree <key> is published and its
@@ -1704,6 +1705,10 @@ PY
     ;;
   verify-key)
     verify_key_command "${1:-}"
+    ;;
+  runs-state)
+    [[ "${1:-}" =~ ^[0-9a-f]{40}$ ]] || { echo "error: runs-state takes a 40-hex commit" >&2; exit 2; }
+    artifacts_runs_state "$1"
     ;;
   active-publisher)
     [[ "${1:-}" =~ ^[0-9a-f]{40}$ ]] || { echo "error: active-publisher takes a 40-hex tree key" >&2; exit 2; }

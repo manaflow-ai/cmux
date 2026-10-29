@@ -28,6 +28,7 @@ cp "$ROOT/scripts/cmux-next/pin-cmux-tui.sh" "$ROOT/scripts/cmux-next/await-tree
   "$TMP/src/scripts/cmux-next/"
 cp "$ROOT/scripts/ci/cmux_tui_tree_key.py" "$TMP/src/scripts/ci/"
 cp "$ROOT/scripts/ci/nightly-steps/await-tree-marker.sh" "$ROOT/scripts/ci/nightly-steps/resolve-tree-pending.sh" \
+  "$ROOT/scripts/ci/nightly-steps/recover-tree-marker-ok.sh" \
   "$TMP/src/scripts/ci/nightly-steps/"
 echo reducer > "$TMP/src/scripts/cmux-next/build-layout-reducer-ffi.sh"
 "$ROOT/scripts/cmux-next/tests/lib/tree-inputs-fixture.sh" "$TMP/src"
@@ -58,6 +59,15 @@ for ((i = 0; i < \${#args[@]}; i++)); do
     -f*|-*f) [[ "\${args[i]}" == -* && "\${args[i]}" != --* && "\${args[i]}" == *f* ]] && fail=1 ;;
     https://cdn.test/*) url="\${args[i]}" ;;
   esac
+done
+# A head_sha= runs query reads runs-<sha> beside the runs list (none when it is absent),
+# the way the API filters by commit.
+for a in "\$@"; do
+  if [[ "\$a" == file://*head_sha=* ]]; then
+    want="\${a##*head_sha=}"; want="\${want%%&*}"; f="\${a%%\\?*}"; f="\${f#file://}-\$want"
+    if [[ -f "\$f" ]]; then cat "\$f"; else echo '{"total_count":0,"workflow_runs":[]}'; fi
+    exit 0
+  fi
 done
 if [[ -z "\$url" ]]; then exec "$real_curl" "\$@"; fi
 path="$TMP/cdn/\${url#https://cdn.test/cmux-tui/}"; path="\${path%%\\?*}"
@@ -124,6 +134,14 @@ reset_cdn; set_runs "$active_run"
 client "$own" "$app"
 check '[[ $status == 1 && $took -ge 600 ]] && grep -q "after 10 min" "$TMP/err"' "an active run that never uploads fails at the limit (took $took s)"
 
+# 5b. The runs list is crowded by other commits, but a candidate's own run is active:
+# the wait goes on to the limit instead of failing fast.
+reset_cdn; set_runs "$no_runs"
+printf '%s\n' "{\"total_count\":1,\"workflow_runs\":[{\"id\":2,\"status\":\"queued\",\"head_sha\":\"$own\"}]}" > "$runs_dir/runs-$own"
+client "$own" "$app"
+check '[[ $status == 1 && $took -ge 600 ]] && grep -q "is building tree" "$TMP/err"' "a candidate's own active run counts as a publisher (took $took s)"
+rm -f "$runs_dir/runs-$own"
+
 # 6. Bad usage.
 status=0; (cd "$TMP/src" && bash scripts/cmux-next/await-tree-client.sh nope "$own" 2>/dev/null) || status=$?
 check '[[ $status == 2 ]]' "a malformed key is a usage error"
@@ -165,5 +183,24 @@ reset_cdn; publish_tree "$own"; publish_manifest "$own"; pending
 check '[[ $status == 0 ]] && grep -qx "tree_pending=false" "$TMP/gh-output"' "a published tip leaves it to the resolver"
 reset_cdn; mkdir -p "$TMP/cdn/tree/$key"; echo garbage > "$TMP/cdn/tree/$key/cmux-tui-aarch64-apple-darwin.sha256"; pending
 check '[[ $status == 0 ]] && grep -qx "tree_pending=false" "$TMP/gh-output"' "an unverifiable tree is not taken as pending"
+
+# Recovery: a run's await-nightly-tree-marker must have passed (or not exist).
+mkdir -p "$TMP/ghbin"
+cat > "$TMP/ghbin/gh" <<'GH'
+#!/usr/bin/env bash
+case "$GH_MODE" in
+  ok) echo success ;; skipped) echo skipped ;; none) ;; failed) echo failure ;; running) echo pending ;;
+  unreadable) exit 1 ;;
+esac
+GH
+chmod +x "$TMP/ghbin/gh"
+for mode in ok skipped none failed running unreadable; do
+  status=0
+  why=$(cd "$TMP/src" && PATH="$TMP/ghbin:$PATH" GH_MODE=$mode GITHUB_REPOSITORY=o/r bash scripts/ci/nightly-steps/recover-tree-marker-ok.sh 123 2>&1) || status=$?
+  case "$mode" in
+    ok|skipped|none) check '[[ $status == 0 ]]' "recovery allows a run whose marker check is $mode" ;;
+    *) check '[[ $status == 1 && -n $why ]]' "recovery refuses a run whose marker check is $mode ($why)" ;;
+  esac
+done
 
 (( fail == 0 )) && echo "PASS: nightly tree at install" || { echo "FAIL: nightly tree at install"; exit 1; }

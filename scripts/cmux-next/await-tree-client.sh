@@ -20,7 +20,8 @@
 # client from a commit that did not publish the tree is never published.
 #
 # Fails fast when nothing will publish the tree: every CMUX_TUI_TREE_CLIENT_RUN_CHECK_SECONDS
-# (default 300) it asks pin-cmux-tui.sh active-publisher <key>, and two answers
+# (default 300) it reads each candidate's cmux-tui artifacts runs (pin-cmux-tui.sh runs-state)
+# and then pin-cmux-tui.sh active-publisher <key>, and two answers
 # in a row of "no active cmux-tui artifacts run has this tree" end the wait
 # (an unreadable runs list keeps waiting). Otherwise it waits up to
 # CMUX_TUI_TREE_CLIENT_WAIT_SECONDS (default 2700), checking every
@@ -79,7 +80,18 @@ while :; do
   elapsed=$(( $(date +%s) - started ))
   if (( elapsed >= next_check )); then
     next_check=$(( elapsed + check_seconds ))
-    publisher="$(bash "$script_dir/pin-cmux-tui.sh" active-publisher "$key" 2>/dev/null || echo unknown)"
+    # The candidates' own runs first (a filtered read each), then the newest runs of any
+    # commit with this tree: 50 newer runs elsewhere must not hide a candidate's publisher.
+    publisher=""
+    for candidate in "$@"; do
+      case "$(bash "$script_dir/pin-cmux-tui.sh" runs-state "$candidate" 2>/dev/null || echo unknown)" in
+        active) publisher="$candidate"; break ;;
+        unknown) publisher=unknown ;;
+      esac
+    done
+    if [[ -z "$publisher" ]]; then
+      publisher="$(bash "$script_dir/pin-cmux-tui.sh" active-publisher "$key" 2>/dev/null || echo unknown)"
+    fi
     case "$publisher" in
       unknown) idle_checks=0; echo "the cmux-tui artifacts runs could not all be read; waiting on" >&2 ;;
       "") idle_checks=$(( idle_checks + 1 )); echo "no active cmux-tui artifacts run has tree $key (check $idle_checks of 2)" >&2 ;;

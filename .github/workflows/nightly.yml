@@ -3129,14 +3129,9 @@ jobs:
       tip_sha: ${{ needs.decide.outputs.head_sha }}
       behind: ${{ steps.build.outputs.behind }}
       behind_hours: ${{ steps.build.outputs.behind_hours }}
-      # decide compares the TIP with the published marker; this compares the
-      # resolved build commit, so a run whose tip moved but whose resolved
-      # commit is already published builds nothing.
+      # The resolved build commit against the published marker (decide reads the tip).
       already_published: ${{ steps.build.outputs.already_published }}
-      # A nightly-next push whose ref has already moved on builds nothing: the
-      # newer push's run builds the tip. Checked here, the last thing before
-      # build-nightly-app enters its shared slot, so an older run can never
-      # take the slot from a newer one.
+      # A nightly-next push whose ref moved on builds nothing; the newer push's run builds the tip.
       superseded: ${{ steps.superseded.outputs.superseded }}
     steps:
       - name: Checkout build ref
@@ -5852,7 +5847,7 @@ jobs:
 
   await-nightly-tree-marker:
     needs: [decide, resolve-nightly-cmux-tui-client, build-nightly-app]
-    if: needs.resolve-nightly-cmux-tui-client.outputs.tree_pending == 'true' && needs.build-nightly-app.result == 'success'
+    if: (needs.resolve-nightly-cmux-tui-client.outputs.tree_pending == 'true' || inputs.nightly_next_unsigned_run != '') && needs.build-nightly-app.result == 'success'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
     permissions:
       contents: read
@@ -5869,7 +5864,7 @@ jobs:
         env:
           BUILD_SHA: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
           KEY: ${{ needs.resolve-nightly-cmux-tui-client.outputs.key }}
-          INSTALLED: ${{ needs.build-nightly-app.outputs.cmux_tui_commit }}
+          INSTALLED: ${{ needs.build-nightly-app.outputs.cmux_tui_commit || needs.resolve-nightly-cmux-tui-client.outputs.commit }}
         run: bash .publish-tooling/scripts/ci/nightly-steps/await-tree-marker.sh
 
   publish-nightly:
@@ -5915,7 +5910,7 @@ jobs:
       downloads: ${{ steps.notes.outputs.downloads }}
       feed_written: ${{ steps.upload_next_appcasts.outputs.feed_written }}
       feed_check: ${{ steps.feedcheck.outcome }}
-    if: "!cancelled() && needs.decide.result == 'success' && needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.decide.outputs.no_publish != 'true' && (((needs.build-sign-notarize-nightly.result == 'success' || needs.signer-dmg.result == 'success') && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true' && needs.verify-signed-nightly.result == 'success' && needs.verify-final-dmg-nightly.result == 'success' && (needs.resolve-nightly-cmux-tui-client.outputs.tree_pending != 'true' || needs.await-nightly-tree-marker.result == 'success')) || (needs.recover-nightly-next-notarization.outputs.accepted == 'true' && needs.verify-recovered-nightly-next.result == 'success'))"
+    if: "!cancelled() && needs.decide.result == 'success' && needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.decide.outputs.no_publish != 'true' && (((needs.build-sign-notarize-nightly.result == 'success' || needs.signer-dmg.result == 'success') && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true' && needs.verify-signed-nightly.result == 'success' && needs.verify-final-dmg-nightly.result == 'success') || (needs.recover-nightly-next-notarization.outputs.accepted == 'true' && needs.verify-recovered-nightly-next.result == 'success'))"
     # The release App key remains scoped to this protected environment.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-32vcpu-ubuntu-2404' }}
     timeout-minutes: 120
@@ -5944,6 +5939,8 @@ jobs:
           # verify-final-dmg-nightly its final DMG.
           OWN_VERIFIED: ${{ needs.verify-signed-nightly.result }}
           OWN_DMG_VERIFIED: ${{ needs.verify-final-dmg-nightly.result }}
+          # NIGHTLY_NEXT_TREE_AT_INSTALL: a build made before its tree published, or resumed, needs await-nightly-tree-marker.
+          OWN_TREE: ${{ (needs.resolve-nightly-cmux-tui-client.outputs.tree_pending != 'true' && inputs.nightly_next_unsigned_run == '' || needs.await-nightly-tree-marker.result == 'success') && 'ok' || 'unmarked' }}
           RECOVERED_VERIFIED: ${{ needs.verify-recovered-nightly-next.result }}
           OWN_BUILD: ${{ needs.build-nightly-app.outputs.daemon_build }}
           OWN_BUILD_SHA: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
@@ -5959,7 +5956,7 @@ jobs:
           RECOVERED_BEHIND_HOURS: ${{ needs.recover-nightly-next-notarization.outputs.behind_hours }}
         run: |
           set -euo pipefail
-          if [ "$OWN_RESULT" = success ] && [ "$OWN_PENDING" != true ] && [ "$OWN_VERIFIED" = success ] && [ "$OWN_DMG_VERIFIED" = success ]; then
+          if [ "$OWN_RESULT" = success ] && [ "$OWN_PENDING" != true ] && [ "$OWN_VERIFIED" = success ] && [ "$OWN_DMG_VERIFIED" = success ] && [ "$OWN_TREE" = ok ]; then
             source=own build="$OWN_BUILD" build_sha="$OWN_BUILD_SHA" tip_sha="$OWN_TIP_SHA"
             behind="$OWN_BEHIND" behind_hours="$OWN_BEHIND_HOURS" pattern="cmux-nightly-variant-*"
             tested_pattern="cmux-nightly-tested-*"
