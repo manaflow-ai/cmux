@@ -597,6 +597,9 @@ async fn a_send_to_a_name_no_peer_has_goes_through_the_hub_and_is_delivered_with
     keyed["request"]["_meta"]["acpmux"]["supersede"] = json!("status");
     let keyed = sender.call("_acpmux/send_queue", keyed).await;
     assert_eq!(keyed.pointer("/error/data/reason"), Some(&json!("mesh.no_supersede")), "{keyed}");
+    // `acpmux send` reads "no session" in an error as not found and drops the rest of it.
+    let said = keyed.pointer("/error/message").and_then(Value::as_str).unwrap_or_default();
+    assert!(said.contains("--supersede") && !said.contains("no session"), "{keyed}");
     assert_eq!(fake.with(|s| s.sent.len()), posted, "a keyed send reached the hub");
     relay.stop().await;
 }

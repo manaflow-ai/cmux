@@ -45,13 +45,15 @@ pub(super) async fn send(
     target: &str,
 ) -> Result<Value, RpcError> {
     let mut texts = Vec::new();
+    // These refusals never say "no session": `acpmux send` turns any error with those words into
+    // its own not-found error (cli/run/send_async.rs), which would hide what to change.
     for block in request.get("prompt").and_then(Value::as_array).into_iter().flatten() {
         match (block.get("type").and_then(Value::as_str), block.get("text").and_then(Value::as_str))
         {
             (Some("text"), Some(text)) => texts.push(text),
             _ => {
                 return Err(RpcError::invalid_params(format!(
-                    "{target:?} is no session here or on a peer, and the mesh relay carries text only: send it without attachments"
+                    "{target:?} is reached only through the mesh relay, which carries text only: send it without attachments"
                 ))
                 .with_data(json!({"reason": "mesh.text_only", "session": target})));
             }
@@ -63,7 +65,7 @@ pub(super) async fn send(
     // prompt: refused, never dropped (a send that says it replaced nothing it was asked to).
     if field("supersede").is_some_and(|k| !k.is_null()) {
         return Err(RpcError::invalid_params(format!(
-            "{target:?} is no session here or on a peer, and the mesh relay cannot carry --supersede: send it without one"
+            "{target:?} is reached only through the mesh relay, which cannot carry --supersede: send it without one"
         ))
         .with_data(json!({"reason": "mesh.no_supersede", "session": target})));
     }
