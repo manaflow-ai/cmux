@@ -42,9 +42,7 @@ fn read() -> Result<Option<Pending>> {
     if p.version != 1
         || !valid
         || origin(Some(p.hub.clone())).ok().as_deref() != Some(&p.hub)
-        || p.name.is_empty()
-        || p.name.len() > 63
-        || p.name.chars().any(char::is_control)
+        || !valid_name(&p.name)
         || !matches!(p.platform.as_str(), "macos" | "linux")
     {
         return Err(store_error().into());
@@ -100,7 +98,7 @@ fn write_with_temp(path: &Path, bytes: &[u8], replace: bool, temp: &Path) -> Res
         } else {
             std::fs::hard_link(temp, path)?;
         }
-        std::fs::File::open(parent)?.sync_all()?;
+        sync_ancestors(parent)?;
         Ok(())
     })();
     let _ = std::fs::remove_file(temp); // only the file this call created
@@ -109,6 +107,30 @@ fn write_with_temp(path: &Path, bytes: &[u8], replace: bool, temp: &Path) -> Res
 #[cfg(not(unix))]
 pub(super) fn write_durable(_: &Path, _: &[u8], _: bool) -> Result<()> {
     Err(store_error().into())
+}
+
+fn valid_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 63
+        && !name.chars().any(char::is_control)
+        && !name.contains("cmj_")
+        && !name.contains("cmm_")
+}
+
+// Sync every ancestor, including newly created custom state roots. A leaf
+// directory fsync alone does not make that directory's own name durable.
+fn sync_ancestors(dir: &Path) -> Result<()> {
+    sync_ancestors_with(dir, |path| {
+        std::fs::File::open(path)?.sync_all()?;
+        Ok(())
+    })
+}
+fn sync_ancestors_with(dir: &Path, mut sync: impl FnMut(&Path) -> Result<()>) -> Result<()> {
+    let canonical = std::fs::canonicalize(dir)?;
+    for ancestor in canonical.ancestors() {
+        sync(ancestor)?;
+    }
+    Ok(())
 }
 
 fn error(exit: i32, message: &str) -> anyhow::Error {
@@ -171,13 +193,12 @@ async fn probe(p: &Pending) -> Result<Probe> {
     {
         return Err(hub_error());
     }
-    if let Some(old) = &p.prior {
-        if old.machine_id != machine_id
+    if let Some(old) = &p.prior
+        && (old.machine_id != machine_id
             || old.team_id != team_id
-            || generation <= old.credential_generation
-        {
-            return Err(hub_error());
-        }
+            || generation <= old.credential_generation)
+    {
+        return Err(hub_error());
     }
     Ok(Probe::Live(MachineCredential {
         credential: p.credential.clone(),
@@ -200,7 +221,7 @@ fn complete(p: &Pending, record: &MachineCredential, json_out: bool) -> Result<(
     // Remove the immutable recovery proof only after final + relay are durable.
     crate::config::private_state_file(&state_dir().join(FILE)).map_err(|_| store_error())?;
     std::fs::remove_file(state_dir().join(FILE)).map_err(|_| store_error())?;
-    std::fs::File::open(state_dir()).and_then(|f| f.sync_all()).map_err(|_| store_error())?;
+    sync_ancestors(&state_dir()).map_err(|_| store_error())?;
     warn_existing_helpers();
     if json_out {
         crate::cli::output::print_json(
@@ -210,6 +231,39 @@ fn complete(p: &Pending, record: &MachineCredential, json_out: bool) -> Result<(
         println!("joined {} ({})", record.name, record.machine_id);
     }
     Ok(())
+}
+
+/// The local revocation bit may lag the hub. Resolve before using a final
+/// credential as replacement proof; unknown/expired credentials cannot prove
+/// replacement either. The server still refuses any active key without proof.
+async fn replacement_proof(mut old: MachineCredential) -> Result<Option<MachineCredential>> {
+    let hub = origin(Some(old.hub_origin.clone())).map_err(|_| store_error())?;
+    let response = http_client()
+        .map_err(|_| hub_error())?
+        .get(format!("{hub}/v1/machines/credentials/self"))
+        .bearer_auth(&old.credential)
+        .send()
+        .await
+        .map_err(|_| hub_error())?;
+    let status = response.status();
+    let body: Value = response.json().await.map_err(|_| hub_error())?;
+    if status.as_u16() == 401
+        && matches!(body["code"].as_str(), Some("machine.revoked" | "machine.unknown"))
+    {
+        return Ok(None);
+    }
+    if !status.is_success()
+        || body["machineId"] != old.machine_id
+        || body["teamId"] != old.team_id
+        || body["wgPublicKey"] != old.wg_public_key
+    {
+        return Err(hub_error());
+    }
+    old.credential_generation = body["credentialGeneration"]
+        .as_u64()
+        .filter(|n| *n > 0 && *n >= old.credential_generation)
+        .ok_or_else(hub_error)?;
+    Ok(Some(old))
 }
 
 fn new_pending(
@@ -257,7 +311,7 @@ pub(super) async fn join(
                 Ok(())
             })
             .map_err(|_| store_error())?;
-        std::fs::File::open(state_dir()).and_then(|f| f.sync_all()).map_err(|_| store_error())?;
+        sync_ancestors(&state_dir()).map_err(|_| store_error())?;
         if hub.as_ref().is_some_and(|h| origin(Some(h.clone())).ok().as_deref() != Some(&p.hub))
             || name.as_ref().is_some_and(|n| n != &p.name)
         {
@@ -283,14 +337,21 @@ pub(super) async fn join(
         }
         let hub = origin(hub).map_err(|_| error(2, "hub origin is malformed"))?;
         let name = local_name(name);
-        if name.is_empty() || name.len() > 63 || name.chars().any(char::is_control) {
+        if !valid_name(&name) {
             return Err(error(2, "machine name is malformed"));
         }
-        let prior = if replace { load().map_err(|_| store_error())? } else { None };
+        let prior = if replace {
+            match load().map_err(|_| store_error())? {
+                Some(old) => replacement_proof(old).await?,
+                None => None,
+            }
+        } else {
+            None
+        };
         if prior.as_ref().is_some_and(|old| old.hub_origin != hub) {
             return Err(error(3, "existing enrollment cannot authorize replacement"));
         }
-        new_pending(hub, name, prior.filter(|old| !old.revoked), false)?
+        new_pending(hub, name, prior, false)?
     };
     let token =
         token.ok_or_else(|| error(2, "join incomplete; original join token required on stdin"))?;
@@ -325,6 +386,31 @@ pub(super) async fn join(
 mod tests {
     use super::*;
     use std::os::unix::fs::{PermissionsExt, symlink};
+
+    #[test]
+    fn custom_state_ancestors_are_synced_and_errors_stop_the_commit() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = dir.path().join("new/config/state");
+        std::fs::create_dir_all(&state).unwrap();
+        let canonical = std::fs::canonicalize(&state).unwrap();
+        let mut seen = Vec::new();
+        sync_ancestors_with(&state, |path| {
+            seen.push(path.to_owned());
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(seen, canonical.ancestors().map(Path::to_owned).collect::<Vec<_>>());
+        let mut count = 0;
+        assert!(
+            sync_ancestors_with(&state, |_| {
+                count += 1;
+                anyhow::ensure!(count < 3, "injected ancestor sync failure");
+                Ok(())
+            })
+            .is_err()
+        );
+        assert_eq!(count, 3);
+    }
 
     #[test]
     fn durable_pending_is_private_immutable_and_cannot_follow_links() {
