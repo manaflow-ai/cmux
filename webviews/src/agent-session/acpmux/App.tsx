@@ -1859,7 +1859,7 @@ export const FOLLOW_BOTTOM_DEADBAND_PX = 4;
 
 /// Where a scroller sits, read while its content still matches `totalHeight`.
 const scrollPosition = (node: HTMLElement, totalHeight: number) => ({
-  top: layoutScrollTop(node),
+  top: node.scrollTop,
   atLatest: layoutScrollTop(node) >= totalHeight - node.clientHeight - FOLLOW_BOTTOM_DEADBAND_PX,
 });
 
@@ -4158,7 +4158,7 @@ export function VirtualTranscript({
             sessionId={sessionId}
             layout={layout}
             scroller={ref}
-            scrollTop={renderScroll.top}
+            scrollTop={renderScroll.top - origin}
             // Above the room under the last row, so a composer that grows while the reader is scrolled
             // up leaves the map as it was, as it does the scrollbar.
             viewportHeight={height - room}
