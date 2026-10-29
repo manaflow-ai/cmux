@@ -3052,6 +3052,8 @@ def open_head_guard(api: GitHub, target: Target, sleep: Callable[[float], None],
         if before_cancel is not None:
             before_cancel()
         jobs = read(lambda: api.jobs(target.run_id, target.attempt), sleep, log)
+        if len(jobs) >= MAX_JOB_PAGES * 100:
+            raise OpenHeadStarted(f"the run lists {len(jobs)} jobs, maybe more, so none can be shown unstarted")
         run = read(lambda: api.run(target.run_id), sleep, log) or {}
         attempt = int(run.get("run_attempt") or 0)
         if attempt != target.attempt:
@@ -3224,7 +3226,10 @@ def resume_rerun(api: GitHub, target: Target, *, now: Callable[[], dt.datetime],
         result = settle_and_rerun(api, target, now=now, sleep=sleep, log=log, failed_only=not every_job,
                                   keep_main=False)
     except Exception:
-        settled_here(api, target, log)
+        # A pull request's run (cancelled by an open-head failover, unstarted_failover()) stays unsettled when its
+        # re-run fails, so the next successor tries again instead of leaving the run cancelled at its open head.
+        if not target.pr_number:
+            settled_here(api, target, log)
         raise
     settled_here(api, target, log)
     return result

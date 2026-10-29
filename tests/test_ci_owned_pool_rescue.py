@@ -5785,6 +5785,31 @@ class OpenHeadUnstartedFailover(unittest.TestCase):
         self.assertFalse(any(line.startswith(rescue.CANCEL_SETTLED) for line in lines), lines)
         self.assertNotIn((RUN_ID, 1), rescue.SETTLED_HERE)
 
+    def test_the_guard_refuses_a_listing_that_grew_past_its_pages(self):
+        state = {"looks": 0}
+
+        def grows(seconds):
+            state["looks"] += 1
+            if state["looks"] == 1:
+                return self.gates(seconds)
+            return [job(f"shard {index}", labels=[SESSION], created=-240) for index in range(rescue.MAX_JOB_PAGES * 100)]
+        clock, api, target = self.world(grows)
+        result, _ = self.run_rescue(api, clock, target)
+        self.assertNotIn("cancel", api.calls)
+        self.assertIn("maybe more", result)
+
+    def test_a_resumed_rerun_that_fails_leaves_a_pull_requests_cancel_unsettled(self):
+        clock, api, target = self.world(self.gates)
+        api.cancel(RUN_ID)
+
+        def broken(run_id, next_attempt):
+            raise rescue.urllib.error.URLError("rerun refused")
+        api.rerun = broken
+        lines = []
+        with self.assertRaises(Exception):
+            rescue.resume_rerun(api, target, now=clock.now, sleep=clock.sleep, log=lines.append, every_job=True)
+        self.assertFalse(any(line.startswith(rescue.CANCEL_SETTLED) for line in lines), lines)
+
     def test_nightly_dev_and_dispatch_targets_never_fail_over(self):
         for extra in ({"path": DEV_DAILY}, {"path": rescue.NIGHTLY_WORKFLOW_PATH, "nightly": True},
                       {"e2e": True, "path": ".github/workflows/test-ios.yml"}):
