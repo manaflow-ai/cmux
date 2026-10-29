@@ -98,9 +98,9 @@ import Testing
         defer { window.orderOut(nil) }
         var model = Self.model()
         model.rows = [NativePopupRow(id: "control", kind: kind, label: "Control", value: kind == .choice ? "0" : "0",
-                                     minimum: kind == .slider ? 0 : nil, maximum: kind == .slider ? 1 : nil,
                                      options: kind == .choice ? [NativePopupOption(id: "0", label: "First"),
-                                                                 NativePopupOption(id: "1", label: "Second")] : nil)]
+                                                                 NativePopupOption(id: "1", label: "Second")] : nil,
+                                     minimum: kind == .slider ? 0 : nil, maximum: kind == .slider ? 1 : nil)]
         content.update(model)
         window.makeKeyAndOrderFront(nil)
         let original = try #require(Self.descendants(of: content).first { $0 is NSSegmentedControl || $0 is NSSlider })
