@@ -36,8 +36,14 @@ extension TabStripView {
 
     private func syncSelection(_ input: ModelSnapshot) {
         let selected = input.selectedID
-        if let lastSelectedID { cells[lastSelectedID]?.isSelected = false }
-        if let selected { cells[selected]?.isSelected = true }
+        if let lastSelectedID, let cell = cells[lastSelectedID] {
+            cell.isSelected = false
+            cell.showsZoom = false
+        }
+        if let selected, let cell = cells[selected] {
+            cell.isSelected = true
+            cell.showsZoom = input.zoomsSelected // the zoom indicator follows the selection
+        }
         let multiChanged = input.multiSelection != lastSyncedInput?.multiSelection
         if multiChanged { applyMultiSelection() }
         lastSyncedInput = input
@@ -162,6 +168,7 @@ extension TabStripView {
         for item in displayed {
             let cell = cells[item.id]
             cell?.isSelected = item.id == model.selectedID
+            cell?.showsZoom = model.zoomsSelected && item.id == model.selectedID
             cell?.style = model.style
         }
         applyMultiSelection()
@@ -243,6 +250,8 @@ extension TabStripView {
         if closeHoveredID == id { closeHoveredID = nil }
         if audioHoveredID == id { setAudioHovered(nil) }
         if pressedAudioID == id { pressedAudioID = nil }
+        if zoomHoveredID == id { zoomHoveredID = nil }
+        if pressedZoomID == id { pressedZoomID = nil }
     }
 
     /// Drops `id`'s place and the moves that tracked it.

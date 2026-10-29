@@ -38,6 +38,14 @@ extension TabStripView {
         return rect.insetBy(dx: -3, dy: -4).contains(inCell)
     }
 
+    /// Whether `point` (strip coordinates) is on tab `id`'s zoom indicator, with the speaker's slack.
+    func isInZoomButton(_ id: TabID, _ point: CGPoint) -> Bool {
+        guard let cell = cells[id], let rect = cell.zoomButtonRect, !isInCloseButton(id, point) else { return false }
+        let local = convert(point, to: tabsClip)
+        let inCell = CGPoint(x: local.x - cell.frame.minX, y: local.y - cell.frame.minY)
+        return rect.insetBy(dx: -3, dy: -4).contains(inCell)
+    }
+
     func isInNewTabButton(_ point: CGPoint) -> Bool {
         !newTabButton.isHidden && newTabButton.frame.contains(convert(point, to: contentView))
     }
@@ -69,21 +77,27 @@ extension TabStripView {
             closeHoveredID = closeID
             if let closeID { cells[closeID]?.isCloseHovered = true }
         }
-        setAudioHovered(id.flatMap { isInAudioButton($0, point) ? $0 : nil })
+        setAudioHovered(id.flatMap { isInAudioButton($0, point) ? $0 : nil }, zoom: id.flatMap { isInZoomButton($0, point) ? $0 : nil })
         newTabButton.isHovered = !dragging && isInNewTabButton(point)
 
         // The coordinator hit-tests the pointer itself (`TabHoverCardController.target`).
         if moved, let window { hoverCards.pointerMoved(to: window.convertPoint(toScreen: convert(point, to: nil))) }
     }
 
-    /// The speaker under the pointer: its fill, and a tooltip naming what a click does.
-    func setAudioHovered(_ id: TabID?) {
+    /// The speaker or zoom indicator under the pointer: its fill, and a tooltip naming what a click does.
+    func setAudioHovered(_ id: TabID?, zoom: TabID? = nil) {
         if id != audioHoveredID {
             if let audioHoveredID { cells[audioHoveredID]?.isAudioHovered = false }
             audioHoveredID = id
             if let id { cells[id]?.isAudioHovered = true }
         }
+        if zoom != zoomHoveredID {
+            if let zoomHoveredID { cells[zoomHoveredID]?.isZoomHovered = false }
+            zoomHoveredID = zoom
+            if let zoom { cells[zoom]?.isZoomHovered = true }
+        }
         let tip = id.flatMap { cells[$0]?.item.audio }.map { $0 == .muted ? Strings.unmuteTab : Strings.muteTab }
+            ?? zoom.map { _ in Strings.exitZoom }
         // tooltip-native-allow: the strip's speakers are layers, not views; a themed tracker added while the
         // pointer is already inside gets no mouseEntered, and one anchors below the whole strip.
         if toolTip != tip { toolTip = tip }
@@ -169,6 +183,12 @@ extension TabStripView {
                 cells[id]?.isAudioPressed = true
                 return
             }
+            // So is a zoomed pane's indicator: its release restores the layout (cmux classic).
+            if isInZoomButton(id, point) {
+                pressedZoomID = id
+                cells[id]?.isZoomPressed = true
+                return
+            }
             // The first click selected the tab; the second renames it (the screen bar) or zooms its pane.
             if event.clickCount == 2, Self.selectionClick(event.modifierFlags) == .plain {
                 if renamesOnDoubleClick { beginInlineRename(id) } else { model.send(.toggleZoom(id)) }
@@ -197,6 +217,10 @@ extension TabStripView {
         }
         if let id = pressedAudioID {
             cells[id]?.isAudioPressed = isInAudioButton(id, point)
+            return
+        }
+        if let id = pressedZoomID {
+            cells[id]?.isZoomPressed = isInZoomButton(id, point)
             return
         }
         if drag != nil {
@@ -230,6 +254,13 @@ extension TabStripView {
             pressedAudioID = nil
             cells[id]?.isAudioPressed = false
             if isInAudioButton(id, point) { model.send(.toggleAudioMute(id)) }
+            updateHover(at: point, moved: false)
+            return
+        }
+        if let id = pressedZoomID {
+            pressedZoomID = nil
+            cells[id]?.isZoomPressed = false
+            if isInZoomButton(id, point) { model.send(.toggleZoom(id)) }
             updateHover(at: point, moved: false)
             return
         }
