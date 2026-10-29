@@ -50,10 +50,6 @@ final class AppControl {
     let terminalDisplayProbe: DebugTerminalDisplayProbe
     /// `debug.motion`'s Core Animation commit timer (`ca.commit`), owned here, not by a static.
     let motionCommitProbe = MotionCommitProbe()
-    #if CMUX_PGO_PROFILE
-    /// The profile build's flushes (`LaunchOrder.profileFlush`): `debug.pgo_flush` writes the rest profile.
-    var profileFlush: ProfileFlush?
-    #endif
     #if DEBUG || CMUX_BENCH_HOOKS
     private let keySequencePlayer = DebugKeySequencePlayer() // `debug.key` sequences' player (one at a time), not a static
     let hops = InputTurnHops() // `debug.input hops`; the MainJobGate hook (021) records into `hops.recorder`
@@ -145,7 +141,6 @@ final class AppControl {
             AppProcesses.chromiumHelpers(helperParent: parent.pid)
         }
         registerSyncBarrier(service.router, daemon: services.daemon)
-        registerOracleSettle(service.router, services: services)
     }
 
     /// The error journal (`cmux errors`): app log, page consoles, acpmux, Chief, crash reports.

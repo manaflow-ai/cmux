@@ -1914,20 +1914,6 @@ impl WorkspaceRegistry {
     }
 }
 
-#[cfg(any(debug_assertions, feature = "oracle"))]
-impl SessionJournalReader {
-    /// [`WorkspaceRegistry::journal_checkpoint`] on this reader's own
-    /// read-only connection, with no registry lock (`oracle-restore-preview`);
-    /// `latest` is the latest at or before `through` when it is given.
-    pub(crate) fn journal_checkpoint(
-        &self,
-        selector: &str,
-        through: Option<u64>,
-    ) -> anyhow::Result<Option<JournalCheckpoint>> {
-        query_selected_journal_checkpoint(&self.connection, selector, through)
-    }
-}
-
 /// The checkpoint `selector` names (`latest` at or before `through`, or a
 /// checkpoint id) on `connection`: the registry writer's, or a
 /// `SessionJournalReader`'s own.

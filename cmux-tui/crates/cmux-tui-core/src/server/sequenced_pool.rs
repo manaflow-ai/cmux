@@ -582,7 +582,8 @@ impl Sequence {
         // The worker starts under the lock (only while the priority grows
         // to its count), so whether one is live is known before the post
         // returns: a task that nothing could run is refused, not queued.
-        if self.shared.spawn_worker_locked(&mut state, priority) || state.workers[priority].live > 0 {
+        if self.shared.spawn_worker_locked(&mut state, priority) || state.workers[priority].live > 0
+        {
             return Ok(());
         }
         let task = self.take_back(&mut state, priority);
@@ -639,7 +640,8 @@ impl Sequence {
         }
         // As in `post`: the worker starts under the lock, so a delayed task
         // that no worker could ever promote is refused, not kept.
-        if self.shared.spawn_worker_locked(&mut state, priority) || state.workers[priority].live > 0 {
+        if self.shared.spawn_worker_locked(&mut state, priority) || state.workers[priority].live > 0
+        {
             return Ok(());
         }
         // It is the earliest, so the heap's top: nothing else moved.
