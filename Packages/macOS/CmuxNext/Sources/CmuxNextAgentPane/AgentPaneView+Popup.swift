@@ -20,7 +20,7 @@ extension AgentPaneView {
             }
             return ["ok": true, "value": host.show(model)]
         case "popup.hide":
-            popupHostStorage?.hide()
+            popupHostStorage?.hideRequest(params)
             return ["ok": true, "value": [:] as [String: Any]]
         default:
             return AgentPaneReply.failure(code: "unknown_method", message: "Unknown popup method")
