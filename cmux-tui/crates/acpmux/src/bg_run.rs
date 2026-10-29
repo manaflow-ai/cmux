@@ -16,9 +16,12 @@
 //! `segment` bytes a new file starts and the one before the previous is deleted: at most two are
 //! kept, the newest 8 MiB by default. A reader opens the files first and reads its descriptors.
 //!
-//! Stop: one byte written to `<id>.ctl`. A writer's open fails (ENXIO) unless this runner holds
-//! the FIFO open, so a stop never reaches anything but this runner; nothing signals its pid. Before
-//! the task starts, SIGTERM or SIGINT ends the runner; after, it stops the task like a stop byte
+//! Stop: the folder's generation and a newline written to `<id>.ctl` in one write. A writer's open
+//! fails (ENXIO) unless this runner holds the FIFO open, so a stop never reaches anything but this
+//! runner; nothing signals its pid. The runner stops only for its own [`Spec::generation`]: a
+//! runner whose FIFO landed in a later folder of the same chat id (a purge moved its folder aside
+//! while it started) ignores that folder's stops, so a chat never stops another chat's task. Before
+//! the task starts, SIGTERM or SIGINT ends the runner; after, it stops the task like a stop line
 //! does: SIGTERM to the task's own group, then SIGKILL to the group after [`GRACE`]. Only the
 //! runner signals that group, and only before it reaps the leader, so the group id is still the
 //! task's. SIGHUP is ignored. The runner learns the leader's exit with `waitid(WNOWAIT)` and reaps
@@ -232,9 +235,13 @@ pub fn read_output(dir: &Path, id: &str, from: Option<u64>, max: u64) -> std::io
     Ok(Output { data, start, total, kept_from })
 }
 
-/// Asks the task's runner to stop it; false when no runner holds its FIFO (the task ended).
+/// The longest stop line a runner reads; a longer one is dropped, never kept growing.
+const STOP_LINE_MAX: usize = 128;
+
+/// Asks the task's runner to stop it, for the folder's `generation` (a runner of another
+/// generation ignores it); false when no runner holds its FIFO (the task ended).
 #[cfg(unix)]
-pub fn request_stop(dir: &Path, id: &str) -> bool {
+pub fn request_stop(dir: &Path, id: &str, generation: &str) -> bool {
     use std::io::Write;
     use std::os::unix::fs::{FileTypeExt, OpenOptionsExt};
     let path = ctl_path(dir, id);
@@ -245,10 +252,15 @@ pub fn request_stop(dir: &Path, id: &str) -> bool {
         .write(true)
         .custom_flags(libc::O_NONBLOCK | libc::O_NOFOLLOW)
         .open(&path);
-    opened.and_then(|mut f| f.write_all(b"s")).is_ok()
+    // One write under PIPE_BUF, so lines from writers at once never interleave.
+    let line = format!("{generation}\n");
+    if line.len() > STOP_LINE_MAX {
+        return false;
+    }
+    opened.and_then(|mut f| f.write_all(line.as_bytes())).is_ok()
 }
 #[cfg(not(unix))]
-pub fn request_stop(_dir: &Path, _id: &str) -> bool {
+pub fn request_stop(_dir: &Path, _id: &str, _generation: &str) -> bool {
     false
 }
 
@@ -436,14 +448,30 @@ pub fn main() -> anyhow::Result<()> {
     if answered.is_err() {
         stop();
     }
+    let own = spec.generation.clone();
     std::thread::spawn(move || {
-        let mut byte = [0u8; 1];
+        let mut buf = [0u8; 256];
+        let mut line: Vec<u8> = Vec::new();
         loop {
-            match control.read(&mut byte) {
+            let n = match control.read(&mut buf) {
                 Ok(0) => break,
-                Ok(_) => stop(),
-                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+                Ok(n) => n,
+                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
                 Err(_) => break,
+            };
+            for &b in &buf[..n] {
+                if b != b'\n' {
+                    // Bounded: an overlong line is dropped whole.
+                    if line.len() <= STOP_LINE_MAX {
+                        line.push(b);
+                    }
+                    continue;
+                }
+                // Only a stop for this runner's own folder generation stops it.
+                if !own.is_empty() && line == own.as_bytes() {
+                    stop();
+                }
+                line.clear();
             }
         }
     });

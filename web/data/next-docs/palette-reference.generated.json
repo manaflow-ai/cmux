@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1212,
+    "entries": 1214,
     "shortcuts": 189
   },
   "sections": [
@@ -1060,6 +1060,12 @@
           "command": "cmux space new-group"
         },
         {
+          "id": "space.newIncognito",
+          "title": "New Incognito Space",
+          "shortcut": null,
+          "command": "cmux space new-incognito"
+        },
+        {
           "id": "space.new",
           "title": "New Space",
           "shortcut": null,
@@ -1158,8 +1164,8 @@
         {
           "id": "space.next",
           "title": "Next Space",
-          "shortcut": "⌥⌘]",
-          "command": null
+          "shortcut": "⌃⌥⌘",
+          "command": "cmux space next"
         },
         {
           "id": "nextWorkspaceGroup",
@@ -1192,6 +1198,12 @@
           "command": "cmux workspace open-folder"
         },
         {
+          "id": "space.openInNewWindow",
+          "title": "Open Space in New Window",
+          "shortcut": null,
+          "command": "cmux space open-in-new-window"
+        },
+        {
           "id": "palette.openWorkspaceTodoPane",
           "title": "Open Todo Pane",
           "shortcut": null,
@@ -1218,8 +1230,8 @@
         {
           "id": "space.previous",
           "title": "Previous Space",
-          "shortcut": "⌥⌘[",
-          "command": null
+          "shortcut": "⌃⌥⌘",
+          "command": "cmux space previous"
         },
         {
           "id": "prevWorkspaceGroup",
@@ -1375,7 +1387,7 @@
           "id": "space.selectByNumber",
           "title": "Select Space 1…9",
           "shortcut": "⌃⌥1…9",
-          "command": null
+          "command": "cmux space select-1-9"
         },
         {
           "id": "selectWorkspaceByNumber",
@@ -1501,55 +1513,55 @@
           "id": "space.color.blue",
           "title": "Space Color: Blue",
           "shortcut": null,
-          "command": null
+          "command": "cmux space color-blue"
         },
         {
           "id": "space.color.cyan",
           "title": "Space Color: Cyan",
           "shortcut": null,
-          "command": null
+          "command": "cmux space color-cyan"
         },
         {
           "id": "space.color.green",
           "title": "Space Color: Green",
           "shortcut": null,
-          "command": null
+          "command": "cmux space color-green"
         },
         {
           "id": "space.color.grey",
           "title": "Space Color: Grey",
           "shortcut": null,
-          "command": null
+          "command": "cmux space color-grey"
         },
         {
           "id": "space.color.orange",
           "title": "Space Color: Orange",
           "shortcut": null,
-          "command": null
+          "command": "cmux space color-orange"
         },
         {
           "id": "space.color.pink",
           "title": "Space Color: Pink",
           "shortcut": null,
-          "command": null
+          "command": "cmux space color-pink"
         },
         {
           "id": "space.color.purple",
           "title": "Space Color: Purple",
           "shortcut": null,
-          "command": null
+          "command": "cmux space color-purple"
         },
         {
           "id": "space.color.red",
           "title": "Space Color: Red",
           "shortcut": null,
-          "command": null
+          "command": "cmux space color-red"
         },
         {
           "id": "space.color.yellow",
           "title": "Space Color: Yellow",
           "shortcut": null,
-          "command": null
+          "command": "cmux space color-yellow"
         },
         {
           "id": "workspace.selectLastUsed",
@@ -4957,7 +4969,7 @@
           "id": "sidebar.spaces.hide",
           "title": "Hide Spaces",
           "shortcut": null,
-          "command": null
+          "command": "cmux sidebar hide-spaces"
         },
         {
           "id": "sidebar.section.useListLook",
@@ -5263,7 +5275,7 @@
           "id": "sidebar.spaces.show",
           "title": "Show Spaces",
           "shortcut": null,
-          "command": null
+          "command": "cmux sidebar show-spaces"
         },
         {
           "id": "sidebar.workspaceTabs.toggle",
