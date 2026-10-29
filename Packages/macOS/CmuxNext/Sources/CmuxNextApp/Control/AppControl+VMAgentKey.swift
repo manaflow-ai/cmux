@@ -58,7 +58,10 @@ extension AppControl {
                 throw ControlError(code: "labs_off", message: Self.vmText(.labsOff))
             }
             guard services.cloud.isSignedIn else { throw ControlError(code: "not_signed_in", message: Self.vmText(.notSignedIn)) }
-            return (services.cloud, Self.vmBaseURL(services.cloud.configuration.backend))
+            guard let baseURL = Self.vmBaseURL(services.cloud.configuration.backend) else {
+                throw ControlError(code: "internal", message: "the cmux VM API address is invalid")
+            }
+            return (services.cloud, baseURL)
         }
         guard let teamID = await MainActor.run(body: { cloud.auth.teamID }), !teamID.isEmpty else {
             throw ControlError(code: "no_team", message: Self.vmText(.noTeam))
@@ -74,10 +77,10 @@ extension AppControl {
 
     /// The cmux VM API for this build's Cloud: production's for production, staging's for a
     /// development stack. There is no override: the app sends its Stack session only there.
-    nonisolated static func vmBaseURL(_ backend: CloudConfiguration.Backend) -> URL {
+    nonisolated static func vmBaseURL(_ backend: CloudConfiguration.Backend) -> URL? {
         switch backend {
-        case .production: return URL(string: "https://vm.cmux.dev")!
-        case .development, .localOnly: return URL(string: "https://vm-staging.cmux.dev")!
+        case .production: return URL(string: "https://vm.cmux.dev")
+        case .development, .localOnly: return URL(string: "https://vm-staging.cmux.dev")
         }
     }
 
