@@ -994,6 +994,38 @@ def label_path(name):
 
 
 HASH_FIELDS = {"hash", "hash2", "cdhash"}
+BUNDLE_SUFFIXES = (".app", ".framework", ".bundle", ".appex", ".xpc", ".plugin")
+
+
+def resources_schema_errors(plist) -> list:
+    """What a CodeResources must look like: a dictionary whose files and files2
+    map paths to a digest or to a dictionary whose hash fields are digests of
+    their algorithm's size, and whose rules are dictionaries."""
+    if not isinstance(plist, dict):
+        return ["not a property list dictionary"]
+    out = []
+    for section in ("rules", "rules2"):
+        if section in plist and not isinstance(plist[section], dict):
+            out.append(f"{section} is not a dictionary")
+    sizes = {"hash": 20, "hash2": 32, "cdhash": 20}
+    for section in ("files", "files2"):
+        entries = plist.get(section, {})
+        if not isinstance(entries, dict):
+            out.append(f"{section} is not a dictionary")
+            continue
+        for entry, value in entries.items():
+            if isinstance(value, bytes):
+                if section == "files2" or len(value) != 20:
+                    out.append(f"{section}/{entry}: a bare digest that is not a SHA-1 in files")
+            elif isinstance(value, dict):
+                fields = [k for k in sizes if k in value]
+                if not fields and not ("symlink" in value and isinstance(value["symlink"], str)):
+                    out.append(f"{section}/{entry}: no hash field")
+                out += [f"{section}/{entry}: {k} is not a {sizes[k]}-byte digest" for k in fields
+                        if not isinstance(value[k], bytes) or len(value[k]) != sizes[k]]
+            else:
+                out.append(f"{section}/{entry}: neither a digest nor a dictionary")
+    return out
 
 
 def resources_named(plist, home: str, names: dict):
@@ -1004,14 +1036,20 @@ def resources_named(plist, home: str, names: dict):
     if not isinstance(plist, dict):
         return plist, used, 0
 
-    def name(digest, entry):
+    def name(digest, entry, field):
         label = names.get(digest) if isinstance(digest, bytes) else None
         path = label_path(label)
-        if not entry or entry.startswith("/") or os.path.normpath(entry) != entry or entry.split("/")[0] == "..":
+        if not path or not entry or entry.startswith("/") or os.path.normpath(entry) != entry \
+                or entry.split("/")[0] == "..":
             return digest
         own = os.path.join(home, entry) if home else entry
-        if path and (path == own or path.startswith(own + "/") and own.endswith((".app", ".framework", ".bundle",
-                                                                                 ".appex", ".xpc", ".plugin"))):
+        alg, code = label[1:].split(" of ", 1)[0], "\0" in label
+        if field == "cdhash":  # the CodeDirectory hash of the nested code at (or inside the bundle at) entry
+            ok = code and alg in ("sha1", "sha256[:20]") and (
+                path == own or path.startswith(own + "/") and own.endswith(BUNDLE_SUFFIXES))
+        else:  # a whole-file digest of exactly this entry: hash is SHA-1, hash2 is SHA-256
+            ok = not code and path == own and alg == ("sha256" if field == "hash2" else "sha1")
+        if ok:
             used[digest] = label
             used_count[0] += 1
             return ("digest of", label)  # a tuple: no property list value equals it
@@ -1025,9 +1063,9 @@ def resources_named(plist, home: str, names: dict):
         out[section] = {}
         for entry, value in entries.items():
             if isinstance(value, bytes):
-                value = name(value, entry)
+                value = name(value, entry, "hash")
             elif isinstance(value, dict):
-                value = {k: name(v, entry) if k in HASH_FIELDS else v for k, v in value.items()}
+                value = {k: name(v, entry, k) if k in HASH_FIELDS else v for k, v in value.items()}
             out[section][entry] = value
     return out, used, used_count[0]
 
@@ -1180,8 +1218,7 @@ def strict_compare(a_root, b_root, machos: dict, labels, failures: list) -> tupl
         if kind == "resources":
             for side, x in zip(labels, (xa, xb)):
                 try:
-                    if not isinstance(plistlib.loads(x), dict):
-                        out.append(f"not a property list dictionary ({side})")
+                    out += [f"{e} ({side})" for e in resources_schema_errors(plistlib.loads(x))]
                 except Exception:
                     out.append(f"not a property list ({side})")
             if out:

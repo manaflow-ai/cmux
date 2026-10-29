@@ -1020,12 +1020,38 @@ class StrictEighthReviewTests(unittest.TestCase):
         self.tmp.cleanup()
 
     def test_only_exact_entries_or_nested_bundles_name_a_digest(self):
-        digest = hashlib.sha256(b"x").digest()
-        names = {digest: "<sha256 of Contents/Frameworks/Lib.framework/Versions/A/Lib\0[arm64] CodeDirectory 0x0>"}
+        digest = hashlib.sha256(b"x").digest()[:20]
+        names = {digest: "<sha256[:20] of Contents/Frameworks/Lib.framework/Versions/A/Lib\0[arm64] CodeDirectory 0x0>"}
         named = lambda entry: spc.resources_named({"files2": {entry: {"cdhash": digest}}}, "Contents", names)[0]
         self.assertIsInstance(named("Frameworks/Lib.framework")["files2"]["Frameworks/Lib.framework"]["cdhash"], tuple)
         for bad in ("", "Frameworks", "Frameworks/./Lib.framework", "../Contents/Frameworks/Lib.framework"):
             self.assertEqual(named(bad)["files2"][bad]["cdhash"], digest, bad)
+
+
+    def test_hash_fields_name_only_their_own_algorithm_and_path(self):
+        body = b"nested"
+        names = {**spc.hash_names(body, "Contents/Frameworks/Lib.framework/Versions/A/Lib"),
+                 **spc.hash_names(b"cd", "Contents/Frameworks/Lib.framework/Versions/A/Lib\0[arm64] CodeDirectory 0x0")}
+        sha1, sha256 = hashlib.sha1(body).digest(), hashlib.sha256(body).digest()
+        cd = hashlib.sha256(b"cd").digest()[:20]
+
+        def named(entry, field, digest):
+            return spc.resources_named({"files2": {entry: {field: digest}}}, "Contents", names)[0]["files2"][entry][field]
+        lib = "Frameworks/Lib.framework/Versions/A/Lib"
+        self.assertIsInstance(named(lib, "hash2", sha256), tuple)
+        self.assertIsInstance(named(lib, "hash", sha1), tuple)
+        self.assertEqual(named(lib, "hash2", sha1), sha1)  # SHA-1 in the SHA-256 field
+        self.assertEqual(named("Frameworks/Lib.framework", "hash2", sha256), sha256)  # a child's file hash
+        self.assertIsInstance(named("Frameworks/Lib.framework", "cdhash", cd), tuple)
+        self.assertEqual(named("Frameworks/Lib.framework", "cdhash", sha256[:20]), sha256[:20])  # not a CodeDirectory
+
+    def test_code_resources_schema_is_validated(self):
+        self.assertEqual(spc.resources_schema_errors({"files2": {"x": {"hash2": bytes(32)}}}), [])
+        self.assertEqual(spc.resources_schema_errors({"files2": {"x": {"symlink": "y"}}}), [])
+        self.assertIn("files2/x: hash2 is not a 32-byte digest",
+                      spc.resources_schema_errors({"files2": {"x": {"hash2": "not bytes"}}}))
+        self.assertIn("files2/x: no hash field", spc.resources_schema_errors({"files2": {"x": {}}}))
+        self.assertIn("files is not a dictionary", spc.resources_schema_errors({"files": []}))
 
 
 if __name__ == "__main__":
