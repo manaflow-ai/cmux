@@ -15,11 +15,11 @@ pub(super) struct MessageContext {
     record_sender_copy: bool,
 }
 
-/// Internal durable copy of a message projection. It lives beside the existing
-/// provenance on queued/user_message records so a daemon restart can recover a
-/// projection even if it crashed after writing the prompt record but before the
-/// acceptance callback ran.
-const MESSAGE_META: &str = "_acpmuxMessage";
+// Internal durable copy of a message projection. A prompt's in-memory provenance carries it;
+// its queued/user_message records keep it beside their provenance (`prompt_provenance::marked`),
+// so a daemon restart can recover a projection even if it crashed after writing the prompt
+// record but before the acceptance callback ran.
+use crate::prompt_provenance::MESSAGE_META;
 
 pub(super) fn embed_message_context(opts: &mut PromptOptions, message: Option<&MessageContext>) {
     let Some(provenance) = opts.provenance.as_mut() else { return };
@@ -98,8 +98,10 @@ pub(super) fn recover_message_events(hub: &Arc<Hub>, session: &Arc<Session>) {
             if !matches!(record.kind.as_str(), "queued" | "user_message") {
                 return true;
             }
-            let Some(provenance) = record.msg.pointer("/_meta/provenance") else { return true };
-            collect_message_contexts(provenance, &mut pending);
+            let Some(provenance) = crate::prompt_provenance::recorded(&record.msg) else {
+                return true;
+            };
+            collect_message_contexts(&provenance, &mut pending);
             true
         });
     for message in pending {

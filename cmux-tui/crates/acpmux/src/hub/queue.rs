@@ -875,6 +875,8 @@ impl Hub {
                                 q.msg.get_mut("_meta").and_then(Value::as_object_mut)
                             {
                                 meta.remove("provenance");
+                                // The person rewrote it: no longer another session's message.
+                                meta.remove(crate::prompt_provenance::MESSAGE_META);
                             }
                             if let Some(p) = e.msg.pointer("/_meta/provenance") {
                                 let kept = json!({"provenance": p});
@@ -954,7 +956,7 @@ impl Hub {
             };
             let control = Control::from_recorded(e.msg.get("control").and_then(Value::as_str));
             let trust_gate = e.msg.get("trustGate").and_then(Value::as_bool).unwrap_or(false);
-            let provenance = e.msg.pointer("/_meta/provenance").filter(|p| p.is_object()).cloned();
+            let provenance = crate::prompt_provenance::recorded(&e.msg).filter(|p| p.is_object());
             let mut restored_message_opts = PromptOptions::default();
             super::message_events::restore_message_options(
                 &mut restored_message_opts,
