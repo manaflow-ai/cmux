@@ -19,9 +19,16 @@
 # CMUX_WEB_TEST_RETRIES: files that fail run once more, one at a time, after every
 # file has run (default 60 files; 0 turns it off). A file that passes alone is reported as a retry
 # pass (a contention flake, listed so it stays visible); one that fails again fails the lane.
-# Timed-out files keep their named failure without another full timeout. Serial retries stop
-# after CMUX_WEB_TEST_RETRY_BUDGET seconds (default 120), including an in-flight retry;
-# unretried failures stay red.
+# Serial retries of failed files stop after CMUX_WEB_TEST_RETRY_BUDGET seconds (default 120),
+# including an in-flight retry; unretried failures stay red.
+# A timed-out file gets its own single retry, alone, at its full limit, outside that budget and
+# outside the CMUX_WEB_TEST_RETRIES count: one slow file must not eat the failed files' retries, nor
+# they its (#27130's shard 4: two files timed out at 120 s beside 15 others, never retried, and
+# both passed alone in 61 s and 22 s on the base replay). Timeout retries have their own budget,
+# CMUX_WEB_TEST_TIMEOUT_RETRY_BUDGET seconds (default 240); one starts only when its whole limit
+# fits in what is left, so the shard's worst case stays bounded. A retry that times out again
+# stays a TIMEOUT (never a pass, and never a named failure a base could share); one that passes
+# is listed as passing alone. CMUX_WEB_TEST_RETRIES=0 turns these retries off too.
 # CMUX_WEB_TEST_JOBS: files run at once (default: CMUX_CI_CPU_BUDGET, the cores a fleet
 # worker granted the step, else the CPU count).
 # CMUX_WEB_TEST_FILES: optional newline-separated test files (relative to webviews/) to run instead
@@ -34,6 +41,13 @@
 # CMUX_WEB_TEST_SHARD / CMUX_WEB_TEST_SHARD_COUNT: optional one-based shard selector (for example
 # 1/2 or 2/2). Sharding happens after the git-index file list is built, so every shard keeps the
 # same per-file process and Vite-cache isolation rules while covering a disjoint deterministic set.
+# Files with a recorded duration split by load, longest first; the rest by a stable hash of their
+# path, so a new file moves only itself (webviews_test_shards.py).
+# CMUX_WEB_TEST_DURATIONS: optional JSON manifest {file: seconds} of earlier runs. Every shard of one
+# run must read the same copy. With it, each Vite config warms on its shortest file and the files
+# start longest first, so a long file never runs last alone.
+# CMUX_WEB_TEST_DURATIONS_OUT: optional file to write each file's first-run seconds into, as JSON,
+# for the next manifest (webviews_test_shards.py merge).
 #
 # Files that start a Vite dev server run after the rest: the agent pane and gallery configs
 # (vite.config.acpmux-pane.mjs, vite.config.gallery-dev.ts), and files that spawn `vp dev`
@@ -144,6 +158,7 @@ if [ "${1:-}" = --one ]; then
   file="$2" results="$3" timeout_seconds="$(file_limit "$2" "$4")" cache="${5:-}" seed="${6:-}"
   log="$results/$(printf '%s' "$file" | tr '/' '_').log"
   status=0
+  started=$SECONDS
   echo "START $file (hard limit ${timeout_seconds}s)"
   if [ -n "$cache" ]; then
     # `|| true` on cache upkeep: a failed copy or cleanup (a server outliving its timed-out file)
@@ -165,12 +180,15 @@ if [ "${1:-}" = --one ]; then
     *) result=FAIL ;;
   esac
   printf '%s %s %s\n' "$result" "$file" "$log" >> "$results/summary"
+  # Each run's wall seconds; a retry's line comes after its first run's, which the manifest keeps.
+  printf '%s %s\n' "$((SECONDS - started))" "$file" >> "$results/durations"
   # Keep the named verdict immediate; the complete log is emitted once in the final summary below.
   echo "$result $file (raw log retained for the final bounded summary)"
   exit 0
 fi
 
 self="$(cd "$(dirname "$0")" && pwd -P)/$(basename "$0")"
+shards_py="$(dirname "$self")/webviews_test_shards.py"
 case "$(git rev-parse --show-prefix)" in
   webviews/*) ;;
   *)
@@ -226,35 +244,38 @@ PY
 fi
 shard="${CMUX_WEB_TEST_SHARD:-}"
 shard_count="${CMUX_WEB_TEST_SHARD_COUNT:-}"
+durations="${CMUX_WEB_TEST_DURATIONS:-/dev/null}"
+# Two dev servers at once (composer-mention, composer-send-stop) optimize dependencies into the
+# same node_modules/.vite, and each loses files the other wrote. `"dev",` is the argument a file
+# passes when it spawns `vp dev` itself, `configFile: …` one that calls createServer. `--null`, not `-Z`: BSD grep reads -Z as decompress.
+dev_servers='vite\.config\.(acpmux-pane\.mjs|gallery-dev\.ts)|"dev",|configFile: path\.join\(webviews, "vite\.config'
 if [ -n "$shard" ] || [ -n "$shard_count" ]; then
   if [[ ! "$shard" =~ ^[1-9][0-9]*$ || ! "$shard_count" =~ ^[1-9][0-9]*$ || "$shard" -gt "$shard_count" ]]; then
     echo "error: CMUX_WEB_TEST_SHARD and CMUX_WEB_TEST_SHARD_COUNT must be a valid one-based shard" >&2
     exit 2
   fi
-  python3 - "$results/files" "$shard" "$shard_count" <<'PY'
-import pathlib
-import sys
-
-path = pathlib.Path(sys.argv[1])
-shard = int(sys.argv[2])
-count = int(sys.argv[3])
-files = [item for item in path.read_bytes().split(b"\0") if item]
-selected = [item for index, item in enumerate(files) if index % count == shard - 1]
-path.write_bytes(b"\0".join(selected) + (b"\0" if selected else b""))
-PY
+  # The split weighs dev-server files by how few run at once, so it needs them before it splits.
+  xargs -0 grep -lE --null -- "$dev_servers" < "$results/files" > "$results/all-serial" || true
+  python3 "$shards_py" assign "$results/files" "$results/all-serial" "$durations" "$shard" "$shard_count" \
+    > "$results/shard-files"
+  mv "$results/shard-files" "$results/files"
 fi
 count="$(tr -cd '\0' < "$results/files" | wc -c | tr -d ' ')"
 if [ "$count" -eq 0 ]; then
   echo "error: no webviews test files found under $PWD${shard:+ for shard $shard/$shard_count}" >&2
   exit 1
 fi
-# Two dev servers at once (composer-mention, composer-send-stop) optimize dependencies into the
-# same node_modules/.vite, and each loses files the other wrote. `"dev",` is the argument a file
-# passes when it spawns `vp dev` itself, `configFile: …` one that calls createServer. `--null`, not `-Z`: BSD grep reads -Z as decompress.
-dev_servers='vite\.config\.(acpmux-pane\.mjs|gallery-dev\.ts)|"dev",|configFile: path\.join\(webviews, "vite\.config'
 xargs -0 grep -lE --null -- "$dev_servers" < "$results/files" > "$results/serial" || true
 serial="$(tr -cd '\0' < "$results/serial" | wc -c | tr -d ' ')"
 xargs -0 grep -LE --null -- "$dev_servers" < "$results/files" > "$results/parallel" || true
+# With recorded durations: plain files start longest first, and each Vite config warms on its
+# shortest file (accent-glass-invariants warmed alone for 549 s of an 18.6 min shard, run 40815704587).
+if [ "$durations" != /dev/null ]; then
+  for list in parallel:desc serial:asc; do
+    python3 "$shards_py" order "$results/${list%%:*}" "$durations" "${list#*:}" > "$results/ordered"
+    mv "$results/ordered" "$results/${list%%:*}"
+  done
+fi
 # A quarter of the jobs: each dev server file runs a Vite server and a browser, and at jobs / 2 the
 # 8-core runner was CPU bound (no faster per file) and frame-budget plays (instructions-notice)
 # and attach timing (agent-pane-seen) failed.
@@ -300,24 +321,38 @@ while IFS= read -r -d '' file; do
 done < "$results/serial"
 # The rest copy their config's warm cache and run at once; a config no file warmed has no
 # trustworthy cache, so its files run one at a time, each on a cold cache of its own.
+# A file that loads the machine itself declares `// cmux-web-test-alone` (first 20 lines) and runs
+# after the others, alone, on its config's cache: agent-pane-attach-huge-files (2 GB uploads,
+# about 6 minutes) beside three composer files made them time out and its own typing read 85 ms
+# (run 40732464791); alone, as its config's warming file, it passed (run 40721887225).
 : > "$results/dev-warm"
 : > "$results/dev-cold"
+: > "$results/dev-alone"
 index=0
 while IFS= read -r -d '' config && IFS= read -r -d '' file; do
   index=$((index + 1))
   seed="$(sed -n "s/^$config //p" "$results/warmed")"
-  if [ -n "$seed" ]; then
+  if head -n 20 "$file" 2> /dev/null | grep -qx '// cmux-web-test-alone'; then
+    printf '%s\0%s\0%s\0' "$file" "$vite/$index" "${seed:-$vite/none}" >> "$results/dev-alone"
+  elif [ -n "$seed" ]; then
     printf '%s\0%s\0%s\0' "$file" "$vite/$index" "$seed" >> "$results/dev-warm"
   else
     printf '%s\0%s\0%s\0' "$file" "$vite/$index" "$vite/none" >> "$results/dev-cold"
   fi
 done < "$results/dev-rest"
+if [ "$durations" != /dev/null ] && [ -s "$results/dev-warm" ]; then
+  python3 "$shards_py" order-triples "$results/dev-warm" "$durations" desc > "$results/ordered"
+  mv "$results/ordered" "$results/dev-warm"
+fi
 # Without input, xargs would run the command once with no file (BSD xargs has no -r).
 if [ -s "$results/dev-warm" ]; then
   xargs -0 -n 3 -P "$dev_jobs" bash "$self" --one-cached "$results" "$timeout_seconds" < "$results/dev-warm"
 fi
 if [ -s "$results/dev-cold" ]; then
   xargs -0 -n 3 -P 1 bash "$self" --one-cached "$results" "$timeout_seconds" < "$results/dev-cold"
+fi
+if [ -s "$results/dev-alone" ]; then
+  xargs -0 -n 3 -P 1 bash "$self" --one-cached "$results" "$timeout_seconds" < "$results/dev-alone"
 fi
 
 # Retry failed files once, alone, so a file that only lost a race for the CPU
@@ -331,14 +366,45 @@ retried=0
 retry_budget="${CMUX_WEB_TEST_RETRY_BUDGET:-120}"
 [[ "$retry_budget" =~ ^[0-9]+$ ]] || retry_budget=120
 retry_started=$SECONDS
+timeout_retry_budget="${CMUX_WEB_TEST_TIMEOUT_RETRY_BUDGET:-240}"
+[[ "$timeout_retry_budget" =~ ^[0-9]+$ ]] || timeout_retry_budget=240
+timeout_retried=0
+timeout_retry_spent=0
 : > "$results/retry-passed"
 while read -r result file log; do
-  if [ "$result" = PASS ] || [ "$result" = TIMEOUT ] || [ "$retried" -ge "$retries" ]; then
+  if [ "$result" = PASS ] || [ "$retries" -eq 0 ] || { [ "$result" != TIMEOUT ] && [ "$retried" -ge "$retries" ]; }; then
     printf '%s %s %s\n' "$result" "$file" "$log" >> "$results/summary"
     continue
   fi
+  iteration_started=$SECONDS
   normal_limit="$(file_limit "$file" "$timeout_seconds")"
-  remaining=$((retry_budget - (SECONDS - retry_started)))
+  if [ "$result" = TIMEOUT ]; then
+    # The timed-out file's own retry: its own budget, its full limit, never cut short.
+    timeout_remaining=$((timeout_retry_budget - timeout_retry_spent - (SECONDS - iteration_started)))
+    if [ "$timeout_remaining" -lt "$normal_limit" ]; then
+      echo "timeout retry budget (${timeout_remaining}s left) cannot fit $file's ${normal_limit}s limit: keeping TIMEOUT"
+      printf '%s %s %s\n' "$result" "$file" "$log" >> "$results/summary"
+    else
+      echo "RETRY $file after its timeout (its own retry; timeout retry budget ${timeout_remaining}s, hard limit ${normal_limit}s)"
+      timeout_retried=$((timeout_retried + 1))
+      mv "$log" "$log.first"
+      cache=""
+      if tr '\0' '\n' < "$results/serial" | grep -qxF -- "$file"; then cache="$vite/timeout-retry-$timeout_retried"; fi
+      bash "$self" --one "$file" "$results" "$timeout_seconds" "$cache" < /dev/null
+      if [ -n "$cache" ]; then rm -rf "$cache" || true; fi
+      if grep -qxF "PASS $file $log" "$results/summary"; then
+        echo "$file (first run: TIMEOUT)" >> "$results/retry-passed"
+      else
+        # TIMEOUT again stays TIMEOUT; a FAIL alone keeps the retry's named failures, as for a failed file.
+        { echo "--- first run: TIMEOUT ---"; cat "$log.first"; echo "--- retry, alone ---"; cat "$log"; } > "$log.both"
+        mv "$log.both" "$log"
+      fi
+    fi
+    timeout_retry_spent=$((timeout_retry_spent + SECONDS - iteration_started))
+    continue
+  fi
+  # The failed files' shared budget is wall time since the retries began, less the timeout retries'.
+  remaining=$((retry_budget - (SECONDS - retry_started - timeout_retry_spent)))
   if [ "$remaining" -le 0 ]; then
     echo "retry budget exhausted: keeping $result $file"
     printf '%s %s %s\n' "$result" "$file" "$log" >> "$results/summary"
@@ -401,12 +467,17 @@ while read -r result file log; do
   echo "::endgroup::"
 done < <(sort -k2 "$results/summary")
 
+if [ -n "${CMUX_WEB_TEST_DURATIONS_OUT:-}" ]; then
+  mkdir -p "$(dirname "$CMUX_WEB_TEST_DURATIONS_OUT")"
+  python3 "$shards_py" record "$results/durations" "$CMUX_WEB_TEST_DURATIONS_OUT"
+fi
+
 # Per-test results for webviews-tests-new-reds.sh, which compares them with the base's.
 if [ -n "${CMUX_WEB_TEST_RESULTS:-}" ]; then
   python3 "$(dirname "$self")/webviews_test_results.py" "$results/summary" "$CMUX_WEB_TEST_RESULTS"
 fi
 
-echo "### webviews tests: $count files, $failed failed or timed out ($retried retried alone, $(wc -l < "$results/retry-passed" | tr -d ' ') passed alone)"
+echo "### webviews tests: $count files, $failed failed or timed out ($((retried + timeout_retried)) retried alone, $(wc -l < "$results/retry-passed" | tr -d ' ') passed alone)"
 if [ -s "$results/retry-passed" ]; then
   echo "passed only when run alone (failed or timed out beside other files):"
   sed 's/^/  /' "$results/retry-passed"

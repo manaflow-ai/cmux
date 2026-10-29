@@ -191,6 +191,28 @@ async fn typed_error_a_short_internal_error_says_how_to_recover() {
     assert_eq!(last["errorKind"], "agent.exited", "{last}");
 }
 
+/// An agent that says it is not signed in fails its turn as `auth.signed_out`, and one whose
+/// sign-in expired as `auth.expired`, on the prompt's error and in `lastTurn`, so a client reads
+/// the kind instead of the agent's words.
+#[tokio::test]
+async fn typed_error_a_turn_that_is_not_signed_in_says_so() {
+    let dir = scratch("auth");
+    let mut c = C::new(hub_with(|_| {})).await;
+    for (text, kind) in [
+        ("Not logged in · Please run /login", "auth.signed_out"),
+        ("API Error: 401 OAuth token has expired. Please obtain a new token.", "auth.expired"),
+    ] {
+        let id = c.session("fake", &dir).await.unwrap();
+        let e = c.prompt(&id, &format!("fail-streamed: {text}")).await.expect_err("it fails");
+        let d = data(&e);
+        assert_eq!(d["errorKind"], kind, "{e:?}");
+        assert!(d["recovery"].as_str().unwrap_or_default().contains("Sign in"), "{d}");
+        let last = c.last_turn(&id).await;
+        assert_eq!(last["status"], "failed", "{last}");
+        assert_eq!(last["errorKind"], kind, "{last}");
+    }
+}
+
 /// A harness whose program is missing fails as `spawn.failed` with what to check.
 #[tokio::test]
 async fn typed_error_a_harness_that_cannot_start_says_what_to_check() {

@@ -120,9 +120,6 @@
 .acpmux-needs-you-item + .acpmux-needs-you-item {
   margin-top: 1px;
 }
-.acpmux-needs-you-item:hover {
-  background: color-mix(in srgb, var(--agent-text) 5%, transparent);
-}
 /* The ask a link opened the list on: a wash of the needs-you mark, no ring. */
 .acpmux-needs-you-item[data-focused] {
   background: color-mix(in srgb, var(--acpmux-needs-you-mark) 12%, transparent);
@@ -176,6 +173,8 @@
 }
 .acpmux-needs-you-age {
   font-variant-numeric: tabular-nums;
+  /* This label shares the tools' grid slot, including while it is transparent. */
+  pointer-events: none;
 }
 .acpmux-needs-you-tools {
   display: inline-flex;
@@ -214,7 +213,9 @@
   color: var(--agent-muted);
 }
 .acpmux-needs-you-go:hover,
+.acpmux-needs-you-go:active,
 .acpmux-needs-you-ask-about:hover,
+.acpmux-needs-you-ask-about:active,
 .acpmux-needs-you-ask-about[aria-expanded="true"] {
   background: var(--acpmux-pill-hover, color-mix(in srgb, var(--agent-text) 11%, transparent));
   color: var(--agent-text);

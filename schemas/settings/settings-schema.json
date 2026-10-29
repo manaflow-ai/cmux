@@ -80,6 +80,7 @@
               "layout.focusFollowsMouse",
               "layout.scrollAreas",
               "layout.scrollModifier",
+              "layout.pagesHandleCommandScroll",
               "layout.minimumPaneWidth",
               "layout.minimumPaneHeight",
               "layout.newPanePlacement",
@@ -499,6 +500,7 @@
               "sidebar.showProfileControl",
               "sidebar.showSearchButton",
               "sidebar.noFade",
+              "sidebar.controlsOnHover",
               "sidebar.minimal",
               "sidebar.style",
               "sidebar.density",
@@ -835,6 +837,7 @@
               "agentPane.scrollToBottomOnSend",
               "agentPane.zoom",
               "agents.defaultPermissionMode",
+              "agents.modelRouter.model",
               "app.warnBeforeClosingAgentSession"
             ],
             "title" : {
@@ -930,7 +933,11 @@
           {
             "key" : "settings.group.chiefChat",
             "rows" : [
-              "home.chiefBubbleStyle"
+              "home.chiefBubbleStyle",
+              "home.bubbleColors.sent",
+              "home.bubbleColors.sentText",
+              "home.bubbleColors.received",
+              "home.bubbleColors.receivedText"
             ],
             "title" : {
               "key" : "settings.group.chiefChat",
@@ -1219,6 +1226,7 @@
               "terminal.linkOpener.rules",
               "browser.enabled",
               "browser.openLinksInCmuxBrowser",
+              "browser.openSignInPagesInCmux",
               "browser.hostsToOpenInEmbeddedBrowser",
               "browser.urlsToAlwaysOpenExternally"
             ],
@@ -1492,7 +1500,8 @@
         "id" : "accounts",
         "lead" : [
           "accounts",
-          "machines"
+          "machines",
+          "cloudEnvironments"
         ],
         "symbol" : "person.crop.circle",
         "title" : {
@@ -1618,6 +1627,8 @@
             "rows" : [
               "labs.previewFeatures",
               "labs.classicHome",
+              "labs.voiceRoom",
+              "labs.voiceRoomURL",
               "appearance.experimentalControls"
             ],
             "title" : {
@@ -2160,7 +2171,7 @@
       },
       "help" : {
         "key" : "settings.window.titlebarButtons.help",
-        "text" : "On Hover hides Back and Forward until the pointer is over the top row. The sidebar button always shows."
+        "text" : "With the sidebar hidden, On Hover hides the sidebar button, Back and Forward until the pointer is over the top row. With the sidebar open, they always show."
       },
       "kept_on_reset_all" : false,
       "key" : "window.titlebarButtons",
@@ -2758,7 +2769,7 @@
       },
       "help" : {
         "key" : "settings.tabs.barPosition.help",
-        "text" : "Where each pane's tab bar sits. Bottom also shows the standard title bar, so the window buttons never cover a pane."
+        "text" : "Where each pane's tab bar sits. At the bottom, the panes reach the top of the window; the window buttons never cover a pane."
       },
       "kept_on_reset_all" : false,
       "key" : "tabs.barPosition",
@@ -3694,7 +3705,7 @@
         "cmux-browser",
         "cmux-next"
       ],
-      "default" : 0.5,
+      "default" : 0.6666666666666666,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.columns",
@@ -6274,7 +6285,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "matchCurrent",
+      "default" : "fixed",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.columns",
@@ -6739,6 +6750,62 @@
     },
     {
       "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.columns",
+        "text" : "Columns"
+      },
+      "help" : {
+        "key" : "settings.layout.pagesHandleCommandScroll.help",
+        "text" : "A web page that uses Command + Scroll itself, such as Figma or Excalidraw zooming, keeps it. Over any other page, Command + Scroll moves columns. Off, Command + Scroll always moves columns."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "layout.pagesHandleCommandScroll",
+      "keywords" : [
+        "scroll",
+        "command",
+        "zoom",
+        "figma",
+        "excalidraw",
+        "browser",
+        "web",
+        "page",
+        "columns",
+        "pan"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "layout",
+        "pagesHandleCommandScroll"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : {
+        "key" : "settings.layout.pagesHandleCommandScroll.summary",
+        "text" : "Figma and Excalidraw keep Command + Scroll zoom"
+      },
+      "title" : {
+        "key" : "settings.layout.pagesHandleCommandScroll",
+        "text" : "Web Pages Get Command + Scroll First"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         80,
         800,
         440
@@ -7142,7 +7209,7 @@
       },
       "help" : {
         "key" : "settings.workspaces.newPlacement.help",
-        "text" : "Where Cmd-N, the + button and the CLI put a new workspace in the sidebar. Pinned workspaces stay above it."
+        "text" : "Where Cmd-N, the + button and the CLI put a new workspace in the sidebar. A workspace made in a group goes to the same place inside that group. Pinned workspaces stay above it."
       },
       "kept_on_reset_all" : false,
       "key" : "workspaces.newPlacement",
@@ -23097,6 +23164,61 @@
         "text" : "Sidebar"
       },
       "help" : {
+        "key" : "settings.sidebar.controlsOnHover.help",
+        "text" : "The sidebar's New Workspace button, spaces, profile button and Search button, and the sidebar button, Back and Forward above it, show only while the pointer is over the sidebar. Off, they always show."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.controlsOnHover",
+      "keywords" : [
+        "sidebar",
+        "minimal",
+        "hover",
+        "hide",
+        "show",
+        "controls",
+        "buttons",
+        "search",
+        "profile",
+        "spaces",
+        "footer",
+        "clean"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "controlsOnHover"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.controlsOnHover",
+        "text" : "Show Sidebar Controls Only on Hover"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
         "key" : "settings.sidebar.minimal.help",
         "text" : "Workspace rows show only their icon, name and unread mark, and section titles become thin lines."
       },
@@ -24006,7 +24128,7 @@
       },
       "help" : {
         "key" : "settings.sidebar.spacesVisibility.help",
-        "text" : "On Hover shows the spaces only while the pointer is over the sidebar, like its other buttons."
+        "text" : "Always keeps the spaces shown, also when the sidebar's controls show only on hover. On Hover lets them hide with the other controls then."
       },
       "kept_on_reset_all" : false,
       "key" : "sidebar.spacesVisibility",
@@ -24417,7 +24539,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : 250,
+      "default" : 1300,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.sidebar",
@@ -24978,7 +25100,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : 600,
+      "default" : 1500,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.sidebar",
@@ -33171,6 +33293,57 @@
         true,
         false
       ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.openingLinks",
+        "text" : "Opening Links"
+      },
+      "help" : {
+        "key" : "settings.browser.openSignInPages.help",
+        "text" : "Sign-in and device-code pages, such as GitHub's device page or a page gh, aws or an agent opens to sign in, open in a cmux browser tab even when other links open in your default browser. URLs to Always Open Externally still win."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.openSignInPagesInCmux",
+      "keywords" : [
+        "sign in",
+        "login",
+        "device code",
+        "oauth",
+        "auth",
+        "passkey",
+        "default browser",
+        "gh auth login"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "browser",
+        "openSignInPagesInCmux"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "browser",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.browser.openSignInPages",
+        "text" : "Open Sign-In Pages in cmux Browser"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
       "agent_refusal" : "privacy",
       "agent_settable" : false,
       "consumers" : [
@@ -33730,6 +33903,238 @@
       "title" : {
         "key" : "settings.home.chiefBubbleStyle",
         "text" : "Bubble Style"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "#1a2B3c",
+        "#1A2B3C80",
+        "1a2b3c"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.home.bubbleColors.default",
+        "text" : "Bubble Style"
+      },
+      "group" : {
+        "key" : "settings.group.chiefChat",
+        "text" : "Chief Chat"
+      },
+      "help" : {
+        "key" : "settings.home.bubbleColors.help",
+        "text" : "Every chat starts with these colors. Right-click a chat and choose Chat Colors to set its own. Unset text colors are picked to stay readable."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "home.bubbleColors.sent",
+      "keywords" : [
+        "bubble",
+        "color",
+        "text",
+        "imessage",
+        "chat",
+        "messages",
+        "background",
+        "home"
+      ],
+      "kind" : "color",
+      "page_hidden" : false,
+      "path" : [
+        "home",
+        "bubbleColors",
+        "sent"
+      ],
+      "refuses" : [
+        "red",
+        "#12345",
+        "#1234567",
+        "#12345g",
+        0
+      ],
+      "section" : "home",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.home.bubbleColors.sent",
+        "text" : "My Bubble Color"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "#1a2B3c",
+        "#1A2B3C80",
+        "1a2b3c"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.home.bubbleColors.default",
+        "text" : "Bubble Style"
+      },
+      "group" : {
+        "key" : "settings.group.chiefChat",
+        "text" : "Chief Chat"
+      },
+      "help" : {
+        "key" : "settings.home.bubbleColors.help",
+        "text" : "Every chat starts with these colors. Right-click a chat and choose Chat Colors to set its own. Unset text colors are picked to stay readable."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "home.bubbleColors.sentText",
+      "keywords" : [
+        "bubble",
+        "color",
+        "text",
+        "imessage",
+        "chat",
+        "messages",
+        "background",
+        "home"
+      ],
+      "kind" : "color",
+      "page_hidden" : false,
+      "path" : [
+        "home",
+        "bubbleColors",
+        "sentText"
+      ],
+      "refuses" : [
+        "red",
+        "#12345",
+        "#1234567",
+        "#12345g",
+        0
+      ],
+      "section" : "home",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.home.bubbleColors.sentText",
+        "text" : "My Text Color"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "#1a2B3c",
+        "#1A2B3C80",
+        "1a2b3c"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.home.bubbleColors.default",
+        "text" : "Bubble Style"
+      },
+      "group" : {
+        "key" : "settings.group.chiefChat",
+        "text" : "Chief Chat"
+      },
+      "help" : {
+        "key" : "settings.home.bubbleColors.help",
+        "text" : "Every chat starts with these colors. Right-click a chat and choose Chat Colors to set its own. Unset text colors are picked to stay readable."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "home.bubbleColors.received",
+      "keywords" : [
+        "bubble",
+        "color",
+        "text",
+        "imessage",
+        "chat",
+        "messages",
+        "background",
+        "home"
+      ],
+      "kind" : "color",
+      "page_hidden" : false,
+      "path" : [
+        "home",
+        "bubbleColors",
+        "received"
+      ],
+      "refuses" : [
+        "red",
+        "#12345",
+        "#1234567",
+        "#12345g",
+        0
+      ],
+      "section" : "home",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.home.bubbleColors.received",
+        "text" : "Their Bubble Color"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "#1a2B3c",
+        "#1A2B3C80",
+        "1a2b3c"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.home.bubbleColors.default",
+        "text" : "Bubble Style"
+      },
+      "group" : {
+        "key" : "settings.group.chiefChat",
+        "text" : "Chief Chat"
+      },
+      "help" : {
+        "key" : "settings.home.bubbleColors.help",
+        "text" : "Every chat starts with these colors. Right-click a chat and choose Chat Colors to set its own. Unset text colors are picked to stay readable."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "home.bubbleColors.receivedText",
+      "keywords" : [
+        "bubble",
+        "color",
+        "text",
+        "imessage",
+        "chat",
+        "messages",
+        "background",
+        "home"
+      ],
+      "kind" : "color",
+      "page_hidden" : false,
+      "path" : [
+        "home",
+        "bubbleColors",
+        "receivedText"
+      ],
+      "refuses" : [
+        "red",
+        "#12345",
+        "#1234567",
+        "#12345g",
+        0
+      ],
+      "section" : "home",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.home.bubbleColors.receivedText",
+        "text" : "Their Text Color"
       },
       "validation" : "portable"
     },
@@ -36918,6 +37323,107 @@
         true,
         false
       ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.labs",
+        "text" : "Labs"
+      },
+      "help" : {
+        "key" : "settings.labs.voiceRoom.help",
+        "text" : "An unofficial room where you talk with people and Chief. While a room is open, cmux transcribes your mic and reads your screen's text on this Mac, then sends that text to the room."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "labs.voiceRoom",
+      "keywords" : [
+        "labs",
+        "voice",
+        "room",
+        "call",
+        "meeting",
+        "transcribe",
+        "screen",
+        "record",
+        "chief"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "labs",
+        "voiceRoom"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "advanced",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.labs.voiceRoom",
+        "text" : "Voice Room"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+
+      ],
+      "agent_refusal" : "network",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.labs",
+        "text" : "Labs"
+      },
+      "help" : {
+        "key" : "settings.labs.voiceRoomURL.help",
+        "text" : "The room's web address. Empty uses the room server on this Mac."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "labs.voiceRoomURL",
+      "keywords" : [
+        "labs",
+        "voice",
+        "room",
+        "address",
+        "url",
+        "server",
+        "tailnet"
+      ],
+      "kind" : "text",
+      "page_hidden" : false,
+      "path" : [
+        "labs",
+        "voiceRoomURL"
+      ],
+      "refuses" : [
+        1,
+        true,
+        null
+      ],
+      "section" : "advanced",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.labs.voiceRoomURL",
+        "text" : "Voice Room Address"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
       "agent_refusal" : "network",
       "agent_settable" : false,
       "consumers" : [
@@ -37816,6 +38322,91 @@
       "title" : {
         "key" : "settings.agents.defaultPermissionMode",
         "text" : "Permission Mode for New Chats"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "deepseek/deepseek-v4.1-flash-1017",
+        "deepseek/deepseek-v4.1-flash",
+        "deepseek/deepseek-v4-flash",
+        "deepseek/deepseek-v4-pro"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : false,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.modelRouterDeepSeekV41Flash1017",
+            "text" : "DeepSeek V4.1 Flash 1017 (Images)"
+          },
+          "value" : "deepseek/deepseek-v4.1-flash-1017"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.modelRouterDeepSeekV41Flash",
+            "text" : "DeepSeek V4.1 Flash"
+          },
+          "value" : "deepseek/deepseek-v4.1-flash"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.modelRouterDeepSeekV4Flash",
+            "text" : "DeepSeek V4 Flash"
+          },
+          "value" : "deepseek/deepseek-v4-flash"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.modelRouterDeepSeekV4Pro",
+            "text" : "DeepSeek V4 Pro"
+          },
+          "value" : "deepseek/deepseek-v4-pro"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "deepseek/deepseek-v4.1-flash-1017",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agents.modelRouter.model.help",
+        "text" : "The model a new chat on the cmux model router starts on. A model you pick in a chat applies to that chat only."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agents.modelRouter.model",
+      "keywords" : [
+        "model",
+        "router",
+        "cmux router",
+        "deepseek",
+        "vision",
+        "images",
+        "inference",
+        "default model",
+        "new chat"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "agents",
+        "modelRouter",
+        "model"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.agents.modelRouter.model",
+        "text" : "cmux Model Router Model"
       },
       "validation" : "portable"
     },
