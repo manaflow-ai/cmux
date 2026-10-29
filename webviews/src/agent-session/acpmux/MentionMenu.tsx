@@ -1,10 +1,14 @@
-import { useEffect, useRef, useState } from "react";
-import { useEscapingList } from "../../ui/popupHost";
-import { readFileSearch, type FileMatch, type FileSearchSource, type Run } from "./fileSearchModel";
-import { Icon } from "./icons/Icon";
+import { useEffect, useState } from "react";
+import {
+  readFileSearch,
+  type FileMatch,
+  type FileSearchSource,
+  type Run,
+} from "./fileSearchModel";
 import type { MentionItem } from "./mentionItems";
-import { PickerOption, PickerOptionList } from "../../ui/PickerPrimitives";
 import { useT } from "./i18n";
+import type { NativePopupEvent, NativePopupRow } from "../../ui/nativePopup";
+import { useComposerPopup, popupChoice } from "./nativeComposerPopup";
 
 /// How long typing settles before the picker asks again (as Search files does).
 const MENTION_DEBOUNCE_MS = 80;
@@ -17,13 +21,20 @@ const MENTION_DEBOUNCE_MS = 80;
 /// (backslash escapes undone), or undefined when the caret is not in one. An `@` inside a word (an
 /// email address) or inside an inline code span is not a mention. The prompt's markdown writes a
 /// space after an escaped character as an entity (`\_\_init\_\_.py&#x20;`), which ends the word too.
-export function mentionQuery(markdown: string, at: number): { start: number; query: string } | undefined {
+export function mentionQuery(
+  markdown: string,
+  at: number,
+): { start: number; query: string } | undefined {
   const before = markdown.slice(0, at);
-  const found = /(^|\s|&#x20;|&#32;|&nbsp;)@((?:\\.|(?!&#x20;|&#32;|&nbsp;)[^\s\\@])*)$/i.exec(before);
+  const found =
+    /(^|\s|&#x20;|&#32;|&nbsp;)@((?:\\.|(?!&#x20;|&#32;|&nbsp;)[^\s\\@])*)$/i.exec(
+      before,
+    );
   if (!found) return undefined;
   const start = before.length - found[2]!.length - 1;
   // An odd number of backticks before it: inside a code span.
-  if ((before.slice(0, start).match(/`/g)?.length ?? 0) % 2 === 1) return undefined;
+  if ((before.slice(0, start).match(/`/g)?.length ?? 0) % 2 === 1)
+    return undefined;
   return { start, query: found[2]!.replace(/\\(.)/g, "$1") };
 }
 
@@ -43,7 +54,10 @@ export type MentionState =
 
 /// The files matching `query` (undefined: the picker is closed), asked of `search` once typing
 /// settles; only the newest answer lands.
-export function useMentionSearch(search: FileSearchSource | undefined, query: string | undefined): MentionState {
+export function useMentionSearch(
+  search: FileSearchSource | undefined,
+  query: string | undefined,
+): MentionState {
   const [state, setState] = useState<MentionState>({ kind: "idle" });
   const generation = useRef(0);
   useEffect(() => {
@@ -55,14 +69,21 @@ export function useMentionSearch(search: FileSearchSource | undefined, query: st
     }
     setState((current) => ({
       kind: "searching",
-      results: current.kind === "done" || current.kind === "searching" ? current.results : [],
+      results:
+        current.kind === "done" || current.kind === "searching"
+          ? current.results
+          : [],
     }));
     const timer = setTimeout(() => {
       search(text).then(
         (reply) => {
           if (ask !== generation.current) return;
           const result = readFileSearch(reply);
-          setState(result ? { kind: "done", results: result.results } : { kind: "failed" });
+          setState(
+            result
+              ? { kind: "done", results: result.results }
+              : { kind: "failed" },
+          );
         },
         () => {
           if (ask === generation.current) setState({ kind: "failed" });
@@ -83,26 +104,28 @@ export const mentionResults = (state: MentionState): FileMatch[] =>
 /// folder muted beside it. The prompt keeps focus and its keys (Composer.tsx): arrows move, Return
 /// or Tab picks, Esc closes. `state` is the file search's, undefined in a chat whose folder cannot be
 /// searched (a remote chat), which lists chats only and says nothing of files. `active` -1: no row.
+
 export function MentionMenu({
   state,
   items,
   active,
+  query = "",
+  anchor,
+  onSearch,
   onHover,
   onPick,
 }: {
   state: MentionState | undefined;
   items: readonly MentionItem[];
   active: number;
+  query?: string;
+  anchor: () => HTMLElement | null;
+  onSearch?(value: string): void;
   onHover(index: number): void;
   onPick(item: MentionItem): void;
 }) {
   const t = useT();
-  // Above the composer, or past the window's edge when the pane has no room there (cx-6k6cg).
-  const escape = useEscapingList("top", 6);
-  useEffect(() => {
-    document.getElementById(`acpmux-mention-${active}`)?.scrollIntoView?.({ block: "nearest" });
-  }, [active]);
-  // Chats can list before a word is typed; the files' state still says what the search is doing.
+  const [open, setOpen] = useState(true);
   const note = !state
     ? undefined
     : state.kind === "idle"
@@ -112,49 +135,48 @@ export function MentionMenu({
         : items.length === 0
           ? t(state.kind === "searching" ? "files.searching" : "files.none")
           : undefined;
-  return (
-    <PickerOptionList
-      ref={escape}
-      aria-label={t("files.search")}
-      aria-busy={state?.kind === "searching"}
-      className="ui-popup ui-glass acpmux-slash-menu acpmux-mention-menu"
-      id="acpmux-mention-menu"
-    >
-      {items.map((item, index) => (
-        <PickerOption
-          key={item.key}
-          id={`acpmux-mention-${index}`}
-          type="button"
-          // The prompt keeps focus (aria-activedescendant), so no row is a tab stop.
-          active={false}
-          selected={index === active}
-          className={
-            index === active
-              ? "acpmux-slash-row acpmux-mention-row acpmux-slash-active"
-              : "acpmux-slash-row acpmux-mention-row"
-          }
-          data-mention-kind={item.kind}
-          onPointerMove={() => onHover(index)}
-          // A mouse-down here would take focus from the prompt.
-          onMouseDown={(event) => {
-            event.preventDefault();
-            onPick(item);
-          }}
-        >
-          <span className="acpmux-mention-icon" data-mention-icon={item.kind}>
-            <Icon name={item.kind === "session" ? "agent.chat" : item.kind} size={14} />
-          </span>
-          <span className="acpmux-slash-name">{runs(item.name)}</span>
-          {item.kind === "session"
-            ? item.project && <span className="acpmux-slash-description">{item.project}</span>
-            : item.dir.length > 0 && <span className="acpmux-slash-description">{runs(item.dir)}</span>}
-        </PickerOption>
-      ))}
-      {note && <output className="acpmux-file-note">{note}</output>}
-    </PickerOptionList>
-  );
-}
-
-function runs(parts: readonly Run[]) {
-  return parts.map((part, index) => (part.matched ? <b key={index}>{part.text}</b> : part.text));
+  const rows: NativePopupRow[] = items.length
+    ? items.map((item) =>
+        popupChoice(
+          item.key,
+          item.kind === "session" ? item.title : item.path,
+          {
+            description: item.kind === "session" ? item.project : item.path,
+            checked: false,
+          },
+        ),
+      )
+    : note
+      ? [{ id: "note", kind: "text", label: note }]
+      : [];
+  useEffect(() => setOpen(true), [items.length]);
+  useComposerPopup({
+    open,
+    anchor,
+    model: {
+      side: "top",
+      align: "start",
+      width: 420,
+      title: t("files.search"),
+      search: { id: "query", value: query, placeholder: t("files.search") },
+      rows,
+      highlighted: items[active]?.key,
+    },
+    onEvent: (event: NativePopupEvent) => {
+      if (event.type === "search") {
+        if (event.value !== undefined) onSearch?.(event.value);
+        return;
+      }
+      if (event.type === "highlight" && event.id) {
+        const index = items.findIndex((item) => item.key === event.id);
+        if (index >= 0) onHover(index);
+        return;
+      }
+      if (event.type === "pick" && event.id) {
+        const item = items.find((candidate) => candidate.key === event.id);
+        if (item) onPick(item);
+      }
+    },
+    onDismiss: () => setOpen(false),
+  });
 }

@@ -1,105 +1,96 @@
-import React, { useCallback, useLayoutEffect, useRef } from "react";
-import { useEscapingList } from "../../ui/popupHost";
+import { useEffect, useState } from "react";
+import type { NativePopupEvent, NativePopupRow } from "../../ui/nativePopup";
+import { useComposerPopup, popupChoice } from "./nativeComposerPopup";
 import { useT } from "./i18n";
 import type { SlashCommand, SlashMatch } from "./slashCommands";
+import { isFastCommand } from "./slashCommands";
 
 export function SlashMenu({
   matches,
   active,
   empty,
+  fast,
+  query = "",
+  anchor,
+  onSearch,
   onHover,
   onPick,
 }: {
   matches: SlashMatch[];
   active: number;
   empty: string;
+  fast?: "on" | "off";
+  query?: string;
+  anchor: () => HTMLElement | null;
+  onSearch?(value: string): void;
   onHover(index: number): void;
   onPick(command: SlashCommand): void;
 }) {
   const t = useT();
-  const list = useRef<HTMLDivElement>(null);
-  // Above the composer, or past the window's edge when the pane has no room there (cx-6k6cg).
-  const escape = useEscapingList("top", 6);
-  const setList = useCallback(
-    (node: HTMLDivElement | null) => {
-      list.current = node;
-      escape?.(node);
-    },
-    [escape],
+  const [open, setOpen] = useState(true);
+  const matchById = new Map(
+    matches.map((match) => [match.command.name, match]),
   );
-  useLayoutEffect(() => {
-    list.current?.querySelector<HTMLElement>(`#acpmux-slash-${active}`)?.scrollIntoView?.({ block: "nearest" });
-  }, [active]);
-  // A native select or datalist cannot hold the matched-name bolding and descriptions.
-  if (matches.length === 0)
-    return (
-      <div
-        className="ui-popup ui-glass acpmux-slash-menu acpmux-slash-empty"
-        id="acpmux-slash-menu"
-        // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-        role="listbox"
-        aria-label={t("composer.commands")}
-      >
-        {empty}
-      </div>
-    );
-  return (
-    <div
-      ref={setList}
-      className="ui-popup ui-glass acpmux-slash-menu"
-      id="acpmux-slash-menu"
-      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-      role="listbox"
-      aria-label={t("composer.commands")}
-    >
-      {/* Virtual focus: the prompt keeps focus and names the row through aria-activedescendant. */}
-      {matches.map((match, index) => (
-        <div
-          key={match.command.name}
-          id={`acpmux-slash-${index}`}
-          // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-          role="option"
-          tabIndex={-1}
-          aria-selected={index === active}
-          className={index === active ? "acpmux-slash-row acpmux-slash-active" : "acpmux-slash-row"}
-          onMouseMove={() => {
-            if (index !== active) onHover(index);
-          }}
-          onMouseDown={(event) => {
-            event.preventDefault();
-            onPick(match.command);
-          }}
-        >
-          <span className="acpmux-slash-name">
-            /<Highlighted name={match.command.name} ranges={match.ranges} />
-          </span>
-          {match.command.hint && <span className="acpmux-slash-hint">{match.command.hint}</span>}
-          {match.command.source && match.command.source !== "agent" && (
-            <span className="acpmux-slash-source">
-              {match.command.source === "skill"
-                ? t("composer.slashSkill")
-                : match.command.source === "prompt"
-                  ? t("composer.slashPrompt")
-                  : "cmux"}
-            </span>
-          )}
-          <span className="acpmux-slash-description">
-            {match.command.descriptionKey ? t(match.command.descriptionKey) : match.command.description}
-          </span>
-        </div>
-      ))}
-    </div>
-  );
-}
+  const rows: NativePopupRow[] = matches.length
+    ? matches.map((match) => {
+        const fastRow = isFastCommand(match.command);
+        return popupChoice(
+          match.command.name,
+          fastRow ? t("picker.tierFast") : `/${match.command.name}`,
+          {
+            description: fastRow
+              ? t(
+                  fast === "on"
+                    ? "composer.slashFastOff"
+                    : fast === "off"
+                      ? "composer.slashFastOn"
+                      : "composer.slashFastToggle",
+                )
+              : match.command.descriptionKey
+                ? t(match.command.descriptionKey)
+                : match.command.description,
+            checked: false,
+          },
+        );
+      })
+    : [{ id: "empty", kind: "text", label: empty }];
 
-function Highlighted({ name, ranges }: { name: string; ranges: [number, number][] }) {
-  const parts: React.ReactNode[] = [];
-  let at = 0;
-  for (const [start, end] of ranges) {
-    if (start > at) parts.push(name.slice(at, start));
-    parts.push(<mark key={start}>{name.slice(start, end)}</mark>);
-    at = end;
-  }
-  if (at < name.length) parts.push(name.slice(at));
-  return <>{parts}</>;
+  useEffect(() => {
+    setOpen(true);
+  }, [matches.length]);
+  useComposerPopup({
+    open,
+    anchor,
+    model: {
+      side: "top",
+      align: "start",
+      width: 360,
+      title: t("composer.commands"),
+      search: {
+        id: "query",
+        value: query,
+        placeholder: t("composer.commands"),
+      },
+      rows,
+      highlighted: matches[active]?.command.name,
+    },
+    onEvent: (event: NativePopupEvent) => {
+      if (event.type === "search") {
+        if (event.value !== undefined) onSearch?.(event.value);
+        return;
+      }
+      if (event.type === "highlight" && event.id) {
+        const index = matches.findIndex(
+          (match) => match.command.name === event.id,
+        );
+        if (index >= 0) onHover(index);
+        return;
+      }
+      if (event.type === "pick" && event.id) {
+        const match = matchById.get(event.id);
+        if (match) onPick(match.command);
+      }
+    },
+    onDismiss: () => setOpen(false),
+  });
 }

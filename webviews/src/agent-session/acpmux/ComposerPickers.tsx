@@ -44,16 +44,10 @@ import { HOVER_INTENT } from "../../ui/hoverIntent";
 import { useHoverCard } from "./chips/useHoverCard";
 import { ContextCardBody } from "./ContextCard";
 import { contextBreakdown } from "./inspector/ContextSection";
-import { ContextMenu } from "../../ui/ContextMenu";
 import { useComposerSettings } from "./composerSettings";
-import { Menu, MenuButton, MenuPopup, MenuRadioGroup, MenuRadioItem } from "../../ui/Menu";
+import type { NativePopupEvent, NativePopupRow } from "../../ui/nativePopup";
+import { useComposerPopup, popupAction, popupChoice, popupSection } from "./nativeComposerPopup";
 import { registerPicker } from "./pickerOpeners";
-import { UI_ANCHOR_GAP, useUiAnchor } from "../../ui/anchor";
-import { useEscapingPopup } from "../../ui/popupHost";
-import { usePopupHost } from "../../ui/UiProvider";
-import { usePopoverTrigger } from "../../ui/popoverTrigger";
-import { isMousePress } from "../../ui/pressRelease";
-import { focusAfterEscape } from "../../ui/escapeFocus";
 import {
   type ModeIconName,
   RECOMMENDED_BADGE,
@@ -987,34 +981,28 @@ export function ComposerPickers({
         />
       )}
       {showPlan && plan && (
-        // Its right-click menu names both modes; the current one is disabled (cx-2lm4).
-        <ContextMenu
+        <Picker
+          label={planning ? t(PICKER_LABELS.plan) : t(PICKER_LABELS.build)}
           className="acpmux-plan-menu"
-          items={[
-            {
-              id: "plan",
-              label: t(PICKER_LABELS.plan),
-              disabled: planning,
-              onSelect: () => void settle(() => onMode(plan.id)),
+          button={
+            <>
+              {planning ? <PlanIcon /> : <BuildIcon />}
+              <span>{planning ? t(PICKER_LABELS.plan) : t(PICKER_LABELS.build)}</span>
+            </>
+          }
+          align="start"
+          sections={[{
+            choices: [
+              { id: "plan", name: t(PICKER_LABELS.plan), description: planning ? undefined : t(PICKER_LABELS.plan) },
+              { id: "build", name: t(PICKER_LABELS.build), description: planning ? t(PICKER_LABELS.build) : undefined },
+            ],
+            current: planning ? "plan" : "build",
+            onPick: (id) => {
+              if (id === "plan" && !planning) void settle(() => onMode(plan.id));
+              if (id === "build" && planning) void settle(() => onMode(lastMode.current.mode ?? modes[0]?.id ?? plan.id));
             },
-            {
-              id: "build",
-              label: t(PICKER_LABELS.build),
-              disabled: !planning,
-              onSelect: () => void settle(() => onMode(lastMode.current.mode ?? modes[0]?.id ?? plan.id)),
-            },
-          ]}
-        >
-          <button
-            type="button"
-            className="acpmux-plan"
-            aria-pressed={planning}
-            onClick={() => onMode(planning ? (lastMode.current.mode ?? modes[0]?.id ?? plan.id) : plan.id)}
-          >
-            {planning ? <PlanIcon /> : <BuildIcon />}
-            <span>{planning ? t(PICKER_LABELS.plan) : t(PICKER_LABELS.build)}</span>
-          </button>
-        </ContextMenu>
+          }]}
+        />
       )}
       {/* A custom harness's other settings: each config option no chip above owns, picked like the
           effort level. Codex's collaboration mode stays on its command/mode paths. */}
@@ -1126,118 +1114,33 @@ function AccessMenu({
   const tooltip = `${label}: ${currentMode?.name ?? label}\n${help}`;
   // A numbered menu (Claude Code's) draws no icon column, as Claude Code's mode menu does; the
   // button keeps the mode's symbol.
-  const iconless = numbered && heading !== undefined;
-  // Nothing left to pick (every other mode refused, no grants): a plain label, never a dead menu.
-  if (
-    refusedIds.length > 0 &&
-    grants.length === 0 &&
-    modes.every((choice) => choice.id === value || refusedIds.includes(choice.id))
-  ) {
-    return (
-      <span
-        className={`acpmux-mode acpmux-access acpmux-access-fixed${unrestricted(value) ? " acpmux-unrestricted" : ""}`}
-        data-fit-title={currentMode?.name ?? label}
-        data-fit-title-unit="access"
-        /* tooltip-allow: the chip is its shield alone; the tooltip says what it is and why it is fixed */
-        title={`${tooltip}\n${refusedReason}`}
-      >
+  const fixed = refusedIds.length > 0 && grants.length === 0 && modes.every((choice) => choice.id === value || refusedIds.includes(choice.id));
+  const trigger = useRef<HTMLButtonElement>(null);
+  const rows: NativePopupRow[] = [];
+  if (modes.length > 0) rows.push(popupSection("modes", heading ?? label, modes.map((choice, index) => popupChoice(choice.id, `${numbered && !newTab && index < 9 ? `${index + 1}. ` : ""}${choice.name}${choice.recommended ? ` (${t(RECOMMENDED_BADGE)})` : ""}`, { description: refusedIds.includes(choice.id) ? refusedReason : choice.description ?? (unrestricted(choice.id) ? warning : undefined), checked: choice.id === value, disabled: refusedIds.includes(choice.id) }))));
+  if (grants.length > 0) rows.push(popupSection("grants", t("permission.grants"), grants.map((grant) => popupAction(`revoke:${grant.id}`, `${t("permission.revoke")}: ${grant.label}`))));
+  useComposerPopup({ open, anchor: () => trigger.current, model: { side: newTab ? "bottom" : "top", align: "start", width: 320, title: heading ?? label, rows, highlighted: value }, onEvent: (event: NativePopupEvent) => {
+    if (event.type !== "pick" || !event.id) return;
+    if (event.id.startsWith("revoke:")) { grants.find((grant) => `revoke:${grant.id}` === event.id)?.onRemove(); return; }
+    if (!refusedIds.includes(event.id) && event.id !== value) pick(event.id);
+  }, onDismiss: () => setOpen(false) });
+  if (fixed) return (
+      <span className={`acpmux-mode acpmux-access acpmux-access-fixed${unrestricted(value) ? " acpmux-unrestricted" : ""}`} data-fit-title={currentMode?.name ?? label} data-fit-title-unit="access" title={`${tooltip}\n${refusedReason}`}>
         <ModeIcon modeId={value} icon={currentMode?.icon} />
-        <span className="acpmux-mode-text" data-fit-part="access" data-fit-forms="full">
-          {currentMode?.name ?? label}
-        </span>
+        <span className="acpmux-mode-text" data-fit-part="access" data-fit-forms="full">{currentMode?.name ?? label}</span>
       </span>
     );
-  }
   return (
-    <span
-      className={`acpmux-mode acpmux-access${unrestricted(value) ? " acpmux-unrestricted" : ""}`}
-      // A narrow row shows the glyph alone; the row's fit names the mode in a tooltip then (composerRowFit.ts).
-      data-fit-title={currentMode?.name ?? label}
-      data-fit-title-unit="access"
-    >
-      <Menu open={open} onOpenChange={setOpen}>
-        <MenuButton
-          className="acpmux-picker-button acpmux-access-trigger"
-          label={label}
-          /* tooltip-allow: the chip is its shield alone; the tooltip names the mode and what the control is */
-          title={tooltip}
-          aria-haspopup="menu"
-        >
-          {modes.length > 0 ? <ModeIcon modeId={value} icon={currentMode?.icon} /> : <LockIcon />}
-          <span className="acpmux-mode-text" data-fit-part="access" data-fit-forms="full">
-            {currentMode?.name ?? (modes.length === 0 ? grants[0]?.label : undefined) ?? label}
-          </span>
-          <ChevronIcon />
-        </MenuButton>
-        <MenuPopup
-          side={newTab ? "bottom" : "top"}
-          align="start"
-          className="acpmux-access-menu"
-          // ui-allow: 1 to 9 pick the mode in that place while the menu is open, as in Claude's mode menu.
-          onKeyDown={(event) => {
-            if (event.metaKey || event.ctrlKey || event.altKey || !/^[1-9]$/.test(event.key)) return;
-            const choice = modes[Number(event.key) - 1];
-            if (!choice) return;
-            event.preventDefault();
-            if (choice.id === value) setOpen(false);
-            else pick(choice.id);
-          }}
-        >
-          {modes.length > 0 && (
-            <MenuRadioGroup value={value} onValueChange={pick}>
-              {modes.map((choice, index) => (
-                <MenuRadioItem
-                  key={choice.id}
-                  value={choice.id}
-                  disabled={refusedIds.includes(choice.id)}
-                  shortcut={numbered && !newTab && index < 9 ? String(index + 1) : undefined}
-                  className={`acpmux-access-item${unrestricted(choice.id) ? " acpmux-unrestricted" : ""}${iconless ? " acpmux-access-item-iconless" : ""}`}
-                >
-                  {!iconless && (
-                    <span className="acpmux-access-item-icon" aria-hidden="true">
-                      <ModeIcon modeId={choice.id} icon={choice.icon} />
-                    </span>
-                  )}
-                  <span className="acpmux-menu-text">
-                    {choice.recommended ? (
-                      // The name and Claude Code's Recommended badge on one line.
-                      <span className="acpmux-access-title">
-                        <span className="acpmux-menu-label">{choice.name}</span>
-                        <span className="acpmux-menu-badge">{t(RECOMMENDED_BADGE)}</span>
-                      </span>
-                    ) : (
-                      <span className="acpmux-menu-label">{choice.name}</span>
-                    )}
-                    {refusedIds.includes(choice.id) ? (
-                      <span className="acpmux-menu-description">{refusedReason}</span>
-                    ) : choice.description || unrestricted(choice.id) ? (
-                      <span className="acpmux-menu-description">{choice.description ?? warning}</span>
-                    ) : null}
-                  </span>
-                </MenuRadioItem>
-              ))}
-            </MenuRadioGroup>
-          )}
-          {grants.length > 0 && (
-            <fieldset className="acpmux-access-grants" aria-label={t("permission.grants")}>
-              <div className="acpmux-access-grants-heading">{t("permission.grants")}</div>
-              {grants.map((grant) => (
-                <div className="acpmux-access-grant" key={grant.id}>
-                  <span className="acpmux-access-grant-label">{grant.label}</span>
-                  <button
-                    type="button"
-                    className="acpmux-access-grant-remove"
-                    aria-label={`${t("permission.revoke")}: ${grant.label}`}
-                    onClick={grant.onRemove}
-                  >
-                    ×
-                  </button>
-                </div>
-              ))}
-            </fieldset>
-          )}
-        </MenuPopup>
-      </Menu>
+    <span className={`acpmux-mode acpmux-access${unrestricted(value) ? " acpmux-unrestricted" : ""}`} data-fit-title={currentMode?.name ?? label} data-fit-title-unit="access">
+      <button ref={trigger} type="button" className="acpmux-picker-button acpmux-access-trigger" aria-label={label} title={tooltip} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((was) => !was)} onKeyDown={(event) => {
+        if (event.metaKey || event.ctrlKey || event.altKey || !/^[1-9]$/.test(event.key)) return;
+        const choice = modes[Number(event.key) - 1];
+        if (choice) { event.preventDefault(); pick(choice.id); }
+      }}>
+        {modes.length > 0 ? <ModeIcon modeId={value} icon={currentMode?.icon} /> : <LockIcon />}
+        <span className="acpmux-mode-text" data-fit-part="access" data-fit-forms="full">{currentMode?.name ?? (modes.length === 0 ? grants[0]?.label : undefined) ?? label}</span>
+        <ChevronIcon />
+      </button>
     </span>
   );
 }
@@ -1490,352 +1393,31 @@ export type Section = { title?: string; choices: Choice[]; current?: string; onP
 /// a group with a check on its current choice; arrows move, Enter, Space or a
 /// click picks, and Escape, a click elsewhere or focus leaving the pane closes.
 export function Picker({
-  label,
-  className,
-  button,
-  sections,
-  align,
-  warnUnrestricted = false,
-  returnFocus = true,
-  heading,
-  tooltip,
+  label, className, button, sections, align, warnUnrestricted: _warnUnrestricted = false, returnFocus = true, heading, tooltip,
 }: {
-  label: string;
-  className: string;
-  button: React.ReactNode;
-  sections: Section[];
-  align: "start" | "end";
-  warnUnrestricted?: boolean;
-  /// An action menu hands focus to whatever its pick focuses, not back to the button.
-  returnFocus?: boolean;
-  /// A question over the choices, as an approval menu asks it.
-  heading?: string;
-  /// What the menu holds, as the trigger's tooltip: only a trigger that draws an icon and no text
-  /// passes one (a picker showing its choice's name needs none).
-  tooltip?: string;
+  label: string; className: string; button: React.ReactNode; sections: Section[]; align: "start" | "end"; warnUnrestricted?: boolean; returnFocus?: boolean; heading?: string; tooltip?: string;
 }) {
   const [open, setOpen] = useState(false);
-  const [active, setActive] = useState(0);
-  const root = useRef<HTMLSpanElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
-  const menu = useRef<HTMLDivElement | null>(null);
-  const menuId = useId();
-  const menuStyle = useUiAnchor(trigger, menu, open, { side: "above", align: "start" });
-  // No room above or below its button in the pane: past the window's edge (popupHost.ts).
-  const host = usePopupHost();
-  const [shown, setShown] = useState<HTMLDivElement | null>(null);
-  const attach = useCallback(
-    (node: HTMLDivElement | null) => {
-      menu.current = node;
-      if (host) setShown(node);
-    },
-    [host],
-  );
-  useEscapingPopup(host, shown, () => trigger.current, {
-    side: "top",
-    align,
-    gap: UI_ANCHOR_GAP,
-    kind: "list",
-    active: ".acpmux-menu-active",
-  });
-  const rows = sections.flatMap((section, s) => section.choices.map((choice) => ({ section: s, choice })));
-  // A live update can shrink the list under the highlight.
-  const selected = Math.min(active, Math.max(rows.length - 1, 0));
-
-  useEffect(() => {
-    if (!open) return;
-    const away = (event: PointerEvent) => {
-      if (!root.current?.contains(event.target as Node)) setOpen(false);
-    };
-    const blur = () => setOpen(false);
-    // In the capture phase, as Base UI's menus close: a press outside only closes the menu, and
-    // nothing under it sees the press (menuPressGuard.ts).
-    document.addEventListener("pointerdown", away, true);
-    window.addEventListener("blur", blur);
-    return () => {
-      document.removeEventListener("pointerdown", away, true);
-      window.removeEventListener("blur", blur);
-    };
-  }, [open]);
-
-  // A mouse press is opening it (cg-composer click polish): the focus it moves here is not drawn.
-  const byPointer = useRef(false);
-  const show = () => {
-    const current = rows.findIndex((row) => row.choice.id === sections[row.section].current);
-    setActive(Math.max(current, 0));
-    setOpen(true);
-    // WebKit doesn't focus a clicked button; the keys must reach the menu, not the prompt. After a
-    // key was typed WebKit draws a programmatic focus as keyboard focus, so a press says it is not.
-    focusWithRing(trigger.current, byPointer.current ? { focusVisible: false } : undefined);
-  };
-  const showRef = useRef(show);
-  showRef.current = show;
-  // Like a click, which takes focus off the prompt first: that closes the slash menu and restores the draft.
-  useEffect(
-    () =>
-      registerPicker(label, () => {
-        if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
-        showRef.current();
-      }),
-    [label],
-  );
-  const close = () => {
-    setOpen(false);
-    trigger.current?.focus();
-  };
-  const press = usePopoverTrigger(open, setOpen, show);
-  const pick = (index: number) => {
-    const row = rows[index];
-    if (!row) return;
-    if (sections[row.section].onPick(row.choice.id) === "keep") return;
-    if (returnFocus) close();
-    else setOpen(false);
-  };
-  const keyDown = (event: React.KeyboardEvent) => {
-    if (!open) {
-      if (event.key === "ArrowUp" || event.key === "ArrowDown") {
-        event.preventDefault();
-        show();
-      }
-      return;
-    }
-    if (event.key === "Escape") {
-      event.preventDefault();
-      event.stopPropagation();
-      setOpen(false);
-      // Back on the button with its ring, though a press opened the menu without one: the button
-      // already has the focus, so it takes it again (escapeFocus.ts).
-      trigger.current?.blur();
-      focusAfterEscape(trigger.current);
-    } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-      event.preventDefault();
-      const step = event.key === "ArrowDown" ? 1 : -1;
-      if (rows.length > 0) setActive((selected + step + rows.length) % rows.length);
-    } else if (event.key === "Home" || event.key === "End") {
-      event.preventDefault();
-      if (rows.length > 0) setActive(event.key === "Home" ? 0 : rows.length - 1);
-    } else if (event.key === "Enter") {
-      event.preventDefault();
-      pick(selected);
-    }
-    // A button clicks on Space's keyup; pick there and cancel that click, or it would reopen the menu.
-    else if (event.key === " ") event.preventDefault();
-    else if (event.key === "Tab") setOpen(false);
-  };
-  const keyUp = (event: React.KeyboardEvent) => {
-    if (open && event.key === " ") {
-      event.preventDefault();
-      pick(selected);
-    }
-  };
-
-  let index = -1;
+  useEffect(() => registerPicker(label, () => setOpen(true)), [label]);
+  const rows: NativePopupRow[] = sections.flatMap((section, index) => [
+    ...(index > 0 ? [{ id: `separator-${index}`, kind: "separator" as const, label: "" }] : []),
+    popupSection(`section-${index}`, section.title ?? (sections.length > 1 ? label : ""), section.choices.map((choice) => popupChoice(choice.id, choice.name, { description: choice.description, checked: choice.id === section.current }))),
+  ]);
+  const handlers = new Map<string, (id: string) => void | "keep">();
+  sections.forEach((section) => section.choices.forEach((choice) => handlers.set(choice.id, (id) => section.onPick(id))));
+  useComposerPopup({ open, anchor: () => trigger.current, model: { side: "top", align, width: 300, title: heading ?? label, rows }, onEvent: (event: NativePopupEvent) => {
+    if (event.type !== "pick" || !event.id) return;
+    const result = handlers.get(event.id)?.(event.id);
+    if (result !== "keep" && returnFocus) setOpen(false);
+  }, onDismiss: () => setOpen(false) });
   return (
-    <span
-      ref={root}
-      className={`acpmux-picker ${className}`}
-      style={{ position: "relative" }}
-      onBlur={(event) => {
-        if (open && !root.current?.contains(event.relatedTarget as Node | null)) setOpen(false);
-      }}
-    >
-      <button
-        ref={trigger}
-        type="button"
-        // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-        role="combobox"
-        className="acpmux-picker-button"
-        data-menu={label}
-        aria-label={label}
-        // tooltip-allow: only an icon-only trigger (the composer's +) passes a tooltip.
-        title={tooltip}
-        aria-haspopup="listbox"
-        aria-expanded={open}
-        aria-controls={open ? menuId : undefined}
-        aria-activedescendant={open && rows.length > 0 ? `${menuId}-${selected}` : undefined}
-        onKeyDown={keyDown}
-        onKeyUp={keyUp}
-        {...press}
-        onPointerDown={(event) => {
-          byPointer.current = isMousePress(event);
-          press.onPointerDown(event);
-          byPointer.current = false;
-        }}
-      >
-        {button}
-      </button>
-      {/* A native select cannot hold descriptions, sections or the pane's styling. */}
-      {open && (
-        <div
-          ref={attach}
-          style={menuStyle}
-          className={`ui-popup ui-glass acpmux-menu acpmux-menu-${align}`}
-          data-side="above"
-        >
-          {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
-          <div id={menuId} role="listbox" aria-label={heading ?? label}>
-            {heading && (
-              <div className="acpmux-menu-heading" aria-hidden="true">
-                {heading}
-              </div>
-            )}
-            {sections.map((section, s) => {
-              const titled = section.title && sections.length > 1;
-              return (
-                <div
-                  key={s}
-                  className="acpmux-menu-section"
-                  // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-                  role="group"
-                  aria-labelledby={titled ? `${menuId}-group-${s}` : undefined}
-                  aria-label={titled ? undefined : label}
-                >
-                  {titled && (
-                    <div className="acpmux-menu-header" id={`${menuId}-group-${s}`}>
-                      {section.title}
-                    </div>
-                  )}
-                  {section.choices.map((choice) => {
-                    index += 1;
-                    const at = index;
-                    const current = choice.id === section.current;
-                    return (
-                      <div
-                        key={choice.id}
-                        id={`${menuId}-${at}`}
-                        data-value={choice.id}
-                        // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-                        role="option"
-                        tabIndex={-1}
-                        // `aria-selected` is the option's value; the combobox's
-                        // `aria-activedescendant` carries the keyboard highlight.
-                        aria-selected={section.current === undefined ? false : current}
-                        className={`acpmux-menu-item${at === selected ? " acpmux-menu-active" : ""}${warnUnrestricted && unrestricted(choice.id) ? " acpmux-unrestricted" : ""}`}
-                        onMouseMove={() => {
-                          if (at !== selected) setActive(at);
-                        }}
-                        onMouseDown={(event) => {
-                          event.preventDefault();
-                          pick(at);
-                        }}
-                      >
-                        {choice.icon}
-                        <span className="acpmux-menu-text">
-                          <span className="acpmux-menu-label">{choice.name}</span>
-                          {choice.description && <span className="acpmux-menu-description">{choice.description}</span>}
-                        </span>
-                        {choice.hint && <kbd className="acpmux-menu-hint">{choice.hint}</kbd>}
-                        {current && <CheckIcon />}
-                      </div>
-                    );
-                  })}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
+    <span className={`acpmux-picker ${className}`}>
+      <button ref={trigger} type="button" role="combobox" className="acpmux-picker-button" data-menu={label} aria-label={label} title={tooltip} aria-haspopup="listbox" aria-expanded={open} onClick={() => setOpen((was) => !was)}>{button}</button>
     </span>
   );
 }
 
-// Composer icons (a 16px grid drawn at 18px, stroke in currentColor).
-function Icon({
-  children,
-  size = 18,
-  shield,
-  modeIcon,
-}: {
-  children: React.ReactNode;
-  size?: number;
-  shield?: string;
-  modeIcon?: ModeIconName;
-}) {
-  return (
-    <svg
-      className="acpmux-icon"
-      data-shield={shield}
-      data-mode-icon={modeIcon}
-      width={size}
-      height={size}
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.25}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-      focusable="false"
-    >
-      {children}
-    </svg>
-  );
-}
-const SHIELD = "M8 1.9 13 3.7v4.1c0 3.1-2.3 5.3-5 6.3-2.7-1-5-3.2-5-6.3V3.7Z";
-/** Full access: the shield with an exclamation mark, drawn in the warning color by its row. */
-export const ShieldIcon = ({ shield, modeIcon }: { shield?: string; modeIcon?: ModeIconName }) => (
-  <Icon shield={shield} modeIcon={modeIcon}>
-    <path d={SHIELD} />
-    <path d="M8 5.2v3.3" />
-    <circle cx="8" cy="10.9" r=".35" fill="currentColor" />
-  </Icon>
-);
-/** A mode that asks first (Claude's default and plan, Codex read-only): the shield with a check. */
-const ShieldCheckIcon = ({ shield }: { shield?: string }) => (
-  <Icon shield={shield}>
-    <path d={SHIELD} />
-    <path d="m5.9 8.1 1.5 1.5 2.8-2.9" />
-  </Icon>
-);
-/** A mode that acts without asking within its limits (accept edits, Codex auto, Claude's don't
- * ask): the plain shield. */
-const ShieldPlainIcon = ({ shield }: { shield?: string }) => (
-  <Icon shield={shield}>
-    <path d={SHIELD} />
-  </Icon>
-);
-export const LockIcon = () => (
-  <Icon>
-    <rect x="3.5" y="7" width="9" height="7" rx="1.5" />
-    <path d="M5.5 7V5.6a2.5 2.5 0 0 1 5 0V7" />
-  </Icon>
-);
-/** One shield family for the permission mode, the same on the trigger and in the menu: the mark
- * inside the shield carries the risk (compact-composer verdict, 2026-10-14). The svg itself
- * carries data-shield, with no wrapper: it stays the trigger's first child, as the lock was, so
- * the trailing-chevron rules (`.acpmux-icon:last-child`) never restyle it. */
-function ModeShield({ modeId }: { modeId?: unknown }) {
-  const kind =
-    typeof modeId !== "string"
-      ? "plain"
-      : unrestricted(modeId)
-        ? "alert"
-        : /accept|auto|dont[-_ ]?ask/i.test(modeId)
-          ? "plain"
-          : "check";
-  return kind === "alert" ? (
-    <ShieldIcon shield={kind} />
-  ) : kind === "check" ? (
-    <ShieldCheckIcon shield={kind} />
-  ) : (
-    <ShieldPlainIcon shield={kind} />
-  );
-}
-/** Codex's approval icons (its own menu's): a raised hand for Ask for approval, a terminal prompt in
- * a shield for Approve for me, the shield with "!" for Full access. */
-const HandIcon = () => (
-  <Icon modeIcon="hand">
-    <path d="M5.5 8.6V4.4a.9.9 0 0 1 1.8 0V8M7.3 7.6V3.3a.9.9 0 0 1 1.8 0v4.3M9.1 7.7V4a.9.9 0 0 1 1.8 0v4.6" />
-    <path d="M10.9 7.4a.9.9 0 0 1 1.8 0v1.9a4.6 4.6 0 0 1-4.6 4.6h-.3a4 4 0 0 1-3-1.4L3.3 10.8a.9.9 0 0 1 1.3-1.2l.9.9" />
-  </Icon>
-);
-const TerminalShieldIcon = () => (
-  <Icon modeIcon="terminal-shield">
-    <path d={SHIELD} />
-    <path d="m5.8 6.4 1.6 1.4-1.6 1.4M8.4 9.6h2" />
-  </Icon>
-);
-/** A mode's symbol: the harness's own icon for it when its menu draws one, else the shield family. */
 function ModeIcon({ modeId, icon }: { modeId?: unknown; icon?: ModeIconName }) {
   if (icon === "hand") return <HandIcon />;
   if (icon === "terminal-shield") return <TerminalShieldIcon />;

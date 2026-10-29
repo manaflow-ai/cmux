@@ -1,15 +1,17 @@
-import React, { useContext, useEffect, useState } from "react";
-import { Menu, MenuButton, MenuGroup, MenuPopup, MenuRadioGroup, MenuRadioItem } from "../../ui/Menu";
+import React, { useContext, useEffect, useRef, useState } from "react";
 import { type ConfigOption, optionValueName } from "./agentOptions";
 import { ChevronIcon } from "./ComposerPickers";
 import { useT } from "./i18n";
 import { registerPicker } from "./pickerOpeners";
 import { OnNewTab } from "./newTabComposer";
+import {
+  useComposerPopup,
+  popupChoice,
+  popupSection,
+} from "./nativeComposerPopup";
+import type { NativePopupEvent, NativePopupRow } from "../../ui/nativePopup";
 
-/// The composer's Options chip: every config option the harness advertises that has no chip of
-/// its own (`extraConfigOptions`), each a group of its choices. One option names itself on the
-/// chip; more show as Options. A pick goes through the same `session/set_config_option` path as
-/// the effort chip, and the session's report moves the check.
+/** Native-only menu for harness config options. Choice IDs remain scoped to their config option. */
 export function AgentOptionsMenu({
   options,
   onPick,
@@ -18,57 +20,80 @@ export function AgentOptionsMenu({
   onPick(configId: string, value: string): void;
 }) {
   const t = useT();
-  // On New Tab the menu opens down (newTabComposer.ts).
   const newTab = useContext(OnNewTab);
   const [open, setOpen] = useState(false);
+  const trigger = useRef<HTMLButtonElement>(null);
   const label = t("picker.options");
   useEffect(() => registerPicker(label, () => setOpen(true)), [label]);
-  if (options.length === 0) return null;
   const only = options.length === 1 ? options[0] : undefined;
-  const face = only ? `${only.name ?? only.id}: ${optionValueName(only) ?? ""}` : label;
+  const face = only
+    ? `${only.name ?? only.id}: ${optionValueName(only) ?? ""}`
+    : label;
   const tooltip = [
-    ...options.map((option) => `${option.name ?? option.id}: ${optionValueName(option) ?? ""}`),
+    ...options.map(
+      (option) =>
+        `${option.name ?? option.id}: ${optionValueName(option) ?? ""}`,
+    ),
     t("picker.optionsHelp"),
   ].join("\n");
+  const rows: NativePopupRow[] = options.map((option) =>
+    popupSection(
+      `option:${option.id}`,
+      option.name ?? option.id,
+      option.options.map((choice) =>
+        popupChoice(
+          `${option.id}\u0000${choice.value}`,
+          choice.name ?? choice.value,
+          {
+            description: choice.description,
+            checked: choice.value === option.currentValue,
+          },
+        ),
+      ),
+    ),
+  );
+  useComposerPopup({
+    open,
+    anchor: () => trigger.current,
+    model: {
+      side: newTab ? "bottom" : "top",
+      align: "start",
+      width: 300,
+      title: label,
+      rows,
+    },
+    onEvent: (event: NativePopupEvent) => {
+      if (event.type !== "pick" || !event.id) return;
+      const separator = event.id.indexOf("\u0000");
+      if (separator < 0) return;
+      const configId = event.id.slice(0, separator);
+      const value = event.id.slice(separator + 1);
+      const option = options.find((item) => item.id === configId);
+      if (option && option.currentValue !== value) onPick(configId, value);
+    },
+    onDismiss: () => setOpen(false),
+  });
+  if (options.length === 0) return null;
   return (
-    <span className="acpmux-picker acpmux-options" data-fit-title={face} data-fit-title-unit="options">
-      <Menu open={open} onOpenChange={setOpen}>
-        <MenuButton
-          className="acpmux-picker-button acpmux-options-trigger"
-          label={label}
-          /* tooltip-allow: the chip names one option or reads Options; the tooltip lists every current choice */
-          title={tooltip}
-          aria-haspopup="menu"
-          data-menu="options"
-        >
-          <span className="acpmux-options-text">{face}</span>
-          <ChevronIcon />
-        </MenuButton>
-        <MenuPopup side={newTab ? "bottom" : "top"} align="start" className="acpmux-access-menu acpmux-options-menu">
-          {options.map((option) => (
-            <MenuGroup key={option.id} label={option.name ?? option.id}>
-              <MenuRadioGroup
-                value={option.currentValue ?? ""}
-                onValueChange={(value) => {
-                  setOpen(false);
-                  if (value !== option.currentValue) onPick(option.id, value);
-                }}
-              >
-                {option.options.map((choice) => (
-                  <MenuRadioItem key={choice.value} value={choice.value} closeOnClick>
-                    <span className="acpmux-menu-text">
-                      <span className="acpmux-menu-label">{choice.name ?? choice.value}</span>
-                      {choice.description ? (
-                        <span className="acpmux-menu-description">{choice.description}</span>
-                      ) : null}
-                    </span>
-                  </MenuRadioItem>
-                ))}
-              </MenuRadioGroup>
-            </MenuGroup>
-          ))}
-        </MenuPopup>
-      </Menu>
+    <span
+      className="acpmux-picker acpmux-options"
+      data-fit-title={face}
+      data-fit-title-unit="options"
+    >
+      <button
+        ref={trigger}
+        type="button"
+        className="acpmux-picker-button acpmux-options-trigger"
+        aria-label={label}
+        title={tooltip}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        data-menu="options"
+        onClick={() => setOpen((was) => !was)}
+      >
+        <span className="acpmux-options-text">{face}</span>
+        <ChevronIcon />
+      </button>
     </span>
   );
 }
