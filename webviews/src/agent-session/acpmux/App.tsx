@@ -9528,8 +9528,9 @@ function AcpmuxPane() {
             plusExtensions={plusExtensions}
             onPlusOpen={refreshPlusActions}
             onPlusCommand={(id) =>
-              void callNative("action.run", { id }).catch((error: unknown) => {
+              callNative("action.run", { id }).catch((error: unknown) => {
                 directClient.current?.notice(errorMessage(error) || String(error));
+                throw error;
               })
             }
             draft={draft}

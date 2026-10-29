@@ -153,7 +153,9 @@ test("a failed native plus action stays on New Tab with its draft and attachment
   await act(async () => {
     const setter = Object.getOwnPropertyDescriptor(dom!.window.HTMLTextAreaElement.prototype, "value")!.set!;
     setter.call(field, "Keep this draft");
-    field.dispatchEvent(new dom!.window.InputEvent("input", { bubbles: true, inputType: "insertText", data: "Keep this draft" }));
+    field.dispatchEvent(
+      new dom!.window.InputEvent("input", { bubbles: true, inputType: "insertText", data: "Keep this draft" }),
+    );
   });
   expect(container.querySelector<HTMLTextAreaElement>(".nt-field")?.value).toBe("Keep this draft");
   const input = container.querySelector<HTMLInputElement>(".acpmux-attach-input")!;
@@ -170,6 +172,7 @@ test("a failed native plus action stays on New Tab with its draft and attachment
   expect(container.querySelector<HTMLTextAreaElement>(".nt-field")?.value).toBe("Keep this draft");
   expect(container.querySelector(".acpmux-attachments")).toBeTruthy();
   expect(container.textContent).toContain("Browser unavailable");
+  expect(container.querySelector(".acpmux-palette-menu")).toBeTruthy();
 });
 
 test("a synchronously failed native plus action stays on New Tab with its error", async () => {
@@ -184,18 +187,33 @@ test("a synchronously failed native plus action stays on New Tab with its error"
         onJump={() => {}}
         onOpenSession={() => {}}
         onShowAll={() => {}}
-        plusExtensions={[{ id: "openBrowser", section: "tools", name: "New Browser Tab", icon: "browser", action: { kind: "command", id: "openBrowser" } }]}
+        plusExtensions={[
+          {
+            id: "openBrowser",
+            section: "tools",
+            name: "New Browser Tab",
+            description: "Open a browser tab",
+            icon: "browser",
+            keywords: ["browser"],
+            action: { kind: "command", id: "openBrowser" },
+          },
+        ]}
         onPaletteAction={() => {
           throw new Error("Browser unavailable synchronously");
         }}
       />,
     );
   });
-  await act(async () => container.querySelector<HTMLButtonElement>(".nt-pickers .acpmux-newtab-plus .acpmux-picker-button")!.click());
+  await act(async () =>
+    container.querySelector<HTMLButtonElement>(".nt-pickers .acpmux-newtab-plus .acpmux-picker-button")!.click(),
+  );
   const row = container.querySelector<HTMLElement>('.acpmux-newtab-plus [data-value="openBrowser"]')!;
-  await act(async () => row.dispatchEvent(new dom!.window.MouseEvent("mousedown", { bubbles: true, cancelable: true })));
+  await act(async () =>
+    row.dispatchEvent(new dom!.window.MouseEvent("mousedown", { bubbles: true, cancelable: true })),
+  );
   expect(container.querySelector(".nt-composer")).toBeTruthy();
   expect(container.textContent).toContain("Browser unavailable synchronously");
+  expect(container.querySelector(".acpmux-palette-menu")).toBeTruthy();
 });
 
 test("a chosen document uses the New Tab upload path and becomes sendable", async () => {

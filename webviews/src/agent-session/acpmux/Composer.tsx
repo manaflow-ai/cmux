@@ -275,7 +275,7 @@ type Props = {
   /// Searches the session's files; the + menu offers Search files only when set.
   searchFiles?: FileSearchSource;
   plusExtensions?: readonly ComposerPlusExtension[];
-  onPlusCommand?(id: string): void;
+  onPlusCommand?(id: string): void | Promise<void>;
   onPlusOpen?(): void;
   /// The + menu's Attach Screenshot… and Attach Window… (cx-ncc.71): the host's capture of a region
   /// or a window, attached as an image; an error for one too large to attach (shown as the
@@ -1977,6 +1977,7 @@ export function Composer({
                           onPick: (id: string) => {
                             const entry = entries.find((row) => row.id === id);
                             if (!entry) return;
+                            let pending: void | Promise<void> = undefined;
                             const handled = runComposerPlusAction(entry.action, {
                               command: (action, modeId) => {
                                 if (action === "composer.attachFiles") chooser.current?.click();
@@ -2000,10 +2001,14 @@ export function Composer({
                                 else if (action === "searchFiles") setFindingFiles(true);
                                 else if (action === "composer.commands") openCommands();
                               },
-                              extension: onPlusCommand,
+                              extension: onPlusCommand
+                                ? (action) => {
+                                    pending = onPlusCommand(action);
+                                  }
+                                : undefined,
                               slash: pickFromPlus,
                             });
-                            return handled ? undefined : "keep";
+                            return handled ? pending : "keep";
                           },
                         },
                       ]

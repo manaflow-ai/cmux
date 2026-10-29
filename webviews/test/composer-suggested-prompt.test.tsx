@@ -81,7 +81,7 @@ async function render(
   onMode?: (id: string) => void,
   draft?: string,
   plusExtensions?: import("../src/agent-session/acpmux/composerPlusRegistry").ComposerPlusExtension[],
-  onPlusCommand?: (id: string) => void,
+  onPlusCommand?: (id: string) => void | Promise<void>,
 ) {
   const { createRoot } = await import("react-dom/client");
   const { Composer } = await import("../src/agent-session/acpmux/Composer");
@@ -412,7 +412,9 @@ test("the + menu renders and dispatches host command-palette extensions", async 
         action: { kind: "command", id: "palette.openBrowser" },
       },
     ],
-    (id) => called.push(id),
+    (id) => {
+      called.push(id);
+    },
   );
   const plus = host.querySelector<HTMLButtonElement>(".acpmux-composer-plus button")!;
   await act(async () => plus.click());
@@ -499,4 +501,34 @@ test("the + menu scrolls keyboard-selected skills into view before Enter picks o
   } finally {
     dom.window.HTMLElement.prototype.scrollIntoView = original;
   }
+});
+
+test.each(["sync", "async"])("the mounted + menu keeps a %s host failure open", async (kind) => {
+  await render(
+    fresh([]),
+    undefined,
+    undefined,
+    "Keep this draft",
+    [
+      {
+        id: "browser",
+        section: "tools",
+        name: "Browser",
+        description: "Open browser",
+        icon: "browser",
+        keywords: [],
+        action: { kind: "command", id: "openBrowser" },
+      },
+    ],
+    () => {
+      const error = new Error("Browser unavailable");
+      if (kind === "sync") throw error;
+      return Promise.reject(error);
+    },
+  );
+  await act(async () => host.querySelector<HTMLButtonElement>(".acpmux-composer-plus button")!.click());
+  const row = host.querySelector<HTMLElement>('[data-value="browser"]')!;
+  await act(async () => row.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true })));
+  expect(host.querySelector(".acpmux-palette-menu")).toBeTruthy();
+  expect(host.textContent).toContain("Browser unavailable");
 });

@@ -20,7 +20,10 @@ struct AgentPaneComposerActionsTests {
             [["id": "openBrowser", "section": "tools", "name": "New Browser Tab",
               "description": "Open a browser tab", "icon": "globe"]]
         }
+        #expect(!model.userTouched)
         let reply = await model.respond(to: request)
+        #expect(!model.userTouched)
+        #expect(model.touchedBy == nil)
         #expect(reply["ok"] as? Bool == true)
         let value = reply["value"] as? [String: Any]
         let rows = value?["actions"] as? [[String: String]]
