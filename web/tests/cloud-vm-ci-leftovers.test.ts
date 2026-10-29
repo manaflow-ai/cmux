@@ -5,7 +5,10 @@ import {
   builderVmsForRun,
   ciRunTag,
   ciVmTags,
+  cleanupOnSignal,
   deleteAll,
+  ledgerSnapshotIds,
+  manifestImageIds,
   parseSince,
   runSnapshotSelection,
   throwawayVmOptions,
@@ -95,9 +98,20 @@ describe("a promotion run's snapshots", () => {
     { id: "sh-other-label", displayName: "cmux devbox cmux-devbox-123-10 (epoch 9, abcdef0123)" },
   ].map((row) => ({ createdAt: during, ...row }));
 
-  test("selects what the run made and no manifest names", () => {
-    const doomed = runSnapshotSelection(rows, slug, new Set(["sh-promoted"]), since);
-    expect(doomed.map((row) => row.id).sort()).toEqual(["sh-bake", "sh-bake-unslugged", "sh-lg", "sh-unslugged"]);
+  test("selects the run's slugs and what its log took, never a manifest's image", () => {
+    const doomed = runSnapshotSelection(rows, slug, new Set(["sh-promoted"]), since, new Set(["sh-unslugged", "sh-promoted"]));
+    expect(doomed.map((row) => row.id).sort()).toEqual(["sh-bake", "sh-lg", "sh-unslugged"]);
+  });
+
+  test("a display name alone never proves ownership (customers set display names)", () => {
+    const doomed = runSnapshotSelection(rows, slug, new Set(), since);
+    expect(doomed.map((row) => row.id)).not.toContain("sh-bake-unslugged");
+    expect(doomed.map((row) => row.id)).not.toContain("sh-unslugged");
+  });
+
+  test("a slug that only starts with the run's slug is not the run's", () => {
+    const odd = [{ id: "sh-odd", slug: `${slug}-mine`, createdAt: during }, { id: "sh-size", slug: `${slug}-2xl`, createdAt: during }];
+    expect(runSnapshotSelection(odd, slug, new Set(), since).map((row) => row.id)).toEqual(["sh-size"]);
   });
 
   test("a same-named snapshot from before the run, or of unknown age, is never selected", () => {
@@ -115,6 +129,40 @@ describe("a promotion run's snapshots", () => {
     expect(() => parseSince(undefined)).toThrow();
     expect(() => parseSince("")).toThrow();
     expect(parseSince("2026-10-29T04:05:00Z").toISOString()).toBe("2026-10-29T04:00:00.000Z");
+  });
+});
+
+describe("ledger and manifests", () => {
+  const a = `sh-${"a".repeat(32)}`;
+  const b = `sh-${"b".repeat(32)}`;
+  test("the run's log names the snapshots it took; a cut-off line proves nothing", () => {
+    const log = [
+      `SNAPSHOT_RESULT {"snapshotId":"${a}","sourceVmId":"vm1"}`,
+      `  SNAPSHOT_TAKEN ${b}`,
+      `SNAPSHOT_RESULT {"snapshotId":"sh-${"c".repeat(32)}"`,
+      `echo SNAPSHOT_TAKEN sh-${"d".repeat(32)}`,
+      "SNAPSHOT_TAKEN sh-short",
+    ].join("\n");
+    expect([...ledgerSnapshotIds(log)].sort()).toEqual([a, b]);
+  });
+
+  test("a manifest cut off mid-write reads as unreadable, not as empty", () => {
+    expect(manifestImageIds(JSON.stringify({ schemaVersion: 1, images: [{ imageId: a }, { imageId: b }] }))).toEqual(new Set([a, b]));
+    expect(manifestImageIds('{"schemaVersion":1,"images":[{"imageId":"sh-')).toBeNull();
+    expect(manifestImageIds("")).toBeNull();
+    expect(manifestImageIds("{}")).toBeNull();
+  });
+});
+
+describe("cleanupOnSignal", () => {
+  test("installs one handler per signal and removes them", () => {
+    const before = { int: process.listenerCount("SIGINT"), term: process.listenerCount("SIGTERM") };
+    const stop = cleanupOnSignal(async () => {});
+    expect(process.listenerCount("SIGINT")).toBe(before.int + 1);
+    expect(process.listenerCount("SIGTERM")).toBe(before.term + 1);
+    stop();
+    expect(process.listenerCount("SIGINT")).toBe(before.int);
+    expect(process.listenerCount("SIGTERM")).toBe(before.term);
   });
 });
 

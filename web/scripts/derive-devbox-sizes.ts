@@ -202,6 +202,9 @@ async function deriveSize(name: VmImageSizeName): Promise<void> {
         const settled = await sh(vm, devboxSettleBeforeSnapshotCommand(), 60_000);
         if (settled.code !== 0) throw new Error(`${name}: pre-snapshot settle failed: ${settled.out.slice(-300)}`);
         const snap = await vm.snapshot({ displayName: `cmux devbox ${slug} (${size.cpu} vCPU · ${size.memoryMb} MiB · ${size.storageMb} MiB)` });
+        // Before anything else can fail: the CI cleanup reads this line to find
+        // a snapshot that never got its slug (cloud-vm/ci-leftovers.ts --ledger).
+        if (snap.snapshotId) console.log(`SNAPSHOT_TAKEN ${snap.snapshotId}`);
         if (!snap.snapshotId) throw new Error(`${name}: snapshot response carried no id`);
         imageId = snap.snapshotId;
       } finally {

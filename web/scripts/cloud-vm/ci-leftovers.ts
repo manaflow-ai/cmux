@@ -23,11 +23,14 @@
  *       Delete every VM tagged with this run (default: the current run's
  *       tag), and with --builder-of the bake builder named for that slug.
  *   FREESTYLE_API_KEY=... bun scripts/cloud-vm/ci-leftovers.ts snapshots --slug <cmux-devbox-RUN_ID-ATTEMPT>
- *       --since <ISO time> --manifest <manifest.json> [--manifest ...] [--dry-run]
- *       Delete the snapshots this promotion run made (its bake, slugged <slug>,
- *       and its derived sizes, <slug>-<size>), slugged or not, except any
- *       snapshot one of the given manifests names: what a run did not stage
- *       for promotion can never be promoted.
+ *       --since <ISO time> --manifest <manifest.json> [--manifest ...]
+ *       [--manifest-if-readable <manifest.json>] [--ledger <promote log>] [--dry-run]
+ *       Delete the snapshots this promotion run made (runSnapshotSelection),
+ *       except any snapshot one of the given manifests names: what a run did
+ *       not stage for promotion can never be promoted. A --manifest that cannot
+ *       be read stops the cleanup; a --manifest-if-readable one (the
+ *       checkout's, which a kill can cut off mid-write) is skipped with a
+ *       warning, since a run whose manifest write was cut off staged nothing.
  */
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -85,13 +88,17 @@ export function throwawayVmOptions(env: NodeJS.ProcessEnv = process.env): {
   };
 }
 
+/** How long a signal handler's cleanup may take before the script exits anyway. */
+export const SIGNAL_CLEANUP_TIMEOUT_MS = 20_000;
+
 /**
- * Runs `cleanup` once on SIGINT or SIGTERM, then exits 130 or 143. Covers a
- * Ctrl-C on a local run and a signal that reaches the script in CI; the
- * workflow's always() step covers the SIGKILL that nothing can catch.
- * Returns a function that removes the handlers.
+ * Runs `cleanup` once on SIGINT or SIGTERM, then exits 130 or 143, after at
+ * most `timeoutMs` even if the cleanup hangs. Covers a Ctrl-C on a local run
+ * and a signal that reaches the script in CI; the workflow's always() step
+ * covers the SIGKILL that nothing can catch. Returns a function that removes
+ * the handlers.
  */
-export function cleanupOnSignal(cleanup: () => Promise<void>): () => void {
+export function cleanupOnSignal(cleanup: () => Promise<void>, timeoutMs = SIGNAL_CLEANUP_TIMEOUT_MS): () => void {
   let started = false;
   // One closure per signal: the exit code must not depend on what the
   // runtime passes a listener.
@@ -99,9 +106,16 @@ export function cleanupOnSignal(cleanup: () => Promise<void>): () => void {
     if (started) return;
     started = true;
     console.error(`${signal}: cleaning up before exit`);
+    const deadline = setTimeout(() => {
+      console.error(`cleanup on ${signal} did not finish in ${timeoutMs} ms; exiting (the workflow's cleanup step retries)`);
+      process.exit(exitCode);
+    }, timeoutMs);
     void cleanup()
       .catch((error: unknown) => console.error(`cleanup on ${signal} failed: ${String(error)}`))
-      .finally(() => process.exit(exitCode));
+      .finally(() => {
+        clearTimeout(deadline);
+        process.exit(exitCode);
+      });
   };
   const onInt = handlerFor("SIGINT", 130);
   const onTerm = handlerFor("SIGTERM", 143);
@@ -162,27 +176,69 @@ export function builderVmsForRun<T extends TaggedVm>(vms: readonly T[], slug: st
 export type SnapshotRow = { id: string; slug?: string | null; displayName?: string | null; createdAt?: string | null };
 
 /**
- * The snapshots one promotion run made: the bake is slugged `<slug>` and its
- * derived sizes `<slug>-<size>`, and each is labelled `cmux devbox <its slug> (…)`
- * (build-devbox-freestyle.ts, derive-devbox-sizes.ts), which also finds one the
- * run snapshotted but never got to slug. Only one taken since the run started
- * counts, and a snapshot a manifest names is never selected.
+ * The snapshots one promotion run made, each proven two ways that a customer
+ * cannot fake:
+ * - its slug is the run's (`<slug>`, or `<slug>-<size>` for a derived size)
+ *   and it was taken since the run started. Customers name snapshots through
+ *   the cmux API, which sets only a display name, never a slug
+ *   (drivers/freestyle.ts snapshot()); or
+ * - the run's own log reported taking it (`ledgerIds`): the bake prints
+ *   `SNAPSHOT_RESULT {...}` and derive-devbox-sizes.ts `SNAPSHOT_TAKEN <id>`
+ *   right after each snapshot, before any slug is set, so one cut off before
+ *   its slug is still found.
+ * A display name alone is never enough. A snapshot a manifest names is never
+ * selected.
  */
 export function runSnapshotSelection<T extends SnapshotRow>(
   snapshots: readonly T[],
   slug: string,
   protectedIds: ReadonlySet<string>,
   since: Date,
+  ledgerIds: ReadonlySet<string> = new Set(),
 ): T[] {
   requireRunSlug(slug);
-  const ownSlug = (value: string) => value === slug || value.startsWith(`${slug}-`);
-  const ownLabel = (value: string) => value.startsWith(`cmux devbox ${slug} `) || value.startsWith(`cmux devbox ${slug}-`);
+  const ownSlug = (value: string) => value === slug || (value.startsWith(slug) && SIZE_SUFFIX.test(value.slice(slug.length)));
   return snapshots.filter(
     (row) =>
       !protectedIds.has(row.id) &&
-      createdSince(row.createdAt, since) &&
-      ((typeof row.slug === "string" && ownSlug(row.slug)) || (typeof row.displayName === "string" && ownLabel(row.displayName))),
+      (ledgerIds.has(row.id) || (typeof row.slug === "string" && ownSlug(row.slug) && createdSince(row.createdAt, since))),
   );
+}
+
+const SIZE_SUFFIX = /^-(?:sm|md|lg|lgx|xl|2xl)$/;
+
+/** Snapshot ids a run's log says it took (SNAPSHOT_RESULT / SNAPSHOT_TAKEN lines). */
+export function ledgerSnapshotIds(log: string): Set<string> {
+  const ids = new Set<string>();
+  for (const line of log.split("\n")) {
+    const taken = /^SNAPSHOT_TAKEN (sh-[0-9a-f]{32})\s*$/.exec(line.trim());
+    if (taken) ids.add(taken[1]);
+    const result = /^SNAPSHOT_RESULT (\{.*\})\s*$/.exec(line.trim());
+    if (result) {
+      try {
+        const id = (JSON.parse(result[1]) as { snapshotId?: unknown }).snapshotId;
+        if (typeof id === "string" && /^sh-[0-9a-f]{32}$/.test(id)) ids.add(id);
+      } catch {
+        // A line cut off mid-write proves nothing.
+      }
+    }
+  }
+  return ids;
+}
+
+/**
+ * The image ids a manifest names, or null when the file cannot be read as one
+ * (a write cut off by a kill). Pure JSON, so the cleanup needs no module that
+ * could fail to load.
+ */
+export function manifestImageIds(text: string): Set<string> | null {
+  try {
+    const parsed = JSON.parse(text) as { images?: unknown };
+    if (!Array.isArray(parsed.images)) return null;
+    return new Set(parsed.images.flatMap((row) => (typeof (row as { imageId?: unknown })?.imageId === "string" ? [(row as { imageId: string }).imageId] : [])));
+  } catch {
+    return null;
+  }
 }
 
 /** --since: an ISO time, less a margin for clock skew between the runner and the provider. */
@@ -280,18 +336,32 @@ async function main(argv: string[]): Promise<void> {
     const manifestFiles = options("--manifest");
     if (manifestFiles.length === 0) throw new Error("snapshots: pass every deployed manifest with --manifest, so a promoted snapshot is never deleted");
     const since = parseSince(option("--since"));
-    const { readImageManifest } = await import("../devbox-image-common");
-    const protectedIds = new Set(manifestFiles.flatMap((file) => readImageManifest(file).images.map((row) => row.imageId)));
+    const { existsSync, readFileSync } = await import("node:fs");
+    const protectedIds = new Set<string>();
+    for (const file of manifestFiles) {
+      const ids = manifestImageIds(readFileSync(file, "utf8"));
+      if (!ids) throw new Error(`${file} is not an image manifest; keeping every snapshot`);
+      for (const id of ids) protectedIds.add(id);
+    }
+    for (const file of options("--manifest-if-readable")) {
+      const ids = existsSync(file) ? manifestImageIds(readFileSync(file, "utf8")) : null;
+      if (!ids) {
+        console.warn(`::warning::${file} is missing or cut off; this run staged nothing from it`);
+        continue;
+      }
+      for (const id of ids) protectedIds.add(id);
+    }
+    const ledgerIds = new Set(options("--ledger").flatMap((file) => (existsSync(file) ? [...ledgerSnapshotIds(readFileSync(file, "utf8"))] : [])));
     const snapshots = await listAll(async (offset) => {
       const page = await fs.vms.snapshots.list({ limit: 100, offset });
       return { rows: page.snapshots, total: page.totalCount };
     });
-    const own = runSnapshotSelection(snapshots, slug, protectedIds, since);
-    console.log(`snapshots: ${own.length} made by ${slug} and named by no manifest`);
+    const own = runSnapshotSelection(snapshots, slug, protectedIds, since, ledgerIds);
+    console.log(`snapshots: ${own.length} made by ${slug} (${ledgerIds.size} in its log) and named by no manifest`);
     doomed = own.map((row) => ({ id: row.id, label: row.slug || row.displayName || "" }));
     remove = (id) => fs.vms.snapshots.delete(id);
   } else {
-    throw new Error("usage: ci-leftovers.ts vms [--tag T] [--builder-of S --since ISO] [--dry-run] | snapshots --slug S --since ISO --manifest F [--manifest F]... [--dry-run]");
+    throw new Error("usage: ci-leftovers.ts vms [--tag T] [--builder-of S --since ISO] [--dry-run] | snapshots --slug S --since ISO --manifest F [--manifest F]... [--manifest-if-readable F] [--ledger F] [--dry-run]");
   }
   if (dryRun) {
     for (const row of doomed) console.log(`would delete ${row.id} (${row.label})`);
