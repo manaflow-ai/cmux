@@ -102,3 +102,79 @@ test("Resume uses native attach, then rereads the missing chat; disposal stops r
   expect(opened).toBe(true);
   await act(async () => root.render(null));
 });
+
+
+test("Resume keeps polling through incomplete and failed inventories without attaching twice", async () => {
+  const { useCloudChatRecovery } = await import("../src/agent-session/acpmux/useCloudChatRecovery");
+  let listReads = 0;
+  let attaches = 0;
+  let rechecks = 0;
+  Object.assign(dom.window, {
+    webkit: {
+      messageHandlers: {
+        agentSession: {
+          postMessage: ({ method }: { method: string }) => {
+            if (method === "cloudMachine.attach") {
+              attaches += 1;
+              return { ok: true, value: {} };
+            }
+            if (method === "cloudMachine.list") {
+              listReads += 1;
+              // The wake is accepted, but first the account list is incomplete,
+              // then one request fails. Neither is evidence that the VM is gone.
+              if (listReads === 1) return { ok: true, value: { signedIn: true, loaded: false, machines: [] } };
+              if (listReads === 2) return { ok: false, error: { code: "network" } };
+              return {
+                ok: true,
+                value: {
+                  signedIn: true, loaded: true, complete: true,
+                  account: ["user", null],
+                  machines: [{ id: "vm-demo", name: "Demo machine", stage: "connecting" }],
+                },
+              };
+            }
+            return {
+              ok: true,
+              value: {
+                signedIn: true, loaded: true, complete: true,
+                account: ["user", null],
+                machines: [{ id: "vm-demo", name: "Demo machine", stage: "paused" }],
+              },
+            };
+          },
+        },
+      },
+    },
+  });
+  const recheck = async () => { rechecks += 1; };
+  function Recovery() {
+    const recovery = useCloudChatRecovery({
+      cloud: { id: "vm-demo", account: ["user", null] },
+      session: "chat-demo", active: true, recheck,
+    });
+    return (
+      <div>
+        <button data-action="test-wake" onClick={recovery.resume}>Resume</button>
+        <span data-action="test-state">{JSON.stringify({
+          state: recovery.state, resuming: recovery.resuming, error: recovery.error,
+        })}</span>
+      </div>
+    );
+  }
+  await act(async () => root.render(<Recovery />));
+  expect(mount.querySelector('[data-action="test-state"]')?.textContent).toContain('"state":"paused"');
+  await act(async () => mount.querySelector<HTMLButtonElement>('[data-action="test-wake"]')!.click());
+  expect(listReads).toBe(1);
+  expect(attaches).toBe(1);
+  expect(mount.querySelector('[data-action="test-state"]')?.textContent).toContain('"resuming":true');
+
+  // The poll interval is 1 s. A successful recovery must outlive both transient reads.
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 2_400)); });
+  expect(listReads).toBeGreaterThanOrEqual(3);
+  expect(rechecks).toBeGreaterThanOrEqual(1);
+  expect(attaches).toBe(1);
+  expect(mount.querySelector('[data-action="test-state"]')?.textContent).toContain('"state":"live"');
+  expect(mount.querySelector('[data-action="test-state"]')?.textContent).toContain('"resuming":true');
+  expect(mount.querySelector('[data-action="test-state"]')?.textContent).not.toContain("resumeFailed");
+  await act(async () => root.render(null));
+}, 10_000);
