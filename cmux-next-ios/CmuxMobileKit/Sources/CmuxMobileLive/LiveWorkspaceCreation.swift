@@ -396,7 +396,7 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
             let folder = (cwd as NSString).lastPathComponent
             throw WorkspaceCreationError(error.reason == "trust.untrusted"
                 ? "\(folder) is marked Don't Trust on this Mac. Trust it in cmux on the Mac to start agent chats there."
-                : Self.trustSteps(folder: folder),
+                : Self.trustSteps(folder: folder, agent: choice.name, family: choice.family),
                 isForPerson: true)
         } catch let error as AcpmuxConnection.RPCError where error.reason == "route.unavailable" {
             throw WorkspaceCreationError(Self.routeUnavailable(error.message), isForPerson: true)
@@ -428,11 +428,15 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
         return "cmux's model service isn't running on the Mac. Quit and reopen cmux on the Mac, then try again, or choose another agent."
     }
 
-    /// What to do when acpmux waits for the person to trust a new folder: it
-    /// asks only on the Mac (a phone may not answer `acp.trust.set`), and
-    /// Claude's own trust answer counts too.
-    nonisolated static func trustSteps(folder: String) -> String {
-        "Claude hasn't been trusted in \(folder) yet. Either: 1. On the Mac, open this workspace in cmux and choose Trust when it asks. "
+    /// What to do when acpmux waits for the person to trust a new folder for the agent
+    /// being started: it asks only on the Mac (a phone may not answer `acp.trust.set`).
+    /// Claude's own trust answer counts too, so a Claude chat gets that second way.
+    nonisolated static func trustSteps(folder: String, agent: String = "Claude", family: String = "claude") -> String {
+        guard family == "claude" else {
+            return "\(agent) hasn't been trusted in \(folder) yet. On the Mac, open this workspace in cmux and choose Trust when it asks, "
+                + "then start the chat again."
+        }
+        return "\(agent) hasn't been trusted in \(folder) yet. Either: 1. On the Mac, open this workspace in cmux and choose Trust when it asks. "
             + "Or 2. Here, open this workspace's terminal, type claude, press Return, choose \u{201C}Yes, I trust this folder\u{201D}, then type /exit. "
             + "Then start the chat again."
     }
