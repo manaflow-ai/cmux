@@ -96,7 +96,8 @@ async fn managed_unit_start_avoids_a_symlinked_default_home() {
 #[tokio::test]
 async fn managed_unit_start_matches_shortened_sockets() {
     use std::os::unix::fs::PermissionsExt;
-    let dir = cmux_unix_socket::short_test_dir("managed-socket");
+    let scratch = cmux_unix_socket::short_test_dir("managed-socket");
+    let dir = scratch.path();
     std::fs::create_dir_all(&dir).unwrap();
     let unit_home = dir.join("long-home-".repeat(15));
     std::fs::create_dir_all(&unit_home).unwrap();
@@ -128,5 +129,4 @@ async fn managed_unit_start_matches_shortened_sockets() {
                 .unwrap();
         assert_eq!(result, Some(()), "managed daemon rejected its short socket");
     }
-    std::fs::remove_dir_all(dir).unwrap();
 }

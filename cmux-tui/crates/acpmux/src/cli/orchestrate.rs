@@ -118,6 +118,20 @@ fn transcript_text(t: &Transcript) -> String {
 
 /// `acpmux wait`: server-side state wait, or a client-side text match.
 pub(crate) async fn wait(client: Arc<Client>, opts: WaitOpts, json_out: bool) -> Result<()> {
+    // One deadline includes name resolution, every reconnect and reply reads.
+    // A phase must never reset the caller's timeout after spending it upstream.
+    match opts.timeout {
+        Some(seconds) => tokio::time::timeout(
+            std::time::Duration::from_secs(seconds),
+            wait_inner(client, opts, json_out),
+        )
+        .await
+        .map_err(|_| AppError::timeout("no session resolved in time"))?,
+        None => wait_inner(client, opts, json_out).await,
+    }
+}
+
+async fn wait_inner(client: Arc<Client>, opts: WaitOpts, json_out: bool) -> Result<()> {
     let mut client = client;
     let started = tokio::time::Instant::now();
     // Resolve names first so a typo is exit 4, not a silent no-op.
