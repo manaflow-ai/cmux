@@ -68,6 +68,41 @@ import Testing
         #expect(SettingsSchema.agentSettableKeys.contains("appearance.backgroundBlur"))
     }
 
+    /// The checked-in schema is the descriptor registry consumed by the
+    /// daemon, CLI and MCP clients. Every row must carry the same surface
+    /// declaration that the native Settings page and palette use; otherwise
+    /// a new descriptor can silently become provider-dependent.
+    @Test func everyRowDeclaresSurfaceParity() throws {
+        let data = try SettingsSchemaExport().json(catalog: Self.catalog()).data(using: .utf8)!
+        let root = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let rows = try #require(root["rows"] as? [[String: Any]])
+        let rowsByKey = Dictionary(uniqueKeysWithValues: rows.compactMap { row in
+            (row["key"] as? String).map { ($0, row) }
+        })
+        let cliAndSocket = ["settings.list", "settings.get", "settings.set", "settings.reset", "settings.unset"]
+        let mcpRead = ["settings.list", "settings.get"]
+        let mcpWrite = ["settings.set", "settings.reset", "settings.unset"]
+        #expect(rowsByKey.count == SettingsSchema.all.count)
+        for descriptor in SettingsSchema.all {
+            let row = try #require(rowsByKey[descriptor.id], descriptor.id)
+            let surfaces = try #require(row["surfaces"] as? [String: Any], descriptor.id)
+            #expect(Set(surfaces.keys) == Set(["palette", "cli", "mcp", "socket"]), descriptor.id)
+            for name in ["cli", "socket"] {
+                let surface = try #require(surfaces[name] as? [String: Any], "\(descriptor.id): \(name)")
+                #expect(surface["operations"] as? [String] == cliAndSocket, "\(descriptor.id): \(name)")
+                #expect(surface["offered"] as? Bool == true, "\(descriptor.id): \(name)")
+            }
+            let palette = try #require(surfaces["palette"] as? [String: Any], "\(descriptor.id): palette")
+            #expect(palette["offered"] as? Bool == descriptor.isPaletteExposed, descriptor.id)
+            #expect((palette["operations"] as? [String] ?? []) == (descriptor.isPaletteExposed ? ["palette.setSetting"] : []), descriptor.id)
+
+            let mcp = try #require(surfaces["mcp"] as? [String: Any], "\(descriptor.id): mcp")
+            let expectedMCP = mcpRead + (SettingsSchema.agentSettable(descriptor) == true ? mcpWrite : [])
+            #expect(mcp["operations"] as? [String] == expectedMCP, descriptor.id)
+            #expect(mcp["offered"] as? Bool == true, descriptor.id)
+        }
+    }
+
     /// A key missing from the catalog fails the export.
     @Test func missingKeyFailsTheExport() {
         #expect(throws: SettingsSchemaExport.MissingKeys.self) { try SettingsSchemaExport().json(catalog: []) }
