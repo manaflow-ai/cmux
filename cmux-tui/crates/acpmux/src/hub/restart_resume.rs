@@ -131,15 +131,15 @@ fn input_prefix(update: &Value) -> Option<String> {
 /// command). Serialize lazily so the bounded writer still stops large arrays/objects.
 struct MaskedInput<'a> {
     value: &'a Value,
-    context: Option<&'a str>,
+    sensitive: bool,
 }
 
 impl<'a> MaskedInput<'a> {
     fn new(value: &'a Value) -> Self {
-        Self { value, context: None }
+        Self { value, sensitive: false }
     }
-    fn with_context(value: &'a Value, context: Option<&'a str>) -> Self {
-        Self { value, context }
+    fn with_context(value: &'a Value, sensitive: bool) -> Self {
+        Self { value, sensitive }
     }
 }
 
@@ -148,24 +148,23 @@ impl serde::Serialize for MaskedInput<'_> {
         use serde::ser::{SerializeMap, SerializeSeq};
         match self.value {
             Value::String(text) => {
-                let masked =
-                    self.context.map_or_else(|| masked_scan(text), |key| masked_field(key, text));
+                let masked = if self.sensitive { "[secret]".to_owned() } else { masked_scan(text) };
                 serializer.serialize_str(&masked)
             }
             Value::Array(values) => {
                 let mut seq = serializer.serialize_seq(Some(values.len()))?;
                 for value in values {
-                    seq.serialize_element(&MaskedInput::with_context(value, self.context))?;
+                    seq.serialize_element(&MaskedInput::with_context(value, self.sensitive))?;
                 }
                 seq.end()
             }
             Value::Object(values) => {
                 let mut map = serializer.serialize_map(Some(values.len()))?;
                 for (key, value) in values {
-                    let context = sensitive_context(key).or_else(|| self.context.map(str::to_owned));
+                    let sensitive = self.sensitive || sensitive_key(key);
                     map.serialize_entry(
                         &masked_scan(key),
-                        &MaskedInput::with_context(value, context.as_deref()),
+                        &MaskedInput::with_context(value, sensitive),
                     )?;
                 }
                 map.end()
@@ -179,13 +178,11 @@ impl serde::Serialize for MaskedInput<'_> {
     }
 }
 
-fn sensitive_context(key: &str) -> Option<String> {
-    // Keep the original spelling for the scanner, but never retain an unbounded
-    // object key in the serializer context.
+fn sensitive_key(key: &str) -> bool {
+    // Never retain an unbounded object key in the serializer context.
     let bounded: String = key.chars().take(MAX_TOOL_FIELD_CHARS).collect();
     let lowered: String = bounded.chars().flat_map(char::to_lowercase).collect();
-    (lowered.contains("pass") || lowered.contains("secret") || lowered.contains("token"))
-        .then_some(bounded)
+    lowered.contains("pass") || lowered.contains("secret") || lowered.contains("token")
 }
 
 struct BoundedJsonWriter<'a> {
@@ -228,23 +225,6 @@ fn masked_scan(value: &str) -> String {
     safe_tool_text(&value[..end], end < value.len(), MAX_TOOL_SCAN_BYTES)
 }
 
-/// Give scalar values their object-key context before scanning. A decoded
-/// `password` value may contain quotes that JSON escaping would otherwise
-/// hide from the assignment rule.
-fn masked_field(key: &str, value: &str) -> String {
-    let end = value
-        .char_indices()
-        .map(|(at, _)| at)
-        .chain([value.len()])
-        .take_while(|at| *at <= MAX_TOOL_SCAN_BYTES)
-        .last()
-        .unwrap_or(0);
-    let value = &value[..end];
-    let assignment = format!("{key}={value}");
-    let masked = crate::secret_scan::mask(&assignment);
-    masked.strip_prefix(&format!("{key}=")).unwrap_or(&masked).to_owned()
-}
-
 /// Like the hand-off preview, discard the word crossing the scan boundary: its partial
 /// secret may not match a scanner rule. Mask before the much smaller display cut.
 fn safe_tool_text(text: &str, truncated: bool, max: usize) -> String {
@@ -283,8 +263,11 @@ fn note_unfinished_tool(
     let id_digest: [u8; 32] = Sha256::digest(id.as_bytes()).into();
     match update.get("status").and_then(Value::as_str) {
         Some("completed" | "failed") => {
+            let was_open = open.iter().any(|tool| tool.id_digest == id_digest);
             open.retain(|tool| tool.id_digest != id_digest);
-            omitted.remove(&id_digest);
+            if !was_open {
+                omitted.remove(&id_digest);
+            }
         }
         None if update.get("sessionUpdate").and_then(Value::as_str) == Some("tool_call_update") => {
             if let Some(existing) = open.iter_mut().find(|tool| tool.id_digest == id_digest) {
@@ -647,8 +630,8 @@ mod tests {
         records.push(update(MAX_UNFINISHED_TOOLS, "completed"));
         let (tools, omitted) = unfinished_tools(&records);
         assert!(tools.is_empty());
-        assert_eq!(omitted, 0);
-        assert!(!continue_text(&[], &tools, omitted).contains("Tool calls started"));
+        assert_eq!(omitted, 1);
+        assert!(continue_text(&[], &tools, omitted).contains("unfinished tool calls omitted"));
         records.push(update(MAX_UNFINISHED_TOOLS + 1, "failed"));
         let (tools, omitted) = unfinished_tools(&records);
         assert_eq!(omitted, 0, "completed overflow must not leave a permanent warning");
@@ -720,6 +703,12 @@ mod tests {
         }))
         .unwrap();
         assert!(!masked.contains(password), "nested structured password leaked: {masked}");
+        let masked = input_prefix(&json!({
+            "rawInput": {"password": "let me in"}
+        }))
+        .unwrap();
+        assert!(!masked.contains("let me in"), "plain structured password leaked: {masked}");
+        assert!(masked.contains("[secret]"), "{masked}");
     }
 
     #[test]
