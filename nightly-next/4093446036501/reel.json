@@ -1,0 +1,80 @@
+{
+  "version": 1,
+  "build": "4093446036501",
+  "notes": "notes/4093446036501.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 24295,
+      "title": "cmux NEXT menus: one row grid for every menu, and a lint for menus with their own paddings",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27492,
+      "title": "nightly: the legacy-identity Blacksmith twin signs after a failed owned sign",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27199,
+      "title": "cmux-next tours run as under capture: a fixture Mac and a neutral prompt",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/27199/baba9132/next-core-after/tour.mp4",
+      "source": "tour-after",
+      "sha8": "baba9132",
+      "tour": "core"
+    },
+    {
+      "pr": 25978,
+      "title": "fix(accounts): flag malformed API keys before connect",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24073,
+      "title": "Sidebar: hide scrolled rows under the traffic lights (minimal titlebar)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27493,
+      "title": "ci: record configured Swift suite parallelization width",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27494,
+      "title": "fix: preserve the motion gate for popover animation expressions",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26831,
+      "title": "fix(gallery): recognize layered running-line shimmer",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27007,
+      "title": "picker: show reported Prime models and default",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26875,
+      "title": "fix(next): let transcript reading surfaces follow chat text size",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27484,
+      "title": "acpmux: a failover never moves a chat onto a fallback that cannot start",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
