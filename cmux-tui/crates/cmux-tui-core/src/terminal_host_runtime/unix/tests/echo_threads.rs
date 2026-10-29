@@ -297,3 +297,57 @@ fn blocking_cascade_a_disconnect_ends_a_blocked_input_write_and_the_serve_loop()
     assert!(left.is_empty(), "threads of the disconnected client are left: {left:?}");
     let _ = server.join();
 }
+
+/// Two clients of one host whose program never reads its input: client A's
+/// input write blocks while it holds the host's PTY writer, and client B's
+/// input waits behind it. B then disconnects. B's end must end B's wait for
+/// the writer too, not only a write B already started, so B's serve loop
+/// returns while A's write is still blocked.
+#[test]
+fn blocking_cascade_a_disconnect_ends_a_wait_for_another_clients_blocked_write() {
+    let host = exited_host_fixture();
+    let (pty, _never_read) = UnixStream::pair().unwrap();
+    let master =
+        UnreadMaster { stream: pty, size: Mutex::new(pty_size(80, 24, DEFAULT_CELL_PIXELS)) };
+    *host.writer.lock().unwrap() = master.take_writer().unwrap();
+    *host.master.lock().unwrap() = Box::new(master);
+    let connect = |host: &Arc<HostShared>| {
+        let (server_stream, mut client_stream) = UnixStream::pair().unwrap();
+        client_stream.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+        let server = {
+            let host = host.clone();
+            thread::spawn(move || serve_client(host, server_stream))
+        };
+        let hello = snapshot_boundary_client_hello(host, false).unwrap();
+        write_frame(&mut client_stream, &hello).unwrap();
+        for label in ["host hello", "snapshot", "colors"] {
+            read_required_frame(&mut client_stream, label).unwrap();
+        }
+        (server, client_stream)
+    };
+    let (server_a, mut client_a) = connect(&host);
+    let (server_b, mut client_b) = connect(&host);
+    write_frame(&mut client_a, &Frame::new(MessageKind::Input, vec![b'a'; 8 << 20])).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while host.writer.try_lock().is_ok() {
+        assert!(Instant::now() < deadline, "client A's input write never started");
+        thread::sleep(Duration::from_millis(5));
+    }
+    write_frame(&mut client_b, &Frame::new(MessageKind::Input, b"b".to_vec())).unwrap();
+    // B's frame reaches its control thread, which waits behind A's write.
+    thread::sleep(Duration::from_millis(200));
+    let _ = client_b.shutdown(std::net::Shutdown::Both);
+    drop(client_b);
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !server_b.is_finished() && Instant::now() < deadline {
+        thread::sleep(Duration::from_millis(5));
+    }
+    let b_returned = server_b.is_finished();
+    let a_still_writing = host.writer.try_lock().is_err();
+    let _ = client_a.shutdown(std::net::Shutdown::Both);
+    drop(client_a);
+    let _ = server_a.join();
+    let _ = server_b.join();
+    assert!(a_still_writing, "client A's write ended before B's check: the test proves nothing");
+    assert!(b_returned, "client B's serve loop did not return while it waited for A's write");
+}
