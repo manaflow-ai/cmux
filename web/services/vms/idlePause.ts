@@ -433,39 +433,41 @@ def cmdline(pid):
             raw = f.read()
     except VANISHED:
         return None
-    return [a.decode("utf-8", "replace") for a in raw.split(b"\0") if a]
+    # Keep empty arguments (`--rcfile ''` takes one); only the final NUL ends the list.
+    parts = raw.split(b"\0")
+    if parts and parts[-1] == b"":
+        parts.pop()
+    return [a.decode("utf-8", "replace") for a in parts]
 
-SHELL_OPTION_OPERANDS = {"-o", "+o", "-O", "+O", "--rcfile", "--init-file"}
+SHELL_LONG_OPTION_OPERANDS = {"--rcfile", "--init-file"}
 
 def shell_runs_command(pid):
-    # A shell that is itself the command: -c (alone or in a cluster like -lc),
-    # or a script argument (the first operand after its options; an option's
-    # own operand, like --rcfile FILE or -o emacs, is not one). A login or
-    # interactive shell (-bash, bash, zsh -l, bash -i) or one reading commands
-    # from stdin (-s, -) is a prompt.
-    args = (cmdline(pid) or [])[1:]
-    i = 0
-    while i < len(args):
-        arg = args[i]
-        if arg in SHELL_OPTION_OPERANDS:
+    # A shell that is itself the command: -c anywhere in its options (alone or
+    # in a cluster like -lc), or a script (the first operand after its options).
+    # An option's own operand is not one: --rcfile FILE, and one argument per
+    # o or O in a cluster (-o emacs, -io emacs, +O extglob). `--` and a bare `-`
+    # end the options. A login or interactive shell (-bash, bash, zsh -l,
+    # bash -i), or one reading commands from stdin (-s), is a prompt.
+    args = cmdline(pid) or []
+    rest = args[1:]
+    i, runs_c, reads_stdin = 0, False, False
+    while i < len(rest):
+        arg = rest[i]
+        if arg in SHELL_LONG_OPTION_OPERANDS:
             i += 2
-            continue
-        if arg == "--":
-            return i + 1 < len(args)
-        if arg == "-":
-            return False
-        if arg.startswith("--"):
+        elif arg in ("--", "-"):
             i += 1
-            continue
-        if arg.startswith("-") or arg.startswith("+"):
-            if "c" in arg[1:]:
-                return True
-            if "s" in arg[1:]:
-                return False
+            break
+        elif arg.startswith("--"):
             i += 1
-            continue
-        return True
-    return False
+        elif len(arg) > 1 and arg[0] in "-+":
+            flags = arg[1:]
+            runs_c = runs_c or "c" in flags
+            reads_stdin = reads_stdin or "s" in flags
+            i += 1 + flags.count("o") + flags.count("O")
+        else:
+            break
+    return runs_c or (i < len(rest) and not reads_stdin)
 
 def busy_terminals(procs):
     if procs is None:
