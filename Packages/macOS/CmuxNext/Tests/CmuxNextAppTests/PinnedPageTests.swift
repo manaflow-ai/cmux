@@ -34,7 +34,7 @@ actor AppTestDaemonOwner {
         // bounded attempt finish and record ownership; stop() joins its caller before reaping.
         let launcher = launcher
         do {
-            let endpoint = try await launcher.ensure().endpoint
+            let endpoint = try await launcher.endpointProvider()
             endpoints.insert(endpoint)
             return endpoint
         } catch {
