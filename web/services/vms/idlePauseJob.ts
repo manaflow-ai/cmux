@@ -173,10 +173,10 @@ function checkMachine(vm: CloudVmRow, now: () => number) {
       console.info("[VM] idle pause", JSON.stringify({ vmId: vm.id, minutes, reason: decision.reason, idleSince: decision.observation?.idleSince }));
       return { outcome: "paused", reason: decision.reason } as const;
     }
-    // Every checked machine records when it was checked, so the next run starts with the others.
-    const observation = decision.pause ? null : decision.observation;
-    const stored = yield* recordObservation(vm, providerVmId, observation, checkedAt, vmIdleEpochFromRow(vm));
+    // A refused claim must preserve the idle stretch and its fence. The
+    // diagnostic write still records this check for candidate rotation.
     if (claimed && "reason" in claimed) return { outcome: "claim_refused", reason: claimed.reason } as const;
+    const stored = yield* recordObservation(vm, providerVmId, decision.observation, checkedAt, vmIdleEpochFromRow(vm));
     if (!stored) return { outcome: "aborted", reason: "observation_fence_changed" } as const;
     return { outcome: outcomeOf(decision), reason: decision.reason };
   });
@@ -185,8 +185,7 @@ function checkMachine(vm: CloudVmRow, now: () => number) {
 /**
  * The cron's last check before pausing: the row re-read and claimed at the
  * idle fence it had when the cron read it. A refusal reason when it is no longer the same
- * running machine, it changed since the candidate read (an attach or resume
- * bumps updatedAt), or anything moved the fence since (an exec, files or
+ * running machine, its probe address changed, or anything moved the fence since (an exec, files or
  * attach call, a setting change, a status write, another run's observation).
  * `epoch` is the claimed fence the pause record must still find.
  */
@@ -197,11 +196,13 @@ function claimPause(vm: CloudVmRow, providerVmId: string): Effect.Effect<
     const repo = yield* VmRepository;
     const current = yield* repo.findUserVm({ userId: vm.userId, billingTeamId: vm.ownerTeamId, providerVmId, provider: vm.provider });
     if (!current || current.id !== vm.id || current.status !== "running" || current.providerVmId !== providerVmId) return { reason: "machine_changed" };
-    if (current.updatedAt.getTime() !== vm.updatedAt.getTime()) return { reason: "updated_at_changed" };
     // A person's or the allowance enforcer's pause under way: never claim over it.
     if (hasOutstandingPauseIntent(current, yield* Clock.currentTimeMillis)) return { reason: "pause_in_progress" };
     if (vmLastApiActivityFromRow(current) !== vmLastApiActivityFromRow(vm)) return { reason: "api_activity_changed" };
     if (vmIdleEpochFromRow(current) !== vmIdleEpochFromRow(vm)) return { reason: "idle_epoch_changed" };
+    // Compare the probe inputs explicitly; unrelated metadata writes can move
+    // updatedAt without changing activity, intent, or the idle epoch.
+    if (vmIdlePrivateAddressesFromRow(current).join("\u0000") !== vmIdlePrivateAddressesFromRow(vm).join("\u0000")) return { reason: "private_address_changed" };
     const epoch = yield* repo.claimIdlePause!({ id: vm.id, providerVmId, epoch: vmIdleEpochFromRow(vm) });
     return epoch === null ? { reason: "claim_fence_changed" } : { row: current, epoch };
   });
