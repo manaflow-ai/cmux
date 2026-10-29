@@ -522,9 +522,15 @@ public struct AgentChatBottomStack: View {
                 if let error = store.clientError {
                     if store.canRetryPrompt {
                         HStack(spacing: 8) {
-                            Label(error, systemImage: "exclamationmark.circle")
-                                .font(.footnote.weight(.semibold))
-                                .foregroundStyle(.primary)
+                            Button {
+                                withAnimation(.cmuxMobileSmooth) { store.clientError = nil }
+                            } label: {
+                                Label(error, systemImage: "exclamationmark.circle")
+                                    .font(.footnote.weight(.semibold))
+                                    .foregroundStyle(.primary)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityHint("Dismiss")
                             Button("Retry", systemImage: "arrow.clockwise") {
                                 retryCount += 1
                             }
