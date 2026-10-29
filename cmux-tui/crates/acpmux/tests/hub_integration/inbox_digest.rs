@@ -735,10 +735,23 @@ async fn messages_drained_twice_follow_the_newest_digest_at_a_restart() {
     drop(hub);
     let hub = durable_hub(&dir);
     let mut c = connect(&hub).await;
-    assert_eq!(queue_order(&mut c, &id).await.iter().filter(|p| p.starts_with("p-")).count(), 2);
+    let first = queue_order(&mut c, &id).await;
+    // The cut turn goes on first (`restart_resume.rs`); the given-back messages wait behind it.
+    hub.resume_queues();
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+    let started = |hub: &Arc<Hub>| {
+        let events = hub.events(&id, 0, 10_000).unwrap();
+        find(&events, "turn_started")
+            .iter()
+            .any(|e| e.msg["promptId"].as_str().is_some_and(|p| p.starts_with("p-turn~resume")))
+    };
+    while !started(&hub) {
+        assert!(tokio::time::Instant::now() < deadline, "p-turn did not run again: {first:?}");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
     queue(&mut c, from_agent(&id, "p-slash", "lane-x", "/compact")).await;
     let made = c.request(DIGEST, json!({"sessionId": id})).await.unwrap();
-    assert_eq!(made["digested"], 2, "{made}");
+    assert_eq!(made["digested"], 2, "{made} {first:?} {:?}", queue_order(&mut c, &id).await);
     let order = order_after_a_restart(hub, c, &dir, &id).await;
     let at = |p: &str| order.iter().position(|q| q == p);
     let (a, b, slash) = (at("p-a"), at("p-b"), at("p-slash"));
