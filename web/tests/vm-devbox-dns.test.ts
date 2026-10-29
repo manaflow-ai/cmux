@@ -92,6 +92,37 @@ print(dns.rcode(dead.resolve(q("github.com"))))
 `)).toEqual(["2 True True", "2"]);
   });
 
+  test("TLS steering keeps cached edge answers and fails closed on cold misses", async () => {
+    const marker = path.join(fixture(), "tls-dns-servers");
+    writeFileSync(marker, "10.32.0.28\n");
+    expect(await python(String.raw`
+import os
+state = {"down": False}
+def exchange(server, query, timeout, tcp):
+    return None if state["down"] else reply(query, 0, 1)
+def doh(host, path, query, timeout):
+    calls.append("doh")
+    return reply(query, 0, 1)
+r = dns.Resolver(upstreams=lambda: ["10.32.0.28"], exchange=exchange, doh_exchange=doh, steering=lambda: dns.platform_steering(sys.argv[2]))
+r.resolve(q("api.anthropic.com"))
+state["down"] = True
+cached = r.resolve(q("api.anthropic.com"))
+print(dns.rcode(cached), cached[-4:].hex(), calls)
+print(dns.rcode(r.resolve(q("github.com"))), calls)
+os.unlink(sys.argv[2])
+print(dns.rcode(r.resolve(q("github.com"))), calls)
+`, marker)).toEqual(["0 0a20001c []", "2 []", "0 ['doh']"]);
+  });
+
+  test("an empty steering marker permits DoH and an unreadable marker fails closed", async () => {
+    const directory = fixture();
+    const marker = path.join(directory, "tls-dns-servers");
+    writeFileSync(marker, "");
+    expect(await python(String.raw`
+print(dns.platform_steering(sys.argv[2]), dns.platform_steering(sys.argv[3]))
+`, marker, directory)).toEqual(["False True"]);
+  });
+
   test("the platform's NXDOMAIN is an answer, not a failure", async () => {
     expect(await python(String.raw`
 r = dns.Resolver(upstreams=lambda: ["10.32.0.28"], exchange=lambda s, query, t, tcp: reply(query, 3), doh_exchange=lambda *a: calls.append("doh"))
@@ -158,6 +189,43 @@ print("tcp", dns.rcode(answer), answer[2] & 0x02 != 0)
 udp.shutdown(); tcp.shutdown()
 `)).toEqual(["udp 0 True", "tcp 0 False"]);
   });
+
+  test("service readiness signals that both DNS listeners can accept queries", async () => {
+    expect(await python(String.raw`
+import os, socket, threading
+notify = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+notify.bind(sys.argv[2]); notify.settimeout(10)
+os.environ["NOTIFY_SOCKET"] = sys.argv[2]
+r = dns.Resolver(upstreams=lambda: ["10.32.0.28"], exchange=lambda s, query, t, tcp: reply(query, 0, 1))
+real_serve = dns.serve
+servers = []
+def serve(resolver):
+    udp, tcp = real_serve(resolver, host="127.0.0.1", port=0)
+    servers.extend([udp, tcp])
+    return udp, tcp
+dns.serve = serve
+dns.Resolver = lambda: r
+thread = threading.Thread(target=dns.main, args=(["cmux-dns", "serve"],), daemon=True)
+thread.start()
+try:
+    print(notify.recv(100).decode())
+    udp, tcp = servers
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as client:
+        client.settimeout(10)
+        client.sendto(q("github.com"), udp.server_address)
+        print("udp", dns.rcode(client.recv(4096)))
+    with socket.create_connection(tcp.server_address, timeout=10) as client:
+        query = q("github.com")
+        client.sendall(struct.pack("!H", len(query)) + query)
+        print("tcp", dns.rcode(dns.read_framed(client)))
+finally:
+    for server in servers:
+        server.shutdown(); server.server_close()
+    notify.close()
+thread.join(timeout=10)
+assert not thread.is_alive()
+`, path.join(fixture(), "notify"))).toEqual(["READY=1", "udp 0", "tcp 0"]);
+  }, 35_000);
 });
 
 describe("cmux-dns resolver edge cases", () => {
