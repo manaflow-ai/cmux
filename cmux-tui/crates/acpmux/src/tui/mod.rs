@@ -416,9 +416,7 @@ impl App {
         true
     }
     pub(super) fn selected_id(&self) -> Option<String> {
-        self.selected_session()
-            .and_then(|s| s.get("sessionId").and_then(Value::as_str))
-            .map(str::to_owned)
+        self.selected_session().and_then(session_route_id)
     }
     pub(super) fn selected_name(&self) -> String {
         if let Some(d) = self.draft() {
@@ -583,7 +581,7 @@ impl App {
                     if (m == method::SESSION_NEW
                         || m == method::SESSION_FORK
                         || m == method::MUX_IMPORT)
-                        && let Some(id) = v.get("sessionId").and_then(Value::as_str)
+                        && let Some(id) = session_route_id(&v)
                     {
                         let _ = tx.send(AppMsg::Created(id.to_owned()));
                     }
@@ -708,6 +706,27 @@ impl App {
             json!({"sessionId": id, "permissionId": pid, "optionId": option_id}),
             None,
         );
+    }
+}
+
+fn session_route_id(session: &Value) -> Option<String> {
+    crate::cli::resolve::routed_id(session).ok()
+}
+
+#[cfg(test)]
+mod session_route_tests {
+    use super::session_route_id;
+    use serde_json::json;
+
+    #[test]
+    fn peer_rows_keep_the_qualified_route_for_tui_requests() {
+        assert_eq!(
+            session_route_id(
+                &json!({"sessionId": "raw", "peer": "box", "qualifiedSessionId": "box/raw"})
+            ),
+            Some("box/raw".into())
+        );
+        assert_eq!(session_route_id(&json!({"sessionId": "local"})), Some("local".into()));
     }
 }
 

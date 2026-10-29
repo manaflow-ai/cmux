@@ -34,6 +34,18 @@ work="$root/.build/perf-idle"
 rm -rf "$work"
 mkdir -p "$work"
 echo "PERF-IDLE-MACHINE host=$(scutil --get ComputerName 2>/dev/null || hostname) sha=$(git rev-parse HEAD) cores=$(sysctl -n hw.ncpu) ram_gb=$(( $(sysctl -n hw.memsize) / 1073741824 )) macos=$(sw_vers -productVersion) load=\"$(uptime | sed 's/.*load averages*: //')\""
+# A fleet step checks out no submodules (only their empty gitlink directories): the app build needs
+# Ghostty's headers and the ghostty-next tree, and GhosttyKit.xcframework (a prebuilt download).
+for sub in ghostty ghostty-next; do
+  [ -e "$sub/.git" ] || git submodule update --init --depth 1 "$sub"
+done
+if [ ! -f GhosttyKit.xcframework/Info.plist ]; then
+  rm -rf GhosttyKit.xcframework
+  if [ -z "${GHOSTTYKIT_ARCHIVE_CACHE_DIR:-}" ] && [ -n "${CI_SHARED_CACHE_DIR:-}" ]; then
+    export GHOSTTYKIT_ARCHIVE_CACHE_DIR="$CI_SHARED_CACHE_DIR/ghosttykit-archives"
+  fi
+  ./scripts/download-prebuilt-ghosttykit.sh
+fi
 tag="perfidle"
 CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "$tag" ${reload_config[@]+"${reload_config[@]}"} 2>&1 | tee "$work/reload.log" || { tail -n 80 "$work/reload.log"; exit 1; }
 app="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$work/reload.log" | tail -n 1)"
