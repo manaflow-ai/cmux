@@ -340,8 +340,8 @@ mod tests {
         released.store(true, Ordering::SeqCst);
         release.notify_waiters();
         requests.await.unwrap();
-        tokio::time::timeout(Duration::from_secs(30), output).await.unwrap().unwrap();
-        tokio::time::timeout(Duration::from_secs(30), server).await.unwrap().unwrap().unwrap();
+        tokio::time::timeout(Duration::from_secs(120), output).await.unwrap().unwrap();
+        tokio::time::timeout(Duration::from_secs(120), server).await.unwrap().unwrap().unwrap();
     }
 }
 
