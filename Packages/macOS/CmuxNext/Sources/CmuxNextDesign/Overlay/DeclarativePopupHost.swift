@@ -6,6 +6,7 @@ final class DeclarativePopupHost {
     private weak var webView: NSView?
     private let zoom: () -> CGFloat
     private let send: ([String: Any]) -> Void
+    private let isAppActive: () -> Bool
     private let panel = NativePopupPanel(identifier: "cmux.page-popup.native")
     private let content = NativePopupContent()
     private let popup: NativePopupHost
@@ -20,10 +21,13 @@ final class DeclarativePopupHost {
     private weak var returnWindow: NSWindow?
     private var retired: [String: Int] = [:]
 
-    init(webView: NSView, zoom: @escaping () -> CGFloat, send: @escaping ([String: Any]) -> Void) {
+    init(webView: NSView, zoom: @escaping () -> CGFloat, send: @escaping ([String: Any]) -> Void,
+         isAppActive: @escaping () -> Bool = { NSApp?.isActive ?? false }) {
         self.webView = webView
         self.zoom = zoom
         self.send = send
+        self.isAppActive = isAppActive
+        panel.isAppActive = isAppActive
         popup = NativePopupHost(panel: panel)
         let scroll = NSScrollView()
         scroll.drawsBackground = false
@@ -170,7 +174,7 @@ final class DeclarativePopupHost {
     private func open(_ row: NativePopupRow, from view: NSView) {
         guard let model, let rows = row.children, !rows.isEmpty, let webView else { return }
         child?.hide()
-        let submenu = DeclarativePopupHost(webView: webView, zoom: zoom, send: send)
+        let submenu = DeclarativePopupHost(webView: webView, zoom: zoom, send: send, isAppActive: isAppActive)
         submenu.parent = self
         child = submenu
         childRowID = row.id
