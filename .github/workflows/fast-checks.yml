@@ -229,6 +229,38 @@ jobs:
           bunx --no-install playwright install --with-deps chromium webkit
           echo 'CMUX_GALLERY_IN_VM=1' >> "$GITHUB_ENV"
 
+      # A script outside the checkout (a capture written to /tmp and run with bun) finds no
+      # node_modules above it, so Bun auto-installed the newest Playwright (1.64.1, Chromium
+      # revision 1248) rather than the pinned 1.62.1 whose browsers (revision 1234) setup had
+      # installed: run 40786981913 failed mid-capture with "Executable doesn't exist at
+      # .../chromium_headless_shell-1248/...". NODE_PATH names the checkout's webviews packages,
+      # which Bun resolves before it auto-installs, so such a script gets the pinned Playwright.
+      # Then each pinned Playwright launches its headless Chromium here: a missing or mismatched
+      # browser fails setup, naming the version and browsers path, never the command mid-run.
+      - name: Pin and check the Playwright browsers
+        if: inputs.setup == 'webviews' || inputs.setup == 'playwright'
+        env:
+          SETUP: ${{ inputs.setup }}
+          PLAYWRIGHT_LAUNCH_CHECK: |
+            let version = "unknown";
+            try { version = require("playwright/package.json").version; } catch {}
+            const where = process.env.PLAYWRIGHT_BROWSERS_PATH || "the default browsers path";
+            require("playwright").chromium.launch({ headless: true })
+              .then((browser) => browser.close())
+              .catch((error) => {
+                const reason = String((error && error.message) || error).split("\n")[0];
+                console.error(`setup: ${process.cwd()}: Playwright ${version} cannot launch its headless Chromium from ${where}: ${reason}`);
+                process.exit(2);
+              });
+        run: |
+          echo "NODE_PATH=$PWD/webviews/node_modules" >> "$GITHUB_ENV"
+          dirs=(webviews)
+          if [[ "$SETUP" == playwright ]]; then dirs+=(scripts/gallery-matrix); fi
+          for dir in "${dirs[@]}"; do
+            [[ -x "$dir/node_modules/.bin/playwright" ]] || continue
+            (cd "$dir" && bun -e "$PLAYWRIGHT_LAUNCH_CHECK")
+          done
+
       - name: Initialize Rust native dependencies
         if: inputs.setup == 'rust'
         run: |
