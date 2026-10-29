@@ -18,6 +18,11 @@ export type RailSide = "left" | "right";
 export const railSideFits = (side: RailSide, gutter: number): boolean =>
   side !== "right" || gutter >= RAIL_RIGHT + ROW_WIDTH - RAIL_MAX_OVERLAP;
 
+/// The unshifted left edge used by the Session Info translation clamp. A right rail is placed from
+/// the pane's right edge, so its actual left edge—not the left text gutter—sets the room it can move.
+export const railLeftEdge = (side: RailSide, width: number, left: number): number =>
+  side === "right" ? Math.max(0, width - RAIL_RIGHT - ROW_WIDTH) : left;
+
 /// The rail's edge, its inset from that edge, and the right-click menu's one item: a toggle to the
 /// other edge. Moving back to the left removes the key, so the default (left) holds again.
 export function useRailSide(left: number): { side: RailSide; inset: React.CSSProperties; menu: ContextMenuItem[] } {

@@ -24,7 +24,7 @@ import {
   stopScroll,
 } from "./scrollMotion";
 import { PreviewCard } from "./PreviewCard";
-import { RAIL_RIGHT, railSideFits, useRailSide } from "./railSide";
+import { RAIL_RIGHT, railLeftEdge, railSideFits, useRailSide } from "./railSide";
 import { ContextMenu } from "../../../ui/ContextMenu";
 import { ScrollMap } from "./ScrollMap";
 import { threadMinimapLayout } from "./layout.experiment";
@@ -238,6 +238,7 @@ export function ThreadMinimap({
   );
   const placement = railPlacement(gutter(width));
   const { side, inset, menu } = useRailSide(placement.left);
+  const railLeft = railLeftEdge(side, width, placement.left);
   // A view with no room for a single row (the transcript is at least 96 px tall) draws no rail. The
   // one full-width rail hides only below its usable horizontal gutter.
   const shown =
@@ -746,7 +747,7 @@ export function ThreadMinimap({
       ? 0
       : cardOffset(railTop + cardRow * ROW_PITCH + ROW_PITCH / 2 - listTop, cardHeight, viewportHeight);
   return (
-    <div className="acpmux-minimap" style={{ "--acpmux-rail-left": `${placement.left}px` } as React.CSSProperties}>
+    <div className="acpmux-minimap" style={{ "--acpmux-rail-left": `${railLeft}px` } as React.CSSProperties}>
       <ContextMenu items={menu}>
         <nav
           ref={rail}
@@ -887,7 +888,7 @@ export function ThreadMinimap({
           id={cardId}
           side={side}
           x={(side === "right" ? RAIL_RIGHT : placement.left) + ROW_WIDTH}
-          railLeft={placement.left}
+          railLeft={railLeft}
           y={cardTop}
           // Out of the scroller: its edge mask would keep the card's blur from the rows (PreviewCard.tsx).
           scroller={scroller.current}

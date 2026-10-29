@@ -13,7 +13,7 @@ import { useHoverIntent } from "../../../ui/hoverIntent";
 import { useEscapeCloses } from "../../../ui/escapeDismiss";
 import { animateScroll, reducedMotion, stopScroll } from "./scrollMotion";
 import { PreviewCard } from "./PreviewCard";
-import { RAIL_RIGHT, railSideFits, useRailSide } from "./railSide";
+import { RAIL_RIGHT, railLeftEdge, railSideFits, useRailSide } from "./railSide";
 import { ContextMenu } from "../../../ui/ContextMenu";
 import type { usePromptMarks } from "./promptMarks";
 import {
@@ -104,6 +104,7 @@ export function ScrollMap({
   const press = useRef<Press | undefined>(undefined);
   const placement = railPlacement(transcriptColumn(width).inset);
   const { side, inset, menu } = useRailSide(placement.left);
+  const railLeft = railLeftEdge(side, width, placement.left);
   const shown =
     turns.length >= MAP_MIN_PROMPTS &&
     scrolls &&
@@ -247,7 +248,7 @@ export function ScrollMap({
   const cardTurn = cardAt?.kind === "user" ? turns[cardAt.turn] : undefined;
   const cardMarked = cardTurn ? bookmarks.has(cardTurn) : false;
   return (
-    <div className="acpmux-minimap" style={{ "--acpmux-rail-left": `${placement.left}px` } as React.CSSProperties}>
+    <div className="acpmux-minimap" style={{ "--acpmux-rail-left": `${railLeft}px` } as React.CSSProperties}>
       <ContextMenu items={menu}>
         <nav
           ref={rail}
@@ -340,7 +341,7 @@ export function ScrollMap({
           id={cardId}
           side={side}
           x={(side === "right" ? RAIL_RIGHT : placement.left) + ROW_WIDTH}
-          railLeft={placement.left}
+          railLeft={railLeft}
           y={cardOffset(MAP_MARGIN + cardAt.y, cardHeight, viewportHeight)}
           // Out of the scroller: its edge mask would keep the card's blur from the rows (PreviewCard.tsx).
           scroller={scroller.current}

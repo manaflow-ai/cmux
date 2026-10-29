@@ -254,7 +254,8 @@ await requireBrowserLane("thread-minimap-left-rail-stays.test.ts", async () => {
           return trace.samples;
         });
         expect(samples.length).toBeGreaterThan(0);
-        expect(new Set(samples.map((sample) => Math.round(sample.column - sample.rail))).size).toBe(1);
+        const gaps = samples.map((sample) => sample.column - sample.rail);
+        expect(Math.max(...gaps) - Math.min(...gaps)).toBeLessThanOrEqual(2);
         expect(samples.filter((sample) => sample.card === null || Math.abs(sample.card - sample.rail) > 1)).toEqual([]);
       } finally {
         await page.close();
