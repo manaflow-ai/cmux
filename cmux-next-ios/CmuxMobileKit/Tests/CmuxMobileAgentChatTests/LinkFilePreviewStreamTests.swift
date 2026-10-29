@@ -91,8 +91,9 @@ import Testing
     @Test func aLargeFilePreviewsFromItsLocalCopy() async throws {
         let source = LinkFileArtifactSource(macName: "Studio", baseDirectory: "/Users/me") { FloodLink() }
         let content = try await source.load(TerminalArtifact(reference: "/Users/me/huge-\(UUID().uuidString).zip", kind: .binary))
-        guard case .quickLook(let url) = content else { Issue.record("not a local copy: \(content)"); return }
-        defer { try? FileManager.default.removeItem(at: url) }
+        guard case .ownedFile(let file, isVideo: false) = content else { Issue.record("not an owned local copy: \(content)"); return }
+        defer { withExtendedLifetime(file) {} }
+        let url = file.url
         let size = try FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber
         #expect(size?.intValue == Self.total)
         #expect(url.path.hasPrefix(FileManager.default.temporaryDirectory.path))
@@ -102,8 +103,9 @@ import Testing
     @Test func largeTextOpensFromItsLocalCopyInsteadOfMemory() async throws {
         let source = LinkFileArtifactSource(macName: "Studio", baseDirectory: "/Users/me") { FloodLink() }
         let content = try await source.load(TerminalArtifact(reference: "/Users/me/huge-\(UUID().uuidString).log", kind: .text))
-        guard case .quickLook(let url) = content else { Issue.record("not a local copy: \(content)"); return }
-        defer { try? FileManager.default.removeItem(at: url) }
+        guard case .ownedFile(let file, isVideo: false) = content else { Issue.record("not an owned local copy: \(content)"); return }
+        defer { withExtendedLifetime(file) {} }
+        let url = file.url
         #expect(url.lastPathComponent.hasSuffix(".log"))
     }
 }

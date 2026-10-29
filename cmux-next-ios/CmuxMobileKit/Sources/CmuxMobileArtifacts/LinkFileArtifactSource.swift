@@ -14,6 +14,7 @@ public struct LinkFileArtifactSource: ArtifactSource {
     let baseDirectory: String?
     let macName: String
     private let availableCapacity: PreviewStorage.Capacity
+    var fileStore: PreviewFileStore = .shared
     /// Largest text, image or PDF the preview decodes in memory; a larger one
     /// opens in Quick Look from its local copy (not a size cap).
     public static let inMemoryBytes: Int64 = 24 << 20
@@ -43,8 +44,9 @@ public struct LinkFileArtifactSource: ArtifactSource {
         guard let link = await link() else {
             throw ArtifactUnavailable("Connect to \(macName) to open \(artifact.name).")
         }
-        let url = try await Self.read(path: path, over: link, macName: macName, for: artifact, capacity: availableCapacity)
-        return try Self.content(for: artifact, file: url)
+        let file = try await Self.read(path: path, over: link, macName: macName, for: artifact,
+                                       capacity: availableCapacity, store: fileStore)
+        return try Self.content(for: artifact, file: file)
     }
 
     /// Absolute path for a reference: absolute stays, `./x` and `x/y` join the base; `~` can't be resolved here.
@@ -58,16 +60,14 @@ public struct LinkFileArtifactSource: ArtifactSource {
     /// Each load owns a separate copy so overlapping previews cannot replace a file
     /// another viewer is using. Only a completed part file is published to its URL.
     static func read(path: String, over link: any MacLink, macName: String, for artifact: TerminalArtifact,
-                     capacity: PreviewStorage.Capacity = PreviewStorage.availableCapacity) async throws -> URL {
-        let destination = try ArtifactLocalCopy.destination(for: artifact, defaultExtension: artifact.kind == .video ? "mp4" : nil)
-        let folder = destination.deletingLastPathComponent().appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: false)
-        let url = folder.appendingPathComponent(destination.lastPathComponent)
-        let part = folder.appendingPathComponent(".\(UUID().uuidString).part")
-        var published = false
-        defer {
-            if !published { try? FileManager.default.removeItem(at: folder) }
-        }
+                     capacity: PreviewStorage.Capacity = PreviewStorage.availableCapacity,
+                     store: PreviewFileStore = .shared) async throws -> ManagedPreviewFile {
+        let file = try store.make(name: ArtifactLocalCopy.safeName(artifact.name,
+            defaultExtension: artifact.kind == .video ? "mp4" : nil))
+        // Keep the owner registered across awaits, including cancellation/failure.
+        defer { withExtendedLifetime(file) {} }
+        let url = file.url
+        let part = url.deletingLastPathComponent().appendingPathComponent(".\(UUID().uuidString).part")
         let channel: any LinkChannel
         do {
             // New service negotiates the size header explicitly. Old hosts refuse the
@@ -76,12 +76,11 @@ public struct LinkFileArtifactSource: ArtifactSource {
         } catch let error as LinkError {
             throw Self.unavailable(error, path: path, macName: macName)
         }
-        let result = try await withTaskCancellationHandler {
+        try await withTaskCancellationHandler {
             do {
                 let size = try await previewSize(channel, path: path, macName: macName)
                 _ = try await download(channel, to: part, path: path, macName: macName, expectedSize: size, capacity: capacity)
                 try FileManager.default.moveItem(at: part, to: url)
-                return url
             } catch {
                 await channel.close(code: "cancelled", reason: "preview ended")
                 throw error
@@ -89,8 +88,7 @@ public struct LinkFileArtifactSource: ArtifactSource {
         } onCancel: {
             Task { await channel.close(code: "cancelled", reason: "preview cancelled") }
         }
-        published = true
-        return result
+        return file
     }
 
     static func previewSize(_ channel: any LinkChannel, path: String, macName: String) async throws -> Int64 {
@@ -208,16 +206,25 @@ public struct LinkFileArtifactSource: ArtifactSource {
 
     /// The preview for a local copy: text, images and PDFs up to ``inMemoryBytes`` are read
     /// into memory, everything else (and anything larger) previews from the file itself.
-    static func content(for artifact: TerminalArtifact, file url: URL) throws -> ArtifactContent {
-        let size = (try FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber)?.int64Value ?? 0
+    static func content(for artifact: TerminalArtifact, file: ManagedPreviewFile) throws -> ArtifactContent {
+        let size = (try FileManager.default.attributesOfItem(atPath: file.url.path)[.size] as? NSNumber)?.int64Value ?? 0
+        if size == 0 { return try content(for: artifact, data: Data()) }
         switch artifact.kind {
         case .video:
-            return size == 0 ? try content(for: artifact, data: Data()) : .file(url)
+            return .ownedFile(file, isVideo: true)
         case .audio, .document, .binary:
-            return size == 0 ? try content(for: artifact, data: Data()) : .quickLook(url)
+            return .ownedFile(file, isVideo: false)
         default:
-            guard size <= inMemoryBytes else { return .quickLook(url) }
-            return try content(for: artifact, data: Data(contentsOf: url))
+            guard size <= inMemoryBytes else { return .ownedFile(file, isVideo: false) }
+            let data = try Data(contentsOf: file.url)
+            switch artifact.kind {
+            case .image: return .image(data)
+            case .pdf: return .pdf(data)
+            default:
+                // Reuse the owned copy for non-UTF8 text instead of leaking a second copy.
+                guard let text = String(data: data, encoding: .utf8) else { return .ownedFile(file, isVideo: false) }
+                return .text(text)
+            }
         }
     }
 
@@ -274,10 +281,15 @@ public struct ArtifactLocalCopy: Sendable {
         try destination(name: artifact.name, key: artifact.reference, defaultExtension: defaultExtension)
     }
 
-    static func destination(name: String, key: String, defaultExtension: String?) throws -> URL {
+    static func safeName(_ name: String, defaultExtension: String?) -> String {
         var safe = name.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ":", with: "-")
         if safe.isEmpty || safe == "." || safe == ".." { safe = "file" }
         if (safe as NSString).pathExtension.isEmpty, let defaultExtension { safe += "." + defaultExtension }
+        return safe
+    }
+
+    static func destination(name: String, key: String, defaultExtension: String?) throws -> URL {
+        let safe = safeName(name, defaultExtension: defaultExtension)
         let folder = root.appendingPathComponent(digest(key + "\u{0}" + safe), isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         return folder.appendingPathComponent(safe)
