@@ -52,16 +52,38 @@ struct SidebarJSRuntimeTests {
         #expect(symbol.string("systemName") == "star.fill")
     }
 
-    @Test func bundledImageResolvesOnlyAgentIcons() {
-        let resolver = DSLBundledImageResolver(loadImage: { _ in NSImage(size: NSSize(width: 14, height: 14)) })
-        #expect(resolver.assetName("AgentIcons/Codex") == "AgentIcons/Codex")
-        // Outside the allowed namespace (or the bare namespace) stays a symbol.
-        #expect(resolver.assetName("AppIcon") == nil)
-        #expect(resolver.assetName("AgentIcons/") == nil)
-        #expect(resolver.assetName("star.fill") == nil)
-        #expect(resolver.assetName(nil) == nil)
-        // A name in the namespace that the bundle lacks also stays a symbol.
-        #expect(DSLBundledImageResolver(loadImage: { _ in nil }).assetName("AgentIcons/Nope") == nil)
+    @Test func reactiveImageNamesUpdateInPlace() throws {
+        let runtime = SidebarJSRuntime()
+        #expect(runtime.start(source: """
+        sidebar(() => HStack([
+            Image(() => data.icon()),
+            Image({ asset: () => data.icon() }),
+        ]))
+        """))
+        let root = try #require(runtime.store.rootId.flatMap { runtime.store.node($0) })
+        let nameId = root.children[0]
+        let assetId = root.children[1]
+        for name in ["AgentIcons/Codex", "AgentIcons/Claude", "person.fill"] {
+            runtime.updateData(key: "icon", value: .string(name))
+            #expect(runtime.store.node(nameId)?.string("systemName") == name)
+            #expect(runtime.store.node(assetId)?.string("asset") == name)
+            #expect(runtime.store.node(try #require(runtime.store.rootId))?.children == [nameId, assetId])
+        }
+        #expect(runtime.errorMessage == nil)
+    }
+
+    @Test func bundledImageResolvesOnlyAgentIcons() throws {
+        let fixture = try SidebarImageTestBundle()
+        defer { try? FileManager.default.removeItem(at: fixture.url) }
+        let resolver = DSLBundledImageResolver(bundle: fixture.bundle)
+        #expect(resolver.bundledImage("AgentIcons/Codex") != nil)
+        // Even an existing image outside the allowed namespace stays a symbol.
+        #expect(fixture.bundle.image(forResource: "AppIcon") != nil)
+        #expect(resolver.bundledImage("AppIcon") == nil)
+        #expect(resolver.bundledImage("AgentIcons/") == nil)
+        #expect(resolver.bundledImage("star.fill") == nil)
+        #expect(resolver.bundledImage(nil) == nil)
+        #expect(resolver.bundledImage("AgentIcons/Nope") == nil)
     }
 
     @Test func fixedSizeReachesTheNode() {
