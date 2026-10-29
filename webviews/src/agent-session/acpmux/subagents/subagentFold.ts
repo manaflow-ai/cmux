@@ -676,6 +676,9 @@ export class SubagentFold {
     if (previous?.state === agent.state && previous.name === agent.name) return false;
     this.settledViews.set(agent.id, { state: agent.state, name: agent.name });
     const last = this.own.get(agent.id)?.at(-1);
+    // Completion can precede the final reply chunk. Preserve that completed tail
+    // before a resume makes new chunks stream again.
+    if (last && previous && previous.state !== "running" && agent.state === "running") last.settled = true;
     if (agent.state !== "running") {
       if (last) last.settled = true;
       this.pendingReplySummaries.delete(agent.id);

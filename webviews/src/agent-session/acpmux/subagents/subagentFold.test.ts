@@ -80,6 +80,19 @@ test("live child replies stay unsettled and keep the producer revision stable", 
   expect(sessionSummary(resumed, "acme/app").sources.map((source) => source.label)).toContain("acme/app#7");
 });
 
+test("resuming a child preserves late completed reply Sources", () => {
+  const fold = new SubagentFold();
+  feed(fold, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "a", parent: null }] });
+  feed(fold, { sessionUpdate: "subagent_state_update" }, { subagents: [{ id: "a", state: "completed" }] });
+  feed(fold, { ...say("See https://example.com/late"), messageId: "old" }, { subagent: "a" });
+  expect(sessionSummary(fold.views().a!, "acme/app").sources.map((source) => source.url)).toContain("https://example.com/late");
+  feed(fold, { sessionUpdate: "subagent_state_update" }, { subagents: [{ id: "a", state: "running" }] });
+  expect(sessionSummary(fold.views().a!, "acme/app").sources.map((source) => source.url)).toContain("https://example.com/late");
+  feed(fold, { ...say("New reply"), messageId: "new" }, { subagent: "a" });
+  expect(fold.views().a!.map((row) => row.streaming)).toEqual([false, true]);
+  expect(sessionSummary(fold.views().a!, "acme/app").sources.map((source) => source.url)).toContain("https://example.com/late");
+});
+
 test("post-completion child reply chunks invalidate the summary revision", () => {
   const fold = new SubagentFold();
   feed(fold, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "a", parent: null }] });
