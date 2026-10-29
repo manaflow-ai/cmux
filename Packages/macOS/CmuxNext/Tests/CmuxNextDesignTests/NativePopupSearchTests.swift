@@ -58,6 +58,10 @@ import Testing
         content.update(next)
         _ = content.control(search, textView: NSTextView(), doCommandBy: #selector(NSResponder.insertNewline(_:)))
         #expect(submitted == "first")
+        next.id = "new-popup"
+        content.update(next)
+        _ = content.control(search, textView: NSTextView(), doCommandBy: #selector(NSResponder.insertNewline(_:)))
+        #expect(submitted == nil, "a new session cannot inherit the old session's filtering or selection")
         search.stringValue = ""
         content.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: search))
         next.search?.value = ""
