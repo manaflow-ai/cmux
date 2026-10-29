@@ -209,7 +209,7 @@ pub(super) fn is_remote_invocation(args: &[String]) -> bool {
                 index += 1;
             }
             value if value.starts_with('-') => return false,
-            "remote" => return remote_family_word(&args[index + 1..]),
+            "remote" => return remote_family_word(args.get(index + 1..).unwrap_or_default()),
             value => return REMOTE_COMMANDS.contains(&value),
         }
     }
