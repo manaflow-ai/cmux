@@ -1834,6 +1834,41 @@ describe("idle pause SQL", () => {
   const run = <A, E>(effect: Effect.Effect<A, E>) => Effect.runPromise(effect);
   const repo = vmRepositoryLiveShape;
 
+  for (const operation of ["setting", "observation", "cleared observation", "activity", "decision"] as const) {
+    dbTest(`idle metadata stays an object after repeated ${operation} writes`, async () => {
+      const id = randomUUID();
+      const vmId = `fs-json-${id}`;
+      const initial = { networkIpv4: "10.192.0.5", cmuxIdleEpoch: 0, preserved: { value: "keep" } };
+      // Bind the serialized JSON as text so the driver cannot serialize it a second time.
+      await sql`insert into cloud_vms (id, user_id, billing_team_id, provider, provider_vm_id, image_id, status, provider_metadata)
+        values (${id}, ${owner}, ${owner}, 'freestyle', ${vmId}, 'sh-test', 'running', ${JSON.stringify(initial)}::text::jsonb)`;
+      try {
+        for (const index of [0, 1]) {
+          const at = T0 + index * MIN;
+          const common = { id, providerVmId: vmId };
+          if (operation === "setting") await run(repo.setIdlePauseMinutes!({ ...common, minutes: 30 }));
+          else if (operation === "activity") expect(await run(repo.recordVmApiActivity!({ ...common, at }))).toBe(true);
+          else if (operation === "decision") await run(repo.recordIdleDecision!({ ...common, checkId: `json-${index}`,
+            decision: { at, outcome: "idle", reason: "idle", run: { checked: 1, elapsedMs: 1 } } }));
+          else expect(await run(repo.recordIdleObservation!({ ...common, epoch: index, probedAt: at,
+            observation: operation === "cleared observation" ? null : { providerVmId: vmId, idleSince: T0, observedAt: at, cpuBusyMs: CPU0 },
+          }))).toBe(true);
+          const [stored] = await sql<{ kind: string; metadata: Record<string, unknown> }[]>`
+            select jsonb_typeof(provider_metadata) as kind, provider_metadata as metadata from cloud_vms where id = ${id}`;
+          expect(stored.kind).toBe("object");
+          expect(stored.metadata).toMatchObject({ networkIpv4: initial.networkIpv4, preserved: initial.preserved });
+          expect(stored.metadata.cmuxIdleEpoch).toBe(operation === "decision" ? 0 : index + 1);
+          if (operation === "activity") {
+            expect(stored.metadata.cmuxLastApiActivityAt).toBe(at);
+            expect(await run(repo.recordVmApiActivity!({ ...common, at: at + 30_000 }))).toBe(false);
+          }
+        }
+      } finally {
+        await sql`delete from cloud_vms where id = ${id}`;
+      }
+    });
+  }
+
   dbTest("resize reservations invalidate an overdue candidate before the cron claims it", async () => {
     for (const kind of ["compute", "disk"] as const) {
       const id = randomUUID();
@@ -2358,8 +2393,9 @@ describe("idle pause diagnostics", () => {
     const entry = await Effect.runPromise(getVm({ userId: "user-1", billingTeamId: "team-1", teamIds: ["team-1"], providerVmId: VM }).pipe(Effect.provide(layer)));
     expect(entry).toMatchObject({ idlePause: {
       minutes: 30, lastCheckedAt: T0, idleSince: T0, lastApiActivityAt: null, privateAddressKnown: true,
-      lastDecision: { at: T0, outcome: "idle", reason: "idle", run: { checked: 1, elapsedMs: expect.any(Number) } },
+      lastDecision: { at: T0, outcome: "idle", reason: "idle", run: { checked: 1 } },
     } });
+    expect(typeof entry.idlePause.lastDecision?.run.elapsedMs).toBe("number");
   });
 
   test("a failed diagnostics write does not cancel checks of other machines", async () => {
@@ -2444,7 +2480,9 @@ describe("idle pause diagnostics", () => {
     expect(rows[0].providerMetadata?.cmuxIdleLastDecision).toMatchObject({ outcome: "paused", reason: "idle_timeout" });
     for (const row of rows) {
       expect(row.providerMetadata?.cmuxIdleProbedAt).toBe(T0);
-      expect(row.providerMetadata?.cmuxIdleLastDecision).toMatchObject({ run: { checked: 2, elapsedMs: expect.any(Number) } });
+      const decision = row.providerMetadata?.cmuxIdleLastDecision as { run: { checked: number; elapsedMs: number } };
+      expect(decision).toMatchObject({ run: { checked: 2 } });
+      expect(typeof decision.run.elapsedMs).toBe("number");
     }
   });
 });
