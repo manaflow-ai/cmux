@@ -133,7 +133,8 @@ public final class TabModel: Identifiable {
     /// Since when the terminal's own shell sits idle at its prompt (`extra.shell_idle.since_ms`): the daemon saw
     /// its process hold the PTY's foreground, still running the program it spawned, and no input since the prompt.
     /// Nil whenever a command, a nested shell (ssh), an `exec`ed program or typed input may be there, or unknown.
-    /// A close may skip its question only when this is set.
+    /// A close may skip its question only when this is set, and only when this app sent the terminal no input after
+    /// the record that set it (the daemon clears it in the input's own turn, but the cleared record arrives later).
     public internal(set) var shellIdleSinceMs: UInt64?
     /// When the terminal last printed (`extra.last_output.at_ms`).
     public internal(set) var lastOutputMs: UInt64?

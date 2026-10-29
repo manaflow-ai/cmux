@@ -283,3 +283,33 @@ fn shell_idle_a_renderer_grant_ends_idle_for_good() {
     assert!(wait_for_screen(&harness.socket, surface, "again").contains("again"));
     assert_not_idle(&harness, Duration::from_millis(500), "a renderer grant, a later prompt");
 }
+
+/// Review 2: a background job (job control on: its own group) dies with the
+/// terminal, so the shell at its next prompt is not idle to close.
+#[test]
+fn shell_idle_a_background_job_is_not_idle() {
+    let _exclusive = exclusive_process_test();
+    let Some((harness, surface)) = start_bash("shell-idle-background") else { return };
+    type_text(&harness, surface, "sleep 600 &\r");
+    let leader = wait_for_foreign_foreground(&harness, "a background job");
+    assert_eq!(
+        leader,
+        Some(shell_pid(&harness, surface)),
+        "the shell leads the foreground at its prompt"
+    );
+    assert_not_idle(&harness, Duration::from_millis(500), "a background job");
+}
+
+/// Review 2: a stopped job (vim after Ctrl-Z) would die with the terminal.
+#[test]
+fn shell_idle_a_stopped_job_is_not_idle() {
+    let _exclusive = exclusive_process_test();
+    let Some((harness, surface)) = start_bash("shell-idle-stopped") else { return };
+    type_text(&harness, surface, "sleep 600\r");
+    // Ctrl-Z stops it; bash draws the next prompt.
+    std::thread::sleep(Duration::from_millis(300)); // test harness: let bash hand the terminal to `sleep`
+    type_text(&harness, surface, "\u{1a}");
+    assert!(wait_for_screen(&harness.socket, surface, "Stopped").contains("Stopped"));
+    wait_for_foreign_foreground(&harness, "a stopped job");
+    assert_not_idle(&harness, Duration::from_millis(500), "a stopped job");
+}

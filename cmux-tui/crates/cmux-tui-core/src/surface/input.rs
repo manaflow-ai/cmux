@@ -130,11 +130,11 @@ impl Surface {
         flow: u64,
     ) -> std::io::Result<()> {
         let publish = note_shell_input(self.pty_in(turn)?, bytes);
-        let written = self.write_unnoted_in(turn, bytes, flow);
+        // The publication goes out before the bytes: no client reads the shell idle while its command runs.
         if publish {
             self.post_pending_publications();
         }
-        written
+        self.write_unnoted_in(turn, bytes, flow)
     }
 
     /// Writes the terminal's own replies to the program's queries (device
@@ -297,11 +297,11 @@ impl Surface {
             return Err(ConfirmedInputFailure::Known(not_a_terminal()));
         };
         let publish = note_shell_input(pty, bytes);
-        let delivered = Self::deliver_confirmed(pty, bytes);
+        // The publication goes out before the bytes: no client reads the shell idle while its command runs.
         if publish {
             self.post_pending_publications();
         }
-        delivered
+        Self::deliver_confirmed(pty, bytes)
     }
 
     /// [`Self::write_bytes_confirmed`] after the input was noted.
@@ -385,11 +385,11 @@ impl Surface {
         timeout: Option<Duration>,
     ) -> std::io::Result<()> {
         let publish = note_shell_input(self.pty_in(turn)?, bytes);
-        let written = self.write_paste_unnoted_in(turn, bytes, timeout);
+        // The publication goes out before the bytes: no client reads the shell idle while its command runs.
         if publish {
             self.post_pending_publications();
         }
-        written
+        self.write_paste_unnoted_in(turn, bytes, timeout)
     }
 
     /// [`Self::write_paste_in`] without noting the input.

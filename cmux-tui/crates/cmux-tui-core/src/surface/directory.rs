@@ -160,7 +160,7 @@ impl Surface {
     /// parser lock.
     pub(crate) fn publish_pending_progress(&self) {
         let Some(pty) = self.as_pty() else { return };
-        self.check_shell_foreground(pty);
+        // Its two callers ran the foreground check first (`check_pending_shell_foreground`).
         let (progress_changed, records) = {
             let mut metadata = pty.terminal_metadata.lock().recover_poison();
             let progress = metadata.take_progress_change().is_some();
@@ -245,8 +245,19 @@ impl Surface {
     pub(crate) fn publish_posted_publications(&self) {
         let Some(pty) = self.as_pty() else { return };
         pty.publication_posted.store(false, Ordering::Release);
+        // The foreground check first: the directory upsert below carries the
+        // record too, and must not publish the previous check's idle fact.
+        self.check_pending_shell_foreground();
         self.publish_pending_directory();
         self.publish_pending_progress();
+    }
+
+    /// Runs the foreground check a publication owes ([`Self::check_shell_foreground`]) before any part of it
+    /// publishes the terminal record.
+    pub(crate) fn check_pending_shell_foreground(&self) {
+        if let Some(pty) = self.as_pty() {
+            self.check_shell_foreground(pty);
+        }
     }
 
     /// Raw VT state is only a candidate. Public state changes after its ordered commit.
@@ -373,8 +384,16 @@ fn foreground_leader(pid: Option<u32>) -> Option<u32> {
 /// it) holds the PTY's foreground and still runs `command`'s program, the one
 /// the daemon spawned, and that program is an interactive shell: not a job it
 /// started (ssh, a nested shell), not a program `exec`ed in its place, and not
-/// a terminal that runs ssh itself. False when unknown: no pid, a failed lookup,
-/// and Windows, where a console has no foreground process group.
+/// a terminal that runs ssh itself. The shell must also have no child process:
+/// with job control off (`set +m`) its jobs run in its own process group, so its
+/// group leading the foreground proves nothing (a nested shell over ssh printing
+/// its own prompt), and with job control on a background or stopped job (`make
+/// &`, vim after Ctrl-Z) dies with the terminal. A shell whose prompt keeps a
+/// helper running (an async prompt worker) therefore never reads idle: a close
+/// asks. The children are the same one-pid listing `terminal.process.get`
+/// reports for a terminal's own process, never a process scan.
+/// False when unknown: no pid, a failed lookup (a child list that cannot be
+/// read included), and Windows, where a console has no foreground process group.
 fn own_program_holds_foreground(pid: Option<u32>, command: &[String]) -> bool {
     #[cfg(unix)]
     {
@@ -382,8 +401,10 @@ fn own_program_holds_foreground(pid: Option<u32>, command: &[String]) -> bool {
         if !crate::terminal_activity::spawned_shell(command) {
             return false;
         }
-        platform::foreground_own_program(pid)
-            .is_some_and(|running| crate::terminal_activity::same_program(&running, spawned))
+        let Some((shell, running)) = platform::foreground_own_shell(pid) else { return false };
+        crate::terminal_activity::same_program(&running, spawned)
+            && crate::resource_router::direct_children(shell)
+                .is_some_and(|children| children.is_empty())
     }
     #[cfg(not(unix))]
     {

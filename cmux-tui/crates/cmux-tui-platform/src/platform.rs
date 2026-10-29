@@ -993,22 +993,42 @@ pub fn shell_holds_foreground(pid: u32) -> bool {
         .is_some_and(|leader| leader == pid || crate::kinfo_proc::login_session_shell(pid, leader))
 }
 
-/// The program of the terminal's own process when it holds the terminal's
-/// foreground: the PTY child `pid` itself, or the shell login(1) started as
-/// its child (see [`shell_holds_foreground`]). It is that process's current
-/// image, so a program `exec`ed in the shell's place names itself (Linux reads
-/// argv[0], see [`foreground_process_name`]). `None` when another process
-/// group holds the foreground (a job the shell started: ssh, a nested shell)
-/// or the lookup fails. One PTY query of a known process, never a process
-/// scan.
+/// The terminal's own shell when it holds the terminal's foreground: its pid
+/// (the PTY child `pid` itself, or the shell login(1) started as its child,
+/// see [`shell_holds_foreground`]) and the program it runs now, so a program
+/// `exec`ed in the shell's place names itself. The program is the one the
+/// kernel exec'd, never argv, which a program can rewrite (`exec -a zsh ssh
+/// host`): macOS reads the image path (proc_pidpath), Linux the command name
+/// the kernel set from the exec'd file's name (`/proc/<pid>/stat` field 2,
+/// at most 15 bytes; only the program itself can rename it, with prctl).
+/// `None` when another process group holds the foreground (a job the shell
+/// started: ssh, a nested shell) or a lookup fails. One PTY query of a known
+/// process, never a process scan. The caller also needs the shell to have no
+/// child (cmux-tui-core `terminal_activity`).
 #[track_caller]
-pub fn foreground_own_program(pid: u32) -> Option<String> {
+pub fn foreground_own_shell(pid: u32) -> Option<(u32, String)> {
     note_proc_scan();
     let leader = foreground_process_group(pid)?;
     if leader != pid && !crate::kinfo_proc::login_session_shell(pid, leader) {
         return None;
     }
-    process_name(leader)
+    Some((leader, exec_name(leader)?))
+}
+
+/// The program `pid` runs, as the kernel exec'd it (see [`foreground_own_shell`]).
+#[cfg(target_os = "linux")]
+fn exec_name(pid: u32) -> Option<String> {
+    let stat = proc_stat(pid)?;
+    // Field 2 is the command name in parentheses; it may hold spaces and
+    // parentheses itself, so it ends at the last `)`.
+    let name = stat.get(stat.find('(')? + 1..stat.rfind(')')?)?;
+    (!name.is_empty()).then(|| name.to_string())
+}
+
+/// macOS and Windows: [`process_name`] reads the image path already.
+#[cfg(not(target_os = "linux"))]
+fn exec_name(pid: u32) -> Option<String> {
+    process_name(pid)
 }
 
 /// The foreground lookups read the process table (`/proc`, proc_pidinfo,
@@ -1056,13 +1076,20 @@ fn process_name(pid: u32) -> Option<String> {
 
 #[cfg(target_os = "linux")]
 fn foreground_process_group(pid: u32) -> Option<u32> {
-    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+    let stat = proc_stat(pid)?;
     // Fields after the parenthesized command name are state(3) ppid(4)
     // pgrp(5) session(6) tty_nr(7) tpgid(8); tpgid is -1 without a
     // controlling terminal.
     let fields = stat.get(stat.rfind(')')? + 1..)?;
     let tpgid = fields.split_whitespace().nth(5)?.parse::<i64>().ok()?;
     u32::try_from(tpgid).ok().filter(|tpgid| *tpgid > 0)
+}
+
+/// `/proc/<pid>/stat` of one known process.
+#[cfg(target_os = "linux")]
+fn proc_stat(pid: u32) -> Option<String> {
+    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+    Some(stat)
 }
 
 #[cfg(target_os = "linux")]

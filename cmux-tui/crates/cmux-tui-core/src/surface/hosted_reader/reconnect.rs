@@ -223,7 +223,11 @@ impl HostedReader {
                             replacement_metadata.activity.restore(activity);
                             replacement_metadata.activity.keep_output_of(&metadata.activity);
                         }
-                        None => replacement_metadata.activity = metadata.activity,
+                        None => {
+                            replacement_metadata.activity = metadata.activity;
+                            // The old check was of the terminal before the reconnect: check again.
+                            replacement_metadata.activity.forget_foreground_check();
+                        }
                     }
                     *metadata = replacement_metadata;
                 }

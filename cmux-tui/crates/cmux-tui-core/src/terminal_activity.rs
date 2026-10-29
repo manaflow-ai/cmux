@@ -51,9 +51,11 @@
 //! The check reads the process table (`/proc`, proc_pidinfo), so the output
 //! thread's parse never runs it: a mark asks for it, and the terminal's publication
 //! on the work lane runs it before it publishes ([`ShellActivity::foreground_check_due`]).
-//! Every later publication while it says idle checks again
-//! ([`ShellActivity::foreground_check_epoch`]), so a published idle fact is
-//! one checked at that publication.
+//! Every later publication pass while it says idle checks again, first,
+//! before any part of the pass publishes the record
+//! ([`ShellActivity::foreground_check_epoch`]); a read (`terminal.list`,
+//! `terminal.show`) or a full projection gives the fact as checked at the
+//! terminal's last publication.
 //! Input clears the fact in the input's own turn, before the bytes are
 //! written, and asks for the publication after them.
 //!
@@ -294,6 +296,14 @@ impl ShellActivity {
         self.record_foreground_leader(epoch, holds, None);
     }
 
+    /// Drops the last foreground check and starts a new epoch (a reconnect that kept this daemon's state): the
+    /// shell is not idle until a new check.
+    pub(crate) fn forget_foreground_check(&mut self) {
+        self.shell_foreground = None;
+        self.foreground_leader = None;
+        self.epoch = self.epoch.wrapping_add(1);
+    }
+
     /// [`Self::record_foreground`] with the foreground group leader the check
     /// saw (`None`: the lookup failed).
     pub(crate) fn record_foreground_leader(
@@ -412,10 +422,12 @@ impl ShellActivity {
     }
 }
 
-/// Whether `running`, the terminal's foreground leader's program (a path, or
-/// Linux's argv[0], which a program can fill with more words), is the program
-/// `spawned` (the terminal's argv[0]) names: the same file name, a login
-/// shell's leading `-` aside. A program `exec`ed in the shell's place is not.
+/// Whether `running`, the program the kernel exec'd for the terminal's
+/// foreground leader (macOS's image path, proc_pidpath; Linux's command name,
+/// the exec'd file's name; never an argv a program can rewrite), is the
+/// program `spawned` (the terminal's argv[0])
+/// names: the same file name, a login shell's leading `-` aside. A program
+/// `exec`ed in the shell's place is not.
 #[cfg_attr(not(unix), allow(dead_code))]
 pub(crate) fn same_program(running: &str, spawned: &str) -> bool {
     fn file_name(path: &str) -> &str {
@@ -425,8 +437,7 @@ pub(crate) fn same_program(running: &str, spawned: &str) -> bool {
     if spawned.is_empty() {
         return false;
     }
-    let first_word = running.split_whitespace().next().unwrap_or_default();
-    file_name(running) == spawned || file_name(first_word) == spawned
+    file_name(running) == spawned
 }
 
 /// Whether `command`, the argv the daemon spawned for a terminal, is an
@@ -714,7 +725,10 @@ mod tests {
         assert!(same_program("/bin/bash", "/bin/bash"));
         assert!(same_program("-bash", "/usr/bin/bash"));
         assert!(same_program("/bin/zsh", "zsh"));
-        assert!(same_program("bash --rcfile x", "/bin/bash"), "Linux argv[0] with words");
+        assert!(
+            !same_program("bash --rcfile x", "/bin/bash"),
+            "an argv, not an image: never trusted"
+        );
         assert!(!same_program("/bin/dash", "/bin/bash"), "an exec'd shell");
         assert!(!same_program("ssh", "/bin/zsh"));
         assert!(!same_program("/bin/bash", ""));

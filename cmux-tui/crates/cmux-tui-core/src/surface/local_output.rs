@@ -402,6 +402,7 @@ impl OutputPublisher {
         let surface = surface.clone();
         let publish = Box::new(move || {
             loop {
+                surface.check_pending_shell_foreground();
                 surface.publish_pending_directory();
                 surface.publish_pending_progress();
                 if !job.0.pass_done() {
