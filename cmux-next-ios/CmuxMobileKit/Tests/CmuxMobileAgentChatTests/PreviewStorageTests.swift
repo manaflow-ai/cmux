@@ -24,17 +24,58 @@ import Testing
         var closedBy: LinkError? { LinkError(code: "eof", message: "") }
     }
 
+    actor TwoLoads {
+        private var first: CheckedContinuation<Void, Never>?
+        func meet() async {
+            if let first {
+                self.first = nil
+                first.resume()
+            } else {
+                await withCheckedContinuation { first = $0 }
+            }
+        }
+    }
+
     final class Link: MacLink, Sendable {
         let channel: Channel
-        init(_ channel: Channel) { self.channel = channel }
+        let rendezvous: TwoLoads?
+        init(_ channel: Channel, rendezvous: TwoLoads? = nil) {
+            self.channel = channel
+            self.rendezvous = rendezvous
+        }
         var transport: TransportKind { .wireGuard }
         var states: AsyncStream<LinkState> { AsyncStream { $0.finish() } }
         func openChannel(service: String, args: [String: String]) async throws -> any LinkChannel {
             #expect(service == "file-preview")
+            await rendezvous?.meet()
             return channel
         }
         func ping() async throws -> UInt32 { 0 }
         func close() async {}
+    }
+
+    @Test func concurrentLoadsOfTheSameArtifactKeepIndependentCompleteCopies() async throws {
+        let artifact = TerminalArtifact(reference: "/demo/\(UUID().uuidString).pdf", kind: .pdf)
+        let destination = try ArtifactLocalCopy.destination(for: artifact)
+        defer { try? FileManager.default.removeItem(at: destination.deletingLastPathComponent()) }
+        let rendezvous = TwoLoads()
+        // Two snapshots of the same remote path must both remain readable, even
+        // when the remote file changes between opens. Neither may replace the other.
+        let first = Link(Channel([Data("{\"size\":3}".utf8), Data([1, 2, 3])]), rendezvous: rendezvous)
+        let second = Link(Channel([Data("{\"size\":3}".utf8), Data([4, 5, 6])]), rendezvous: rendezvous)
+        async let firstCopy = LinkFileArtifactSource.read(path: artifact.reference, over: first, macName: "Mac", for: artifact,
+                                                         capacity: { _ in Int64.max })
+        async let secondCopy = LinkFileArtifactSource.read(path: artifact.reference, over: second, macName: "Mac", for: artifact,
+                                                          capacity: { _ in Int64.max })
+        let (firstURL, secondURL) = try await (firstCopy, secondCopy)
+        #expect(firstURL != secondURL)
+        #expect(firstURL.lastPathComponent == artifact.name)
+        #expect(secondURL.lastPathComponent == artifact.name)
+        #expect(try Data(contentsOf: firstURL) == Data([1, 2, 3]))
+        #expect(try Data(contentsOf: secondURL) == Data([4, 5, 6]))
+        for url in [firstURL, secondURL] {
+            #expect(try FileManager.default.contentsOfDirectory(atPath: url.deletingLastPathComponent().path) == [artifact.name])
+        }
     }
 
     @Test func anUnfittingRemoteFileStopsAfterMetadataBeforeReadingFileBytes() async throws {

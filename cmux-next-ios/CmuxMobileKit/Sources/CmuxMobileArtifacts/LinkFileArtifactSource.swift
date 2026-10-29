@@ -55,12 +55,19 @@ public struct LinkFileArtifactSource: ArtifactSource {
         return ((base as NSString).appendingPathComponent(relative) as NSString).standardizingPath
     }
 
-    /// Reads `path` into the artifact's local copy and returns the copy's URL. The bytes
-    /// land in a part file first, so a failed read never leaves a short copy behind.
+    /// Each load owns a separate copy so overlapping previews cannot replace a file
+    /// another viewer is using. Only a completed part file is published to its URL.
     static func read(path: String, over link: any MacLink, macName: String, for artifact: TerminalArtifact,
                      capacity: PreviewStorage.Capacity = PreviewStorage.availableCapacity) async throws -> URL {
-        let url = try ArtifactLocalCopy.destination(for: artifact, defaultExtension: artifact.kind == .video ? "mp4" : nil)
-        let part = url.deletingLastPathComponent().appendingPathComponent(".\(UUID().uuidString).part")
+        let destination = try ArtifactLocalCopy.destination(for: artifact, defaultExtension: artifact.kind == .video ? "mp4" : nil)
+        let folder = destination.deletingLastPathComponent().appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: false)
+        let url = folder.appendingPathComponent(destination.lastPathComponent)
+        let part = folder.appendingPathComponent(".\(UUID().uuidString).part")
+        var published = false
+        defer {
+            if !published { try? FileManager.default.removeItem(at: folder) }
+        }
         let channel: any LinkChannel
         do {
             // New service negotiates the size header explicitly. Old hosts refuse the
@@ -69,12 +76,10 @@ public struct LinkFileArtifactSource: ArtifactSource {
         } catch let error as LinkError {
             throw Self.unavailable(error, path: path, macName: macName)
         }
-        defer { try? FileManager.default.removeItem(at: part) }
-        return try await withTaskCancellationHandler {
+        let result = try await withTaskCancellationHandler {
             do {
                 let size = try await previewSize(channel, path: path, macName: macName)
                 _ = try await download(channel, to: part, path: path, macName: macName, expectedSize: size, capacity: capacity)
-                try? FileManager.default.removeItem(at: url)
                 try FileManager.default.moveItem(at: part, to: url)
                 return url
             } catch {
@@ -84,6 +89,8 @@ public struct LinkFileArtifactSource: ArtifactSource {
         } onCancel: {
             Task { await channel.close(code: "cancelled", reason: "preview cancelled") }
         }
+        published = true
+        return result
     }
 
     static func previewSize(_ channel: any LinkChannel, path: String, macName: String) async throws -> Int64 {
