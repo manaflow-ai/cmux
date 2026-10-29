@@ -8,7 +8,8 @@
 set -euo pipefail
 run_id="${1:?usage: recover-tree-marker-ok.sh <run id>}"
 [[ "$run_id" =~ ^[0-9]+$ ]] || { echo "not a run id: $run_id"; exit 1; }
-if ! states="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/jobs?per_page=100" --paginate \
+# One bounded read: a nightly run has fewer than 100 jobs, and filter=latest keeps re-runs out.
+if ! states="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/jobs?per_page=100&filter=latest" \
     --jq '.jobs[] | select(.name == "await-nightly-tree-marker") | .conclusion // "pending"' </dev/null 2>/dev/null)"; then
   echo "its jobs cannot be read"
   exit 1
