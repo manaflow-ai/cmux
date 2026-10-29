@@ -128,6 +128,7 @@ final class DeclarativePopupHost {
             submenu.title = row.label
             submenu.parentId = next.id
             submenu.align = .start
+            submenu.highlighted = nil
             child.update(submenu, screenAnchor: submenuAnchor(for: view), preserveKey: childWasKey)
         } else {
             child?.hide()

@@ -71,7 +71,7 @@ export function useNativePopup(options: NativePopupOptions): { available: boolea
       shown.current = true;
       openingRevision.current = model.revision;
       void transport.show(model).then((reply) => {
-        if (model.revision !== revision.current || !shown.current) return;
+        if (openingRevision.current !== model.revision || !shown.current) return;
         if ((reply as { shown?: boolean } | undefined)?.shown !== true) latest.current.onDismiss();
       });
     }
