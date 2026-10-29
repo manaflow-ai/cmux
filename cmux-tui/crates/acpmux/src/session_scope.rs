@@ -650,7 +650,8 @@ mod tests {
         let mut config = crate::config::Config::default();
         config.set_session_resource("session.memory_mb", "6144").unwrap();
         config.set_session_resource("session.swap_mb", "2048").unwrap();
-        let get = knob_reader(&BTreeMap::new(), session_limits_from_config(&config));
+        let profile = BTreeMap::new();
+        let get = knob_reader(&profile, session_limits_from_config(&config));
         let props = properties_with_swap(&get, 32 * GIB, 8 * GIB);
         assert!(joined(&props).contains("MemoryMax=6442450944"));
         assert!(joined(&props).contains("MemorySwapMax=2147483648"));
