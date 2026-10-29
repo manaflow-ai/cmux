@@ -47,6 +47,12 @@ extension TerminalSurfaceView {
 }
 
 extension TerminalSurfaceView {
+    /// The node this surface's tab node hangs it under: the tab node it was made for (or moved to with its content).
+    /// The app's G3 check (`InputInvariantMonitor.terminalNodes`) compares it with the node its pane selected.
+    package var tabNode: VisibilityNode? { visibilityNode.parent }
+}
+
+extension TerminalSurfaceView {
     /// The window node and every node above it, "name own/effective" (``TerminalSurfaceDiagnostics/nodeChain``).
     /// A chain that ends before a window's node (a detached tab node) shows why a terminal is never shown.
     var nodeChain: [String] {
