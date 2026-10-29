@@ -39,7 +39,7 @@ function agentOf(node: Subagent, agent: FoldAgent): WorkflowAgent {
     state: node.paused && agent.state === "running" ? "paused" : stateOf(agent.state),
     agentId: agent.agentId,
     doing: agent.action,
-    lastMessage: agent.result,
+    lastMessage: agent.lastMessage ?? agent.result,
     tokens: agent.tokens,
     lastProgressAt: agent.lastProgressAt,
     retryReason: agent.retryReason,

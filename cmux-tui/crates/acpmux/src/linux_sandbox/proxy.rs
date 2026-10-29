@@ -539,8 +539,12 @@ mod tests {
 
     #[tokio::test]
     async fn allowed_but_unreachable_returns_502() {
-        let (unused, addr) = listener();
-        drop(unused);
+        // A bound socket that never listens refuses connections and keeps the port from any
+        // other test. A dropped listener would keep listening while a process another test
+        // spawns holds a copy of it.
+        let unreachable = tokio::net::TcpSocket::new_v4().unwrap();
+        unreachable.bind("127.0.0.1:0".parse().unwrap()).unwrap();
+        let addr = unreachable.local_addr().unwrap();
         let (mut client, stop, task) = stand_in(addr).await;
         client.write_all(format!("CONNECT {addr} HTTP/1.1\r\n\r\n").as_bytes()).await.unwrap();
         assert!(headers(&mut client).await.starts_with("HTTP/1.1 502 "));

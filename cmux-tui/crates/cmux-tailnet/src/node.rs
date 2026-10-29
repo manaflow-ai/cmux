@@ -311,7 +311,14 @@ impl Listener {
 
 impl Drop for Listener {
     fn drop(&mut self) {
-        unsafe { libc::close(self.fd) };
+        // libtailscale stops listening once a read on its end of this socketpair sees EOF. A
+        // process spawned meanwhile holds a copy of our end (from its fork, and past its exec:
+        // libtailscale does not set close-on-exec), and close alone sends no EOF while a copy is
+        // open, so tsnet would keep accepting. Shutdown acts on the socket, whatever copies remain.
+        unsafe {
+            libc::shutdown(self.fd, libc::SHUT_RDWR);
+            libc::close(self.fd);
+        }
     }
 }
 
@@ -340,6 +347,23 @@ mod tests {
         let error = cstring("private-auth-key\0suffix").unwrap_err().to_string();
         assert_eq!(error, "NUL byte in node configuration");
         assert!(!error.contains("private-auth-key"));
+    }
+
+    /// libtailscale tears its listener down when a read on its end of the socketpair returns
+    /// EOF. A process spawned while the listener is open holds a copy of our end; dropping the
+    /// listener must still end libtailscale's side.
+    #[test]
+    fn dropping_a_listener_ends_libtailscales_side_while_a_child_holds_a_copy() {
+        use std::io::Read;
+        let (ours, mut theirs) = UnixStream::pair().unwrap();
+        let listener = Listener { fd: ours.into_raw_fd() };
+        let inherited = unsafe { libc::dup(listener.fd) };
+        assert!(inherited >= 0, "dup: {}", std::io::Error::last_os_error());
+        drop(listener);
+        theirs.set_nonblocking(true).unwrap();
+        let mut byte = [0_u8; 1];
+        assert_eq!(theirs.read(&mut byte).unwrap(), 0, "libtailscale's side must read EOF");
+        unsafe { libc::close(inherited) };
     }
 
     #[test]
