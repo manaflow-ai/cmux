@@ -6746,14 +6746,6 @@
      },
      "presence": "optional",
      "nullable": false
-    },
-    "hangs": {
-     "type": {
-      "kind": "ref",
-      "name": "ServerStatsHangs"
-     },
-     "presence": "optional",
-     "nullable": false
     }
    },
    "additional_properties": false,
@@ -6768,8 +6760,7 @@
     "request_latency_us and dispatch_queue_us are present only when the request names requests in include; dispatch_queue_us is microseconds from a request's parse to its handler's start.",
     "lock_classes is present only when the request names it in include.",
     "ipc is present only when the request names it in include.",
-    "ipc_methods is present only when the request names it in include; its rows are ordered by id, the rows without one last.",
-    "hangs is present only when the request names it in include."
+    "ipc_methods is present only when the request names it in include; its rows are ordered by id, the rows without one last."
    ]
   },
   "ServerStatsLockClasses": {
@@ -11037,70 +11028,6 @@
     "image_id is that image's build id (Mach-O LC_UUID as dwarfdump --uuid prints it, or the ELF NT_GNU_BUILD_ID in lowercase hex), or null when it has none.",
     "offset is the frame address minus the image load address (the address itself when image is null), for offline symbolication.",
     "symbol is the nearest exported symbol, mangled, or null for a local function."
-   ]
-  },
-  "ServerStatsHangs": {
-   "kind": "object",
-   "fields": {
-    "over_250ms": {
-     "type": {
-      "kind": "scalar",
-      "name": "uint64"
-     },
-     "presence": "required",
-     "nullable": false
-    },
-    "records": {
-     "type": {
-      "kind": "array",
-      "items": {
-       "kind": "ref",
-       "name": "ServerStatsHangRecord"
-      }
-     },
-     "presence": "required",
-     "nullable": false
-    }
-   },
-   "additional_properties": false,
-   "constraints": [
-    "over_250ms counts watched scopes busy 250 ms or more since daemon start, each once; it is never reset.",
-    "records keeps the newest 64, oldest first."
-   ]
-  },
-  "ServerStatsHangRecord": {
-   "kind": "object",
-   "fields": {
-    "sequence": {
-     "type": {
-      "kind": "scalar",
-      "name": "uint64"
-     },
-     "presence": "required",
-     "nullable": false
-    },
-    "span": {
-     "type": {
-      "kind": "scalar",
-      "name": "string"
-     },
-     "presence": "required",
-     "nullable": false
-    },
-    "duration_ms": {
-     "type": {
-      "kind": "scalar",
-      "name": "uint64"
-     },
-     "presence": "required",
-     "nullable": false
-    }
-   },
-   "additional_properties": false,
-   "constraints": [
-    "sequence is the hang's ordinal since daemon start, 1 for the first.",
-    "span is <scope>:<method>, catalog names only.",
-    "duration_ms is the final duration once the scope ended, else how long it had run when it was seen."
    ]
   },
   "AgentSessionAnsweredBy": {
@@ -21794,7 +21721,7 @@
    "stream": null,
    "constraints": [
     "Owner-only diagnostics; never journaled and safe to poll.",
-    "include names optional result sections (resource_projection, write_path, request_path_io, slow_requests, requests, ipc, lock_classes, ipc_methods, hangs); unknown names are ignored."
+    "include names optional result sections (resource_projection, write_path, request_path_io, slow_requests, requests, ipc, lock_classes, ipc_methods); unknown names are ignored."
    ],
    "method_id": 266,
    "priority": "background",

@@ -150,11 +150,6 @@ impl WatchKind {
             Self::AttachOut | Self::RenderAttachOut | Self::SnapshotAttachOut => "frame",
         }
     }
-
-    /// A run's span in the hang ledger: `<scope>:<method>`.
-    pub(super) fn hang_span(self, method: u32) -> String {
-        format!("{}:{}", self.name(), self.method_name(method))
-    }
 }
 
 /// The echo thread items a [`super::RequestWatchdog`] watches; a clone may

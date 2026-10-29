@@ -5,7 +5,7 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
-description = "Small cmux-tui daemon primitives without daemon state: accept backoff, stream interrupts, debug spans, short ids, machine name, respawn text, settings-file reads, the daemon hang ledger"
+description = "Small cmux-tui daemon primitives without daemon state: accept backoff, stream interrupts, debug spans, short ids, machine name, respawn text, settings-file reads"
 
 [lints]
 workspace = true
@@ -21,5 +21,4 @@ cmux-tui-platform.workspace = true
 getrandom.workspace = true
 libc.workspace = true
 rusqlite.workspace = true
-serde.workspace = true
 serde_json.workspace = true

@@ -22937,32 +22937,6 @@
         "ty": "uint64",
         "required": true
       },
-      "/data/hangs": {
-        "ty": "object"
-      },
-      "/data/hangs/over_250ms": {
-        "ty": "uint64",
-        "required": true
-      },
-      "/data/hangs/records": {
-        "ty": "array",
-        "required": true
-      },
-      "/data/hangs/records/*": {
-        "ty": "object"
-      },
-      "/data/hangs/records/*/duration_ms": {
-        "ty": "uint64",
-        "required": true
-      },
-      "/data/hangs/records/*/sequence": {
-        "ty": "uint64",
-        "required": true
-      },
-      "/data/hangs/records/*/span": {
-        "ty": "string",
-        "required": true
-      },
       "/data/ipc": {
         "ty": "object"
       },

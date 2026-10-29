@@ -383,7 +383,6 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.ServerStatsRequestPathIo, "lock_hold_over_1ms");
     try expectExplicitNullRejected(protocol.ServerStatsRequestPathIo, "lock_waits");
     try expectExplicitNullRejected(protocol.ServerStatsResult, "dispatch_queue_us");
-    try expectExplicitNullRejected(protocol.ServerStatsResult, "hangs");
     try expectExplicitNullRejected(protocol.ServerStatsResult, "ipc");
     try expectExplicitNullRejected(protocol.ServerStatsResult, "ipc_methods");
     try expectExplicitNullRejected(protocol.ServerStatsResult, "lock_classes");

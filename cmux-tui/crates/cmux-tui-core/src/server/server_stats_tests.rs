@@ -227,36 +227,6 @@ fn server_stats_include_reports_slow_requests() {
 }
 
 #[test]
-fn server_stats_include_reports_hangs() {
-    use std::time::{Duration, Instant};
-    let mux = Mux::new_for_test("server-stats-hangs", crate::SurfaceOptions::default());
-    let client = mux.control_clients.register(ClientTransport::Unix, writer());
-
-    let plain = stats(&mux, client, json!({"cmd":"server-stats"}));
-    assert!(plain.get("hangs").is_none(), "{plain}");
-    let idle = stats(&mux, client, json!({"cmd":"server-stats","include":["hangs"]}));
-    assert_eq!(idle["hangs"], json!({"over_250ms": 0, "records": []}), "{idle}");
-
-    let method = WatchedMethod::resource(ResourceOperation::WorkspaceCreate);
-    let scope = mux.request_watchdog.begin(client, method).expect("a free slot");
-    std::thread::sleep(Duration::from_millis(300));
-    drop(scope);
-    let deadline = Instant::now() + Duration::from_secs(5);
-    let full = loop {
-        let full = stats(&mux, client, json!({"cmd":"server-stats","include":["hangs"]}));
-        if full["hangs"]["over_250ms"] == json!(1) {
-            break full;
-        }
-        assert!(Instant::now() < deadline, "never counted: {full}");
-        std::thread::sleep(Duration::from_millis(10));
-    };
-    let record = &full["hangs"]["records"][0];
-    assert_eq!(record["sequence"], json!(1), "{full}");
-    assert_eq!(record["span"], json!("mux-conn:workspace.create"), "{full}");
-    assert!(record["duration_ms"].as_u64().is_some_and(|ms| ms >= 300), "{full}");
-}
-
-#[test]
 fn signaled_mutex_class_server_stats_reports_lock_classes() {
     let mux = Mux::new_for_test("server-stats-lock-classes", crate::SurfaceOptions::default());
     let client = mux.control_clients.register(ClientTransport::Unix, writer());

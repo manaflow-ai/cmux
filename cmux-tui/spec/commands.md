@@ -585,8 +585,8 @@ reads atomics and never touches SQLite or the journal, so it is safe to poll.
 
 Params: `{include?: array<string>|null}`. `include` names optional result
 sections: `resource_projection`, `write_path`, `request_path_io`,
-`slow_requests`, `requests`, `ipc`, `lock_classes`, `ipc_methods` and
-`hangs`; unknown names are ignored.
+`slow_requests`, `requests`, `ipc`, `lock_classes` and `ipc_methods`;
+unknown names are ignored.
 
 `lock_classes` reports wait and hold by class on the three locks that admit by
 class: the workspace registry, the registry connection (first acquisitions) and
@@ -667,11 +667,7 @@ object{
   ipc_methods?:array<object{
     method:string, id:uint16|null, trace_id:uint16, class:string,
     latency_us:percentiles, handler_us:percentiles, lock_wait_us:percentiles
-  }>,
-  hangs?:object{
-    over_250ms:uint64,
-    records:array<object{sequence:uint64, span:string, duration_ms:uint64}>
-  }
+  }>
 }
 kind_count = object{kind:string,messages:uint64,bytes:uint64}
 parse_count = object{requests:uint64,json_parses:uint64,json_parses_per_request:float64}
@@ -753,17 +749,6 @@ an echo item, scope named after its thread) once to the owner's hang log
 whose own loop pass ran past 100 ms reports it on its link (HANG_REPORT): one
 `holder-loop` line with `stack_error` `other-process`.
 `hangs` counts those lines, over every kind of scope.
-The `hangs` section counts every scope that watcher watches (all the kinds
-above; a holder's reported loop passes are not this process's) once it has
-been busy 250 ms, whatever its hang tier: `over_250ms` is the count since
-daemon start and is never reset, and `records` keeps the newest 64, oldest
-first, each with its `sequence` (1 for the first hang; a reader takes the
-records past the last sequence it saw), its `span` (`<scope>:<method>`, such
-as `mux-conn:workspace.create` or `journal-writer:commit-batch`) and its
-`duration_ms` (the final duration once it ended, how long it had run while it
-still runs). This is the report half of Chrome's HangWatcher: report only,
-never a kill. The perf lab's `daemon.hangs_over_250ms` is the growth of
-`over_250ms` over a measured window.
 With `CMUX_TUI_DEBUG_SPANS` set, each recorded request also appends a
 `slow-request` line with the method as its mark.
 `requests` adds `request_latency_us` and `dispatch_queue_us`, over every
