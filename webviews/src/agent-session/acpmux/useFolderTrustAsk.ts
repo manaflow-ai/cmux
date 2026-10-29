@@ -135,6 +135,8 @@ export function useFolderTrustAsk(
   canAnswer = true,
   /// The chat's folder is on this computer: only then is its answer kept by path for the next chat.
   local = true,
+  /// Shared with Composer: no trust retry may bypass an unresolved folder choice or auth refusal.
+  blockSend = false,
 ) {
   const [ask, setAsk] = useState<FolderTrustAsk>();
   const [trusted, setTrusted] = useState(false);
@@ -146,7 +148,9 @@ export function useFolderTrustAsk(
   const [reads, setReads] = useState(0);
   /// The folder acpmux named in a trust refusal for this chat, and the prompt to send after Trust.
   const [refusal, setRefusal] = useState<{ sessionId?: string; cwd?: string }>();
-  const resend = useRef<(() => void) | undefined>(undefined);
+  const resend = useRef<
+    { again: () => void; sessionId?: string; cwd?: string; family?: string; ready: boolean } | undefined
+  >(undefined);
   /// What acpmux's last trust refusal for this chat said of its folder: the question draws from it
   /// when the folder's read gets no answer in time (a peer's folder, read over the peer link).
   const refusedTrust = useRef<{ sessionId?: string; cwd: string; level: TrustLevel } | undefined>(undefined);
@@ -285,9 +289,9 @@ export function useFolderTrustAsk(
             : { cwd: asked.cwd, ...where, state: "decided", level },
         );
         // The prompt acpmux refused goes now that the folder is trusted; another answer keeps it.
-        const held = resend.current;
-        resend.current = undefined;
-        if (level === "trusted") held?.();
+        if (level === "trusted") {
+          if (resend.current) resend.current.ready = true;
+        } else resend.current = undefined;
       } catch {
         if (stillHere()) setAsk({ cwd: asked.cwd, state: "failed" });
       } finally {
@@ -296,6 +300,25 @@ export function useFolderTrustAsk(
     },
     [ask, cwd, scope, source, sessionId, prompts, remembers],
   );
+
+  // Both Composer.send and failed-row retries pass through this one gate. Retain the callback
+  // (and its prompt/attachments/gesture) while the folder answer saves; never replay in another chat.
+  useEffect(() => {
+    const held = resend.current;
+    if (!held) return;
+    if (held.sessionId !== sessionId || held.cwd !== cwd || held.family !== family) {
+      resend.current = undefined;
+      return;
+    }
+    if (!held.ready || !trusted || blockSend || !cwd) return;
+    resend.current = undefined;
+    try {
+      held.again();
+    } catch {
+      // A failed retry stays in its row/draft and keeps the question recoverable, as save did.
+      setAsk({ cwd, state: "failed" });
+    }
+  }, [ask, trusted, blockSend, sessionId, cwd, family]);
 
   const blocked: SendBlock | undefined = reading
     ? {}
@@ -318,6 +341,10 @@ export function useFolderTrustAsk(
     scope,
     justTrusted,
     blocked,
+    /// Cancel leaves the draft or failed row in place for a later explicit send/retry.
+    cancelResend: useCallback(() => {
+      resend.current = undefined;
+    }, []),
     /// Trust only the chat's folder.
     trust: () => void save("trusted"),
     /// Trust the repository holding the folder: every worktree of it takes the answer.
@@ -345,11 +372,12 @@ export function useFolderTrustAsk(
         setTrusted(false);
         setReading(true);
         // A refusal without its own re-run (a prompt the client routed first) keeps the one set.
-        if (again) resend.current = again;
+        if (again) resend.current = { again, sessionId, cwd: refusedFolder, family, ready: false };
+        else if (resend.current) resend.current.ready = false;
         setReads((count) => count + 1);
         return true;
       },
-      [sessionId, cwd],
+      [sessionId, cwd, family],
     ),
   };
 }
