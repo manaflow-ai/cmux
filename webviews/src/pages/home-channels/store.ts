@@ -1120,7 +1120,7 @@ export class HomeChannelsStore {
         if (
           !list.hasMore ||
           oldestRun === undefined ||
-          (unresolvedReplies.size === 0 && oldestMessageAt !== undefined && oldestRun <= oldestMessageAt) ||
+          (page > 0 && unresolvedReplies.size === 0 && oldestMessageAt !== undefined && oldestRun <= oldestMessageAt) ||
           page >= maxHistoryPages
         )
           break;
