@@ -1,4 +1,5 @@
 import { isDefaultChoice } from "./defaultChoice";
+import { isModelRouterKind } from "./routerKinds";
 import bundledCatalog from "../../../../web/data/model-catalog/snapshot.json";
 import { agentName } from "./agents";
 import type { AcpmuxSnapshot } from "./model";
@@ -86,7 +87,8 @@ export type PickerModel = {
   family?: string;
   providerName?: string;
   efforts: EffortValue[];
-  /** Whether the source declared efforts; an omitted capability may use live session choices. */
+  /** Whether the catalog/profile explicitly declared this model's effort capability.
+   * An empty array is meaningful only when this is true; omitted capabilities may use live session options. */
   effortsDeclared?: boolean;
   defaultEffort?: EffortValue;
   fast: boolean;
@@ -279,7 +281,9 @@ export function buildPickerCatalog({
 }: PickerInputs): PickerCatalog {
   // A chat folder's own profiles stay out of the join: the picker lists them on their own, and a
   // folder profile must never stand in for a catalog harness of its family.
-  acpmux = acpmux.filter((entry) => !entry.folder);
+  // A router can report the same family as a real launcher. Exclude it before choosing that
+  // family's representative, so it cannot replace or hide the actual harness.
+  acpmux = acpmux.filter((entry) => !entry.folder && !isModelRouterKind(entry.kind));
   const layered = applyUserLayer(catalog, user);
   const join: Join = {
     catalog: layered,
@@ -411,6 +415,7 @@ function catalogHarness(harness: CatalogHarness, members: AcpmuxHarness[], join:
       harness.pickable !== false &&
       harness.kind !== "terminal" &&
       harness.kind !== "unknown" &&
+      !isModelRouterKind(harness.kind) &&
       (chosen === undefined || entryPickable(chosen)),
     ...(chosen?.unavailable ? { unavailable: chosen.unavailable } : {}),
     ...(chosen?.probeFailed ? { probeFailed: true } : {}),
@@ -679,6 +684,7 @@ function pickerModel(model: HarnessModel & { own?: Own }, catalog: ModelCatalog,
     ...(model.family ? { family: model.family } : {}),
     ...(providerName ? { providerName } : {}),
     efforts: model.efforts ?? [],
+    // Keep provenance when the normalized picker model materializes an omitted capability as [].
     effortsDeclared: model.efforts !== undefined || Boolean(model.own?.efforts),
     ...(model.defaultEffort ? { defaultEffort: model.defaultEffort } : {}),
     fast: model.fast === true,
@@ -790,7 +796,9 @@ function isCatalogHarness(value: unknown): value is CatalogHarness {
 
 function entryPickable(entry: AcpmuxHarness): boolean {
   const value = entry as AcpmuxHarness & { pickable?: unknown; kind?: unknown };
-  return value.pickable !== false && value.kind !== "terminal" && value.kind !== "unknown";
+  return (
+    value.pickable !== false && value.kind !== "terminal" && value.kind !== "unknown" && !isModelRouterKind(value.kind)
+  );
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -56,11 +56,13 @@ pub fn main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
     }
     #[cfg(target_os = "linux")]
     if args.first().is_some_and(|a| a == "__remote-sandbox-canary-unix") {
-        return crate::linux_sandbox::keeper::canary_unix(&args[1..]).map_err(anyhow::Error::msg);
+        return crate::linux_sandbox::keeper::canary_unix(args.get(1..).unwrap_or_default())
+            .map_err(anyhow::Error::msg);
     }
     #[cfg(target_os = "linux")]
     if args.first().is_some_and(|a| a == "__remote-sandbox-canary-rename") {
-        return crate::linux_sandbox::keeper::canary_rename(&args[1..]).map_err(anyhow::Error::msg);
+        return crate::linux_sandbox::keeper::canary_rename(args.get(1..).unwrap_or_default())
+            .map_err(anyhow::Error::msg);
     }
     #[cfg(target_os = "linux")]
     if args.first().is_some_and(|a| a == "__remote-sandbox-init") {
@@ -132,6 +134,7 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
         Some(Command::CodexAuthBroker { home, codex }) => {
             crate::cli::codex_auth_broker::run(home, codex).await
         }
+        Some(Command::Gh { args }) => crate::cli::gh_shim::run(args).await,
         None => {
             let client = connect(true).await?;
             crate::tui::run(client, None).await
@@ -257,7 +260,15 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
                 Err(e) => errors::exit_with(&e, json_out),
             }
         }
-        Some(Command::Hand(cmd)) => crate::hand::run(cmd).await,
+        Some(Command::Hand(cmd)) => match crate::hand::run(cmd, cli.json).await {
+            Ok(()) => Ok(()),
+            Err(e) => {
+                // Hand commands historically use exit 1 for every failure; keep that
+                // contract while still emitting the shared --json envelope.
+                let app = errors::classify(&e).with_exit(1);
+                errors::exit_with(&anyhow::Error::new(app), cli.json)
+            }
+        },
         Some(Command::CuaMcp) => crate::cua_v2::run_bridge().await,
         Some(Command::SecretMcp) => crate::secret_mcp::run().await,
         Some(Command::OfferMcp) => crate::offer_mcp::run().await,

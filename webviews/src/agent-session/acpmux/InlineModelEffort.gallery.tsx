@@ -3,7 +3,7 @@ import React, { useRef, useState } from "react";
 import { componentEntry } from "../../gallery/format";
 import type { QuickMenu } from "./QuickModelMenu";
 
-type Props = { look?: QuickMenu["effortLook"]; chat?: boolean };
+type Props = { look?: QuickMenu["effortLook"]; chat?: boolean; placement?: QuickMenu["harnessPlacement"] };
 
 export default componentEntry<Props>({
   id: "agent-pane.inline-model-effort",
@@ -16,7 +16,7 @@ export default componentEntry<Props>({
   load: () =>
     Promise.all([import("./QuickModelMenu"), import("./newTabComposer")]).then(
       ([{ QuickModelMenu }, { OnNewTab }]) =>
-        function InlineModelEffort({ look = "joined", chat = false }: Props) {
+        function InlineModelEffort({ look = "joined", chat = false, placement = "left" }: Props) {
           const trigger = useRef<HTMLButtonElement | null>(null);
           const [open, setOpen] = useState(false);
           const [model, setModel] = useState("opus");
@@ -50,6 +50,8 @@ export default componentEntry<Props>({
                     current: model,
                     onModel: setModel,
                     effortLook: look,
+                    inlineEffort: true,
+                    harnessPlacement: placement,
                     effort: {
                       current: effort,
                       levels: ["low", "medium", "high", "max"].map((id) => ({ id, name: id })),
@@ -93,6 +95,12 @@ export default componentEntry<Props>({
     },
     chat: {
       props: { chat: true },
+      play: async (ctx) => {
+        await ctx.click({ selector: "button[data-menu='model']" });
+      },
+    },
+    compact: {
+      props: { placement: "compact" },
       play: async (ctx) => {
         await ctx.click({ selector: "button[data-menu='model']" });
       },
