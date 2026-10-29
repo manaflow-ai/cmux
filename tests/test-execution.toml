@@ -909,6 +909,10 @@ path = "tests/test_nightly_next_feed_watch.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_nightly_next_rolling.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cmux_tui_artifacts_retry.py"
 lane = "linux-guard"
 
@@ -1775,6 +1779,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_fast_checks_bun_workspaces.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_fast_checks_browsers.py"
 lane = "linux-guard"
 
 [[test]]
