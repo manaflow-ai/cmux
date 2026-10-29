@@ -594,6 +594,11 @@ pub fn now_ms() -> u64 {
 pub trait Store: Send + Sync {
     fn list(&self) -> Result<Vec<SessionMeta>>;
     fn load(&self, id: &str) -> Result<Option<SessionMeta>>;
+    /// One startup entry, with the same visibility rules as `list`. Raw `load` may still
+    /// return a purged chat's late metadata save for recovery/maintenance callers.
+    fn load_startup(&self, id: &str) -> Result<Option<SessionMeta>> {
+        self.load(id)
+    }
     fn save(&self, meta: &SessionMeta) -> Result<()>;
     fn append(&self, id: &str, record: &EventRecord) -> Result<()>;
     /// Flush one session's event log and metadata to stable storage.
@@ -993,22 +998,15 @@ impl LocalStore {
             return Ok(None);
         }
         let session = entry.path();
-        crate::config::private_state_dir(&session)?;
-        let events = session.join("events");
-        match std::fs::symlink_metadata(&events) {
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(error) => return Err(error.into()),
-            Ok(_) => crate::config::private_state_dir(&events)?,
-        }
+        self.validate_session_dir(&session)?;
         let path = session.join("session.json");
         let Ok(file) = crate::config::private_state_file(&path) else { return Ok(None) };
         let mut text = String::new();
         BufReader::new(file).read_to_string(&mut text)?;
         // Only a closed chat can be a purged chat revived by a late save. Open chats need
         // no segment enumeration: that work belongs to their on-demand log read.
-        if serde_json::from_str::<StatusOnly>(&text)
-            .is_ok_and(|m| m.status == SessionStatus::Closed)
-            && !self.has_records(&entry.file_name().to_string_lossy())?
+        if let Ok(meta) = serde_json::from_str::<StatusOnly>(&text)
+            && self.purged_startup_entry(&entry.file_name().to_string_lossy(), meta.status)?
         {
             return Ok(None);
         }
@@ -1019,6 +1017,23 @@ impl LocalStore {
                 Ok(None)
             }
         }
+    }
+
+    /// Exact on-demand reads use the same directory checks as the background list before
+    /// trusting metadata or reading any log. In particular, neither directory may be a link.
+    fn validate_session_dir(&self, session: &Path) -> Result<()> {
+        crate::config::private_state_dir(session)?;
+        let events = session.join("events");
+        match std::fs::symlink_metadata(&events) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
+            Ok(_) => crate::config::private_state_dir(&events)?,
+        }
+        Ok(())
+    }
+
+    fn purged_startup_entry(&self, id: &str, status: SessionStatus) -> Result<bool> {
+        Ok(status == SessionStatus::Closed && !self.has_records(id)?)
     }
 
     /// Whether the session's log holds a record: a segment with a byte in it (no line
@@ -1300,13 +1315,27 @@ impl Store for LocalStore {
     }
 
     fn load(&self, id: &str) -> Result<Option<SessionMeta>> {
-        let path = self.dir(id).join("session.json");
+        let session = self.dir(id);
+        match std::fs::symlink_metadata(&session) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(error.into()),
+            Ok(_) => self.validate_session_dir(&session)?,
+        }
+        let path = session.join("session.json");
         if !path.exists() {
             return Ok(None);
         }
         let mut text = String::new();
         BufReader::new(crate::config::private_state_file(&path)?).read_to_string(&mut text)?;
         Ok(Some(serde_json::from_str(&text)?))
+    }
+
+    fn load_startup(&self, id: &str) -> Result<Option<SessionMeta>> {
+        let Some(meta) = self.load(id)? else { return Ok(None) };
+        if self.purged_startup_entry(id, meta.status)? {
+            return Ok(None);
+        }
+        Ok(Some(meta))
     }
 
     fn save(&self, meta: &SessionMeta) -> Result<()> {
@@ -1911,6 +1940,6 @@ impl LocalStore {
     }
 }
 
-#[cfg(all(test, target_os = "linux"))]
+#[cfg(all(test, unix))]
 #[path = "store/startup_tests.rs"]
 mod startup_tests;

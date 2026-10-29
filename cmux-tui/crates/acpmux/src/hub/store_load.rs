@@ -64,7 +64,7 @@ impl Hub {
             if hub.sessions.lock().unwrap().contains_key(&id) {
                 return true;
             }
-            let Ok(Some(meta)) = hub.store.load(&id) else {
+            let Ok(Some(meta)) = hub.store.load_startup(&id) else {
                 return false;
             };
             if meta.id != id || (meta.permission_policy.is_some() && meta.policy_source.is_none()) {
@@ -101,7 +101,7 @@ impl Hub {
             return;
         }
         match method {
-            INITIALIZE | MUX_STATUS | MUX_PERSON_ENROLL | MUX_PERSON_PROVE | MUX_SHUTDOWN => {}
+            INITIALIZE | MUX_STATUS | MUX_PERSON_ENROLL | MUX_PERSON_PROVE => {}
             MUX_ATTACH | MUX_INFO | MUX_EVENTS => {
                 if let Ok(key) = crate::server::session_key(params) {
                     self.session_meta(key).await;

@@ -82,3 +82,69 @@ async fn an_attach_reads_its_chat_with_twenty_four_hosted_logs_queued() {
         std::fs::write(daemon.home.join(format!("gate-{session}")), b"go").unwrap();
     }
 }
+
+/// Quit Everything can arrive as soon as the ready socket serves, before the hosted chat is
+/// present in the hub. Its snapshot must include that chat before it decides which agents end.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn end_agents_during_metadata_load_ends_the_retained_host() {
+    let mut daemon = Daemon::new("loading-end", "approve-all");
+    let (session, _gate) = super::restart_reattach::kept_turn(&mut daemon).await;
+    let host = daemon.host_record(&session);
+    daemon.env = vec![
+        ("ACPMUX_TEST_DELAY_LOAD_STORE_MS".into(), "1000".into()),
+        ("ACPMUX_TEST_DELAY_LOAD_LOGS_MS".into(), "3000".into()),
+    ];
+    daemon.start();
+    let mut rpc = daemon.rpc().await;
+    // Status never demand-loads a session; no info/list/attach can hide the empty-hub race.
+    let status = rpc.call("_acpmux/status", json!({})).await;
+    assert_eq!(status["loading"]["phase"], "loading-store", "{status}");
+    let reply = tokio::time::timeout(
+        Duration::from_secs(5),
+        rpc.call("_acpmux/shutdown", json!({"endAgents": true})),
+    )
+    .await
+    .expect("shutdown answers once the metadata hold ends");
+    assert_eq!(reply["endAgents"], true, "{reply}");
+    daemon.wait_exit();
+    for field in ["harness_pid", "host_pid"] {
+        assert!(
+            gone_within(host[field].as_i64().unwrap(), Duration::from_secs(10)),
+            "{field} survived endAgents while the metadata was loading"
+        );
+    }
+}
+
+/// A supervisor stop in the same loading window leaves the retained host running. The next
+/// restart must still find and adopt it, with the original turn intact.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn sigterm_during_metadata_load_preserves_the_host_for_the_next_restart() {
+    let mut daemon = Daemon::new("loading-term", "approve-all");
+    let (session, gate) = super::restart_reattach::kept_turn(&mut daemon).await;
+    let host = daemon.host_record(&session);
+    daemon.env = vec![
+        ("ACPMUX_TEST_DELAY_LOAD_STORE_MS".into(), "1000".into()),
+        ("ACPMUX_TEST_DELAY_LOAD_LOGS_MS".into(), "3000".into()),
+    ];
+    daemon.start();
+    let status = daemon.rpc().await.call("_acpmux/status", json!({})).await;
+    assert_eq!(status["loading"]["phase"], "loading-store", "{status}");
+    daemon.sigterm();
+    assert!(alive(host["host_pid"].as_i64().unwrap()), "the retained host ended");
+    assert!(alive(host["harness_pid"].as_i64().unwrap()), "the retained agent ended");
+    assert!(
+        !daemon.events(&session).iter().any(|event| event["kind"] == "turn_result"),
+        "the intermediate stop settled the retained turn"
+    );
+    daemon.env.clear();
+    daemon.start();
+    daemon.wait_event(&session, "host adopted after the interrupted metadata load", |event| {
+        event["kind"] == "host_adopted"
+    });
+    let adopted = daemon.host_record(&session);
+    assert_eq!(adopted["incarnation"], host["incarnation"], "the host was replaced");
+    std::fs::write(gate, b"go").unwrap();
+    daemon.wait_event(&session, "the original turn completes", |event| {
+        event["kind"] == "turn_result" && event["msg"]["status"] == "completed"
+    });
+}

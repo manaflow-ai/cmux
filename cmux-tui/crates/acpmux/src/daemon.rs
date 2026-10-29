@@ -485,10 +485,15 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     lock::fork_a_child_for_tests();
     // Profile files hot-reload (no polling); before startup work writes the config.
     hub.start_harness_watch();
-    {
+    // Metadata completion belongs to shutdown too; cancelling adoption must not cancel it.
+    let metadata = {
+        let hub = hub.clone();
+        tokio::spawn(async move { hub.load_store_async().await })
+    };
+    let startup = {
         let hub = hub.clone();
         tokio::spawn(async move {
-            hub.load_store_async().await;
+            hub.wait_store().await;
             // Debug builds only: `ACPMUX_TEST_DELAY_LOAD_LOGS_MS` holds the chat-log
             // load and adoption, as a large log store did, so integration tests can ask in
             // that window. Bounded; release builds have no seam.
@@ -527,8 +532,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             {
                 tracing::warn!("{e}");
             }
-        });
-    }
+        })
+    };
     tokio::spawn(notify::notify_loop(hub.clone()));
     #[cfg(target_os = "linux")]
     tokio::spawn(cloud_handoff::handoff_loop(hub.clone()));
@@ -553,6 +558,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         _ = shutdown => {}
     }
     tracing::info!("shutting down");
+    startup.abort();
+    let _ = startup.await;
     // Its last heartbeat empties this daemon's rows in the hub's address book.
     if let Some(relay) = mesh_relay {
         let _ = tokio::time::timeout(std::time::Duration::from_secs(6), relay.stop()).await;
@@ -574,7 +581,14 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     }
     // How many hosted agents this shutdown kept running for the next
     // daemon; unknown (a timeout) counts as kept.
-    let kept = match tokio::time::timeout(SHUTDOWN_BUDGET, hub.shutdown_all()).await {
+    let kept = match tokio::time::timeout(SHUTDOWN_BUDGET, async {
+        // A signal can arrive while metadata loads. Snapshot every stored session before
+        // detaching or ending hosts. A timeout conservatively keeps their router below.
+        let _ = metadata.await;
+        hub.shutdown_all().await
+    })
+    .await
+    {
         Ok(kept) => kept,
         Err(_) => {
             tracing::warn!("agents did not stop within {SHUTDOWN_BUDGET:?}; exiting anyway");
