@@ -44,12 +44,14 @@ test("unfinished calls do not expose audio paths before completion", () => {
 
 test("one audio file reported through every source appears once", () => {
   const path = "/project/out/voice.wav";
-  expect(toolImages(completed({
-    images: [path],
-    inputSummary: JSON.stringify({ file_path: path }),
-    locations: [{ path }],
-    output: `Saved ${path}\nAgain: ${path}`,
-  }))).toEqual([path]);
+  expect(
+    toolImages(completed({
+      images: [path],
+      inputSummary: JSON.stringify({ file_path: path }),
+      locations: [{ path }],
+      output: `Saved ${path}\nAgain: ${path}`,
+    })),
+  ).toEqual([path]);
 });
 
 test("audio discovery preserves image, PDF and video files", () => {
@@ -66,7 +68,13 @@ test("audio discovery preserves image, PDF and video files", () => {
 });
 
 test("nonmedia, relative files and remote URLs are not discovered as local audio", () => {
-  for (const path of ["/project/notes.txt", "/project/voice.wavbackup", "/project/voice.wav-backup", "out/voice.wav", "https://example.test/voice.wav"]) {
+  for (const path of [
+    "/project/notes.txt",
+    "/project/voice.wavbackup",
+    "/project/voice.wav-backup",
+    "out/voice.wav",
+    "https://example.test/voice.wav",
+  ]) {
     for (const fields of Object.values(sources)) {
       expect(toolImages(completed(fields(path)))).toEqual([]);
     }
