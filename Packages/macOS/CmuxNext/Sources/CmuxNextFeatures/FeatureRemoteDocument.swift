@@ -11,7 +11,7 @@ public import Foundation
 ///   "default": { "Features": { "cefTimerSlack": "off" }, "FeaturesSerial": 7,
 ///                "FeaturesExpiresAt": "2026-12-01T00:00:00Z",
 ///                "FeaturesMinBuild": 1500, "FeaturesMaxBuild": 1600,
-///                "FeatureParams": { "agentPageRendererSharing": { "mainFrames": "4" } } },
+///                "FeatureParams": { "intentPrewarmHover": { "dwell": "0.1" } } },
 ///   "cohorts": { "wave-1": { "Features": { "cefTimerSlack": "on" }, "FeaturesSerial": 8 } } }
 /// ```
 ///

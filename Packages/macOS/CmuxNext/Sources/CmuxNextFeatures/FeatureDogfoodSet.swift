@@ -12,7 +12,6 @@ public nonisolated struct FeatureDogfoodSet: Sendable, Equatable {
     /// ``FeatureList`` ignores unknown names in any input.
     public static let chromeParity = FeatureDogfoodSet(tagPrefix: "chrome-parity-", names: [
         "agentChromium",
-        "agentPageRendererSharing",
         "automationBurstSnap",
         "browserLaunchPictures",
         "cefAttachedPages",
