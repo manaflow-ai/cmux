@@ -329,7 +329,8 @@
    The section sits 4 in from the rows' edges (its hairline is the menu's separator inset), so a mode
    row's 4px padding is already spent; a menu whose modes draw their shield adds the icon column
    (16 + 8). A fieldset's own padding (0.35em 0.75em 0.625em) is cleared, never inherited: it put the
-   heading and rules on two other columns. */
+   heading and rules on two other columns. The lead is inline-start padding, so a right-to-left menu
+   keeps the same columns from its right edge. */
 .acpmux-access-grants {
   --acpmux-grant-lead: 0px;
   min-inline-size: 0;
@@ -342,7 +343,8 @@
   --acpmux-grant-lead: 24px;
 }
 .acpmux-access-grants-heading {
-  padding: 0 0 4px var(--acpmux-grant-lead);
+  padding: 0 0 4px;
+  padding-inline-start: var(--acpmux-grant-lead);
   color: var(--agent-muted);
   font-size: var(--text-detail);
   letter-spacing: var(--text-detail--letter-spacing);
@@ -353,7 +355,8 @@
   align-items: center;
   column-gap: 8px;
   min-height: var(--ui-row-height);
-  padding: 0 0 0 var(--acpmux-grant-lead);
+  padding: 0;
+  padding-inline-start: var(--acpmux-grant-lead);
 }
 .acpmux-access-grant-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--agent-soft); font-size: var(--text-detail); letter-spacing: var(--text-detail--letter-spacing); }
 .acpmux-access-grant-remove {

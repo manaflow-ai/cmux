@@ -5,7 +5,7 @@
 // number and check column; the whole rule row took a hover wash around its small x (Leo 2026-10-27:
 // "why are you giving it the entire row when it's only this small little section? Just don't do
 // that. Don't ever do that."). design/grid.md: every row type starts its text on the surface's
-// `text` line and centers its trailing mark on `trail`.
+// `text` line and centers its trailing mark on `trail`, from the inline start in a right-to-left menu too.
 // Real Chromium and WebKit (the app's engine) on the gallery stage. CI fails the file when it cannot
 // launch them (requireBrowserLane). Locally: CMUX_BROWSER_TESTS=1 bun test test/access-grants-columns.test.ts
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -58,28 +58,40 @@ await requireBrowserLane("access-grants-columns.test.ts", async () => {
     await vite?.close();
   });
 
-  const open = async (engine: string, theme: string): Promise<Page> => {
+  const open = async (engine: string, theme: string, dir: "ltr" | "rtl"): Promise<Page> => {
     const page = await browsers.get(engine)!.newPage({ viewport: { width: 640, height: 640 } });
     await page.goto(stageURL(theme));
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
       timeout: 120_000,
     });
     await page.evaluate(() => document.fonts.ready);
+    // The gallery has no direction switch; the menu portals into the document and inherits its dir.
+    await page.evaluate((value) => {
+      document.documentElement.dir = value;
+    }, dir);
     await page.getByRole("button", { name: "Mode", exact: true }).click();
     await page.locator(".acpmux-access-grants .acpmux-access-grant").first().waitFor();
     return page;
   };
 
+  const cases: [string, "ltr" | "rtl"][] = [
+    ["Catppuccin Mocha", "ltr"],
+    ["Apple System Colors Light", "ltr"],
+    ["Catppuccin Mocha", "rtl"],
+  ];
   for (const [engine] of engines)
-    for (const theme of ["Catppuccin Mocha", "Apple System Colors Light"])
-      test(`${engine}, ${theme}: allowed rules start on the modes' text column and their x on the modes' trailing column`, async () => {
-        const page = await open(engine, theme);
+    for (const [theme, dir] of cases)
+      test(`${engine}, ${theme}, ${dir}: allowed rules start on the modes' text column and their x on the modes' trailing column`, async () => {
+        const page = await open(engine, theme, dir);
         const geometry = await page.evaluate(() => {
           const menu = document.querySelector<HTMLElement>(".acpmux-access-menu")!;
-          const textLeft = (element: Element) => {
+          const rtl = getComputedStyle(menu).direction === "rtl";
+          // Where a line of text starts: its left edge, or its right edge in a right-to-left menu.
+          const textStart = (element: Element) => {
             const range = document.createRange();
             range.selectNodeContents(element);
-            return range.getBoundingClientRect().left;
+            const box = range.getBoundingClientRect();
+            return rtl ? box.right : box.left;
           };
           const center = (element: Element) => {
             const box = element.getBoundingClientRect();
@@ -95,13 +107,15 @@ await requireBrowserLane("access-grants-columns.test.ts", async () => {
             )
             .filter((mark): mark is Element => mark !== undefined);
           return {
-            modeText: modes.map((row) => textLeft(row.querySelector(".acpmux-menu-label")!)),
+            direction: getComputedStyle(menu).direction,
+            modeText: modes.map((row) => textStart(row.querySelector(".acpmux-menu-label")!)),
             modeTrail: marks.map(center),
-            heading: textLeft(menu.querySelector(".acpmux-access-grants-heading")!),
-            grantText: [...menu.querySelectorAll(".acpmux-access-grant-label")].map(textLeft),
+            heading: textStart(menu.querySelector(".acpmux-access-grants-heading")!),
+            grantText: [...menu.querySelectorAll(".acpmux-access-grant-label")].map(textStart),
             grantTrail: [...menu.querySelectorAll(".acpmux-access-grant-remove")].map(center),
           };
         });
+        expect(geometry.direction, "the menu takes the document's direction").toBe(dir);
         expect(geometry.modeText.length, "the fixture has modes").toBeGreaterThan(0);
         expect(geometry.modeTrail.length, "the modes show a number or check").toBeGreaterThan(0);
         expect(geometry.grantText.length, "the fixture has allowed rules").toBe(2);
