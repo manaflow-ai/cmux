@@ -110,8 +110,10 @@ final class DeclarativePopupHost {
 
     func hide(id: String? = nil, revision: Int? = nil) {
         if let id, let revision {
-            retire(id, revision: revision)
             guard id == model?.id, revision == model?.revision else { return }
+            // Only the currently displayed identity may create a tombstone. A stale hide
+            // for an already replaced or dismissed revision must not block a later show.
+            retire(id, revision: revision)
         } else if id != nil { return }
         if let model { retire(model.id, revision: model.revision) }
         child?.hide()

@@ -39,7 +39,13 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
                 }
             }
         }
-        if let field = next.search, search?.stringValue != field.value { search?.stringValue = field.value }
+        if let field = next.search, let search {
+            // Keep descriptor changes live even when the stable search ID is unchanged.
+            // Consumers update placeholder/disabled state while retaining IME focus.
+            search.stringValue = field.value
+            search.placeholderString = field.placeholder
+            search.isEnabled = field.disabled != true
+        }
         model = next
         selected = next.highlighted ?? priorSelection
         if !enabledRows.contains(where: { $0.0.id == selected }) { selected = enabledRows.first?.0.id }
