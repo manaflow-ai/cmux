@@ -40,9 +40,19 @@ import Testing
         MessagesLabHomeView.voiceMotionGate = { false }
         rig.view.applyReduceMotion()
         #expect(runningLoops(in: row.layer) == 0, "Home animations off: the dots and breath hold still")
+        let held = animationIdentities(in: row.layer)
+        demo.refreshVisibleCells()
+        demo.refreshVisibleCells()
+        #expect(animationIdentities(in: row.layer) == held, "With loops held, a redecorate makes no new animations")
         MessagesLabHomeView.voiceMotionGate = { true }
         rig.view.applyReduceMotion()
         #expect(runningLoops(in: row.layer) > 0, "Home animations back on: the dots run again")
+    }
+
+    /// Every animation object on the layer tree (a restart replaces them with new objects).
+    private func animationIdentities(in layer: CALayer) -> Set<ObjectIdentifier> {
+        let own = Set((layer.animationKeys() ?? []).compactMap { layer.animation(forKey: $0) }.map { ObjectIdentifier($0) })
+        return (layer.sublayers ?? []).reduce(own) { $0.union(animationIdentities(in: $1)) }
     }
 
     /// Repeating animations that actually advance (a held one has speed 0 or plays once).

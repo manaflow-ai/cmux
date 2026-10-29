@@ -1747,8 +1747,8 @@ final class RowCell: UICollectionViewCell {
     /// The typing row should breathe but does not (macOS, not a still scene): its breathing was stopped or never started.
     var needsTypingBreath: Bool {
 #if !os(iOS) || targetEnvironment(macCatalyst)
-        // cmux: no breathing under Reduce Motion (cx-sya4n).
-        Springs.typingStillPhase == nil && !MessagesLabHomeView.reducesMotion && typingContainer.animation(forKey: "breath.transform.scale") == nil
+        // cmux: no breathing under Reduce Motion or the host's Home motion gate (cx-sya4n; RowCell.typingLoopsHeld).
+        Springs.typingStillPhase == nil && !RowCell.typingLoopsHeld && typingContainer.animation(forKey: "breath.transform.scale") == nil
 #else
         false
 #endif
