@@ -53,6 +53,8 @@ struct PaneZoomMotionTests {
         func opacity(_ pane: PaneID) -> CGFloat {
             guard let host = root.context.hosts[pane], host.superview != nil, !host.isHidden else { return 0 }
             if let clip = host.layer?.mask?.frame, clip.width < 0.5 || clip.height < 0.5 { return 0 }
+            // Under a zooming pane the host is cut where that pane shows (felt 1d): a cut over all of it shows nothing.
+            if let cut = host.layer?.mask as? ZoomCoverMaskLayer, cut.cover.insetBy(dx: -0.5, dy: -0.5).contains(cut.bounds) { return 0 }
             return host.alphaValue
         }
 
@@ -133,19 +135,20 @@ struct PaneZoomMotionTests {
         let screen = Screen(Self.grid2)
         screen.zoom("p1")
         var widths: [CGFloat] = []
-        for _ in 1...6 {
+        // Two frames in: the zoom spring (about 150 ms, felt 1d) still grows fast there.
+        for _ in 1...2 {
             screen.step()
             widths.append(try #require(screen.shown("p1")).width)
         }
         let corner = screen.opacity("p4")
-        #expect(widths[5] > widths[4])
+        #expect(widths[1] > widths[0])
         screen.unzoom()
         // Nothing jumps at the interrupt, and the spring keeps its velocity: from rest it would
         // start shrinking at once, carried it still grows for a frame.
-        #expect(screen.shown("p1")?.width == widths[5], "the zoomed pane jumped on the interrupt")
+        #expect(screen.shown("p1")?.width == widths[1], "the zoomed pane jumped on the interrupt")
         #expect(abs(screen.opacity("p4") - corner) < 0.02, "the opposite corner jumped on the interrupt")
         screen.step()
-        let after = try #require(screen.shown("p1")).width - widths[5]
+        let after = try #require(screen.shown("p1")).width - widths[1]
         #expect(after > 0, "velocity lost: the unzoom started from rest")
         let returning = try #require(screen.hostFrame("p2"))
         for frame in 1...120 {

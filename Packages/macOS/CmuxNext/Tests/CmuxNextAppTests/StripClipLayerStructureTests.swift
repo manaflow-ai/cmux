@@ -26,10 +26,15 @@ struct StripClipLayerStructureTests {
     /// Hosts of `view` that carry a layer mask.
     static func masked(_ view: ScreenContentView) -> Int { view.displayedHosts.filter { $0.layer?.mask != nil }.count }
 
-    /// True when `host`'s own layer paints an opaque fill under all of its bounds.
-    static func opaque(_ host: PaneHostView) -> Bool {
-        guard let layer = host.layer, let color = layer.backgroundColor else { return false }
-        return color.alpha > 0.999 && layer.bounds.size == host.bounds.size
+    /// True when nothing of `under` shows through `zooming` (felt 1d: the zooming pane has a resting pane's material, no
+    /// fill; each pane under it is cut where it shows): `under` has no fill of its own and its cover hole holds all of
+    /// `zooming`'s shown rect inside `under`, or the two do not meet.
+    static func cut(_ under: PaneHostView, by zooming: PaneHostView, in view: ScreenContentView) -> Bool {
+        guard zooming.layer?.backgroundColor == nil else { return false }
+        let shown = view.convert(view.shownFrame(zooming), to: under).intersection(under.bounds)
+        guard !shown.isNull, shown.width > 0.5, shown.height > 0.5 else { return true }
+        guard let mask = under.layer?.mask as? ZoomCoverMaskLayer else { return false }
+        return mask.cover.insetBy(dx: -0.5, dy: -0.5).contains(shown)
     }
 
     /// A view that takes the keys and counts each time it gives them up.
@@ -99,7 +104,8 @@ struct StripClipLayerStructureTests {
     /// A strip pane beside the docked chat zooms and unzooms: its host never leaves the strip container
     /// (a host taken out of its parent drops the window's first responder, and a terminal hears focus out
     /// and in), so the focused view in it keeps the keys and never resigns. While it moves the container
-    /// is lifted (the whole screen, above the chat's pane) and the zooming host is opaque over its bounds.
+    /// is lifted (the whole screen, above the chat's pane), the zooming host has no fill (a resting pane's material,
+    /// felt 1d) and the chat's pane under it is cut where it shows.
     @Test func aZoomBesideADockMovesNoHostAndKeepsTheFocusedPanesKeys() throws {
         let screen = Harness()
         defer { screen.close() }
@@ -118,7 +124,7 @@ struct StripClipLayerStructureTests {
         var frames = 0, wrong: [String] = []
         repeat {
             if link.superview !== container { wrong.append("zoom \(frames): the host left the strip container") }
-            if view.zoomMotion.pane != nil, !Self.opaque(link) { wrong.append("zoom \(frames): the zooming host is not opaque") }
+            if view.zoomMotion.pane != nil, link.layer?.backgroundColor != nil { wrong.append("zoom \(frames): the zooming host has a fill") }
             frames += 1
         } while frames < 240 && screen.root.advanceFrame(ChatDockLinkSplitMotionTests.dt)
         #expect(view.zoomMotion.pane == nil, "the zoom did not land in \(frames) frames")
@@ -143,7 +149,7 @@ struct StripClipLayerStructureTests {
                 if chat.superview !== view || (order.firstIndex(of: container) ?? -1) < (order.firstIndex(of: chat) ?? .max) {
                     wrong.append("unzoom \(frames): the unzooming pane is not above the chat's pane")
                 }
-                if !Self.opaque(link) { wrong.append("unzoom \(frames): the unzooming host is not opaque") }
+                if !Self.cut(chat, by: link, in: view) { wrong.append("unzoom \(frames): the chat's pane is not cut where the unzooming pane shows") }
             }
             frames += 1
         } while frames < 240 && screen.root.advanceFrame(ChatDockLinkSplitMotionTests.dt)
@@ -162,7 +168,7 @@ struct StripClipLayerStructureTests {
     /// A strip beside a docked column (dock, the link's pane, a second strip pane): the link's pane
     /// zooms. The second pane stays under it, in the lifted container, clipped to the strip's range it
     /// had by a mask set once when the zoom starts (not per frame), and the docked pane stays under the
-    /// container. On every frame the zooming host is in front of both and opaque over its bounds, so
+    /// container. On every frame the zooming host is in front of both and both are cut where it shows (no fill, felt 1d), so
     /// neither shows through its padding or header; a page in the covered pane leaves out the zooming
     /// pane (`pageCovers`).
     @Test func aZoomOverAStripBesideADockKeepsTheCoveredPanesClip() throws {
@@ -200,7 +206,9 @@ struct StripClipLayerStructureTests {
             if (stacked.firstIndex(of: link) ?? -1) < max(stacked.firstIndex(of: covered) ?? .max, stacked.firstIndex(of: chat) ?? .max) {
                 wrong.append("frame \(frames): the zooming pane is not in front")
             }
-            if !Self.opaque(link) { wrong.append("frame \(frames): the zooming host is not opaque") }
+            if !Self.cut(covered, by: link, in: view) || !Self.cut(chat, by: link, in: view) {
+                wrong.append("frame \(frames): a pane under the zooming one is not cut where it shows")
+            }
             let shared = link.frame.intersection(covered.frame)
             if !shared.isNull, shared.width > 0.5, shared.height > 0.5 {
                 overlapped += 1
@@ -209,8 +217,9 @@ struct StripClipLayerStructureTests {
                     wrong.append("frame \(frames): the covered pane's page does not leave out the zooming pane: \(covers)")
                 }
             }
-            if view.stripClipsComputed != computed {
-                wrong.append("frame \(frames): \(view.stripClipsComputed - computed) clips computed on a zoom frame")
+            // One clip per pane under the zooming one on a frame its cut moves (O(covered panes)), none for others.
+            if view.stripClipsComputed - computed > 2 * (frames + 1) {
+                wrong.append("frame \(frames): \(view.stripClipsComputed - computed) clips computed in \(frames + 1) zoom frames")
             }
             frames += 1
             screen.step()
