@@ -44,7 +44,11 @@ export interface ContextMenuProps {
    */
   targets?: "own";
   /** Declarative rows for WebPopupHost; rows are never mounted or scraped when supplied. */
-  native?: { model: NativePopupDescription; onEvent?(event: NativePopupEvent, item?: ContextMenuItem): void; onDismiss?(): void };
+  native?: {
+    model: NativePopupDescription;
+    onEvent?(event: NativePopupEvent, item?: ContextMenuItem): void;
+    onDismiss?(): void;
+  };
 }
 
 /** The control a closed menu gives focus back to. */
@@ -115,7 +119,7 @@ export function ContextMenu({
   const returnFocus = useRef<HTMLElement | null>(null);
   const menu = useRef<HTMLDivElement | null>(null);
   const host = usePopupHost();
-  useNativePopup({
+  const nativePopup = useNativePopup({
     open: nativeOpen && native !== undefined,
     model: native?.model ?? { side: "bottom", align: "start", width: 0, rows: [] },
     anchor: () => nativeTarget,
@@ -242,28 +246,29 @@ export function ContextMenu({
         const target = event.target instanceof Element ? event.target : null;
         // The native host needs an HTMLElement anchor. SVG descendants use their nearest HTML
         // parent; with no such anchor, leave the browser's context menu untouched.
-        const nativeAnchor =
-          target instanceof HTMLElement ? target : target?.parentElement instanceof HTMLElement ? target.parentElement : null;
-        if (native && !nativeAnchor) return;
+        let nativeAnchor = target;
+        while (nativeAnchor && !(nativeAnchor instanceof HTMLElement)) nativeAnchor = nativeAnchor.parentElement;
+        const nativeTarget = nativeAnchor instanceof HTMLElement ? nativeAnchor : null;
+        if (native && nativePopup.available && !nativeTarget) return;
         event.preventDefault();
         onOpen?.();
         setActive(0);
         returnFocus.current = target?.closest<HTMLElement>(RETURN_FOCUS) ?? null;
         const at = { x: event.clientX, y: event.clientY };
-        if (native) {
-          setNativeTarget(nativeAnchor);
+        if (native && nativePopup.available) {
+          setNativeTarget(nativeTarget);
           setNativeOpen(true);
           return;
         }
-        const native = nativeMenu();
-        const rows = native && nativeRows(items);
-        if (!native || !rows) {
+        const legacyMenu = nativeMenu();
+        const rows = legacyMenu && nativeRows(items);
+        if (!legacyMenu || !rows) {
           setPoint(at);
           return;
         }
         // The rows as they were at the right-click: the menu runs the one chosen from them.
         const shown = items;
-        native({ items: rows, point: at }).then(
+        legacyMenu({ items: rows, point: at }).then(
           (reply) => {
             // An older legacy bridge can acknowledge an unknown method with a successful null
             // value. That is not a native-menu dismissal (`{ picked: null }`); fall back to the

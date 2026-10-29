@@ -62,7 +62,12 @@ export interface ComboboxProps {
    * less deliberate than a key press. */
   onHighlight?(value: string | undefined, by: "keyboard" | "pointer" | "none"): void;
   /** Declarative native rows. When the host is available the web list is not mounted. */
-  native?: { model: NativePopupDescription; anchor?: () => HTMLElement | null; onEvent?(event: NativePopupEvent): void; onDismiss?(): void };
+  native?: {
+    model: NativePopupDescription;
+    anchor?: () => HTMLElement | null;
+    onEvent?(event: NativePopupEvent): void;
+    onDismiss?(): void;
+  };
 }
 
 export function Combobox({

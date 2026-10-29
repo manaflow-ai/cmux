@@ -109,7 +109,9 @@ test("a declarative context menu keeps the page fallback without a native transp
     root = createRoot(container);
     root.render(
       <ContextMenu native={{ model: nativeModel }} items={[{ id: "open", label: "Open", onSelect() {} }]}>
-        <button type="button" data-target>Target</button>
+        <button type="button" data-target>
+          Target
+        </button>
       </ContextMenu>,
     );
   });
@@ -130,10 +132,18 @@ test("a native context menu anchors nested SVG targets and routes picks without 
     owner: () => null,
     listen: () => () => {},
     native: {
-      show: async (model) => { shown.push(model); return { shown: true }; },
+      show: async (model) => {
+        shown.push(model);
+        return { shown: true };
+      },
       update() {},
       hide() {},
-      listen(listener) { listeners.add(listener); return () => { listeners.delete(listener); }; },
+      listen(listener) {
+        listeners.add(listener);
+        return () => {
+          listeners.delete(listener);
+        };
+      },
     },
   };
   await act(async () => {
@@ -141,10 +151,21 @@ test("a native context menu anchors nested SVG targets and routes picks without 
     root.render(
       <UiProvider container={container} popupHost={host}>
         <ContextMenu
-          native={{ model: nativeModel, onDismiss: () => { dismissed++; } }}
+          native={{
+            model: nativeModel,
+            onDismiss: () => {
+              dismissed++;
+            },
+          }}
           items={[{ id: "open", label: "Open", onSelect: () => picked.push("open") }]}
         >
-          <button type="button"><svg><g><path data-target d="M0 0h1" /></g></svg></button>
+          <button type="button" aria-label="Open actions">
+            <svg>
+              <g>
+                <path data-target d="M0 0h1" />
+              </g>
+            </svg>
+          </button>
         </ContextMenu>
       </UiProvider>,
     );
@@ -152,14 +173,17 @@ test("a native context menu anchors nested SVG targets and routes picks without 
   const button = container.querySelector("button")!;
   button.getBoundingClientRect = () => new window.DOMRect(20, 30, 40, 24);
   const event = new MouseEvent("contextmenu", { bubbles: true, cancelable: true });
-  await act(async () => { container.querySelector("[data-target]")!.dispatchEvent(event); });
+  await act(async () => {
+    container.querySelector("[data-target]")!.dispatchEvent(event);
+  });
   expect(event.defaultPrevented).toBe(true);
   expect(shown).toHaveLength(1);
   expect(shown[0]?.anchor).toEqual({ left: 20, top: 30, right: 60, bottom: 54 });
   expect(document.querySelector('[role="menu"]')).toBeNull();
   const model = shown[0]!;
   await act(async () => {
-    for (const listener of listeners) listener({ type: "pick", popupId: model.id, revision: model.revision, id: "open" });
+    for (const listener of listeners)
+      listener({ type: "pick", popupId: model.id, revision: model.revision, id: "open" });
   });
   expect(picked).toEqual(["open"]);
   await act(async () => {

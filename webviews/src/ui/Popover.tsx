@@ -65,7 +65,12 @@ export interface PopoverProps {
   /** Where focus goes on close (default: back to where it was). */
   finalFocus?: React.RefObject<HTMLElement | null> | boolean;
   /** Declarative native content. When the host is available, children are not mounted as rows. */
-  native?: { model: NativePopupDescription; anchor: () => HTMLElement | null; onEvent?(event: NativePopupEvent): void; onDismiss?(): void };
+  native?: {
+    model: NativePopupDescription;
+    anchor: () => HTMLElement | null;
+    onEvent?(event: NativePopupEvent): void;
+    onDismiss?(): void;
+  };
   children: ReactNode;
 }
 
