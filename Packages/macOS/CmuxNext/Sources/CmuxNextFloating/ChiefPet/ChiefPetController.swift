@@ -202,12 +202,13 @@ public final class ChiefPetController {
             expiries.values.forEach { $0.cancel() }
             expiries.removeAll()
             toast.cancel()
+            presenting = false
+            // A message summoned with the setting off (or turning off) keeps its box until it closes,
+            // and its pet still plays a `done` it shows (each state change syncs off again).
+            if transient, replyPanel?.isVisible == true { return render(animated: false) }
             doneTimer.cancel()
             // A `done` cut short ends here: shown again, the pet draws the Chief's state.
             drawnState = chiefState
-            presenting = false
-            // A message summoned with the setting off (or turning off) keeps its box until it closes.
-            if transient, replyPanel?.isVisible == true { return render(animated: false) }
             transient = false
             closeReply()
             render(animated: false)

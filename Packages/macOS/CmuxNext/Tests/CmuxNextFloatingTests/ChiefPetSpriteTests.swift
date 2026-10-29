@@ -203,6 +203,27 @@ import Testing
         #expect(controller.panel?.pet.sprite.shown?.state == .idle)
     }
 
+    /// A pet summoned with the setting off still plays `done` when the turn ends: each state change
+    /// syncs off again (`start`), which must not cut the summoned pet's `done` short.
+    @Test func aSummonedPetPlaysDoneWithTheSettingOff() {
+        let defaults = Self.defaults()
+        let controller = ChiefPetController(makePanel: { ChiefPetPanel(defaults: defaults) },
+                                            actions: ChiefPetActions(open: { _ in }, send: { _, _ in true }))
+        defer { controller.closeReply(); controller.sync(false) }
+        controller.setMascot(.mochi)
+        controller.sync(false)
+        controller.summon(petOn: false)
+        controller.setState(.working)
+        controller.sync(false)
+        controller.setState(.idle)
+        controller.sync(false)
+        #expect(controller.drawnState == .done, "the summoned pet plays done once")
+        #expect(controller.panel?.pet.sprite.shown?.state == .done)
+        controller.closeReply()
+        controller.sync(false)
+        #expect(controller.drawnState == .idle, "gone with its box, a done cut short ends")
+    }
+
     /// A screen change that leaves the pet where it is still tells the controller, which redraws the facing.
     @Test func aScreenChangeWithNoMoveStillRedraws() {
         let panel = ChiefPetPanel(defaults: Self.defaults())
