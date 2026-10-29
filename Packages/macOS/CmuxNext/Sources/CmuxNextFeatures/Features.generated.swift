@@ -959,19 +959,19 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
-    /// The daemon offers and grants ipc-frames-v2 to same-user local clients at its own API revision, so they may send REQUEST and CANCEL frames and get REPLY and ERROR frames instead of JSON lines.
+    /// Framed IPC (ipc-frames-v2) to the local daemon: the daemon grants it to same-user local clients (REQUEST/CANCEL in, REPLY/ERROR out), and the app's connection asks for it, sends served typed commands as REQUEST frames and, with terminalStreams, keys as INPUT frames. Off keeps JSON lines.
     public static let ipcFrames = Feature(
         index: 55,
         name: "ipcFrames",
         owner: "PL-daemon",
-        description: "The daemon offers and grants ipc-frames-v2 to same-user local clients at its own API revision, so they may send REQUEST and CANCEL frames and get REPLY and ERROR frames instead of JSON lines.",
+        description: "Framed IPC (ipc-frames-v2) to the local daemon: the daemon grants it to same-user local clients (REQUEST/CANCEL in, REPLY/ERROR out), and the app's connection asks for it, sends served typed commands as REQUEST frames and, with terminalStreams, keys as INPUT frames. Off keeps JSON lines.",
         kind: .perfPath,
-        process: .daemon,
+        process: .both,
         chromiumFeature: nil,
         defaults: FeatureDefaults(dev: false, nightly: false, release: false),
         expires: "2026-12-20",
         params: [],
-        stories: ["new-surfaces"],
+        stories: ["new-surfaces", "typing-flood-stress", "split-latency"],
         sticky: false,
         runtimeMutable: false
     )
