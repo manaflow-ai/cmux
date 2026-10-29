@@ -714,6 +714,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                     let args = crate::cli::pairing::JoinArgs { ticket, name, peer_name, advertise };
                     return crate::cli::pairing::join(client, args, json_out).await;
                 }
+                PeerCmd::Consent { .. } => unreachable!("local consent is handled before daemon connection"),
             };
             if json_out {
                 print_json(&v);
