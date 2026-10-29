@@ -102,8 +102,10 @@ function warnIfSaturated(checked: number, limit: number, elapsedMs: number) {
 function checkMachine(vm: CloudVmRow, now: () => number) {
   return Effect.gen(function* () {
     const providerVmId = vm.providerVmId;
-    if (!providerVmId || vm.status !== "running") return "off" as const;
+    if (!providerVmId || vm.status === "destroyed") return "off" as const;
+    // A claim an earlier run left is resolved first, whatever the row's status now.
     if (vmIdlePauseClaimFromRow(vm) !== null) return yield* settleLeftClaim(vm, providerVmId, now());
+    if (vm.status !== "running") return "off" as const;
     const minutes = vmIdlePauseMinutesFromRow(vm);
     const addresses = vmIdlePrivateAddressesFromRow(vm);
     const decide = (probe: VmIdleProbe | null, at: number) => decideVmIdlePause({
@@ -184,7 +186,7 @@ function undoLostPause(vm: CloudVmRow, providerVmId: string, claimEpoch: number)
       console.info("[VM] idle pause lost to a person's pause; kept", JSON.stringify({ vmId: vm.id }));
       return "aborted" as const;
     }
-    const resumed = yield* resumeAfterLostIdlePause(current, providerVmId).pipe(Effect.either);
+    const resumed = yield* resumeAfterLostIdlePause(current, providerVmId, claimEpoch).pipe(Effect.either);
     if (resumed._tag === "Left") {
       // A user-open path probes the provider and resumes it (forceProviderProbe).
       console.error("[VM] idle pause lost; resume failed", { vmId: vm.id, status: current.status, error: resumed.left });
@@ -197,7 +199,10 @@ function undoLostPause(vm: CloudVmRow, providerVmId: string, claimEpoch: number)
 
 /**
  * A claim an earlier run left: its provider pause answered with an error and
- * the read-back could not show a pause. Read the provider again. Running: the
+ * the read-back could not show a pause, or its compensating resume lost to
+ * Off, activity or the status reconciler and has to retry. The row may be
+ * running or already marked paused by the reconciler, whose write keeps the
+ * claim. Read the provider again. Running: the
  * pause never happened, so clear the claim (the next run checks the machine
  * as usual). Paused, with nothing moved since the claim: record it as the idle
  * pause. Paused with the fence moved: undo it like a lost pause. Unreadable:

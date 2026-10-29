@@ -2459,6 +2459,9 @@ function pauseRow(vm: CloudVmRow, requestedProviderVmId: string, reason: VmPause
       return yield* Effect.fail(new VmNotFoundError({ vmId: input.providerVmId }));
     }
     if (vm.status === "paused") {
+      // A person's Pause on a row the status reconciler already marked paused is still their
+      // decision: record it, so an idle pause the cron is undoing yields to it.
+      if (reason === "user") yield* repo.markProviderObservedStatus({ id: vm.id, providerVmId, status: "paused", pauseReason: "user" });
       return { id: providerVmId, status: "paused" } satisfies VmPauseResumeResult;
     }
     const pause = providers.pause;
@@ -4185,17 +4188,25 @@ function recordResumeUsageEvent(
  * (claimIdleResume), resumes the provider if it is paused, and records running
  * only at the claimed fence. A person's pause that lands first wins: before
  * the claim it makes the claim fail and nothing is resumed; after it, the
- * running record fails and the machine is paused again. "superseded" in both.
+ * running record fails and the machine is paused again. "superseded" in both,
+ * as for a row deleted or replaced meanwhile. Any other write that makes the
+ * claim fail (Off, activity, the status reconciler) answers "retry": the
+ * cron's pause claim (`claimEpoch`) stays in the row and the next run tries
+ * again.
  * A provider that never got as far as pausing reads running and only the row
  * is written. This restores the state the cron interrupted, so it takes no
  * active-limit reservation.
  */
-export function resumeAfterLostIdlePause(vm: CloudVmRow, providerVmId: string) {
+export function resumeAfterLostIdlePause(vm: CloudVmRow, providerVmId: string, claimEpoch: number) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const epoch = yield* repo.claimIdleResume!({ id: vm.id, providerVmId, epoch: vmIdleEpochFromRow(vm) });
-    if (epoch === null) return "superseded" as const;
+    if (epoch === null) {
+      const winner = yield* repo.findUserVm({ userId: vm.userId, billingTeamId: vm.ownerTeamId, providerVmId, provider: vm.provider });
+      const gone = !winner || winner.id !== vm.id || winner.providerVmId !== providerVmId || winner.status === "destroyed";
+      return gone || isPersonsPauseSince(winner, claimEpoch) ? "superseded" as const : "retry" as const;
+    }
     const state = yield* readIdleProviderState(vm, providerVmId);
     if (state === null) {
       return yield* Effect.fail(new VmProviderOperationError({ provider: vm.provider, operation: `getStatus(${providerVmId})`, cause: new Error("idle pause read-back failed") }));

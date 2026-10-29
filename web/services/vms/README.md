@@ -614,6 +614,10 @@ a machine whose agent is mid-turn and quiet). The server pauses idle machines in
 - Freestyle's own timer stays off as well, not as a backstop: it would pause a quiet build that
   our probe sees on CPU, and a finite `idleTimeoutSeconds` makes the health sweep skip the
   machine (`skipped_idle`).
+- A shell builtin that waits with no child process and no CPU, such as `read -t 3600` or a
+  `wait` with nothing to wait on, typed into an interactive shell, reads as a shell at its
+  prompt and can be paused after the timeout. On new images the typing itself is input the
+  daemon reports, so the timeout starts after it; opening the machine resumes it.
 - Quiet background work can be paused. A job with no terminal, under 0.05 cores and with no
   inbound connection reads as idle, whatever it is doing: a `nohup` bot holding a websocket open,
   a long `curl` download, or `claude -p` started through exec outside acpmux. The escape is to
@@ -655,6 +659,13 @@ a machine whose agent is mid-turn and quiet). The server pauses idle machines in
   read-back cannot tell, the claim stays in the row, and the next run reads the provider again
   and settles it: running clears the claim, paused records the idle pause (or undoes it if the
   fence moved), and unreadable waits another run.
+- Only a write that settles the claim removes it: a stated pause, the cron's own fenced write
+  or a destroy. The status reconciler's write keeps it, and the cron also picks up any live row
+  that still holds a claim, even one the reconciler already marked paused. A compensating
+  resume that loses its own claim gives up only to a person's later pause, a delete or a
+  replace; after any other write (Off, activity, the reconciler) it keeps the claim and the
+  next run tries again. A person's Pause on a row already marked paused still records their
+  decision.
 - Every pause, resume or other status write drops the stored idle observation, so a resumed
   machine starts a new stretch and gets the whole timeout again.
 - The timeout is per machine (`PUT /api/vm/:id/idle-pause`; `idlePauseMinutes` in the list and

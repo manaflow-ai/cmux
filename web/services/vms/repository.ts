@@ -1436,14 +1436,19 @@ function idleEpochIs(epoch: number): SQL {
 
 /**
  * The metadata a provider-observed status write leaves. Every write drops the
- * idle observation and any unsettled idle pause claim, and moves the idle
- * fence, so a paused, resumed or destroyed machine starts a new idle stretch
- * and an in-flight probe's write loses. A paused write with a reason records
- * it and stamps the fence it sets (a decision); a paused write without one
- * (the status reconciler) keeps what is stored; any other status clears both.
+ * idle observation and moves the idle fence, so a paused, resumed or destroyed
+ * machine starts a new idle stretch and an in-flight probe's write loses. An
+ * unsettled idle pause claim is dropped only by a write that settles it: a
+ * stated pause, the cron's own fenced write, or a destroy. The status
+ * reconciler's write keeps it, so the cron still resolves a pause whose answer
+ * it lost. A paused write with a reason records it and stamps the fence it
+ * sets (a decision); a paused write without one (the status reconciler) keeps
+ * what is stored; any other status clears both.
  */
 function observedStatusMetadata(input: Parameters<VmRepositoryShape["markProviderObservedStatus"]>[0]): SQL {
-  const base = sql`(coalesce(${cloudVms.providerMetadata}, '{}'::jsonb) - ${VM_IDLE_OBSERVATION_KEY}::text - ${VM_IDLE_PAUSE_CLAIM_KEY}::text)`;
+  const settlesClaim = input.pauseReason !== undefined || input.expectIdleEpoch !== undefined || input.status === "destroyed";
+  const withoutObservation = sql`(coalesce(${cloudVms.providerMetadata}, '{}'::jsonb) - ${VM_IDLE_OBSERVATION_KEY}::text)`;
+  const base = settlesClaim ? sql`(${withoutObservation} - ${VM_IDLE_PAUSE_CLAIM_KEY}::text)` : withoutObservation;
   const cleared = sql`(${base} - ${VM_PAUSE_REASON_KEY}::text - ${VM_PAUSE_INTENT_EPOCH_KEY}::text)`;
   if (input.cleanup && input.status === "destroyed") {
     return bumpIdleEpoch(sql`(${cleared}
@@ -2136,9 +2141,22 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
     dbEffect("idlePauseCandidates", async () => await cloudDb()
       .select()
       .from(cloudVms)
-      .where(and(eq(cloudVms.status, "running"), eq(cloudVms.provider, "freestyle"), isNotNull(cloudVms.providerVmId)))
-      // Least recently checked first (never checked reads as 0), so a capped run rotates through the fleet.
-      .orderBy(asc(metadataMillis(VM_IDLE_PROBED_AT_KEY)), asc(cloudVms.id))
+      .where(and(
+        eq(cloudVms.provider, "freestyle"),
+        isNotNull(cloudVms.providerVmId),
+        // Running machines, and any live row still holding an unresolved idle pause claim,
+        // which the status reconciler may already have marked paused.
+        or(
+          eq(cloudVms.status, "running"),
+          and(ne(cloudVms.status, "destroyed"), sql`(${cloudVms.providerMetadata} -> ${VM_IDLE_PAUSE_CLAIM_KEY}::text) is not null`),
+        ),
+      ))
+      // Unresolved claims first; then least recently checked (never checked reads as 0), so a capped run rotates.
+      .orderBy(
+        sql`(${cloudVms.providerMetadata} -> ${VM_IDLE_PAUSE_CLAIM_KEY}::text) is null`,
+        asc(metadataMillis(VM_IDLE_PROBED_AT_KEY)),
+        asc(cloudVms.id),
+      )
       .limit(input.limit)),
   recordVmApiActivity: (input) =>
     dbEffect("recordVmApiActivity", async () => {
