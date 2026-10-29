@@ -509,11 +509,12 @@ pub(crate) fn public_terminal_snapshot(
     // What that fact was decided from: the last foreground check after the
     // last prompt mark (a test or a client reads the decision, not a timing).
     if running
-        && let Some((own, leader)) = surface.and_then(crate::Surface::terminal_foreground_check)
+        && let Some((own, leader, input_read)) =
+            surface.and_then(crate::Surface::terminal_foreground_check)
     {
         extra.insert(
             "foreground_check".into(),
-            crate::terminal_activity::foreground_check_json(own, leader),
+            crate::terminal_activity::foreground_check_json(own, leader, input_read),
         );
     }
     if running && let Some(at) = surface.and_then(crate::Surface::terminal_last_output) {

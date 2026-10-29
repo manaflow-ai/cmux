@@ -44,7 +44,12 @@
 //! children list is per thread), and (2) no input was written to the terminal
 //! since the last `A`, and none may wait unread for the line editor: an `A`
 //! parsed after a line was typed ahead answers the line before it (the prompt
-//! count, `owed_prompts`), and a partial line stays in the editor. Anything unknown
+//! count, `owed_prompts`), and a partial line stays in the editor. A Return no
+//! prompt answers (a `read`, a password, a continuation line) stays owed until
+//! a check reads from the kernel that the shell sleeps in its line editor's raw
+//! read with nothing queued (`input_read`; a terminal host's master is not the
+//! daemon's to ask, so there it stays owed until the next restore: the close
+//! asks). Anything unknown
 //! counts as not idle: no check yet, a check that failed, a terminal whose
 //! spawned program is not an interactive shell (`cmux run ssh host`), input
 //! the daemon did not see (a terminal adopted from another daemon: from the
@@ -156,10 +161,13 @@ pub(crate) struct ShellActivity {
     input_after_prompt: bool,
     /// Lines submitted at the shell's prompt (a Return or Ctrl-C written while
     /// no command runs) whose prompt has not come yet: an `A` answers one of
-    /// them. More than one owed at an `A` means a line was typed ahead and
-    /// waits unread for the line editor, so that prompt is not idle. A shell
-    /// that prints more than one `A` per line only makes this less strict
-    /// than the line count, never stricter than the old rule.
+    /// them. Any still owed at an `A` may be a line typed ahead that waits
+    /// unread for the line editor, so that prompt is not idle. A Return no
+    /// prompt answers (a `read`, a password, a continuation line, fish's
+    /// Ctrl-C) leaves one owed: a check whose kernel read says every byte was
+    /// read (`input_read`) pays them all. A shell that prints more than one
+    /// `A` per line only makes the count less strict, and the kernel read
+    /// still decides.
     owed_prompts: u32,
     /// The shell printed its first prompt: the first `A` answers the spawn,
     /// not a line, so input typed before it stays owed.
@@ -182,6 +190,15 @@ pub(crate) struct ShellActivity {
     /// in the record, so a client and a test read what the daemon decided
     /// from, not only whether `shell_idle` is there).
     foreground_leader: Option<u32>,
+    /// What that check read from the kernel about the input: `Some(true)`
+    /// when the shell slept in its line editor's raw read with nothing queued
+    /// for it (every byte written was read, the line editor read the last of
+    /// it); `Some(false)` when not; `None` when the daemon cannot ask (a
+    /// terminal host holds the master).
+    input_read: Option<bool>,
+    /// An idle fact went out in a record (any record build reads it, not only
+    /// the publication that marks it published), so its end must go out too.
+    idle_exposed: bool,
     /// Counts marks and inputs, so a foreground check that raced one of them
     /// is dropped ([`Self::record_foreground`]).
     epoch: u64,
@@ -207,6 +224,7 @@ impl ShellActivity {
         // terminal itself.
         self.shell_foreground = None;
         self.foreground_leader = None;
+        self.input_read = None;
         self.epoch = self.epoch.wrapping_add(1);
         match mark {
             ShellMark::CommandStart => {
@@ -229,9 +247,10 @@ impl ShellActivity {
                     self.prompted = true;
                 }
                 // Input written before this `A` was parsed but after the
-                // shell printed it waits unread for the line editor: a line
-                // typed ahead (still owed) or a partial one.
-                self.input_after_prompt = self.owed_prompts > 0 || self.unsubmitted;
+                // shell printed it may wait unread for the line editor: a
+                // partial line blocks the check; a line still owed only blocks
+                // idle (`owed_prompts`), and the check may pay it.
+                self.input_after_prompt = self.unsubmitted;
                 true
             }
             ShellMark::InputStart => false,
@@ -239,16 +258,15 @@ impl ShellActivity {
     }
 
     /// A command ended (`D`, or an `A` with no `D`): a Return typed while it
-    /// ran is a line typed ahead for the shell, unless the command took the
-    /// terminal for interaction (an editor, a REPL, ssh: `interactive`), which
-    /// read its own keys.
+    /// ran may be a line typed ahead for the shell, and a partial line may
+    /// wait for its line editor. The daemon cannot tell keys the command read
+    /// (an editor, a REPL) from keys typed after it quit, so both count until
+    /// a check's kernel read says every byte was read (`owed_prompts`).
     fn settle_command_input(&mut self) {
         if self.busy_since_ms.is_none() {
             return;
         }
-        if self.interactive {
-            self.unsubmitted = false;
-        } else if self.typed_while_running {
+        if self.typed_while_running {
             self.owed_prompts = self.owed_prompts.saturating_add(1);
         }
         self.typed_while_running = false;
@@ -351,26 +369,29 @@ impl ShellActivity {
     /// when an idle fact may have been published ([`Self::retract_idle`]), so
     /// the caller asks for a publication.
     pub(crate) fn note_input(&mut self, bytes: &[u8]) -> bool {
-        let was_idle = self.idle_since();
         self.epoch = self.epoch.wrapping_add(1);
         self.input_after_prompt = true;
         self.note_input_lines(bytes);
         // The last check was of the shell before this input: it says nothing now.
         self.shell_foreground = None;
         self.foreground_leader = None;
-        self.retract_idle(was_idle)
+        self.input_read = None;
+        self.idle_went_out()
     }
 
-    /// After a note that ended idle: true when an idle fact may have left in
-    /// a record, so a publication must say it ended. Any record build reads
-    /// the idle fact from memory (a cwd upsert, a progress upsert), not only
-    /// the one that marks it published; an idle fact that was true before the
-    /// note counts as published, so the next `take_change` sends its end.
-    fn retract_idle(&mut self, was_idle: Option<u64>) -> bool {
-        if self.published.3.is_none() {
-            self.published.3 = was_idle;
-        }
-        self.published.3.is_some()
+    /// Whether an idle fact left in a record (published, or read by any record
+    /// build: [`Self::expose_idle`]), so a publication must say it ended.
+    fn idle_went_out(&self) -> bool {
+        self.published.3.is_some() || self.idle_exposed
+    }
+
+    /// [`Self::idle_since`] for a record build: the fact it reads may leave in
+    /// that record (a cwd or progress upsert, a read), so its end is published
+    /// whenever it ends ([`Self::take_change`]).
+    pub(crate) fn expose_idle(&mut self) -> Option<u64> {
+        let idle = self.idle_since();
+        self.idle_exposed |= idle.is_some();
+        idle
     }
 
     /// Notes output a restarted daemon replays from the holder's ring: its
@@ -388,10 +409,9 @@ impl ShellActivity {
     /// when the published facts still say idle, so the caller asks for a
     /// publication.
     pub(crate) fn note_unseen_input(&mut self) -> bool {
-        let was_idle = self.idle_since();
         self.epoch = self.epoch.wrapping_add(1);
         self.unseen_input = true;
-        self.retract_idle(was_idle)
+        self.idle_went_out()
     }
 
     /// The epoch to hand [`Self::record_foreground`] when the shell sits at a
@@ -428,6 +448,7 @@ impl ShellActivity {
     pub(crate) fn forget_foreground_check(&mut self) {
         self.shell_foreground = None;
         self.foreground_leader = None;
+        self.input_read = None;
         self.epoch = self.epoch.wrapping_add(1);
     }
 
@@ -439,27 +460,48 @@ impl ShellActivity {
         holds: bool,
         leader: Option<u32>,
     ) {
+        self.record_foreground_check(epoch, holds, leader, None);
+    }
+
+    /// [`Self::record_foreground_leader`] with the check's kernel read of the
+    /// input (`input_read`). When the shell held the foreground and the kernel
+    /// says every byte was read by its line editor, nothing typed is still
+    /// owed a prompt: the count is paid.
+    pub(crate) fn record_foreground_check(
+        &mut self,
+        epoch: u64,
+        holds: bool,
+        leader: Option<u32>,
+        input_read: Option<bool>,
+    ) {
         if epoch == self.epoch {
             self.shell_foreground = Some(holds);
             self.foreground_leader = leader;
+            self.input_read = input_read;
+            if holds && input_read == Some(true) {
+                self.owed_prompts = 0;
+            }
         }
     }
 
     /// The last foreground check after the last mark: whether the terminal's
     /// own shell held the foreground (and no other process shares its group),
     /// and the leader it saw. `None` until checked.
-    pub(crate) fn foreground_check(&self) -> Option<(bool, Option<u32>)> {
-        self.shell_foreground.map(|own| (own, self.foreground_leader))
+    pub(crate) fn foreground_check(&self) -> Option<(bool, Option<u32>, Option<bool>)> {
+        self.shell_foreground.map(|own| (own, self.foreground_leader, self.input_read))
     }
 
     /// Since when the terminal's own shell sits idle at its prompt (the
     /// prompt's `A` time): at a prompt, its foreground checked as the
-    /// shell's after the last mark, no input since the `A`.
+    /// shell's after the last mark, no input since the `A`, no line owed a
+    /// prompt, and the kernel did not say input waits (`input_read`).
     pub(crate) fn idle_since(&self) -> Option<u64> {
         if self.busy_since_ms.is_some()
             || self.input_after_prompt
             || self.unseen_input
+            || self.owed_prompts > 0
             || self.shell_foreground != Some(true)
+            || self.input_read == Some(false)
         {
             return None;
         }
@@ -504,6 +546,7 @@ impl ShellActivity {
         self.typed_while_running = false;
         self.unsubmitted = false;
         self.in_paste = false;
+        self.input_read = None;
         self.shell_foreground = None;
         self.foreground_leader = None;
         self.epoch = self.epoch.wrapping_add(1);
@@ -523,6 +566,7 @@ impl ShellActivity {
         self.unsubmitted = previous.unsubmitted;
         self.in_paste = previous.in_paste;
         self.unseen_input = previous.unseen_input;
+        self.idle_exposed = previous.idle_exposed;
     }
 
     /// The published facts: command, prompt and idle shell.
@@ -534,10 +578,15 @@ impl ShellActivity {
     /// output moved a whole interval past the one published, since the last
     /// call (marks it taken).
     pub(crate) fn take_change(&mut self) -> bool {
-        let changed = self.facts() != self.published || self.output_moved();
+        let facts = self.facts();
+        // An idle fact a record build read went out even if this never marked
+        // it published: its end goes out as a change.
+        let retracted = self.idle_exposed && facts.3.is_none();
+        let changed = facts != self.published || self.output_moved() || retracted;
         if changed {
-            self.published = self.facts();
+            self.published = facts;
             self.published_output_ms = self.last_output_ms;
+            self.idle_exposed = facts.3.is_some();
         }
         changed
     }
@@ -547,6 +596,7 @@ impl ShellActivity {
     pub(crate) fn has_change(&self) -> bool {
         self.facts() != self.published
             || self.output_moved()
+            || (self.idle_exposed && self.idle_since().is_none())
             || self.foreground_check_due().is_some()
     }
 
@@ -633,8 +683,12 @@ pub(crate) fn shell_idle_json(since_ms: u64) -> Value {
 /// The `foreground_check` field of a terminal record: the daemon's last
 /// foreground check behind `shell_idle` (`own`; `leader`, null when the lookup
 /// failed).
-pub(crate) fn foreground_check_json(own: bool, leader: Option<u32>) -> Value {
-    json!({"own": own, "leader": leader})
+pub(crate) fn foreground_check_json(
+    own: bool,
+    leader: Option<u32>,
+    input_read: Option<bool>,
+) -> Value {
+    json!({"own": own, "leader": leader, "input_read": input_read})
 }
 
 /// The `last_output` field of a terminal record.
@@ -762,11 +816,19 @@ mod tests {
         assert_eq!(activity.idle_since(), None);
     }
 
-    /// The shell's next prompt after `bytes` were typed at an idle prompt and
-    /// `prompts` prompt marks came: whether that prompt asks for its check.
-    fn checked_after(mut activity: ShellActivity, prompts: &[u64]) -> ShellActivity {
+    /// `prompts` prompt marks, then the check each asks for, with the shell
+    /// holding the foreground and `input_read` the kernel's word on its
+    /// input (`None`: a terminal host, no word).
+    fn checked_after(
+        mut activity: ShellActivity,
+        prompts: &[u64],
+        input_read: Option<bool>,
+    ) -> ShellActivity {
         for at in prompts {
             activity.observe(ShellMark::PromptStart, *at);
+            if let Some(epoch) = activity.foreground_check_due() {
+                activity.record_foreground_check(epoch, true, None, input_read);
+            }
         }
         activity
     }
@@ -779,11 +841,12 @@ mod tests {
         let mut activity = idle_at(1_000);
         activity.note_input(b"true\r");
         activity.note_input(b"sleep 600\r");
-        let activity = checked_after(activity, &[2_000]);
-        assert_eq!(activity.foreground_check_due(), None, "sleep 600 is still unread");
-        assert_eq!(activity.idle_since(), None);
-        let activity = checked_after(activity, &[3_000]);
-        assert!(activity.foreground_check_due().is_some(), "both lines answered");
+        let activity = checked_after(activity, &[2_000], None);
+        assert_eq!(activity.idle_since(), None, "sleep 600 is still unread");
+        let queued = checked_after(activity, &[2_500], Some(false));
+        assert_eq!(queued.idle_since(), None, "the kernel says input waits");
+        let activity = checked_after(activity, &[3_000], None);
+        assert_eq!(activity.idle_since(), Some(2_000), "both lines answered");
     }
 
     /// One write with two lines (a paste without bracketed paste, `send`).
@@ -791,17 +854,16 @@ mod tests {
     fn shell_idle_two_lines_in_one_write_owe_two_prompts() {
         let mut activity = idle_at(1_000);
         activity.note_input(b"true\rsleep 600\r");
-        assert_eq!(checked_after(activity, &[2_000]).foreground_check_due(), None);
+        assert_eq!(checked_after(activity, &[2_000], None).idle_since(), None);
     }
 
     #[test]
     fn shell_idle_a_line_typed_before_the_first_prompt_is_owed() {
         let mut activity = ShellActivity::default();
         activity.note_input(b"sleep 600\r");
-        let activity = checked_after(activity, &[1_000]);
-        assert_eq!(activity.foreground_check_due(), None, "the first prompt answers the spawn");
-        let activity = checked_after(activity, &[2_000]);
-        assert!(activity.foreground_check_due().is_some());
+        let activity = checked_after(activity, &[1_000], None);
+        assert_eq!(activity.idle_since(), None, "the first prompt answers the spawn");
+        assert!(checked_after(activity, &[2_000], None).idle_since().is_some());
     }
 
     #[test]
@@ -811,21 +873,38 @@ mod tests {
         activity.observe(ShellMark::CommandStart, 1_100);
         activity.note_input(b"sleep 600\r");
         activity.observe(ShellMark::CommandEnd { exit_code: None }, 1_200);
-        let activity = checked_after(activity, &[1_300]);
-        assert_eq!(activity.foreground_check_due(), None, "sleep 600 waits for the shell");
-        assert!(checked_after(activity, &[1_400]).foreground_check_due().is_some());
+        let activity = checked_after(activity, &[1_300], None);
+        assert_eq!(activity.idle_since(), None, "sleep 600 waits for the shell");
+        assert!(checked_after(activity, &[1_400], None).idle_since().is_some());
     }
 
+    /// Review 4, should-fix 2: the daemon cannot tell keys an interactive
+    /// command read from keys typed after it quit (`:q` then `sleep 600`), so
+    /// both count; the kernel read pays them when the line editor read all.
     #[test]
-    fn shell_idle_keys_an_interactive_command_read_are_not_typed_ahead() {
+    fn shell_idle_keys_typed_into_an_interactive_command_count_until_the_kernel_says_read() {
         let mut activity = idle_at(1_000);
         activity.note_input(b"vim\r");
         activity.observe(ShellMark::CommandStart, 1_100);
         activity.note_modes(TerminalModes { exclusive: true, line: false });
         activity.note_input(b"ihello\x1b:wq\r");
         activity.observe(ShellMark::CommandEnd { exit_code: None }, 1_200);
-        let activity = checked_after(activity, &[1_300]);
-        assert!(activity.foreground_check_due().is_some(), "vim read its own keys");
+        let activity = checked_after(activity, &[1_300], None);
+        assert_eq!(activity.idle_since(), None, "maybe typed after vim quit");
+        assert!(checked_after(activity, &[1_400], Some(true)).idle_since().is_some());
+    }
+
+    #[test]
+    fn shell_idle_a_partial_line_typed_as_an_interactive_command_quits_blocks_the_check() {
+        let mut activity = idle_at(1_000);
+        activity.note_input(b"vim\r");
+        activity.observe(ShellMark::CommandStart, 1_100);
+        activity.note_modes(TerminalModes { exclusive: true, line: false });
+        activity.note_input(b":q\rsleep 600");
+        activity.observe(ShellMark::CommandEnd { exit_code: None }, 1_200);
+        let activity = checked_after(activity, &[1_300], Some(true));
+        assert_eq!(activity.foreground_check_due(), None, "`sleep 600` may wait in the editor");
+        assert_eq!(activity.idle_since(), None);
     }
 
     #[test]
@@ -836,8 +915,8 @@ mod tests {
         activity.note_input(b"sleep 600\r");
         activity.note_input(b"\x03");
         activity.observe(ShellMark::CommandEnd { exit_code: None }, 1_200);
-        let activity = checked_after(activity, &[1_300]);
-        assert!(activity.foreground_check_due().is_some(), "the interrupt flushed the input");
+        let activity = checked_after(activity, &[1_300], None);
+        assert!(activity.idle_since().is_some(), "the interrupt flushed the input");
     }
 
     /// The stopped-job integration test's shell has no `C`: Ctrl-Z is no line.
@@ -846,15 +925,15 @@ mod tests {
         let mut activity = idle_at(1_000);
         activity.note_input(b"sleep 600\r");
         activity.note_input(b"\x1a");
-        assert!(checked_after(activity, &[2_000]).foreground_check_due().is_some());
+        assert!(checked_after(activity, &[2_000], None).idle_since().is_some());
     }
 
     #[test]
     fn shell_idle_a_partial_line_keeps_the_prompt_not_idle() {
         let mut activity = idle_at(1_000);
         activity.note_input(b"ls\rech");
-        let activity = checked_after(activity, &[2_000]);
-        assert_eq!(activity.foreground_check_due(), None, "`ech` waits in the line editor");
+        let activity = checked_after(activity, &[2_000], Some(true));
+        assert_eq!(activity.idle_since(), None, "`ech` waits in the line editor");
     }
 
     #[test]
@@ -862,21 +941,81 @@ mod tests {
         let mut activity = idle_at(1_000);
         activity.note_input(b"\x1b[200~echo a\necho b\n\x1b[201~");
         activity.note_input(b"\r");
-        let activity = checked_after(activity, &[2_000]);
-        assert!(activity.foreground_check_due().is_some(), "one Return, one prompt");
+        let activity = checked_after(activity, &[2_000], None);
+        assert!(activity.idle_since().is_some(), "one Return, one prompt");
+    }
+
+    /// Review 4, should-fix 1: a Return no prompt answers (`read`, a
+    /// password, a continuation line, fish's Ctrl-C) stays owed; a check whose
+    /// kernel read says the line editor read every byte pays it.
+    #[test]
+    fn shell_idle_a_check_that_saw_every_byte_read_pays_the_owed_prompts() {
+        let mut activity = idle_at(1_000);
+        activity.note_input(b"read x\r");
+        activity.note_input(b"hello\r");
+        let stuck = checked_after(activity, &[2_000], None);
+        assert_eq!(stuck.idle_since(), None, "no kernel word: still owed");
+        let unread = checked_after(activity, &[2_000], Some(false));
+        assert_eq!(unread.idle_since(), None, "the kernel says input waits");
+        let read = checked_after(activity, &[2_000], Some(true));
+        assert_eq!(read.idle_since(), Some(2_000), "every byte was read");
+        assert_eq!(read.foreground_check(), Some((true, None, Some(true))));
+    }
+
+    /// A check that says another program holds the foreground pays nothing,
+    /// whatever the kernel says about the input.
+    #[test]
+    fn shell_idle_only_the_shells_own_check_pays_the_owed_prompts() {
+        let mut activity = idle_at(1_000);
+        activity.note_input(b"read x\r");
+        activity.note_input(b"hello\r");
+        activity.observe(ShellMark::PromptStart, 2_000);
+        let epoch = activity.foreground_check_due().unwrap();
+        activity.record_foreground_check(epoch, false, Some(7), Some(true));
+        assert_eq!(activity.idle_since(), None);
+        activity.observe(ShellMark::InputStart, 2_001);
+        let epoch = activity.foreground_check_due().unwrap();
+        activity.record_foreground_check(epoch, true, None, None);
+        assert_eq!(activity.idle_since(), None, "still owed");
     }
 
     /// Review 3, finding 3: a record built before any `take_change` (a cwd
     /// upsert) can carry the idle fact; input after it still sends its end.
     #[test]
-    fn shell_idle_input_retracts_an_idle_fact_no_take_change_marked() {
+    fn shell_idle_input_retracts_an_idle_fact_a_record_carried() {
         let mut activity = idle_at(1_000);
-        assert!(activity.idle_since().is_some(), "a record built now says idle");
+        assert!(activity.expose_idle().is_some(), "a record built now says idle");
         assert!(activity.note_input(b"x"), "the input asks for a publication");
         assert!(activity.take_change(), "the publication sends the end of idle");
         let mut activity = idle_at(1_000);
+        activity.expose_idle();
         assert!(activity.note_unseen_input());
         assert!(activity.take_change());
+        let mut quiet = idle_at(1_000);
+        assert!(!quiet.note_input(b"x"), "no record carried idle: nothing to retract");
+    }
+
+    /// Review 4, should-fix 3: a mark that ends idle between a record that
+    /// carried it (the cwd upsert) and the pass's `take_change`, when no
+    /// `take_change` had marked that idle fact published.
+    #[test]
+    fn shell_idle_a_mark_after_a_record_carried_idle_publishes_its_end() {
+        let mut activity = ShellActivity::default();
+        activity.observe(ShellMark::PromptStart, 1_000);
+        let epoch = activity.foreground_check_due().unwrap();
+        activity.record_foreground(epoch, false);
+        assert!(activity.take_change(), "the prompt goes out, not idle");
+        activity.observe(ShellMark::InputStart, 1_001);
+        let epoch = activity.foreground_check_due().unwrap();
+        activity.record_foreground(epoch, true);
+        assert!(activity.expose_idle().is_some(), "the cwd upsert carried idle");
+        activity.observe(ShellMark::InputStart, 1_002);
+        assert_eq!(activity.idle_since(), None, "a redraw's mark ends it");
+        assert!(activity.has_change(), "a publication is due");
+        let epoch = activity.foreground_check_due().unwrap();
+        activity.record_foreground(epoch, false);
+        assert!(activity.take_change(), "its end goes out");
+        assert!(!activity.take_change(), "once");
     }
 
     /// Review 2, finding 6: a reconnect without host state checks again.

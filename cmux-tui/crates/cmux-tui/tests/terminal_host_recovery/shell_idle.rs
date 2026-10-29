@@ -350,3 +350,101 @@ fn shell_idle_a_stopped_job_is_not_idle() {
     wait_for_foreign_foreground(&harness, "a stopped job");
     assert_not_idle(&harness, Duration::from_millis(500), "a stopped job");
 }
+
+/// A `session.events` subscription on `socket`; its lines arrive on the
+/// receiver. The returned writer keeps the connection open.
+fn session_events(socket: &Path) -> (impl Sized + use<>, mpsc::Receiver<String>) {
+    let stream = transport::connect(socket).unwrap();
+    let mut writer = stream.try_clone_box().unwrap();
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        for line in BufReader::new(stream).lines() {
+            let Ok(line) = line else { break };
+            if tx.send(line).is_err() {
+                break;
+            }
+        }
+    });
+    let request = serde_json::json!({
+        "protocol": "cmux.protocol/2", "type": "request", "id": "shell-idle-events",
+        "operation": "session.events",
+        "params": {"machine": "current", "session": "current",
+            "stream_id": "stream_55555555555555558555555555555555"},
+    });
+    writeln!(writer, "{request}").unwrap();
+    writer.flush().unwrap();
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
+    loop {
+        let remaining =
+            deadline.checked_duration_since(Instant::now()).expect("no session.events reply");
+        let line = rx.recv_timeout(remaining).expect("no session.events reply");
+        let message: serde_json::Value = serde_json::from_str(&line).unwrap();
+        if message["id"] == "shell-idle-events" {
+            assert_eq!(message["ok"], true, "session.events failed: {message}");
+            return (writer, rx);
+        }
+    }
+}
+
+/// The terminal upserts of the delta items that arrive on `rx` within `wait`.
+fn terminal_upserts(rx: &mpsc::Receiver<String>, wait: Duration) -> Vec<serde_json::Value> {
+    let deadline = Instant::now() + wait;
+    let mut upserts = Vec::new();
+    while let Some(remaining) = deadline.checked_duration_since(Instant::now()) {
+        let Ok(line) = rx.recv_timeout(remaining) else { break };
+        let message: serde_json::Value = serde_json::from_str(&line).unwrap();
+        if message["type"] != "stream_item" || message["item"]["kind"] != "delta" {
+            continue;
+        }
+        for change in message["item"]["changes"].as_array().cloned().unwrap_or_default() {
+            if change["kind"] == "upsert" && change["resource"] == "terminal" {
+                upserts.push(change["value"].clone());
+            }
+        }
+    }
+    upserts
+}
+
+/// Review 4, should-fix 4 (review 2, finding 4): a publication runs the
+/// foreground check before any part of it builds the terminal record. A trap
+/// starts a background job and reports a new directory (OSC 7) with no prompt
+/// mark, no input and no other output: the directory upsert that follows is
+/// built after the check, so it must not carry the old idle fact. Built
+/// before the check, it would (the job is the shell's child: not idle).
+#[test]
+fn shell_idle_a_directory_report_after_a_silent_job_does_not_carry_idle() {
+    let _exclusive = exclusive_process_test();
+    let target =
+        std::env::temp_dir().join(format!("shell-idle-trap-{}-{}", std::process::id(), line!()));
+    fs::create_dir_all(&target).unwrap();
+    let rc = format!(
+        "trap 'sleep 600 & printf \"\\033]7;file://localhost{}\\007\"' USR1\n",
+        target.display()
+    );
+    let Some((harness, surface)) = start_bash_with("shell-idle-trap", &rc) else {
+        let _ = fs::remove_dir_all(&target);
+        return;
+    };
+    let (_events, rx) = session_events(&harness.socket);
+    // The subscription's first items are the session as it is: idle.
+    terminal_upserts(&rx, Duration::from_millis(300));
+    let shell = i32::try_from(shell_pid(&harness, surface)).unwrap();
+    // SAFETY: SIGUSR1 to the shell this test's daemon started for it; its trap
+    // handles the signal.
+    assert_eq!(unsafe { libc::kill(shell, libc::SIGUSR1) }, 0);
+    let name = target.file_name().unwrap().to_string_lossy().into_owned();
+    let upserts = terminal_upserts(&rx, test_timeout(Duration::from_secs(5)));
+    let moved = upserts
+        .iter()
+        .position(|value| value["cwd"].as_str().is_some_and(|cwd| cwd.contains(&name)))
+        .unwrap_or_else(|| panic!("no upsert reported the trap's directory: {upserts:?}"));
+    for value in &upserts[moved..] {
+        assert!(
+            value["extra"].get("shell_idle").is_none(),
+            "an upsert after the trap carried the old idle fact: {value}"
+        );
+    }
+    let leader = wait_for_foreign_foreground(&harness, "a job a trap started");
+    assert_eq!(leader, Some(shell_pid(&harness, surface)), "the shell leads; its child runs");
+    let _ = fs::remove_dir_all(&target);
+}

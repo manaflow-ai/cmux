@@ -124,16 +124,23 @@ fn normalize_long_windows_reserved_device_paths_preserve_component_semantics() {
 
 /// Review 3 of cp/daemon-foreground-state (blocker): a threaded shell forks
 /// from any thread, and the no-child test reads the main thread's children
-/// only, so a shell with more than one thread is unknown (never idle).
+/// only, so a shell with more than one thread is unknown (never idle). The
+/// state field says whether it sleeps in a read (follow-up, review 4 item 1).
 #[test]
 fn shell_idle_a_shell_with_more_than_one_thread_has_no_exec_name() {
     // pid (comm) state ppid pgrp session tty_nr tpgid flags minflt cminflt
     // majflt cmajflt utime stime cutime cstime priority nice num_threads ...
     let one = "4242 (bash) S 1 4242 4242 34816 4242 4194560 0 0 0 0 0 0 0 0 20 0 1 0 100 0";
-    assert_eq!(single_thread_name(one).as_deref(), Some("bash"));
+    assert_eq!(single_thread_name(one), Some(("bash".to_string(), true)));
+    let running = "4242 (bash) R 1 4242 4242 34816 4242 4194560 0 0 0 0 0 0 0 0 20 0 1 0 100 0";
+    assert_eq!(single_thread_name(running), Some(("bash".to_string(), false)), "on a CPU");
     let four = "4242 (nu) S 1 4242 4242 34816 4242 4194560 0 0 0 0 0 0 0 0 20 0 4 0 100 0";
     assert_eq!(single_thread_name(four), None, "a threaded shell");
     let odd = "4242 (a) b (c) S 1 4242 4242 34816 4242 4194560 0 0 0 0 0 0 0 0 20 0 1 0 100 0";
-    assert_eq!(single_thread_name(odd).as_deref(), Some("a) b (c"), "the name ends at the last )");
+    assert_eq!(
+        single_thread_name(odd),
+        Some(("a) b (c".to_string(), true)),
+        "the name ends at the last )"
+    );
     assert_eq!(single_thread_name("4242 (bash) S 1"), None, "a short line is unknown");
 }

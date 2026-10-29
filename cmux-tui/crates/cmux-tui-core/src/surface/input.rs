@@ -79,6 +79,10 @@ fn note_shell_input(pty: &PtySurface, bytes: &[u8]) -> bool {
 /// [`note_shell_input`] for a paste: the writer wraps it in bracketed paste
 /// marks when the program turned that mode on (2004), so its line breaks are
 /// text for the line editor, not Returns; the note reads it wrapped the same way.
+/// It reads the daemon's copy of mode 2004; a terminal host wraps a hosted paste
+/// from its own copy. When they differ, the note reads the paste as a partial
+/// line (wrapped) or as more lines (not wrapped): either keeps the shell not
+/// idle, never idle sooner.
 fn note_shell_paste(pty: &PtySurface, bytes: &[u8]) -> bool {
     if bytes.is_empty() {
         return false;

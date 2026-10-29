@@ -38,6 +38,7 @@ pub use portable_pty::{Child, ChildKiller, ExitStatus, MasterPty, PtySize};
 #[cfg(any(windows, test))]
 mod console_ctrl_c;
 pub mod input_queue;
+pub mod line_reader;
 #[cfg(unix)]
 mod macos;
 #[cfg(unix)]

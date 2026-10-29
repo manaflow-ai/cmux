@@ -53,13 +53,15 @@ impl Surface {
     /// prompt's time): `extra.shell_idle` (`terminal-activity-v1`, see
     /// `terminal_activity`). Memory only: the foreground check behind it
     /// ran on the terminal's publication ([`Self::check_shell_foreground`]).
+    /// The fact read here may leave in the record being built, so its end is
+    /// published whenever it ends (`ShellActivity::expose_idle`).
     pub(crate) fn terminal_shell_idle_since(&self) -> Option<u64> {
         self.as_pty()?
             .terminal_metadata
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .activity
-            .idle_since()
+            .expose_idle()
     }
 
     /// Runs the foreground check a prompt mark asked for, or checks a
@@ -71,21 +73,59 @@ impl Surface {
     /// thread's parse; a local reader runs the publication itself only when
     /// that pool is full, as it does the registry commit beside it. A mark or
     /// input that came meanwhile drops its answer.
+    ///
+    /// When the shell holds the foreground, the check also asks the kernel
+    /// whether the shell sleeps in its line editor's raw read with nothing
+    /// queued for it and nothing left in the daemon's own input queue
+    /// ([`Self::shell_read_all_input`]): then every byte written was read and
+    /// no line still waits for a prompt (`ShellActivity::record_foreground_check`).
+    /// A line the line editor read but the shell has not started yet fails it:
+    /// the shell turns canonical mode back on, or runs, before it starts one.
     fn check_shell_foreground(&self, pty: &PtySurface) {
         let due = pty.terminal_metadata.lock().recover_poison().activity.foreground_check_epoch();
         let Some(epoch) = due else { return };
-        let holds = !self.is_dead() && own_program_holds_foreground(pty.pid, &pty.command);
+        let shell =
+            if self.is_dead() { None } else { own_shell_at_foreground(pty.pid, &pty.command) };
         let leader = foreground_leader(pty.pid);
-        pty.terminal_metadata
-            .lock()
-            .recover_poison()
-            .activity
-            .record_foreground_leader(epoch, holds, leader);
+        let input_read = shell
+            .as_ref()
+            .and_then(|asleep| Self::shell_read_all_input(pty).map(|read| read && *asleep));
+        pty.terminal_metadata.lock().recover_poison().activity.record_foreground_check(
+            epoch,
+            shell.is_some(),
+            leader,
+            input_read,
+        );
+    }
+
+    /// Whether every byte written to this terminal was read by a program that
+    /// reads raw (its shell's line editor): nothing in the daemon's own
+    /// `pty-writer` queue, `ICANON` off and nothing queued on the PTY
+    /// (`cmux_pty::line_reader`). `None` when the daemon cannot ask: a
+    /// terminal host holds the master, or the PTY cannot say. Takes the
+    /// runtime lock alone, for two PTY queries that never block.
+    #[cfg(unix)]
+    fn shell_read_all_input(pty: &PtySurface) -> Option<bool> {
+        let runtime = pty.runtime.lock().recover_poison();
+        let PtyRuntime::Local { master: Some(master), holder, .. } = &*runtime else { return None };
+        if holder
+            .as_ref()
+            .and_then(|holder| holder.input())
+            .is_some_and(|input| input.pending() > 0)
+        {
+            return Some(false);
+        }
+        cmux_pty::line_reader::reads_raw_with_nothing_queued(master.as_raw_fd()?)
+    }
+
+    #[cfg(not(unix))]
+    fn shell_read_all_input(_pty: &PtySurface) -> Option<bool> {
+        None
     }
 
     /// The daemon's last foreground check behind `shell_idle`: `extra.foreground_check`.
     /// Never on Windows, where a console has no foreground process group to check.
-    pub(crate) fn terminal_foreground_check(&self) -> Option<(bool, Option<u32>)> {
+    pub(crate) fn terminal_foreground_check(&self) -> Option<(bool, Option<u32>, Option<bool>)> {
         if cfg!(not(unix)) {
             return None;
         }
@@ -396,23 +436,25 @@ fn foreground_leader(pid: Option<u32>) -> Option<u32> {
 /// helper running (an async prompt worker) therefore never reads idle: a close
 /// asks. The children are the same one-pid listing `terminal.process.get`
 /// reports for a terminal's own process, never a process scan.
-/// False when unknown: no pid, a failed lookup (a child list that cannot be
-/// read included), and Windows, where a console has no foreground process group.
-fn own_program_holds_foreground(pid: Option<u32>, command: &[String]) -> bool {
+/// `None` when not, or unknown: no pid, a failed lookup (a child list that
+/// cannot be read included), and Windows, where a console has no foreground
+/// process group. `Some(asleep)`: whether the shell sleeps (in a read).
+fn own_shell_at_foreground(pid: Option<u32>, command: &[String]) -> Option<bool> {
     #[cfg(unix)]
     {
-        let (Some(pid), Some(spawned)) = (pid, command.first()) else { return false };
+        let (Some(pid), Some(spawned)) = (pid, command.first()) else { return None };
         if !crate::terminal_activity::spawned_shell(command) {
-            return false;
+            return None;
         }
-        let Some((shell, running)) = platform::foreground_own_shell(pid) else { return false };
-        crate::terminal_activity::same_program(&running, spawned)
-            && crate::resource_router::direct_children(shell)
-                .is_some_and(|children| children.is_empty())
+        let shell = platform::foreground_own_shell(pid)?;
+        (crate::terminal_activity::same_program(&shell.program, spawned)
+            && crate::resource_router::direct_children(shell.pid)
+                .is_some_and(|children| children.is_empty()))
+        .then_some(shell.asleep)
     }
     #[cfg(not(unix))]
     {
         let _ = (pid, command);
-        false
+        None
     }
 }
