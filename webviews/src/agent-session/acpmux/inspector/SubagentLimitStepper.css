@@ -32,7 +32,6 @@
   background: none;
   color: var(--agent-muted);
   font: inherit;
-  cursor: default;
 }
 .acpmux-subagent-limit__reset:hover {
   color: var(--agent-text);
