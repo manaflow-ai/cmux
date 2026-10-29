@@ -93,6 +93,51 @@ describe("GitHub token endpoint", { timeout: 60_000 }, () => {
     expect(await res.json()).toMatchObject({ configured: true, app_slug: "cmux-test", connection: { account: "acme", status: "active", repos: ["acme/api", "acme/web"], allow_workflows: false } })
   })
 
+  it("pins a GitHub token to the exact selected link and never changes accounts on revoke", async () => {
+    const a = await signedInWithInstall("gh-token-selected", "cli")
+    const { gh } = await linkGitHub(a.session, a.team)
+    const original = ((await read(a.session, "integration.list")).body.value.connections as Array<{ id: string; provider: string }>).find(
+      (c) => c.provider === "github",
+    )!.id
+
+    // A second active link to the same installation must never act as an implicit fallback.
+    const begin = await op(a.session, "integration.connect", { provider: "github", sharing: "team" })
+    const oauthState = new URL(begin.body.value.authorize_url).searchParams.get("state")!
+    const completed = await op(a.session, "integration.complete", {
+      state: oauthState, code: "c", installation_id: "99", setup_action: "install",
+    })
+    expect(completed.body.value.status).toBe("active")
+    const another = completed.body.value.id as string
+    expect(another).not.toBe(original)
+
+    const ask = { team: a.team, repo: "acme/web", permissions: { contents: "read" } }
+    const selected = await token(a.session, { ...ask, connection: original })
+    expect(selected.status).toBe(200)
+    expect(selected.body.connection_id).toBe(original)
+    const second = await token(a.session, { ...ask, connection: another })
+    expect(second.status).toBe(200)
+    expect(second.body.connection_id).toBe(another)
+    // Distinct connection IDs create distinct sealed cache identities even for the same installation/repo.
+    expect(second.body.token).not.toBe(selected.body.token)
+    expect(gh.mints()).toHaveLength(2)
+    const again = await token(a.session, { ...ask, connection: original })
+    expect([again.body.token, again.body.connection_id, gh.mints().length]).toEqual([selected.body.token, original, 2])
+
+    const invalid = await token(a.session, { ...ask, connection: "conn_00000000000000000000" })
+    expect([invalid.status, invalid.body.error?.code, gh.mints().length]).toEqual([404, "integration.not_found", 2])
+    const malformed = await token(a.session, { ...ask, connection: "not-a-connection" })
+    expect([malformed.status, malformed.body.error?.code, gh.mints().length]).toEqual([400, "request.invalid", 2])
+
+    expect((await op(a.session, "integration.revoke", { connection: original })).body.value.status).toBe("revoked")
+    const revoked = await token(a.session, { ...ask, connection: original })
+    expect([revoked.status, revoked.body.error?.code, gh.mints().length]).toEqual([404, "integration.not_found", 2])
+    const stillLive = await token(a.session, { ...ask, connection: another })
+    expect([stillLive.status, stillLive.body.connection_id]).toEqual([200, another])
+    // Legacy callers without a selection may still use an authorized active connection.
+    const legacy = await token(a.session, ask)
+    expect([legacy.status, legacy.body.connection_id]).toEqual([200, another])
+  })
+
   it("pins repository pagination to the selected connection and refuses a stale account list", async () => {
     const firstId = "conn_01234567890123456789"
     const secondId = "conn_98765432109876543210"
@@ -187,6 +232,37 @@ describe("GitHub token endpoint", { timeout: 60_000 }, () => {
     // A GitHub refusal (422) is policy.denied.
     gh.routes["https://api.github.com/app/installations/99/access_tokens"] = () => ok({ message: "nope" }, 422)
     expect(await t("acme/api", { checks: "write" })).toEqual([403, "policy.denied"])
+  })
+
+  it("refuses an elevated, extra, or unverifiable GitHub token grant before handing it to a caller", async () => {
+    const a = await signedInWithInstall("gh-token-grant-check", "cli")
+    const { gh } = await linkGitHub(a.session, a.team)
+    const endpoint = "https://api.github.com/app/installations/99/access_tokens"
+    const expiresAt = new Date(Date.now() + 3600_000).toISOString()
+    const ask = { team: a.team, repo: "acme/web", permissions: { contents: "read" } }
+    const invalid = [
+      { token: "synthetic_elevated", expires_at: expiresAt, permissions: { contents: "write", metadata: "read" } },
+      { token: "synthetic_extra", expires_at: expiresAt, permissions: { contents: "read", issues: "write", metadata: "read" } },
+      { token: "synthetic_missing_expiry", permissions: { contents: "read", metadata: "read" } },
+    ]
+    for (const reply of invalid) {
+      gh.routes[endpoint] = () => ok(reply, 201)
+      const result = await token(a.session, ask)
+      expect(result.status).toBeGreaterThanOrEqual(400)
+      expect(JSON.stringify(result.body)).not.toContain(reply.token)
+    }
+    // Invalid grants are refused and their provider tokens are revoked.
+    expect(gh.deletes().map((c) => c.auth).sort()).toEqual(
+      ["Bearer synthetic_elevated", "Bearer synthetic_extra", "Bearer synthetic_missing_expiry"].sort(),
+    )
+    // The invalid grants never enter a caller's live reusable token cache.
+    gh.routes[endpoint] = () => ok({
+      token: "synthetic_valid",
+      expires_at: expiresAt,
+      permissions: { contents: "read", metadata: "read" },
+    }, 201)
+    const good = await token(a.session, ask)
+    expect([good.status, good.body.token]).toEqual([200, "synthetic_valid"])
   })
 
   it("an uninstalled App answers needs_reauth and marks the connection; GitHub's rate limit answers 429 with retry_after", async () => {

@@ -22,9 +22,9 @@ import { github, installationToken, mintedToken, requestInstallationToken, revok
 const [REUSE_MARGIN_MS, MINT_RATE, REVOKE_RETRY_MAX_MS] = [15 * 60_000, { burst: 60, per_second: 1 }, 10 * 60_000]
 
 /** `machine`: a vm install's own machine (the route checked it through vmGate). */
-export type TokenAsk = { readonly repo: string; readonly permissions: Readonly<Record<string, "read" | "write">>; readonly label?: string; readonly machine?: string; readonly ttlSec?: number }
+export type TokenAsk = { readonly repo: string; readonly permissions: Readonly<Record<string, "read" | "write">>; readonly connection?: string; readonly label?: string; readonly machine?: string; readonly ttlSec?: number }
 export type TokenFail = { readonly ok: false; readonly status: number; readonly code: string; readonly message: string; readonly retry_after?: number }
-export type TokenReply = { readonly ok: true; readonly value: { token: string; expires_at: string; repo: string; permissions: Record<string, string>; token_id: string } } | TokenFail
+export type TokenReply = { readonly ok: true; readonly value: { token: string; expires_at: string; repo: string; connection_id: string; permissions: Record<string, string>; token_id: string } } | TokenFail
 
 export type RepoListReply =
   | { readonly ok: true; readonly value: { readonly repos: ReadonlyArray<{ readonly full_name: string; readonly private: boolean; readonly connection_id: string }>; readonly cursor: string | null } }
@@ -96,11 +96,18 @@ const authorize = (state: ConnectionsState, p: Principal, ask: TokenAsk): { c: C
   if (all.length === 0) return fail(404, "integration.not_found", "this team has no GitHub connection")
   const policy = policyOf(state)
   if (!providerAllowed(policy, "github")) return fail(403, "policy.denied", "the team policy does not allow GitHub")
+  // When the user selected a connection, it is the only possible authority. Never fall
+  // back to another installation for the same repo after revoke, expiry or relink.
+  const selected = ask.connection === undefined ? undefined : all.find((c) => c.id === ask.connection)
+  if (ask.connection !== undefined && selected === undefined)
+    return fail(404, "integration.not_found", "the selected GitHub connection is not available")
+  if (selected && selected.status !== "active")
+    return fail(409, "needs_reauth", "the selected GitHub connection needs to be linked again")
   const active = all.filter((c) => c.status === "active")
   if (active.length === 0) return fail(409, "needs_reauth", "the team's GitHub connection needs to be linked again")
   const owner = repo.split("/")[0]!.toLowerCase()
   // `repositories` names repositories inside the installation's own account: the owner must be that account.
-  const c = active.find((x) => x.account?.name.toLowerCase() === owner && githubRepoAllowed(x, policy, repo))
+  const c = active.find((x) => (ask.connection === undefined || x.id === ask.connection) && x.account?.name.toLowerCase() === owner && githubRepoAllowed(x, policy, repo))
   const installation = Number(/^github:installation:(\d+)$/.exec(c?.account?.key ?? "")?.[1])
   if (!c || !Number.isSafeInteger(installation)) return fail(403, "policy.denied", `the team's GitHub connection may not act on ${repo} (team policy or the linking user's access)`)
   if (ask.permissions.workflows === "write" && policy.github.allow_workflows !== true) return fail(403, "policy.denied", "workflows: write needs the team policy github.allowWorkflows")
@@ -115,7 +122,7 @@ export const githubToken = (h: LedgerHost, p: Principal, ask: TokenAsk, now: num
   const pk = principalKey(p)
   const permissions = Object.fromEntries(Object.entries(ask.permissions).sort(([a], [b]) => a.localeCompare(b)))
   // TTL is part of the cache identity: a short machine request must never reuse a longer-lived token.
-  const cacheKey = sha256hex(canonicalJson([pk, picked.installation, ask.repo.toLowerCase(), permissions, ask.ttlSec ?? null]))
+  const cacheKey = sha256hex(canonicalJson([pk, picked.c.id, picked.installation, ask.repo.toLowerCase(), permissions, ask.ttlSec ?? null]))
   // One mint at a time per cache key: concurrent asks share it (and the token).
   const running = h.inflight.get(cacheKey)
   if (running) return running
@@ -229,15 +236,34 @@ export const githubRepos = async (
 /** A row is served only while it is live and nobody revoked it (checked after each await, with no await before the answer). */
 const stillLive = (sql: SqlStorage, tokenId: string) => sql.exec(`SELECT 1 FROM github_tokens WHERE token_id = ? AND revoking = 0`, tokenId).toArray().length > 0
 
+/** GitHub includes metadata:read implicitly; every other grant must equal the requested permission. */
+const exactGithubGrant = (granted: Readonly<Record<string, string>>, requested: Readonly<Record<string, "read" | "write">>): boolean =>
+  Object.entries(requested).every(([name, access]) => granted[name] === access) &&
+  Object.entries(granted).every(([name, access]) =>
+    (name === "metadata" && access === "read" && requested.metadata === undefined) || requested[name] === access
+  )
+
 const mintOrReuse = async (h: LedgerHost, picked: { c: Connection; installation: number }, p: Principal, pk: string, cacheKey: string, ask: TokenAsk, now: number): Promise<TokenReply> => {
   const generation = h.revokes.get(pk) ?? 0
   expireRows(h.sql, now)
   const live = h.sql.exec<Row>(`SELECT * FROM github_tokens WHERE cache_key = ? AND principal = ? AND revoking = 0 AND expires_at > ? ORDER BY expires_at DESC LIMIT 1`, cacheKey, pk, now + REUSE_MARGIN_MS).toArray()[0]
   if (live) {
+    // Existing sealed rows may predate the stricter permission check. Never replay an
+    // over-scoped token: retire it through the existing revocation ledger first.
+    let saved: Record<string, string> | null = null
+    try {
+      const parsed: unknown = JSON.parse(live.permissions)
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) saved = parsed as Record<string, string>
+    } catch { /* corrupt ledger grants are unusable */ }
+    if (!saved || !exactGithubGrant(saved, ask.permissions)) {
+      h.sql.exec(`UPDATE github_tokens SET revoking = 1, retry_at = ? WHERE token_id = ?`, Date.now(), live.token_id)
+      await drainTokenRevocations(h, Date.now())
+      return fail(403, "policy.denied", "the cached GitHub token permissions no longer match the requested grant")
+    }
     const token = await openRow(h.env, live).catch(() => null)
     const again = authorize(h.state(), p, ask)
     if (token && stillLive(h.sql, live.token_id) && (h.revokes.get(pk) ?? 0) === generation && !("ok" in again) && again.c.id === picked.c.id) {
-      return { ok: true, value: { token, expires_at: new Date(Number(live.expires_at)).toISOString(), repo: ask.repo, permissions: JSON.parse(live.permissions) as Record<string, string>, token_id: live.token_id } }
+      return { ok: true, value: { token, expires_at: new Date(Number(live.expires_at)).toISOString(), repo: ask.repo, connection_id: picked.c.id, permissions: saved, token_id: live.token_id } }
     }
     if ("ok" in again) return again
   }
@@ -261,7 +287,11 @@ const mintOrReuse = async (h: LedgerHost, picked: { c: Connection; installation:
   }
   const minted = await mintedToken(res)
   if (!minted.token) return fail(503, "integration.unavailable", "GitHub returned no token")
-  if (!Number.isFinite(minted.expires_at) || minted.expires_at <= now) return fail(503, "integration.unavailable", "GitHub returned an expired token")
+  if (!Number.isFinite(minted.expires_at) || minted.expires_at <= now) {
+    // A provider response without a trustworthy expiry must never be handed out or cached.
+    await revokeInstallationToken(h.http, minted.token)
+    return fail(503, "integration.unavailable", "GitHub returned a token without a valid future expiry")
+  }
   const tokenId = sha256hex(minted.token).slice(0, 16)
   const requestedExpiry = ask.ttlSec === undefined ? minted.expires_at : Math.min(minted.expires_at, now + ask.ttlSec * 1000)
   const row = {
@@ -286,8 +316,8 @@ const mintOrReuse = async (h: LedgerHost, picked: { c: Connection; installation:
     row.token_id, cacheKey, row.principal, row.install, row.team, row.repo, row.permissions, row.expires_at, row.provider_expires_at, sealed
   )
   // Refuse rather than hand out less than was asked (GitHub never widens; it must not narrow either), or what the state no longer allows.
-  const short = Object.entries(ask.permissions).find(([k, v]) => !(minted.permissions[k] === "write" || minted.permissions[k] === v))
-  if (short) return refuse(fail(403, "policy.denied", `GitHub granted less than ${short[0]}: ${short[1]}`))
+  if (!exactGithubGrant(minted.permissions, ask.permissions))
+    return refuse(fail(403, "policy.denied", "GitHub returned permissions different from the requested repository grant"))
   const changed = () => ((a) => ("ok" in a ? a : a.c.id !== picked.c.id ? fail(403, "policy.denied", "the team's GitHub connection changed; retry") : null))(authorize(h.state(), p, ask))
   const before = changed()
   if (before) return refuse(before)
@@ -307,7 +337,7 @@ const mintOrReuse = async (h: LedgerHost, picked: { c: Connection; installation:
     repo: ask.repo, permissions: minted.permissions, token_id: tokenId, expires_at: row.expires_at
   })
   console.log(JSON.stringify({ msg: "github.token.minted", team: h.team, principal_kind: kind, install: row.install, repo: ask.repo, token_id: tokenId, label: ask.label ?? null }))
-  return { ok: true, value: { token: minted.token, expires_at: new Date(row.expires_at).toISOString(), repo: ask.repo, permissions: { ...minted.permissions }, token_id: tokenId } }
+  return { ok: true, value: { token: minted.token, expires_at: new Date(row.expires_at).toISOString(), repo: ask.repo, connection_id: picked.c.id, permissions: { ...minted.permissions }, token_id: tokenId } }
 }
 
 const expireRows = (sql: SqlStorage, now: number) =>

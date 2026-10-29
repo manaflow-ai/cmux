@@ -118,7 +118,7 @@ export const handleGithubToken = async (request: Request, env: Env, sub: string)
       return failed(no(403, "auth.forbidden", "this install's grant does not cover write access"))
     }
     const ttlSec = sub === "machine-token" ? (body as typeof GitHubMachineTokenRequest.Type).ttlSec : undefined
-    const ask: TokenAsk = { repo: body.repo, permissions: body.permissions as Record<string, "read" | "write">, ...(body.label ? { label: body.label } : {}), ...(ttlSec === undefined ? {} : { ttlSec }), ...(who.machine ? { machine: who.machine } : {}) }
+    const ask: TokenAsk = { repo: body.repo, permissions: body.permissions as Record<string, "read" | "write">, ...(body.connection ? { connection: body.connection } : {}), ...(body.label ? { label: body.label } : {}), ...(ttlSec === undefined ? {} : { ttlSec }), ...(who.machine ? { machine: who.machine } : {}) }
     const r = await connections(env, who.team).githubToken(who.team, who.p, ask).catch(() => null)
     return r === null ? failed(unreachable("the team's GitHub connection")) : r.ok ? Response.json(r.value, { headers: NO_STORE }) : failed(r)
   }
