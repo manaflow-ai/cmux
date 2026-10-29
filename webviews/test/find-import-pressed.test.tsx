@@ -6,6 +6,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { chromium, type Browser, type Locator } from "playwright";
 import { FindPill } from "../src/ui/FindPill";
 import { ImportCards } from "../src/ui/ImportCards";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("find-import-pressed.test.tsx", async () => {
@@ -61,7 +62,8 @@ await requireBrowserLane("find-import-pressed.test.tsx", async () => {
       </>,
     );
   const paint = (button: Locator) =>
-    button.evaluate((element) => {
+    button.evaluate(async (element) => {
+      await window.cmuxPaintFrame();
       const style = getComputedStyle(element);
       return { background: style.backgroundColor, color: style.color, opacity: style.opacity };
     });
@@ -81,6 +83,7 @@ await requireBrowserLane("find-import-pressed.test.tsx", async () => {
           :root { --cmux-text: CanvasText; --cmux-accent: CanvasText; --cmux-app-danger: MarkText; }
           body { margin: 24px; color: CanvasText; background: Canvas; }
         </style>${fixture(canStep)}`);
+        await installPaintedFrames(page);
         return page;
       };
       for (const name of [
