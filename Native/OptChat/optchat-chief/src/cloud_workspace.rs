@@ -205,6 +205,11 @@ impl State {
 pub struct CloudWorkspaces {
     app: Arc<dyn AppActions>,
     state: Mutex<State>,
+    /// This Chief's start (ms since the epoch), in every machine create's
+    /// key: the app keeps finished runs' replies past a Chief restart, and
+    /// the attempts restart at 0, so without it a create after a restart
+    /// would replay the reply of an old one (a machine since deleted).
+    epoch: u128,
     now: Box<dyn Fn() -> Instant + Send + Sync>,
 }
 
@@ -220,6 +225,9 @@ impl CloudWorkspaces {
         CloudWorkspaces {
             app,
             state: Mutex::new(State::default()),
+            epoch: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_millis()),
             now,
         }
     }
@@ -346,10 +354,11 @@ impl CloudWorkspaces {
         let existing = list["machines"]
             .as_array()
             .and_then(|machines| machines.iter().find(|m| named(m, "title")));
-        // The idempotency key is stable through NoAnswer and across Chief
-        // restarts. It moves on only once its create is over (refused, done,
-        // or listed as made or failed); a retry after an ambiguous reply must
-        // join the same app action, not provision twice.
+        // The idempotency key is stable through NoAnswer. It moves on only
+        // once its create is over (refused, done, or listed as made or
+        // failed); a retry after an ambiguous reply must join the same app
+        // action, not provision twice. A create still on its way when Chief
+        // restarts is in the app's `creating` list, which answers for it.
         let base_key = format!("optchat-cloud-machine-{name}");
         if let Some(machine) = existing {
             let mut state = self.state.lock().expect("state");
@@ -375,9 +384,6 @@ impl CloudWorkspaces {
         // accepted remote create.
         let attempt = {
             let mut state = self.state.lock().expect("state");
-            state
-                .creating
-                .retain(|_, r| now.duration_since(r.at) < CREATING_FOR);
             match list["creating"].as_array() {
                 // The app lists its creates still on their way: one of the
                 // name decides.
@@ -415,6 +421,11 @@ impl CloudWorkspaces {
                 // An app that does not: the names this host asked for.
                 None => {}
             }
+            // Expire only after the list had its say: an answered create the
+            // list no longer names moves its key on above, whatever its age.
+            state
+                .creating
+                .retain(|_, r| now.duration_since(r.at) < CREATING_FOR);
             if let Some(r) = state.creating.get(&name) {
                 let minutes = now.duration_since(r.at).as_secs() / 60;
                 return Ok(format!(
@@ -437,7 +448,7 @@ impl CloudWorkspaces {
         if let Some(size) = &request.size {
             args["size"] = json!(size);
         }
-        let key = format!("{base_key}-{attempt}");
+        let key = format!("{base_key}-{attempt}-c{}", self.epoch);
         let answer = self.app.run("newCloudMachine", None, args, Some(&key));
         {
             // Releasing the name and moving the key on happen in one step,
@@ -550,6 +561,14 @@ mod tests {
         Ok(json!({"loaded": true, "machines": machines, "account": {"signed_in": true}}))
     }
 
+    /// A machine create's key without this Chief's start (`-c<ms>`).
+    fn without_epoch(key: Option<String>) -> Option<String> {
+        key.map(|k| match k.rsplit_once("-c") {
+            Some((key, epoch)) if epoch.bytes().all(|b| b.is_ascii_digit()) => key.to_owned(),
+            _ => k,
+        })
+    }
+
     fn request(title: &str) -> Request {
         Request {
             title: title.into(),
@@ -598,7 +617,7 @@ mod tests {
             json!({"name": "fix-login-bug", "size": "medium"})
         );
         assert_eq!(
-            runs[1].3.as_deref(),
+            without_epoch(runs[1].3.clone()).as_deref(),
             Some("optchat-cloud-machine-fix-login-bug-0")
         );
     }
@@ -641,7 +660,7 @@ mod tests {
             .runs()
             .into_iter()
             .filter(|r| r.0 == "newCloudMachine")
-            .map(|r| r.3)
+            .map(|r| without_epoch(r.3))
             .collect();
         assert_eq!(
             keys,
@@ -674,7 +693,7 @@ mod tests {
         let runs = app.runs();
         assert_eq!(runs.iter().filter(|r| r.0 == "newCloudMachine").count(), 1);
         assert_eq!(
-            runs[1].3.as_deref(),
+            without_epoch(runs[1].3.clone()).as_deref(),
             Some("optchat-cloud-machine-fix-login-bug-0")
         );
 
@@ -690,7 +709,7 @@ mod tests {
             .runs()
             .into_iter()
             .filter(|r| r.0 == "newCloudMachine")
-            .map(|r| r.3)
+            .map(|r| without_epoch(r.3))
             .collect();
         assert_eq!(
             keys,
@@ -757,7 +776,7 @@ mod tests {
             .runs()
             .into_iter()
             .filter(|r| r.0 == "newCloudMachine")
-            .map(|r| r.3)
+            .map(|r| without_epoch(r.3))
             .collect();
         assert_eq!(
             keys,
@@ -951,7 +970,7 @@ mod tests {
             "{answer}"
         );
         assert_eq!(
-            app.runs()[1].3.as_deref(),
+            without_epoch(app.runs()[1].3.clone()).as_deref(),
             Some("optchat-cloud-machine-fix-login-bug-1")
         );
 
@@ -987,6 +1006,91 @@ mod tests {
         state.advance(base, 1);
         assert_eq!(state.attempts[base], 2);
         assert!(state.creating.is_empty());
+    }
+
+    /// A pending create the list stopped naming (it failed and was dismissed)
+    /// moves its key on even when the next call comes past CREATING_FOR:
+    /// the old key would replay `pending` and start nothing.
+    #[test]
+    fn an_expired_answered_create_still_moves_its_key_on() {
+        let listed = |creating: Value| {
+            Ok(
+                json!({"loaded": true, "machines": [], "creating": creating, "account": {"signed_in": true}}),
+            )
+        };
+        let app = FakeApp::new(vec![
+            ("cloudListMachines", listed(json!([]))),
+            (
+                "newCloudMachine",
+                Ok(json!({"pending": true, "status": "creating"})),
+            ),
+            (
+                "newCloudMachine",
+                Ok(json!({"machine_id": "vm-2", "target": "machine:vm-2"})),
+            ),
+        ]);
+        let start = Instant::now();
+        let at = Arc::new(Mutex::new(start));
+        let clock = at.clone();
+        let tool =
+            CloudWorkspaces::with_clock(app.clone(), Box::new(move || *clock.lock().unwrap()));
+        assert!(
+            tool.call(&request("Fix login bug"))
+                .unwrap()
+                .starts_with("outcome: queued.")
+        );
+        *at.lock().unwrap() = start + CREATING_FOR + Duration::from_secs(60);
+        assert!(
+            tool.call(&request("Fix login bug"))
+                .unwrap()
+                .contains("vm-2")
+        );
+        let keys: Vec<_> = app
+            .runs()
+            .into_iter()
+            .filter(|r| r.0 == "newCloudMachine")
+            .map(|r| without_epoch(r.3))
+            .collect();
+        assert_eq!(
+            keys,
+            vec![
+                Some("optchat-cloud-machine-fix-login-bug-0".into()),
+                Some("optchat-cloud-machine-fix-login-bug-1".into())
+            ]
+        );
+    }
+
+    /// The app keeps finished replies past a Chief restart, while the
+    /// attempts start again at 0: each Chief's creates carry its start, so a
+    /// restarted Chief never replays an old create's reply.
+    #[test]
+    fn a_restarted_chief_never_replays_an_old_create() {
+        let app = FakeApp::new(vec![
+            ("cloudListMachines", list(json!([]))),
+            (
+                "newCloudMachine",
+                Ok(json!({"machine_id": "vm-1", "target": "machine:vm-1"})),
+            ),
+        ]);
+        let mut before = CloudWorkspaces::new(app.clone());
+        before.epoch = 1;
+        before.call(&request("Fix login bug")).unwrap();
+        let mut after = CloudWorkspaces::new(app.clone());
+        after.epoch = 2;
+        after.call(&request("Fix login bug")).unwrap();
+        let keys: Vec<_> = app
+            .runs()
+            .into_iter()
+            .filter(|r| r.0 == "newCloudMachine")
+            .filter_map(|r| r.3)
+            .collect();
+        assert_eq!(
+            keys,
+            vec![
+                "optchat-cloud-machine-fix-login-bug-0-c1".to_owned(),
+                "optchat-cloud-machine-fix-login-bug-0-c2".to_owned()
+            ]
+        );
     }
 
     /// A finished create never lends its key to a later one of the same name
@@ -1036,7 +1140,7 @@ mod tests {
             .runs()
             .into_iter()
             .filter(|r| r.0 == "newCloudMachine")
-            .map(|r| r.3)
+            .map(|r| without_epoch(r.3))
             .collect();
         assert_eq!(
             keys,
@@ -1067,7 +1171,7 @@ mod tests {
             .runs()
             .into_iter()
             .filter(|r| r.0 == "newCloudMachine")
-            .map(|r| r.3)
+            .map(|r| without_epoch(r.3))
             .collect();
         assert_eq!(
             keys,
