@@ -65,7 +65,10 @@ impl Hub {
         }
         let mut turn_id: Option<String> = None;
         let mut ended: Option<Value> = None;
+        // The inbox digest that took it, once one did (`inbox_digest.rs`).
+        let mut digest: Option<String> = None;
         let _ = self.store.scan(&session.id, 0, &mut |rec| {
+            let field = |k: &str| rec.msg.get(k).and_then(Value::as_str);
             match (rec.kind.as_str(), &turn_id) {
                 ("user_message" | "queued", None)
                     if rec.msg.get("promptId").and_then(Value::as_str) == Some(prompt_id) =>
@@ -99,6 +102,21 @@ impl Hub {
                         && rec.msg.get("joinedTurnId").is_some_and(Value::is_string) =>
                 {
                     turn_id = rec.msg["joinedTurnId"].as_str().map(str::to_owned);
+                }
+                // Taken into an inbox digest (`inbox_digest.rs`): the digest's turn, the one its
+                // `user_message` names (a steer goes into the turn that ran then).
+                ("dequeued", Some(id))
+                    if field("turnId") == Some(id.as_str())
+                        && field("digestPromptId").is_some() =>
+                {
+                    digest = field("digestPromptId").map(str::to_owned);
+                    turn_id = field("digestTurnId").map(str::to_owned);
+                }
+                ("user_message", Some(_))
+                    if digest.is_some() && field("promptId") == digest.as_deref() =>
+                {
+                    turn_id = field("turnId").map(str::to_owned);
+                    ended = None;
                 }
                 _ => {}
             }

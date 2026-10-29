@@ -10,8 +10,10 @@
 //! - Each original leaves the queue with a `dequeued` record naming the digest
 //!   (`digestPromptId`, `digestTurnId`); its full text stays in the log under its own promptId,
 //!   in its `queued` record. Its waiting `session/prompt` answers with the digest's answer
-//!   (`digest.rs` `Joined`). The digest's own `queued` record is logged first, so a restart
-//!   runs the digest and never the originals again (`lost_start.rs`).
+//!   (`digest.rs` `Joined`), and a resend of it answers from the digest's turn
+//!   (`prompt_ledger.rs`). The digest's own `queued` record is logged first and names every
+//!   original, so a restart runs the digest and never the originals again, even one whose
+//!   `dequeued` record the stop cut off (`queue.rs` `restore_queue`, `lost_start.rs`).
 //! - When the chat's turn runs and its agent steers, the digest goes into that turn as ONE
 //!   steer (its queue entry is marked as a steer, as Send now marks one, `queue.rs`
 //!   `steer_queued`); otherwise it waits at the head of the agent messages in the queue, still
@@ -20,15 +22,20 @@
 //!
 //! What stays queued: a message with anything but text (an image, an uploaded file, hidden
 //! context), a slash command, a sub-session family message (each is checked again in its own
-//! turn), one sent now or steering now, a Web one, and an earlier digest.
+//! turn), one sent now or steering now, a Web one, an earlier digest, and a prompt a restart
+//! restored whose task has not claimed it yet (as `digest.rs` `take_joined` leaves it: none
+//! would hear the digest's answer for it).
 //!
 //! The digest's provenance (hub-set, never a client's): `{kind: "inbox_digest", digestId,
 //! parts: [{promptId, from, fromName, class, receivedAt, bytes, duplicateOf?}], counts: {block,
 //! question, result, fyi}}`. A message's class is the one its queue entry holds
 //! (`prompt_class.rs`), a result when it has none.
 //!
-//! Only the unix socket asks for a drain, from the person or from the chat's own agent
-//! (`server/agent_messages.rs`): never Web, and never another session's agent.
+//! Only the unix socket asks for a drain (`server/agent_messages.rs`): never Web, LocalApp or a
+//! peer. A connection that names a session must prove it with that session's caller token, and
+//! drains only that session's inbox; one that names none is the person's terminal, trusted as
+//! the socket trusts `acpmux send`. A drain loses no message: each one's text stays in the log
+//! and its sender gets the digest's answer.
 
 use super::super::queue::{PromptRun, QueuedPrompt};
 use super::super::*;
@@ -48,6 +55,18 @@ const FYI_CHARS: usize = 160;
 /// Whether a prompt's provenance is an inbox digest's.
 pub(crate) fn is_digest(provenance: Option<&Value>) -> bool {
     provenance.and_then(|p| p.get("kind")).and_then(Value::as_str) == Some(KIND)
+}
+
+/// The prompts an inbox digest's `queued` record took: its provenance's parts. None for any
+/// other record.
+pub(crate) fn took(record: &Value) -> Vec<String> {
+    let provenance = record.pointer("/_meta/provenance");
+    if !is_digest(provenance) {
+        return Vec::new();
+    }
+    let parts = provenance.and_then(|p| p.get("parts")).and_then(Value::as_array);
+    let ids = parts.into_iter().flatten().filter_map(|p| p.get("promptId")?.as_str());
+    ids.map(str::to_owned).collect()
 }
 
 /// One message of a digest, as the renderer reads it.
@@ -217,6 +236,12 @@ fn digestible(q: &QueuedPrompt) -> bool {
         && !super::super::subsession_guard::is_family_prompt(run.provenance.as_ref())
 }
 
+/// Whether the drain takes a waiting prompt: a digestible one whose task holds it, not one a
+/// restart restored that its task has not claimed yet (`unclaimed`, `session.restored`).
+fn takes(q: &QueuedPrompt, unclaimed: &[(String, String)]) -> bool {
+    digestible(q) && !unclaimed.iter().any(|(id, _)| *id == q.prompt_id)
+}
+
 /// The renderer's part of a waiting prompt.
 fn part_of(q: &QueuedPrompt) -> Part {
     let name = q.run.agent.clone().unwrap_or_default();
@@ -250,6 +275,14 @@ impl Hub {
         .with_data(json!({"reason": "inbox_digest.other_agent"}))
     }
 
+    /// The refusal of a drain from a connection whose caller token this daemon run did not issue.
+    pub fn inbox_digest_caller_not_proven() -> RpcError {
+        RpcError::invalid_params(
+            "inbox_digest.caller_not_proven: this connection's caller token is not one this acpmux daemon issued",
+        )
+        .with_data(json!({"reason": "inbox_digest.caller_not_proven"}))
+    }
+
     /// `_acpmux/inbox_digest`; see the module docs. `client` names the asking connection.
     pub async fn inbox_digest(
         self: &Arc<Self>,
@@ -275,7 +308,10 @@ impl Hub {
         let digest_id = format!("inbox-digest-{}", uuid::Uuid::now_v7());
         let turn_id = uuid::Uuid::now_v7().to_string();
         let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        let parts: Vec<Part> = queue.iter().filter(|q| digestible(q)).map(part_of).collect();
+        // Read under the queue's lock, as `queue_slot` claims them.
+        let unclaimed = session.restored.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let takes = |q: &QueuedPrompt| takes(q, &unclaimed);
+        let parts: Vec<Part> = queue.iter().filter(|q| takes(q)).map(part_of).collect();
         if parts.is_empty() {
             return Ok(json!({"sessionId": session.id, "dryRun": dry_run, "digested": 0}));
         }
@@ -287,11 +323,11 @@ impl Hub {
             );
         }
         // A peer's message goes in under a peer's rules, as it came (`queue_edit.rs` `stricter`).
-        let peer = queue.iter().any(|q| digestible(q) && q.run.control == Control::Peer);
+        let peer = queue.iter().any(|q| takes(q) && q.run.control == Control::Peer);
         let control = if peer { Control::Peer } else { Control::Local };
         let (answer, answered) = tokio::sync::watch::channel(None);
         let (taken, rest): (Vec<QueuedPrompt>, Vec<QueuedPrompt>) =
-            std::mem::take(&mut *queue).into_iter().partition(digestible);
+            std::mem::take(&mut *queue).into_iter().partition(|q| takes(q));
         *queue = rest;
         // At the head of the agent messages: behind the person's prompts and a prompt sent now.
         let at = queue

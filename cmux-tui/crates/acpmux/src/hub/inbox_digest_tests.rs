@@ -174,3 +174,22 @@ fn only_other_agents_text_messages_go_into_a_digest() {
     web.run = Arc::new(run);
     assert!(!digestible(&web));
 }
+
+#[test]
+fn a_restored_prompt_its_task_has_not_claimed_stays_queued() {
+    let restored = queued("p1", Some("lane-a"), None, "from before the restart");
+    let unclaimed = vec![("p1".to_owned(), "t-p1".to_owned())];
+    assert!(!takes(&restored, &unclaimed), "none would hear the digest's answer for it");
+    assert!(takes(&restored, &[]), "once claimed it goes in");
+}
+
+#[test]
+fn a_digests_record_names_the_messages_it_took() {
+    let parts =
+        [part("p1", "lane-a", Class::Result, 1, "a"), part("p2", "lane-b", Class::Fyi, 2, "b")];
+    let Rendered { provenance, .. } = render("d", &parts);
+    let record = crate::prompt_provenance::marked(json!({"promptId": "d"}), Some(&provenance));
+    assert_eq!(took(&record), ["p1", "p2"]);
+    let other = json!({"promptId": "x", "_meta": {"provenance": {"kind": "agent_message", "parts": [{"promptId": "p1"}]}}});
+    assert!(took(&other).is_empty());
+}

@@ -15,7 +15,8 @@
 //!
 //! And `_acpmux/inbox_digest {sessionId, dryRun?}` ([`inbox_digest`]): the agent messages waiting
 //! in the chat's queue go in as one digest (`hub/inbox_digest.rs`). The unix socket only, from
-//! the person or the chat's own agent (its caller token); never from another session's agent.
+//! the person or the chat's own agent (its proven caller token); never from another session's
+//! agent.
 
 use super::{Conn, Origin, session_key, str_param};
 use crate::hub::{Hub, Session};
@@ -61,15 +62,19 @@ pub(super) async fn handle(
 }
 
 /// `_acpmux/inbox_digest`: the unix socket only (`remote_guard.rs` refuses every other origin
-/// first), and never for another session's agent: a connection that says it runs in a session
-/// (its caller token, proven or not) drains only that session's inbox.
+/// first), and never for another session's agent. A connection that says it runs in a session
+/// proves it with that session's caller token (one this run issued) and drains only that
+/// session's inbox; one that names no session is the person's terminal (`hub/inbox_digest.rs`).
 async fn inbox_digest(hub: &Arc<Hub>, conn: &Arc<Conn>, params: &Value) -> Result<Value, RpcError> {
     if conn.origin != Origin::Local {
         return Err(Hub::inbox_digest_origin_refused());
     }
     let s = hub.resolve(session_key(params)?)?;
-    let caller = conn.caller().or_else(|| conn.unproven_caller.get().map(String::as_str));
-    if caller.is_some_and(|id| id != s.id) {
+    // A token this run did not issue proves no session, the one it names included.
+    if conn.unproven_caller.get().is_some() && !conn.is_person() {
+        return Err(Hub::inbox_digest_caller_not_proven());
+    }
+    if conn.caller().is_some_and(|id| id != s.id) {
         return Err(Hub::inbox_digest_other_agent());
     }
     let dry_run = params.get("dryRun").and_then(Value::as_bool).unwrap_or(false);

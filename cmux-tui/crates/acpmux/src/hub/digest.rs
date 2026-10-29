@@ -167,7 +167,9 @@ pub(super) fn digest_provenance(parts: &[Part]) -> Value {
 pub const DIGEST_KIND: &str = "agent_digest";
 
 /// What a joined prompt's `session/prompt` answers: the answer of the turn it joined, under its
-/// own prompt id, naming that turn.
+/// own prompt id, naming that turn: the one the answer names when it names one (an inbox digest
+/// steered into the turn that ran then, or run as a turn of its own when that turn ended first,
+/// `inbox_digest.rs`), else the one it joined.
 pub(super) async fn joined_reply(joined: &Joined, prompt_id: &str) -> Answer {
     let mut answer = joined.answer.clone();
     let answer = match answer.wait_for(Option::is_some).await {
@@ -175,9 +177,11 @@ pub(super) async fn joined_reply(joined: &Joined, prompt_id: &str) -> Answer {
         Err(_) => Err(RpcError::internal("the turn this prompt joined was dropped")),
     };
     answer.map(|mut v| {
+        let ran_in = v.pointer("/_meta/acpmux/turnId").and_then(Value::as_str);
+        let turn_id = ran_in.unwrap_or(&joined.turn_id).to_owned();
         merge_mux_meta(
             &mut v,
-            json!({"promptId": prompt_id, "turnId": joined.turn_id, "joinedPromptId": joined.prompt_id}),
+            json!({"promptId": prompt_id, "turnId": turn_id, "joinedPromptId": joined.prompt_id}),
         );
         v
     })

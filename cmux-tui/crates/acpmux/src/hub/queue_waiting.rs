@@ -67,6 +67,13 @@ impl Waiting {
         }
     }
 
+    /// Takes out every record of the prompt `prompt_id`.
+    pub(super) fn remove_prompt(&mut self, prompt_id: &str) {
+        for i in self.by_prompt.get(prompt_id).cloned().unwrap_or_default() {
+            self.take(i);
+        }
+    }
+
     /// The records still waiting, in log order.
     pub(super) fn into_records(self) -> Vec<EventRecord> {
         self.slots.into_iter().flatten().collect()

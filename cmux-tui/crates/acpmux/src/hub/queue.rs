@@ -141,6 +141,21 @@ pub(super) fn withdrawn_reply(prompt_id: &str, turn_id: &str) -> Value {
     })
 }
 
+/// What a queued prompt answers that `take_queued` no longer found: the answer of the inbox
+/// digest that took it (`inbox_digest.rs` takes messages without the turn lock, so one may go
+/// between its task's turn and its take), else `withdrawn`, no turn having run.
+async fn gone_reply(
+    joined: &StdMutex<Option<super::digest::Joined>>,
+    prompt_id: &str,
+    withdrawn: Value,
+) -> Answer {
+    let went_in = joined.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    match went_in {
+        Some(went_in) => super::digest::joined_reply(&went_in, prompt_id).await,
+        None => Ok(withdrawn),
+    }
+}
+
 /// Whether a prompt waits in the chat's queue that a failed turn does not hold, read under the
 /// queue's lock.
 fn queue_waits(session: &Session) -> bool {
@@ -306,7 +321,10 @@ impl Hub {
                     return Err(answer);
                 }
                 Wait::Steer => {
-                    let run = self.take_queued(session, p.prompt_id, &turn_id).map_err(Ok)?;
+                    let run = match self.take_queued(session, p.prompt_id, &turn_id) {
+                        Ok(run) => run,
+                        Err(gone) => return Err(gone_reply(&joined, p.prompt_id, gone).await),
+                    };
                     let answer = self.steer_queued(session, run, p.client, p.prompt_id).await;
                     // Refused: logged, so a restart does not queue it again (`lost_start.rs`).
                     if let Err(e) = &answer {
@@ -319,7 +337,14 @@ impl Hub {
         };
         // A lane's report queued behind a turn its parent's close then ended is refused before
         // its turn starts (`turns.rs`), so it never reopens the parent.
-        let run = self.take_queued(session, p.prompt_id, &turn_id).map_err(Ok)?;
+        let run = match self.take_queued(session, p.prompt_id, &turn_id) {
+            Ok(run) => run,
+            // Free the turn first: the digest that took it runs in it.
+            Err(gone) => {
+                drop(guard);
+                return Err(gone_reply(&joined, p.prompt_id, gone).await);
+            }
+        };
         Ok((turn_id, true, guard, run))
     }
 
@@ -854,6 +879,12 @@ impl Hub {
                             && let Some(id) = e.msg.get("promptId")
                         {
                             order.prioritize_restart(id);
+                        }
+                        // An inbox digest names the messages it took: none runs on its own
+                        // again, even one whose `dequeued` record the stop cut off.
+                        for id in super::digest::inbox_digest::took(&e.msg) {
+                            waiting.remove_prompt(&id);
+                            order.remove(&json!(id));
                         }
                         waiting.push(e);
                     }
