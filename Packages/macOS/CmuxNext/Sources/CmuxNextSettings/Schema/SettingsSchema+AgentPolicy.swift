@@ -48,6 +48,8 @@ extension SettingsSchema {
 
     private static let agentSettableTable: Set<String> = [
         "window.titlebar",
+        // Whether a chat shows the live view of the app its agent uses: looks only.
+        "computerUse.livePreview",
         "shortcuts.showModifierHoldHints",
         "window.titlebarButtons",
         "tabs.plusButton",
@@ -95,6 +97,7 @@ extension SettingsSchema {
         "appearance.theme",
         "appearance.appTheme",
         "appearance.accent",
+        "appearance.highlightColor", // the app's one selected-text color (looks only)
         "appearance.themeEdits",
         "appearance.machineColors", // the color of each machine's marks (looks only)
         "appearance.backdropArt",
