@@ -651,9 +651,11 @@ mod tests {
 
     /// A teammate's link runs no daemon command on the framed path either (deny by default,
     /// command-bearing params denied: skills/cmux-socket-policy/references/
-    /// remote-relay-authorization.md). A REQUEST frame of a `Command` (`list-workspaces`, or `run`
-    /// with a shell command) is refused as its line is, and the command never runs: the frame
-    /// decoder's `Command` path must not bypass `answer_line`'s proxy gate.
+    /// remote-relay-authorization.md). A REQUEST frame of a `Command` (`list-workspaces`, or a
+    /// command-bearing `run`) is refused as its line is, and runs nothing: the frame decoder's
+    /// `Command` path must not bypass `answer_line`'s proxy gate. The `run` names no shell: its
+    /// argv is `/usr/bin/true` in a temporary folder this test removes, so even a build without
+    /// the gate (the red run) starts no shell and writes nothing outside that folder.
     #[test]
     fn a_teammate_link_runs_no_framed_command() {
         let fake = FakeAcpmux::start("proxy-framed");
@@ -688,19 +690,19 @@ mod tests {
             &scheduler,
         );
         assert_eq!(answer(1)["ok"], true, "the link is bound");
-        let marker = std::env::temp_dir().join(format!(
+        let scratch = std::env::temp_dir().join(format!(
             "cmux-proxy-framed-{}-{}",
             std::process::id(),
             client
         ));
-        let _ = std::fs::remove_file(&marker);
+        std::fs::create_dir_all(&scratch).unwrap();
         let workspaces_before = mux.with_state(|state| state.workspaces.len());
         for (id, frame) in [
             (2, json!({"id":2, "cmd":"list-workspaces"})),
             (
                 3,
                 json!({"id":3, "cmd":"run", "new_workspace":true,
-                "command":format!("touch {}", marker.display())}),
+                "argv":["/usr/bin/true"], "cwd":scratch.display().to_string()}),
             ),
         ] {
             let name = frame["cmd"].as_str().unwrap();
@@ -726,7 +728,7 @@ mod tests {
             workspaces_before,
             "no workspace was made"
         );
-        assert!(!marker.exists(), "the teammate's command never ran");
+        let _ = std::fs::remove_dir_all(&scratch);
     }
 
     /// A bind is a link's first line only, and carries no host markers: a connection that
