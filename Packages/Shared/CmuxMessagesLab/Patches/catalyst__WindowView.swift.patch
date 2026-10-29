@@ -243,21 +243,22 @@
          case let .react(ref, _, _):
              guard let i = index(ref.messageId) else { return nil }
              idx.append(i)
-@@ -1511,7 +1622,14 @@
+@@ -1511,8 +1622,15 @@
          for case let cell as RowCell in collection.visibleCells {
              if let b = map[cell.key] { cell.renameRow(to: b) }
          }
 +        onRowsRenamed(map)
      }
-+
+ 
 +    /// cmux: rows renamed in place (a stream's final message took its rows), old key -> new key; the
 +    /// transcript selection follows (TranscriptSelection.renameRows).
 +    var onRowsRenamed: ([String: String]) -> Void = { _ in }
 +    /// cmux: a cell was configured for a row (decorate); the transcript selection draws its part in it.
 +    var onCellDecorated: (RowCell) -> Void = { _ in }
- 
++
      /// Live container motions: (displacement, spring, begin, end, rows it covered). A row that
      /// shows up while one runs (inserted later, or outside its band) gets the opposite motion,
+     /// so it moves as it did with per-row springs.
 @@ -1689,22 +1807,41 @@
      }
  
@@ -437,7 +438,7 @@
          threadSpecs = rows
          threadViews.forEach { $0.removeFromSuperview() }
          threadClosing = 0
-@@ -2121,7 +2260,19 @@
+@@ -2121,7 +2260,23 @@
          let headerHeight = header == nil ? 0 : ThreadHeaderDraw.height
          let total = rows.reduce(0) { $0 + $1.total } + headerHeight
          var y = MessagesWindowView.threadCenterY + (bounds.height - Fixture.windowSize.height) - total / 2
@@ -453,12 +454,16 @@
 +        } else {
 +            threadScrollBack = 0
 +            threadScrollRange = 0
++            // cmux: the center point sits 518 pt above the pane's bottom (the 1041 pt window's), not at the
++            // space's center: in a tall pane a thread that fits the space ended under the field with no scroll
++            // range (Lawrence 2026-10-28: "unable to scroll down here"). It stays centered where it can.
++            y = min(max(y, area.minY), area.maxY - total)
 +        }
 +        placeThreadHeader(header, top: y, fade: (!wasOpen || drilled) && !still)
          y += headerHeight
          threadViews = rows.map { spec in
              let top = y + spec.gap - RowDraw.margin
-@@ -2142,7 +2293,22 @@
+@@ -2142,7 +2297,22 @@
          threadSources = [:]
          for (v, spec) in zip(threadViews, threadSpecs) {
              if let src = sources[spec.key] { threadSources[spec.key] = src }
@@ -481,7 +486,7 @@
              guard !wasOpen else { continue }
              if let src = threadSources[spec.key] {
                  ThreadBackdrop.fly(v.layer, fromY: src.midY, toY: v.frame.midY, tau: MessagesWindowView.threadOpenTau, delay: ThreadBackdrop.openDelay)
-@@ -2150,12 +2316,14 @@
+@@ -2150,12 +2320,14 @@
                  ThreadBackdrop.fade(v.layer, from: 0, to: 1, duration: 0.28, delay: ThreadBackdrop.openDelay)
              }
          }
@@ -497,7 +502,7 @@
          CATransaction.begin()
          CATransaction.setCompletionBlock { [weak self] in
              guard let self, self.threadClosing == token else { return }
-@@ -2168,10 +2336,12 @@
+@@ -2168,10 +2340,12 @@
          }
          if let hv = threadHeaderView {
              hv.layer.opacity = 0
@@ -512,7 +517,7 @@
                  let from = v.frame.midY
                  v.frame.origin.y += src.midY - from
                  ThreadBackdrop.fly(v.layer, fromY: from, toY: v.frame.midY, tau: MessagesWindowView.threadCloseTau)
-@@ -2180,12 +2350,41 @@
+@@ -2180,12 +2354,41 @@
                  ThreadBackdrop.fade(v.layer, from: 1, to: 0, duration: 0.25)
              }
          }
@@ -522,7 +527,7 @@
      }
  
      var threadOpen: Bool { store.state.ui.openThread != nil }
- 
++
 +    /// cmux: the space an open thread view's rows may take, between the header and the field (as a sheet's).
 +    var threadArea: CGRect {
 +        let top = Fixture.headerHeight + 12, bottom = max(top + 40, fieldTop - 12)
@@ -548,14 +553,14 @@
 +        CATransaction.commit()
 +        return true
 +    }
-+
+ 
 +    /// cmux: Reduce Motion (the host's pin or the system setting): the thread view and a reply sent in it change at once.
 +    private var reducesMotion: Bool { MessagesLabHomeView.reducesMotion }
 +
      // MARK: Hit testing
  
      /// `outline`: the drawn balloon (RowDraw.balloon, computed in row coordinates as the cell draws it), same space as
-@@ -2236,6 +2435,15 @@
+@@ -2236,6 +2439,15 @@
  
      /// The layer the hit row's soft mask masks (the cell's fill container), for a copy of that mask elsewhere in the
      /// window to draw its image the same way up (MenuHighlight); nil in the thread view or without a visible cell.
@@ -571,7 +576,7 @@
      func softMaskOwner(_ h: Hit) -> CALayer? {
          guard !threadOpen else { return nil }
          for case let cell as RowCell in collection.visibleCells where cell.spec?.key == h.key { return cell.fillContainer }
-@@ -2317,6 +2525,9 @@
+@@ -2317,6 +2529,9 @@
  
      /// The host's thread header changed (title, status, owner): the open thread view asks
      /// `HostHooks.threadHeader` again.
@@ -581,7 +586,7 @@
      func threadHeaderDidChange() {
          guard store.state.ui.threadMode == .tree, store.state.ui.openThread != nil, threadClosing == 0 else { return }
          threadForceRebuild = true
-@@ -2515,12 +2726,21 @@
+@@ -2515,12 +2730,21 @@
          return l
      }
  
@@ -604,7 +609,7 @@
          let delay = open ? ThreadBackdrop.openDelay : 0
          let t = CABasicAnimation(keyPath: "opacity"); t.fromValue = a0; t.toValue = a1; t.duration = d; t.timingFunction = fn
          // Without a wait, start at the commit as the row flights do (`fly`, `fade`): a begin
-@@ -2529,7 +2749,6 @@
+@@ -2529,7 +2753,6 @@
          if delay > 0 { t.beginTime = CACurrentMediaTime() + delay; t.fillMode = .backwards }
          tint.add(t, forKey: "thread")
          if let blur {
@@ -612,7 +617,7 @@
              let b = CABasicAnimation(keyPath: "filters.gaussianBlur.inputRadius"); b.fromValue = r0; b.toValue = r1; b.duration = d; b.timingFunction = fn
              if delay > 0 { b.beginTime = CACurrentMediaTime() + delay; b.fillMode = .backwards }
              blur.add(b, forKey: "thread")
-@@ -2727,7 +2946,7 @@
+@@ -2727,7 +2950,7 @@
          let textTop = Fixture.bubblePadY
          if case let .part(p) = spec0.kind, case let .text(t, _) = p.part, p.text == nil {
              let l = LongTextStore.shared.layout(t, width: spec0.width, message: p.ref.messageId, markdown: p.markdownFormat)

@@ -1,3 +1,4 @@
+import { UNKNOWN_AUTH, type SessionAuthQuery } from "./sessionAuth";
 import { isRetryContinuation } from "./subagents/retryState";
 import type { SwitchPort } from "./harnessSwitch";
 import { answeredBy, participant, promptAuthor, type Participant } from "./multiplayer/participants";
@@ -1353,6 +1354,7 @@ export class AcpmuxDirectClient {
   private handoffSupported = false;
   /// The `_acpmux/*` methods acpmux's `initialize` lists (`_meta.acpmux.extensions`).
   private extensions: readonly string[] = [];
+  private features = new Set<string>();
   /// acpmux calls this connection local (`_meta.acpmux.origin: "local"`). Without that, a
   /// WebSocket connection is remote-origin to acpmux, which never pools for it.
   private localOrigin = false;
@@ -1617,6 +1619,7 @@ export class AcpmuxDirectClient {
 
   private async open(): Promise<void> {
     if (this.opening || this.closed) return;
+    this.features.clear();
     this.opening = true;
     // A reconnect owns the attach of the copy on screen from its start: a row that says its machine
     // is back meanwhile waits for it (`copyBack`), never a second attach over the same copy.
@@ -1693,6 +1696,10 @@ export class AcpmuxDirectClient {
         clientCapabilities: {},
       });
       this.canFork = servesOperation(initialized, FORK_OP);
+      const features = initialized?._meta?.acpmux?.features;
+      this.features = new Set(
+        Array.isArray(features) ? features.filter((value): value is string => typeof value === "string") : [],
+      );
       const capabilities = initialized?._meta?.acpmux?.capabilities;
       this.capabilities = Array.isArray(capabilities) ? new Set(capabilities.map(String)) : undefined;
       const extensions = initialized?._meta?.acpmux?.extensions;
@@ -5756,6 +5763,12 @@ export class AcpmuxDirectClient {
   /// This Mac's acpmux forum rules (`_acpmux/forum/rules`, hq#2570): the current rule per key.
   async forumRules(): Promise<unknown> {
     return this.request("_acpmux/forum/rules", {});
+  }
+  /// Auth for this exact chat or a prospective New Tab target; the daemon owns freshness and
+  /// returns unknown when no current credential evidence exists. Never use cached harness health.
+  async sessionAuth(query: SessionAuthQuery, refresh = false): Promise<unknown> {
+    if (!this.features.has("sessionAuth")) return UNKNOWN_AUTH;
+    return this.request("_acpmux/session/auth", { ...query, ...(refresh ? { refresh: true } : {}) });
   }
   /// The routes acpmux has (`_acpmux/route/list`) with `sessionId`'s active one: the composer's
   /// Account menu. Each route says whether it `serves` the session's harness family.

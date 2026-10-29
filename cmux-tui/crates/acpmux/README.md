@@ -166,8 +166,9 @@ Five everyday commands, three groups for the rest:
 | `host setup HOST [--no-auto-update]` / `host update [--all] [--if-idle] [--keep-newer] [--binary-dir DIR]` / `host self-update` / `host hold [NAME] [--reason TEXT] [--until TIME] [--release]` / `host add NAME [URL]` / `host ls` / `host status [NAME]` / `host rm NAME` | Remote daemons. `setup` installs over ssh; URL is `ssh://host`, `ws://…`, or `wss://…` (default `ssh://NAME`: the machine's one daemon as your ssh config reaches it). `ls` names an `ssh://` entry with a user or another port as not the canonical endpoint. `status` (also the hidden `peer status` alias) asks each host's health live: reachable, round trip, disk, load, live sessions, build. |
 | `host enroll HOST [--harness ID]… [--reverse]` / `host doctor NAME\|HOST [--fix] [--reverse]` | Add a machine step by step (reach, install, daemon, update, harness, peer, peer-back, identity), one JSON line per step with `--json`; `peer-back` (this machine as the host's peer) runs only with `--reverse`; `doctor` changes nothing without `--fix`. |
 | `session info\|cancel\|stop\|rename\|fork\|set\|allow\|deny\|export\|import\|tail NAME …` | Everything about one session. |
-| `daemon run\|status\|shutdown\|stop\|config\|harnesses\|reload\|models\|schema` | The daemon itself. |
+| `daemon run\|status\|start\|restart\|shutdown\|stop\|config\|harnesses\|reload\|models\|schema` | The daemon itself. |
 | `capabilities [--json]` | The protocol capability ids this build serves (`acpmux-v1`, `queue-edit-v1`, ...), with no daemon running. |
+| `daemon restart` | Stop and start the daemon, keeping hosted sessions so they resume after startup. |
 | `daemon shutdown [--end-agents]` (also `daemon stop`) | Stop the daemon; the user sessions' hosted agents keep running for the next daemon (a restart or an update), as with SIGTERM. `--end-agents` also ends every agent host it owns, exits 0 only when none is left, and names any host that survives SIGKILL. `--keep-agents` is accepted and changes nothing (a plain stop of builds before 2026-10-15 ended the agents). |
 
 The older flat spellings (`acpmux kill NAME`, `acpmux peer add …`, `acpmux status`) still
@@ -951,6 +952,18 @@ session on that peer, and the `Ctrl-l` picker lists remote harnesses as `HOST/ha
 picking one starts the session there. Peers reconnect with backoff, the tunnel included; while
 one is down its sessions show `unreachable`, and a purge on either side removes the session
 everywhere. Peers are saved in `config.json` under `peers`.
+
+### GitHub on an added machine
+
+A machine can use the Mac's `gh` login without one of its own (`src/github_broker.rs`). An agent
+session there asks its daemon over the unix socket for `_acpmux/github_action` (read a repository
+or a pull request, open an issue, comment on one, open a draft pull request); the daemon sends it
+up the link the Mac opened to it, and the Mac runs one fixed `gh` command and answers with its
+output. No token reaches the machine. The Mac serves only a peer whose saved config has
+`githubBroker: true` (`peer_add` takes it, over the unix socket only); `"githubBroker": false` in
+`config.json` with `acpmux daemon reload` takes it back at once. Each decision is a
+`github_broker_action` event on the agent's session (action, repository, branch, number and
+outcome; never a title, body or output) and a log line on the Mac.
 
 `acpmux host status` (also the hidden `peer status` alias, with `--json`) is the check to run before remote work
 and after a peer request fails. It asks every connected peer `_acpmux/host_health` at once,

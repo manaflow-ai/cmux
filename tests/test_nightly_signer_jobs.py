@@ -35,6 +35,7 @@ JOBS = WORKFLOW["jobs"]
 SIGNER_JOBS = ("signer-build", "signer-app", "signer-dmg-image", "signer-dmg")
 SECRET_JOBS = {"signer-app", "signer-dmg"}
 VERIFY = ROOT / "scripts/ci/release-signer/verify_appcast_item.py"
+FINAL_DMG = "cmux-nightly-next-signer-final-dmg-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}"
 TIP_APPCAST = ROOT / "scripts/ci/tip_appcast_linux.py"
 
 
@@ -94,7 +95,8 @@ class Wiring(unittest.TestCase):
         self.assertGreater(min(uploads), max(checks))
         names = {steps[i]["with"]["name"] for i in uploads}
         self.assertEqual(names, {"cmux-nightly-variant-arm64",
-                                 "cmux-${{ needs.decide.outputs.channel }}-signed-app-arm64-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}"})
+                                 "cmux-${{ needs.decide.outputs.channel }}-signed-app-arm64-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}",
+                                 FINAL_DMG})
         # Never replace what the macOS job uploaded: the verify jobs may already have passed on it, and a
         # rerun of failed jobs would not run them again on the replacement.
         for i in uploads:
@@ -205,6 +207,28 @@ class Wiring(unittest.TestCase):
         self.assertLess(finish, handoff)
         self.assertFalse([s for s in steps if "download-artifact" in str(s.get("uses", ""))
                           and "signer-handoff" in str((s.get("with") or {}).get("name", ""))])
+
+    def test_verify_final_reads_one_copy_of_a_pool_signed_dmg(self):
+        # cmux-nightly-variant-arm64 holds the DMG under two names; verify-final-dmg-nightly runs on
+        # an office Mac, so a pool-signed build hands it the DMG once, with the appcast.
+        upload = next(s for s in JOBS["signer-dmg"]["steps"] if (s.get("with") or {}).get("name") == FINAL_DMG)
+        self.assertEqual(upload["with"]["path"].splitlines(), ["signer-out/${{ env.NIGHTLY_DMG_RELEASE }}",
+                                                         "signer-out/appcast-arm64.xml"])
+        steps = {s.get("name"): s for s in JOBS["verify-final-dmg-nightly"]["steps"]}
+        self.assertEqual(steps["Download final DMG"]["with"]["name"],
+                         "${{ needs.signer-dmg.result == 'success' && format('cmux-nightly-next-signer-final-dmg-{0}', "
+                         "needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha) || format('cmux-nightly-variant-{0}', matrix.variant) }}")
+        verify = steps["Verify final DMG artifact"]
+        self.assertEqual(verify["env"]["POOL_SIGNED"], "${{ needs.signer-dmg.result == 'success' }}")
+        run = verify["run"]
+        # The immutable copy is made from the release DMG before the verifier and the byte check
+        # read it, so its tested line is the verified digest; a copy already present is refused.
+        self.assertLess(run.index('cp "$release" "$immutable"'), run.index("verify-dmg-artifact.sh"))
+        self.assertLess(run.index('cp "$release" "$immutable"'), run.index('for dmg in final-dmg/'))
+        self.assertIn('[ ! -e "$immutable" ] ||', run)
+        # signer-dmg.sh makes the published immutable DMG the same way.
+        self.assertIn('cp "$NIGHTLY_DMG_RELEASE" "$NIGHTLY_DMG_IMMUTABLE"',
+                      (ROOT / "scripts/ci/nightly-steps/signer-dmg.sh").read_text())
 
 
 class VerifyAppcastItem(unittest.TestCase):
