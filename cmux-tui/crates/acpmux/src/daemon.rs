@@ -505,6 +505,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     // Before the ready line: a launcher may remove the home as soon as it reads it
     // (`daemon/home_watch.rs`). Ends with this function (dropped at shutdown).
     let home_gone = home_watch::watch(&home(), &socket_path(), &lock);
+    // The socket this daemon bound: a shutdown after its home was lost removes only that one.
+    let bound_socket = home_watch::Owned::now(&[&socket_path()]);
     if let Some(fd) = opts.ready_fd {
         write_ready(fd, &ready);
     }
@@ -604,6 +606,13 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         _ = shutdown => {}
     }
     tracing::info!("shutting down");
+    // Its home is gone (`daemon/home_watch.rs`): no later daemon can adopt its agents from
+    // there, so they end; and this shutdown removes nothing at the old paths, which may be
+    // another daemon's now (`config::mark_home_lost` refuses its writes there).
+    let home_lost = crate::config::home_lost();
+    if home_lost {
+        let _ = hub.end_agents_at_shutdown(Default::default());
+    }
     startup.abort();
     let _ = startup.await;
     // Its last heartbeat empties this daemon's rows in the hub's address book.
@@ -645,7 +654,9 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     }
     hub.stop_idle_reaper();
     // New clients get "connection refused" instead of a dying daemon.
-    let _ = std::fs::remove_file(socket_path());
+    if !home_lost || bound_socket.as_ref().is_some_and(|s| s.lost().is_none()) {
+        let _ = std::fs::remove_file(socket_path());
+    }
     // How many hosted agents this shutdown kept running for the next
     // daemon; unknown (a timeout) counts as kept.
     let kept = match tokio::time::timeout(SHUTDOWN_BUDGET, async {
@@ -670,9 +681,11 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         retry.abort();
         let _ = retry.await;
     }
-    let _ = std::fs::remove_file(home().join("daemon.pid"));
-    for file in [local_app_file, peer_file].into_iter().flatten() {
-        let _ = std::fs::remove_file(file);
+    if !home_lost {
+        let _ = std::fs::remove_file(home().join("daemon.pid"));
+        for file in [local_app_file, peer_file].into_iter().flatten() {
+            let _ = std::fs::remove_file(file);
+        }
     }
     tracing::info!("stopped");
     Ok(())
@@ -1075,7 +1088,7 @@ where
 /// first (`SHUTDOWN_BUDGET`, the router's stop and kill waits; 12.3 s on cosmic-gray on
 /// 2026-10-22), a starting one binds within `START_BUDGET`. The last start then has its own
 /// `START_BUDGET`.
-const HANDOVER_BUDGET: Duration = Duration::from_secs(20);
+pub const HANDOVER_BUDGET: Duration = Duration::from_secs(20);
 
 // A detached start may wait for the old owner before binding its own socket.
 // Keep its launcher alive through both phases, including the Windows pipe reader.
@@ -1293,6 +1306,11 @@ where
         check_autostart(path)?;
     }
     exe_path::check_start()?;
+    // The lock's holder serves this home at another socket: a start would wait out its own
+    // handover for it (`handover::wait`), and no wait makes it serve this one.
+    if let Some(other) = holder_elsewhere(path).await {
+        return Err(serves_elsewhere(path, &other));
+    }
     let deadline = tokio::time::Instant::now() + HANDOVER_BUDGET;
     loop {
         let ready = start_daemon().await?;
@@ -1305,13 +1323,7 @@ where
         }
         // The lock's holder serves this home at another socket: no wait makes it serve this one.
         if let Some(other) = holder_elsewhere(path).await {
-            return Err(anyhow!(
-                "the acpmux daemon that holds {} serves {}, not {}; unset ACPMUX_SOCKET or set it to {}",
-                home().join("daemon.lock").display(),
-                other.display(),
-                path.display(),
-                other.display()
-            ));
+            return Err(serves_elsewhere(path, &other));
         }
         if tokio::time::Instant::now() + HANDOVER_RETRY >= deadline {
             return Err(anyhow!(
@@ -1357,6 +1369,17 @@ fn check_autostart(path: &std::path::Path) -> Result<()> {
         Some(why) => Err(anyhow!(why)),
         None => Ok(()),
     }
+}
+
+/// The refusal when this home's daemon serves `other`, not `path`.
+fn serves_elsewhere(path: &std::path::Path, other: &std::path::Path) -> anyhow::Error {
+    anyhow!(
+        "the acpmux daemon that holds {} serves {}, not {}; unset ACPMUX_SOCKET or set it to {}",
+        home().join("daemon.lock").display(),
+        other.display(),
+        path.display(),
+        other.display()
+    )
 }
 
 /// The socket a daemon holding this home's lock serves, when it is not `path`: the daemon

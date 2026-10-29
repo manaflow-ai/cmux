@@ -11,6 +11,17 @@
 //! entry change, so the watch adds no wakeup (`tests/daemon_idle.rs`). Each event re-reads the
 //! three paths' identities (`lstat`); nothing else. The watch stops when [`HomeGone`] is
 //! dropped: at shutdown, or once it reported the loss.
+//!
+//! A removal at any depth is seen: removing a folder removes its entries first, the socket and
+//! the lock among them. Renaming an ancestor of the home (`mv /tmp/t /tmp/u` for the home
+//! `/tmp/t/.acpmux`) changes no entry in the watched folders, so it is seen only at the next
+//! entry change there; watching every ancestor would wake the daemon for activity anywhere
+//! above it (FSEvents watches a folder's whole tree). A command never starts a daemon in the
+//! old, now missing path (`config::autostart_refusal`).
+//!
+//! Once the loss is reported the shutdown removes nothing at the old paths except the socket
+//! it bound, and writes nothing under the old home (`config::mark_home_lost`): either may be
+//! another daemon's now.
 
 use std::future::Future;
 use std::path::{Path, PathBuf};
@@ -18,6 +29,7 @@ use std::pin::Pin;
 
 /// One path's identity: the device and inode it had when the daemon bound it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(not(unix), allow(dead_code))]
 pub(crate) struct Identity {
     dev: u64,
     ino: u64,
@@ -31,6 +43,7 @@ pub(crate) fn identity(path: &Path) -> Option<Identity> {
 
 /// The paths a running daemon owns, with the identity each had when it started.
 #[derive(Clone, Debug)]
+#[cfg_attr(not(unix), allow(dead_code))]
 pub(crate) struct Owned {
     paths: Vec<(PathBuf, Identity)>,
 }
@@ -108,18 +121,28 @@ pub(crate) fn watch(home: &Path, socket: &Path, lock: &Path) -> HomeGone {
         // Owned here: the watch lives exactly as long as this future.
         let _watcher = watcher;
         // A loss between reading the identities and the first watch.
-        if let Some(why) = owned.lost() {
-            return why;
-        }
-        loop {
+        let mut lost = owned.lost();
+        while lost.is_none() {
             if rx.recv().await.is_none() {
                 return std::future::pending().await;
             }
-            if let Some(why) = owned.lost() {
-                return why;
-            }
+            lost = owned.lost();
         }
+        // At once, before the shutdown starts: no write may make the old home again.
+        crate::config::mark_home_lost();
+        lost.unwrap_or_default()
     })
+}
+
+#[cfg(not(unix))]
+impl Owned {
+    pub(crate) fn now(_paths: &[&Path]) -> Option<Self> {
+        None
+    }
+
+    pub(crate) fn lost(&self) -> Option<String> {
+        None
+    }
 }
 
 #[cfg(not(unix))]

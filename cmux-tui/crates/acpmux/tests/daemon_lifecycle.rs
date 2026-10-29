@@ -640,10 +640,17 @@ fn a_daemon_started_under_umask_002_keeps_its_home_owner_only() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// `daemon run` for home `home` and socket `socket`, once it reported ready.
+/// `daemon run` for home `home` and socket `socket`, once it reported ready: its store on disk
+/// and one stand-in agent harness configured.
 async fn ready_daemon(dir: &Path, home: &Path, socket: &Path) -> std::process::Child {
-    let mut child = daemon_env::acpmux(dir)
-        .args(["daemon", "run", "--memory", "--listen", "127.0.0.1:0", "--ready-fd", "1"])
+    let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+    std::fs::write(
+        home.join("config.json"),
+        json!({"harnesses": {"fake": {"argv": ["python3", fake]}}, "defaultHarness": "fake", "permissionPolicy": "approve-all"}).to_string(),
+    )
+    .unwrap();
+    let mut child = daemon_env::command(dir, daemon_env::Agents::StandIn, &[])
+        .args(["daemon", "run", "--listen", "127.0.0.1:0", "--ready-fd", "1"])
         .args(["--log", "warn"])
         .env("ACPMUX_HOME", home)
         .env("ACPMUX_SOCKET", socket)
@@ -686,7 +693,8 @@ async fn exit_within(
 
 /// A test harness that removes its temporary home also ends the daemon it started there
 /// (cosmic-gray, 2026-10-29: two nightly daemons ran 8 days under a removed Python `mkdtemp`
-/// home). The daemon stops normally: its socket is gone afterwards.
+/// home). The daemon stops normally, with a live chat, and its shutdown's last saves never make
+/// the removed home again.
 #[tokio::test]
 async fn a_daemon_whose_home_is_removed_stops() {
     let dir = scratch("gone");
@@ -694,11 +702,17 @@ async fn a_daemon_whose_home_is_removed_stops() {
     std::fs::create_dir(&home).unwrap();
     let socket = home.join("s.sock");
     let mut child = ready_daemon(&dir, &home, &socket).await;
+    let mut rpc = Rpc::connect(&socket).await;
+    rpc.call(
+        "session/new",
+        json!({"cwd": dir, "mcpServers": [], "_meta": {"acpmux": {"name": "gone"}}}),
+    )
+    .await;
     std::fs::remove_dir_all(&home).unwrap();
     let status = exit_within(&mut child, acpmux::daemon::EXIT_BUDGET).await;
     let status = status.expect("the daemon still ran after its home was removed");
     assert!(status.success(), "{status:?}");
-    assert!(!home.exists(), "the stopping daemon made its removed home again");
+    assert!(!home.exists(), "the stopping daemon made its removed home again: {:?}", tree(&home));
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -717,6 +731,41 @@ async fn a_daemon_whose_home_is_replaced_stops() {
     let status = status.expect("the daemon still ran after its home was replaced");
     assert!(status.success(), "{status:?}");
     assert!(!socket.exists(), "the old home's daemon bound the new home's socket");
+    let left: Vec<_> = std::fs::read_dir(&home).unwrap().map(|e| e.unwrap().file_name()).collect();
+    assert!(left.is_empty(), "the old home's daemon wrote into the new home: {left:?}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A command whose `ACPMUX_SOCKET` is not the socket its home's running daemon serves fails at
+/// once, naming the one it serves, instead of starting a daemon that waits out the handover
+/// budget on the lock that daemon holds.
+#[tokio::test]
+async fn a_socket_the_homes_daemon_does_not_serve_fails_fast() {
+    let dir = scratch("other");
+    let home = dir.join("h");
+    std::fs::create_dir(&home).unwrap();
+    let socket = home.join("acpmux.sock");
+    let mut child = ready_daemon(&dir, &home, &socket).await;
+    let wrong = home.join("other.sock");
+    let started = Instant::now();
+    let out = daemon_env::acpmux(&dir)
+        .args(["ls"])
+        .env("ACPMUX_HOME", &home)
+        .env("ACPMUX_SOCKET", &wrong)
+        .env("ACPMUX_LOGIN_ENV", "0")
+        .stdin(std::process::Stdio::null())
+        .output()
+        .unwrap();
+    let took = started.elapsed();
+    unsafe {
+        libc::kill(child.id() as i32, libc::SIGTERM);
+    }
+    let stopped = exit_within(&mut child, acpmux::daemon::EXIT_BUDGET).await;
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success(), "{stderr}");
+    assert!(stderr.contains(&format!("serves {}", socket.display())), "{stderr}");
+    assert!(took < acpmux::daemon::HANDOVER_BUDGET, "failed after {took:?}");
+    assert!(stopped.is_some(), "the daemon did not stop on SIGTERM");
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -769,4 +818,18 @@ fn a_socket_without_its_home_starts_no_daemon() {
         default_home.display()
     );
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Every path under `dir`, for a failure message.
+fn tree(dir: &Path) -> Vec<PathBuf> {
+    let mut found = Vec::new();
+    let mut todo = vec![dir.to_path_buf()];
+    while let Some(path) = todo.pop() {
+        if let Ok(entries) = std::fs::read_dir(&path) {
+            todo.extend(entries.map_while(Result::ok).map(|e| e.path()));
+        }
+        found.push(path);
+    }
+    found.sort();
+    found
 }

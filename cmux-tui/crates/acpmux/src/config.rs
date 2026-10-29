@@ -69,6 +69,33 @@ pub(crate) fn autostart_refusal(
     }
 }
 
+/// Set once this daemon's home is gone (`daemon/home_watch.rs`); never cleared.
+static HOME_LOST: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// This daemon's home was removed or replaced: from now on it makes no folder and creates or
+/// opens no state file for writing under that path, which may be another daemon's home now.
+pub(crate) fn mark_home_lost() {
+    HOME_LOST.store(true, std::sync::atomic::Ordering::SeqCst);
+}
+
+/// Whether [`mark_home_lost`] was called.
+pub(crate) fn home_lost() -> bool {
+    HOME_LOST.load(std::sync::atomic::Ordering::SeqCst)
+}
+
+/// Refuses a write under a lost home ([`mark_home_lost`]): a shutdown's last saves would
+/// otherwise make a removed home again, or write this daemon's state into its replacement.
+pub(crate) fn refuse_lost_home(path: &Path) -> Result<()> {
+    let home = home();
+    anyhow::ensure!(
+        !(home_lost() && path.starts_with(&home)),
+        "the acpmux home {} is gone; {} is not written",
+        home.display(),
+        path.display()
+    );
+    Ok(())
+}
+
 /// Make one acpmux state directory owner-only, including an existing directory
 /// created by an older build under a permissive umask. Refuse links and a
 /// directory owned by another user before changing its permissions.
@@ -76,6 +103,7 @@ pub(crate) fn autostart_refusal(
 pub(crate) fn private_state_dir(dir: &Path) -> Result<()> {
     use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt};
 
+    refuse_lost_home(dir)?;
     validate_private_state_ancestors(dir)?;
     std::fs::DirBuilder::new().recursive(true).mode(0o700).create(dir)?;
     validate_private_state_ancestors(dir)?;
@@ -229,6 +257,7 @@ fn validate_private_state_file(file: &std::fs::File, path: &Path) -> Result<()> 
 #[cfg(unix)]
 pub(crate) fn private_state_rw(path: &Path) -> Result<std::fs::File> {
     use std::os::unix::fs::OpenOptionsExt;
+    refuse_lost_home(path)?;
 
     let file = std::fs::OpenOptions::new()
         .read(true)
@@ -247,6 +276,7 @@ pub(crate) fn private_state_rw(path: &Path) -> Result<std::fs::File> {
 #[cfg(unix)]
 pub(crate) fn private_state_append(path: &Path) -> Result<std::fs::File> {
     use std::os::unix::fs::OpenOptionsExt;
+    refuse_lost_home(path)?;
 
     let file = std::fs::OpenOptions::new()
         .append(true)
@@ -1520,6 +1550,7 @@ fn is_default_kind(k: &HarnessKind) -> bool {
 }
 
 pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
+    refuse_lost_home(path)?;
     static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let tmp = path.with_extension(format!("tmp-{}-{n}", std::process::id()));
