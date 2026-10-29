@@ -1,0 +1,161 @@
+{
+  "version": 1,
+  "build": "4096721596601",
+  "notes": "notes/4096721596601.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 27111,
+      "title": "gallery health: streaming-text#jump-during-stream gets its ready-time row (17400 ms)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26896,
+      "title": "ci: no job falls back to the stalled 12 vCPU Blacksmith Mac",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23700,
+      "title": "cmux-next sidebar: a page a chat opened leaves the chat's row icon",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25888,
+      "title": "ci: recut Stack Auth SDK fixture coverage in the SwiftPM package matrix from #24102",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26145,
+      "title": "fix(next): allow spaces in custom chat code fonts",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27596,
+      "title": "App Store: keep action widths stable across localized labels",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27612,
+      "title": "Fix transcript date separator localization",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26430,
+      "title": "fix(agent-chat): batch older history before publishing",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27064,
+      "title": "fix(agent-chat): keep received menu triggers active while open",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25966,
+      "title": "agent pane: keep Trust folder / Trust repo after Not now",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27373,
+      "title": "test: the refusal test's stand-in acpmux writes its ready line",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27400,
+      "title": "fix(machine-health): retain critical disk alarms when service failures flood the report",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27203,
+      "title": "fix(agent-pane): relay the composer's sign-in check (_acpmux/session/auth)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27487,
+      "title": "fix(acpmux): use fresh delivered machine secrets when launching agents",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26822,
+      "title": "fix(next): align permission menu gallery order",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27520,
+      "title": "acpmux: turn cap, so a session taking many agents' messages can end its turn",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26826,
+      "title": "test(next): refresh picker gallery health plays",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26959,
+      "title": "NEXT iOS: stream attachments to the Mac with no size cap",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24644,
+      "title": "[3330] cmux NEXT: use shared tokens for composer drop overlay",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26771,
+      "title": "cloud deliver-secrets: own SSH machines and acpmux peers, through the same receiver",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27472,
+      "title": "Cloud image-run: retry failed VM deletes and report incomplete cleanup",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27401,
+      "title": "fix(cloud): fail closed on malformed network probes and queued acpmux work",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27610,
+      "title": "ci(fleet): feat-parity-check cef-shim-cpp also runs the Chromium Host C++ tests",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27606,
+      "title": "acpmux: stdio MCP servers run on two tokio workers, not one per core",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27555,
+      "title": "acpmux: typed config for session task caps; slice cap scales with threads-max",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
