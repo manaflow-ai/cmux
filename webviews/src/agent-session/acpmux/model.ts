@@ -923,14 +923,14 @@ const userMetaHeight = (row: AcpmuxRow) => {
 };
 /// The author line over a shared chat's prompt (multiplayer/multiplayer.css `.cv-author`).
 const AUTHOR_HEIGHT = 22;
-const chromeHeight = (row: AcpmuxRow, beforeFooter: boolean) =>
+const chromeHeight = (row: AcpmuxRow, actions: boolean) =>
   row.kind === "user"
     ? USER_BUBBLE_PADDING +
       userMetaHeight(row) +
       (row.status ? USER_STATUS_HEIGHT : 0) +
       (row.author ? AUTHOR_HEIGHT : 0)
     : // A reply's own action row (MessageActions.tsx ReplyActions): the meta gap, then its line.
-      hasReplyActions(row, beforeFooter)
+      actions
       ? META_GAP + META_ROW
       : 0;
 /// The bubble's share of its row and its side padding, which sits inside that share (border-box).
@@ -1039,13 +1039,15 @@ const messageBelow = (beforeFooter: boolean) => (beforeFooter ? META_GAP : MESSA
 /// turn's end). App.tsx marks the same rows `acpmux-row--before-footer`.
 /// Whether a reply draws its own action row (MessageActions.tsx ReplyActions; Leo, 2026-10-29: "i
 /// feel like im frequently missing the copy/whatever buttons on these steers... but claude code
-/// allows those buttons in these situations. let's have those"): every finished reply with text,
-/// whatever follows it (a steer, another agent's message, a sent message, a tool or the running
-/// line), except the one right over its turn's footer, whose row the footer is. Read from the row and
-/// the row after it alone, as the transcript draws and estimates each row: no pass over the turn.
-export const hasReplyActions = (row: AcpmuxRow, beforeFooter: boolean) =>
+/// allows those buttons in these situations. let's have those"): every finished reply with text that
+/// something follows (a steer, another agent's message, a sent message, a tool row), except the one
+/// right over its turn's footer or over the running line the footer takes the place of, whose row
+/// the footer is (so the turn's end moves nothing). Read from the row and the drawn row after it
+/// alone, as the transcript draws and estimates each row: no pass over the turn.
+export const hasReplyActions = (row: AcpmuxRow, next: AcpmuxRow | undefined) =>
   row.kind === "assistant" &&
-  !beforeFooter &&
+  next !== undefined &&
+  !isBeforeFooter(row, next) &&
   row.streaming !== true &&
   row.settled !== true &&
   (row.text ?? "").trim().length > 0;
@@ -1086,8 +1088,14 @@ export const isContinuationFooter = (row: AcpmuxRow, next: AcpmuxRow | undefined
     next.kind === WORKING ||
     next.kind === THINKING ||
     next.kind === ACTIVITY_LINE);
-/// What the row after a row changes about its height (`beforeFooter`), as one key.
-const rowEdge = (row: AcpmuxRow, next: AcpmuxRow | undefined) =>
+/// What the row after a row changes about its height (`beforeFooter`, and a reply's own action row,
+/// `hasReplyActions`), as one key.
+const rowEdge = (row: AcpmuxRow, next: AcpmuxRow | undefined) => {
+  const edge = footerEdge(row, next);
+  return hasReplyActions(row, next) ? `${edge ?? ""}${ACTIONS_EDGE}` : edge;
+};
+const ACTIONS_EDGE = "+actions";
+const footerEdge = (row: AcpmuxRow, next: AcpmuxRow | undefined) =>
   isBeforeFooter(row, next)
     ? "footer"
     : isContinuationFooter(row, next)
@@ -1098,7 +1106,13 @@ const rowEdge = (row: AcpmuxRow, next: AcpmuxRow | undefined) =>
           ? "last-turn"
           : undefined;
 
-function fallbackRowHeight(row: AcpmuxRow, width: number, beforeFooter = false, lastTurn = false): number {
+function fallbackRowHeight(
+  row: AcpmuxRow,
+  width: number,
+  beforeFooter = false,
+  lastTurn = false,
+  actions = false,
+): number {
   const finish = (height: number) =>
     height === 0 || !lastTurn ? height : height + TURN_GAP - (row.kind === "activity" ? TOOL_RUN_BOTTOM : MESSAGE_GAP);
   const textLines = Math.max(1, Math.ceil((row.text?.length ?? 0) / Math.max(24, Math.floor(width / 8))));
@@ -1192,7 +1206,7 @@ function fallbackRowHeight(row: AcpmuxRow, width: number, beforeFooter = false, 
     row.kind === "typing"
   )
     return finish(37);
-  return finish(8 + messageBelow(beforeFooter) + chromeHeight(row, beforeFooter) + textLines * metrics().lineHeight);
+  return finish(8 + messageBelow(beforeFooter) + chromeHeight(row, actions) + textLines * metrics().lineHeight);
 }
 
 /// A link target the page opens: absolute http and https only (replyHref.ts).
@@ -1367,6 +1381,8 @@ function measuredRowHeight(
   lastTurn = false,
   sessionId?: string,
   continuation = false,
+  /// Whether a reply draws its own action row (`hasReplyActions`).
+  actions = false,
 ): number {
   const finish = (height: number) =>
     height === 0 || !lastTurn ? height : height + TURN_GAP - (row.kind === "activity" ? TOOL_RUN_BOTTOM : MESSAGE_GAP);
@@ -1378,7 +1394,7 @@ function measuredRowHeight(
     return isEmptyFooter(row) ? Math.max(META_ROW, gap) : META_ROW + gap;
   }
   // The live activity line under a plan has a label, but its row still reserves the footer slot.
-  if (row.kind === ACTIVITY_LINE && row.below) return fallbackRowHeight(row, width, beforeFooter, lastTurn);
+  if (row.kind === ACTIVITY_LINE && row.below) return fallbackRowHeight(row, width, beforeFooter, lastTurn, actions);
   // Another agent's message: one 26px line in `.cv-received`'s 2px margins, then its glass card
   // (4px above, 6px below, 8px padding each side, 22px in from the icon column and 12px padding
   // across), its text cut to RECEIVED_LINES lines (opened, the row measures itself); a notice is a
@@ -1418,7 +1434,7 @@ function measuredRowHeight(
   // A finished step of only quiet thoughts draws nothing (conversation/ThoughtRow.tsx).
   if (onlyQuietThoughts(row)) return finish(0);
   // A preview row's text is its address, not prose: the card's height is fixed.
-  if (!row.text || row.kind === PREVIEW) return fallbackRowHeight(row, width, beforeFooter, lastTurn);
+  if (!row.text || row.kind === PREVIEW) return fallbackRowHeight(row, width, beforeFooter, lastTurn, actions);
   let entry = cache.get(row.id);
   if (!entry) {
     entry = { text: "", blocks: [], closedBlocks: [], closedEnd: 0, lexedLength: 0, prepared: new Map() };
@@ -1442,7 +1458,7 @@ function measuredRowHeight(
           ? PASTE_CHIP_HEIGHT
           : Math.max(lineHeight, textHeight(part.text, contentWidth, entry.prepared, usedPrepared));
   } else {
-    if (entry.blocks.length === 0) return fallbackRowHeight(row, width, beforeFooter, lastTurn);
+    if (entry.blocks.length === 0) return fallbackRowHeight(row, width, beforeFooter, lastTurn, actions);
     contentHeight = (entry.blocks.length - 1) * BLOCK_GAP;
     for (const block of entry.blocks) contentHeight += blockHeight(block, contentWidth, entry.prepared, usedPrepared);
   }
@@ -1454,7 +1470,7 @@ function measuredRowHeight(
   // Chief's draws its own bubble (ChiefPromptBubble.tsx).
   if (row.kind === "user" && row.from !== "chief" && !chiefEnvelope(row.text))
     contentHeight = collapsedPromptHeight(contentHeight, metrics().lineHeight);
-  const height = messageBelow(beforeFooter) + chromeHeight(row, beforeFooter) + contentHeight;
+  const height = messageBelow(beforeFooter) + chromeHeight(row, actions) + contentHeight;
   return finish(beforeFooter ? height : Math.max(34, height));
 }
 
@@ -1462,10 +1478,7 @@ function measuredRowHeight(
 /// new object), so a long chat's layout measures only the rows that changed since the last one.
 /// The row's edge is kept too: a reply's height changes when its turn's footer arrives after it, and
 /// a footer's when a prompt follows it.
-export type RowHeights = WeakMap<
-  AcpmuxRow,
-  { width: number; height: number; edge?: "footer" | "last" | "last-turn" | "continuation" }
->;
+export type RowHeights = WeakMap<AcpmuxRow, { width: number; height: number; edge?: string }>;
 
 /** DOM-free row geometry. Only visible rows need their React elements painted. */
 export function layoutConversation(
@@ -1522,10 +1535,11 @@ export function layoutConversation(
               row,
               width,
               cache,
-              edge === "footer",
-              edge === "last-turn",
+              edge?.startsWith("footer") === true,
+              edge?.startsWith("last-turn") === true,
               sessionId,
-              edge === "continuation",
+              edge?.startsWith("continuation") === true,
+              edge?.endsWith(ACTIONS_EDGE) === true,
             );
       known?.set(row, { width, height, edge });
     }

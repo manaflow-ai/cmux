@@ -12,7 +12,6 @@ import { PendingSteer } from "../src/agent-session/acpmux/conversation/PendingSt
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
 import * as model from "../src/agent-session/acpmux/model";
 import {
-  isBeforeFooter,
   layoutConversation,
   nextDrawnRow,
   type AcpmuxActivity,
@@ -50,14 +49,16 @@ const ANSWER =
   "The review of the Stop fix is still running and has no verdict yet; I told the lane it need not ask again.";
 
 // Read off the module, so the file runs (and these tests fail) where the rule does not exist yet.
-const { hasReplyActions } = model as { hasReplyActions?: (row: AcpmuxRow, beforeFooter: boolean) => boolean };
+const { hasReplyActions } = model as unknown as {
+  hasReplyActions?: (row: AcpmuxRow, next: AcpmuxRow | undefined) => boolean;
+};
 /// Which drawn replies have their own row, decided as the transcript draws each: from the row and
 /// the row after it.
 const marked = (rows: readonly AcpmuxRow[]) => {
   expect(hasReplyActions).toBeDefined();
   return Object.fromEntries(
     rows.flatMap((one, index) =>
-      one.kind === "assistant" ? [[one.id, hasReplyActions!(one, isBeforeFooter(one, nextDrawnRow(rows, index)))]] : [],
+      one.kind === "assistant" ? [[one.id, hasReplyActions!(one, nextDrawnRow(rows, index))]] : [],
     ),
   );
 };
@@ -114,24 +115,34 @@ test("in a running turn a reply followed by a sent message keeps its row; the st
   expect(turnView(source, new Set(), { now: 10_000, working: true }).find((one) => one.id === "a1")).toBe(source[1]);
 });
 
-test("a finished reply under a running tool keeps its row, with the tool folded into the running line", () => {
+test("a reply right over the running line waits for the footer that takes its place; once work follows, it has its row", () => {
   const running: AcpmuxActivity = { ...send, tool: { ...send.tool!, id: "send-2", status: "in_progress" } };
   const source = [
     row("u1", "user", 0, { text: "Report the merge." }),
     reply("a1", 1_000, BEFORE_STEER),
     row("t1", "activity", 2_000, { items: [running], toolCount: 1 }),
   ];
-  for (const options of [{ working: true }, { working: true, liveRuns: true, lineBelow: true }]) {
-    const rows = turnView(source, new Set(), { now: 10_000, ...options });
-    expect(marked(rows)).toEqual({ a1: true });
-  }
+  // The default running turn: the running call has its own row after the reply.
+  expect(marked(turnView(source, new Set(), { now: 10_000, working: true }))).toEqual({ a1: true });
+  // With the running line below the turn, nothing moves when the turn ends: the reply right over
+  // the line is estimated and drawn as over the footer that replaces it.
+  const lined = turnView(source, new Set(), { now: 10_000, working: true, liveRuns: true, lineBelow: true });
+  const over = lined.findIndex((one) => one.id === "a1");
+  if (nextDrawnRow(lined, over)?.below) expect(marked(lined)).toEqual({ a1: false });
+  else expect(marked(lined)).toEqual({ a1: true });
 });
 
-test("the last reply of a finished turn with no footer keeps its row", () => {
+test("the last row of the chat waits: a reply with nothing after it gets its row when something follows", () => {
   const rows = turnView([row("u1", "user", 0, { text: "What changed?" }), reply("a1", 1_000, ANSWER)], new Set(), {
     now: 10_000,
   });
-  expect(marked(rows)).toEqual({ a1: true });
+  expect(marked(rows)).toEqual({ a1: false });
+  // Laid out alone and then with a message after it, the reply is placed again with its row.
+  const alone = layoutConversation(rows, 600);
+  const more = [...rows, row("m1", "user", 2_000, { text: "Also.", incoming: message("Also.") })];
+  const after = layoutConversation(more, 600, undefined, undefined, undefined, { rows, layout: alone });
+  const at = rows.findIndex((one) => one.id === "a1");
+  expect(after.heights[at]! - alone.heights[at]!).toBeGreaterThanOrEqual(28);
 });
 
 test("the row draws Copy and the reply's age, and the layout reserves its line", () => {

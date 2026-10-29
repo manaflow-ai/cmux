@@ -517,8 +517,8 @@ type NativeRegistry = Record<string, MeasurableRenderer>;
 type OpenDiff = (rowId: string, path?: string, opener?: HTMLElement) => void;
 type RowProps = {
   row: AcpmuxRow;
-  /// Whether the row sits right over its turn's footer (model.ts `isBeforeFooter`).
-  beforeFooter?: boolean;
+  /// Whether a reply draws its own action row (model.ts `hasReplyActions`, from the row after it).
+  replyActions?: boolean;
   sessionId?: string;
   onToggleActivity: (id: string) => void;
   expanded: boolean;
@@ -931,7 +931,7 @@ const openChangedFile = (path: string, where: "tab" | "editor") => callNative("f
 
 /// A prompt draws as the user typed it, in a bubble at the right; a reply as Markdown.
 const MessageRow = memo(
-  function MessageRow({ row, beforeFooter, githubRepository }: RowProps) {
+  function MessageRow({ row, replyActions, githubRepository }: RowProps) {
     const t = useT();
     // A started task's result, which acpmux sent as a prompt: one line, never the person's bubble.
     if (row.kind === "user" && row.received) return <ReceivedResult result={row.received} onOpen={openOfferChat} />;
@@ -1054,7 +1054,7 @@ const MessageRow = memo(
     );
     // A finished reply its turn's footer does not serve keeps its own action row, whatever follows
     // it (model.ts hasReplyActions).
-    if (!hasReplyActions(row, beforeFooter === true)) return reply;
+    if (!replyActions) return reply;
     return (
       <>
         {reply}
@@ -1065,7 +1065,7 @@ const MessageRow = memo(
   (previous, next) =>
     previous.row.id === next.row.id &&
     previous.row.version === next.row.version &&
-    previous.beforeFooter === next.beforeFooter &&
+    previous.replyActions === next.replyActions &&
     previous.githubRepository === next.githubRepository,
 );
 
@@ -4164,7 +4164,7 @@ export function VirtualTranscript({
                     >
                       <Component
                         row={row}
-                        beforeFooter={isBeforeFooter(row, next)}
+                        replyActions={hasReplyActions(row, next)}
                         sessionId={sessionId}
                         onToggleActivity={toggleRow}
                         onOpenDiff={onOpenDiff}
