@@ -226,9 +226,11 @@ struct InternalPageDiscardPolicyCoverageTests {
     }
 
     /// A table of `count` rows of 20 points in a 200-point scroll view, scrolled down by `offset`,
-    /// in a container; the data source is returned too (a table holds its data source weakly).
-    static func scrolledTable(count: Int, offset: CGFloat) -> (container: NSView, rows: Rows) {
+    /// in a container; the data source is returned too (a table holds its data source weakly). `style`: the
+    /// table's style; `.inset` (the default style's effective style on macOS 26 and 27) pads the rows.
+    static func scrolledTable(count: Int, offset: CGFloat, style: NSTableView.Style = .plain) -> (container: NSView, rows: Rows) {
         let table = NSTableView()
+        table.style = style
         table.addTableColumn(NSTableColumn(identifier: NSUserInterfaceItemIdentifier("c")))
         table.rowHeight = 20
         table.intercellSpacing = .zero
@@ -251,13 +253,18 @@ struct InternalPageDiscardPolicyCoverageTests {
         func numberOfRows(in tableView: NSTableView) -> Int { count }
     }
 
-    @Test func theTaskManagerSavesTheRowAtTheTopOfItsTable() {
+    /// The saved row is the first row shown whole at the top. An inset table (the default style's effective style
+    /// on macOS 26 and 27, which the fleet runs) pads 10 points above its first row: the point at the top is then
+    /// padding when the table is at its top (no row: nothing was saved), and the row above the first whole one when
+    /// it is scrolled (the restore came back one row up).
+    @Test(arguments: [NSTableView.Style.plain, .inset])
+    func theTaskManagerSavesTheRowAtTheTopOfItsTable(_ style: NSTableView.Style) {
         let rows = (0..<50).map { index in
             TaskManagerRow(id: ProcessKey(pid: Int32(1000 + index)), kind: .app, task: "t", name: "p", cpu: nil, memoryBytes: 0)
         }
-        let scrolled = Self.scrolledTable(count: rows.count, offset: 400)
+        let scrolled = Self.scrolledTable(count: rows.count, offset: 400, style: style)
         #expect(TaskManagerPageService.topRow(in: scrolled.container, rows: rows) == ProcessKey(pid: 1020), "400 points down: row 20")
-        let top = Self.scrolledTable(count: rows.count, offset: 0)
+        let top = Self.scrolledTable(count: rows.count, offset: 0, style: style)
         #expect(TaskManagerPageService.topRow(in: top.container, rows: rows) == ProcessKey(pid: 1000))
         #expect(TaskManagerPageService.topRow(in: NSView(), rows: rows) == nil, "no table")
         withExtendedLifetime((scrolled.rows, top.rows)) {}
