@@ -127,7 +127,8 @@ pub(super) fn runs(mux: &Mux, client: u64, params: RunsParams) -> anyhow::Result
     }
     if let Some(answers) = &answers {
         anyhow::ensure!(
-            answers.len() <= MAX_RUNS_PAGE as usize && answers.iter().all(|answer| !answer.is_empty() && answer.len() <= 128),
+            answers.len() <= MAX_RUNS_PAGE as usize
+                && answers.iter().all(|answer| !answer.is_empty() && answer.len() <= 128),
             "bad request: answers must be at most {MAX_RUNS_PAGE} keys"
         );
     }

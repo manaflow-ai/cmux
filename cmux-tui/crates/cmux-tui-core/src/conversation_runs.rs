@@ -611,14 +611,17 @@ impl ConversationStore {
             return Err(rejected(Reject::UnknownConversation));
         }
         if let Some(answers) = answers {
-            let mut statement = self.connection.prepare(
-                "SELECT run_json FROM conversation_run WHERE conversation = ?1",
-            )?;
-            let wanted: std::collections::HashSet<&str> = answers.iter().map(String::as_str).collect();
+            let mut statement = self
+                .connection
+                .prepare("SELECT run_json FROM conversation_run WHERE conversation = ?1")?;
+            let wanted: std::collections::HashSet<&str> =
+                answers.iter().map(String::as_str).collect();
             let mut runs = Vec::new();
             for json in statement.query_map(params![conversation], |row| row.get::<_, String>(0))? {
                 let run: Run = serde_json::from_str(&json?)?;
-                if run.answers.iter().any(|answer| wanted.contains(answer.as_str())) { runs.push(run); }
+                if run.answers.iter().any(|answer| wanted.contains(answer.as_str())) {
+                    runs.push(run);
+                }
             }
             return Ok((runs, false));
         }
