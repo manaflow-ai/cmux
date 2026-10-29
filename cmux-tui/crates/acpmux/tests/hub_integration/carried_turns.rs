@@ -283,6 +283,13 @@ async fn a_forced_stop_of_a_carried_turn_answers_its_unread_steers() {
         .await
         .expect("the steer unread in the stopped turn was never answered");
     assert_eq!(unread.unwrap()["stopReason"], "cancelled");
+    // The carried turn's task logs its end once the forced answer reaches it.
+    for _ in 0..400 {
+        if records(&hub, &id, "turn_result").len() == 2 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
     let ended = records(&hub, &id, "turn_result");
     assert_eq!(ended.last().unwrap()["turnId"], turns[1]["turnId"], "{ended:#?}");
     assert_eq!(ended.last().unwrap()["cancelForced"], true, "{ended:#?}");
