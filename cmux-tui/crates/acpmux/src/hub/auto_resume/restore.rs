@@ -105,7 +105,7 @@ impl Hub {
                 let (root, done) = split_attempt(last.msg["promptId"].as_str().unwrap_or_default());
                 if done < MAX_ATTEMPTS {
                     retry = Some(RetrySummary {
-                        attempt: done + 1,
+                        attempt: (done + 1) as u64,
                         of: MAX_ATTEMPTS as u64,
                         reason,
                         next_at: crate::hub::now_ms(),
