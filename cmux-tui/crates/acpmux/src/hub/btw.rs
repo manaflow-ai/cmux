@@ -94,7 +94,8 @@ async fn with_inline_creation(
     deadline: Option<tokio::time::Instant>,
     family: String,
     harness_env: std::collections::BTreeMap<String, String>,
-    transcripts_before: std::collections::BTreeSet<std::path::PathBuf>,
+    target_name: String,
+    target_parent: Option<String>,
     future: Pin<Box<dyn Future<Output = Result<Arc<Session>, RpcError>> + Send>>,
 ) -> Result<Arc<Session>, RpcError> {
     let Some(deadline) = deadline else {
@@ -110,42 +111,24 @@ async fn with_inline_creation(
             if let Ok(Ok(side)) = task.await {
                 hub.btw_cleanup(&side, &family, &harness_env).await;
             } else {
-                cleanup_new_transcripts(&family, &harness_env, &transcripts_before);
+                // `fork` publishes its Session before startup awaits can create a
+                // harness transcript. Find only this request's session by its
+                // unique name and parent; never sweep the shared transcript root.
+                let targets: Vec<_> = hub
+                    .sessions()
+                    .into_iter()
+                    .filter(|candidate| {
+                        let meta = candidate.meta();
+                        meta.name == target_name && meta.parent_id == target_parent
+                    })
+                    .collect();
+                for side in targets {
+                    hub.btw_cleanup(&side, &family, &harness_env).await;
+                }
             }
             Err(RpcError::internal("the inline side question timed out"))
         }
     }
-}
-
-fn transcript_files(
-    family: &str,
-    env: &std::collections::BTreeMap<String, String>,
-) -> std::collections::BTreeSet<std::path::PathBuf> {
-    let homes = crate::adopt::HarnessHomes::from_env().with_env(&[env]);
-    let root = match family {
-        "claude" => homes.claude.join("projects"),
-        "codex" => homes.codex.join("sessions"),
-        _ => return Default::default(),
-    };
-    let mut out: std::collections::BTreeSet<std::path::PathBuf> = Default::default();
-    let mut dirs = vec![root];
-    while let Some(dir) = dirs.pop() {
-        for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
-            let path = entry.path();
-            if path.is_dir() {
-                dirs.push(path);
-            } else if path.extension().is_some_and(|e| e == "jsonl")
-                && (family != "codex"
-                    || path
-                        .file_name()
-                        .and_then(|n| n.to_str())
-                        .is_some_and(|n| n.starts_with("rollout-")))
-            {
-                out.insert(path);
-            }
-        }
-    }
-    out
 }
 
 fn transcript_file(
@@ -164,12 +147,8 @@ fn transcript_file(
     }
 }
 
-fn cleanup_new_transcripts(
-    family: &str,
-    env: &std::collections::BTreeMap<String, String>,
-    before: &std::collections::BTreeSet<std::path::PathBuf>,
-) {
-    for file in transcript_files(family, env).difference(before) {
+fn remove_transcript(family: &str, env: &std::collections::BTreeMap<String, String>, id: &str) {
+    if let Some(file) = transcript_file(family, env, id) {
         let _ = std::fs::remove_file(file);
     }
 }
@@ -284,7 +263,8 @@ impl Hub {
                     inline_deadline,
                     family.clone(),
                     harness_env.clone(),
-                    transcript_files(&family, &harness_env),
+                    name.clone(),
+                    Some(session.id.clone()),
                     Box::pin({
                         let hub = self.clone();
                         let parent = session.clone();
@@ -333,7 +313,8 @@ impl Hub {
                     inline_deadline,
                     family.clone(),
                     harness_env.clone(),
-                    transcript_files(&family, &harness_env),
+                    name.clone(),
+                    None,
                     Box::pin({
                         let hub = self.clone();
                         let req = req.clone();
@@ -351,7 +332,8 @@ impl Hub {
                             inline_deadline,
                             family.clone(),
                             harness_env.clone(),
-                            transcript_files(&family, &harness_env),
+                            name.clone(),
+                            None,
                             Box::pin({
                                 let hub = self.clone();
                                 async move {
@@ -533,11 +515,8 @@ impl Hub {
         if let Err(e) = self.kill(side, true).await {
             tracing::warn!(session = %side.id, "inline side question cleanup: {e}");
         }
-        if let Some(sid) = agent_sid
-            && let Some(file) = transcript_file(family, harness_env, &sid)
-            && let Err(e) = std::fs::remove_file(&file)
-        {
-            tracing::warn!(session = %side.id, "inline side question transcript: {e}");
+        if let Some(sid) = agent_sid {
+            remove_transcript(family, harness_env, &sid);
         }
     }
 
@@ -868,35 +847,23 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn cancelled_inline_creation_purges_a_transcript_created_before_abort() {
+    async fn inline_transcript_cleanup_targets_only_requested_session() {
         let root = std::env::temp_dir().join(format!("acpmux-btw-cancel-{}", uuid::Uuid::now_v7()));
-        let projects = root.join("projects");
+        let projects = root.join("projects").join("p");
         std::fs::create_dir_all(&projects).unwrap();
         let transcript = projects.join("temporary.jsonl");
+        let concurrent = projects.join("concurrent.jsonl");
         let env = std::collections::BTreeMap::from([(
             "CLAUDE_CONFIG_DIR".to_owned(),
             root.to_string_lossy().into_owned(),
         )]);
-        let before = transcript_files("claude", &env);
         let hub = Hub::new(Config::default(), Box::new(crate::store::MemoryStore::default()));
-        let path = transcript.clone();
-        let future: Pin<Box<dyn Future<Output = Result<Arc<Session>, RpcError>> + Send>> =
-            Box::pin(async move {
-                std::fs::write(path, "temporary").unwrap();
-                tokio::time::sleep(std::time::Duration::from_secs(60)).await;
-                Err(RpcError::internal("unreachable"))
-            });
-        let result = with_inline_creation(
-            hub.clone(),
-            Some(tokio::time::Instant::now() + std::time::Duration::from_millis(20)),
-            "claude".into(),
-            env,
-            before,
-            future,
-        )
-        .await;
-        assert!(result.is_err());
-        assert!(!transcript.exists(), "cancelled inline creation leaves no transcript");
+        std::fs::write(&transcript, "temporary").unwrap();
+        std::fs::write(&concurrent, "concurrent").unwrap();
+        assert!(transcript.exists());
+        remove_transcript("claude", &env, "temporary");
+        assert!(!transcript.exists(), "inline cleanup leaves no temporary transcript");
+        assert!(concurrent.exists(), "cleanup must preserve a concurrent transcript");
         hub.shutdown_all().await;
         let _ = std::fs::remove_dir_all(root);
     }

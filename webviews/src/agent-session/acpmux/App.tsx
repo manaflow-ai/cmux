@@ -9378,6 +9378,7 @@ function AcpmuxPane() {
                           (reply) => reply.text,
                         ),
                       openSide: (sessionId) => postNative("chat.sideChat", { sessionId }),
+                      discardSide: (sessionId) => client.discard(sessionId),
                       openedMessage: () => translate("sideQuestion.opened"),
                       staleMessage: () => translate("error.notOpen"),
                     }),

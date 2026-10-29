@@ -28,6 +28,7 @@ export async function askBtwQuestion(
   actions: {
     inline(question: string, sessionId: string): Promise<string>;
     openSide(sessionId: string): Promise<unknown>;
+    discardSide?(sessionId: string): void;
     openedMessage(): string;
     staleMessage(): string;
   },
@@ -48,8 +49,16 @@ export async function askBtwQuestion(
     }
     // Older daemons ignore `inline`: use only the legacy request shape.
     const side = await client.btw(question, sessionId);
-    if (!current()) throw new Error(actions.staleMessage());
-    await actions.openSide(side);
+    if (!current()) {
+      actions.discardSide?.(side);
+      throw new Error(actions.staleMessage());
+    }
+    try {
+      await actions.openSide(side);
+    } catch (error) {
+      actions.discardSide?.(side);
+      throw error;
+    }
     return actions.openedMessage();
   } catch (error) {
     // Native replies keep the daemon's trust reason and folder in details;
