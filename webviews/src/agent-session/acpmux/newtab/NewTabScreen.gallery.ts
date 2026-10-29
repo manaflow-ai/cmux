@@ -378,11 +378,7 @@ export default agentPaneEntry({
           throw new Error("the inherited project is not shown in the established location slot");
         const before = location.getBoundingClientRect();
         if (before.width <= 0 || before.height <= 0) throw new Error("the location slot is not mounted");
-        const field = ctx.document.querySelector<HTMLTextAreaElement>(".nt-field")!;
-        field.value = "keep this project";
-        field.dispatchEvent(
-          new InputEvent("input", { bubbles: true, inputType: "insertText", data: "keep this project" }),
-        );
+        await ctx.type("keep this project", { selector: ".nt-field" });
         await ctx.waitFor(() => !(ctx.document.querySelector<HTMLButtonElement>(".nt-send")?.disabled ?? true));
         const after = location.getBoundingClientRect();
         if (Math.abs(after.left - before.left) > 1 || Math.abs(after.top - before.top) > 1)
