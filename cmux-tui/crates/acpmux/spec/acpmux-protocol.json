@@ -409,6 +409,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/inbox_digest",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/send_queue",
       "params": true,
       "result": true
@@ -937,6 +943,12 @@
     {
       "kind": "request",
       "name": "_acpmux/set_turn_cap",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/set_coordinator",
       "params": true,
       "result": true
     },
@@ -3331,6 +3343,11 @@
           },
           "type": "array"
         },
+        "inbox": {
+          "default": false,
+          "description": "Waits in a coordinator's inbox for its digest (`hub/coordinator.rs`): another agent's\nmessage that takes no turn by itself. False from a peer on an older acpmux.",
+          "type": "boolean"
+        },
         "prompt": {
           "type": "string"
         },
@@ -3353,6 +3370,7 @@
         "fromAgent",
         "held",
         "images",
+        "inbox",
         "prompt",
         "promptId",
         "queuedAt",

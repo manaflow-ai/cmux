@@ -288,7 +288,11 @@ impl Hub {
         // steering in or stopping a turn by itself (`coordinator.rs`). Read again after the await
         // below, and under the queue's lock when it is queued (`enqueue`), so a setting changed
         // meanwhile decides it.
-        let may_wait_in_inbox = super::coordinator::may_wait_in_inbox(&opts);
+        let may_wait_in_inbox = super::coordinator::may_wait_in_inbox(
+            opts.send_now,
+            opts.provenance.as_ref(),
+            opts.agent.as_deref(),
+        );
         let inbox = may_wait_in_inbox && session.is_coordinator();
         // Another agent's message to a turn past its cap waits for the next turn (`turn_cap.rs`).
         let capped = running.is_some()
