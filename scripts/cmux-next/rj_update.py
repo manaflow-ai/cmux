@@ -91,21 +91,14 @@ def _clone(src, dst):
         subprocess.run(["cp", "-R", src, dst], check=True)
 
 
-def install(bundle, new_src, original_src, codesign="/usr/bin/codesign"):
-    """Puts the build at `new_src` in place of the app copy at `bundle` (which must not be running),
-    keeping the copy's identity (updated_info); `original_src` is the build the copy was made from.
-    Returns a report: commits, names before and after, notes. Raises on any failure, leaving
-    `bundle` as it was."""
-    bundle = bundle.rstrip("/")
-    if not os.path.isdir(bundle):
-        raise RuntimeError(f"no installed copy at {bundle}")
-    if not os.path.isdir(new_src):
-        raise RuntimeError(f"no build to update to at {new_src}")
-    installed = info_of(bundle)
-    names_before = build_names.of_app(bundle)
+def _place(bundle, new_src, original_src, installed, codesign):
+    """B, with the identity of the `installed` plist, at `bundle`: staged beside it, signed, moved in by
+    rename. A copy already at `bundle` is replaced; on any failure (an interrupt included) it is put back
+    and nothing is left beside it. Returns (info, notes)."""
     stage, old = bundle + ".rj-update", bundle + ".rj-replaced"
     for path in (stage, old):
         shutil.rmtree(path, ignore_errors=True)
+    had_copy = os.path.isdir(bundle)
     try:
         _clone(new_src, stage)
         info, notes = updated_info(installed, info_of(original_src) if original_src else {}, info_of(new_src))
@@ -114,17 +107,33 @@ def install(bundle, new_src, original_src, codesign="/usr/bin/codesign"):
         signed = subprocess.run([codesign, "--force", "--deep", "--sign", "-", stage], capture_output=True, text=True)
         if signed.returncode != 0:
             raise RuntimeError(f"codesign of {stage} failed: {(signed.stderr or signed.stdout).strip()[:300]}")
-        os.rename(bundle, old)
-        try:
-            os.rename(stage, bundle)
-        except OSError:
-            os.rename(old, bundle)
-            raise
+        if had_copy:
+            os.rename(bundle, old)
+        os.rename(stage, bundle)
     except BaseException:
+        # SystemExit too (the journey's --max-seconds and signal handlers): the copy is never left missing.
+        if had_copy and os.path.isdir(old) and not os.path.lexists(bundle):
+            os.rename(old, bundle)
         shutil.rmtree(stage, ignore_errors=True)
         raise
     # The old copy's running helpers keep their open files; its path is gone, as after an update.
     shutil.rmtree(old, ignore_errors=True)
+    return info, notes
+
+
+def install(bundle, new_src, original_src, codesign="/usr/bin/codesign"):
+    """Puts the build at `new_src` in place of the app copy at `bundle` (which must not be running),
+    keeping the copy's identity (updated_info); `original_src` is the build the copy was made from.
+    Returns a report: commits, names before and after, notes, and `identity` (the copy's plist before,
+    for reinstall). Raises on any failure, leaving `bundle` as it was."""
+    bundle = bundle.rstrip("/")
+    if not os.path.isdir(bundle):
+        raise RuntimeError(f"no installed copy at {bundle}")
+    if not os.path.isdir(new_src):
+        raise RuntimeError(f"no build to update to at {new_src}")
+    installed = info_of(bundle)
+    names_before = build_names.of_app(bundle)
+    info, notes = _place(bundle, new_src, original_src, installed, codesign)
     return {
         "from_commit": commit_of(original_src) if original_src else None,
         "to_commit": commit_of(new_src),
@@ -132,4 +141,20 @@ def install(bundle, new_src, original_src, codesign="/usr/bin/codesign"):
         "names_before": names_before,
         "names_after": build_names.of_app(bundle),
         "notes": notes,
+        "identity": installed,
     }
+
+
+def reinstall(bundle, new_src, original_src, identity, codesign="/usr/bin/codesign"):
+    """The updated copy again, when a later quit left `bundle` gone: B with the same `identity` (the
+    report's), so its names stay A's. Returns the names it has."""
+    bundle = bundle.rstrip("/")
+    _place(bundle, new_src, original_src, identity, codesign)
+    return build_names.of_app(bundle)
+
+
+def different_builds(a, b):
+    """True only when both commits are known and name different commits (a short and a full hash of
+    one commit are the same build)."""
+    a, b = (a or "").lower(), (b or "").lower()
+    return bool(a) and bool(b) and not (a.startswith(b) or b.startswith(a))

@@ -446,6 +446,11 @@ class App:
     def ensure_bundle(self):
         if os.path.isdir(self.bundle):
             return True
+        if UPDATED.get("identity"):
+            # After the update the copy is build B with the copy's identity (tag, lease environment), not a bare clone.
+            say(f"  re-installing {opts.update_to} -> {self.bundle} (the updated copy's identity)")
+            rj_update.reinstall(self.bundle, opts.update_to, opts.src, UPDATED["identity"])
+            return True
         if not opts.src:
             say(f"  the app copy {self.bundle} is gone and no --src was given")
             return False
@@ -503,14 +508,12 @@ def update_build():
         RESULTS.append(("update: build B is installed in place", False, str(error)[:300], "update"))
         return False
     UPDATED.update(report)
-    dump("update-install.json", UPDATED)
+    dump("update-install.json", {k: v for k, v in UPDATED.items() if k != "identity"})
     say(f"  update: {report['from_commit']} -> {report['to_commit']} at {APP.bundle}; {'; '.join(report['notes']) or 'same identity'}")
     RESULTS.append(("update: build B is installed in place with the copy's names", report["names_before"] == report["names_after"],
                     f"{report['names_after']['session']}; {'; '.join(report['notes']) or 'same identity'}", "update"))
-    RESULTS.append(("update: build B is another build than A", bool(report["to_commit"]) and report["to_commit"] != report["from_commit"],
+    RESULTS.append(("update: build B is another build than A", rj_update.different_builds(report["from_commit"], report["to_commit"]),
                     f"{report['from_commit']} -> {report['to_commit']}", "update"))
-    # A copy gone after a later quit is re-cloned from B now.
-    opts.src = opts.update_to
     return True
 
 

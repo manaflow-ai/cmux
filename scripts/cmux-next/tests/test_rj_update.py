@@ -101,12 +101,55 @@ class Install(unittest.TestCase):
         self.assertEqual(read_info(self.copy)["CFBundleIdentifier"], SLOT_ID)
         self.assertEqual(sorted(os.listdir(os.path.dirname(self.copy))), ["cmux DEV rjtag.app"])
 
+    def test_an_interrupt_between_the_renames_puts_the_copy_back(self):
+        # The journey's --max-seconds and signal handlers raise SystemExit; it may land between the two renames.
+        real, calls = os.rename, []
+
+        def rename(src, dst):
+            calls.append((src, dst))
+            if len(calls) == 2:
+                raise SystemExit("restore-journey: stopped")
+            return real(src, dst)
+
+        rj_update.os.rename = rename
+        try:
+            with self.assertRaises(SystemExit):
+                rj_update.install(self.copy, self.b, self.a, codesign=self.codesign)
+        finally:
+            rj_update.os.rename = real
+        with open(os.path.join(self.copy, "Contents", "MacOS", "cmux")) as f:
+            self.assertEqual(f.read(), "build A")
+        self.assertEqual(sorted(os.listdir(os.path.dirname(self.copy))), ["cmux DEV rjtag.app"])
+
+    def test_a_copy_gone_after_the_update_comes_back_as_b_with_the_same_identity(self):
+        info = read_info(self.b)
+        info["LSEnvironment"]["CMUX_TAG"] = "other"  # names would change if the plain B were cloned
+        with open(os.path.join(self.b, "Contents", "Info.plist"), "wb") as f:
+            plistlib.dump(info, f)
+        report = rj_update.install(self.copy, self.b, self.a, codesign=self.codesign)
+        names = build_names.of_app(self.copy)
+        import shutil
+        shutil.rmtree(self.copy)
+        self.assertEqual(rj_update.reinstall(self.copy, self.b, self.a, report["identity"], codesign=self.codesign), names)
+        again = read_info(self.copy)
+        self.assertEqual(again["CFBundleIdentifier"], SLOT_ID)
+        self.assertEqual(again["LSEnvironment"]["CFFIXED_USER_HOME"], "/lease/home")
+        self.assertEqual(again["LSEnvironment"]["CMUX_TAG"], "rjtag")
+        with open(os.path.join(self.copy, "Contents", "MacOS", "cmux")) as f:
+            self.assertEqual(f.read(), "build B")
+
     def test_no_build_b_is_refused(self):
         with self.assertRaisesRegex(RuntimeError, "no build to update to"):
             rj_update.install(self.copy, os.path.join(self.root, "missing.app"), self.a, codesign=self.codesign)
 
 
 class Commit(unittest.TestCase):
+    def test_different_builds_needs_two_known_distinct_commits(self):
+        self.assertTrue(rj_update.different_builds(A_COMMIT, B_COMMIT))
+        self.assertFalse(rj_update.different_builds(A_COMMIT, A_COMMIT[:9]))  # a short and a full hash of one commit
+        self.assertFalse(rj_update.different_builds(None, B_COMMIT))
+        self.assertFalse(rj_update.different_builds(A_COMMIT, ""))
+
     def test_info_plist_first_then_the_staged_marker(self):
         root = tempfile.mkdtemp()
         app = make_app(os.path.join(root, "x", "cmux DEV t.app"), {"CFBundleIdentifier": "com.cmuxterm.app.debug.t"})
