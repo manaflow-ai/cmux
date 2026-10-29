@@ -201,32 +201,30 @@ struct ZoomTransitionTests {
         }
     }
 
-    /// A page in its own window under the zooming pane cannot stay under it (a child window draws over every view):
-    /// it hears the move at the press, as for a render-server move, and its end once the zoom lands or its pane is let
-    /// go, once each way. On v2.2.7-opt it showed over the zooming pane at the unzoom.
-    @Test func aPageInItsOwnWindowUnderTheZoomHearsItAtThePressAndItsEndAtTheLanding() throws {
+    /// "All the tabs are perfectly visible": no page is hidden for a zoom, under the zooming pane or in it; a page in
+    /// its own window is cut where the zooming pane shows instead (its cutouts, ``coversOfPage``), in every frame.
+    @Test(arguments: ["p1", "p3"])
+    func noPageHidesForAZoomAndAPageUnderItIsCutWhereItShows(_ zoomed: String) throws {
         let screen = Screen()
-        let page = try #require(screen.provider.pages["p3"])
-        screen.zoom("p1")
-        screen.step()
-        #expect(page.shows == [true], "the covered page was not told the zoom moves: \(page.shows)")
+        let pane = PaneID(zoomed)
+        let pages = screen.provider.pages
+        screen.zoom(pane)
+        for frame in 1...8 {
+            screen.step()
+            if pane != "p3", let host = screen.host("p3"), host.superview != nil, let cover = screen.frame(pane),
+               let under = screen.frame("p3"), cover.intersection(under).width > 4, cover.intersection(under).height > 4 {
+                let cuts = host.pageCovers().map { host.convert($0, to: screen.screen) }
+                let shared = cover.intersection(under)
+                #expect(cuts.contains { $0.insetBy(dx: -1, dy: -1).contains(shared) },
+                        "frame \(frame): the page under the zoom is not cut where the zooming pane shows \(shared): \(cuts)")
+            }
+        }
         for _ in 1...60 { screen.step() }
-        #expect(page.shows == [true, false], "the zoom told the covered page \(page.shows)")
         screen.unzoom()
-        let back = try #require(screen.provider.pages["p3"])
-        screen.step()
-        #expect(back.shows.first == true, "the returning page was not told the unzoom moves: \(back.shows)")
         for _ in 1...60 { screen.step() }
-        #expect(back.shows.last == false && back.shows.filter { $0 }.count == 1, "the unzoom told the page \(back.shows)")
-    }
-
-    /// The zooming pane's own page follows its frame on every frame: it is not hidden for its own zoom.
-    @Test func theZoomingPanesOwnPageIsNotHidden() throws {
-        let screen = Screen()
-        let page = try #require(screen.provider.pages["p3"])
-        screen.zoom("p3")
-        for _ in 1...60 { screen.step() }
-        #expect(!page.shows.contains(true), "the zooming page hid for its own zoom: \(page.shows)")
+        for (id, page) in pages.merging(screen.provider.pages, uniquingKeysWith: { _, new in new }) {
+            #expect(!page.shows.contains(true), "\(id)'s page was hidden for the zoom: \(page.shows)")
+        }
     }
 
     /// Motion off: the zoom and the unzoom apply in one frame, with no cover left on any pane.
