@@ -502,6 +502,10 @@ final class AppControl {
             .mainActor("debug.dialog") { [weak services] call in
                 .value(services.map { DebugDialog.run(call.params, $0) } ?? .null)
             },
+            // A dialog's open and close, frame after frame, with its card and scrim progress.
+            .async("debug.dialog_strip") { [weak services] call in
+                await DebugDialog.strip(call.params, services)
+            }.withDeadline(.fixed(.seconds(20))),
             // The Passwords reveal sheet with a fixture secret (no store, no device owner prompt), so a
             // live check proves the sheet stays out of screen capture (cx-bkyn9).
             .mainActor("debug.passwords_reveal") { [weak services] call in
