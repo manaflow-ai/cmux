@@ -120,6 +120,8 @@ export type QuickModel = {
 /// their place (a signed-out harness). `mark` is the AgentMark brand; without one the tab draws
 /// the name's initial.
 export type QuickFamily = {
+  /// Alternate launch configurations inside the canonical harness tab, never duplicate rail tabs.
+  variants?: QuickFamily[];
   id: string;
   name: string;
   mark?: string;
@@ -140,7 +142,7 @@ export type QuickFamilies = {
   /// The chat's harness: its tab opens first, and only it shows Effort and Account.
   current?: string;
   onPick(model: QuickModel): void;
-  /// Add harness…, the last row of More models.
+  /// Add harness…, the last item in the harness strip.
   onAddHarness?(): void;
   onLaunch?(id: string): void;
   onFork?(id: string): void;
@@ -474,15 +476,32 @@ export function QuickModelMenu({
     // In the search field they move along the rail only while it is empty (fieldKeyDown).
     if (families && !query && (event.key === "ArrowLeft" || event.key === "ArrowRight")) {
       const tabs = families.list.filter((family) => !family.launch || families.forkReady !== false);
-      const at = tabs.findIndex((family) => family.id === tab);
-      const next = tabs[(at + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length];
-      if (next) {
-        event.preventDefault();
-        setTab(next.id);
+      const add = rail.current?.querySelector<HTMLButtonElement>(".acpmux-quick-rail-add");
+      const fromAdd = event.target === add;
+      const count = tabs.length + (add ? 1 : 0);
+      if (!count) return;
+      const at = fromAdd ? tabs.length : tabs.findIndex((family) => family.id === tab);
+      const index = (at + (event.key === "ArrowRight" ? 1 : -1) + count) % count;
+      event.preventDefault();
+      if (index === tabs.length) add?.focus();
+      else {
+        setTab(tabs[index]!.id);
+        if (fromAdd) {
+          const button =
+            rail.current?.querySelectorAll<HTMLButtonElement>(".acpmux-quick-rail-tab")[
+              families.list.indexOf(tabs[index]!)
+            ];
+          (field.current ?? button)?.focus();
+        }
         toTop();
       }
       return;
     }
+    if (
+      event.target === rail.current?.querySelector(".acpmux-quick-rail-add") &&
+      (event.key === "Enter" || event.key === " ")
+    )
+      return;
     // While filtering, a digit is part of the name ("gpt 5"); Enter picks the highlighted match.
     const filters = !!(families || search);
     if (/^[1-9]$/.test(event.key) && !(filters && query)) {
@@ -713,12 +732,27 @@ export function QuickModelMenu({
               </MenuRadioGroup>
             </fieldset>
           )}
-          {inlineMore && families.onAddHarness && (moreShown || !shown?.more.length) && (
-            <MenuItem className="acpmux-quick-item" onSelect={() => families.onAddHarness?.()}>
-              <span className="acpmux-menu-label">{t("modelPicker.addHarness")}</span>
-            </MenuItem>
-          )}
         </>
+      )}
+      {!query && shown?.variants && shown.variants.length > 0 && (
+        <MenuGroup label={shown.name}>
+          {shown.variants.map((variant) => (
+            <MenuItem
+              key={variant.id}
+              className="acpmux-quick-item acpmux-quick-variant"
+              disabled={families?.forkReady === false}
+              closeOnClick
+              onSelect={() => {
+                if (variant.logIn) variant.logIn();
+                else families?.onLaunch?.(variant.id);
+              }}
+            >
+              <span className="acpmux-menu-label">
+                {families?.onFork ? t("picker.forkTo", { harness: variant.name }) : variant.name}
+              </span>
+            </MenuItem>
+          ))}
+        </MenuGroup>
       )}
       {!query &&
         onChatTab &&
@@ -785,7 +819,7 @@ export function QuickModelMenu({
         </Submenu>
       )}
       {!query && !forkTab && (!inlineMore || (onChatTab && account)) && <MenuSeparator />}
-      {!query && !inlineMore && families && ((shown?.more.length ?? 0) > 0 || families.onAddHarness) && (
+      {!query && !inlineMore && families && (shown?.more.length ?? 0) > 0 && (
         <Submenu
           align="start"
           className="acpmux-quick-item acpmux-quick-sub"
@@ -816,13 +850,7 @@ export function QuickModelMenu({
                   ),
                 )}
               </MenuRadioGroup>
-              {families.onAddHarness && <MenuSeparator />}
             </>
-          )}
-          {families.onAddHarness && (
-            <MenuItem className="acpmux-quick-item" onSelect={() => families.onAddHarness?.()}>
-              <span className="acpmux-menu-label">{t("modelPicker.addHarness")}</span>
-            </MenuItem>
           )}
         </Submenu>
       )}
@@ -982,6 +1010,24 @@ export function QuickModelMenu({
                   <span className="acpmux-quick-harness-name">{family.name}</span>
                 </button>
               ))}
+              {families.onAddHarness && (
+                <button
+                  type="button"
+                  className="acpmux-quick-rail-tab acpmux-quick-rail-add"
+                  tabIndex={-1}
+                  aria-label={t("modelPicker.addHarness")}
+                  title={t("modelPicker.addHarness")}
+                  onClick={() => {
+                    onOpenChange(false);
+                    families.onAddHarness?.();
+                  }}
+                >
+                  <span aria-hidden="true" className="acpmux-quick-rail-add-icon">
+                    +
+                  </span>
+                  <span className="sr-only">{t("modelPicker.addHarness")}</span>
+                </button>
+              )}
             </fieldset>
             <div
               className="acpmux-quick-body"

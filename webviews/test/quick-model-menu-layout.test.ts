@@ -93,7 +93,7 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
       const chip = await bounds(page, "button[data-menu=model]");
       expect(menu.y).toBeGreaterThan(chip.y);
       expect(menu.y + menu.height - fast.y - fast.height).toBeLessThan(12);
-      expect(await page.locator(".acpmux-quick-rail-tab").count()).toBe(10);
+      expect(await page.locator(".acpmux-quick-rail-tab").count()).toBe(11);
       expect(await page.locator(".acpmux-quick-fast").innerText()).toBe("Fast mode");
       expect(await page.locator(".acpmux-quick-list").innerText()).toContain("Claude subscription");
     } finally {
@@ -172,6 +172,9 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
   test("keyboard-selected harnesses stay visible in an overflowing strip", async () => {
     const page = await open("claude-many-harnesses", 320);
     try {
+      await page.keyboard.press("ArrowLeft");
+      const add = page.locator(".acpmux-quick-rail-add");
+      expect(await add.evaluate((node) => node === document.activeElement)).toBe(true);
       await page.keyboard.press("ArrowLeft");
       const selected = page.locator(".acpmux-quick-rail-tab[aria-pressed=true]");
       await page.waitForFunction(
@@ -279,6 +282,10 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
   test("searching from a launch entry selects the visible model, not that launch entry", async () => {
     const page = await open("claude");
     try {
+      await page.keyboard.press("ArrowLeft");
+      expect(await page.locator(".acpmux-quick-rail-add").evaluate((node) => node === document.activeElement)).toBe(
+        true,
+      );
       await page.keyboard.press("ArrowLeft");
       await page.waitForFunction(
         () => document.querySelector('.acpmux-quick-rail-tab[aria-pressed="true"]')?.textContent === "Claude Code (sr)",
