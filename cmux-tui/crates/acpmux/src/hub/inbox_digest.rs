@@ -15,13 +15,15 @@
 //!   their `queued` records marked `requeued`), so none is lost: they wait again, held when a
 //!   failed turn held them or when the digest's own turn failed.
 //! - A restart before the digest's turn started gives the messages back in its place and drops
-//!   it (`queue_waiting.rs` `Digests`); draining again makes a new one. After it started, its turn is theirs:
-//!   none runs again on its own. The digest's own `queued` record is logged first and names
-//!   every original, so this holds whichever of the records after it a stop cut off.
-//! - When the chat's turn runs and its agent steers, the digest goes into that turn as ONE
-//!   steer (its queue entry is marked as a steer, as Send now marks one, `queue.rs`
-//!   `steer_queued`); otherwise it waits at the head of the agent messages in the queue, still
-//!   behind the person's prompts, and runs as its own turn: no later agent message joins it.
+//!   it (`queue_waiting.rs` `Digests`); draining again makes a new one. After it started, its
+//!   turn is theirs: none runs again on its own. The digest's own `queued` record is logged
+//!   first and names every original, so this holds whichever of the records after it a stop
+//!   cut off.
+//! - When the chat's turn runs, below its turn cap (`turn_cap.rs`), and its agent steers, the
+//!   digest goes into that turn as ONE steer (its queue entry is marked as a steer, as Send now
+//!   marks one, `queue.rs` `steer_queued`); otherwise it waits at the head of the agent messages
+//!   in the queue, still behind the person's prompts, and runs as its own turn: no later agent
+//!   message joins it.
 //! - `dryRun` returns the digest it would make and changes nothing.
 //!
 //! What stays queued: a message with anything but text (an image, an uploaded file, hidden
@@ -322,7 +324,10 @@ impl Hub {
         }
         // Read before the queue's lock. A turn that ends before the steer reaches it leaves the
         // digest next among the agent messages (`steer_turn`'s fallback, `queue.rs` `enqueue`).
-        let steer = session.steering.load(Ordering::SeqCst) && session.turn().is_some();
+        // A turn past its cap takes no agent's message, so no digest of them (`turn_cap.rs`).
+        let steer = session.steering.load(Ordering::SeqCst)
+            && session.turn().is_some()
+            && !super::super::turn_cap::past_cap(&session);
         let digest_id = format!("inbox-digest-{}", uuid::Uuid::now_v7());
         let turn_id = uuid::Uuid::now_v7().to_string();
         let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
