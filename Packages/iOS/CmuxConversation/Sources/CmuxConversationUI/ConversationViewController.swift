@@ -445,7 +445,7 @@ public final class ConversationViewController: UIViewController {
         let fieldBottom = composerContainer.frame.maxY - 4
         composer.maximumFieldHeight = max(ConversationTheme.composerMinHeight, fieldBottom - header.frame.maxY - 3.3)
         layoutReplyOverlay()
-        if store.background != nil, !wantsSystemTopPocket {
+        if usesHostHeaderMask || (store.background != nil && !wantsSystemTopPocket) {
             collectionView.topFadeHeaderBottom = header.frame.maxY - collectionView.frame.minY
         }
     }
@@ -504,6 +504,7 @@ public final class ConversationViewController: UIViewController {
         let spacing = options.header.transcriptTopSpacing ?? (header.isCompact ? 0 : 10.0 / 3.0)
         let top = header.frame.maxY + max(0, spacing)
         collectionView.edgeTopInset = options.header.scrollEdge == .system ? top : 0
+        collectionView.topFadeContentStart = usesHostHeaderMask ? top - collectionView.frame.minY : nil
         // The last body rests 16.71 pt above the field (ChatKit's send
         // lands it there on iOS 26 and 27): the field sits 4 pt into the
         // container and the content ends 6 pt below the last row.
@@ -2113,7 +2114,16 @@ final class TranscriptCollectionView: UICollectionView {
     }
 
     let topFadeMask = CAGradientLayer()
-    private var lastMaskGeometry: (CGFloat, CGFloat)?
+    /// Host opt-in: hide rows completely through the header, then fade them
+    /// in over the requested top spacing. The first row at rest stays clear.
+    var topFadeContentStart: CGFloat? {
+        didSet {
+            guard topFadeContentStart != oldValue else { return }
+            lastMaskGeometry = nil
+            setNeedsLayout()
+        }
+    }
+    private var lastMaskGeometry: (CGFloat, CGFloat, CGFloat?)?
     /// How far ahead of the content offset the rows are drawn, along the
     /// motion (`ConversationDecelerationFill`); 0 draws them in place.
     var drawingLead: CGFloat = 0 {
@@ -2171,13 +2181,21 @@ final class TranscriptCollectionView: UICollectionView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         topFadeMask.frame = bounds
-        let geometry = (bounds.height, headerBottom)
+        let geometry = (bounds.height, headerBottom, topFadeContentStart)
         if lastMaskGeometry.map({ $0 != geometry }) ?? true {
             lastMaskGeometry = geometry
-            // A mask fades the transcript out fully, so it keeps the light ramp's shape.
-            let ramp = ConversationTopEdgeGeometry.ramp(height: bounds.height, headerBottom: headerBottom, dark: false)
-            topFadeMask.colors = ramp.map { UIColor.black.withAlphaComponent(1 - $0.wash).cgColor }
-            topFadeMask.locations = ramp.map { NSNumber(value: Double($0.location)) }
+            if let contentStart = topFadeContentStart {
+                let height = max(1, bounds.height)
+                let end = min(1, max(0, headerBottom / height))
+                let start = min(1, max(end, contentStart / height))
+                topFadeMask.colors = [UIColor.clear.cgColor, UIColor.clear.cgColor, UIColor.black.cgColor, UIColor.black.cgColor]
+                topFadeMask.locations = [0, NSNumber(value: Double(end)), NSNumber(value: Double(start)), 1]
+            } else {
+                // Preserve the platform-specific Messages background ramp.
+                let ramp = ConversationTopEdgeGeometry.ramp(height: bounds.height, headerBottom: headerBottom, dark: false)
+                topFadeMask.colors = ramp.map { UIColor.black.withAlphaComponent(1 - $0.wash).cgColor }
+                topFadeMask.locations = ramp.map { NSNumber(value: Double($0.location)) }
+            }
         }
         CATransaction.commit()
     }

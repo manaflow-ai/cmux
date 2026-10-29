@@ -42,6 +42,34 @@ struct ConversationHeaderPresentationTests {
         #expect(activations == 2)
     }
 
+    @Test func systemHeaderHidesTranscriptUnderNameAtEveryScrollOffset() {
+        let controller = makeController(header: .init(scrollEdge: .system, transcriptTopSpacing: 24))
+        defer { controller.store.stop() }
+        controller.additionalSafeAreaInsets.top = 62
+        controller.view.frame = CGRect(x: 0, y: 0, width: 402, height: 874)
+        controller.view.layoutIfNeeded()
+        let collection = controller.collectionView
+        let name = controller.header.nameButton.convert(controller.header.nameButton.bounds, to: controller.view)
+        for offset in [-collection.contentInset.top, 100, 400] {
+            collection.contentOffset.y = offset
+            collection.setNeedsLayout()
+            collection.layoutIfNeeded()
+            #expect(collection.layer.mask === collection.topFadeMask)
+            #expect(collection.topFadeMask.frame == collection.bounds)
+            let colors = collection.topFadeMask.colors as? [CGColor] ?? []
+            let stops = collection.topFadeMask.locations ?? []
+            #expect(colors.count == 4)
+            #expect(stops.count == 4)
+            guard colors.count == 4, stops.count == 4 else { continue }
+            // No bubble/text pixels survive anywhere behind the name or avatar.
+            #expect(colors[0].alpha == 0 && colors[1].alpha == 0)
+            #expect(CGFloat(stops[1].doubleValue) * collection.bounds.height >= name.maxY)
+            // The first row at its resting content inset is fully visible.
+            #expect(colors[2].alpha == 1 && colors[3].alpha == 1)
+            #expect(abs(CGFloat(stops[2].doubleValue) * collection.bounds.height - collection.contentInset.top) < 0.01)
+        }
+    }
+
     @Test func nameUsesTheHostActionAndDefaultsKeepMessagesSpacing() {
         let controller = makeController()
         defer { controller.store.stop() }
@@ -54,6 +82,7 @@ struct ConversationHeaderPresentationTests {
         #expect(controller.options.header.scrollEdge == .messages)
         #expect(controller.options.header.transcriptTopSpacing == nil)
         #expect(controller.collectionView.edgeTopInset == 0)
+        #expect(controller.collectionView.layer.mask == nil)
     }
 
     @Test func hostActionRunsBeforeConversationInfoExists() {

@@ -28,6 +28,13 @@ extension ConversationViewController {
         return Self.usesSystemTopPocket
     }
 
+    /// UIKit's pocket can stop above the avatar/name on a custom header. The
+    /// host's opt-in also masks transcript content through that full header.
+    var usesHostHeaderMask: Bool {
+        if #available(iOS 26.0, *) { return options.header.scrollEdge == .system }
+        return false
+    }
+
     private var wantsTopEdgeBlur: Bool {
         if #available(iOS 26.0, *), options.header.scrollEdge == .system { return true }
         return Self.blursTopEdge
@@ -63,7 +70,7 @@ extension ConversationViewController {
         if #available(iOS 26.0, *) {
             collectionView.topEdgeEffect.isHidden = background == nil && !wantsTopEdgeBlur
         }
-        collectionView.topFadeHeaderBottom = background == nil || wantsSystemTopPocket
+        collectionView.topFadeHeaderBottom = !usesHostHeaderMask && (background == nil || wantsSystemTopPocket)
             ? nil : header.frame.maxY - collectionView.frame.minY
         detailsController?.background = background
     }
