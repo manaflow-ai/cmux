@@ -26,11 +26,17 @@ final class SidebarTabRowView: SidebarRowView {
     private var iconIsMark = false
     /// The unread dot: a workspace row's dot (`UnreadBadgeView`, same shape and size) in the quiet, muted look.
     private let unreadDot = UnreadBadgeView()
+    /// The tab its workspace shows: a quiet fill marks it.
+    private(set) var isFocusedTab = false
     /// Activates this tab from an accessibility AXPress.
     var onSelect: (() -> Void)?
+    /// The hover ✕ (`SidebarRowCloseButton`, the workspace row's): closes this tab. Nil: no ✕.
+    var onClose: (() -> Void)?
+    let closeButton = SidebarIconButton.rowClose(label: Strings.closeTab)
 
     private struct Content: Hashable {
         var tab: SidebarTab
+        var focused: Bool
         var group: GroupID?
         var groupColor: GroupColor?
         var look: SidebarTabLineLook
@@ -38,8 +44,18 @@ final class SidebarTabRowView: SidebarRowView {
 
     required init(key: SidebarRowKey) {
         super.init(key: key)
-        [icon, title, detail, activity, unreadDot].forEach(addSubview)
+        [icon, title, detail, activity, unreadDot, closeButton].forEach(addSubview)
         unreadDot.fixedLook = .quiet
+        closeButton.isHidden = true
+        closeButton.onPress = { [weak self] in self?.onClose?() }
+    }
+
+    override var interactiveSubviews: [NSView] { [closeButton] }
+
+    /// The ✕ shows or hides in `layout()`, as a workspace row's does.
+    override func hoverChanged() {
+        super.hoverChanged()
+        needsLayout = true
     }
 
     override var debugIcon: String? { icon.isHidden ? nil : (iconIsMark ? "agentMark" : "favicon") }
@@ -47,27 +63,32 @@ final class SidebarTabRowView: SidebarRowView {
     override func prepareForReuse(key: SidebarRowKey) {
         super.prepareForReuse(key: key)
         onSelect = nil
+        onClose = nil
         lastConfiguration = nil
     }
 
     /// The last configure's tab and row, so a change of `sidebar.tabLines` redraws the row (`SidebarTunablesWatch`).
-    private var lastConfiguration: (SidebarTab, SidebarRow)?
+    private var lastConfiguration: (SidebarTab, SidebarRow, Bool)?
 
     func redrawLastConfiguration() {
-        guard let (tab, row) = lastConfiguration else { return }
-        configure(tab, row: row)
+        guard let (tab, row, focused) = lastConfiguration else { return }
+        configure(tab, row: row, focused: focused)
     }
 
-    func configure(_ tab: SidebarTab, row: SidebarRow) {
-        lastConfiguration = (tab, row)
+    /// `focused`: the tab its workspace shows (`SidebarWorkspace.focusedTab`).
+    func configure(_ tab: SidebarTab, row: SidebarRow, focused: Bool = false) {
+        lastConfiguration = (tab, row, focused)
         let look = SidebarTunablesWatch.shared.tabLook(for: self)
-        let content = Content(tab: tab, group: row.group, groupColor: row.groupColor, look: look)
+        let content = Content(tab: tab, focused: focused, group: row.group, groupColor: row.groupColor, look: look)
         guard needsConfigure(content) else { return }
+        isFocusedTab = focused
         let line = SidebarTabLine.make(tab, look: look, terminalName: Strings.untitledTerminal)
         title.setString(line.name)
         detail.setString(line.detail ?? "")
         detail.isHidden = line.detail == nil
-        // Regular weight and the primary text color, read or unread (Lawrence 2026-10-14).
+        // Regular weight and the primary text color, read or unread (Lawrence 2026-10-14). The workspace's focused tab
+        // is marked by a quiet fill (Leo 2026-10-27: "it should also just slightly demarcate, you know, which pane
+        // you're focused on, right? Like which tab within your workspace").
         title.setFont(SidebarStyle.subtitleFont)
         // A page's favicon draws as is; with the marks on, an agent's mark where there is no favicon.
         let side = SidebarStyle.tabIconSize
@@ -85,6 +106,7 @@ final class SidebarTabRowView: SidebarRowView {
         let status = look.drawsMarks ? Strings.activity(tab.state) : nil
         let spoken = [line.name, line.detail, status].compactMap { $0 }.joined(separator: ", ")
         setAccessibilityLabel(tab.isUnread ? spoken + ", " + Strings.unreadDot : spoken)
+        setAccessibilitySelected(focused)
         needsLayout = true
         needsDisplay = true
     }
@@ -101,8 +123,14 @@ final class SidebarTabRowView: SidebarRowView {
             title.setColor(Palette.textPrimary)
             detail.setColor(Palette.textTertiary)
             icon.contentTintColor = iconIsMark ? Palette.textSecondary : nil
-            paintFill(isHovered ? Palette.hoverFill : nil)
+            paintFill(isHovered ? Palette.hoverFill : isFocusedTab ? Self.focusFill : nil)
         }
+    }
+
+    /// Half the hover fill: a mark, quieter than a hover and far from the selected workspace row's fill.
+    static var focusFill: NSColor {
+        let hover = Palette.hoverFill
+        return hover.withAlphaComponent((hover.usingColorSpace(.sRGB)?.alphaComponent ?? 1) * 0.5)
     }
 
     override func layout() {
@@ -114,20 +142,31 @@ final class SidebarTabRowView: SidebarRowView {
         icon.frame = NSRect(x: iconX, y: (b.height - iconSide) / 2, width: iconSide, height: iconSide)
         // Without a favicon the title takes the icon's place (Lawrence 2026-10-23: "as left as possible").
         let textX = icon.isHidden ? iconX - SidebarStyle.labelCellPadding : icon.frame.maxX + Metrics.space2
-        // The dot sits where a workspace row's dot does: its slot at the row's trailing inset.
         var trailing = b.width - SidebarStyle.horizontalInset
-        // The tab's status centers on the trailing column, as a workspace row's does; the dot goes left of it.
+        // The tab's status, else its dot, centers on the trailing column, as a workspace row's does (Leo 2026-10-28:
+        // "do we seriously not have these fucking things aligned? ... because it's the inner tab thing"); a dot
+        // beside a status goes left of the column. On hover the ✕ takes the column (`SidebarRowCloseButton`, the
+        // workspace row's) and the mark there gives way at once, never both; leaving hides the ✕ before it returns.
+        let cy = b.height / 2
+        let showClose = isHovered && onClose != nil
+        setHoverShown(closeButton, showClose, fades: false)
+        if showClose { closeButton.frame = SidebarStyle.rowCloseFrame(rowWidth: b.width, centerY: cy) }
+        activity.alphaValue = showClose ? 0 : 1 // its own isHidden says whether it has a glyph
         if activity.showsGlyph {
-            let side = SidebarStyle.indicatorSize
-            activity.frame = SidebarStyle.trailingColumnFrame(rowWidth: b.width, centerY: b.height / 2, side: side)
+            activity.frame = SidebarStyle.trailingColumnFrame(rowWidth: b.width, centerY: cy, side: SidebarStyle.indicatorSize)
             trailing = min(trailing, SidebarStyle.trailingColumnStart(rowWidth: b.width))
         } else {
             activity.frame = .zero
         }
+        if showClose { trailing = min(trailing, SidebarStyle.trailingColumnStart(rowWidth: b.width)) }
+        // A dot on the column gives way to the ✕; one left of a status stays.
+        unreadDot.alphaValue = showClose && !activity.showsGlyph ? 0 : 1
         if unreadDot.state.isUnread {
             let side = SidebarStyle.dotSize
-            unreadDot.frame = NSRect(x: trailing - side - Metrics.space2, y: (b.height - side) / 2, width: side, height: side)
-            trailing = unreadDot.frame.minX - Metrics.space2
+            unreadDot.frame = activity.showsGlyph
+                ? NSRect(x: trailing - side - Metrics.space2, y: cy - side / 2, width: side, height: side)
+                : SidebarStyle.trailingColumnFrame(rowWidth: b.width, centerY: cy, side: side)
+            trailing = min(trailing, SidebarStyle.trailingColumnStart(rowWidth: b.width), unreadDot.frame.minX) - Metrics.space2
         }
         let height = title.intrinsicContentSize.height, y = (b.height - height) / 2
         guard !detail.isHidden else {

@@ -21,9 +21,12 @@ final class SidebarTunablesWatch {
         rows.add(row)
         if let current { return current }
         let values = withObservationTracking {
-            (SidebarTunables.agentMark.value, SidebarTunables.presenceDots.value, SidebarRowBadgeStyle.tunable.value,
+            let values: Values = (SidebarTunables.agentMark.value, SidebarTunables.presenceDots.value, SidebarRowBadgeStyle.tunable.value,
              SidebarRowBadgeStackCap.tunable.value, SidebarTunables.workspaceTitleMotion.value, SidebarTunables.quietUnnamedRows.value,
              SidebarTunables.rowTitle.value, SidebarTunables.rowTitleSingleChat.value)
+            // Read for the observation only: the hover close's spot and glyph size are laid out, not configured.
+            _ = SidebarTunables.rowCloseSpot.value
+            return values
         } onChange: {
             Task { @MainActor in SidebarTunablesWatch.shared.changed() }
         }
@@ -51,7 +54,12 @@ final class SidebarTunablesWatch {
     func changed() {
         current = nil
         tabLook = nil
-        for row in rows.allObjects { row.redrawLastConfiguration() }
+        for row in rows.allObjects {
+            row.redrawLastConfiguration()
+            // `sidebar.rowCloseSpot` changes no configuration: lay the controls out again (the close re-renders its glyph).
+            row.needsLayout = true
+            row.closeButton.needsLayout = true
+        }
         for row in tabRows.allObjects { row.redrawLastConfiguration() }
     }
 }

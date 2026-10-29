@@ -9,8 +9,11 @@ public enum SSHFailure: Error, Hashable, Sendable {
     case hostKeyUntrusted(String)
     case unreachable(String)
     case remoteFailed(String)
+    /// The machine's cmux-tui session is owned by another daemon (a Chief brain or the
+    /// machine's own app holds it): every retry of the same session fails the same way.
+    case sessionInUse(String)
 
-    public enum Kind: Sendable { case authFailed, hostKeyUntrusted, unreachable, remoteFailed }
+    public enum Kind: Sendable { case authFailed, hostKeyUntrusted, unreachable, remoteFailed, sessionInUse }
 
     public var kind: Kind {
         switch self {
@@ -18,12 +21,14 @@ public enum SSHFailure: Error, Hashable, Sendable {
         case .hostKeyUntrusted: .hostKeyUntrusted
         case .unreachable: .unreachable
         case .remoteFailed: .remoteFailed
+        case .sessionInUse: .sessionInUse
         }
     }
 
     public var message: String {
         switch self {
-        case .authFailed(let text), .hostKeyUntrusted(let text), .unreachable(let text), .remoteFailed(let text): text
+        case .authFailed(let text), .hostKeyUntrusted(let text), .unreachable(let text), .remoteFailed(let text),
+             .sessionInUse(let text): text
         }
     }
 
@@ -55,9 +60,14 @@ public enum SSHFailure: Error, Hashable, Sendable {
         let lines = stderr.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty && seen.insert($0).inserted }
         guard !lines.isEmpty else { return failure }
+        if let inUse = lines.first(where: { $0.localizedCaseInsensitiveContains(sessionInUseNeedle) }) {
+            return .sessionInUse(inUse.hasPrefix("cmux-tui: ") ? String(inUse.dropFirst("cmux-tui: ".count)) : inUse)
+        }
         return .remoteFailed(lines.suffix(linkCauseLines).joined(separator: "\n"))
     }
 
+    /// cmux-tui's words for a session another daemon owns (`remote_cli.rs` `exit_cause`).
+    static let sessionInUseNeedle = "in use by another cmux daemon"
     static let hostKeyNeedles = ["Host key verification failed", "REMOTE HOST IDENTIFICATION HAS CHANGED", "host key is known for",
                                  "No matching host key type", "Host key for", "has changed and you have requested strict checking"]
     static let authNeedles = ["Permission denied", "Too many authentication failures", "Authentication failed",

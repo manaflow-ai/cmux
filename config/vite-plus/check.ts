@@ -10,16 +10,22 @@ const BUILD_OUTPUT = ["dist/**"];
 
 type LintPlugin = "eslint" | "typescript" | "unicorn" | "oxc" | "react" | "jsx-a11y" | "import";
 
-export function cmuxCheckConfig({ fmtIgnorePatterns = [] as string[], allowWarnings = false } = {}) {
+export function cmuxCheckConfig({
+  fmtIgnorePatterns = [] as string[],
+  allowWarnings = false,
+  effectCleanupPlugin = undefined as string | undefined,
+} = {}) {
   return {
     lint: {
       plugins: ["eslint", "typescript", "unicorn", "oxc", "react", "jsx-a11y", "import"] as LintPlugin[],
       ignorePatterns: BUILD_OUTPUT,
+      jsPlugins: effectCleanupPlugin ? [effectCleanupPlugin] : [],
       // `typeCheck` replaces a separate tsc/tsgo step and needs `typeAware`. The
       // type-aware rules turned off below are new to these packages and stay off
       // until someone works through their findings.
       options: { denyWarnings: !allowWarnings, typeAware: true, typeCheck: true },
       rules: {
+        ...(effectCleanupPlugin ? { "cmux-lifecycle/effect-interval-cleanup": "error" as const } : {}),
         "typescript/await-thenable": "off" as const,
         "typescript/no-base-to-string": "off" as const,
         "typescript/no-redundant-type-constituents": "off" as const,

@@ -200,7 +200,7 @@ impl App {
         tokio::spawn(async move {
             match client.request(method::SESSION_NEW, params).await {
                 Ok(v) => {
-                    if let Some(id) = v.get("sessionId").and_then(Value::as_str) {
+                    if let Some(id) = session_route_id(&v) {
                         let _ = tx.send(AppMsg::Created(id.to_owned()));
                         let id = id.to_owned();
                         let c = client.clone();
@@ -271,7 +271,7 @@ impl App {
         tokio::spawn(async move {
             match client.request(method::SESSION_NEW, params).await {
                 Ok(v) => {
-                    if let Some(id) = v.get("sessionId").and_then(Value::as_str) {
+                    if let Some(id) = session_route_id(&v) {
                         let _ = tx.send(AppMsg::Created(id.to_owned()));
                         if !first.is_empty() {
                             let id = id.to_owned();
@@ -904,7 +904,7 @@ impl App {
                     if let Some(i) = self
                         .sessions
                         .iter()
-                        .position(|s| s.get("sessionId").and_then(Value::as_str) == Some(id))
+                        .position(|s| session_route_id(s).as_deref() == Some(id))
                     {
                         self.select(i + ndrafts);
                         self.focus = Focus::Input;

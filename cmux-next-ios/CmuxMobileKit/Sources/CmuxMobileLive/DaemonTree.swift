@@ -64,6 +64,17 @@ public struct DaemonTree: Sendable {
     public var workspaceNumbers: [String: Int] = [:]
     /// Each tab group's pane (`tab_groups`), by group id.
     public var groupPanes: [String: Int] = [:]
+    /// Every tab of each pane in the daemon's order, listed or not (`move-tab-group` indexes
+    /// count them all): its group and whether it is pinned (the Mac's `TabGroupReorder` slots).
+    public var paneSlots: [Int: [PaneSlot]] = [:]
+    /// Panes of an agent chat dock (`dock.role` `agent_chat`): the Mac never splits one or
+    /// moves a tab group into one (`ChatDockRules.isChatDock`), Home's pinned dock included.
+    public var chatDockPanes: Set<Int> = []
+
+    public struct PaneSlot: Hashable, Sendable {
+        public var group: String?
+        public var pinned: Bool
+    }
     public var revision: Int?
     /// This session's registry id (`registry_id`): the session of the Mac's
     /// personal rows and layout refs.
@@ -123,6 +134,8 @@ public struct DaemonTree: Sendable {
         var markers: [Int: NotificationMarker] = [:]
         var numbers: [String: Int] = [:]
         var groupPanes: [String: Int] = [:]
+        var paneSlots: [Int: [PaneSlot]] = [:]
+        var chatDockPanes: Set<Int> = []
         let previousByID = Dictionary(previous.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         var result: [Workspace] = []
         var home: [Workspace] = []
@@ -142,9 +155,13 @@ public struct DaemonTree: Sendable {
             var observed: Date?
             var focusOrder = 0
             var layoutScreens: [WorkspaceLayout.Screen] = []
+            var screens: [MacScreen] = []
             for case let screen as [String: Any] in ws["screens"] as? [Any] ?? [] {
                 let activePane = screen["active_pane"] as? Int
                 if screen["active"] as? Bool == true, let activePane { panes[key] = activePane }
+                chatDockPanes.formUnion(Self.chatDockPanes(screen))
+                var screenPanes: [Int] = []
+                var screenTabs: [String] = []
                 var layoutPanes: [WorkspaceLayout.Pane] = []
                 var deadPanes: Set<Int> = []
                 for case let pane as [String: Any] in screen["panes"] as? [Any] ?? [] {
@@ -154,7 +171,11 @@ public struct DaemonTree: Sendable {
                     if panes[key] == nil, let id = pane["id"] as? Int { panes[key] = id }
                     let paneTabs = pane["tabs"] as? [[String: Any]] ?? []
                     let groups = Self.groups(pane["tab_groups"])
-                    if let paneID = pane["id"] as? Int { for id in groups.keys { groupPanes[id] = paneID } }
+                    if let paneID = pane["id"] as? Int {
+                        for id in groups.keys { groupPanes[id] = paneID }
+                        if pane["dead"] as? Bool != true { screenPanes.append(paneID) }
+                        paneSlots[paneID] = paneTabs.map { PaneSlot(group: $0["group"] as? String, pinned: $0["pinned"] as? Bool == true) }
+                    }
                     for (index, tab) in paneTabs.enumerated() {
                         // A dead tab is listed only when it is a terminal the Mac keeps (Restart
                         // Shell Here); other dead tabs are gone for the person.
@@ -184,8 +205,12 @@ public struct DaemonTree: Sendable {
                         guard var mapped = Self.tab(tab, id: id, agent: state, pending: agents.pending,
                                                     waitingFor: agents.waitingFor, bindings: &agentTabs) else { continue }
                         if let pinned = tab["pinned"] as? Bool { mapped.pinned = pinned }
+                        mapped.linkIDs = WorkspaceTab.LinkIDs(
+                            tab: tab["tab_resource_id"] as? String, pane: pane["resource_id"] as? String,
+                            isPaneSelected: pane["active_tab"] as? Int == index, harnessSession: state?.harnessSession)
                         if let group = tab["group"] as? String { mapped.group = groups[group] ?? WorkspaceTab.TabGroupRef(id: group) }
                         tabs.append(mapped)
+                        screenTabs.append(id)
                         paneTabIDs.append(id)
                         if pane["active_tab"] as? Int == index { paneActiveTab = id }
                     }
@@ -205,6 +230,10 @@ public struct DaemonTree: Sendable {
                         id: screenID, name: screen["name"] as? String ?? "", isActive: screen["active"] as? Bool == true,
                         panes: layoutPanes, root: Self.node(screen["layout"])?.removing(deadPanes),
                         equalizable: Self.equalizable(screen).compactMap { $0.removing(deadPanes) }))
+                }
+                if let screenID = screen["id"] as? Int {
+                    screens.append(MacScreen(id: screenID, name: screen["name"] as? String ?? "", isActive: screen["active"] as? Bool == true,
+                                             activePane: activePane, panes: screenPanes, tabIDs: screenTabs))
                 }
             }
             let source = activeTab ?? (ws["screens"] as? [[String: Any]])?.first.flatMap { ($0["panes"] as? [[String: Any]])?.first?["tabs"] as? [[String: Any]] }?.first
@@ -242,6 +271,7 @@ public struct DaemonTree: Sendable {
             workspace.hasCustomTitle = (ws["title"] as? String).map { !$0.isEmpty && $0 != ws["name"] as? String } ?? false
             workspace.isPinned = legacyPinned.contains(key)
             workspace.layout = layoutScreens.isEmpty ? nil : WorkspaceLayout(screens: layoutScreens)
+            workspace.screens = screens
             if isHome { home.append(workspace) } else { result.append(workspace) }
         }
         self.legacyPinned = legacyPinned
@@ -255,6 +285,8 @@ public struct DaemonTree: Sendable {
         self.terminals = terminals
         workspaceNumbers = numbers
         self.groupPanes = groupPanes
+        self.paneSlots = paneSlots
+        self.chatDockPanes = chatDockPanes
         notificationMarkers = markers
     }
 
@@ -295,10 +327,58 @@ public struct DaemonTree: Sendable {
         var out: [String: WorkspaceTab.TabGroupRef] = [:]
         for case let group as [String: Any] in value as? [Any] ?? [] {
             guard let id = group["id"] as? String else { continue }
+            let icon = (group["icon"] as? String).flatMap { $0.isEmpty ? nil : $0 }
             out[id] = WorkspaceTab.TabGroupRef(id: id, name: group["name"] as? String ?? "", color: group["color"] as? String ?? "grey",
-                                               isSaved: group["saved_id"] is String)
+                                               isSaved: group["saved_id"] is String, icon: icon,
+                                               isCollapsed: group["collapsed"] as? Bool == true)
         }
         return out
+    }
+
+    /// The panes of a screen's agent chat docks (`columns[].dock`, role `agent_chat`), as the
+    /// Mac's `ChatDockRules.isChatDock`: a pinned dock that takes tabs still never splits.
+    static func chatDockPanes(_ screen: [String: Any]) -> Set<Int> {
+        var out: Set<Int> = []
+        for case let column as [String: Any] in screen["columns"] as? [Any] ?? [] {
+            guard let dock = column["dock"] as? [String: Any], dock["role"] as? String == "agent_chat" else { continue }
+            var trees: [Any] = [column["layout"] as Any]
+            for case let row as [String: Any] in column["rows"] as? [Any] ?? [] { trees.append(row["layout"] as Any) }
+            for tree in trees { out.formUnion(leaves(tree)) }
+        }
+        return out
+    }
+
+    /// The panes of a split tree (`leaf`, `split`, `stack`).
+    static func leaves(_ value: Any?) -> [Int] {
+        guard let node = value as? [String: Any] else { return [] }
+        switch node["type"] as? String {
+        case "leaf": return (node["pane"] as? Int).map { [$0] } ?? []
+        case "split": return leaves(node["a"]) + leaves(node["b"])
+        case "stack": return node["panes"] as? [Int] ?? []
+        default: return []
+        }
+    }
+
+    /// The Mac's Move Tab Group Left / Right index (`TabGroupReorder.targetIndex`): where the
+    /// group goes in its pane's other tabs, past the neighboring tab or whole group; nil at the
+    /// pane's edge or before a pinned tab.
+    public static func tabGroupMoveIndex(of group: String, forward: Bool, in slots: [PaneSlot]) -> Int? {
+        guard let start = slots.firstIndex(where: { $0.group == group }) else { return nil }
+        let rest = slots.filter { $0.group != group }
+        if forward {
+            guard start < rest.count else { return nil }
+            var end = start
+            if let neighbor = rest[start].group {
+                while end + 1 < rest.count, rest[end + 1].group == neighbor { end += 1 }
+            }
+            return end + 1
+        }
+        guard start > 0, !rest[start - 1].pinned else { return nil }
+        var begin = start - 1
+        if let neighbor = rest[begin].group {
+            while begin > 0, rest[begin - 1].group == neighbor { begin -= 1 }
+        }
+        return begin
     }
 
     /// One daemon tab as an app tab, or nil for tabs the phone does not show (pages, conversations).
@@ -387,18 +467,27 @@ public struct AgentState: Hashable, Sendable {
     public var agent: String?
     /// The Mac's last report for this agent (`updated_at_ms`), when it sends one.
     public var updatedAt: Date?
+    /// The harness's own session id (`agent_session_id`): what an
+    /// `agent/<harness>/<session>` link names (CmuxLink).
+    public var harnessSession: String?
 
-    public init(state: String, agent: String?, updatedAt: Date? = nil) {
+    public init(state: String, agent: String?, updatedAt: Date? = nil, harnessSession: String? = nil) {
         self.state = state
         self.agent = agent
         self.updatedAt = updatedAt
+        self.harnessSession = harnessSession
     }
 
     /// An agent row of `list-agents` or an `agent-changed` event.
     public init?(json: [String: Any]) {
         guard json["surface"] is Int else { return nil }
         self.init(state: json["state"] as? String ?? "unknown", agent: json["agent"] as? String,
-                  updatedAt: Self.date(json["updated_at_ms"]))
+                  updatedAt: Self.date(json["updated_at_ms"]), harnessSession: Self.session(json["agent_session_id"]))
+    }
+
+    /// A non-empty `agent_session_id`.
+    static func session(_ value: Any?) -> String? {
+        (value as? String).flatMap { $0.isEmpty ? nil : $0 }
     }
 
     /// Epoch milliseconds (`updated_at_ms`) as a date; nil when absent (older Macs).
@@ -463,7 +552,7 @@ public enum DaemonEvent: Equatable, Sendable {
     case treeChanged
     /// The subscription ended (`overflow`): subscribe again, then re-list.
     case resubscribe
-    case agentChanged(surface: Int, state: String, agent: String?, updatedAt: Date? = nil)
+    case agentChanged(surface: Int, state: String, agent: String?, updatedAt: Date? = nil, harnessSession: String? = nil)
     case titleChanged(surface: Int, title: String)
     /// A notification was posted (`notification`): the tree's markers and the
     /// notification ledger changed. It carries the agent's memory-only texts.
@@ -479,7 +568,8 @@ public enum DaemonEvent: Equatable, Sendable {
         case "agent-changed":
             guard let surface = object["surface"] as? Int else { return .other }
             return .agentChanged(surface: surface, state: object["state"] as? String ?? "unknown", agent: object["agent"] as? String,
-                                 updatedAt: AgentState.date(object["updated_at_ms"]))
+                                 updatedAt: AgentState.date(object["updated_at_ms"]),
+                                 harnessSession: AgentState.session(object["agent_session_id"]))
         case "title-changed":
             guard let surface = object["surface"] as? Int else { return .other }
             return .titleChanged(surface: surface, title: object["title"] as? String ?? "")

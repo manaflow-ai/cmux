@@ -24,7 +24,7 @@ extension WorkspaceTabsSource {
         guard let layout, !layout.panes.isEmpty else { return [] }
         let count = layout.panes.count
         return [TabsKitMenuItem(id: "panes", title: count == 1 ? "Panes" : "Panes (\(count))", systemImage: "rectangle.split.2x1") { [weak self] in
-            self?.showsPanes = true
+            self?.route = .panes
         }]
     }
 

@@ -15,8 +15,15 @@ gives us. Meanwhile the minis' side label queued at p90 29 minutes.
 The cascade places the jobs that idle minis did not take, in the placement's
 priority order, while each Blacksmith label has a free slot now:
 blacksmith-12vcpu-macos-26 (CAPACITY 5) first, then blacksmith-6vcpu-macos-26
-(CAPACITY 10), at most MAX_PER_RUN on each label. The rest stay queued on the
-owned label as before, where the rescue still watches them.
+(CAPACITY 10), at most MAX_PER_RUN on each label. When the owned runners were
+read and none was idle for them (`saturated`), the rest take 6 vCPU's queue
+while it moves and is short (overflow(): not stalled, fewer than
+OVERFLOW_BACKLOG queued ahead, MAX_PER_RUN a run), and with the counts unread
+up to MAX_PER_RUN of them take 6 vCPU, as a feed's compile does. Only what is
+left then stays queued on the owned label, where the rescue still watches it:
+the placement is the only lever, since GitHub never moves a queued job and a
+refusals-only run is never re-run for its queue (cmux#26723's fast tier waited
+on the side label for hours on 2026-10-29).
 
 Only CASCADE_JOBS take part, and only those the workflow says run on this route
 (CASCADE_RUNS: not fast-tier while an idle vars.CI_FAST_LANE_RUNNER runner takes
@@ -80,8 +87,9 @@ ARE THE SLOWEST THINGS / THEY PREVIOUSLY WREN'T EVEN UNDER CONSIDERATINO"). Unti
 then fast-tier and swift-canary overflowed to hosted `macos-26` while Blacksmith
 was full or stalled, and built cold there for up to 45 minutes; the fast-tier
 seed kept a hosted pool warm for it (21 jobs, 891 minutes a day). A job Blacksmith
-cannot take now stays on the owned label, where an idle mini or the rescue takes
-it (tests/test_ci_no_github_hosted_macos.py). A feed's compile (FRESH_JOBS: a DEV
+cannot take (no free slot, and 6 vCPU stalled or backed up: overflow()) stays on
+the owned label, where an idle mini or the rescue takes it
+(tests/test_ci_no_github_hosted_macos.py). A feed's compile (FRESH_JOBS: a DEV
 daily, a feat-cmux-next push) counts a label whose oldest queued job has waited
 FRESH_STALL_MINUTES as full, and so does its last resort when the runner groups
 are unread: the compile takes the owned label then (the DEV slot while idle, else
@@ -149,6 +157,10 @@ CASCADE_JOBS = ("fast-tier", "swift-canary", "cmux-scheme-compile", "release-com
 # The jobs a feat-cmux-next push runs on the promotion mini (PROMOTE_LABEL) instead of the side label.
 PROMOTE_JOBS = ("release-compile",)
 MAX_PER_RUN = 2
+# The overflow (overflow()) joins 6 vCPU's queue only while fewer than this many jobs wait ahead of it on the
+# labels whose jobs take 6 vCPU's freed slots: one turn of its ten slots, so a job there waits at most about
+# one job's length. A longer queue, like a stalled one, keeps the owned label.
+OVERFLOW_BACKLOG = 10
 # Jobs a feed's freshness waits on (FRESH_JOBS: a feat-cmux-next push's Release compile, a DEV daily's
 # Release compile). When the counts cannot be read they take SMALL, the last resort, instead of the owned
 # label: on 2026-10-26 the route token read 403 and the queue snapshot was stale, so every DEV compile from
@@ -357,6 +369,56 @@ def cascade(jobs: Sequence[str], live: Mapping[str, int], waiting: Mapping[str, 
     return {label: tuple(names) for label, names in placed.items()}
 
 
+def _pool_backlog(waiting: Mapping[str, int]) -> int:
+    """The jobs queued ahead of a new 6 vCPU job: every Blacksmith macOS label's but LARGE's, which waits for
+    twelve vCPUs freed at once and so takes none of the freed 6 vCPU slots (pool_room())."""
+    return sum(count for label, count in waiting.items() if pool_label(label) and label != LARGE)
+
+
+def overflow_refusal(waiting: Mapping[str, int], stall: Sequence[str], reserved: Sequence[str]) -> str:
+    """Why SMALL takes no overflow job that is not a feed's compile, or "" when it does."""
+    if SMALL in stall:
+        return "its queue is stalled"
+    if SMALL in reserved:
+        return "freshness work is queued for it"
+    if _pool_backlog(waiting) >= OVERFLOW_BACKLOG:
+        return f"{_pool_backlog(waiting)} jobs already queue ahead"
+    return ""
+
+
+def overflow(jobs: Sequence[str], waiting: Mapping[str, int], *, stall: Sequence[str] = (),
+             reserved: Sequence[str] = (), fresh: Sequence[str] = (),
+             fresh_stall: Sequence[str] = (), already: int = 0) -> tuple[str, ...]:
+    """The `jobs` (no idle mini and no free slot took them) that queue on SMALL instead of the owned label.
+
+    Leo's routing order is Linux, then owned Macs, then Blacksmith macOS as the last resort, and no job
+    waits on one reserved pool with no fallback (2026-10-24: "THERE SHOULD BE 0 QUEUE EVER HERE"). With
+    every owned side runner busy and no free Blacksmith slot, the jobs used to stay on the side label and
+    the run took the refusals-only marker, so nothing moved them again: on 2026-10-29 cmux#26723's fast
+    tier waited on glaeda-side-std-xcode-26.6 from 03:14Z for hours while glaeda's listener gate held the
+    saturated std minis' side runners offline, and cmux#27066's waited 2 h the same way.
+
+    6 vCPU is the overflow, never 12: its ten slots turn over (median start 2.6 min on 2026-10-20), while a
+    12 vCPU job waits behind every queued 6 vCPU job (pool_room()). It takes a job only while its queue
+    moves and is short, so the overflow never builds the 5-hour Blacksmith queues of 2026-10-20 (Leo:
+    waiting in a Blacksmith queue is not acceptable): not while it is stalled (stalled(), the pickers'
+    one stall rule), not while OVERFLOW_BACKLOG or more jobs queue ahead (_pool_backlog()), at most
+    MAX_PER_RUN jobs of one run on SMALL counting the `already` its free slots took, and, as in cascade(), only a feed's compile while freshness work is
+    queued for it and never a feed's compile on a fresh-stalled label.
+    """
+    if SMALL in stall:
+        return ()
+    taken: list[str] = []
+    ahead = _pool_backlog(waiting)
+    for job in jobs:
+        if already + len(taken) >= MAX_PER_RUN or ahead + len(taken) >= OVERFLOW_BACKLOG:
+            break
+        if SMALL in reserved and job not in fresh or job in fresh and SMALL in fresh_stall:
+            continue
+        taken.append(job)
+    return tuple(taken)
+
+
 def retry_label(live: Mapping[str, int], waiting: Mapping[str, int], stall: Sequence[str] = ()) -> str:
     """The overflow label: the lowest (in flight + queued) / capacity among moving labels with a free slot that
     the shared pool fits (fits()), else "".
@@ -395,35 +457,8 @@ def skipped(env: Mapping[str, str]) -> str:
     return ""
 
 
-def place(env: Mapping[str, str], owned: Sequence[str], live: Mapping[str, int] | None,
-          waiting: Mapping[str, int] | None, seen: Seen | None = None, promote_busy: bool = False) -> Placement:
-    """The Blacksmith jobs of attempt 1, after the idle minis took `owned`.
-
-    With PROMOTE_LABEL set (a feat-cmux-next push), PROMOTE_JOBS run on that label: they cascade,
-    first, only when `promote_busy` (no idle runner carries it), and never take an idle side mini's turn.
-    """
-    empty = {label: () for label in LABELS}
-    if skipped(env):
-        return Placement(empty, "", skipped(env))
-    if live is None or waiting is None:
-        why = ("Blacksmith's runner groups could not be read" if live is None else
-               f"no pool snapshot under {QUEUE_SNAPSHOT_MINUTES} min old to count Blacksmith's queue")
-        # Without the counts no slot is known free, so the overflow keeps the owned label, and so does
-        # every job but a feed's: those take the last resort rather than an owned queue nobody measured.
-        fresh = unread_fresh_jobs(env, owned)
-        fresh_stall = fresh_stalled(seen.waits) if seen is not None else ()
-        if fresh:
-            # A feed's compile takes the last resort. The snapshot, read even when the
-            # runner groups were refused, still shows a stalled queue: a feed's compile does not join it
-            # (2026-10-27 01:11Z: 6 vCPU's oldest job had waited 148 min) and keeps the owned label.
-            if SMALL in fresh_stall:
-                why += f"; `{SMALL}`'s oldest queued job has waited {seen.waits[SMALL]:.0f} min"
-            else:
-                return Placement({**empty, SMALL: fresh}, "",
-                                 f"{why}; a feed's freshness waits on them, so {', '.join(fresh)} take `{SMALL}`; "
-                                 "the rest stay on the minis' queue", fresh_stall)
-        return Placement(empty, "", f"{why}; no job leaves the minis' queue", fresh_stall)
-    stall = stalled(live, waiting, seen.waits, seen.age) if seen is not None else ()
+def candidates(env: Mapping[str, str], owned: Sequence[str], promote_busy: bool = False) -> list[str]:
+    """The cascade jobs that run here and no idle mini takes, in the order they take Blacksmith slots."""
     runs = set((env.get("CASCADE_RUNS") or "").split())
     # idle_placement() hands the idle minis to the first JOBS, running or not, and
     # every side job takes the side label whatever owned_jobs says: so the idle
@@ -443,16 +478,67 @@ def place(env: Mapping[str, str], owned: Sequence[str], live: Mapping[str, int] 
     first = set((env.get("FIRST_JOBS") or "").split()) | set((env.get("FRESH_JOBS") or "").split())
     rest = [job for job in side if job not in first]
     leading = [job for job in side if job in first]
-    candidates = ((promoted if promote_busy else []) + leading[max(0, len(owned) - len(rest)):]
-                  + rest[len(owned):])
+    return (promoted if promote_busy else []) + leading[max(0, len(owned) - len(rest)):] + rest[len(owned):]
+
+
+def place(env: Mapping[str, str], owned: Sequence[str], live: Mapping[str, int] | None,
+          waiting: Mapping[str, int] | None, seen: Seen | None = None, promote_busy: bool = False,
+          saturated: bool = False) -> Placement:
+    """The Blacksmith jobs of attempt 1, after the idle minis took `owned`.
+
+    With PROMOTE_LABEL set (a feat-cmux-next push), PROMOTE_JOBS run on that label: they cascade,
+    first, only when `promote_busy` (no idle runner carries it), and never take an idle side mini's turn.
+
+    `saturated`: the owned runners were read live, so the jobs past `owned` are known to have no idle
+    mini. Those jobs then never stay on the owned label while Blacksmith 6 vCPU is a live last resort
+    (overflow(); with the counts unread, the same MAX_PER_RUN cap as a feed's compile).
+    """
+    empty = {label: () for label in LABELS}
+    if skipped(env):
+        return Placement(empty, "", skipped(env))
+    if live is None or waiting is None:
+        why = ("Blacksmith's runner groups could not be read" if live is None else
+               f"no pool snapshot under {QUEUE_SNAPSHOT_MINUTES} min old to count Blacksmith's queue")
+        # Without the counts no slot is known free, so the overflow keeps the owned label. A feed's
+        # compile takes the last resort rather than an owned queue nobody measured, and so does every
+        # job once the owned pool was read with no idle mini for it (`saturated`): run 40810932618's
+        # fast tier (2026-10-29 03:14Z, a stale snapshot) otherwise waited hours on the side label.
+        # Queued freshness work the snapshot still shows keeps 6 vCPU for a feed's compile, as in cascade().
+        feeds = set((env.get("FRESH_JOBS") or "").split())
+        held = seen is not None and seen.reserved.get(SMALL, 0) > 0
+        fresh = (tuple([job for job in candidates(env, owned, promote_busy)
+                        if not held or job in feeds][:MAX_PER_RUN]) if saturated
+                 else unread_fresh_jobs(env, owned))
+        fresh_stall = fresh_stalled(seen.waits) if seen is not None else ()
+        if fresh:
+            # A feed's compile takes the last resort. The snapshot, read even when the
+            # runner groups were refused, still shows a stalled queue: a feed's compile does not join it
+            # (2026-10-27 01:11Z: 6 vCPU's oldest job had waited 148 min) and keeps the owned label.
+            if SMALL in fresh_stall:
+                why += f"; `{SMALL}`'s oldest queued job has waited {seen.waits[SMALL]:.0f} min"
+            else:
+                reason = ("no idle mini can take them" if saturated else "a feed's freshness waits on them")
+                return Placement({**empty, SMALL: fresh}, "",
+                                 f"{why}; {reason}, so {', '.join(fresh)} take `{SMALL}`; "
+                                 "the rest stay on the minis' queue", fresh_stall)
+        return Placement(empty, "", f"{why}; no job leaves the minis' queue", fresh_stall)
+    stall = stalled(live, waiting, seen.waits, seen.age) if seen is not None else ()
+    jobs = candidates(env, owned, promote_busy)
     # Freshness first across runs too: while a nightly's build or signing job is queued for a Blacksmith
     # label (2026-10-26: nightly-next's build-sign-notarize-nightly from 19:38Z behind 68 PR jobs on
     # blacksmith-6vcpu-macos-26), no PR job of this run takes a slot there, and neither does its overflow.
     reserved = tuple(label for label in LABELS if seen is not None and seen.reserved.get(label, 0) > 0)
     fresh = tuple((env.get("FRESH_JOBS") or "").split())
     fresh_stall = fresh_stalled(seen.waits) if seen is not None else ()
-    placed = cascade(candidates, live, waiting, stall=stall, reserved=reserved,
+    placed = cascade(jobs, live, waiting, stall=stall, reserved=reserved,
                      fresh=fresh, fresh_stall=fresh_stall)
+    # Free slots taken, the jobs left would wait on the owned label. With the owned pool read saturated,
+    # 6 vCPU's moving queue takes them instead (overflow()): it is the routing order's last resort.
+    unplaced = [job for job in jobs if not any(job in names for names in placed.values())]
+    spilled = (overflow(unplaced, waiting, stall=stall, reserved=reserved, fresh=fresh, fresh_stall=fresh_stall,
+                        already=len(placed[SMALL])) if saturated else ())
+    if spilled:
+        placed = {**placed, SMALL: (*placed[SMALL], *spilled)}
     # The overflow label counts the slots this run's own jobs just took: they fit, so they start, and hold
     # the pool's vCPUs as jobs in flight do.
     # A run with a feed's compile keeps its overflow off a fresh-stalled label too: the compile's re-run reads it.
@@ -473,8 +559,13 @@ def place(env: Mapping[str, str], owned: Sequence[str], live: Mapping[str, int] 
                  + (f" ({others} in flight + queued)" if others else "")
                  + (", so 12 vCPU waits behind the queue" if pool_queued(waiting) else ""))
     moved = "; ".join(f"`{label}` takes {', '.join(names)}" for label, names in placed.items() if names)
-    left = [job for job in candidates if not any(job in names for names in placed.values())]
+    left = [job for job in jobs if not any(job in names for names in placed.values())]
     why = f"Blacksmith: {load}; {pool_text}. " + (moved or "No free Blacksmith slot")
+    if spilled:
+        why += (f"; no idle mini and no free slot, so {', '.join(spilled)} queue on `{SMALL}`, which is moving "
+                f"({_pool_backlog(waiting)} queued ahead, under {OVERFLOW_BACKLOG})")
+    elif saturated and left:
+        why += f"; `{SMALL}` is not a live overflow ({overflow_refusal(waiting, stall, reserved)})"
     if reserved:
         why += (f"; freshness work is queued for {', '.join(f'`{label}`' for label in reserved)}, "
                 "so only a feed's compile takes it")
