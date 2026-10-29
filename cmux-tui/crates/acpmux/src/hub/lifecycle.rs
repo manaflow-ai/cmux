@@ -724,11 +724,6 @@ impl Hub {
         stops: u64,
         off: &super::full_access_bound::OffLatch,
     ) -> Result<Arc<ChildAgent>, RpcError> {
-        // A cloud secret delivery may change machine-secrets.env while the
-        // daemon is running. Do not start a harness from its cached env.
-        if !crate::login_env::machine_env_fresh_before_spawn().await {
-            return Err(RpcError::internal("machine environment changed; login env refresh failed"));
-        }
         // Its worktree back if cleanup reclaimed it, and reopened if stopped.
         self.ready_to_start(session, stops).await?;
         let meta = session.meta();
