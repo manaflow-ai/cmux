@@ -11,7 +11,6 @@ import React, {
   useState,
   useSyncExternalStore,
 } from "react";
-import { AnsweredBy, AuthorChip } from "./multiplayer/Faces";
 import { LivePresenceStack, LiveTypingLine } from "./multiplayer/LivePresence";
 import { flushSync } from "react-dom";
 import { CONNECT_ACTIONS, savedEnvironmentHost, type ConnectKind, type OffloadKind } from "./environments";
@@ -23,7 +22,6 @@ import { isAgentMotionOff } from "../shared/motion";
 import { entranceAllowed } from "../shared/pageReveal";
 import {
   layoutConversation,
-  onlyQuietThoughts,
   type ConversationLayout,
   type RowHeights,
   paneHeader,
@@ -40,16 +38,10 @@ import {
   isBeforeFooter,
   isLastFooter,
   isContinuationFooter,
-  QUEUED_MESSAGE,
   WAITING_MESSAGES,
 } from "./model";
 import { ownQueue, queuedAttachments, queuedMessageRows } from "./conversation/queuedMessages";
-import {
-  QueuedMessageCard,
-  SteerWaitingActions,
-  type QueuedMessageActionsValue,
-} from "./conversation/QueuedMessageCard";
-import { WaitingMessagesCard } from "./conversation/WaitingMessagesCard";
+import { type QueuedMessageActionsValue } from "./conversation/QueuedMessageCard";
 import { groupWaitingTurn } from "./conversation/waitingMessages";
 import { AcpmuxDirectClient, type AcpmuxHostConfig, harnessBlock, type HarnessBlock, isTrustRefusal } from "./direct";
 import {
@@ -282,8 +274,9 @@ import {
 import { ChatFindBar } from "./conversation/ChatFindBar";
 import { ChatFindScope } from "./conversation/ChatFindScope";
 import {
-  RENDER,
+  THINKING,
   WORKED,
+  WORKING,
   messageRevealTarget,
   turnFoldFor,
   turnFooterFrom,
@@ -291,7 +284,6 @@ import {
   turnViewFrom,
 } from "./conversation/turns";
 import { ArrowDown } from "./conversation/icons";
-import { CopyButton } from "./conversation/CopyButton";
 import { installWheelGlide } from "./wheelGlide";
 import { installWheelPassThrough } from "./wheelPassThrough";
 import { turnPreviewUrl } from "./conversation/previewUrl";
@@ -376,7 +368,6 @@ import { type Subagent } from "./subagents/subagentFold";
 import { restartOwner, restartPrompt, restartReaches } from "./subagents/restart";
 import {
   SUBAGENT_DONE,
-  SUBAGENT_OF,
   type SubagentRows,
   childView,
   runningGroups,
