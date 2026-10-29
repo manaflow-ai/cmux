@@ -1738,6 +1738,10 @@ path = "tests/test_nightly_next_cancelled_tip.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_nightly_next_stuck_run.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_github_token_budget.py"
 lane = "linux-guard"
 

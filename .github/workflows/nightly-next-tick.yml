@@ -100,6 +100,7 @@ jobs:
             scripts/ci/nightly_next_cancelled_tip.sh
             scripts/ci/nightly_next_feed_watch.py
             scripts/ci/nightly_next_rolling.py
+            scripts/ci/nightly_next_stuck_run.py
             scripts/ci/nightly_repick.py
             scripts/ci/owned_pool_rescue.py
             scripts/ci/owned_pool_sources.py
@@ -144,6 +145,19 @@ jobs:
           python3 -m venv "$RUNNER_TEMP/tick-venv"
           "$RUNNER_TEMP/tick-venv/bin/python" -m pip install --disable-pip-version-check --no-input PyYAML==6.0.3
           echo "$RUNNER_TEMP/tick-venv/bin" >> "$GITHUB_PATH"
+
+      # A nightly-next or promotion run with a job no runner took for 20 minutes (a label
+      # that stopped serving, run 40771197361) is cancelled here when an existing path builds
+      # it again: the step below re-runs the tip's push run, the tip builds over an older
+      # commit's, and the promotion request asks again. Gated and running runs are never
+      # cancelled; scripts/ci/nightly_next_stuck_run.py. Only in the shared, serialized tick
+      # group (no sha input), so two ticks never act on one run at once.
+      - name: Cancel a nightly-next run stuck without a runner
+        if: inputs.sha == ''
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 .tick-tooling/scripts/ci/nightly_next_stuck_run.py "$GITHUB_REPOSITORY"
 
       # A tip on nightly-next whose newest run ended cancelled (a rescue that lost its
       # re-run, run 40340830337) is never requested again below ("already on

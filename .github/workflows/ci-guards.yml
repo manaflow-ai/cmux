@@ -744,6 +744,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_nightly_next_cancelled_tip.py
 
+      - name: Validate the nightly-next tick cancels a run stuck without a runner
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_nightly_next_stuck_run.py
+
       - name: Validate CI queue janitor policy
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_queue_janitor.py
