@@ -2129,14 +2129,14 @@ if command -v xattr >/dev/null 2>&1; then
   xattr -cr "$APP_PATH" || true
 fi
 # Ad hoc unless CMUX_DEV_SIGN_IDENTITY names an identity (scripts/lib/dev-sign-identity.sh).
-# A set identity this host lacks fails here; it never falls back to ad hoc. No --deep:
-# nested helpers keep their own signatures.
+# A set identity this host lacks, or one codesign fails with, fails here; it never falls
+# back to ad hoc or unsigned. No --deep: nested helpers keep their own signatures.
 cmux_dev_sign_identity_ready || exit 1
 if ! /usr/bin/codesign --force --sign "${CMUX_DEV_SIGN_IDENTITY:--}" --timestamp=none --generate-entitlement-der "$APP_PATH" >/dev/null 2>&1; then
-  if [[ "${CMUX_ALLOW_UNSIGNED_DEV_APP:-}" == "1" ]]; then
+  if [[ "${CMUX_ALLOW_UNSIGNED_DEV_APP:-}" == "1" && "${CMUX_DEV_SIGN_IDENTITY:--}" == "-" ]]; then
     echo "warning: codesign failed for $APP_PATH; continuing because CMUX_ALLOW_UNSIGNED_DEV_APP=1" >&2
   else
-    echo "error: codesign failed for $APP_PATH" >&2
+    echo "error: codesign failed for $APP_PATH${CMUX_DEV_SIGN_IDENTITY:+ with CMUX_DEV_SIGN_IDENTITY '$CMUX_DEV_SIGN_IDENTITY'}" >&2
     exit 1
   fi
 fi

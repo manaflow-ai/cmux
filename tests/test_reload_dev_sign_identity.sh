@@ -5,7 +5,9 @@
 #   - unset, empty or "-" signs with `--sign -`, as before, and never asks security;
 #   - a set identity that security lists signs with `--sign <identity>`;
 #   - a set identity security does not list fails with a clear error and no codesign
-#     call, even with CMUX_ALLOW_UNSIGNED_DEV_APP=1 (no silent ad hoc fallback).
+#     call, even with CMUX_ALLOW_UNSIGNED_DEV_APP=1 (no silent ad hoc fallback);
+#   - CMUX_ALLOW_UNSIGNED_DEV_APP=1 still tolerates a failed ad hoc sign, but never a
+#     failed sign with a set identity.
 # Linux and macOS. Run: ./tests/test_reload_dev_sign_identity.sh
 set -euo pipefail
 
@@ -24,6 +26,7 @@ SECURITY_LOG="$TMP_DIR/security.log"
 cat > "$TMP_DIR/bin/codesign" <<'FAKE'
 #!/usr/bin/env bash
 printf '%s\n' "$@" > "$CODESIGN_LOG"
+[[ "${FAKE_CODESIGN_FAIL:-}" != 1 ]] || exit 1
 FAKE
 cat > "$TMP_DIR/bin/security" <<'FAKE'
 #!/usr/bin/env bash
@@ -50,7 +53,7 @@ STATUS=0
 run_block() {
   rm -f "$CODESIGN_LOG" "$SECURITY_LOG"
   set +e
-  OUTPUT="$(env -u CMUX_DEV_SIGN_IDENTITY -u CMUX_ALLOW_UNSIGNED_DEV_APP \
+  OUTPUT="$(env -u CMUX_DEV_SIGN_IDENTITY -u CMUX_ALLOW_UNSIGNED_DEV_APP -u FAKE_CODESIGN_FAIL \
     PATH="$TMP_DIR/bin:$PATH" CODESIGN_LOG="$CODESIGN_LOG" SECURITY_LOG="$SECURITY_LOG" \
     APP_PATH="$APP" LIB="$LIB" "$@" bash -c '
       set -euo pipefail
@@ -101,3 +104,13 @@ for missing in "Apple Development: Someone Else (TEAMID9999)" "valid identities 
   done
 done
 echo "PASS: a set identity security does not list fails clearly and never runs codesign"
+
+run_block FAKE_CODESIGN_FAIL=1 CMUX_ALLOW_UNSIGNED_DEV_APP=1
+[[ "$STATUS" -eq 0 && "$OUTPUT" == *"continuing because CMUX_ALLOW_UNSIGNED_DEV_APP=1"* ]] \
+  || fail "CMUX_ALLOW_UNSIGNED_DEV_APP=1 no longer tolerates a failed ad hoc sign: $OUTPUT"
+run_block FAKE_CODESIGN_FAIL=1 CMUX_ALLOW_UNSIGNED_DEV_APP=1 CMUX_DEV_SIGN_IDENTITY="$ID"
+[[ "$STATUS" -ne 0 && "$OUTPUT" != *SIGNED* ]] \
+  || fail "a failed sign with a set identity continued unsigned under CMUX_ALLOW_UNSIGNED_DEV_APP=1: $OUTPUT"
+[[ "$OUTPUT" == *"codesign failed for $APP with CMUX_DEV_SIGN_IDENTITY '$ID'"* ]] \
+  || fail "a failed sign with a set identity did not say so: $OUTPUT"
+echo "PASS: CMUX_ALLOW_UNSIGNED_DEV_APP=1 tolerates only a failed ad hoc sign, never a failed identity sign"
