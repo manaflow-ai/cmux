@@ -155,6 +155,32 @@ import CmuxNextDesignTokens
         #expect((layer.sublayers ?? []).allSatisfy { $0.isHidden || $0.borderWidth == 0 }, "an unfocused button keeps its ring")
     }
 
+    /// User, 2026-10-29: a focused button's ring overlapped the controls beside it. Dialog buttons sit
+    /// `Metrics.space2` apart, and the ring reached 4 pt past its button. With each button of a
+    /// three-button dialog focused in turn, its ring stays clear of every other button.
+    @Test func aFocusedButtonsRingNeverReachesTheNextButton() throws {
+        let scope = try Self.scope(Self.dark, "Focus Ring Neighbors")
+        let window = try Self.window(in: scope)
+        defer { window.close() }
+        let dialog = Self.dialog()
+        try Self.show(dialog, in: window)
+        #expect(dialog.buttonViews.count == 3)
+        for focused in dialog.buttonViews {
+            #expect(window.makeFirstResponder(focused))
+            dialog.layoutSubtreeIfNeeded()
+            let layer = try #require(focused.layer)
+            let ring = try #require((layer.sublayers ?? []).first { !$0.isHidden && $0.frame.width > layer.bounds.width },
+                                    "\(focused.button.title): no ring outside the button")
+            // At least a point clear: a ring that ends on the neighbor's edge draws against it.
+            let ringInDialog = focused.convert(ring.frame, to: dialog).insetBy(dx: -1, dy: -1)
+            for other in dialog.buttonViews where other !== focused {
+                let otherInDialog = other.convert(other.bounds, to: dialog)
+                #expect(!ringInDialog.intersects(otherInDialog),
+                        "\(focused.button.title)'s ring \(ringInDialog) overlaps \(other.button.title) \(otherInDialog)")
+            }
+        }
+    }
+
     // MARK: Checks
 
     /// Every label is at least 4.5:1 on the resolved surface, and the surface is the scope's popup
