@@ -24,6 +24,21 @@ pub struct SessionSummary {
     /// `idle`, `ready`, `running`, `waiting`, `disconnected` or `closed`;
     /// a peer's session also `unreachable`.
     pub status: String,
+    /// Effective liveness: `stuck` after three classified harness failures, else `status`.
+    #[serde(default)]
+    #[schemars(default)]
+    pub state: String,
+    #[serde(default)]
+    #[schemars(default)]
+    pub stuck_reason: Option<crate::session_liveness::StuckReason>,
+    /// Unix milliseconds when the third failure established stuck. Omitted for peers.
+    #[serde(default)]
+    #[schemars(default)]
+    pub stuck_since: Option<u64>,
+    /// Last classified error, redacted and bounded. Omitted for peers.
+    #[serde(default)]
+    #[schemars(default)]
+    pub stuck_error: Option<String>,
     pub agent_session_id: Option<String>,
     pub created_at: u64,
     pub updated_at: u64,

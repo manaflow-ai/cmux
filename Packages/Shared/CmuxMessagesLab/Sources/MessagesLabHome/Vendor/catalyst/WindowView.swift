@@ -244,6 +244,20 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
     private(set) var renderScale: CGFloat = Fixture.renderScale
     /// cmux: the zoom `renderScale` includes (HostView.contentZoom; 1 otherwise), from `setRenderScale`.
     private(set) var contentZoom: CGFloat = 1
+    /// cmux: this view's palette (its chat's theme and Chat Colors, PaletteScope), bound with its scale; nil draws
+    /// with the process palette. Set by `setPalette`.
+    private(set) var palette: PaletteBox?
+    /// cmux: the view draws with `box` (a Home chat's theme and Chat Colors…) from now on; its cells take it at
+    /// once (the host redraws them, MessagesLabHomeView.applyTheme). Rows of other views keep their own palette.
+    func setPalette(_ box: PaletteBox) {
+        guard palette !== box else { return }
+        palette = box
+        for case let cell as RowCell in collection.visibleCells { cell.paletteBox = box }
+    }
+    /// cmux: runs `body` with this view's scale and palette (its own work).
+    func scope<T>(_ body: () throws -> T) rethrows -> T {
+        try PaletteScope.with(palette) { try Fixture.withRenderScale(renderScale, body) }
+    }
 
     /// This view's window has another backing scale (it moved to a display with another scale, it was put in a
     /// window on another display, or a test forced one): every bitmap of this view is drawn again at the new scale,
@@ -267,7 +281,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         renderScale = s
         Fixture.renderScale = s
         MessagesWindowView.displayChangeSerial += 1
-        MessagesWindowView.displayChange { Fixture.withRenderScale(s) {
+        MessagesWindowView.displayChange { PaletteScope.with(palette) { Fixture.withRenderScale(s) {
             func walk(_ v: UIView) {
                 if let c = v as? CanvasView { c.layer.contentsScale = s; c.setNeedsDisplay() }
                 v.subviews.forEach(walk)
@@ -287,7 +301,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
             } else {
                 deferDisplayWork([.compose, .header, .cells])
             }
-        } }
+        } } }
     }
 
     /// The display change's work of one view that runs once at the end of the outermost pass (cx-3cb display-budget:
@@ -313,7 +327,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
             let w = v.displayWork
             v.displayWork = []
             if w.contains(.header) { headers.append(v) }
-            Fixture.withRenderScale(v.renderScale) {
+            v.scope {
                 if w.contains(.compose) { DisplayTiming.phase("work.compose") { v.compose.rescale() } }
                 if w.contains(.cells) { DisplayTiming.phase("work.cells") { v.refreshVisibleCells() } }
             }
@@ -321,7 +335,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         return headers
     }
     private func refreshHeader() {
-        Fixture.withRenderScale(renderScale) { DisplayTiming.phase("work.header") { header.refresh() } }
+        scope { DisplayTiming.phase("work.header") { header.refresh() } }
     }
 
     /// One display change (cx-3cb scale-redraw): a window's move to another display changes its views' scale
@@ -394,7 +408,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         displayChange { for v in live.allObjects { v.redrawForColorSpace() } }
     }
     private func redrawForColorSpace() {
-        Fixture.withRenderScale(renderScale) {
+        scope {
             backgroundColor = Fixture.background
             DisplayTiming.phase("space.canvases") {
                 chrome.setNeedsDisplay()
@@ -1995,6 +2009,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         defer { step(2) }
         cell.fillSpan = fillSpan
         cell.renderScale = renderScale
+        cell.paletteBox = palette
         cell.contentZoom = contentZoom
         cell.inactive = inactive
         cell.crispEdge = crispSends[r.spec.key] != nil
@@ -2020,7 +2035,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         // Connector from the root's vertical center down to this bubble.
         if case let .part(p) = r.spec.kind, let rootKey = p.connectorRoot {
             let cellTop = layout.frame(for: i).minY
-            let rootCenter = model.index.value(for: rootKey).map { layout.contentTop($0) + (model.rows[checked: $0]?.spec.height ?? 0) / 2 } ?? layout.rowsTop
+            let rootCenter = model.index.value(for: rootKey).map { layout.contentTop($0) + (model.rows[checked: $0]?.spec.connectorAnchorY ?? 0) } ?? layout.rowsTop
             let myTop = layout.contentTop(i)
             cell.setConnector(top: myTop - 8.5 > rootCenter ? rootCenter - cellTop : nil, bottom: myTop - 8.5 - cellTop, mirrored: p.outgoing)
         } else {
@@ -2065,14 +2080,19 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
                 Animate.scalar(target, e.keyPath, from: e.from, to: e.to, e.element, begin: e.begin)
             }
         }
-        // cmux: working only rotates; the typing bubble and tail never breathe.
         if case .typing = r.spec.kind {
             if r.ghost {
-                cell.stopTypingSpinner()
-            } else if cell.typingInsertedAt != r.insertedAt || !cell.typingSpinnerActive {
+                cell.stopTypingBreath()
+            } else if cell.typingInsertedAt != r.insertedAt || cell.dots.first?.sublayers?.first?.animation(forKey: "dots") == nil
+                        || cell.needsTypingBreath {
+                // The dots and the breathing run from the insert's begin (layer time). This used to read a begin
+                // that the commit stored after the cell's first decorate: the dots then ran from layer time 0, so
+                // their phase was arbitrary (motion-gate harness: begin 0). A new indicator under the same key, or
+                // the same row live again after its fade began (stopTypingBreath), starts both again.
                 let insert = r.insertedAt > 0 ? beginTime(r.insertedAt) : Animate.now(layer)
                 cell.typingInsertedAt = r.insertedAt
-                cell.startTypingSpinner(begin: insert + Springs.typingDotsPhase)
+                cell.startTypingDots(begin: insert + Springs.typingDotsPhase)
+                cell.startTypingBreath(insert: insert)
             }
         }
     }
@@ -2278,12 +2298,12 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
             y += spec.total
             // Drawn at this view's scale (weak: the canvas is this view's subview).
             let v = CanvasView(frame: CGRect(x: 0, y: top, width: bounds.width, height: spec.height + 2 * RowDraw.margin)) { [weak self] ctx, _ in
-                Fixture.withRenderScale(self?.renderScale ?? 0) {
+                PaletteScope.with(self?.palette) { Fixture.withRenderScale(self?.renderScale ?? 0) {
                     Fixture.elevated = true
                     // A just-sent reply is crisp in its copy too, until it is delivered (RowCell.crispEdge).
                     SoftBalloon.withCrispCopy(self?.crispSends[spec.key] != nil) { RowDraw.drawStatic(spec, ctx, windowY: top) }
                     Fixture.elevated = false
-                }
+                } }
             }
             v.layer.contentsScale = renderScale
             threadLayer.addSubview(v)
