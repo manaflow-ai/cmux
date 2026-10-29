@@ -139,6 +139,7 @@ async fn recovery_sample(wake: bool) -> Duration {
     echo.send(Bytes::from_static(b"awake")).await.unwrap();
     assert_eq!(echo.recv().await, Some(ChannelEvent::Data(Bytes::from_static(b"awake"))));
     let elapsed = started.elapsed();
+    connected.link.close("test complete");
     phone.close();
     elapsed
 }

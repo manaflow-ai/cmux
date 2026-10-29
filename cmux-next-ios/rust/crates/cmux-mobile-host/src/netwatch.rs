@@ -26,6 +26,17 @@ pub fn changed() {
         .send_modify(|generation| *generation = generation.wrapping_add(1));
 }
 
+/// One refresh at a time; events during a refresh coalesce into the next turn.
+/// The host loop owns and aborts this task on removal/shutdown. It does not wait
+/// for signaling, so a backend outage cannot prevent live tunnels from roaming.
+pub async fn refresh_endpoints(mut events: watch::Receiver<u64>) {
+    while events.changed().await.is_ok() {
+        for (session, timeline) in cmux_mobile_link::dial::wireguard::network_changed().await {
+            tracing::info!(session, timings = %timeline.summary(), "roamed");
+        }
+    }
+}
+
 /// How long a burst of routing messages may last before the change is
 /// judged (an interface coming up adds and removes several addresses).
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]

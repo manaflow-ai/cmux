@@ -153,6 +153,9 @@ async fn run_with_changes(config: HostConfig, mut changes: tokio::sync::watch::R
     let mailbox = mailbox_for(&services);
     // Phones keep their WireGuard sessions when the Mac changes networks.
     let _network_watch = AbortTask(tokio::spawn(crate::netwatch::run()));
+    // Live tunnels can roam even while signaling is unreachable. Rehome resends
+    // their latest endpoint announcements once the replacement socket connects.
+    let _endpoint_refresh = AbortTask(tokio::spawn(crate::netwatch::refresh_endpoints(changes.clone())));
     // Test-only signal hooks, never in a normal install: only when the state
     // folder holds a `test-signals` file a rig created (PR #22555 review).
     if crate::config::default_state_dir().join("test-signals").exists() {
@@ -248,13 +251,6 @@ async fn connect_once(
     if moved > 0 {
         tracing::info!(moved, "WireGuard sessions moved to the new signaling socket");
     }
-    // Rehome first so refreshed endpoint announcements use the new signaling socket.
-    // Run concurrently with admission: gathering endpoints must not delay a new dial.
-    lifetime.tasks.push(tokio::spawn(async {
-        for (session, timeline) in dial::wireguard::network_changed().await {
-            tracing::info!(session, timings = %timeline.summary(), "roamed");
-        }
-    }));
     control::emit(&Event::Online { device_id: config.device_id.clone(), team_id: config.team_id.clone() });
     let context = AnswerContext {
         owner_user_id: owner,
