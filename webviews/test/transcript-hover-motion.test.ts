@@ -45,16 +45,12 @@ test("transcript hover fades require motion preference and a hover-capable fine 
 test("keyboard focus and action visibility remain independent of pointer capability", () => {
   for (const action of actions) {
     const focus = rules.find(
-      ({ rule }) =>
-        rule.selectorText.includes(`${action}:focus-within`) &&
-        rule.style.getPropertyValue("transition"),
+      ({ rule }) => rule.selectorText.includes(`${action}:focus-within`) && rule.style.getPropertyValue("transition"),
     );
     expect(focus).toBeDefined();
     expect(focus!.media).toEqual(["(prefers-reduced-motion: no-preference)"]);
     expect(focus!.rule.style.getPropertyValue("transition")).not.toContain("--cv-actions-in-delay");
-    const visibility = rules.filter(
-      ({ rule }) => rule.selectorText.includes(action) && rule.style.opacity === "1",
-    );
+    const visibility = rules.filter(({ rule }) => rule.selectorText.includes(action) && rule.style.opacity === "1");
     expect(visibility.length).toBeGreaterThan(0);
     for (const { media } of visibility) expect(media).toEqual([]);
   }

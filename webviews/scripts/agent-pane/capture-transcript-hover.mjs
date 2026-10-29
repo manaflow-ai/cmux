@@ -12,7 +12,10 @@ const out = process.argv[3];
 fs.mkdirSync(out, { recursive: true });
 const browser = await chromium.launch();
 try {
-  for (const [version, css] of [["before", before], ["after", after]]) {
+  for (const [version, css] of [
+    ["before", before],
+    ["after", after],
+  ]) {
     for (const coarse of [true, false]) {
       const context = await browser.newContext({ viewport: { width: 640, height: 280 }, hasTouch: coarse });
       const page = await context.newPage();
@@ -43,7 +46,10 @@ try {
       const state = await page.evaluate(async () => {
         await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
         return [...document.querySelectorAll(".cv-user__actions,.cv-received-actions,.cv-turn-actions")].map((el) => {
-          for (const animation of el.getAnimations()) { animation.pause(); animation.currentTime = 0; }
+          for (const animation of el.getAnimations()) {
+            animation.pause();
+            animation.currentTime = 0;
+          }
           const s = getComputedStyle(el);
           return { opacity: s.opacity, duration: s.transitionDuration, delay: s.transitionDelay };
         });
@@ -60,9 +66,15 @@ try {
         await cdp.send("CSS.forcePseudoState", { nodeId, forcedPseudoClasses: [] });
       }
       await page.locator(".cv-user__actions button").first().focus();
-      assert.equal(await page.locator(".cv-user__actions").evaluate((el) => getComputedStyle(el).transitionDelay), "0s");
+      assert.equal(
+        await page.locator(".cv-user__actions").evaluate((el) => getComputedStyle(el).transitionDelay),
+        "0s",
+      );
       await page.emulateMedia({ reducedMotion: "reduce" });
-      assert.equal(await page.locator(".cv-turn-actions").evaluate((el) => getComputedStyle(el).transitionDuration), "0s");
+      assert.equal(
+        await page.locator(".cv-turn-actions").evaluate((el) => getComputedStyle(el).transitionDuration),
+        "0s",
+      );
       await context.close();
     }
   }
