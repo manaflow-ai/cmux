@@ -1003,5 +1003,30 @@ class StrictEighthReviewTests(unittest.TestCase):
         self.assertIsNone(spc.marked_plist(b"<plist><data>" + loose_text + b"</data></plist>", names, 1))
 
 
+    @unittest.skipUnless(hasattr(os, "mkfifo"), "needs mkfifo")
+    def test_a_special_file_fails(self):
+        a = make_app(Path(self.tmp.name) / "a", tool=macho(b"T" * 32, b"c"))
+        os.mkfifo(a / "Contents/Resources/pipe")
+        out = Path(self.tmp.name) / "o.json"
+        proc = subprocess.run([sys.executable, "-I", str(SCRIPT), str(a), str(a), str(out), "--strict"],
+                              capture_output=True, text=True, timeout=60)
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("is not a regular file, directory or symlink", proc.stdout)
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_only_exact_entries_or_nested_bundles_name_a_digest(self):
+        digest = hashlib.sha256(b"x").digest()
+        names = {digest: "<sha256 of Contents/Frameworks/Lib.framework/Versions/A/Lib\0[arm64] CodeDirectory 0x0>"}
+        named = lambda entry: spc.resources_named({"files2": {entry: {"cdhash": digest}}}, "Contents", names)[0]
+        self.assertIsInstance(named("Frameworks/Lib.framework")["files2"]["Frameworks/Lib.framework"]["cdhash"], tuple)
+        for bad in ("", "Frameworks", "Frameworks/./Lib.framework", "../Contents/Frameworks/Lib.framework"):
+            self.assertEqual(named(bad)["files2"][bad]["cdhash"], digest, bad)
+
+
 if __name__ == "__main__":
     unittest.main()

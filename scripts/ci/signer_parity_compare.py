@@ -1007,8 +1007,11 @@ def resources_named(plist, home: str, names: dict):
     def name(digest, entry):
         label = names.get(digest) if isinstance(digest, bytes) else None
         path = label_path(label)
-        own = os.path.normpath(os.path.join(home, entry)) if home else os.path.normpath(entry)
-        if path and (path == own or path.startswith(own + "/")):
+        if not entry or entry.startswith("/") or os.path.normpath(entry) != entry or entry.split("/")[0] == "..":
+            return digest
+        own = os.path.join(home, entry) if home else entry
+        if path and (path == own or path.startswith(own + "/") and own.endswith((".app", ".framework", ".bundle",
+                                                                                 ".appex", ".xpc", ".plugin"))):
             used[digest] = label
             used_count[0] += 1
             return ("digest of", label)  # a tuple: no property list value equals it
@@ -1279,6 +1282,13 @@ def container_errors(da: bytes, db: bytes, pa, pb) -> list:
     return [] if outside(da, pa) == outside(db, pb) else ["the universal container (header, offsets or padding) differs"]
 
 
+def special_ok(path: str) -> bool:
+    """Only regular files, directories and symlinks belong in an app; a device or
+    FIFO would read as an empty file (or hang)."""
+    mode = os.lstat(path).st_mode
+    return stat.S_ISREG(mode) or stat.S_ISDIR(mode) or stat.S_ISLNK(mode)
+
+
 def symlink_mode_errors(a_root: str, b_root: str) -> list:
     """The default compare records a symlink's target only; its own mode (macOS
     lchmod) must match too."""
@@ -1319,6 +1329,10 @@ def main() -> int:
     modes = [oct(stat.S_IMODE(os.stat(p).st_mode)) for p in (args.a, args.b)]
     if modes[0] != modes[1]:
         return fail(f"the app directories' modes differ: {modes[0]} / {modes[1]}")
+    special = [f"{root}: {rel} is not a regular file, directory or symlink" for root in (args.a, args.b)
+               for rel, path in walk(root).items() if not special_ok(path)]
+    if special:
+        return fail(f"{len(special)} special files", special)
     links = symlink_mode_errors(args.a, args.b)
     if links:
         return fail(f"{len(links)} symlink modes differ", links)
