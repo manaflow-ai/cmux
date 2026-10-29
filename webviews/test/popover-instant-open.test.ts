@@ -8,8 +8,8 @@
 //   draws a starting style for one to enter from (outside its exit state). A popup surface is one of
 //   the listed classes, any class named like one (`-menu`, `-popover`, `-popup`, `-dropdown`,
 //   `-picker`, `-listbox`), or an ARIA menu or listbox.
-// - No component gives a menu or listbox a `data-enter` entrance, and no script fades a popup in
-//   with `.animate()`.
+// - No component gives a menu or listbox a `data-enter` entrance, and every `.animate()` fade-in
+//   under webviews/src is a listed non-popup surface (SCRIPT_FADE_INS).
 // - Palettes are exempt (Leo: "Command palette gets a pass"): the quick-open and jump palettes keep
 //   their entrance, and each is named in PALETTES.
 // popover-instant-open-pane.test.ts opens the real agent pane's ... menu in Chromium.
@@ -148,28 +148,64 @@ const scripts = (dir: string) =>
     (file) => /\.tsx?$/.test(file) && !/\.(test|gallery)\.tsx?$/.test(file) && !file.includes("/prototypes/"),
   );
 
-/// A JSX element that is a menu or listbox, by role or by a popup-named class, and asks for a
-/// `data-enter` entrance (ui/popupSurface.css), as `line why`.
+/// A class word that names a popup surface (no leading dot), as in a className string.
+const POPUP_WORD = new RegExp(
+  `(?<![\\w-])(${POPUP_CLASSES.join("|")}|[\\w-]+-(${POPUP_SUFFIXES.join("|")}))(?![\\w-])`,
+);
+const PALETTE_WORD = new RegExp(`(?<![\\w-])(${PALETTES.join("|")})(?![\\w-])`);
+
+/// The opening JSX tag around `at`: from its `<Name` to the `>` that closes it, skipping `{...}`
+/// expressions (so `onClick={() => x}` or `className={cx("a", b)}` stay inside).
+function enclosingTag(source: string, at: number): string | undefined {
+  let start = at;
+  while (start >= 0 && !(source[start] === "<" && /[A-Za-z]/.test(source[start + 1] ?? ""))) start--;
+  if (start < 0) return undefined;
+  let depth = 0;
+  for (let index = start + 1; index < source.length; index++) {
+    const char = source[index];
+    if (char === "{") depth++;
+    else if (char === "}") depth--;
+    else if (char === ">" && depth === 0) return index >= at ? source.slice(start, index + 1) : undefined;
+  }
+  return undefined;
+}
+
+/// String literals in a tag: every quoted value, inside or outside `{...}`.
+const literals = (tag: string) => [...tag.matchAll(/(["'`])((?:(?!\1)[^\\]|\\.)*)\1/g)].map((match) => match[2]);
+
+/// A JSX element that is a menu or listbox, by role or by a popup-named class in any form
+/// (`role={"menu"}`, `className={cx("ui-popup", extra)}`), and asks for a `data-enter` entrance
+/// (ui/popupSurface.css), as `line why`.
 function scriptEntrances(source: string): string[] {
   const found: string[] = [];
   const lineAt = (index: number) => source.slice(0, index).split("\n").length;
-  for (const tag of source.matchAll(/<[A-Za-z][\w.]*\b[^<>]*?\bdata-enter\b[^<>]*>/g)) {
-    const role = /\brole=["'{]+(menu|listbox)\b/.exec(tag[0]);
-    const named = new RegExp(`\\bclassName=["'{\`][^"'}\`]*\\b[\\w-]+-(${POPUP_SUFFIXES.join("|")})(?![\\w-])`).exec(
-      tag[0],
-    );
+  for (const attr of source.matchAll(/\bdata-enter\b(?=\s*=)/g)) {
+    const tag = enclosingTag(source, attr.index);
+    if (!tag) continue;
+    const role = /\brole\s*=\s*\{?\s*["'`](menu|listbox)["'`]/.exec(tag);
+    const named = literals(tag)
+      .flatMap((text) => text.split(/\s+/))
+      .find((word) => POPUP_WORD.test(word) && !PALETTE_WORD.test(word));
     if (role || named)
-      found.push(`${lineAt(tag.index)} a ${role ? `role=${role[1]}` : "popup-named"} element enters with data-enter`);
+      found.push(`${lineAt(attr.index)} a ${role ? `role=${role[1]}` : `.${named}`} element enters with data-enter`);
   }
   return found;
 }
 
-/// A file named for a menu, popover or picker that fades something in with `.animate()`.
-function scriptFadeIns(file: string, source: string): string[] {
-  if (!/(menu|popover|popup|picker|dropdown)/i.test(path.basename(file))) return [];
+/// Scripts that fade an element in with `.animate()`, and how many times. None of them is a popup;
+/// a new fade-in anywhere under webviews/src fails until it is listed here with its reason.
+const SCRIPT_FADE_INS: Record<string, { count: number; why: string }> = {
+  "src/agent-session/acpmux/App.tsx": { count: 1, why: "a cold-opened chat's transcript fades in" },
+  "src/motion/SyncTitle.tsx": { count: 1, why: "a title's new text cross-fades" },
+  "src/motion/useSyncListMotion.ts": { count: 1, why: "a list row that arrives fades in" },
+};
+
+/// The `.animate()` calls in a script that start at opacity 0 (`[{ opacity: 0 }, ...]` or
+/// `{ opacity: [0, ...] }`), as their lines.
+function scriptFadeIns(source: string): number[] {
   const lineAt = (index: number) => source.slice(0, index).split("\n").length;
-  return [...source.matchAll(/\.animate\(\s*\[\s*\{\s*opacity:\s*0\b/g)].map(
-    (match) => `${lineAt(match.index)} fades in with .animate()`,
+  return [...source.matchAll(/\.animate\(\s*(\[\s*\{\s*opacity:\s*["']?0(\.0+)?["']?\s*[,}]|\{\s*opacity:\s*\[\s*["']?0(\.0+)?["']?\s*,)/g)].map(
+    (match) => lineAt(match.index),
   );
 }
 
@@ -221,27 +257,45 @@ describe("popovers and menus open in one frame", () => {
     ]);
   });
 
-  test("the script scan catches a menu that enters, and passes a panel that does", () => {
+  test("the script scan catches a menu that enters, in any JSX form, and passes a panel that does", () => {
     expect(
       scriptEntrances(`
         <div role="menu" data-enter="top">
         <ul className="nt-add-popover" data-enter="bottom">
-        <section className="acpmux-inspector" data-enter="right">`),
-    ).toEqual(["2 a role=menu element enters with data-enter", "3 a popup-named element enters with data-enter"]);
-    expect(scriptFadeIns("src/ui/ModelMenu.tsx", "el.animate([{ opacity: 0 }, { opacity: 1 }], 80)")).toEqual([
-      "1 fades in with .animate()",
+        <div role={"listbox"} onClick={() => go()} data-enter="top">
+        <div className={cx("ui-popup", open && "is-open")} data-enter="top">
+        <section className="acpmux-inspector" data-enter="right">
+        <dialog className="acpmux-file-search" data-enter="top">`),
+    ).toEqual([
+      "2 a role=menu element enters with data-enter",
+      "3 a .nt-add-popover element enters with data-enter",
+      "4 a role=listbox element enters with data-enter",
+      "5 a .ui-popup element enters with data-enter",
     ]);
-    expect(scriptFadeIns("src/ui/ModelMenu.tsx", "el.animate([{ opacity: 1 }, { opacity: 0 }], 80)")).toEqual([]);
+    expect(
+      scriptFadeIns(`
+        el.animate([{ opacity: 0 }, { opacity: 1 }], 80);
+        el.animate({ opacity: [0, 1] }, 80);
+        el.animate([{ opacity: 1 }, { opacity: 0 }], 80);
+        el.animate([{ opacity: 0.5 }, { opacity: 1 }], 80);`),
+    ).toEqual([2, 3]);
   });
 
-  test("no component or script animates a popup or menu in", () => {
+  test("no component animates a popup or menu in", () => {
     const found: string[] = [];
-    for (const file of scripts(path.join(WEBVIEWS, "src"))) {
-      const source = readFileSync(file, "utf8");
-      for (const entrance of [...scriptEntrances(source), ...scriptFadeIns(file, source)])
+    for (const file of scripts(path.join(WEBVIEWS, "src")))
+      for (const entrance of scriptEntrances(readFileSync(file, "utf8")))
         found.push(`${path.relative(WEBVIEWS, file)}:${entrance}`);
-    }
     expect(found).toEqual([]);
+  });
+
+  test("every script fade-in is a listed non-popup surface", () => {
+    const found: Record<string, number> = {};
+    for (const file of scripts(path.join(WEBVIEWS, "src"))) {
+      const count = scriptFadeIns(readFileSync(file, "utf8")).length;
+      if (count) found[path.relative(WEBVIEWS, file)] = count;
+    }
+    expect(found).toEqual(Object.fromEntries(Object.entries(SCRIPT_FADE_INS).map(([file, { count }]) => [file, count])));
   });
 
   test("every exempt palette is still drawn by a stylesheet", () => {
