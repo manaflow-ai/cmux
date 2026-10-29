@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextCompat
+import CmuxNextWakeups
 public import CmuxNextDesign
 import Observation
 
@@ -46,13 +47,13 @@ public final class LayoutRootView: NSView {
     let pageCommandScroll: (any PageCommandScrollArbiter)?
     /// The Command scroll from a page window held while its page is asked (`LayoutRootView+PageScroll`).
     var pageProbe: PageProbe?
-    /// The task that asks the page for ``pageProbe``, and the one that stops waiting for it at
-    /// ``pageProbeDeadline``; tests await them.
+    /// The task that asks the page for ``pageProbe``; tests await it.
     var pageProbeTask: Task<Void, Never>?
-    var pageProbeDeadlineTask: Task<Void, Never>?
-    /// How long a held Command scroll waits for its page's answer before the columns take it:
-    /// about two frames, longer than a page's answer takes when its renderer is not stuck.
-    var pageProbeDeadline: Duration = .milliseconds(120)
+    /// Stops waiting for the page at ``pageProbeDeadline``, on the layout's injected clock.
+    let pageProbeTimer: DemandTimer
+    /// How long a held Command scroll waits for its page's answer before the columns take it. A
+    /// page that is not stuck answers within a frame or two.
+    let pageProbeDeadline: Duration = .milliseconds(120)
     var pageProbeGeneration: UInt64 = 0
     /// The last wheel answer of a page window, reused for the notches of one spin.
     var wheelPageAnswer: WheelPageAnswer?
@@ -147,8 +148,8 @@ public final class LayoutRootView: NSView {
     }
 
     /// `contentProvider` is held weakly; the App keeps it alive.
-    /// `scrollbarClock` runs the strip scrollbar's `auto` fade-out deadline;
-    /// tests inject a manual clock.
+    /// `scrollbarClock` runs the strip scrollbar's `auto` fade-out deadline and the wait for a
+    /// page's Command scroll answer; tests inject a manual clock.
     /// `scrollFocusSignals` feeds focus-follows-mouse (`layout.focusFollowsMouse`);
     /// tests inject fixed values.
     /// `pageCommandScroll` asks a web page whether it keeps a Command scroll
@@ -160,6 +161,7 @@ public final class LayoutRootView: NSView {
         self.model = model
         self.scrollFocusSignals = scrollFocusSignals
         self.pageCommandScroll = pageCommandScroll
+        self.pageProbeTimer = DemandTimer(owner: "layout.page-command-scroll", clock: scrollbarClock)
         self.context = LayoutViewContext(model: model, provider: contentProvider, scrollbarClock: scrollbarClock)
         super.init(frame: .zero)
         wantsLayer = true
