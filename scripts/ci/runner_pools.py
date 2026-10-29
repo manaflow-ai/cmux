@@ -20,7 +20,7 @@ watch job, every 10 minutes, with the token the overflow switch already uses) it
 
 - reads per-label start evidence (label_evidence()):
   - the overflow probe's per-label health, CI_CLOUD_LABEL_HEALTH (`labels`: label -> "started"
-    or "stalled"), read live through the API so it is this run's and not the job's start value;
+    or "stalled"; the switch probes every linux pool member), read live through the API so it is this run's and not the job's start value;
     used while its `checked` is at most HEALTH_MAX_AGE old;
   - the queue janitor's snapshot (macos-pool-load), only while its `generated_at` is at most
     SNAPSHOT_MAX_AGE old: a Blacksmith label in `pools` whose oldest
@@ -69,6 +69,7 @@ import simple_pool_picker  # noqa: E402  (the one Blacksmith stall rule)
 ROOT = Path(__file__).resolve().parents[2]
 RUNNERS = ROOT / ".github" / "runners.json"
 VARIABLE = "RUNNER_POOLS"
+# Written by the overflow switch every probe run (cloud_overflow_switch.HEALTH_VARIABLE, label_health()).
 HEALTH_VARIABLE = "CI_CLOUD_LABEL_HEALTH"
 DEAD_KEY = "_dead"
 UPDATED_KEY = "_updated"

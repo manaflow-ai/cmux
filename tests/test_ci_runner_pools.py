@@ -31,9 +31,11 @@ POOLS = {
 
 
 def health(labels, checked=NOW):
-    # The shape cmux#27121's switch writes to CI_CLOUD_LABEL_HEALTH (label_health()).
-    return {"checked": runner_pools.iso(checked), "run": "https://github.com/x/y/actions/runs/1", "minutes": 5,
-            "labels": labels}
+    # Exactly what the overflow switch writes to CI_CLOUD_LABEL_HEALTH (cloud_overflow_switch.label_health()).
+    import cloud_overflow_switch as switch
+    stalled = [label for label, state in labels.items() if state == "stalled"]
+    return switch.label_health(list(labels), stalled, checked=runner_pools.iso(checked),
+                               run="https://github.com/x/y/actions/runs/1", minutes=5)
 
 
 class Declared(unittest.TestCase):
@@ -79,6 +81,12 @@ class Declared(unittest.TestCase):
 
 
 class Evidence(unittest.TestCase):
+    def test_it_reads_the_variable_the_switch_writes(self) -> None:
+        import cloud_overflow_switch as switch
+        self.assertEqual(runner_pools.HEALTH_VARIABLE, switch.HEALTH_VARIABLE)
+        # The switch probes every member of the linux pool, so each one has health of its own.
+        self.assertEqual(set(switch.PROBE_LABELS), set(runner_pools.load_pools()["linux"]["members"]))
+
     def test_the_recorded_snapshot_marks_nothing(self) -> None:
         dead, started, _ = runner_pools.label_evidence(None, RECORDED, now=NOW)
         self.assertEqual((dead, started), (set(), set()))
