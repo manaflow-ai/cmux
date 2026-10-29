@@ -107,7 +107,7 @@ class ReleaseBuildTests(unittest.TestCase):
         ffi.parent.mkdir(parents=True)
         ffi.write_text("fixture_tool ffi\n")
         (self.script.parent / "ios_sim_runtime.py").write_text(
-            "print('fixture-runtime fixture-device')\n"
+            "import json, sys\njson.load(sys.stdin)\nprint('fixture-runtime fixture-device')\n"
         )
         self.developer = self.root / "developer"
         self.developer.mkdir()
