@@ -965,7 +965,7 @@ describe("pause, resume and the idle stretch", () => {
     const runAt = (now: number) => Effect.runPromise(enforceVmIdlePause({ now: () => now }).pipe(Effect.provide(layer)));
     expect(await runAt(T0)).toMatchObject({ paused: 1 });
     expect(rows[0].status).toBe("paused");
-    expect(omit(rows[0].providerMetadata, "cmuxIdleEpoch")).toEqual({ networkIpv4: "10.192.0.5", cmuxPauseReason: "idle" });
+    expect(omit(omit(rows[0].providerMetadata, "cmuxIdleEpoch"), "cmuxPauseIntentEpoch")).toEqual({ networkIpv4: "10.192.0.5", cmuxPauseReason: "idle" });
     // Opened a minute later; the next runs see an idle machine.
     resume("row-1", T0 + MIN);
     expect(await runAt(T0 + 5 * MIN)).toMatchObject({ paused: 0, idle: 1 });

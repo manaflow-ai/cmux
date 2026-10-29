@@ -70,6 +70,19 @@ export const VM_IDLE_PROBED_AT_KEY = "cmuxIdleProbedAt";
  * pausing a machine someone just used.
  */
 export const VM_IDLE_EPOCH_KEY = "cmuxIdleEpoch";
+/**
+ * The fence the idle cron claimed for a provider pause it has not settled yet.
+ * Set by the claim; removed by any status write and by the cron's observation
+ * write. Still there on a later run means the pause's answer was lost: that
+ * run reads the provider back and records or undoes it.
+ */
+export const VM_IDLE_PAUSE_CLAIM_KEY = "cmuxIdlePauseClaim";
+/**
+ * The fence a pause that said why (a person's Pause Machine, or the cron's own
+ * idle pause) set when it recorded. The status reconciler's paused write says
+ * nothing and stamps nothing, so a row it paused is nobody's decision.
+ */
+export const VM_PAUSE_INTENT_EPOCH_KEY = "cmuxPauseIntentEpoch";
 
 /** API activity is written at most this often per machine. */
 export const VM_API_ACTIVITY_MIN_INTERVAL_MS = 60_000;
@@ -105,6 +118,18 @@ type MetadataRow = { readonly providerMetadata?: Record<string, unknown> | null 
 export function vmIdleEpochFromRow(row: MetadataRow): number {
   const stored = row.providerMetadata?.[VM_IDLE_EPOCH_KEY];
   return typeof stored === "number" && Number.isSafeInteger(stored) && stored >= 0 ? stored : 0;
+}
+
+/** The fence of an idle pause the cron claimed but has not settled (VM_IDLE_PAUSE_CLAIM_KEY), or null. */
+export function vmIdlePauseClaimFromRow(row: MetadataRow): number | null {
+  const stored = row.providerMetadata?.[VM_IDLE_PAUSE_CLAIM_KEY];
+  return typeof stored === "number" && Number.isSafeInteger(stored) && stored >= 0 ? stored : null;
+}
+
+/** The fence a paused row's stated pause set (VM_PAUSE_INTENT_EPOCH_KEY), or null for nobody's decision. */
+export function vmPauseIntentEpochFromRow(row: MetadataRow): number | null {
+  const stored = row.providerMetadata?.[VM_PAUSE_INTENT_EPOCH_KEY];
+  return typeof stored === "number" && Number.isSafeInteger(stored) && stored >= 0 ? stored : null;
 }
 
 /** The machine's own choice, else the default. A stored value outside the choices is ignored. */
@@ -392,12 +417,18 @@ def daemon():
 # a9b104f3's daemon answers a request it cannot parse with "bad request: " and serde's
 # message, which for an unknown tag is: unknown variant <tick>name<tick>, expected ...
 # (\x60 is the backtick; the script lives in a template literal and may not contain one).
-LEGACY_DAEMON_REFUSAL = re.compile(r"bad request: unknown variant \x60subscribe-activity\x60, expected \S")
+# serde's unknown-variant message for one, two or many expected variants, then
+# serde_json's position, as a9b104f3's server.rs sends it: format!("bad request: {error}").
+VARIANT = r"\x60[a-z][a-z0-9_-]*\x60"
+LEGACY_DAEMON_REFUSAL = re.compile(
+    r"bad request: unknown variant \x60subscribe-activity\x60, expected (?:"
+    + VARIANT + r"|" + VARIANT + r" or " + VARIANT + r"|one of " + VARIANT + r"(?:, " + VARIANT + r")+"
+    + r")(?: at line [0-9]+ column [0-9]+)?")
 
 def refused_as_unknown(msg):
     # A build from before subscribe-activity refuses exactly this command, and nothing else.
     err = msg.get("error") if msg.get("ok") is False else None
-    return isinstance(err, str) and LEGACY_DAEMON_REFUSAL.match(err) is not None
+    return isinstance(err, str) and LEGACY_DAEMON_REFUSAL.fullmatch(err.strip()) is not None
 
 def daemon_at(path):
     try:
@@ -472,40 +503,87 @@ def acp_missing():
         return isinstance(message, str) and ACP_REFUSAL.fullmatch(message) is not None
     return err.startswith("cmux: ") and ACP_REFUSAL.fullmatch(err[len("cmux: "):]) is not None
 
+# A process that exited between the listing and the read. Anything else that
+# cannot be read could hide work, so it makes the answer unknown (None).
+VANISHED = (FileNotFoundError, ProcessLookupError)
+
 def processes():
     out = {}
-    for name in os.listdir(proc):
+    try:
+        names = os.listdir(proc)
+    except Exception:
+        return None
+    for name in names:
         if not name.isdigit():
             continue
         try:
             with open(os.path.join(proc, name, "stat"), "rb") as f:
                 data = f.read().decode("utf-8", "replace")
+        except VANISHED:
+            continue
+        except Exception:
+            return None
+        try:
             comm = data[data.index("(") + 1:data.rindex(")")]
             fields = data[data.rindex(")") + 2:].split()
             out[int(name)] = (comm, int(fields[2]), int(fields[4]), int(fields[5]))
         except Exception:
-            pass
+            return None
     return out
 
+def cmdline(pid):
+    """The process's arguments; None when it exited. Other read failures raise."""
+    try:
+        with open(os.path.join(proc, str(pid), "cmdline"), "rb") as f:
+            raw = f.read()
+    except VANISHED:
+        return None
+    return [a.decode("utf-8", "replace") for a in raw.split(b"\0") if a]
+
+def shell_runs_command(pid):
+    # A shell that is itself the command: -c (alone or in a cluster like -lc),
+    # or a script argument (a non-flag argument after the shell's name). A
+    # login or interactive shell (-bash, bash, zsh -l, bash -i) is a prompt.
+    for arg in (cmdline(pid) or [])[1:]:
+        if arg.startswith("--"):
+            continue
+        if arg.startswith("-") or arg.startswith("+"):
+            if "c" in arg[1:]:
+                return True
+            continue
+        return True
+    return False
+
 def busy_terminals(procs):
+    if procs is None:
+        return None
     groups, foreground = {}, {}
-    for comm, pgrp, tty, tpgid in procs.values():
-        groups.setdefault(pgrp, []).append(comm)
+    for pid, (comm, pgrp, tty, tpgid) in procs.items():
+        groups.setdefault(pgrp, []).append((pid, comm))
         major = (tty >> 8) & 0xfff
         if 136 <= major <= 143 and tpgid > 0:
             foreground[tty] = tpgid
-    return sum(1 for pgrp in foreground.values() if any(c not in SHELLS for c in groups.get(pgrp, [])))
+    n = 0
+    try:
+        for pgrp in foreground.values():
+            members = groups.get(pgrp, [])
+            if any(c not in SHELLS for _, c in members) or any(shell_runs_command(pid) for pid, _ in members):
+                n += 1
+    except Exception:
+        return None
+    return n
 
 def ssh_sessions(procs):
+    if procs is None:
+        return None
     n = 0
-    for pid in procs:
-        try:
-            with open(os.path.join(proc, str(pid), "cmdline"), "rb") as f:
-                cmd = f.read().split(b"\0")[0].decode("utf-8", "replace")
-        except Exception:
-            continue
-        if cmd.startswith("sshd") and "@" in cmd:
-            n += 1
+    try:
+        for pid in procs:
+            args = cmdline(pid)
+            if args and args[0].startswith("sshd") and "@" in args[0]:
+                n += 1
+    except Exception:
+        return None
     return n
 
 def address(hexaddr):
@@ -515,6 +593,8 @@ def address(hexaddr):
     return ipaddress.ip_address(b"".join(raw[i:i + 4][::-1] for i in range(0, 16, 4)))
 
 def daemon_socket_inodes(procs):
+    if procs is None:
+        return None
     inodes = set()
     for pid, (comm, _, _, _) in procs.items():
         if comm != "cmux-tui":
@@ -522,13 +602,17 @@ def daemon_socket_inodes(procs):
         fd_dir = os.path.join(proc, str(pid), "fd")
         try:
             names = os.listdir(fd_dir)
-        except Exception:
+        except VANISHED:
             continue
+        except Exception:
+            return None
         for fd in names:
             try:
                 target = os.readlink(os.path.join(fd_dir, fd))
-            except Exception:
+            except VANISHED:
                 continue
+            except Exception:
+                return None
             if target.startswith("socket:[") and target.endswith("]"):
                 inodes.add(target[8:-1])
     return inodes
@@ -564,6 +648,9 @@ def inbound_connections(procs):
     listening = {port for _, port, state, _, _ in rows if state == "0A"}
     daemon_port = os.environ.get("CMUX_IDLE_DAEMON_PORT", "")
     daemon_inodes = daemon_socket_inodes(procs)
+    if daemon_inodes is None:
+        # A daemon whose open sockets cannot be listed could be carrying a forwarded port.
+        return None
     n = 0
     for local, port, state, rport, inode in rows:
         if state != "01":

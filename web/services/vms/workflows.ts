@@ -169,7 +169,9 @@ import {
   VM_API_ACTIVITY_MIN_INTERVAL_MS,
   VM_IDLE_PAUSE_MINUTES_KEY,
   vmIdlePauseMinutesFromRow,
+  vmIdleEpochFromRow,
   vmLastApiActivityFromRow,
+  vmPauseIntentEpochFromRow,
   vmPauseReasonFromRow,
   type VmIdlePauseMinutes,
   type VmPauseReason,
@@ -2381,15 +2383,70 @@ export function pauseVmRow(vm: CloudVmRow, requestedProviderVmId: string, reason
 
 /**
  * The idle cron's pause: the same path, but the row records the pause only if
- * it is still running at `idleEpoch`, the fence the cron claimed
+ * it still holds `idleEpoch`, the fence the cron claimed
  * (VmRepository.claimIdlePause). Null when a write moved the fence while the
  * provider paused (a person's exec, files or attach call, a setting change, a
- * person's pause or a resume): the machine may now be paused at the provider
- * with a row that says otherwise, and the caller decides what that write
- * meant (`resumeAfterLostIdlePause`).
+ * person's pause, a status write or a resume): the machine may now be paused
+ * at the provider with a row that says otherwise, and the caller decides what
+ * that write meant (`resumeAfterLostIdlePause`). A provider error or timeout
+ * is not taken as "no pause": the provider's state is read back, and a pause
+ * that went through is recorded at the fence (or answers null) all the same.
+ * A read-back that shows no pause, or cannot tell, fails; the claim stays in
+ * the row and the next cron run settles it.
  */
 export function pauseIdleVmRow(vm: CloudVmRow, providerVmId: string, idleEpoch: number) {
   return pauseRow(vm, providerVmId, "idle", idleEpoch);
+}
+
+/**
+ * The provider's pause state for the idle cron's read-back: "paused" (paused
+ * or stopped), "running", or null when it cannot tell (an error, a timeout, a
+ * pause still under way, or an answer that is neither).
+ */
+export function readIdleProviderState(vm: CloudVmRow, providerVmId: string): Effect.Effect<"paused" | "running" | null, never, VmProviderGateway> {
+  return Effect.gen(function* () {
+    const providers = yield* VmProviderGateway;
+    if (providers.getPauseState) {
+      const state = yield* providers.getPauseState(vm.provider, providerVmId).pipe(Effect.timeout(PAUSE_STATE_PROBE_TIMEOUT_MS));
+      if (state === "paused" || state === "stopped") return "paused" as const;
+      return state === "not_paused" ? "running" as const : null;
+    }
+    if (!providers.getStatus) return null;
+    const status = yield* providers.getStatus(vm.provider, providerVmId).pipe(Effect.timeout(RESUME_STATUS_PROBE_TIMEOUT));
+    if (status === "paused") return "paused" as const;
+    return status === "running" ? "running" as const : null;
+  }).pipe(Effect.catchAll(() => Effect.succeed(null)));
+}
+
+/** A provider pause call that errored: fine if the read-back shows the machine paused, else the original error. */
+function pausedDespite<E>(vm: CloudVmRow, providerVmId: string, error: E) {
+  return readIdleProviderState(vm, providerVmId).pipe(
+    Effect.flatMap((state) => (state === "paused" ? Effect.void : Effect.fail(error))),
+  );
+}
+
+/**
+ * Record a provider pause the idle cron found after the fact (a claim left by
+ * a lost answer), at the fence it claimed, with its usage event. False when
+ * the fence moved since.
+ */
+export function recordIdlePauseAt(vm: CloudVmRow, providerVmId: string, idleEpoch: number) {
+  return Effect.gen(function* () {
+    const repo = yield* VmRepository;
+    const recorded = yield* repo.markProviderObservedStatus({ id: vm.id, providerVmId, status: "paused", pauseReason: "idle", expectIdleEpoch: idleEpoch });
+    if (!recorded) return false;
+    yield* repo.recordUsageEvent({
+      userId: vm.userId,
+      billingTeamId: vm.billingTeamId,
+      billingPlanId: vm.billingPlanId,
+      vmId: vm.id,
+      eventType: "vm.paused",
+      provider: vm.provider,
+      imageId: vm.imageId,
+      metadata: pausedUsageMetadata(null, "idle"),
+    }).pipe(Effect.catchAll(() => Effect.void));
+    return true;
+  });
 }
 
 function pauseRow(vm: CloudVmRow, requestedProviderVmId: string, reason: VmPauseReason, expectIdleEpoch: number | undefined) {
@@ -2445,7 +2502,7 @@ function pauseRow(vm: CloudVmRow, requestedProviderVmId: string, reason: VmPause
         if (vm.billingPlanId === "go") yield* setRuntimeBudget(providers, vm, providerVmId, 0);
         yield* pause(vm.provider, providerVmId);
       });
-      yield* pauseOperation.pipe(
+      const attempt = pauseOperation.pipe(
         Effect.timeoutFail({
           duration: PAUSE_OPERATION_TIMEOUT_MS,
           onTimeout: () => new VmOperationDeadlineError({
@@ -2455,6 +2512,8 @@ function pauseRow(vm: CloudVmRow, requestedProviderVmId: string, reason: VmPause
           }),
         }),
       );
+      // The idle cron reads a failed pause back: a lost answer may hide a pause that went through.
+      yield* expectIdleEpoch === undefined ? attempt : attempt.pipe(Effect.catchAll((error) => pausedDespite(vm, providerVmId, error)));
     }
     const recorded = yield* repo.markProviderObservedStatus({
       id: vm.id,
@@ -4120,18 +4179,45 @@ function recordResumeUsageEvent(
 // machine it cannot pause as running, and beginCreate re-counts
 // provider-running VMs before allocating another active slot.
 /**
- * Undo an idle pause that lost its fence (pauseIdleVmRow answered null) on a
- * row that still says running: a person used the machine or switched
- * auto-pause off while the provider paused it, so it is resumed through the
- * same resume path an open takes. A provider that never got as far as pausing
- * reads running and nothing happens.
+ * Undo an idle pause that lost its fence, on a row the caller re-read (`vm`,
+ * running, or paused by nobody's decision such as the status reconciler).
+ * The resume is fenced like the pause: it claims the row at the fence it read
+ * (claimIdleResume), resumes the provider if it is paused, and records running
+ * only at the claimed fence. A person's pause that lands first wins: before
+ * the claim it makes the claim fail and nothing is resumed; after it, the
+ * running record fails and the machine is paused again. "superseded" in both.
+ * A provider that never got as far as pausing reads running and only the row
+ * is written. This restores the state the cron interrupted, so it takes no
+ * active-limit reservation.
  */
 export function resumeAfterLostIdlePause(vm: CloudVmRow, providerVmId: string) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
-    return yield* preflightResumeIfSuspended(repo, providers, vm, providerVmId, "idle_pause_lost", { forceProviderProbe: true });
+    const epoch = yield* repo.claimIdleResume!({ id: vm.id, providerVmId, epoch: vmIdleEpochFromRow(vm) });
+    if (epoch === null) return "superseded" as const;
+    const state = yield* readIdleProviderState(vm, providerVmId);
+    if (state === null) {
+      return yield* Effect.fail(new VmProviderOperationError({ provider: vm.provider, operation: `getStatus(${providerVmId})`, cause: new Error("idle pause read-back failed") }));
+    }
+    if (state === "paused") yield* resumeUntilRunning(providers, vm, providerVmId);
+    const recorded = yield* repo.markProviderObservedStatus({ id: vm.id, providerVmId, status: "running", expectIdleEpoch: epoch });
+    if (recorded) {
+      if (vm.status === "paused") yield* recordResumeUsageEvent(repo, vm, "idle_pause_lost");
+      return "resumed" as const;
+    }
+    const current = yield* repo.findUserVm({ userId: vm.userId, billingTeamId: vm.ownerTeamId, providerVmId, provider: vm.provider });
+    if (current && isPersonsPauseSince(current, epoch)) {
+      yield* bestEffortPause(providers, current, providerVmId);
+      return "superseded" as const;
+    }
+    return "resumed" as const;
   });
+}
+
+/** A paused row whose pause a person chose (reason user) after the fence `epoch`. */
+export function isPersonsPauseSince(row: CloudVmRow, epoch: number): boolean {
+  return vmPauseReasonFromRow(row) === "user" && (vmPauseIntentEpochFromRow(row) ?? -1) > epoch;
 }
 
 function preflightResumeIfSuspended(
