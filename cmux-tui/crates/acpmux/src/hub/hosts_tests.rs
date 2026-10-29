@@ -224,6 +224,19 @@ async fn a_withdrawal_after_the_recovery_snapshot_is_not_lost() {
     let _ = std::fs::remove_dir_all(root);
 }
 
+#[tokio::test]
+async fn adoption_recovers_a_main_compaction_in_progress() {
+    let mut log = hosted_log();
+    log.update(json!({"sessionUpdate": "compaction", "state": "running"}));
+    log.update_of("sub", json!({"sessionUpdate": "compaction", "state": "completed"}));
+    let (hub, root) = hub_with(1, &log).await;
+    let session = hub.resolve("chat0").unwrap();
+    let work = hub.recovery_work(&session, "inc", log.host_seq);
+    assert!(work.compacting, "main compaction was not recovered from the host log");
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(root);
+}
+
 /// Everything `open_work` recovers, in a fixed order.
 fn work_fields(w: &OpenWork) -> String {
     let permissions: std::collections::BTreeMap<_, _> = w.permissions.iter().collect();

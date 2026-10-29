@@ -813,6 +813,20 @@ pub struct TitlesConfig {
     pub model: Option<String>,
 }
 
+/// Experimental transports. Labs switches are deliberately opt-in and keep
+/// the normal peer route unchanged until a caller explicitly enables them.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct TransportConfig {
+    /// Enable the userspace WireGuard transport. Disabled by default: when
+    /// false no UDP socket is bound by acpmux.
+    #[serde(default)]
+    pub wireguard: bool,
+    /// Static Labs mesh interface; ignored while wireguard is disabled.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wireguard_static: Option<crate::wireguard::StaticConfig>,
+}
+
 impl TitlesConfig {
     pub fn is_default(&self) -> bool {
         self == &Self::default()
@@ -940,6 +954,9 @@ pub struct Config {
     /// `titles`: short titles for chats their harness never titles (`hub/titles.rs`).
     #[serde(default, skip_serializing_if = "TitlesConfig::is_default")]
     pub titles: TitlesConfig,
+    /// Labs-only transport switches (`transport.wireguard`).
+    #[serde(default)]
+    pub transport: TransportConfig,
     /// `coderouterClaudeRoute`: the CodeRouter CLI subcommand that runs
     /// Claude Code through a CodeRouter route. When it is set (env
     /// `ACPMUX_CODEROUTER_CLAUDE_ROUTE` wins) and `coderouter` or `cr` is on
