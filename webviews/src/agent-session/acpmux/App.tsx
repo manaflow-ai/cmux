@@ -5050,6 +5050,9 @@ function AcpmuxPane() {
     blockSend,
   );
   trustRefused.current = trustAsk.refused;
+  // The connection's action table outlives renders; Retry must read the current folder/auth gate.
+  const retryAfterTrust = useRef(trustAsk.retry);
+  retryAfterTrust.current = trustAsk.retry;
   const cancelTrustResend = trustAsk.cancelResend;
   const individualPermission =
     snapshot.permission?.pending && !(snapshot.permissionGroups?.supported && snapshot.permission.groupId)
@@ -7880,7 +7883,8 @@ function AcpmuxPane() {
           "chat.harness.cancelPrompt": async ({ promptId }) => harnessSwitch.cancelQueued(String(promptId)),
           // A failure card acts on its run of prompts (`rowIds`, in order; sendFailure.ts), else on `rowId`.
           // Retry sends the run again as one prompt: one click is one gesture (direct.ts `retryPrompts`).
-          "chat.retryPrompt": ({ rowId, rowIds }) => client.retryPrompts(failedRowIds(rowId, rowIds)),
+          "chat.retryPrompt": ({ rowId, rowIds }) =>
+            retryAfterTrust.current(() => client.retryPrompts(failedRowIds(rowId, rowIds))),
           // Edit on prompts that did not get there: their rows go and the prompts come back to the
           // composer as one, in order, ahead of what is typed there now.
           "chat.editFailedPrompt": async ({ rowId, rowIds }) => {

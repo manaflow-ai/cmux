@@ -341,6 +341,14 @@ export function useFolderTrustAsk(
     scope,
     justTrusted,
     blocked,
+    /// Explicit Retry shares the same hard stop as Trust's automatic retry. While blocked,
+    /// leave the failed rows and any held trust callback intact. A manual send that can run
+    /// supersedes that callback, so the next effect cannot send the same prompt a second time.
+    retry: <T>(again: () => Promise<T>): Promise<T | undefined> => {
+      if (blockSend) return Promise.resolve(undefined);
+      resend.current = undefined;
+      return again();
+    },
     /// Cancel leaves the draft or failed row in place for a later explicit send/retry.
     cancelResend: useCallback(() => {
       resend.current = undefined;
