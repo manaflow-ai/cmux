@@ -214,6 +214,7 @@ pub(crate) fn start(
         track_frame: 0,
         track_synced: false,
         last_lane_ask_us: None,
+        foreign_lane_frames: 0,
         input_waiting_since_us: None,
         demand: media.as_ref().map(cmux_mobile_link::hybrid::MediaManager::acquire),
         media,
@@ -240,6 +241,8 @@ struct Viewer {
     /// a keyframe.
     video_on_lane: bool,
     last_lane_ask_us: Option<u64>,
+    /// Lane frames dropped for carrying another tab's tag (diagnostics).
+    foreign_lane_frames: u64,
     /// Since when input has waited with no acknowledgement from the host
     /// (reset by every ack, so a long scroll on a live page never trips it).
     input_waiting_since_us: Option<u64>,
@@ -364,12 +367,24 @@ impl Viewer {
     /// first keyframe on.
     fn lane_frame(&mut self, mut frame: ReceivedFrame) {
         let Some(track) = &self.track else { return };
-        if cmux_mobile_link::media::tag::strip(&mut frame.access_unit) != Some(track.tag) {
+        let tag = cmux_mobile_link::media::tag::strip(&mut frame.access_unit);
+        if tag != Some(track.tag) {
             // Another tab's (the lane is switching), or an untagged frame.
+            self.foreign_lane_frames += 1;
+            if self.foreign_lane_frames.is_power_of_two() {
+                tracing::info!(
+                    count = self.foreign_lane_frames,
+                    ours = format!("{:08x}", track.tag),
+                    got = ?tag.map(|t| format!("{t:08x}")),
+                    keyframe = frame.keyframe,
+                    "browser: lane frames for another tab"
+                );
+            }
             return;
         }
         if !self.track_synced {
             if !frame.keyframe {
+                tracing::debug!("browser: a lane P-frame before this tab's first lane keyframe");
                 // This tab's claim started mid-stream (or its first
                 // keyframe went to the tab before): ask again.
                 let now = self.now();

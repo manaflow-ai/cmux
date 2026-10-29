@@ -7,7 +7,10 @@
 //! it signed, and the app sends it as that chat's cmux agent message (`server/app_reply.rs`;
 //! cmux-tui tests/agent_message_reply_in_place.rs covers the daemon side).
 //! A prompt from inside another session that names none gets that session as its sender
-//! (`session_message`).
+//! (`session_message`). One that names its sender (`fromAgent`: `--from`, `ACPMUX_FROM`, a peer
+//! daemon's forwarded caller) records it as that agent's message.
+//! A person's prompt (`_meta.acpmux.author`, chat multiplayer) records `person_message`, and only
+//! that person changes it while it waits (`queue.not_author`).
 
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
@@ -22,10 +25,14 @@ use tokio::sync::mpsc;
 const FAKE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
 
 fn hub_env(env: Value) -> Arc<Hub> {
+    hub_policy(env, "approve-all")
+}
+
+fn hub_policy(env: Value, policy: &str) -> Arc<Hub> {
     let mut cfg: Config = serde_json::from_value(json!({
         "harnesses": {"fake": {"argv": ["python3", FAKE], "family": "codex", "env": env}},
         "defaultHarness": "fake",
-        "permissionPolicy": "approve-all"
+        "permissionPolicy": policy
     }))
     .unwrap();
     cfg.store.mode = StoreMode::Memory;
@@ -468,6 +475,83 @@ async fn a_prompt_sent_from_inside_another_session_records_that_session_as_its_s
     assert_eq!(kept.pointer("/_meta/provenance"), Some(&given), "{kept}");
 }
 
+/// claude-sr2, 2026-10-24: lanes on other machines reached its daemon over the peer link, or ran
+/// `acpmux send --from` there over ssh, naming themselves only in `fromAgent`; each report
+/// recorded no provenance and read as the person's own words.
+#[tokio::test]
+async fn a_prompt_that_names_its_sender_records_it_as_that_agents_message() {
+    let hub = hub();
+    let mut person = Client::open(&hub);
+    let receiver = person.new_session(json!({"harness": "fake"})).await;
+    let own = hub.resolve(&receiver).unwrap().meta().name;
+    let named = |id: &str, from: &str| {
+        let mut p = prompt(&receiver, id, "report", None);
+        p["_meta"]["acpmux"]["fromAgent"] = json!(from);
+        p
+    };
+    for (origin, id, from) in [
+        (Origin::Peer, "p-peer", "codex-lane"),
+        (Origin::Local, "p-cli", "codex-lane-2"),
+        (Origin::Local, "p-self", own.as_str()),
+        // Names are each daemon's own: a peer's session of the same name is another one.
+        (Origin::Peer, "p-namesake", own.as_str()),
+    ] {
+        let mut c = Client::open_as(&hub, origin);
+        c.call("session/prompt", named(id, from)).await;
+    }
+    person.call("session/prompt", prompt(&receiver, "p-person", "my own words", None)).await;
+
+    for (id, from) in
+        [("p-peer", "codex-lane"), ("p-cli", "codex-lane-2"), ("p-namesake", own.as_str())]
+    {
+        let message = person.user_message(&receiver, id).await;
+        let stamped =
+            json!({"kind": "agent_message", "from": "fromAgent", "fromName": from, "to": receiver});
+        assert_eq!(message.pointer("/_meta/provenance"), Some(&stamped), "{message}");
+    }
+    // A note a session addresses to itself, and the person's own prompt, are no one else's message.
+    for id in ["p-self", "p-person"] {
+        let message = person.user_message(&receiver, id).await;
+        assert!(message.pointer("/_meta/provenance").is_none(), "{message}");
+    }
+}
+
+/// The person's own `acpmux send` from a terminal names the machine it ran on: the recorded client
+/// says it, so the pane shows "via CLI on big-red" under their prompt (Leo, 2026-10-24). An agent's
+/// message names its sender instead, and a value that is no host name is dropped.
+#[tokio::test]
+async fn the_persons_own_cli_send_records_the_machine_it_ran_on() {
+    let hub = hub();
+    let mut person = Client::open(&hub);
+    let receiver = person.new_session(json!({"harness": "fake"})).await;
+    let sent = |id: &str, host: &str, from: Option<&str>| {
+        let mut p = prompt(&receiver, id, "ship it", None);
+        p["_meta"]["acpmux"]["cliHost"] = json!(host);
+        if let Some(from) = from {
+            p["_meta"]["acpmux"]["fromAgent"] = json!(from);
+        }
+        p
+    };
+    for (origin, params) in [
+        (Origin::Local, sent("p-cli", "big-red", None)),
+        (Origin::Peer, sent("p-peer", "big-red", None)),
+        (Origin::Local, sent("p-agent", "huge-blue", Some("codex-lane"))),
+        (Origin::Local, sent("p-odd", "big red\nX", None)),
+    ] {
+        let mut c = Client::open_as(&hub, origin);
+        c.call("session/prompt", params).await;
+    }
+    let client = |m: &Value| m["client"].as_str().unwrap().to_owned();
+    let cli = client(&person.user_message(&receiver, "p-cli").await);
+    assert!(cli.ends_with("@big-red"), "{cli}");
+    let peer = client(&person.user_message(&receiver, "p-peer").await);
+    assert!(peer.ends_with("@big-red"), "{peer}");
+    for id in ["p-agent", "p-odd"] {
+        let other = client(&person.user_message(&receiver, id).await);
+        assert!(!other.contains('@'), "{id}: {other}");
+    }
+}
+
 // A steer names its pasted blocks (`_meta.cmux.pasted`) as a prompt does: UTF-16 ranges of its
 // text.
 #[tokio::test]
@@ -503,4 +587,341 @@ async fn a_steer_records_its_pasted_ranges() {
     assert_eq!(steered["text"], "🦀 also\na log", "{steered}");
     // 🦀 is two UTF-16 units: "🦀 also" is 7, and the paste starts after its "\n".
     assert_eq!(steered["pasted"], json!([{"start": 8, "end": 13}]), "{steered}");
+}
+
+fn ana() -> Value {
+    json!({"id": "tailnet:ana@example.com", "name": "Ana", "login": "ana@example.com", "node": "ana-mbp"})
+}
+
+fn bo() -> Value {
+    json!({"id": "user_bo", "name": "Bo"})
+}
+
+/// The provenance acpmux stamps for [`ana`].
+fn anas() -> Value {
+    json!({"kind": "person_message", "from": "tailnet:ana@example.com", "fromName": "Ana",
+           "login": "ana@example.com", "node": "ana-mbp"})
+}
+
+/// `params` with `author` in `_meta.acpmux`.
+fn by(mut params: Value, author: Option<&Value>) -> Value {
+    if let Some(author) = author {
+        params["_meta"]["acpmux"]["author"] = author.clone();
+    }
+    params
+}
+
+fn reason(value: &Value) -> &Value {
+    value.pointer("/error/data/reason").unwrap_or(&Value::Null)
+}
+
+/// Chat multiplayer (hq#4389): a person's name rides as `_meta.acpmux.author`, from the unix
+/// socket or a peer that forwards one; the app's pane, a Web client and a peer forwarding for
+/// its own Web client may not name anyone.
+#[tokio::test]
+async fn an_author_is_taken_from_the_unix_socket_and_a_forwarding_peer_only() {
+    let hub = hub();
+    let mut local = Client::open(&hub);
+    let session = local.new_session(json!({"harness": "fake"})).await;
+    for (origin, id) in [(Origin::Local, "p-unix"), (Origin::Peer, "p-peer")] {
+        let mut c = Client::open_as(&hub, origin);
+        c.call("session/prompt", by(prompt(&session, id, "hi", None), Some(&ana()))).await;
+        let message = local.user_message(&session, id).await;
+        assert_eq!(message.pointer("/_meta/provenance"), Some(&anas()), "{origin:?}: {message}");
+    }
+    for (origin, via) in
+        [(Origin::Web, None), (Origin::LocalApp, None), (Origin::Peer, Some("web"))]
+    {
+        let mut remote = Client::open_as(&hub, origin);
+        let mut params = by(prompt(&session, "p-remote", "hi", None), Some(&ana()));
+        let mut remove = by(
+            json!({"sessionId": session, "promptId": "p-x", "_meta": {"acpmux": {}}}),
+            Some(&ana()),
+        );
+        if let Some(via) = via {
+            params["_meta"]["acpmux"]["via"] = json!(via);
+            remove["_meta"]["acpmux"]["via"] = json!(via);
+        }
+        let value = remote.reply("session/prompt", params).await;
+        assert_eq!(reason(&value), "author.origin_refused", "{origin:?} via {via:?}: {value}");
+        let value = remote.reply("_acpmux/queue_remove", remove).await;
+        assert_eq!(reason(&value), "author.origin_refused", "{origin:?} via {via:?}: {value}");
+    }
+    let ran = local.records(&session, "user_message").await;
+    assert!(ran.iter().all(|m| m["promptId"] != "p-remote"), "a refused prompt ran: {ran:?}");
+    let bad = by(prompt(&session, "p-bad", "hi", None), Some(&json!({"id": "ana", "name": "Ana"})));
+    assert_eq!(reason(&local.reply("session/prompt", bad).await), "author.value_refused");
+}
+
+#[tokio::test]
+async fn a_persons_queued_prompt_and_steer_record_who_sent_them() {
+    let hub = hub();
+    let mut c = Client::open(&hub);
+    let session = c.new_session(json!({"harness": "fake"})).await;
+    c.busy(&session).await;
+    let waiting = c.queue(by(prompt(&session, "p-q", "queued words", None), Some(&ana()))).await;
+    let queued = c.records(&session, "queued").await;
+    let queued = queued.iter().find(|m| m["promptId"] == "p-q").expect("its queued record");
+    assert_eq!(queued.pointer("/_meta/provenance"), Some(&anas()), "{queued}");
+    c.cancel(&session).await;
+    c.reply_to(waiting).await;
+    let ran = c.user_message(&session, "p-q").await;
+    assert_eq!(ran.pointer("/_meta/provenance"), Some(&anas()), "{ran}");
+
+    let hub = hub_env(json!({"FAKE_CODEX_STEER": "1"}));
+    let mut c = Client::open(&hub);
+    let session = c.new_session(json!({"harness": "fake"})).await;
+    let turn = c.send("session/prompt", prompt(&session, "p-turn", "work", None)).await;
+    c.until(|v| {
+        v.pointer("/params/update/content/text")
+            .and_then(Value::as_str)
+            .is_some_and(|t| t.starts_with("turn: "))
+    })
+    .await;
+    let mut steer = by(prompt(&session, "p-steer", "mid-turn words", None), Some(&ana()));
+    steer["_meta"]["acpmux"]["steer"] = json!(true);
+    let steer = c.send("session/prompt", steer).await;
+    for _ in 0..2 {
+        let value = c
+            .until(|v| v.get("id") == Some(&json!(turn)) || v.get("id") == Some(&json!(steer)))
+            .await;
+        assert!(value.get("error").is_none(), "{value}");
+    }
+    let steered = c.user_message(&session, "p-steer").await;
+    assert_eq!(steered["steer"], true, "{steered}");
+    assert_eq!(steered.pointer("/_meta/provenance"), Some(&anas()), "{steered}");
+}
+
+/// Only who sent a waiting prompt edits, moves, sends or removes it: another person, or the owner
+/// for a person's prompt, gets `queue.not_author`. No author is the owner, and an agent's message
+/// counts as the owner's. The sender's own edit keeps their name on it.
+#[tokio::test]
+async fn only_the_sender_changes_a_waiting_prompt() {
+    let hub = hub();
+    let mut c = Client::open(&hub);
+    let session = c.new_session(json!({"harness": "fake"})).await;
+    c.busy(&session).await;
+    let agent = provenance(&session);
+    let mut waits = Vec::new();
+    for (id, author, p) in
+        [("p-ana", Some(ana()), None), ("p-owner", None, None), ("p-agent", None, Some(&agent))]
+    {
+        waits.push(c.queue(by(prompt(&session, id, id, p), author.as_ref())).await);
+    }
+    let edit = |id: &str, op: &str, author: Option<&Value>| {
+        let params = json!({"sessionId": session, "promptId": id, "op": op, "text": "rewrite",
+                            "index": 0, "_meta": {"acpmux": {}}});
+        by(params, author)
+    };
+    let refused = [
+        ("p-ana", Some(bo())),
+        ("p-ana", None),
+        ("p-owner", Some(ana())),
+        ("p-agent", Some(ana())),
+    ];
+    for (id, author) in refused {
+        for op in ["update", "move", "send_now", "interrupt"] {
+            let value = c.reply("_acpmux/queue_edit", edit(id, op, author.as_ref())).await;
+            assert_eq!(reason(&value), "queue.not_author", "{id} {op} by {author:?}: {value}");
+        }
+        let remove = by(
+            json!({"sessionId": session, "promptId": id, "_meta": {"acpmux": {}}}),
+            author.as_ref(),
+        );
+        let value = c.reply("_acpmux/queue_remove", remove).await;
+        assert_eq!(reason(&value), "queue.not_author", "{id} remove by {author:?}: {value}");
+    }
+    // `resume` changes no one prompt.
+    c.call("_acpmux/queue_edit", edit("p-ana", "resume", Some(&bo()))).await;
+    for (id, author) in [("p-ana", Some(ana())), ("p-owner", None), ("p-agent", None)] {
+        let edited = c.call("_acpmux/queue_edit", edit(id, "update", author.as_ref())).await;
+        assert_eq!(edited["ok"], true, "{id}: {edited}");
+    }
+    let updated = c.records(&session, "queue_updated").await;
+    let anas_edit = updated.iter().find(|m| m["promptId"] == "p-ana").expect("p-ana's edit");
+    assert_eq!(anas_edit.pointer("/_meta/provenance"), Some(&anas()), "{anas_edit}");
+    let remove =
+        by(json!({"sessionId": session, "promptId": "p-owner", "_meta": {"acpmux": {}}}), None);
+    assert_eq!(c.call("_acpmux/queue_remove", remove).await["removed"], true);
+
+    // The turn stops, and the two left run in order: p-agent's answer comes last.
+    c.cancel(&session).await;
+    c.reply_to(waits[2]).await;
+    let ran = c.user_message(&session, "p-ana").await;
+    assert_eq!(ran["text"], "rewrite", "{ran}");
+    assert_eq!(ran.pointer("/_meta/provenance"), Some(&anas()), "her edit lost her name: {ran}");
+    let theirs = c.user_message(&session, "p-agent").await;
+    assert!(
+        theirs.pointer("/_meta/provenance").is_none(),
+        "the owner's edit kept the agent's: {theirs}"
+    );
+}
+
+/// The queue list names a teammate's waiting prompt's author (`author {id, name}`), so a pane that
+/// opens the chat cold, past the `queued` record, still knows the row is theirs: in the session
+/// summary and in `_acpmux/composers`, kept by her own edit. The owner's and an agent's list null.
+#[tokio::test]
+async fn the_queue_list_names_a_persons_prompt_and_no_one_else() {
+    let hub = hub();
+    let mut c = Client::open(&hub);
+    let session = c.new_session(json!({"harness": "fake"})).await;
+    c.busy(&session).await;
+    let agent = provenance(&session);
+    let mut waits = Vec::new();
+    for (id, author, p) in
+        [("p-ana", Some(ana()), None), ("p-owner", None, None), ("p-agent", None, Some(&agent))]
+    {
+        waits.push(c.queue(by(prompt(&session, id, id, p), author.as_ref())).await);
+    }
+    let listed = |hub: &Arc<Hub>| {
+        let s = hub.resolve(&session).unwrap();
+        (hub.session_summary(&s)["queue"].clone(), hub.composers_view(&s)["queue"].clone())
+    };
+    let her = json!({"id": "tailnet:ana@example.com", "name": "Ana"});
+    for (summary, composers) in [listed(&hub), {
+        let edit = json!({"sessionId": session, "promptId": "p-ana", "op": "update",
+                          "text": "her rewrite", "_meta": {"acpmux": {}}});
+        c.call("_acpmux/queue_edit", by(edit, Some(&ana()))).await;
+        listed(&hub)
+    }] {
+        for queue in [&summary, &composers] {
+            let ids: Vec<&Value> =
+                queue.as_array().unwrap().iter().map(|q| &q["promptId"]).collect();
+            assert_eq!(ids, [&json!("p-ana"), &json!("p-owner"), &json!("p-agent")], "{queue}");
+            assert_eq!(queue[0]["author"], her, "{queue}");
+            assert_eq!(queue[1]["author"], Value::Null, "the owner's: {queue}");
+            assert_eq!(queue[2]["author"], Value::Null, "an agent's: {queue}");
+            assert_eq!(queue[2]["fromAgent"], "builder", "{queue}");
+        }
+    }
+    c.cancel(&session).await;
+    c.reply_to(waits[2]).await;
+}
+
+/// First answer wins: Ana's answer is recorded with her name, and Bo's, which came second, is
+/// told who answered and how. A name never stands in for the person's proof: an allow from a
+/// client that is not the person is refused whoever it names.
+#[tokio::test]
+async fn a_losing_answer_is_told_who_answered_first() {
+    let hub = hub_policy(json!({}), "ask");
+    let mut c = Client::open(&hub);
+    let session = c.new_session(json!({"harness": "fake"})).await;
+    // The answers come over another connection, so `c` hears every reply to its prompts.
+    let mut a = Client::open(&hub);
+    let asked =
+        c.send("session/prompt", prompt(&session, "p-ask", "ask: rm -rf /tmp/x", None)).await;
+    let pending = c.until(|v| v["method"] == "_acpmux/permission_pending").await;
+    let permission = pending["params"]["permissionId"].as_str().unwrap().to_owned();
+    let answer = |option: &str, author: Option<&Value>| {
+        let params = json!({"sessionId": session, "permissionId": permission, "optionId": option,
+                            "_meta": {"acpmux": {}}});
+        by(params, author)
+    };
+    let allow = a.reply("_acpmux/permission_respond", answer("yes", Some(&ana()))).await;
+    assert_eq!(reason(&allow), "permission.person_required", "{allow}");
+    a.call("_acpmux/permission_respond", answer("no", Some(&ana()))).await;
+    let lost = a.reply("_acpmux/permission_respond", answer("no", Some(&bo()))).await;
+    assert_eq!(
+        lost.pointer("/error/data"),
+        Some(&json!({"answeredBy": {"id": "tailnet:ana@example.com", "name": "Ana"},
+                     "outcome": {"outcome": "selected", "optionId": "no"}})),
+        "{lost}"
+    );
+    // A losing answer that carries a question's annotations (#24356) is told the same, not
+    // refused for the annotations first.
+    let mut annotated = answer("no", Some(&bo()));
+    annotated["answers"] = json!({"Go?": "yes"});
+    annotated["annotations"] = json!({"Go?": {"notes": "x"}});
+    let lost_annotated = a.reply("_acpmux/permission_respond", annotated).await;
+    assert_eq!(
+        lost_annotated.pointer("/error/data"),
+        lost.pointer("/error/data"),
+        "{lost_annotated}"
+    );
+    c.reply_to(asked).await;
+    let decided = a.records(&session, "permission_decision").await;
+    assert_eq!(
+        decided[0]["answeredBy"],
+        json!({"id": "tailnet:ana@example.com", "name": "Ana"}),
+        "{decided:?}"
+    );
+
+    // The owner's answer names no one.
+    let asked =
+        c.send("session/prompt", prompt(&session, "p-ask-2", "ask: rm -rf /tmp/y", None)).await;
+    let pending = c
+        .until(|v| {
+            v["method"] == "_acpmux/permission_pending"
+                && v["params"]["permissionId"] != permission.as_str()
+        })
+        .await;
+    let second = pending["params"]["permissionId"].as_str().unwrap().to_owned();
+    let respond = |author: Option<&Value>| {
+        by(
+            json!({"sessionId": session, "permissionId": second, "optionId": "no", "_meta": {"acpmux": {}}}),
+            author,
+        )
+    };
+    a.call("_acpmux/permission_respond", respond(None)).await;
+    let lost = a.reply("_acpmux/permission_respond", respond(Some(&bo()))).await;
+    assert_eq!(lost.pointer("/error/data/answeredBy"), Some(&Value::Null), "{lost}");
+    c.reply_to(asked).await;
+}
+
+/// A supersede key (`supersede.rs`) knows agents and the owner only: a person's keyed prompt
+/// neither replaces the owner's waiting one nor is replaced by it.
+#[tokio::test]
+async fn a_persons_prompt_neither_supersedes_nor_is_superseded() {
+    let hub = hub();
+    let mut c = Client::open(&hub);
+    let session = c.new_session(json!({"harness": "fake"})).await;
+    c.busy(&session).await;
+    for (id, author) in [("p-owner", None), ("p-ana", Some(ana())), ("p-owner-2", None)] {
+        let mut keyed = by(prompt(&session, id, id, None), author.as_ref());
+        keyed["_meta"]["acpmux"]["supersede"] = json!("status");
+        c.queue(keyed).await;
+    }
+    let removed = c.records(&session, "queue_removed").await;
+    let gone: Vec<&Value> = removed.iter().map(|m| &m["promptId"]).collect();
+    assert_eq!(gone, [&json!("p-owner")], "{removed:?}");
+    c.cancel(&session).await;
+}
+
+/// An answer to an ask a Stop cancelled is told no one answered: the cancel goes in the settled
+/// store with the drain (`permission_settled.rs`), before the asking task logs it.
+#[tokio::test]
+async fn an_answer_after_a_stop_is_told_the_ask_was_cancelled() {
+    let hub = hub_policy(json!({}), "ask");
+    let mut c = Client::open(&hub);
+    let session = c.new_session(json!({"harness": "fake"})).await;
+    let mut a = Client::open(&hub);
+    let asked =
+        c.send("session/prompt", prompt(&session, "p-ask", "ask: rm -rf /tmp/z", None)).await;
+    let pending = c.until(|v| v["method"] == "_acpmux/permission_pending").await;
+    let permission = pending["params"]["permissionId"].clone();
+    c.cancel(&session).await;
+    c.reply_to(asked).await;
+    let late = by(
+        json!({"sessionId": session, "permissionId": permission, "optionId": "no",
+                         "_meta": {"acpmux": {}}}),
+        Some(&bo()),
+    );
+    let lost = a.reply("_acpmux/permission_respond", late).await;
+    assert_eq!(
+        lost.pointer("/error/data"),
+        Some(&json!({"answeredBy": null, "outcome": {"outcome": "cancelled"}})),
+        "{lost}"
+    );
+}
+
+/// A prompt is a person's or another sender's, never both: an author beside a provenance is
+/// refused, so it never runs as an agent's message under the owner's queue rules.
+#[tokio::test]
+async fn an_author_beside_a_provenance_is_refused() {
+    let hub = hub();
+    let mut c = Client::open(&hub);
+    let session = c.new_session(json!({"harness": "fake"})).await;
+    let both = by(prompt(&session, "p-both", "hi", Some(&provenance(&session))), Some(&ana()));
+    assert_eq!(reason(&c.reply("session/prompt", both).await), "author.value_refused");
+    assert!(c.records(&session, "user_message").await.is_empty(), "a refused prompt ran");
 }

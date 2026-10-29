@@ -13,7 +13,7 @@ import { findRowIndex } from "./chatFind";
 import { turnPreviewCardsOn, turnPreviewUrl } from "./previewUrl";
 import { renderCall } from "./renderCall";
 import { showsTimestamp, type TurnTimes } from "./timestamps";
-import { isSubagentGroup } from "../subagents/subagentRows";
+import { isSubagentGroup, WORKFLOW_CARD } from "../subagents/subagentRows";
 import { STARTED_SESSIONS } from "../started/startedSessions";
 import { QUESTION_RECORD } from "../question/record";
 import type { Translate } from "../i18n";
@@ -21,6 +21,8 @@ import { editedPaths, isBareShellName, toolLabel } from "../toolPaths";
 import { shortCommand } from "./shortCommand";
 import { tailStart } from "./ToolGroupRow";
 import { awaitsPermission, isDraftCall, isRunning, toolGroups } from "./toolGroups";
+import { acpmuxSendCall } from "./acpmuxSends";
+import { subsessionCall } from "./subsessionCalls";
 
 /// A row added by this pass: the "Worked for" disclosure of the turn opened by `turnId`.
 export const WORKED = "worked";
@@ -130,6 +132,11 @@ export type TurnView = {
   clockOffset: number;
   liveRuns: boolean;
   lineBelow: boolean;
+  working: boolean;
+  sessionStatus: boolean;
+  messageBreaks: readonly number[];
+  /// The steers that wait (snapshot `waitingSteers`): a new list draws the running turn again.
+  waitingSteers?: readonly string[];
   /// Where the first prompt is: the rows before it draw as they are.
   lead: number;
   /// Each turn's prompt index in `source`, its times, whether it is dated, and how many drawn
@@ -137,13 +144,16 @@ export type TurnView = {
   starts: number[];
   times: TurnTimes[];
   dated: boolean[];
-  ends: number[];
+  /// Each boundary keeps its count and last row before the next prompt extends a fold.
+  ends: { count: number; row: AcpmuxRow | undefined }[];
   rows: AcpmuxRow[];
 };
 
 /// ``turnView``, building on `previous`: the turns before the one holding the first row that
 /// differs from `previous.source` (by object) keep their drawn rows, so a long chat's snapshot
 /// shapes only its last turns.
+const NO_MESSAGE_BREAKS: readonly number[] = [];
+
 export function turnViewFrom(
   rows: readonly AcpmuxRow[],
   expanded: ReadonlySet<string>,
@@ -154,6 +164,8 @@ export function turnViewFrom(
     liveRuns = false,
     sessionStatus = false,
     lineBelow = false,
+    waitingSteers,
+    messageBreaks = NO_MESSAGE_BREAKS,
   }: {
     now?: number;
     working?: boolean;
@@ -161,9 +173,28 @@ export function turnViewFrom(
     liveRuns?: boolean;
     sessionStatus?: boolean;
     lineBelow?: boolean;
+    /// The steers the agent has not read yet (snapshot `waitingSteers`), one array while they hold.
+    waitingSteers?: readonly string[];
+    /// Sorted insertion times of synthetic rows that must separate received message runs.
+    messageBreaks?: readonly number[];
   } = {},
   previous?: TurnView,
 ): TurnView {
+  if (
+    previous &&
+    previous.source === rows &&
+    previous.expanded === expanded &&
+    previous.clockOffset === clockOffset &&
+    previous.liveRuns === liveRuns &&
+    previous.lineBelow === lineBelow &&
+    previous.messageBreaks === messageBreaks &&
+    previous.working === working &&
+    previous.sessionStatus === sessionStatus &&
+    previous.waitingSteers === waitingSteers &&
+    (!previous.starts.length ||
+      showsTimestamp(previous.times[0]!, undefined, now, previous.lead === 0) === previous.dated[0])
+  )
+    return previous;
   // The turn to shape from: the one holding the first changed row. The turn before it may
   // have ended there, and the last turn draws differently once another follows it.
   let reuse = 0;
@@ -173,12 +204,16 @@ export function turnViewFrom(
     previous.clockOffset === clockOffset &&
     previous.liveRuns === liveRuns &&
     previous.lineBelow === lineBelow &&
+    previous.messageBreaks === messageBreaks &&
     previous.starts.length
   ) {
     const shared = previous.source;
-    let from = 0;
-    while (from < rows.length && from < shared.length && rows[from] === shared[from]) from += 1;
-    while (reuse < previous.starts.length && previous.starts[reuse]! < from) reuse += 1;
+    if (rows === shared) reuse = previous.starts.length;
+    else {
+      let from = 0;
+      while (from < rows.length && from < shared.length && rows[from] === shared[from]) from += 1;
+      while (reuse < previous.starts.length && previous.starts[reuse]! < from) reuse += 1;
+    }
     reuse = Math.max(0, reuse - 1);
   }
   // The first turn's line depends on `now`.
@@ -190,11 +225,13 @@ export function turnViewFrom(
   let starts: number[];
   let times: TurnTimes[];
   let dated: boolean[];
-  let ends: number[];
+  let ends: TurnView["ends"];
   if (reuse > 0) {
     lead = previous!.lead;
     index = previous!.starts[reuse]!;
-    out = previous!.rows.slice(0, previous!.ends[reuse - 1]);
+    const boundary = previous!.ends[reuse - 1];
+    out = previous!.rows.slice(0, boundary?.count);
+    if (boundary?.row && out.length) out[out.length - 1] = boundary.row;
     starts = previous!.starts.slice(0, reuse);
     times = previous!.times.slice(0, reuse);
     dated = previous!.dated.slice(0, reuse);
@@ -238,7 +275,7 @@ export function turnViewFrom(
     // Only the last turn can still be running.
     const last = at === starts.length - 1;
     const live = working && last;
-    for (const row of shapedTurn(
+    const shaped = shapedTurn(
       rows,
       start,
       end,
@@ -250,11 +287,29 @@ export function turnViewFrom(
       liveRuns,
       sessionStatus,
       lineBelow,
-    ))
-      out.push(row);
-    ends.push(out.length);
+    );
+    // Other sessions' messages stay each its own line where it arrived (IncomingMessageCard.tsx),
+    // never folded into one card (Leo, 2026-10-29).
+    for (const row of shaped) out.push(row);
+    ends.push({ count: out.length, row: out.at(-1) });
   }
-  return { source: rows, expanded, clockOffset, liveRuns, lineBelow, lead, starts, times, dated, ends, rows: out };
+  return {
+    source: rows,
+    expanded,
+    clockOffset,
+    liveRuns,
+    lineBelow,
+    working,
+    sessionStatus,
+    messageBreaks,
+    ...(waitingSteers ? { waitingSteers } : {}),
+    lead,
+    starts,
+    times,
+    dated,
+    ends,
+    rows: out,
+  };
 }
 
 /// A turn as drawn, kept while its rows (by identity) and what shapes them stay the same: a long
@@ -369,6 +424,14 @@ function shapedTurn(
       ...held,
       ...line,
     ];
+    // Legacy/history turns can end without a turn_result. Keep the normal turn rhythm at the
+    // composer for the latest completed turn without restoring the permanent runway under every
+    // turn. The marker is consumed by the row estimator and CSS only for this terminal row.
+    if (last && !live && held.length === 0 && !turn.some((row) => row.kind === "turnSummary")) {
+      let final = shaped.length - 1;
+      while (final >= 0 && (shaped[final]!.kind === DATE || shaped[final]!.kind === "user")) final -= 1;
+      if (final >= 0) shaped[final] = { ...shaped[final]!, lastTurn: true };
+    }
   }
   if (!live) shapedTurns.set(user, { source, open, last, clockOffset, dated, liveRuns, rows: shaped });
   return shaped;
@@ -486,6 +549,7 @@ function shapeTurn(
     // The last "Worked for" of the turn's last part ended as the turn did ("You stopped after"),
     // whichever stretch it folds (a stretch with no work draws none).
     let lastWorked: AcpmuxRow | undefined;
+    let workedRows = 0;
     for (const segment of foldSegments(part.opener, part.rows)) {
       const said = segment.takeaway;
       const before = segment.rows;
@@ -517,6 +581,7 @@ function shapeTurn(
                   : Math.max(0, summary.at - from),
         };
         shaped.push(worked);
+        workedRows += 1;
         if (lastPart) lastWorked = worked;
         // Open, each run of its work folds into its summary line between the commentary, as in a
         // running turn (codexRuns). A run that edited folds too: its edits stay in sight between the
@@ -536,7 +601,13 @@ function shapeTurn(
       if (said) shaped.push(said);
       shaped.push(...after.filter((row) => !isEdit(row) && !later.includes(row)).map(endedPlan));
     }
-    if (lastWorked) lastWorked.status = summary.status;
+    if (lastWorked) {
+      lastWorked.status = summary.status;
+      // The turn's tokens (its `turn_result`'s) on its "Worked for" when that line is the turn's
+      // only one: an unsteered turn (its last part is its prompt's, its only part) folded into one
+      // stretch. A steered turn's, or a turn folded into several stretches, are not split by line.
+      if (lastPart && part.opener === user && workedRows === 1 && summary.tokens) lastWorked.tokens = summary.tokens;
+    }
   }
   shaped.push(...editsCard(edits));
   const preview = turnPreviewCardsOn() ? turnPreviewUrl(user, turn) : undefined;
@@ -667,6 +738,8 @@ const staysOut = (row: AcpmuxRow) =>
   row.kind === "sessionOffer" ||
   // A chat the turn started keeps its card in sight (started/startedSessions.ts).
   row.kind === STARTED_SESSIONS ||
+  // So does a Claude workflow it started (Labs, summary/WorkflowCard.tsx).
+  row.kind === WORKFLOW_CARD ||
   // What the person answered an agent's question, which shaped the rest of the turn.
   row.kind === QUESTION_RECORD;
 
@@ -750,7 +823,7 @@ function liveTurn(
     // the turn's last row and ticks from the prompt.
     if (plan && last?.kind !== "assistant") {
       const work = shown.filter((row) => row !== plan);
-      return [...work, plan, activityLine(user, work, plan, clockOffset)];
+      return [...work, plan, activityLine(user, work, plan, clockOffset, undefined, true)];
     }
     const status: AcpmuxRow = { id: LIVE_THINKING, version: 2, at, kind: WORKING, below: true };
     const doing = last && inFlightCall(last);
@@ -761,6 +834,7 @@ function liveTurn(
     // One running call reads once: not here while its own row names it (`ownRow`).
     if (doing && doing.row !== true) {
       status.doing = doing.title;
+      Object.assign(status, sendingTo(doing.tool));
       if (doing.row) Object.assign(status, { doingGroup: doing.row.key, doingGroupOpen: doing.row.open });
     }
     // Before any output it reads "Thinking"; a thought coming in labels itself (ThoughtRow.tsx).
@@ -784,6 +858,7 @@ function liveTurn(
     if (doing?.draft) status.doingDraft = true;
     if (doing && (liveRuns || doing.row !== true)) {
       status.doing = doing.title;
+      Object.assign(status, sendingTo(doing.tool));
       if (doing.row && doing.row !== true && !liveRuns)
         Object.assign(status, { doingGroup: doing.row.key, doingGroupOpen: doing.row.open });
     }
@@ -844,6 +919,7 @@ function codexLiveTurn(
     // A started command shows "⌃B to run in background" on the line, never on a transcript row
     // (Thinking.tsx; Leo, 2026-10-22: "this cmd b to run in background ... it should prob go down").
     if (call.kind === "execute" && !line.doingDraft) line.doingCommand = true;
+    Object.assign(line, sendingTo(call));
     line.doingAt = (call.startedAt ?? named.at) + clockOffset;
   } else if (last.kind === "assistant") line.quietKey = `${last.id}:${last.version}`;
   const answering = last.kind === "assistant";
@@ -863,6 +939,7 @@ function codexLiveTurn(
       plan,
       clockOffset,
       named?.tool,
+      true,
     ),
   ];
 }
@@ -917,6 +994,7 @@ function activityLine(
   plan: AcpmuxRow,
   clockOffset: number,
   named?: NonNullable<AcpmuxActivity["tool"]>,
+  below = false,
 ): AcpmuxRow {
   const running = named
     ? { kind: "tool", text: "", tool: named }
@@ -937,9 +1015,26 @@ function activityLine(
     at: user.at + clockOffset,
     kind: ACTIVITY_LINE,
     text: label,
+    // The line below a plan occupies the footer's slot. Keeping the marker on that row lets the
+    // estimator and the DOM swap it for `turnSummary` without changing the rows above it.
+    ...(below && { below: true }),
   };
   if (command) line.doingCommand = true;
+  if (running?.tool) Object.assign(line, sendingTo(running.tool));
   return line;
+}
+
+/// The message a call in flight sends, for the live line: "Sending message to tests", never the
+/// raw `acpmux send …` line (Leo 2026-10-24: "sending message or sent message to X or Y").
+function sendingTo(tool: NonNullable<AcpmuxActivity["tool"]>): Pick<AcpmuxRow, "doingSendTo" | "doingSendSession"> {
+  const send = acpmuxSendCall(tool);
+  // Only a send still going: one that failed in the background is not "Sending" any more.
+  if (send) return send.state === "sending" ? { doingSendTo: send.target } : {};
+  if (tool.kind === "execute" && tool.command) return {};
+  const call = subsessionCall(tool);
+  if (call?.tool !== "send") return {};
+  const id = call.sessionId;
+  return { doingSendTo: id.length > 12 ? `${id.slice(0, 8)}…` : id, doingSendSession: id };
 }
 
 /// A running call in one short line: a command as itself ("Ran …" would say it has finished), a
@@ -953,7 +1048,11 @@ function runningLabel(tool: Parameters<typeof toolLabel>[0], text: string): stri
 
 /// The newest call still running in a live turn's latest row, by its title, and where the
 /// transcript draws its own row (`ownRow`).
-function inFlightCall(row: AcpmuxRow): { title: string; command: boolean; draft: boolean; row: OwnRow } | undefined {
+function inFlightCall(
+  row: AcpmuxRow,
+):
+  | { title: string; command: boolean; draft: boolean; row: OwnRow; tool: NonNullable<AcpmuxActivity["tool"]> }
+  | undefined {
   if (row.kind !== "activity") return undefined;
   const items = row.items ?? [];
   for (let index = items.length - 1; index >= 0; index--) {
@@ -962,7 +1061,9 @@ function inFlightCall(row: AcpmuxRow): { title: string; command: boolean; draft:
     // The row's own label, never the call's raw JSON input; a command reads as itself.
     const title = toolLabel(tool, "", (command) => command).trim();
     const draft = isDraftCall(tool);
-    return title ? { title, command: tool.kind === "execute", draft, row: ownRow(row, items[index]!) } : undefined;
+    return title
+      ? { title, command: tool.kind === "execute", draft, row: ownRow(row, items[index]!), tool }
+      : undefined;
   }
   return undefined;
 }
@@ -983,7 +1084,9 @@ function ownRow(row: AcpmuxRow, item: AcpmuxActivity): OwnRow {
   if (
     group.type === "item" ||
     group.type === "message" ||
+    group.type === "send" ||
     group.type === "subsession" ||
+    group.type === "subsessionGroup" ||
     group.type === "dispatch" ||
     (group.type === "mcp" && group.items.length === 1)
   )

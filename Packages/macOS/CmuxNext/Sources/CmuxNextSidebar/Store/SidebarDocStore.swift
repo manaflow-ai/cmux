@@ -73,6 +73,9 @@ public final class SidebarDocStore {
     /// The live workspaces and the connected other machines at the last `show` (a remote close is a live ref that left).
     @ObservationIgnored var lastLive: Set<SidebarDocWorkspaceRef> = []
     @ObservationIgnored var lastConnectedRemotes: Set<String> = []
+    /// The projection paired with `lastLive`: presentation-only `reshow` must not erase a departed remote's item
+    /// before `show` sends its close and removes any emptied ancestor groups.
+    @ObservationIgnored var lastLiveProjection: SidebarDocProjection?
     /// The page icon address last sent for each url item (`storeIconURLs` sends each one once).
     @ObservationIgnored var requestedIconURLs: [String: String] = [:]
     /// The last projection (`projection(live:)`), with what it was built over.
@@ -231,6 +234,15 @@ public final class SidebarDocStore {
         send(.unpin(items, key: Self.newKey()), title: title) { remote, key, _ in
             try await remote.unpin(items, key: key)
         }
+    }
+
+    /// Archive (`archived` true): each item moves to the end of its own list (its group, or its
+    /// section's top level) and draws dimmed. Unarchive puts it back where it was archived from
+    /// (plans/cmux-next/archiving-DESIGN.md). One undo step titled `title`. Throws the reducer's
+    /// refusal (a provider-owned section, an unknown item), so the CLI and MCP get it too.
+    public func setArchived(_ items: [String], archived: Bool, title: String) throws(SidebarDocSendRefusal) {
+        guard !items.isEmpty else { return } // nothing placed yet (an adopt is on the way)
+        try sendChecked(ops: [["op": archived ? "archive" : "unarchive", "items": items]], title: title)
     }
 
     /// Folds or opens `group` in the document (the owner of record; other clients follow it). The

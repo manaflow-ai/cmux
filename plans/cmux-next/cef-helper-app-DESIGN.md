@@ -23,6 +23,8 @@ the "not now" in [browser-isolation.md](browser-isolation.md). Paths: `S/` = `Pa
 | Pages: a child `NSWindow` per page (fork `CmuxParentViewTracker`), or with fork API 26 the page's `DisplayCALayerTree` in a tracker-owned `CAContext` that cmux shows with a `CALayerHost` | `fork:libcef/browser/chrome/views/chrome_child_window_mac.mm:961-1006`, `S/CEFLayerHosting.swift`, `S/CEFHostedPageView.swift` | the context is made on `CGSMainConnectionID()` and the app gets only its id: this part already works across processes |
 | Shim ABI: 132 C exports, one event callback, 4 synchronous callbacks (key with an `NSEvent*`, focus request, window request, DevTools key), `NSView*` arguments (`create_window`, `devtools_set_placement`, `popup_window_attach`) | `S/Shim/cmux_cef_shim.h` | pointers and synchronous answers cannot cross a process |
 | Chromium's own UI (bubbles, `<select>`, autofill, JS dialogs, HTTP auth, file pickers, print preview, extension popups, DevTools windows, WebAuthn sheets) | Views widgets of the browser process | they are `NSWindow`s of the browser process |
+| Chromium's own main-thread blocking at launch and quit (blocking probe, PL-threading item 1 slice c, step 6ebef007, cmux20-bench, macOS 27.0, Debug at 91f2976c551; launch, settle and quit, no actions): `ChromeWebAppShortcutCopierMain` 23.2 ms (5120 `stat`/`access`/`fcntl` calls, longest 11.4 ms), `CefShutdown` 22.7 ms at quit (`waitpid`, `usleep`, longest 10.1 ms) | Chromium's browser-process code on cmux's main thread | host-process work: it leaves cmux's main thread with the browser process (no in-process change, lead 2026-10-25); the host must not add a synchronous wait on it at quit |
+| Chromium's child-process waits in the pump (the same probe, step 6ebef007): 32 `waitpid` calls, 19.3 ms of the 20.1 ms the probe gave the pump closure in `CEFRuntime.initialize` (`cmux_shim_do_work` -> `CefDoMessageLoopWork`), inside Chromium's own code (no symbols: the child is not named) | `CefDoMessageLoopWork` on cmux's main thread, today | one more measured reason for the host move: the pump's work, waits included, leaves cmux's main thread with the browser process |
 
 ## 3. Design
 
@@ -133,6 +135,28 @@ daemon talks CDP to the host through `--remote-debugging-pipe`), crash reports (
   passkey entitlements. Each needs a release check.
 - An accessory app that shows a window can become active; every host window must stay non-activating and off screen.
 
+### 3.7 Why page focus must not make a page window key (fork API 30, issue #24913)
+
+Today `CEFTab.grantFocus` calls `CefBrowserHost::SetFocus(true)`, and the fork makes the page's child window key
+(`makeKeyAndOrderFront:`). Every key-window change runs AppKit's key-state walk over both windows' view trees and,
+for a text-input first responder, activates the input method synchronously. The fuzzer found three 10 s main-thread
+stalls in that one call (DEV watchdog traps):
+
+- macOS 14.8.7 and 15.7.7 (seed 21, Hang B/C): `-[NSWindow makeKeyWindow]` > `_windowChangedKeyState` (about 20
+  view levels; the window holds every parked workspace's view tree, hidden) and KVO in `-[NSApplication _setKeyWindow:]`.
+- macOS 26.6.2 (seed 21, build of 0aeef9f4827, 2026-10-25): `SidebarNavigation.step` > `FocusEffectApplier.focusPage`
+  > `CEFTab.grantFocus` > `cmux_shim_set_focus` > CEF > `-[NSWindow makeKeyAndOrderFront:]` > `becomeKeyWindow` >
+  `NSAutoFillHeuristicController _windowDidBecomeKey:` > `-[NSTextInputContext activate]` > `IMKInputSession activate`
+  > `invocationAwaitXPCReply` (a nested run loop that waits for the input method server; the VM's server had stopped
+  answering 10 min before). A real Mac whose input method server hangs gets the same wait.
+
+cmux now makes at most one key change per focus request (1da8789d016: no reclaim into the cmux window first, none
+when the cmux window is key, no select from building a tab menu). The one change that remains is the grant itself.
+With `cmux_browser_set_embedder_active(id, bool)` (fork API 30) page focus becomes cmux's own first responder plus
+an active flag: no page window is ever key, so neither the key-state walk nor the input method activation of a key
+change runs for a page focus. That needs the pin past API 24 (this design's host work needs 27). DevTools focus
+emulation in process is not a substitute: the page view then has no text input client, so IME breaks.
+
 ## 4. Prototype (behind `browserHost.helperPrototype`, default off; the host app is in Debug builds only)
 
 - Host: `shim/browser_host_main.mm` (built by `scripts/cmux-next/build-cef-shim.sh` as `cmux-chromium-host`, bundled by
@@ -182,7 +206,57 @@ in the measure queue and go into perf-lead.md section 5 when they arrive.
 
 Total: about 12-16 weeks of agent work, of which 4-5 weeks are fork work that can run in parallel with 3-6.
 
-## 6. Decisions for Lawrence
+## 6. Responsiveness requirements (session cmux-1c and the lead, 2026-10-24)
+
+Source: `/Users/lawrence/fun/wt/cef-helper-requirements.md`. "Covered" names the place in this design; "missing" says how
+it gets covered and in which slice (section 7).
+
+| # | Requirement | Status |
+|---|---|---|
+| 1 | Pixels never through a main thread (CALayerHost on the GPU process's context); scroll and animation stay in the renderer and GPU process | covered: 3.3 "Pixels"; the prototype does it today (the host's context in a CALayerHost, `ChromiumHostPageView`) |
+| 2 | One dedicated high-QoS input channel, coalescing per frame, scroll phase and momentum, chords decided in cmux first, key order kept | partly. Covered: a dedicated stream (not the control channel), one FIFO stream so order is kept, `KeyRouter` runs first in `CmuxApplication.sendEvent`. Missing, slice 2: a preallocated shared-memory ring with a Mach-port wake instead of the socket; cmux coalesces moves (latest wins) and wheel deltas (summed per phase) once per display frame; phase and momentum in the frame (`v[4]`, `v[5]` are free) with a fork call that forwards them (CEF's `SendMouseWheelEvent` has no phase); the host dispatches input on Chromium's user-input task queue (`BrowserTaskType::kUserInput`, a fork call) instead of `CefPostTask` to the default queue |
+| 3 | Resize fence: size + sequence id, the host presents at that size and returns a CA fence, cmux commits in the same transaction, never waits more than one frame, else shows the last frame on the page background | partly: 3.3 "Resize sync" (fence port over XPC). Missing, slice 5: the sequence id (the frame's `seq`), a one-frame deadline instead of `browserResize.syncDeadline`, and the page background color sent with each context so cmux fills the gap as `CEFTab+ResizeBackdrop` does in process |
+| 4 | Native UI (select, context menus, autofill, permission prompts, file dialogs, DevTools) from helper data, or anchored to cmux's window | covered: 3.3 rows (cmux draws from data; DevTools and popups are layer hosted in a cmux view or panel). A child window of another process is not possible on macOS, so "anchored child windows" become hosted contexts. Slice 4 |
+| 5 | IME: cmux's `NSTextInputClient` proxies; the helper pushes the caret rect ahead | covered: 3.3 "IME" (rp-mode IME path, composition bounds pushed after each change). Slice 2 |
+| 6 | Accessibility across processes | covered: 3.3 "Accessibility" (remote AX token, fork patch). Slice 4 |
+| 7 | Privacy prompts name cmux | covered by how the host starts: cmux spawns it with `posix_spawn` and does not disclaim responsibility, so TCC attributes camera, microphone and location to cmux and reads cmux's usage strings, as for Chrome's helpers. Never start the host through LaunchServices or launchd. Missing: a check on macOS 14, 15, 26 and 27 (slice 5) |
+| 8 | Crash: a crash page in each tab, terminals live on, restart and restore | partly: 3.2 (supervisor, restore from the saved navigation state, 60 s rule). Missing, slice 3: the crash page while the host restarts (the prototype shows an empty pane until the new context), every tab of every window |
+| 9a | 50 ms main-thread stall every 100 ms: the page still scrolls at 120 Hz with 0 drops | missing, slice 1: `chromium-host-bench.py --stall` (the app's `debug.stall`) with the page's frame intervals and the display's |
+| 9b | Key to page paint p95 no worse than today + 1 ms | partly: the bench measures key to the page's next frame in both modes plus the host hop (`hop_us`), Debug build; slice 2 measures it in the bench configuration |
+| 9c | Live resize, no stretched frame | missing, slice 5 (with the fence) |
+| 9d | IME and dead keys | missing, slice 2 (needs requirement 5) |
+| 9e | Kill the helper while typing in a terminal: the terminal does not stall | partly: the bench's kill row checks cmux answers and the host restarts; slice 1 adds a terminal typing probe across the kill |
+| 10 | Launch off the critical path; first Chromium tab < 100 ms; a spare page in the helper | missing, slice 3: the host starts after the first frame (as `ChromiumWarmup` does in process today) and keeps a spare page (`CEFSpareWindow`'s rule, PL-cef-tab) |
+| 11 | No second copy of shared Chromium state; the renderer-sharing policy unchanged | covered: one browser process, in the host; cmux maps no framework (3.1). The policy is browser-process code and moves with it. Only the prototype runs two browser processes (in-process tabs and the host side by side) |
+| 12 | Agent CDP and the shared cmux-page renderer keep working | partly: 3.4 (the host serves CDP; the daemon reaches it through `--remote-debugging-pipe` proxied by cmux with today's auth). Missing, slice 3: the proxy and the shared cmux-page renderer, which is browser-process state and moves with the host |
+| 13 | Signing, sandbox, notarization, Sparkle, keychain | partly: 3.1. Missing, slice 5: the prototype turns off Chromium's code-sign clone for the host (it copies the main bundle, which here is only the small host app); an update must therefore end and restart the host before the bundle is replaced, or the clone must copy the outer app. Keychain: the host must use the fork API 25 keychain service of the app (an access group, decision 2) |
+
+## 7. Slices from here (compressed, lead 2026-10-24: default on in DEV/NIGHTLY in about 3 weeks)
+
+After slice 1, three agents work at the same time in their own worktrees (PL-cef-helper plus two helper agents),
+and PL-cef-layer builds the fork list (sent 2026-10-24: user-input queue, wheel phase, windowed IME through the rp
+path, embedder active state, off-screen hosted window, any-widget hosting, resize fence, native UI from data, AX
+token, drag source, WebAuthn delegate, capture) as one CEF release.
+
+| Slice | Who | What | Done when |
+|---|---|---|---|
+| 0 | PL-cef-helper | Design + prototype behind `browserHost.helperPrototype` (landed 6ed76900e56, cc7bc02aef0) | done 2026-10-24 |
+| 1 | PL-cef-helper | Numbers: pump-share baseline (cmux20-bench, cmuxs-Mac-mini-3), prototype latency and pacing, stall test 9a, typing across a kill 9e | about 2026-10-26 (measure queue) |
+| 2 | PL-cef-helper | Input ring, coalescing per frame, wheel phase, user-input queue, IME, cursor; proof 9b, 9d; then the resize fence and 9c | about 2026-11-07 (needs fork items 1-3) |
+| 3 | helper agent A | The shim behind the wire (132 calls: host side over the shim sources, cmux side in Swift), supervisor for every tab, crash page, CDP proxy, launch and spare page | about 2026-11-07 |
+| 4 | helper agent B | Native UI from data, AX token, drag and drop, DevTools and popups hosted | about 2026-11-10 (needs fork items 7, 9-11) |
+| 5 | PL-cef-helper | Signing, notarization, Sparkle, keychain, TCC on 14/15/26/27, STRESS benches; default on in DEV and NIGHTLY | about 2026-11-14 |
+| 6 | PL-cef-helper | Default on in Release after parity | after 2 NIGHTLY weeks with no host regression, about 2026-11-28 |
+
+Slice 5 exit criteria include the update path: Sparkle (or the app's own update step) ends the host and starts it
+again before it replaces the bundle, or the host keeps Chromium's code-sign clone with a clone of the outer app; an
+update while a Chromium page is open is tested.
+
+What limits the dates: the fork release (one packaged CEF with items 1-3, 6, 7, 9-11 by about 2026-11-07; a cold fork
+build is about 1.6 h, packaging and the pin about a day); the fleet measure queue for the proof tests (steps waited
+4 h and more on 2026-10-24); the size of the shim move (132 calls); reviews of each landing.
+
+## 8. Decisions for Lawrence
 
 1. One host for every profile (a crash reloads every Chromium page; least memory), or one host per profile (a crash
    stays in one profile; about 60-90 MB more per extra profile).

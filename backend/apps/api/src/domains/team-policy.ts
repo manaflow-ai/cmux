@@ -168,7 +168,9 @@ export const integrationSlice = (values: PolicyValues) => {
       scope: values["github.repoScope"]?.value ?? "linking_user_repos",
       require_org_admin: values["github.requireOrgAdmin"]?.value ?? false,
       // "none" denies every repository ([] in ConnectionDO); an empty list adds no limit (null).
-      repo_allowlist: allow === "none" ? [] : allow === undefined || allow.length === 0 ? null : [...allow]
+      repo_allowlist: allow === "none" ? [] : allow === undefined || allow.length === 0 ? null : [...allow],
+      // Only when on, so turning the key on is the only change to an existing team's slice (and its hash).
+      ...(values["github.allowWorkflows"]?.value === true ? { allow_workflows: true } : {})
     }
   }
 }

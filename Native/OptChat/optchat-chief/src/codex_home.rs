@@ -212,7 +212,16 @@ pub fn prepare_turn_codex_home(paths: &Paths, user_home: &Path) -> Result<(), St
         Err(e) if e.kind() == io::ErrorKind::NotFound => None,
         Err(e) => return Err(format!("reading {}: {e}", user_home.display())),
     };
-    let config = codex_turn_config(user.as_deref())?;
+    let mut config: toml::Table = codex_turn_config(user.as_deref())?
+        .parse()
+        .map_err(|e| format!("the codex turn's config: {e}"))?;
+    // The MCP servers of the Chief's tool packs that are on (toolpacks.rs).
+    let servers = crate::toolpacks::codex_servers(&crate::toolpacks::load(&paths.home), &paths.bin);
+    if !servers.is_empty() {
+        config.insert("mcp_servers".into(), servers.into());
+    }
+    let config =
+        toml::to_string(&config).map_err(|e| format!("writing the codex turn's config: {e}"))?;
     let dir = &paths.turn_codex;
     private_dir(dir)
         .and_then(|()| {

@@ -5,7 +5,7 @@ const T0: u64 = 1_800_000_000_000;
 
 fn minted(role: Role) -> (Store, TicketRecord) {
     let mut s = Store::default();
-    let t = s.mint(SECRET, role, 900, None, T0).unwrap();
+    let t = s.mint(SECRET, role, "test-instance".into(), 900, None, T0).unwrap();
     (s, t)
 }
 
@@ -14,7 +14,7 @@ fn ok(_: Role) -> Result<(), RpcError> {
 }
 
 fn redeem(s: &mut Store, secret: &str, name: &str, now: u64) -> Result<Redeemed, RpcError> {
-    s.redeem(secret, name, &"ab".repeat(32), &format!("dv_{name}"), now, ok)
+    s.redeem((secret, "test-instance"), name, &"ab".repeat(32), &format!("dv_{name}"), now, ok)
 }
 
 fn reason(e: &RpcError) -> &str {
@@ -69,7 +69,7 @@ fn the_device_gets_the_role_the_minter_stored() {
 fn a_refused_redeem_leaves_the_ticket_open() {
     let (mut s, _) = minted(Role::Daemon);
     let e = s
-        .redeem(SECRET, "box", &"ab".repeat(32), "dv_1", T0 + 1, |_| {
+        .redeem((SECRET, "test-instance"), "box", &"ab".repeat(32), "dv_1", T0 + 1, |_| {
             Err(RpcError::invalid_params("no").with_data(serde_json::json!({"reason": "x"})))
         })
         .unwrap_err();
@@ -80,6 +80,16 @@ fn a_refused_redeem_leaves_the_ticket_open() {
     assert_eq!(reason(&redeem(&mut s, SECRET, "a b/c", T0 + 1).unwrap_err()), "bad_name");
     s.issue("box", Role::Client, &"cd".repeat(32), "dv_x", None, T0).unwrap();
     assert_eq!(reason(&redeem(&mut s, SECRET, "box", T0 + 1).unwrap_err()), "name_taken");
+    assert_eq!(s.tickets[0].state(T0 + 1), TicketState::Open);
+}
+
+#[test]
+fn a_ticket_cannot_cross_acpmux_instances() {
+    let (mut s, _) = minted(Role::Client);
+    let error = s
+        .redeem((SECRET, "other-instance"), "laptop", &"ab".repeat(32), "dv_laptop", T0 + 1, ok)
+        .unwrap_err();
+    assert_eq!(reason(&error), "ticket_refused");
     assert_eq!(s.tickets[0].state(T0 + 1), TicketState::Open);
 }
 
@@ -123,9 +133,11 @@ fn revoking_a_used_ticket_names_the_machine_it_paired() {
 #[test]
 fn a_ticket_lives_one_second_to_a_day() {
     let mut s = Store::default();
-    assert!(s.mint(SECRET, Role::Client, 0, None, T0).is_err());
-    assert!(s.mint(SECRET, Role::Client, MAX_TTL_SECS + 1, None, T0).is_err());
-    let t = s.mint(SECRET, Role::Client, MAX_TTL_SECS, None, T0).unwrap();
+    assert!(s.mint(SECRET, Role::Client, "test-instance".into(), 0, None, T0).is_err());
+    assert!(
+        s.mint(SECRET, Role::Client, "test-instance".into(), MAX_TTL_SECS + 1, None, T0).is_err()
+    );
+    let t = s.mint(SECRET, Role::Client, "test-instance".into(), MAX_TTL_SECS, None, T0).unwrap();
     assert_eq!(t.expires_ms, T0 + MAX_TTL_SECS * 1000);
 }
 
@@ -134,7 +146,7 @@ fn spent_tickets_older_than_a_day_are_dropped_and_open_ones_kept() {
     let (mut s, _) = minted(Role::Client);
     redeem(&mut s, SECRET, "a", T0 + 1).unwrap();
     let later = T0 + 2 * MAX_TTL_SECS * 1000;
-    s.mint(&"11".repeat(32), Role::Client, 60, None, later).unwrap();
+    s.mint(&"11".repeat(32), Role::Client, "test-instance".into(), 60, None, later).unwrap();
     assert_eq!(s.tickets.len(), 1, "the spent ticket stays only a day");
     assert_eq!(s.devices.len(), 1, "the device it made stays");
 }
@@ -176,9 +188,16 @@ fn only_tls_or_loopback_carries_a_ticket() {
 #[test]
 fn the_read_only_gate_allows_reads_and_nothing_else() {
     use crate::rpc::method::*;
-    for m in
-        [INITIALIZE, SESSION_LIST, MUX_SESSIONS, MUX_WATCH, MUX_ATTACH, MUX_EVENTS, MUX_HISTORY]
-    {
+    for m in [
+        INITIALIZE,
+        SESSION_LIST,
+        MUX_SESSIONS,
+        MUX_WATCH,
+        MUX_ATTACH,
+        MUX_EVENTS,
+        MUX_HISTORY,
+        MUX_RESOLVE,
+    ] {
         assert!(read_only_allows(m), "{m}");
     }
     for m in [
@@ -217,9 +236,16 @@ fn the_daemon_saves_the_store_owner_only_and_reloads_it() {
     let p = Pairing::default();
     p.persist_at(path.clone());
     let (ticket, _) = p
-        .mint(Role::Client, 60, Some("laptop".into()), "ws://127.0.0.1:1".into(), "b".into())
+        .mint(
+            Role::Client,
+            60,
+            Some("laptop".into()),
+            "ws://127.0.0.1:1".into(),
+            "b".into(),
+            "test-instance".into(),
+        )
         .unwrap();
-    let r = p.redeem(&ticket.secret, "laptop", |_| Ok(())).unwrap();
+    let r = p.redeem(&ticket.secret, "laptop", "test-instance", |_| Ok(())).unwrap();
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -229,7 +255,7 @@ fn the_daemon_saves_the_store_owner_only_and_reloads_it() {
     let again = Pairing::default();
     again.persist_at(path);
     assert_eq!(again.device_for(&r.token).map(|d| d.role), Some(Role::Client));
-    assert!(!again.ticket_open(&ticket.secret));
+    assert!(!again.ticket_open(&ticket.secret, "test-instance"));
 }
 
 #[tokio::test]
@@ -247,4 +273,85 @@ async fn revoking_a_device_wakes_its_connections() {
     tokio::time::timeout(std::time::Duration::from_secs(5), p.revoked(&device.id)).await.unwrap();
     drop(guard);
     assert_eq!(p.list()["devices"][0]["connections"], 0);
+}
+
+#[test]
+fn full_access_is_off_by_default_and_only_a_live_client_has_it() {
+    let (mut s, _) = minted(Role::Client);
+    let laptop = redeem(&mut s, SECRET, "laptop", T0 + 1).unwrap().device;
+    assert!(!laptop.full_access && !laptop.grants_full_access());
+    // A record saved before the setting existed reads as off.
+    let old: Device = serde_json::from_value(serde_json::json!({
+        "id": "dv_old", "name": "old", "role": "client", "tokenHash": "00", "createdMs": T0,
+    }))
+    .unwrap();
+    assert!(!old.grants_full_access());
+    assert!(s.set_full_access("laptop", true).unwrap().grants_full_access());
+    assert!(s.devices[0].grants_full_access());
+    // Off is saved as no field at all.
+    assert!(s.set_full_access(&laptop.id, false).is_ok());
+    assert!(!serde_json::to_string(&s).unwrap().contains("fullAccess"));
+    // A revoked machine has no setting, and none can be turned on for it.
+    s.set_full_access(&laptop.id, true).unwrap();
+    s.revoke(&laptop.id, T0 + 2).unwrap();
+    assert!(!s.devices[0].grants_full_access());
+    assert_eq!(reason(&s.set_full_access(&laptop.id, true).unwrap_err()), "not_found");
+}
+
+#[test]
+fn a_read_only_or_daemon_machine_never_has_full_access() {
+    let mut s = Store::default();
+    for (name, role) in [("watcher", Role::ReadOnly), ("drives", Role::Daemon)] {
+        s.issue(name, role, &"cd".repeat(32), &format!("dv_{name}"), None, T0).unwrap();
+        assert_eq!(reason(&s.set_full_access(name, true).unwrap_err()), "full_access_role");
+        assert!(s.set_full_access(name, false).is_ok(), "off is always accepted");
+    }
+    // A hand-edited record with the setting on still grants nothing.
+    s.devices[0].full_access = true;
+    s.devices[1].full_access = true;
+    assert!(s.devices.iter().all(|d| !d.grants_full_access()));
+}
+
+#[test]
+fn a_new_phone_credential_ends_the_old_one_and_keeps_its_setting() {
+    let mut s = Store::default();
+    let (first, replaced) = s.issue_phone("phone-a", &"01".repeat(32), "dv_1", T0).unwrap();
+    assert!(replaced.is_none() && !first.grants_full_access(), "off by default");
+    assert!(s.set_full_access("phone-a", true).unwrap().grants_full_access());
+    let (second, replaced) = s.issue_phone("phone-a", &"02".repeat(32), "dv_2", T0 + 1).unwrap();
+    assert_eq!(replaced.as_deref(), Some("dv_1"));
+    assert!(second.grants_full_access());
+    assert_eq!(s.devices, vec![second], "one record per phone, the old one gone");
+    assert!(s.device_for(&"01".repeat(32)).is_none());
+    assert_eq!(s.device_for(&"02".repeat(32)).map(|d| d.id.as_str()), Some("dv_2"));
+    // Another role's live record keeps its name, and a refused issue changes nothing.
+    s.issue("laptop", Role::Client, &"03".repeat(32), "dv_3", None, T0).unwrap();
+    let before = s.clone();
+    assert_eq!(
+        reason(&s.issue_phone("laptop", &"04".repeat(32), "dv_4", T0).unwrap_err()),
+        "name_taken"
+    );
+    assert!(s.issue_phone("bad name", &"05".repeat(32), "dv_5", T0).is_err());
+    assert_eq!(s, before);
+}
+
+#[test]
+fn tailnet_admission_requires_bound_tickets_even_for_migrated_stores() {
+    let pairing = Pairing::default();
+    let (ticket, _) = pairing
+        .mint(
+            Role::Client,
+            60,
+            None,
+            "wss://node.test.ts.net".into(),
+            "host".into(),
+            "run-one".into(),
+        )
+        .unwrap();
+    assert!(pairing.ticket_open_bound(&ticket.secret, "run-one"));
+    assert!(!pairing.ticket_open_bound(&ticket.secret, "run-two"));
+    assert!(!pairing.ticket_open_bound(&ticket.secret, ""));
+    pairing.lock().store.tickets[0].identity.clear();
+    assert!(pairing.ticket_open(&ticket.secret, "run-one"));
+    assert!(!pairing.ticket_open_bound(&ticket.secret, "run-one"));
 }

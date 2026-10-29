@@ -93,11 +93,18 @@ public struct RemoteInstallPlan: Hashable, Sendable {
 
     public init(commit: String, platform: RemotePlatform, manifest: CmuxTUIManifest, remoteBinary: String,
                 base: URL = RemoteInstallPlan.base, lockToken: String = RemoteInstallPlan.newLockToken()) throws(RemoteInstallError) {
+        try self.init(commit: commit, artifact: platform.artifact, manifest: manifest, remoteBinary: remoteBinary, base: base,
+                      lockToken: lockToken)
+    }
+
+    /// A plan for any published `artifact` of the manifest (`cmux-tui-acpmux-<target>` for the
+    /// acpmux peer update), not only the cmux-tui of a platform.
+    public init(commit: String, artifact: String, manifest: CmuxTUIManifest, remoteBinary: String,
+                base: URL = RemoteInstallPlan.base, lockToken: String = RemoteInstallPlan.newLockToken()) throws(RemoteInstallError) {
         guard Self.isHex(commit, count: 40) else { throw .badCommit }
         guard manifest.sourceCommit.lowercased() == commit.lowercased() else {
             throw .commitMismatch(expected: commit, found: manifest.sourceCommit)
         }
-        let artifact = platform.artifact
         guard let digest = manifest.binaries[artifact] else { throw .missingArtifact(artifact) }
         guard Self.isHex(digest, count: 64) else { throw .badChecksum(artifact) }
         self.commit = commit.lowercased()

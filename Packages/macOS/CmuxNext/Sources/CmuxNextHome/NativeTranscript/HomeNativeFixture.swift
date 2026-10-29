@@ -1,4 +1,4 @@
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 public import AppKit
 import CmuxHomeCore
 public import CmuxNextDesign
@@ -80,6 +80,16 @@ public final class HomeNativeFixture {
             await source.streamDraft(update)
             if done { await source.receive(text, from: shown.chief, in: shown.conversation) }
         }
+        return true
+    }
+
+    /// Holds the fixture's activity state for matching light/dark captures.
+    /// No agent runs and no timer is installed; closing the fixture stops its store.
+    public func debugTyping(_ on: Bool) -> Bool {
+        guard let shown else { return false }
+        let source = self.source
+        // task-owner: one mock event, finishes after it is published
+        Task { await source.typing(shown.chief, in: shown.conversation, on: on) }
         return true
     }
 

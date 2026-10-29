@@ -56,7 +56,14 @@ fails, a waived row above it is printed as a recorded waiver.
                       A dictionary subscript cannot trap: a subscript on a name the module
                       declares as a dictionary (`var m: [K: V]`, `= [K: V]()`, `Dictionary<`)
                       and never otherwise (the file's own declarations decide when it has
-                      any; else the module's), or with a `default:` argument, does not count
+                      any; else the module's), or with a `default:` argument, does not count.
+                      Also a dictionary: `= Dictionary(...)`, `.reduce(into: [:])`,
+                      `.reduce(into: [K: V]())`, `.mapValues`, `Dictionary(grouping:...)`.
+                      An assignment through a subscript (`x[k] = v`, `x[k] = nil`) counts only
+                      when the name is known to be indexable (an array type or literal,
+                      `Data()`, `Array(...)`, `ContiguousArray`): one whose type is inferred
+                      from another value (`var applied = memo.applied`) may be a dictionary,
+                      where it cannot trap. A read (`x[i]` used as a value) still counts
     int_conversion    in INDEX_MODULES: `Int(x)`, `UInt8(x)`, ... that trap when the value does
                       not fit; use `exactly:` (optional), `clamping:` or `truncatingIfNeeded:`.
                       `UInt8(ascii:)`, a pure integer literal (`UInt8(0)`, checked by the
@@ -216,12 +223,19 @@ def int_conversion_hits(code):
     return hits
 
 
+# Initializers and calls whose value is a dictionary or an indexable non-dictionary (for an assignment target).
+DICT_VALUE = re.compile(r"\.reduce\(\s*into\s*:\s*\[(?::|[^\[\]]*:[^\[\]]*\]\s*\(\s*\))\s*\]?|\.mapValues\b|\.compactMapValues\b"
+                        r"|^Dictionary\b|\bDictionary\s*\(")
+INDEXABLE_VALUE = re.compile(r"^(?:Data|ContiguousArray|ArraySlice|\[UInt8\])\b|^Array\b")
+
+
 def bracket_kind(text):
     """"dict" or "array" for a type or literal that starts with "[" (a top-level ":"
-    makes a dictionary, `[:]` included) or with Dictionary/Array; else None."""
-    if text.startswith("Dictionary"):
+    makes a dictionary, `[:]` included) or with Dictionary/Array/Data, or a value
+    built by a dictionary-returning call (`.reduce(into: [:])`, `.mapValues`); else None."""
+    if text.startswith("Dictionary") or (not text.startswith("[") and DICT_VALUE.search(text)):
         return "dict"
-    if text.startswith("Array"):
+    if INDEXABLE_VALUE.match(text):
         return "array"
     if not text.startswith("["):
         return None
@@ -244,7 +258,14 @@ def collection_names(lines):
     """({dictionary names}, {names declared any other way}) in LINES: a name declared
     as an array, or with an inferred or other type (`let rows = text.split(...)`), is
     in the second set, so its subscripts keep counting."""
-    dicts, others = set(), set()
+    dicts, arrays, others = collection_kinds(lines)
+    return dicts, arrays | others
+
+
+def collection_kinds(lines):
+    """({dictionary names}, {names declared as an indexable non-dictionary: an array type or
+    literal, Data, Array(...)}, {names declared any other way: inferred or another type})."""
+    dicts, arrays, others = set(), set(), set()
     signature_depth = 0  # > 0 while a func/init parameter list continues on later lines
     for line in lines:
         code = swift_code(line)
@@ -266,14 +287,25 @@ def collection_names(lines):
             found += [(m.group(1), params[m.end():].strip()) for m in PARAMETER_TYPE.finditer(params)]
             signature_depth = max(depth, 0) if stop == len(text) else 0
         for name, text in found:
-            (dicts if bracket_kind(text) == "dict" else others).add(name)
-    return dicts, others
+            kind = bracket_kind(text)
+            (dicts if kind == "dict" else arrays if kind == "array" else others).add(name)
+    return dicts, arrays, others
+
+
+ASSIGNED = re.compile(r"\s*=(?!=)")
 
 
 def index_hits(code, dictionaries=frozenset()):
     """Computed subscripts in CODE that can trap (see index_subscript). DICTIONARIES:
-    names the module declares only as dictionaries."""
+    names the module declares only as dictionaries, or (file dictionaries, module
+    dictionaries[, file indexables, module indexables]) from file_dictionaries. An
+    assignment target (`x[k] = v`) counts only on a known indexable name."""
     hits = 0
+    if isinstance(dictionaries, tuple) and len(dictionaries) == 4:
+        local, module, local_arrays, module_arrays = dictionaries
+    else:
+        local, module = dictionaries if isinstance(dictionaries, tuple) else (dictionaries, dictionaries)
+        local_arrays = module_arrays = None  # unknown: every assignment target counts, as before
     binding = OPTIONAL_BINDING.search(code)
     for match in INDEX_SUBSCRIPT.finditer(code):
         inner = match.group(1).strip()
@@ -285,10 +317,12 @@ def index_hits(code, dictionaries=frozenset()):
         base = chain.split(".")[-1]
         # A file's own declarations decide only for a bare name (or self.name); a
         # member of another value (`transport.pending[i]`) uses the module rule.
-        local, module = dictionaries if isinstance(dictionaries, tuple) else (dictionaries, dictionaries)
         qualified = chain not in (base, "self." + base)
         if base in (module if qualified else local):
             continue
+        if local_arrays is not None and ASSIGNED.match(code[match.end():]) and \
+                base not in (module_arrays if qualified else local_arrays | module_arrays):
+            continue  # `x[k] = v` on a name not known to be indexable: a dictionary cannot trap
         if re.fullmatch(r"[A-Z][\w.<>?, ]*(?:\s*:\s*[A-Z][\w.<>?, \[\]]*)?", inner):
             continue  # a type: [String], [Key: Value]
         after = code[match.end():].lstrip()
@@ -336,6 +370,11 @@ _TEST_CFG = (r"(?:test|all\(\s*(?:" + _CFG_ITEM + r"\s*,\s*)*test\s*(?:,\s*" + _
              + r"\s*)*,?\s*\))")
 INLINE_TESTS = re.compile(r"#\[cfg\(" + _TEST_CFG
                           + r"\)\]\s*(#\[[^\]]*\]\s*)*(pub(\([^)]*\))?\s+)?mod\s+\w+\s*\{")
+# An out-of-line test-only module: `#[cfg(test)] mod name;` (attributes such as `#[path = "x.rs"]`
+# may sit between). Its file, and every file below it, compiles only in tests.
+TEST_MOD_DECL = re.compile(r"#\[cfg\(" + _TEST_CFG + r"\)\]\s*(?P<attrs>(?:#\[[^\]]*\]\s*)*)"
+                           r"(?:pub(?:\([^)]*\))?\s+)?mod\s+(?P<name>\w+)\s*;")
+RUST_PATH_ATTR = re.compile(r'#\[path\s*=\s*"(?P<path>[^"]+)"\s*\]')
 UNREACHABLE_INIT = re.compile(r"\binit\??\((coder|rootView)\b")
 
 
@@ -384,8 +423,14 @@ def swift_code(line):
     return "".join(out)
 
 
+def allow_lines(lines, index):
+    """The 0-based lines whose `// crash-allow:` waives LINES[INDEX]: the line itself and the line directly
+    above. guardrails.py reads the same window, so it never passes a line this ratchet counts."""
+    return [index, index - 1] if index > 0 else [index]
+
+
 def allowed(lines, index):
-    return bool(ALLOW.search(lines[index]) or (index > 0 and ALLOW.search(lines[index - 1])))
+    return any(ALLOW.search(lines[i]) for i in allow_lines(lines, index))
 
 
 # An exported tree (--exported-tree, git archive of a ref) holds tracked files only, so every
@@ -537,6 +582,12 @@ def swift_line_hits(lines, index, module=None, dictionaries=frozenset()):
 
 def module_dictionaries(repo, exported):
     """{index module: names it declares as dictionaries and never as arrays}."""
+    return {module: d for module, (d, _) in module_collections(repo, exported).items()}
+
+
+def module_collections(repo, exported):
+    """{index module: (names it declares as dictionaries and never otherwise, names it declares
+    as an indexable non-dictionary anywhere)}."""
     declared = {}
     for root in swift_source_roots(repo):
         sources = os.path.join(repo, root)
@@ -544,23 +595,27 @@ def module_dictionaries(repo, exported):
             module = os.path.relpath(path, sources).split(os.sep)[0]
             if module not in INDEX_MODULES or not path.endswith(".swift") or not os.path.isfile(path):
                 continue
-            dicts, arrays = collection_names(open(path, encoding="utf-8", errors="replace").read().split("\n"))
-            entry = declared.setdefault(module, (set(), set()))
+            dicts, arrays, others = collection_kinds(open(path, encoding="utf-8", errors="replace").read().split("\n"))
+            entry = declared.setdefault(module, (set(), set(), set()))
             entry[0].update(dicts)
             entry[1].update(arrays)
-    return {module: frozenset(d - a) for module, (d, a) in declared.items()}
+            entry[2].update(others)
+    return {module: (frozenset(d - a - o), frozenset(a)) for module, (d, a, o) in declared.items()}
 
 
-def file_dictionaries(lines, module_dicts):
+def file_dictionaries(lines, module_dicts, module_arrays=None):
     """Names that LINES (one file) subscript as dictionaries: a name the file declares
     only as a dictionary, or one it does not declare at all that its module declares only
     as a dictionary (a property from the type's main file used in an extension file). A
     same-named array or inferred local in another file of the module no longer hides a
     dictionary declared in this one; one declared any other way in this file still counts."""
-    dicts, others = collection_names(lines)
+    dicts, arrays, others = collection_kinds(lines)
+    others = others | arrays
     declared = dicts | others
-    return (frozenset((dicts - others) | {name for name in module_dicts if name not in declared}),
-            frozenset(module_dicts))
+    local = frozenset((dicts - others) | {name for name in module_dicts if name not in declared})
+    if module_arrays is None:
+        return local, frozenset(module_dicts)
+    return local, frozenset(module_dicts), frozenset(arrays), frozenset(module_arrays)
 
 
 class Scan:
@@ -595,7 +650,7 @@ def scan_swift(repo, scan, exported):
     classes per file (crash-allow ignored) into its banned_files."""
     banned = banned_kinds("swift")
     banned_modules = banned_in("swift")
-    dictionaries = module_dictionaries(repo, exported)
+    collections = module_collections(repo, exported)
     for root in swift_source_roots(repo):
         sources = os.path.join(repo, root)
         for path in tracked_files(repo, sources, exported):
@@ -604,7 +659,8 @@ def scan_swift(repo, scan, exported):
                 continue
             rel = os.path.relpath(path, sources).split(os.sep)[0]  # the Swift module
             lines = open(path, encoding="utf-8", errors="replace").read().split("\n")
-            file_dicts = file_dictionaries(lines, dictionaries.get(rel, frozenset())) if rel in INDEX_MODULES else frozenset()
+            module_dicts, module_arrays = collections.get(rel, (frozenset(), frozenset()))
+            file_dicts = file_dictionaries(lines, module_dicts, module_arrays) if rel in INDEX_MODULES else frozenset()
             for index, line in enumerate(lines):
                 if line.lstrip().startswith("//"):
                     continue
@@ -620,7 +676,8 @@ def scan_swift(repo, scan, exported):
 def load_allowlist():
     if not os.path.exists(ALLOWLIST):
         return {"banned": [], "allow": []}
-    data = json.load(open(ALLOWLIST))
+    with open(ALLOWLIST, encoding="utf-8") as handle:
+        data = json.load(handle)
     data.setdefault("banned", [])
     data.setdefault("allow", [])
     return data
@@ -696,15 +753,48 @@ def scan_env_writes(repo, exported):
     return over
 
 
+def rust_test_modules(paths):
+    """(files, folders) that hold only test code: the targets of `#[cfg(test)] mod name;` declarations
+    (`name.rs` or `name/mod.rs`, or a `#[path]`) in PATHS, and the folder of each such module, which holds its
+    own submodules. 2026-10-24: shell_integration's `#[cfg(all(test, unix))] mod test_pty;` and `mod fork_watch;`
+    counted 22 test unwraps and expects as cmux-tui-core's own, because only `tests.rs`, `*_tests.rs`,
+    `*_test.rs` and inline `mod x { }` blocks were cut."""
+    files, folders = set(), set()
+    for path in paths:
+        if not path.endswith(".rs") or not os.path.isfile(path):
+            continue
+        text = open(path, encoding="utf-8", errors="replace").read()
+        if "mod " not in text:
+            continue
+        here, name = os.path.split(path)
+        # A mod.rs, lib.rs or main.rs owns its folder; any other file foo.rs owns foo/.
+        owner = here if name in ("mod.rs", "lib.rs", "main.rs") else os.path.join(here, name[:-3])
+        for decl in TEST_MOD_DECL.finditer(text):
+            attr = RUST_PATH_ATTR.search(decl.group("attrs") or "")
+            if attr:
+                target = os.path.normpath(os.path.join(here, attr.group("path")))
+                files.add(target)
+                folders.add(os.path.dirname(target) if os.path.basename(target) == "mod.rs" else target[:-3])
+                continue
+            module = os.path.join(owner, decl.group("name"))
+            files.update((module + ".rs", os.path.join(module, "mod.rs")))
+            folders.add(module)
+    return files, folders
+
+
 def scan_rust(repo, scan, exported):
     crates = os.path.join(repo, "cmux-tui/crates")
     skipped_dirs = {"target", "tests", "benches", "examples", "node_modules", "fixtures"}
-    for path in tracked_files(repo, crates, exported):
+    paths = tracked_files(repo, crates, exported)
+    test_files, test_folders = rust_test_modules(paths)
+    for path in paths:
         dirpath, name = os.path.split(path)
         parts = os.path.relpath(dirpath, crates).split(os.sep)
         if skipped_dirs.intersection(parts) or os.sep + "src" not in dirpath or not os.path.isfile(path):
             continue
         if not name.endswith(".rs") or name in ("tests.rs",) or name.endswith("_tests.rs") or name.endswith("_test.rs"):
+            continue
+        if path in test_files or any(path.startswith(folder + os.sep) for folder in test_folders):
             continue
         rel = os.path.relpath(path, crates).split(os.sep)[0]  # the crate
         text = open(path, encoding="utf-8", errors="replace").read()

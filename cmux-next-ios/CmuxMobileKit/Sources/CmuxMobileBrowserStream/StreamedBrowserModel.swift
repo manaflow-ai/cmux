@@ -416,7 +416,8 @@ public final class StreamedBrowserModel: BrowserTabState {
 
     /// What a closed stream does next. `evicted`: cmux-mobile-host's host limit
     /// stopped the page; `replaced`: another viewer opened the tab; `stalled`:
-    /// the library's watchdog ended a stream that stopped answering. A dropped
+    /// the library's watchdog ended a stream that stopped answering; `eof`: the
+    /// Mac ended it (its browser host went away) with the link up. A dropped
     /// link reopens when the next link is up (``StreamedBrowserDirectory``).
     static func afterClose(code: String, shown: Bool, autoReopens: Int) -> AfterClose {
         switch code {
@@ -425,7 +426,9 @@ public final class StreamedBrowserModel: BrowserTabState {
             return autoReopens < maxAutoReopens ? .reopen : .offerReopen
         case "replaced":
             return .offerReopen
-        case "stalled":
+        case "stalled", "eof":
+            // `eof`: the Mac ended the stream on a link that is still up (its
+            // browser host exited or crashed); a new open starts a new host.
             return shown ? .reconnect : .waitForView
         default:
             return .waitForLink
@@ -653,6 +656,39 @@ public final class StreamedBrowserModel: BrowserTabState {
         connect()
     }
 
+    // MARK: Simulator surfaces (0...1 of the simulator's screen)
+
+    /// The simulator page's keyboard is up (its accessory bar toggles it).
+    public var wantsKeyboard = false
+
+    /// A finger on a simulator: `down`, `move` or `up` at 0...1 of its screen.
+    /// Moves may be dropped under load; down and up always arrive.
+    public func touch(_ kind: String, at point: CGPoint) {
+        input(wire.pointer(kind, x: Double(point.x), y: Double(point.y), buttons: kind == "up" ? 0 : 1),
+              mustDeliver: kind != "move")
+    }
+
+    /// Home or Lock on a simulator.
+    public func pressButton(_ button: String) {
+        input(wire.button(button))
+    }
+
+    /// `point` in a view of `size` showing `picture` aspect fit, as 0...1 of the
+    /// picture (top-left origin), clamped to its edges. Before the first frame the
+    /// picture is taken to fill the view.
+    public static func normalized(_ point: CGPoint, in size: CGSize, picture: CGSize) -> CGPoint {
+        guard size.width > 0, size.height > 0 else { return CGPoint(x: 0.5, y: 0.5) }
+        var drawn = CGRect(origin: .zero, size: size)
+        if picture.width > 0, picture.height > 0 {
+            let scale = min(size.width / picture.width, size.height / picture.height)
+            let fitted = CGSize(width: picture.width * scale, height: picture.height * scale)
+            drawn = CGRect(x: (size.width - fitted.width) / 2, y: (size.height - fitted.height) / 2,
+                           width: fitted.width, height: fitted.height)
+        }
+        let x = (point.x - drawn.minX) / drawn.width, y = (point.y - drawn.minY) / drawn.height
+        return CGPoint(x: min(max(x, 0), 1), y: min(max(y, 0), 1))
+    }
+
     /// The CSS pixel under a point of a view of `size` points.
     func css(_ point: CGPoint, in size: CGSize) -> (x: Double, y: Double) {
         let screen = screen ?? RemoteBrowserWire.Screen(points: size, screenScale: 2)
@@ -713,6 +749,8 @@ enum LinkErrorText {
     /// Mac's "this build has no browser host" (never shown as is).
     static func noBrowserHost(_ error: any Error) -> Bool {
         guard let error = error as? LinkError else { return false }
+        // `no_surface_host`: the Mac streams no simulators (an older Mac refuses `surface` as unknown).
+        if ["no_surface_host", "unknown_service"].contains(error.code) { return true }
         return error.code == "no_browser_host" || error.message.localizedCaseInsensitiveContains("no browser host")
     }
 

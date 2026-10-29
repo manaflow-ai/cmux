@@ -29,6 +29,18 @@ public struct ProvisionalTab: Sendable, Hashable {
         return snapshot
     }
 
+    /// The stand-in of a new app-rendered browser tab (`new-frontend-browser-tab`) on `engine`
+    /// (`cef`, `webkit`) opening `url` in browser profile `profile`: the app shows its page in the
+    /// key's turn, and the daemon's tab takes its place when the reply names it
+    /// (``created(_:surface:in:)``). The daemon's `tab-added` carries no transaction, so a browser
+    /// tab of the pane that arrives first is only hidden until then (``matched(_:in:)``).
+    public func browser(url: String, engine: String, profile: String?) -> TabSnapshot {
+        var snapshot = TabSnapshot(surface: surface, tabResourceID: ResourceID(rawValue: id), kind: .browser, title: "",
+                                   url: url, browserRenderer: "frontend", browserEngine: engine)
+        snapshot.browserProfileID = profile
+        return snapshot
+    }
+
     /// The stand-in of a new terminal tab (`new-tab`, Ctrl-`) whose terminal host id the client
     /// chose (`terminal-placement-env-v1`): the daemon's tab carrying `terminal` is this one
     /// (``matched(_:in:)``), never a guess.
@@ -45,8 +57,10 @@ public struct ProvisionalTab: Sendable, Hashable {
     /// shows only while the records lack that surface, so the two never show side by side.
     @MainActor public static func created(_ transaction: ClientTransactionID, surface: SurfaceID, in store: DaemonStore) {
         guard store.intentLog.contains(transaction) else { return }
+        // A guessed tab (``matched(_:in:)``) is hidden from the visible records until now.
+        let guessed = store.intentLog.entries.contains { $0.transaction == transaction && $0.createdSurface == surface && !$0.createdConfirmed }
         store.intentLog.noteCreated(transaction, surface: surface)
-        if store.tabsBySurface[surface] != nil, !store.overlayLifted, store.applyDepth == 0 {
+        if store.tabsBySurface[surface] != nil || guessed, !store.overlayLifted, store.applyDepth == 0 {
             store.withOverlayLifted(writer: "intent created") {}
         }
         CancelledCreation.requestCloses(in: store)
@@ -110,8 +124,29 @@ public struct ProvisionalTab: Sendable, Hashable {
         if delta.entity.kind == .pty, let terminal = delta.entity.terminalID {
             return claimTerminal(delta.surface, terminal: terminal, in: store)
         }
+        if delta.entity.kind == .browser, delta.entity.browserRenderer == "frontend" {
+            return guessBrowser(delta.surface, in: delta.pane, engine: delta.entity.browserEngine, in: store)
+        }
         guard delta.entity.kind == .conversation else { return }
         guess(delta.surface, in: delta.pane, asking: delta.entity.conversation, in: store)
+    }
+
+    /// The daemon's raw `tab-added` of an app-rendered browser tab (`new-frontend-browser-tab`
+    /// takes no transaction): most likely the OLDEST pending browser create of the pane on the same
+    /// engine, when it is the pane's newest daemon tab. As for a conversation tab (``guess``), it
+    /// is only hidden, the stand-in showing, until the reply names its create.
+    @MainActor private static func guessBrowser(_ surface: SurfaceID, in pane: PaneID, engine: String?, in store: DaemonStore) {
+        guard store.tab(surface: surface) != nil,
+              !store.intentLog.entries.contains(where: { $0.createdSurface == surface }) else { return }
+        let waiting = store.intentLog.entries.first { entry in
+            guard entry.createdSurface == nil, case .createTab(let target, let provisional) = entry.kind, target == pane,
+                  provisional.kind == .browser, provisional.isFrontendOwned else { return false }
+            return provisional.browserEngine == engine
+        }
+        guard let entry = waiting else { return }
+        let daemonTabs = store.pane(pane)?.tabs.filter { !isProvisional(surface: $0.surface) } ?? []
+        guard daemonTabs.allSatisfy({ $0.surface.rawValue <= surface.rawValue }) else { return }
+        store.intentLog.noteCreated(entry.transaction, surface: surface, confirmed: false)
     }
 
     /// A terminal tab whose host id a pending terminal create chose (``terminal(_:cwd:)``) is that
@@ -129,7 +164,9 @@ public struct ProvisionalTab: Sendable, Hashable {
     /// tab is guessed again for the next waiting create, so it never shows beside that create's
     /// stand-in. Runs with the overlay lifted (the records hold the tab).
     @MainActor static func reguess(_ surface: SurfaceID, in store: DaemonStore) {
-        guard let tab = store.tab(surface: surface), tab.kind == .conversation, let pane = store.index.pane(holding: tab) else { return }
+        guard let tab = store.tab(surface: surface), let pane = store.index.pane(holding: tab) else { return }
+        if tab.kind == .browser, tab.isFrontendOwned { return guessBrowser(surface, in: pane.handle, engine: tab.browserEngine, in: store) }
+        guard tab.kind == .conversation else { return }
         guess(surface, in: pane.handle, asking: tab.snapshot.conversation, in: store)
     }
 

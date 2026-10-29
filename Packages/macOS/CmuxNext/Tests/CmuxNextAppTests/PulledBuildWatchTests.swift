@@ -77,6 +77,8 @@ import Testing
         let watch = Self.watch(list: Self.body([("299", "older")]), kept: Self.kept)
         await watch.refresh().value
         #expect(watch.card == nil)
+        // The Updated card still learns every pulled build, so it never counts one as newer.
+        #expect(watch.pulledBuilds == ["299"])
 
         let missing = Self.watch(list: nil, kept: Self.kept)
         await missing.refresh().value

@@ -117,7 +117,7 @@ enum MockHomeSeed {
         "I opened a draft PR with the plan. Want me to request review?",
         "Summary: the shell builds, sign-in works, Home renders from the mock source.",
         "The Mac is asleep; I will continue on the team VM.",
-        "Lawrence asked for variants. I prepared two list densities.",
+        "A user asked for variants. I prepared two list densities.",
         "Done. The device install passed the auth gate.",
     ]
 

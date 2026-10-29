@@ -1,7 +1,7 @@
 public import CmuxNextControl
 import CmuxNextDaemon
 
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 extension DaemonService {
     /// `debug.daemon` (DEBUG builds; a release router drops every `debug.*`
     /// method): the local daemon's connection and recovery as the app shows them,

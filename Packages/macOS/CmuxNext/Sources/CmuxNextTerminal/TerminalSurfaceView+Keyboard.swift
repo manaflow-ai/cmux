@@ -1,5 +1,6 @@
 public import AppKit
 import Carbon.HIToolbox
+import CmuxNextWakeups
 import GhosttyNextKit
 
 // Keyboard and IME input.
@@ -12,6 +13,7 @@ import GhosttyNextKit
 // (ghostty.h:1571, :1586, :1656).
 extension TerminalSurfaceView {
     public override func keyDown(with event: NSEvent) { // perf-hot: 1ms terminal-key (every key typed into a terminal)
+        if TypingLatencyProbe.isEnabled { TypingLatencyProbe.shared.hop("app.key.terminal") }
         if TerminalClipboardRequests.isPasteChord(event), !clipboardRequests.userPasteInProgress {
             return clipboardRequests.asUserPaste { keyDown(with: event) }
         }
@@ -93,9 +95,9 @@ extension TerminalSurfaceView {
     public override func flagsChanged(with event: NSEvent) {
         guard !hasMarkedText(), let action = GhosttyInput.modifierAction(for: event) else { return }
         sendKey(action, event: event)
-        // A program that has the mouse: Ghostty looks for a link under a resting pointer only on a
-        // move, so Command pressed or let go sends the pointer again (TerminalPointerMods).
-        if [kVK_Command, kVK_RightCommand].contains(Int(event.keyCode)), let surface, ghostty_surface_mouse_captured(surface) { bridge.takeUnretainedValue().sendPointerAgain() }
+        // Ghostty looks for a link under a resting pointer only on a move to another cell (and, in
+        // a program that has the mouse, not on a key): a modifier change looks again, after the key.
+        linkPointer.modifiersChanged(event.modifierFlags)
     }
 
     /// Key equivalents reach the view before the main menu

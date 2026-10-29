@@ -34,9 +34,9 @@ export type AgentEvent =
   | { kind: "delta"; text: string }
   | { kind: "assistant"; text: string }
   | { kind: "thinking"; text: string }
-  | { kind: "tool-start"; toolId: string; name: string; detail?: string }
-  | { kind: "tool-update"; toolId: string; name?: string; detail?: string; out?: string }
-  | { kind: "tool-end"; toolId: string; name?: string; detail?: string; ok?: boolean }
+  | { kind: "tool-start"; toolId: string; name: string; detail?: string; description?: string }
+  | { kind: "tool-update"; toolId: string; name?: string; detail?: string; description?: string; out?: string }
+  | { kind: "tool-end"; toolId: string; name?: string; detail?: string; description?: string; ok?: boolean }
   | { kind: "done"; stats?: string }
   | { kind: "files-changed"; files: ChangedFile[] }
   | { kind: "error"; message: string; prompt?: string };
@@ -96,7 +96,7 @@ export type Block =
   | { kind: "message"; id: string; from: string; body: string }
   | { kind: "assistant"; text: string; open: boolean }
   | { kind: "thinking"; text: string; open: boolean }
-  | { kind: "tool"; toolId: string; name: string; detail?: string; status: "running" | "ok" | "fail"; out?: string }
+  | { kind: "tool"; toolId: string; name: string; detail?: string; description?: string; status: "running" | "ok" | "fail"; out?: string }
   | { kind: "status"; text: string }
   | { kind: "plan"; entries: AgentPlanEntry[] }
   | { kind: "error"; text: string }
@@ -253,7 +253,7 @@ export function foldEvent(blocks: Block[], evt: AgentEvent): Block[] {
       }
       return [...closeStreaming(blocks), { kind: "thinking", text: evt.text, open: true }];
     case "tool-start":
-      return [...closeStreaming(blocks), { kind: "tool", toolId: evt.toolId, name: evt.name || "tool", detail: evt.detail, status: "running" }];
+      return [...closeStreaming(blocks), { kind: "tool", toolId: evt.toolId, name: evt.name || "tool", detail: evt.detail, description: evt.description, status: "running" }];
     case "tool-update":
       return blocks.map((b) =>
         b.kind === "tool" && b.toolId === evt.toolId && b.status === "running"
@@ -261,6 +261,7 @@ export function foldEvent(blocks: Block[], evt: AgentEvent): Block[] {
               ...b,
               ...(evt.name === undefined ? {} : { name: evt.name }),
               ...(evt.detail === undefined ? {} : { detail: evt.detail }),
+              ...(evt.description === undefined ? {} : { description: evt.description }),
               ...(evt.out === undefined ? {} : { out: evt.out }),
             }
           : b,
@@ -268,7 +269,7 @@ export function foldEvent(blocks: Block[], evt: AgentEvent): Block[] {
     case "tool-end":
       return blocks.map((b) =>
         b.kind === "tool" && b.toolId === evt.toolId
-          ? { ...b, status: evt.ok === false ? "fail" : "ok", out: evt.detail || b.out }
+          ? { ...b, status: evt.ok === false ? "fail" : "ok", out: evt.detail || b.out, description: evt.description ?? b.description }
           : b,
       );
     case "done": {
@@ -588,8 +589,12 @@ export function useSession(): SessionState {
       createSocket: () => new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + appPath("/ws")),
       onSocket: (ws) => {
         wsRef.current = ws;
-        if (!ws) failFileDiffRequests();
-        if (!ws) latestCommandRequestsRef.current.clear();
+        if (ws) return;
+        // The socket dropped (close, error or no answer): not ready until the next socket's
+        // hello, so the reconnect notice shows and nothing reads as sent while it is gone.
+        setReady(false);
+        failFileDiffRequests();
+        latestCommandRequestsRef.current.clear();
       },
       onOpen: () => {
         for (const requestId of pendingStartStopsRef.current) sendRaw({ op: "stop", requestId });

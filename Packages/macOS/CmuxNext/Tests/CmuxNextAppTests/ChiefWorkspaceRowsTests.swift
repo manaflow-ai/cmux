@@ -5,6 +5,7 @@ import CmuxNextBridge
 import CmuxNextDaemonService
 import CmuxNextRemote
 @testable import CmuxNextSidebar
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -58,7 +59,7 @@ struct ChiefWorkspaceRowsTests {
         _ = NSApplication.shared
         let machines = MachineRegistry(local: DaemonService())
         let session = ServerMachineSession(reach: chief, binary: nil, paths: .init(root: URL(fileURLWithPath: "/private/tmp/cn-chief-top-unused")),
-                                           environment: { [:] }, localIdentity: { nil })
+                                           environment: { [:] }, localIdentity: { nil }, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         machines.add(session)
         var tab = TabSnapshot(surface: 1, kind: harness == nil ? .pty : .conversation, cwd: nil)
         tab.conversation = harness.map { ConversationTabRef(agentSession: AgentSessionRef(host: "install:chief-top", session: "s1", harness: $0)) }

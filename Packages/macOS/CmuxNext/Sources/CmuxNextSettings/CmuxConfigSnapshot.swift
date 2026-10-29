@@ -45,8 +45,13 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var browserNewTabPage: URL?
     /// `browser.showBookmarksBar`; off when unset.
     public var browserShowBookmarksBar = false
+    /// `browser.import.enabled`; on when unset or invalid.
+    public var browserImportEnabled: Bool = BrowserImportSetting.fallback
     /// `home.chiefBubbleStyle`: the Chief chat's bubbles, `imessage` (Messages' blue and grey) when unset or `theme`.
     public var homeChiefBubbleStyle = HomeChiefBubbleStyleSetting.defaultStyle
+    /// `home.bubbleColors.*`: the bubble colours every Home chat starts with, `#RRGGBB` by role (`sent`,
+    /// `sentText`, `received`, `receivedText`); an unset role keeps the bubble style's.
+    public var homeBubbleColors: [String: String] = [:]
     /// `chief.reactionsCanWake`, `chief.reactionClassifier.*`: whether a tapback can wake the Chief, and the classifier (Claude Haiku) that decides.
     public var chiefReactions = ChiefReactionSettings.fallback
     /// `browser.builtInAdBlocker`; on when unset.
@@ -62,6 +67,11 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var homeServer: HomeServerSetting.Value = .hosted
     /// `labs.previewFeatures` and `labs.classicHome`; off when unset.
     public var previewFeatures = CmuxConfigSnapshot.previewFeaturesDefault, classicHome = CmuxConfigSnapshot.classicHomeDefault
+    /// `labs.voiceRoom` (off when unset) and `labs.voiceRoomURL` (trimmed; empty is the local room server).
+    public var voiceRoom = CmuxConfigSnapshot.voiceRoomDefault, voiceRoomURL = CmuxConfigSnapshot.voiceRoomURLDefault
+    /// `labs.machineJoin`: the one-line machine join surfaces (Add Device's way, joined Machines rows, This Mac's
+    /// consent switches); off when unset.
+    public var machineJoin = CmuxConfigSnapshot.machineJoinDefault
     /// `browser.hibernation`, `browser.hibernationExclusions`, `browser.hibernatePinnedTabs`, `browser.freezeHiddenTabs`.
     public var browserHibernation: BrowserHibernationSetting = .fallback
     /// `browser.links.*`: what modified link clicks do; Chrome's when unset.
@@ -117,6 +127,10 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     /// `layout.scrollAreas`: splits that cannot fit scroll instead of squashing (default off;
     /// plans/cmux-next/scroll-areas-DESIGN.md).
     public var layoutScrollAreas: Bool = ColumnLayoutSettings.scrollAreasFallback
+    /// `layout.scrollModifier`: which scroll moves the layout (``LayoutScrollModifier``).
+    public var layoutScrollModifier: LayoutScrollModifier = ColumnLayoutSettings.scrollModifierFallback
+    /// `layout.pagesHandleCommandScroll`: a web page that cancels Command + wheel keeps a Command scroll over it.
+    public var pagesHandleCommandScroll: Bool = ColumnLayoutSettings.pagesHandleCommandScrollFallback
     public var minimumPaneContentSize = CGSize(width: ColumnLayoutSettings.minimumPaneWidthFallback,
                                                height: ColumnLayoutSettings.minimumPaneHeightFallback)
     /// `layout.newPanePlacement` and `layout.tileBrowsers` (`CmuxConfigSnapshot+PanePlacement`).
@@ -130,7 +144,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var newWorkspacePlacement: NewWorkspacePlacement = CmuxConfigSnapshot.newWorkspacePlacementFallback
     /// `layout.closeFocus`; "previousNeighbor" when unset or invalid.
     public var closeFocus: CloseFocusPolicy = CloseFocusSetting.fallback
-    /// `layout.defaultColumnWidth`; 0.5 when unset or invalid.
+    /// `layout.defaultColumnWidth`; two thirds when unset or invalid.
     public var defaultColumnWidth: Double = DefaultColumnWidthSetting.fallback
     /// `focusRing.*`.
     public var focusRing = FocusRingSettings()
@@ -145,6 +159,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var windowBackground = WindowBackgroundOverride()
     /// `appearance.inactiveWindowDim`: 0 unless set.
     public var inactiveWindowDim = 0.0
+    /// `appearance.wallpaperTint`: on unless set to false.
+    public var wallpaperTint = WallpaperTintSetting.fallback
     /// `appearance.surfaces.<surface>.color|opacity` (R55); no override
     /// (every surface shows the window's backdrop) when unset or invalid.
     public var surfaceBackgrounds = SurfaceBackgrounds.none
@@ -215,6 +231,10 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var pickerPinned: [String] = []
     /// `screenshots.*`: the Screenshots pane's app search and extra folders.
     public var screenshots = ScreenshotsSettings()
+    /// `workspaces.autoArchive.*`: how idle workspaces archive (plans/cmux-next/auto-archive-DESIGN.md).
+    public var autoArchive = AutoArchiveSettings()
+    /// `workspaces.hibernation.*`: when idle workspaces leave memory (plans/cmux-next/workspace-hibernation-DESIGN.md).
+    public var workspaceHibernation = WorkspaceHibernationSettings()
     /// `appearance.theme`: a Ghostty theme spec; nil (the Ghostty config's
     /// theme) when unset, empty or invalid.
     public var appTheme: String?
@@ -223,6 +243,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var chromeTheme: String?
     /// `appearance.themeEdits`: per-token color edits to themes; none when unset.
     public var themeEdits = ThemeEdits.none
+    /// `appearance.highlightColor`: the app's one highlight color (`#rrggbb`) over the terminal
+    /// theme's `selection-background`; nil (the theme's) when unset or invalid.
+    public var highlightColor: String?
     /// `appearance.accent`: where the chrome's accent comes from; neutral when unset or invalid.
     public var accent: ThemeAccent = AccentSetting().fallback
     /// `terminal.fontFamily`; nil (the Ghostty config's font) when unset or invalid.
@@ -296,6 +319,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.take(BrowserSiteEngines.parse(root), \.browserSiteEngines)
         snapshot.take(BrowserNewTabPage.parse(root), \.browserNewTabPage)
         snapshot.take(BookmarksBarSetting.parse(root), \.browserShowBookmarksBar)
+        snapshot.take(BrowserImportSetting.parse(root), \.browserImportEnabled)
         snapshot.take(HomeChiefBubbleStyleSetting.parse(root), \.homeChiefBubbleStyle)
         snapshot.take(BuiltInAdBlockerSetting().parse(root), \.browserBuiltInAdBlocker)
         snapshot.take(AgentCursorSetting().parse(root), \.browserShowAgentCursor)
@@ -303,6 +327,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.takeHome(root)
         snapshot.take(Self.parsePreviewFeatures(root), \.previewFeatures)
         snapshot.take(Self.parseLabsToggle(root, path: classicHomePath, fallback: classicHomeDefault), \.classicHome)
+        snapshot.take(Self.parseLabsToggle(root, path: voiceRoomPath, fallback: voiceRoomDefault), \.voiceRoom)
+        snapshot.take(Self.parseLabsText(root, path: voiceRoomURLPath, fallback: voiceRoomURLDefault), \.voiceRoomURL)
+        snapshot.take(Self.parseLabsToggle(root, path: machineJoinPath, fallback: machineJoinDefault), \.machineJoin)
         snapshot.take(BrowserHibernationSetting.parse(root), \.browserHibernation)
         snapshot.take(BrowserLinkClickSetting.parse(root), \.browserLinkClicks)
         snapshot.take(LinkRouting.parse(root), \.linkRouting)
@@ -340,6 +367,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.attention = PaneRingConfigParser.attention(root, diagnostics: &snapshot.diagnostics)
         snapshot.windowBackground = WindowBackgroundSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.inactiveWindowDim = WindowBackgroundSetting.parseInactiveDim(root, diagnostics: &snapshot.diagnostics)
+        snapshot.wallpaperTint = WallpaperTintSetting().parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.surfaceBackgrounds = SurfaceBackgroundSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.backdropSelection = BackdropSelectionSetting().parse(root, diagnostics: &snapshot.diagnostics)
         if case .art(let art) = snapshot.backdropSelection { snapshot.backdropArt = art } else { snapshot.backdropArt = nil }
@@ -380,7 +408,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         let (quitBehavior, quitDiagnostic) = QuitBehaviorSetting.parse(root)
         snapshot.quitBehavior = quitBehavior
         if let quitDiagnostic { snapshot.diagnostics.append(quitDiagnostic) }
-        snapshot.diagnostics += Self.closeWarningDiagnostics(root) + Self.hideDockIconWithoutWindowsDiagnostics(root) + MachineColorsSetting().parse(root).1
+        snapshot.diagnostics += Self.closeWarningDiagnostics(root) + Self.hideDockIconWithoutWindowsDiagnostics(root) + Self.showMenuBarIconDiagnostics(root)
+            + MachineColorsSetting().parse(root).1
         snapshot.diagnostics += Self.globalHotKeyDiagnostics(root) + Self.startAgentGlobalHotKeyDiagnostics(root) + AgentPaneReplySetting.parse(root).1
         snapshot.diagnostics += [NewTabTemplate.parse(root).1, NewTabPosition.parse(root).1].compactMap(\.self) + NewTabWidgetSettings.diagnostics(root)
         let (newTerminalOpensWorkspace, newTerminalOpensWorkspaceDiagnostic) = NewTerminalWorkspaceSetting.parse(root)
@@ -406,6 +435,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.pickerPinned = pinned
         snapshot.diagnostics += pinnedDiagnostics
         snapshot.screenshots = ScreenshotsSettings.parse(root, home: NSHomeDirectory(), diagnostics: &snapshot.diagnostics)
+        snapshot.autoArchive = AutoArchiveSettings.parse(root, diagnostics: &snapshot.diagnostics)
+        snapshot.workspaceHibernation = WorkspaceHibernationSettings.parse(root, diagnostics: &snapshot.diagnostics)
         let (tasksLayout, tasksLayoutDiagnostic) = TasksLayoutSetting().parse(root)
         snapshot.tasksLayout = tasksLayout
         if let tasksLayoutDiagnostic { snapshot.diagnostics.append(tasksLayoutDiagnostic) }
@@ -427,6 +458,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.take(AppThemeSetting().parse(root), \.appTheme)
         snapshot.take(ChromeThemeSetting().parse(root), \.chromeTheme)
         snapshot.themeEdits = ThemeEditsSetting().parse(root, diagnostics: &snapshot.diagnostics)
+        let (highlight, highlightDiagnostic) = HighlightColorSetting().parse(root)
+        snapshot.highlightColor = highlight
+        if let highlightDiagnostic { snapshot.diagnostics.append(highlightDiagnostic) }
         let (accent, accentDiagnostic) = AccentSetting().parse(root)
         snapshot.accent = accent
         if let accentDiagnostic { snapshot.diagnostics.append(accentDiagnostic) }

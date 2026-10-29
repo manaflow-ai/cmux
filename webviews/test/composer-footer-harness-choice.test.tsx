@@ -1,6 +1,6 @@
 // l10n-allow-file: test fixtures.
-// The footer's harness item (ComposerHarness.tsx) names the harness a new chat will start, the one
-// the model button draws, and nothing acpmux does not have (Codex review of #24169, 2026-10-23):
+// The composer footer contains only mode/model controls. Harness choice lives in the model picker's
+// left rail, so the quiet row never repeats the harness name or mark.
 //   - only Codex installed and none picked: the bundled catalog can list Claude first, but the model
 //     button draws Codex, so the row names Codex and the chips are Codex's;
 //   - before acpmux lists its harnesses, the access chip holds its place from the first frame
@@ -149,14 +149,13 @@ async function render(installed: string[] | undefined) {
 const foot = () => host.querySelector<HTMLElement>(".acpmux-composer-foot")!;
 const mark = (selector: string) => foot().querySelector<SVGElement>(`${selector} svg.agent-mark`)?.dataset.agent;
 
-test("with only Codex installed and none picked, the row names Codex, the harness the model button draws", async () => {
+test("with only Codex installed and none picked, the quiet row does not repeat the harness", async () => {
   const { BUNDLED_MODEL_CATALOG } = await import("../src/agent-session/acpmux/modelCatalogData");
   // The case: the bundled catalog lists another harness before Codex.
   expect(BUNDLED_MODEL_CATALOG.harnesses[0]?.id).not.toBe("codex");
   await render(["codex"]);
-  expect(foot().querySelector(".acpmux-foot-harness-name")?.textContent).toBe("Codex");
-  expect(mark(".acpmux-foot-harness")).toBe("openai");
-  expect(mark(".acpmux-model")).toBe(mark(".acpmux-foot-harness"));
+  expect(foot().querySelector(".acpmux-foot-harness")).toBeNull();
+  expect(mark(".acpmux-model")).toBe("openai");
   expect(foot().querySelector(".acpmux-add-harness")).toBeNull();
 });
 

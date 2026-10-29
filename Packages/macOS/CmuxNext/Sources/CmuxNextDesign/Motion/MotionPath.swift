@@ -62,6 +62,11 @@ public struct MotionPath {
     /// The path of `keyPath` ("position" or "bounds.size") on `layer`. `now`: the media time an animation
     /// added in the open transaction (begin time 0) starts at.
     public init(_ layer: CALayer, _ keyPath: String, now: CFTimeInterval = CACurrentMediaTime()) {
+        self.init(layer, keyPath, now: now, kindOf: ValueKind.init(of:))
+    }
+
+    /// - Parameter kindOf: Reads an animation value's kind; called once per animation value list (tests count it).
+    init(_ layer: CALayer, _ keyPath: String, now: CFTimeInterval, kindOf: (Any?) -> ValueKind?) {
         switch keyPath {
         case "bounds.size": model = CGPoint(x: layer.bounds.width, y: layer.bounds.height)
         default: model = layer.position
@@ -81,7 +86,7 @@ public struct MotionPath {
                                     speed: Double(animation.speed), duration: duration,
                                     holds: animation.fillMode == .forwards || animation.fillMode == .both,
                                     component: Self.component(of: property?.keyPath ?? keyPath, under: keyPath),
-                                    additive: property?.isAdditive ?? false, curve: Self.curve(animation)))
+                                    additive: property?.isAdditive ?? false, curve: Self.curve(animation, kindOf: kindOf)))
         }
     }
 
@@ -175,18 +180,21 @@ public struct MotionPath {
         }
     }
 
-    /// What `animation` moves, decoded once; nil for a value type the path cannot read.
-    private static func curve(_ animation: CAAnimation) -> Curve? {
+    /// What `animation` moves, decoded once; nil for a value type the path cannot read. The value kind
+    /// (point, size or number) is read once per value list, from its first value, not per value.
+    private static func curve(_ animation: CAAnimation, kindOf: (Any?) -> ValueKind?) -> Curve? {
         if let spring = animation as? CASpringAnimation {
-            guard let from = point(spring.fromValue), let to = point(spring.toValue) else { return nil }
+            guard let kind = kindOf(spring.fromValue), let from = kind.point(spring.fromValue), let to = kind.point(spring.toValue) else { return nil }
             return .spring(from: from, to: to, Spring(mass: Double(max(spring.mass, .ulpOfOne)), stiffness: Double(spring.stiffness),
                                                       damping: Double(spring.damping), velocity: Double(spring.initialVelocity)))
         }
         if let basic = animation as? CABasicAnimation {
-            guard let from = point(basic.fromValue), let to = point(basic.toValue) else { return nil }
+            guard let kind = kindOf(basic.fromValue), let from = kind.point(basic.fromValue), let to = kind.point(basic.toValue) else { return nil }
             return .basic(from: from, to: to, basic.timingFunction.map(Ease.init))
         }
-        guard let keyframes = animation as? CAKeyframeAnimation, let values = keyframes.values?.compactMap({ point($0) }), !values.isEmpty else { return nil }
+        guard let keyframes = animation as? CAKeyframeAnimation, let raw = keyframes.values, let kind = kindOf(raw.first) else { return nil }
+        let values = raw.compactMap(kind.point)
+        guard !values.isEmpty else { return nil }
         let discrete = keyframes.calculationMode == .discrete
         let times = keyframes.keyTimes?.map { CGFloat($0.doubleValue) }
             ?? (0..<(discrete ? values.count + 1 : values.count)).map { CGFloat($0) / CGFloat(max(1, (discrete ? values.count : values.count - 1))) }
@@ -212,15 +220,6 @@ public struct MotionPath {
             let t = span > 0 ? (progress - times[index]) / span : 1
             let a = values[index], b = values[index + 1]
             return CGPoint(x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t)
-        }
-    }
-
-    private static func point(_ value: Any?) -> CGPoint? {
-        switch value {
-        case let value as NSValue where String(cString: value.objCType).contains("CGPoint"): value.pointValue
-        case let value as NSValue where String(cString: value.objCType).contains("CGSize"): CGPoint(x: value.sizeValue.width, y: value.sizeValue.height)
-        case let number as NSNumber: CGPoint(x: CGFloat(number.doubleValue), y: 0)
-        default: nil
         }
     }
 

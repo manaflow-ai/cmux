@@ -11,6 +11,11 @@ use cmux_tui_core::{AttachFrame, CursorShape, DefaultColors, Mux, MuxEvent, Rgb,
 use ghostty_vt::RenderState;
 use support::{DaemonMuxOps, wait_for};
 
+/// A test shell runs `script`. A shell kept alive for the test ends with `sleep 600`, not a
+/// short sleep: under a full workspace run a test can take over 30 s, and a shell that ended
+/// first took its surface with it ("unknown surface 2" in control_socket_wait_for_* and
+/// control_socket_broadcasts_surface_resized_*, 944d5cc59f05, 49 s and 52 s). The surface's
+/// close (or the PTY's hang-up) ends the sleep.
 fn shell_opts(script: &str) -> SurfaceOptions {
     SurfaceOptions {
         command: Some(vec!["/bin/sh".to_string(), "-c".to_string(), script.to_string()]),
@@ -118,7 +123,7 @@ fn assert_vt_state_size(
 
 #[test]
 fn surface_runs_command_and_screen_updates() {
-    let mux = Mux::new("test-pty", shell_opts("printf 'marker-42\\n'; sleep 30"));
+    let mux = Mux::new("test-pty", shell_opts("printf 'marker-42\\n'; sleep 600"));
     let events = mux.subscribe();
     let surface = mux.new_workspace(None, None).unwrap();
 
@@ -148,7 +153,7 @@ fn surface_runs_command_and_screen_updates() {
 
 #[test]
 fn surface_resize_reports_whether_the_size_changed() {
-    let mux = Mux::new(unique_session("test-resize-bool"), shell_opts("sleep 30"));
+    let mux = Mux::new(unique_session("test-resize-bool"), shell_opts("sleep 600"));
     let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
 
     assert!(!surface.resize(80, 24).unwrap());
@@ -165,7 +170,7 @@ fn surface_resize_reports_whether_the_size_changed() {
 
 #[test]
 fn headless_creation_uses_explicit_or_authoritative_client_size() {
-    let mux = Mux::new(unique_session("test-headless-client-size"), shell_opts("sleep 30"));
+    let mux = Mux::new(unique_session("test-headless-client-size"), shell_opts("sleep 600"));
     let sock_path = cmux_tui_core::server::serve(mux.clone(), None).unwrap();
     let stream = connect(&sock_path);
     let mut writer = stream.try_clone_box().unwrap();
@@ -330,7 +335,7 @@ fn surface_exit_detaches_terminal_view_and_emits_event() {
 #[test]
 fn control_socket_round_trip() {
     let mux =
-        Mux::new(unique_session("test-sock"), shell_opts("printf 'socket-check\\n'; sleep 30"));
+        Mux::new(unique_session("test-sock"), shell_opts("printf 'socket-check\\n'; sleep 600"));
     let surface = mux.new_workspace(None, None).unwrap();
 
     let sock_path = cmux_tui_core::server::serve(mux.clone(), None).unwrap();
@@ -539,7 +544,7 @@ fn process_info_reports_live_foreground_cwd() {
     // The top-level PTY child changes directory and then replaces itself, so
     // the live foreground process group leader's cwd diverges from every
     // piece of recorded spawn metadata.
-    let script = format!("cd '{}' && exec sleep 30", target.display());
+    let script = format!("cd '{}' && exec sleep 600", target.display());
     let mux = Mux::new(unique_session("test-foreground-cwd"), shell_opts(&script));
     let surface = mux.new_workspace(None, None).unwrap();
 
@@ -583,7 +588,7 @@ fn control_socket_read_screen_reports_rendered_viewport_after_scrollback_clear()
     for row in 0..12 {
         output.push_str(&format!("row{row:02}\\r\\n"));
     }
-    let script = format!("printf '{output}'; printf '\\033[H\\033[2Jprompt$ '; sleep 30");
+    let script = format!("printf '{output}'; printf '\\033[H\\033[2Jprompt$ '; sleep 600");
     let mux = Mux::new(unique_session("test-read-screen-viewport"), shell_opts(&script));
     let surface = mux.new_workspace(None, Some((17, 5))).unwrap();
 
@@ -620,7 +625,7 @@ fn control_socket_read_screen_reports_rendered_viewport_after_scrollback_clear()
 fn control_socket_wait_for_matches_one_shot_output_already_on_screen() {
     let mux = Mux::new(
         unique_session("test-wait-for-one-shot"),
-        shell_opts("printf 'one-shot-ready\\n'; sleep 30"),
+        shell_opts("printf 'one-shot-ready\\n'; sleep 600"),
     );
     let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
 
@@ -877,7 +882,7 @@ fn control_socket_attach_stream_receives_merged_colors_changed() {
     let mux = Mux::new(
         unique_session("test-colors-changed"),
         shell_opts(
-            "read line; printf '\\033]21;0_1=#112233;foreground=#445566\\033\\\\'; read line; printf '\\033c'; sleep 30",
+            "read line; printf '\\033]21;0_1=#112233;foreground=#445566\\033\\\\'; read line; printf '\\033c'; sleep 600",
         ),
     );
     mux.set_default_colors(DefaultColors {
@@ -995,7 +1000,7 @@ fn control_socket_attach_palette_is_full_sparse_state_and_reset_clears_all_256()
 
 #[test]
 fn control_socket_broadcasts_surface_resized_once_per_changed_size() {
-    let mux = Mux::new(unique_session("test-resize-event"), shell_opts("sleep 30"));
+    let mux = Mux::new(unique_session("test-resize-event"), shell_opts("sleep 600"));
     let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
 
     let sock_path = cmux_tui_core::server::serve(mux.clone(), None).unwrap();
@@ -1133,7 +1138,7 @@ fn attach_stream_replays_then_streams_without_duplication() {
     let mux = Mux::new(
         "test-attach",
         shell_opts(
-            "printf 'before-attach\\n'; read line; printf 'after-%s\\n' \"$line\"; sleep 30",
+            "printf 'before-attach\\n'; read line; printf 'after-%s\\n' \"$line\"; sleep 600",
         ),
     );
     let surface = mux.new_workspace(None, None).unwrap();
@@ -1436,7 +1441,7 @@ fn attach_stream_orders_resize_between_output_frames() {
     let mux = Mux::new(
         unique_session("test-attach-resize"),
         shell_opts(
-            "printf '\\033]4;4;#112233\\007before-resize\\n'; read line; printf 'after-resize\\n'; sleep 30",
+            "printf '\\033]4;4;#112233\\007before-resize\\n'; read line; printf 'after-resize\\n'; sleep 600",
         ),
     );
     let surface = mux.new_workspace(None, None).unwrap();
@@ -1721,7 +1726,7 @@ fn render_attach_resize_is_a_full_replacement_at_the_new_size() {
 #[test]
 fn read_scrollback_pages_oldest_rows_and_clamps_bounds() {
     let script =
-        "i=0; while [ $i -lt 30 ]; do printf 'history-%02d\\n' $i; i=$((i+1)); done; sleep 30";
+        "i=0; while [ $i -lt 30 ]; do printf 'history-%02d\\n' $i; i=$((i+1)); done; sleep 600";
     let mux = Mux::new(unique_session("test-read-scrollback"), shell_opts(script));
     let surface = mux.new_workspace(None, Some((20, 4))).unwrap();
     wait_for(
@@ -1785,7 +1790,7 @@ fn read_scrollback_pages_oldest_rows_and_clamps_bounds() {
 
 #[test]
 fn tree_event_modes_receive_delta_or_exact_coarse_fallback() {
-    let mux = Mux::new(unique_session("test-tree-event-modes"), shell_opts("sleep 30"));
+    let mux = Mux::new(unique_session("test-tree-event-modes"), shell_opts("sleep 600"));
     let sock_path = cmux_tui_core::server::serve(mux.clone(), None).unwrap();
 
     let coarse = connect(&sock_path);
@@ -1876,7 +1881,7 @@ fn tree_event_modes_receive_delta_or_exact_coarse_fallback() {
 
 #[test]
 fn create_empty_workspace_is_visible_and_materialized_in_place() {
-    let mux = Mux::new(unique_session("test-empty-workspace"), shell_opts("sleep 30"));
+    let mux = Mux::new(unique_session("test-empty-workspace"), shell_opts("sleep 600"));
     let sock_path = cmux_tui_core::server::serve(mux, None).unwrap();
     let commands = connect(&sock_path);
     let mut writer = commands.try_clone_box().unwrap();
@@ -2126,7 +2131,7 @@ fn frontend_projection_round_trips_without_advancing_workspace_revision() {
 
 #[test]
 fn send_paste_wraps_only_while_dec_mode_2004_is_enabled() {
-    let script = "stty -echo -icanon min 1 time 0; printf 'paste-ready\\n'; od -An -tx1 -N 14; od -An -tx1 -N 3; sleep 30";
+    let script = "stty -echo -icanon min 1 time 0; printf 'paste-ready\\n'; od -An -tx1 -N 14; od -An -tx1 -N 3; sleep 600";
     let mux = Mux::new(unique_session("test-paste-mode"), shell_opts(script));
     let surface = mux.new_workspace(None, Some((80, 8))).unwrap();
     wait_for(

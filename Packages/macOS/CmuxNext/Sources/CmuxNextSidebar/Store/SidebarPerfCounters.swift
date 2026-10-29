@@ -16,6 +16,7 @@ import Foundation
 /// - `ffi_calls`: calls into the Rust sidebar reducer (drag resolve, drop plan).
 /// - `band_updates`: top/footer band content recomputes.
 /// - `main_ns`: main-thread time spent in the measured paths, nanoseconds.
+/// - `order_builds`: `SidebarModel.workspaceOrder` builds (one per structural change at most, never per query).
 /// - `mirror_ns`: main-thread time in `SidebarMirror` calls (request encode, the Rust call, reading the reply), nanoseconds.
 nonisolated enum SidebarPerfCounters {
     enum Counter: String, CaseIterable, Sendable {
@@ -32,6 +33,7 @@ nonisolated enum SidebarPerfCounters {
         case bandUpdates = "band_updates"
         case mainNanoseconds = "main_ns"
         case mirrorNanoseconds = "mirror_ns"
+        case orderBuilds = "order_builds"
     }
 
     private static let counts = Mutex<[Counter: Int]>([:])

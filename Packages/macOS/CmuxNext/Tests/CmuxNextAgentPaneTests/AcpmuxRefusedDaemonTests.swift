@@ -16,37 +16,37 @@ struct AcpmuxRefusedDaemonTests {
         #expect(AcpmuxServerPeer.holderName(executablePath: "/usr/local/bin/acpmux") == "/usr/local/bin/acpmux")
     }
 
-    @Test func theMessageNamesTheBuildAndTheSocket() {
+    /// The copy #24795 settled on names the build that holds acpmux, not the socket path.
+    @Test func theMessageNamesTheBuild() {
         let message = AgentPaneHostError.userMessage(
             for: AgentPaneHostError.daemonRefused(holder: "cmux DEV nxdog98-v1", socketPath: "/h/acpmux.sock", reason: "r"))
         #expect(message.contains("cmux DEV nxdog98-v1"))
-        #expect(message.contains("/h/acpmux.sock"))
         #expect(!message.contains("did not start"))
     }
 
-    /// Lawrence, 2026-10-22: the chat said "acpmux is running at ~/.acpmux/acpmux.sock, but this
-    /// build may not use it: <reason>" and "cmux tries again on its own", and the prompt waited
-    /// for good. A refused daemon does not heal by retrying: every refusal names one command
-    /// that stops that daemon (hosted agents keep running for the next one), run with this app's
-    /// own acpmux on that very socket, and then what to do.
+    /// A live peer from another cmux build remains a real refusal. The person may quit that
+    /// build and press Retry, but the app never asks them to paste a shell command.
     @Test(arguments: [nil, "cmux DEV nxdog98-v1"] as [String?])
-    func everyRefusalSaysExactlyWhatToDo(holder: String?) {
+    func everyRefusalNamesTheBuildWithoutACommand(holder: String?) {
         let error = AgentPaneHostError.daemonRefused(
             holder: holder, socketPath: "/Users/u/.acpmux/acpmux.sock",
             reason: "the socket's peer is not signed by this app's team",
             executable: "/Applications/cmux NIGHTLY.app/Contents/Resources/bin/acpmux")
         let message = AgentPaneHostError.userMessage(for: error)
-        #expect(message.contains(
-            "ACPMUX_SOCKET='/Users/u/.acpmux/acpmux.sock' '/Applications/cmux NIGHTLY.app/Contents/Resources/bin/acpmux' daemon shutdown"))
-        #expect(message.contains("agents keep running"))
-        #expect(message.contains("new agent chat"))
-        if let holder { #expect(message.contains("Quit \(holder)")) }
+        #expect(!message.contains("Run this in a terminal"))
+        #expect(!message.contains("ACPMUX_SOCKET="))
+        #expect(!message.contains("daemon shutdown"))
+        #expect(!message.contains("did not start"))
+        if let holder {
+            #expect(message.contains(holder))
+            #expect(message.contains("Quit"))
+            #expect(message.contains("try again"))
+        }
     }
 
-    /// The command quotes a path with a single quote in it for the shell.
-    @Test func theShutdownCommandQuotesForTheShell() {
-        #expect(AgentPaneHostError.shutdownCommand(socketPath: "/tmp/it's.sock", executable: "/a b/acpmux")
-                == #"ACPMUX_SOCKET='/tmp/it'\''s.sock' '/a b/acpmux' daemon shutdown"#)
+    @Test func aMissingSocketIsTransientDuringAHandOff() {
+        #expect(AcpmuxServerPeer.Refusal.unreachable("No such file or directory").isTransientRestart)
+        #expect(!AcpmuxServerPeer.Refusal.otherExecutable("/tmp/other-acpmux").isTransientRestart)
     }
 
     /// The refusal the host makes carries this app's own acpmux, so the command never runs the
@@ -99,7 +99,7 @@ struct AcpmuxRefusedDaemonTests {
             _ = try await host.reconnectHandshake(sessionId: "s")
             Issue.record("a daemon that is not this app's acpmux was accepted")
         } catch let error as AgentPaneHostError {
-            guard case .daemonRefused(_, let path, let reason, let executable) = error else {
+            guard case .daemonRefused(_, let path, let reason, let executable, _) = error else {
                 Issue.record("expected daemonRefused, got \(error)")
                 return ("", "", "")
             }
@@ -112,11 +112,16 @@ struct AcpmuxRefusedDaemonTests {
 }
 
 /// A unix socket served by this test process that answers every JSON-RPC request with a status.
-private nonisolated final class FakeDaemon: @unchecked Sendable {  // the fd is written once in init and closed once in stop
+/// ``calls`` lists the methods each connection sent, by connection, in order.
+nonisolated final class FakeDaemon: @unchecked Sendable {  // the fd is written once in init and closed once in stop; `recorded` only under `lock`
     private let descriptor: Int32
     private let path: String
+    private let lock = NSLock()
+    private var recorded: [[String]] = []
 
-    init(socketPath: String, home: String? = nil) throws {
+    var calls: [[String]] { lock.withLock { recorded } }
+
+    init(socketPath: String, home: String? = nil, agentHosts: Bool = true) throws {
         path = socketPath
         descriptor = socket(AF_UNIX, SOCK_STREAM, 0)
         var address = sockaddr_un()
@@ -132,16 +137,18 @@ private nonisolated final class FakeDaemon: @unchecked Sendable {  // the fd is 
         }
         guard bound == 0, listen(descriptor, 8) == 0 else { throw POSIXError(.EADDRINUSE) }
         let listener = descriptor
-        Thread.detachNewThread {
+        Thread.detachNewThread { [self] in
             while true {
                 let client = accept(listener, nil, nil)
                 guard client >= 0 else { return }
-                Thread.detachNewThread { Self.serve(client, home: home) }
+                let connection = lock.withLock { recorded.append([]); return recorded.count - 1 }
+                let record: @Sendable (String) -> Void = { [self] method in lock.withLock { recorded[connection].append(method) } }
+                Thread.detachNewThread { Self.serve(client, home: home, agentHosts: agentHosts, record: record) }
             }
         }
     }
 
-    private static func serve(_ client: Int32, home: String?) {
+    private static func serve(_ client: Int32, home: String?, agentHosts: Bool, record: @Sendable (String) -> Void) {
         defer { close(client) }
         var buffer = Data()
         var chunk = [UInt8](repeating: 0, count: 4096)
@@ -154,8 +161,9 @@ private nonisolated final class FakeDaemon: @unchecked Sendable {  // the fd is 
                 buffer.removeSubrange(buffer.startIndex...newline)
                 guard let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
                       let id = object["id"] else { continue }
+                record(object["method"] as? String ?? "")
                 var result: [String: Any] = [
-                    "webUrl": "ws://127.0.0.1:9/?token=t", "pid": Int(getpid()), "build": "other", "agentHosts": true,
+                    "webUrl": "ws://127.0.0.1:9/?token=t", "pid": Int(getpid()), "build": "other", "agentHosts": agentHosts,
                 ]
                 if let home { result["home"] = home }
                 let reply: [String: Any] = ["jsonrpc": "2.0", "id": id, "result": result]

@@ -210,3 +210,26 @@ test("an info update with the context breakdown and Claude Code's facts keeps bo
   ).toEqual(["2.1.305"]);
   expect(summary()?.contextBreakdown).toEqual(breakdown);
 });
+
+test("a failover drops the last harness's context breakdown", async () => {
+  const breakdown = {
+    categories: [{ name: "Messages", tokens: 10, kind: "used" }],
+    memoryFiles: [],
+    mcpTools: [],
+    totalTokens: 10,
+    maxTokens: 100,
+  };
+  const daemon = fakeDaemon(
+    record([
+      ["mux", "user_message", { text: "hello" }],
+      [
+        "in",
+        "session_info_update",
+        update({ sessionUpdate: "session_info_update", _meta: { acpmux: { contextBreakdown: breakdown } } }),
+      ],
+      ["mux", "failover", { from: "claude", to: "codex" }],
+    ]),
+  );
+  const { summary } = await connect(daemon);
+  expect(summary()?.contextBreakdown).toBeUndefined();
+});

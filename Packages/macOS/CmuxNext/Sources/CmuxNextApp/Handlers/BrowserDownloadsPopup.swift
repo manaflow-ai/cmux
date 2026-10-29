@@ -243,6 +243,7 @@ struct BrowserDownloadsPopupView: View {
                                 .frame(height: Self.rowHeight)
                         }
                     }
+                    .thinScrollers()
                     .id(model.shows)
                     .padding(.vertical, 4)
                 }

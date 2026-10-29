@@ -1,3 +1,5 @@
+use cmux_json::JsonSet as _;
+
 mod plugin_generation;
 use super::*;
 use base64::Engine;
@@ -1222,8 +1224,8 @@ impl WorkspaceRegistry {
         Ok(Some((version, cursor, snapshot)))
     }
 
-    /// Durably record a reducer's fold position and state snapshot. Cursor
-    /// values are stored as strings so 64-bit sequences survive JSON.
+    /// Durably record a reducer's fold position and state snapshot
+    /// ([`RegistryConnection::put_journal_reducer_state`]).
     pub(crate) fn put_journal_reducer_state(
         &self,
         reducer_id: &str,
@@ -1231,17 +1233,7 @@ impl WorkspaceRegistry {
         cursor: u64,
         snapshot: &str,
     ) -> anyhow::Result<()> {
-        let value = serde_json::json!({
-            "version": version,
-            "cursor": cursor.to_string(),
-            "snapshot": snapshot,
-        });
-        self.connection.get().execute(
-            "INSERT INTO meta(key, value) VALUES(?1, ?2)
-             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-            params![format!("journal_reducer.{reducer_id}"), value.to_string()],
-        )?;
-        Ok(())
+        self.connection.put_journal_reducer_state(reducer_id, version, cursor, snapshot)
     }
 
     /// The most recently started journal output stream for one terminal:
@@ -2109,7 +2101,7 @@ fn normalize_terminal_output(
         let bytes = base64::engine::general_purpose::STANDARD
             .decode(data)
             .context("decode archived terminal output")?;
-        record.payload["encoding"] = Value::String("raw".into());
+        record.payload.set("encoding", Value::String("raw".into()));
         bytes
     };
     anyhow::ensure!(!bytes.is_empty(), "terminal output record is empty");
@@ -2476,3 +2468,36 @@ mod actor_tests;
 #[cfg(test)]
 pub(crate) use actors::journal_actor;
 pub(crate) use actors::{ledger_actor, resource_record_actor, segment_actors_json};
+
+/// Reducer snapshots on the connection alone (issue 23038). A snapshot row
+/// (`journal_reducer.<id>` in `meta`) is one statement of its own, written
+/// by its reducer and read back only at restore; no state commit reads it.
+/// So a save needs only the connection lock, like the journal writer, never
+/// the workspace registry lock: an agent history or roster snapshot written
+/// under the registry lock held every state commit (Cmd-N's pin, create and
+/// first tab) behind it.
+impl RegistryConnection {
+    /// Durably record a reducer's fold position and state snapshot. Cursor
+    /// values are stored as strings so 64-bit sequences survive JSON. The
+    /// caller need not hold the workspace registry lock.
+    #[track_caller]
+    pub(crate) fn put_journal_reducer_state(
+        &self,
+        reducer_id: &str,
+        version: u32,
+        cursor: u64,
+        snapshot: &str,
+    ) -> anyhow::Result<()> {
+        let value = serde_json::json!({
+            "version": version,
+            "cursor": cursor.to_string(),
+            "snapshot": snapshot,
+        });
+        self.get().execute(
+            "INSERT INTO meta(key, value) VALUES(?1, ?2)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            params![format!("journal_reducer.{reducer_id}"), value.to_string()],
+        )?;
+        Ok(())
+    }
+}
