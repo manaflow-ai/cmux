@@ -1051,6 +1051,7 @@ export class HomeChannelsStore {
    * without runs answers nothing: the page shows no run cards. */
   private async loadRuns(conversation: string, messages: readonly HomeMessage[], newest: boolean): Promise<void> {
     if (!this.client) return;
+    if (messages.length === 0) return;
     const generation = this.generation;
     const life = this.life;
     const agents = new Set(
