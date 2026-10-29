@@ -428,7 +428,7 @@ button.cv-subagent > :last-child {
    pill inside the strip; Leo 2026-10-21). */
 .acpmux-running-tray {
   --acpmux-tray-time-width: 52px;
-  --acpmux-tray-status-width: 76px;
+  --acpmux-tray-status-width: 96px;
   --acpmux-tray-stop-width: 24px;
   box-sizing: border-box;
   padding: 0;
@@ -500,6 +500,13 @@ button.cv-subagent > :last-child {
   align-items: center;
   justify-content: flex-end;
   gap: 8px;
+}
+.acpmux-running-tray .acpmux-summary-agent__state {
+  min-width: 0;
+  max-width: calc(100% - 20px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .acpmux-running-tray__stop-slot {
   box-sizing: border-box;
