@@ -472,7 +472,11 @@ struct AgentChatJumpButton: View {
                         .frame(width: 36, height: 36)
                         .overlay {
                             if store.isRunning {
-                                PulsingRing()
+                                ProgressView()
+                                    .controlSize(.large)
+                                    .tint(.primary)
+                                    .allowsHitTesting(false)
+                                    .accessibilityHidden(true)
                             }
                         }
                         .background(Color.cmuxMobileBackground.opacity(0.72), in: .circle)
@@ -645,19 +649,6 @@ nonisolated struct DrawnHeightReporter: ViewModifier, Animatable {
 
     @MainActor func body(content: Content) -> some View {
         content.onAppear { if height > 0 { report(height) } }
-    }
-}
-
-struct PulsingRing: View {
-    @State private var on = false
-
-    var body: some View {
-        Circle()
-            .strokeBorder(Color.primary, lineWidth: 2)
-            .opacity(on ? 0.9 : 0.2)
-            .onAppear {
-                withAnimation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) { on = true }
-            }
     }
 }
 
