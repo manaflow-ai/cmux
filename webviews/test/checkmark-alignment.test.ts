@@ -13,6 +13,14 @@ await requireBrowserLane("checkmark-alignment.test.ts", async () => {
   let vite: Awaited<ReturnType<typeof createServer>>;
   let browser: Browser;
   const cases = [
+    { name: "plus", entry: "agent-pane.composer-plus-menu", variant: "balanced", popup: ".acpmux-palette-menu" },
+    { name: "chat", entry: "agent-pane.header-tools", variant: "menu-open", popup: ".acpmux-chat-menu-popover" },
+    {
+      name: "account",
+      entry: "agent-pane.composer-pickers",
+      variant: "claude-direct-accounts",
+      popup: ".acpmux-quick-submenu",
+    },
     { name: "shared", entry: "ui.menu", variant: "open", popup: ".ui-menu" },
     { name: "select", entry: "ui.select", variant: "open", popup: ".ui-menu" },
     { name: "context", entry: "ui.context-menu", variant: "open", popup: ".ui-context-menu" },
@@ -54,14 +62,16 @@ await requireBrowserLane("checkmark-alignment.test.ts", async () => {
           const measurements = await popup.evaluate((menu) => {
             const edge = menu.getBoundingClientRect();
             const state = Boolean(menu.querySelector(".ui-menu-check, .acpmux-project-check"));
-            const rows = [...menu.querySelectorAll<HTMLElement>(".ui-menu-item, .ui-combobox-item")].filter(
-              (row) => !row.classList.contains("acpmux-quick-effort-segment"),
-            );
+            const rows = [
+              ...menu.querySelectorAll<HTMLElement>(
+                ".ui-menu-item, .ui-combobox-item, .acpmux-palette-menu .acpmux-menu-item",
+              ),
+            ].filter((row) => !row.classList.contains("acpmux-quick-effort-segment"));
             return rows.map((row) => {
               const box = row.getBoundingClientRect();
               const check = row.querySelector<HTMLElement>(".ui-menu-check, .acpmux-project-check");
               const checkBox = check?.getBoundingClientRect();
-              const label = row.querySelector(".acpmux-menu-label, .ui-menu-label") ?? row;
+              const label = row.querySelector(".acpmux-menu-label, .ui-menu-label, .acpmux-chat-menu-label") ?? row;
               const walker = document.createTreeWalker(label, NodeFilter.SHOW_TEXT);
               let node: Node | null;
               let textX: number | null = null;

@@ -257,7 +257,7 @@
 /* AppKit's menu columns, shared by page and agent-pane bundles. The popup owns the
    highlight inset; rows reserve the same icon/text columns even without an icon.
    A state column belongs to the whole popup, never only to the checked row. */
-.ui-popup:is(.ui-menu, .ui-context-menu, .ui-combobox-popup, .acpmux-project-menu, .acpmux-quick-menu, .acpmux-access-menu, .acpmux-effort-menu, .acpmux-chat-menu-popover) {
+.ui-popup:is(.ui-menu, .ui-context-menu, .ui-combobox-popup, .acpmux-project-menu, .acpmux-quick-menu, .acpmux-access-menu, .acpmux-effort-menu, .acpmux-chat-menu-popover, .acpmux-palette-menu) {
   --ui-menu-lead: var(--cmux-menu-icon-x);
   --ui-menu-text: var(--cmux-menu-text-x);
   --ui-popup-padding: var(--cmux-menu-highlight-inset);
@@ -266,11 +266,11 @@
   --ui-row-padding-inline: calc(var(--ui-menu-text) - var(--cmux-menu-highlight-inset));
   padding: var(--ui-popup-padding);
 }
-.ui-popup:is(.ui-menu, .ui-context-menu, .ui-combobox-popup, .acpmux-project-menu, .acpmux-quick-menu, .acpmux-access-menu, .acpmux-effort-menu, .acpmux-chat-menu-popover):has(.ui-menu-check, .acpmux-project-check) {
+.ui-popup:is(.ui-menu, .ui-context-menu, .ui-combobox-popup, .acpmux-project-menu, .acpmux-quick-menu, .acpmux-access-menu, .acpmux-effort-menu, .acpmux-chat-menu-popover, .acpmux-palette-menu):has(.ui-menu-check, .acpmux-project-check) {
   --ui-menu-lead: var(--cmux-menu-state-icon-x);
   --ui-menu-text: var(--cmux-menu-state-text-x);
 }
-.ui-popup:is(.ui-menu, .ui-context-menu, .ui-combobox-popup, .acpmux-project-menu, .acpmux-quick-menu, .acpmux-access-menu, .acpmux-effort-menu, .acpmux-chat-menu-popover) :is(.ui-menu-item, .ui-combobox-item):not(.acpmux-quick-effort-segment) {
+.ui-popup:is(.ui-menu, .ui-context-menu, .ui-combobox-popup, .acpmux-project-menu, .acpmux-quick-menu, .acpmux-access-menu, .acpmux-effort-menu, .acpmux-chat-menu-popover, .acpmux-palette-menu) :is(.ui-menu-item, .ui-combobox-item, .acpmux-palette-menu .acpmux-menu-item):not(.acpmux-quick-effort-segment) {
   position: relative;
   display: flex;
   align-items: center;
@@ -280,8 +280,9 @@
   padding-block: 0;
   padding-inline: var(--ui-row-padding-inline) calc(var(--cmux-menu-trailing) - var(--cmux-menu-highlight-inset));
   border-radius: var(--cmux-menu-highlight-radius);
+  outline: none;
 }
-.ui-popup:is(.ui-menu, .ui-context-menu, .ui-combobox-popup, .acpmux-project-menu, .acpmux-quick-menu, .acpmux-access-menu, .acpmux-effort-menu, .acpmux-chat-menu-popover) :is(.ui-menu-check, .acpmux-project-check) {
+.ui-popup:is(.ui-menu, .ui-context-menu, .ui-combobox-popup, .acpmux-project-menu, .acpmux-quick-menu, .acpmux-access-menu, .acpmux-effort-menu, .acpmux-chat-menu-popover, .acpmux-palette-menu) :is(.ui-menu-check, .acpmux-project-check):not(.acpmux-quick-fast .ui-menu-check, .acpmux-quick-effort-segment .ui-menu-check) {
   position: absolute;
   inset-inline-start: calc(var(--cmux-menu-state-x) - var(--cmux-menu-highlight-inset) - var(--cmux-menu-icon-size) / 2);
   inset-block-start: calc((var(--ui-row-height) - var(--cmux-menu-icon-size)) / 2);
@@ -294,7 +295,7 @@
   justify-content: center;
   line-height: 1;
 }
-.ui-popup:is(.ui-menu, .ui-context-menu, .ui-combobox-popup, .acpmux-project-menu, .acpmux-quick-menu, .acpmux-access-menu, .acpmux-effort-menu, .acpmux-chat-menu-popover) :is(.ui-menu-item, .ui-combobox-item) > :is(.ui-menu-icon, .acpmux-icon, .acpmux-access-item-icon, .acpmux-project-badge) {
+.ui-popup:is(.ui-menu, .ui-context-menu, .ui-combobox-popup, .acpmux-project-menu, .acpmux-quick-menu, .acpmux-access-menu, .acpmux-effort-menu, .acpmux-chat-menu-popover, .acpmux-palette-menu) :is(.ui-menu-item, .ui-combobox-item, .acpmux-palette-menu .acpmux-menu-item) > :is(.ui-menu-icon, .acpmux-icon, .acpmux-access-item-icon, .acpmux-project-badge, svg) {
   position: absolute;
   inset-inline-start: calc(var(--ui-menu-lead) - var(--cmux-menu-highlight-inset));
   inset-block-start: calc((var(--ui-row-height) - var(--cmux-menu-icon-size)) / 2);
@@ -305,26 +306,26 @@
   height: var(--cmux-menu-icon-size);
   margin: 0;
 }
-.ui-popup:is(.ui-menu, .ui-context-menu, .ui-combobox-popup, .acpmux-project-menu, .acpmux-quick-menu, .acpmux-access-menu, .acpmux-effort-menu, .acpmux-chat-menu-popover) :is(.ui-menu-icon, .acpmux-access-item-icon, .acpmux-project-badge) > :is(svg, img) {
+.ui-popup:is(.ui-menu, .ui-context-menu, .ui-combobox-popup, .acpmux-project-menu, .acpmux-quick-menu, .acpmux-access-menu, .acpmux-effort-menu, .acpmux-chat-menu-popover, .acpmux-palette-menu) :is(.ui-menu-icon, .acpmux-access-item-icon, .acpmux-project-badge) > :is(svg, img) {
   width: var(--cmux-menu-icon-size);
   height: var(--cmux-menu-icon-size);
 }
-.ui-popup:is(.ui-menu, .ui-context-menu, .ui-combobox-popup, .acpmux-project-menu, .acpmux-quick-menu, .acpmux-access-menu, .acpmux-effort-menu, .acpmux-chat-menu-popover) :is(.ui-menu-shortcut, .acpmux-chat-menu-key) {
+.ui-popup:is(.ui-menu, .ui-context-menu, .ui-combobox-popup, .acpmux-project-menu, .acpmux-quick-menu, .acpmux-access-menu, .acpmux-effort-menu, .acpmux-chat-menu-popover, .acpmux-palette-menu) :is(.ui-menu-shortcut, .acpmux-chat-menu-key, .acpmux-menu-hint) {
   flex: none;
   margin-inline-start: auto;
   padding-inline-start: var(--cmux-menu-shortcut-gap);
   text-align: end;
   font-variant-numeric: tabular-nums;
 }
-.ui-popup:is(.ui-menu, .ui-context-menu, .ui-combobox-popup, .acpmux-project-menu, .acpmux-quick-menu, .acpmux-access-menu, .acpmux-effort-menu, .acpmux-chat-menu-popover) .ui-menu-group-label {
+.ui-popup:is(.ui-menu, .ui-context-menu, .ui-combobox-popup, .acpmux-project-menu, .acpmux-quick-menu, .acpmux-access-menu, .acpmux-effort-menu, .acpmux-chat-menu-popover, .acpmux-palette-menu) :is(.ui-menu-group-label, .acpmux-menu-header) {
   padding: var(--ds-space-1) calc(var(--cmux-menu-trailing) - var(--cmux-menu-highlight-inset)) var(--ds-space-1) var(--ui-row-padding-inline);
 }
-.ui-popup:is(.ui-menu, .ui-context-menu, .ui-combobox-popup, .acpmux-project-menu, .acpmux-quick-menu, .acpmux-access-menu, .acpmux-effort-menu, .acpmux-chat-menu-popover) .ui-separator {
+.ui-popup:is(.ui-menu, .ui-context-menu, .ui-combobox-popup, .acpmux-project-menu, .acpmux-quick-menu, .acpmux-access-menu, .acpmux-effort-menu, .acpmux-chat-menu-popover, .acpmux-palette-menu) .ui-separator {
   margin: var(--ds-space-1) calc(var(--cmux-menu-separator-inset) - var(--cmux-menu-highlight-inset));
 }
 /* A description occupies a second text line, never a second column. Keep the
    first line on the ordinary row mid; marks remain on that line as the row grows. */
-.ui-popup:is(.ui-menu, .acpmux-project-menu) .acpmux-menu-text:has(.acpmux-menu-description) {
+.ui-popup:is(.ui-menu, .acpmux-project-menu, .acpmux-palette-menu) .acpmux-menu-text:has(.acpmux-menu-description) {
   padding-block: calc((var(--ui-row-height) - var(--text-control--line-height)) / 2);
 }
 .ui-popup:is(.ui-menu, .acpmux-project-menu) .acpmux-menu-description {
