@@ -9,7 +9,7 @@ import "../../src/agent-session/acpmux/conversation/conversation.css";
 import "../../src/agent-session/acpmux/inspector/inspector.css";
 import { ToolRow } from "../../src/agent-session/acpmux/conversation/ToolRow";
 import { CommandRow } from "../../src/agent-session/acpmux/conversation/CommandRow";
-import { WorkedFor } from "../../src/agent-session/acpmux/conversation/TurnRows";
+import { TurnFooter, WorkedFor } from "../../src/agent-session/acpmux/conversation/TurnRows";
 import { ThoughtRow } from "../../src/agent-session/acpmux/conversation/ThoughtRow";
 import { PlanList } from "../../src/agent-session/acpmux/conversation/PlanList";
 import { UserBubble } from "../../src/agent-session/acpmux/conversation/UserBubble";
@@ -76,6 +76,34 @@ function App() {
   const theme = params.get("theme") === "light" ? "light" : "dark";
   const height = params.get("height") === "40" ? 40 : 28;
   const colors = themes[theme];
+  if (params.has("narrow")) {
+    return (
+      <main className="acpmux-shell" style={{ width: "320px", padding: "16px", boxSizing: "border-box" }}>
+        <div className="acpmux-row" data-auth-footer style={{ position: "relative", left: 0, right: 0, width: "100%" }}>
+          <TurnActionsContext.Provider
+            value={{
+              reauthenticate: () => undefined,
+              transferCloudCredentials: async () => undefined,
+              route: { name: "Claude Code", harness: "claude", hostKind: "cloud" },
+            }}
+          >
+            <TurnFooter
+              row={{
+                ...row,
+                kind: "turnSummary",
+                status: "failed",
+                folded: true,
+                error: "401 Unauthorized",
+                text: undefined,
+                retryRowId: row.id,
+                prompt: row.text,
+              }}
+            />
+          </TurnActionsContext.Provider>
+        </div>
+      </main>
+    );
+  }
   return (
     <main
       className="acpmux-shell glyph-alignment-fixture"

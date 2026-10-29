@@ -2779,6 +2779,15 @@ a.cv-sha:focus-visible {
   min-width: var(--cv-footer-chevron-slot);
   margin-left: 0;
 }
+/* Recovery actions are the one footer content allowed to wrap on narrow panes. The shared rail
+   stays centered for glyph controls without clipping sign-in or credential-transfer copy. */
+.cv-message-footer-row .cv-turn-auth-action {
+  min-width: 0;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-align: start;
+}
 .cv-iconbtn:hover {
   color: var(--cv-text);
   background: color-mix(in srgb, var(--cv-fg) 6%, transparent);

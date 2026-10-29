@@ -26,6 +26,37 @@ await requireBrowserLane("transcript-glyph-alignment-browser.test.ts", async () 
     await browser?.close();
     await vite?.close();
   });
+  for (const theme of ["dark", "light"] as const) {
+    test(`${theme}: narrow authentication footer keeps both recovery actions inside the row`, async () => {
+      const page = await browser.newPage({ viewport: { width: 320, height: 480 } });
+      try {
+        const port = (vite.httpServer!.address() as { port: number }).port;
+        await page.goto(`http://127.0.0.1:${port}/test/browser/transcript-glyph-alignment.html?theme=${theme}&narrow`);
+        await page.locator(".cv-turn-auth-action").first().waitFor();
+        await page.evaluate(() => document.fonts.ready);
+        const recovery = await page.evaluate(() => {
+          const row = document.querySelector("[data-auth-footer]")!.getBoundingClientRect();
+          return [...document.querySelectorAll(".cv-turn-auth-action")].map((button) => {
+            const box = button.getBoundingClientRect();
+            return {
+              left: box.left - row.left,
+              right: box.right - row.right,
+              whiteSpace: getComputedStyle(button).whiteSpace,
+            };
+          });
+        });
+        console.log(`AUTH_FOOTER_METRICS ${JSON.stringify({ theme, recovery })}`);
+        expect(recovery).toHaveLength(2);
+        for (const button of recovery) {
+          expect(button.left).toBeGreaterThanOrEqual(0);
+          expect(button.right).toBeLessThanOrEqual(0.5);
+          expect(button.whiteSpace).toBe("normal");
+        }
+      } finally {
+        await page.close();
+      }
+    });
+  }
   for (const theme of ["dark", "light"] as const)
     for (const height of [28, 40] as const) {
       test(`${theme} ${height}px: production glyphs share the text center line`, async () => {
