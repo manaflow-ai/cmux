@@ -77,11 +77,13 @@ describe("a setting row's context menu", () => {
       { kind: "action", id: "reset", label: "Reset to Default", disabled: true },
     ]);
     expect(document.querySelector("[role=menu]")).toBeNull();
-    host.emit({
-      type: "pick",
-      popupId: shown[0].id,
-      revision: shown[0].revision,
-      id: "copyKey",
+    await act(async () => {
+      host.emit({
+        type: "pick",
+        popupId: shown[0].id,
+        revision: shown[0].revision,
+        id: "copyKey",
+      });
     });
     await settle();
     expect(page.provider.clipboard).toBe("history.terminalCommands");
