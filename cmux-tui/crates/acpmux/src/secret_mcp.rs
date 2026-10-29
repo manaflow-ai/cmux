@@ -11,11 +11,17 @@ use serde_json::{Value, json};
 use std::future::Future;
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
-use tokio::sync::mpsc;
+use tokio::sync::{Semaphore, mpsc};
 
 pub const SERVER_NAME: &str = "cmux-secrets";
 /// The session the tools ask for, set in this server's own env.
 pub const SESSION_ENV: &str = "ACPMUX_SECRET_SESSION";
+/// The largest number of tool calls whose daemon reply and output may be retained at once.
+/// Keeping this small matters because `ls` returns every session summary.
+const MAX_IN_FLIGHT_CALLS: usize = 8;
+/// The output writer's bounded backlog. Calls hold a permit until their serialized reply is
+/// accepted here, so this queue and the in-flight calls are one memory bound.
+const OUTPUT_QUEUE_CAPACITY: usize = 8;
 
 fn tools() -> Value {
     json!([
@@ -99,7 +105,8 @@ where
     E: Fn(Value) -> Fut + Clone + Send + 'static,
     Fut: Future<Output = Value> + Send + 'static,
 {
-    let (tx, mut rx) = mpsc::channel::<String>(64);
+    let (tx, mut rx) = mpsc::channel::<String>(OUTPUT_QUEUE_CAPACITY);
+    let permits = Arc::new(Semaphore::new(MAX_IN_FLIGHT_CALLS));
     let writer = tokio::spawn(async move {
         while let Some(mut line) = rx.recv().await {
             line.push('\n');
@@ -130,9 +137,11 @@ where
             "tools/call" => {
                 // A card waits on the person: the next request is read meanwhile. Each call
                 // connects anew, so a restarted daemon serves the next one.
+                let Ok(permit) = permits.clone().acquire_owned().await else { break };
                 let (tx, params, execute) =
                     (tx.clone(), message["params"].clone(), execute.clone());
                 tokio::spawn(async move {
+                    let _permit = permit;
                     let _ = tx.send(response(&id, execute(params).await).to_string()).await;
                 });
                 continue;
@@ -173,7 +182,7 @@ mod tests {
     #[tokio::test]
     async fn tools_calls_bound_concurrent_large_replies() {
         const CALLS: usize = 500;
-        const MAX_CONCURRENT: usize = 8;
+        const MAX_CONCURRENT: usize = MAX_IN_FLIGHT_CALLS;
         let rows: Vec<Value> = (0..3000)
             .map(|i| json!({"sessionId": format!("session-{i}"), "status": "idle"}))
             .collect();
@@ -182,6 +191,7 @@ mod tests {
         let overflow_seen = Arc::new(Notify::new());
         let first = Arc::new(Barrier::new(MAX_CONCURRENT + 1));
         let release = Arc::new(Notify::new());
+        let released = Arc::new(AtomicBool::new(false));
         let (client, server) = tokio::io::duplex(64 * 1024);
         let (client_read, mut client_write) = tokio::io::split(client);
         let (server_read, server_write) = tokio::io::split(server);
@@ -190,6 +200,7 @@ mod tests {
         let call_overflow_seen = overflow_seen.clone();
         let call_first = first.clone();
         let call_release = release.clone();
+        let call_released = released.clone();
         let call_rows = rows.clone();
         let server = tokio::spawn(serve_io(
             server_read,
@@ -203,6 +214,7 @@ mod tests {
                 let overflow_seen = call_overflow_seen.clone();
                 let first = call_first.clone();
                 let release = call_release.clone();
+                let released = call_released.clone();
                 let rows = call_rows.clone();
                 async move {
                     let now = maximum.fetch_add(1, Ordering::SeqCst) + 1;
@@ -213,7 +225,9 @@ mod tests {
                     if now <= MAX_CONCURRENT {
                         first.wait().await;
                     }
-                    release.notified().await;
+                    if !released.load(Ordering::SeqCst) {
+                        release.notified().await;
+                    }
                     maximum.fetch_sub(1, Ordering::SeqCst);
                     json!({"sessions": rows})
                 }
@@ -231,7 +245,12 @@ mod tests {
                 client_write.write_all(b"\n").await.unwrap();
             }
         });
-        let mut output = tokio::io::BufReader::new(client_read).lines();
+        let output = tokio::spawn(async move {
+            let mut output = tokio::io::BufReader::new(client_read).lines();
+            for _ in 0..CALLS {
+                output.next_line().await.unwrap().expect("a response");
+            }
+        });
         tokio::time::timeout(Duration::from_secs(5), first.wait()).await.unwrap();
         assert!(
             tokio::time::timeout(Duration::from_millis(100), overflow_seen.notified())
@@ -240,11 +259,10 @@ mod tests {
             "more than {MAX_CONCURRENT} large MCP replies were retained concurrently"
         );
         assert!(!overflow.load(Ordering::SeqCst));
+        released.store(true, Ordering::SeqCst);
         release.notify_waiters();
         requests.await.unwrap();
-        for _ in 0..CALLS {
-            output.next_line().await.unwrap().expect("a response");
-        }
+        output.await.unwrap();
         server.await.unwrap().unwrap();
         assert_eq!(maximum.load(Ordering::SeqCst), 0);
     }
