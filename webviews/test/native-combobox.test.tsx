@@ -244,6 +244,45 @@ test.each(["footer", "actions"] as const)(
   },
 );
 
+test.each([
+  { location: "footer", keepOpen: false },
+  { location: "footer", keepOpen: true },
+  { location: "rail", keepOpen: false },
+  { location: "rail", keepOpen: true },
+] as const)("native Return activates an auxiliary $location action with keepOpen=$keepOpen", async ({ location, keepOpen }) => {
+  const container = installDom();
+  const { host, shown, listeners } = nativeHost();
+  const submitted: string[] = [];
+  const picked: string[] = [];
+  const model = comboboxDescription({ suggestions: ["alpha"] });
+  model[location] = [{ id: "add-project", kind: "action", label: "Add project", value: "add", keepOpen }];
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <UiProvider container={container} popupHost={host}>
+        <Combobox
+          inline
+          defaultValue="typed project"
+          label="Projects"
+          suggestions={["alpha"]}
+          onQuery={() => {}}
+          onSubmit={(value) => submitted.push(value)}
+          onCancel={() => {}}
+          native={{ model, onEvent: (event) => { if (event.type === "pick") picked.push(event.id!); } }}
+        />
+      </UiProvider>,
+    );
+  });
+  const sent = shown[0]!;
+  await act(async () => {
+    for (const listener of listeners)
+      listener({ type: "submit", popupId: sent.id, revision: sent.revision, id: "add-project", value: "typed project", reason: "keyboard" });
+  });
+  expect(picked).toEqual(["add-project"]);
+  expect(submitted).toEqual([]);
+  expect(listeners.size).toBe(keepOpen ? 1 : 0);
+});
+
 function collidingAuxiliaryModel(location: "actions" | "rail" | "footer") {
   const model = comboboxDescription({ suggestions: ["alpha", "beta"] });
   const auxiliary = { id: "beta", label: "Delete", keepOpen: true };
