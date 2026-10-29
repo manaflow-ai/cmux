@@ -597,6 +597,16 @@ a machine whose agent is mid-turn and quiet). The server pauses idle machines in
   is over it). A CPU counter that went back (a reboot) restarts the idle stretch; a probe or a
   stored observation without a CPU sample gives no CPU verdict. Anything the probe cannot read
   is unknown, and unknown never pauses.
+- Machines whose cmux-tui predates `subscribe-activity` (every image up to a9b104f3) are decided
+  in legacy mode. The probe enters it only when the daemon refuses `subscribe-activity` as an
+  unknown variant (acpmux then reads as none when the CLI refuses `acp` as an unknown resource
+  scope); any other answer stays unknown. Legacy mode has no input or agent times, so it decides
+  from busy terminals (an agent CLI in a terminal is busy), ssh, inbound connections, CPU and
+  API calls: a person sitting at an idle shell prompt for the whole timeout is paused, and
+  opening the machine resumes it. Its decision reasons end in `;legacy_daemon`.
+- Freestyle's own timer stays off as well, not as a backstop: it would pause a quiet build that
+  our probe sees on CPU, and a finite `idleTimeoutSeconds` makes the health sweep skip the
+  machine (`skipped_idle`).
 - Work that is quiet on CPU, has no terminal and only talks outbound counts as idle and gets
   paused: a `nohup` bot holding a websocket open, a long `curl` download, or `claude -p` started
   through exec outside acpmux. Run such work in a terminal (a foreground command keeps the

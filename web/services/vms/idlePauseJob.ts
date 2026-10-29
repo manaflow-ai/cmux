@@ -108,7 +108,7 @@ function checkMachine(vm: CloudVmRow, now: () => number) {
     const current = decision.pause ? yield* stillUnchanged(vm, providerVmId) : null;
     if (current) {
       yield* pauseVmRow(current, providerVmId, "idle");
-      console.info("[VM] idle pause", JSON.stringify({ vmId: vm.id, minutes, idleSince: decision.observation?.idleSince }));
+      console.info("[VM] idle pause", JSON.stringify({ vmId: vm.id, minutes, reason: decision.reason, idleSince: decision.observation?.idleSince }));
       return "paused" as const;
     }
     // Every checked machine records when it was checked, so the next run starts with the others.
