@@ -30,6 +30,7 @@ pub mod host_enroll;
 pub mod host_peering;
 pub mod host_steps;
 pub mod hosts;
+pub mod join_input;
 pub mod mesh_node_key;
 pub mod orchestrate;
 pub mod output;

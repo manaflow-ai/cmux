@@ -5,7 +5,7 @@ use anyhow::{Context, Result, anyhow};
 use base64::Engine as _;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::io::{IsTerminal, Read};
+use std::io::Read;
 use std::path::PathBuf;
 
 pub const CAPABILITY: &str = "machine.join.stdin.v1";
@@ -46,21 +46,13 @@ fn credential_path() -> PathBuf { state_dir().join(CREDENTIAL_FILE) }
 fn consent_path() -> PathBuf { state_dir().join(CONSENT_FILE) }
 
 pub fn read_token() -> Result<String> {
-    // Read at most one byte beyond the bound. This avoids an unbounded
-    // allocation when a broken installer pipes a large file to us.
-    let mut input = Vec::new();
-    std::io::stdin().take((MAX_TOKEN_BYTES + 1) as u64).read_to_end(&mut input).context("read join token from stdin")?;
-    parse_token(&input)
+    let line = crate::cli::join_input::read_stdin_line()?;
+    parse_token_text(&line)
 }
 
-fn parse_token(input: &[u8]) -> Result<String> {
-    if input.len() > MAX_TOKEN_BYTES { return Err(anyhow!("join token is too long")); }
-    if !input.ends_with(b"\n") { return Err(anyhow!("join token must be newline terminated")); }
-    let text = std::str::from_utf8(&input).map_err(|_| anyhow!("join token is not valid UTF-8"))?;
-    let mut lines = text.lines();
-    let token = lines.next().map(str::trim).unwrap_or_default();
+pub fn parse_token_text(text: &str) -> Result<String> {
+    let token = text.trim();
     if token.is_empty() { return Err(anyhow!("join token is empty")); }
-    if lines.any(|line| !line.trim().is_empty()) { return Err(anyhow!("join stdin must contain one token line")); }
     if !token.starts_with("cmj_") || token.len() > MAX_TOKEN_BYTES
         || token[4..].bytes().any(|b| !(b.is_ascii_alphanumeric() || b == b'_' || b == b'-')) {
         return Err(anyhow!("join token is malformed"));
@@ -122,13 +114,17 @@ fn load_consent() -> Consent {
 }
 
 pub async fn join(hub: Option<String>, name: Option<String>, replace: bool, json_out: bool) -> Result<()> {
+    let token = read_token().map_err(|e| crate::cli::errors::AppError::new(crate::cli::errors::Code::Usage, "join.malformed", e.to_string()).with_exit(2))?;
+    join_with_token(hub, name, replace, json_out, token).await
+}
+
+pub async fn join_with_token(hub: Option<String>, name: Option<String>, replace: bool, json_out: bool, token: String) -> Result<()> {
     let existing = load().map_err(|e| crate::cli::errors::AppError::new(crate::cli::errors::Code::Runtime, "join.store", e.to_string()).with_exit(5))?;
     if let Some(existing) = existing && !replace {
         if json_out { crate::cli::output::print_json(&json!({"joined":false,"alreadyJoined":true,"machineId":existing.machine_id,"teamId":existing.team_id,"name":existing.name,"hubOrigin":existing.hub_origin})); }
         else { println!("already joined ({})", existing.machine_id); }
         return Ok(());
     }
-    let token = read_token().map_err(|e| crate::cli::errors::AppError::new(crate::cli::errors::Code::Usage, "join.malformed", e.to_string()).with_exit(2))?;
     let hub = origin(hub).map_err(|_| crate::cli::errors::AppError::new(crate::cli::errors::Code::Usage, "join.malformed", "hub origin is malformed").with_exit(2))?;
     let name = local_name(name);
     let wg_public_key = crate::cli::mesh_node_key::load_or_create()

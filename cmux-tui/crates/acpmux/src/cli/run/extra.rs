@@ -496,14 +496,35 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
         Command::Host(PeerCmd::Approvals { cmd }) => {
             crate::cli::host_approvals::run(cmd, json_out).await
         }
-        Command::Host(PeerCmd::Join { ticket: None, name, hub, replace, status, .. }) => {
+        Command::Host(PeerCmd::Join { ticket: None, name, hub, replace, status, peer_name, advertise }) => {
+            if status {
+                crate::cli::cloud_join::status(hub, json_out).await
+            } else {
+                let value = crate::cli::join_input::read_stdin_line()?;
+                if value.starts_with("cmj_") {
+                    let token = crate::cli::cloud_join::parse_token_text(&value).map_err(|e| crate::cli::errors::AppError::new(crate::cli::errors::Code::Usage, "join.malformed", e.to_string()).with_exit(2))?;
+                    crate::cli::cloud_join::join_with_token(hub, name, replace, json_out, token).await
+                } else if value.starts_with("cmxt1.") {
+                    let ticket = crate::cli::pairing::join_ticket_text(&value)?;
+                    let client = connect(true).await?;
+                    let args = crate::cli::pairing::JoinArgs { ticket, name, peer_name, advertise };
+                    crate::cli::pairing::join(client, args, json_out).await
+                } else {
+                    Err(crate::cli::errors::AppError::new(crate::cli::errors::Code::Usage, "join.malformed", "join value has an unknown prefix").with_exit(2).into())
+                }
+            }
+        }
+        Command::Host(PeerCmd::Join { ticket: Some(_ticket), name, hub, replace, status, peer_name: _, advertise: _ }) if hub.is_some() || status => {
             if status { crate::cli::cloud_join::status(hub, json_out).await } else { crate::cli::cloud_join::join(hub, name, replace, json_out).await }
         }
-        Command::Host(PeerCmd::Join { ticket: Some(ticket), name, hub, replace, status, peer_name, advertise }) if ticket.starts_with("cmj_") || hub.is_some() || status => {
+        Command::Host(PeerCmd::Join { ticket: Some(ticket), name, hub: None, replace: false, status: false, peer_name, advertise }) => {
             if ticket.starts_with("cmj_") {
                 return Err(crate::cli::errors::AppError::new(crate::cli::errors::Code::Usage, "join.malformed", "join token must be provided on stdin").with_exit(2).into());
             }
-            if status { crate::cli::cloud_join::status(hub, json_out).await } else { crate::cli::cloud_join::join(hub, name, replace, json_out).await }
+            let ticket = crate::cli::pairing::join_ticket(Some(ticket))?;
+            let client = connect(true).await?;
+            let args = crate::cli::pairing::JoinArgs { ticket, name, peer_name, advertise };
+            crate::cli::pairing::join(client, args, json_out).await
         }
         Command::Host(PeerCmd::Consent { cmd }) => {
             match cmd {

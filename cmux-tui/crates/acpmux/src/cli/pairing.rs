@@ -248,17 +248,14 @@ pub(crate) fn join_ticket(arg: Option<String>) -> Result<Ticket> {
             zeroize::Zeroizing::new(text)
         }
         None => {
-            use std::io::IsTerminal;
-            let stdin = std::io::stdin();
-            if stdin.is_terminal() {
-                return Err(AppError::usage(
-                    "pass the ticket on stdin: printf '%s\\n' TICKET | cmux host join",
-                )
-                .into());
-            }
-            read_ticket(stdin.lock())?
+            crate::cli::join_input::read_stdin_line()?
         }
     };
+    join_ticket_text(&text)
+}
+
+/// Decode and validate text already read by the shared host-join stdin reader.
+pub(crate) fn join_ticket_text(text: &str) -> Result<Ticket> {
     let ticket = Ticket::decode(&text).map_err(AppError::usage)?;
     if !crate::pairing::transport_ok(&ticket.url) {
         return Err(anyhow!(
