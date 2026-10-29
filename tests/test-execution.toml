@@ -2178,3 +2178,7 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_swift_linux_packages.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_tui_tree_critical_path.py"
+lane = "linux-guard"
