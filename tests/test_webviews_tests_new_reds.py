@@ -16,6 +16,7 @@ FAKE_PLAYWRIGHT_STATUS.
 """
 import json
 import os
+import re
 import shutil
 import textwrap
 from pathlib import Path
@@ -28,6 +29,7 @@ ROOT = Path(__file__).resolve().parents[1]
 WRAPPER = ROOT / "scripts/ci/webviews-tests-new-reds.sh"
 COLLECT = ROOT / "scripts/ci/webviews_test_results.py"
 COMPARE = ROOT / "scripts/ci/guards_new_reds.py"
+SHARDS = ROOT / "scripts/ci/webviews_test_shards.py"
 WORKFLOW = ROOT / ".github/workflows/ci-web.yml"
 
 FAKE_BUN = """#!/usr/bin/env bash
@@ -162,7 +164,9 @@ class Wrapper(unittest.TestCase):
                                 extra_env={"CMUX_WEB_TEST_SHARD": "1", "CMUX_WEB_TEST_SHARD_COUNT": "2"})
         self.assertEqual(done.returncode, 0, out)
         self.assertNotIn("::error", out)
-        self.assertEqual(out.count("::warning title=Webview test red on the base too::"), 2, out)
+        ran = set(re.findall(r"^START (\S+) \(hard limit", out, re.MULTILINE))
+        self.assertTrue(0 < len(ran) < len(files), out)  # the head ran its shard only
+        self.assertEqual(out.count("::warning title=Webview test red on the base too::"), len(ran), out)
 
     def test_the_changes_files_do_not_reach_the_base_run(self):
         files = {"test/a.test.ts": "SCOPED\n" + body(["old red"])}
@@ -310,7 +314,7 @@ class Workflow(unittest.TestCase):
                 subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True)
                 subprocess.run(["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@t",
                                 "commit", "-qm", "fixture"], check=True)
-                for source in (COLLECT, COMPARE):
+                for source in (COLLECT, COMPARE, SHARDS):
                     shutil.copy(source, repo / "scripts/ci" / source.name)
             runner_temp.mkdir()
             bins.mkdir()
