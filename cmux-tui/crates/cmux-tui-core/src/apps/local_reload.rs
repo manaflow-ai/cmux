@@ -66,9 +66,15 @@ impl Supervisor {
     /// there is lost and the customize folder just never reloads.
     fn note_watch_problem(&self, message: String) {
         eprintln!("cmux-tui: {message}");
+        self.note_watch("warn", message);
+    }
+
+    /// One line of the local apps watch in the supervisor's log: what it
+    /// watches, what it reloaded, or why it cannot reload.
+    fn note_watch(&self, level: &str, message: String) {
         let outs = {
             let mut inner = self.inner.lock().recover_poison();
-            self.log_locked(&mut inner, "cmux/supervisor", "warn", message)
+            self.log_locked(&mut inner, "cmux/supervisor", level, message)
         };
         self.emit(outs);
     }
@@ -107,6 +113,9 @@ impl Supervisor {
             for app in &removed {
                 outs.extend(self.stop_app_locked(&mut inner, app, "removed"));
             }
+            let names: Vec<&str> = changed.iter().chain(&removed).map(String::as_str).collect();
+            let message = format!("local apps reloaded: {}", names.join(", "));
+            outs.extend(self.log_locked(&mut inner, "cmux/supervisor", "info", message));
             for app in changed.iter().chain(&removed) {
                 outs.push(Out::Broadcast(json!({
                     "event": "apps-changed",
@@ -266,6 +275,14 @@ fn watch(
         }
     };
     report(arm(&mut watcher, &mut watched_customize));
+    if let Some(supervisor) = me.upgrade() {
+        let dirs: Vec<String> = [customize.as_deref(), local.as_deref()]
+            .into_iter()
+            .flatten()
+            .map(|dir| dir.display().to_string())
+            .collect();
+        supervisor.note_watch("info", format!("local apps watched: {}", dirs.join(", ")));
+    }
     // Only events inside the watched app folders count: the customize
     // folder's parent also holds cmux.json and other files. FSEvents names
     // the real path, so a folder under a symlink (`/tmp`, a linked

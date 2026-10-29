@@ -1089,7 +1089,20 @@ fn the_customize_folder_installs_itself_and_reloads_when_it_changes() {
                 // Why the folder did not reload, when the daemon knows
                 // (a file watch it could not make, a rejected package).
                 let why = client.rpc(json!({ "cmd": "apps-logs", "app": "cmux/supervisor" }));
-                panic!("local/customize {version} never listed: {list}\nsupervisor log: {why}");
+                // Whether the reload thread still runs.
+                let threads = client.rpc(json!({ "cmd": "server-threads" }));
+                let reload: Vec<&Value> = threads["data"]["threads"]
+                    .as_array()
+                    .or(threads["threads"].as_array())
+                    .into_iter()
+                    .flatten()
+                    .filter(|row| row["name"].as_str().is_some_and(|name| name.contains("apps")))
+                    .collect();
+                panic!(
+                    "local/customize {version} never listed: {list}\nsupervisor log: {why}\n\
+                     apps threads: {reload:?} (server-threads ok: {})",
+                    threads["ok"]
+                );
             }
             std::thread::sleep(Duration::from_millis(50));
         }
