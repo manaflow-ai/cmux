@@ -252,6 +252,7 @@ fn lower(pid: u32) {
 #[cfg(not(unix))]
 fn lower(_pid: u32) {}
 
+#[allow(clippy::too_many_arguments)]
 fn run(
     directory: &Path,
     overrides: &[Override],
