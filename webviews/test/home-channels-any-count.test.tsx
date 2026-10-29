@@ -100,8 +100,11 @@ test("any number of files splits into messages within the owner's part limit, in
   }
 });
 
-function ownerSocket() {
+/** The owner's socket; `refuseOnce`: the first message naming that hash is refused (a transient
+ * failure), the next is taken. */
+function ownerSocket(refuseOnce?: string) {
   const sent: Array<{ key: string; parts: Array<Record<string, unknown>> }> = [];
+  let refused = false;
   const socket = {
     async request(cmd: string, params?: Record<string, unknown>): Promise<unknown> {
       if (cmd === "identify") return { capabilities: [] };
@@ -109,6 +112,10 @@ function ownerSocket() {
       const op = params?.op as { kind: string; parts: Array<Record<string, unknown>> };
       // The owner's reducer: `parts.is_empty() || parts.len() > MAX_PARTS` is invalid_parts.
       if (op.parts.length === 0 || op.parts.length > OWNER_MAX_PARTS) throw new Error("invalid_parts");
+      if (!refused && refuseOnce && op.parts.some((part) => part.hash === refuseOnce)) {
+        refused = true;
+        throw new Error("unavailable");
+      }
       sent.push({ key: String(params?.idempotency_key), parts: op.parts });
       return { rev: sent.length };
     },
@@ -118,8 +125,7 @@ function ownerSocket() {
   return { socket, sent };
 }
 
-test("a send with 65 files over 4 GiB each reaches the owner, every file once and in order", async () => {
-  const { socket, sent } = ownerSocket();
+async function openStore(socket: DaemonSocket) {
   const home = new DaemonHomeClient(socket);
   const me = { id: "me", kind: "human" as const, name: "Me", chief: false };
   const conversation = {
@@ -152,6 +158,16 @@ test("a send with 65 files over 4 GiB each reaches the owner, every file once an
   const stop = store.subscribe(() => {});
   await store.start();
   expect(store.getSnapshot().selected).toBe("conv_local");
+  return { store, stop };
+}
+
+const settle = async () => {
+  for (let turn = 0; turn < 40; turn++) await new Promise((resolve) => setTimeout(resolve, 0));
+};
+
+test("a send with 65 files over 4 GiB each reaches the owner, every file once and in order", async () => {
+  const { socket, sent } = ownerSocket();
+  const { store, stop } = await openStore(socket);
 
   const files = Array.from({ length: 65 }, (_, index) => attachment(index));
   expect(await store.send("here they are", undefined, undefined, files)).toBe(true);
@@ -205,4 +221,30 @@ test("the composer takes 65 files at once and keeps attaching more", async () =>
   await pick(["one-more.txt"]);
   expect(uploaded).toHaveLength(66);
   await act(async () => root.unmount());
+});
+
+// Review finding: a later message of a send went on after an earlier one failed, so it reached the
+// owner first and the retry put the failed one after it.
+test("a failed middle message holds the rest until its retry is taken, so the owner keeps the order", async () => {
+  const files = Array.from({ length: 40 }, (_, index) => attachment(index));
+  const { socket, sent } = ownerSocket(files[20]!.hash);
+  const { store, stop } = await openStore(socket);
+  expect(await store.send("", undefined, undefined, files)).toBe(true);
+  await settle();
+
+  const groups = () => sent.map((message) => message.parts.map((part) => part.hash));
+  expect(groups()).toEqual([files.slice(0, 16).map((file) => file.hash)]);
+  const failed = store.getSnapshot().pending.filter((entry) => entry.failed);
+  expect(failed.map((entry) => entry.attachments?.length)).toEqual([16, 8]);
+
+  // Retrying the held last message retries from the failed one.
+  store.retry(failed[1]!.key);
+  await settle();
+  expect(groups()).toEqual([
+    files.slice(0, 16).map((file) => file.hash),
+    files.slice(16, 32).map((file) => file.hash),
+    files.slice(32, 40).map((file) => file.hash),
+  ]);
+  expect(store.getSnapshot().pending.filter((entry) => entry.failed)).toEqual([]);
+  stop();
 });

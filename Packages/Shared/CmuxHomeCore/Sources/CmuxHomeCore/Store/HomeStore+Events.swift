@@ -16,6 +16,7 @@ extension HomeStore {
             log.acknowledge(intent.key, rev: result.rev)
             uploads[intent.key] = nil
             leaveSendQueue(intent.key)
+            advanceSendChain(committed: intent.key)
             settle()
             afterLogChange(intent.op)
             return result
@@ -49,6 +50,7 @@ extension HomeStore {
                 cancelBackoff(intent.key)
                 endOfflineDeadline(intent.key)
                 leaveSendQueue(intent.key)
+                holdSendChain(after: intent.key)
                 if case .sendMessage = intent.op {
                     log.fail(intent.key, rejection)
                 } else {

@@ -139,6 +139,8 @@ export class HomeChannelsStore {
   /** The read cursor this page last sent per conversation (one read per new seq). */
   private readonly readSeq = new Map<string, number>();
   private readonly drafts = new DraftBook();
+  /** Messages of one send held behind a failed one (by its key), in order (`deliverInOrder`). */
+  private readonly heldAfter = new Map<string, string[]>();
   /** Agent runs (`cmux.home.runs`, `cmux.home.run`, run events): rows read them through `useRun`. */
   readonly runs = new RunBook();
   /** A Chief's live run text (`chief-live-v1`): the run card and the typing row read it. */
@@ -613,27 +615,60 @@ export class HomeChannelsStore {
     return true;
   }
 
-  /** Delivers one send's messages one after another, so the owner orders them as they were sent;
-   * one that fails stays "Not sent" with Retry and the rest still go. */
+  /** Delivers one send's messages strictly one after another, so the owner orders them as they
+   * were sent. The first that fails stops it: that one and the rest show "Not sent", and the rest
+   * are held behind it (`heldAfter`) until its retry is taken or it is discarded. */
   private async deliverInOrder(sends: readonly PendingSend[]): Promise<void> {
-    for (const pending of sends) await this.deliver(pending);
+    for (const [index, pending] of sends.entries()) {
+      if (await this.deliver(pending)) continue;
+      const rest = sends.slice(index + 1).map((entry) => entry.key);
+      if (rest.length === 0) return;
+      this.heldAfter.set(pending.key, rest);
+      this.set({
+        pending: this.snapshot.pending.map((entry) => (rest.includes(entry.key) ? { ...entry, failed: true } : entry)),
+      });
+      return;
+    }
   }
 
-  /** Sends a failed pending message again with its own idempotency key (never twice). */
+  /** Sends a failed pending message again with its own idempotency key (never twice). A message
+   * held behind a failed one of the same send retries from that one, so the order holds. */
   retry(key: string): void {
-    const pending = this.snapshot.pending.find((entry) => entry.key === key);
+    const head = [...this.heldAfter].find(([, rest]) => rest.includes(key))?.[0] ?? key;
+    const pending = this.snapshot.pending.find((entry) => entry.key === head);
     if (!pending) return;
     const again = { ...pending, failed: false };
-    this.set({ pending: this.snapshot.pending.map((entry) => (entry.key === key ? again : entry)) });
-    void this.deliver(again);
+    this.set({ pending: this.snapshot.pending.map((entry) => (entry.key === head ? again : entry)) });
+    void this.deliver(again).then((taken) => taken && this.release(head));
   }
 
   discard(key: string): void {
     this.set({ pending: this.snapshot.pending.filter((entry) => entry.key !== key) });
+    for (const [head, rest] of this.heldAfter) {
+      if (rest.includes(key)) this.heldAfter.set(head, rest.filter((held) => held !== key));
+    }
+    this.release(key);
   }
 
-  private async deliver(pending: PendingSend): Promise<void> {
-    if (!this.client) return;
+  /** The messages held behind `key` go on, in order (it was taken, or discarded). */
+  private release(key: string): void {
+    const rest = this.heldAfter.get(key);
+    if (!rest) return;
+    this.heldAfter.delete(key);
+    const sends = rest.flatMap((held) => {
+      const entry = this.snapshot.pending.find((pending) => pending.key === held);
+      return entry ? [{ ...entry, failed: false }] : [];
+    });
+    if (sends.length === 0) return;
+    this.set({
+      pending: this.snapshot.pending.map((entry) => sends.find((send) => send.key === entry.key) ?? entry),
+    });
+    void this.deliverInOrder(sends);
+  }
+
+  /** Resolves true when the owner took it. */
+  private async deliver(pending: PendingSend): Promise<boolean> {
+    if (!this.client) return false;
     try {
       await this.client.call(HomeOps.send, {
         conversation: pending.conversation,
@@ -648,12 +683,14 @@ export class HomeChannelsStore {
       const held = [...this.snapshot.messages, ...(this.snapshot.threadView?.messages ?? [])];
       const left = this.settled(held);
       if (left) this.set({ pending: left });
+      return true;
     } catch (error) {
-      if (!this.snapshot.pending.some((entry) => entry.key === pending.key)) return;
+      if (!this.snapshot.pending.some((entry) => entry.key === pending.key)) return false;
       this.set({
         error: describe(error),
         pending: this.snapshot.pending.map((entry) => (entry.key === pending.key ? { ...entry, failed: true } : entry)),
       });
+      return false;
     }
   }
 

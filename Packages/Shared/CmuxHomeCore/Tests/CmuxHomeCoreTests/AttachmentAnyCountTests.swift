@@ -66,6 +66,35 @@ import UniformTypeIdentifiers
         #expect(sent.flatMap(\.parts).map(shape) == parts.map(shape))
     }
 
+    /// Review finding: a later message of the send went on after an earlier one failed, so it
+    /// committed first and the retry put the failed one after it. The middle one fails here: the
+    /// last one waits, and after the retry the owner holds all three in the order sent.
+    @MainActor @Test func aFailedMiddleMessageHoldsTheRestUntilItsRetryCommits() async throws {
+        let (store, source) = try await started()
+        var files: [LocalAttachment] = []
+        for index in 0..<40 {
+            files.append(try await store.prepareAttachment(data: Data("chunk \(index)".utf8), typeIdentifier: UTType.plainText.identifier))
+        }
+        await source.failNextUpload(hash: files[20].ref.hash, with: .invalid("attachment_upload_failed"), times: 1)
+        _ = try? await store.send(conversation: conversation, text: "", attachments: files)
+        await waitUntil { store.log.entries.contains { if case .failed = $0.state { true } else { false } } }
+        for _ in 0..<500 { await Task.yield() }
+
+        let hashes = Set(files.map(\.ref.hash))
+        func committed() async throws -> [[String]] {
+            try await source.snapshot(of: conversation, tail: 20).messages.map { message in
+                message.parts.compactMap { if case .attachment(let ref) = $0, hashes.contains(ref.hash) { ref.hash } else { nil } }
+            }.filter { !$0.isEmpty }
+        }
+        #expect(try await committed() == [files[0..<16].map(\.ref.hash)], "only the first message, never the third before the second")
+        let failed = try #require(store.log.entries.first { if case .failed = $0.state { true } else { false } }?.intent.key)
+        #expect(store.log.entries.count == 2, "the failed message and the held one stay")
+
+        try await store.retry(failed)
+        await waitUntil { store.log.isEmpty }
+        #expect(try await committed() == [files[0..<16].map(\.ref.hash), files[16..<32].map(\.ref.hash), files[32..<40].map(\.ref.hash)])
+    }
+
     @MainActor @Test func sixtyFiveFilesSendAsMessagesWithinThePartLimitInOrder() async throws {
         let (store, source) = try await started()
 

@@ -100,9 +100,11 @@ extension HomeStore {
     /// the first has `key`, each later one its own key, and each uploads the
     /// blobs its own attachment parts name (the first also every blob no
     /// attachment part names, a link preview's picture). Every file is checked
-    /// before any message is logged, so a refusal gives the whole draft back;
-    /// all of them are logged at once, then upload in turn. Parts with no
-    /// attachment at all stay one message within the limit.
+    /// before any message is logged, so a refusal gives the whole draft back.
+    /// All of them are logged at once, then go strictly one after another:
+    /// this call returns when the first commits, and a failed one holds the
+    /// rest, in order, until its retry commits. Parts with no attachment at
+    /// all stay one message within the limit.
     public func send(conversation: ConversationID, parts: [MessagePart], uploads: [LocalAttachment],
                      key: IdempotencyKey = .make(), threadRoot: MessageID? = nil, parent: MessageID? = nil) async throws {
         guard !stopped else { throw HomeRejection.ownerUnreachable }
@@ -146,15 +148,13 @@ extension HomeStore {
             try logAttachmentSend(op, uploads: files, key: groupKey, in: conversation)
             keys.append(groupKey)
         }
-        guard isOnline else {
-            for queued in keys { do { try queueUploadWhileOffline(queued) } catch {} }
-            throw HomeSendState.pendingResend
-        }
-        var failure: (any Error)?
-        for queued in keys {
-            do { try await uploadAndSubmit(queued) } catch { failure = failure ?? error }
-        }
-        if let failure { throw failure }
+        // One message at a time: each later one starts when the one before it
+        // commits (`advanceSendChain`), so the owner commits them in order; a
+        // failure holds the rest until its retry commits (`holdSendChain`).
+        sendChains.append(keys)
+        for later in keys.dropFirst() { log.setQueued(later, true) }
+        guard isOnline else { try queueUploadWhileOffline(key) }
+        try await uploadAndSubmit(key)
     }
 
     /// The blob an attachment part names; nil for any other part.
