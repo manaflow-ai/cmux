@@ -534,3 +534,4 @@ existing colors, glass, row geometry and drag behavior.
 - 2026-10-29: disclosed tab positions resolve the rendered parent workspace title column, including custom icon or mark offsets; the typography-only gallery rewinds the full production indent.
 - 2026-10-29: parent layout is realized before child tab frames are resolved so icon-aware workspace title columns remain stable on first draw.
 - 2026-10-29: parent title-column changes invalidate disclosed child rows, including late parent realization, so the 16 pt hierarchy anchor never goes stale.
+- 2026-10-29: virtualized children derive the 16 pt anchor from the rendered parent or its model row, and reuse resets the cached parent frame.

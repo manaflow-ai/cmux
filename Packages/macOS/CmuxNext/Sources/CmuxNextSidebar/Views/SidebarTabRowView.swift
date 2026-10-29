@@ -137,6 +137,30 @@ final class SidebarTabRowView: SidebarRowView {
         return hover.withAlphaComponent((hover.usingColorSpace(.sRGB)?.alphaComponent ?? 1) * 0.5)
     }
 
+    private func parentTitleX(in list: SidebarListView, workspaceID: WorkspaceID) -> CGFloat {
+        if let parent = list.rowViews[.workspace(workspaceID)] as? WorkspaceRowView {
+            // The parent can be realized after this child. Force its title column to settle before
+            // converting the frame, while the model fallback below covers viewport virtualization.
+            parent.layoutSubtreeIfNeeded()
+            return convert(parent.titleFrame, from: parent).minX
+        }
+        guard let row = list.displayed.rows.first(where: { $0.key == .workspace(workspaceID) }) else {
+            return SidebarStyle.titleLeading
+        }
+        let content = row.content ?? WorkspaceRowContent()
+        let leading = SidebarStyle.horizontalInset + CGFloat(content.treeDepth) * SidebarStyle.treeIndent
+        let side: CGFloat
+        let swatch: Bool
+        switch content.icon {
+        case nil: side = 0; swatch = false
+        case .swatch: side = SidebarStyle.dotSize + Metrics.space1; swatch = true
+        case .symbol, .emoji, .favicon: side = SidebarStyle.iconBox; swatch = false
+        }
+        let localTitleX = SidebarStyle.titleTextX(leading: leading, iconSide: side, swatch: swatch) - WorkspaceRowView.labelInset
+        return convert(NSPoint(x: list.frame(for: row).minX + localTitleX, y: 0), from: list).x
+    }
+
+
     override func layout() {
         super.layout()
         let b = layoutBounds
@@ -147,16 +171,10 @@ final class SidebarTabRowView: SidebarRowView {
         // under the workspace label instead of pulling them back to the shared leading inset.
         let parentTitleX: CGFloat = {
             guard case let .tab(workspaceID, _) = key,
-                  let list = sequence(first: superview, next: { $0?.superview }).compactMap({ $0 as? SidebarListView }).first,
-                  let parent = list.rowViews[.workspace(workspaceID)] as? WorkspaceRowView else {
+                  let list = sequence(first: superview, next: { $0?.superview }).compactMap({ $0 as? SidebarListView }).first else {
                 return SidebarStyle.titleLeading
             }
-            // SidebarListView may realize children before their workspace row. Ensure the
-            // parent has computed its icon-aware title column before converting it into the
-            // child coordinate space; otherwise the first layout pass can anchor tabs to a
-            // stale zero/default frame.
-            parent.layoutSubtreeIfNeeded()
-            return convert(parent.titleFrame, from: parent).minX
+            return parentTitleX(in: list, workspaceID: workspaceID)
         }()
         // Keep the label cell's internal padding in the well so a no-icon tab still lands exactly
         // at the child inset.

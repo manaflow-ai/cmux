@@ -105,7 +105,7 @@ import Testing
             }
             if hierarchy == .typographyOnly {
                 // Rewind the complete production indent so this variant isolates typography.
-                let indentDelta = SidebarStyle.tabChildIndent + SidebarStyle.labelCellPadding - Metrics.space3
+                let indentDelta = SidebarStyle.tabChildIndent + SidebarStyle.labelCellPadding - Metrics.space3 - WorkspaceRowView.labelInset
                 for view in row.subviews where view is ChromeLabel || view is DecorativeImageView {
                     view.frame.origin.x -= indentDelta
                 }
