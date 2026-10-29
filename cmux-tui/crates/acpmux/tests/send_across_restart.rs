@@ -532,6 +532,138 @@ async fn replacement_reply_paging_shares_the_prompt_deadline() {
     assert_recovery_deadline("paging").await;
 }
 
+#[tokio::test]
+async fn send_initialize_shares_the_caller_deadline() {
+    assert_full_call_deadline("initialize", "stream").await;
+}
+
+#[tokio::test]
+async fn run_initialize_shares_the_caller_deadline() {
+    assert_full_call_deadline("initialize", "run").await;
+}
+
+#[tokio::test]
+async fn run_creation_shares_the_caller_deadline() {
+    assert_full_call_deadline("new", "run").await;
+}
+
+#[tokio::test]
+async fn send_info_shares_the_caller_deadline() {
+    assert_full_call_deadline("info", "stream").await;
+}
+
+#[tokio::test]
+async fn no_wait_reconnect_queue_shares_the_caller_deadline() {
+    assert_full_call_deadline("queue", "no-wait").await;
+}
+
+#[tokio::test]
+async fn no_wait_reconnect_status_shares_the_caller_deadline() {
+    assert_full_call_deadline("status", "no-wait").await;
+}
+
+#[tokio::test]
+async fn streaming_permission_response_shares_the_caller_deadline() {
+    assert_full_call_deadline("permission", "stream").await;
+}
+
+#[tokio::test]
+async fn collected_permission_response_shares_the_caller_deadline() {
+    assert_full_call_deadline("permission", "quiet").await;
+}
+
+/// The fixture accepts every connection and stalls one known RPC for three
+/// seconds. It eventually answers even on the old CLI, so the regression red
+/// finishes without a test-runner timeout. A lost outbox acceptance exercises
+/// the replacement connection before it stalls its queue/status operation.
+async fn assert_full_call_deadline(phase: &'static str, mode: &'static str) {
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+    let dir = scratch(&format!("deadline-{phase}-{mode}"));
+    let listener = tokio::net::UnixListener::bind(dir.join("acpmux.sock")).unwrap();
+    let server = tokio::spawn(async move {
+        let mut connections = tokio::task::JoinSet::new();
+        let mut generation = 0;
+        loop {
+            let (stream, _) = listener.accept().await.unwrap();
+            generation += 1;
+            let generation = generation;
+            connections.spawn(async move {
+                let (read, mut write) = stream.into_split();
+                let mut lines = tokio::io::BufReader::new(read).lines();
+                let mut prompt_id = None;
+                while let Ok(Some(line)) = lines.next_line().await {
+                    let msg: serde_json::Value = serde_json::from_str(&line).unwrap();
+                    let Some(id) = msg.get("id") else { continue };
+                    let method = msg["method"].as_str().unwrap();
+                    let stall = match phase {
+                        "initialize" => method == "initialize",
+                        "new" => method == "session/new",
+                        "info" => method == "_acpmux/info",
+                        "queue" => generation > 1 && method == "_acpmux/send_queue",
+                        "status" => generation > 1 && method == "_acpmux/send_status",
+                        "permission" => method == "_acpmux/permission_respond",
+                        _ => unreachable!(),
+                    };
+                    if stall {
+                        tokio::time::sleep(Duration::from_secs(3)).await;
+                    }
+                    let result = match method {
+                        "initialize" => json!({}),
+                        "session/new" => json!({"sessionId":"lane"}),
+                        "_acpmux/info" => json!({"sessionId":"lane", "status":"ready", "turnCount":1}),
+                        "_acpmux/attach" | "_acpmux/events" | "_acpmux/history" => json!({"events":[],"hasMore":false}),
+                        "_acpmux/send_queue" if generation == 1 => return,
+                        "_acpmux/send_queue" => json!({"deliveryId":"receipt", "status":"queued"}),
+                        "_acpmux/send_status" => json!({"deliveryId":"receipt", "status":"delivered", "accepted":{"sessionId":"lane"}}),
+                        "session/prompt" if phase == "permission" => {
+                            prompt_id = Some(id.clone());
+                            let note = json!({"jsonrpc":"2.0", "method":"_acpmux/permission_pending", "params":{
+                                "sessionId":"lane", "permissionId":"permission", "request":{
+                                    "toolCall":{"title":"write file"},
+                                    "options":[{"optionId":"deny", "kind":"reject_once"}]
+                                }
+                            }});
+                            if write.write_all(format!("{note}\n").as_bytes()).await.is_err() { break; }
+                            continue;
+                        }
+                        "session/prompt" => json!({"stopReason":"end_turn"}),
+                        "_acpmux/permission_respond" => {
+                            let answer = json!({"jsonrpc":"2.0", "id":prompt_id.take().unwrap(), "result":{"stopReason":"end_turn"}});
+                            if write.write_all(format!("{answer}\n").as_bytes()).await.is_err() { break; }
+                            json!({})
+                        }
+                        other => panic!("unexpected deadline fixture request: {other}"),
+                    };
+                    let response = json!({"jsonrpc":"2.0", "id":id, "result":result});
+                    if write.write_all(format!("{response}\n").as_bytes()).await.is_err() { break; }
+                }
+            });
+        }
+    });
+    let mut args = match mode {
+        "run" => vec!["run", "--timeout", "1", "-n", "lane", "side effect"],
+        "no-wait" => vec!["send", "--no-wait", "--timeout", "1", "lane", "side effect"],
+        "quiet" => vec!["send", "--quiet", "--timeout", "1", "lane", "side effect"],
+        "stream" => vec!["send", "--timeout", "1", "lane", "side effect"],
+        _ => unreachable!(),
+    };
+    if phase == "permission" {
+        args.splice(1..1, ["--on-permission", "deny"]);
+    }
+    let started = Instant::now();
+    let out = tokio::process::Command::from(cli_command(&dir, &args)).output().await.unwrap();
+    let elapsed = started.elapsed();
+    server.abort();
+    let _ = server.await;
+    fs::remove_dir_all(dir).unwrap();
+    assert_eq!(out.status.code(), Some(3), "{phase}/{mode}: {}", text(&out));
+    assert!(
+        elapsed < Duration::from_millis(1800),
+        "{phase}/{mode} escaped deadline: {elapsed:?}; {}",
+        text(&out)
+    );
+}
+
 async fn restart_wire_case(phase: &'static str, quiet: bool) -> (Output, usize, Duration) {
     use std::sync::{
         Arc,

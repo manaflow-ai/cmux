@@ -8,6 +8,7 @@ use super::*;
 /// whether it steered in, before it prints the delivery id alone.
 const QUICK_WAIT_MS: u64 = 500;
 
+#[allow(clippy::too_many_arguments)]
 pub(super) async fn queue(
     client: &std::sync::Arc<crate::client::Client>,
     session: &str,
@@ -16,21 +17,35 @@ pub(super) async fn queue(
     prompt_id: &PromptId,
     superseding: bool,
     json_out: bool,
+    deadline: Option<tokio::time::Instant>,
 ) -> Result<()> {
-    match queue_once(client, session, text, steer, prompt_id, superseding, json_out).await {
+    match before_deadline(
+        deadline,
+        session,
+        queue_once(client, session, text, steer, prompt_id, superseding, json_out),
+    )
+    .await
+    {
         Ok(()) => Ok(()),
         Err(error) if super::super::output::daemon_closed_error(&error) => {
-            let replacement =
+            let replacement = before_deadline(deadline, session, async {
                 super::super::output::reconnect_after_update().await.map_err(|e| {
                     prompt_id.closed(
                         client,
                         session,
                         &format!("reconnecting after daemon update: {e}"),
                     )
-                })?;
+                })
+            })
+            .await?;
             let mut retry = prompt_id.clone();
             retry.resend = true;
-            queue_once(&replacement, session, text, steer, &retry, superseding, json_out).await
+            before_deadline(
+                deadline,
+                session,
+                queue_once(&replacement, session, text, steer, &retry, superseding, json_out),
+            )
+            .await
         }
         Err(error) => Err(error),
     }

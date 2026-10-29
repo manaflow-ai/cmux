@@ -11,7 +11,7 @@ use std::time::Duration;
 
 const UPDATE_RECONNECT_BUDGET: Duration = Duration::from_secs(20);
 
-async fn before_deadline<T>(
+pub(crate) async fn before_deadline<T>(
     deadline: Option<tokio::time::Instant>,
     id: &str,
     future: impl std::future::Future<Output = Result<T>>,
@@ -519,7 +519,7 @@ async fn stream_prompt_once(
                     asked += 1;
                     if opts.on_permission != OnPermission::Wait {
                         denied += 1;
-                        if auto_answer(&client, id, &p, opts.on_permission).await {
+                        if before_deadline(deadline, id, async { Ok(auto_answer(&client, id, &p, opts.on_permission).await) }).await? {
                             fail_permission = true;
                             let _ = client.notify(method::SESSION_CANCEL, json!({"sessionId": id})).await;
                         }
@@ -923,7 +923,7 @@ async fn collect_once(
                             }
                             mode => {
                                 denied += 1;
-                                if auto_answer(&client, id, &p, mode).await {
+                                if before_deadline(deadline, id, async { Ok(auto_answer(&client, id, &p, mode).await) }).await? {
                                     fail_permission = true;
                                     let _ = client.notify(method::SESSION_CANCEL, json!({"sessionId": id})).await;
                                 }

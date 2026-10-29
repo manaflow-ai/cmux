@@ -374,11 +374,21 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 )
                 .into());
             }
-            let client = connect(true).await?;
+            let setup_name = launch.name.as_deref().unwrap_or("new");
+            let client = before_deadline(deadline, setup_name, connect(true)).await?;
             let host = match crate::cli::place::auto_work(args.host.as_deref()) {
                 Some(work) => {
-                    crate::cli::place::resolve(&client, work, launch.name.as_deref(), launch.reuse)
-                        .await?
+                    before_deadline(
+                        deadline,
+                        setup_name,
+                        crate::cli::place::resolve(
+                            &client,
+                            work,
+                            launch.name.as_deref(),
+                            launch.reuse,
+                        ),
+                    )
+                    .await?
                 }
                 None => args.host.clone(),
             };
@@ -463,7 +473,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             if launch.reuse
                 && let Some(key) = &key
             {
-                reused = launch::existing(&client, key).await?;
+                reused = before_deadline(deadline, key, launch::existing(&client, key)).await?;
             }
             let mut p = json!({"mcpServers": [], "_meta": {"acpmux": meta}});
             if let Some(cwd) = &cwd {
@@ -472,15 +482,22 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             let v = match reused.clone() {
                 Some(info) => info,
                 None => match if ephemeral || probe {
-                    client.request_parentless(method::SESSION_NEW, p).await
+                    before_deadline(
+                        deadline,
+                        setup_name,
+                        client.request_parentless(method::SESSION_NEW, p),
+                    )
+                    .await
                 } else {
-                    client.request(method::SESSION_NEW, p).await
+                    before_deadline(deadline, setup_name, client.request(method::SESSION_NEW, p))
+                        .await
                 } {
                     Ok(v) => v,
                     Err(e) => {
                         let found = match &key {
                             Some(key) if launch.reuse && launch::name_taken(&e) => {
-                                launch::existing(&client, key).await?
+                                before_deadline(deadline, key, launch::existing(&client, key))
+                                    .await?
                             }
                             _ => None,
                         };
@@ -529,7 +546,12 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                     .filter(|_| !lost_race && launch::never_prompted(info));
                 if let Some(text) = &first {
                     let prompt = PromptId::new(args.prompt_id.clone());
-                    let accepted = queue_prompt(client, &id, text, false, None, &prompt).await?;
+                    let accepted = before_deadline(
+                        deadline,
+                        &id,
+                        queue_prompt(client, &id, text, false, None, &prompt),
+                    )
+                    .await?;
                     if !json_out {
                         warn_host_pressure(&accepted);
                     }
@@ -556,10 +578,13 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             }
             let first = launch.first_prompt(&args, &v);
             if json_out && !one_shot {
-                let mut info = client
-                    .request(method::MUX_INFO, json!({"sessionId": id}))
-                    .await
-                    .unwrap_or(v.clone());
+                let mut info = before_deadline(deadline, &id, async {
+                    Ok(client
+                        .request(method::MUX_INFO, json!({"sessionId": id}))
+                        .await
+                        .unwrap_or(v.clone()))
+                })
+                .await?;
                 if let Some(w) = v.pointer("/_meta/acpmux/worktree") {
                     info["worktree"] = w.clone();
                 }
@@ -578,8 +603,10 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 }
                 // Before it works: an allow it asks for is the app's alone.
                 if on_permission == OnPermission::Wait
-                    && let Ok(info) =
-                        client.request(method::MUX_INFO, json!({"sessionId": id})).await
+                    && let Ok(info) = before_deadline(deadline, &id, async {
+                        Ok(client.request(method::MUX_INFO, json!({"sessionId": id})).await)
+                    })
+                    .await?
                     && let Some(note) = crate::question_answer::app_allow_note(&info, &name)
                 {
                     eprintln!("{note}");
@@ -599,9 +626,13 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                     show();
                     let outcome = collect_reply(client.clone(), &id, &text, opts, &prompt).await;
                     if ephemeral {
-                        let _ = client
-                            .request(method::MUX_KILL, json!({"sessionId": id, "purge": true}))
-                            .await;
+                        let _ = before_deadline(
+                            deadline,
+                            &id,
+                            client
+                                .request(method::MUX_KILL, json!({"sessionId": id, "purge": true})),
+                        )
+                        .await;
                     }
                     let r = outcome?;
                     if json_out {
@@ -618,7 +649,12 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 if args.detach {
                     // The prompt is queued before the sidebar step, so a
                     // session never runs without its instructions.
-                    let accepted = queue_prompt(client, &id, &text, false, None, &prompt).await?;
+                    let accepted = before_deadline(
+                        deadline,
+                        &id,
+                        queue_prompt(client, &id, &text, false, None, &prompt),
+                    )
+                    .await?;
                     if !json_out {
                         warn_host_pressure(&accepted);
                     }
@@ -670,8 +706,13 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             attach,
         } => {
             if let Some(delivery) = status {
-                let client = connect(true).await?;
-                return super::send_async::status(&client, &delivery, json_out).await;
+                let client = before_deadline(deadline, &delivery, connect(true)).await?;
+                return before_deadline(
+                    deadline,
+                    &delivery,
+                    super::send_async::status(&client, &delivery, json_out),
+                )
+                .await;
             }
             let session = session.ok_or_else(|| anyhow!("a session is required"))?;
             let mut prompt_id = PromptId::new(prompt_id);
@@ -692,23 +733,23 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             let (relay_session, relay_text, attaching) =
                 (session.clone(), text.clone(), !attach.is_empty());
             let sent = async move {
-                let client = connect(true).await?;
+                let client = before_deadline(deadline, &session, connect(true)).await?;
                 // Any size and number: inline when they fit one message with the text, else uploaded
                 // to the chat first and named by reference (`attach.rs`).
                 if !attach.is_empty() {
-                    prompt_id.attachments = crate::attach::blocks_for(&client, &session, &text, &attach, &|line| {
+                    prompt_id.attachments = before_deadline(deadline, &session, crate::attach::blocks_for(&client, &session, &text, &attach, &|line| {
                         eprintln!("{line}");
-                    })
+                    }))
                     .await
                         .map_err(|e| crate::cli::send_relay::attach_error(e, relaying, &session))?;
                 }
                 // A sub-session's send to its parent waits for the parent's turn to end, as its
                 // send_message does (`hub/subsession_send.rs`), --steer or not.
-                if steer && to_parent(&client, &session).await {
+                if steer && before_deadline(deadline, &session, async { Ok(to_parent(&client, &session).await) }).await? {
                     steer = false;
                 }
                 if no_wait {
-                    announce_machine_wake(&client, &session).await;
+                    before_deadline(deadline, &session, async { announce_machine_wake(&client, &session).await; Ok(()) }).await?;
                     return super::send_async::queue(
                         &client,
                         &session,
@@ -717,13 +758,14 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                         &prompt_id,
                         superseding,
                         json_out,
+                        deadline,
                     )
                     .await;
                 }
-                let id = resolve_id(&client, &session).await?;
+                let id = before_deadline(deadline, &session, resolve_id(&client, &session)).await?;
                 let on_permission = OnPermission::parse(&on_permission)?;
                 // Never refuse: report what the prompt queues behind.
-                let info = client.request(method::MUX_INFO, json!({"sessionId": id})).await?;
+                let info = before_deadline(deadline, &id, client.request(method::MUX_INFO, json!({"sessionId": id}))).await?;
                 announce_machine_wake_value(&info);
                 let running = info.get("status").and_then(Value::as_str) == Some("running")
                     || info.get("turn").map(|t| !t.is_null()).unwrap_or(false);
