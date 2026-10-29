@@ -18,6 +18,7 @@ type Props = {
   workflow: WorkflowSummary;
   onClose: () => void;
   onStop?: (id: string) => Promise<unknown>;
+  onOpenWorkflowAgent?: (agent: WorkflowAgent) => void;
   layout?: WorkflowSideTabLayout;
 };
 
@@ -54,18 +55,43 @@ function elapsedFor(workflow: WorkflowSummary, now: number): number | undefined 
   );
 }
 
-function PhaseAgents({ workflow, phase, now }: { workflow: WorkflowSummary; phase: WorkflowPhase; now: number }) {
+function PhaseAgents({
+  workflow,
+  phase,
+  now,
+  onOpenWorkflowAgent,
+}: {
+  workflow: WorkflowSummary;
+  phase: WorkflowPhase;
+  now: number;
+  onOpenWorkflowAgent?: (agent: WorkflowAgent) => void;
+}) {
   const agents = phaseAgents(workflow, phase);
   return (
     <ul className="acpmux-workflow-side-tab__agents">
       {agents.map((agent) => (
-        <WorkflowAgentRow key={agent.id} agent={agent} now={now} variant="compact" />
+        <WorkflowAgentRow
+          key={agent.id}
+          workflow={workflow}
+          agent={agent}
+          now={now}
+          onOpenWorkflowAgent={onOpenWorkflowAgent}
+          variant="compact"
+        />
       ))}
     </ul>
   );
 }
 
-function Timeline({ workflow, now }: { workflow: WorkflowSummary; now: number }) {
+function Timeline({
+  workflow,
+  now,
+  onOpenWorkflowAgent,
+}: {
+  workflow: WorkflowSummary;
+  now: number;
+  onOpenWorkflowAgent?: (agent: WorkflowAgent) => void;
+}) {
   const t = useT();
   return (
     <ol className="acpmux-workflow-side-tab__timeline">
@@ -97,7 +123,7 @@ function Timeline({ workflow, now }: { workflow: WorkflowSummary; now: number })
                   {counts.done}/{counts.total}
                 </span>
               </div>
-              <PhaseAgents workflow={workflow} phase={phase} now={now} />
+              <PhaseAgents workflow={workflow} phase={phase} now={now} onOpenWorkflowAgent={onOpenWorkflowAgent} />
             </div>
           </li>
         );
@@ -106,7 +132,15 @@ function Timeline({ workflow, now }: { workflow: WorkflowSummary; now: number })
   );
 }
 
-function Lanes({ workflow, now }: { workflow: WorkflowSummary; now: number }) {
+function Lanes({
+  workflow,
+  now,
+  onOpenWorkflowAgent,
+}: {
+  workflow: WorkflowSummary;
+  now: number;
+  onOpenWorkflowAgent?: (agent: WorkflowAgent) => void;
+}) {
   const t = useT();
   return (
     <div className="acpmux-workflow-side-tab__lanes">
@@ -116,14 +150,22 @@ function Lanes({ workflow, now }: { workflow: WorkflowSummary; now: number }) {
             <span>{phaseLabel(t, phase)}</span>
             <span>{stateLabel(t, phase.state)}</span>
           </header>
-          <PhaseAgents workflow={workflow} phase={phase} now={now} />
+          <PhaseAgents workflow={workflow} phase={phase} now={now} onOpenWorkflowAgent={onOpenWorkflowAgent} />
         </section>
       ))}
     </div>
   );
 }
 
-function Table({ workflow, now }: { workflow: WorkflowSummary; now: number }) {
+function Table({
+  workflow,
+  now,
+  onOpenWorkflowAgent,
+}: {
+  workflow: WorkflowSummary;
+  now: number;
+  onOpenWorkflowAgent?: (agent: WorkflowAgent) => void;
+}) {
   const t = useT();
   return (
     <table className="acpmux-workflow-side-tab__table" aria-label={t("workflow.phases")}>
@@ -141,7 +183,13 @@ function Table({ workflow, now }: { workflow: WorkflowSummary; now: number }) {
               <td>{phaseLabel(t, phase)}</td>
               <td>
                 <ul className="acpmux-workflow-side-tab__agents">
-                  <WorkflowAgentRow agent={agent} now={now} variant="grid" />
+                  <WorkflowAgentRow
+                    workflow={workflow}
+                    agent={agent}
+                    now={now}
+                    onOpenWorkflowAgent={onOpenWorkflowAgent}
+                    variant="grid"
+                  />
                 </ul>
               </td>
               <td>{stateLabel(t, agent.state)}</td>
@@ -153,7 +201,7 @@ function Table({ workflow, now }: { workflow: WorkflowSummary; now: number }) {
   );
 }
 
-export function WorkflowSideTab({ workflow, onClose, onStop, layout = "timeline" }: Props) {
+export function WorkflowSideTab({ workflow, onClose, onStop, onOpenWorkflowAgent, layout = "timeline" }: Props) {
   const t = useT();
   const now = useNow(running(workflow));
   const elapsed = elapsedFor(workflow, now);
@@ -197,11 +245,11 @@ export function WorkflowSideTab({ workflow, onClose, onStop, layout = "timeline"
         </div>
         {workflow.description && <p className="acpmux-workflow-side-tab__description">{workflow.description}</p>}
         {layout === "lanes" ? (
-          <Lanes workflow={workflow} now={now} />
+          <Lanes workflow={workflow} now={now} onOpenWorkflowAgent={onOpenWorkflowAgent} />
         ) : layout === "table" ? (
-          <Table workflow={workflow} now={now} />
+          <Table workflow={workflow} now={now} onOpenWorkflowAgent={onOpenWorkflowAgent} />
         ) : (
-          <Timeline workflow={workflow} now={now} />
+          <Timeline workflow={workflow} now={now} onOpenWorkflowAgent={onOpenWorkflowAgent} />
         )}
       </div>
     </aside>
