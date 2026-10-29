@@ -1,6 +1,6 @@
 import AppKit
 import CmuxNextDesign
-import CmuxNextLayout
+@testable import CmuxNextLayout
 import CoreGraphics
 import Testing
 
@@ -52,6 +52,9 @@ struct PaneHorizontalScrollClaimTests {
             signals.secondsSinceKeyDown = { 60 }
             signals.windowIsKey = { _ in true }
             root = LayoutRootView(model: model, contentProvider: provider, scrollFocusSignals: signals)
+            // The strip's swipe ends on its spring, not a snap: under Reduce Motion (process-wide, set
+            // by suites that run alongside) it lands at once and moves p1 out from under the pointer.
+            root.context.reduceMotionOverride = false
             window.contentView = root
             root.layoutSubtreeIfNeeded()
             for view in provider.views.values { for inner in view.subviews { inner.frame = view.bounds } }

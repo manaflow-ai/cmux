@@ -5,7 +5,8 @@ import os from "node:os";
 import path from "node:path";
 import { daemonUnit, storeProfileScript } from "../scripts/cmux-vm-image/bake";
 import { GH_SHIM, GITHUB_GITCONFIG, GITHUB_SHIM_DIR, ghShimScript, githubAuthFiles, githubGitconfig } from "../scripts/cmux-vm-image/github-auth";
-import { CURRENT_BIN } from "../scripts/cmux-vm-image/lock";
+import { bakedPrograms, CURRENT_BIN, readInputsLock } from "../scripts/cmux-vm-image/lock";
+import { programProblems } from "../scripts/cmux-vm-image/smoke";
 import { runChild } from "./helpers/run-child";
 
 // The gh shim and the system git helper (plans/cmux-next/cloud-github-auth-DESIGN.md 3.1, 3.2),
@@ -115,5 +116,22 @@ describe("system git helper", () => {
     const r = await gitFill(cmux.bin, "protocol=https\nhost=github.com\npath=o/r.git\n\n", `[credential "https://github.com"]\n\thelper =\n\thelper = !${theirs.bin}\n`);
     expect(r.stdout).toContain("password=gho_mine");
     expect(() => readFileSync(cmux.log, "utf8")).toThrow();
+  });
+});
+
+describe("smoke programs-run", () => {
+  const lock = readInputsLock();
+  const answer = (gh: string) =>
+    bakedPrograms(lock)
+      .flatMap((p) => Object.keys(p.bin).map((c) => `${c} 0 ${c === "gh" ? gh : `${CURRENT_BIN}/${c}`} :: ${p.expect ?? "ok"}`))
+      .join("\n");
+
+  test("gh resolves to the shim, every other command to the store", () => {
+    expect(programProblems(lock, answer(GH_SHIM))).toEqual([]);
+  });
+
+  test("gh anywhere else is a problem, the store's gh included", () => {
+    expect(programProblems(lock, answer(`${CURRENT_BIN}/gh`)).join("\n")).toContain(`expected ${GH_SHIM}`);
+    expect(programProblems(lock, answer("/usr/bin/gh")).join("\n")).toContain("gh: resolves to /usr/bin/gh");
   });
 });

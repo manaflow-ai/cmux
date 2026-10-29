@@ -11,7 +11,8 @@ name: cmux-next CEF shim C++ tests
 # one clang++ call each and run them (scripts/cmux-next/lib/cxx.sh picks the
 # compiler: Ubuntu's clang++ here, the selected Xcode's on a Mac). So do the
 # agent URL rule, the per-profile proxy values, the DevTools message id
-# scanner and the cmux-page:// path rules.
+# scanner, the cmux-page:// path rules, the Chromium host wire and the file
+# chooser bookkeeping.
 # Every scripts/cmux-next/test-*-cpp.sh runs here. The shim itself is built only
 # by the app build, so this is the one check that runs these cases on every
 # change. Each step runs even when an earlier one failed, so one red case does
@@ -36,6 +37,8 @@ on:
       - scripts/cmux-next/test-context-proxy-cpp.sh
       - scripts/cmux-next/test-shim-devtools-id-cpp.sh
       - scripts/cmux-next/test-cmux-page-path-cpp.sh
+      - scripts/cmux-next/test-chromium-host-wire-cpp.sh
+      - scripts/cmux-next/test-shim-file-dialog-cpp.sh
       - scripts/cmux-next/lib/cxx.sh
       - tests/test_cmux_next_shim_cpp_linux.py
       - .github/workflows/cmux-next-shim-cpp.yml
@@ -58,6 +61,8 @@ on:
       - scripts/cmux-next/test-context-proxy-cpp.sh
       - scripts/cmux-next/test-shim-devtools-id-cpp.sh
       - scripts/cmux-next/test-cmux-page-path-cpp.sh
+      - scripts/cmux-next/test-chromium-host-wire-cpp.sh
+      - scripts/cmux-next/test-shim-file-dialog-cpp.sh
       - scripts/cmux-next/lib/cxx.sh
       - tests/test_cmux_next_shim_cpp_linux.py
       - .github/workflows/cmux-next-shim-cpp.yml
@@ -109,3 +114,9 @@ jobs:
       - name: cmux-page:// paths, MIME types and ids
         if: ${{ !cancelled() }}
         run: ./scripts/cmux-next/test-cmux-page-path-cpp.sh
+      - name: Chromium host wire matches the golden frame
+        if: ${{ !cancelled() }}
+        run: ./scripts/cmux-next/test-chromium-host-wire-cpp.sh
+      - name: File chooser requests are answered once and cancelled with their browser
+        if: ${{ !cancelled() }}
+        run: ./scripts/cmux-next/test-shim-file-dialog-cpp.sh

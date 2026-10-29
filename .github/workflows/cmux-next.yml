@@ -192,6 +192,7 @@ on:
       - scripts/cmux-next/build-acpmux.sh
       - scripts/ci/run-xcodebuild-with-diagnostics.sh
       - scripts/ci/reset-stale-submodules.sh
+      - scripts/ci/git_fetch_retry.py
       - .github/workflows/cmux-next.yml
       - .github/workflows/intent-familiar-review.yml
       - .github/review-bot-rules/familiar-intent.md
@@ -277,6 +278,10 @@ on:
       - scripts/import-apple-developer-id-intermediates.sh
       - scripts/apple-developer-id-certs/**
       - scripts/prune_nightly_release_assets.py
+      # The push-only base-red classifier in the checks job (push only, never a
+      # pull request; the parity guard lists it in PUSH_ONLY_PATTERNS).
+      - scripts/ci/base_red_checks.py
+      - scripts/ci/tests/test_base_red_checks.py
       # Pull-request inputs that pushes must watch too (the parity guard,
       # tests/test_ci_workflow_path_filter_parity.py).
       - scripts/cmux-next/state-roots-baseline.tsv
@@ -286,8 +291,6 @@ on:
       - tests/test_ci_generator_input_freshness.sh
       - tests/test_cmux_next_base_autofix_finishes.py
       - tests/test_cmux_next_pr_autofix_settings.py
-      - scripts/ci/base_red_checks.py
-      - scripts/ci/tests/test_base_red_checks.py
       - scripts/ci/test_reds.py
       - scripts/ci/base_red_excuse.py
       - scripts/ci/next_batch.py
@@ -446,6 +449,7 @@ on:
       - scripts/cmux-next/build-acpmux.sh
       - scripts/ci/run-xcodebuild-with-diagnostics.sh
       - scripts/ci/reset-stale-submodules.sh
+      - scripts/ci/git_fetch_retry.py
       - .github/workflows/cmux-next.yml
       - .github/workflows/intent-familiar-review.yml
       - .github/review-bot-rules/familiar-intent.md
@@ -1685,6 +1689,7 @@ jobs:
             bash scripts/cmux-next/tests/base-autofix-action-exports.test.sh
             bash scripts/cmux-next/tests/base-autofix-changed.test.sh
             bash scripts/cmux-next/tests/base-autofix-settings-landed.test.sh
+            bash scripts/cmux-next/tests/judge-action-exports.test.sh
             bash scripts/cmux-next/tests/publish-bot-head-tree.test.sh
             bash scripts/cmux-next/tests/check-app-ffi-pin.test.sh
             bash scripts/cmux-next/tests/app-ffi-release-paths.test.sh
@@ -2403,10 +2408,14 @@ jobs:
   # Release compiles). It compiles and links the app at the PR's head, the
   # commit the landing gate (require-cmux-guards) asks about, in about a
   # minute. A fleet compile error fails this job: the PR's own red. No verdict
-  # (no client, the fleet down, a timeout) is a notice, and release-compile
-  # runs on a Mac instead. A full-ci PR, a fork, and every push and dispatch
-  # keep the Mac Release compile; the base push compiles Release after the
-  # merge, and push-attribution names the PR on a red.
+  # (no client, the controller unreachable or timed out: any cmux-ci exit but
+  # 0 and 1, 69 included) fails this job too, because nothing compiled the
+  # head: it went green on exit 69 with no compile at all (PR #26741's head
+  # 292b43ef, 2026-10-28, whose change runs no Mac Release compile). The
+  # verdict output stays unavailable, so release-compile still runs on a Mac
+  # where path_route's mac_release sends it. A full-ci PR, a fork, and every
+  # push and dispatch keep the Mac Release compile; the base push compiles
+  # Release after the merge, and push-attribution names the PR on a red.
   app-compile-fleet:
     needs: [path_route, push-head-preflight, macos-placement]
     # It takes the gateway, or a wider class of it, only while macos-placement saw a runner idle
@@ -2429,20 +2438,31 @@ jobs:
         id: check
         env:
           REF: ${{ github.event.pull_request.head.sha }}
+          MAC_RELEASE: ${{ needs.path_route.outputs.mac_release }}
         run: |
           set -uo pipefail
+          # No verdict is never a pass: the job fails and says why, and release-compile (a Mac)
+          # takes over only where path_route's mac_release sends it.
+          no_verdict() {  # reason
+            local fallback="No Mac Release compile runs for this change; re-run this job once the build fleet answers."
+            [[ "${MAC_RELEASE:-}" == true ]] && fallback="The Mac Release compile (cmux-next Release compile (Xcode 26)) runs as the fallback; re-run this job once the build fleet answers."
+            local summary="No build-fleet verdict for \`$REF\` ($1), so nothing has compiled this head here. $fallback"
+            echo "verdict=unavailable" >> "$GITHUB_OUTPUT"
+            echo "### Build fleet app compile: no verdict"$'\n\n'"$summary" >> "$GITHUB_STEP_SUMMARY"
+            echo "::error title=Build fleet compile: no verdict::$summary"
+            exit 1
+          }
           client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
           if ! [[ -x "$client" ]]; then
-            echo "::notice title=Build fleet compile::$client is not installed on runner $RUNNER_NAME; the Mac Release compile runs."
-            echo "verdict=unavailable" >> "$GITHUB_OUTPUT"
-            exit 0
+            no_verdict "$client is not installed on runner $RUNNER_NAME"
+            exit 1  # no_verdict exits already; this keeps the guard's shape visible
           fi
           status=0
           "$client" compile-check --ref "$REF" --app --timeout 1200 --queue-timeout 300 || status=$?
           case "$status" in
             0) verdict=pass; summary="The build fleet compiled and linked the cmux-next app at \`$REF\` (Debug, swift.org toolchain). The Release compile runs on the base push after the merge." ;;
             1) verdict=fail; summary="The cmux-next app did not compile on the build fleet at \`$REF\`; the errors are in this job's log above." ;;
-            *) verdict=unavailable; summary="No build-fleet verdict (exit $status); the Mac Release compile runs instead." ;;
+            *) no_verdict "controller unreachable or timed out: cmux-ci exit $status" ;;
           esac
           echo "verdict=$verdict" >> "$GITHUB_OUTPUT"
           echo "### Build fleet app compile: $verdict"$'\n\n'"$summary" >> "$GITHUB_STEP_SUMMARY"
@@ -2450,7 +2470,6 @@ jobs:
             echo "::error title=Build fleet compile::$summary"
             exit 1
           fi
-          [[ "$verdict" == pass ]] || echo "::notice title=Build fleet compile::$summary"
 
   # Small package-only Swift edits get a mini-first type-check/build canary.
   # This uses the same placement and linked SwiftPM scratch as the other Mac
@@ -3232,7 +3251,7 @@ jobs:
         working-directory: Packages/macOS/CmuxNext
         env:
           CMUX_ACTION_SURFACES_SKIP_BUILD: "1"
-        run: ../../../scripts/cmux-next/check-action-surfaces.sh "$PWD"
+        run: ../../../scripts/cmux-next/judge-action-exports.sh "$PWD"
 
       - name: Check the settings exports
         id: settings
@@ -3727,7 +3746,7 @@ jobs:
         working-directory: Packages/macOS/CmuxNext
         env:
           CMUX_ACTION_SURFACES_SKIP_BUILD: "1"
-        run: ../../../scripts/cmux-next/check-action-surfaces.sh "$PWD"
+        run: ../../../scripts/cmux-next/judge-action-exports.sh "$PWD"
 
       - name: Check the settings exports
         id: settings
@@ -4142,7 +4161,7 @@ jobs:
         working-directory: Packages/macOS/CmuxNext
         env:
           CMUX_ACTION_SURFACES_SKIP_BUILD: "1"
-        run: ../../../scripts/cmux-next/check-action-surfaces.sh "$PWD"
+        run: ../../../scripts/cmux-next/judge-action-exports.sh "$PWD"
 
       # The CI target graph is bot-only (scripts/cmux-next/generated_outputs.py,
       # #21946): it is stale on every event between a merge that adds a target
@@ -4311,7 +4330,7 @@ jobs:
         run: |
           set -uo pipefail
           client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
-          if [[ ! -x "$client" ]]; then
+          if ! [[ -x "$client" ]]; then
             echo "::warning title=Fast fleet compile check::cmux-ci is not installed on $RUNNER_NAME; the Mac fallback will run."
             echo "verdict=unavailable" >> "$GITHUB_OUTPUT"
             exit 0
@@ -4351,7 +4370,7 @@ jobs:
     needs: release-compile-fast
     if: ${{ always() && !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.release-compile-fast.result != 'skipped' && needs.release-compile-fast.result != 'cancelled' && needs.release-compile-fast.outputs.verdict != 'unavailable' && needs.release-compile-fast.outputs.verdict != '' }}
     name: cmux-next Release compile (Xcode 26)
-    runs-on: ${{ vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-4vcpu-ubuntu-2404' || 'blacksmith-2vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-4vcpu-ubuntu-2404' || 'blacksmith-2vcpu-ubuntu-2404' }}
     permissions:
       actions: write
       contents: read
@@ -4696,7 +4715,7 @@ jobs:
   request-nightly-next-fast:
     needs: [release-compile-fast, release-compile-fast-admission]
     if: github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.release-compile-fast.result == 'success' && needs.release-compile-fast.outputs.verdict == 'pass' && needs.release-compile-fast-admission.result == 'success'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     permissions:
       actions: write
@@ -4718,7 +4737,7 @@ jobs:
   request-nightly-next:
     needs: release-compile
     if: github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.release-compile.result == 'success'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     permissions:
       actions: write
@@ -5164,7 +5183,7 @@ jobs:
           name: cmux-next-dev-cas-holder-${{ steps.dev-holder.outputs.holder }}
           path: ${{ runner.temp }}/cmux-next-dev-cas-holder/holder.json
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 3
           overwrite: true
 
       - name: Upload DEV daily compile timing
@@ -5695,7 +5714,7 @@ jobs:
           name: cmux-next-dev-cas-holder-${{ steps.report.outputs.holder }}
           path: ${{ runner.temp }}/cmux-next-dev-cas-holder/holder.json
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 3
           overwrite: true
 
   request-cmux-next-dev-publish:
