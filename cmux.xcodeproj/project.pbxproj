@@ -1447,6 +1447,7 @@
 			CBF07000000000000000002 /* CMUXCLI+SSHStartupScripts.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBF07000000000000000001 /* CMUXCLI+SSHStartupScripts.swift */; };
 		A0C7444924A573561A39C95A /* CMUXCLI+SSHTui.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5AECAFEDF2A8217119AC67F /* CMUXCLI+SSHTui.swift */; };
 		D96970000000000000000006 /* CMUXCLI+Sudo.swift in Sources */ = {isa = PBXBuildFile; fileRef = D96971000000000000000001 /* CMUXCLI+Sudo.swift */; };
+		16E269E814BFCE2BF971B522 /* CMUXCLI+SurfaceIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = E169D6B9BF01B9A84A3BF03D /* CMUXCLI+SurfaceIcon.swift */; };
 		A10020000000000000000007 /* CMUXCLI+SurfaceSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10020000000000000000008 /* CMUXCLI+SurfaceSelection.swift */; };
 		A1329C0B0000000000000101 /* CMUXCLI+SurfaceSizing.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1329C0B0000000000000001 /* CMUXCLI+SurfaceSizing.swift */; };
 		B6E774493F579BDC8C8BD8C1 /* CMUXCLI+TaskHelp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 330D98B52CC6A159D363DA42 /* CMUXCLI+TaskHelp.swift */; };
@@ -3802,6 +3803,13 @@
 		5873A6BE37C34CC1082864E2 /* SurfaceCatalogTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 877BC9A2B697FEF2957397FA /* SurfaceCatalogTests.swift */; };
 		E7A900000000000000000002 /* SurfaceCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7A900000000000000000001 /* SurfaceCommands.swift */; };
 		32A5901C769249B692FA1104 /* SurfaceDropFeedback.swift in Sources */ = {isa = PBXBuildFile; fileRef = E192919EFE65466C84C0DD68 /* SurfaceDropFeedback.swift */; };
+		5AAE6160397B5B9509CE277D /* SurfaceIconLeaseStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA18E261EC46BACDAE6F5B63 /* SurfaceIconLeaseStore.swift */; };
+		32824A8094EE3CD5AC88273A /* SurfaceIconLeaseStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27660A74B19C0D199533BAA3 /* SurfaceIconLeaseStoreTests.swift */; };
+		E953DE51308C8AEA36064738 /* SurfaceIconProcessEvidence.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB9CD0686BEC21D6ABF5A1E0 /* SurfaceIconProcessEvidence.swift */; };
+		675E40CD2C1BD04F5EB08833 /* SurfaceIconSVGDocumentParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE1C0BC4E726E158B6CD751D /* SurfaceIconSVGDocumentParser.swift */; };
+		3780A41B4C078034FC04A7FB /* SurfaceIconSVGRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCE0A1A423622EB1589713C8 /* SurfaceIconSVGRenderer.swift */; };
+		7EDA4096324862B72C7B7B28 /* SurfaceIconSVGRendererTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 160E6DF0A430AD805A565ABC /* SurfaceIconSVGRendererTests.swift */; };
+		0BF01F4D6B1B64FF20B15DFD /* SurfaceIconSVGValidator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 322EF516E35AC4567CD5114A /* SurfaceIconSVGValidator.swift */; };
 		F26476EEB1E440498FD2A4F5 /* SurfaceLayoutTerminalCreating.swift in Sources */ = {isa = PBXBuildFile; fileRef = 672C19994B1744318706972D /* SurfaceLayoutTerminalCreating.swift */; };
 				DEC1CE00000000000000003E /* SurfaceMachineIDDeviceEncodingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEC1CE00000000000000003D /* SurfaceMachineIDDeviceEncodingTests.swift */; };
 		EDB978D9F21204DBC6E92738 /* SurfaceMachineInfoPortStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 897C92FDDD87D135FC939E94 /* SurfaceMachineInfoPortStateTests.swift */; };
@@ -3854,6 +3862,8 @@
 		97003C82A6CDC90F8D20503F /* SurfaceSocketCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E107EF903AAF714086F52BC4 /* SurfaceSocketCommandTests.swift */; };
 		C51A73B40000000000000002 /* SurfaceTabBarButtonConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = C51A73B40000000000000001 /* SurfaceTabBarButtonConfiguration.swift */; };
 		6CDB46F9F4D5380D8631CD23 /* SurfaceWorkspaceLayoutSyncing.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72C02896AFDD3AADD6A11F1A /* SurfaceWorkspaceLayoutSyncing.swift */; };
+		C1C0A1000000000000000003 /* SwiftDraw in Frameworks */ = {isa = PBXBuildFile; productRef = C1C0A1000000000000000002 /* SwiftDraw */; };
+		C1C0A1000000000000000004 /* SwiftDraw in Frameworks */ = {isa = PBXBuildFile; productRef = C1C0A1000000000000000002 /* SwiftDraw */; };
 		9666A2019666A2019666A201 /* SwiftTestingAssertions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9666A2029666A2029666A202 /* SwiftTestingAssertions.swift */; };
 		DF4FAEF2EFFDC7957B6EA7D6 /* SwiftUIKeyViewProxyResponderGuard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C013CE833A2331E8EFAD330 /* SwiftUIKeyViewProxyResponderGuard.swift */; };
 		E112778D0CA1F725A9F2677C /* SwiftUIKeyViewProxyResponderGuardTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1C5794CB5271957708E2E10 /* SwiftUIKeyViewProxyResponderGuardTests.swift */; };
@@ -3990,6 +4000,7 @@
 		C0DE00000000000000000C6A /* TerminalController+ControlSurfaceContext4.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000C69 /* TerminalController+ControlSurfaceContext4.swift */; };
 		C0DE00000000000000000C86 /* TerminalController+ControlSurfaceDock.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000C85 /* TerminalController+ControlSurfaceDock.swift */; };
 		8126BEEF0000000000000001 /* TerminalController+ControlSurfaceGitContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8126BEEF0000000000000002 /* TerminalController+ControlSurfaceGitContext.swift */; };
+		602FDD1847D2079B75A23815 /* TerminalController+ControlSurfaceIconContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = 254BC074E448365B8F82F097 /* TerminalController+ControlSurfaceIconContext.swift */; };
 		C51A73000000000000000301 /* TerminalController+ControlSurfacePanelType.swift in Sources */ = {isa = PBXBuildFile; fileRef = C51A73000000000000000302 /* TerminalController+ControlSurfacePanelType.swift */; };
 		C0DE00000000000000000C7A /* TerminalController+ControlSystemContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000C79 /* TerminalController+ControlSystemContext.swift */; };
 		C0DE00000000000000000C7C /* TerminalController+ControlSystemContext2.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000C7B /* TerminalController+ControlSystemContext2.swift */; };
@@ -6255,6 +6266,7 @@
 			CBF07000000000000000001 /* CMUXCLI+SSHStartupScripts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+SSHStartupScripts.swift"; sourceTree = "<group>"; };
 		E5AECAFEDF2A8217119AC67F /* CMUXCLI+SSHTui.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+SSHTui.swift"; sourceTree = "<group>"; };
 		D96971000000000000000001 /* CMUXCLI+Sudo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+Sudo.swift"; sourceTree = "<group>"; };
+		E169D6B9BF01B9A84A3BF03D /* CMUXCLI+SurfaceIcon.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+SurfaceIcon.swift"; sourceTree = "<group>"; };
 		A10020000000000000000008 /* CMUXCLI+SurfaceSelection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+SurfaceSelection.swift"; sourceTree = "<group>"; };
 		A1329C0B0000000000000001 /* CMUXCLI+SurfaceSizing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+SurfaceSizing.swift"; sourceTree = "<group>"; };
 		330D98B52CC6A159D363DA42 /* CMUXCLI+TaskHelp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+TaskHelp.swift"; sourceTree = "<group>"; };
@@ -8456,6 +8468,13 @@
 		877BC9A2B697FEF2957397FA /* SurfaceCatalogTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SurfaceCatalogTests.swift; sourceTree = "<group>"; };
 		E7A900000000000000000001 /* SurfaceCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceCommands.swift; sourceTree = "<group>"; };
 		E192919EFE65466C84C0DD68 /* SurfaceDropFeedback.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceDropFeedback.swift; sourceTree = "<group>"; };
+		FA18E261EC46BACDAE6F5B63 /* SurfaceIconLeaseStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceIconLeaseStore.swift; sourceTree = "<group>"; };
+		27660A74B19C0D199533BAA3 /* SurfaceIconLeaseStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SurfaceIconLeaseStoreTests.swift"; sourceTree = "<group>"; };
+		FB9CD0686BEC21D6ABF5A1E0 /* SurfaceIconProcessEvidence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceIconProcessEvidence.swift; sourceTree = "<group>"; };
+		DE1C0BC4E726E158B6CD751D /* SurfaceIconSVGDocumentParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceIconSVGDocumentParser.swift; sourceTree = "<group>"; };
+		BCE0A1A423622EB1589713C8 /* SurfaceIconSVGRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceIconSVGRenderer.swift; sourceTree = "<group>"; };
+		160E6DF0A430AD805A565ABC /* SurfaceIconSVGRendererTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SurfaceIconSVGRendererTests.swift"; sourceTree = "<group>"; };
+		322EF516E35AC4567CD5114A /* SurfaceIconSVGValidator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceIconSVGValidator.swift; sourceTree = "<group>"; };
 		672C19994B1744318706972D /* SurfaceLayoutTerminalCreating.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SurfaceLayoutTerminalCreating.swift"; sourceTree = "<group>"; };
 				DEC1CE00000000000000003D /* SurfaceMachineIDDeviceEncodingTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SurfaceMachineIDDeviceEncodingTests.swift; sourceTree = "<group>"; };
 		897C92FDDD87D135FC939E94 /* SurfaceMachineInfoPortStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SurfaceMachineInfoPortStateTests.swift"; sourceTree = "<group>"; };
@@ -8644,6 +8663,7 @@
 		C0DE00000000000000000C69 /* TerminalController+ControlSurfaceContext4.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlSurfaceContext4.swift"; sourceTree = "<group>"; };
 		C0DE00000000000000000C85 /* TerminalController+ControlSurfaceDock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlSurfaceDock.swift"; sourceTree = "<group>"; };
 		8126BEEF0000000000000002 /* TerminalController+ControlSurfaceGitContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlSurfaceGitContext.swift"; sourceTree = "<group>"; };
+		254BC074E448365B8F82F097 /* TerminalController+ControlSurfaceIconContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlSurfaceIconContext.swift"; sourceTree = "<group>"; };
 		C51A73000000000000000302 /* TerminalController+ControlSurfacePanelType.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlSurfacePanelType.swift"; sourceTree = "<group>"; };
 		C0DE00000000000000000C79 /* TerminalController+ControlSystemContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlSystemContext.swift"; sourceTree = "<group>"; };
 		C0DE00000000000000000C7B /* TerminalController+ControlSystemContext2.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlSystemContext2.swift"; sourceTree = "<group>"; };
@@ -9521,6 +9541,7 @@
 				A5001270 /* PostHog in Frameworks */,
 				A5001230 /* Sparkle in Frameworks */,
 				F20F85FC5900550685FA33AD /* StackAuth in Frameworks */,
+				C1C0A1000000000000000003 /* SwiftDraw in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -9618,6 +9639,7 @@
 				1A0B0C0D0E0F101112132214 /* IrohLib in Frameworks */,
 				C41EF37855F3934FF56E3782 /* MessagesLabHome in Frameworks */,
 				C41EF6F99E75FAD1F939EA6B /* MessagesLabSidebar in Frameworks */,
+				C1C0A1000000000000000004 /* SwiftDraw in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -12641,6 +12663,12 @@
 				F1C6800D38EC5F238A2994FC /* DockSplitStore+ChiefPane.swift */,
 				7947118FF892144AE54C82D2 /* ChiefPaneDragPayload.swift */,
 				0D10F73113F55349CE0E475D /* ChiefHomeConversationRows.swift */,
+				FB9CD0686BEC21D6ABF5A1E0 /* SurfaceIconProcessEvidence.swift */,
+				254BC074E448365B8F82F097 /* TerminalController+ControlSurfaceIconContext.swift */,
+				BCE0A1A423622EB1589713C8 /* SurfaceIconSVGRenderer.swift */,
+				322EF516E35AC4567CD5114A /* SurfaceIconSVGValidator.swift */,
+				DE1C0BC4E726E158B6CD751D /* SurfaceIconSVGDocumentParser.swift */,
+				FA18E261EC46BACDAE6F5B63 /* SurfaceIconLeaseStore.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -12927,6 +12955,7 @@
 				0A373D54DD824A79BFEB0840 /* CMUXCLI+ChiefDispatch.swift */,
 				2C636D86CB494560BBF6953B /* ChiefDispatchPlan.swift */,
 				C0023A973E2D4196E338ED78 /* CMUXCLI+ClaudeHookPaneDirectory.swift */,
+				E169D6B9BF01B9A84A3BF03D /* CMUXCLI+SurfaceIcon.swift */,
 			);
 			path = CLI;
 			sourceTree = "<group>";
@@ -14281,6 +14310,8 @@
 				FBFA082D961AFAB3FFBFF6CC /* RawOSCMachinePayloadTests.swift */,
 				E5E915CF2237052FDE02EE05 /* WorkspaceTitleRecoveryTests.swift */,
 				AD2084D340B702301EBB1356 /* SurfaceSocketCommandTests+NewDisplay.swift */,
+				27660A74B19C0D199533BAA3 /* SurfaceIconLeaseStoreTests.swift */,
+				160E6DF0A430AD805A565ABC /* SurfaceIconSVGRendererTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -14408,6 +14439,7 @@
 			);
 			name = cmux;
 			packageProductDependencies = (
+				C1C0A1000000000000000002 /* SwiftDraw */,
 				D0F6A0000000000000000002 /* CmuxAgentDeliveryCore */,
 				C10DC1000000000000000002 /* CmuxCloud */,
 				C10DC1000000000000000005 /* CmuxCloudResizeCore */,
@@ -14583,6 +14615,7 @@
 			);
 			name = cmuxTests;
 			packageProductDependencies = (
+				C1C0A1000000000000000002 /* SwiftDraw */,
 				D0F6A0000000000000000002 /* CmuxAgentDeliveryCore */,
 				5CA7A1060000000000000003 /* CmuxSurfaceCatalogModel */,
 				C10DC1000000000000000005 /* CmuxCloudResizeCore */,
@@ -14703,6 +14736,7 @@
 			);
 			mainGroup = A5001040;
 			packageReferences = (
+				C1C0A1000000000000000001 /* XCRemoteSwiftPackageReference "SwiftDraw" */,
 				C10DC1000000000000000001 /* XCLocalSwiftPackageReference "CmuxCloud" */,
 				D0F5A0000000000000000001 /* XCLocalSwiftPackageReference "CmuxCloudResizeCore" */,
 				C1D7A0000000000000000001 /* XCLocalSwiftPackageReference "CmuxCloudTui" */,
@@ -17189,6 +17223,11 @@
 				F7F3BED81BD5FE96D52055C0 /* SurfaceCatalog.swift in Sources */,
 				D01100800000000000000002 /* SurfaceCatalogQueryService.swift in Sources */,
 				32A5901C769249B692FA1104 /* SurfaceDropFeedback.swift in Sources */,
+				5AAE6160397B5B9509CE277D /* SurfaceIconLeaseStore.swift in Sources */,
+				E953DE51308C8AEA36064738 /* SurfaceIconProcessEvidence.swift in Sources */,
+				675E40CD2C1BD04F5EB08833 /* SurfaceIconSVGDocumentParser.swift in Sources */,
+				3780A41B4C078034FC04A7FB /* SurfaceIconSVGRenderer.swift in Sources */,
+				0BF01F4D6B1B64FF20B15DFD /* SurfaceIconSVGValidator.swift in Sources */,
 				F26476EEB1E440498FD2A4F5 /* SurfaceLayoutTerminalCreating.swift in Sources */,
 				C11323110000000000000001 /* SurfacePaneFactory+CloudManualMirror.swift in Sources */,
 				D3D6AC9CC41C0052D47883CD /* SurfacePaneFactory+ProjectionLayout.swift in Sources */,
@@ -17337,6 +17376,7 @@
 				C0DE00000000000000000C6A /* TerminalController+ControlSurfaceContext4.swift in Sources */,
 				C0DE00000000000000000C86 /* TerminalController+ControlSurfaceDock.swift in Sources */,
 				8126BEEF0000000000000001 /* TerminalController+ControlSurfaceGitContext.swift in Sources */,
+				602FDD1847D2079B75A23815 /* TerminalController+ControlSurfaceIconContext.swift in Sources */,
 				C51A73000000000000000301 /* TerminalController+ControlSurfacePanelType.swift in Sources */,
 				C0DE00000000000000000C7A /* TerminalController+ControlSystemContext.swift in Sources */,
 				C0DE00000000000000000C7C /* TerminalController+ControlSystemContext2.swift in Sources */,
@@ -18090,6 +18130,7 @@
 					CBF07000000000000000002 /* CMUXCLI+SSHStartupScripts.swift in Sources */,
 				A0C7444924A573561A39C95A /* CMUXCLI+SSHTui.swift in Sources */,
 				D96970000000000000000006 /* CMUXCLI+Sudo.swift in Sources */,
+				16E269E814BFCE2BF971B522 /* CMUXCLI+SurfaceIcon.swift in Sources */,
 				A10020000000000000000007 /* CMUXCLI+SurfaceSelection.swift in Sources */,
 				A1329C0B0000000000000101 /* CMUXCLI+SurfaceSizing.swift in Sources */,
 				B6E774493F579BDC8C8BD8C1 /* CMUXCLI+TaskHelp.swift in Sources */,
@@ -19432,6 +19473,8 @@
 				0CFAE1C22B0BB59F4A0B75F3 /* SurfaceCatalogObservationTests.swift in Sources */,
 				D01100800000000000000004 /* SurfaceCatalogQueryServiceTests.swift in Sources */,
 				5873A6BE37C34CC1082864E2 /* SurfaceCatalogTests.swift in Sources */,
+				32824A8094EE3CD5AC88273A /* SurfaceIconLeaseStoreTests.swift in Sources */,
+				7EDA4096324862B72C7B7B28 /* SurfaceIconSVGRendererTests.swift in Sources */,
 				DEC1CE00000000000000003E /* SurfaceMachineIDDeviceEncodingTests.swift in Sources */,
 				EDB978D9F21204DBC6E92738 /* SurfaceMachineInfoPortStateTests.swift in Sources */,
 				560A57B0605EC30E23A20456 /* SurfacePaneFactoryFocusTests.swift in Sources */,
@@ -20514,6 +20557,11 @@
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCRemoteSwiftPackageReference section */
+		C1C0A1000000000000000001 /* XCRemoteSwiftPackageReference "SwiftDraw" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/swhitty/SwiftDraw.git";
+			requirement = { kind = exactVersion; version = 0.29.0; };
+		};
 		1A0B0C0D0E0F101112132211 /* XCRemoteSwiftPackageReference "iroh-ffi" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/manaflow-ai/iroh-ffi.git";
@@ -20565,6 +20613,11 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		C1C0A1000000000000000002 /* SwiftDraw */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C1C0A1000000000000000001 /* XCRemoteSwiftPackageReference "SwiftDraw" */;
+			productName = SwiftDraw;
+		};
 		C41EFC335C9AAB5A0FA57460 /* CmuxChief */ = {isa = XCSwiftPackageProductDependency; package = C41EFAE53091633032911038 /* XCLocalSwiftPackageReference "CmuxChief" */; productName = CmuxChief; };
 		C41EF70B32F196180E6A7CEC /* MessagesLabSidebar */ = {isa = XCSwiftPackageProductDependency; package = C41EF9C09737A00F7AD3765F /* XCLocalSwiftPackageReference "CmuxMessagesLab" */; productName = MessagesLabSidebar; };
 		C41EFD14216C41CEC2144779 /* MessagesLabHome */ = {isa = XCSwiftPackageProductDependency; package = C41EF9C09737A00F7AD3765F /* XCLocalSwiftPackageReference "CmuxMessagesLab" */; productName = MessagesLabHome; };
