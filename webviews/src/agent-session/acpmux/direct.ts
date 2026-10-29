@@ -77,7 +77,7 @@ import { WORKSPACE_CONTEXT } from "./workspaceContext";
 import { promptSurfaceMeta } from "./surfaces/promptSurface";
 import { BOOKMARKS_KIND, bookmarksHeard } from "./threadMinimap/bookmarks";
 import { type StartMode, fullAccessTicket, rememberFullAccess, startModeChanged } from "./startMode";
-import { highestMode } from "./harnessModes";
+import { harnessModeName, highestMode } from "./harnessModes";
 import { sameSessionStart, sessionStartOf } from "./conversation/sessionStart";
 import { reduceAgentPair } from "./conversation/agentPairs";
 import { pasteRanges } from "./conversation/promptCollapse";
@@ -3822,9 +3822,10 @@ export class AcpmuxDirectClient {
     });
   }
 
-  /// An ask a chat in Full access answered unasked (acpmux hub/permissions.rs `full_access_allow`:
-  /// Claude Code's own guards in bypassPermissions, and any plain tool ask) leaves the receipt line
-  /// a card would, "Approved: rm -rf … (Full access)", so what ran unasked can be seen afterwards.
+  /// An ask a chat in its highest mode answered unasked (acpmux hub/permissions.rs
+  /// `full_access_allow`: Claude Code's own guards in bypassPermissions, and any plain tool ask)
+  /// leaves the receipt line a card would, using that harness's native mode label, so what ran
+  /// unasked can be seen afterwards.
   private recordFullAccess(event: EventRecord, msg: any): void {
     const permission = permissionFromMessage({ ...msg, sessionId: event.sessionId }, this.selectedSessionId ?? "");
     if (!permission) return;
@@ -3832,16 +3833,17 @@ export class AcpmuxDirectClient {
     // Drawn already (a resync replays the live records after its rebuild drew them).
     if (this.rows.has(rowId)) return;
     this.closeSegment();
+    const mode = harnessModeName(this.summary?.family, this.summary?.harness, msg.fullAccess);
     this.rows.set(rowId, {
       id: rowId,
       version: 1,
       at: event.at,
       kind: PERMISSION_RECORD,
       permission,
-      decision: { kind: "fullAccess" },
+      decision: { kind: "fullAccess", mode },
       text: translate(DECISION_TEXT.fullAccess, {
         action: permission.title?.trim() || translate("permission.required"),
-        option: "",
+        mode,
       }),
     });
   }

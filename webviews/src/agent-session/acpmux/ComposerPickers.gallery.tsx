@@ -72,7 +72,7 @@ const claudeSnapshot: AcpmuxSnapshot = {
       availableModes: [
         { id: "default", name: "Default" },
         { id: "acceptEdits", name: "Accept edits" },
-        { id: "bypassPermissions", name: "Full access" },
+        { id: "bypassPermissions", name: "Bypass permissions" },
       ],
       currentModeId: "default",
     },
