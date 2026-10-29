@@ -579,11 +579,9 @@ button.cv-subagent > :last-child {
 .acpmux-agent-line > .acpmux-chat-inspector-stop {
   margin: 0 4px 0 2px;
 }
-/* Quiet at rest: no line, header or button in the tray has a fill or a corner of its own. Hover is
-   the composer chips' wash (--acpmux-pill-hover, the text at 11% over the glass, never opaque) on
-   the whole line, its stop button included, and only on a line that opens something; with the
-   hand, as a link. A line with nothing to open (a disabled button) has no hover at all. Its stop
-   button only brightens: a fill of its own would be a box inside the line's. */
+/* Quiet at rest. The line is the tray's main control, so its wash covers the whole line
+   while that control is hovered; Stop has no box of its own. A disabled main button has
+   no line hover. */
 .acpmux-running-tray .acpmux-summary-row,
 .acpmux-running-tray .acpmux-summary-link:is(:hover, :active),
 .acpmux-running-tray :is(.acpmux-chat-inspector-stop, .cv-subagent__stop):is(:hover, :active) {

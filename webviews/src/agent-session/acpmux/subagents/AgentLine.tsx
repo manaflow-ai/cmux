@@ -123,7 +123,7 @@ export function AgentLine({
       <Tick className="acpmux-summary-meta acpmux-summary-agent__state" text={state} />
       {chevron && onOpen && (
         <span className="acpmux-agent-line__chevron" data-alignment-column="right-action" aria-hidden="true">
-          <Icon name="disclosure.collapsed" size={12} />
+          <Icon name="disclosure.collapsed" size={ROW_ICON} row />
         </span>
       )}
     </button>

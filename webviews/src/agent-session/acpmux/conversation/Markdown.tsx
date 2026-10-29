@@ -22,6 +22,7 @@ import { MathDisplay, MathInline } from "./Math";
 import { normalizeMath } from "./mathDelimiters";
 import { IncrementalMarkdown, type KeyedBlock } from "./incrementalMarkdown";
 import { linkedText, PathChip, UrlChip } from "../chips/LinkChips";
+import { SoftBroken, softBreakNodes } from "./softBreaks";
 import { BareReferenceChip } from "../chips/BareReferenceChip";
 import { codePath, linkPath, pathName, textLinks } from "../chips/paths";
 import { OpenableImage, ReplyImage } from "../chips/ReplyImage";
@@ -517,12 +518,15 @@ function proseText(text: string, key: string, opts: InlineOptions): ReactNode[] 
       ...pieces.flatMap((piece): ReactNode[] => {
         const current = `${key}-${index++}`;
         return typeof piece === "string"
-          ? linkedGithubText(
-              piece,
+          ? softBreakNodes(
+              linkedGithubText(
+                piece,
+                current,
+                opts.githubRepository,
+                opts.linkGithubReferences !== false,
+                opts.commits === "quiet",
+              ),
               current,
-              opts.githubRepository,
-              opts.linkGithubReferences !== false,
-              opts.commits === "quiet",
             )
           : [
               <StartedSessionChip
@@ -568,7 +572,7 @@ export function renderInline(source: string, outer: InlineOptions = {}): ReactNo
           <PathChip key={k++} path={path} written={t.slice(1, -1)} label={lineLabel(path, t.slice(1, -1))} />
         ) : (
           <code key={k++} className="cv-code">
-            {t.slice(1, -1)}
+            <SoftBroken text={t.slice(1, -1)} />
           </code>
         ),
       );

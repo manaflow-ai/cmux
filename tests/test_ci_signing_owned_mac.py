@@ -79,6 +79,11 @@ KEYCHAIN_DELETE = re.compile(r"signing-keychain\.sh\s+delete\b")
 LITERAL_INDEX = re.compile(r"\[\s*'([A-Za-z0-9_-]+)'\s*\]|\[\s*\"([A-Za-z0-9_-]+)\"\s*\]")
 DYNAMIC_INDEX = re.compile(r"\b(?:secrets|needs|outputs)\s*\[")
 # Status functions that let a step run after an earlier step failed.
+# A picker that offers an owned Mac runs its own checked-out code with the routing token, from an environment with no
+# branch policy: each of its steps that names a secret runs only on a named ref (github.ref or github.ref_name in its
+# if), or only after such a step failed (steps.<that step>.outcome == 'failure').
+REF_CONDITION = re.compile(r"\bgithub\.ref(?:_name)?\b")
+AFTER_STEP = re.compile(r"^\s*steps\.([\w-]+)\.outcome\s*==\s*'failure'\s*$")
 RUNS_AFTER_FAILURE = re.compile(r"\b(?:always|failure|cancelled)\s*\(")
 
 
@@ -109,6 +114,22 @@ def signing_job(job: dict) -> bool:
         script in text for script in keychain_guard.SCRIPT_MADE_KEYCHAINS.values())
 
 
+def picker_ref_failures(name: str, job: dict) -> list[str]:
+    """Why picker `name` could hold a secret on any ref; [] when each secret step is held to a named ref."""
+    failures, pinned = [], set()
+    for index, step in enumerate(job.get("steps") or []):
+        if not isinstance(step, dict):
+            continue
+        condition = str(step.get("if", ""))
+        after = AFTER_STEP.match(condition)
+        if REF_CONDITION.search(condition) or (after and after.group(1) in pinned):
+            pinned.add(str(step.get("id")))
+        elif "secrets." in json.dumps(step):
+            failures.append(f"picker {name} step {index} names a secret on any ref; its if must name the trusted ref "
+                            "(github.ref or github.ref_name)")
+    return failures
+
+
 def picker_scripts(jobs: dict, needed: str, output: str) -> list[str]:
     """The picker scripts behind needs.<needed>.outputs.<output>: the run of every step its value reads."""
     job = jobs.get(needed) or {}
@@ -117,8 +138,12 @@ def picker_scripts(jobs: dict, needed: str, output: str) -> list[str]:
     found = []
     for step_id in dict.fromkeys(STEP_OUTPUT.findall(value)):
         run = steps.get(step_id, "")
-        found.append(OWNED_PICKER if OWNED_PICKER in run else BLACKSMITH_PICKER if BLACKSMITH_PICKER in run
-                     else f"steps.{step_id} ({run.strip()[:60] or 'no run'})")
+        if OWNED_PICKER in run:  # its `owned` output names a mini; `runner` and `alternate` are nightly_sign_runner's
+            owned = re.search(rf"steps\.{re.escape(step_id)}\.outputs\.owned\b", value) is not None
+            found.append(OWNED_PICKER if owned else BLACKSMITH_PICKER)
+        else:
+            found.append(BLACKSMITH_PICKER if BLACKSMITH_PICKER in run
+                         else f"steps.{step_id} ({run.strip()[:60] or 'no run'})")
     return found or [f"needs.{needed}.outputs.{output} (no step output)"]
 
 
@@ -149,6 +174,8 @@ def check(documents: dict[str, dict]) -> tuple[list[str], int]:
             if DYNAMIC_INDEX.search(json.dumps(job)) or DYNAMIC_INDEX.search(json.dumps(document.get("env") or {})):
                 failures.append(f"{label}: indexes secrets, needs or outputs with an expression the guard cannot read")
             owned_jobs += 1
+            for needed in dict.fromkeys(read.split(".")[1] for read in owned_reads):
+                failures.extend(f"{label}: {why}" for why in picker_ref_failures(needed, jobs.get(needed) or {}))
             if (workflow, name) not in SIGNING_JOBS:
                 failures.append(f"{label}: routed to owned Macs but not in SIGNING_JOBS (add it here and to glaeda's "
                                 "SIGNING_JOBS, which gives it the whole mini)")
@@ -171,9 +198,10 @@ def check(documents: dict[str, dict]) -> tuple[list[str], int]:
             elif first_secret is not None and first_secret < claim:
                 failures.append(f"{label}: step {first_secret} names a secret before the claim step ({claim})")
             else:
-                if steps[claim].get("if") is not None or str(steps[claim].get("continue-on-error", "false")) != "false":
-                    failures.append(f"{label}: the claim step must run unconditionally and fail the job "
-                                    "(no `if`, no continue-on-error)")
+                # Its `if` may skip it with the job's own work (cmux-next-dev-daily's sign skips everything without a
+                # source artifact); the unconditional first-step gate is what fails the job without the claim.
+                if str(steps[claim].get("continue-on-error", "false")) != "false":
+                    failures.append(f"{label}: the claim step must fail the job (no continue-on-error)")
                 for index, step in enumerate(steps[1:], 1):
                     if "secrets." in json.dumps(step) and RUNS_AFTER_FAILURE.search(str(step.get("if", ""))):
                         failures.append(f"{label}: step {index} names a secret and runs after a failed claim "
@@ -224,7 +252,7 @@ class SigningOwnedMacTests(unittest.TestCase):
                                                                    good["steps"][3]]}),
             "without an `if: always()` step": ("release.yml", "build-sign-notarize",
                                                {**good, "steps": good["steps"][:3]}),
-            "must run unconditionally": ("release.yml", "build-sign-notarize",
+            "must fail the job": ("release.yml", "build-sign-notarize",
                                          {**good, "steps": [good["steps"][0], {"run": CLAIM, "continue-on-error": True},
                                                             *good["steps"][2:]]}),
             "runs after a failed claim": ("release.yml", "build-sign-notarize",
@@ -259,6 +287,15 @@ class SigningOwnedMacTests(unittest.TestCase):
         failures, _ = check({"release.yml": {"jobs": {"pick": picker, "build-sign-notarize": {
             **good, "runs-on": "${{ fromJSON(needs[format('pi{0}', 'ck')].outputs.owned) }}"}}}})
         self.assertTrue(any("cannot read" in failure for failure in failures), failures)
+        open_picker = {**picker, "steps": [{"id": "mint", "if": "vars.X == '1'", "with": {"k": "${{ secrets.K }}"}},
+                                           *picker["steps"]]}
+        failures, _ = check({"release.yml": {"jobs": {"pick": open_picker, "build-sign-notarize": good}}})
+        self.assertTrue(any("names a secret on any ref" in failure for failure in failures), failures)
+        pinned = {**picker, "steps": [{"id": "mint", "if": "vars.X == '1' && github.ref == 'refs/heads/main'",
+                                       "with": {"k": "${{ secrets.K }}"}},
+                                      {"id": "again", "if": "steps.mint.outcome == 'failure'",
+                                       "with": {"k": "${{ secrets.K }}"}}, *picker["steps"]]}
+        self.assertEqual(check({"release.yml": {"jobs": {"pick": pinned, "build-sign-notarize": good}}}), ([], 1))
         other = {"outputs": {"owned": "${{ steps.pick.outputs.owned }}"},
                  "steps": [{"id": "pick", "run": "python3 scripts/ci/nightly_build_runner.py verify"}]}
         failures, _ = check({"release.yml": {"jobs": {"pick": other, "build-sign-notarize": good}}})
@@ -275,14 +312,23 @@ class SigningOwnedMacTests(unittest.TestCase):
         ]
         labels, why = signing_runner.drained_runner(runners, [SIDE])
         self.assertEqual(json.loads(labels), [SIDE, "glaeda-runner-cmux13-glaeda-3"], why)
+        # glaeda parks most of a mini's runners offline; an offline runner GitHub calls idle runs nothing.
         runners.append(runner("cmux13-glaeda-5", ["glaeda-gui-std-xcode-26.6"], status="offline"))
+        labels, why = signing_runner.drained_runner(runners, [SIDE])
+        self.assertEqual(json.loads(labels), [SIDE, "glaeda-runner-cmux13-glaeda-3"],
+                         f"a parked offline slot must not keep its mini: {why}")
+        runners[-1]["busy"] = True
         self.assertEqual(signing_runner.drained_runner(runners, [SIDE])[0], "",
-                         "an offline runner may still run a job: its mini is not offered")
+                         "an offline runner GitHub still calls busy may run a job: its mini is not offered")
         runners.pop()
         runners[3]["busy"] = True  # the mini's dedicated builder is building: that mini is not drained either
         self.assertEqual(signing_runner.drained_runner(runners, [SIDE]), (
             "", f"no mini with an idle `{SIDE}` runner is drained now"))
         self.assertEqual(signing_runner.drained_runner(runners, ["blacksmith-6vcpu-macos-26"])[0], "")
+        slot = "glaeda-nightly-std-xcode-26.6"  # glaeda's nightly slot, which CI_NIGHTLY_NEXT_BUILD_RUNNER may name
+        labels, why = signing_runner.drained_runner(
+            [runner("cmux20-glaeda-nightly", [slot, "glaeda-runner-cmux20-glaeda-nightly"])], [slot])
+        self.assertEqual(json.loads(labels), [slot, "glaeda-runner-cmux20-glaeda-nightly"], why)
         self.assertEqual(signing_runner.member("cmux13-glaeda-nightly-next"), "cmux13")
         self.assertEqual(signing_runner.member("blacksmith-runner"), "")
 
@@ -291,26 +337,90 @@ class SigningOwnedMacTests(unittest.TestCase):
         env = {"ENABLED": "1", "ROUTE_TOKEN": "t", "GITHUB_REPOSITORY": "manaflow-ai/cmux", "OWNED_LABELS": SIDE,
                "GITHUB_RUN_ATTEMPT": "1"}
         read = lambda token, repo: runners  # noqa: E731
-        self.assertTrue(signing_runner.owned_pick(env, read)[0])
+        held: list[dict] = []  # signing jobs now running on an owned Mac, as the jobs API lists them
+
+        run_status = ["in_progress"]
+
+        def jobs(path: str) -> dict:
+            if "/runs?" in path:
+                return {"workflow_runs": [{"id": 7}] if "nightly.yml" in path and f"status={run_status[0]}&" in path
+                        else []}
+            return {"jobs": held}
+
+        self.assertTrue(signing_runner.owned_pick(env, read, jobs)[0])
         for change in ({"ENABLED": ""}, {"ENABLED": "0"}, {"GITHUB_RUN_ATTEMPT": "2"}, {"ROUTE_TOKEN": ""}):
             with self.subTest(change):
-                self.assertEqual(signing_runner.owned_pick({**env, **change}, read)[0], "")
+                self.assertEqual(signing_runner.owned_pick({**env, **change}, read, jobs)[0], "")
+        self.assertEqual(signing_runner.owned_pick(env, read)[0], "", "no actions: read token: no owned Mac")
 
         def broken(token: str, repo: str) -> list:
             raise RuntimeError("403")
 
-        self.assertEqual(signing_runner.owned_pick(env, broken)[0], "")
+        self.assertEqual(signing_runner.owned_pick(env, broken, jobs)[0], "")
+
+        def unreadable(path: str) -> dict:
+            raise RuntimeError("403")
+
+        self.assertEqual(signing_runner.owned_pick(env, read, unreadable)[0], "", "an uncounted cap fails closed")
+        # At most one mini is held for signing: a signing job already pinned to an owned runner leaves none.
+        held.append({"name": "sign-nightly-identity-legacy", "status": "in_progress",
+                     "labels": [SIDE, "glaeda-runner-cmux13-glaeda-3"]})
+        owned, why = signing_runner.owned_pick(env, read, jobs)
+        self.assertEqual(owned, "", why)
+        self.assertIn("already hold an owned Mac", why)
+        for status in ("queued", "waiting", "pending", "requested"):  # every unfinished run status is read
+            with self.subTest(run_status=status):
+                run_status[0] = status
+                self.assertEqual(signing_runner.owned_pick(env, read, jobs)[0], "")
+        run_status[0] = "in_progress"
+
+        def truncated(path: str) -> dict:
+            if "/runs?" in path:
+                return {"total_count": 101, "workflow_runs": [{"id": 7}]}
+            return {"jobs": []}
+
+        self.assertEqual(signing_runner.owned_pick(env, read, truncated)[0], "", "a listing past one page fails closed")
+
+        def many_jobs(path: str) -> dict:
+            return jobs(path) if "/runs?" in path else {"total_count": 150, "jobs": []}
+
+        self.assertEqual(signing_runner.owned_pick(env, read, many_jobs)[0], "", "so does a job list past one page")
+        order: list[str] = []
+        signing_runner.owned_pick(env, lambda t, r: order.append("runners") or runners,
+                                  lambda path: order.append("jobs") or jobs(path))
+        self.assertEqual(order[0], "runners", "the runners are read before the signing jobs are counted")
+        held[0]["labels"] = ["blacksmith-6vcpu-macos-26"]  # on Blacksmith: it holds no mini
+        self.assertTrue(signing_runner.owned_pick(env, read, jobs)[0])
+        held[0].update({"name": "verify-signed-nightly", "labels": [SIDE, "glaeda-runner-cmux13-glaeda-3"]})
+        self.assertTrue(signing_runner.owned_pick(env, read, jobs)[0], "only a signing job counts")
+        held[0].update({"name": "build-sign-notarize-nightly (arm64)", "status": "completed"})
+        self.assertTrue(signing_runner.owned_pick(env, read, jobs)[0], "a finished one holds nothing")
+        held[0]["status"] = "queued"
+        self.assertEqual(signing_runner.owned_pick(env, read, jobs)[0], "", "a matrix leg counts by its job id")
+        held.clear()
         with tempfile.TemporaryDirectory() as tmp:
             output = Path(tmp) / "out"
-            self.assertEqual(signing_runner.main({**env, "GITHUB_OUTPUT": os.fspath(output)}, ["owned"], read), 0)
+            self.assertEqual(signing_runner.main({**env, "GITHUB_OUTPUT": os.fspath(output)}, ["owned"], read,
+                                                 jobs), 0)
             self.assertEqual(output.read_text(), f'owned=["{SIDE}","glaeda-runner-cmux12-glaeda"]\n')
             output.unlink()
             self.assertEqual(signing_runner.main({**env, "GITHUB_OUTPUT": os.fspath(output), "ENABLED": "0"}, [],
-                                                 read, lambda t, r: None), 0)
+                                                 read, jobs, lambda t, r: None), 0)
             values = dict(line.split("=", 1) for line in output.read_text().splitlines())
             self.assertEqual(values["owned"], "")
             self.assertTrue(values["runner"].startswith("blacksmith-"))
             self.assertTrue(values["alternate"].startswith("blacksmith-"))
+
+
+    def test_the_cap_counts_every_signing_job_glaeda_holds_the_mini_for(self) -> None:
+        """signing_runner.SIGNING_JOBS names the jobs by display name; they must be this file's SIGNING_JOBS."""
+        import yaml  # noqa: PLC0415
+        named = set()
+        for workflow, job_id in SIGNING_JOBS:
+            job = yaml.safe_load((ROOT / ".github" / "workflows" / workflow).read_text())["jobs"][job_id]
+            named.add((workflow, str(job.get("name") or job_id)))
+        self.assertEqual(named, {(workflow, name) for workflow, names in signing_runner.SIGNING_JOBS.items()
+                                 for name in names})
 
 
 class ClaimScriptTests(unittest.TestCase):
