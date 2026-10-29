@@ -496,47 +496,86 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
         Command::Host(PeerCmd::Approvals { cmd }) => {
             crate::cli::host_approvals::run(cmd, json_out).await
         }
-        Command::Host(PeerCmd::Join { ticket: None, name, hub, replace, status, peer_name, advertise }) => {
+        Command::Host(PeerCmd::Join {
+            ticket,
+            name,
+            hub,
+            replace,
+            status,
+            peer_name,
+            advertise,
+        }) => {
+            crate::cli::join_input::validate_arguments(
+                ticket.as_deref(),
+                hub.is_some(),
+                replace,
+                status,
+            )?;
             if status {
-                crate::cli::cloud_join::status(hub, json_out).await
-            } else {
-                let value = crate::cli::join_input::read_stdin_line()?;
-                if value.starts_with("cmj_") {
-                    let token = crate::cli::cloud_join::parse_token_text(&value).map_err(|e| crate::cli::errors::AppError::new(crate::cli::errors::Code::Usage, "join.malformed", e.to_string()).with_exit(2))?;
-                    crate::cli::cloud_join::join_with_token(hub, name, replace, json_out, token).await
-                } else if value.starts_with("cmxt1.") {
-                    let ticket = crate::cli::pairing::join_ticket_text(&value)?;
-                    let client = connect(true).await?;
-                    let args = crate::cli::pairing::JoinArgs { ticket, name, peer_name, advertise };
-                    crate::cli::pairing::join(client, args, json_out).await
-                } else {
-                    Err(crate::cli::errors::AppError::new(crate::cli::errors::Code::Usage, "join.malformed", "join value has an unknown prefix").with_exit(2).into())
+                return crate::cli::cloud_join::status(hub, json_out).await;
+            }
+            // A process-wide file lock protects the check, redeem and commit as one
+            // transaction. A second installer never redeems behind the first one.
+            let _lock = crate::cli::cloud_join::join_lock()?;
+            if ticket.is_none() && crate::cli::cloud_join::already_joined(replace, json_out)? {
+                return Ok(());
+            }
+            let value = match ticket {
+                Some(value) => {
+                    eprintln!("{}", crate::cli::pairing::ARGV_TICKET_WARNING);
+                    zeroize::Zeroizing::new(value)
                 }
+                None => crate::cli::join_input::read_stdin_line()?,
+            };
+            if value.starts_with("cmj_") {
+                let token = crate::cli::cloud_join::parse_token_text(&value)?;
+                crate::cli::cloud_join::join_with_token(hub, name, replace, json_out, token).await
+            } else if value.starts_with("cmxt1.") {
+                let ticket = crate::cli::pairing::join_ticket_text(&value)?;
+                let client = connect(true).await?;
+                let args = crate::cli::pairing::JoinArgs { ticket, name, peer_name, advertise };
+                crate::cli::pairing::join(client, args, json_out).await
+            } else {
+                Err(crate::cli::errors::AppError::new(
+                    crate::cli::errors::Code::Usage,
+                    "join.malformed",
+                    "join value has an unknown prefix",
+                )
+                .with_exit(2)
+                .into())
             }
-        }
-        Command::Host(PeerCmd::Join { ticket: Some(_ticket), name, hub, replace, status, peer_name: _, advertise: _ }) if hub.is_some() || status => {
-            if status { crate::cli::cloud_join::status(hub, json_out).await } else { crate::cli::cloud_join::join(hub, name, replace, json_out).await }
-        }
-        Command::Host(PeerCmd::Join { ticket: Some(ticket), name, hub: None, replace: false, status: false, peer_name, advertise }) => {
-            if ticket.starts_with("cmj_") {
-                return Err(crate::cli::errors::AppError::new(crate::cli::errors::Code::Usage, "join.malformed", "join token must be provided on stdin").with_exit(2).into());
-            }
-            let ticket = crate::cli::pairing::join_ticket(Some(ticket))?;
-            let client = connect(true).await?;
-            let args = crate::cli::pairing::JoinArgs { ticket, name, peer_name, advertise };
-            crate::cli::pairing::join(client, args, json_out).await
         }
         Command::Host(PeerCmd::Consent { cmd }) => {
             match cmd {
                 crate::cli::command_host::ConsentCmd::Grant { screen, control } => {
-                    let surface = if screen { "screen" } else if control { "control" } else { return Err(anyhow!("use --screen or --control")); };
+                    let surface = if screen {
+                        "screen"
+                    } else if control {
+                        "control"
+                    } else {
+                        return Err(anyhow!("use --screen or --control"));
+                    };
                     crate::cli::cloud_join::grant_consent(surface)?;
-                    if json_out { print_json(&json!({"granted": surface})); } else { println!("consent granted: {surface}"); }
+                    if json_out {
+                        print_json(&json!({"granted": surface}));
+                    } else {
+                        println!("consent granted: {surface}");
+                    }
                 }
                 crate::cli::command_host::ConsentCmd::Revoke { screen, control } => {
-                    let surface = if screen { "screen" } else if control { "control" } else { return Err(anyhow!("use --screen or --control")); };
+                    let surface = if screen {
+                        "screen"
+                    } else if control {
+                        "control"
+                    } else {
+                        return Err(anyhow!("use --screen or --control"));
+                    };
                     crate::cli::cloud_join::revoke_consent(surface)?;
-                    if json_out { print_json(&json!({"revoked": surface})); } else { println!("consent revoked: {surface}"); }
+                    if json_out {
+                        print_json(&json!({"revoked": surface}));
+                    } else {
+                        println!("consent revoked: {surface}");
+                    }
                 }
             }
             Ok(())
@@ -731,13 +770,11 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 PeerCmd::Ticket(cmd) => {
                     return crate::cli::pairing::ticket(client, cmd, json_out).await;
                 }
-                PeerCmd::Join { ticket: Some(ticket), name, peer_name, advertise, .. } => {
-                    let ticket = crate::cli::pairing::join_ticket(Some(ticket))?;
-                    let args = crate::cli::pairing::JoinArgs { ticket, name, peer_name, advertise };
-                    return crate::cli::pairing::join(client, args, json_out).await;
+                PeerCmd::Join { .. } | PeerCmd::Consent { .. } => {
+                    return Err(anyhow!(
+                        "host join and consent are handled before daemon connection"
+                    ));
                 }
-                PeerCmd::Join { ticket: None, .. } => unreachable!("cloud join is handled before daemon connection"),
-                PeerCmd::Consent { .. } => unreachable!("local consent is handled before daemon connection"),
             };
             if json_out {
                 print_json(&v);

@@ -51,7 +51,9 @@ impl MeshRelayConfig {
         if url.query().is_some() || url.fragment().is_some() {
             return Err("meshRelay.url must carry no query or fragment".into());
         }
-        if self.credential.as_deref() != Some("join") && self.token_command.first().is_none_or(|p| p.trim().is_empty()) {
+        if self.credential.as_deref() != Some("join")
+            && self.token_command.first().is_none_or(|p| p.trim().is_empty())
+        {
             return Err("meshRelay.tokenCommand names no program".into());
         }
         let path = url.path().trim_end_matches('/');
@@ -131,15 +133,20 @@ impl HttpHub {
             .user_agent(concat!("acpmux/", env!("CARGO_PKG_VERSION")))
             .build()
             .map_err(|e| e.to_string())?;
-        Ok(Self { origin, command: config.token_command.clone(), credential: config.credential.clone(), http, token: Default::default() })
+        Ok(Self {
+            origin,
+            command: config.token_command.clone(),
+            credential: config.credential.clone(),
+            http,
+            token: Default::default(),
+        })
     }
 
     /// A token: the one held while it is good, else a new one from the command.
     async fn token(&self, fresh: bool) -> Result<Arc<Zeroizing<String>>, HubError> {
         let mut held = self.token.lock().await;
         if self.credential.as_deref() == Some("join") {
-            if !fresh && let Some((token, _)) = held.as_ref() { return Ok(Arc::clone(token)); }
-            let value = crate::cli::cloud_join::read_join_credential()
+            let value = crate::cli::cloud_join::read_join_credential(&self.origin)
                 .map_err(|_| HubError::refused("machine credential is unavailable"))?;
             let token = Arc::new(Zeroizing::new(value));
             *held = Some((Arc::clone(&token), 0));
@@ -225,6 +232,16 @@ impl HttpHub {
                 .await
                 .map_err(|e| HubError::unavailable(format!("the hub: {}", e.without_url())))?;
             let status = response.status().as_u16();
+            if self.credential.as_deref() == Some("join") {
+                if status == 401 {
+                    let _ = crate::cli::cloud_join::record_auth_result(token.as_str(), true, false);
+                    return Err(HubError::refused("revoked: run machine add again"));
+                }
+                if (200..300).contains(&status) && path == "/v1/mesh/heartbeat" {
+                    let _ = crate::cli::cloud_join::record_auth_result(token.as_str(), false, true);
+                }
+            }
+
             let mut bytes = Vec::new();
             while let Some(chunk) = response
                 .chunk()
