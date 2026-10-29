@@ -193,7 +193,9 @@ test("the toggle draws a useful headline: what to work on, with the project as a
   root = await render("minimal", ["greeting"]);
   try {
     expect(parts().headline).toBe("What should we work on on This Mac?");
-    expect(host.querySelector<HTMLButtonElement>('.nt-headline-text button[aria-label="Computer: This Mac"]')).not.toBeNull();
+    expect(
+      host.querySelector<HTMLButtonElement>('.nt-headline-text button[aria-label="Computer: This Mac"]'),
+    ).not.toBeNull();
     expect(host.querySelector(".nt-headline-choose .acpmux-project-button")).not.toBeNull();
   } finally {
     await act(async () => root.unmount());

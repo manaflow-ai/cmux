@@ -66,7 +66,8 @@ const pickRemoteMachine = async (ctx: PlayContext) => {
   await ctx.waitFor(
     () =>
       (ctx.document.querySelector(machineButton) ?? ctx.document.querySelector(composerMachineButton))
-        ?.getAttribute("aria-label")?.includes("devbox") ?? false,
+        ?.getAttribute("aria-label")
+        ?.includes("devbox") ?? false,
   );
 };
 /// Picks `name` from the headline's picker, as a click on the project's name and then on its row.

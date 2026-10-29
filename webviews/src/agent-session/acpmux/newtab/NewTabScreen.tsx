@@ -1150,10 +1150,11 @@ export function NewTabScreen(props: Props) {
     setProjectPeer(undefined);
   }, [headlineMachineIsLive, peerRemoved, savedPeerRemoved, saved.pick]);
   const startableSessions = useMemo(
-    () => snapshot.sessions.filter((session) => {
-      const peer = session.peer ?? (session.hostKind === "cloud" ? session.host : undefined);
-      return peer ? (snapshot.peers ?? []).includes(peer) : session.hostKind !== "cloud";
-    }),
+    () =>
+      snapshot.sessions.filter((session) => {
+        const peer = session.peer ?? (session.hostKind === "cloud" ? session.host : undefined);
+        return peer ? (snapshot.peers ?? []).includes(peer) : session.hostKind !== "cloud";
+      }),
     [snapshot.sessions, snapshot.peers],
   );
   const [worktreeError, setWorktreeError] = useState<string>();
