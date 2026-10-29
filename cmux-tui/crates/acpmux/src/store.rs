@@ -1672,6 +1672,7 @@ fn sync_directory(_path: &Path) -> Result<()> {
 #[cfg(unix)]
 fn open_private_append(path: &Path) -> Result<File> {
     use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+    crate::config::refuse_lost_home(path)?;
 
     let file = OpenOptions::new()
         .create(true)

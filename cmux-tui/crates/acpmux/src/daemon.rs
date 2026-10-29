@@ -675,7 +675,9 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         }
     };
     // After the agents: their model streams go through the router.
-    let _ = tokio::task::spawn_blocking(move || release_router(kept == 0)).await;
+    // A lost home's router path may be another daemon's router now: let go of ours, never ask
+    // that path to stop.
+    let _ = tokio::task::spawn_blocking(move || release_router(kept == 0 && !home_lost)).await;
     // Cancelled and finished before the removal, so a late retry never puts it back.
     if let Some(retry) = pid_retry {
         retry.abort();
@@ -1382,28 +1384,38 @@ fn serves_elsewhere(path: &std::path::Path, other: &std::path::Path) -> anyhow::
     )
 }
 
-/// The socket a daemon holding this home's lock serves, when it is not `path`: the daemon
-/// answering at the home's own socket says so in its status (`home`, `socket`).
+/// The socket a daemon of this home serves, when it is not `path`: the socket its lock records
+/// (`lock::holder_socket`), else the home's own, once the daemon answering there says in its
+/// status that it is this home's (`home`, `socket`).
 #[cfg(unix)]
 async fn holder_elsewhere(path: &std::path::Path) -> Option<std::path::PathBuf> {
     let home = home();
-    let own = crate::config::socket_path_for(&home, None);
-    if own == path {
-        return None;
+    let mut candidates = Vec::new();
+    for socket in lock::holder_socket(&home.join("daemon.lock"))
+        .into_iter()
+        .chain([crate::config::socket_path_for(&home, None)])
+    {
+        if socket != path && !candidates.contains(&socket) {
+            candidates.push(socket);
+        }
     }
-    let client = Client::connect(&own).await.ok()?;
-    let status = tokio::time::timeout(
-        START_BUDGET,
-        client.request(crate::rpc::method::MUX_STATUS, serde_json::json!({})),
-    )
-    .await
-    .ok()?
-    .ok()?;
-    let serves = |key: &str| status.get(key).and_then(Value::as_str).map(std::path::PathBuf::from);
-    (serves("home").as_deref() == Some(home.as_path()))
-        .then(|| serves("socket"))
-        .flatten()
-        .filter(|socket| socket != path)
+    for socket in candidates {
+        let Ok(client) = Client::connect(&socket).await else { continue };
+        let asked = tokio::time::timeout(
+            START_BUDGET,
+            client.request(crate::rpc::method::MUX_STATUS, serde_json::json!({})),
+        )
+        .await;
+        let Ok(Ok(status)) = asked else { continue };
+        let serves =
+            |key: &str| status.get(key).and_then(Value::as_str).map(std::path::PathBuf::from);
+        if serves("home").as_deref() == Some(home.as_path())
+            && let Some(serving) = serves("socket").filter(|s| s != path)
+        {
+            return Some(serving);
+        }
+    }
+    None
 }
 
 #[cfg(not(unix))]

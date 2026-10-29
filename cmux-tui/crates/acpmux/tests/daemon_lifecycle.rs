@@ -766,6 +766,29 @@ async fn a_socket_the_homes_daemon_does_not_serve_fails_fast() {
     assert!(stderr.contains(&format!("serves {}", socket.display())), "{stderr}");
     assert!(took < acpmux::daemon::HANDOVER_BUDGET, "failed after {took:?}");
     assert!(stopped.is_some(), "the daemon did not stop on SIGTERM");
+
+    // The home's daemon serves a socket of its own choosing, and the command asks for the
+    // home's default one: the socket the lock records names it.
+    let custom = home.join("custom.sock");
+    let mut child = ready_daemon(&dir, &home, &custom).await;
+    let started = Instant::now();
+    let out = daemon_env::acpmux(&dir)
+        .args(["ls"])
+        .env("ACPMUX_HOME", &home)
+        .env("ACPMUX_LOGIN_ENV", "0")
+        .stdin(std::process::Stdio::null())
+        .output()
+        .unwrap();
+    let took = started.elapsed();
+    unsafe {
+        libc::kill(child.id() as i32, libc::SIGTERM);
+    }
+    let stopped = exit_within(&mut child, acpmux::daemon::EXIT_BUDGET).await;
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success(), "{stderr}");
+    assert!(stderr.contains(&format!("serves {}", custom.display())), "{stderr}");
+    assert!(took < acpmux::daemon::HANDOVER_BUDGET, "failed after {took:?}");
+    assert!(stopped.is_some(), "the daemon did not stop on SIGTERM");
     let _ = std::fs::remove_dir_all(&dir);
 }
 
