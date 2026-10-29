@@ -1425,6 +1425,8 @@ impl Hub {
         crate::agent_tools::remove_mcp_config(&crate::config::home(), &session.id);
         if purge {
             super::watches::before_purge(self, &session.id).await?;
+            // Its background tasks end with it (`bg_tasks.rs`); a stop keeps them.
+            self.bg_purge(session).await?;
             session.purged.store(true, Ordering::SeqCst);
             let replaced = session.replaced.load(Ordering::SeqCst);
             self.sessions.lock().unwrap().remove(&session.id);

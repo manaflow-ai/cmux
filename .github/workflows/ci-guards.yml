@@ -130,6 +130,16 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_no_shallow_dev_fetch.py
 
+      # Build scripts add a Rust target only when it is missing (rustup target add
+      # reaches static.rust-lang.org even for an installed target).
+      - name: Validate scripts add only missing Rust targets
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_rust_targets_installed_first.py
+
+      - name: Test the Rust targets helper
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: bash tests/test_rust_targets_helper.sh
+
       # Fleet rules as a shrink-only ratchet: no fleet sudo keychain reads, no
       # new kill by process name or pattern, nothing depends on the personal
       # Linux workstation (tests/fleet-rule-allowlist.json).
@@ -691,6 +701,10 @@ jobs:
       - name: Validate the package test lane's single-suite phase
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_package_lane_suite.py
+
+      - name: Validate the Linux-capable Swift package list
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_swift_linux_packages.py
 
       - name: Validate workflow_run triggers name workflows that exist
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -1653,6 +1667,10 @@ jobs:
       - name: Validate the nightly signing jobs take a Blacksmith label with a moving queue
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_sign_runner.py
+
+      - name: Validate a signing job on an owned Mac holds the whole Mac and deletes its keychain
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_ci_signing_owned_mac.py
 
       - name: Validate the nightly-next build takes an idle owned Mac or a moving Blacksmith label
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
