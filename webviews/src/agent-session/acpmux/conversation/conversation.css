@@ -690,13 +690,6 @@
   .acpmux-turnSummary .cv-turn-actions {
     transition: opacity var(--cv-actions-out) var(--cv-actions-ease);
   }
-  .cv-user:hover .cv-user__actions,
-  .cv-received:hover .cv-received-actions,
-  .acpmux-assistant:hover .cv-reply-actions,
-  .acpmux-turnSummary[data-turn-revealed] .cv-turn-actions,
-  .acpmux-turnSummary:hover .cv-turn-actions {
-    transition: opacity var(--cv-actions-in) var(--cv-actions-ease) var(--cv-actions-in-delay);
-  }
   .cv-user__actions:focus-within,
   .cv-received-actions:focus-within,
   .cv-reply-actions:focus-within,
@@ -705,11 +698,24 @@
     transition: opacity var(--cv-actions-in) var(--cv-actions-ease);
   }
 }
-.cv-user:hover .cv-user__actions,
+@media (prefers-reduced-motion: no-preference) and (hover: hover) and (pointer: fine) {
+  .cv-user:hover .cv-user__actions,
+  .cv-received:hover .cv-received-actions,
+  .acpmux-assistant:hover .cv-reply-actions,
+  .acpmux-turnSummary[data-turn-revealed] .cv-turn-actions,
+  .acpmux-turnSummary:hover .cv-turn-actions {
+    transition: opacity var(--cv-actions-in) var(--cv-actions-ease) var(--cv-actions-in-delay);
+  }
+}
 .cv-user__actions:focus-within,
 .cv-user__actions:has([aria-haspopup="menu"][aria-expanded="true"]),
 .cv-user__actions--versions {
   opacity: 1;
+}
+@media (hover: hover) and (pointer: fine) {
+  .cv-user:hover .cv-user__actions {
+    opacity: 1;
+  }
 }
 /* The rows' icon buttons are Claude's 24px squares (the meta row's line), not the 20px compact ones. */
 :is(.cv-user__actions, .cv-received-actions) .cv-iconbtn--compact:not(.cv-turn-retry-menu) {
@@ -726,11 +732,15 @@
   white-space: nowrap;
   opacity: 0;
 }
-.cv-received:hover .cv-received-actions,
 .cv-received-actions:focus-within,
 .cv-received-actions:has([aria-haspopup="menu"][aria-expanded="true"]),
 .cv-received-actions:has([aria-haspopup="menu"][data-popup-open]) {
   opacity: 1;
+}
+@media (hover: hover) and (pointer: fine) {
+  .cv-received:hover .cv-received-actions {
+    opacity: 1;
+  }
 }
 .cv-received-actions :is([aria-haspopup="menu"][aria-expanded="true"], [aria-haspopup="menu"][data-popup-open]) {
   color: var(--cv-text);
@@ -2891,13 +2901,17 @@ a.cv-sha:focus-visible {
 .acpmux-turnSummary .cv-turn-actions {
   opacity: 0;
 }
-.acpmux-turnSummary[data-turn-revealed] .cv-turn-actions,
 .acpmux-turnSummary:focus-visible .cv-turn-actions,
-.acpmux-turnSummary:hover .cv-turn-actions,
 .acpmux-turnSummary .cv-turn-actions:focus-within,
 .acpmux-turnSummary .cv-turn-actions--failed,
 .acpmux-turnSummary .cv-turn-actions--resumable {
   opacity: 1;
+}
+@media (hover: hover) and (pointer: fine) {
+  .acpmux-turnSummary[data-turn-revealed] .cv-turn-actions,
+  .acpmux-turnSummary:hover .cv-turn-actions {
+    opacity: 1;
+  }
 }
 /* A reply's own row (MessageActions.tsx ReplyActions: a steer, another agent's message or a tool
    row follows the reply): the footer's line under it at the meta gap, its space kept, shown while
@@ -2906,10 +2920,14 @@ a.cv-sha:focus-visible {
   margin-top: var(--cv-meta-gap);
   opacity: 0;
 }
-.acpmux-assistant:hover .cv-reply-actions,
 .acpmux-assistant:focus-visible .cv-reply-actions,
 .cv-reply-actions:focus-within {
   opacity: 1;
+}
+@media (hover: hover) and (pointer: fine) {
+  .acpmux-assistant:hover .cv-reply-actions {
+    opacity: 1;
+  }
 }
 .cv-turn-summary,
 .cv-turn-time {
@@ -4202,9 +4220,13 @@ article.acpmux-row:empty {
   opacity: 0;
   letter-spacing: var(--text-detail--letter-spacing);
 }
-.cv-received:hover .cv-received__reply,
 .cv-received:focus-within .cv-received__reply {
   opacity: 1;
+}
+@media (hover: hover) and (pointer: fine) {
+  .cv-received:hover .cv-received__reply {
+    opacity: 1;
+  }
 }
 /* Reply and the queue tag (below) fade with the line's hover row (.cv-received-actions, #23769): in
    after a beat under the pointer, at once from the keyboard, out quickly. */
@@ -4213,13 +4235,15 @@ article.acpmux-row:empty {
   .cv-received .cv-received__queued {
     transition: opacity var(--cv-actions-out) var(--cv-actions-ease);
   }
-  .cv-received:hover .cv-received__reply,
-  .cv-received:hover .cv-received__queued {
-    transition: opacity var(--cv-actions-in) var(--cv-actions-ease) var(--cv-actions-in-delay);
-  }
   .cv-received:focus-within .cv-received__reply,
   .cv-received:focus-within .cv-received__queued {
     transition: opacity var(--cv-actions-in) var(--cv-actions-ease);
+  }
+}
+@media (prefers-reduced-motion: no-preference) and (hover: hover) and (pointer: fine) {
+  .cv-received:hover .cv-received__reply,
+  .cv-received:hover .cv-received__queued {
+    transition: opacity var(--cv-actions-in) var(--cv-actions-ease) var(--cv-actions-in-delay);
   }
 }
 .cv-received__reply:hover,
@@ -4254,10 +4278,14 @@ article.acpmux-row:empty {
 .cv-received .cv-received__queued {
   opacity: 0;
 }
-.cv-received:hover .cv-received__queued,
 .cv-received:focus-within .cv-received__queued,
 .cv-received:has(.cv-received-actions [aria-haspopup="menu"][aria-expanded="true"]) .cv-received__queued {
   opacity: 1;
+}
+@media (hover: hover) and (pointer: fine) {
+  .cv-received:hover .cv-received__queued {
+    opacity: 1;
+  }
 }
 /* The running turn's line while the chat waits on the person (waitingOn.ts): full text color, so it
    reads as a call to act, not the muted "Thinking" it replaces. It holds still: no mark, no clock. */

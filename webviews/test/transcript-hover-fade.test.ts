@@ -126,6 +126,31 @@ function hoverControls(sheets: { file: string; source: string }[]): Control[] {
 
 const where = (rule: Rule) => `${path.relative(ACPMUX, rule.file)}:${rule.line}`;
 
+/// Returns the contents of each conditional block whose media query contains `condition`.
+/// Keeping the braces balanced lets this cover grouped selectors and multiline declarations
+/// without treating a selector's text as proof that the rule is actually gated.
+function mediaBlocks(source: string, condition: string): string[] {
+  const blocks: string[] = [];
+  let searchFrom = 0;
+  while (true) {
+    const query = source.indexOf(condition, searchFrom);
+    if (query < 0) break;
+    const open = source.indexOf("{", query);
+    if (open < 0) break;
+    let depth = 1;
+    let close = open + 1;
+    while (close < source.length && depth > 0) {
+      if (source[close] === "{") depth++;
+      else if (source[close] === "}") depth--;
+      close++;
+    }
+    if (depth !== 0) break;
+    blocks.push(source.slice(open + 1, close - 1));
+    searchFrom = close;
+  }
+  return blocks;
+}
+
 /// The controls that blink, as `.name (hidden at …, shown at …): what is missing`.
 function blinking(controls: Control[]): string[] {
   return controls
@@ -169,6 +194,38 @@ describe("transcript hover-revealed controls fade", () => {
       "cv-media__actions",
     ])
       expect(names).toContain(name);
+  });
+
+  test("pointer hover reveals are gated while keyboard focus stays independent", () => {
+    const source = readFileSync(path.join(ACPMUX, "conversation", "conversation.css"), "utf8").replace(
+      /\/\*[\s\S]*?\*\//g,
+      "",
+    );
+    const hoverBlocks = mediaBlocks(source, "(hover: hover) and (pointer: fine)");
+    expect(hoverBlocks.length).toBeGreaterThan(0);
+    for (const selector of [
+      ".cv-user:hover .cv-user__actions",
+      ".cv-received:hover .cv-received-actions",
+      ".acpmux-assistant:hover .cv-reply-actions",
+      ".acpmux-turnSummary[data-turn-revealed] .cv-turn-actions",
+      ".acpmux-turnSummary:hover .cv-turn-actions",
+      ".cv-received:hover .cv-received__reply",
+      ".cv-received:hover .cv-received__queued",
+    ]) {
+      expect(hoverBlocks.some((block) => block.includes(selector)), selector).toBe(true);
+    }
+    // A coarse pointer must not get a sticky :hover reveal; focus selectors remain outside the gate
+    // so keyboard access still works on every input device.
+    const withoutHoverBlocks = source.replace(
+      /@media[^{}]*(?:\(hover:\s*hover\)|\(pointer:\s*fine\))[^{}]*\{(?:[^{}]*\{[^{}]*\})*[^{}]*\}/g,
+      "",
+    );
+    expect(withoutHoverBlocks).not.toContain(".cv-user:hover .cv-user__actions");
+    expect(withoutHoverBlocks).not.toContain(".cv-received:hover .cv-received-actions");
+    expect(withoutHoverBlocks).not.toContain(".acpmux-assistant:hover .cv-reply-actions");
+    expect(withoutHoverBlocks).not.toContain(".acpmux-turnSummary:hover .cv-turn-actions");
+    expect(withoutHoverBlocks).toContain(".cv-user__actions:focus-within");
+    expect(withoutHoverBlocks).toContain(".cv-received:focus-within .cv-received__reply");
   });
 
   test("a control that shows on hover with no fade is reported", () => {
