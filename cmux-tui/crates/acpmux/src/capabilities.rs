@@ -96,6 +96,8 @@ pub const CAPABILITIES: &[Capability] = &[
     Capability { id: "chat-presence-v1", wire: &[method::MUX_TYPING, method::MUX_PRESENCE] },
     // Edit or remove a queued prompt, and send a steer now (`hub/queue_edit.rs`).
     Capability { id: "queue-edit-v1", wire: &[method::MUX_QUEUE_EDIT, method::MUX_QUEUE_REMOVE] },
+    // One queued prompt's whole text, read on demand (`hub/queue_text.rs`).
+    Capability { id: "queue-text-v1", wire: &[method::MUX_QUEUE_TEXT] },
     // One answer for a group of permission asks, and revoking a chat's grants.
     Capability {
         id: "permission-groups-v1",

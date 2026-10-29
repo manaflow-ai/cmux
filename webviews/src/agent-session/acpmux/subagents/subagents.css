@@ -612,6 +612,13 @@ button.cv-subagent > :last-child {
 .acpmux-running-tray__head .acpmux-lineage__icon {
   color: var(--agent-accent);
 }
+/* A row's icon when no harness mark replaces it (TonedIcon.tsx), in its agent's own stable tone,
+   running or not, so a list of them tells apart (Leo, 2026-10-29: "the fact that there's all of these
+   icons that are literally all the same icon, that's terrible"). The running wave still marks what runs. */
+.acpmux-toned-icon {
+  display: inline-flex;
+  color: var(--agent-tone-ink);
+}
 /* A line's hover card (the Inspector's Subagents): its name, then its state, time and what it does
    now, then its task, dim; a failed one's state in the danger color. */
 .ui-card.acpmux-agent-card__popup {
