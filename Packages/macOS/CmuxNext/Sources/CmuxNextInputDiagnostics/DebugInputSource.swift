@@ -7,7 +7,8 @@ public nonisolated enum DebugInputSection: String, CaseIterable, Sendable, Codab
     case latency
     /// INP-style interaction latency (task 097).
     case interactions
-    /// ``DebugInputGate``: the main-thread job gate (tasks 021, 076).
+    /// ``DebugInputGate``: the main-thread job gate (tasks 021, 076). No producer since sequence-manager S6 deleted
+    /// the gate: the read lists it under `absent`.
     case gate
     /// Frame-aligned pointer delivery per window and consumer (task 030).
     case coalescer

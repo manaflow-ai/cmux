@@ -1,0 +1,14 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "launchStartDeferral",
+  "owner": "Performance Lead",
+  "description": "Launch starts the first frame does not need that still run in the launch turn or right after the first frame (bookmark sync and the imports' bookmark migration, closed-history retention, the Chromium likelihood hint) wait until startup completes.",
+  "defaults": { "dev": false, "nightly": false, "release": false },
+  "kind": "perfPath",
+  "expires": "2026-12-20",
+  "process": "app",
+  "params": [],
+  "stories": ["launch-cold", "launch-warm"],
+  "sticky": false,
+  "runtimeMutable": false
+}

@@ -31,6 +31,21 @@ extension CEFTab: BrowserFreezing {
     func freezeNeverShownPage(_ browser: Int32) { CEFTabNodeVisibility.freezeNeverShown(browser, runtime: runtime) }
 }
 
+/// The tab's back-forward cache emptied while it is hidden (p07-memory-101): the fork's
+/// `cmux_flush_back_forward_cache`, the tab's `BackForwardCache::Flush`
+/// (content/public/browser/back_forward_cache.h). A fork without the call does nothing.
+extension CEFTab: BrowserBackForwardCacheFlushing {
+    /// Sends one flush for a hidden tab's browser. A tab the content lifecycle shows is never
+    /// flushed: its Back is the person's next step. The answer is not read, since in host mode the
+    /// call is a post to the Chromium Host.
+    @discardableResult
+    public func flushBackForwardCache() -> Bool {
+        guard let browserID, !isClosed, isContentHidden, let flush = runtime.shim?.tabFlushBackForwardCache else { return false }
+        _ = flush(browserID)
+        return true
+    }
+}
+
 /// Chrome's in-place discard (Memory Saver): a hidden page's renderer and document go and its tab
 /// stays, `WebContents::Discard` (content/public/browser/web_contents.h) through the fork's
 /// `cmux_shim_tab_discard`.

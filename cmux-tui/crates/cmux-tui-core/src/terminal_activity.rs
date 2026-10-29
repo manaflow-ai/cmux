@@ -183,6 +183,10 @@ pub(crate) struct ShellActivity {
     /// program read them, or each waits for the shell as a typed-ahead line.
     /// Its end decides ([`Self::settle_command_input`]).
     typed_while_running: u32,
+    /// A primary `A` came and no `B`, `C` or input since: the shell is
+    /// drawing that prompt, so a secondary `A` now is a later line of it
+    /// (kitty marks multi-line PS1 lines `A;k=s`), not a continuation prompt.
+    drawing_prompt: bool,
     /// Bytes were written after the last Return (a partial line, or a key
     /// the daemon cannot read as a Return: an unknown fallback key, a kitty
     /// keyboard protocol Enter): the next prompt's line editor may hold them.
@@ -231,6 +235,7 @@ impl ShellActivity {
                 self.busy_since_ms.get_or_insert(now_ms);
                 self.prompt_since_ms = None;
                 self.line_since_prompt = true;
+                self.drawing_prompt = false;
                 false
             }
             ShellMark::CommandEnd { .. } => {
@@ -252,9 +257,30 @@ impl ShellActivity {
                 // shell printed it may wait unread for the line editor: a
                 // line still owed (typed ahead) or a partial one.
                 self.input_after_prompt = self.owed_prompts > 0 || self.unsubmitted;
+                self.drawing_prompt = true;
                 true
             }
-            ShellMark::InputStart => false,
+            // A later line of the primary prompt being drawn (kitty marks the
+            // lines of a multi-line PS1 `A;k=s`): part of that prompt.
+            ShellMark::SecondaryPromptStart if self.drawing_prompt => false,
+            // A continuation prompt (PS2: an open quote, a heredoc, a `for`
+            // loop over lines) answers the Return before it, if it is still
+            // owed, but the command it continues is not finished: the shell
+            // holds its text, so it stays not idle until a primary `A`.
+            ShellMark::SecondaryPromptStart => {
+                if self.prompted {
+                    self.owed_prompts = self.owed_prompts.saturating_sub(1);
+                }
+                self.input_after_prompt = true;
+                false
+            }
+            // A right prompt (zsh's RPROMPT) is drawn with the primary prompt,
+            // after its `B`: it answers no line.
+            ShellMark::RightPromptStart => false,
+            ShellMark::InputStart => {
+                self.drawing_prompt = false;
+                false
+            }
         }
     }
 
@@ -377,9 +403,10 @@ impl ShellActivity {
     /// Notes input `bytes` written to the terminal (keys, a paste, a `send`;
     /// empty for a key the daemon cannot read), before they are written: until
     /// the prompt that answers its lines the shell is not idle. Returns true
-    /// when an idle fact may have been published ([`Self::retract_idle`]), so
+    /// when an idle fact may have gone out ([`Self::idle_went_out`]), so
     /// the caller asks for a publication.
     pub(crate) fn note_input(&mut self, bytes: &[u8]) -> bool {
+        self.drawing_prompt = false;
         self.epoch = self.epoch.wrapping_add(1);
         self.input_after_prompt = true;
         self.note_input_lines(bytes);
@@ -532,6 +559,7 @@ impl ShellActivity {
         self.prompted = true;
         self.owed_prompts = 0;
         self.typed_while_running = 0;
+        self.drawing_prompt = false;
         self.unsubmitted = false;
         self.in_paste = false;
         self.line_since_prompt = false;
@@ -552,6 +580,7 @@ impl ShellActivity {
         self.prompted = previous.prompted;
         self.typed_while_running = previous.typed_while_running;
         self.line_since_prompt = previous.line_since_prompt;
+        self.drawing_prompt = previous.drawing_prompt;
         self.unsubmitted = previous.unsubmitted;
         self.in_paste = previous.in_paste;
         self.unseen_input = previous.unseen_input;
@@ -1068,6 +1097,133 @@ mod tests {
         let epoch = activity.foreground_check_due().expect("a new check is due");
         activity.record_foreground(epoch, true);
         assert_eq!(activity.idle_since(), Some(1_000));
+    }
+
+    /// A continuation prompt (`133;A;k=s`) pays its line but never makes the
+    /// shell idle: the command it continues is unfinished.
+    #[test]
+    fn shell_idle_a_secondary_prompt_is_never_idle_and_the_primary_after_it_is() {
+        let mut activity = idle_at(1_000);
+        activity.note_input(b"cat <<EOF\r");
+        activity.observe(ShellMark::SecondaryPromptStart, 1_100);
+        assert_eq!(activity.foreground_check_due(), None, "the heredoc is unfinished");
+        activity.observe(ShellMark::InputStart, 1_101);
+        assert_eq!(activity.foreground_check_due(), None);
+        activity.note_input(b"a line\r");
+        activity.observe(ShellMark::SecondaryPromptStart, 1_200);
+        assert_eq!(activity.idle_since(), None);
+        activity.note_input(b"EOF\r");
+        activity.observe(ShellMark::PromptStart, 1_300);
+        assert!(activity.foreground_check_due().is_some(), "the primary prompt after it");
+    }
+
+    /// Review of cp/fix-tip-continuation-prompt-idle, finding 1: kitty marks
+    /// the second line of a multi-line PS1 `A;k=s`; with no line typed it is
+    /// part of the prompt, which reads idle.
+    #[test]
+    fn shell_idle_a_multi_line_prompt_with_secondary_marks_is_idle() {
+        let mut activity = ShellActivity::default();
+        activity.observe(ShellMark::PromptStart, 1_000);
+        activity.observe(ShellMark::SecondaryPromptStart, 1_001);
+        activity.observe(ShellMark::InputStart, 1_002);
+        let epoch = activity.foreground_check_due().expect("the prompt asks for a check");
+        activity.record_foreground(epoch, true);
+        assert_eq!(activity.idle_since(), Some(1_000));
+    }
+
+    /// The same prompt after a line typed ahead into an open quote: the
+    /// primary `A` came before the shell read the line, and the `A;k=s` that
+    /// answers it must keep the unfinished command not idle.
+    #[test]
+    fn shell_idle_an_open_quote_typed_ahead_of_its_prompt_is_not_idle() {
+        let mut activity = idle_at(1_000);
+        activity.note_input(b"true\recho \"x\r");
+        activity.observe(ShellMark::PromptStart, 2_000);
+        assert_eq!(activity.idle_since(), None, "a line is owed");
+        activity.observe(ShellMark::SecondaryPromptStart, 2_001);
+        assert_eq!(activity.foreground_check_due(), None, "the quote is open");
+        assert_eq!(activity.idle_since(), None);
+        // A multi-line PS1's own `A;k=s` (right after its `A`) is part of that
+        // prompt and pays no line: the typed-ahead lines stay owed.
+        let mut activity = idle_at(1_000);
+        activity.note_input(b"true\rsleep 1\rsleep 600\r");
+        activity.observe(ShellMark::PromptStart, 2_000);
+        activity.observe(ShellMark::SecondaryPromptStart, 2_001);
+        assert_eq!(activity.foreground_check_due(), None);
+        assert_eq!(activity.idle_since(), None);
+    }
+
+    /// The check a `B` asks for, with the shell holding the foreground.
+    fn check_at_b(activity: &mut ShellActivity, at: u64) {
+        activity.observe(ShellMark::InputStart, at);
+        if let Some(epoch) = activity.foreground_check_due() {
+            activity.record_foreground(epoch, true);
+        }
+    }
+
+    /// Review of cp/fix-tip-continuation-prompt-idle-2, sequence A: two lines
+    /// typed while one command runs, the second an open quote; a single-line
+    /// PS1 and a kitty PS2 (`A;k=s`). The PS2 is a real continuation prompt
+    /// and must keep the unfinished command not idle.
+    #[test]
+    fn shell_idle_an_open_quote_typed_while_a_command_ran_is_not_idle_at_its_ps2() {
+        let mut activity = idle_at(1_000);
+        activity.note_input(b"sleep 1\r");
+        activity.observe(ShellMark::CommandStart, 1_100);
+        activity.note_input(b"sleep 1\recho \"x\r");
+        activity.observe(ShellMark::CommandEnd { exit_code: None }, 1_200);
+        activity.observe(ShellMark::PromptStart, 1_300);
+        check_at_b(&mut activity, 1_301);
+        activity.observe(ShellMark::CommandStart, 1_400);
+        activity.observe(ShellMark::CommandEnd { exit_code: None }, 1_500);
+        activity.observe(ShellMark::PromptStart, 1_600);
+        check_at_b(&mut activity, 1_601);
+        activity.observe(ShellMark::SecondaryPromptStart, 1_700);
+        check_at_b(&mut activity, 1_701);
+        assert_eq!(activity.idle_since(), None, "the quote is open");
+    }
+
+    /// Sequence B: a two-line kitty PS1 (`A`, `A;k=s`, `B`) and three lines
+    /// in one write, the third an open quote.
+    #[test]
+    fn shell_idle_an_open_quote_typed_ahead_of_a_two_line_prompt_is_not_idle_at_its_ps2() {
+        let mut activity = idle_at(1_000);
+        activity.note_input(b"true\rsleep 1\recho \"x\r");
+        for at in [2_000, 3_000] {
+            activity.observe(ShellMark::CommandStart, at - 50);
+            activity.observe(ShellMark::CommandEnd { exit_code: None }, at - 40);
+            activity.observe(ShellMark::PromptStart, at);
+            activity.observe(ShellMark::SecondaryPromptStart, at + 1);
+            check_at_b(&mut activity, at + 2);
+        }
+        activity.observe(ShellMark::SecondaryPromptStart, 3_100);
+        check_at_b(&mut activity, 3_101);
+        assert_eq!(activity.idle_since(), None, "the quote is open");
+    }
+
+    /// A real PS2 (after `B`, no primary `A` before it) with nothing owed
+    /// (the count can be low) still keeps the shell not idle.
+    #[test]
+    fn shell_idle_a_continuation_prompt_with_nothing_owed_is_not_idle() {
+        let mut activity = idle_at(1_000);
+        check_at_b(&mut activity, 1_001);
+        activity.observe(ShellMark::SecondaryPromptStart, 1_100);
+        check_at_b(&mut activity, 1_101);
+        assert_eq!(activity.idle_since(), None);
+    }
+
+    /// A right prompt (`A;k=r`, after the primary prompt's `B`) pays no line.
+    #[test]
+    fn shell_idle_a_right_prompt_pays_no_line() {
+        let mut activity = idle_at(1_000);
+        activity.note_input(b"true\rsleep 600\r");
+        activity.observe(ShellMark::CommandStart, 1_050);
+        activity.observe(ShellMark::CommandEnd { exit_code: None }, 1_060);
+        activity.observe(ShellMark::PromptStart, 1_100);
+        check_at_b(&mut activity, 1_101);
+        activity.observe(ShellMark::parse(b"A;k=r").unwrap(), 1_102);
+        check_at_b(&mut activity, 1_103);
+        assert_eq!(activity.idle_since(), None, "`sleep 600` still waits");
     }
 
     #[test]

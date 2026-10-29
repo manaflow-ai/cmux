@@ -33,7 +33,10 @@ extension AppDelegate {
         }
         settings.applyManagedFeaturesNow()
         settings.adoptLaunchRead()  // the first load from the launch read, no file call: the first frame is in the file's look
-        services.lifetimeFollowers += ManagedPolicyBridge(settings: settings, updater: services.updater, auth: services.cloudAuth, mainWork: services.mainWork, appEvents: services.appEvents).start()
+        let managedPolicyFollowers = LaunchStart.managedPolicy.runNow(on: order.startup) {
+            ManagedPolicyBridge(settings: settings, updater: services.updater, auth: services.cloudAuth, mainWork: services.mainWork, appEvents: services.appEvents).start()
+        }
+        services.lifetimeFollowers += managedPolicyFollowers
         self.settings = settings
         services.settings = settings
         // No socket write asks for a confirmation before the first frame: the control socket starts after it.
@@ -85,10 +88,12 @@ extension AppDelegate {
         // Once main's acpmux resolve lands (now, unless its signature check still runs on the system lane): an
         // attached daemon (`CMUX_NEXT_ACPMUX_ATTACH`) keeps its owner's chat settings; a page's chat clicks and All
         // chats pages work from then; the feeds come after the first frame.
-        QuitAgents.whenResolved(services, owner: "launch.acpmuxChats") { [weak services] acpmux in
+        QuitAgents.whenResolved(services, owner: "launch.acpmuxChats") { [weak services, startup = order.startup] acpmux in
             guard let services else { return }
-            services.lifetimeFollowers += ChatSettingsPush.start(settings: settings, socketPath: acpmux?.isAttached == true ? nil : acpmux?.socketPath,
-                                                                 on: services.mainWork)
+            let chatSettingsFollowers = LaunchStart.chatSettingsPush.runNow(on: startup) {
+                ChatSettingsPush.start(settings: settings, socketPath: acpmux?.isAttached == true ? nil : acpmux?.socketPath, on: services.mainWork)
+            }
+            services.lifetimeFollowers += chatSettingsFollowers
             AgentPageChats.wirePager(services.agentTabs, environment: acpmux, opener: services.chatsOpener)
         }
         services.home.postLaunchFeeds(startup: order.startup)

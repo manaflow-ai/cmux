@@ -38,6 +38,7 @@ extension AppServices {
         hibernation.highEnergy = features.isEnabled(.highEnergyTabs) ? HighEnergyTabMonitor(cache: cache, registry: registry, measure: readCPU("HighEnergyTabs")) : nil
         hibernation.activity.isEnabled = features.isEnabled(.memorySaverBackgroundActivity)
         hibernation.discardsGrowingFrozenPages = features.isEnabled(.frozenGrowthDiscard)
+        hibernation.backForwardCacheFlush.isEnabled = features.isEnabled(.memoryBackForwardCacheFlush)
         hibernation.discardsAppPages = features.isEnabled(.memoryDiscardPageTabs)
         hibernation.discardsStreamedPages = features.isEnabled(.memoryDiscardRemoteTabs)
         hibernation.freezesOffScreenShownPages = features.isEnabled(.offScreenWindowPageFreeze)

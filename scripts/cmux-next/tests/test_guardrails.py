@@ -1070,5 +1070,30 @@ class TaskIdTests(unittest.TestCase):
         self.assertEqual(self.strip(once), once)
 
 
+class ExecutorHookTests(unittest.TestCase):
+    """executor-hook (sequence-manager S6): the main-executor hook symbol in code outside MainJobRing.swift is refused,
+    with no escape; a comment may name it."""
+
+    RULE = next(rule for rule in guardrails.RULES if rule.id == "executor-hook")
+    LOOKUP = 'let slot = dlsym(handle, "swift_task_enqueueMainExecutor_hook")'
+
+    def hits(self, path: str, text: str) -> int:
+        self.assertTrue(guardrails.in_rule_scope(path, self.RULE.scope), path)
+        return len(self.RULE.find([change(path, text)], collections.Counter()))
+
+    def test_a_lookup_outside_the_ring_is_refused_in_sources_and_tests(self):
+        self.assertEqual(self.hits(SRC + "CmuxNextWakeups/Hook.swift", self.LOOKUP), 1)
+        self.assertEqual(self.hits("Packages/macOS/CmuxNext/Tests/CmuxNextWakeupsTests/HookTests.swift", self.LOOKUP), 1)
+
+    def test_the_ring_itself_and_comments_pass(self):
+        self.assertEqual(self.hits(SRC + "CmuxNextCompat/MainJobRing.swift", self.LOOKUP), 0)
+        self.assertEqual(self.hits(SRC + "CmuxNextWakeups/Hook.swift", "/// `swift_task_enqueueMainExecutor_hook` is one word"), 0)
+        self.assertEqual(self.hits(SRC + "CmuxNextWakeups/Hook.swift", "install() // swift_task_enqueueMainExecutor_hook"), 0)
+
+    def test_there_is_no_escape(self):
+        self.assertIsNone(self.RULE.escape)
+        self.assertEqual(self.hits(SRC + "CmuxNextWakeups/Hook.swift", "// executor-hook-allow: because\n" + self.LOOKUP), 1)
+
+
 if __name__ == "__main__":
     unittest.main()

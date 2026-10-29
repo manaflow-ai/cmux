@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextBrowser
+import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextCrashReporting
 import CmuxNextDesign
@@ -92,10 +93,6 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
     @objc(setHandlingSendEvent:)
     func setHandlingSendEvent(_ value: Bool) { handlingSendEvent = value }
 
-    /// Set once in `CmuxNextApp.main` while feature `mainJobGate` is on: each event's
-    /// route is marked as a dispatch on its word, so the main-actor jobs the route enqueues pass it.
-    var jobGate: MainJobGateSwitch?
-
     /// The main-thread budget's run-loop turn meter (``meterTurns(_:)``).
     private var turnMeter: MainTurnMeter?
 
@@ -142,8 +139,6 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
     }
 
     private func route(_ event: NSEvent, dispatchedNanos: UInt64?) {
-        let outerDispatch = jobGate?.beginDispatch()
-        defer { if let outerDispatch { jobGate?.endDispatch(restoring: outerDispatch) } }
         // Every key-down: the probe opens a sample while it records and for its 1-in-16 key.echo_frame sample.
         let probesKey = event.type == .keyDown && TypingLatencyProbe.shared.keyDown(eventTimestamp: event.timestamp)
         defer { if probesKey { TypingLatencyProbe.shared.mark(.dispatchEnd) } }
@@ -153,6 +148,7 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
         if let inputQueueing, let dispatchedNanos, Self.measuresQueueing(event.type, synthetic: currentEventIsSynthetic) {
             inputQueueing.noteInputDispatch(eventTimestamp: event.timestamp, dispatchedNanos: dispatchedNanos)
         }
+        Self.noteInputWindow(event)
         Self.deliverObserveStage(event, tap: inputTap, frameInput: frameInput)
         let previous = handlingSendEvent
         handlingSendEvent = true
@@ -304,12 +300,13 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
 }
 
 extension CmuxApplication {
-    /// The gate follows `debug.mainJobGate` once the settings load (nil before: nothing installs).
-    func followMainJobGate(_ settings: SettingsController, on mainWork: MainWorkScheduler) {
-        jobGate?.follow(on: mainWork) { [weak settings] in
-            guard let settings, settings.loadCount >= 1 else { return nil }
-            return settings.snapshot.mainJobGate.enabled
-        }
+    /// The main-job census's input window (`CMUX_NEXT_MAIN_JOB_CENSUS=input`, Debug and bench builds,
+    /// sequence-manager S6): the main jobs that ran while `event` waited for this dispatch.
+    static func noteInputWindow(_ event: NSEvent) {
+        #if DEBUG || CMUX_BENCH_HOOKS
+        guard scopesDispatch(event.type), event.timestamp > 0, let ring = MainJobRing.installed(), ring.continuous else { return }
+        ring.noteInputDispatch(eventNanos: UInt64(event.timestamp * 1_000_000_000), dispatchNanos: ring.now)
+        #endif
     }
 
     /// The tap's stages around AppKit's dispatch of `event`: its intercepts, then `superSend`
