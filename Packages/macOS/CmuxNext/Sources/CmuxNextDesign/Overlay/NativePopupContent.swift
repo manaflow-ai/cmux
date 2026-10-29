@@ -34,8 +34,8 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
             return
         }
         let selection = (focused?.value.currentEditor() as? NSTextView)?.selectedRange()
-        let priorSelection = selected
-        if next.search?.id != model?.search?.id { searchHasInput = false }
+        let priorSelection = next.id == model?.id ? selected : nil
+        if next.id != model?.id || next.search?.id != model?.search?.id { searchHasInput = false }
         if next.rows != model?.rows || next.rail != model?.rail || next.footer != model?.footer || next.title != model?.title || next.search?.id != model?.search?.id {
             rebuild(next)
             if let focusedID, let replacement = editableControls[focusedID] ?? fields[focusedID] {
@@ -53,11 +53,12 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
             search.isEnabled = field.disabled != true
         }
         model = next
+        let policy = next.search?.autoHighlight
+        let auto = policy == nil || policy == .always || (policy == .first && searchHasInput && next.search?.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false)
         selected = next.highlighted ?? priorSelection
+        if next.highlighted == nil, selectionReason == "none", !auto { selected = nil }
         if selected != priorSelection { selectionReason = "none" }
         if !enabledRows.contains(where: { $0.0.id == selected }) {
-            let policy = next.search?.autoHighlight
-            let auto = policy == nil || policy == .always || (policy == .first && searchHasInput && next.search?.value.isEmpty == false)
             selected = auto ? enabledRows.first?.0.id : nil
             selectionReason = "none"
         }

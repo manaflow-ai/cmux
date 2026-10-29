@@ -58,6 +58,10 @@ import Testing
         content.update(next)
         _ = content.control(search, textView: NSTextView(), doCommandBy: #selector(NSResponder.insertNewline(_:)))
         #expect(submitted == "first")
+        next.id = "new-popup"
+        content.update(next)
+        _ = content.control(search, textView: NSTextView(), doCommandBy: #selector(NSResponder.insertNewline(_:)))
+        #expect(submitted == nil, "a new session cannot inherit the old session's filtering or selection")
         search.stringValue = ""
         content.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: search))
         next.search?.value = ""
@@ -76,6 +80,10 @@ import Testing
         _ = content.control(search, textView: NSTextView(), doCommandBy: #selector(NSResponder.insertNewline(_:)))
         #expect(events.last?.0 == "submit" && events.last?.1 == "first")
         #expect(content.selectionReason == "none")
+        next.search?.autoHighlight = NativePopupAutoHighlight.none
+        content.update(next)
+        _ = content.control(search, textView: NSTextView(), doCommandBy: #selector(NSResponder.insertNewline(_:)))
+        #expect(events.last?.0 == "submit" && events.last?.1 == nil, "disabling automatic highlight clears an implicit choice")
         let row = try #require(content.rowView(id: "first") as? PopupRowView)
         row.onHover?()
         #expect(content.selectionReason == "pointer")
