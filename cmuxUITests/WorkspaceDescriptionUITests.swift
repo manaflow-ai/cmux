@@ -159,7 +159,7 @@ final class WorkspaceDescriptionUITests: XCTestCase {
     }
 
     private func configuredApp() -> XCUIApplication {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
@@ -169,7 +169,7 @@ final class WorkspaceDescriptionUITests: XCTestCase {
     }
 
     private func configuredSidebarApp() -> XCUIApplication {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         app.launchEnvironment["CMUX_TAG"] = launchTag
         return app

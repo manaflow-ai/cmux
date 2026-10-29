@@ -2,9 +2,6 @@ import type { Adapter, CommandEntry, OptionChoice, OptionValue, SessionCtx, Sess
 import { readLines, tryParse, truncate } from "./lines";
 import { prettifyProviderModelLabel } from "./model-label";
 
-const THINKING_CHOICES: OptionChoice[] = ["minimal", "low", "medium", "high", "xhigh"]
-  .map((value) => ({ value, label: value }));
-
 interface PiState {
   proc?: Bun.Subprocess<"pipe", "pipe", "pipe">;
   nextId: number;
@@ -12,10 +9,12 @@ interface PiState {
   model: string;
   modelChoices: OptionChoice[];
   thinking: string;
-  thinkingNormalized: boolean;
   sessionFile?: string;
   commands: CommandEntry[];
   initialApplied: boolean;
+  initialApplying?: Promise<void>;
+  startupInFlight: boolean;
+  startupCancelled: boolean;
   activeTurn: boolean;
   activeGeneration?: number;
 }
@@ -25,13 +24,42 @@ export const piAdapter: Adapter = {
     triggers: ["/"],
     options: [
       { id: "model", label: "Model", kind: "select", value: "", disabled: true, description: "Loads at start" },
-      { id: "thinking", label: "Thinking", kind: "select", value: "minimal", role: "effort", choices: THINKING_CHOICES },
+      { id: "thinking", label: "Thinking", kind: "select", value: "", role: "effort", choices: [], disabled: true, description: "Loads with model" },
     ],
   },
   async send(sess, prompt, generation?: number) {
-    const proc = ensureProc(sess);
     const st = state(sess);
-    await applyInitialOptions(sess);
+    const startup = !st.initialApplied;
+    if (!startup) st.startupCancelled = false;
+    if (startup) st.startupInFlight = true;
+    // Establish the process before checking initialization. If it exits while
+    // setup is in flight, ensureProc resets initialization for the replacement
+    // and this loop applies setup to that process before dispatching anything.
+    let proc = ensureProc(sess);
+    let initialized = false;
+    try {
+      for (let attempt = 0; attempt < 3; attempt++) {
+        await applyInitialOptions(sess);
+        const current = ensureProc(sess);
+        if (current === proc && current.exitCode === null && !current.killed) {
+          initialized = true;
+          proc = current;
+          break;
+        }
+        proc = current;
+      }
+    } catch (err) {
+      st.startupInFlight = false;
+      throw err;
+    }
+    if (st.startupCancelled) {
+      st.startupInFlight = false;
+      throw new Error("pi startup cancelled");
+    }
+    if (!initialized || st.proc !== proc || proc.exitCode !== null || proc.killed) {
+      st.startupInFlight = false;
+      throw new Error("pi process changed during startup");
+    }
     const type = st.activeTurn ? "steer" : "prompt";
     if (type === "prompt") {
       st.activeTurn = true;
@@ -39,10 +67,14 @@ export const piAdapter: Adapter = {
     }
     proc.stdin.write(JSON.stringify({ type, message: prompt }) + "\n");
     proc.stdin.flush();
+    st.startupInFlight = false;
+    st.startupCancelled = false;
     sess.setStatus("running");
   },
   stop(sess) {
-    const proc = state(sess).proc;
+    const st = state(sess);
+    if (st.startupInFlight) st.startupCancelled = true;
+    const proc = st.proc;
     if (proc) {
       proc.stdin.write(JSON.stringify({ type: "abort" }) + "\n");
       proc.stdin.flush();
@@ -52,6 +84,8 @@ export const piAdapter: Adapter = {
     const st = state(sess);
     const proc = st.proc;
     st.proc = undefined;
+    st.initialApplied = false;
+    st.initialApplying = undefined;
     rejectPending(st, "pi process disposed");
     proc?.kill();
   },
@@ -66,7 +100,7 @@ export const piAdapter: Adapter = {
     return buildOptions({
       model: models[0]?.value ?? "",
       modelChoices: models,
-      thinking: "minimal",
+      thinking: "",
     });
   },
   async listCommands(cwd) {
@@ -90,11 +124,12 @@ function state(sess: SessionCtx): PiState {
       pending: new Map(),
       model: typeof sess.startOptions.model === "string" ? sess.startOptions.model : "",
       modelChoices: [],
-      thinking: typeof sess.startOptions.thinking === "string" ? sess.startOptions.thinking : "off",
-      thinkingNormalized: false,
+      thinking: typeof sess.startOptions.thinking === "string" ? sess.startOptions.thinking : "",
       sessionFile: typeof sess.internal.piSessionFile === "string" ? sess.internal.piSessionFile : undefined,
       commands: [],
       initialApplied: false,
+      startupInFlight: false,
+      startupCancelled: false,
       activeTurn: false,
       activeGeneration: undefined,
     };
@@ -119,11 +154,15 @@ function ensureProc(sess: SessionCtx): Bun.Subprocess<"pipe", "pipe", "pipe"> {
     stderr: "pipe",
     env: { ...process.env },
   });
+  st.initialApplied = false;
+  st.initialApplying = undefined;
   st.proc = proc;
 
   readLines(proc.stdout, (line) => handleLine(sess, line), () => {
     if (st.proc === proc) {
       st.proc = undefined;
+      st.initialApplied = false;
+      st.initialApplying = undefined;
       rejectPending(st, "pi process exited");
       if (st.activeTurn) {
         const generation = st.activeGeneration;
@@ -167,11 +206,34 @@ function rejectPending(st: PiState, message: string) {
 async function applyInitialOptions(sess: SessionCtx) {
   const st = state(sess);
   if (st.initialApplied) return;
-  st.initialApplied = true;
-  if (typeof sess.startOptions.model === "string") await setPiOption(sess, "model", st.model);
-  if (typeof sess.startOptions.thinking === "string") await setPiOption(sess, "thinking", st.thinking);
-  if (!st.modelChoices.length || !st.commands.length) await refreshPi(sess);
-  await captureState(sess);
+  if (st.initialApplying) return st.initialApplying;
+  const startedOn = st.proc;
+  const stale = () => st.proc !== startedOn;
+  const applying = (async () => {
+    const requestedThinking = typeof sess.startOptions.thinking === "string" ? sess.startOptions.thinking : "";
+    if (stale()) return;
+    if (typeof sess.startOptions.model === "string") {
+      await setPiOption(sess, "model", st.model);
+      if (stale()) return;
+    }
+    if (!st.modelChoices.length || !st.commands.length) {
+      await refreshPi(sess);
+      if (stale()) return;
+    }
+    if (requestedThinking) {
+      await setPiOption(sess, "thinking", requestedThinking);
+      if (stale()) return;
+    }
+    await captureState(sess);
+    if (stale()) return;
+    st.initialApplied = true;
+  })();
+  st.initialApplying = applying;
+  try {
+    await applying;
+  } finally {
+    if (st.initialApplying === applying) st.initialApplying = undefined;
+  }
 }
 
 async function setPiOption(sess: SessionCtx, id: string, value: OptionValue) {
@@ -185,14 +247,20 @@ async function setPiOption(sess: SessionCtx, id: string, value: OptionValue) {
       const modelId = value.slice(slash + 1);
       await request(sess, { type: "set_model", provider, modelId });
       st.model = value;
+      const thinking = thinkingForModel(st);
+      if (!thinking.choices.some((choice) => choice.value === st.thinking)) {
+        st.thinking = thinking.value;
+        if (st.thinking) await request(sess, { type: "set_thinking_level", level: st.thinking });
+      }
       break;
     }
     case "thinking":
       if (typeof value !== "string") throw new Error("thinking must be a string");
-      value = normalizeThinking(value);
+      if (!thinkingForModel(st).choices.some((choice) => choice.value === value)) {
+        throw new Error(`unsupported thinking level for ${st.model}: ${value}`);
+      }
       await request(sess, { type: "set_thinking_level", level: value });
       st.thinking = value;
-      st.thinkingNormalized = true;
       break;
     default:
       throw new Error(`unsupported pi option: ${id}`);
@@ -207,10 +275,10 @@ async function refreshPi(sess: SessionCtx) {
   const models = await request(sess, { type: "get_available_models" });
   st.modelChoices = normalizeModels(models?.models ?? models?.data?.models);
   if (!st.model) st.model = st.modelChoices[0]?.value ?? "";
-  if (!st.thinkingNormalized && isOffLike(st.thinking)) {
-    await request(sess, { type: "set_thinking_level", level: "minimal" });
-    st.thinking = "minimal";
-    st.thinkingNormalized = true;
+  const thinking = thinkingForModel(st);
+  if (!thinking.choices.some((choice) => choice.value === st.thinking)) {
+    st.thinking = thinking.value;
+    if (st.thinking) await request(sess, { type: "set_thinking_level", level: st.thinking });
   }
   emitOptions(sess);
   const commands = await request(sess, { type: "get_commands" });
@@ -228,7 +296,7 @@ function seedModelChoices(sess: SessionCtx, st: PiState): boolean {
 }
 
 function emitOptions(sess: SessionCtx) {
-  sess.emit({ kind: "options", options: buildOptions(state(sess)), actions: { fork: true } });
+    sess.emit({ kind: "options", options: buildOptions(state(sess)), actions: { fork: true, handoff: true } });
 }
 
 async function captureState(sess: SessionCtx) {
@@ -244,18 +312,22 @@ async function captureState(sess: SessionCtx) {
 }
 
 function buildOptions(st: Pick<PiState, "model" | "modelChoices" | "thinking">): SessionOption[] {
+  const thinking = thinkingForModel(st);
   return [
     { id: "model", label: "Model", kind: "select", value: st.model, choices: st.modelChoices, disabled: !st.modelChoices.length },
-    { id: "thinking", label: "Thinking", kind: "select", value: normalizeThinking(st.thinking), role: "effort", choices: THINKING_CHOICES },
+    { id: "thinking", label: "Thinking", kind: "select", value: thinking.value, role: "effort", choices: thinking.choices },
   ];
 }
 
-function normalizeThinking(value: string): string {
-  return isOffLike(value) ? "minimal" : value;
-}
-
-function isOffLike(value: string): boolean {
-  return /^(off|none)$/i.test(value);
+function thinkingForModel(st: Pick<PiState, "model" | "modelChoices" | "thinking">): { value: string; choices: OptionChoice[] } {
+  const model = st.modelChoices.find((choice) => choice.value === st.model);
+  const choices = model?.efforts ?? [];
+  const value = choices.some((choice) => choice.value === st.thinking)
+    ? st.thinking
+    : choices.some((choice) => choice.value === model?.defaultEffort)
+      ? model!.defaultEffort!
+      : choices[0]?.value ?? "";
+  return { value, choices };
 }
 
 function finishTurn(sess: SessionCtx) {
@@ -345,6 +417,10 @@ function handleLine(sess: SessionCtx, line: string) {
       });
       break;
     case "agent_end":
+      // A low-level run can end before Pi has finished retrying, compacting, or
+      // draining a queued follow-up. Keep the turn active until agent_settled.
+      break;
+    case "agent_settled":
       finishTurn(sess);
       break;
     case "error":
@@ -368,11 +444,27 @@ export function piNextSendTypeForTest(sess: SessionCtx): "prompt" | "steer" {
 
 function normalizeModels(models: any): OptionChoice[] {
   if (!Array.isArray(models)) return [];
-  return models.map((m) => ({
-    value: `${m.provider}/${m.id}`,
-    label: prettifyProviderModelLabel(String(m.provider), String(m.id), m.name ? String(m.name) : undefined),
-    description: m.reasoning ? "supports thinking" : undefined,
-  }));
+  return models.map((m) => {
+    const reportedEfforts = m.supportedThinkingLevels
+      ?? m.supportedReasoningEfforts
+      ?? m.supportedEffortLevels
+      ?? m.efforts;
+    const efforts: OptionChoice[] = Array.isArray(reportedEfforts)
+      ? reportedEfforts.flatMap((entry: unknown) => {
+        const raw = typeof entry === "string" ? entry : String((entry as any)?.value ?? (entry as any)?.level ?? "");
+        if (!raw || /^(off|none)$/i.test(raw)) return [];
+        return [{ value: raw, label: typeof entry === "object" && entry ? String((entry as any).label ?? raw) : raw }];
+      })
+      : [];
+    const requested = String(m.defaultThinkingLevel ?? m.defaultReasoningEffort ?? m.defaultEffort ?? "");
+    return {
+      value: `${m.provider}/${m.id}`,
+      label: prettifyProviderModelLabel(String(m.provider), String(m.id), m.name ? String(m.name) : undefined),
+      description: m.reasoning ? "supports thinking" : undefined,
+      efforts,
+      defaultEffort: efforts.some((effort) => effort.value === requested) ? requested : efforts[0]?.value,
+    };
+  });
 }
 
 function normalizeCommands(commands: any): CommandEntry[] {

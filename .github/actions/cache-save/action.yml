@@ -1,0 +1,39 @@
+name: Save a cache
+description: Save a cache to the store the repository selects. Main-branch seed jobs only.
+
+inputs:
+  path:
+    description: Files and directories to save.
+    required: true
+  key:
+    description: Key to save under.
+    required: true
+  backend:
+    description: "`warp` writes the runner provider store on Warp runners, `r2` writes the R2 bucket. Anything else writes the GitHub store."
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Save to the GitHub store
+      if: ${{ inputs.backend != 'r2' && !(inputs.backend == 'warp' && startsWith(runner.name, 'warp-')) }}
+      uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+      with:
+        path: ${{ inputs.path }}
+        key: ${{ inputs.key }}
+    - name: Save to the Warp store
+      if: ${{ inputs.backend == 'warp' && startsWith(runner.name, 'warp-') }}
+      uses: WarpBuilds/cache/save@dad44e2487e9dc889ad6e6bd198e77bb2d828eee # v2.0.0
+      with:
+        path: ${{ inputs.path }}
+        key: ${{ inputs.key }}
+    # The calling step supplies the bucket credentials through its env.
+    - name: Save to the R2 store
+      if: ${{ inputs.backend == 'r2' }}
+      shell: bash
+      env:
+        CACHE_PATH: ${{ inputs.path }}
+        CACHE_KEY: ${{ inputs.key }}
+      run: |
+        "$GITHUB_ACTION_PATH/../../../scripts/ci/r2-cache.sh" save "$CACHE_PATH" "$CACHE_KEY"

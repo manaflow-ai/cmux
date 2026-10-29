@@ -6,7 +6,11 @@ final class WorkspaceActionSaveDialogAccessory {
     let nameField: NSTextField
     let makeDefaultCheckbox: NSButton
 
-    init(snapshot: WorkspaceConfigActionSnapshot, initialName: String) {
+    init(
+        snapshot: WorkspaceConfigActionSnapshot,
+        initialName: String,
+        visibleFrame: NSRect? = NSScreen.main?.visibleFrame
+    ) {
         nameField = NSTextField()
         nameField.stringValue = initialName
         nameField.placeholderString = String(
@@ -37,7 +41,22 @@ final class WorkspaceActionSaveDialogAccessory {
         stack.addArrangedSubview(nameField)
         stack.addArrangedSubview(makeDefaultCheckbox)
 
-        Self.addDisclosureSections(snapshot: snapshot, to: stack)
+        let sectionCount = [
+            snapshot.capturedCommands,
+            snapshot.capturedURLs,
+            snapshot.capturedEnvironmentKeys,
+        ].filter { !$0.isEmpty }.count
+        let screenFrame = visibleFrame ?? NSRect(x: 0, y: 0, width: 1024, height: 768)
+        let maximumSectionHeight = min(
+            160,
+            CmuxAlertScrollableDetailsView.maximumHeight(for: screenFrame)
+                / CGFloat(max(1, sectionCount))
+        )
+        Self.addDisclosureSections(
+            snapshot: snapshot,
+            maximumSectionHeight: maximumSectionHeight,
+            to: stack
+        )
 
         NSLayoutConstraint.activate([
             stack.leadingAnchor.constraint(equalTo: root.leadingAnchor),
@@ -55,6 +74,7 @@ final class WorkspaceActionSaveDialogAccessory {
 
     private static func addDisclosureSections(
         snapshot: WorkspaceConfigActionSnapshot,
+        maximumSectionHeight: CGFloat,
         to stack: NSStackView
     ) {
         addSection(
@@ -63,6 +83,7 @@ final class WorkspaceActionSaveDialogAccessory {
                 defaultValue: "Commands that will be saved and re-run:"
             ),
             items: snapshot.capturedCommands,
+            maximumHeight: maximumSectionHeight,
             to: stack
         )
         addSection(
@@ -71,6 +92,7 @@ final class WorkspaceActionSaveDialogAccessory {
                 defaultValue: "URLs that will be saved:"
             ),
             items: snapshot.capturedURLs,
+            maximumHeight: maximumSectionHeight,
             to: stack
         )
         addSection(
@@ -79,11 +101,17 @@ final class WorkspaceActionSaveDialogAccessory {
                 defaultValue: "Environment variables whose values will be saved:"
             ),
             items: snapshot.capturedEnvironmentKeys,
+            maximumHeight: maximumSectionHeight,
             to: stack
         )
     }
 
-    private static func addSection(header: String, items: [String], to stack: NSStackView) {
+    private static func addSection(
+        header: String,
+        items: [String],
+        maximumHeight: CGFloat,
+        to stack: NSStackView
+    ) {
         guard !items.isEmpty else { return }
         let label = NSTextField(labelWithString: header)
         label.lineBreakMode = .byWordWrapping
@@ -96,7 +124,9 @@ final class WorkspaceActionSaveDialogAccessory {
         NSLayoutConstraint.activate([
             label.widthAnchor.constraint(equalTo: stack.widthAnchor),
             scrollView.widthAnchor.constraint(equalTo: stack.widthAnchor),
-            scrollView.heightAnchor.constraint(equalToConstant: disclosureHeight(for: scrollView)),
+            scrollView.heightAnchor.constraint(
+                equalToConstant: disclosureHeight(for: scrollView, maximumHeight: maximumHeight)
+            ),
         ])
     }
 
@@ -146,7 +176,7 @@ final class WorkspaceActionSaveDialogAccessory {
         return scrollView
     }
 
-    private static func disclosureHeight(for scrollView: NSScrollView) -> CGFloat {
+    private static func disclosureHeight(for scrollView: NSScrollView, maximumHeight: CGFloat) -> CGFloat {
         guard let textView = scrollView.documentView as? NSTextView,
               let layoutManager = textView.layoutManager,
               let textContainer = textView.textContainer else {
@@ -155,6 +185,6 @@ final class WorkspaceActionSaveDialogAccessory {
         textContainer.containerSize = NSSize(width: 408, height: CGFloat.greatestFiniteMagnitude)
         layoutManager.ensureLayout(for: textContainer)
         let usedHeight = layoutManager.usedRect(for: textContainer).height
-        return min(160, max(48, ceil(usedHeight + textView.textContainerInset.height * 2 + 4)))
+        return min(maximumHeight, max(48, ceil(usedHeight + textView.textContainerInset.height * 2 + 4)))
     }
 }

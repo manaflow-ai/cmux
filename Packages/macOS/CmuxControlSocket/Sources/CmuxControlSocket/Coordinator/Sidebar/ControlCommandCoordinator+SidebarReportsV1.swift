@@ -38,7 +38,7 @@ extension ControlCommandCoordinator {
         // Shell integration always includes explicit workspace/panel IDs.
         // Keep this telemetry path off-main so wake/main-thread stalls don't
         // block socket handlers and starve subsequent branch updates.
-        if let scope = sidebarExplicitScope(options: parsed.options) {
+        if let scope = sidebarExplicitScope(options: parsed.options).scope {
             context?.controlSidebarScheduleScopedGitBranchUpdate(scope: scope, branch: branch, isDirty: isDirty)
             return "OK"
         }
@@ -59,7 +59,7 @@ extension ControlCommandCoordinator {
     nonisolated func sidebarClearGitBranch(_ args: String, context: (any ControlCommandContext)?) -> String {
         let parsed = sidebarParseOptions(args)
 
-        if let scope = sidebarExplicitScope(options: parsed.options) {
+        if let scope = sidebarExplicitScope(options: parsed.options).scope {
             context?.controlSidebarScheduleScopedGitBranchClear(scope: scope)
             return "OK"
         }
@@ -278,7 +278,7 @@ extension ControlCommandCoordinator {
         }
         let directory = explicitPath ?? positional
         let displayLabel = explicitPath == nil ? nil : positional
-        let scope = sidebarExplicitScope(options: parsed.options)
+        let scope = sidebarExplicitScope(options: parsed.options).scope
         let tabArg = parsed.options["tab"]
         let panelArg = parsed.options["panel"] ?? parsed.options["surface"]
         let hasTabOption = parsed.options["tab"] != nil
@@ -322,19 +322,23 @@ extension ControlCommandCoordinator {
         guard let rawState = parsed.positional.first, !rawState.isEmpty else {
             return "ERROR: Missing shell state — usage: report_shell_state <prompt|running> [--tab=X] [--panel=Y]"
         }
-        guard let stateRawValue = context?.controlSurfaceParseShellActivityState(rawState) else {
+        guard let context,
+              let stateRawValue = context.controlSurfaceParseShellActivityState(rawState) else {
             return "ERROR: Invalid shell state '\(rawState)' — expected prompt or running"
         }
 
-        if let scope = sidebarExplicitScope(options: parsed.options) {
-            context?.controlSidebarScheduleScopedShellState(scope: scope, stateRawValue: stateRawValue)
+        let explicitScope = sidebarExplicitScope(options: parsed.options)
+        if explicitScope.invalidTerminalLifecycleScope {
+            return context.controlSidebarInvalidTerminalLifecycleIDError()
+        }
+        if let scope = explicitScope.scope {
+            context.controlSidebarScheduleScopedShellState(scope: scope, stateRawValue: stateRawValue)
             return "OK"
         }
 
         let tabArg = parsed.options["tab"]
         let panelArg = parsed.options["panel"] ?? parsed.options["surface"]
         let hasTabOption = parsed.options["tab"] != nil
-        guard let context else { return "ERROR: TabManager not available" }
         return context.controlSidebarOnMain { seam in
             guard seam.controlSidebarTabManagerAvailable() else {
                 return "ERROR: TabManager not available"
@@ -364,7 +368,7 @@ extension ControlCommandCoordinator {
             return "ERROR: Missing tty name — usage: report_tty <tty_name> [--tab=X] [--panel=Y]"
         }
 
-        if let scope = sidebarExplicitScope(options: parsed.options) {
+        if let scope = sidebarExplicitScope(options: parsed.options).scope {
             context?.controlSidebarScheduleScopedTTY(scope: scope, ttyName: ttyName)
             return "OK"
         }
@@ -397,7 +401,7 @@ extension ControlCommandCoordinator {
             reasonRawValue = "command"
         }
 
-        if let scope = sidebarExplicitScope(options: parsed.options) {
+        if let scope = sidebarExplicitScope(options: parsed.options).scope {
             context?.controlSidebarScheduleScopedPortsKick(scope: scope, reasonRawValue: reasonRawValue)
             return "OK"
         }

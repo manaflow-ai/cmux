@@ -15,7 +15,10 @@ func renderGridEventFrame(
     columns: Int = 80,
     rows: Int = 4,
     activeScreen: MobileTerminalRenderGridFrame.Screen = .primary,
-    full: Bool = true
+    full: Bool = true,
+    anchor: MobileTerminalRenderGridFrame.Anchor = .viewport,
+    historyRows: UInt64? = nil,
+    deltaBaseHistoryRows: UInt64? = nil
 ) throws -> Data {
     let frame = try MobileTerminalRenderGridFrame(
         surfaceID: surfaceID,
@@ -31,7 +34,10 @@ func renderGridEventFrame(
                 text: text
             ),
         ],
-        activeScreen: activeScreen
+        activeScreen: activeScreen,
+        anchor: anchor,
+        historyRows: historyRows,
+        deltaBaseHistoryRows: deltaBaseHistoryRows
     )
     let envelope: [String: Any] = [
         "kind": "event",

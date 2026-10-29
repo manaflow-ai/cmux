@@ -221,6 +221,75 @@ import Testing
         #expect(node?.children.map(\.text) == ["alpha", "▸ beta"])
     }
 
+    // Regression for #7943: comparing an optional field against `nil` must
+    // evaluate to a Bool — `true` when the field is present, `false` when it
+    // is absent — across interpolation, ternaries, and `if` guards. Before the
+    // fix it evaluated to "nothing", so interpolation rendered empty, ternaries
+    // always took the else branch, and `if x != nil` guards were never taken.
+    @Test func nilComparisonEvaluatesToBoolForPresentAndAbsentFields() {
+        let workspaces = SwiftValue.array([
+            .object(["title": .string("has"), "note": .string("hello")]),
+            .object(["title": .string("missing")]),  // no `note` field
+        ])
+        let node = interp.evaluate("""
+        VStack {
+            ForEach(workspaces) { w in
+                Text("present: \\(w.note != nil)")
+                Text(w.note != nil ? "ternary: THEN" : "ternary: ELSE")
+                if w.note != nil { Text("guard: TAKEN") } else { Text("guard: NOT TAKEN") }
+                Text("absent: \\(w.note == nil)")
+            }
+        }
+        """, state: ["workspaces": workspaces])
+        #expect(node?.children.map(\.text) == [
+            "present: true", "ternary: THEN", "guard: TAKEN", "absent: false",
+            "present: false", "ternary: ELSE", "guard: NOT TAKEN", "absent: true",
+        ])
+    }
+
+    @Test func nilComparisonDoesNotMaskEvaluationFailures() {
+        let workspaces = SwiftValue.array([
+            .object(["title": .string("alpha")]),
+            .object(["title": .string("beta"), "meta": .object(["note": .string("hello")])]),
+        ])
+        let node = interp.evaluate("""
+        VStack {
+            Text("missing field: \\(workspaces[0].note == nil)")
+            Text("nested missing: \\(workspaces[0].meta.note == nil)")
+            Text("nested present: \\(workspaces[1].meta.note != nil)")
+            Text("paren missing: \\((workspaces[0].note) == nil)")
+            Text("paren present: \\((workspaces[1].meta.note) != nil)")
+            Text("bad subscript: \\(workspaces[3] == nil)")
+            Text("paren bad subscript: \\((workspaces[3]) == nil)")
+            Text("bad conversion: \\(Int("nope") == nil)")
+            Text("unsupported: \\(unknownThing() == nil)")
+        }
+        """, state: ["workspaces": workspaces])
+        #expect(node?.children.map(\.text) == [
+            "missing field: true",
+            "nested missing: true",
+            "nested present: true",
+            "paren missing: true",
+            "paren present: true",
+            "bad subscript: ",
+            "paren bad subscript: ",
+            "bad conversion: ",
+            "unsupported: ",
+        ])
+    }
+
+    @Test func deeplyNestedNilComparisonRespectsRecursionBudget() {
+        let nested = String(repeating: "(", count: 450)
+            + "workspaces[0].note"
+            + String(repeating: ")", count: 450)
+        let node = interp.evaluate("""
+        VStack {
+            Text("budget: \\(\(nested) == nil)")
+        }
+        """, state: ["workspaces": .array([.object(["title": .string("alpha")])])])
+        #expect(node?.children.first?.text == "budget: ")
+    }
+
     @Test func labelFormButtonCapturesActionAndLabel() {
         let node = interp.evaluate("""
         VStack {
@@ -269,8 +338,9 @@ import Testing
             .object([
                 "description": .string("hello"),
                 "profile": .object(["name": .string("cmux")]),
+                "selected": .bool(false),
             ]),
-            .object([:]),
+            .object(["selected": .bool(false)]),
         ])
         let empty = SwiftValue.array([])
         let node = interp.evaluate("""
@@ -299,6 +369,59 @@ import Testing
             "nil-equal", "empty-first", "no-selected",
             "present", "value: hello", "nested: cmux", "bound: hello",
             "absent", "missing", "nested-missing", "unbound",
+        ])
+    }
+
+    @Test func arrayOptionalResultsKeepEvaluationFailuresUnresolved() {
+        let node = interp.evaluate(#"""
+        VStack {
+            Text("first: \(empty.first == nil), \(empty.first != nil)")
+            Text("last: \(empty.last == nil), \(empty.last != nil)")
+            Text("method: \(empty.first() == nil)")
+            Text("where: \(items.first(where: { $0 == 3 }) == nil)")
+            let missing = items.first { $0 == 3 }
+            Text("stored: \(missing == nil)")
+            if let value = missing { Text("bad binding") } else { Text("unbound") }
+            Text("present: \(items.first != nil), \(items.last != nil)")
+            Text("match: \(items.first { $0 == 2 })")
+            Text("failed predicate: \(items.first { unknownValue() } == nil)")
+            Text("unsupported member: \(empty.unknownMember == nil)")
+            Text("unsupported call: \(unknownValue() == nil)")
+        }
+        """#, state: ["empty": .array([]), "items": .array([.int(1), .int(2)])])
+        #expect(node?.children.map(\.text) == [
+            "first: true, false", "last: true, false", "method: true",
+            "where: true", "stored: true", "unbound", "present: true, true", "match: 2",
+            "failed predicate: ", "unsupported member: ", "unsupported call: ",
+        ])
+    }
+
+    @Test(arguments: [SwiftValue.int(7), .double(1.5), .string("hello"), .bool(false), .array([]), .object([:])])
+    func nullComparedWithPresentValue(value: SwiftValue) {
+        let node = interp.evaluate(#"""
+        VStack {
+            Text("\(nil == value), \(nil != value), \(value == nil), \(value != nil)")
+        }
+        """#, state: ["value": value])
+        #expect(node?.children.first?.text == "false, true, false, true")
+    }
+
+    @Test func equalityFailureRemainsDistinctFromFalseAtConsumers() {
+        let node = interp.evaluate(#"""
+        VStack {
+            Text("false: \(nil == 7)")
+            Text("failed: \(unknownValue() == nil)")
+            Text(nil == 7 ? "bad" : "false else")
+            Text(unknownValue() == nil ? "bad" : "failure else")
+            if nil == 7 { Text("bad") } else { Text("false branch") }
+            if unknownValue() == nil { Text("bad") } else { Text("failure branch") }
+            if let result = nil == 7 { Text("bound: \(result)") }
+            if let result = unknownValue() == nil { Text("bad") } else { Text("unresolved") }
+        }
+        """#)
+        #expect(node?.children.map(\.text) == [
+            "false: false", "failed: ", "false else", "failure else",
+            "false branch", "failure branch", "bound: false", "unresolved",
         ])
     }
 
@@ -709,12 +832,14 @@ import Testing
             Text(tint(a)).foregroundColor(tint(a))
             Text(name(a))
             Text(name(b))
+            Text(name(c))
         }
         """, state: [
             "a": .object(["state": .string("queued"), "title": .string("Alpha")]),
             "b": .object(["state": .string("running")]),
+            "c": .object(["state": .string("running"), "title": .null]),
         ])
-        #expect(node?.children.map(\.text) == ["#7AA2F7", "Alpha", "untitled"])
+        #expect(node?.children.map(\.text) == ["#7AA2F7", "Alpha", "untitled", "untitled"])
     }
 
     @Test func ifLetOptionalBindingRendersWhenPresent() {
@@ -733,6 +858,14 @@ import Testing
         }
         """, state: ["ws": absent])
         #expect(node2?.children.first?.text == "no branch")
+
+        let explicitNil = SwiftValue.object(["branch": .null])
+        let node3 = interp.evaluate("""
+        VStack {
+            if let b = ws.branch { Text("on \\(b)") } else { Text("no branch") }
+        }
+        """, state: ["ws": explicitNil])
+        #expect(node3?.children.first?.text == "no branch")
     }
 
     @Test func switchSelectsMatchingCase() {

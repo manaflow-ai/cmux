@@ -1,0 +1,7 @@
+<!doctype html><html><head><title>Level three</title></head><body>
+<button id="deep" onclick="this.textContent='deep clicked ' + event.isTrusted">Deep button</button>
+<div id="host"></div>
+<script>
+const root = document.getElementById("host").attachShadow({ mode: "closed" });
+root.innerHTML = '<button onclick="this.textContent=\'closed clicked \' + event.isTrusted">Closed shadow button</button>';
+</script></body></html>

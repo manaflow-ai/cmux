@@ -10,6 +10,18 @@ import Testing
 
 @MainActor
 extension RemoteTmuxMirrorCLIObservabilityTests {
+    @Test func mirrorRoutedCreationRejectsInitialInput() {
+        let unsupported = TerminalController.shared.mirrorRoutedUnsupportedOptions(
+            workingDirectory: nil,
+            initialCommand: nil,
+            initialInput: "echo ready\r",
+            tmuxStartCommand: nil,
+            startupEnvironment: [:]
+        )
+
+        #expect(unsupported == ["initial_input"])
+    }
+
     @Test func unresolvedMirrorMutationsFailClosed() throws {
         do {
             let harness = try Harness(addPeerSurface: true, activeTmuxPaneID: nil)
@@ -30,7 +42,8 @@ extension RemoteTmuxMirrorCLIObservabilityTests {
 
             let result = TerminalController.shared.controlSurfaceClose(
                 routing: harness.routing(),
-                surfaceID: nil
+                surfaceID: nil,
+                hasSurfaceIDParam: false
             )
 
             #expect(result == .noFocusedSurface)
@@ -93,7 +106,8 @@ extension RemoteTmuxMirrorCLIObservabilityTests {
             defer { harness.tearDown() }
             let result = TerminalController.shared.controlSurfaceClose(
                 routing: harness.routing(),
-                surfaceID: harness.outerPanelID
+                surfaceID: harness.outerPanelID,
+                hasSurfaceIDParam: true
             )
 
             #expect(result == .surfaceNotFound(harness.outerPanelID))
@@ -130,6 +144,49 @@ extension RemoteTmuxMirrorCLIObservabilityTests {
             ) == .moved(notFound))
             #expect(harness.workspace.panels[harness.outerPanelID] != nil)
         }
+    }
+
+    /// `system.tree` advertises the inner pane surface, while tab order lives on
+    /// the pane's outer tmux-window container. Reorder must accept that advertised
+    /// identity and mutate the container without exposing the hidden wrapper
+    /// handle (#7734).
+    @Test func advertisedMirrorSurfaceReordersItsOwningWindowTab() throws {
+        let harness = try Harness(addPeerSurface: true)
+        defer {
+            harness.workspace.remoteTmuxWindowOrderSync = nil
+            harness.tearDown()
+        }
+        let tmuxPaneID = try #require(harness.mirror.paneIDsInOrder.first)
+        let advertisedSurfaceID = try #require(harness.mirror.panel(forPane: tmuxPaneID)?.id)
+        let peerSurfaceID = try #require(harness.peerSurfaceID)
+        let sourcePane = try #require(harness.workspace.paneId(forPanelId: harness.outerPanelID))
+        var synchronizedPanelOrder: [UUID] = []
+        harness.workspace.remoteTmuxWindowOrderSync = { panelOrder, verification in
+            synchronizedPanelOrder = panelOrder
+            verification?(true)
+            return true
+        }
+
+        let result = TerminalController.shared.controlSurfaceReorder(
+            surfaceID: advertisedSurfaceID,
+            inputs: ControlSurfaceReorderInputs(
+                index: 1,
+                beforeSurfaceID: nil,
+                afterSurfaceID: nil
+            ),
+            requestedFocus: false
+        )
+
+        #expect(result == .reordered(
+            windowID: harness.windowID,
+            workspaceID: harness.workspace.id,
+            paneID: sourcePane.id,
+            surfaceID: advertisedSurfaceID
+        ))
+        let reorderedPanelIDs = harness.workspace.bonsplitController.tabs(inPane: sourcePane)
+            .compactMap { harness.workspace.panelIdFromSurfaceId($0.id) }
+        #expect(reorderedPanelIDs == [peerSurfaceID, harness.outerPanelID])
+        #expect(synchronizedPanelOrder == reorderedPanelIDs)
     }
 
     @Test func unsupportedBonsplitOnlyPaneMutationsRejectProjectedPaneIDs() throws {
@@ -210,7 +267,8 @@ extension RemoteTmuxMirrorCLIObservabilityTests {
 
             let result = TerminalController.shared.controlSurfaceClose(
                 routing: harness.routing(paneID: firstPaneID),
-                surfaceID: nil
+                surfaceID: nil,
+                hasSurfaceIDParam: false
             )
 
             #expect(result == .closeFailed(firstSurfaceID))
@@ -310,9 +368,10 @@ extension RemoteTmuxMirrorCLIObservabilityTests {
                 )
             )
 
-            // tmux panes cannot host surface tabs; the projected pane handle is
-            // tombstoned rather than silently redirected.
-            #expect(result == .paneNotFound)
+            // A projected pane is a valid target. `new-surface` maps to a tmux
+            // window in a mirror, so the disconnected transport fails only
+            // after the handle has resolved and routing has been attempted.
+            #expect(result == .createFailed)
         }
 
         do {

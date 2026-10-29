@@ -7,11 +7,14 @@ import Foundation
 /// identifiers, string interpolations, loop sequences, and `if` conditions
 /// to these.
 public enum SwiftValue: Codable, Sendable, Equatable {
-    case null
     case int(Int)
     case double(Double)
     case string(String)
     case bool(Bool)
+    /// The result of the `nil` literal and of comparing an absent optional
+    /// field against `nil`. Distinct from a host `SwiftValue?` of `nil`, which
+    /// means "expression could not be evaluated / no value".
+    case null
     case range(lower: Int, upper: Int, inclusive: Bool)
     indirect case array([SwiftValue])
     indirect case object([String: SwiftValue])
@@ -19,11 +22,11 @@ public enum SwiftValue: Codable, Sendable, Equatable {
     /// How the value renders inside a string interpolation.
     public var displayString: String {
         switch self {
-        case .null: return "nil"
         case let .int(value): return String(value)
         case let .double(value): return String(value)
         case let .string(value): return value
         case let .bool(value): return String(value)
+        case .null: return "nil"
         case let .range(lower, upper, inclusive): return "\(lower)\(inclusive ? "..." : "..<")\(upper)"
         case let .array(values): return "[" + values.map(\.displayString).joined(separator: ", ") + "]"
         case let .object(fields): return "{" + fields.keys.sorted().map { "\($0): \(fields[$0]!.displayString)" }.joined(separator: ", ") + "}"
@@ -40,8 +43,8 @@ public enum SwiftValue: Codable, Sendable, Equatable {
             if name == "count" { return .int(values.count) }
             if name == "isEmpty" { return .bool(values.isEmpty) }
             if name == "indices" { return .array(values.indices.map { .int($0) }) }
-            if name == "first" { return values.first ?? .null }
-            if name == "last" { return values.last ?? .null }
+            if name == "first" { return values.first }
+            if name == "last" { return values.last }
             return nil
         case let .string(value):
             if name == "count" { return .int(value.count) }

@@ -1,3 +1,9 @@
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
+import { deletePrivateNetworkingForAccountDeletion } from "../services/vms/privateNetwork";
+import { VmProviderGateway } from "../services/vms/providerGateway";
+import { VmRepository, type VmRepositoryShape } from "../services/vms/repository";
+
 import { describe, expect, test } from "bun:test";
 
 import type { cloudDb } from "../db/client";
@@ -5,6 +11,7 @@ import {
   ACCOUNT_ANALYTICS_FORWARD_LEASE_MS,
   isBlockingAccountDeletionTombstone,
   withAccountDeletionAnalyticsForwardLease,
+  withAccountDeletionUserMutation,
 } from "../services/account/deletionLock";
 
 describe("account deletion tombstone lock", () => {
@@ -73,4 +80,106 @@ describe("account deletion tombstone lock", () => {
       now.getTime() + ACCOUNT_ANALYTICS_FORWARD_LEASE_MS,
     );
   });
+
+  test("commits a durable user-mutation lease before external work starts", async () => {
+    let transactionDepth = 0;
+    let insertedLeaseCount = 0;
+    const tx = {
+      execute: async () => undefined,
+      select: () => ({
+        from: () => ({
+          where: () => ({
+            limit: async () => [],
+          }),
+        }),
+      }),
+      delete: () => ({ where: async () => undefined }),
+      insert: () => ({
+        values: async () => {
+          insertedLeaseCount += 1;
+        },
+      }),
+      update: () => ({
+        set: () => ({ where: async () => undefined }),
+      }),
+    };
+    const db = {
+      transaction: async (
+        operation: (transaction: typeof tx) => Promise<unknown>,
+      ) => {
+        transactionDepth += 1;
+        try {
+          return await operation(tx);
+        } finally {
+          transactionDepth -= 1;
+        }
+      },
+    } as unknown as ReturnType<typeof cloudDb>;
+
+    await withAccountDeletionUserMutation(
+      db,
+      "user-outside-transaction",
+      async () => {
+        expect(transactionDepth).toBe(0);
+        expect(insertedLeaseCount).toBe(1);
+        return "completed";
+      },
+    );
+  });
+});
+
+test("account deletion deletes the provider tunnel and only the personal network", async () => {
+  // Deleting the Freestyle tunnel removes its team attachments, so no team
+  // network is touched and nothing else needs cleaning up.
+  const deletedTunnels: string[] = [];
+  const deletedNetworks: string[] = [];
+  const tunnel = {
+    id: "00000000-0000-4000-8000-000000000010",
+    userId: "user-1",
+    networkId: "00000000-0000-4000-8000-000000000011",
+    accessGrantId: "00000000-0000-4000-8000-000000000012",
+    provider: "freestyle" as const,
+    providerTunnelId: "tun-1",
+    deviceFingerprint: "device-1",
+    tunnelPurpose: "browser" as const,
+    deviceName: null,
+    clientPublicKey: "client",
+    addressV4: null,
+    addressV6: null,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    lastConfigIssuedAt: null,
+    revokedAt: null,
+  };
+  const personalNetwork = {
+    id: tunnel.networkId,
+    userId: "user-1",
+    provider: "freestyle" as const,
+    providerNetworkId: "vpc-user",
+    slug: "user",
+    cidr: null,
+    cidrV6: "fd00::/64",
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  };
+  const repo = {
+    findNetwork: () => Effect.succeed(personalNetwork),
+    upsertNetwork: () => Effect.succeed(personalNetwork),
+    deleteNetwork: () => Effect.void,
+    listUserTunnels: () => Effect.succeed([tunnel]),
+    findTunnel: () => Effect.succeed(tunnel),
+    insertTunnel: () => Effect.succeed(tunnel),
+    updateTunnel: () => Effect.succeed(tunnel),
+    revokeTunnel: () => Effect.succeed(true),
+  } as unknown as VmRepositoryShape;
+  const gateway = {
+    supportsPrivateNetworking: () => true,
+    ensureNetwork: () => Effect.succeed({ id: "vpc-user", slug: "user", cidr: null, cidrV6: "fd00::/64" }),
+    deleteTunnel: (_provider: string, tunnelId: string) => Effect.sync(() => { deletedTunnels.push(tunnelId); }),
+    deleteNetwork: (_provider: string, networkId: string) => Effect.sync(() => { deletedNetworks.push(networkId); }),
+    detachTunnelNetwork: () => Effect.die("account deletion must not detach team networks one by one"),
+  } as never;
+  await Effect.runPromise(deletePrivateNetworkingForAccountDeletion("user-1").pipe(Effect.provide(Layer.mergeAll(Layer.succeed(VmRepository, repo), Layer.succeed(VmProviderGateway, gateway)))));
+  expect(deletedTunnels).toEqual(["tun-1"]);
+  expect(deletedNetworks).toEqual(["vpc-user"]);
 });

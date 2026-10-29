@@ -96,10 +96,35 @@ FORBIDDEN_PATTERNS = (
 # codebase and bans ALL of their names from the guarded functions -- not just the
 # literal `SidebarRowsFillLayout`. This closes the "rename the layout to dodge the
 # guard" bypass (#6870 review).
+LAYOUT_WORD = re.compile(r"\bLayout\b")
 CUSTOM_LAYOUT_DECL = re.compile(
     r"\b(?:struct|final\s+class|class|enum|extension)\s+([A-Z]\w*)\b[^{]*?\bLayout\b[^{]*?\{",
     re.DOTALL,
 )
+
+# An always-mounted NSViewRepresentable below the LazyVStack can run AppKit
+# lifecycle callbacks while SwiftUI is updating the same row. Issue #8004's
+# hover and menu helpers wrote row state from that stack and re-entered
+# NSHostingView layout. Discover conformers across repo-owned sources so moving
+# or renaming one cannot bypass the guard, then reject their use in row bodies.
+NSVIEW_REPRESENTABLE_DECL = re.compile(
+    r"\b(?:struct|final\s+class|class|enum|extension)\s+([A-Z]\w*)\b[^{]*?"
+    r"\bNSViewRepresentable\b[^{]*?\{",
+    re.DOTALL,
+)
+
+# These are condition-gated leaf controls. SidebarInlineRenameField exists only
+# during inline rename, and GPUSpinner is mounted indirectly by
+# SidebarWorkspaceLoadingSpinner only while agent activity is visible.
+# SidebarCompactStatusGlyphView is mounted only with sidebar.compactAgentStatus
+# on; like GPUSpinner, its lifecycle callbacks only start or stop its own
+# layer's pulse animation. None writes row state from representable lifecycle
+# callbacks.
+ROW_NSVIEW_REPRESENTABLE_ALLOWLIST = frozenset({
+    "SidebarInlineRenameField",
+    "GPUSpinner",
+    "SidebarCompactStatusGlyphView",
+})
 
 # Row-view regions guarded against per-row geometry feedback. Four of the five
 # historical regressions in this class entered through the row views, not the
@@ -115,7 +140,12 @@ CUSTOM_LAYOUT_DECL = re.compile(
 # (`rowsWithGatedDropTargetReader` + `SidebarWorkspaceFrameAnchorModifier`),
 # which lives outside these regions. A future legitimate need must extend this
 # guard consciously rather than slip past it.
-GUARDED_ROW_TYPES = ("TabItemView", "SidebarWorkspaceGroupHeaderView")
+GUARDED_ROW_TYPES = (
+    "TabItemView",
+    "SidebarWorkspaceRowView",
+    "SidebarWorkspaceGroupHeaderView",
+    "SidebarWorkspaceGroupRowView",
+)
 
 ROW_FORBIDDEN_PATTERNS = (
     (re.compile(r"\bGeometryReader\b"),
@@ -151,6 +181,15 @@ REQUIRED_PRIMITIVES = (
 )
 
 
+_CODE_TOKEN = re.compile(r'//|/\*|"""|"')
+_STRING_TOKEN = re.compile(r'[\\"]')
+_NOT_NEWLINE = re.compile(r"[^\n]")
+
+
+def _blank(text):
+    return _NOT_NEWLINE.sub(" ", text)
+
+
 def neutralize_swift(source):
     """Return ``source`` with comment and string-literal *contents* replaced by
     spaces, preserving every character's position and all newlines.
@@ -161,84 +200,68 @@ def neutralize_swift(source):
     the guard, and so braces/parens inside comments or strings never corrupt the
     function-body matching.
     """
+    # Jump between tokens with regex and str.find rather than stepping one
+    # character at a time: the guard neutralizes hundreds of files per run.
+    #
+    # A multi-line string ends only at `"""`, so a bare `"` inside must not end
+    # it; otherwise the rest (e.g. a forbidden token named in prose) would read
+    # as code and trip the guard with a false positive. (#6870 review)
     out = []
     i = 0
     n = len(source)
-    LINE_COMMENT, BLOCK_COMMENT, STRING, MULTILINE_STRING = 1, 2, 3, 4
-    state = 0
     while i < n:
-        ch = source[i]
-        nxt = source[i + 1] if i + 1 < n else ""
-        if state == 0:
-            if ch == "/" and nxt == "/":
-                out.append("  ")
-                i += 2
-                state = LINE_COMMENT
-                continue
-            if ch == "/" and nxt == "*":
-                out.append("  ")
-                i += 2
-                state = BLOCK_COMMENT
-                continue
-            if source[i:i + 3] == '"""':
-                # Swift multi-line string literal: only a closing `"""` ends it,
-                # so a bare `"` inside must NOT toggle string state -- otherwise
-                # the inner quote would close the literal early and expose the
-                # rest (e.g. a forbidden token named in prose) as apparent code,
-                # tripping the guard with a false positive. (#6870 review)
-                out.append('"""')
-                i += 3
-                state = MULTILINE_STRING
-                continue
-            if ch == '"':
-                out.append('"')
-                i += 1
-                state = STRING
-                continue
-            out.append(ch)
-            i += 1
-            continue
-        if state == LINE_COMMENT:
-            if ch == "\n":
-                out.append("\n")
-                state = 0
-            else:
-                out.append(" ")
-            i += 1
-            continue
-        if state == BLOCK_COMMENT:
-            if ch == "*" and nxt == "/":
-                out.append("  ")
-                i += 2
-                state = 0
-            else:
-                out.append("\n" if ch == "\n" else " ")
-                i += 1
-            continue
-        if state == STRING:
-            if ch == "\\" and nxt != "":
-                # Preserve the escape pair as spaces so positions stay aligned.
-                out.append("  ")
-                i += 2
-                continue
-            if ch == '"':
-                out.append('"')
-                i += 1
-                state = 0
-                continue
-            out.append("\n" if ch == "\n" else " ")
-            i += 1
-            continue
-        if state == MULTILINE_STRING:
-            if source[i:i + 3] == '"""':
-                out.append('"""')
-                i += 3
-                state = 0
-                continue
-            # A lone `"` does not close a multi-line string; only `"""` does.
-            out.append("\n" if ch == "\n" else " ")
-            i += 1
-            continue
+        match = _CODE_TOKEN.search(source, i)
+        if match is None:
+            out.append(source[i:])
+            break
+        out.append(source[i:match.start()])
+        token = match.group()
+        i = match.end()
+        if token == "//":
+            out.append("  ")
+            end = source.find("\n", i)
+            if end < 0:
+                out.append(" " * (n - i))
+                break
+            out.append(" " * (end - i) + "\n")
+            i = end + 1
+        elif token == "/*":
+            out.append("  ")
+            end = source.find("*/", i)
+            if end < 0:
+                out.append(_blank(source[i:]))
+                break
+            out.append(_blank(source[i:end]) + "  ")
+            i = end + 2
+        elif token == '"""':
+            out.append('"""')
+            end = source.find('"""', i)
+            if end < 0:
+                out.append(_blank(source[i:]))
+                break
+            out.append(_blank(source[i:end]) + '"""')
+            i = end + 3
+        else:
+            out.append('"')
+            while True:
+                inner = _STRING_TOKEN.search(source, i)
+                if inner is None:
+                    out.append(_blank(source[i:]))
+                    i = n
+                    break
+                out.append(_blank(source[i:inner.start()]))
+                i = inner.start()
+                if source[i] == '"':
+                    out.append('"')
+                    i += 1
+                    break
+                # Blank the escape pair so positions stay aligned.
+                if i + 1 < n:
+                    out.append("  ")
+                    i += 2
+                else:
+                    out.append(" ")
+                    i += 1
     return "".join(out)
 
 
@@ -372,18 +395,65 @@ def find_custom_layout_type_names(paths):
                 text = handle.read()
         except OSError:
             continue
-        if "Layout" not in text:
+        # Word-bounded, like CUSTOM_LAYOUT_DECL: neutralizing only blanks text
+        # between delimiters, so a match there is a match here. The substring
+        # test first is much cheaper than the regex across every Swift file.
+        if "Layout" not in text or not LAYOUT_WORD.search(text):
             continue
         for match in CUSTOM_LAYOUT_DECL.finditer(neutralize_swift(text)):
             names.add(match.group(1))
     return names
 
 
+def find_nsview_representable_type_names(paths):
+    """Return repo-owned NSViewRepresentable-conforming type names in ``paths``.
+
+    Sources are comment/string-neutralized before matching, using the same scan
+    discipline as custom Layout discovery.
+    """
+    names = set()
+    seen = set()
+    for path in paths:
+        try:
+            real = os.path.realpath(path)
+        except OSError:
+            continue
+        if real in seen:
+            continue
+        seen.add(real)
+        try:
+            with open(path, "r", encoding="utf-8") as handle:
+                text = handle.read()
+        except OSError:
+            continue
+        if "NSViewRepresentable" not in text:
+            continue
+        for match in NSVIEW_REPRESENTABLE_DECL.finditer(neutralize_swift(text)):
+            names.add(match.group(1))
+    return names
+
+
+def nsview_representable_violations(body, region_name, type_names):
+    """Return violations for disallowed representable references in ``body``."""
+    violations = []
+    for name in sorted(type_names - ROW_NSVIEW_REPRESENTABLE_ALLOWLIST):
+        if re.search(r"\b" + re.escape(name) + r"\b", body):
+            violations.append(
+                "{0} references always-mounted NSViewRepresentable `{1}`. "
+                "Sidebar row bodies must be value-only so AppKit lifecycle "
+                "callbacks cannot mutate row state during SwiftUI layout "
+                "(issue #8004).".format(region_name, name)
+            )
+    return violations
+
+
 def check_source(
     source,
     custom_layout_names=None,
+    nsview_representable_names=None,
     require_functions=True,
     required_row_types=(),
+    required_row_functions=(),
     scan_all_rows=False,
     required_markers=(),
 ):
@@ -408,6 +478,7 @@ def check_source(
     must appear in the source so a rename/move fails loudly.
     """
     custom_layout_names = custom_layout_names or set()
+    nsview_representable_names = nsview_representable_names or set()
     neutralized = neutralize_swift(source)
     violations = []
     bodies = {}
@@ -469,6 +540,21 @@ def check_source(
                 "(refusing to pass as a no-op).".format(marker)
             )
 
+    for func_name in required_row_functions:
+        body = extract_function_body(neutralized, func_name)
+        if body is None:
+            violations.append(
+                "could not locate row-builder func {0}(...). The sidebar "
+                "NSViewRepresentable guard must be updated to track the "
+                "renamed function (refusing to pass as a no-op).".format(func_name)
+            )
+            continue
+        violations.extend(nsview_representable_violations(
+            body,
+            "{0}(...)".format(func_name),
+            nsview_representable_names,
+        ))
+
     if scan_all_rows:
         for pattern, description in ROW_FORBIDDEN_PATTERNS:
             if pattern.search(neutralized):
@@ -510,6 +596,11 @@ def check_source(
                         type_name, name
                     )
                 )
+        violations.extend(nsview_representable_violations(
+            body,
+            type_name,
+            nsview_representable_names,
+        ))
 
     return violations
 
@@ -519,14 +610,15 @@ def repo_root_dir():
 
 
 def default_targets():
-    """(path, require_functions, required_row_types, scan_all_rows,
-    required_markers) per scanned file.
+    """(path, require_functions, required_row_types, required_row_functions,
+    scan_all_rows, required_markers) per scanned file.
 
     ContentView.swift holds the container functions and TabItemView; the group
     header row view lives in its own file with neither container function; the
-    group-header ROW WRAPPER (`sidebarWorkspaceGroupHeader(...)`) lives in a
+    group-header row builder (`sidebarWorkspaceGroupRow(...)`) lives in a
     third file whose modifier sites wrap the header before it enters the
-    LazyVStack, so the whole file is scanned for the row-forbidden shapes.
+    LazyVStack. The two immutable wrapper views live in their own files and are
+    guarded as row regions as well.
     """
     root = repo_root_dir()
     return (
@@ -534,6 +626,7 @@ def default_targets():
             os.path.join(root, "Sources", "ContentView.swift"),
             True,
             ("TabItemView",),
+            ("workspaceRow",),
             False,
             (),
         ),
@@ -541,6 +634,7 @@ def default_targets():
             os.path.join(root, "Sources", "SidebarWorkspaceGroupHeaderView.swift"),
             False,
             ("SidebarWorkspaceGroupHeaderView",),
+            (),
             False,
             (),
         ),
@@ -548,8 +642,25 @@ def default_targets():
             os.path.join(root, "Sources", "VerticalTabsSidebar+WorkspaceGroups.swift"),
             False,
             (),
+            ("sidebarWorkspaceGroupRow",),
             True,
-            ("sidebarWorkspaceGroupHeader",),
+            ("sidebarWorkspaceGroupRow",),
+        ),
+        (
+            os.path.join(root, "Sources", "SidebarWorkspaceRowView.swift"),
+            False,
+            ("SidebarWorkspaceRowView",),
+            (),
+            False,
+            (),
+        ),
+        (
+            os.path.join(root, "Sources", "SidebarWorkspaceGroupRowView.swift"),
+            False,
+            ("SidebarWorkspaceGroupRowView",),
+            (),
+            False,
+            (),
         ),
     )
 
@@ -568,7 +679,7 @@ def main(argv=None):
         # "auto": ad-hoc scans of a row-view file (no container functions)
         # skip the container checks instead of failing on their absence; a
         # source containing any guarded function still has both enforced.
-        targets = ((args.file, "auto", (), False, ()),)
+        targets = ((args.file, "auto", (), (), False, ()),)
     else:
         targets = default_targets()
 
@@ -579,9 +690,17 @@ def main(argv=None):
     layout_scan_paths = [target[0] for target in targets]
     layout_scan_paths.extend(sorted(repo_owned_swift_files(repo_root_dir())))
     custom_layout_names = find_custom_layout_type_names(layout_scan_paths)
+    nsview_representable_names = find_nsview_representable_type_names(layout_scan_paths)
 
     exit_code = 0
-    for target, require_functions, required_row_types, scan_all_rows, required_markers in targets:
+    for (
+        target,
+        require_functions,
+        required_row_types,
+        required_row_functions,
+        scan_all_rows,
+        required_markers,
+    ) in targets:
         try:
             with open(target, "r", encoding="utf-8") as handle:
                 source = handle.read()
@@ -594,8 +713,10 @@ def main(argv=None):
         violations = check_source(
             source,
             custom_layout_names,
+            nsview_representable_names,
             require_functions=require_functions,
             required_row_types=required_row_types,
+            required_row_functions=required_row_functions,
             scan_all_rows=scan_all_rows,
             required_markers=required_markers,
         )

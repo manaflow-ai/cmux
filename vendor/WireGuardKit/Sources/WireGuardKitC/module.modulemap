@@ -1,0 +1,4 @@
+module WireGuardKitC {
+    umbrella header "WireGuardKitC.h"
+    export *
+}

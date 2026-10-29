@@ -1,3 +1,5 @@
+import CmuxCloud
+import CmuxAuthRuntime
 import Foundation
 
 extension BrowserPanel {

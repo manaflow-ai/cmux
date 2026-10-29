@@ -4,6 +4,7 @@ import Foundation
 @MainActor
 final class ManualRestoreSpawnDelayer: TerminalSurfaceRestoreSpawnDelaying {
     private var delayCount = 0
+    private(set) var delayDurations: [Duration] = []
     private var delayOperations: [@MainActor () -> Void] = []
     private var delayOperationHead = 0
     private var countContinuations: [Int: [CheckedContinuation<Void, Never>]] = [:]
@@ -12,7 +13,7 @@ final class ManualRestoreSpawnDelayer: TerminalSurfaceRestoreSpawnDelaying {
         for duration: Duration,
         operation: @escaping @MainActor () -> Void
     ) -> any TerminalSurfaceRestoreSpawnDelayCancelling {
-        _ = duration
+        delayDurations.append(duration)
         delayCount += 1
         let count = delayCount
         for waiter in countContinuations.removeValue(forKey: count) ?? [] {

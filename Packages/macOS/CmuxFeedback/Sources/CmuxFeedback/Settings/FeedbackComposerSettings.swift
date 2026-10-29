@@ -29,7 +29,7 @@ public struct FeedbackComposerSettings: Sendable, Equatable {
         storedEmailKey: String = "sidebarHelpFeedbackEmail",
         endpointEnvironmentKey: String = "CMUX_FEEDBACK_API_URL",
         defaultEndpoint: String = "https://cmux.com/api/feedback",
-        foundersEmail: String = "founders@manaflow.com",
+        foundersEmail: String = "founders@cmux.com",
         maxMessageLength: Int = 4_000,
         maxAttachmentCount: Int = 10,
         maxTotalAttachmentBytes: Int = 4 * 1_024 * 1_024,

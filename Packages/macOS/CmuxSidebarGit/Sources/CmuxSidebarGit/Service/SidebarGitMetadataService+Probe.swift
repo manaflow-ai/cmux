@@ -4,6 +4,11 @@ internal import CmuxGit
 // MARK: - Probe scheduling, the per-directory snapshot pipeline, and apply.
 
 extension SidebarGitMetadataService {
+    /// Match the session autosave quiet period. A probe can read a large
+    /// repository off-main, but applying its snapshot still publishes sidebar
+    /// state on the main actor, where it would contend with active typing.
+    nonisolated static let terminalTypingQuietInterval: TimeInterval = 0.65
+
     public func scheduleInitialWorkspaceGitMetadataRefreshIfPossible(
         workspaceId: UUID,
         panelId: UUID,
@@ -29,7 +34,7 @@ extension SidebarGitMetadataService {
         let key = WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: panelId)
         guard let host else { return }
         guard !host.shouldSkipLocalGitMetadata(workspaceId: workspaceId, panelId: panelId) else { return }
-        guard sidebarGitMetadataWatchEnabled else {
+        guard sidebarGitMetadataActivePollingEnabled else {
             clearWorkspaceGitMetadata(for: key)
             return
         }
@@ -99,6 +104,26 @@ extension SidebarGitMetadataService {
         isLastAttempt: Bool,
         reason: String
     ) {
+        if host?.terminalTypingIsActive(within: Self.terminalTypingQuietInterval) == true {
+            workspaceGitProbeStateByKey[probeKey] = .idle
+            let delay = max(
+                Self.terminalTypingQuietInterval,
+                host?.terminalTypingQuietDelay(for: Self.terminalTypingQuietInterval) ?? 0
+            )
+            // This method is called by the current probe task. Schedule the
+            // replacement from a separate actor turn so cancelling the old
+            // task cannot also cancel the newly installed retry.
+            Task { @MainActor [weak self] in
+                guard let self, !Task.isCancelled else { return }
+                self.scheduleWorkspaceGitMetadataRefreshIfPossible(
+                    workspaceId: probeKey.workspaceId,
+                    panelId: probeKey.panelId,
+                    reason: "terminalTypingDeferred",
+                    delays: [delay]
+                )
+            }
+            return
+        }
         guard host?.mobileHostHasRecentActivity(within: mobileHostDeferral.quietInterval) != true else {
             workspaceGitProbeStateByKey[probeKey] = .idle
             scheduleWorkspaceGitMetadataRefreshIfPossible(
@@ -199,6 +224,39 @@ extension SidebarGitMetadataService {
     ) {
         workspaceGitSnapshotTasksByDirectory.removeValue(forKey: expectedDirectory)
         workspaceGitSnapshotTaskContextByDirectory.removeValue(forKey: expectedDirectory)
+
+        // A reader admitted before typing began can still finish during the
+        // typing window. Keep its requests in the directory mailbox and use
+        // the same owned snapshot-task slot for a quiet-period retry, rather
+        // than publishing sidebar state in the middle of a terminal turn.
+        if host?.terminalTypingIsActive(within: Self.terminalTypingQuietInterval) == true {
+            let delay = max(
+                Self.terminalTypingQuietInterval,
+                host?.terminalTypingQuietDelay(for: Self.terminalTypingQuietInterval) ?? 0
+            )
+            let clock = clock
+            workspaceGitSnapshotTasksByDirectory[expectedDirectory] = Task { @MainActor [weak self] in
+                do {
+                    try await clock.sleep(for: .seconds(delay))
+                } catch {
+                    return
+                }
+                guard let self, !Task.isCancelled else { return }
+                self.workspaceGitSnapshotTasksByDirectory.removeValue(forKey: expectedDirectory)
+                let requests = self.workspaceGitSnapshotRequestsByDirectory.removeValue(forKey: expectedDirectory) ?? [:]
+                for request in requests.values {
+                    self.workspaceGitSnapshotDirectoryByProbeKey.removeValue(forKey: request.probeKey)
+                    self.workspaceGitProbeStateByKey[request.probeKey] = .idle
+                    self.scheduleWorkspaceGitMetadataRefreshIfPossible(
+                        workspaceId: request.probeKey.workspaceId,
+                        panelId: request.probeKey.panelId,
+                        reason: "terminalTypingDeferredApply"
+                    )
+                }
+            }
+            return
+        }
+
         let requests = workspaceGitSnapshotRequestsByDirectory.removeValue(forKey: expectedDirectory) ?? [:]
         for request in requests.values {
             workspaceGitSnapshotDirectoryByProbeKey.removeValue(forKey: request.probeKey)
@@ -323,7 +381,6 @@ extension SidebarGitMetadataService {
             workspaceGitTrackedDirectoryByKey.removeValue(forKey: probeKey)
             stopWorkspaceGitMetadataWatcher(for: probeKey)
         }
-        updateWorkspaceGitMetadataFallbackTimer()
 
         let previousBranchState = host.panelGitBranch(
             workspaceId: probeKey.workspaceId,

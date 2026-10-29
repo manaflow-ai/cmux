@@ -3,6 +3,26 @@ import Carbon.HIToolbox
 import Darwin
 import Testing
 
+@Suite("Composed prompt submit keys")
+struct ComposedPromptSubmitKeyTests {
+    @Test("Active providers override an earlier Claude launch", arguments:
+        ["codex", "opencode", "pi", "cursor", "grok", "gemini"]
+    )
+    func activeProviderOverridesLaunch(_ provider: String) {
+        let context = "initialCommand:claude\nrestoredAgent:claude\nagentPIDKey:\(provider).123"
+        #expect(TextBoxAgentDetection.composedPromptSubmitKey(
+            containsNewline: true, context: context
+        ) == "return")
+    }
+
+    @Test("Active Claude keeps its multiline submit chord")
+    func activeClaude() {
+        #expect(TextBoxAgentDetection.composedPromptSubmitKey(
+            containsNewline: true, context: "initialCommand:opencode\nagentPIDKey:claude.123"
+        ) == "ctrl+enter")
+    }
+}
+
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
 #elseif canImport(cmux)
@@ -76,6 +96,71 @@ struct TextBoxSubmitActionTests {
         XCTAssertEqual(
             action.command(forPrompt: "line one\nline\t'two'"),
             "router --prompt 'line one\nline\t'\\''two'\\'''"
+        )
+    }
+
+    @Test
+    func testCloudImageCommandTemplateFailsClosedBeforeClearingDraft() {
+        let action = TextBoxSubmitAction(
+            id: "router",
+            title: "Router",
+            kind: .commandTemplate,
+            commandTemplate: "router --prompt {{prompt}}",
+            systemImage: "wand.and.stars",
+            backgroundColorHex: "#123456"
+        )
+        let imageURL = URL(fileURLWithPath: "/tmp/cloud-prompt.png")
+        let attachment = TextBoxAttachment(
+            localURL: imageURL,
+            submissionText: TextBoxAttachment.submissionText(forLocalFileURL: imageURL)
+        )
+
+        XCTAssertTrue(TextBoxInputContainer.shouldRejectCloudImageCommandTemplate(
+            action: action,
+            shouldForceTextEntrySubmit: false,
+            imageTransferTarget: .cloud,
+            parts: [.text("inspect"), .attachment(attachment)]
+        ))
+        XCTAssertFalse(TextBoxInputContainer.shouldRejectCloudImageCommandTemplate(
+            action: action,
+            shouldForceTextEntrySubmit: true,
+            imageTransferTarget: .cloud,
+            parts: [.attachment(attachment)]
+        ))
+        XCTAssertFalse(TextBoxInputContainer.shouldRejectCloudImageCommandTemplate(
+            action: action,
+            shouldForceTextEntrySubmit: false,
+            imageTransferTarget: .local,
+            parts: [.attachment(attachment)]
+        ))
+    }
+
+    @Test
+    func testCloudImageDispatchPlanThreadsTransferTarget() {
+        let imageURL = URL(fileURLWithPath: "/tmp/cloud-prompt.png")
+        let attachment = TextBoxAttachment(
+            localURL: imageURL,
+            submissionText: TextBoxAttachment.submissionText(forLocalFileURL: imageURL)
+        )
+        let plan = TextBoxInputContainer.dispatchPlan(
+            [.text("inspect"), .attachment(attachment)],
+            applying: .textEntryAction,
+            shouldForceTextEntrySubmit: true,
+            allowsCommandTemplateSubmit: false,
+            terminalAgentContext: "restoredAgent:codex",
+            pendingProviderLaunchAction: nil,
+            imageTransferTarget: .cloud
+        )
+
+        XCTAssertEqual(
+            plan.events,
+            [
+                .validateCloudImages([imageURL.standardizedFileURL]),
+                .pasteText("inspect"),
+                .pasteCloudImages([imageURL.standardizedFileURL]),
+                .pasteText(" "),
+                .namedKey("return")
+            ]
         )
     }
 

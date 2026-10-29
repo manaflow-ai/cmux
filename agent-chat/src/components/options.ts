@@ -71,8 +71,46 @@ export function sanitizeStartOptions(dirty: Record<string, OptionValue>, options
   return out;
 }
 
+export function optionsForSelectedModel(options: SessionOption[]): SessionOption[] {
+  const model = options.find((option) => option.id === "model" && option.kind === "select");
+  if (!model) return options;
+  const selected = model.choices?.find((choice) => choice.value === model.value);
+  const existingEffort = options.find((option) => option.role === "effort" && option.kind === "select");
+  const withoutEffort = options.filter((option) => option !== existingEffort);
+  const choices = selected?.efforts;
+  if (!existingEffort || !choices?.length) return withoutEffort;
+  const requested = String(existingEffort?.value ?? "");
+  const preferred = choices.some((choice) => choice.value === requested)
+    ? requested
+    : choices.some((choice) => choice.value === selected.defaultEffort)
+      ? selected.defaultEffort!
+      : choices[0]!.value;
+  const effort: SessionOption = {
+    id: existingEffort.id,
+    label: existingEffort.label,
+    kind: "select",
+    role: "effort",
+    value: preferred,
+    choices,
+    disabled: existingEffort.disabled && Boolean(existingEffort.choices?.length),
+    description: existingEffort.description,
+  };
+  const modelIndex = withoutEffort.indexOf(model);
+  return [
+    ...withoutEffort.slice(0, modelIndex + 1),
+    effort,
+    ...withoutEffort.slice(modelIndex + 1),
+  ];
+}
+
 export function withLocalValues(options: SessionOption[], local: Record<string, OptionValue>): SessionOption[] {
-  return options.map((o) => {
+  const modelFirst = options.map((o) => {
+    if (o.id !== "model" || !Object.prototype.hasOwnProperty.call(local, o.id)) return o;
+    const value = local[o.id];
+    return optionAcceptsValue(o, value) ? { ...o, value } : o;
+  });
+  return optionsForSelectedModel(modelFirst).map((o) => {
+    if (o.id === "model") return o;
     if (!Object.prototype.hasOwnProperty.call(local, o.id)) return o;
     const value = local[o.id];
     return optionAcceptsValue(o, value) ? { ...o, value } : o;
@@ -80,9 +118,19 @@ export function withLocalValues(options: SessionOption[], local: Record<string, 
 }
 
 export function cycleSelect(option: SessionOption, onChange: (id: string, value: OptionValue) => void) {
-  const choices = visibleChoices(option);
-  if (option.kind !== "select" || !choices.length || option.disabled) return;
+  const choices = visibleChoices(option).filter((choice) => !choice.disabled);
+  if (option.kind !== "select" || !choices.length || option.disabled) return false;
   const i = choices.findIndex((c) => c.value === option.value);
   const next = choices[(i + 1 + choices.length) % choices.length];
-  if (next) onChange(option.id, next.value);
+  if (!next) return false;
+  onChange(option.id, next.value);
+  return true;
+}
+
+export function planToggleValue(option?: SessionOption): string | undefined {
+  if (!option || option.kind !== "select" || option.disabled) return undefined;
+  const choices = visibleChoices(option).filter((choice) => !choice.disabled);
+  if (option.value !== "plan") return choices.find((choice) => choice.value === "plan")?.value;
+  return choices.find((choice) => choice.value === "build")?.value
+    ?? choices.find((choice) => choice.value === "default")?.value;
 }

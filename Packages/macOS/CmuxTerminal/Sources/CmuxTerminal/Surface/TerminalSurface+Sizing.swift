@@ -35,9 +35,13 @@ extension TerminalSurface {
     /// Returns whether a backing-pixel resize should be forwarded to Ghostty.
     ///
     /// Ghostty uses one surface-size API for both renderer pixels and PTY
-    /// geometry. During AppKit live resize, pixel churn can arrive without a
-    /// terminal grid change; coalescing those pixel-only updates avoids
-    /// redundant PTY resizes while preserving ordinary layout and scale changes.
+    /// geometry. Pixel churn can arrive without a terminal grid change;
+    /// coalescing those pixel-only updates avoids redundant PTY resizes (and
+    /// their `SIGWINCH`s) while preserving ordinary layout and scale changes.
+    /// Process-owned surfaces use this in steady state because a harmless
+    /// renderer-pixel delta would otherwise notify a tmux client; manual-I/O
+    /// mirrors opt in only during interactions so their geometry samples keep
+    /// refining the feed-forward size calculation.
     ///
     /// - Parameter currentColumns: The current terminal grid column count.
     /// - Parameter currentRows: The current terminal grid row count.
@@ -106,6 +110,71 @@ extension TerminalSurface {
         )
     }
 
+    /// The pixel size that renders exactly an assigned grid: each axis is
+    /// the assignment's cells at the current cell size plus the surface's
+    /// own chrome, whether the view is shorter or longer. Pure so the
+    /// arithmetic is testable without a runtime surface.
+    static func assignedGridPinnedSize(
+        width: UInt32,
+        height: UInt32,
+        assignedColumns: Int,
+        assignedRows: Int,
+        cellWidthPx: UInt32,
+        cellHeightPx: UInt32,
+        padWidthPx: UInt32,
+        padHeightPx: UInt32
+    ) -> (width: UInt32, height: UInt32) {
+        guard cellWidthPx > 0, cellHeightPx > 0, assignedColumns > 0, assignedRows > 0 else {
+            return (width, height)
+        }
+        return (
+            UInt32(assignedColumns) * cellWidthPx + padWidthPx,
+            UInt32(assignedRows) * cellHeightPx + padHeightPx
+        )
+    }
+
+    /// Sets the tmux-assigned grid for a manual-IO mirror pane and
+    /// re-applies the current size when the pin changes the applied grid.
+    /// Returns whether the pin grew on either axis — cells granted after
+    /// tmux already streamed their rows hold nothing until tmux repaints,
+    /// so the caller owes a redraw kick when this returns true.
+    @MainActor
+    @discardableResult
+    public func setAssignedGrid(columns: Int, rows: Int) -> Bool {
+        let assigned = (columns: columns, rows: rows)
+        if let existing = assignedGrid, existing == assigned { return false }
+        let grew = assignedGrid.map { columns > $0.columns || rows > $0.rows } ?? true
+        assignedGrid = assigned
+        reapplyAssignedGrid()
+        return grew
+    }
+
+    /// Clears the pin (the pane left the mirror tree); the next genuine
+    /// resize re-derives the grid from the view alone.
+    @MainActor
+    public func clearAssignedGrid() {
+        guard assignedGrid != nil else { return }
+        assignedGrid = nil
+        reapplyAssignedGrid()
+    }
+
+    /// Re-applies the current pin's pixel size to the surface. The mirror
+    /// calls this when a pane's rendered grid falls behind an assignment the
+    /// pin already holds — an unchanged ``setAssignedGrid`` is a no-op, so the
+    /// surface needs an explicit nudge back onto the pinned grid.
+    @MainActor
+    public func reapplyAssignedGrid() {
+        guard ioMode.usesManualIO, lastUncappedPixelWidth > 0, lastUncappedPixelHeight > 0,
+              lastXScale > 0, lastYScale > 0 else { return }
+        _ = updateSize(
+            width: CGFloat(lastUncappedPixelWidth) / lastXScale,
+            height: CGFloat(lastUncappedPixelHeight) / lastYScale,
+            xScale: lastXScale,
+            yScale: lastYScale,
+            layerScale: lastXScale
+        )
+    }
+
     /// Applies a new backing size/scale to the runtime surface.
     ///
     /// - Parameter width: The logical surface width in points.
@@ -115,17 +184,26 @@ extension TerminalSurface {
     /// - Parameter layerScale: The backing scale assigned to the hosting layer.
     /// - Parameter backingSize: The precomputed backing size in pixels, if available.
     /// - Parameter coalescePixelOnlyResize: Whether same-grid pixel-only resizes should be skipped.
+    /// - Parameter suppressAssignedGridPin: Skip the tmux-assigned grid pin for this
+    ///   resize and use the view-derived size. Set while an interactive resize is
+    ///   active: the pin holds the surface at the pre-drag (larger) assignment across
+    ///   the whole drag, and presenting that oversized grid before the deferred
+    ///   reconcile clamps it paints past the shrinking pane onto siblings. The pin
+    ///   re-establishes at rest (drag end and tmux's layout reply both size the pane).
+    /// - Parameter caller: The originating size-reconciliation entry point for debug tracing.
     /// - Returns: Whether a runtime size or scale change was applied.
     @discardableResult
     @MainActor
-    public func updateSize(
+    func updateSize(
         width: CGFloat,
         height: CGFloat,
         xScale: CGFloat,
         yScale: CGFloat,
         layerScale: CGFloat,
         backingSize: CGSize? = nil,
-        coalescePixelOnlyResize: Bool = false
+        coalescePixelOnlyResize: Bool = false,
+        suppressAssignedGridPin: Bool = false,
+        caller: StaticString = #function
     ) -> Bool {
         guard let surface = liveSurfaceForGhosttyAccess(reason: "updateSize") else { return false }
         _ = layerScale
@@ -134,17 +212,72 @@ extension TerminalSurface {
         let resolvedBackingHeight = backingSize?.height ?? (height * yScale)
         let rawWpx = pixelDimension(from: resolvedBackingWidth)
         let rawHpx = pixelDimension(from: resolvedBackingHeight)
+        let uncappedPixelSizeChanged = rawWpx != lastUncappedPixelWidth || rawHpx != lastUncappedPixelHeight
         lastUncappedPixelWidth = rawWpx
         lastUncappedPixelHeight = rawHpx
+        defer {
+            if uncappedPixelSizeChanged { onNaturalGridInputsChanged?() }
+        }
         let fittedSize = mobileViewportFittedSize(
             width: rawWpx,
             height: rawHpx,
             surface: surface,
             reason: "updateSize"
         )
-        let wpx = fittedSize.width
-        let hpx = fittedSize.height
+        var wpx = fittedSize.width
+        var hpx = fittedSize.height
         guard wpx > 0, hpx > 0 else { return false }
+
+        // The tmux-assigned grid outranks the view's points on a mirror,
+        // in BOTH directions: a wider grid never sets wrap flags where
+        // tmux wrapped, a taller grid keeps stale rows tmux never
+        // repaints, a shorter grid drops assigned cells. Pin the applied
+        // pixels to exactly the assignment and let the view clip or
+        // letterbox the difference. Skipped until the surface has real
+        // cell metrics (a pre-font surface reports zero cells).
+        if ioMode.usesManualIO, !suppressAssignedGridPin, let assigned = assignedGrid {
+            let current = ghostty_surface_size(surface)
+            if current.cell_width_px > 0, current.cell_height_px > 0 {
+                // On a scale change the reported cell metrics are still at the
+                // OLD backing scale — set_content_scale runs later in this
+                // method. Pinning the old cell px on a 1x→2x move would pin
+                // ~half the columns, and forcing wpx to the old backing width
+                // makes sizeChanged false, defeating deferScaleUntilResized
+                // (the grid then collapses when the bigger cell lands over the
+                // un-resized screen). Project the reported cell (and pad) to
+                // the scale this resize is about to apply. Both ratios are 1
+                // when the scale is unchanged, so this is a no-op then.
+                let ratioX = lastXScale > 0 ? xScale / lastXScale : 1
+                let ratioY = lastYScale > 0 ? yScale / lastYScale : 1
+                let targetCellW = UInt32(max(1, (CGFloat(current.cell_width_px) * ratioX).rounded()))
+                let targetCellH = UInt32(max(1, (CGFloat(current.cell_height_px) * ratioY).rounded()))
+                let gridWidthPx = UInt32(current.columns) * current.cell_width_px
+                let gridHeightPx = UInt32(current.rows) * current.cell_height_px
+                let padWidthPx = current.width_px > gridWidthPx ? current.width_px - gridWidthPx : 0
+                let padHeightPx = current.height_px > gridHeightPx ? current.height_px - gridHeightPx : 0
+                let pinned = Self.assignedGridPinnedSize(
+                    width: wpx,
+                    height: hpx,
+                    assignedColumns: assigned.columns,
+                    assignedRows: assigned.rows,
+                    cellWidthPx: targetCellW,
+                    cellHeightPx: targetCellH,
+                    padWidthPx: UInt32((CGFloat(padWidthPx) * ratioX).rounded()),
+                    padHeightPx: UInt32((CGFloat(padHeightPx) * ratioY).rounded())
+                )
+                #if DEBUG
+                if pinned.width != wpx || pinned.height != hpx {
+                    Self.sizeLog(
+                        "assignedGridPin surface=\(id.uuidString.prefix(8)) " +
+                        "assigned=\(assigned.columns)x\(assigned.rows) " +
+                        "view=\(wpx)x\(hpx) -> \(pinned.width)x\(pinned.height)"
+                    )
+                }
+                #endif
+                wpx = pinned.width
+                hpx = pinned.height
+            }
+        }
 
         let scaleChanged = !scaleApproximatelyEqual(xScale, lastXScale) || !scaleApproximatelyEqual(yScale, lastYScale)
         let sizeChanged = wpx != lastPixelWidth || hpx != lastPixelHeight
@@ -223,14 +356,14 @@ extension TerminalSurface {
             // incremental post-SIGWINCH redraws, so a local reflow diverges from
             // the tmux grid. Ghostty reflows iff DECAWM is enabled at resize
             // time, so disable it across the size change for TUI-like panes.
-            let suppressManualReflow = manualIO && manualIONoReflow
+            let suppressManualReflow = ioMode.usesManualIO && manualIONoReflow
             if suppressManualReflow {
                 writeProcessOutputData(Self.decawmDisableSequence, to: surface)
             }
-            ghostty_surface_set_size(surface, wpx, hpx)
+            applySurfaceSize(surface, width: wpx, height: hpx, caller: caller)
             lastPixelWidth = wpx
             lastPixelHeight = hpx
-            if manualIO {
+            if ioMode.usesManualIO {
                 // Async refresh, not render_now: render_now runs updateFrame on
                 // the main thread and races the always-live macOS renderer
                 // thread on a grid-size change (shaper double-free). Keep the
@@ -262,14 +395,19 @@ extension TerminalSurface {
         // must still report, because a hidden mirror's one-time size claim
         // (see RemoteTmuxWindowMirror.updateClientSize) is triggered by its
         // surfaces' first applied resize — the LISTENER owns the policy of
-        // what a hidden report may do.
-        if manualIO, let report = onManualSizeApplied {
-            if let attachedView, attachedView.window != nil {
+        // what a hidden report may do. A hidden bootstrap window is not a
+        // real pane window and must never become sizing truth.
+        if ioMode.usesManualIO, let report = onManualSizeApplied {
+            if let attachedView,
+               let realWindow = uiWindow,
+               attachedView.window === realWindow {
                 manualSizeReportPendingWindowAttach = false
                 let applied = ghostty_surface_size(surface)
                 let cols = Int(applied.columns)
                 let rows = Int(applied.rows)
                 if cols > 1, rows > 1 {
+                    let work = terminalWork.begin(.ptyResizeRequest, workspaceID: tabId)
+                    defer { work?.end() }
                     report(TerminalSurfaceRawSizingSample(
                         columns: cols, rows: rows,
                         cellWidthPx: Int(applied.cell_width_px),
@@ -306,67 +444,4 @@ extension TerminalSurface {
             height: Double(size.cell_height_px) / scale
         )
     }
-
-    /// Raw sizing sample for calibration diagnostics: `ghostty_surface_size`'s
-    /// device-pixel fields UNCONVERTED, plus the attached view's bounds in
-    /// points and its window's backing scale. Callers separate view layout,
-    /// scale, padding, and cell quantization themselves — pre-mixed units are
-    /// how sizing bugs hide (call sites have treated the raw pixel cell size
-    /// as points in one place and as pixels in another).
-    @MainActor
-    public func rawSizingSample() -> TerminalSurfaceRawSizingSample? {
-        guard let surface = liveSurfaceForGhosttyAccess(reason: "rawSizingSample") else { return nil }
-        let size = ghostty_surface_size(surface)
-        return TerminalSurfaceRawSizingSample(
-            columns: Int(size.columns),
-            rows: Int(size.rows),
-            cellWidthPx: Int(size.cell_width_px),
-            cellHeightPx: Int(size.cell_height_px),
-            surfaceWidthPx: Int(size.width_px),
-            surfaceHeightPx: Int(size.height_px),
-            viewBoundsPt: attachedView?.bounds.size,
-            backingScale: attachedView?.window?.backingScaleFactor
-        )
-    }
-
-    /// Delivers the manual-size report that was skipped because the view was
-    /// outside any window when the size applied (see
-    /// ``manualSizeReportPendingWindowAttach``). Called from the attach path;
-    /// a no-op unless a report is actually owed and deliverable.
-    @MainActor
-    public func flushPendingManualSizeReportIfAttached() {
-        guard manualSizeReportPendingWindowAttach,
-              let report = onManualSizeApplied,
-              attachedView?.window != nil,
-              let sample = rawSizingSample(),
-              sample.columns > 1, sample.rows > 1
-        else { return }
-        manualSizeReportPendingWindowAttach = false
-        report(sample)
-    }
-
-    /// Which of ``renderedGridCells()``'s nil conditions currently hold —
-    /// lets sizing diagnostics name the mechanism (view detached from its
-    /// window vs surface not live vs no real grid) instead of a bare nil.
-    @MainActor
-    public func renderedGridDiagnostics() -> (viewInWindow: Bool, surfaceLive: Bool) {
-        (
-            viewInWindow: attachedView?.window != nil,
-            surfaceLive: liveSurfaceForGhosttyAccess(reason: "renderedGridDiagnostics") != nil
-        )
-    }
-
-    /// The on-screen rendered grid, or nil while the runtime surface is not
-    /// live, is not in a window, or has no real grid yet.
-    @MainActor
-    public func renderedGridCells() -> (columns: Int, rows: Int)? {
-        guard attachedView?.window != nil,
-              let surface = liveSurfaceForGhosttyAccess(reason: "renderedGridCells") else { return nil }
-        let size = ghostty_surface_size(surface)
-        let cols = Int(size.columns)
-        let rows = Int(size.rows)
-        guard cols > 1, rows > 1 else { return nil }
-        return (cols, rows)
-    }
-
 }

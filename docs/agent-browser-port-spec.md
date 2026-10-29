@@ -225,7 +225,7 @@ P1 (important but not blocking initial parity):
 2. `browser.frame.select`
 3. `browser.frame.main`
 4. `browser.dialog.respond`
-5. `browser.download.wait`
+5. `browser.download.wait|list`
 6. `browser.tab.*` compatibility aliases mapped to cmux surfaces
 7. `browser.console.list`
 8. `browser.errors.list`
@@ -331,7 +331,7 @@ Hard invariant:
 - [x] Implement `browser.find.nth|first|last`.
 - [x] Implement frame context switching (`frame.select`, `frame.main`).
 - [x] Implement dialog handling (`accept`, `dismiss`, optional prompt text).
-- [x] Implement download waiting.
+- [x] Implement download waiting and newest-first history listing.
 - [x] Implement console/error buffers and retrieval.
 - [x] Implement highlight helper.
 - [x] Implement browser state save/load format.
@@ -350,7 +350,7 @@ Hard invariant:
 ### Phase 4: Advanced/Optional Parity (P2)
 
 - [ ] Evaluate feasibility of request interception/mocking in `WKWebView`; implement supported subset.
-- [ ] Add emulation settings that are feasible in `WKWebView`.
+- [x] Add exact 1...4096 CSS-pixel viewport emulation for `WKWebView`; aspect-fit the page without changing pane layout, preserve focus, and restore native sizing with `browser viewport reset`.
 - [ ] Add trace/recording equivalents where practical.
 - [x] Add script/style injection helpers.
 - [x] Document unsupported commands with explicit error `not_supported`.

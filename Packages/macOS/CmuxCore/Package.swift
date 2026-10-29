@@ -15,12 +15,14 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../CmuxFoundation"),
+        .package(path: "../CmuxAgentDeliveryCore"),
     ],
     targets: [
         .target(
             name: "CmuxCore",
             dependencies: [
                 .product(name: "CmuxFoundation", package: "CmuxFoundation"),
+                .product(name: "CmuxAgentDeliveryCore", package: "CmuxAgentDeliveryCore"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),

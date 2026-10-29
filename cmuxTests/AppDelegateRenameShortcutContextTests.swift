@@ -333,7 +333,7 @@ struct AppDelegateRenameShortcutContextTests {
 #endif
 
             #expect(workspace.focusedPanelId == browserPanelId)
-            #expect(browserPanel.pendingReactGrabReturnTargetPanelId == terminalPanelId)
+            #expect(browserPanel.reactGrabPasteback.armedReturnPanelId == terminalPanelId)
         }
     }
 

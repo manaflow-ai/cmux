@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 
+private let cliProcessLivenessTimeout: TimeInterval = 20 // Over 3× the observed loaded runtime.
 extension CMUXCLIErrorOutputRegressionTests {
     @Test func testSessionsListTreatsTranscriptBackedClaudeRecordAsRestorable() throws {
         let cliPath = try bundledCLIPath()
@@ -53,7 +54,7 @@ extension CMUXCLIErrorOutputRegressionTests {
             executablePath: cliPath,
             arguments: ["sessions", "list", "--agent", "claude", "--session", sessionId, "--json"],
             environment: environment,
-            timeout: 5
+            timeout: cliProcessLivenessTimeout
         )
 
         #expect(!result.timedOut, Comment(rawValue: result.stdout))
@@ -116,7 +117,7 @@ extension CMUXCLIErrorOutputRegressionTests {
             executablePath: cliPath,
             arguments: ["sessions", "list", "--agent", "claude", "--session", sessionId, "--json"],
             environment: environment,
-            timeout: 5
+            timeout: cliProcessLivenessTimeout
         )
 
         #expect(!result.timedOut, Comment(rawValue: result.stdout))
@@ -143,9 +144,7 @@ extension CMUXCLIErrorOutputRegressionTests {
         defer { try? FileManager.default.removeItem(at: root) }
 
         let sessionId = "claude-config-lookup-session"
-        let projectDirName = repoDir.path
-            .replacingOccurrences(of: "/", with: "-")
-            .replacingOccurrences(of: ".", with: "-")
+        let projectDirName = expectedClaudeProjectSlug(repoDir.path)
         let projectDir = claudeConfigDir
             .appendingPathComponent("projects", isDirectory: true)
             .appendingPathComponent(projectDirName, isDirectory: true)
@@ -196,7 +195,7 @@ extension CMUXCLIErrorOutputRegressionTests {
             executablePath: cliPath,
             arguments: ["sessions", "list", "--agent", "claude", "--session", sessionId, "--json"],
             environment: environment,
-            timeout: 5
+            timeout: cliProcessLivenessTimeout
         )
 
         #expect(!result.timedOut, Comment(rawValue: result.stdout))
@@ -226,9 +225,7 @@ extension CMUXCLIErrorOutputRegressionTests {
 
         let containerSessionId = "aaaaaaaa-1111-1111-1111-aaaaaaaaaaaa"
         let siblingSessionIds = ["bbbbbbbb-2222-2222-2222-bbbbbbbbbbbb", "cccccccc-3333-3333-3333-cccccccccccc"]
-        let projectDirName = repoDir.path
-            .replacingOccurrences(of: "/", with: "-")
-            .replacingOccurrences(of: ".", with: "-")
+        let projectDirName = expectedClaudeProjectSlug(repoDir.path)
         let projectDir = claudeConfigDir
             .appendingPathComponent("projects", isDirectory: true)
             .appendingPathComponent(projectDirName, isDirectory: true)
@@ -279,7 +276,7 @@ extension CMUXCLIErrorOutputRegressionTests {
             executablePath: cliPath,
             arguments: ["sessions", "list", "--agent", "claude", "--session", containerSessionId, "--json"],
             environment: environment,
-            timeout: 5
+            timeout: cliProcessLivenessTimeout
         )
 
         #expect(!result.timedOut, Comment(rawValue: result.stdout))
@@ -347,7 +344,7 @@ extension CMUXCLIErrorOutputRegressionTests {
             executablePath: cliPath,
             arguments: ["sessions", "list", "--agent", "codex", "--session", sessionId, "--json"],
             environment: environment,
-            timeout: 5
+            timeout: cliProcessLivenessTimeout
         )
 
         #expect(!result.timedOut, Comment(rawValue: result.stdout))
@@ -414,7 +411,7 @@ extension CMUXCLIErrorOutputRegressionTests {
             executablePath: cliPath,
             arguments: ["sessions", "list", "--agent", "codex", "--session", sessionId, "--json"],
             environment: environment,
-            timeout: 5
+            timeout: cliProcessLivenessTimeout
         )
 
         #expect(!result.timedOut, Comment(rawValue: result.stdout))
@@ -479,7 +476,7 @@ extension CMUXCLIErrorOutputRegressionTests {
             executablePath: cliPath,
             arguments: ["sessions", "list", "--agent", "codex", "--session", sessionId, "--json"],
             environment: environment,
-            timeout: 5
+            timeout: cliProcessLivenessTimeout
         )
 
         #expect(!result.timedOut, Comment(rawValue: result.stdout))

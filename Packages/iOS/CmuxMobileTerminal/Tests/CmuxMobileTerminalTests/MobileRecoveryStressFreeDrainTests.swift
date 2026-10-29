@@ -23,6 +23,7 @@ struct MobileRecoveryStressFreeDrainTests {
         let window: UIWindow
         let view: GhosttySurfaceView
         let delegate: Delegate
+        let expectedTheme: TerminalTheme
 
         func tearDown() {
             GhosttySurfaceView.RecoveryStressObservers.set(nil, for: view)
@@ -42,12 +43,55 @@ struct MobileRecoveryStressFreeDrainTests {
 
         let drained = await waitForFreeDrain(afterForcingRecoveryOn: harness.view)
         #expect(drained, "the old surface free should drain after forced render-pipeline recovery")
+        #expect(
+            harness.view.configBackgroundColor == harness.expectedTheme.terminalBackgroundUIColor,
+            "the replacement surface should reapply its scoped theme"
+        )
+    }
+
+    @Test("forced recovery clears a frozen verified replay presentation")
+    func forcedRecoveryClearsVerifiedReplayPresentation() async throws {
+        let harness = try makeHarness()
+        defer { harness.tearDown() }
+
+        try await waitForMountedSurface(harness.view)
+        let frozenLayer = CALayer()
+        harness.view.layer.addSublayer(frozenLayer)
+        harness.view.verifiedReplayFrozenPresentationLayer = frozenLayer
+        harness.view.verifiedReplayRenderSuppressed = true
+
+        harness.view.forceRecoveryForStress()
+
+        #expect(harness.view.verifiedReplayFrozenPresentationLayer == nil)
+        #expect(!harness.view.verifiedReplayRenderSuppressed)
+        #expect(frozenLayer.superlayer == nil)
+    }
+
+    @Test("paused recovery clears a frozen verified replay presentation")
+    func pausedRecoveryClearsVerifiedReplayPresentation() async throws {
+        let harness = try makeHarness()
+        defer { harness.tearDown() }
+
+        try await waitForMountedSurface(harness.view)
+        let frozenLayer = CALayer()
+        harness.view.layer.addSublayer(frozenLayer)
+        harness.view.verifiedReplayFrozenPresentationLayer = frozenLayer
+        harness.view.verifiedReplayRenderSuppressed = true
+        harness.view.renderPipelineRecoveryPaused = true
+
+        harness.view.forceRecoveryForStress()
+
+        #expect(harness.view.verifiedReplayFrozenPresentationLayer == nil)
+        #expect(!harness.view.verifiedReplayRenderSuppressed)
+        #expect(frozenLayer.superlayer == nil)
     }
 
     private func makeHarness() throws -> Harness {
         let runtime = try GhosttyRuntime.shared()
         let delegate = Delegate()
-        let view = GhosttySurfaceView(runtime: runtime, delegate: delegate, fontSize: 10)
+        var theme = TerminalTheme.monokai
+        theme.background = "#f4f0df"
+        let view = GhosttySurfaceView(runtime: runtime, delegate: delegate, fontSize: 10, terminalTheme: theme)
         view.autoFocusOnWindowAttach = false
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 874))
         view.frame = window.bounds
@@ -55,7 +99,7 @@ struct MobileRecoveryStressFreeDrainTests {
         window.isHidden = false
         view.setNeedsLayout()
         view.layoutIfNeeded()
-        return Harness(window: window, view: view, delegate: delegate)
+        return Harness(window: window, view: view, delegate: delegate, expectedTheme: theme)
     }
 
     private func waitForMountedSurface(_ view: GhosttySurfaceView) async throws {

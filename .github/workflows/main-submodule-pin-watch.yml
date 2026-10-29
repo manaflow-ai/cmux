@@ -1,0 +1,79 @@
+name: Main submodule pin watch
+
+# Runs the PR submodule forward-only guard against each push to main. The PR
+# guard is not a required check, so a squash merge can still land a stale
+# gitlink (cmux#16319 moved vendor/bonsplit back from f33c31c to 351bfa7 a
+# minute after its branch merged main, before the guard reported). This never
+# gates anything: on a backward or diverged pin it comments on the merged pull
+# request with the pin to restore, and fails so the run shows red on main.
+on:
+  push:
+    branches: [main]
+
+permissions: {}
+
+jobs:
+  watch:
+    name: Submodule pins move forward
+    if: ${{ github.repository == 'manaflow-ai/cmux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          # The pushed commit and its parent, with submodules, as the PR guard
+          # checks them out in ci-guards.yml.
+          fetch-depth: 2
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Compare pins with the previous main commit
+        id: guard
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          set -uo pipefail
+          base="$BEFORE"
+          # A squash merge pushes one commit. For a force-push or a multi-commit
+          # push whose `before` is outside the shallow clone, check the tip
+          # against its parent only.
+          if ! git cat-file -e "$base^{commit}" 2>/dev/null; then
+            base="$(git rev-parse HEAD^1)"
+          fi
+          echo "base=$base" >> "$GITHUB_OUTPUT"
+          set +e
+          python3 scripts/ci/submodule_forward_only.py --base "$base" --head "$GITHUB_SHA" 2>&1 | tee "$RUNNER_TEMP/guard.log"
+          status="${PIPESTATUS[0]}"
+          exit "$status"
+
+      - name: Comment on the merged pull request
+        if: ${{ failure() && steps.guard.outcome == 'failure' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE: ${{ steps.guard.outputs.base }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          pr="$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/pulls" -q '.[0].number // empty' || true)"
+          fails="$(grep '^FAIL ' "$RUNNER_TEMP/guard.log" || true)"
+          fixes="$(printf '%s\n' "$fails" | sed -nE 's/^FAIL ([^:]+): ([0-9a-f]{40}) -> [0-9a-f]{40}.*/git -C \1 checkout \2 \&\& git add \1/p')"
+          if [ -n "$fixes" ]; then
+            fix_block="$(printf '%s\n\n```sh\n%s\n```' "Fix forward on a branch from main (or point at a newer commit of the submodule main):" "$fixes")"
+          else
+            fix_block="Ancestry could not be decided; check the pins by hand."
+          fi
+          body="$(printf '%s\n\n```\n%s\n```\n\n%s\n\n%s\n' \
+            "Submodule pin watch: \`$GITHUB_SHA\` moved a submodule backward, diverged or undecidable compared with the previous main commit \`$BASE\`." \
+            "$fails" \
+            "$fix_block" \
+            "Run: $RUN_URL")"
+          if [ -n "$pr" ]; then
+            gh pr comment "$pr" --repo "$GITHUB_REPOSITORY" --body "$body"
+          else
+            printf '%s\n' "$body" >> "$GITHUB_STEP_SUMMARY"
+          fi

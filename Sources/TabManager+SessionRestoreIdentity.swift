@@ -1,6 +1,10 @@
 import Foundation
 
 extension TabManager {
+    func liveWorkspaceIdSet() -> Set<UUID> {
+        Set(tabs.map(\.id))
+    }
+
     func liveStableIdentitySet() -> Set<UUID> {
         var identities: Set<UUID> = []
         for workspace in tabs {

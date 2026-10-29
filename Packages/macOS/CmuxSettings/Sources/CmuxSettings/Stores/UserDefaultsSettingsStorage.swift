@@ -16,6 +16,14 @@ final class UserDefaultsSettingsStorage: @unchecked Sendable {
         key.value(in: defaults)
     }
 
+    func valueIfPresent<Value>(for key: DefaultsKey<Value>) -> Value? {
+        key.decodedValue(in: defaults)
+    }
+
+    func hasStoredValue(for key: String) -> Bool {
+        defaults.object(forKey: key) != nil
+    }
+
     func set<Value>(_ value: Value, for key: DefaultsKey<Value>) {
         key.set(value, in: defaults)
     }

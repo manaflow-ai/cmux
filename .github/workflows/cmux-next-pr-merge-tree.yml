@@ -1,0 +1,23 @@
+name: cmux-next PR merge tree (disabled)
+
+# Security shutdown (Daybreak round 3, 2026-10-20): the former
+# pull_request_target job created a real cmux-tui-pin-* branch at an untrusted
+# pull-request merge commit. GitHub then loaded that commit's workflows as a
+# push, giving pull-request-controlled scripts OIDC and access to the
+# artifact-publication path. A replacement must build in a credential-free PR
+# job and publish the exact artifact from default-branch workflow_run controls.
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  disabled:
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-2vcpu-ubuntu-2404' }}
+    timeout-minutes: 1
+    permissions: {}
+    steps:
+      - name: Refuse the unsafe merge-tree publication path
+        run: |
+          echo "::error title=cmux-tui merge tree publisher disabled::Pin refs are refused. This tree has no artifact yet; land the reviewed change, then re-run after a trusted feat-cmux-next publication. A fleet build can bundle its own daemon without publishing it."
+          exit 1

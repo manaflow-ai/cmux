@@ -3,6 +3,8 @@ import AppKit
 import Bonsplit
 import CmuxAppKitSupportUI
 import CmuxCanvasUI
+import CmuxFoundation
+import CmuxSettings
 import CmuxSettingsUI
 
 /// SwiftUI host for a workspace's canvas layout.
@@ -21,13 +23,21 @@ struct WorkspaceCanvasHostView: View {
     let appearance: PanelAppearance
     let windowAppearance: WindowAppearanceSnapshot
     @Environment(\.settingsRuntime) private var settingsRuntime
+    @Environment(BrowserDataImportCoordinator.self) private var browserDataImportCoordinator: BrowserDataImportCoordinator?
+    @Environment(\.workspaceAttentionColor) private var workspaceAttentionColor
+    @Environment(\.cmuxAccentColor) private var accentColor
+    @AppStorage(SessionContentWidthSettings.maxWidthKey)
+    private var storedSessionContentMaximumWidth = SessionContentWidthSettings.noMaximumWidth
+    @AppStorage(SessionContentWidthSettings.alignmentKey)
+    private var storedSessionContentAlignment = SessionContentAlignment.center.rawValue
 
     var body: some View {
         CanvasRootRepresentable(
             workspace: workspace,
             descriptors: descriptors,
             focusedPanelId: workspace.focusedPanelId,
-            isWorkspaceVisible: isWorkspaceVisible
+            isWorkspaceVisible: isWorkspaceVisible,
+            accentColor: accentColor
         )
     }
 
@@ -35,11 +45,16 @@ struct WorkspaceCanvasHostView: View {
         let focusedPanelId = workspace.focusedPanelId
         let closeActionLabel = String(localized: "canvas.pane.close.help", defaultValue: "Close Pane")
         let isSplit = workspace.orderedPanelIds.count > 1
+        let sessionContentWidthPresentation = SessionContentWidthPresentation(
+            storedMaximumWidth: storedSessionContentMaximumWidth,
+            storedAlignment: storedSessionContentAlignment
+        )
         return workspace.orderedPanelIds.compactMap { panelId in
             guard let panel = workspace.panels[panelId] else { return nil }
             let isFocused = isWorkspaceInputActive && focusedPanelId == panelId
             return CanvasPaneDescriptor(
                 id: panelId,
+                contentIdentity: ObjectIdentifier(panel),
                 tab: CanvasTabChrome(
                     id: panelId,
                     title: panel.displayTitle,
@@ -52,14 +67,21 @@ struct WorkspaceCanvasHostView: View {
                         content: Self.makeContent(
                             panel: panel,
                             workspace: workspace,
+                            pointerInputOwner: container,
+                            isFocused: isFocused,
                             isWorkspaceVisible: isWorkspaceVisible,
+                            allowsPointerInput: isWorkspaceVisible && isWorkspaceInputActive,
                             portalPriority: portalPriority,
                             appearance: appearance,
                             windowAppearance: windowAppearance,
-                            settingsRuntime: settingsRuntime
+                            settingsRuntime: settingsRuntime,
+                            browserDataImportCoordinator: browserDataImportCoordinator,
+                            workspaceAttentionColor: workspaceAttentionColor,
+                            sessionContentWidthPresentation: sessionContentWidthPresentation
                         ),
                         panelId: panelId,
                         container: container,
+                        workspaceAttentionColor: workspaceAttentionColor,
                         onFocusPanel: { [weak workspace] panelId in
                             workspace?.focusPanel(panelId)
                         }
@@ -69,9 +91,12 @@ struct WorkspaceCanvasHostView: View {
                     guard let mount = mount as? CanvasPaneContentMount else { return }
                     mount.updatePresentation(
                         isFocused: isFocused,
+                        allowsPointerInput: isWorkspaceVisible && isWorkspaceInputActive,
                         showsInactiveOverlay: isSplit && !isFocused,
                         inactiveOverlayColor: appearance.unfocusedOverlayNSColor,
-                        inactiveOverlayOpacity: appearance.unfocusedOverlayOpacity
+                        inactiveOverlayOpacity: appearance.unfocusedOverlayOpacity,
+                        sessionContentWidthPresentation: sessionContentWidthPresentation,
+                        workspaceAttentionColor: workspaceAttentionColor
                     )
                 }
             )
@@ -86,10 +111,18 @@ struct WorkspaceCanvasHostView: View {
         case .filePreview: return "doc.text.magnifyingglass"
         case .rightSidebarTool: return "sidebar.right"
         case .customSidebar: return "wand.and.stars"
+        case .simulator: return "iphone.gen3"
         case .agentSession: return "sparkles"
         case .project: return "folder"
         case .extensionBrowser: return "puzzlepiece.extension"
+        case .workspaceTodo: return "checklist"
+        case .coderouterGuide: return "questionmark.circle"
+        case .notifications: return "bell"
         case .cloudVMLoading: return "cloud.fill"
+        case .mobilePairing: return "iphone"
+        case .accountSignIn: return "person.crop.circle"
+        case .cloudVPNSetup: return "network"
+        case .chief: return ChiefPanel.iconSystemName
         }
     }
 
@@ -97,38 +130,56 @@ struct WorkspaceCanvasHostView: View {
     private static func makeContent(
         panel: any Panel,
         workspace: Workspace?,
+        pointerInputOwner: NSView,
+        isFocused: Bool,
         isWorkspaceVisible: Bool,
+        allowsPointerInput: Bool,
         portalPriority: Int,
         appearance: PanelAppearance,
         windowAppearance: WindowAppearanceSnapshot,
-        settingsRuntime: SettingsRuntime?
+        settingsRuntime: SettingsRuntime?,
+        browserDataImportCoordinator: BrowserDataImportCoordinator?,
+        workspaceAttentionColor: WorkspaceAttentionColor,
+        sessionContentWidthPresentation: SessionContentWidthPresentation
     ) -> CanvasPaneContent {
         if let terminalPanel = panel as? TerminalPanel {
-            return .terminal(terminalPanel)
+            return .terminal(terminalPanel, sessionContentWidthPresentation)
         }
         let workspaceId = workspace?.id ?? UUID()
         let paneId = workspace?.bonsplitPaneId(forPanelId: panel.id) ?? PaneID()
+        let presentation = CanvasHostedPanelPresentation(
+            isFocused: isFocused,
+            allowsPointerInput: allowsPointerInput,
+            pointerInputOwner: pointerInputOwner,
+            workspaceAttentionColor: workspaceAttentionColor
+        )
         let content = CanvasHostedPanelContentView(
+            presentation: presentation,
             panel: panel,
             workspaceId: workspaceId,
             paneId: paneId,
-            isFocused: false,
             isVisibleInUI: isWorkspaceVisible,
             portalPriority: portalPriority,
             appearance: appearance,
             windowAppearance: windowAppearance,
+            settingsRuntime: settingsRuntime,
+            browserDataImportCoordinator: browserDataImportCoordinator,
             customSidebarTabManager: workspace?.owningTabManager,
             onRequestPanelFocus: { [weak workspace] in
                 workspace?.focusPanel(panel.id)
+            },
+            onRequestDeferredBrowserMaterialization: { [weak workspace] in
+                workspace?.requestDeferredBrowserMaterialization(
+                    panelId: panel.id,
+                    isVisibleInUI: isWorkspaceVisible
+                )
             }
         )
-        let hosted = NSHostingView(rootView: AnyView(
-            content.environment(\.settingsRuntime, settingsRuntime)
-        ))
+        let hosted = NSHostingView(rootView: AnyView(content))
         // The pane's content container dictates the size; never let the
         // hosting view shrink to SwiftUI's ideal size.
         hosted.sizingOptions = []
-        return .hosted(panel, hosted)
+        return .hosted(panel, hosted, presentation)
     }
 }
 
@@ -140,6 +191,7 @@ private struct CanvasRootRepresentable: NSViewRepresentable {
     let descriptors: [CanvasPaneDescriptor]
     let focusedPanelId: UUID?
     let isWorkspaceVisible: Bool
+    let accentColor: CmuxAccentColor
 
     func makeNSView(context: Context) -> CanvasRootView {
         let workspace = workspace
@@ -219,12 +271,39 @@ private struct CanvasRootRepresentable: NSViewRepresentable {
             ),
             themeProvider: {
                 let background = GhosttyBackgroundTheme.currentColor()
-                return CanvasTheme(canvasBackground: background, paneBackground: background)
-            }
+                // When the window root paints a see-through backdrop, as in
+                // split mode, opaque canvas fills would hide it. Read the same
+                // backdrop plan the window applies so Reduce Transparency and
+                // window glass resolve identically in both layout modes.
+                let windowChrome = AppWindowChromeComposition()
+                let showsWindowBackdrop = windowChrome
+                    .appearanceSnapshotFromUserDefaults(app: GhosttyApp.shared)
+                    .showsWindowBackdrop(
+                        glassEffectAvailable: windowChrome.glassEffect.isAvailable,
+                        windowBackgroundPolicy: windowChrome.windowBackgroundPolicy
+                    )
+                return CanvasTheme(
+                    canvasBackground: background,
+                    paneBackground: background,
+                    showsWindowBackdrop: showsWindowBackdrop
+                )
+            },
+            // The signals split mode's window backdrop refreshes on: a Ghostty
+            // background or opacity change (including a config reload) and a
+            // Display accessibility change such as Reduce Transparency.
+            themeChangeSignals: [
+                CanvasThemeChangeSignal(name: .ghosttyDefaultBackgroundDidChange),
+                CanvasThemeChangeSignal(name: .ghosttyConfigDidReload),
+                CanvasThemeChangeSignal(
+                    name: DisplayAccessibilityOptions.didChangeNotification,
+                    center: NSWorkspace.shared.notificationCenter
+                ),
+            ]
         )
     }
 
     func updateNSView(_ nsView: CanvasRootView, context: Context) {
+        nsView.accentColor = accentColor
         nsView.sync(
             descriptors: descriptors,
             focusedPanelId: focusedPanelId,

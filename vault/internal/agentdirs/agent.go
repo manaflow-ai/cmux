@@ -65,6 +65,9 @@ type Session struct {
 	CWD            string    `json:"cwd,omitempty"`
 	SizeBytes      int64     `json:"sizeBytes"`
 	ModTime        time.Time `json:"modTime"`
+	// Identity is the file seen at discovery. Later reads reopen the path and
+	// refuse a different file swapped in after discovery.
+	Identity os.FileInfo `json:"-"`
 }
 
 type SessionRef struct {
@@ -189,6 +192,7 @@ func statSessionWithLogicalPath(agentName, root, path, logicalPath, id, cwd stri
 		CWD:            cwd,
 		SizeBytes:      info.Size(),
 		ModTime:        info.ModTime(),
+		Identity:       info,
 	}, nil
 }
 
@@ -225,6 +229,20 @@ func RegularFileInfoNoSymlink(path string) (os.FileInfo, error) {
 	}
 	defer file.Close()
 	return info, nil
+}
+
+// OpenDiscoveredSession reopens a discovered transcript and verifies it is
+// still the same single-link regular file that discovery saw.
+func OpenDiscoveredSession(s Session) (*os.File, error) {
+	file, info, err := OpenRegularFileNoSymlink(s.AbsPath)
+	if err != nil {
+		return nil, err
+	}
+	if s.Identity != nil && !os.SameFile(s.Identity, info) {
+		_ = file.Close()
+		return nil, fmt.Errorf("%s changed identity after discovery", s.AbsPath)
+	}
+	return file, nil
 }
 
 func cwdFromJSON(data []byte) string {

@@ -34,6 +34,10 @@ public final class ComposerDictationController {
     /// enabled/listening presentation.
     public private(set) var state: ComposerDictationState = .idle
 
+    /// Synchronous, main-actor lifecycle observer used by the app diagnostic
+    /// bridge. Events carry fixed vocabulary only and never recognized text.
+    private let onDiagnosticEvent: @MainActor (ComposerDictationDiagnosticEvent) -> Void
+
     /// The recognizer for the user's locale. `nil` when the locale is
     /// unsupported, which is surfaced as ``ComposerDictationState/unavailable``.
     private let recognizer: SFSpeechRecognizer?
@@ -73,6 +77,12 @@ public final class ComposerDictationController {
     /// store after the user left.
     private var onText: ((String) -> Void)?
 
+    /// Suppresses high-rate partial-result logging after the first non-empty
+    /// transcript in a session. That first boundary is sufficient to distinguish
+    /// "the mic started" from "recognition produced text" without retaining the
+    /// text or filling the bounded diagnostic ring with every partial result.
+    private var receivedResultInCurrentSession = false
+
     /// Pending watchdog that force-finishes a graceful stop if the recognition
     /// task never delivers a final result. Cancelled when the final result (or an
     /// error) lands first, or when a hard cancel supersedes the graceful stop.
@@ -83,12 +93,17 @@ public final class ComposerDictationController {
     /// `.stopping` if no final result ever arrives.
     private static let finalizeTimeoutSeconds: Double = 2.5
     /// Creates a dictation controller for the current speech-recognition locale.
-    public init(textMerger: ComposerDictationTextMerger = ComposerDictationTextMerger()) {
+    public init(
+        textMerger: ComposerDictationTextMerger = ComposerDictationTextMerger(),
+        onDiagnosticEvent: @escaping @MainActor (ComposerDictationDiagnosticEvent) -> Void = { _ in }
+    ) {
         self.textMerger = textMerger
+        self.onDiagnosticEvent = onDiagnosticEvent
         self.recognizer = SFSpeechRecognizer()
         // A nil recognizer (unsupported locale) is terminal: the mic is disabled.
         if recognizer == nil {
             state = .unavailable
+            onDiagnosticEvent(.unavailable(.unsupportedLocale))
         }
     }
 
@@ -139,8 +154,7 @@ public final class ComposerDictationController {
     /// otherwise). The permission callback guards on `requestingPermission`, so
     /// once this lands in idle it refuses to start.
     private func cancelPendingStart() {
-        teardown()
-        state = .idle
+        cancel()
     }
 
     /// Begin dictation: resolve authorization, then start the engine and stream
@@ -148,8 +162,11 @@ public final class ComposerDictationController {
     /// allows a start (idle and available).
     func start(existingText: String, onText: @escaping (String) -> Void) {
         guard state.canStart else { return }
+        onDiagnosticEvent(.startRequested)
+        receivedResultInCurrentSession = false
         guard recognizer != nil else {
             state = .unavailable
+            onDiagnosticEvent(.unavailable(.unsupportedLocale))
             return
         }
         baseText = existingText
@@ -173,6 +190,7 @@ public final class ComposerDictationController {
         case .denied:
             self.onText = nil
             state = .unavailable
+            onDiagnosticEvent(.unavailable(.permissionDenied))
             return
         case .undetermined:
             // First-ever request: fall through to the async prompt below.
@@ -198,6 +216,7 @@ public final class ComposerDictationController {
                     // mic. The captured callback is dropped.
                     self.onText = nil
                     self.state = .unavailable
+                    self.onDiagnosticEvent(.unavailable(.permissionDenied))
                     return
                 }
                 self.beginRecognition()
@@ -227,6 +246,7 @@ public final class ComposerDictationController {
             cancel()
             return
         }
+        onDiagnosticEvent(.stopRequested)
         state = .stopping
         // Flush buffered audio so a late FINAL result can include the tail, then
         // stop capturing OFF the main actor: `engine.stop()` + `setActive(false)`
@@ -240,7 +260,7 @@ public final class ComposerDictationController {
         finalizeTimeout = Task { [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(Self.finalizeTimeoutSeconds * 1_000_000_000))
             guard !Task.isCancelled else { return }
-            self?.finishGraceful()
+            self?.finishGraceful(timedOut: true)
         }
     }
 
@@ -250,12 +270,16 @@ public final class ComposerDictationController {
     /// (`onDisappear`, terminal switch) where losing the unrecognized tail is
     /// acceptable. Idempotent and safe to call from any state.
     public func cancel() {
+        let wasActive = state == .requestingPermission || state == .listening || state == .stopping
         if state == .listening || state == .stopping { state = .stopping }
         teardown()
         // Preserve a terminal `unavailable`; otherwise return to idle. A cancel
         // from an already-idle state is a harmless no-op (teardown is nil-checks).
         if state != .unavailable {
             state = .idle
+        }
+        if wasActive {
+            onDiagnosticEvent(.cancelled)
         }
     }
 
@@ -338,8 +362,12 @@ public final class ComposerDictationController {
     /// owner's serial queue, NOT here, so the mic button never hitches (issue
     /// #6284). The state stays `.requestingPermission` until ``handleEngineReady``.
     private func beginRecognition() {
-        guard let recognizer, recognizer.isAvailable else {
-            failStart()
+        guard let recognizer else {
+            failStart(reason: .unsupportedLocale)
+            return
+        }
+        guard recognizer.isAvailable else {
+            failStart(reason: .recognizerUnavailable)
             return
         }
 
@@ -378,12 +406,17 @@ public final class ComposerDictationController {
         guard state.startDisposition(
             callbackToken: token, currentToken: startToken
         ) == .apply else { return }
-        guard started, let recognizer, let request else {
-            failStart()
+        guard started else {
+            failStart(reason: .audioEngineStartFailed)
+            return
+        }
+        guard let recognizer, let request else {
+            failStart(reason: .recognizerUnavailable)
             return
         }
         task = recognizer.recognitionTask(with: request, resultHandler: makeRecognitionResultHandler())
         state = .listening
+        onDiagnosticEvent(.started)
     }
 
     /// Build the audio-tap block handed to the off-main ``audioEngine`` owner.
@@ -395,7 +428,7 @@ public final class ComposerDictationController {
         request: SFSpeechAudioBufferRecognitionRequest
     ) -> @Sendable (AVAudioPCMBuffer, AVAudioTime) -> Void {
         // `nonisolated(unsafe)`-safe: `append(_:)` is thread-safe, weak, never outlives the request.
-        nonisolated(unsafe) weak let weakRequest: SFSpeechAudioBufferRecognitionRequest? = request
+        nonisolated(unsafe) weak var weakRequest: SFSpeechAudioBufferRecognitionRequest? = request
         return { buffer, _ in
             weakRequest?.append(buffer)
         }
@@ -426,6 +459,10 @@ public final class ComposerDictationController {
                 // already committed. The latest non-empty partial is already in the
                 // field, so an empty final/partial must be ignored, not applied.
                 if let transcript, !transcript.isEmpty {
+                    if !self.receivedResultInCurrentSession {
+                        self.receivedResultInCurrentSession = true
+                        self.onDiagnosticEvent(.firstResultReceived)
+                    }
                     self.onText?(self.textMerger.merged(
                         base: self.baseText,
                         transcript: transcript
@@ -436,11 +473,13 @@ public final class ComposerDictationController {
                 // stop is already in flight (`.stopping`), this is the awaited
                 // final result: apply it (done above) and finish cleanup. While
                 // still listening, the stream ended on its own; cancel to idle.
-                if isFinal || failed {
+                if failed {
+                    self.failRecognition()
+                } else if isFinal {
                     if self.state == .stopping {
                         self.finishGraceful()
                     } else {
-                        self.cancel()
+                        self.finishNaturalRecognition()
                     }
                 }
             }
@@ -450,9 +489,27 @@ public final class ComposerDictationController {
     /// Tear down after a setup failure and disable the mic. Distinct from a clean
     /// stop because a failed start indicates the recognizer cannot be used right
     /// now (no input route, session error, recognizer offline).
-    private func failStart() {
+    private func failStart(reason: ComposerDictationUnavailabilityReason) {
         teardown()
         state = .unavailable
+        onDiagnosticEvent(.unavailable(reason))
+    }
+
+    /// Settle an established stream that failed after the microphone started.
+    /// This remains retryable (`idle`), unlike a start-time unavailable state.
+    private func failRecognition() {
+        guard state == .listening || state == .stopping else { return }
+        onDiagnosticEvent(.recognitionFailed)
+        teardown()
+        state = .idle
+    }
+
+    /// Settle a recognizer that finalized on its own while still listening.
+    private func finishNaturalRecognition() {
+        guard state == .listening else { return }
+        teardown()
+        state = .idle
+        onDiagnosticEvent(.stopped)
     }
 
     /// Finish a graceful stop after the recognition task delivered its final
@@ -460,8 +517,11 @@ public final class ComposerDictationController {
     /// return to idle. The engine and session are already stopped by `stop()`.
     /// A no-op once the controller has left `.stopping` (final result and
     /// watchdog can race; whichever lands first wins, the other is ignored).
-    private func finishGraceful() {
+    private func finishGraceful(timedOut: Bool = false) {
         guard state == .stopping else { return }
+        if timedOut {
+            onDiagnosticEvent(.stopTimedOut)
+        }
         finalizeTimeout?.cancel()
         finalizeTimeout = nil
         // The task already finalized; cancelling a finished task is a no-op, and
@@ -472,6 +532,7 @@ public final class ComposerDictationController {
         onText = nil
         baseText = ""
         state = .idle
+        onDiagnosticEvent(.stopped)
     }
 
     /// Cancel the recognition task, end and drop the request, stop the engine and
@@ -494,6 +555,7 @@ public final class ComposerDictationController {
         audioEngine.stop()
         onText = nil
         baseText = ""
+        receivedResultInCurrentSession = false
     }
 }
 #endif
