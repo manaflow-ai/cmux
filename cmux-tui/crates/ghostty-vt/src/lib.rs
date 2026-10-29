@@ -49,8 +49,8 @@ pub use render::{
 pub use snapshot::{
     HISTORY_DIGEST_VERSION, HistoryDigest, SNAPSHOT_ENVELOPE_LEN, SNAPSHOT_RECORD_HEADER_LEN,
     SnapshotHistoryPage, SnapshotPhase, SnapshotRecord, primary_history_pages, reencode_ready,
-    snapshot_digest_input, snapshot_envelope_version, snapshot_ready_len, snapshot_records,
-    snapshot_version, tag as snapshot_tag,
+    restore_ready_then_write, snapshot_digest_input, snapshot_envelope_version, snapshot_ready_len,
+    snapshot_records, snapshot_version, tag as snapshot_tag,
 };
 pub use terminal::{
     Callbacks, ClearHistoryOutcome, ClipboardLocation, ClipboardReadFn, ClipboardReadRequest,

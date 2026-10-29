@@ -560,6 +560,7 @@ mod layout_receipts_shutdown;
 mod outbound_and_scheduler;
 mod reply_event_order;
 mod request_thread_attach;
+mod resize_fuzz;
 mod resource_attach;
 mod resource_waits;
 mod session_streams;
