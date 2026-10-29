@@ -86,20 +86,18 @@ final class SettingsPageProvider: PageProvider {
     var personBacksGesture: (@MainActor (TimeInterval) -> Bool)?
     /// Settings > Machines' "Dedicated agent machine" switch on a Cloud machine: the error to show, or nil.
     var setMachineVmHost: (@MainActor (String, Bool) async -> String?)?
-    /// The Touch ID or password confirm (LocalAuthentication `deviceOwnerAuthentication`) that turns
-    /// Full access or Dedicated agent machine on when the click behind it was not the HID system's
-    /// (``personTurnsOn(_:_:_:)``); nil, never.
+    /// The Touch ID or password confirm (LocalAuthentication `deviceOwnerAuthentication`) that every
+    /// turn-on of Full access or Dedicated agent machine needs (``widen(_:_:on:_:_:)``); nil, never.
     var ownerConfirm: (any DeviceOwnerAuthenticating)?
-    /// Whether the HID system's click skips that confirm (``PersonGatePolicy``).
-    var gatePolicy = PersonGatePolicy.hidOrConfirm
     /// The gesture (``PageCallContext/gestureEvent``) that last turned a device's Full access on:
     /// one click or key turns on one setting.
     var spentFullAccessGesture: TimeInterval?
     /// A turn-on confirm is up: a second one waits for no answer and is refused.
     var confirmingOwner = false
-    /// Offs per switch and machine (``turnedOff(_:_:)``): an off while that switch's confirm is up
-    /// voids the confirm, so a late success never undoes the off.
+    /// Offs per switch and machine (``widen(_:_:on:_:_:)``): an off wins over every on asked before it.
     var offs: [String: Int] = [:]
+    /// The tail of each switch and machine's write chain: its writes land in the order they were asked.
+    var writes: [String: Task<Void, Never>] = [:]
     /// Results of recent writes by idempotency key (a retried key replays its first answer).
     private var replies: [(key: String, value: JSONValue)] = []
     private static let replayLimit = 64
@@ -168,11 +166,9 @@ final class SettingsPageProvider: PageProvider {
             // commands here without asking, so it needs the person's own click or key in the
             // Settings page, spent once (the host's record, never the page's word): page script
             // alone never turns it on. Turning it off only narrows what the machine may do, so it
-            // needs no gesture (a revoke always works, assistive technology included). The click
-            // must also be the HID system's, or the person confirms with Touch ID or the
-            // password (``personTurnsOn(_:_:_:)``).
-            if on { try await personTurnsOn(.fullAccess, id, context) } else { turnedOff(.fullAccess, id) }
-            return try await widenedWrite(.fullAccess, id, on, Self.host(setDeviceFullAccess, "devices")).map { ["error": .string($0)] } ?? .object([:])
+            // needs no gesture (a revoke always works, assistive technology included). An on then
+            // also needs Touch ID or the password (``widen(_:_:on:_:_:)``).
+            return try await widen(.fullAccess, id, on: on, context, Self.host(setDeviceFullAccess, "devices")).map { ["error": .string($0)] } ?? .object([:])
         case "cmux.settings.devices.join_consent":
             guard let surface = params["surface"]?.stringValue, JoinConsentSurface(rawValue: surface) != nil,
                   let on = params["on"]?.boolValue else {
@@ -200,10 +196,9 @@ final class SettingsPageProvider: PageProvider {
             // Turning it on lets that machine take the VM boundary again when this app's own link
             // asks for it (its remote chains then run without the sandbox), so, like Full access,
             // only the person's own click or key in this page turns it on (spent once); off makes
-            // the machine keep the sandbox always, which only narrows, so it needs no gesture. The
-            // click must also be the HID system's, or the person confirms (``personTurnsOn(_:_:_:)``).
-            if on { try await personTurnsOn(.vmHost, id, context) } else { turnedOff(.vmHost, id) }
-            return try await widenedWrite(.vmHost, id, on, Self.host(setMachineVmHost, "machines")).map { ["error": .string($0)] } ?? .object([:])
+            // the machine keep the sandbox always, which only narrows, so it needs no gesture. An on
+            // then also needs Touch ID or the password (``widen(_:_:on:_:_:)``).
+            return try await widen(.vmHost, id, on: on, context, Self.host(setMachineVmHost, "machines")).map { ["error": .string($0)] } ?? .object([:])
         case "cmux.settings.accounts.state": return try Self.host(accountsState, "accounts")()
         case "cmux.settings.accounts.run": return try await Self.host(accountsRun, "accounts")(params)
         case "cmux.settings.agents.state": return try Self.host(agents, "agents").pageState

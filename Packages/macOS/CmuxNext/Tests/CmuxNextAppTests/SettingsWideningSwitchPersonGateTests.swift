@@ -10,13 +10,17 @@ import Testing
 
 /// Settings' Full access (a paired device) and Dedicated agent machine (a Cloud machine's vmHost)
 /// switches widen what another machine may do here, so an agent driving this Mac's screen must not turn
-/// them on. An on needs the person's own click in the page, and that click must be the HID system's
-/// (``PersonInputLedger``, ``PersonInputCheck``). Any other click (a computer-use agent's posted one,
-/// Screen Sharing) asks for Touch ID or the password (`ownerConfirm`), and only a confirm that succeeds
-/// turns it on. An off takes any input.
+/// them on. An on needs the person's own click in the page and then Touch ID or the password
+/// (`ownerConfirm`), whatever the click's source fields say: a poster can set those. Only a confirm that
+/// succeeds turns it on. An off takes any input, with no prompt, and wins over every on asked before it.
 @MainActor @Suite(.serialized) struct SettingsWideningSwitchPersonGateTests {
     @MainActor final class Recorder {
         var sets: [String] = []
+    }
+
+    /// A confirm that always succeeds, for tests about the click rather than the confirm.
+    @MainActor final class AlwaysConfirms: DeviceOwnerAuthenticating {
+        func authenticate(reason: String) async -> Bool { true }
     }
 
     /// The Touch ID or password confirm: answers `answer`, or, when `hold`, waits for ``resume(_:)`` (a
@@ -78,12 +82,38 @@ import Testing
 
     /// Host writes whose on is held until the test lands it; an off lands at once.
     @MainActor final class Landing {
-        var held: [CheckedContinuation<Void, Never>] = []
+        private var held: [CheckedContinuation<Void, Never>] = []
+        private var waiting: CheckedContinuation<Void, Never>?
 
         func write(_ name: String, _ on: Bool, _ recorder: Recorder) async -> String? {
-            if on { await withCheckedContinuation { held.append($0) } }
+            if on {
+                await withCheckedContinuation {
+                    held.append($0)
+                    waiting?.resume()
+                    waiting = nil
+                }
+            }
             recorder.sets.append("\(name) \(on)")
             return nil
+        }
+
+        /// Returns once an on's write is held.
+        func arrived() async {
+            guard held.isEmpty else { return }
+            await withCheckedContinuation { waiting = $0 }
+        }
+
+        /// Lands the oldest held on.
+        func land() {
+            guard !held.isEmpty else { return }
+            held.removeFirst().resume()
+        }
+
+        /// Lands every held write and wakes any wait (cleanup).
+        func release() {
+            while !held.isEmpty { land() }
+            waiting?.resume()
+            waiting = nil
         }
     }
 
@@ -132,9 +162,9 @@ import Testing
             }
         }
 
-        /// A posted click's on for `op`, left running while its confirm is held.
-        func heldOn(_ op: Switch) throws -> Task<JSONValue, any Error> {
-            let event = try posted()
+        /// An on for `op` from a click by `pid` (default: a posted click), left running.
+        func heldOn(_ op: Switch, pid: Int64? = nil) throws -> Task<JSONValue, any Error> {
+            let event = try click(pid ?? Int64(poster.processIdentifier))
             ledger.record(event)
             let page = page, stamp = event.timestamp
             return Task {
@@ -154,12 +184,19 @@ import Testing
         case vmHost = "cmux.settings.machines.vm_host"
 
         var set: String { self == .fullAccess ? "device" : "vm" }
+        var widening: SettingsPageProvider.WideningSwitch { self == .fullAccess ? .fullAccess : .vmHost }
         var reason: String {
             self == .fullAccess ? SettingsPersonGateStrings.fullAccessReason : SettingsPersonGateStrings.vmHostReason
         }
     }
 
-    private func make(owner: FakeOwner?) async throws -> Harness {
+    /// Waits (bounded) for the provider to reach a state another task puts it in.
+    private static func until(_ reached: @MainActor () -> Bool) async throws {
+        for _ in 0..<10_000 where !reached() { await Task.yield() }
+        try #require(reached())
+    }
+
+    private func make(owner: (any DeviceOwnerAuthenticating)?) async throws -> Harness {
         let directory = FileManager.default.temporaryDirectory.appending(path: "cn-settings-person-gate-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let url = directory.appending(path: "cmux.json")
@@ -184,7 +221,7 @@ import Testing
 
     /// RED before this change: a click another process posted from a HID-state source turned either
     /// switch on, since the page saw a real event. Now it turns neither on (this Mac cannot ask the
-    /// owner here), and the same posted click turns both off.
+    /// owner here, so it fails closed), and the same posted click turns both off.
     @Test func aPostedClickTurnsNeitherSwitchOnButTurnsBothOff() async throws {
         let h = try await make(owner: nil)
         defer { h.cleanUp() }
@@ -198,85 +235,40 @@ import Testing
         #expect(h.recorder.sets == ["device false", "vm false"], "off takes any input")
     }
 
-    @Test func thePersonsOwnClickTurnsItOnWithNoPrompt() async throws {
+    /// The person's own click (source pid 0, HID state) asks too: the source fields can be forged, so they
+    /// never skip the confirm. A cancel leaves it off; a success turns it on.
+    @Test func thePersonsOwnClickAsksAndOnlyASuccessTurnsItOn() async throws {
         let owner = FakeOwner()
         let h = try await make(owner: owner)
         defer { h.cleanUp() }
-        for op in Switch.allCases {
-            #expect(try await !h.refused(op, on: true, h.click(0)))
-        }
-        #expect(h.recorder.sets == ["device true", "vm true"])
-        #expect(owner.reasons.isEmpty, "a person's local click gets no new prompt")
-        // A posted click right after the person's backs nothing: it asks, and a cancel turns nothing on.
-        let mine = try h.click(0)
-        h.ledger.record(mine)
-        #expect(try await h.refused(.fullAccess, on: true, h.posted()))
-        #expect(owner.reasons == [Switch.fullAccess.reason])
-        #expect(h.recorder.sets == ["device true", "vm true"])
-    }
-
-    /// An off that comes in while an on's write is still in flight wins: once the on lands, off is written
-    /// again, so the last write each machine took is off.
-    @Test(.timeLimit(.minutes(1))) func anOffDuringAnOnsWriteWins() async throws {
-        let h = try await make(owner: FakeOwner())
-        defer { h.cleanUp() }
-        let landing = Landing(), recorder = h.recorder
-        h.page.setDeviceFullAccess = { _, on in await landing.write("device", on, recorder) }
-        h.page.setMachineVmHost = { _, on in await landing.write("vm", on, recorder) }
-        for op in Switch.allCases {
-            let mine = try h.click(0)
-            h.ledger.record(mine)
-            let page = h.page, stamp = mine.timestamp
-            let turningOn = Task {
-                try await page.call(op.rawValue, params: ["id": "m1", "on": true],
-                                    context: PageCallContext(page: PageDescriptor.settings.id, userGesture: true, gestureEvent: stamp))
-            }
-            for _ in 0..<1000 where landing.held.isEmpty { await Task.yield() }
-            try #require(landing.held.count == 1, "the on's write is in flight")
-            #expect(try await !h.refused(op, on: false, h.posted()))
-            landing.held.removeFirst().resume()
-            _ = try await turningOn.value
-        }
-        #expect(h.recorder.sets == ["device false", "device true", "device false", "vm false", "vm true", "vm false"])
-    }
-
-    /// Under ``SettingsPageProvider/PersonGatePolicy/alwaysConfirm`` the HID system's click asks too, and
-    /// only a success turns it on.
-    @Test func alwaysConfirmAsksEvenForTheHIDSystemsClick() async throws {
-        let owner = FakeOwner()
-        let h = try await make(owner: owner)
-        defer { h.cleanUp() }
-        h.page.gatePolicy = .alwaysConfirm
         for op in Switch.allCases {
             owner.answer = false
-            #expect(try await h.refused(op, on: true, h.click(0)))
+            #expect(try await h.refused(op, on: true, h.click(0)), "a cancelled confirm turned \(op) on")
+            #expect(owner.reasons.last == op.reason)
             owner.answer = true
             #expect(try await !h.refused(op, on: true, h.click(0)))
+            #expect(h.recorder.sets.last == "\(op.set) true")
         }
         #expect(owner.reasons == [Switch.fullAccess.reason, Switch.fullAccess.reason, Switch.vmHost.reason, Switch.vmHost.reason])
-        #expect(h.recorder.sets == ["device true", "vm true"])
+        #expect(Switch.fullAccess.reason != Switch.vmHost.reason)
     }
 
-    /// Screen Sharing, Universal Control, the Accessibility Keyboard or a posted click: the owner confirms
-    /// with Touch ID or the password, with the switch's own reason; only a success turns it on.
-    @Test func aClickThatIsNotTheHIDSystemsAsksTheOwnerAndOnlyASuccessTurnsItOn() async throws {
+    /// Screen Sharing, Universal Control, the Accessibility Keyboard or a posted click: the same confirm,
+    /// with the switch's own reason; only a success turns it on, and off never asks.
+    @Test func anyOtherClickAsksTheSameConfirm() async throws {
         let owner = FakeOwner()
         let h = try await make(owner: owner)
         defer { h.cleanUp() }
         for op in Switch.allCases {
             owner.answer = false
-            #expect(try await h.refused(op, on: true, h.posted()), "a cancelled confirm turned \(op) on")
-            #expect(owner.reasons.last == op.reason)
+            #expect(try await h.refused(op, on: true, h.posted()))
             #expect(!h.recorder.sets.contains("\(op.set) true"))
             owner.answer = true
             #expect(try await !h.refused(op, on: true, h.posted()))
             #expect(h.recorder.sets.last == "\(op.set) true")
         }
-        #expect(owner.reasons == [Switch.fullAccess.reason, Switch.fullAccess.reason, Switch.vmHost.reason, Switch.vmHost.reason])
-        #expect(Switch.fullAccess.reason != Switch.vmHost.reason)
-        // Off never asks.
         for op in Switch.allCases { #expect(try await !h.refused(op, on: false, h.posted())) }
-        #expect(owner.reasons.count == 4)
+        #expect(owner.reasons.count == 4, "off never asks")
     }
 
     /// The click is spent before the confirm: a cancelled confirm's click, sent again, asks nothing and
@@ -285,10 +277,10 @@ import Testing
         let owner = FakeOwner()
         let h = try await make(owner: owner)
         defer { h.cleanUp() }
-        let posted = try h.posted()
-        #expect(try await h.refused(.vmHost, on: true, posted))
+        let click = try h.click(0)
+        #expect(try await h.refused(.vmHost, on: true, click))
         owner.answer = true
-        #expect(try await h.refused(.vmHost, on: true, posted), "the same click again")
+        #expect(try await h.refused(.vmHost, on: true, click), "the same click again")
         do {
             _ = try await h.page.call(Switch.fullAccess.rawValue, params: ["id": "m1", "on": true],
                                       context: PageCallContext(page: PageDescriptor.settings.id))
@@ -300,8 +292,8 @@ import Testing
         #expect(h.recorder.sets.isEmpty)
     }
 
-    /// One confirm at a time: while one is up, a second posted click is refused without a second prompt
-    /// (an agent cannot stack prompts behind the person's), and the first still turns on only its switch.
+    /// One confirm at a time: while one is up, a second click is refused without a second prompt (an agent
+    /// cannot stack prompts behind the person's), and the first still turns on only its switch.
     @Test(.timeLimit(.minutes(1))) func aSecondAskWhileOneIsUpIsRefused() async throws {
         let owner = FakeOwner()
         owner.hold = true
@@ -310,9 +302,8 @@ import Testing
             owner.resume(false)
             h.cleanUp()
         }
-        let asking = try h.heldOn(.fullAccess)
+        let asking = try h.heldOn(.fullAccess, pid: 0)
         #expect(await owner.held(asking))
-        #expect(owner.reasons.count == 1)
         #expect(try await h.refused(.vmHost, on: true, h.posted()))
         #expect(owner.reasons.count == 1 && owner.overlaps == 0, "no second prompt")
         owner.resume(true)
@@ -349,5 +340,55 @@ import Testing
         owner.resume(true)
         _ = try await asking.value
         #expect(h.recorder.sets == ["device false", "vm false", "device false", "vm true"])
+    }
+
+    /// Writes for one switch on one machine land in the order they were asked: an off asked while an on's
+    /// write is in flight lands after it, and an on asked after that off lands last. An on still queued
+    /// when an off is asked is dropped.
+    @Test(.timeLimit(.minutes(1))) func writesLandInTheOrderAskedAndAnOffDropsQueuedOns() async throws {
+        let h = try await make(owner: AlwaysConfirms())
+        let landing = Landing(), recorder = h.recorder
+        defer {
+            landing.release()
+            h.cleanUp()
+        }
+        h.page.setDeviceFullAccess = { _, on in await landing.write("device", on, recorder) }
+        h.page.setMachineVmHost = { _, on in await landing.write("vm", on, recorder) }
+        for op in Switch.allCases {
+            // on, then off while the on is in flight, then on again: on, off, on.
+            let key = op.widening.key("m1"), offs = h.page.offs[key, default: 0]
+            let first = try h.heldOn(op, pid: 0)
+            await landing.arrived()
+            let off = Task { [h] in try await h.refused(op, on: false, h.posted()) }
+            try await Self.until { h.page.offs[key, default: 0] == offs + 1 }
+            let second = try h.heldOn(op, pid: 0)
+            let afterOff = h.page.writes[key]
+            try await Self.until { h.page.writes[key] != afterOff }
+            landing.land()
+            _ = try await first.value
+            #expect(try await !off.value)
+            await landing.arrived()
+            landing.land()
+            _ = try await second.value
+        }
+        #expect(h.recorder.sets == ["device true", "device false", "device true", "vm true", "vm false", "vm true"])
+        // on in flight, a second on queued, then an off: the queued on is dropped and off lands last.
+        let key = Switch.fullAccess.widening.key("m1")
+        let first = try h.heldOn(.fullAccess, pid: 0)
+        await landing.arrived()
+        let tail = h.page.writes[key]
+        let queued = try h.heldOn(.fullAccess, pid: 0)
+        try await Self.until { h.page.writes[key] != tail }
+        let off = Task { [h] in try await h.refused(.fullAccess, on: false, h.posted()) }
+        landing.land()
+        _ = try await first.value
+        do {
+            _ = try await queued.value
+            Issue.record("an on queued before an off was written")
+        } catch let error as PageError {
+            #expect(error.code == PageNativeOp.userOnlyCode)
+        }
+        #expect(try await !off.value)
+        #expect(h.recorder.sets.suffix(2) == ["device true", "device false"])
     }
 }

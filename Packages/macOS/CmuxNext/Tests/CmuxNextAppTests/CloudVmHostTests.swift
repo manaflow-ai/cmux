@@ -196,7 +196,7 @@ import Testing
         let recorder = Recorder()
         page.setMachineVmHost = { id, on in recorder.sets.append("\(id) \(on)"); return nil }
         page.setDeviceFullAccess = { id, on in recorder.sets.append("device \(id) \(on)"); return nil }
-        page.personBacksGesture = { _ in true } // the click's origin: SettingsWideningSwitchPersonGateTests
+        page.ownerConfirm = SettingsWideningSwitchPersonGateTests.AlwaysConfirms() // the confirm: SettingsWideningSwitchPersonGateTests
         return (page, recorder, directory)
     }
 

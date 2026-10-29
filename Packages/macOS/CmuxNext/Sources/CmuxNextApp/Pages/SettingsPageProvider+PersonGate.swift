@@ -6,14 +6,6 @@ import Foundation
 /// machine (this Mac's chats run there without the sandbox). An agent that drives this Mac's screen
 /// must not be able to turn either on for itself.
 extension SettingsPageProvider {
-    /// When an on asks for Touch ID or the password (``personTurnsOn(_:_:_:)``).
-    enum PersonGatePolicy {
-        /// The HID system's click turns it on with no prompt; any other input asks.
-        case hidOrConfirm
-        /// Every on asks, the HID system's click included (if a poster can forge the HID source fields).
-        case alwaysConfirm
-    }
-
     enum WideningSwitch {
         case fullAccess, vmHost
 
@@ -28,47 +20,57 @@ extension SettingsPageProvider {
         }
     }
 
+    /// Turns `widening` on or off for machine `id` through `write` (the host's error, or nil).
+    ///
     /// SECURITY: an on needs the person's own click or key in the Settings page, spent once (the host's
-    /// record, never the page's word), and that input must be the person's own:
-    /// - the HID system's (``PersonInputLedger``, `personBacksGesture`): it turns the switch on with no
-    ///   prompt, as before, under ``PersonGatePolicy/hidOrConfirm`` (`gatePolicy`, the default); under
-    ///   ``PersonGatePolicy/alwaysConfirm`` it asks too;
-    /// - anything else (Screen Sharing, Universal Control, the Accessibility Keyboard, or a click another
-    ///   process posted, the way a computer-use agent clicks): the person confirms with Touch ID or the
-    ///   login password (`ownerConfirm`), which a posted click cannot answer. Only a confirm that
-    ///   succeeds turns it on; a cancel, a failure, a Mac that cannot ask, or a second ask while one is
-    ///   up leaves it off.
-    /// The gesture is spent before the confirm, so a script riding the same click cannot reuse it. An off
-    /// of the same switch on the same machine while the confirm is up voids it (``turnedOff(_:_:)``), so a
-    /// late success never turns back on what the person turned off. An off only narrows, so its caller
-    /// asks for none of this.
-    func personTurnsOn(_ widening: WideningSwitch, _ id: String, _ context: PageCallContext) async throws {
+    /// record, never the page's word), and then Touch ID or the login password (`ownerConfirm`,
+    /// LocalAuthentication `deviceOwnerAuthentication`), whatever the click's source says. A click another
+    /// process posts can carry the HID system's source fields, so they never skip the confirm, and a
+    /// posted click cannot answer it. A cancel, a failure, a Mac that cannot ask (no `ownerConfirm`, or
+    /// LocalAuthentication cannot evaluate), or a second ask while one is up leaves it off. The gesture is
+    /// spent before the confirm, so a script riding the same click cannot reuse it.
+    ///
+    /// An off only narrows, so it takes any input with no prompt, and it wins over every on asked before
+    /// it: an on still in its confirm, or queued behind another write, is dropped. Writes for one switch
+    /// on one machine run one at a time in the order they were asked, so they land in that order.
+    func widen(_ widening: WideningSwitch, _ id: String, on: Bool, _ context: PageCallContext,
+               _ write: @escaping @MainActor (String, Bool) async -> String?) async throws -> String? {
+        let key = widening.key(id)
         let refusal = PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage)
-        guard context.page == PageDescriptor.settings.id, context.userGesture, let event = context.gestureEvent,
-              event != spentFullAccessGesture else { throw refusal }
-        spentFullAccessGesture = event
-        if gatePolicy == .hidOrConfirm, personBacksGesture?(event) == true { return }
-        guard !confirmingOwner, let ownerConfirm else { throw refusal }
-        confirmingOwner = true
-        defer { confirmingOwner = false }
-        let key = widening.key(id), offsBefore = offs[key, default: 0]
-        guard await ownerConfirm.authenticate(reason: widening.reason), offs[key, default: 0] == offsBefore else { throw refusal }
+        if on {
+            guard context.page == PageDescriptor.settings.id, context.userGesture, let event = context.gestureEvent,
+                  event != spentFullAccessGesture else { throw refusal }
+            spentFullAccessGesture = event
+            guard !confirmingOwner, let ownerConfirm else { throw refusal }
+            let offsBefore = offs[key, default: 0]
+            confirmingOwner = true
+            let confirmed = await ownerConfirm.authenticate(reason: widening.reason)
+            confirmingOwner = false
+            guard confirmed, offs[key, default: 0] == offsBefore else { throw refusal }
+            return try await queued(key, id, on: true, after: offsBefore, write)
+        }
+        offs[key, default: 0] += 1
+        return try await queued(key, id, on: false, after: offs[key, default: 0], write)
     }
 
-    /// Writes `on` for `widening` on machine `id` through `write` (the host's error, or nil). An on whose
-    /// write was still in flight when an off of the same switch on the same machine came in writes off
-    /// again once it lands, so the two writes landing out of order never leave it on after the off.
-    func widenedWrite(_ widening: WideningSwitch, _ id: String, _ on: Bool,
-                      _ write: @MainActor (String, Bool) async -> String?) async -> String? {
-        let key = widening.key(id), offsBefore = offs[key, default: 0]
-        let error = await write(id, on)
-        guard on, offs[key, default: 0] != offsBefore else { return error }
-        return await write(id, false)
-    }
-
-    /// An off of `widening` on machine `id`: it voids that switch's confirm if one is up.
-    func turnedOff(_ widening: WideningSwitch, _ id: String) {
-        offs[widening.key(id), default: 0] += 1
+    /// Runs one write for `key` after the ones asked before it. An on runs only if no off came in after
+    /// it was asked (`after` is the off count it was asked under); otherwise it is refused.
+    private func queued(_ key: String, _ id: String, on: Bool, after offsAsked: Int,
+                        _ write: @escaping @MainActor (String, Bool) async -> String?) async throws -> String? {
+        let previous = writes[key]
+        // task-owner: one link of the write chain for one switch on one machine; ends with its host write.
+        let task = Task { @MainActor [weak self] () -> String?? in
+            await previous?.value
+            guard let self else { return .none }
+            if on, self.offs[key, default: 0] != offsAsked { return .none }
+            return .some(await write(id, on))
+        }
+        // task-owner: the chain's tail, which the next write for this key waits on; ends with `task`.
+        writes[key] = Task { _ = await task.value }
+        guard let answer = await task.value else {
+            throw PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage)
+        }
+        return answer
     }
 }
 
