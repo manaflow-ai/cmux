@@ -111,7 +111,10 @@ await requireBrowserLane("tray-composer-alignment.test.ts", async () => {
                     ...document.querySelectorAll<HTMLElement>(
                       `.acpmux-running-tray__list .acpmux-agent-line__${track}`,
                     ),
-                  ].map(rectFrom),
+                  ].map((node) => ({
+                    ...rectFrom(node),
+                    visible: getComputedStyle(node).display !== "none" && getComputedStyle(node).visibility !== "hidden",
+                  })),
                 })),
                 tray: rect('[data-alignment-surface="tray"][data-alignment-inset="surface"]'),
                 composer: rect('[data-alignment-surface="composer"][data-alignment-inset="surface"]'),
@@ -139,6 +142,10 @@ await requireBrowserLane("tray-composer-alignment.test.ts", async () => {
                 })(),
                 actualLook: document.querySelector<HTMLElement>(".acpmux-composer")?.dataset.composerLook ?? "claude",
                 quiet: !!document.querySelector(".acpmux-composer-inner"),
+                plainFooter: !!document.querySelector('[data-alignment-surface="composer"] [data-footer-look="plain"]'),
+                expanded:
+                  document.querySelector('[data-alignment-surface="tray"] .acpmux-running-tray__head')?.getAttribute("aria-expanded") ===
+                  "true",
                 rowLeft: document.querySelector(
                   '[data-alignment-surface="tray"] .acpmux-running-tray__list .acpmux-agent-line__button [data-alignment-column="left-icon"]',
                 )
@@ -172,6 +179,11 @@ await requireBrowserLane("tray-composer-alignment.test.ts", async () => {
                   );
                   return stop ? rectFrom(stop) : null;
                 })(),
+                subagentStops: [
+                  ...document.querySelectorAll<HTMLElement>(
+                    '[data-alignment-surface="tray"] .acpmux-running-tray__list .acpmux-agent-line__stop-slot > .cv-subagent__stop',
+                  ),
+                ].map(rectFrom),
                 noStopRow: (() => {
                   const row = [
                     ...document.querySelectorAll<HTMLElement>(
@@ -247,6 +259,15 @@ await requireBrowserLane("tray-composer-alignment.test.ts", async () => {
             }
             expect(result.actualLook).toBe(expectedLook);
             expect(result.quiet).toBe(expectedQuiet);
+            expect(result.plainFooter).toBe(plainFooter);
+            expect(result.expanded).toBe(variant.endsWith("expanded"));
+            const expectedRows = variant.endsWith("expanded") ? 5 : 0;
+            for (const track of result.tracks) {
+              const visibleRows = track.rows.filter((row) => row.visible);
+              expect(track.head.width, `${track.name} head must be measurable`).toBeGreaterThan(0);
+              expect(visibleRows.length, `${track.name} row count`).toBe(expectedRows);
+              for (const row of visibleRows) expect(row.width, `${track.name} row must be measurable`).toBeGreaterThan(0);
+            }
             const center = (box: { left: number; right: number }) => (box.left + box.right) / 2;
             const checks = {
               surfaceStart: Math.abs(result.tray.left - result.composer.left),
@@ -286,6 +307,12 @@ await requireBrowserLane("tray-composer-alignment.test.ts", async () => {
                     ),
                   }
                 : {}),
+              ...Object.fromEntries(
+                result.subagentStops.map((stop, index) => [
+                  `subagentStopRightColumn${index}`,
+                  Math.abs(center(stop) - center(result.mic)),
+                ]),
+              ),
               ...(result.noStopRight && result.noStopRow
                 ? {
                     noStopRightColumn: Math.abs(center(result.noStopRight) - center(result.mic)),
@@ -317,6 +344,8 @@ await requireBrowserLane("tray-composer-alignment.test.ts", async () => {
                 );
               }
             for (const [name, value] of Object.entries(checks))
+              expect(value, `${name} drifted by ${value.toFixed(2)}px`).toBeLessThanOrEqual(TOLERANCE);
+            for (const [name, value] of Object.entries(checks).filter(([name]) => name.startsWith("subagentStopRightColumn")))
               expect(value, `${name} drifted by ${value.toFixed(2)}px`).toBeLessThanOrEqual(TOLERANCE);
             if (variant.endsWith("expanded")) {
               expect(result.commandRow, "expanded tray must render a command row").not.toBeNull();

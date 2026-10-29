@@ -15,10 +15,24 @@ export function followComposerTrayColumns(box: HTMLElement): (() => void) | unde
     const visual = node.getBoundingClientRect();
     let shift = 0;
     for (let current: HTMLElement | null = node; current && current !== stop; current = current.parentElement) {
-      const value = getComputedStyle(current).translate.split(/\s+/)[0];
+      const style = getComputedStyle(current);
+      const value = style.translate.trim().split(/\s+/)[0];
       if (value && value !== "none") {
-        const parsed = Number.parseFloat(value);
+        const parsed = value.endsWith("%")
+          ? (current.offsetWidth * Number.parseFloat(value)) / 100
+          : Number.parseFloat(value);
         if (Number.isFinite(parsed)) shift += parsed;
+      }
+      // Inspector movement is a pure horizontal translation. Include the legacy transform form
+      // too, while leaving scale/rotation to the browser's visual geometry rather than applying a
+      // partial inverse matrix that could write scaled pixels back as layout margins.
+      const transform = style.transform;
+      if (transform !== "none") {
+        const matrix = transform.match(/^matrix\(([^)]+)\)$/)?.[1].split(",").map(Number);
+        if (matrix?.length === 6 && matrix.every(Number.isFinite)) {
+          const [a, b, c, d, e] = matrix;
+          if (a === 1 && b === 0 && c === 0 && d === 1) shift += e;
+        }
       }
     }
     if (!shift) return visual;
