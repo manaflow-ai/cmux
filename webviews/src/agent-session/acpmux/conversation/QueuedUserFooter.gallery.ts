@@ -21,7 +21,8 @@ const snapshot = (steer: "waiting" | "landed" = "waiting") => {
 const preview = (gap?: string) => async (ctx: PlayContext) => {
   await ctx.hover({ text: TEXT });
   const pending = ctx.document.querySelector<HTMLElement>(".cv-user__pending");
-  if (pending && gap) pending.style.gap = gap;
+  const footer = pending?.querySelector<HTMLElement>(".cv-message-footer-row");
+  if (footer && gap) footer.style.gap = gap;
   const actions = pending?.parentElement;
   const bubble = pending?.closest(".cv-user")?.querySelector<HTMLElement>(".cv-user__bubble");
   if (actions?.querySelector(".cv-user__time, .cv-user__read, .cv-user__dot, .cv-message-retry"))
@@ -44,12 +45,12 @@ export default agentPaneEntry({
   ],
   variants: {
     compact: {
-      note: "Alternative: a compact footer with no gap between Send now and remove.",
+      note: "Alternative: a compact footer with a 2px gap between controls.",
       snapshot: snapshot(),
-      play: preview("0px"),
+      play: preview("2px"),
     },
     balanced: {
-      note: "Chosen: the right-aligned footer uses the sent prompt's slot, with a 4px control gap and no receipt, time, Copy or Retry.",
+      note: "Chosen: the right-aligned footer uses the sent prompt's shared control slots for Send now, remove and Copy, with no receipt, time or Retry.",
       snapshot: snapshot(),
       play: preview(),
     },
