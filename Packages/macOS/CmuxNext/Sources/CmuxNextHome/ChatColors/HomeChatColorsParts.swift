@@ -145,8 +145,18 @@ final class HomeChatColorSwatch: NSControl {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    override var acceptsFirstResponder: Bool { false }
+    // Keyboard navigation (System Settings > Keyboard) tabs to a swatch and Space presses it, as it
+    // does a SwiftUI button; a click never takes focus.
+    override var acceptsFirstResponder: Bool { NSApp.isFullKeyboardAccessEnabled }
+    override var canBecomeKeyView: Bool { NSApp.isFullKeyboardAccessEnabled }
+    override var focusRingMaskBounds: NSRect { bounds }
+    override func drawFocusRingMask() { NSBezierPath(ovalIn: bounds).fill() }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    override func keyDown(with event: NSEvent) {
+        guard event.charactersIgnoringModifiers == " " else { return super.keyDown(with: event) }
+        if isEnabled { onPick?() }
+    }
 
     override func draw(_ dirtyRect: NSRect) {
         let circle = bounds
