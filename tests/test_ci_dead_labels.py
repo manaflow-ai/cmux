@@ -318,6 +318,12 @@ class FakeGitHub:
         self.cancel_limit_on = cancel_limit_on
         self.rerun_limit = rerun_limit
         self.cancel_takes = cancel_takes
+        self.pool_value = json.dumps(LIVE)
+        self.pool_reads = 0
+
+    def runner_pools(self):
+        self.pool_reads += 1
+        return dead_labels.pools_state(self.pool_value, module=MODULE)
 
     def add(self, r, jobs=None, **state):
         self.state[r["id"]] = {**r, "reads": 0, "cancelled": False, "conclusion": None, **state}
@@ -381,7 +387,7 @@ class Store:
 
 
 def go(r):
-    return dead_labels.Redispatch(r, "lint", B16, None)
+    return dead_labels.Redispatch(r, "lint", B16, None, pools=state(LIVE))
 
 
 def owed_ids(entries):
@@ -436,6 +442,38 @@ class RedispatchTests(unittest.TestCase):
         self.assertEqual(github.calls, [])
         self.assertEqual(saved.history, [])
         self.assertIn("RUNNER_POOLS changed", results[1])
+        self.assertEqual(github.pool_reads, 1)
+
+    def test_unread_or_invalid_fresh_pool_state_never_cancels(self) -> None:
+        for value in ("", "not JSON", "{}", json.dumps({"linux": B4, "_dead": {}})):
+            with self.subTest(value=value):
+                github = FakeGitHub()
+                github.add(run(1))
+                github.pool_value = value
+                (results, _), saved = self.move(github, [go(run(1))])
+                self.assertEqual(github.calls, [])
+                self.assertEqual(saved.history, [])
+                self.assertIn("RUNNER_POOLS could not be refreshed", results[1])
+                self.assertEqual(github.pool_reads, 1)
+
+    def test_a_failed_fresh_pool_read_holds_later_cancels(self) -> None:
+        read_log = janitor_guard.ReadLog()
+
+        class FailedPools(FakeGitHub):
+            def runner_pools(self):
+                self.pool_reads += 1
+                read_log.failed("GET RUNNER_POOLS")
+                raise RuntimeError("GET RUNNER_POOLS failed (502)")
+        github = FailedPools()
+        github.add(run(1))
+        github.add(run(2))
+        with redirect_stderr(io.StringIO()):
+            (results, _), saved = self.move(github, [go(run(1)), go(run(2))], hold=read_log.hold)
+        self.assertEqual(github.calls, [])
+        self.assertEqual(saved.history, [])
+        self.assertEqual(github.pool_reads, 1)
+        self.assertIn("could not be read again", results[1])
+        self.assertIn("nothing is cancelled", results[2])
 
     def test_a_run_that_reaches_a_gate_after_planning_is_never_cancelled(self) -> None:
         queued = run(1)

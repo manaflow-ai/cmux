@@ -3618,7 +3618,12 @@ class TwoPhaseTests(unittest.TestCase):
         a, b, _ = self.candidates()
         fake = self.Breaking({r["id"]: dict(r) for r in (a, b)}, {b["id"]: []}, broken={a["id"]})
         store = janitor.janitor_guard.OwedStore({janitor.LOST_RERUNS_KEY: [], janitor.dead_labels.OBLIGATIONS_KEY: []})
-        decisions = [janitor.dead_labels.Redispatch(r, "lint", "blacksmith-16vcpu-ubuntu-2404", None) for r in (a, b)]
+        pools = janitor.dead_labels.PoolsState({"linux": "blacksmith-32vcpu-ubuntu-2404"},
+                                               {"linux": ("blacksmith-16vcpu-ubuntu-2404", "blacksmith-32vcpu-ubuntu-2404")},
+                                               frozenset({"blacksmith-16vcpu-ubuntu-2404"}))
+        fake.runner_pools = lambda: (pools, "")
+        decisions = [janitor.dead_labels.Redispatch(r, "lint", "blacksmith-16vcpu-ubuntu-2404", None, pools=pools)
+                     for r in (a, b)]
         with redirect_stderr(io.StringIO()):
             results, _ = janitor.dead_labels.redispatch(fake, decisions, dry_run=False, store=store,
                                                         save=lambda entries: None, hold=janitor.READS.hold)
@@ -3858,13 +3863,27 @@ class ReviewNineTests(unittest.TestCase):
             return original(run_id)
         fake.run = run
         store = janitor.janitor_guard.OwedStore({janitor.LOST_RERUNS_KEY: [], janitor.dead_labels.OBLIGATIONS_KEY: []})
-        decisions = [janitor.dead_labels.Redispatch(r, "lint", "blacksmith-16vcpu-ubuntu-2404", None) for r in (a, b)]
+        pools = janitor.dead_labels.PoolsState({"linux": "blacksmith-32vcpu-ubuntu-2404"},
+                                               {"linux": ("blacksmith-16vcpu-ubuntu-2404", "blacksmith-32vcpu-ubuntu-2404")},
+                                               frozenset({"blacksmith-16vcpu-ubuntu-2404"}))
+        fake.runner_pools = lambda: (pools, "")
+        decisions = [janitor.dead_labels.Redispatch(r, "lint", "blacksmith-16vcpu-ubuntu-2404", None, pools=pools)
+                     for r in (a, b)]
         with redirect_stderr(io.StringIO()):
             results, _ = janitor.dead_labels.redispatch(fake, decisions, dry_run=False, store=store,
                                                         save=lambda entries: None, hold=janitor.READS.hold)
         self.assertIn([str(a["id"]), "force-cancel"], fake.posts())
         self.assertNotIn([str(b["id"]), "force-cancel"], fake.posts())
         self.assertIn("not moved", results[b["id"]])
+
+    def test_fresh_runner_pool_read_uses_the_required_variable_and_validator(self):
+        fake = FakeGitHub({})
+        expected = object()
+        with mock.patch.object(fake, "request", return_value={"value": "fresh JSON"}) as request, \
+                mock.patch.object(janitor.dead_labels, "pools_state", return_value=(expected, "")) as validate:
+            self.assertEqual(fake.runner_pools(), (expected, ""))
+        request.assert_called_once_with("GET", "/repos/manaflow-ai/cmux/actions/variables/RUNNER_POOLS")
+        validate.assert_called_once_with("fresh JSON")
 
     def test_a_no_janitor_label_added_after_phase_one_keeps_a_dead_label_run(self):
         run = make_run(branch="feature", sha="aaa", status="queued")

@@ -3108,6 +3108,12 @@ class GitHub:
     def run(self, run_id: int) -> dict[str, Any]:
         return self.request("GET", f"/repos/{self.repo}/actions/runs/{run_id}")
 
+    def runner_pools(self) -> tuple[dead_labels.PoolsState | None, str]:
+        """Fresh validated routing for a dead-label cancel; one required-variable read, never a cached env value."""
+        payload = self.request("GET", f"/repos/{self.repo}/actions/variables/RUNNER_POOLS")
+        raw = payload.get("value") if isinstance(payload, Mapping) else None
+        return dead_labels.pools_state(raw if isinstance(raw, str) else None)
+
     def branch_head(self, branch: str) -> str:
         """The branch's head commit, or "" when the branch is gone (404). Raises RuntimeError otherwise."""
         try:

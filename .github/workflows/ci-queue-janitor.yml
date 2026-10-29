@@ -126,6 +126,7 @@ jobs:
           permission-contents: read
           permission-issues: read
           permission-pull-requests: read
+          permission-variables: read
 
       - name: Skip when the pool snapshot is fresh
         id: fresh

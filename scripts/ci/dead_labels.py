@@ -481,6 +481,7 @@ class Redispatch:
     label: str
     why_not: str | None  # None: re-dispatch it
     note: str = ""
+    pools: PoolsState | None = None  # the validated routing snapshot this decision relied on
 
     def line(self) -> str:
         what = f"run {self.run.get('id')} ({self.run.get('name')}): `{self.job}` stuck on `{self.label}`"
@@ -531,7 +532,7 @@ def plan(runs: Sequence[Mapping[str, Any]], jobs_by_run: Mapping[int, Sequence[M
                 why = note
         if why is None:
             going += 1
-        decisions.append(Redispatch(run, str(stuck.get("name") or ""), name, why, note))
+        decisions.append(Redispatch(run, str(stuck.get("name") or ""), name, why, note, pools))
     return decisions
 
 
@@ -556,10 +557,19 @@ def _rate_limited(error: BaseException) -> bool:
 def recheck(github: Any, decision: Redispatch, pr_check: Callable[[Mapping[str, Any]], str | None] | None = None
             ) -> str | None:
     """Why a run planned to move must not be cancelled now, read again right before the cancel: its attempt moved
-    or it finished or reached a gate, a nightly, DEV or promote build of it started, a job of it is running, or its
-    stuck job took a runner. None when it still may go. Anything unread is a reason."""
+    or it finished or reached a gate, its validated pool routing changed, a nightly, DEV or promote build of it
+    started, a job of it is running, or its stuck job took a runner. None when it still may go. Anything unread is a reason."""
     run_id = int(decision.run["id"])
+    if decision.pools is None:
+        return "its planned RUNNER_POOLS snapshot is unread"
     try:
+        # Variables can change without changing a run or its queued jobs. Read the required variable once and
+        # validate it before the final run/jobs reads. A changed route is left for the next scheduled sweep.
+        current, why = github.runner_pools()
+        if current is None:
+            return f"RUNNER_POOLS could not be refreshed before the cancel ({why})"
+        if current != decision.pools:
+            return "RUNNER_POOLS changed since the plan; the next sweep decides from its new routing"
         fresh = github.run(run_id)
         jobs = github.jobs(run_id)
     except RuntimeError as error:
