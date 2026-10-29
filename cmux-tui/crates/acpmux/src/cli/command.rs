@@ -228,6 +228,12 @@ pub enum Command {
         /// order it corrects. Prints how many it replaced. A prompt whose turn started stays.
         #[arg(long, value_name = "KEY")]
         supersede: Option<String>,
+        /// What your message asks of the receiver: block (you cannot go on until it acts),
+        /// question (you wait for its answer), result (work you finished; the default for an
+        /// agent's message) or fyi. A coordinator is woken by blocks and questions only; results
+        /// and FYIs wait for its next turn's inbox digest.
+        #[arg(long, value_name = "CLASS", value_parser = ["block", "question", "result", "fyi"])]
+        class: Option<String>,
         /// Send this file with the message (repeatable): an image reaches the agent and its
         /// transcript as an image, any other file as a link to its copy. Saved owner-only on the
         /// session's machine, a peer's too. Any size and number: large ones are uploaded first.
@@ -1432,6 +1438,18 @@ mod help_contract_tests {
             }
         }
         assert!(missing.is_empty(), "documented acpmux surface drifted:\n{}", missing.join("\n"));
+    }
+
+    /// `send --class`: the four classes only (`prompt_class.rs`).
+    #[test]
+    fn send_class_takes_one_of_the_four_classes() {
+        for class in crate::prompt_class::PromptClass::ALL {
+            let argv = ["acpmux", "send", "coord", "done", "--class", class.as_str()];
+            assert!(Cli::try_parse_from(argv).is_ok(), "{argv:?} did not parse");
+        }
+        assert!(
+            Cli::try_parse_from(["acpmux", "send", "coord", "x", "--class", "urgent"]).is_err()
+        );
     }
 
     /// `host vm-host [NAME] [on|off]`: the state is on or off only.

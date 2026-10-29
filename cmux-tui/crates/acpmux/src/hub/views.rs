@@ -395,6 +395,7 @@ impl Hub {
                     queued_at: q.queued_at,
                     held: q.held,
                     from_agent: q.run.agent.clone(),
+                    class: q.run.class,
                     author: crate::author::listed(q.run.provenance.as_ref()),
                     // By attachment id: `_acpmux/attachment` reads each back.
                     images: super::prompt_images::named(&q.run.blocks)

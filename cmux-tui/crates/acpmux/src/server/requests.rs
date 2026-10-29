@@ -1183,6 +1183,8 @@ async fn dispatch_request(
                 (provenance, _) => provenance,
             };
             let declared = crate::hub::declared_sender(&params)?;
+            // What another agent's message asks of this chat (`prompt_class.rs`).
+            let class = crate::prompt_class::declared(&params)?;
             // A sender that named itself, with neither (`--from`, `ACPMUX_FROM`, a peer daemon
             // forwarding its own session's prompt): that agent's message,
             // so the transcript never shows it as the person's. Not a note a session here sends
@@ -1260,6 +1262,7 @@ async fn dispatch_request(
                 interrupt_turn: None,
                 provenance,
                 agent,
+                class,
                 after_turn: None,
                 supersede,
                 display_parts: {
