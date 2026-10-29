@@ -414,15 +414,26 @@ fn reconnect_to_a_port_without_runs_discards_unsupported_pending_reports() {
 
 #[test]
 fn a_legacy_channel_spawn_recovers_its_report_route_after_restart() {
-    legacy_channel_report(false);
+    legacy_channel_report(false, false, false);
 }
 
 #[test]
 fn a_legacy_main_dm_followup_never_projects_into_the_original_channel() {
-    legacy_channel_report(true);
+    legacy_channel_report(true, false, false);
 }
 
-fn legacy_channel_report(main_followup: bool) {
+#[test]
+fn a_consumed_legacy_assignment_resumed_before_upgrade_never_projects_again() {
+    for finished_before_upgrade in [false, true] {
+        legacy_channel_report(false, true, finished_before_upgrade);
+    }
+}
+
+fn legacy_channel_report(
+    main_followup: bool,
+    consumed_before_upgrade: bool,
+    finished_before_upgrade: bool,
+) {
     use optchat_chief::state::{SpawnRecord, StateFile};
 
     for retain_side_ids in [true, false] {
@@ -449,7 +460,11 @@ fn legacy_channel_report(main_followup: bool) {
         // This is the pre-upgrade on-disk shape: neither routing field exists.
         let legacy: SpawnRecord = serde_json::from_value(json!({
             "turn": turn, "answers": [question.id], "started_ms": 1,
-            "subs": [{"id": "a1", "session_id": "legacy-sub", "status": "running", "run_ms": 1, "answers": followup_answers}]
+            "delivered": consumed_before_upgrade,
+            "subs": [{"id": "a1", "session_id": "legacy-sub",
+                "status": if finished_before_upgrade { "done" } else { "running" },
+                "report": if finished_before_upgrade { Some("Standalone work is complete.") } else { None },
+                "run_ms": 1, "answers": followup_answers}]
         }))
         .unwrap();
         assert!(legacy.conversation.is_none());
@@ -504,10 +519,10 @@ fn legacy_channel_report(main_followup: bool) {
             .iter()
             .filter(|(_, _, steps)| steps.iter().any(|step| step["kind"] == "note"))
             .collect();
-        if main_followup {
+        if main_followup || consumed_before_upgrade {
             assert!(
                 reports.is_empty(),
-                "an unknown follow-up route must not leak into the channel"
+                "an unknown follow-up or consumed assignment must not leak into the channel"
             );
             assert!(
                 h.brain.state().spawns["legacy-spawn"].subs[0]

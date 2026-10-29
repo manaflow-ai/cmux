@@ -1662,7 +1662,14 @@ impl Brain {
             .subs
             .iter()
             .filter(|sub| {
-                sub.status != SubStatus::Reported && !sub.stopped && sub.report_run.is_none()
+                // The old format records consumption only for the whole spawn.
+                // A direct resume overwrites Reported with Running/Done while
+                // retaining answers. After any report was consumed, provenance
+                // cannot prove which legacy sub still has its first assignment.
+                !record.delivered
+                    && sub.status != SubStatus::Reported
+                    && !sub.stopped
+                    && sub.report_run.is_none()
             })
             .filter_map(|sub| {
                 self.report_conversation(record, sub)
