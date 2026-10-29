@@ -258,10 +258,12 @@ async fn a_new_prompt_clears_a_cancelled_compaction_without_a_result() {
     echo["isReplay"] = json!(true);
     t.inbound(&echo).await;
     t.inbound(&json!({"type": "assistant", "message": {"id": "new-message", "content": [{"type": "text", "text": "new reply"}]}})).await;
-    let result = t
-        .inbound(&json!({"type": "result", "subtype": "success", "result": "new reply"}))
-        .await;
-    assert!(result.iter().any(|m| matches!(m, Message::Response { id, result: Some(r), .. } if id == &json!(2) && r["stopReason"] == "end_turn')), "{result:?}");
+    let result =
+        t.inbound(&json!({"type": "result", "subtype": "success", "result": "new reply"})).await;
+    assert!(
+        result.iter().any(|m| matches!(m, Message::Response { id, result: Some(r), .. } if id == &json!(2) && r["stopReason"] == "end_turn")),
+        "{result:?}"
+    );
 }
 
 /// A `/compact` that fails: the compacting status, then a status clearing it
