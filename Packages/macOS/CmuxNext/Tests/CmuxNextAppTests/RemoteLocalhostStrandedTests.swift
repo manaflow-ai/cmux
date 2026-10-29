@@ -78,4 +78,13 @@ struct RemoteLocalhostStrandedTests {
         ]
         #expect(StrandedPageReload.matches(try #require(URL(string: url)), addresses: addresses) == matches)
     }
+
+    /// An Open Desktop page that found its machine unreachable reloads with the machine's other
+    /// stranded pages: it is collected under the store key its route listens on, at its own address.
+    @Test func anOpenDesktopPageReloadsWithItsMachine() throws {
+        let url = try #require(RemoteLocalhostService.cloudDesktopURL(machine: "VM-1"))
+        #expect(RemoteLocalhostService.cloudDesktopKey(machine: "VM-1") == RemoteLocalhostService.machineKey(registryID: "cloud-tunnel:vm-1"))
+        let address = RemoteLocalhostProxy.address(host: try #require(url.host()), port: 6901)
+        #expect(StrandedPageReload.matches(url, addresses: [address]))
+    }
 }

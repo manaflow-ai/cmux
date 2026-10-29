@@ -52,7 +52,8 @@ public final class StrandedPageReload {
             let id = ObjectIdentifier(daemon), epoch = daemon.store.connectionEpoch
             guard epochs[id] != epoch, let localhost else { continue }
             epochs[id] = epoch
-            let storeKeys = [localhost.machineKey(of: daemon)].compactMap(\.self) + keys(daemon)
+            let storeKeys = [localhost.machineKey(of: daemon)].compactMap(\.self)
+                + [RemoteLocalhostService.cloudDesktopKey(machine: daemon.machineID)] + keys(daemon)
             let reload = reload
             // task-owner: one hop per reconnect; a Cloud route's spacing resets before the reload
             Task { [weak localhost] in
@@ -70,5 +71,13 @@ public final class StrandedPageReload {
         let port = url.port ?? (url.scheme?.lowercased() == "https" ? 443 : 80)
         guard let port = UInt16(exactly: port) else { return false }
         return addresses.contains(RemoteLocalhostProxy.address(host: host, port: port))
+    }
+}
+
+extension RemoteLocalhostService {
+    /// The machine store key of Cloud machine `machine`'s Open Desktop pages, so a desktop that
+    /// found the machine unreachable loads again when it connects, like its localhost pages.
+    public static func cloudDesktopKey(machine: String) -> String {
+        machineKey(registryID: "cloud-tunnel:" + machine.lowercased())
     }
 }

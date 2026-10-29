@@ -128,7 +128,7 @@ public final class RemoteLocalhostService {
             // an address) is nil: a blank page, never this Mac.
             guard let socket = cloudTunnelSocket, let address = machines.cloudTunnelAddress(machine: machine),
                   let hub = HubLoopbackOpener(hub: socket, address: address) else { return nil }
-            key = Self.machineKey(registryID: "cloud-tunnel:" + machine)
+            key = Self.cloudDesktopKey(machine: machine)
             opener = CloudDesktopOpener(base: hub, machine: machine)
         } else {
             guard let registryID = daemon.isLocal ? debugSocket : daemon.store.registryID else { return nil }
