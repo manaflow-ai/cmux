@@ -1,7 +1,8 @@
 // l10n-allow-file: fixture workflow names in assertions, not shipped UI.
 // The Inspector's Background tasks lists the chat's Claude workflows (Labs): a running one with
 // its counts, tokens, description, phases with a dot per agent, the running phase open with its
-// model and agents, and "Up next"; a finished one as "Workflow · Finished · 7 agents", its phases
+// model and agents, and the phases no agent started yet as plain rows with no label (Leo,
+// 2026-10-29: "I fucking hate it when you guys narrate so much bullshit"); a finished one as "Workflow · Finished · 7 agents", its phases
 // N/N, each opening into its agents. The data is a workflow's events fed through the real fold.
 import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
@@ -49,7 +50,7 @@ test("the adapter derives each phase's state and counts, what runs next, and the
   ]).toEqual(["Opus 5.5", "Sonnet", "Haiku 4.5", "Gpt 6"]);
 });
 
-test("a running workflow shows its counts, tokens, description, phases, the open running phase and Up next", () => {
+test("a running workflow shows its counts, tokens, description, phases, the open running phase and the next phase as a row", () => {
   const html = renderToStaticMarkup(<WorkflowTasks workflows={summaries("running")} onStop={async () => undefined} />);
   const shown = text(html);
   // One group: the section's head counts it, so no group head.
@@ -61,9 +62,14 @@ test("a running workflow shows its counts, tokens, description, phases, the open
   // The phase with a running agent is open: its model once, its agents with how long or Queued.
   expect(shown).toContain("Critique 1 running · 2 queued punchy Model: Opus 5.5");
   expect(shown).toContain("playful Model: Opus 5.5 Queued descriptive Model: Opus 5.5 Queued");
-  // Judge has no agent yet: not a phase row, but Up next.
-  expect(html.match(/class="acpmux-workflow-phase"/g)?.length).toBe(2);
-  expect(shown).toContain("Up next: Judge");
+  // Judge has no agent yet: a phase row in its pending state, with nothing to open, and no "Up next" line.
+  expect(html.match(/class="acpmux-workflow-phase"/g)?.length).toBe(3);
+  expect(html).toContain('<li class="acpmux-workflow-phase" data-state="pending">');
+  expect(shown).not.toContain("Up next");
+  expect(shown).toMatch(/Judge$/);
+  const judge = /<li class="acpmux-workflow-phase" data-state="pending">.*?<\/li>/.exec(html)![0];
+  expect(judge).toContain("disabled");
+  expect(judge).not.toContain("data-icon");
   expect(html.match(/acpmux-workflow-dot"/g)?.length).toBe(6);
   expect(html).toContain('aria-label="Stop demo-name-tournament"');
 });
