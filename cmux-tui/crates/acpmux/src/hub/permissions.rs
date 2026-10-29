@@ -269,6 +269,11 @@ impl Hub {
         let Some(update) = params.and_then(|p| p.get("update")) else {
             return;
         };
+        // The tap persists a redacted receipt for ambiguous hosted metadata; the
+        // same fence must also keep its original update out of in-memory state.
+        if session.fences_compaction_update(update) {
+            return;
+        }
         // A subagent's messages and settings are not the session's own.
         let sid = params.and_then(|p| p.get("sessionId")).and_then(Value::as_str);
         let owned = sid.is_some_and(|sid| {
