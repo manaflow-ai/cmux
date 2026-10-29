@@ -298,9 +298,21 @@ const isReturnKey = (event: KeyboardEvent) =>
 /// by the same band (composer/attachmentIntake.tsx).
 export const FADE_BAND_PX = 18;
 
-/** The document as the prompt's markdown, keeping the spaces typed at its end. */
+/** The prompt's Markdown, including the spaces and empty reply paragraph needed on restore. */
 function promptMarkdown(editor: Editor | undefined, view: EditorView): string {
   const markdown = clean(editor?.action(getMarkdown()) ?? "");
+  const { doc, schema } = view.state;
+  // The serializer omits the empty typing paragraph Quote in Reply leaves after its block.
+  // Keep that boundary in the persisted value: setDocument recreates it from the blank line,
+  // so a remount's end caret stays below the quote. Ordinary paragraph drafts remain trimmed.
+  if (
+    markdown &&
+    doc.childCount > 1 &&
+    doc.lastChild?.type === schema.nodes.paragraph &&
+    !doc.lastChild.content.size &&
+    doc.child(doc.childCount - 2).type !== schema.nodes.paragraph
+  )
+    return markdown + "\n\n";
   const tail = trailingSpaces(view);
   return tail && !markdown.endsWith(tail) ? markdown + tail : markdown;
 }
