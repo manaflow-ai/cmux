@@ -68,6 +68,38 @@ import Testing
         try await Self.until("the posted video downloads") { intents.downloaded }
     }
 
+    /// A local .mp4 opened in a WebKit tab (the CEF tab hands it off here) plays, and does not end
+    /// in WebKit's "Plug-in handled load" error page. Fails on a tab that cancels the navigation.
+    @Test func aLocalVideoPlaysInTheWebKitTab() async throws {
+        let video = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cn-local-video-\(UUID().uuidString.prefix(8).lowercased())", isDirectory: true)
+        try FileManager.default.createDirectory(at: video, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: video) }
+        let file = video.appendingPathComponent("clip.mp4")
+        try await Self.makeVideo().write(to: file)
+
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600), styleMask: [.titled],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.orderFrontRegardless()
+        defer {
+            window.orderOut(nil)
+            window.close()
+        }
+        let engine = WebKitEngine(fileInput: NoFileInput(), stores: .inMemory(), downloadsDirectory: video)
+        let page = engine.makeWebKitTab()
+        defer { page.close() }
+        window.contentView = page.contentView
+
+        page.load(file)
+        try await Self.until("the local video plays") {
+            let time = try? await page.evaluate("document.querySelector('video')?.currentTime ?? 0", world: .page, gesture: .agent)
+            if case .number(let seconds)? = time { return seconds > 0 }
+            return false
+        }
+        #expect(page.state.url == file, "the tab shows \(page.state.url?.absoluteString ?? "nothing")")
+    }
+
     @Test func onlyWebVideosPlayInTheTab() throws {
         func plays(_ text: String) throws -> Bool { RemoteVideoPage.plays(try #require(URL(string: text))) }
         #expect(try plays("https://raw.githubusercontent.com/o/r/b/reel.mp4"))

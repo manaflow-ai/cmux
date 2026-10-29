@@ -22,6 +22,9 @@ extension CloudHandlers {
                 show(try await firstWorkspace(on: session, context), context)
             }
         }
+        bind("cloudOpenDesktop", registry, reason: reason) { invocation in
+            try openDesktop(try machine(invocation, context), context, viewer: invocation["viewer"]?.stringValue)
+        }
         bind("cloudSSH", registry, reason: reason) { invocation in
             let session = try machine(invocation, context)
             guard attachable(session) else { throw ActionFailure(message: CloudStrings.notConnected) }
@@ -230,11 +233,18 @@ extension CloudHandlers {
                 return ["machine_id": .string(machineID), "machine_config": machineConfigAnswer(outcome, machineID: machineID)]
             }
         }
-        bind("cloudDeliverSecrets", registry, reason: reason) { invocation in try deliverSecrets(invocation, context) }
+        // Not only for Cloud: an own machine needs no sign-in (deliverSecrets checks it for a Cloud machine).
+        bind("cloudDeliverSecrets", registry, reason: { nil }) { invocation in try deliverSecrets(invocation, context) }
         bind("palette.cloud.status", registry, reason: reason) { invocation in
             let session = try machine(invocation, context); guard session.machine.allows(.stats) else { throw operationUnavailable }
             answer("machine status", invocation, context) {
-                let stats = try await cloud.api.stats(session.machineID)
+                // Stats are a separate provider read, while idle-pause diagnostics
+                // live on the VM record. Fetch both so a status action observes a
+                // cron decision written after the sidebar last refreshed.
+                async let statsRequest = cloud.api.stats(session.machineID)
+                async let recordRequest = cloud.api.machine(session.machineID)
+                let (stats, record) = try await (statsRequest, recordRequest)
+                session.machine = record
                 return CloudAnswer(title: CloudStrings.statusTitle, text: describe(session, stats), fields: statusFields(session, stats))
             }
         }
@@ -393,7 +403,7 @@ extension CloudHandlers {
         return fields
     }
 
-    /// `cloud deliver-secrets --target machine:<id> [--repo OWNER/NAME]` (CloudMachineSecrets): the values
+    /// `cloud deliver-secrets --target machine:<id> [--repo OWNER/NAME] [--names A,B]` (CloudMachineSecrets): the values
     /// of the names the machine's last machine-config apply declared, from this Mac's Keychain to the
     /// machine over its daemon link: `--repo`'s values first, else the global ones (the person picks
     /// the scope, never the machine). Answers the names delivered and those with no value here; a
@@ -407,6 +417,17 @@ extension CloudHandlers {
             guard let scope = CloudMachineSecrets.repoScope(text) else { throw ActionFailure(message: CloudStrings.secretRepoInvalid(text)) }
             return scope
         }
+        let names = try secretNames(invocation)
+        // An own machine (an SSH machine or an acpmux peer) over ssh, with the names the person gives
+        // (CloudHandlers+OwnMachineSecrets).
+        if let target = invocation.target, target.kind == .machine, !isCloudMachine(target.id, context) {
+            return try deliverSecretsToOwnMachine(target.id, names: names, repo: repo, context)
+        }
+        // A Cloud machine's names are the ones its machine config declares.
+        guard names == nil else { throw ActionFailure(message: CloudStrings.secretNamesOnCloudMachine) }
+        if let reason = context.services.cloud.unavailableReason ?? (context.services.cloud.isSignedIn ? nil : CloudStrings.signInFirst) {
+            throw ActionFailure(message: reason)
+        }
         let cloud = context.services.cloud, work = context.services.work, session = try machine(invocation, context)
         guard session.machine.allows(.exec) else { throw operationUnavailable }
         guard let connection = session.daemon.connection else { throw ActionFailure(message: CloudStrings.notConnected) }
@@ -414,7 +435,8 @@ extension CloudHandlers {
         let ledgerURL = cloud.paths.root.appendingPathComponent("secret-ledger.json")
         // One delivery per machine at a time (plan, delivery and ledger together): an older run that
         // finished after a newer one would leave the older values on the machine but the newer in the ledger.
-        guard cloud.deliveringSecrets.insert(machineID).inserted else { throw ActionFailure(message: CloudStrings.secretsDeliveryRunning) }
+        // Not beside an own-machine delivery, which may reach this same machine over ssh.
+        guard !cloud.deliveringSecrets.contains(ownMachineDeliveryKey), cloud.deliveringSecrets.insert(machineID).inserted else { throw ActionFailure(message: CloudStrings.secretsDeliveryRunning) }
         // A delivery waits up to a minute on each of the receiver's answers, past the CLI's result deadline:
         // the answer is then `pending`, the delivery goes on, and running the command again says how it ended
         // (`unchanged` once delivered, or that one is still running).
@@ -449,17 +471,7 @@ extension CloudHandlers {
                 answer["status"] = .string("unchanged")
                 return answer
             }
-            var values: [(name: String, value: String)] = []
-            for item in items {
-                let ran = try await AsyncProcess().run(ProcessRequest(URL(fileURLWithPath: "/usr/bin/security"),
-                    ["find-generic-password", "-s", CloudMachineSecrets.service, "-a", item.account, "-w"], timeout: .seconds(30)))
-                guard ran.succeeded else { throw ActionFailure(message: CloudStrings.secretUnreadable(item.name)) }
-                let value = String(ran.text.dropLast(ran.text.hasSuffix("\n") ? 1 : 0))
-                // One line, no NUL, as `cmux cloud secret set` stores it: an item made some other way never
-                // turns into extra records on the machine.
-                guard CloudMachineSecrets.isValue(value) else { throw ActionFailure(message: CloudStrings.secretUnreadable(item.name)) }
-                values.append((item.name, value))
-            }
+            let values = try await keychainValues(items)
             // 0644 and run with `sh`: the file API may write as root, and the terminal runs as the work user.
             // The receiver holds no value; the folder is the work user's 0700 one (the config apply made it),
             // so its ticket (below) is readable by that user and root only.
@@ -615,6 +627,36 @@ extension CloudHandlers {
         if let total = stats.diskTotalMb { fields["disk_total_mb"] = .double(total) }
         if let address = session.machine.address?.ipv4 { fields["address"] = .string(address) }
         fields.merge(costFields(session.machine, now: now)) { _, new in new }
+        if let idlePause = session.machine.idlePause {
+            fields["idle_pause"] = .object(idlePauseFields(idlePause))
+        }
+        return fields
+    }
+
+    /// The server's idle cron diagnostics, kept nested so `--json` mirrors
+    /// the `/api/vm/:id` response while retaining the action's snake-case
+    /// result convention.
+    static func idlePauseFields(_ idle: CloudMachine.IdlePauseDiagnostics) -> [String: ActionResultValue] {
+        var fields: [String: ActionResultValue] = [
+            "minutes": .int(idle.minutes),
+            "last_checked_at": idle.lastCheckedAt.map { .int($0) } ?? .null,
+            "idle_since": idle.idleSince.map { .int($0) } ?? .null,
+            "last_api_activity_at": idle.lastApiActivityAt.map { .int($0) } ?? .null,
+            "private_address_known": .bool(idle.privateAddressKnown),
+        ]
+        if let decision = idle.lastDecision {
+            fields["last_decision"] = .object([
+                "at": .int(decision.at),
+                "outcome": .string(decision.outcome),
+                "reason": .string(decision.reason),
+                "run": .object([
+                    "checked": .int(decision.run.checked),
+                    "elapsed_ms": .int(decision.run.elapsedMs),
+                ]),
+            ])
+        } else {
+            fields["last_decision"] = .null
+        }
         return fields
     }
 
@@ -637,6 +679,18 @@ extension CloudHandlers {
         if let used = stats.diskUsedMb, let total = stats.diskTotalMb { lines.append(String(format: "disk: %.0f / %.0f MB", used, total)) }
         if let address = session.machine.address?.ipv4 { lines.append("address: \(address)") }
         if let usage = CloudCreationRows.cost(session.machine, limits: nil).flatMap({ $0.usage(now: now) }) { lines.append(usage) }
+        if let idlePause = session.machine.idlePause {
+            lines.append("idle pause: \(idlePause.minutes) minutes")
+            lines.append("idle pause last checked: \(idlePause.lastCheckedAt.map(String.init) ?? "null")")
+            lines.append("idle pause idle since: \(idlePause.idleSince.map(String.init) ?? "null")")
+            lines.append("idle pause last API activity: \(idlePause.lastApiActivityAt.map(String.init) ?? "null")")
+            lines.append("idle pause private address known: \(idlePause.privateAddressKnown)")
+            if let decision = idlePause.lastDecision {
+                lines.append("idle pause decision: \(decision.outcome) (\(decision.reason)) at \(decision.at); run checked=\(decision.run.checked), elapsed_ms=\(decision.run.elapsedMs)")
+            } else {
+                lines.append("idle pause decision: null")
+            }
+        }
         return lines.joined(separator: "\n")
     }
 }

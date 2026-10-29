@@ -790,6 +790,17 @@ Object.assign(variants, {
     steps: [wait('[data-card="computer-use"]'), focusComputerUse],
     note: "Computer Use off: both grants Unknown, the card says to turn it on.",
   }),
+  "computer-use-failed": variant("agents", {
+    host: { ...host, computer_use: { phase: "failed", accessibility: null, screen_recording: null, helper: null } },
+    steps: [
+      wait('[data-card="computer-use"]'),
+      {
+        selector: '[data-card="computer-use"] [data-action="palette.computerUse.restart"]',
+        action: "focus",
+      },
+    ],
+    note: "The helper did not respond. Restart Helper is the only action.",
+  }),
   "computer-use-granted": variant("agents", {
     host: {
       ...host,
@@ -797,6 +808,20 @@ Object.assign(variants, {
     },
     steps: [wait('[data-card="computer-use"] [data-granted="true"]'), focusComputerUse],
     note: "Computer Use ready: Accessibility and Screen Recording both allowed.",
+  }),
+  "computer-use-host-unverified": variant("agents", {
+    host: {
+      ...host,
+      computer_use: {
+        phase: "ready",
+        accessibility: true,
+        screen_recording: true,
+        helper: "cmux Computer Use",
+        host_unverified: true,
+      },
+    },
+    steps: [wait('[data-card="computer-use"]'), focusComputerUse],
+    note: "The legacy helper can't verify this build (not team-signed): legacy Computer Use is off.",
   }),
   "computer-use-not-granted": variant("agents", {
     host: {

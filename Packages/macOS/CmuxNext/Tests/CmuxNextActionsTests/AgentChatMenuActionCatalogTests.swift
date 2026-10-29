@@ -32,6 +32,18 @@ struct AgentChatMenuActionCatalogTests {
         #expect(Set(ids).count == ids.count)
     }
 
+    @Test func newChatCatalogSharesDestinationArgumentsAndPaletteKeyword() throws {
+        let chat = try #require(ActionCatalog.all.first { $0.id.rawValue == "palette.newAgentChat" })
+        #expect(chat.cliName == "agent new-chat")
+        #expect(chat.arguments.map(\.name) == ["cwd", "harness", "model", "host"])
+        #expect(chat.keywords.contains("acpmux"))
+        let on = try #require(ActionCatalog.all.first { $0.id.rawValue == "palette.newAgentChatOn" })
+        #expect(on.title.contains("New Agent Chat on"))
+        #expect(on.arguments.map(\.name) == ["host"])
+        #expect(on.surfacePlan.cli?.isOffered == false)
+        #expect(on.surfacePlan.mcp?.isOffered == false)
+    }
+
     @Test func pageMenuActionsGrantViewChangePermissionToCliAndMCPScopes() throws {
         let descriptors = Dictionary(uniqueKeysWithValues: ActionCatalog.all.map { ($0.id.rawValue, $0) })
         for id in Self.menuIDs where id != "agentPane.markUnread" && !id.contains("Cwd") {

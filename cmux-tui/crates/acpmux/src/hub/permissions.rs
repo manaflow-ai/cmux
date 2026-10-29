@@ -2,6 +2,7 @@
 
 use super::person::ANSWERED_BY_SLOT;
 use super::*;
+use cmux_json::JsonSet as _;
 
 tokio::task_local! {
     /// The fence of the ancestor's answer the agent's request in this task got, until its
@@ -165,6 +166,9 @@ impl Hub {
                         hub.register_agent_request(&s, &id, host_incarnation.as_deref());
                     }
                     let request_id = id.clone();
+                    // Counted until its task ends: the idle exit never ends an agent that
+                    // waits on an answer to one of its own requests (`idle.rs`).
+                    let busy = super::idle::AgentRequest::new(&session);
                     tokio::spawn(async move {
                         let finish_hub = hub.clone();
                         hub.on_agent_request(
@@ -184,6 +188,7 @@ impl Hub {
                             &request_id,
                             host_incarnation.as_deref(),
                         );
+                        drop(busy);
                     });
                 }
                 Inbound::Stderr(line, host_seq) => {
@@ -205,6 +210,20 @@ impl Hub {
                     let _ = done.send(());
                 }
                 Inbound::ReplayDone { agent } => session.end_replay(agent),
+                // Under MDM's off an unheard agent ends now (review 65 of #23322): the background
+                // check ends it (`end_every_managed_full_access`, `host_unheard`). What waits on it
+                // is answered first, as its stopped reader never will: a start waiting on its
+                // `initialize` holds the spawn lock that check takes (review 1 of #26059), unless a
+                // reattach replaced the link since (review 2).
+                Inbound::LinkBroken { agent } => {
+                    if self.full_access_managed_off() {
+                        let child = session.child.lock().await.clone();
+                        if let Some(child) = child.filter(|c| c.generation == agent) {
+                            child.fail_pending_if_unheard().await;
+                        }
+                        self.idle_wake.notify_one();
+                    }
+                }
                 Inbound::Exited { pid, code, host_seq } => {
                     {
                         let mut slot = session.child.lock().await;
@@ -221,19 +240,27 @@ impl Hub {
                     session.floor.harness_grant.store(false, Ordering::SeqCst);
                     session.floor.unsandboxed.store(false, Ordering::SeqCst);
                     *session.floor.undeclared_mode.lock().unwrap_or_else(|e| e.into_inner()) = None;
+                    session.floor.asked_options.lock().unwrap_or_else(|e| e.into_inner()).clear();
                     // Its background processes ended with it (`processes.rs`).
                     self.processes_lost(&session, processes::HARNESS_EXIT);
                     // So did its background subagents (`work_below.rs`).
                     self.end_background_subagents(&session);
-                    let intentional =
-                        matches!(session.status(), SessionStatus::Idle | SessionStatus::Closed);
+                    // The idle exit marked it before it ended the harness (`idle.rs`); a stop clears the mark.
+                    let hibernating = session.hibernated_at.load(Ordering::SeqCst) != 0
+                        && session.status() != SessionStatus::Closed;
+                    let intentional = hibernating
+                        || matches!(session.status(), SessionStatus::Idle | SessionStatus::Closed);
                     // An agent host's exit was logged before its ack.
                     if host_seq.is_none() {
                         self.append(
                             &session,
                             "mux",
                             if intentional { "stopped" } else { "exited" },
-                            json!({"code": code}),
+                            if hibernating {
+                                json!({"code": code, "hibernated": true})
+                            } else {
+                                json!({"code": code})
+                            },
                         );
                     }
                     if !intentional {
@@ -249,6 +276,11 @@ impl Hub {
         let Some(update) = params.and_then(|p| p.get("update")) else {
             return;
         };
+        // The tap persists a redacted receipt for ambiguous hosted metadata; the
+        // same fence must also keep its original update out of in-memory state.
+        if session.fences_compaction_update(update) {
+            return;
+        }
         // A subagent's messages and settings are not the session's own.
         let sid = params.and_then(|p| p.get("sessionId")).and_then(Value::as_str);
         let owned = sid.is_some_and(|sid| {
@@ -889,7 +921,7 @@ impl Hub {
                 let mut record = json!({"permissionId": permission_id, "policy": policy.to_string(), "rule": rule.map(|r| format!("{r:?}").to_lowercase()), "optionId": option_id, "chatAllowance": chat_option.is_some() && full_access.is_none(), "request": request});
                 // The mode that answered it, for the transcript's "Approved: … (Full access)".
                 if let Some((mode, _)) = &full_access {
-                    record["fullAccess"] = json!(mode);
+                    record.set("fullAccess", json!(mode));
                     tracing::info!(session = %session.id, %mode, "full access approved a request the harness raised");
                 }
                 self.append(session, "mux", "permission_auto", record);
@@ -956,7 +988,7 @@ impl Hub {
         self.settle_permission(session, &permission_id, outcome.clone(), answered_by, prev);
         let mut out = json!({"outcome": outcome});
         if let Some(m) = out["outcome"].get("_meta").cloned() {
-            out["_meta"] = m;
+            out.set("_meta", m);
             if let Some(o) = out["outcome"].as_object_mut() {
                 o.remove("_meta");
             }
@@ -978,7 +1010,7 @@ impl Hub {
     ) {
         let mut decision = json!({"permissionId": permission_id, "outcome": outcome});
         if let Some(by) = answered_by {
-            decision["answeredBy"] = by;
+            decision.set("answeredBy", by);
         }
         self.append(session, "mux", "permission_decision", decision.clone());
         let mut state = session.permissions.lock().unwrap_or_else(|e| e.into_inner());
@@ -1230,11 +1262,11 @@ impl Hub {
         if let Some(a) = answers {
             let mut input =
                 pending.request.pointer("/toolCall/rawInput").cloned().unwrap_or(json!({}));
-            input["answers"] = a;
+            input.set("answers", a);
             if let Some(notes) = annotations {
-                input["annotations"] = notes;
+                input.set("annotations", notes);
             }
-            outcome["_meta"] = json!({"updatedInput": input});
+            outcome.set("_meta", json!({"updatedInput": input}));
         }
         if let Some(by) = answered_by {
             outcome[ANSWERED_BY_SLOT] = by;

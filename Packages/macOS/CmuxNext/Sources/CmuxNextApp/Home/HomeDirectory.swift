@@ -1,4 +1,5 @@
 import CmuxHomeCore
+import CmuxNextCompat
 import CmuxNextHome
 import CmuxNextHomeEngine
 import CmuxNextHostedChief
@@ -46,6 +47,28 @@ final class HomeDirectory {
         self.me = me
     }
 
+    /// Reads the team and the Chiefs again each time the signed-in session changes: `session` is
+    /// a key of the account and its teams, nil while signed out or while the stored sign-in is
+    /// still being restored at launch. Home's first read runs before that restore ends and fails
+    /// as signed out, so without this the team stayed unlisted until a New Message was opened.
+    /// Signing out (nil) or another account drops the last account's team at once.
+    func follow(session: @escaping @MainActor @Sendable () -> String?) {
+        sessionWatch?.cancel()
+        // task-owner: lives as long as the directory (HomeService's); event-driven (Observation)
+        sessionWatch = Task { [weak self] in
+            var account: Substring?
+            for await key in ObservationStream(session) {
+                guard let self else { return }
+                let next = key?.split(separator: "|", maxSplits: 1).first
+                if next != account { teamMembers = [] }
+                account = next
+                if key != nil { await refresh() }
+            }
+        }
+    }
+
+    @ObservationIgnored private var sessionWatch: Task<Void, Never>?
+
     /// Reads the team members and the Chiefs again; a read that fails keeps
     /// the last list (signed out, offline).
     func refresh() async {
@@ -56,11 +79,11 @@ final class HomeDirectory {
     /// The members of the personal team and of each shared team `user.teams.list` names, each
     /// person once. Home chats are not team-scoped and the Worker's reach rule checks every
     /// team of the user, so a teammate from any team can be messaged. A team whose role may not
-    /// list members (a guest) is left out; nil when the personal team's list fails.
+    /// list members (a guest), or whose read fails, is left out; nil when no team could be read.
     private func readTeamMembers() async -> [HomeContact]? {
         let body: [String: Any] = ["op": "team.members.list", "params": ["limit": 200]]
-        guard let personal = try? Self.value(try await call("v1/read", body)) else { return nil }
-        var lists = [Self.members(from: personal, excluding: me())]
+        var lists: [[HomeContact]] = []
+        if let personal = try? Self.value(try await call("v1/read", body)) { lists.append(Self.members(from: personal, excluding: me())) }
         if let teamCall,
            let teams = try? Self.value(try await call("v1/read", ["op": "user.teams.list", "params": [String: Any]()])) {
             for team in Self.sharedTeams(from: teams) {
@@ -68,6 +91,7 @@ final class HomeDirectory {
                 lists.append(Self.members(from: value, excluding: me()))
             }
         }
+        guard !lists.isEmpty else { return nil }
         var seen = Set<ParticipantID>()
         return lists.joined().filter { seen.insert($0.id).inserted }
             .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }

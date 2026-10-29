@@ -36,6 +36,51 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Decodable {
         public var storageMb: Int?
     }
 
+    /// Diagnostics from the idle auto-pause cron. Timestamps are epoch
+    /// milliseconds, matching the server's provider metadata values.
+    public struct IdlePauseDiagnostics: Sendable, Hashable, Decodable {
+        public struct Run: Sendable, Hashable, Decodable {
+            public var checked: Int
+            public var elapsedMs: Int
+
+            public init(checked: Int, elapsedMs: Int) {
+                self.checked = checked
+                self.elapsedMs = elapsedMs
+            }
+        }
+
+        public struct LastDecision: Sendable, Hashable, Decodable {
+            public var at: Int
+            public var outcome: String
+            public var reason: String
+            public var run: Run
+
+            public init(at: Int, outcome: String, reason: String, run: Run) {
+                self.at = at
+                self.outcome = outcome
+                self.reason = reason
+                self.run = run
+            }
+        }
+
+        public var minutes: Int
+        public var lastCheckedAt: Int?
+        public var idleSince: Int?
+        public var lastApiActivityAt: Int?
+        public var privateAddressKnown: Bool
+        public var lastDecision: LastDecision?
+
+        public init(minutes: Int, lastCheckedAt: Int?, idleSince: Int?, lastApiActivityAt: Int?,
+                    privateAddressKnown: Bool, lastDecision: LastDecision?) {
+            self.minutes = minutes
+            self.lastCheckedAt = lastCheckedAt
+            self.idleSince = idleSince
+            self.lastApiActivityAt = lastApiActivityAt
+            self.privateAddressKnown = privateAddressKnown
+            self.lastDecision = lastDecision
+        }
+    }
+
     /// Provider operations and session transports advertised for this machine.
     public struct Capabilities: Sendable, Hashable, Decodable {
         /// Operations that a Cloud provider may advertise for one machine.
@@ -153,6 +198,8 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Decodable {
     /// `nil` when the server did not say (an older server, or a backend
     /// machine).
     public var idlePauseMinutes: Int?
+    /// Last idle-pause check and decision, when the server exposes diagnostics.
+    public var idlePause: IdlePauseDiagnostics?
     /// What one hour of this machine's size costs, in US dollars
     /// (`hourlyRateUsd`, from the server's rate table; the app keeps none).
     /// Nil when the server has no rate for it (a size not measured yet, an
@@ -174,18 +221,27 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Decodable {
         declaredCapabilities?.supports(operation) ?? true
     }
 
+    /// Whether New Cloud Workspace with no machine named may open on this machine instead
+    /// of starting (and billing) a new VM: it runs or starts, or the idle timer paused it
+    /// (opening resumes it). A failed machine, a destroyed one or one a person paused is
+    /// never picked (Lawrence msg 1334: Cloud workspaces sit in their machine's one group).
+    public var takesUnnamedWorkspaces: Bool {
+        status.isLive || (status == .paused && pauseReason == .idle)
+    }
+
     /// Sidebar and menu title: the user's name, else the slug, else the id.
     public var title: String { displayName?.nonEmpty ?? slug?.nonEmpty ?? id }
 
     enum CodingKeys: String, CodingKey {
         case id, provider, status, displayName, slug, kind, image, imageVersion, createdAt, address, size, capabilities
-        case pauseReason, idlePauseMinutes
+        case pauseReason, idlePauseMinutes, idlePause
         case hourlyRateUsd, runningSince
     }
 
     public init(id: String, provider: String = "freestyle", status: Status = .running, displayName: String? = nil,
                 slug: String? = nil, address: Address? = nil, capabilities: Capabilities? = nil,
-                pauseReason: PauseReason? = nil, idlePauseMinutes: Int? = nil) {
+                pauseReason: PauseReason? = nil, idlePauseMinutes: Int? = nil,
+                idlePause: IdlePauseDiagnostics? = nil) {
         self.id = id
         self.provider = provider
         self.status = status
@@ -195,6 +251,7 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Decodable {
         self.declaredCapabilities = capabilities
         self.pauseReason = pauseReason
         self.idlePauseMinutes = idlePauseMinutes
+        self.idlePause = idlePause
     }
 
     public init(from decoder: any Decoder) throws {
@@ -214,6 +271,9 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Decodable {
         declaredCapabilities = try c.decodeIfPresent(Capabilities.self, forKey: .capabilities)
         pauseReason = (try? c.decodeIfPresent(String.self, forKey: .pauseReason)).flatMap(PauseReason.init(rawValue:))
         idlePauseMinutes = try? c.decodeIfPresent(Int.self, forKey: .idlePauseMinutes)
+        // Diagnostics are best effort: older or partially deployed servers
+        // may omit the object (or send a shape this client does not know).
+        idlePause = try? c.decodeIfPresent(IdlePauseDiagnostics.self, forKey: .idlePause)
         // Display facts: a malformed value drops the cost line, never the machine.
         hourlyRateUsd = (try? c.decodeIfPresent(Double.self, forKey: .hourlyRateUsd)) ?? nil
         runningSince = ((try? c.decodeIfPresent(Double.self, forKey: .runningSince)) ?? nil).map { Date(timeIntervalSince1970: $0 / 1000) }
@@ -236,6 +296,10 @@ public struct CloudAttachEndpoint: Sendable, Hashable, Decodable {
     public var vmKind: String?
     public var expiresAtUnix: Double?
     public var invitation: Invitation?
+    /// Only the exact `"owner"`: the link then starts the machine's remote chains at the VM
+    /// boundary (acpmux `hub/vm_boundary.rs`). Missing, null or any other string keeps them
+    /// sandboxed; a value of another type fails the attach.
+    public var callerOwnsVM: Bool { vmKind == "owner" }
 }
 
 public struct CloudEnrollmentApproval: Sendable, Hashable, Decodable {

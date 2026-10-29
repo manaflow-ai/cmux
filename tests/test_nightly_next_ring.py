@@ -297,8 +297,9 @@ class WorkflowTests(unittest.TestCase):
         tags = re.findall(r"^\s+SPARKLE_CHANNEL: (.*)$", text, re.MULTILINE)
         # First publication, its deltas and a recovered build follow the switch;
         # the old cmux NIGHTLY-identity feed's item starts on cmux-next and is
-        # retagged from its verdict (nightly_next_ring.py legacy).
-        self.assertEqual(sum(ring_expr in tag for tag in tags), 3, tags)
+        # retagged from its verdict (nightly_next_ring.py legacy). The release-pool
+        # path's appcast (signer-dmg) follows the switch too.
+        self.assertEqual(sum(ring_expr in tag for tag in tags), 4, tags)
         self.assertEqual(tags.count("cmux-next"), 1, tags)
 
     def test_the_delta_feed_is_retagged_from_verdicts_before_it_is_published(self):
@@ -323,7 +324,8 @@ class WorkflowTests(unittest.TestCase):
         job = text[text.index("\n  publish-nightly:"):text.index("\n  publish-nightly-next-github:")]
         keep = job.index("- name: Keep the live feed's newest Nightly item beside the new build")
         step = job[keep:job.index("\n      - ", keep + 1)]
-        self.assertIn("publish-next-feed-keep-nightly.sh $(printf 'nightly-out/%s ' $NIGHTLY_FEEDS)", step)
+        self.assertIn('read -r -a feeds <<<"$NIGHTLY_FEEDS"', step)
+        self.assertIn('publish-next-feed-keep-nightly.sh "${feeds[@]/#/nightly-out/}"', step)
         self.assertIn("DEV_RING: ${{ steps.ring.outputs.mode || 'off' }}", step)
         # Before the live-ring retag, the hand-off, the guard and the live write.
         for later in ("- name: Tag the new build's items from the live Dev ring switch",
