@@ -52,8 +52,8 @@ const linkGitHub = async (session: string, team: string) => {
   return { gh }
 }
 
-describe("GitHub repository paging through the authorized route", { timeout: 60_000 }, () => {
-  it("reads one upstream page, preserves the selected connection, and refuses a changed policy before another call", async () => {
+describe("GitHub repository paging in ConnectionDO (development-only route)", { timeout: 60_000 }, () => {
+  it("fences a selected connection against another principal and changed team policy", async () => {
     const a = await signedInWithInstall("gh-repos-cursor", "cli")
     const { gh } = await linkGitHub(a.session, a.team)
     const upstream = "https://api.github.com/installation/repositories"
@@ -63,27 +63,34 @@ describe("GitHub repository paging through the authorized route", { timeout: 60_
         ? ok({ repositories: [{ full_name: "acme/web", private: true }, ...Array.from({ length: 99 }, (_, i) => ({ full_name: `acme/hidden-${i}` }))], total_count: 101 })
         : ok({ repositories: [{ full_name: "acme/api", private: true }], total_count: 101 })
     }
-    const list = (bearer: string, filter = "web", cursor?: string) =>
-      worker.fetch(`https://api.test/v1/integrations/github/repos?team=${a.team}&query=${filter}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`, {
-        headers: { authorization: `Bearer ${bearer}` },
-      })
-    const first = await list(a.installToken)
-    expect(first.status).toBe(200)
-    const page1 = (await first.json()) as { repos: Array<{ full_name: string }>; cursor: string }
-    expect(page1.repos.map((r) => r.full_name)).toEqual(["acme/web"])
-    expect(page1.cursor).toMatch(/^[A-Za-z0-9_-]{20,}$/)
+    // The public route is deliberately off in the test deployment. Exercise the exact authorized
+    // ConnectionDO method with principals matching the two verified tokens, without changing env.
+    const disabled = await worker.fetch(`https://api.test/v1/integrations/github/repos?team=${a.team}`, {
+      headers: { authorization: `Bearer ${a.installToken}` },
+    })
+    expect(disabled.status).toBe(404)
+    const stub = testEnv.CONNECTION_DO.get(testEnv.CONNECTION_DO.idFromName(a.team))
+    const install = {
+      identity: `install:${a.install}`, kind: "install", install: a.install,
+      install_kind: "cli", user: a.user, team: a.team, grant_classes: ["read"],
+    }
+    const session = { identity: `session:${a.user}`, kind: "session", user: a.user, team: a.team }
+    const list = async (caller: object, query: { query?: string; cursor?: string }): Promise<any> => {
+      let result: any
+      await inDO(stub, async (instance) => { result = await instance.githubRepos(a.team, caller, query) })
+      return result
+    }
+    const first = await list(install, { query: "web" })
+    expect(first).toMatchObject({ ok: true, value: { repos: [{ full_name: "acme/web" }] } })
+    const cursor = first.value.cursor as string
+    expect(cursor).toMatch(/^[A-Za-z0-9_-]{20,}$/)
     expect(gh.calls.filter((c) => c.url.startsWith(upstream))).toHaveLength(1)
 
-    // A separate person/session with read rights cannot use the install's pagination cursor.
-    const different = await list(a.session, "web", page1.cursor)
-    expect(different.status).toBe(409)
-    expect(((await different.json()) as any).error.code).toBe("cursor_stale")
+    // A different principal cannot move the same cursor onto another installation.
+    expect(await list(session, { query: "web", cursor })).toMatchObject({ ok: false, status: 409, code: "cursor_stale" })
     expect(gh.calls.filter((c) => c.url.startsWith(upstream))).toHaveLength(1)
-
     await policy(a.session, a.team, { github: { repo_allowlist: ["acme/api"] } })
-    const stale = await list(a.installToken, "web", page1.cursor)
-    expect(stale.status).toBe(409)
-    expect(((await stale.json()) as any).error.code).toBe("cursor_stale")
+    expect(await list(install, { query: "web", cursor })).toMatchObject({ ok: false, status: 409, code: "cursor_stale" })
     expect(gh.calls.filter((c) => c.url.startsWith(upstream))).toHaveLength(1)
   })
 })
