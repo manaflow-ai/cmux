@@ -22,7 +22,9 @@ test("daemon fallback identities stay unverified through the wire join", async (
         catalog: BUNDLED_MODEL_CATALOG,
         acpmux,
         session: { harness: id, model: current },
-      }).harnesses.find((harness) => harness.id === id)!.models.map((model) => model.id);
+      })
+        .harnesses.find((harness) => harness.id === id)!
+        .models.map((model) => model.id);
     };
     expect(join()).not.toContain("gpt-6.1-terra");
     expect(join()).not.toContain("gpt-6.1-luna");
