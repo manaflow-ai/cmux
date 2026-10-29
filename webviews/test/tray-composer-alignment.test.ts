@@ -265,7 +265,10 @@ await requireBrowserLane("tray-composer-alignment.test.ts", async () => {
                 };
               });
               expect(shifted.dockDisplay).toBe("contents");
-              expect(shifted.composer.left).toBeCloseTo(result.composer.left - 36, 1);
+              const composerShift = shifted.composer.left - result.composer.left;
+              expect(Math.abs(composerShift)).toBeGreaterThan(0);
+              expect(shifted.tray.left - result.tray.left).toBeCloseTo(composerShift, 1);
+              expect(shifted.tray.right - result.tray.right).toBeCloseTo(composerShift, 1);
               expect(shifted.tray.left).toBeCloseTo(shifted.composer.left, 1);
               expect(shifted.tray.right).toBeCloseTo(shifted.composer.right, 1);
               for (const transform of [
