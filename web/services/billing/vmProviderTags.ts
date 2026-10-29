@@ -9,6 +9,7 @@ import {
   FOUNDERS_PLAN_ID,
   isPaidPlanId,
   isPersonalPlanId,
+  PRO_PLAN_ID,
   manualVmPlanOverride,
   stripeBillingStatusForTeam,
   TEAM_PLAN_ID,
@@ -51,7 +52,8 @@ export async function vmStripeProviderTags(scope: VmBillingScope): Promise<Recor
   // Only a row that grants access names the subscription: a canceled row, or
   // a past-due row chosen for the portal beside another active row, does not.
   if (status?.subscriptionId && isActiveStripeStatus(status.subscriptionStatus)) return { cmuxPlanSource: "stripe", ...(await stripeTags(status)) };
-  if (status?.hasFoundersEdition) {
+  // Founder's Edition is lifetime Pro: it funds only a Pro or Founder's machine.
+  if (status?.hasFoundersEdition && (scope.billingPlanId === FOUNDERS_PLAN_ID || scope.billingPlanId === PRO_PLAN_ID)) {
     // A lifetime purchase has no subscription to name.
     return { cmuxPlanSource: "stripe", ...(status.customerId ? { stripeCustomerId: status.customerId } : {}) };
   }
@@ -59,7 +61,7 @@ export async function vmStripeProviderTags(scope: VmBillingScope): Promise<Recor
 }
 
 async function scopeBillingStatus(scope: VmBillingScope): Promise<StripeBillingStatus | null> {
-  if (scope.billingPlanId === TEAM_PLAN_ID) return await stripeBillingStatusForTeam(scope.billingTeamId);
+  if (scope.billingPlanId === TEAM_PLAN_ID) return await stripeBillingStatusForTeam(scope.billingTeamId, { preferActive: true });
   if (isPersonalPlanId(scope.billingPlanId) || scope.billingPlanId === FOUNDERS_PLAN_ID) {
     return await stripeBillingStatusForUser(scope.userId);
   }
@@ -101,9 +103,8 @@ function isActiveStripeStatus(status: string | null): boolean {
 
 async function planSourceWithoutSubscription(scope: VmBillingScope): Promise<VmPlanSource> {
   if (!isPaidPlanId(scope.billingPlanId)) return "none";
-  // A failed grant lookup still records that no subscription matched.
-  const granted = await hasOperatorGrant(scope).catch(() => false);
-  return granted ? "admin-grant" : "unmatched";
+  // A failed grant lookup fails the tagging step; the machine keeps its create-time labels.
+  return (await hasOperatorGrant(scope)) ? "admin-grant" : "unmatched";
 }
 
 /**
