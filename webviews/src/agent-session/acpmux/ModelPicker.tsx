@@ -17,7 +17,7 @@ import { isDefaultChoice } from "./defaultChoice";
 import { CheckIcon, ChevronIcon, PICKER_LABELS, SearchIcon } from "./ComposerPickers";
 import { Icon } from "./icons/Icon";
 import { usePromptFocus } from "./promptFocus";
-import { currentLanguage, translate, useT } from "./i18n";
+import { currentLanguage, translate, usePaneLanguage, useT } from "./i18n";
 import { fastModeIsOn, nextFastModeValue } from "./fastModeState";
 import { useUpdateOffer } from "./HarnessHealthNotice";
 import { CHAT_COLUMN, MODEL_PICKER_MIN_HEIGHT, pickerHeightBounds, type ModelPickerProps } from "./modelPickerLayout";
@@ -127,9 +127,11 @@ const choiceCache = new WeakMap<
   HarnessChoice,
   { lang: string; sections: { latest: ModelChoice[]; older: ModelChoice[] } }
 >();
-function sectionsFor(entry: HarnessChoice | undefined): { latest: ModelChoice[]; older: ModelChoice[] } {
+function sectionsFor(
+  entry: HarnessChoice | undefined,
+  lang: string = currentLanguage(),
+): { latest: ModelChoice[]; older: ModelChoice[] } {
   if (!entry) return { latest: [], older: [] };
-  const lang = currentLanguage();
   const cached = choiceCache.get(entry);
   if (cached?.lang === lang) return cached.sections;
   const seen = new Set<string>();
@@ -161,16 +163,17 @@ function sectionsFor(entry: HarnessChoice | undefined): { latest: ModelChoice[];
 function shownSections(
   entry: HarnessChoice | undefined,
   model: string | undefined,
+  lang?: string,
 ): { latest: ModelChoice[]; older: ModelChoice[] } {
-  const sections = sectionsFor(entry);
+  const sections = sectionsFor(entry, lang);
   const runs = sections.older.find((choice) => choice.id === model);
   if (!runs) return sections;
   return { latest: [...sections.latest, runs], older: sections.older.filter((choice) => choice !== runs) };
 }
 
 /// Every model of a harness, newest first, older versions included.
-function choicesFor(entry: HarnessChoice | undefined): ModelChoice[] {
-  const { latest, older } = sectionsFor(entry);
+function choicesFor(entry: HarnessChoice | undefined, lang?: string): ModelChoice[] {
+  const { latest, older } = sectionsFor(entry, lang);
   return [...latest, ...older];
 }
 
@@ -428,6 +431,8 @@ export function ModelPicker(props: ModelPickerProps) {
   /// A signed-out harness's login command ("" when acpmux names none); undefined when it can start.
   const loginFor = useCallback((entry: HarnessChoice) => signedOut?.[entry.acpmuxHarness ?? entry.id], [signedOut]);
   const t = useT();
+  // The Default row's name follows the pane language (`sectionsFor`), so the model rows do too.
+  const lang = usePaneLanguage();
   const newTab = useContext(OnNewTab);
   /// The chat's agent CLI has an update (hq#2569 #12): a row in the menu and the picker and a line
   /// in the chip's tooltip, never a banner over the chat. Never a dot on the chip: drawn between the
@@ -524,14 +529,20 @@ export function ModelPicker(props: ModelPickerProps) {
     } else if (starredView) {
       for (const entry of harnesses)
         if (!entry.folder && loginFor(entry) === undefined)
-          for (const model of choicesFor(entry)) if (favorites.has(model.id)) owner.set(model, entry);
+          for (const model of choicesFor(entry, lang)) if (favorites.has(model.id)) owner.set(model, entry);
     } else if (selected && loginFor(selected) === undefined) {
       // Every model past the top ones folds under More models until it opens (cx-jqkx, cx-espus).
-      const { latest, older } = shownSections(selected, runsHere);
-      for (const model of olderOpen ? [...latest, ...older] : latest) owner.set(model, selected);
+      const { latest, older } = shownSections(selected, runsHere, lang);
+      const shown = olderOpen ? [...latest, ...older] : latest;
+      // Another folder profile with only the informational Default row keeps its New chat row.
+      const launchOnly =
+        Boolean(selected.folder) &&
+        !selected.ids.includes(harness ?? "") &&
+        shown.every((model) => model.defaultChoice);
+      if (!launchOnly) for (const model of shown) owner.set(model, selected);
     }
     return owner;
-  }, [favorites, harnesses, olderOpen, parsed, searching, selected, starredView, runsHere, loginFor]);
+  }, [favorites, harnesses, olderOpen, parsed, searching, selected, starredView, runsHere, loginFor, harness, lang]);
   const visible = useMemo(() => [...owners.keys()], [owners]);
   // Add harness… is the list's last row, after the models: arrows reach it like a model row.
   const addRow = onAddAgent ? visible.length : -1;
