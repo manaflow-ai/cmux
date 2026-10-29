@@ -441,9 +441,9 @@ impl<I: Io> Reporter<I> {
                 let until = queued + RETRY_WAIT_MAX;
                 self.set_now(session, Now::Retrying { turn, why, until });
             }
-            (Step::RetryRestored { turn, why }, Now::Retrying { .. }) => {
+            (Step::RetryRestored { turn: _, .. }, Now::Retrying { turn: current, why, .. }) => {
                 let until = queued + RETRY_WAIT_MAX;
-                self.set_now(session, Now::Retrying { turn, why, until });
+                self.set_now(session, Now::Retrying { turn: current, why, until });
             }
             (Step::Asks(what), Now::Reporting { turn, last })
                 if last != Some("needs-you") || what.is_some() =>
