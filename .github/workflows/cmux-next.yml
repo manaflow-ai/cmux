@@ -5635,7 +5635,7 @@ jobs:
     concurrency:
       group: ${{ format('cmux-next-dev-landing-{0}', github.run_id) }}
       cancel-in-progress: false
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.dev-landing-place.outputs.runs_on != '' && fromJSON(needs.dev-landing-place.outputs.runs_on) || 'blacksmith-12vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.dev-landing-place.outputs.runs_on != '' && fromJSON(needs.dev-landing-place.outputs.runs_on) || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 60
     # The fleet-shared compile cache (scripts/cmux-next/dev_cas_seed.py) is on once
     # vars.CMUX_NEXT_DEV_CAS_URL names its store. Its token lives in next-dev-cas, an
@@ -5647,7 +5647,7 @@ jobs:
       contents: read
     env:
       # The placed label's first entry (a glaeda-* label means a mini).
-      CMUX_NEXT_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.dev-landing-place.outputs.runner_label || 'blacksmith-12vcpu-macos-26' }}
+      CMUX_NEXT_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.dev-landing-place.outputs.runner_label || 'blacksmith-6vcpu-macos-26' }}
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
       CMUX_TUI_TREE_KEY: ${{ needs.dev-landing-place.outputs.tree_fetch_key }}

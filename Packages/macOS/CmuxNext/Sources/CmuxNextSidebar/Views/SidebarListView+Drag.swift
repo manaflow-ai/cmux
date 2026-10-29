@@ -513,13 +513,13 @@ extension SidebarListViewComponents {
         guard !leaving.isEmpty else { return }
         // The motion probe keeps sampling a fading row until it is gone (a fade is not a pop).
         for (view, _) in leaving { fadingRows[ObjectIdentifier(view)] = view }
+        let generations = leaving.map(\.0.reuseGeneration)
         Motion.feedback.animate(.hover, in: self, {
             for (view, _) in leaving { view.animator().alphaValue = 0 }
-        }, completion: { [weak self, leaving] in
+        }, completion: { [weak self, leaving, generations] in
             guard let self else { return }
-            for (view, _) in leaving {
-                self.fadingRows[ObjectIdentifier(view)] = nil
-                if !self.rowViews.values.contains(where: { $0 === view }) { self.recycle(view) }
+            for ((view, _), generation) in zip(leaving, generations) {
+                self.finishLeaving(view, generation: generation)
             }
         })
     }

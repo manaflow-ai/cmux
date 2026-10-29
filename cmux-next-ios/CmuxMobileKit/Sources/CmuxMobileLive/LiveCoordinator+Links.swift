@@ -558,16 +558,16 @@ extension LiveCoordinator {
     /// Sends a terminal attachment to the tab's Mac (the `upload` service)
     /// into the tab's folder, next to acpmux's attachments, or the Mac's own
     /// uploads folder when the tab has none; returns the file's path there.
-    public func terminalUploader(tabID: String, macID: String? = nil) -> @MainActor (Data, String) async throws -> String {
-        { [weak self] data, name in
+    public func terminalUploader(tabID: String, macID: String? = nil) -> @MainActor (LinkUpload.Payload, String) async throws -> String {
+        { [weak self] payload, name in
             guard let self, let owner = self.session(tabID: tabID, macID: macID), let link = owner.servedLink else {
                 throw LinkUpload.Failure(code: "offline", message: "the Mac isn't connected")
             }
             let cwd = LinkUpload.folder(owner.tree?.directories[tabID])
             do {
-                return try await LinkUpload.upload(data, name: name, cwd: cwd, over: link)
+                return try await LinkUpload.upload(payload, name: name, cwd: cwd, over: link)
             } catch let failure as LinkUpload.Failure where cwd != nil && (failure.code == "forbidden" || failure.code == "not_found") {
-                return try await LinkUpload.upload(data, name: name, cwd: nil, over: link)
+                return try await LinkUpload.upload(payload, name: name, cwd: nil, over: link)
             }
         }
     }
@@ -899,14 +899,10 @@ extension LiveCoordinator {
             everConnected = true
             if let macID = session.link.target?.macID { connectedMacIDs.insert(macID) }
         case .connecting(let transport, let attempt):
-            // Blips heal silently: the reconnecting banner waits 1.5 s.
             if attempt == 1, !everConnected {
                 banner = .connecting(to: "\(name) over \(transport.displayName)")
-            } else if banner == nil || banner == .connected {
-                bannerTask = Task { [weak self, clock] in
-                    do { try await clock.sleep(for: .milliseconds(1500)) } catch { return }
-                    self?.banner = .reconnecting(to: name)
-                }
+            } else {
+                banner = .reconnecting(to: name)
             }
         case .waiting(let transport, let attempt, let reason, _):
             banner = Self.waitingBanner(
