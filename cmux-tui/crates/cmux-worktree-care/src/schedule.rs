@@ -57,6 +57,20 @@ pub struct Claim {
     stamp_error: Option<String>,
 }
 
+impl Drop for Claim {
+    fn drop(&mut self) {
+        #[cfg(unix)]
+        {
+            use std::os::fd::AsRawFd;
+            // SAFETY: the descriptor belongs to this claim and remains open
+            // until this drop implementation returns. Explicitly releasing
+            // it makes the lock handoff deterministic before a caller's next
+            // claim, rather than relying on close-time unlock semantics.
+            unsafe { libc::flock(self._lock.as_raw_fd(), libc::LOCK_UN) };
+        }
+    }
+}
+
 impl Claim {
     /// Records the end of a recorded pass; the lock goes with `self`. The
     /// error of a stamp that could not be written, at the start or now.
@@ -163,14 +177,6 @@ mod tests {
         assert_eq!(claim(&dir, 1_000, Some(HOUR), true).unwrap_err(), Refused::Busy);
         assert_eq!(claim(&dir, 1_000, None, false).unwrap_err(), Refused::Busy);
         drop(held);
-        eprintln!("busy fixture {}", dir.display());
-        #[cfg(target_os = "linux")]
-        if let Ok(metadata) = std::fs::metadata(dir.join(LOCK)) {
-            use std::os::unix::fs::MetadataExt;
-            let inode = metadata.ino().to_string();
-            let locks = std::fs::read_to_string("/proc/locks").unwrap_or_default();
-            eprintln!("busy fixture inode {inode}, locks: {}", locks.lines().filter(|line| line.contains(&inode)).collect::<Vec<_>>().join(" | "));
-        }
         assert!(claim(&dir, 1_000, None, false).is_ok(), "the lock goes with the claim");
     }
 
