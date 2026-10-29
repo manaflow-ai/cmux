@@ -35,6 +35,7 @@ import { FileSearch } from "./FileSearch";
 import { PromptFocus } from "./promptFocus";
 import { ComposerBox, type ComposerBoxHandle } from "./ComposerBox";
 import { Icon } from "./icons/Icon";
+import { Spinner } from "./conversation/icons";
 import { MentionMenu, mentionQuery, mentionResults, useMentionSearch } from "./MentionMenu";
 import { hasOtherChats, mentionInsert, mentionItems, mentionSelection, type MentionItem } from "./mentionItems";
 import type { ContextMenuItem } from "../../ui/ContextMenu";
@@ -152,6 +153,7 @@ export const COMPOSER_LABELS = {
   prompt: "composer.prompt",
   send: "composer.send",
   stop: "composer.stop",
+  stopping: "composer.stopping",
   escapeAgainToStop: "composer.escapeAgainToStop",
   commands: "composer.commands",
   noCommands: "composer.noCommands",
@@ -333,6 +335,8 @@ type Props = {
   /// Set while no prompt may go (the folder's trust question is open, useFolderTrustAsk.ts):
   /// Send is off, Enter keeps the prompt, and `reason` shows above it. Shell mode still runs.
   blocked?: SendBlock;
+  /// Current session/route auth refusal. Unlike folder Trust, force-send cannot bypass it.
+  authBlock?: string;
   /// Opens the Inspector at its Context section: the context ring's card links to it (Details ›).
   onOpenContext?(): void;
 };
@@ -399,6 +403,7 @@ export function Composer({
   sessionId,
   switching,
   blocked,
+  authBlock,
   placeholder,
   onOpenContext,
 }: Props) {
@@ -496,6 +501,10 @@ export function Composer({
   /// The person edited this chat's prompt before its durable draft read answered (a clear too):
   /// that read keeps their text, empty or not, and a quit before it answers saves it.
   const editedBeforeHydration = useRef(false);
+  /// The text the durable read left in the prompt (acpmux's draft, or what the prompt already held):
+  /// with nothing queued since, a quit compares the editor with it, so an untouched prompt never
+  /// clears a draft another client (the CLI, another window) saved while this page was open.
+  const hydratedText = useRef("");
   const prompts = usePromptHistory(snapshot.rows);
   // Send becomes Stop in place once the turn starts; a second click of a
   // double-click, or a click right after Enter, must not cancel the new turn.
@@ -684,7 +693,10 @@ export function Composer({
         // Before the durable read answers, only what the person typed goes (the read keeps a typed
         // prompt over acpmux's the same way); an untouched editor leaves acpmux's draft alone.
         const ready = hydratedSession.current === session || editedBeforeHydration.current;
-        if (session && ready && !restoringSession.current && typed !== lastQueuedDraftText(session)) {
+        const known =
+          lastQueuedDraftText(session ?? "") ??
+          (hydratedSession.current === session ? hydratedText.current : undefined);
+        if (session && ready && !restoringSession.current && typed !== known) {
           writePersistedDraft(session, typed);
         }
         const unsent = unsentDraft.current;
@@ -787,9 +799,13 @@ export function Composer({
         setText(restored);
         setCaret(restored.length);
         pendingCaret.current = restored.length;
-      } else if (!hasPendingWrite && (currentText.trim() || edited)) {
-        // A local remount cache or keystroke arrived before the daemon read. Preserve it durably.
-        writePersistedDraft(sessionId, currentText);
+        hydratedText.current = restored;
+      } else {
+        hydratedText.current = currentText;
+        if (!hasPendingWrite && (currentText.trim() || edited)) {
+          // A local remount cache or keystroke arrived before the daemon read. Preserve it durably.
+          writePersistedDraft(sessionId, currentText);
+        }
       }
       hydratedSession.current = sessionId;
       flushPendingDraftWrites();
@@ -956,7 +972,7 @@ export function Composer({
     // acpmux refuses this chat on this connection (remoteEditing.ts): keep the draft.
     if (!remote.canSend) return false;
     // The folder's trust question is open: the prompt stays where it is.
-    if (blocked && !force) return false;
+    if (authBlock || (blocked && !force)) return false;
     // The host has not taken the last prompt yet: it is still here, so Enter sends no copy, and
     // the composer says so instead of doing nothing.
     if (sending.current) {
@@ -1306,7 +1322,7 @@ export function Composer({
     // does (escapeStop.ts), and the first arms Stop: it keeps its glyph, takes the accent and is named
     // "Press Esc again to stop". Menus, pickers and the
     // @ list take their Esc above, so one press still closes them.
-    if (event.key === "Escape" && plain && !open && stop && !quick) {
+    if (event.key === "Escape" && plain && !open && stop && !stopping && !quick) {
       event.preventDefault();
       // Holding Esc down is one press: its auto-repeat is not the second.
       escapeStop.press(event.repeat);
@@ -1406,6 +1422,8 @@ export function Composer({
     composing.current = value;
   };
 
+  // Stop was sent and the turn has not ended: Stop turns and says so.
+  const stopping = !shell && snapshot.isWorking && snapshot.stopping === true;
   const stop = !shell && snapshot.isWorking && !text.trim();
   // Stop shows for the whole turn, a typed prompt or not; Esc stops only from an empty prompt.
   const running = !shell && snapshot.isWorking;
@@ -1413,7 +1431,7 @@ export function Composer({
   // Esc stops the turn on a double press (escapeStop.ts). The Quick Composer's page-level Esc hides
   // its panel, so only the pane counts an Esc that reaches the page.
   const escapeStop = useEscapeStop({
-    stoppable: stop,
+    stoppable: stop && !stopping,
     session: sessionId,
     double: escapeDoublePress,
     pageEscape: !onOpenInWindow,
@@ -1435,16 +1453,19 @@ export function Composer({
   // Mid-turn it teaches both keys, as Claude's composer does: Return steers and ⌘Return queues.
   // The Quick Composer's ⌘Return opens the window, so there it names Return alone; an agent that
   // cannot steer says it queues.
-  // While the double press is armed, the placeholder says to press Esc again, as Stop's hint does.
-  const placeholderKey = escapeStop.armed
-    ? COMPOSER_LABELS.escapeAgainToStop
-    : !queues
-      ? COMPOSER_LABELS.placeholder
-      : !steers
-        ? COMPOSER_LABELS.placeholderQueued
-        : onOpenInWindow || steersAlways
-          ? COMPOSER_LABELS.placeholderSteerQuick
-          : COMPOSER_LABELS.placeholderSteer;
+  // While the double press is armed, the placeholder says to press Esc again, as Stop's hint does;
+  // once Stop is sent, it says the turn is stopping until it ends.
+  const placeholderKey = stopping
+    ? COMPOSER_LABELS.stopping
+    : escapeStop.armed
+      ? COMPOSER_LABELS.escapeAgainToStop
+      : !queues
+        ? COMPOSER_LABELS.placeholder
+        : !steers
+          ? COMPOSER_LABELS.placeholderQueued
+          : onOpenInWindow || steersAlways
+            ? COMPOSER_LABELS.placeholderSteerQuick
+            : COMPOSER_LABELS.placeholderSteer;
   // A side session's idle prompt reads "Reply in this session…" (the `placeholder` prop); the
   // mid-turn and Esc hints still win, since they say what a key does now.
   const placeholderText =
@@ -1655,20 +1676,26 @@ export function Composer({
   ) : null;
   // Stop, for the whole turn. Claude desktop's box (Leo 2026-10-20) draws it left of the mic, the
   // mic keeping the right edge; the other look keeps it at the cluster's end.
+  // Once sent, Stop turns until the turn ends, so a press (or Esc) is seen to take (Leo 2026-10-21:
+  // "IDK IF IM ACTUALLY STOPPING YOU"); pressed again it sends Stop again.
+  const stopLabel = t(
+    stopping ? COMPOSER_LABELS.stopping : escapeStop.armed ? COMPOSER_LABELS.escapeAgainToStop : COMPOSER_LABELS.stop,
+  );
   const stopButton = running ? (
     <button
       key="stop"
       ref={sendButton}
       type="button"
       className="acpmux-send acpmux-cancel"
-      data-escape-armed={escapeStop.armed ? "" : undefined}
-      aria-label={t(escapeStop.armed ? COMPOSER_LABELS.escapeAgainToStop : COMPOSER_LABELS.stop)}
-      // tooltip-allow: names the icon-only Stop, and once armed says to press Esc again.
-      title={t(escapeStop.armed ? COMPOSER_LABELS.escapeAgainToStop : COMPOSER_LABELS.stop)}
+      data-escape-armed={escapeStop.armed && !stopping ? "" : undefined}
+      data-stopping={stopping ? "" : undefined}
+      aria-label={stopLabel}
+      // tooltip-allow: names the icon-only Stop, once armed says to press Esc again, and once sent says it is stopping.
+      title={stopLabel}
       onClick={stopTurn}
     >
       {/* The first Esc of the double press keeps the glyph; its color and name say Esc again stops. */}
-      <StopIcon />
+      {stopping ? <Spinner loading size={14} /> : <StopIcon />}
     </button>
   ) : null;
   // Why a failed turn paused the queue: the paused note names it (queuePause.ts).
@@ -1697,7 +1724,12 @@ export function Composer({
           {t(remote.note)}
         </p>
       )}
-      {!remote.note && blocked?.reason && !blocked.shownAbove && (
+      {!remote.note && authBlock && (
+        <p className="acpmux-composer-remote-note acpmux-composer-trust-note" role="alert">
+          {authBlock}
+        </p>
+      )}
+      {!remote.note && !authBlock && blocked?.reason && !blocked.shownAbove && (
         <p className="acpmux-composer-remote-note acpmux-composer-trust-note" role="note">
           {t(blocked.reason)}
         </p>
@@ -2045,23 +2077,25 @@ export function Composer({
               key="send"
               ref={sendButton}
               type="submit"
-              disabled={Boolean(blocked) && !shell}
+              disabled={Boolean(authBlock || blocked) && !shell}
               className={`acpmux-send${(shell ? shellText.trim() : !blocked && hasDraft) ? " acpmux-send-ready" : ""}`}
               aria-label={shell ? t("composer.shellRun") : t(COMPOSER_LABELS.send)}
               title={
                 shell
                   ? t("composer.shellRun")
-                  : blocked?.reason
-                    ? t(blocked.reason)
-                    : t(
-                        !snapshot.isWorking
-                          ? "composer.sendTooltip"
-                          : steersAlways
-                            ? "composer.steerTooltip"
-                            : returnSteers
-                              ? "composer.queueLaterTooltip"
-                              : "composer.queueTooltip",
-                      )
+                  : authBlock
+                    ? authBlock
+                    : blocked?.reason
+                      ? t(blocked.reason)
+                      : t(
+                          !snapshot.isWorking
+                            ? "composer.sendTooltip"
+                            : steersAlways
+                              ? "composer.steerTooltip"
+                              : returnSteers
+                                ? "composer.queueLaterTooltip"
+                                : "composer.queueTooltip",
+                        )
               }
             >
               <ArrowUpIcon />

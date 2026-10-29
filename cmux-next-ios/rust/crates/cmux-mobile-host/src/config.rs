@@ -43,8 +43,6 @@ pub struct ServiceConfig {
     /// service writes a file that has no workspace folder, one folder per
     /// link session.
     pub uploads_dir: PathBuf,
-    /// `CMUX_MOBILE_UPLOAD_MAX_BYTES`: the largest file one `upload` accepts.
-    pub upload_max_bytes: u64,
     /// The Chief's conversation owner socket (the `chief` service):
     /// `CMUX_MOBILE_CHIEF_SOCKET`, else `<tui_socket_dir>/<CMUX_MOBILE_CHIEF_SESSION>.sock`,
     /// else the session of `~/.cmux/chief/<CMUX_NEXT_CHIEF_ACCOUNT or default>`
@@ -65,8 +63,6 @@ impl ServiceConfig {
     }
 }
 
-/// The default `upload` size cap: 100 MiB.
-pub const DEFAULT_UPLOAD_MAX_BYTES: u64 = 100 * 1024 * 1024;
 /// `ChiefHome.sessionName`: `cmux-chief-` and the FNV-1a 32 hash of the
 /// home's path, so hostd finds the owner every Mac build shares.
 pub fn chief_session_name(root: &Path) -> String {
@@ -442,9 +438,6 @@ impl HostConfig {
                 uploads_dir: env("CMUX_MOBILE_UPLOADS_DIR")
                     .map(PathBuf::from)
                     .unwrap_or_else(|| default_state_dir().join("uploads")),
-                upload_max_bytes: env("CMUX_MOBILE_UPLOAD_MAX_BYTES")
-                    .and_then(|v| v.parse().ok())
-                    .unwrap_or(DEFAULT_UPLOAD_MAX_BYTES),
                 browser,
                 surface,
             },
