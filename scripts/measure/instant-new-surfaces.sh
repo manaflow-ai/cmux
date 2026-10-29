@@ -29,14 +29,6 @@ for arg in "$@"; do
   esac
 done
 set -- ${bench_args[@]+"${bench_args[@]}"}
-# A commit whose cmux-tui tree no artifacts run published (a perf/chrome-parity or cp/* commit: only
-# feat-cmux-next and cmux-tui-pin-* pushes publish, and cmux-tui-pin-* pushes are refused) builds the
-# client set on this host, as reload.sh does for an nx-remote build, instead of waiting 45 min to fail.
-if [[ -z "${CMUX_TUI_CLIENT_LOCAL:-}" ]] && ! ./scripts/cmux-next/pin-cmux-tui.sh probe 2>/dev/null | grep -q ': ready ('; then
-  CMUX_TUI_CLIENT_LOCAL="$(./scripts/cmux-next/build-cmux-tui-client.sh --print-path)"
-  export CMUX_TUI_CLIENT_LOCAL
-  echo "instant-new-surfaces: the tree is not published; bundling the client set built here, $CMUX_TUI_CLIENT_LOCAL"
-fi
 CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "$tag" ${reload_config[@]+"${reload_config[@]}"} 2>&1 | tee "$out/reload.log" | tail -n 40
 app="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$out/reload.log" | tail -n 1)"
 if [[ -z "$app" || ! -d "$app" ]]; then
