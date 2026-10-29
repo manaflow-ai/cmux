@@ -47,12 +47,20 @@ export function reloaded(error: unknown): boolean {
 }
 
 /**
- * Whether a stage failed to mount only because Vite's dependency optimizer bundled again while it
- * loaded, so the module it imported had gone stale ("Failed to fetch dynamically imported module",
- * Vite's 504 Outdated Optimize Dep). The next load, once the optimizer has settled, mounts.
+ * Vite's own evidence that a stage imported a dependency the optimizer has since replaced: its 504
+ * "Outdated Optimize Dep" answer. A stage that shows it loads again once the optimizer settles.
  */
-export function optimizerRace(message: string | null | undefined): boolean {
-  return /Failed to fetch dynamically imported module|Outdated Optimize Dep|error loading dynamically imported module|Importing a module script failed/i.test(
+export function outdatedOptimizeDep(message: string | null | undefined): boolean {
+  return /Outdated Optimize Dep/i.test(message ?? "");
+}
+
+/**
+ * A stage that failed to mount on a dynamic import. On its own this is no evidence of the
+ * optimizer (a missing or broken module fails the same way): the warm-up waits for the optimizer
+ * and loads again only when the optimizer then reloaded the page (reloadsSent), else fails at once.
+ */
+export function dynamicImportFailed(message: string | null | undefined): boolean {
+  return /Failed to fetch dynamically imported module|error loading dynamically imported module|Importing a module script failed/i.test(
     message ?? "",
   );
 }
@@ -159,8 +167,9 @@ export async function warmGalleryFrame(
         let message: string | null = null;
         // Vite's dependency optimizer can reload the page while it bundles a new dependency, during
         // the navigation or after it, or leave the stage importing a module it has since replaced
-        // (optimizerRace); each starts the load again, within the same budget, on a fresh page. The
-        // last document's module requests can hold its connections while the optimizer bundles, and
+        // (a reload it sends, or its 504 Outdated Optimize Dep); each starts the load again, within
+        // the same budget, on a fresh page. The last document's module requests can hold its
+        // connections while the optimizer bundles, and
         // a goto on that page then never commits: #26637's warm-up on a cold fleet worker waited out
         // its whole budget in one goto (85 s, 2026-10-28), where a new page loaded in about 1 s.
         for (;;) {
@@ -178,9 +187,13 @@ export async function warmGalleryFrame(
               document.documentElement.dataset.galleryReady,
               document.body.textContent,
             ]);
-            raced = ready === "error" && optimizerRace(message);
-            if (typeof server !== "string" && (ready !== "error" || raced)) await optimizerSettled(server, left);
-            // A reload since this load began, or a stale optimized import: load again.
+            // A failed dynamic import may be the optimizer replacing a dependency mid-load: let it
+            // settle, so the reload it sends for that is counted before deciding.
+            const importFailed = ready === "error" && dynamicImportFailed(message);
+            if (typeof server !== "string" && (ready !== "error" || importFailed)) await optimizerSettled(server, left);
+            raced = ready === "error" && outdatedOptimizeDep(message);
+            // A reload since this load began (the optimizer's own signal), or Vite's 504 for a
+            // stale optimized dependency: load again. Any other mount error fails below at once.
             if (reloadsSent(server) === sent && !raced) break;
           } catch (error) {
             if (Date.now() >= deadline || !(reloaded(error) || stalled(error)))

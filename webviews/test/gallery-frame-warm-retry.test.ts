@@ -1,16 +1,33 @@
-// warmGalleryFrame's retries on a cold dev server, driven by a stand-in browser (no engine needed).
+// warmGalleryFrame's retries on a cold dev server, driven by a stand-in browser and dev server (no
+// engine needed).
 //
 // #26637's warm-up on a cold fleet worker (2026-10-28): the dependency optimizer bundled again
-// while the stage loaded, the stage failed to mount on "Failed to fetch dynamically imported
-// module", and the next goto on that page never committed, so one goto spent the whole 100 s
-// budget. A fresh page, once the optimizer settled, loaded in about 1 s.
+// while the stage loaded and reloaded the page, the stage failed to mount on "Failed to fetch
+// dynamically imported module", and the next goto on that page never committed, so one goto spent
+// the whole 100 s budget. A fresh page, once the optimizer settled, loaded in about 1 s. A failed
+// import with no optimizer reload (a missing module) must still fail at once.
 import { expect, test } from "bun:test";
-import { optimizerRace, stalled, warmGalleryFrame } from "./support/galleryFrame";
+import type { ViteDevServer } from "vite";
+import { dynamicImportFailed, outdatedOptimizeDep, stalled, warmGalleryFrame } from "./support/galleryFrame";
 
-type Step = { goto?: Error; ready?: string; text?: string };
+/** One page's load: a goto that fails, or the stage's ready flag and text; `reload` sends a full reload. */
+type Step = { goto?: Error; ready?: string; text?: string; reload?: boolean };
 
-/** A browser whose Nth page plays steps[N] (then `rest`): a goto that fails, or the stage's ready flag and text. */
-function fakeBrowser(steps: Step[], rest: Step = { ready: "1" }) {
+/** A dev server with only what warmGalleryFrame reads: its port, hot channel and optimizer. */
+function fakeServer() {
+  const client = {
+    hot: { send(_payload: unknown) {} },
+    async waitForRequestsIdle() {},
+    depsOptimizer: { metadata: { discovered: {} } },
+  };
+  const server = { httpServer: { address: () => ({ port: 1 }) }, environments: { client } };
+  // The optimizer's reload goes through the hot channel, which warmGalleryFrame counts.
+  const reload = () => server.environments.client.hot.send({ type: "full-reload" });
+  return { server: server as unknown as ViteDevServer, reload };
+}
+
+/** A browser whose Nth page plays steps[N] (then `rest`). */
+function fakeBrowser(steps: Step[], rest: Step = { ready: "1" }, reload: () => void = () => {}) {
   const pages: { closed: boolean; gotos: string[] }[] = [];
   const browser = {
     async newPage() {
@@ -25,6 +42,7 @@ function fakeBrowser(steps: Step[], rest: Step = { ready: "1" }) {
         },
         async waitForFunction() {},
         async evaluate() {
+          if (step.reload) reload();
           return [step.ready ?? "1", step.text ?? ""];
         },
         async close() {
@@ -46,17 +64,32 @@ function timeout(ms: number): Error {
 
 const STALE_IMPORT =
   "agent-pane.chat-width#default failed to mount:\nTypeError: Failed to fetch dynamically imported module: http://127.0.0.1:35565/gallery/src/agent-session/acpmux/main.tsx";
+const MISSING_MODULE =
+  "agent-pane.chat-width#default failed to mount:\nTypeError: Failed to fetch dynamically imported module: http://127.0.0.1:35565/gallery/src/agent-session/acpmux/Gone.tsx";
+const OUTDATED =
+  'agent-pane.chat-width#default failed to mount:\nError: 504 (Outdated Optimize Dep) for "/gallery/node_modules/.vite/deps/react.js"';
 
-test("a stale optimized import and a goto that never commits each load again on a fresh page", async () => {
-  const { browser, pages } = fakeBrowser([
-    { ready: "error", text: STALE_IMPORT },
-    { goto: timeout(30_000) },
+test("an import that failed while the optimizer reloaded, then a stuck goto, each load again on a fresh page", async () => {
+  const { server, reload } = fakeServer();
+  const { browser, pages } = fakeBrowser(
+    [{ ready: "error", text: STALE_IMPORT, reload: true }, { goto: timeout(30_000) }, { ready: "1" }],
     { ready: "1" },
-  ]);
-  await warmGalleryFrame("http://127.0.0.1:1", "agent-pane.chat-width", { browser });
+    reload,
+  );
+  await warmGalleryFrame(server, "agent-pane.chat-width", { browser });
   expect(pages.length).toBe(3);
   expect(pages.every((page) => page.closed)).toBe(true);
   expect(pages.every((page) => page.gotos.length === 1)).toBe(true);
+});
+
+test("a missing module fails on the first load, with no optimizer reload, whatever the server", async () => {
+  const { server, reload } = fakeServer();
+  for (const target of [server, "http://127.0.0.1:1"] as const) {
+    const { browser, pages } = fakeBrowser([{ ready: "error", text: MISSING_MODULE }], { ready: "1" }, reload);
+    await expect(warmGalleryFrame(target, "agent-pane.chat-width", { browser })).rejects.toThrow("Gone.tsx");
+    expect(pages.length).toBe(1);
+    expect(pages[0]!.closed).toBe(true);
+  }
 });
 
 test("a stage that fails to mount for its own reason fails the warm-up at once", async () => {
@@ -80,18 +113,22 @@ test("a refused connection is no reload and fails the warm-up at once", async ()
   expect(pages.length).toBe(1);
 });
 
-test("a stale import that never clears fails at the deadline with its message", async () => {
-  const { browser } = fakeBrowser([], { ready: "error", text: STALE_IMPORT });
+test("Vite's Outdated Optimize Dep loads again, and fails at the deadline with its message if it never clears", async () => {
+  const once = fakeBrowser([{ ready: "error", text: OUTDATED }, { ready: "1" }]);
+  await warmGalleryFrame("http://127.0.0.1:1", "agent-pane.chat-width", { browser: once.browser });
+  expect(once.pages.length).toBe(2);
+  const never = fakeBrowser([], { ready: "error", text: OUTDATED });
   await expect(
-    warmGalleryFrame("http://127.0.0.1:1", "agent-pane.chat-width", { browser, timeoutMs: 50 }),
-  ).rejects.toThrow(/Failed to fetch dynamically imported module.*\n?.*at the 50 ms deadline/s);
+    warmGalleryFrame("http://127.0.0.1:1", "agent-pane.chat-width", { browser: never.browser, timeoutMs: 50 }),
+  ).rejects.toThrow(/Outdated Optimize Dep.*at the 50 ms deadline/s);
 });
 
-test("optimizerRace and stalled name only the optimizer's own failures", () => {
-  expect(optimizerRace(STALE_IMPORT)).toBe(true);
-  expect(optimizerRace("TypeError: error loading dynamically imported module: http://x/a.js")).toBe(true);
-  expect(optimizerRace("TypeError: x is undefined")).toBe(false);
-  expect(optimizerRace(null)).toBe(false);
+test("the matchers name only the optimizer's own evidence and stuck gotos", () => {
+  expect(outdatedOptimizeDep(OUTDATED)).toBe(true);
+  expect(outdatedOptimizeDep(STALE_IMPORT)).toBe(false);
+  expect(outdatedOptimizeDep(null)).toBe(false);
+  expect(dynamicImportFailed(STALE_IMPORT)).toBe(true);
+  expect(dynamicImportFailed("TypeError: x is undefined")).toBe(false);
   expect(stalled(timeout(84_902))).toBe(true);
   expect(stalled(new Error("TimeoutError: goto: Timeout 84902ms exceeded."))).toBe(false); // name is Error
   expect(
