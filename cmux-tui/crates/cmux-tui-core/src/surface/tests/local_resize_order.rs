@@ -15,10 +15,16 @@ fn local_resize_bounds_the_drain_to_a_queued_snapshot() {
     check_local_resize_order(true);
 }
 
+/// A surface id no terminal has: the end of what the reader published.
+const PUBLISHED_MARKER: SurfaceId = 4245;
+
 fn check_local_resize_order(add_later_output: bool) {
     const WAIT: Duration = Duration::from_secs(5);
     let mux = Mux::new_for_test("local-resize-order", SurfaceOptions::default());
     let events = mux.subscribe();
+    // A second subscriber tells when the reader has published every title
+    // (see below); `events` is read only after that.
+    let published = mux.subscribe();
     let (reader, mut child) = UnixStream::pair().unwrap();
     let master = File::from(OwnedFd::from(reader.try_clone().unwrap()));
     let geometry = PtyGeometry { cols: 20, rows: 4, cell_width: 8, cell_height: 16 };
@@ -82,6 +88,24 @@ fn check_local_resize_order(add_later_output: bool) {
     let text = surface.try_with_terminal(|term| term.viewport_text()).unwrap().unwrap();
     *surface.as_pty().unwrap().geometry_test_hook.lock().unwrap() = None;
     release_tx.send(()).unwrap();
+    if add_later_output {
+        // Hold `events` unread until the reader published the later title,
+        // then queue a marker behind it: the bus delivers in order, so every
+        // title the reader published is in `events` before the marker. This
+        // is the order a loaded run reaches by chance (the test thread reads
+        // after the reader's whole publish).
+        let deadline = Instant::now() + WAIT;
+        loop {
+            match published.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
+                Ok(MuxEvent::TitleChanged { title, .. }) if title.as_ref() == "after-resize" => {
+                    break;
+                }
+                Ok(_) => continue,
+                Err(_) => panic!("the reader never published the later output's title"),
+            }
+        }
+        mux.emit(MuxEvent::Bell(PUBLISHED_MARKER));
+    }
     // No new output or EOF: the resize's wake must publish the drained title
     // without trying a blocking read on the readiness it already consumed.
     let deadline = Instant::now() + WAIT;
