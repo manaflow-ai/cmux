@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Measure a SwiftPM build step; these receipts never authorize product reuse."""
+"""Measure a SwiftPM build step; these receipts never authorize product reuse.
+
+A build that fails at link on objects a kept build directory carried from an
+interrupted job is cleared and run again, once (see clear_stale_link).
+"""
 
 from __future__ import annotations
 
@@ -10,6 +14,7 @@ import os
 from pathlib import Path
 import platform
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -24,6 +29,11 @@ BUILD_ENV = (
     "CFLAGS", "CXXFLAGS", "LDFLAGS", "MACOSX_DEPLOYMENT_TARGET", "ARCHS",
 )
 PROGRESS = re.compile(r"^\[\d+/\d+\] (Compiling|Emitting module|Linking)\b")
+UNDEFINED_START = "Undefined symbols for architecture"
+UNDEFINED_END = "ld: symbol(s) not found"
+UNDEFINED_SYMBOL = re.compile(r'^"(.+)", referenced from:$')
+REFERENCING_OBJECT = re.compile(r" in (?:[^\s()]+\()?([^\s()]+\.o)\)?$")
+SYMBOL_MODULE = re.compile(r"(?<![\w.])([A-Za-z_]\w*)\.")
 
 
 def digest(value: object) -> str:
@@ -158,6 +168,93 @@ def observe(function, fallback):
         return fallback
 
 
+def stale_link_modules(build: Path, lines: list[str]) -> list[Path]:
+    """The module build directories (<triple>/<config>/<Module>.build) an undefined-symbol
+    link failure names: those holding an object that references a missing symbol, and those
+    whose module the missing symbol belongs to (the first qualified name in its demangled
+    form: `static CmuxNextAgentPane.AcpmuxStatusClient.call(...)` belongs to CmuxNextAgentPane).
+
+    A kept build directory (owned_spm_scratch.py) can hold objects from a job that was
+    cancelled mid-compile. The Swift driver records a module's dependency graph only when
+    its compile finishes, so the next job that changes a file back recompiles that file
+    but not the files that call it: their objects still reference the cancelled branch's
+    signatures, and the link fails on symbols no source in the checkout declares
+    (cmux#27302, 2026-10-29: `AcpmuxStatusClient.call(..., requiredCapability:)`, left by a
+    cancelled cmux#27017 job on the same runner). Removing those modules' directories makes
+    SwiftPM compile them whole again.
+    """
+    module_directories = sorted(path for path in build.glob("*/*/*.build") if path.is_dir())
+    modules, objects = set(), set()
+    for line in lines:
+        text = line.strip()
+        symbol = UNDEFINED_SYMBOL.match(text)
+        if symbol:
+            owner = SYMBOL_MODULE.search(symbol[1])
+            if owner:
+                modules.add(owner[1])
+            continue
+        referencing = REFERENCING_OBJECT.search(text)
+        if referencing:
+            objects.add(Path(referencing[1]).name)
+    return [
+        directory for directory in module_directories
+        if directory.name[: -len(".build")] in modules or any((directory / name).is_file() for name in objects)
+    ]
+
+
+def clear_stale_link(package: Path, lines: list[str]) -> list[str]:
+    """Remove the module directories stale_link_modules names under PACKAGE's .build (a kept
+    scratch directory is reached through its link); returns them, relative to .build."""
+    build = package / ".build"
+    if not build.is_dir():
+        return []
+    cleared = []
+    for directory in stale_link_modules(build, lines):
+        aside = directory.with_name(f"{directory.name}.stale-{os.getpid()}")
+        try:
+            directory.rename(aside)
+        except OSError as error:
+            print(f"::warning::could not clear {directory}: {error}", file=sys.stderr)
+            continue
+        shutil.rmtree(aside, ignore_errors=True)
+        cleared.append(directory.relative_to(build).as_posix())
+    return cleared
+
+
+def run_command(command: list[str], log, events: dict) -> tuple[int, list[str], object]:
+    """Run COMMAND, streaming its output to stdout and LOG and counting progress into EVENTS.
+    Returns its return code, the lines of any undefined-symbol link error, and the log
+    (None once a write to it failed)."""
+    undefined: list[str] = []
+    in_undefined = False
+    process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    assert process.stdout is not None
+    with process.stdout:
+        for line in process.stdout:
+            sys.stdout.buffer.write(line)
+            sys.stdout.buffer.flush()
+            if log:
+                try:
+                    log.write(line)
+                except OSError:
+                    observe(log.close, None)
+                    log = None
+            text = line.decode("utf-8", errors="replace").strip()
+            match = PROGRESS.match(text)
+            if match:
+                events[{"Compiling": "compiling", "Emitting module": "emitting_module", "Linking": "linking"}[match[1]]] += 1
+            if text.startswith("Build complete!"):
+                events["build_complete_observed"] = True
+            if text.startswith(UNDEFINED_START):
+                in_undefined = True
+            elif in_undefined:
+                if text.startswith(UNDEFINED_END):
+                    in_undefined = False
+                elif len(undefined) < 2000:
+                    undefined.append(text)
+    return process.wait(), undefined, log
+
+
 def run_build(role: str, directory: Path, command: list[str]) -> int:
     setup_start = time.monotonic()
     package = Path.cwd()
@@ -193,26 +290,24 @@ def run_build(role: str, directory: Path, command: list[str]) -> int:
     events = {"parser": "swiftpm-progress/v1", "compiling": 0, "emitting_module": 0, "linking": 0, "build_complete_observed": False}
     record["measurement_setup_seconds"] = round(time.monotonic() - setup_start, 6)
     start = time.monotonic()
+    retry = {"detected": False, "cleared": [], "first_exit_code": None}
+    attempts = 0
     try:
-        process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-        assert process.stdout is not None
-        with process.stdout:
-            for line in process.stdout:
-                sys.stdout.buffer.write(line)
-                sys.stdout.buffer.flush()
-                if log:
-                    try:
-                        log.write(line)
-                    except OSError:
-                        observe(log.close, None)
-                        log = None
-                text = line.decode("utf-8", errors="replace").strip()
-                match = PROGRESS.match(text)
-                if match:
-                    events[{"Compiling": "compiling", "Emitting module": "emitting_module", "Linking": "linking"}[match[1]]] += 1
-                if text.startswith("Build complete!"):
-                    events["build_complete_observed"] = True
-        return_code = process.wait()
+        while True:
+            attempts += 1
+            return_code, undefined, log = run_command(command, log, events)
+            if return_code == 0 or not undefined or attempts > 1:
+                break
+            retry["detected"] = True
+            retry["first_exit_code"] = return_code
+            retry["cleared"] = observe(lambda: clear_stale_link(package, undefined), [])
+            if not retry["cleared"]:
+                print("::warning title=SwiftPM link::undefined symbols in no module of this build; not retried",
+                      file=sys.stderr)
+                break
+            print(f"::warning title=Stale SwiftPM objects::the link failed on undefined symbols; cleared "
+                  f"{', '.join(retry['cleared'])} and building again once", file=sys.stderr)
+            sys.stdout.flush()
     except OSError as error:
         print(f"{command[0]}: {error}", file=sys.stderr)
         return_code = 127 if isinstance(error, FileNotFoundError) else 126
@@ -225,6 +320,7 @@ def run_build(role: str, directory: Path, command: list[str]) -> int:
     record.update({
         "status": "completed", "exit_code": exit_code, "process_return_code": return_code,
         "build_step_seconds": round(elapsed, 6), "compile_work": events,
+        "attempts": attempts, "stale_link_retry": retry,
         "scratch_after": observe(lambda: scratch_state(package), {}),
         "dependencies_after": observe(lambda: dependency_state(package), {}),
     })
