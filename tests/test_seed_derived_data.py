@@ -979,21 +979,21 @@ class Wiring(unittest.TestCase):
         self.assertEqual(seed_spm["with"]["key"], admission_spm["with"]["key"])
 
     def test_every_pool_admission_compiles_on_gets_a_seed_of_its_width(self):
-        """Pull-request admission runs on the 6 or 12 vCPU macOS 26 pool, and a
-        seed only serves the width it was built at, so both pools seed."""
+        """Pull-request admission runs on its own pool (6 vCPU macOS 26 today), and a
+        seed only serves the width it was built at, so that pool seeds. The 12 vCPU
+        sibling no longer does: it started no job from 2026-10-28 20:32Z."""
         job = load("seed-derived-data.yml")["jobs"]["seed"]
         self.assertEqual(job["runs-on"], "${{ matrix.pool }}")
         self.assertIs(job["strategy"]["fail-fast"], False)
         context = github_context("push", MACOS_RUNNER_PR="blacksmith-6vcpu-macos-26")
         pools = {evaluate(pool, context) for pool in seed_pools()}
         # macOS 15 too: pull requests overflow there, on its own Xcode.
-        self.assertEqual(pools, {"blacksmith-6vcpu-macos-26", "blacksmith-12vcpu-macos-26",
-                                 "blacksmith-6vcpu-macos-15"})
+        self.assertEqual(pools, {"blacksmith-6vcpu-macos-26", "blacksmith-6vcpu-macos-15"})
         admission = load("ci-macos.yml")["jobs"]["macos-compile-admission"]["runs-on"]
         self.assertIn(evaluate(admission, github_context("pull_request", ref="refs/pull/1/merge",
                                                          MACOS_RUNNER_PR="blacksmith-6vcpu-macos-26")), pools)
         # Each pool queues on its own, so a slow 6 vCPU seed never holds the
-        # 12 vCPU one back, and neither cancels a running seed.
+        # macOS 15 one back, and neither cancels a running seed.
         self.assertIn("matrix.pool", job["concurrency"]["group"])
         self.assertIs(job["concurrency"]["cancel-in-progress"], False)
 
@@ -1012,20 +1012,18 @@ class Wiring(unittest.TestCase):
         self.assertIn("seed_derived_data.py scope", scope["run"])
         self.assertTrue(nightly_save["with"]["key"].startswith("${{ steps.derived-data-seed-key.outputs.scoped }}"))
 
-    def test_the_seed_pool_differs_from_admission_only_in_runner_size(self):
-        # Seeds used to queue behind pull requests on admission's own pool.
-        # They may move to a larger runner of the same image, since neither
-        # the seed key nor the product key names the size, but never to
-        # another image or Xcode.
-        # The 12 vCPU pool comes first: it starts in seconds, and the first
-        # entry alone publishes the app-host product.
+    def test_the_publishing_seed_pool_is_admission_s_own_pool(self):
+        # The first entry alone publishes the app-host product. It used to be
+        # the 12 vCPU sibling of a 6 vCPU pull-request pool, which started no
+        # job from 2026-10-28 20:32Z, so main published no product. It is now
+        # admission's pull-request pool as is (the same expression as the
+        # second entry; seed_decide.py drops the duplicate), never another
+        # image, Xcode or size.
         runs_on, own, _ = seed_pools()
         admission = load("ci-macos.yml")["jobs"]["macos-compile-admission"]["runs-on"]
-        larger = "vars.MACOS_RUNNER_PR == 'blacksmith-6vcpu-macos-26' && 'blacksmith-12vcpu-macos-26'"
-        self.assertIn(larger, runs_on)
-        # Any other pool value is admission's pull-request pool, unchanged.
+        self.assertNotIn("12vcpu", runs_on)
         fallback = "vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15'"
-        self.assertTrue(runs_on.rstrip("} ").endswith(f"{larger} || {fallback}"), runs_on)
+        self.assertEqual(runs_on, own)
         self.assertTrue(own.rstrip("} ").endswith(f"'macos-26' || {fallback}"), own)
         self.assertIn(fallback, admission)
 
@@ -1197,6 +1195,26 @@ class Wiring(unittest.TestCase):
         self.assertEqual(pr_runner_pool.POOLS[pool], "CMUX_CI_XCODE_APP_MACOS_15")
         # Only the first entry publishes the product, never this one.
         self.assertNotEqual(seed_pools()[0], overflow)
+
+    def test_the_product_publisher_seeds_on_a_label_with_capacity(self):
+        """The first pool publishes the app-host product that pull-request admission and E2E dispatches
+        adopt (reuse_app_host_products.py; its contract names no runner size). It sat on
+        blacksmith-12vcpu-macos-26, which started no job from 2026-10-28 20:32Z: every seed there was
+        cancelled or still queued, so main published no product. The publisher is admission's own pool,
+        and seed_decide.py runs it once where SEED_POOL_2 names the same pool
+        (tests/test_seed_decide.py test_order_is_kept_and_duplicates_dropped)."""
+        for runner_pr in ("blacksmith-6vcpu-macos-26", "blacksmith-6vcpu-macos-15", "glaeda-std-xcode-26.6", ""):
+            with self.subTest(MACOS_RUNNER_PR=runner_pr):
+                context = github_context("push", MACOS_RUNNER_PR=runner_pr)
+                if not runner_pr:
+                    context["vars"].pop("MACOS_RUNNER_PR")
+                pools = [evaluate(pool, context) for pool in seed_pools()]
+                self.assertNotIn("blacksmith-12vcpu-macos-26", pools)
+                admission = load("ci-macos.yml")["jobs"]["macos-compile-admission"]["runs-on"]
+                pull = github_context("pull_request", ref="refs/pull/1/merge", MACOS_RUNNER_PR=runner_pr)
+                if not runner_pr:
+                    pull["vars"].pop("MACOS_RUNNER_PR")
+                self.assertEqual(pools[0], evaluate(admission, pull))
 
     def test_main_push_publishes_the_product_admission_would_compile(self):
         """Pull requests adopt this product in place of compiling, so it has to

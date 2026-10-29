@@ -300,9 +300,9 @@ jobs:
       label: ${{ steps.pool.outputs.label }}
       # The owned label for tip-dmg-build too (two machines free), or empty.
       dmg_label: ${{ steps.pool.outputs.dmg_label }}
-      # The Blacksmith macOS 26 label whose queue moves (6 vCPU first, then 12; never empty when
-      # read), for the Mac jobs that do not take an owned Mac, and the other one for a re-run, so a
-      # re-run never queues again on the label that stalled (classic_nightly_build_runner.py).
+      # blacksmith-6vcpu-macos-26 (ONLY 6vcpu; never empty when read), for the Mac jobs that do not
+      # take an owned Mac, and the same label for a re-run: the 12 vCPU label started no job from
+      # 2026-10-28 20:32Z (classic_nightly_build_runner.py).
       cloud: ${{ steps.cloud.outputs.cloud }}
       alternate: ${{ steps.cloud.outputs.alternate }}
       attempt: ${{ steps.cloud.outputs.attempt }}
@@ -359,6 +359,9 @@ jobs:
         env:
           SNAPSHOT_TOKEN: ${{ github.token }}
           FIRST: 6vcpu
+          # 6 vCPU for the pick and the re-run alternate: the 12 vCPU macOS 26 label started no job
+          # from 2026-10-28 20:32Z (run 40834485210 waited on it from 07:47Z).
+          ONLY: 6vcpu
           ENABLED: '0'
         run: python3 scripts/ci/classic_nightly_build_runner.py
 
