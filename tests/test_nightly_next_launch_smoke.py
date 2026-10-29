@@ -417,7 +417,7 @@ class PrePublishGateTests(unittest.TestCase):
 class GateScriptTests(unittest.TestCase):
     """launch-smoke-gate.sh against a stub harness: only a crash with launch evidence fails."""
 
-    def run_gate(self, plan: list[str], attempt_seconds: str = "60") -> tuple[int, str]:
+    def run_gate(self, plan: list[str], attempt_seconds: str = "60") -> tuple[int, str, Path]:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             ci = root / "scripts" / "ci"
@@ -431,11 +431,18 @@ class GateScriptTests(unittest.TestCase):
             (ci / "frame-pacing" / "console-session.sh").chmod(0o755)
             # The stub harness: attempt N follows PLAN[N-1] (pass, crash, cannot-run or hang).
             (ci / "fresh_home_launch_smoke.py").write_text(
-                "import json, os, sys, time\n"
+                "import json, os, signal, sys, time\n"
                 "out = sys.argv[sys.argv.index('--out') + 1]\n"
                 "n = int(out.rsplit('-', 1)[1])\n"
                 "kind = os.environ['STUB_PLAN'].split(',')[n - 1]\n"
-                "if kind == 'hang':\n    time.sleep(30)\n"
+                "if kind == 'hang':\n"
+                # A harness stopped by SIGTERM cleans up, and even an exit 1 with a fail report is no crash.
+                "    def stop(*_):\n"
+                "        open(os.path.join(out, 'cleaned'), 'w').close()\n"
+                "        open(os.path.join(out, 'report.json'), 'w').write(json.dumps({'verdict': 'fail', 'pid': 1}))\n"
+                "        sys.exit(1)\n"
+                "    signal.signal(signal.SIGTERM, stop)\n    time.sleep(30)\n"
+                "if kind == 'stubborn':\n    signal.signal(signal.SIGTERM, signal.SIG_IGN)\n    time.sleep(30)\n"
                 "report = {'pass': {'verdict': 'pass', 'pid': 1}, 'crash': {'verdict': 'fail', 'pid': 1,"
                 " 'failures': ['the app exited (signal 11)']}, 'cannot-run': {'verdict': 'cannot-run'}}[kind]\n"
                 "open(os.path.join(out, 'report.json'), 'w').write(json.dumps(report))\n"
@@ -445,32 +452,39 @@ class GateScriptTests(unittest.TestCase):
             dmg.write_bytes(b"dmg")
             (root / "runner").mkdir()
             env = {"PATH": os.environ["PATH"], "RUNNER_TEMP": str(root / "runner"), "STUB_PLAN": ",".join(plan),
-                   "LAUNCH_SMOKE_ATTEMPT_SECONDS": attempt_seconds,
+                   "LAUNCH_SMOKE_ATTEMPT_SECONDS": attempt_seconds, "LAUNCH_SMOKE_KILL_GRACE": "1",
                    "GITHUB_STEP_SUMMARY": str(root / "summary.md")}
             result = subprocess.run(["bash", str(ci / "nightly-steps" / GATE.name), str(dmg)], env=env,
                                     capture_output=True, text=True, timeout=60)
-            return result.returncode, result.stdout + result.stderr
+            cleaned = (root / "runner" / "launch-smoke" / "attempt-1" / "cleaned").exists()
+            return result.returncode, result.stdout + result.stderr, cleaned
 
     def test_a_pass_passes(self) -> None:
         self.assertEqual(self.run_gate(["pass"])[0], 0)
         self.assertEqual(self.run_gate(["crash", "pass"])[0], 0)
 
     def test_a_crash_on_both_attempts_holds_the_build(self) -> None:
-        status, output = self.run_gate(["crash", "crash"])
+        status, output, _ = self.run_gate(["crash", "crash"])
         self.assertEqual(status, 1, output)
         self.assertIn("not published", output)
 
     def test_what_could_not_run_never_holds_the_build(self) -> None:
-        status, output = self.run_gate(["cannot-run"])
+        status, output, _ = self.run_gate(["cannot-run"])
         self.assertEqual(status, 0, output)
         self.assertIn("::warning", output)
         self.assertEqual(self.run_gate(["crash", "cannot-run"])[0], 0)
 
-    def test_a_hung_attempt_is_cut_off_and_never_holds_the_build(self) -> None:
-        status, output = self.run_gate(["hang"], attempt_seconds="2")
+    def test_a_hung_attempt_is_stopped_with_sigterm_so_the_harness_cleans_up(self) -> None:
+        status, output, cleaned = self.run_gate(["hang"], attempt_seconds="2")
         self.assertEqual(status, 0, output)
+        self.assertTrue(cleaned, "the harness got SIGTERM and ran its cleanup")
+        self.assertIn("still running after 2s", output)
         self.assertIn("::warning", output)
 
+    def test_a_harness_that_ignores_sigterm_is_killed_and_never_holds_the_build(self) -> None:
+        status, output, _ = self.run_gate(["stubborn"], attempt_seconds="1")
+        self.assertEqual(status, 0, output)
+        self.assertIn("::warning", output)
 
 if __name__ == "__main__":
     unittest.main()

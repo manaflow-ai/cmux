@@ -27,7 +27,8 @@ set -uo pipefail
 dmg="${1:?usage: launch-smoke-gate.sh DMG}"
 ci="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 dir="${RUNNER_TEMP:?}/launch-smoke"
-ATTEMPT_SECONDS="${LAUNCH_SMOKE_ATTEMPT_SECONDS:-300}"
+ATTEMPT_SECONDS="${LAUNCH_SMOKE_ATTEMPT_SECONDS:-240}"
+KILL_GRACE="${LAUNCH_SMOKE_KILL_GRACE:-60}"
 mkdir -p "$dir"
 
 cannot_run() {
@@ -52,11 +53,24 @@ for attempt in 1 2; do
   out="$dir/attempt-$attempt"
   mkdir -p "$out" && chmod 0777 "$out"
   status=0
-  # perl's alarm bounds an attempt (exit 142, cannot-run), so a hung harness never holds the job
-  # until its timeout, which would fail it like a crash.
-  perl -e 'alarm shift; exec @ARGV or die "exec: $!"' "$ATTEMPT_SECONDS" \
-    "$ci/frame-pacing/console-session.sh" python3 -I "$ci/fresh_home_launch_smoke.py" \
-    --dmg "$dmg" --out "$out" || status=$?
+  "$ci/frame-pacing/console-session.sh" python3 -I "$ci/fresh_home_launch_smoke.py" \
+    --dmg "$dmg" --out "$out" &
+  pid=$!
+  # The watchdog bounds an attempt, so a hung harness never holds the job until its step timeout
+  # (which would fail it like a crash). It sends SIGTERM, which the harness handles by stopping the
+  # app and putting the defaults back (console-session.sh's sudo relays it), then SIGKILL after
+  # KILL_GRACE. A cut-off attempt is cannot-run whatever it exits with.
+  rm -f "$dir/timed-out-$attempt"
+  perl -e '($s, $g, $p, $m) = @ARGV; sleep $s; open(my $f, ">", $m); close $f; kill "TERM", $p;
+    sleep $g; kill "KILL", $p' "$ATTEMPT_SECONDS" "$KILL_GRACE" "$pid" "$dir/timed-out-$attempt" &
+  watchdog=$!
+  wait "$pid" || status=$?
+  kill "$watchdog" 2>/dev/null
+  wait "$watchdog" 2>/dev/null
+  if [ -e "$dir/timed-out-$attempt" ]; then
+    echo "launch smoke attempt $attempt: still running after ${ATTEMPT_SECONDS}s, stopped"
+    status=124
+  fi
   echo "$status" > "$dir/status-$attempt"
   echo "launch smoke attempt $attempt: exit $status"
   [ "$status" = 1 ] || break
