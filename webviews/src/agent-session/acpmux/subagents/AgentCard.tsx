@@ -36,8 +36,8 @@ export type AgentCardProps = {
   /// Draw this card as a one-line transcript disclosure with its children in a panel.
   disclosure?: boolean;
   disclosureKey?: string;
-  /// Optional localized prefix for the disclosure line (for example, "Started").
-  disclosurePrefix?: ReactNode;
+  /// The complete localized disclosure label, with its name in the locale's word order.
+  disclosureLabel?: ReactNode;
   children?: ReactNode;
 };
 
@@ -56,7 +56,7 @@ export function AgentCard({
   openLabel,
   disclosure = false,
   disclosureKey,
-  disclosurePrefix,
+  disclosureLabel,
   children,
 }: AgentCardProps) {
   const t = useT();
@@ -82,12 +82,7 @@ export function AgentCard({
             <Icon name="agent.session" size={16} />
           )
         }
-        label={
-          <>
-            {disclosurePrefix && <span className="cv-disclosure__prefix">{disclosurePrefix}</span>}
-            {name}
-          </>
-        }
+        label={disclosureLabel ?? name}
         meta={model}
         status={
           stateText && (

@@ -167,7 +167,7 @@ function SessionCard({
   shown,
   disclosure = false,
   disclosureKey,
-  disclosurePrefix,
+  started = false,
   children,
 }: {
   /// The prompt the card shows under its header (a start's preview): a `doing` line that only
@@ -181,7 +181,7 @@ function SessionCard({
   fallback?: Pick<SubsessionReply, "state" | "waiting" | "slot">;
   disclosure?: boolean;
   disclosureKey?: string;
-  disclosurePrefix?: ReactNode;
+  started?: boolean;
   children?: ReactNode;
 }) {
   const t = useT();
@@ -209,7 +209,7 @@ function SessionCard({
       queued={live?.queued}
       disclosure={disclosure}
       disclosureKey={disclosureKey}
-      disclosurePrefix={disclosurePrefix}
+      disclosureLabel={started ? t("subsession.started", { name: live?.name ?? name }) : undefined}
       onOpen={sessionId && open ? () => open(sessionId) : undefined}
     >
       {children}
@@ -230,7 +230,7 @@ function StartedCard({ call, tool }: { call: Extract<SubsessionCall, { tool: "st
       shown={call.prompt}
       disclosure={true}
       disclosureKey={`subsession-start:${tool.id}`}
-      disclosurePrefix={call.name ? t("subsession.started", { name: "" }).trim() : undefined}
+      started
     >
       {call.prompt && (
         <div className="cv-subsession__markdown selectable">

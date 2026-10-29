@@ -5,6 +5,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { JSDOM } from "jsdom";
+import { setPaneLanguage } from "../src/agent-session/acpmux/i18n";
 import { SubsessionCallCard } from "../src/agent-session/acpmux/conversation/SubsessionCallCard";
 import { SubsessionContext, SubsessionStore } from "../src/agent-session/acpmux/subagents/subsessions";
 import {
@@ -56,6 +57,7 @@ afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
   resetTranscriptDisclosure();
+  setPaneLanguage("en");
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) scope[key] = value;
@@ -184,4 +186,21 @@ test("single and grouped disclosures keep independent choices across virtualized
   await act(async () => root!.render(null));
   await render("different-parent");
   expect(toggles().map((button) => button.getAttribute("aria-expanded"))).toEqual(["false", "false", "false"]);
+});
+
+test("started labels preserve the localized space and name position", async () => {
+  const container = installDom();
+  root = createRoot(container);
+  for (const [language, expected] of [
+    ["en", "Started sub-session tests"],
+    ["de", "Untersitzung tests gestartet"],
+    ["ja", "サブセッション tests を開始"],
+    ["tr", "tests alt oturumu başlatıldı"],
+  ]) {
+    await act(async () => {
+      setPaneLanguage(language!);
+      root!.render(<SubsessionCallCard call={start("tests")} tool={tool("tests")} />);
+    });
+    expect(container.querySelector(".cv-disclosure__label")?.textContent).toBe(expected!);
+  }
 });
