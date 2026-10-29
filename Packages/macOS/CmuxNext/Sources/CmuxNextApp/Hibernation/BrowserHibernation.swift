@@ -180,8 +180,8 @@ final class BrowserHibernation {
     /// Pages spend less, as of the policy's last change: Energy Saver, or Low Power Mode while the
     /// `energySaver` feature is off (``EnergyPolicy/pageSaver``).
     private(set) var energySaver: Bool
-    /// The app's windows going off screen and back (`occludedWindowDiscard`); nil when off.
-    private var windowOcclusion: WindowOcclusionChecker?
+    /// The app's one occlusion checker while the hibernation hears it (`occludedWindowDiscard`); nil when off.
+    private weak var windowOcclusion: WindowOcclusionChecker?
     /// The page's freeze control (a seam for tests; Chromium pages only in the app).
     var freezer: (any BrowserTab) -> (any BrowserFreezing)? = { $0 as? any BrowserFreezing }
     /// Chromium tabs take their visibility from their tab's node, before the freeze (feature `chromiumTabVisibility`).
@@ -271,8 +271,7 @@ final class BrowserHibernation {
     }
 
     func stop() {
-        windowOcclusion?.stop()
-        windowOcclusion = nil
+        windowOcclusion = nil // the app's checker runs on for the windows' families; the hibernation hears it no more
         settingsObservation?.cancel()
         memoryRegistration?.cancel()
         memoryRegistration = nil
@@ -287,17 +286,23 @@ final class BrowserHibernation {
         freezeRules.stop()
     }
 
-    /// Follows `checker`'s off-screen windows from now until `stop()`.
+    /// Follows the app's one occlusion checker (`AppServices.startHibernationMeasurements`), which reports its
+    /// windows here (``windowDidChangeOnScreen(_:offScreen:)``) until `stop()`; the app owns and keeps the checker.
     func follow(_ checker: WindowOcclusionChecker) {
-        windowOcclusion?.stop()
         windowOcclusion = checker
-        checker.onChange = { [weak self] window, offScreen in self?.cache?.windowDidChangeOnScreen(window, offScreen: offScreen) }
-        checker.onClose = { [weak self] window in self?.cache?.offScreenWindowDidClose(window) }
-        checker.start()
     }
 
-    /// The app ordered a window in (`WindowActivation`): the checker looks again.
-    func windowsDidReorder() { windowOcclusion?.windowsDidReorder() }
+    /// The checker judged `window` off screen or back (its first pass reports the windows already off screen).
+    func windowDidChangeOnScreen(_ window: ObjectIdentifier, offScreen: Bool) {
+        guard windowOcclusion != nil else { return }
+        cache?.windowDidChangeOnScreen(window, offScreen: offScreen)
+    }
+
+    /// A window the checker reported off screen closed.
+    func offScreenWindowDidClose(_ window: ObjectIdentifier) {
+        guard windowOcclusion != nil else { return }
+        cache?.offScreenWindowDidClose(window)
+    }
 
     /// Applies every loaded cmux.json snapshot's `browser.hibernation`, now and on each change: a
     /// ``ServiceObservation`` in the background class (its apply replans pages while no window shows).

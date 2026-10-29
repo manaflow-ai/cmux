@@ -57,9 +57,10 @@ public struct TerminalSurfaceDiagnostics: Sendable, Equatable {
     /// builds and before the first unpause.
     public var showTiming: TerminalShowTiming?
 
-    /// True when the surface can show terminal content right now.
+    /// True when the surface can show terminal content right now: it draws, or a held frame covers it while it
+    /// waits for its content (``SurfacePause/awaitingContent``: the pane shows the terminal's last frame).
     public var isPresentable: Bool {
-        guard hasSurface, surfaceInHost, inWindow, !hidden, drawing == true else { return false }
+        guard hasSurface, surfaceInHost, inWindow, !hidden, drawing == true || pause == .awaitingContent else { return false }
         guard let grid, grid.columns > 0, grid.rows > 0 else { return false }
         return viewSize.width >= 1 && viewSize.height >= 1
     }
@@ -82,6 +83,9 @@ extension TerminalSession {
         let grid = unsafe ghostty_surface_grid(surface)
         return (drawn, grid.locked ? TerminalGridSize(columns: Int(grid.columns), rows: Int(grid.rows)) : nil)
     }
+
+    /// The frame hold's invariant (D2, ``TerminalFrameHold/invariantViolation``); nil when it holds.
+    package var frameHoldViolation: String? { frameHold.invariantViolation }
 
     public var diagnostics: TerminalSurfaceDiagnostics {
         let surface = surfaceView

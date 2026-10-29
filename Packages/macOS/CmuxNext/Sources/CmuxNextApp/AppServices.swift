@@ -627,8 +627,9 @@ final class AppServices {
     private(set) lazy var machineBrowserHosts = MachineBrowserHosts(machines: machines, mainWork: mainWork) { [weak self] in self?.remoteLocalhost }
     var chromiumLikelyObservations: [Task<Void, Never>] = []
     var lifetimeFollowers: [AnyObject] = []  // the launch's app-lifetime followers (scheduled observations, subscriptions)
-    /// Feeds every window's occlusion family with `windowOcclusionFamily` (`startHibernationMeasurements`); the window
-    /// manager reports each order to it (`WindowManager.windowDidOrder`), since an order without a key change posts nothing.
+    /// The app's one occluded-window checker (`startHibernationMeasurements`): it feeds every window's occlusion family
+    /// with `windowOcclusionFamily` and the hibernation with `occludedWindowDiscard`; the window manager reports each
+    /// order to it (`WindowManager.windowDidOrder`), since an order without a key change posts nothing.
     var windowOcclusionFamilies: WindowOcclusionChecker?
     /// Follows the default engine for the pages spare window (`startChromiumWarmup`, feature `pagesSpareWindow`).
     var pagesSpareWatch: ServiceObservation<Bool>?

@@ -7,50 +7,59 @@ import IOSurface
 /// cx-6so.23: a replay swaps in a fresh surface (Ghostty has no reset), and the fresh surface has
 /// no frame until its renderer draws one, so a terminal shown again (a tab closed over it, a cold
 /// workspace switched back to) showed an empty pane for 2-3 frames. The old surface's last frame
-/// stays painted over the fresh one until the fresh one presents a frame drawn after the replay
-/// was parsed: the snapshot first, then live. An evicted terminal shown again (a new session) shows
-/// its last frame (``TerminalLastFrame``) the same way from its first layout, until its first
-/// content is parsed and drawn, however long its attach takes: a relaunch whose daemon restores
-/// hundreds of terminals can answer an attach seconds late, and an empty surface with a cursor box
-/// is never better than the last content (Chrome keeps a tab's last frame up until the new content
-/// paints). A link that fails says so in the status banner over that frame. The quit saves what the pane
-/// shows, so a pane still held saves its held frame, not the empty surface under it (``heldFrame``).
+/// stays painted over the fresh one until the fresh one presents the replay. An evicted terminal shown
+/// again (a new session), a restored terminal at launch (its frame from the last quit) and a session that
+/// replaces another on its tab (the frame it carried) show their frame the same way, until the first content
+/// the owner sends is presented, however long the attach takes: a relaunch whose daemon restores hundreds of
+/// terminals can answer seconds late, and an empty surface with a cursor box is never better than the last
+/// content (Chrome keeps a tab's last frame up until the new content paints). A link that fails and retries says
+/// so in the status banner over that frame. The quit saves what the pane shows, so a pane still held saves its
+/// held frame, not the empty surface under it (``heldFrame``).
+///
+/// One rule ends every hold, a content sequence (principled-audit restoreFrameHold R3/R5): a hold's target is
+/// the first content queued on the surface's lane from its start (the replay of a swap, an attach's first
+/// content). Until that content is parsed the surface does not draw (``TerminalSurfaceView/awaitsContent``,
+/// ``SurfacePause/awaitingContent``), so every frame it presents after the parse shows it. The parse's mark on the
+/// lane raises ``parsedSeq`` to the target; the first frame presented after that (a presented frame other than the
+/// one on screen at the parse) raises ``presentedSeq`` to it. The held frame is on screen iff
+/// `presentedSeq < targetSeq`; no timer ends a hold. The session owns it: its close, an exit and a link that will
+/// not come back by itself end it (``end()``).
 ///
 /// Every frame it compares is the one the renderer reports presented (``TerminalFrameSource``): the
-/// fresh surface's layer is only the container of the renderer's leaf, so its contents say nothing.
+/// fresh surface's layer is only the container of the renderer's leaf, so its contents say nothing. A swapped-in
+/// surface never drew before its replay (``prepare(_:)``); a session's first surface paused at the hold's start, and
+/// Ghostty's hide waits for the frames in flight then (`setVisible(false)`), so no frame drawn before the parse
+/// presents after it. With renderer-owned frames (`GHOSTTY_RENDERER_FRAMES`) the presented callback's frame id can
+/// replace the identity compare.
 @MainActor
 final class TerminalFrameHold {
-    /// The longest the old frame stays once the content it waits for is queued: a surface that
-    /// never draws shows as it is after this.
-    static let limit: Duration = .milliseconds(500)
-
     private let view = HeldFrameView()
     /// The frame the view shows while a hold is on screen.
     private var held: HeldFrame?
     private weak var surface: TerminalSurfaceView?
-    /// Once the replay is parsed: the fresh surface's frame then, and the ticks seen since. A frame
-    /// captured before the parse can still present on the next tick, so only a change seen two
-    /// ticks on counts.
-    private var parsed: (frame: AnyObject?, ticks: Int)?
-    /// A last-frame hold whose surface has no content queued yet: it waits for ``contentQueued()``.
+    /// The content sequence (one count per hold, never reset): a hold waits for content number ``targetSeq``.
+    private(set) var targetSeq: UInt64 = 0
+    /// The newest target whose content the lane parsed into the held surface.
+    private(set) var parsedSeq: UInt64 = 0
+    /// The newest target whose content the held surface presented.
+    private(set) var presentedSeq: UInt64 = 0
+    /// The hold waits for its content to be queued on the lane (``contentQueued()``).
     private var awaitingContent = false
-    private var generation = 0
-    /// The hold's limit once content is queued (``limit``): a pane shows the held frame until then, so a `visible` task.
-    private let deadline: MainDeadline
-    /// Where the parsed replay's refresh is posted.
+    /// The frame on screen when the target's content was parsed: a different one is drawn after it.
+    private var frameAtParse: AnyObject?
+    /// Where the parsed content's refresh is posted.
     private let mainWork: MainWorkScheduler
     private let parsedOwner: MainTaskOwner
     // Motion rate: the swap must not show a blank frame.
-    // frame-client: removes the held view the frame the fresh surface presents (AppKit, on main)
+    // frame-client: removes the held view the frame the fresh surface presents its content (AppKit, on main)
     private lazy var frames = FrameClient(owner: "TerminalFrameHold", isAnimation: false, rate: .motion, scheduler: { [weak self] in
         self?.surface.map(FrameScheduler.forView) ?? .app
     }) { [weak self] _ in self?.tick() ?? false }
 
-    /// - Parameter deadlines: The app's one `MainDeadline` placer; its scheduler runs the parsed replay's refresh.
-    init(deadlines: MainDeadlineScheduler) {
-        mainWork = deadlines.work
-        parsedOwner = deadlines.work.board.owner("TerminalFrameHold.parsed")
-        deadline = MainDeadline(owner: "TerminalFrameHold.limit", workClass: .visible, scheduler: deadlines)
+    /// - Parameter mainWork: The app's main-thread scheduler; the parsed content's refresh runs there.
+    init(mainWork: MainWorkScheduler) {
+        self.mainWork = mainWork
+        parsedOwner = mainWork.board.owner("TerminalFrameHold.parsed")
     }
 
     /// Whether a held frame is on screen.
@@ -74,93 +83,131 @@ final class TerminalFrameHold {
         }
     }
 
-    /// Paints `old`'s last frame (or the frame this hold already shows) over `fresh` in `host`
-    /// until `fresh` presents a frame drawn after the output queued on its lane so far.
+    /// A fresh surface about to take an old one's place (``begin(old:fresh:in:)`` next, in the same turn): it draws
+    /// nothing from its first turn in the window, so no frame of it before its content can land after the hold starts.
+    func prepare(_ fresh: TerminalSurfaceView) {
+        fresh.awaitsContent = true
+    }
+
+    /// Paints `old`'s last frame (or the frame this hold already shows) over `fresh` in `host` until `fresh`
+    /// presents the content its session queues next on its lane (the replay, ``contentQueued()``).
     func begin(old: TerminalSurfaceView, fresh: TerminalSurfaceView, in host: NSView) {
         // A swap during a hold keeps the held frame: the surface it replaces may only show a blank one.
         let held = heldFrame ?? old.presentedFrame.map(HeldFrame.surface)
         end()
-        // Only a swap on screen: a reveal unsuspends before its geometry claim brings the replay.
-        guard WindowDrawPolicy.inputs(for: fresh, suspended: fresh.isRenderingSuspended).draws,
-              let held, fresh.lane != nil else { return }
+        // Only a swap someone may see holds a frame: a hidden terminal keeps no old frame alive until it shows.
+        var inputs = fresh.drawInputs
+        inputs.awaitingContent = false
+        guard inputs.draws, let held, fresh.lane != nil else {
+            fresh.awaitsContent = false // no hold: it draws as any surface does (``prepare(_:)``)
+            return
+        }
         show(held, over: fresh, like: old.layer, in: host)
-        waitForDraw()
     }
 
     /// Paints `frame` (an evicted terminal's last frame, an IOSurface; or its frame from the last
     /// quit, a CGImage) over `fresh`, a new session's first surface, until the first content
-    /// queued on its lane (``contentQueued()``) is parsed and drawn. No timer ends it before that:
-    /// the empty surface under it is never what the pane should show.
+    /// queued on its lane (``contentQueued()``) is parsed and presented.
     func begin(lastFrame frame: HeldFrame, over fresh: TerminalSurfaceView, in host: NSView) {
         end()
         show(frame, over: fresh, like: fresh.layer, in: host)
-        awaitingContent = true
     }
 
-    /// The session queued its first content on the surface's lane: a last-frame hold now waits
-    /// for it to be drawn.
+    /// The session queued content on the surface's lane: a hold waiting for its first content now waits for
+    /// that content to be parsed (the lane's mark after it), then presented.
     func contentQueued() {
         guard awaitingContent else { return }
+        // A surface with no lane parses nothing: no content will reach it.
+        guard let lane = surface?.lane else { return end() }
         awaitingContent = false
-        waitForDraw()
+        let target = targetSeq
+        // Runs after the caller queued the content on the lane: once that is parsed, one `visible` task
+        // (the pane shows the held frame meanwhile) lets the surface draw it.
+        lane.whenDrained { [weak self, mainWork, parsedOwner] in
+            mainWork.postFromAnyThread(.visible, owner: parsedOwner) { self?.parsed(target) }
+        }
     }
 
     private func show(_ held: HeldFrame, over fresh: TerminalSurfaceView, like source: CALayer?, in host: NSView) {
-        generation &+= 1
+        targetSeq &+= 1
+        awaitingContent = true
         surface = fresh
         self.held = held
         view.show(held.contents, like: source, frame: fresh.frame)
         // Above the surface, so above the leaf its renderer presents into (a sublayer of the
         // surface's layer); under the banner, scroller and find bar over it.
         host.addSubview(view, positioned: .above, relativeTo: fresh)
+        fresh.awaitsContent = true // it draws nothing until its target's content is parsed
+        checkInvariant()
     }
 
-    private func waitForDraw() {
-        guard let lane = surface?.lane else { return end() }
-        let generation = generation
-        frames.activate()
-        deadline.schedule(after: Self.limit) { [weak self] in
-            guard let self, self.generation == generation else { return }
-            self.end()
-        }
-        // Runs after the caller queued the content on the lane: once that is parsed, one `visible` task
-        // (the pane shows the held frame meanwhile) asks for a frame of the parsed state.
-        lane.whenDrained { [weak self, mainWork, parsedOwner] in
-            mainWork.postFromAnyThread(.visible, owner: parsedOwner) { self?.replayParsed(generation: generation) }
-        }
-    }
-
-    private func replayParsed(generation: Int) {
-        guard self.generation == generation, let surface else { return }
-        parsed = (surface.presentedFrame, 0)
-        // A frame from the parsed state, even if the renderer has nothing else to draw.
+    /// The lane parsed content number `target` into the held surface: it may draw now, and its next presented frame
+    /// shows that content.
+    private func parsed(_ target: UInt64) {
+        guard target == targetSeq, let surface, presentedSeq < target else { return }
+        parsedSeq = target
+        frameAtParse = surface.presentedFrame
+        surface.awaitsContent = false
+        // A frame of the parsed state, even if the renderer has nothing else to draw.
         // SAFETY: the held view's live surface (TerminalSurfaceView.surface), on the main actor.
         if let ghostty = surface.surface { unsafe ghostty_surface_refresh(ghostty) }
+        frames.activate()
+        checkInvariant()
     }
 
-    /// Takes the held frame away.
+    /// The held surface drew; while it is paused (hidden, its window covered) it presents nothing new, and the
+    /// hold stays until it does (``tick()``).
+    func surfaceDrawingChanged(_ view: TerminalSurfaceView) {
+        guard view === surface, parsedSeq == targetSeq, presentedSeq < targetSeq else { return }
+        frames.activate()
+    }
+
+    /// Takes the held frame away: the hold is over whether or not its content came (a close, an exit, a link that
+    /// will not come back by itself, a newer hold).
     func end() {
         frames.deactivate()
-        deadline.cancel()
         view.removeFromSuperview()
         view.clear()
         held = nil
-        surface = nil
-        parsed = nil
+        let released = surface
+        surface = nil // first: the surface's draw change below finds no hold
+        released?.awaitsContent = false
+        presentedSeq = targetSeq
+        parsedSeq = targetSeq
+        frameAtParse = nil
         awaitingContent = false
+        checkInvariant()
     }
 
+    /// Once per display frame after the parse: the first frame presented since then is the target's content.
     private func tick() -> Bool {
         guard let surface else {
             end()
             return false
         }
-        guard var parsed else { return true }
-        parsed.ticks += 1
-        self.parsed = parsed
-        guard parsed.ticks >= 2, let shown = surface.presentedFrame, shown !== parsed.frame else { return true }
+        guard parsedSeq == targetSeq, presentedSeq < targetSeq else { return false }
+        guard let shown = surface.presentedFrame, shown !== frameAtParse else { return surface.pause == nil }
+        presentedSeq = parsedSeq
         end()
         return false
+    }
+
+    /// The R3 invariant (DEBUG `InputInvariantMonitor`; principled-audit restoreFrameHold): the held frame is on
+    /// screen iff the surface has not presented the target's content, and a surface that waits for content is
+    /// the held one. Nil when it holds; else what differs.
+    var invariantViolation: String? {
+        let behind = presentedSeq < targetSeq
+        if isHolding != behind { return "held frame shown \(isHolding), presented \(presentedSeq) of target \(targetSeq)" }
+        if let surface, surface.awaitsContent != (behind && parsedSeq < targetSeq) {
+            return "surface awaits content \(surface.awaitsContent), parsed \(parsedSeq) of target \(targetSeq)"
+        }
+        return nil
+    }
+
+    private func checkInvariant() {
+        #if DEBUG
+        if let violation = invariantViolation { assertionFailure("TerminalFrameHold: \(violation)") }
+        #endif
     }
 }
 

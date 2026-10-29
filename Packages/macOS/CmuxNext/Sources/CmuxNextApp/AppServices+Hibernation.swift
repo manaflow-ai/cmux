@@ -100,16 +100,24 @@ extension AppServices {
             .reply(on: mainWork, class: .background, owner: "IntentPrewarm.cover", landed)
     }
 
-    /// The hibernation's measurements, after startup: the hourly footprint samples and,
-    /// with `occludedWindowDiscard`, the occluded-window checker (its first pass reports the windows
-    /// already off screen). With `windowOcclusionFamily` a checker feeds every window's
-    /// occlusion family, so covered windows stop their frames, terminals and pages.
+    /// The hibernation's measurements, after startup: the hourly footprint samples and the app's one occluded-window
+    /// checker (its first pass reports the windows already off screen; principled-audit restoreFrameHold R1). With
+    /// `windowOcclusionFamily` it feeds every window's occlusion family, so covered windows stop their frames,
+    /// terminals and pages; with `occludedWindowDiscard` the hibernation hears the same judgments of its windows.
     func startHibernationMeasurements() {
         memoryFootprints.start()
-        if features.isEnabled(.occludedWindowDiscard), let hibernation = cache.hibernation {
-            hibernation.follow(WindowOcclusionChecker(windows: { [weak self] in self?.windows.controllers.compactMap(\.window) ?? [] }, workspaceEvents: workspaceEvents, mainWork: mainWork))
+        let hibernation = features.isEnabled(.occludedWindowDiscard) ? cache.hibernation : nil
+        let feedsFamilies = features.isEnabled(.windowOcclusionFamily)
+        guard feedsFamilies || hibernation != nil else { return }
+        let ownsWindow: @MainActor (ObjectIdentifier) -> Bool = { [weak self] id in
+            self?.windows.controllers.contains { controller in controller.window.map { ObjectIdentifier($0) } == id } ?? false
         }
-        if features.isEnabled(.windowOcclusionFamily) { windowOcclusionFamilies = WindowOcclusionChecker.feedingFamilies(workspaceEvents: workspaceEvents, mainWork: mainWork) }
+        let checker = WindowOcclusionChecker.feedingFamilies(
+            feedsFamilies: feedsFamilies, workspaceEvents: workspaceEvents, mainWork: mainWork,
+            listener: { [weak hibernation] id, offScreen in if ownsWindow(id) { hibernation?.windowDidChangeOnScreen(id, offScreen: offScreen) } },
+            closed: { [weak hibernation] id in hibernation?.offScreenWindowDidClose(id) })
+        windowOcclusionFamilies = checker
+        hibernation?.follow(checker)
     }
 
     /// Each tab script opened with a live `window.opener` and its opener, by key (`BrowserScriptOpeners`): the opener groups'

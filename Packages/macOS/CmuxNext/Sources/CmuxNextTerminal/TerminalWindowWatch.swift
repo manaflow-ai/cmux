@@ -9,13 +9,12 @@ import CmuxNextWakeups
 /// as Chromium's windowDidBecomeKey/windowDidResignKey reach NativeWidgetNSWindowBridge::OnWindowKeyStatusChangedTo
 /// whatever the occlusion. Any other terminal's focus is false whatever the key window. Screen changes reach a shown
 /// terminal only while its node (its tab's) is visible; one that missed some reads the window's state once when the
-/// node shows. Every shown terminal hears an occlusion change, visible or not: its drawing pauses while covered.
+/// node shows. Occlusion is not a notice here: the terminal follows its window's node (`TerminalSurfaceView.watchWindowNode`),
+/// which AppKit's occlusion notice and the window's occlusion family both feed.
 @MainActor
 final class TerminalWindowWatch {
     /// What a window notice changes for the surface.
     enum Change {
-        /// Whether it draws.
-        case occlusion
         /// Whether its window is key: Ghostty's focus.
         case focus
         /// Its screen: scale, display and size.
@@ -47,9 +46,6 @@ final class TerminalWindowWatch {
         self.events = events
         let owner = "TerminalSurfaceView"
         subscriptions = [
-            events.subscribe(NSWindow.didChangeOcclusionStateNotification, node: node, delivery: .always, owner: owner) { [weak self] _ in
-                self?.onChange(.occlusion)
-            },
             events.subscribe(NSWindow.didChangeScreenNotification, node: node, delivery: .whenVisible, owner: owner) { [weak self] _ in
                 self?.onChange(.screen)
             },

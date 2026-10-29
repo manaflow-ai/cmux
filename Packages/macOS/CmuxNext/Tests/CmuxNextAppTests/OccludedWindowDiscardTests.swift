@@ -287,15 +287,6 @@ import Testing
         #expect(!rig.isHibernated(neighbor))
     }
 
-    /// The window manager's order report reaches the checker through hibernation.
-    @Test func hibernationForwardsAReorderToItsChecker() async throws {
-        let rig = try Rig()
-        defer { rig.close() }
-        try await rig.until("the first pass ran") { rig.checker.passes == 1 }
-        rig.hibernation.windowsDidReorder()
-        try await rig.until("the reorder ran a pass") { rig.checker.passes == 2 }
-    }
-
     // MARK: Rig
 
     static func window(_ id: Int, x: CGFloat, width: CGFloat, active: Bool = false) -> WindowOcclusionFacts {
@@ -425,7 +416,13 @@ import Testing
                 .appendingPathComponent("cn-occluded-discard-\(UUID().uuidString.prefix(8).lowercased())", isDirectory: true)
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
             hibernation.start()
-            if follows { hibernation.follow(checker) } else { checker.start() }
+            // The app's one checker reports to the hibernation as AppServices.startHibernationMeasurements wires it.
+            if follows {
+                checker.onChange = { [weak hibernation] id, offScreen in hibernation?.windowDidChangeOnScreen(id, offScreen: offScreen) }
+                checker.onClose = { [weak hibernation] id in hibernation?.offScreenWindowDidClose(id) }
+                hibernation.follow(checker)
+            }
+            checker.start()
         }
 
         /// A loaded WebKit page, installed as a tab and shown in the pane.

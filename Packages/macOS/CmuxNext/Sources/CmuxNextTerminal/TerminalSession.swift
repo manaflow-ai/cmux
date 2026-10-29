@@ -211,7 +211,7 @@ public final class TerminalSession {
         outputLane = TerminalOutputLaneNamer(io: io)
         input = TerminalInputSink(lane: TerminalInputLane(drain: io.inputDrain()), typingSurface: TypingLatencyProbe.shared.makeSurfaceKey())
 
-        frameHold = TerminalFrameHold(deadlines: deadlines ?? MainDeadlineScheduler(work: mainWork))
+        frameHold = TerminalFrameHold(mainWork: deadlines?.work ?? mainWork)
         // node-free: the model's connection, grid and content are read while the tab is hidden
         // (its sidebar status, a click's reconnect, the frame hold); the view work it does is a
         // chip and a banner, once per frame at most.
@@ -369,6 +369,7 @@ public final class TerminalSession {
         closeCancels = []
         input.finish()
         outputLane.close() // the IO's reader feeds no lane of this session again
+        frameHold.end() // the session owns its hold: no held frame or frame client outlives it
         surfaceView.removeFromSuperview()
     }
 
@@ -420,6 +421,9 @@ public final class TerminalSession {
             view.showStatus(status)
         }
         if pending.exited { model.hasExited = true }
+        // A held frame waits for content that will not come by itself: the terminal exited, or its link failed and
+        // waits for the person (a retry, a click). A link that retries on its own keeps the frame under its banner.
+        if pending.exited || pending.status.map({ $0 == .exited || $0.waitsForThePerson }) == true { frameHold.end() }
         if let sizedFor = pending.sizedFor {
             view.showSizedFor(model.connection == .connected ? sizedFor : nil)
         }
@@ -478,6 +482,7 @@ public final class TerminalSession {
         fresh.mirrorDemand = mirrorDemand
         fresh.isRenderingSuspended = isRenderingSuspended
         fresh.releasesGPUWhilePaused = releasesGPUWhilePaused
+        frameHold.prepare(fresh) // it draws nothing before the replay it is made for (``TerminalFrameHold``)
         surfaceView = fresh
         fresh.bridgeObject.installLinkFilter(linkCheck)
         fresh.bridgeObject.linkFilter.setWorkingDirectory(model.workingDirectory)

@@ -72,11 +72,13 @@ import Testing
         /// The paused surfaces' non-volatile swap chains (`debug.memory` hidden_nonvolatile_iosurface_bytes).
         var hiddenBytes: UInt64 { sessions.reduce(0) { $0 + $1.pausedNonvolatileIOSurfaceBytes } }
 
-        /// The window is minimized or deminiaturized, and AppKit's occlusion notice reaches each shown surface
-        /// (`TerminalSurfaceView.windowStateChanged` runs `updateOcclusion`; the view observes the process's
-        /// center, so the test calls the handler instead of posting there).
+        /// The window goes off screen or comes back, and AppKit's occlusion notice reaches the window's node
+        /// (`WindowVisibilitySource` refreshes on it; the source observes the process's center, so the test refreshes
+        /// it instead of posting there): a flip reaches each shown surface through its node watch. A notice with no
+        /// change computes each pause again, which changes nothing.
         func minimize(_ offScreen: Bool) {
             if offScreen { screens.offScreen.insert(ObjectIdentifier(window)) } else { screens.offScreen.remove(ObjectIdentifier(window)) }
+            WindowVisibilitySource.of(window).refresh()
             for session in sessions { session.surfaceView.updateOcclusion() }
         }
 

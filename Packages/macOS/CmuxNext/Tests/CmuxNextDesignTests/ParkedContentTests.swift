@@ -23,19 +23,19 @@ import Testing
     }
 
     @Test func aViewUnderAParkedContainerDoesNotDraw() {
-        let drew = WindowDrawPolicy.drawsWhenOccluded
-        WindowDrawPolicy.drawsWhenOccluded = true
-        defer { WindowDrawPolicy.drawsWhenOccluded = drew }
         let container = Container(), leaf = NSView()
         container.addSubview(leaf)
         let host = window(with: container)
-        #expect(WindowDrawPolicy.inputs(for: leaf, suspended: false).draws)
+        #expect(!leaf.isParkedOrHasParkedAncestor)
         container.isParkedOffScreen = true
         #expect(leaf.isParkedOrHasParkedAncestor)
-        #expect(WindowDrawPolicy.inputs(for: leaf, suspended: false).pause == .parked)
+        // A surface takes the parking into its node (`TerminalSurfaceView.syncPlacement`); the rule reads the node.
+        let parked = SurfaceDrawInputs(inWindow: true, windowVisible: true, hidden: false, parked: true, suspended: false)
+        #expect(parked.pause == .parked)
         // Hidden wins: the hidden path reports as it did.
-        container.isHidden = true
-        #expect(WindowDrawPolicy.inputs(for: leaf, suspended: false).pause == .hidden)
+        var hidden = parked
+        hidden.hidden = true
+        #expect(hidden.pause == .hidden)
         _ = host
     }
 

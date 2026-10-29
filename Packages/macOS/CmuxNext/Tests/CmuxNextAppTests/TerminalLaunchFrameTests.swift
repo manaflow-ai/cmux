@@ -1,6 +1,6 @@
 import AppKit
 import CmuxNextCompat
-import CmuxNextDesign
+@testable import CmuxNextDesign
 @testable import CmuxNextTerminal
 import CmuxNextWakeups
 import Testing
@@ -160,29 +160,37 @@ import Testing
                 "the quit saved \(center), not the frame the pane showed (red): the empty surface under the hold")
     }
 
-    /// The hold ends once the terminal's content is queued and its `limit` passes (or the fresh surface draws it).
-    @Test func aLastFrameEndsOnceTheTerminalsContentCame() async throws {
+    /// The hold ends once the terminal presents its content (principled-audit restoreFrameHold: its content sequence,
+    /// no timer): the content is parsed, the surface draws it, and the first frame it presents after the parse ends it.
+    @Test func aLastFrameEndsOnceTheTerminalPresentsItsContent() async throws {
+        let drew = WindowDrawPolicy.drawsWhenOccluded
+        WindowDrawPolicy.drawsWhenOccluded = true // the runner's window may report itself occluded: draw, as automation does
+        defer { WindowDrawPolicy.drawsWhenOccluded = drew }
         let rig = MainDeadlineRig()
         let reveal = LaunchReveal(deadline: .seconds(60))
         let pane = Pane(reveal: reveal, rig: rig)
         defer { pane.close() }
+        pane.window.orderFrontRegardless()
         try #require(pane.session.surfaceView.surface != nil, "libghostty created no surface")
         let directory = try await Self.saved(["tab-1": Self.frame(pane.session.surfaceView.bounds.size, scale: pane.window.backingScaleFactor)])
         defer { try? FileManager.default.removeItem(at: directory) }
         let frames = await Self.launch(directory)
         try #require(frames.show("tab-1", on: pane.session, in: pane.content, reveal: reveal))
+        #expect(pane.session.surfaceView.pause == .awaitingContent, "the held surface draws before its content is parsed")
         pane.io.send(.replay(Data("restored\r\n".utf8)))
         for _ in 0..<300 where !pane.session.surfaceHasContent {
             rig.frame()
             try await Task.sleep(for: .milliseconds(10))
         }
         try #require(pane.session.surfaceHasContent, "the replay never reached the session")
-        for _ in 0..<300 where pane.session.frameHold.isHolding {
-            if rig.hasArmedWake { rig.fireAndRun() } else { rig.frame() }
+        for _ in 0..<500 where pane.session.frameHold.isHolding {
+            rig.frame()
             try await Task.sleep(for: .milliseconds(10))
         }
-        #expect(!pane.session.frameHold.isHolding, "the last frame stayed over the terminal's content")
+        #expect(!pane.session.frameHold.isHolding, "the last frame stayed over the terminal's presented content")
         #expect(pane.held == nil)
+        #expect(pane.session.frameHold.presentedSeq == pane.session.frameHold.targetSeq)
+        #expect(pane.session.surfaceView.pause == nil)
     }
 
     /// Slice (c) of the main-thread sweep: the frame (up to 16 MB) was read and decoded on the main thread as

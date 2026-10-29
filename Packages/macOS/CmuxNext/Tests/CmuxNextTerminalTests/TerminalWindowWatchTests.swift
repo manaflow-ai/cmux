@@ -5,8 +5,8 @@ import Testing
 
 /// The terminals' window notices go through the window's one ``WindowEvents`` (recipe
 /// R-notif): a Cmd-Tab with many terminals handles the key change only in the first responder, in its own turn
-/// even when its window is covered, a hidden tab reads a screen change once when it shows, and an occlusion
-/// change still reaches every shown terminal, so a covered window stops drawing whatever its tabs show. The
+/// even when its window is covered, and a hidden tab reads a screen change once when it shows. Occlusion comes
+/// through the window's node, not a notice of the watch. The
 /// host's appearance repaint waits for its tab the same way (recipe R-appear).
 @MainActor @Suite struct TerminalWindowWatchTests {
     private static func window() -> NSWindow {
@@ -108,15 +108,15 @@ import Testing
                 "showing the tab replayed every post, or a key change reached a terminal that is not first responder")
     }
 
-    /// An occlusion change reaches a shown terminal whose tab is not visible: its surface still pauses
-    /// drawing while the window is covered (the side effect runs while hidden).
-    @Test func occlusionReachesAHiddenTabsTerminal() {
+    /// An occlusion change is not the watch's: the terminal's pause follows its window's node, which AppKit's notice
+    /// and the window's occlusion family both feed (principled-audit restoreFrameHold R1: one input, not two).
+    @Test func occlusionIsTheWindowNodesNotTheWatchs() {
         let center = NotificationCenter(), window = Self.window()
         let events = WindowEvents(window: window, center: center)
-        let terminal = Terminal(node: VisibilityNode(root: "tab", own: .hidden))
+        let terminal = Terminal(node: VisibilityNode(root: "tab", own: .visible))
         terminal.watch.watch(events)
         center.post(name: NSWindow.didChangeOcclusionStateNotification, object: window)
-        #expect(terminal.changes == [.occlusion])
+        #expect(terminal.changes.isEmpty, "the watch handled an occlusion notice the window's node already carries")
     }
 
     /// A first-responder terminal with no tab (tests, fixtures) follows its window's notices whenever it is shown.

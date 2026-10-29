@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextWakeups
 
 /// Why a surface does not draw now (`debug.surfaces` `paused`). A surface
 /// that draws has no pause.
@@ -15,43 +16,55 @@ public nonisolated enum SurfacePause: String, Sendable {
     case parked
     /// The App paused it (an unselected tab, an off-screen column).
     case suspended
+    /// A frame hold covers it until the content parsed at its attach or swap is drawn (`TerminalFrameHold`): until
+    /// that content is parsed the surface could only draw frames no one sees, so its first frame is that content.
+    case awaitingContent = "awaiting_content"
 }
 
-/// The facts one drawing decision reads (``WindowDrawPolicy``).
+/// The facts one drawing decision reads (``WindowDrawPolicy``). A surface reads each from a visibility node
+/// (principled-audit restoreFrameHold R1/R2): one truth per surface, computed again on every edge of those nodes,
+/// never from AppKit's view tree at draw time.
 public nonisolated struct SurfaceDrawInputs: Equatable, Sendable {
     public var inWindow: Bool
-    /// `NSWindow.occlusionState` contains `.visible`. Key or active state
-    /// plays no part: a visible window of an inactive app draws.
+    /// Its window's node is ``Visibility/visible`` (``WindowDrawPolicy/isDrawable(_:)`` reads the same node):
+    /// AppKit's `occlusionState`, minimized, the app hidden or the displays asleep, and the window's
+    /// ``WindowOcclusionFamily`` (one opaque cmux window covering it). Key or active state plays no part.
     public var windowVisible: Bool
+    /// Its own node is hidden: AppKit hid the view or a container above it, its tab is not selected, its pane is
+    /// suspended or its workspace hidden.
     public var hidden: Bool
-    /// An ancestor is parked off screen but not hidden (``ParkingContainer``).
+    /// A container above is parked off screen but not hidden (``ParkingContainer``).
     public var parked: Bool
     public var suspended: Bool
     /// A consumer needs pixels whatever else holds (live hover mirrors).
     public var forced: Bool
+    /// A frame hold waits for content not parsed yet (``SurfacePause/awaitingContent``); it wins over `forced`.
+    public var awaitingContent: Bool
     /// ``WindowDrawPolicy/drawsWhenOccluded`` holds for this launch.
     public var drawWhenOccluded: Bool
 
     public init(inWindow: Bool, windowVisible: Bool, hidden: Bool, parked: Bool = false, suspended: Bool, forced: Bool = false,
-                drawWhenOccluded: Bool = false) {
+                awaitingContent: Bool = false, drawWhenOccluded: Bool = false) {
         self.inWindow = inWindow
         self.windowVisible = windowVisible
         self.hidden = hidden
         self.parked = parked
         self.suspended = suspended
         self.forced = forced
+        self.awaitingContent = awaitingContent
         self.drawWhenOccluded = drawWhenOccluded
     }
 
-    /// Why the surface must not draw, or nil when it draws.
+    /// Why the surface must not draw, or nil when it draws: a pure function of the inputs.
     public var pause: SurfacePause? {
-        if forced { return nil }
-        guard inWindow else { return .notInWindow }
-        if hidden { return .hidden }
-        if parked { return .parked }
-        if suspended { return .suspended }
-        if !windowVisible, !drawWhenOccluded { return .windowOccluded }
-        return nil
+        if !forced {
+            guard inWindow else { return .notInWindow }
+            if hidden { return .hidden }
+            if parked { return .parked }
+            if suspended { return .suspended }
+            if !windowVisible, !drawWhenOccluded { return .windowOccluded }
+        }
+        return awaitingContent ? .awaitingContent : nil
     }
 
     public var draws: Bool { pause == nil }
@@ -69,11 +82,11 @@ public nonisolated struct SurfaceDrawInputs: Equatable, Sendable {
 /// The one window-occlusion rule for every native drawing surface (Ghostty
 /// terminals today) and for the blank-pane invariant.
 ///
-/// Content in a window draws while AppKit reports the window at least partly
-/// on screen (`occlusionState` contains `.visible`, not miniaturized): the
-/// rule of ``WindowVisibilitySource/appKitState(of:)``, read live, the same
-/// rule that feeds the window's node; nothing here guesses visibility, and
-/// key or active state plays no part. While the window is
+/// Content in a window draws while the window's node (``WindowVisibilitySource``) is visible: AppKit reports
+/// the window at least partly on screen (`occlusionState` contains `.visible`, not miniaturized, the rule of
+/// ``visibility(of:)``) and its ``WindowOcclusionFamily`` does not call it covered. Terminals, this rule
+/// (``isDrawable(_:)``) and the blank-pane invariant read that one node; key or active state plays no part.
+/// While the window is
 /// occluded, surfaces stop drawing (energy saving) and keep their state; when
 /// it is visible again each surface draws its current content at once
 /// (Ghostty's renderer draws on its `.visible` message).
@@ -123,11 +136,18 @@ public struct WindowDrawPolicy {
 
     /// AppKit's live answer (``WindowVisibilitySource/appKitState(of:)``).
     /// Tests replace it to drive occlude and un-occlude transitions without a
-    /// screen.
+    /// screen; the window's node reads it (``visibility(of:)``).
     static var onScreen: (NSWindow) -> Bool = { WindowVisibilitySource.appKitState(of: $0).isVisible }
 
-    /// Whether `window` is at least partly on screen now.
+    /// Whether AppKit reports `window` at least partly on screen now (not its occlusion family: ``isDrawable(_:)``).
     public static func isOnScreen(_ window: NSWindow) -> Bool { onScreen(window) }
+
+    /// A window's own state as AppKit reports it, the default read of its node (``WindowVisibilitySource``):
+    /// miniaturized is hidden, on screen (``isOnScreen(_:)``) is visible, otherwise occluded.
+    public static func visibility(of window: NSWindow) -> Visibility {
+        if window.isMiniaturized { return .hidden }
+        return isOnScreen(window) ? .visible : .occluded
+    }
 
     /// What ``WindowOcclusionRule`` reads about `window` now, AppKit's visibility through
     /// ``isOnScreen(_:)``. A window covers others when it hides what is under it, as Chrome's
@@ -154,24 +174,11 @@ public struct WindowDrawPolicy {
         return chain
     }
 
-    /// Whether content in `window` may draw now (false without a window).
+    /// Whether content in `window` may draw now (false without a window): its node is visible, the state its
+    /// terminals' pause reads (``SurfaceDrawInputs/windowVisible``), occlusion family included, or this launch
+    /// draws occluded windows.
     public static func isDrawable(_ window: NSWindow?) -> Bool {
         guard let window else { return false }
-        return isOnScreen(window) || drawsWhenOccluded
-    }
-
-    /// The drawing inputs of `view` now.
-    public static func inputs(for view: NSView, suspended: Bool, forced: Bool = false) -> SurfaceDrawInputs {
-        SurfaceDrawInputs(
-            inWindow: view.window != nil,
-            windowVisible: view.window.map(isOnScreen) ?? false,
-            // visibility-walk-allow: drawing reads AppKit's own view state, as isOnScreen reads the window's, never a
-            // node's mirror of it a flip behind; read on a draw-input change (an occlusion or hide), not per frame
-            hidden: view.isHiddenOrHasHiddenAncestor,
-            parked: view.isParkedOrHasParkedAncestor,
-            suspended: suspended,
-            forced: forced,
-            drawWhenOccluded: drawsWhenOccluded
-        )
+        return drawsWhenOccluded || WindowVisibilitySource.of(window).node.isVisible
     }
 }

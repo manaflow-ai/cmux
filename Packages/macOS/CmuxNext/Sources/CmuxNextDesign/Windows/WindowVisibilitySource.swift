@@ -17,10 +17,9 @@ import ObjectiveC
 ///
 /// It observes the occlusion and miniaturize notices once, through the window's ``WindowEvents``,
 /// and the family's flips as a content-stage subscriber. Views and controllers that need the flips
-/// subscribe to ``node`` instead of observing the window themselves. Drawing does not read the node:
-/// ``WindowDrawPolicy/isOnScreen(_:)`` applies the AppKit rule (``appKitState(of:)``) to AppKit's
-/// live state, so a reader that observes the window's notice directly never sees an answer older
-/// than AppKit's, and a drawing reader asks the family itself (`TerminalSurfaceView`).
+/// subscribe to ``node`` instead of observing the window themselves. Drawing reads the node too: a terminal's
+/// pause and ``WindowDrawPolicy/isDrawable(_:)`` (the blank-pane rule) follow its flips, so the family is one
+/// input of one state, never a second check a reader adds itself (principled-audit restoreFrameHold R1).
 ///
 /// The window's owner makes it with the window (``of(_:name:app:events:read:)``), under the app's
 /// node, before any view reaches the window. A window with no owner (a demo or test window) gets a
@@ -73,9 +72,9 @@ import ObjectiveC
     ///   - name: The node's name in diagnostics.
     ///   - app: The app's node, its parent; nil makes the window's node a root.
     ///   - events: The window's notices (tests pass their own center's).
-    ///   - read: The window's own state (``appKitState(of:)``).
+    ///   - read: The window's own state (``WindowDrawPolicy/visibility(of:)``, AppKit's).
     public init(window: NSWindow, name: String, app: VisibilityNode?, events: WindowEvents,
-                read: @escaping Read = WindowVisibilitySource.appKitState(of:)) {
+                read: @escaping Read = WindowDrawPolicy.visibility(of:)) {
         self.window = window
         self.read = read
         self.events = events
@@ -93,7 +92,7 @@ import ObjectiveC
     /// same source and ignores its other arguments.
     public static func of(_ window: NSWindow, name: String = "window", app: VisibilityNode? = nil,
                           events: WindowEvents? = nil,
-                          read: @escaping Read = WindowVisibilitySource.appKitState(of:)) -> WindowVisibilitySource {
+                          read: @escaping Read = WindowDrawPolicy.visibility(of:)) -> WindowVisibilitySource {
         if let existing = installed(on: window) { return existing }
         let source = WindowVisibilitySource(window: window, name: name, app: app, events: events ?? WindowEvents.of(window), read: read)
         sources.set(source, on: window)

@@ -106,6 +106,13 @@ public final class TerminalSurfaceView: NSView, KeyEquivalentOwningSurface {
         didSet { if (mirrorDemand > 0) != (oldValue > 0) { updateOcclusion() } }
     }
 
+    /// Its session's frame hold covers it and the content the hold waits for is not parsed yet
+    /// (``TerminalFrameHold``, ``SurfacePause/awaitingContent``): the renderer draws nothing until then, so the
+    /// first frame it presents after this turns false holds that content.
+    var awaitsContent = false {
+        didSet { if awaitsContent != oldValue { updateOcclusion() } }
+    }
+
     var lastOcclusionVisible: Bool?
     #if DEBUG || CMUX_BENCH_HOOKS
     /// When the pause last ended and the layer's next frame after it (`debug.surfaces` `show`); record only.
@@ -129,8 +136,9 @@ public final class TerminalSurfaceView: NSView, KeyEquivalentOwningSurface {
     private var lastFocus: Bool?
     /// Its window's notices while shown, by its tab node (``TerminalWindowWatch``).
     private let windowWatch: TerminalWindowWatch
-    /// Its window's occlusion family, while shown (TerminalSurfaceView+Occlusion.swift).
-    private var occlusionWatch: WindowOcclusionSubscription?
+    /// Its window's node (AppKit's state and the window's occlusion family), while shown: each flip computes the
+    /// pause again (TerminalSurfaceView+Occlusion.swift).
+    private var windowNodeWatch: VisibilitySubscription?
     /// The backing scale and display last given to the surface (`updateContentScale`).
     private var appliedBacking = TerminalContentScale()
     /// The display ID last given to the surface (`updateContentScale`); nil before it is first shown.
@@ -374,6 +382,7 @@ public final class TerminalSurfaceView: NSView, KeyEquivalentOwningSurface {
         textInputStage = (window as? TextInputStageHosting)?.textInputStage
         cursorLayer?.place(in: window)
         let before = windowNode.effective
+        ancestorsMoved() // a window it joins may hold it under a hidden container: no viewDidHide comes then
         syncPlacement()
         // A move between windows flips nothing: observe the new window (the old one's observers went above), and
         // take its scale and the view's size in it.
@@ -417,9 +426,9 @@ public final class TerminalSurfaceView: NSView, KeyEquivalentOwningSurface {
     func observeWindow(_ observe: Bool) {
         guard observe != windowWatch.isWatching else { return }
         windowWatch.stop()
-        occlusionWatch = nil
+        windowNodeWatch = nil
         guard observe, let window else { return }
-        occlusionWatch = watchOcclusionFamily(of: window)
+        windowNodeWatch = watchWindowNode(of: window)
         windowWatch.followKey(window.firstResponder === self)
         windowWatch.watch(WindowEvents.of(window))
     }
@@ -435,8 +444,6 @@ public final class TerminalSurfaceView: NSView, KeyEquivalentOwningSurface {
     private func windowStateChanged(_ change: TerminalWindowWatch.Change) {
         Self.windowStateUpdates &+= 1
         switch change {
-        case .occlusion:
-            updateOcclusion()
         case .screen:
             updateContentScale()
             updateSurfaceSize()

@@ -99,6 +99,7 @@ final class InputInvariantMonitor {
         var result = InputInvariants.world(InputObservationBuilder.observe(services))
         result.violations += Self.pageGeometry(services)
         result.violations += Self.terminalGrids(services)
+        result.violations += Self.terminalDrawing(services)
         result.violations += Self.tabConservation(services)
         result.violations += Self.mirrorWrites(services)
         result.violations += services.hoverCards.singleCardViolations().map {
@@ -133,6 +134,23 @@ final class InputInvariantMonitor {
                 guard let key = pane.currentTabKey, let entry = services.cache.existingTerminal(key),
                       let problem = entry.session.surfaceView.restingGridMismatch else { return nil }
                 return InputViolation(invariant: .terminalGridFits, window: controller.state.id, detail: "pane \(pane.paneKey) tab \(key): \(problem)")
+            }
+        }
+    }
+
+    /// D1 and D2 (principled-audit restoreFrameHold R3): every pane's terminal draws iff its nodes are shown, its node
+    /// follows AppKit's hidden state, and a held frame is up iff the terminal has not presented the content parsed at
+    /// its swap or attach. Hidden panes too: a stale pause is a terminal that stays blank when it shows.
+    static func terminalDrawing(_ services: AppServices) -> [InputViolation] {
+        services.windows.controllers.flatMap { controller -> [InputViolation] in
+            (controller.content?.panes.values.map { $0 } ?? []).flatMap { pane -> [InputViolation] in
+                guard let key = pane.currentTabKey, let entry = services.cache.existingTerminal(key) else { return [] }
+                let detail = { (problem: String) in "pane \(pane.paneKey) tab \(key): \(problem)" }
+                return [entry.session.surfaceView.drawTruthMismatch.map {
+                    InputViolation(invariant: .terminalDrawsIffShown, window: controller.state.id, detail: detail($0))
+                }, entry.session.frameHoldViolation.map {
+                    InputViolation(invariant: .terminalHoldUntilPresented, window: controller.state.id, detail: detail($0))
+                }].compactMap { $0 }
             }
         }
     }

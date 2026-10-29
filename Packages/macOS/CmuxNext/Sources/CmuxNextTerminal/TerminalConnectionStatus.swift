@@ -21,6 +21,13 @@ public nonisolated enum TerminalConnectionStatus: Sendable, Equatable {
     case restoring
     case disconnected(TerminalDisconnectCause, reconnecting: Bool)
     case exited
+
+    /// Disconnected and not re-attaching by itself: only the person's next event (Retry, a key, a click, the
+    /// view shown again) re-attaches it.
+    public var waitsForThePerson: Bool {
+        if case .disconnected(_, reconnecting: false) = self { return true }
+        return false
+    }
 }
 
 /// Why a dead terminal's host was lost when no exit status reached the
