@@ -398,6 +398,9 @@ pub struct MeshControlHook {
     /// Owner-configured grants. Only the hub-stamped daemon id can match an entry.
     pub allowed: Vec<MeshControlFrom>,
     ledger: ControlLedger,
+    /// Lifecycle replay requires a store-backed handoff directory. Memory-only daemons fail
+    /// closed rather than acknowledging a side effect that a restart could repeat.
+    durable: bool,
     // A delivery lease can end before a start does. Retain its execution until its actual
     // outcome, independently of the 50 s ack wait; dropping this hook aborts all such tasks.
     tasks: StdMutex<tokio::task::JoinSet<()>>,
@@ -406,9 +409,11 @@ pub struct MeshControlHook {
 
 impl MeshControlHook {
     pub fn new(allowed: Vec<MeshControlFrom>, path: Option<PathBuf>) -> Self {
+        let durable = path.is_some();
         Self {
             allowed,
             ledger: ControlLedger::open(path),
+            durable,
             tasks: StdMutex::new(Default::default()),
             slots: Arc::new(tokio::sync::Semaphore::new(RelayOptions::default().max_in_flight)),
         }
@@ -433,6 +438,9 @@ impl ControlHook for MeshControlHook {
             }
             if !crate::mesh::is_message_id(&message.message_id) {
                 return None;
+            }
+            if !self.durable {
+                return Some(Ack::refused("mesh.control_not_durable"));
             }
             let permit = self.slots.clone().try_acquire_owned().ok();
             let claim = self.ledger.claim(sender.unwrap_or_default(), message, permit.is_some());

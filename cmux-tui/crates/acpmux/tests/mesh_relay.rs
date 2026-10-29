@@ -515,6 +515,7 @@ async fn control_messages_go_to_the_hook_and_without_one_are_refused() {
 #[tokio::test]
 async fn mesh_control_dispatches_through_peer_requests_and_refuses_unknown_sessions() {
     let hub = hub();
+    let dir = tempfile::tempdir().unwrap();
     let message = InMessage {
         message_id: "control-resume-1".into(),
         kind: Kind::Control,
@@ -529,7 +530,7 @@ async fn mesh_control_dispatches_through_peer_requests_and_refuses_unknown_sessi
             daemon_id: "inst_a".into(),
             ops: vec!["start".into(), "resume".into(), "stop".into()],
         }],
-        None,
+        Some(dir.path().join("mesh-controls.json")),
     );
     let ack = hook.control(&hub, &message).await.expect("control is acknowledged");
     assert_eq!(ack.state, AckState::Refused);
@@ -539,9 +540,10 @@ async fn mesh_control_dispatches_through_peer_requests_and_refuses_unknown_sessi
 #[tokio::test]
 async fn mesh_control_requires_owner_allowlist_and_stamped_daemon_id() {
     let hub = hub();
+    let dir = tempfile::tempdir().unwrap();
     let allowed = MeshControlHook::new(
         vec![MeshControlFrom { daemon_id: "inst_a".into(), ops: vec!["resume".into()] }],
-        None,
+        Some(dir.path().join("mesh-controls.json")),
     );
     let base = |op: &str, sender: Option<&str>| InMessage {
         message_id: format!("control-{op}-{}", sender.unwrap_or("missing")),
@@ -562,11 +564,22 @@ async fn mesh_control_requires_owner_allowlist_and_stamped_daemon_id() {
 
     let ack = allowed.control(&hub, &base("resume", Some("inst_a"))).await.unwrap();
     assert!(ack.detail.as_deref().is_some_and(|detail| detail.contains("no session")), "{ack:?}");
-    for (op, sender) in [("resume", None), ("resume", Some("other")), ("stop", Some("inst_a"))] {
+    for (op, sender) in [
+        ("resume", None),
+        ("resume", Some("")),
+        ("resume", Some("other")),
+        ("stop", Some("inst_a")),
+    ] {
         let ack = allowed.control(&hub, &base(op, sender)).await.unwrap();
         assert_eq!(ack.state, AckState::Refused);
         assert_eq!(ack.detail.as_deref(), Some("mesh.control_not_allowed"));
     }
+    let mut unsupported = base("resume", Some("inst_a"));
+    unsupported.message_id = "control-unsupported-version".into();
+    unsupported.body = r#"{"version":2}"#.into();
+    let ack = allowed.control(&hub, &unsupported).await.unwrap();
+    assert_eq!(ack.state, AckState::Refused);
+    assert_eq!(ack.detail.as_deref(), Some("unsupported control body version"));
     let default = MeshControlHook::new(vec![], None);
     let ack = default.control(&hub, &base("resume", Some("inst_a"))).await.unwrap();
     assert_eq!(ack.detail.as_deref(), Some("mesh.control_not_allowed"));
@@ -774,12 +787,43 @@ async fn mesh_control_resume_releases_held_queue_by_id_and_name() {
         } else {
             Target { session_id: Some(id.clone()), ..Default::default() }
         };
-        let hook = MeshControlHook::new(control_allowlist(), None);
+        let ledger_dir = tempfile::tempdir().unwrap();
+        let hook = MeshControlHook::new(
+            control_allowlist(),
+            Some(ledger_dir.path().join("mesh-controls.json")),
+        );
         let ack = hook.control(&receiver, &resume).await.unwrap();
         assert_eq!(ack.state, AckState::Delivered, "{ack:?}");
         assert!(!receiver.resolve(&id).unwrap().queue_paused());
         receiver.shutdown_all().await;
     }
+}
+
+#[tokio::test]
+async fn mesh_control_memory_store_refuses_before_and_after_restart() {
+    let hub = hub();
+    let root = tempfile::tempdir().unwrap();
+    let cwd = root.path().join("project");
+    std::fs::create_dir(&cwd).unwrap();
+    {
+        let mut config = hub.config.write().await;
+        config.web_roots = vec![root.path().to_string_lossy().into_owned()];
+        config.web_asking_modes.insert("fake".into(), vec!["normal".into()]);
+    }
+    let mut control = message("memory-control", "", Kind::Control);
+    control.body = json!({
+        "version": 1,
+        "params": {"cwd": cwd, "mcpServers": [],
+            "_meta": {"acpmux": {"harness": "fake", "name": "memory-control", "policy": "ask"}}}
+    })
+    .to_string();
+    let first =
+        MeshControlHook::new(control_allowlist(), None).control(&hub, &control).await.unwrap();
+    assert_eq!(first.detail.as_deref(), Some("mesh.control_not_durable"));
+    let restarted =
+        MeshControlHook::new(control_allowlist(), None).control(&hub, &control).await.unwrap();
+    assert_eq!(restarted.detail.as_deref(), Some("mesh.control_not_durable"));
+    assert!(hub.resolve("memory-control").is_err());
 }
 
 #[tokio::test]
