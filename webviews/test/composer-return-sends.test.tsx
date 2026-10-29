@@ -130,7 +130,12 @@ async function composer(
   );
   await act(async () => handle!.restore(typed, []));
   const field = host.querySelector<HTMLElement>("[role=combobox]")!;
-  return { field, sent, sentAttachments, restore: (text: string) => act(async () => handle!.restore(text, [])) };
+  return {
+    field,
+    sent,
+    sentAttachments,
+    restore: (text: string) => act(async () => handle!.restore(text, [])),
+  };
 }
 
 // Each test is its own chat, so no draft kept for one chat comes back in the next test.
