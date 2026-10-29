@@ -118,6 +118,10 @@ function App() {
         [data-capture="before"] .cv-worked__glyph { width: auto; height: 20px; }
         [data-capture="before"] .cv-received__icon { width: 16px; height: auto; }
         [data-capture="before"] .acpmux-row-glyph { width: auto; height: auto; }
+        [data-capture="before"] .cv-message-footer-row { min-height: 20px; }
+        [data-capture="before"] .cv-message-footer-row > :is(.cv-user__time, .cv-turn-time) { height: 20px; }
+        [data-capture="before"] .cv-message-footer-row .cv-iconbtn { width: 20px; height: 20px; }
+        [data-capture="before"] .cv-message-footer-row .cv-iconbtn.cv-turn-retry-menu { width: 20px; }
       `}</style>
       <FixtureRow kind="tool" height={height} />
       <FixtureRow kind="worked" height={height} />
