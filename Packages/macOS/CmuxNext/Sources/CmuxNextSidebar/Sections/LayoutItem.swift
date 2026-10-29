@@ -76,6 +76,9 @@ public nonisolated struct LayoutItem: Hashable, Sendable, Codable, Identifiable 
     /// workspace name), drawn while its reference does not resolve (a closed
     /// workspace). Stored with the item; nil for items that resolve by kind.
     public var label: String?
+    /// The space whose windows draw this item (a Pinned link's, `SidebarDocProjection`); nil draws in every space.
+    /// Not stored with the layout: the sidebar document keeps it on the item.
+    public var room: String?
 
     /// Longest stored `label` (characters).
     public static let maxLabelLength = 200

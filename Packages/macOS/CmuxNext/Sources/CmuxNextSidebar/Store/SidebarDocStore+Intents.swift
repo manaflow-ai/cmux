@@ -29,7 +29,7 @@ extension SidebarDocStore {
             }
             send(ops: adopt + [["op": "move", "items": moving, "to": to]], title: title, undoable: undoable)
         }
-        if let (ops, undoable) = groupOps(intent, items: items) {
+        if let (ops, undoable) = groupOps(intent, room: model.activeProfileID?.rawValue, items: items) {
             send(ops: adopt + ops, title: Self.moveTitle, undoable: undoable)
             return true
         }
