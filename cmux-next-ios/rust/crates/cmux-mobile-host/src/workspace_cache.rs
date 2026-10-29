@@ -35,7 +35,6 @@ struct Published {
     changed: tokio::sync::watch::Sender<()>,
     restart: tokio::sync::watch::Sender<()>,
     generation: AtomicU64,
-    settled: AtomicU64,
 }
 
 impl Published {
@@ -45,7 +44,6 @@ impl Published {
             changed: tokio::sync::watch::channel(()).0,
             restart: tokio::sync::watch::channel(()).0,
             generation: AtomicU64::new(0),
-            settled: AtomicU64::new(0),
         }
     }
 }
@@ -73,8 +71,8 @@ impl WorkspaceCache {
                     _ = restart.changed() => continue,
                     _ = session(&socket, &updates, generation) => {}
                 }
-                publish(&updates, &[None, None, None], generation, false);
-                // Explicit refresh interrupts both the old subscription and
+                publish(&updates, &[None, None, None], generation);
+                // Explicit invalidation interrupts both the old subscription and
                 // failure backoff; it never waits for the one-second retry.
                 tokio::select! {
                     _ = restart.changed() => {},
@@ -103,36 +101,20 @@ impl WorkspaceCache {
         self.inner.published.views.lock().ok()?.get(kind)?.clone()
     }
 
-    /// Discard every view after an earlier daemon mutation has answered. Each
-    /// caller advances the generation, so a request already in flight cannot
-    /// satisfy this refresh. Concurrent requests coalesce to the newest restart.
-    /// Returns after the new subscription has answered all three snapshots
-    /// (including unsupported optional layout), or after five seconds. Callers
-    /// must still check their required views and fail closed on timeout/error.
-    pub(crate) async fn refresh(&self) {
+    /// Clear every shared view before forwarding a mutation's reply or
+    /// signaling its completion. The generation changes under the publication
+    /// lock, so an old in-flight snapshot cannot restore stale state. Restart
+    /// requests coalesce; readers wait for required views with `wait_for`.
+    pub(crate) fn invalidate(&self) {
         let published = &self.inner.published;
-        let mut changed = published.changed.subscribe();
-        let generation;
         let old = {
             let Ok(mut views) = published.views.lock() else { return };
-            generation = published.generation.fetch_add(1, Ordering::SeqCst) + 1;
+            published.generation.fetch_add(1, Ordering::SeqCst);
             std::mem::replace(&mut *views, [None, None, None])
         };
         drop(old);
         published.changed.send_replace(());
         published.restart.send_replace(());
-        let wait = async {
-            loop {
-                let ready = published.views.lock().is_ok_and(|_| {
-                    let current = published.generation.load(Ordering::SeqCst);
-                    current >= generation && published.settled.load(Ordering::SeqCst) >= current
-                });
-                if ready || changed.changed().await.is_err() {
-                    return;
-                }
-            }
-        };
-        let _ = tokio::time::timeout(QUERY_WAIT, wait).await;
     }
 
     /// Used only by the side-request worker, never the keystroke forwarding
@@ -162,14 +144,11 @@ impl Drop for CacheWorker {
     }
 }
 
-fn publish(published: &Published, views: &Views, generation: u64, settled: bool) {
+fn publish(published: &Published, views: &Views, generation: u64) {
     let old = {
         let Ok(mut current) = published.views.lock() else { return };
         if published.generation.load(Ordering::SeqCst) != generation {
             return;
-        }
-        if settled {
-            published.settled.store(generation, Ordering::SeqCst);
         }
         std::mem::replace(&mut *current, views.clone())
     };
@@ -352,10 +331,7 @@ async fn session(path: &std::path::Path, published: &Published, generation: u64)
                 _ => return Err(()),
             }
         }
-        let settled = subscribed
-            && state.pending.iter().all(Option::is_none)
-            && !state.dirty.iter().any(|dirty| *dirty);
-        publish(published, &state.views, generation, settled);
+        publish(published, &state.views, generation);
     }
 }
 
@@ -486,7 +462,7 @@ mod tests {
             () = &mut waiting => panic!("required snapshot is still unavailable"),
             () = std::future::ready(()) => {}
         }
-        publish(&published, &[Some(Arc::new(tree())), None, None], 0, false);
+        publish(&published, &[Some(Arc::new(tree())), None, None], 0);
         tokio::select! {
             biased;
             () = &mut waiting => panic!("required snapshot is still unavailable"),
@@ -496,7 +472,6 @@ mod tests {
             &published,
             &[Some(Arc::new(tree())), None, Some(Arc::new(json!({"result":{"sections":[]}})))],
             0,
-            true,
         );
         tokio::time::timeout(Duration::from_secs(1), waiting).await.unwrap();
         assert!(cache.tree().is_some());
@@ -506,7 +481,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn refresh_rejects_pre_refresh_in_flight_snapshot_and_coalesces() {
+    async fn shared_invalidation_rejects_in_flight_snapshots_from_prior_generations() {
         let published = Arc::new(Published::new());
         let cache = WorkspaceCache {
             inner: Arc::new(CacheWorker {
@@ -514,31 +489,30 @@ mod tests {
                 task: tokio::spawn(std::future::pending()),
             }),
         };
-        publish(&published, &[Some(Arc::new(tree())), None, None], 0, true);
-        let mut first = Box::pin(cache.refresh());
+        let other = cache.clone();
+        let initial = [Some(Arc::new(tree())), Some(Arc::new(json!({}))), Some(Arc::new(json!({})))];
+        publish(&published, &initial, 0);
+        assert!(cache.tree().is_some());
+        other.invalidate();
+        assert!(cache.tree().is_none());
+        assert!(cache.personal().is_none());
+        assert!(cache.layout().is_none());
+        let mut waiting = Box::pin(cache.wait_for(true, false, false));
         tokio::select! { biased;
-            () = &mut first => panic!("old published snapshot satisfied refresh"),
+            () = &mut waiting => panic!("old published snapshot satisfied readiness"),
             () = std::future::ready(()) => {}
         }
+        // This answer was already in flight on the prior subscription.
+        publish(&published, &initial, 0);
         assert!(cache.tree().is_none());
-        // This is an answer the prior socket had already begun producing.
-        publish(&published, &[Some(Arc::new(tree())), None, None], 0, true);
-        assert!(cache.tree().is_none());
-        let mut second = Box::pin(cache.refresh());
-        tokio::select! { biased;
-            () = &mut second => panic!("refresh returned without its generation"),
-            () = std::future::ready(()) => {}
-        }
-        publish(&published, &[Some(Arc::new(tree())), None, None], 1, true);
-        assert!(cache.tree().is_none());
+        cache.invalidate();
+        publish(&published, &initial, 1);
+        assert!(other.tree().is_none());
         let mut fresh = tree();
         fresh["data"]["workspace_revision"] = json!(99);
-        publish(&published, &[Some(Arc::new(fresh)), None, None], 2, true);
-        tokio::time::timeout(Duration::from_secs(1), async {
-            tokio::join!(first, second);
-        })
-        .await
-        .unwrap();
+        publish(&published, &[Some(Arc::new(fresh)), None, None], 2);
+        tokio::time::timeout(Duration::from_secs(1), waiting).await.unwrap();
+        assert_eq!(other.tree().unwrap()["data"]["workspace_revision"], 99);
         assert_eq!(cache.tree().unwrap()["data"]["workspace_revision"], 99);
     }
 

@@ -353,17 +353,9 @@ async fn splice(
     // JoinSet also aborts this worker if the service future is cancelled.
     let mut side_workers = tokio::task::JoinSet::new();
     side_workers.spawn(async move {
-        let mut state_changed = false;
         while let Some((line, verdict)) = side_rx.recv().await {
             let Some(cache) = &side_cache else { return };
             if let Some((tree, personal, layout)) = side_requirements(&line) {
-                if state_changed {
-                    // The previous command has actually completed in the daemon.
-                    // A subscription event may still be queued on the cache's
-                    // other socket, so require a post-completion snapshot.
-                    cache.refresh().await;
-                    state_changed = false;
-                }
                 cache.wait_for(tree, personal, layout).await;
             }
             let verdict = owned_check(cache, &line, verdict);
@@ -376,7 +368,8 @@ async fn splice(
                 _ => {
                     let changes_state = changes_cached_state(&line);
                     let line = with_pane_folder(cache.tree().as_deref(), line);
-                    let (line, completion) = side_completion.prepare(line);
+                    let (line, completion) =
+                        side_completion.prepare(line, changes_state.then(|| cache.clone()));
                     if ready_tx.send(Verdict::Rewrite(line)).await.is_err() {
                         return;
                     }
@@ -385,7 +378,6 @@ async fn splice(
                     if !matches!(tokio::time::timeout(SIDE_COMPLETION_WAIT, completion).await, Ok(Ok(()))) {
                         return;
                     }
-                    state_changed |= changes_state;
                 }
             }
         }

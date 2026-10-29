@@ -34,6 +34,15 @@ async fn reply(channel: &mut Channel, buffered: &mut Vec<u8>) -> Value {
 
 #[tokio::test]
 async fn new_tab_uses_the_selection_acknowledged_before_it() {
+    exercise_selection_then_creation(true).await;
+}
+
+#[tokio::test]
+async fn new_tab_on_another_channel_sees_the_acknowledged_selection() {
+    exercise_selection_then_creation(false).await;
+}
+
+async fn exercise_selection_then_creation(same_channel: bool) {
     let sockets = tempfile::tempdir().unwrap();
     let folder_a = tempfile::tempdir().unwrap();
     let folder_b = tempfile::tempdir().unwrap();
@@ -140,33 +149,80 @@ async fn new_tab_uses_the_selection_acknowledged_before_it() {
     let phone = Link::new(phone_stream, Role::Phone, LinkConfig::default(), None);
     let mac = Link::new(mac_stream, Role::Mac, LinkConfig::default(), None);
     let host = tokio::spawn(async move {
-        let incoming = mac.accept().await.unwrap();
-        serve(
-            config,
-            Peer { device_id: "test-phone".into(), session_id: "test-session".into(), video: None },
-            Arc::new(LinkAuth::default()),
-            incoming,
-        )
-        .await;
+        let mut services = tokio::task::JoinSet::new();
+        for _ in 0..if same_channel { 1 } else { 2 } {
+            let incoming = mac.accept().await.unwrap();
+            services.spawn(serve(
+                Arc::clone(&config),
+                Peer { device_id: "test-phone".into(), session_id: "test-session".into(), video: None },
+                Arc::new(LinkAuth::default()),
+                incoming,
+            ));
+        }
+        while let Some(result) = services.join_next().await {
+            result.unwrap();
+        }
         mac.close("test complete");
     });
     let mut channel = phone.open("daemon", json!({})).await.unwrap();
+    let mut mutation_channel =
+        if same_channel { None } else { Some(phone.open("daemon", json!({})).await.unwrap()) };
     let mut buffered = Vec::new();
+    let mut mutation_buffered = Vec::new();
 
     // Warm through the public protocol and prove which selection is cached.
-    channel.send(Bytes::from_static(b"{\"id\":\"warm\",\"cmd\":\"new-tab\",\"pane\":3}\n")).await.unwrap();
-    let warm = reply(&mut channel, &mut buffered).await;
+    let warm = if let Some(mutator) = &mut mutation_channel {
+        // Establish B's cache handle with a read only command, then warm the
+        // shared view through A. B must never mutate before its final new-tab:
+        // otherwise the old per-channel state_changed flag would refresh B
+        // and conceal the missing invalidation from A's acknowledgement.
+        channel.send(Bytes::from_static(b"{\"id\":\"establish\",\"cmd\":\"identify\"}\n")).await.unwrap();
+        let established = reply(&mut channel, &mut buffered).await;
+        assert_eq!(established["id"], "establish");
+        assert_eq!(established["ok"], true);
+        mutator
+            .send(Bytes::from_static(b"{\"id\":\"warm\",\"cmd\":\"new-tab\",\"pane\":3}\n"))
+            .await
+            .unwrap();
+        reply(mutator, &mut mutation_buffered).await
+    } else {
+        channel
+            .send(Bytes::from_static(b"{\"id\":\"warm\",\"cmd\":\"new-tab\",\"pane\":3}\n"))
+            .await
+            .unwrap();
+        reply(&mut channel, &mut buffered).await
+    };
     assert_eq!(warm["id"], "warm");
     assert_eq!(warm["data"]["cwd"], cwd_a);
     assert_eq!(created_rx.recv().await.unwrap(), (json!(cwd_a), 0));
 
     let began = Instant::now();
-    channel.send(Bytes::from_static(
-        b"{\"id\":\"select\",\"cmd\":\"select-tab\",\"surface\":5}\n{\"id\":\"create\",\"cmd\":\"new-tab\",\"pane\":3}\n{\"id\":\"input\",\"cmd\":\"send\",\"surface\":4,\"text\":\"x\"}\n",
-    )).await.unwrap();
+    if let Some(mutator) = &mutation_channel {
+        mutator.send(Bytes::from_static(
+            b"{\"id\":\"select\",\"cmd\":\"select-tab\",\"surface\":5}\n{\"id\":\"input\",\"cmd\":\"send\",\"surface\":4,\"text\":\"x\"}\n",
+        )).await.unwrap();
+    } else {
+        channel.send(Bytes::from_static(
+            b"{\"id\":\"select\",\"cmd\":\"select-tab\",\"surface\":5}\n{\"id\":\"create\",\"cmd\":\"new-tab\",\"pane\":3}\n{\"id\":\"input\",\"cmd\":\"send\",\"surface\":4,\"text\":\"x\"}\n",
+        )).await.unwrap();
+    }
     let key_at =
         tokio::time::timeout(Duration::from_secs(3), key_rx.recv()).await.expect("input forwarded").unwrap();
     let mut answers = HashMap::new();
+    if let Some(mutator) = &mut mutation_channel {
+        while answers.len() < 2 {
+            let answer = reply(mutator, &mut mutation_buffered).await;
+            answers.insert(answer["id"].as_str().unwrap().to_owned(), answer);
+        }
+        // The phone has seen A's mutation acknowledgement. B already had a
+        // cached cwdA before the selection, and no subscription event updates
+        // it. A must invalidate that shared view before exposing this ack.
+        assert_eq!(answers["select"]["ok"], true);
+        channel
+            .send(Bytes::from_static(b"{\"id\":\"create\",\"cmd\":\"new-tab\",\"pane\":3}\n"))
+            .await
+            .unwrap();
+    }
     while answers.len() < 3 {
         let answer = reply(&mut channel, &mut buffered).await;
         answers.insert(answer["id"].as_str().unwrap().to_owned(), answer);
@@ -183,6 +239,9 @@ async fn new_tab_uses_the_selection_acknowledged_before_it() {
     let input_latency = key_at.duration_since(began);
 
     channel.close("eof", "test complete").await;
+    if let Some(mutator) = mutation_channel {
+        mutator.close("eof", "test complete").await;
+    }
     phone.close("test complete");
     tokio::time::timeout(Duration::from_secs(3), host).await.expect("host shutdown").unwrap();
     fake_daemon.abort();

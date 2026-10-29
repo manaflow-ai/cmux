@@ -12,18 +12,23 @@ pub(crate) struct SideCompletion(Mutex<Option<Pending>>);
 struct Pending {
     id: Value,
     added_id: bool,
+    invalidates: Option<crate::workspace_cache::WorkspaceCache>,
     done: oneshot::Sender<()>,
 }
 
 impl SideCompletion {
-    pub(crate) fn prepare(&self, line: Vec<u8>) -> (Vec<u8>, oneshot::Receiver<()>) {
+    pub(crate) fn prepare(
+        &self,
+        line: Vec<u8>,
+        invalidates: Option<crate::workspace_cache::WorkspaceCache>,
+    ) -> (Vec<u8>, oneshot::Receiver<()>) {
         let mut request: Value = serde_json::from_slice(&line).expect("policy checked request JSON");
         let added_id = request.get("id").is_none();
         if added_id {
             request["id"] = Value::String(format!("mobile-side-{}", uuid::Uuid::new_v4()));
         }
         let (done, wait) = oneshot::channel();
-        *self.0.lock().unwrap() = Some(Pending { id: request["id"].clone(), added_id, done });
+        *self.0.lock().unwrap() = Some(Pending { id: request["id"].clone(), added_id, invalidates, done });
         let line = if added_id { serde_json::to_vec(&request).unwrap() } else { line };
         (line, wait)
     }
@@ -40,6 +45,12 @@ impl SideCompletion {
             }
             pending.take().unwrap()
         };
+        // Invalidate synchronously before waking the worker or exposing this
+        // reply to the phone. A request on any other channel after this ack
+        // must wait for a snapshot newer than this completed mutation.
+        if let Some(cache) = pending.invalidates {
+            cache.invalidate();
+        }
         let _ = pending.done.send(());
         if !pending.added_id {
             return line;
@@ -58,7 +69,8 @@ mod tests {
     #[test]
     fn only_the_matching_reply_completes_a_request() {
         let completion = SideCompletion::default();
-        let (line, mut wait) = completion.prepare(br#"{"id":12,"cmd":"select-tab","surface":5}"#.to_vec());
+        let (line, mut wait) =
+            completion.prepare(br#"{"id":12,"cmd":"select-tab","surface":5}"#.to_vec(), None);
         assert_eq!(serde_json::from_slice::<Value>(&line).unwrap()["id"], 12);
         completion.answer(br#"{"id":12,"event":"tree-changed"}"#.to_vec());
         completion.answer(br#"{"id":13,"ok":true}"#.to_vec());
@@ -71,7 +83,7 @@ mod tests {
     #[test]
     fn an_internal_id_does_not_escape_to_the_phone() {
         let completion = SideCompletion::default();
-        let (line, mut wait) = completion.prepare(br#"{"cmd":"identify"}"#.to_vec());
+        let (line, mut wait) = completion.prepare(br#"{"cmd":"identify"}"#.to_vec(), None);
         let request: Value = serde_json::from_slice(&line).unwrap();
         let reply = serde_json::json!({"id":request["id"],"ok":true});
         let reply = completion.answer(reply.to_string().into_bytes());
