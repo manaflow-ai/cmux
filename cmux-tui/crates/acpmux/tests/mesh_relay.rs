@@ -620,13 +620,39 @@ async fn mesh_controls_start_and_stop_through_shared_sender_and_replay_success()
     let hub = hub();
     let fake = Arc::new(FakeHub::default());
     let dir = tempfile::tempdir().unwrap();
+    let root = std::fs::canonicalize(dir.path()).unwrap();
+    let cwd = root.join("project");
+    std::fs::create_dir(&cwd).unwrap();
+    // The process uses daemon_env's private HOME and the hub's explicit Config above;
+    // only this test's root is authorized, regardless of the runner's own config.
+    hub.config.write().await.web_roots = vec![root.to_string_lossy().into_owned()];
     let path = dir.path().join("controls.json");
     let hook = Arc::new(MeshControlHook::new(control_allowlist(), Some(path.clone())));
     let relay = MeshRelay::start(&hub, fake.clone(), hook.clone(), quick());
     let sender = MeshControlRelay::new(fake.clone(), Sender::default());
+    let outside = tempfile::tempdir().unwrap();
+    let params = json!({"cwd": outside.path(), "mcpServers": [],
+        "_meta":{"acpmux":{"harness":"fake", "name":"outside-root", "policy":"ask"}}});
+    let refused = ControlRequest::new(
+        Recipient::Daemon { daemon_id: "inst_b".into() },
+        ControlCommand::Start { params: params.as_object().unwrap().clone() },
+        "start-outside-root".into(),
+    )
+    .unwrap();
+    let receipt = submit(&sender, &refused).await.unwrap();
+    fake.until("cwd refusal", |s| !s.acked(&receipt.message_id).is_empty()).await;
+    let ack = fake.with(|s| s.acked(&receipt.message_id)[0].clone());
+    assert_eq!(ack.state, AckState::Refused, "{ack:?}");
+    assert!(
+        ack.detail.as_deref().is_some_and(|detail| {
+            detail.contains("cwd is refused") && detail.contains("webRoots")
+        }),
+        "{ack:?}"
+    );
+    assert!(hub.resolve("outside-root").is_err());
     for by_name in [false, true] {
         let name = if by_name { "mesh-named" } else { "mesh-id" };
-        let params = json!({"cwd": std::env::temp_dir(), "mcpServers": [],
+        let params = json!({"cwd": cwd, "mcpServers": [],
             "_meta":{"acpmux":{"harness":"fake", "name":name, "policy":"ask"}}});
         let request = ControlRequest::new(
             Recipient::Daemon { daemon_id: "inst_b".into() },

@@ -1,4 +1,8 @@
 //! Real daemon RPC dispatch to the shared mesh sender; no HTTP credentials or agent processes.
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+const HERMETIC: daemon_env::Process = daemon_env::Process::deny();
+
 use acpmux::config::Config;
 use acpmux::hub::Hub;
 use acpmux::mesh::{
@@ -7,7 +11,9 @@ use acpmux::mesh::{
 use acpmux::rpc::{Message, method};
 use acpmux::server::{Origin, serve_connection_with};
 use futures::future::BoxFuture;
+use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::sync::mpsc;
@@ -124,4 +130,64 @@ async fn local_controls_use_shared_mesh_wire_and_keep_queued_distinct_from_execu
         assert!(refused["error"].is_object(), "{refused}");
     }
     assert_eq!(mesh.0.lock().unwrap().len(), 3, "remote callers borrowed daemon identity");
+}
+
+#[tokio::test]
+async fn a_top_level_session_id_cannot_forward_mesh_enqueue_to_a_peer() {
+    use tokio_tungstenite::tungstenite::Message as Ws;
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let forwarded = Arc::new(AtomicUsize::new(0));
+    let count = forwarded.clone();
+    let server = tokio::spawn(async move {
+        let (tcp, _) = listener.accept().await.unwrap();
+        let mut ws = tokio_tungstenite::accept_async(tcp).await.unwrap();
+        while let Some(Ok(Ws::Text(text))) = ws.next().await {
+            let Ok(Message::Request { id, method: name, .. }) = Message::parse(&text) else {
+                continue;
+            };
+            let result = match name.as_str() {
+                method::INITIALIZE => json!({"protocolVersion": 1,
+                    "_meta": {"acpmux": {"origin": "peer", "features": []}}}),
+                method::MUX_WATCH => {
+                    json!({"sessions": [{"sessionId": "remote-id", "name": "remote"}]})
+                }
+                method::MUX_MESH_CONTROL => {
+                    count.fetch_add(1, Ordering::SeqCst);
+                    json!({"unexpectedPeerForward": true})
+                }
+                _ => json!({}),
+            };
+            if ws.send(Ws::Text(Message::ok(id, result).to_line().into())).await.is_err() {
+                break;
+            }
+        }
+    });
+    let config = Config::default();
+    let hub = Hub::new(config.clone(), Box::new(acpmux::store::MemoryStore::default()));
+    let mesh = Arc::new(FakeMesh::default());
+    assert!(hub.mesh.set(mesh.clone()).is_ok());
+    // A lease keeps the fake peer out of the user's config and ends explicitly below.
+    let (lease, mut settled) = hub
+        .lease_peer("other", &format!("ws://{address}"), "test-token".into(), None, false, &config)
+        .unwrap();
+    tokio::time::timeout(Duration::from_secs(10), settled.changed()).await.unwrap().unwrap();
+    assert!(hub.resolve_remote("other/remote").is_some());
+    let mut local = Rpc::new(&hub, Origin::Local);
+    local.call(method::INITIALIZE, json!({})).await;
+    let reply = local
+        .call(
+            method::MUX_MESH_CONTROL,
+            json!({
+                "sessionId": "other/remote", "op": "stop", "to": {"name": "review"},
+                "idempotencyKey": "local-mesh-only"
+            }),
+        )
+        .await;
+    hub.end_peer_lease(&lease);
+    server.abort();
+    let _ = server.await;
+    assert_eq!(reply["result"]["state"], "queued", "{reply}");
+    assert_eq!(mesh.0.lock().unwrap().len(), 1);
+    assert_eq!(forwarded.load(Ordering::SeqCst), 0);
 }

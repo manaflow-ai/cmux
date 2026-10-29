@@ -592,7 +592,7 @@ async fn run_control(hub: &Arc<Hub>, message: &InMessage) -> Option<Ack> {
                 None => Ok(serde_json::json!({"resumed": false})),
             }
         }
-        _ => unreachable!(),
+        _ => return Some(Ack::refused("unsupported control operation")),
     };
     match result {
         Ok(result) => {
