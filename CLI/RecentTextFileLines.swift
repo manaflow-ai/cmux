@@ -8,7 +8,7 @@ enum RecentTextFileLines {
     /// 8 times `maxBytes`) until the window holds a whole line, without the
     /// partial line the window starts in. `nil` when the file cannot be read,
     /// is empty, or is not UTF-8.
-    static func read(path: String, maxBytes: UInt64) -> [String]? {
+    static func read(path: String, maxBytes: UInt64, endingAt end: UInt64? = nil) -> [String]? {
         let expandedPath = NSString(string: path).expandingTildeInPath
         guard let handle = try? FileHandle(forReadingFrom: URL(fileURLWithPath: expandedPath)) else {
             return nil
@@ -60,5 +60,13 @@ enum RecentTextFileLines {
         } catch {
             return nil
         }
+    }
+
+    /// The byte size of the file at `path`, from its metadata, without reading
+    /// it; `nil` when it cannot be read.
+    static func byteSize(path: String) -> UInt64? {
+        let expandedPath = NSString(string: path).expandingTildeInPath
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: expandedPath) else { return nil }
+        return (attributes[.size] as? NSNumber)?.uint64Value
     }
 }

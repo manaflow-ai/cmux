@@ -137,6 +137,47 @@ import Testing
         #expect(pair?.assistant == "OK")
     }
 
+    // MARK: - The transcript as it was when the hook started (ruling R40)
+
+    private func transcriptFile(_ text: String) throws -> URL {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("difficulty-tail-\(UUID().uuidString).jsonl")
+        try text.write(to: url, atomically: true, encoding: .utf8)
+        return url
+    }
+
+    /// The JSONL transcript is append-only: up to the size recorded at hook start, its bytes are
+    /// what was on disk then. What Claude Code or the user appended after is not read.
+    @Test func boundedReadIgnoresBytesAfterTheRecordedEnd() throws {
+        let url = try transcriptFile("a\nb\n")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let end = try #require(RecentTextFileLines.byteSize(path: url.path))
+        let handle = try FileHandle(forWritingTo: url)
+        try handle.seekToEnd()
+        try handle.write(contentsOf: Data("c\n".utf8))
+        try handle.close()
+
+        #expect(end == 4)
+        #expect(RecentTextFileLines.read(path: url.path, maxBytes: 512, endingAt: end) == ["a", "b", ""])
+        #expect(RecentTextFileLines.read(path: url.path, maxBytes: 512) == ["a", "b", "c", ""])
+    }
+
+    /// A window that starts inside a line drops that partial line, also when it ends at a recorded
+    /// size: the 8 bytes before byte 14 are "AAAA\nBB\n".
+    @Test func boundedReadDropsThePartialFirstLine() throws {
+        let url = try transcriptFile("AAAAAAAAAA\nBB\nCC\n")
+        defer { try? FileManager.default.removeItem(at: url) }
+        #expect(RecentTextFileLines.read(path: url.path, maxBytes: 8, endingAt: 14) == ["BB", ""])
+    }
+
+    /// A transcript now shorter than at hook start was truncated or replaced: nothing is read.
+    @Test func boundedReadOfAShorterFileIsNil() throws {
+        let url = try transcriptFile("a\nb\n")
+        defer { try? FileManager.default.removeItem(at: url) }
+        #expect(RecentTextFileLines.read(path: url.path, maxBytes: 512, endingAt: 5) == nil)
+        #expect(RecentTextFileLines.read(path: url.path, maxBytes: 512, endingAt: 4) == ["a", "b", ""])
+        #expect(RecentTextFileLines.byteSize(path: url.path + ".missing") == nil)
+    }
+
     @Test func throttleWaitsTheMinInterval() {
         let min = DifficultyAssessmentConfig.minInterval
         let stamp = t0.timeIntervalSince1970

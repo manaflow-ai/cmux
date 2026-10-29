@@ -234,6 +234,17 @@ struct CLIDifficultyAssessmentHookTests {
         #expect(run.rated(user: Self.step7), "saw \(run.classifierPrompts())")
     }
 
+    /// The transcript was truncated or replaced during naming's call: what the hook recorded at its
+    /// start is gone, so nothing is rated rather than a prompt read from another file.
+    @Test func skipsWhenTheTranscriptShrankSinceTheHookStarted() throws {
+        let run = try Fixture(probe: Probe(), answer: "Hard.", transcript: Fixture.sixExchanges + [Fixture.userLine(Self.step7)], truncateDuringNaming: true)
+        defer { run.cleanup() }
+        try run.stop(lastAssistantMessage: "Planned the cut-over for step 7.")
+        #expect(try String(contentsOf: run.transcript, encoding: .utf8).isEmpty, "naming must have run")
+        #expect(run.classifierPrompts().isEmpty)
+        #expect(run.priorityParams().isEmpty)
+    }
+
     @Test func ratesAFirstTurnFromTheStopInput() throws {
         let run = try Fixture(probe: Probe(), answer: "Hard.", transcript: [Fixture.userLine("Plan a zero-downtime migration.")])
         defer { run.cleanup() }
@@ -277,14 +288,16 @@ private struct Fixture {
     ///   hook's difficulty probe reaches cmux, as Claude Code writes the turn's reply after the
     ///   async `Stop` hook has started.
     /// - Parameter duringNaming: lines the fake `claude` appends while it answers auto-naming's
-    ///   prompt, as the user sends the next prompt during that call.
+    ///   prompt, as the user sends the next prompt during that call. `truncateDuringNaming`
+    ///   empties the transcript then instead.
     init(
         probe: Tests.Probe,
         answer: String,
         paneEffort: String? = nil,
         transcript lines: [String] = Fixture.sixExchanges,
         lateReply: String? = nil,
-        duringNaming: [String] = []
+        duringNaming: [String] = [],
+        truncateDuringNaming: Bool = false
     ) throws {
         context = try Harness.makeContext(name: "difficulty-hook")
         self.paneEffort = paneEffort
@@ -296,6 +309,8 @@ private struct Fixture {
         if !duringNaming.isEmpty {
             try (duringNaming.joined(separator: "\n") + "\n").write(to: pending, atomically: true, encoding: .utf8)
         }
+        let truncate = context.root.appendingPathComponent("truncate-during-naming")
+        if truncateDuringNaming { try Data().write(to: truncate) }
 
         // Answers the rating prompt with `answer`, logging the prompt and the effort it ran at;
         // answers auto-naming's prompt with a title.
@@ -315,6 +330,7 @@ private struct Fixture {
             if [ -f '\(pending.path)' ]; then
               cat '\(pending.path)' >> '\(transcript.path)' && mv '\(pending.path)' '\(pending.path).done'
             fi
+            [ -f '\(truncate.path)' ] && : > '\(transcript.path)'
             printf '%s\\n' 'Sync engine redesign'
             ;;
         esac
@@ -364,9 +380,7 @@ private struct Fixture {
         #expect(result.status == 0, Comment(rawValue: result.stderr))
     }
 
-    func appendToTranscript(_ line: String) throws {
-        try Self.append(line, to: transcript)
-    }
+    func appendToTranscript(_ line: String) throws { try Self.append(line, to: transcript) }
 
     private static func append(_ line: String, to url: URL) throws {
         let handle = try FileHandle(forWritingTo: url)
