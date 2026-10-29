@@ -24,6 +24,7 @@ import {
   type VmIdleObservation,
   type VmIdleProbe,
 } from "../services/vms/idlePause";
+import { VmBillingGateway, noOpVmBillingGateway } from "../services/vms/billingGateway";
 import { enforceVmIdlePause } from "../services/vms/idlePauseJob";
 import { parseCreateIdlePause, parseIdlePauseBody } from "../services/vms/idlePauseRoute";
 import { VmProviderGateway, type VmProviderGatewayShape } from "../services/vms/providerGateway";
@@ -506,7 +507,12 @@ function cronFakes(
       return Effect.void;
     },
   } as unknown as VmProviderGatewayShape;
-  const layer = Layer.mergeAll(Layer.succeed(VmRepository, repo), Layer.succeed(VmProviderGateway, provider));
+  // main's access check (requireAccessibleUserVm) also reads the billing gateway.
+  const layer = Layer.mergeAll(
+    Layer.succeed(VmRepository, repo),
+    Layer.succeed(VmProviderGateway, provider),
+    Layer.succeed(VmBillingGateway, noOpVmBillingGateway()),
+  );
   /** A resume as reservePausedResume writes it: running again, observation dropped, updatedAt moved. */
   const resume = (id: string, at: number) => update(id, (row) => ({
     ...row,
