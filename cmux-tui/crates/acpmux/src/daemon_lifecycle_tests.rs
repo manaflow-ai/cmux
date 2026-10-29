@@ -430,3 +430,59 @@ async fn idle_exit_owner_level_gone_then_work_ends_exits_within_a_minute() {
          no live owner and no work"
     );
 }
+
+/// Live work read through a counter: the reads walk every session and try its locks.
+#[derive(Default)]
+struct CountedFacts {
+    reads: AtomicUsize,
+    owner: std::sync::Mutex<Option<OwnerState>>,
+}
+
+impl Liveness for CountedFacts {
+    fn live_agents(&self) -> usize {
+        self.reads.fetch_add(1, Ordering::SeqCst);
+        0
+    }
+
+    fn live_processes(&self) -> usize {
+        0
+    }
+
+    fn owner(&self) -> OwnerState {
+        self.owner.lock().unwrap().unwrap_or(OwnerState::Unnamed)
+    }
+}
+
+// Trains 333 and 338: the exit loop read live work at every status change
+// while the app ran (or with no app and the CLI's daemon staying), which the
+// rule never needs then; the extra walks of every session ran beside the
+// event log's writer and a crash test lost its last records. The owner that
+// keeps the daemon decides before the work is read.
+#[tokio::test]
+async fn idle_exit_owner_level_no_work_read_while_the_owner_keeps_the_daemon() {
+    for (owner, unowned_keeps) in [(OwnerState::Alive, false), (OwnerState::Unnamed, true)] {
+        let clock = ManualClock::new();
+        let presence = Arc::new(ClientPresence::default());
+        let facts = Arc::new(CountedFacts::default());
+        *facts.owner.lock().unwrap() = Some(owner);
+        let exit = {
+            let (clock, presence, facts) = (clock.clone(), presence.clone(), facts.clone());
+            tokio::spawn(async move {
+                wait_for_daemon_exit(&presence, clock, facts.as_ref(), unowned_keeps).await;
+            })
+        };
+        for _ in 0..10 {
+            presence.work_changed();
+            settle().await;
+        }
+        clock.advance(GRACE * 2);
+        settle().await;
+        assert!(!exit.is_finished(), "{owner:?}: exited while the owner keeps the daemon");
+        assert_eq!(
+            facts.reads.load(Ordering::SeqCst),
+            0,
+            "{owner:?}: live work was read while the owner keeps the daemon"
+        );
+        exit.abort();
+    }
+}
