@@ -2901,7 +2901,7 @@ class FiveSessionsTests(unittest.TestCase):
                 unittest.mock.patch.object(bench_launch, "seed_hang_report_consent", lambda _app: ""), \
                 unittest.mock.patch.multiple(ib, measure=measure, fresh_session=lambda _app: {}, threads=lambda _pid: {},
                                              host_facts=lambda: {"host": "h", "macos": "26"},
-                                             run_sample=lambda *a: events.append("sample")), \
+                                             sample_threads=lambda *a: events.append("sample")), \
                 unittest.mock.patch.object(ib.procs, "Instance", lambda app, pid: types.SimpleNamespace(pid=pid)), \
                 unittest.mock.patch.object(ib.time, "sleep", sleeps.append), \
                 contextlib.redirect_stdout(io.StringIO()) as out, self.assertRaises(SystemExit) as raised:

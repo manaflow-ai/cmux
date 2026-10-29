@@ -39,14 +39,6 @@ Sessions (--sessions):
   light         the launch window with its terminal (Home's pages run in Chromium by default)
   light-webkit  the same with browser.defaultEngine webkit: no Chromium at all
   light-hidden  the light session with the app hidden (Show/Hide All Windows hidden=true)
-  minimized     the light session with its window minimized (minimizeWindow)
-  light-hidden and minimized are hidden-wake sessions: they fail unless the app is hidden (no main window visible)
-  or every main window is miniaturized at both ends of the window and after the wake trace, and they name every
-  main-thread wake source above 0.1/s in HIDDEN-WAKE lines (`hidden_wake_sources`): a DTrace trace of the main
-  thread right after the window (--wake-trace) that gives each wake to the first item it ran, the main run loop's
-  repeating timer fires and the wakeup ledger, one list per basis, with the owners' frames from 3 x --sample
-  `/usr/bin/sample` runs after the trace. A run whose shipping mode is not confirmed, or whose callbacks atos did not
-  name, prints HIDDEN-WAKE-UNCONFIRMED instead.
   Each session starts from an empty saved session (`fresh_session`).
   stress-static  STRESS with its pages served without their rAF spinner (STRESS's own pages animate: not idle)
   stress   STRESS (scripts/cmux-next/perf-stress-session.py: 60 workspaces, a 12-pane grid of 6 tabs each,
@@ -187,8 +179,7 @@ IDLE-BUDGET-TEARDOWN for a teardown step that failed (the later steps still run)
 mismatch, an unread rAF rate or a failed or unequal chrome-static, IDLE-BUDGET-THERMAL for a marked session,
 IDLE-BUDGET-FRAME-CLIENTS when the build has debug.wakeups, IDLE-BUDGET-WINDOWSERVER per session,
 IDLE-BUDGET-READER-FAILED for a D15 reader that failed, POWER-BREAKDOWN / -OWNER / -UNNAMED / -WINDOWSERVER for the
-power sessions and POWER-OVER <owner> <mW>, IDLE-BUDGET-MODE with the shipping fields, for a hidden session
-`HIDDEN-WAKE {json}` per source and one `HIDDEN-WAKE-TOTAL {json}` with sha and host, a Markdown table, and --json
+power sessions and POWER-OVER <owner> <mW>, IDLE-BUDGET-MODE with the shipping fields, a Markdown table, and --json
 with every sample.
 
 Results (cmux-perf-result/v1, p12-perf-process-063): each cmux session that measured writes its perf cron rows
@@ -458,9 +449,8 @@ def saver_state(reply):
 
 
 def measure(app, instance, seconds, read_anim=None, attribute=False, shown_tab=None, workdir=None, d15=None,
-            ledger_limit=20, hidden_hosts=()):
-    """Counters of every process of the app over `seconds` with no input (`ledger_limit` busiest ledger owners,
-    None: all). The window's end reads (window_end and
+            hidden_hosts=()):
+    """Counters of every process of the app over `seconds` with no input. The window's end reads (window_end and
     the debug.webui census the kinds need) sit outside every counter bracket, the app's own counters included, so
     the bench's reads are never counted. Each row's kind and `hidden` come from one WindowKinds (the `last` set's
     own `ps` rows, the census and `shown_tab`, build_tabs's), which also names the power owners; a process that
@@ -491,7 +481,7 @@ def measure(app, instance, seconds, read_anim=None, attribute=False, shown_tab=N
         window.prepare()
     time.sleep(QUIET_GAP_S)  # bench: the start reads' aftermath (the page's POST, the RPC's reply) ends before the counters
     hangs0 = rpc("debug.hangs", {"limit": 0})
-    ledger0 = rpc("debug.wakeups", {"run_loop": True})
+    ledger0 = rpc("debug.wakeups")
     sources0 = frame_sources(app) if attribute and app is not None else None
     counters0 = app_counters(app) if app is not None else {}
     server0 = d15.windowserver()
@@ -546,7 +536,7 @@ def measure(app, instance, seconds, read_anim=None, attribute=False, shown_tab=N
               "windowserver": windowserver_report(windowserver_rate(server0, server1), None, server1[2])}
     if "main_wakes" in hangs0 and "main_wakes" in hangs1:
         result["main_wakes_per_s"] = round((hangs1["main_wakes"] - hangs0["main_wakes"]) / elapsed, 3)
-    owners = ledger_rates(ledger0, ledger1, elapsed, limit=ledger_limit)
+    owners = ledger_rates(ledger0, ledger1, elapsed)
     if owners is not None:
         result["ledger"] = owners
     if owners is not None or attribute:
@@ -560,8 +550,6 @@ def measure(app, instance, seconds, read_anim=None, attribute=False, shown_tab=N
         result["app_counter_rates"] = rates
     if ledger1.get("main_run_loop"):
         result["main_run_loop_timers"] = run_loop_timers(ledger1["main_run_loop"])
-        if ledger0.get("main_run_loop"):
-            result["main_run_loop_timer_fires"] = timer_fires(ledger0["main_run_loop"], ledger1["main_run_loop"], elapsed)
     return result
 
 
@@ -861,696 +849,36 @@ def window_state(app):
     return {"main": main, "any_key": any(w.get("key") for w in windows)}
 
 
-def run_sample(pid, seconds, path):
-    """`/usr/bin/sample` of `pid` for `seconds` after the window (it suspends the process to sample, so it never runs
-    inside the measured window); its text, "" when it failed."""
+def sample_threads(pid, seconds, path):
+    """`/usr/bin/sample` of `pid` for `seconds` after the window (it suspends the process to sample, so it
+    never runs inside the measured window); per thread, the frames with the most samples outside the wait."""
     try:
         subprocess.run(["/usr/bin/sample", str(pid), str(seconds), "-mayDie", "-file", path], capture_output=True,
                        timeout=seconds + 60)
-        return open(path, errors="replace").read()
+        text = open(path, errors="replace").read()
     except (OSError, subprocess.TimeoutExpired):
-        return ""
-
-
-BLOCKING_SYMBOLS = ("mach_msg", "__psynch_cvwait", "__workq_kernreturn", "kevent", "__semwait", "__select", "__ulock_wait")
-WAIT_SYMBOLS = BLOCKING_SYMBOLS + ("start_wqthread", "thread_start", "_pthread_start")
-THREAD_HEAD_RE = re.compile(r"\s{4}(\d+) Thread_\d+(.*)")
-FRAME_RE = re.compile(r"[\s+!:|]*(\d+) (.+?)\s+\(in ([^)]+)\)")
-
-
-def call_graph(text):
-    """The `Call graph:` part of a `/usr/bin/sample` report."""
-    return text.split("Call graph:", 1)[-1].split("Total number in stack", 1)[0]
-
-
-def threads_from_sample(text):
-    """Per thread of a `/usr/bin/sample` report, the frames with the most samples outside the wait."""
+        return {}
+    graph = text.split("Call graph:", 1)[-1].split("Total number in stack", 1)[0]
     threads_out = {}
     current = None
-    for line in call_graph(text).splitlines():
-        head = THREAD_HEAD_RE.match(line)
+    for line in graph.splitlines():
+        head = re.match(r"\s{4}(\d+) Thread_\d+(.*)", line)
         if head:
             name = head.group(2).strip(" :") or "thread"
             current = {"samples": int(head.group(1)), "frames": {}}
             threads_out[f"{name} ({head.group(1)})"] = current
             continue
-        frame = FRAME_RE.match(line)
+        frame = re.match(r"[\s+!:|]*(\d+) (.+?)\s+\(in ([^)]+)\)", line)
         if current is not None and frame:
             count, symbol, image = int(frame.group(1)), frame.group(2), frame.group(3)
-            if any(wait in symbol for wait in WAIT_SYMBOLS):
+            if any(wait in symbol for wait in ("mach_msg", "__psynch_cvwait", "__workq_kernreturn", "kevent", "__semwait",
+                                                "__select", "__ulock_wait", "start_wqthread", "thread_start", "_pthread_start")):
                 continue
             key = f"{symbol} ({image})"
             current["frames"][key] = max(current["frames"].get(key, 0), count)
     for entry in threads_out.values():
         entry["frames"] = sorted(entry["frames"].items(), key=lambda kv: -kv[1])[:12]
     return threads_out
-
-
-# ---------------------------------------------------------------------------------------------------------
-# Hidden main wakes: who wakes the main thread while no window can be seen
-
-# CFRunLoop's callout trampolines (CoreFoundation CFRunLoop.c), the frame below __CFRunLoopRun that says why the main
-# thread is awake. A timer, a source, a main-queue drain or a block wakes the run loop; observers run on every wake
-# one of those causes, so they are listed but never counted as a cause. Chromium's MessagePumpCFRunLoopBase
-# (base/message_loop/message_pump_apple.mm) has the same split: a work source and a delayed-work timer wake it,
-# observers only bracket the loop.
-RUN_LOOP_CALLOUTS = {
-    "__CFRUNLOOP_IS_CALLING_OUT_TO_A_TIMER_CALLBACK_FUNCTION__": "timer",
-    "__CFRUNLOOP_IS_CALLING_OUT_TO_A_SOURCE0_PERFORM_FUNCTION__": "source0",
-    "__CFRUNLOOP_IS_CALLING_OUT_TO_A_SOURCE1_PERFORM_FUNCTION__": "source1",
-    "__CFRUNLOOP_IS_SERVICING_THE_MAIN_DISPATCH_QUEUE__": "main-queue",
-    "__CFRUNLOOP_IS_CALLING_OUT_TO_A_BLOCK__": "block",
-    "__CFRUNLOOP_IS_CALLING_OUT_TO_AN_OBSERVER_CALLBACK_FUNCTION__": "observer",
-}
-# The trace's kind codes (D keeps integers in thread-locals); 0 is a wake that no callout claimed.
-TRACE_KIND_CODES = {"no-callout": 0, "timer": 1, "source0": 2, "source1": 3, "main-queue": 4, "block": 5, "observer": 6}
-TRACE_KINDS = {code: kind for kind, code in TRACE_KIND_CODES.items()}
-# The (function, item) key of each callout, as DTrace expressions on its entry (CFRunLoop.c's callout signatures):
-# a timer by its callback and CFRunLoopTimerRef, a source0 by its perform function and info, a source1 by its perform
-# function and info (its fifth argument), a block by its invoke pointer (Block_layout.invoke, 16 bytes in), an
-# observer by its callback and CFRunLoopObserverRef. The main-queue drain is keyed by each item it runs instead.
-CALLOUT_KEYS = {"timer": ("arg0", "arg1"), "source0": ("arg0", "arg1"), "source1": ("arg0", "arg4"),
-                "block": ("*(uint64_t *)copyin(arg0 + 16, 8)", "0"), "observer": ("arg0", "arg1")}
-# A Swift job's RunJob/ResumeTask (swift/ABI/Task.h Job: HeapObject, SchedulerPrivate[2], Flags, Id, Voucher,
-# Reserved, then the function): for a task, the partial function it resumes.
-SWIFT_JOB_FUNCTION_OFFSET = 56
-ADDRESS_MASK = 0x7FFFFFFFFFFF  # drops the pointer-auth bits
-WAKE_CAUSES = ("timer", "source0", "source1", "main-queue", "block")
-# Where the OS's images live (the dyld shared cache's images have these paths too); every other image (the app
-# binary, its frameworks, Sentry, Chromium Embedded Framework) is an owner.
-OS_IMAGE_PREFIXES = ("/System/", "/usr/lib/", "/usr/libexec/", "/Library/Apple/")
-# Only for an image the report gives no `Binary Images:` path for: the OS images most often on its paths.
-FALLBACK_OS_IMAGES = {"CoreFoundation", "Foundation", "AppKit", "HIToolbox", "SkyLight", "QuartzCore", "CoreGraphics",
-                      "CoreText", "CFNetwork", "IOKit", "Security", "Metal", "CoreVideo", "CoreDisplay", "ViewBridge",
-                      "SwiftUI", "SwiftUICore", "AttributeGraph", "Combine", "Observation", "CoreServices", "Network",
-                      "LaunchServices", "AE", "CarbonCore", "RunningBoardServices", "HIServices", "CoreUI", "dyld"}
-# Trampolines: a frame in these images with no owner below it passes its samples down to the frame that does the
-# work (a run-loop, dispatch, runtime or Swift job frame does none itself).
-TRAMPOLINE_IMAGES = {"CoreFoundation", "Foundation", "libdispatch.dylib", "libobjc.A.dylib", "libswift_Concurrency.dylib"}
-SWIFT_THUNKS = ("thunk for ", "reabstraction thunk", "partial apply for ", "@objc ", "merged ")
-BINARY_IMAGE_RE = re.compile(r"^\s*(0x[0-9a-fA-F]+)\s+-\s+(\S+)\s+.*?<[0-9A-Fa-f-]+>\s+(/.+?)\s*$")
-ATOS_RE = re.compile(r"(.+?) \(in ([^)]+)\)")
-
-
-def image_ranges(text):
-    """[(start, end, path)] of a `/usr/bin/sample` report's `Binary Images:` part: where each image is loaded in that
-    process (an end of `???` makes a one-byte range)."""
-    out = []
-    for line in text.split("Binary Images:", 1)[1].splitlines() if "Binary Images:" in text else []:
-        match = BINARY_IMAGE_RE.match(line)
-        if match:
-            start = int(match.group(1), 16)
-            end = int(match.group(2), 16) if match.group(2).startswith("0x") else start
-            out.append((start, end, match.group(3)))
-    return out
-
-
-def binary_images(text):
-    """{image name: path} from a `/usr/bin/sample` report's `Binary Images:` part (the call graph's `(in NAME)` is
-    the image file's name)."""
-    images = {}
-    for _start, _end, path in image_ranges(text):
-        images.setdefault(os.path.basename(path), path)
-    return images
-
-
-def image_at(address, ranges):
-    """The path of the image loaded at `address` (image_ranges), or None."""
-    return next((path for start, end, path in ranges or () if start <= address <= end), None)
-
-
-def is_system_image(image, images=None):
-    """An OS image (by its path in the report), whose frames do not name an owner."""
-    path = (images or {}).get(image)
-    if path:
-        return path.startswith(OS_IMAGE_PREFIXES)
-    return image in FALLBACK_OS_IMAGES or (image.startswith("lib") and image.endswith(".dylib"))
-
-
-def is_wait(node):
-    return any(wait in node["symbol"] for wait in BLOCKING_SYMBOLS)
-
-
-def names_no_owner(node):
-    """True for a frame that can not name an owner: an OS image, or a Swift thunk with a frame below it."""
-    return node["system"] or (node["symbol"].startswith(SWIFT_THUNKS) and bool(node["children"]))
-
-
-def main_thread_tree(text):
-    """The main thread's call tree in a `/usr/bin/sample` report, nested {symbol, image, system, count, children}
-    (the thread on com.apple.main-thread, else the first thread); None when the report has no thread."""
-    images = binary_images(text)
-    order = []
-    stack = []
-    for line in call_graph(text).splitlines():
-        head = THREAD_HEAD_RE.match(line)
-        if head:
-            thread = {"symbol": head.group(2).strip(" :") or "thread", "image": "", "system": True,
-                      "count": int(head.group(1)), "children": []}
-            order.append(thread)
-            stack = [(-1, thread)]
-            continue
-        frame = FRAME_RE.match(line)
-        if not stack or not frame:
-            continue
-        depth = frame.start(1)
-        node = {"symbol": frame.group(2), "image": frame.group(3), "system": is_system_image(frame.group(3), images),
-                "count": int(frame.group(1)), "children": []}
-        while len(stack) > 1 and stack[-1][0] >= depth:
-            stack.pop()
-        stack[-1][1]["children"].append(node)
-        stack.append((depth, node))
-    main = [thread for thread in order if "com.apple.main-thread" in thread["symbol"]]
-    return (main or order or [None])[0]
-
-
-def owner_name(node):
-    return f"{node['symbol'][:120]} ({node['image']})"
-
-
-def busy(node):
-    """Samples of `node` that ran: its count less the samples blocked in a wait below it (a nested run loop, a
-    condition wait), which are not wake time."""
-    def waited(n):
-        return n["count"] if is_wait(n) else sum(waited(child) for child in n["children"])
-    return node["count"] - waited(node)
-
-
-def attribute(node, label, add):
-    """Gives each sample below a callout to its owner: the first frame in an owner image takes all of its running
-    samples; a sample with no owner frame goes to the first non-trampoline frame on its own path (`label`), so two OS
-    handlers under one callout stay two owners. Wait frames take nothing."""
-    if is_wait(node):
-        return
-    if not names_no_owner(node):
-        add(owner_name(node), busy(node))
-        return
-    if label is None and node["image"] not in TRAMPOLINE_IMAGES:
-        label = owner_name(node)
-    own = node["count"] - sum(child["count"] for child in node["children"])
-    if own > 0:
-        add(label or owner_name(node), own)
-    for child in node["children"]:
-        attribute(child, label, add)
-
-
-def callout_owners(tree):
-    """{(kind, callback, owner): samples} of the main thread's outermost run-loop callouts. `callback` is the frame
-    the callout calls, the key the DTrace count has too (None for the main queue drain, which has no callback)."""
-    out = {}
-
-    def adder(kind, callback):
-        def add(owner, count):
-            if count > 0:
-                out[(kind, callback, owner)] = out.get((kind, callback, owner), 0) + count
-        return add
-
-    pending = [tree] if tree else []
-    while pending:
-        node = pending.pop()
-        kind = RUN_LOOP_CALLOUTS.get(node["symbol"])
-        if not kind:
-            pending.extend(node["children"])
-            continue
-        for child in node["children"]:
-            attribute(child, None, adder(kind, None if kind == "main-queue" else owner_name(child)))
-        adder(kind, None)(owner_name(node), node["count"] - sum(child["count"] for child in node["children"]))
-    return out
-
-
-def main_callouts_from_samples(texts):
-    """[{kind, callback, owner, samples}] of the main thread's run-loop callouts, summed over `/usr/bin/sample`
-    reports, most first."""
-    total = {}
-    for text in texts:
-        for key, count in callout_owners(main_thread_tree(text)).items():
-            total[key] = total.get(key, 0) + count
-    rows = [{"kind": kind, "callback": callback, "owner": owner, "samples": count}
-            for (kind, callback, owner), count in total.items()]
-    return sorted(rows, key=lambda r: (-r["samples"], r["kind"], r["owner"]))
-
-
-def wake_trace_script(main_tid, seconds):
-    """A DTrace script of the main thread (`main_tid`) for `seconds`, its span measured from BEGIN (after the probes
-    are enabled) to END. It counts:
-
-    - WAKES: returns from a run-loop wait that can block (__CFRunLoopServiceMachPort with a timeout other than 0; the
-      main-queue port poll has 0);
-    - FIRST: each wake once, given to the first non-observer callout after it (for a main-queue drain, its first
-      item; a drain with no item is the drain's), or to kind 0 when the next blocking wait comes first;
-    - CALL: every callout entry, by (function, item) (CALLOUT_KEYS), and each item of an outermost main-queue drain:
-      a dispatch function, a block (_dispatch_call_block_and_release's invoke) or a Swift job's resume function;
-    - STACK: 997 Hz stacks while an outermost callout runs, by the same key, to name an item from its own frames.
-
-    Addresses lose their pointer-auth bits."""
-    tid, mask = f"tid == {int(main_tid)}", f"0x{ADDRESS_MASK:x}"
-    cf = "pid$target:CoreFoundation"
-    drain = f"{tid} && self->ik == {TRACE_KIND_CODES['main-queue']} && self->cd == 1"
-    items = "pid$target:libdispatch.dylib:_dispatch_client_callout:{0}, pid$target:libswift_Concurrency.dylib:swift_job_run:{0}"
-    job = f"*(uint64_t *)copyin(arg0 + {SWIFT_JOB_FUNCTION_OFFSET}, 8) & {mask}"
-    lines = ["#pragma D option quiet", "#pragma D option ustackframes=64",
-             *(f"self int {name};" for name in ("wake", "blk", "cd", "ik", "qd", "qref")),
-             *(f"self uint64_t {name};" for name in ("ia", "ib", "qa")),
-             "BEGIN { began = timestamp; }",
-             f"{cf}:__CFRunLoopServiceMachPort:entry /{tid} && arg4 != 0 && self->wake/ "
-             f"{{ @first[self->wake == 2 ? {TRACE_KIND_CODES['main-queue']} : 0, (uint64_t)0, (uint64_t)0] = count(); "
-             "self->wake = 0; }",
-             f"{cf}:__CFRunLoopServiceMachPort:entry /{tid}/ {{ self->blk = arg4 != 0; }}",
-             f"{cf}:__CFRunLoopServiceMachPort:return /{tid} && self->blk/ {{ @wakes = count(); self->wake = 1; self->blk = 0; }}"]
-    for function, kind in RUN_LOOP_CALLOUTS.items():
-        code, probe = TRACE_KIND_CODES[kind], f"{cf}:{function}:entry"
-        if kind == "main-queue":
-            lines += [f"{probe} /{tid} && self->wake == 1 && self->cd == 0/ {{ self->wake = 2; }}",
-                      f"{probe} /{tid} && self->wake == 1/ {{ @first[{code}, (uint64_t)0, (uint64_t)0] = count(); "
-                      "self->wake = 0; }",
-                      f"{probe} /{tid} && self->cd == 0/ {{ self->ik = {code}; self->ia = 0; self->ib = 0; }}"]
-        else:
-            function_expr, item_expr = CALLOUT_KEYS[kind]
-            lines.append(f"{probe} /{tid}/ {{ this->a = (uint64_t)({function_expr}) & {mask}; "
-                         f"this->b = (uint64_t)({item_expr}) & {mask}; @calls[{code}, this->a, this->b] = count(); }}")
-            if kind != "observer":
-                lines.append(f"{probe} /{tid} && self->wake == 1/ {{ @first[{code}, this->a, this->b] = count(); "
-                             "self->wake = 0; }")
-            lines.append(f"{probe} /{tid} && self->cd == 0/ {{ self->ik = {code}; self->ia = this->a; self->ib = this->b; }}")
-        lines.append(f"{probe} /{tid}/ {{ self->cd++; }}")
-    returns = ", ".join(f"{cf}:{function}:return" for function in RUN_LOOP_CALLOUTS)
-    lines += [f"{returns} /{tid} && self->cd > 0/ {{ self->cd--; }}",
-              f"{returns} /{tid} && self->cd == 0/ {{ self->ik = 0; self->ia = 0; self->ib = 0; }}",
-              # One item per outermost dispatch callout or Swift job of the drain; a block or a job inside a dispatch
-              # function names that item instead.
-              f"pid$target:libdispatch.dylib:_dispatch_client_callout:entry /{drain} && self->qd == 0/ "
-              f"{{ self->qa = arg1 & {mask}; self->qref = 0; }}",
-              f"pid$target:libswift_Concurrency.dylib:swift_job_run:entry /{drain} && (self->qd == 0 || "
-              f"(self->qd == 1 && !self->qref))/ {{ self->qa = {job}; self->qref = 1; }}",
-              f"pid$target:libdispatch.dylib:_dispatch_call_block_and_release:entry /{drain} && self->qd == 1 && "
-              f"!self->qref/ {{ self->qa = *(uint64_t *)copyin(arg0 + 16, 8) & {mask}; self->qref = 1; self->ia = self->qa; }}",
-              f"{items.format('entry')} /{drain}/ {{ self->qd++; self->ia = self->qa; }}",
-              f"{items.format('return')} /{drain} && self->qd > 0/ {{ self->qd--; }}",
-              f"{items.format('return')} /{drain} && self->qd == 0 && self->qa/ "
-              f"{{ @calls[{TRACE_KIND_CODES['main-queue']}, self->qa, (uint64_t)0] = count(); }}",
-              f"{items.format('return')} /{drain} && self->qd == 0 && self->qa && self->wake == 2/ "
-              f"{{ @first[{TRACE_KIND_CODES['main-queue']}, self->qa, (uint64_t)0] = count(); self->wake = 0; }}",
-              f"{items.format('return')} /{drain} && self->qd == 0/ {{ self->qa = 0; self->ia = 0; }}",
-              f"profile-997 /pid == $target && {tid} && self->ik/ {{ @stacks[self->ik, self->ia, self->ib, ustack()] = count(); }}",
-              f"tick-{max(1, int(seconds))}s {{ exit(0); }}",
-              'END { printf("SPAN %d\\n", timestamp - began); printa("WAKES %@d\\n", @wakes); '
-              'printa("CALL %d %x %x %@d\\n", @calls); printa("FIRST %d %x %x %@d\\n", @first); '
-              'printa("STACK %d %x %x %@d\\n%k\\nEND-STACK\\n", @stacks); }']
-    return "\n".join(lines) + "\n"
-
-
-TRACE_ROW_RE = re.compile(r"^(CALL|FIRST|STACK) (\d+) ([0-9a-f]+) ([0-9a-f]+) (\d+)$")
-
-
-def parse_wake_trace(output):
-    """{span_ns, wakes, calls, first, stacks} from the trace's output: calls and first map (kind, function, item) to a
-    count, stacks map it to [(frames innermost first, count)]."""
-    parsed = {"span_ns": None, "wakes": 0, "calls": {}, "first": {}, "stacks": {}}
-    stack = None
-    for raw in output.splitlines():
-        line = raw.strip()
-        if stack is not None:
-            if line == "END-STACK":
-                parsed["stacks"].setdefault(stack[0], []).append((tuple(stack[1]), stack[2]))
-                stack = None
-            elif line:
-                stack[1].append(line)
-            continue
-        if line.startswith("SPAN ") and line[5:].isdigit():
-            parsed["span_ns"] = int(line[5:])
-        elif line.startswith("WAKES ") and line[6:].isdigit():
-            parsed["wakes"] += int(line[6:])
-        match = TRACE_ROW_RE.match(line)
-        if not match or int(match.group(2)) not in TRACE_KINDS:
-            continue
-        key = (TRACE_KINDS[int(match.group(2))], int(match.group(3), 16), int(match.group(4), 16))
-        if match.group(1) == "STACK":
-            stack = (key, [], int(match.group(5)))
-        else:
-            table = parsed["calls" if match.group(1) == "CALL" else "first"]
-            table[key] = table.get(key, 0) + int(match.group(5))
-    return parsed
-
-
-def stack_frame(line):
-    """(image, symbol) of one DTrace ustack line (`image`symbol+0x1c`; a bare address has no image)."""
-    if "`" not in line:
-        return None, line
-    image, rest = line.split("`", 1)
-    return image, rest.rsplit("+0x", 1)[0]
-
-
-def stack_owner(frames, images=None):
-    """The owner of one DTrace stack taken in a callout (frames innermost first): below the outermost run-loop
-    callout, the first frame in an owner image (a Swift thunk with a frame below it does not count), else the first
-    OS frame outside the trampoline images; None when no frame below the callout names one."""
-    path = [stack_frame(line) for line in reversed(frames)]
-    start = next((index for index, (_image, symbol) in enumerate(path) if symbol in RUN_LOOP_CALLOUTS), None)
-    if start is None:
-        return None
-    below, handler = path[start + 1:], None
-    for index, (image, symbol) in enumerate(below):
-        if not image or any(wait in symbol for wait in BLOCKING_SYMBOLS):
-            continue
-        node = {"symbol": symbol, "image": image, "system": is_system_image(image, images),
-                "children": below[index + 1:index + 2]}
-        if not names_no_owner(node):
-            return owner_name(node)
-        if handler is None and node["system"] and image not in TRAMPOLINE_IMAGES:
-            handler = owner_name(node)
-    return handler
-
-
-def callback_name(address, symbols, images=None, ranges=None):
-    """(callback, named, system) of a callout function address: atos's `symbol (image)` when it resolved, else the
-    address with the image it is loaded in. `system` comes from the image's path (image_ranges) when the sample has
-    it, so the OS or owner decision never rests on atos; None when neither knows the image."""
-    path = image_at(address, ranges)
-    match = ATOS_RE.match(symbols.get(address, ""))
-    symbol, image = (match.group(1), match.group(2)) if match else (None, None)
-    image = image or (os.path.basename(path) if path else None)
-    if path:
-        system = path.startswith(OS_IMAGE_PREFIXES)
-    else:
-        system = is_system_image(image, images) if image else None
-    if symbol and not symbol.startswith("0x"):
-        return f"{symbol[:120]} ({image})", True, system
-    return (f"0x{address:x} (in {image})" if image else f"0x{address:x}"), False, system
-
-
-def trace_callouts(parsed, seconds, symbols, images=None, ranges=None):
-    """[{kind, callback, callback_named, callback_system, item, calls, calls_per_s, wakes, per_s, stack_samples,
-    stack_owners}] from a parsed trace, one row per (kind, function, item): `per_s` is the wakes it claimed (the
-    rows add up to the trace's wakes), `calls_per_s` its callout entries; `stack_owners` names it from its own
-    stacks only."""
-    rows = []
-    for key in sorted(set(parsed["calls"]) | set(parsed["first"]), key=lambda k: (k[0], k[1], k[2])):
-        kind, function, item = key
-        callback, named, system = callback_name(function, symbols, images, ranges) if function else (None, True, None)
-        owners = {}
-        for frames, count in parsed["stacks"].get(key, []):
-            owner = stack_owner(frames, images)
-            if owner:
-                owners[owner] = owners.get(owner, 0) + count
-        sampled = sum(owners.values())
-        calls, wakes = parsed["calls"].get(key, 0), parsed["first"].get(key, 0)
-        rows.append({"kind": kind, "callback": callback, "callback_named": named, "callback_system": system,
-                     "item": f"0x{item:x}" if item else None, "calls": calls, "wakes": wakes,
-                     "calls_per_s": round(calls / seconds, 3), "per_s": round(wakes / seconds, 3),
-                     "stack_samples": sampled,
-                     "stack_owners": [{"owner": owner, "share": round(count / sampled, 3)}
-                                      for owner, count in sorted(owners.items(), key=lambda kv: -kv[1])[:3]]})
-    return sorted(rows, key=lambda r: (-r["wakes"], -r["calls"], r["kind"], r["callback"] or ""))
-
-
-def privileged(tool):
-    """`tool` through `sudo -n` unless this is root: DTrace's pid provider needs root, and atos needs the same right
-    to read a Release app's task."""
-    return [tool] if os.geteuid() == 0 else ["sudo", "-n", tool]
-
-
-def symbolize(pid, addresses):
-    """{address: atos line} for the callback addresses in process `pid` ({} when atos can not run)."""
-    addresses = sorted(a for a in addresses if a)
-    if not addresses:
-        return {}
-    try:
-        run = subprocess.run([*privileged("/usr/bin/atos"), "-p", str(pid), *(f"0x{a:x}" for a in addresses)],
-                             capture_output=True, text=True, timeout=120)
-    except (OSError, subprocess.TimeoutExpired):
-        return {}
-    return dict(zip(addresses, run.stdout.splitlines())) if run.returncode == 0 else {}
-
-
-def demangle_stacks(stacks):
-    """`stacks` with Swift symbols demangled (`xcrun swift-demangle`); unchanged when it can not run."""
-    lines = sorted({line for entries in stacks.values() for frames, _count in entries for line in frames})
-    if not lines:
-        return stacks
-    try:
-        run = subprocess.run(["/usr/bin/xcrun", "swift-demangle", "--simplified"], input="\n".join(lines) + "\n",
-                             capture_output=True, text=True, timeout=120)
-    except (OSError, subprocess.TimeoutExpired):
-        return stacks
-    out = run.stdout.splitlines()
-    if run.returncode != 0 or len(out) != len(lines):
-        return stacks
-    names = dict(zip(lines, out))
-    return {key: [(tuple(names[line] for line in frames), count) for frames, count in entries]
-            for key, entries in stacks.items()}
-
-
-def count_main_callouts(app, seconds, folder):
-    """Traces the main thread for `seconds` (DTrace pid provider, wake_trace_script): {ok, error, seconds (the
-    trace's own span), main_wakes, main_wakes_per_s (wakes on that span), parsed}. The debug.hangs `main_wakes`
-    bracket around the dtrace run is kept apart (`rpc_main_wakes_per_s` over `rpc_seconds`, which include dtrace's
-    start and exit) and never set against the trace's counts. ok False with the reason when DTrace can not run (no
-    root, SIP, a restricted process). name_trace turns `parsed` into named rows."""
-    pid = app.process.pid
-    ids = threads(pid)
-    if not ids:
-        return {"ok": False, "error": "the app has no threads", "seconds": None, "callouts": []}
-    script = os.path.join(folder, "wake-trace.d")
-    with open(script, "w") as handle:
-        handle.write(wake_trace_script(min(ids), seconds))  # the main thread is the first: its id is the lowest
-    hangs0 = read_rpc(app, "debug.hangs", {"limit": 0})
-    began = time.monotonic()
-    try:
-        run = subprocess.run([*privileged("/usr/sbin/dtrace"), "-p", str(pid), "-s", script], capture_output=True,
-                             text=True, timeout=seconds + 120)
-    except (OSError, subprocess.TimeoutExpired) as error:
-        return {"ok": False, "error": f"dtrace: {error}"[:300], "seconds": None, "callouts": []}
-    elapsed = time.monotonic() - began
-    hangs1 = read_rpc(app, "debug.hangs", {"limit": 0})
-    if run.returncode != 0:
-        return {"ok": False, "error": f"dtrace exit {run.returncode}: {run.stderr.strip()[-300:]}", "seconds": None,
-                "callouts": []}
-    parsed = parse_wake_trace(run.stdout)
-    if not parsed["span_ns"]:
-        return {"ok": False, "error": "dtrace printed no SPAN line", "seconds": None, "callouts": []}
-    span = parsed["span_ns"] / 1e9
-    result = {"ok": True, "error": "", "seconds": round(span, 3), "main_wakes": parsed["wakes"],
-              "main_wakes_per_s": round(parsed["wakes"] / span, 3), "parsed": parsed}
-    if "main_wakes" in hangs0 and "main_wakes" in hangs1 and elapsed > 0:
-        result["rpc_seconds"] = round(elapsed, 1)
-        result["rpc_main_wakes_per_s"] = round((hangs1["main_wakes"] - hangs0["main_wakes"]) / elapsed, 3)
-    return result
-
-
-def name_trace(trace, pid, sample_text=None):
-    """The trace with `callouts` (trace_callouts) in place of its parsed counts: callback addresses through atos and
-    the sample report's `Binary Images:` ranges (the same process, so the same load addresses)."""
-    parsed = trace.pop("parsed", None)
-    trace.setdefault("callouts", [])
-    if not trace.get("ok") or parsed is None:
-        return trace
-    images = binary_images(sample_text) if sample_text else None
-    ranges = image_ranges(sample_text) if sample_text else []
-    keys = set(parsed["calls"]) | set(parsed["first"])
-    symbols = symbolize(pid, {function for _kind, function, _item in keys})
-    parsed = {**parsed, "stacks": demangle_stacks(parsed["stacks"])}
-    trace["callouts"] = trace_callouts(parsed, trace["seconds"], symbols, images, ranges)
-    return trace
-
-
-TIMER_ENTRY_RE = re.compile(r"<CFRunLoopTimer (0x[0-9a-fA-F]+)[^>]*>\{valid = (\w+), firing = \w+, interval = "
-                            r"([0-9.e+-]+),[^}]*?next fire date = ([0-9.e+-]+)[^}]*?callout = (.*?)"
-                            r"(?:, context = ([^}]*))?\}")
-# Callouts every timer of a kind shares: they name Foundation, not the timer's owner (NSTimer and Swift's Timer).
-GENERIC_TIMER_CALLOUTS = ("__NSFireTimer",)
-
-
-def repeating_timers(description):
-    """{timer address: {interval_s, next_fire, callout, context}} of the valid repeating timers of a main run loop
-    description (a timer in several modes appears once)."""
-    found = {}
-    for address, valid, interval, fire, callout, context in TIMER_ENTRY_RE.findall(description or ""):
-        if valid == "Yes" and float(interval) > 0:
-            found[address] = {"interval_s": float(interval), "next_fire": float(fire), "callout": callout.strip()[:160],
-                              "context": (context or "").strip()[:160]}
-    return found
-
-
-def timer_owner(address, timer):
-    """(owner, named): the timer's callout, or for a callout every timer shares (__NSFireTimer) the timer itself,
-    marked unnamed (the trace names it from the timer's own stacks)."""
-    if timer["callout"].startswith(GENERIC_TIMER_CALLOUTS):
-        return f"unnamed NSTimer {address} (context {timer['context'] or '?'})", False
-    return timer["callout"], True
-
-
-def timer_fires(before, after, elapsed):
-    """Fires per second of each repeating main run-loop timer between two `CFCopyDescription`s of the main run loop
-    (debug.wakeups `run_loop`), by timer address: its next fire date advances one interval per fire. A timer at
-    only one end, or whose interval changed, is a row with per_s None and its `unpaired` reason. A fire the run
-    loop skipped (App Nap) counts as a fire, so the rate is an upper bound."""
-    first, last = repeating_timers(before), repeating_timers(after)
-    out = []
-    for address in sorted(set(first) | set(last)):
-        old, new = first.get(address), last.get(address)
-        timer = new or old
-        owner, named = timer_owner(address, timer)
-        row = {"timer": address, "owner": owner, "named": named, "callout": timer["callout"],
-               "context": timer["context"], "interval_s": timer["interval_s"], "per_s": None}
-        if old is None or new is None or old["interval_s"] != new["interval_s"]:
-            row["unpaired"] = ("created in the window" if old is None else "gone at the end" if new is None
-                               else "interval changed")
-            out.append(row)
-            continue
-        fired = max(0, round((new["next_fire"] - old["next_fire"]) / new["interval_s"]))
-        if fired and elapsed > 0:
-            row["per_s"] = round(fired / elapsed, 3)
-            out.append(row)
-    return sorted(out, key=lambda t: (-(t["per_s"] or 0), t["owner"]))
-
-
-HIDDEN_WAKE_FLOOR = 0.1  # per second: every main wake source above it is named
-
-
-def row_owner(row, timers_by_address):
-    """(owner, owner_from) of one traced item: its callback when atos named it in an owner image; for a timer, the
-    run-loop timer at the same address when its callout names it; else the owner frame of the item's own stacks;
-    else unnamed."""
-    if row["callback"] and row["callback_named"] and row["callback_system"] is False:
-        return row["callback"], "callback"
-    timer = timers_by_address.get(int(row["item"], 16)) if row["kind"] == "timer" and row["item"] else None
-    if timer and timer.get("named"):
-        return timer["owner"], "timer"
-    if row["stack_owners"]:
-        return row["stack_owners"][0]["owner"], "item-stack"
-    where = row["callback"] or "main queue drain, no item ran"
-    return f"unnamed {row['kind']} ({where}{', item ' + row['item'] if row['item'] else ''})", "none"
-
-
-def counted_sources(trace, timers, floor):
-    """The `callout-count` sources: each traced main-thread item (kind, function, item) that claimed more than `floor`
-    wakes per second or ran more than `floor` callouts per second, named by row_owner. `per_s` is wakes/s (the
-    sources add up to the trace's wakes with the no-callout wakes), `calls_per_s` callout entries/s. An item whose
-    own stacks show several owners (a source that runs many kinds of work) is `multiplexed`: its owners carry time
-    shares, not rates."""
-    by_address = {int(t["timer"], 16): t for t in timers if str(t.get("timer", "")).startswith("0x")}
-    out = []
-    for row in trace.get("callouts") or []:
-        if row["kind"] not in WAKE_CAUSES or max(row["per_s"], row["calls_per_s"]) <= floor:
-            continue
-        owner, owner_from = row_owner(row, by_address)
-        out.append({"basis": "callout-count", "kind": row["kind"], "owner": owner, "owner_from": owner_from,
-                    "per_s": row["per_s"], "calls_per_s": row["calls_per_s"], "callback": row["callback"],
-                    "callback_named": row["callback_named"], "item": row["item"],
-                    "top": row["stack_owners"][0]["owner"] if row["stack_owners"] else row["callback"],
-                    "multiplexed": len(row["stack_owners"]) > 1, "stack_samples": row["stack_samples"],
-                    "stack_owners": row["stack_owners"]})
-    return sorted(out, key=lambda s: (-s["per_s"], -s["calls_per_s"]))
-
-
-def hidden_wake_sources(result, floor=HIDDEN_WAKE_FLOOR):
-    """The main thread's wake sources of a hidden session, one list per basis. A source can be in more than one
-    basis, so the bases are never summed and `sources_by_basis` counts each apart:
-
-    - `callout-count`: the DTrace trace of the main thread (`wake_trace`): each wake given once to the first item
-      that ran after it, per second of the trace's own span (`counted_sources`).
-    - `unattributed`: with a trace, its wakes that no callout claimed before the next wait (the same span); without
-      one, the window's main wakes less the run-loop timer fires (both over the window).
-    - `run-loop-timer`: each repeating main run-loop timer's fires, by timer; unpaired timers with per_s None.
-    - `ledger`: wakeup ledger owners (DemandTimer, FrameScheduler, Backoff) on any thread (`thread: any`).
-    - `frames` (sample-time): the `/usr/bin/sample` owners' share of the main thread's callout time. Samples measure
-      time, not wakes, so per_s is None and no floor applies: they name frames, they do not rank sources.
-
-    Observers are not causes and come back apart. `naming_problems` lists what makes the names unsure (callbacks atos
-    did not name); the caller adds them to the session's problems."""
-    main_wakes = result.get("main_wakes_per_s")
-    trace = result.get("wake_trace") or {"ok": False, "error": "not run", "callouts": []}
-    callouts = result.get("main_callouts") or []
-    causes = [c for c in callouts if c["kind"] in WAKE_CAUSES]
-    total = sum(c["samples"] for c in causes)
-    all_timers = result.get("main_run_loop_timer_fires") or []
-    timers = [t for t in all_timers if t.get("unpaired") or (t["per_s"] or 0) > floor]
-    if trace.get("ok"):
-        unattributed = round(sum(r["per_s"] for r in trace["callouts"] if r["kind"] == "no-callout"), 3)
-        of = "trace wakes no callout claimed"
-    elif isinstance(main_wakes, (int, float)):
-        unattributed = round(max(0.0, main_wakes - sum(t["per_s"] for t in timers if t["per_s"])), 3)
-        of = "window main wakes less run-loop timer fires"
-    else:
-        unattributed, of = None, None
-    sources = counted_sources(trace, all_timers, floor)
-    unnamed = sum(1 for s in sources if s["callback"] and not s["callback_named"])
-    naming_problems = [f"atos failed: {unnamed} callbacks unnamed"] if unnamed else []
-    if unattributed is not None and unattributed > floor:
-        sources.append({"basis": "unattributed", "kind": "unattributed", "owner": "unattributed", "per_s": unattributed,
-                        "top": None, "of": of})
-    for timer in timers:
-        sources.append({"basis": "run-loop-timer", "kind": "timer", "top": timer["callout"],
-                        **{k: v for k, v in timer.items() if k != "next_fire"}})
-    ledger = [{"basis": "ledger", "kind": "ledger", "owner": f"{e['owner']}:{e['reason']}", "per_s": e["per_s"],
-               "thread": "any", "top": None}
-              for e in (result.get("ledger") or {}).get("owners") or [] if e["per_s"] > floor]
-    sources += sorted(ledger, key=lambda s: -s["per_s"])
-    frames = [{"basis": "sample-time", "kind": c["kind"], "owner": c["owner"], "callback": c["callback"],
-               "samples": c["samples"], "share": round(c["samples"] / total, 4), "per_s": None} for c in causes]
-    observers = ([{"basis": "callout-count", **r} for r in trace.get("callouts") or [] if r["kind"] == "observer"]
-                 + [{"basis": "sample-time", **c} for c in callouts if c["kind"] == "observer"])
-    by_basis = {}
-    for source in sources:
-        by_basis[source["basis"]] = by_basis.get(source["basis"], 0) + 1
-    return {"main_wakes_per_s": main_wakes, "trace_main_wakes_per_s": trace.get("main_wakes_per_s"),
-            "trace": {k: trace.get(k) for k in ("ok", "error", "seconds", "main_wakes", "rpc_seconds",
-                                                "rpc_main_wakes_per_s")},
-            "cause_samples": total, "unattributed_per_s": unattributed, "sources": sources, "sources_by_basis": by_basis,
-            "unnamed": sum(1 for s in sources if s.get("owner_from") == "none"), "naming_problems": naming_problems,
-            "frames": frames, "observers": observers[:20]}
-
-
-def hidden_wake_lines(session, report, build_sha, host, problems=()):
-    """The `HIDDEN-WAKE {json}` lines of one hidden session for the Q9 slots (one per source and basis), the
-    `HIDDEN-WAKE-FRAME` sample-time lines and observers, then one `HIDDEN-WAKE-TOTAL {json}` line with the build sha
-    and host. When `problems` says the run was not the shipping app in the session's state, the source lines are
-    `HIDDEN-WAKE-UNCONFIRMED` instead, so no Q9 task comes from them."""
-    prefix = "HIDDEN-WAKE-UNCONFIRMED" if problems else "HIDDEN-WAKE"
-    lines = [f"{prefix} " + json.dumps({"session": session, **source}) for source in report["sources"]]
-    lines += ["HIDDEN-WAKE-FRAME " + json.dumps({"session": session, **frame}) for frame in report["frames"]]
-    lines += ["HIDDEN-WAKE-OBSERVER " + json.dumps({"session": session, **o}) for o in report["observers"]]
-    lines.append("HIDDEN-WAKE-TOTAL " + json.dumps({
-        "session": session, "sha": build_sha, "host": host, "main_wakes_per_s": report["main_wakes_per_s"],
-        "trace_main_wakes_per_s": report["trace_main_wakes_per_s"], "trace": report["trace"],
-        "unattributed_per_s": report["unattributed_per_s"], "sources_by_basis": report["sources_by_basis"],
-        "unnamed": report.get("unnamed", 0), "samples_taken": report.get("samples_taken", 0), "cause_samples": report["cause_samples"],
-        "confirmed": not problems, "problems": list(problems), "floor_per_s": HIDDEN_WAKE_FLOOR}))
-    return lines
-
-
-class HiddenStateError(RuntimeError):
-    """A hidden-wake session's app was not hidden or minimized as the session asked: its wakes are not hidden wakes."""
-
-
-def hidden_state_problem(spec, state):
-    """None when `window_state` shows the session's state (light-hidden: no main window visible; minimized: every
-    main window miniaturized), else why not."""
-    if not isinstance(state, dict) or "error" in state:
-        return f"debug.window_list failed: {(state or {}).get('error')}"
-    main = state.get("main") or []
-    if not main:
-        return "debug.window_list shows no main window"
-    if spec.get("hide") and any(w.get("visible") for w in main):
-        return "a main window is visible: the app is not hidden"
-    if spec.get("minimize") and not all(w.get("miniaturized") for w in main):
-        return "a main window is not miniaturized"
-    return None
-
-
-def shipping_problems(entry):
-    """Why the session's applied mode (p14-energy-100's fields) is not the shipping app's; [] when it is: the
-    shipping refusals (activation, Sentry, hang reports) and the app's own occluded-window draw answer."""
-    problems = [f"{what}: {why}" for what, why in shipping_refusals(entry)]
-    if ((entry.get("draws_when_occluded") or {}).get("windows")) is not False:
-        problems.append("draws when occluded (the automation draw, not the shipping one)")
-    return problems
-
-
-def check_action_reply(name, reply):
-    """Raises HiddenStateError when an `action.run` reply is an error."""
-    if not isinstance(reply, dict) or reply.get("error"):
-        raise HiddenStateError(f"action.run {name} failed: {str(reply)[:200]}")
 
 
 def app_counters(app):
@@ -1568,9 +896,8 @@ def app_counters(app):
     return out
 
 
-def ledger_rates(before, after, elapsed, limit=20):
-    """Wakeup ledger owners that fired in the window (debug.wakeups, when the build has it), the `limit` busiest
-    (None: all)."""
+def ledger_rates(before, after, elapsed):
+    """Wakeup ledger owners that fired in the window (debug.wakeups, when the build has it)."""
     if not before.get("ledger") and not after.get("ledger"):
         return None
     counts = {(e["owner"], e["reason"]): e.get("count", 0) for e in before.get("ledger") or []}
@@ -1580,7 +907,7 @@ def ledger_rates(before, after, elapsed, limit=20):
         if delta > 0:
             out.append({"owner": entry["owner"], "reason": entry["reason"], "per_s": round(delta / elapsed, 3)})
     out.sort(key=lambda e: -e["per_s"])
-    return {"owners": out[:limit], "active_frame_clients": after.get("active_frame_clients", [])}
+    return {"owners": out[:20], "active_frame_clients": after.get("active_frame_clients", [])}
 
 
 # ---------------------------------------------------------------------------------------------------------
@@ -3262,13 +2589,6 @@ def stop_session(app, agents):
         app.stop()
 
 
-def build_sha_of(app_path):
-    """The commit the app was built from (bench_launch.build_sha); raises bench_launch.RecordError when neither the
-    bundle nor CMUX_CI_SHA names one (a hidden-wake report without its sha can not be cited)."""
-    from bench_launch import build_sha
-    return build_sha(app_path)
-
-
 # Both keep-awake settings off (D11): their shipping default is pluggedIn, and a session that asks for keep-awake
 # names them in its budget `settings`.
 KEEP_AWAKE_OFF = {"sessions": {"keepAwake": "off"}, "phone": {"keepAwake": "off"}}
@@ -3318,7 +2638,7 @@ HISTORY_PERIOD_S = 5
 # saver state the session asks for; --gate refuses a window that shows another), anim (read the animated page's rAF
 # count at both ends), power (attribute the window's power: power_attribution), chrome (the reference browser with
 # the session's tabs), shown (role_audit: an app window, with a terminal, can be seen; a session without it gets
-# only the role rules that hold in every session), hidden_wake (print HIDDEN-WAKE lines: hidden_wake_sources),
+# only the role rules that hold in every session),
 # agents (build_agents's plan, in the session's own acpmux home: AgentHome), busy_terminal (the hidden terminal's
 # print period: build_busy_hidden), cover (benchhelper's full-screen window over the app), home (Home selected),
 # sign_in (the agent test account), display_sleep (`pmset displaysleepnow` after the activation), quit
@@ -3326,8 +2646,8 @@ HISTORY_PERIOD_S = 5
 SESSIONS = {
     "light": {"shown": True},
     "light-webkit": {"config": {"browser": {"defaultEngine": "webkit"}}, "shown": True},
-    "light-hidden": {"hide": True, "shown": False, "hidden_wake": True},
-    "minimized": {"minimize": True, "shown": False, "hidden_wake": True},
+    "light-hidden": {"hide": True, "shown": False},
+    "minimized": {"minimize": True, "shown": False},
     "occluded": {"cover": True},
     "home": {"home": True},
     "signed-in": {"config": SIGNED_IN_CONFIG, "sign_in": True, "shown": True},
@@ -4240,11 +3560,6 @@ def main(argv=None):
     parser.add_argument("--windowserver-reference", type=float, default=None,
                         help="seconds of the WindowServer reference window with cmux hidden, after the window and its "
                         "samples (default: --measure; 0: none; a hidden session is its own reference)")
-    parser.add_argument("--samples", type=int, default=None,
-                        help="how many --sample runs to take and add (default: 3 in a hidden-wake session, else 1)")
-    parser.add_argument("--wake-trace", type=float, default=30,
-                        help="seconds of DTrace wake trace of the main thread right after the window and before the "
-                             "samples, in a hidden-wake session (0: none)")
     parser.add_argument("--chrome-app", default=CHROME_APP,
                         help="the chrome-static browser: a Chromium that runs Manifest V2 (ungoogled-chromium of "
                         "cmux's Chromium major); branded Chrome 137+ and Chrome for Testing 139+ are refused")
@@ -4301,11 +3616,9 @@ def main(argv=None):
             report["sessions"][session] = chrome_static_entry(opts, out, session, markdown)
             continue
         rig = SessionRig(session, build_config, opts.signed_in_credentials, opts.chrome_helper_cache)
-        folder = os.path.join(out, session)
         app = agents = None
         pages = IdlePages() if spec.get("tabs") else None
         try:
-            sha = build_sha_of(opts.app) if spec.get("hidden_wake") else None  # before the launch: no report without it
             app, agents = session_app(BenchApp, opts.app, out, session, rig.env(env), runs)
             entry = {"fresh_session": fresh_session(app), "shape": rig.shape}  # a failed session keeps its shape too
             report["sessions"][session] = entry
@@ -4326,7 +3639,6 @@ def main(argv=None):
                 print(f"IDLE-BUDGET-NOT-ACTIVATED {session}: {activation['error']}", flush=True)
             if spec.get("hide"):
                 entry["hide"] = hide_all(app)
-                check_action_reply("showHideAllWindows", entry["hide"])
             if spec.get("minimize"):
                 entry["minimize"] = minimize(app)
             rig.after_activate(app)
@@ -4350,48 +3662,23 @@ def main(argv=None):
                 time.sleep(QUIT_SETTLE_S)  # bench: the daemon's wind-down after its client left, before the window
                 instance, measured_app = QuitTree(app.teardown, app.process.pid), None
             window_before = window_state(app) if measured_app else None
-            problem = hidden_state_problem(spec, window_before) if spec.get("hidden_wake") else None
-            if problem:
-                print(f"IDLE-BUDGET-WINDOW {session} " + json.dumps({"start": window_before}), flush=True)
-                raise HiddenStateError(f"before the window: {problem}")
             result = measure(measured_app, instance, opts.measure, pages.read_anim if spec.get("anim") else None,
                              attribute=spec.get("power", False) and measured_app is not None, shown_tab=shown_tab,
-                             workdir=folder, ledger_limit=None if spec.get("hidden_wake") else 20,
+                             workdir=os.path.join(out, session),
                              hidden_hosts=tuple((entry.get("agents") or {}).get("hidden_hosts") or ()))
             if measured_app:
                 result["window_state"] = {"start": window_before, "end": window_state(app)}
                 print(f"IDLE-BUDGET-WINDOW {session} " + json.dumps(result["window_state"]), flush=True)
             entry["shape"] = rig.after_window()
             print(f"IDLE-BUDGET-SHAPE {session} " + json.dumps(entry["shape"]), flush=True)
-            problem = hidden_state_problem(spec, result["window_state"]["end"]) if spec.get("hidden_wake") else None
-            if problem:
-                raise HiddenStateError(f"at the end of the window: {problem}")
-            trace = None
-            if spec.get("hidden_wake") and opts.wake_trace:
-                # Before /usr/bin/sample, which suspends the app again and again: no catch-up work in the trace.
-                os.makedirs(folder, exist_ok=True)
-                time.sleep(QUIET_GAP_S)  # bench: the end read's reply settles before the trace
-                trace = count_main_callouts(app, opts.wake_trace, folder)
-                result["window_state"]["after_trace"] = window_state(app)
-                problem = hidden_state_problem(spec, result["window_state"]["after_trace"])
-                if problem:
-                    raise HiddenStateError(f"after the wake trace: {problem}")
-            texts = []
+            app_sample = os.path.join(out, session, "sample-app.txt")
             if opts.sample and measured_app:
-                os.makedirs(folder, exist_ok=True)
-                for index in range(opts.samples or (3 if spec.get("hidden_wake") else 1)):
-                    text = run_sample(app.process.pid, opts.sample, os.path.join(folder, f"sample-app-{index + 1}.txt"))
-                    if text:
-                        texts.append(text)
-                result["sample"] = threads_from_sample(texts[0]) if texts else {}
-                result["main_callouts"] = main_callouts_from_samples(texts)
-            if trace is not None:
-                result["wake_trace"] = name_trace(trace, app.process.pid, texts[0] if texts else None)
+                result["sample"] = sample_threads(app.process.pid, opts.sample, app_sample)
             if result.get("power"):
-                # Named while the app runs: the app's first sample above, and one sample of each other process with an
+                # Named while the app runs: the app's sample above, and one sample of each other process with an
                 # unnamed owner over the floor.
-                taken = {app.process.pid: texts[0]} if texts else {}
-                name_power_owners(result["power"], opts.sample, folder, samples=taken)
+                taken = {app.process.pid: open(app_sample, errors="replace").read()} if os.path.exists(app_sample) else {}
+                name_power_owners(result["power"], opts.sample, os.path.join(out, session), samples=taken)
             # After app-quit no app is left to hide for the reference: the window's own rate, no reference.
             result["windowserver"] = windowserver_with_reference(app, result["windowserver"], spec,
                                                                  reference_s if measured_app else 0, entry)
@@ -4434,13 +3721,6 @@ def main(argv=None):
                 top = "; ".join(f"{frame} x{count}" for frame, count in sampled["frames"][:6])
                 if top:
                     print(f"IDLE-BUDGET-SAMPLE {session} {name}: {top}", flush=True)
-            if spec.get("hidden_wake"):
-                hidden = hidden_wake_sources(result)
-                hidden.update({"sha": sha, "host": machine["host"], "samples_taken": len(texts),
-                               "problems": shipping_problems(entry) + hidden["naming_problems"]})
-                entry["hidden_wake"] = hidden
-                for line in hidden_wake_lines(session, hidden, sha, machine["host"], hidden["problems"]):
-                    print(line, flush=True)
             for note in notes:
                 print(f"IDLE-BUDGET-NOT-JUDGED {note}", flush=True)
             for over in overs:
