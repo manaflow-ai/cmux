@@ -534,7 +534,7 @@ public final class TerminalSurfaceView: NSView, KeyEquivalentOwningSurface {
     /// (plans principled-audit R2: PL-script A3's hidden resizes cost nothing, and no missed show can
     /// leave a stale grid).
     func updateSurfaceSize() {
-        guard let surface, sizesToBounds else { return }
+        guard let surface, isShown else { return }
         let pixels = convertToBacking(bounds.size)
         guard pixels.width >= 1, pixels.height >= 1 else { return }
         defer { copyMode.syncCursor() }
