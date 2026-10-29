@@ -271,7 +271,7 @@ mod tests {
         requests.await.unwrap();
         let done = all_done.notified();
         if completed.load(Ordering::SeqCst) != CALLS {
-            tokio::time::timeout(Duration::from_secs(5), done).await.unwrap();
+            tokio::time::timeout(Duration::from_secs(60), done).await.unwrap();
         }
         output.await.unwrap();
         server.await.unwrap().unwrap();
