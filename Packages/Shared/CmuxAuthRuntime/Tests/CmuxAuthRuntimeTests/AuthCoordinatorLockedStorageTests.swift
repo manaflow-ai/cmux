@@ -1,5 +1,6 @@
 import CMUXAuthCore
 import Foundation
+import StackAuth
 import Testing
 @testable import CmuxAuthRuntime
 
@@ -9,6 +10,9 @@ actor LockedStorageAuthClient: AuthClient {
     private var user: CMUXAuthUser?
     private var locked: Bool
     private var lockedTokenReadsRemaining: Int
+    private let locksReadsFrom: Int?
+    private var tokenReadCount = 0
+    private let currentUserError: (any Error)?
     private(set) var clearLocalSessionCallCount = 0
 
     init(
@@ -16,13 +20,17 @@ actor LockedStorageAuthClient: AuthClient {
         refresh: String? = nil,
         user: CMUXAuthUser? = nil,
         locked: Bool,
-        locksFirstReads: Int = 0
+        locksFirstReads: Int = 0,
+        locksReadsFrom: Int? = nil,
+        currentUserError: (any Error)? = nil
     ) {
         self.access = access
         self.refresh = refresh
         self.user = user
         self.locked = locked
         self.lockedTokenReadsRemaining = locksFirstReads
+        self.locksReadsFrom = locksReadsFrom
+        self.currentUserError = currentUserError
     }
 
     func unlock() {
@@ -31,6 +39,10 @@ actor LockedStorageAuthClient: AuthClient {
     }
 
     private func tokenReadIsLocked() -> Bool {
+        defer { tokenReadCount += 1 }
+        if let locksReadsFrom, tokenReadCount >= locksReadsFrom {
+            return true
+        }
         if locked {
             return true
         }
@@ -54,7 +66,8 @@ actor LockedStorageAuthClient: AuthClient {
     }
 
     func currentUser(throwOnMissing: Bool) async throws -> CMUXAuthUser? {
-        user
+        if let currentUserError { throw currentUserError }
+        return user
     }
 
     func listTeams() async throws -> [CMUXAuthTeam] {
@@ -277,5 +290,38 @@ actor TokenStorageAvailabilityProbe {
         await #expect(throws: AuthError.unauthorized) {
             _ = try await coordinator.accessToken()
         }
+    }
+
+    /// https://github.com/manaflow-ai/cmux/issues/25628: `/users/me` fails
+    /// transiently and the Keychain locks before validation re-reads the
+    /// refresh token. The empty read is the lock, not a dead session, so the
+    /// stored session must survive.
+    @Test func lockedRefreshReadAfterFailedValidationPreservesStoredSession() async throws {
+        let cachedUser = CMUXAuthUser(id: "cached", primaryEmail: "cached@example.com", displayName: "Cached")
+        let client = LockedStorageAuthClient(
+            access: "access",
+            refresh: "refresh",
+            user: nil,
+            locked: false,
+            // Restore's access and refresh reads succeed; validation's
+            // re-read of the refresh token hits the locked Keychain.
+            locksReadsFrom: 2,
+            currentUserError: StackAuthError(code: "USER_NOT_SIGNED_IN", message: "User is not signed in.")
+        )
+        // Before restore, after restore's reads, after validation's re-read.
+        let availability = TokenStorageAvailabilityProbe(available: true, scriptedResults: [true, true, false])
+        let (coordinator, store) = try makeCoordinator(
+            client: client,
+            cachedUser: cachedUser,
+            availability: availability
+        )
+
+        coordinator.start()
+        await coordinator.awaitBootstrapped()
+
+        #expect(await client.clearLocalSessionCallCount == 0)
+        #expect(coordinator.isAuthenticated == true)
+        #expect(coordinator.currentUser == cachedUser)
+        #expect(store.bool(forKey: "has_tokens") == true)
     }
 }
