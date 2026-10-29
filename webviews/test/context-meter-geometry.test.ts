@@ -1,6 +1,6 @@
 // The Context meter must keep its percentages exact when separators are visible.
-// Run with CMUX_BROWSER_TESTS=1; set CMUX_CONTEXT_METER_SHOTS to keep a PNG artifact.
-import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
+// Run with CMUX_BROWSER_TESTS=1; set CMUX_CONTEXT_METER_SHOTS to keep PNG artifacts.
+import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { mkdir } from "node:fs/promises";
 import { chromium, type Browser, type Page } from "playwright";
@@ -9,12 +9,6 @@ import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("context-meter-geometry.test.ts", async () => {
   setDefaultTimeout(180_000);
-  try {
-    await (await chromium.launch({ headless: true })).close();
-  } catch {
-    describe.skip("context meter geometry", () => test("browser", () => {}));
-    return;
-  }
   const { createServer } = await import("vite");
   const webviews = path.resolve(import.meta.dir, "..");
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
@@ -38,22 +32,39 @@ await requireBrowserLane("context-meter-geometry.test.ts", async () => {
   });
 
   test("five equal categories end at exactly their 95% allocation", async () => {
-    const page: Page = await browser!.newPage({ viewport: { width: 280, height: 180 } });
+    const page: Page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
+    const shots = process.env.CMUX_CONTEXT_METER_SHOTS;
+    const captureOnly = process.env.CMUX_CONTEXT_METER_CAPTURE_ONLY === "1";
+    const cases = [
+      { name: "light-narrow", theme: "Apple System Colors Light", viewport: { width: 900, height: 760 } },
+      { name: "light-wide", theme: "Apple System Colors Light", viewport: { width: 1600, height: 940 } },
+      { name: "dark-narrow", theme: "Apple System Colors", viewport: { width: 900, height: 760 } },
+      { name: "dark-wide", theme: "Apple System Colors", viewport: { width: 1600, height: 940 } },
+    ];
     try {
       const port = (vite!.httpServer!.address() as { port: number }).port;
-      await page.goto(
-        `http://127.0.0.1:${port}${galleryFrame("agent-pane.context-meter-geometry", {
-          variant: "five-equal-categories",
-          frame: "component",
-          width: 280,
-          height: 180,
-        })}`,
-      );
-      await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
-      await page.waitForSelector('[data-context-meter-fixture="five-equal-categories"] .acpmux-chat-inspector-context__bar');
-      const geometry = await page.$eval(
-        '[data-context-meter-fixture="five-equal-categories"] .acpmux-chat-inspector-context__bar',
-        (bar) => {
+      for (const item of cases) {
+        await page.setViewportSize(item.viewport);
+        await page.goto(
+          `http://127.0.0.1:${port}${galleryFrame("agent-pane.context-meter-geometry", {
+            variant: "five-equal-categories",
+            frame: "component",
+            width: 280,
+            height: 180,
+            theme: item.theme,
+          })}`,
+        );
+        await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
+        const selector = '[data-context-meter-fixture="five-equal-categories"] .acpmux-chat-inspector-context__bar';
+        await page.waitForSelector(selector);
+        if (shots) {
+          const dir = path.join(shots, item.name);
+          await mkdir(dir, { recursive: true });
+          await page.locator('[data-context-meter-fixture="five-equal-categories"]').screenshot({
+            path: path.join(dir, "context-meter.png"),
+          });
+        }
+        const geometry = await page.$eval(selector, (bar) => {
           const rect = bar.getBoundingClientRect();
           const spans = [...bar.querySelectorAll<HTMLElement>(":scope > span")].map((span) => {
             const box = span.getBoundingClientRect();
@@ -67,16 +78,13 @@ await requireBrowserLane("context-meter-geometry.test.ts", async () => {
             expectedUsedEnd: rect.left + expectedUsed,
             gap: getComputedStyle(bar).gap,
           };
-        },
-      );
-      console.log(`context-meter-geometry ${JSON.stringify(geometry)}`);
-      expect(geometry.spans).toHaveLength(5);
-      expect(geometry.gap).toBe("0px");
-      expect(Math.abs(geometry.usedEnd - geometry.expectedUsedEnd)).toBeLessThanOrEqual(1);
-      const shots = process.env.CMUX_CONTEXT_METER_SHOTS;
-      if (shots) {
-        await mkdir(shots, { recursive: true });
-        await page.screenshot({ path: path.join(shots, "context-meter-after.png") });
+        });
+        console.log(`context-meter-geometry ${item.name} ${JSON.stringify(geometry)}`);
+        if (!captureOnly) {
+          expect(geometry.spans).toHaveLength(5);
+          expect(geometry.gap).toBe("0px");
+          expect(Math.abs(geometry.usedEnd - geometry.expectedUsedEnd)).toBeLessThanOrEqual(1);
+        }
       }
     } finally {
       await page.close();
