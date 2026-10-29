@@ -665,7 +665,7 @@ impl ClientRegistry {
                     || conversation_tabs_wire::negotiable(capability)
                     || capability == super::conversations::CONVERSATION_DRAFT_EVENTS_CAPABILITY
                     || capability == super::FRONTEND_BROWSER_TABS_CAPABILITY
-                    || capability == super::conversation_runs::CONVERSATION_RUNS_CAPABILITY
+                    || (capability == super::conversation_runs::CONVERSATION_RUNS_CAPABILITY || capability == super::conversation_runs::CONVERSATION_RUN_ANSWERS_CAPABILITY)
                     || capability == super::conversation_live::CHIEF_LIVE_CAPABILITY
                     || capability == super::cloud_conversations::CLOUD_TYPING_CAPABILITY
                     || capability == super::cloud_conversations::CLOUD_PRESENCE_CAPABILITY

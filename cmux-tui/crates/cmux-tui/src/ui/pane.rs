@@ -127,11 +127,22 @@ pub fn draw_all(app: &mut App, frame: &mut Frame) -> DrawCursors {
     app.rendered_pane_content_generations.retain(|surface, _| visible_surfaces.contains(surface));
     let mut input_cursor = None;
     let mut terminal_cursor = None;
+    let floating_start = (!app.docks.floating_panes.is_empty())
+        .then(|| {
+            app.pane_areas.iter().position(|area| app.docks.floating_panes.contains(&area.pane))
+        })
+        .flatten();
     // PaneArea is Copy, so take one snapshot per iteration instead of cloning
     // the entire vector on every frame. The copy also ends the borrow before
     // the drawing helpers mutate the app's render hit maps.
     for index in 0..app.pane_areas.len() {
         let area = app.pane_areas[index];
+        if Some(index) == floating_start {
+            // Floating docks draw over the stage: the stage's hits under
+            // them must not win the first-match lookup.
+            let floating = app.docks.floating_rects().collect::<Vec<_>>();
+            app.hits.retain(|(rect, _)| !floating.iter().any(|over| rects_overlap(*rect, *over)));
+        }
         let focused = panes_accept_focus && Some(area.pane) == active_pane;
         draw_box(app, frame, &area, focused);
         if area.bar.is_some() {
@@ -148,6 +159,13 @@ pub fn draw_all(app: &mut App, frame: &mut Frame) -> DrawCursors {
         push_resize_hits(app, &area);
     }
     DrawCursors { input: input_cursor, terminal: terminal_cursor }
+}
+
+fn rects_overlap(a: Rect, b: Rect) -> bool {
+    a.x < b.x.saturating_add(b.width)
+        && b.x < a.x.saturating_add(a.width)
+        && a.y < b.y.saturating_add(b.height)
+        && b.y < a.y.saturating_add(a.height)
 }
 
 /// The pane's border box. The top row is left to the tab bar; here we
@@ -254,8 +272,8 @@ fn tab_scroll_for_active(
 
 fn draw_tab_bar(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool) {
     let Some(bar) = area.bar else { return };
-    let Some(screen_view) = app.tree.active_screen() else { return };
-    let Some(pane) = screen_view.pane(area.pane) else { return };
+    // A docked workspace's panes draw beside the active screen's.
+    let Some(pane) = app.tree.pane(area.pane) else { return };
     let tab_cfg = app.config.tabs.clone();
     let tabs: Vec<(String, Option<String>)> = pane
         .tabs

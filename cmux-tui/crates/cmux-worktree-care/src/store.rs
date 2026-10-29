@@ -70,6 +70,11 @@ impl Store {
         self.dir.join(format!("{id}.bundle"))
     }
 
+    /// The bounded finished-answer memo shared by every daemon on this host.
+    pub fn finished_path(&self) -> PathBuf {
+        self.dir.join("finished-answers.json")
+    }
+
     pub fn save(&self, manifest: &Manifest) -> Result<(), String> {
         let path = self.manifest_path(&manifest.id);
         let temporary = self.dir.join(format!(".{}.json.tmp", manifest.id));
@@ -91,6 +96,10 @@ impl Store {
             .flatten()
             .map(|entry| entry.path())
             .filter(|path| path.extension().is_some_and(|ext| ext == "json"))
+            // The finished-answer memo shares this directory but is not a
+            // manifest. In particular, do not read it here: FinishedMemo
+            // owns its bounded, validated loader.
+            .filter(|path| path.file_name().is_none_or(|name| name != "finished-answers.json"))
             .filter_map(|path| std::fs::read(path).ok())
             .filter_map(|bytes| serde_json::from_slice(&bytes).ok())
             .collect();
