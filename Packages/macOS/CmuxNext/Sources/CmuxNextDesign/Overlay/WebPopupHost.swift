@@ -193,10 +193,12 @@ public final class WebPopupHost {
 
     /// Ends the menu from this side (its tab hid or closed): the page closes its own as well.
     public func dismiss() {
-        declarationHost?.dismiss(reason: "owner-hidden")
-        guard model != nil else { return }
-        hide()
-        send(["type": "dismiss"])
+        if model != nil {
+            hide()
+            send(["type": "dismiss"])
+        } else {
+            declarationHost?.dismiss(reason: "owner-hidden")
+        }
     }
 
     /// Wire hide is owner-bound; a stale page effect cannot hide a newer popup.
