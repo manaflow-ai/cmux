@@ -3,8 +3,8 @@ import Foundation
 import CmuxNextServer
 import CmuxNextSettings
 
-/// `debug.join_consent {team?, name?, ask?, surface?, settings?}` (captures): This Mac reads as joined
-/// from a fixture status instead of acpmux, so Settings > Devices shows its consent switches with no
+/// `debug.join_consent {joined?, team?, name?, ask?, surface?, settings?}` (captures): This Mac reads as
+/// joined (`joined` false: not joined, the page as it was before) from a fixture status instead of acpmux, so Settings > Devices shows its consent switches with no
 /// join, team or platform; `ask` (a requesting machine's name) shows the one-time sheet; `settings`
 /// (default true) opens Settings > Devices. Both consents start off and the RPC never sets one: only
 /// the page's switch (the person's gesture) or the sheet's Allow writes, to a fixture person line.
@@ -15,7 +15,9 @@ enum DebugJoinConsent {
     static let line = FixtureLine()
 
     static func show(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
-        if status == nil {
+        if params["joined"]?.boolValue == false {
+            status = JoinStatus(credentialPresent: false)
+        } else if status?.credentialPresent != true {
             status = JoinStatus(credentialPresent: true, machineId: "m_fixture", teamId: "team_fixture",
                                 teamName: params["team"]?.stringValue ?? "Example Team", name: params["name"]?.stringValue ?? "studio")
         }

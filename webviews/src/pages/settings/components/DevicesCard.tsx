@@ -34,8 +34,8 @@ export function DevicesCard() {
   );
   return (
     <div className="devices" data-card="devices" ref={mounted}>
-      {devices && <DevicesBody state={devices} />}
-      {join && <JoinGroup join={join} />}
+      {devices && <DevicesBody state={devices} join={join} />}
+      {!devices && join && <JoinGroup join={join} />}
     </div>
   );
 }
@@ -128,7 +128,7 @@ function Status({ tone, children }: { tone: DevicesTone; children: ReactNode }) 
   );
 }
 
-function DevicesBody({ state }: { state: DevicesState }) {
+function DevicesBody({ state, join }: { state: DevicesState; join: DevicesJoinState | null }) {
   const [error, run] = useRun();
   const { labels } = state;
   const header = (
@@ -166,8 +166,14 @@ function DevicesBody({ state }: { state: DevicesState }) {
       <RunError error={error} />
     </section>
   );
-  // Without a device hub in this build the card says so and nothing else.
-  if (!state.available) return header;
+  // Without a device hub in this build the card says so; a joined Mac's consent still shows.
+  if (!state.available)
+    return (
+      <>
+        {header}
+        {join && <JoinGroup join={join} />}
+      </>
+    );
   return (
     <>
       {header}
@@ -179,6 +185,7 @@ function DevicesBody({ state }: { state: DevicesState }) {
           </div>
         </section>
       )}
+      {join && <JoinGroup join={join} />}
       {state.sharing && <SharingGroup sharing={state.sharing} labels={labels} />}
       <section className="group" data-devices-group="others">
         <h3 className="group-title">{labels.othersSection}</h3>
