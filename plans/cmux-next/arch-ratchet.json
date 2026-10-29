@@ -635,6 +635,12 @@
       "why": "CmuxNextWireGen GeneratedFile.write (the same build-tool executable as the p05-ipc-027 entry above): the atomic write is now its own temporary file in the output directory and a rename(2), not Data.write(.atomic), whose sandboxed path asks coreservicesd for an item-replacement directory and blocked forever in a non-GUI fleet step (swift-build waited 95 min, step 8c7b9f60, 2026-10-28). The write, the rename and the removal of a failed write's temporary file are three escapes where there was one; the tool still runs only on the build host, never in the app, and still does not link the CmuxNextCompat seams."
     },
     {
+      "date": "2026-10-27",
+      "row": "blocking_allow_escapes",
+      "allow": 5,
+      "why": "p15-oracle-104 OracleReplay: the oracle-replay executable, its own short process on the Linux VM or a fleet Mac, never inside the app, so the app's main-thread detector does not apply (it has no app main thread; the journal reads run in task-group children, where the seams would only record cooperative-pool sites). Five file calls: is the input a directory, list it, read a journal, create --out, write a result file. Like CmuxNextWireGen, it stays off CmuxNextCompat so the tool needs only CmuxNextInputModel."
+    },
+    {
       "date": "2026-10-26",
       "row": "observer_sites",
       "allow": 17,

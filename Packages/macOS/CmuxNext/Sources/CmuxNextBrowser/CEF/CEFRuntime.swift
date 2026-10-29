@@ -170,6 +170,9 @@ final class CEFRuntime {
     private(set) var loadsUnpackedExtensions = false
     /// `browser.builtInAdBlocker`, asked at start (the App supplies it).
     var builtInAdBlockerSetting: @MainActor () -> Bool = { true }
+    /// `browser.builtInAdBlocker` set to true by the person (not its default), asked at start: on a fork without the
+    /// first-tab load it keeps the start-time load (``CEFBuiltInExtensionLoader/start(_:forkSupports:personChose:)``).
+    var builtInAdBlockerChosen: @MainActor () -> Bool = { false }
     /// The managed preference domain Chromium reads Chrome enterprise policies
     /// from, asked at start (the App supplies it); nil reads none.
     var chromePolicyIDSetting: @MainActor () -> String? = { nil }
@@ -546,15 +549,18 @@ final class CEFRuntime {
         }
 
         let builtInPlan = inputs.builtInPlan
+        let builtIn = builtInLoader.begin(builtInPlan.folders, forkSupports: shim.extLoadLaterSupported() == 1,
+                                          personChose: inputs.adBlockerChosen)
+            .switchInputs(folders: builtInPlan.folders, keepsUnpackedEnabled: builtInPlan.keepsUnpackedEnabled)
         let switchSet = CEFSwitches.current(
             forkAPIVersion: shim.forkAPIVersion(), rendererPaths: CEFForkFeatures(shim).rendererPaths,
             chromiumFeatures: chromiumFeatures, disabledChromiumFeatures: disabledChromiumFeatures,
             spareAfterFirstTab: spareAfterFirstTabFeature(), embedderColorChooser: drawsChoosersInCmux,
             chromiumSpareOff: !spareWindow.chromiumStarting(placeholderSupported: shim.placeholderSupported() == 1),
             bundleIdentifier: Bundle.main.bundleIdentifier,
-            environment: environment, builtInExtensions: builtInPlan.folders,
-            builtInExtensionsAtFirstTab: builtInLoader.start(builtInPlan.folders, forkSupports: shim.extLoadLaterSupported() == 1),
-            keepsUnpackedEnabled: builtInPlan.keepsUnpackedEnabled, pageSiteCaps: CEFPageSchemes.siteCaps(CEFPageSchemes.firstParty),
+            environment: environment, builtInExtensions: builtIn.folders,
+            builtInExtensionsAtFirstTab: builtIn.atFirstTab,
+            keepsUnpackedEnabled: builtIn.keepsUnpackedEnabled, pageSiteCaps: CEFPageSchemes.siteCaps(CEFPageSchemes.firstParty),
             sharedRendererMemoryCaps: sharedRendererMemoryCaps
         )
         builtInAdBlockerLoaded = !switchSet.builtInExtensions.isEmpty

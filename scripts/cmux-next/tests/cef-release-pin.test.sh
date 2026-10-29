@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # The release pin of the fork's API 31 train (p01-process task 178):
 # cef_release_pin.py pin writes a whole manifest (both arches, both debug
-# assets, no staging object) only for a release at API >= 31 whose skipped
+# assets, no staging object) only for a release at or above the app's fork API
+# floor (the Chromium host's kMinForkAPI, read from the source) whose skipped
 # API numbers are named exactly; publish-cef-r2.sh uploads the four assets to
 # a local fake of the R2 S3 API and writes their keys; check and
 # --verify-manifest then pass, and fail when an object or a field is wrong.
@@ -36,10 +37,19 @@ header() { # <define> <history numbers...>
 }
 pin_it() { python3 -I "$pin" pin "$tag" --from "$work/src" --ref "$ref" --manifest "$work/m.json" "$@" 2>"$work/err"; }
 
-# Below API 31: refused, nothing written.
+# Below the app's floor (kMinForkAPI of chromium_host_wire.h): refused, nothing written.
+floor="$(sed -n 's/^inline constexpr int kMinForkAPI = \([0-9]*\);$/\1/p' \
+  "$here/../../../Packages/macOS/CmuxNext/ChromiumHost/src/chromium_host_wire.h")"
+[[ "$floor" =~ ^[0-9]+$ && "$floor" -ge 30 && "$floor" -lt 31 ]] ||
+  fail "this test pins API 31 with 28 and 29 skipped; it expects the app floor 30, the source says ${floor:-nothing}"
+header 29 $(seq 1 27) 29
+pin_it --accept-missing-api 28 && fail "an API 29 release was pinned below the app floor $floor"
+grep -q "needs >= $floor" "$work/err" || fail "API 29: $(cat "$work/err")"
+[[ ! -e "$work/m.json" ]] || fail "a refused pin wrote the manifest"
+# --min-api raises the floor: API 30 refused at 31.
 header 30 $(seq 1 27) 30
-pin_it --accept-missing-api 28,29 && fail "an API 30 release was pinned"
-grep -q "needs >= 31" "$work/err" || fail "API 30: $(cat "$work/err")"
+pin_it --accept-missing-api 28,29 --min-api 31 && fail "an API 30 release was pinned with --min-api 31"
+grep -q "needs >= 31" "$work/err" || fail "API 30 at --min-api 31: $(cat "$work/err")"
 [[ ! -e "$work/m.json" ]] || fail "a refused pin wrote the manifest"
 
 # API 31 that skips 28 and 29: refused unless exactly those are named.
@@ -47,7 +57,8 @@ header 31 $(seq 1 27) 30 31
 pin_it && fail "a release that skips 28 and 29 was pinned without --accept-missing-api"
 grep -q "skips \[28, 29\]" "$work/err" || fail "skip message: $(cat "$work/err")"
 pin_it --accept-missing-api 28 && fail "naming 28 alone was accepted"
-pin_it --accept-missing-api 28,29 --fork-branch cp/p01-process-178 || fail "pin: $(cat "$work/err")"
+pin_it --accept-missing-api 28,29 --fork-branch cp/p01-process-178 \
+  --debug-symbols "Chromium Embedded Framework.dSYM.tar.xz" || fail "pin: $(cat "$work/err")"
 python3 -I - "$work/m.json" "$tag" "$ref" <<'PY' || fail "manifest fields"
 import json, sys
 m, tag, ref = json.load(open(sys.argv[1])), sys.argv[2], sys.argv[3]
@@ -60,6 +71,7 @@ assert m["asset"] == f"{tag}-macos-arm64.tar.xz" and m["debug_asset"] == f"{tag}
 assert x["asset"] == f"{tag}-macos-x86_64.tar.xz" and x["debug_asset"] == f"{tag}-macos-x86_64-debug.tar.xz", x
 assert m["url"].endswith(f"/releases/download/{tag}/{tag}-macos-arm64.tar.xz"), m
 assert m["require_dcheck_off"] is True and "staging" not in m and "r2_key" not in m, m
+assert m["debug_symbols"] == x["debug_symbols"] == "Chromium Embedded Framework.dSYM.tar.xz", m
 PY
 
 # A release without a debug asset is refused.
@@ -122,7 +134,7 @@ mutate 'm["x86_64"]["r2_key"] = "cef/0/x.tar.xz"' "x86_64 r2_key"
 mutate 'm["staging"] = {"store_expires": "2026-11-09"}' "staging pin"
 mutate 'del m["x86_64"]' "no x86_64 artifact"
 mutate 'del m["debug_r2_key"]' "arm64 debug_r2_key"
-mutate 'm["cmux_cef_api_version"] = 30' "needs >= 31"
+mutate 'm["cmux_cef_api_version"] = 29' "needs >= $floor"
 mutate 'm["x86_64"]["fork_ref"] = "0" * 40' "one fork commit"
 mutate 'm["version"] = "cef-stage-x"' "release tag"
 

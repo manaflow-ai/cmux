@@ -51,6 +51,7 @@ class FakeApp:
         self.fail_launch = False
         self.stops = 0
         self.hang: set = set()
+        self.journal: Optional[List[Dict[str, Any]]] = None
         # The I11-I14 side channels: counters since launch that each action moves.
         self.blocking_compiled = True
         self.main_blocks = 0
@@ -262,6 +263,16 @@ class FakeApp:
             self.turn("workspace.new")
             return {"ok": True, "result": {"handled_by": "app", "action": "workspace.new", "window_kind": "shell"}}
         return {"ok": True, "result": {"handled_by": "responder", "action": None, "window_kind": "shell"}}
+
+    def m_debug_journal(self, params):
+        """The input journal ring when the test gives one (`journal`), as the app encodes it: numbers may be floats."""
+        if self.journal is None:
+            return {"ok": False, "error": {"code": "method_not_found", "message": "debug.journal"}}
+        entries = self.journal[-params["last"]:] if params.get("last") else []
+        return {"ok": True, "result": {"stats": {"capacity": 4096, "count": len(self.journal), "enabled": True,
+                                                 "lastSeq": float(len(self.journal)), "overwritten": 0,
+                                                 "recordsCharacters": False},
+                                       "entries": entries}}
 
 
 def identity(app: str):
@@ -918,6 +929,46 @@ class AppSessionTest(SessionTestBase):
         session.close()
         self.assertFalse(session.paths.root.exists())
         self.assertEqual((out / "app.log").read_text(), "launch failed\n")
+
+    def test_each_case_saves_the_input_journal_for_oracle_replay(self) -> None:
+        session = self.session()
+        attach = {"seq": 1.0, "uptimeNanos": 120000000000.0, "kind": {"attach": {"_0": {
+            "surface": "s1", "event": "start", "phase": "attaching", "bytes": 0.0, "droppedBytes": 0}}}}
+        frame = {"seq": 2, "uptimeNanos": 120000000001, "window": "w1",
+                 "kind": {"windowFrame": {"x": 40.5, "y": 40.0, "width": 1440.0, "height": 900.0}}}
+        session.run_case(case(step("s", "snapshot")), {"case_id": "actions/c"})
+        self.apps[0].journal = [attach, frame]
+        result = session.run_case(case(NEW_WORKSPACE), {"case_id": "actions/workspace/new"})
+        self.assertEqual(result["status"], "Pass", result["message"])
+        path = Path(self.tmp.name) / "journals" / "actions" / "workspace" / "new.jsonl"
+        self.assertEqual(result["journal"], str(path))
+        lines = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+        self.assertEqual(lines[0]["schema"], "cmux-input-journal-v1")
+        self.assertEqual((lines[0]["source"], lines[0]["sha"]), ("actions/workspace/new", SHA))
+        self.assertEqual(lines[0]["stats"]["lastSeq"], 2)
+        self.assertEqual(lines[1:], [
+            {"seq": 1, "uptimeNanos": 120000000000, "kind": {"attach": {"_0": {
+                "surface": "s1", "event": "start", "phase": "attaching", "bytes": 0, "droppedBytes": 0}}}},
+            {"seq": 2, "uptimeNanos": 120000000001, "window": "w1",
+             "kind": {"windowFrame": {"x": 40.5, "y": 40, "width": 1440, "height": 900}}},
+        ])
+        self.assertNotIn(".0,", path.read_text(encoding="utf-8"), "Swift reads a UInt64 only from integer text")
+        last = [p for m, p in self.apps[0].calls if m == driver_app.JOURNAL][-1]
+        self.assertEqual(last, {"last": driver_app.JOURNAL_LAST}, "the whole ring")
+
+    def test_a_journal_never_changes_the_result_and_a_dirty_app_is_not_asked(self) -> None:
+        session = self.session()
+        result = session.run_case(case(NEW_WORKSPACE), {"case_id": "actions/c"})
+        self.assertEqual(result["status"], "Pass", "a build without debug.journal still passes")
+        self.assertIn("debug.journal refused", result["journal_error"])
+        self.assertNotIn("journal", result)
+        app = self.apps[0]
+        app.journal = []
+        app.hang = {"action.run"}
+        result = session.run_case(case(NEW_WORKSPACE), {"case_id": "actions/hung"})
+        self.assertEqual(result["status"], "Timeout")
+        self.assertNotIn(driver_app.JOURNAL, [m for m, _ in app.calls[-1:]], "no journal read from a hung app")
+        self.assertFalse((Path(self.tmp.name) / "journals" / "actions" / "hung.jsonl").exists())
 
     # -- the trace of invariants I11-I15
 

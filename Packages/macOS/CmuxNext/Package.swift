@@ -1900,6 +1900,14 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             dependencies: ["CmuxNextOracle", "CmuxNextCompat"],
             swiftSettings: daemonSwiftSettings
         ),
+        // oracle-replay (p15-oracle-104): saved input journals replayed against CmuxNextInputModel's reducers, the
+        // offline debug.replay (input-spec.md section 5). A tool for the oracle's journals suite on the Linux VM and
+        // the fleet: not linked into the app, not a test target, not run by CI.
+        .executableTarget(
+            name: "OracleReplay",
+            dependencies: ["CmuxNextInputModel"],
+            swiftSettings: daemonSwiftSettings
+        ),
         // The app's one input tap (p04-input.md section 3 (A)): typed subscriptions by event class,
         // phase and window that replace AppKit event monitors and the application object's closures.
         // The only target besides the App that sees NSEvent for input routing; core and service

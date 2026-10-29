@@ -345,6 +345,31 @@ public final class CEFEngine: BrowserEngine {
         set { CEFRuntime.shared.builtInAdBlockerSetting = newValue }
     }
 
+    /// cmux.json `browser.builtInAdBlocker` set to true by the person, not left at its default; asked once, when
+    /// Chromium starts (a fork without the first-tab load then still loads the ad blocker at start).
+    public var builtInAdBlockerChosen: @MainActor () -> Bool {
+        get { CEFRuntime.shared.builtInAdBlockerChosen }
+        set { CEFRuntime.shared.builtInAdBlockerChosen = newValue }
+    }
+
+    /// Where this Chromium's built-in extensions went, and from what (`debug.cef` `built_in_extensions`); nil
+    /// before Chromium started.
+    public var builtInExtensionsReport: BuiltInExtensionsReport? {
+        CEFRuntime.shared.builtInLoader.lastStart.map {
+            BuiltInExtensionsReport(placement: $0.placement.rawValue, feature: $0.feature, forkSupports: $0.forkSupports,
+                                    personChose: $0.personChose, folders: $0.folders)
+        }
+    }
+
+    /// One Chromium start's built-in extensions: `placement` is `at_first_tab`, `at_start` or `off`.
+    public nonisolated struct BuiltInExtensionsReport: Equatable, Sendable {
+        public let placement: String
+        public let feature: Bool
+        public let forkSupports: Bool
+        public let personChose: Bool
+        public let folders: Int
+    }
+
     /// The managed preference domain Chromium reads Chrome enterprise policies
     /// from (`com.google.Chrome`), asked once when Chromium starts; nil reads none.
     public var chromePolicyID: @MainActor () -> String? {
