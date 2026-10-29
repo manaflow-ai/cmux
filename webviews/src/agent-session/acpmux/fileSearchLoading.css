@@ -21,3 +21,10 @@
   background: color-mix(in srgb, var(--agent-muted) 20%, transparent);
   border-radius: var(--ds-radius-control);
 }
+
+.acpmux-file-loading-note {
+  position: absolute;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}

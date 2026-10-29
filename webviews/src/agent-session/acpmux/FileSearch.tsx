@@ -182,7 +182,9 @@ export function FileSearch({
           );
         })}
       </div>
-      {note && <output className={state.kind === "searching" ? "ui-sr-only" : "acpmux-file-note"}>{note}</output>}
+      {note && (
+        <output className={state.kind === "searching" ? "acpmux-file-loading-note" : "acpmux-file-note"}>{note}</output>
+      )}
       {state.kind === "done" && state.truncated && results.length > 0 && (
         <output className="acpmux-file-note">{t("files.more", { count: results.length })}</output>
       )}

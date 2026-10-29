@@ -152,7 +152,11 @@ export function MentionMenu({
             : item.dir.length > 0 && <span className="acpmux-slash-description">{runs(item.dir)}</span>}
         </PickerOption>
       ))}
-      {note && <output className={state?.kind === "searching" ? "ui-sr-only" : "acpmux-file-note"}>{note}</output>}
+      {note && (
+        <output className={state?.kind === "searching" ? "acpmux-file-loading-note" : "acpmux-file-note"}>
+          {note}
+        </output>
+      )}
     </PickerOptionList>
   );
 }
