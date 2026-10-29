@@ -25,10 +25,16 @@
 # outside the CMUX_WEB_TEST_RETRIES count: one slow file must not eat the failed files' retries, nor
 # they its (#27130's shard 4: two files timed out at 120 s beside 15 others, never retried, and
 # both passed alone in 61 s and 22 s on the base replay). Timeout retries have their own budget,
-# CMUX_WEB_TEST_TIMEOUT_RETRY_BUDGET seconds (default 240); one starts only when its whole limit
-# fits in what is left, so the shard's worst case stays bounded. A retry that times out again
+# CMUX_WEB_TEST_TIMEOUT_RETRY_BUDGET seconds when set; one starts only when its whole limit fits in
+# what is left. Unset (the default), every timed-out file gets its retry: a fixed 240 s fit two
+# retries of 21 s and 42 s and a third of 63 s, then kept 7 of 12 timed-out files red on a
+# 32-wide shard (job 123436110075), and each of those passed alone on the base replay. A retry that times out again
 # stays a TIMEOUT (never a pass, and never a named failure a base could share); one that passes
 # is listed as passing alone. CMUX_WEB_TEST_RETRIES=0 turns these retries off too.
+# CMUX_WEB_TEST_RETRY_DEADLINE: optional seconds after the runner starts by which every retry must
+# be done. A timeout retry starts only when its whole limit fits before it, and a failed file's
+# retry is cut at it, so the step stays inside its job's timeout-minutes however many files
+# timed out.
 # CMUX_WEB_TEST_JOBS: files run at once (default: CMUX_CI_CPU_BUDGET, the cores a fleet
 # worker granted the step, else the CPU count).
 # CMUX_WEB_TEST_BROWSER_JOBS: plain files that drive a real browser at once (default a quarter of the
@@ -453,8 +459,18 @@ retried=0
 retry_budget="${CMUX_WEB_TEST_RETRY_BUDGET:-120}"
 [[ "$retry_budget" =~ ^[0-9]+$ ]] || retry_budget=120
 retry_started=$SECONDS
-timeout_retry_budget="${CMUX_WEB_TEST_TIMEOUT_RETRY_BUDGET:-240}"
-[[ "$timeout_retry_budget" =~ ^[0-9]+$ ]] || timeout_retry_budget=240
+# Unset (the default), every timed-out file gets its retry: there are finitely many, each retry is
+# bounded by its own limit, and CMUX_WEB_TEST_RETRY_DEADLINE bounds them all. A budget summed from
+# their limits would not do: a retry's kill grace and cache upkeep run past its limit and would
+# cost the last file its retry.
+timeout_retry_budget="${CMUX_WEB_TEST_TIMEOUT_RETRY_BUDGET:-}"
+[[ "$timeout_retry_budget" =~ ^[0-9]+$ ]] || timeout_retry_budget=""
+retry_deadline="${CMUX_WEB_TEST_RETRY_DEADLINE:-}"
+[[ "$retry_deadline" =~ ^[0-9]+$ ]] || retry_deadline=""
+# deadline_left: seconds until CMUX_WEB_TEST_RETRY_DEADLINE (a large number when none is set).
+deadline_left() {
+  if [ -n "$retry_deadline" ]; then echo $((retry_deadline - SECONDS)); else echo 999999; fi
+}
 timeout_retried=0
 timeout_retry_spent=0
 : > "$results/retry-passed"
@@ -467,8 +483,15 @@ while read -r result file log; do
   normal_limit="$(file_limit "$file" "$timeout_seconds")"
   if [ "$result" = TIMEOUT ]; then
     # The timed-out file's own retry: its own budget, its full limit, never cut short.
-    timeout_remaining=$((timeout_retry_budget - timeout_retry_spent - (SECONDS - iteration_started)))
-    if [ "$timeout_remaining" -lt "$normal_limit" ]; then
+    timeout_remaining=999999
+    if [ -n "$timeout_retry_budget" ]; then
+      timeout_remaining=$((timeout_retry_budget - timeout_retry_spent - (SECONDS - iteration_started)))
+    fi
+    left="$(deadline_left)"
+    if [ "$left" -lt "$normal_limit" ]; then
+      echo "retry deadline (${left}s left) cannot fit $file's ${normal_limit}s limit: keeping TIMEOUT"
+      printf '%s %s %s\n' "$result" "$file" "$log" >> "$results/summary"
+    elif [ "$timeout_remaining" -lt "$normal_limit" ]; then
       echo "timeout retry budget (${timeout_remaining}s left) cannot fit $file's ${normal_limit}s limit: keeping TIMEOUT"
       printf '%s %s %s\n' "$result" "$file" "$log" >> "$results/summary"
     else
@@ -492,6 +515,8 @@ while read -r result file log; do
   fi
   # The failed files' shared budget is wall time since the retries began, less the timeout retries'.
   remaining=$((retry_budget - (SECONDS - retry_started - timeout_retry_spent)))
+  left="$(deadline_left)"
+  if [ "$left" -lt "$remaining" ]; then remaining="$left"; fi
   if [ "$remaining" -le 0 ]; then
     echo "retry budget exhausted: keeping $result $file"
     printf '%s %s %s\n' "$result" "$file" "$log" >> "$results/summary"

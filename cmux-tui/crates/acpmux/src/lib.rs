@@ -122,6 +122,8 @@ pub mod subrouter_session;
 pub mod subsession_mcp;
 pub mod subsession_worktree;
 pub mod tailnet;
+#[cfg(test)]
+mod test_exec;
 pub mod transcript;
 pub mod trust;
 pub mod trust_auto;

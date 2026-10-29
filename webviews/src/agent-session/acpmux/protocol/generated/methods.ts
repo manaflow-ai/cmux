@@ -219,6 +219,9 @@ export interface AcpmuxRequests {
   "_acpmux/pair_revoke": { params: unknown; result: unknown };
   "_acpmux/pair_issue": { params: unknown; result: unknown };
   "_acpmux/pair_set": { params: unknown; result: unknown };
+  "_acpmux/machine_consent_set": { params: unknown; result: unknown };
+  "_acpmux/machine_consent_get": { params: unknown; result: unknown };
+  "_acpmux/machine_consent_refused": { params: unknown; result: unknown };
   "_acpmux/pair_redeem": { params: unknown; result: unknown };
 }
 
@@ -484,6 +487,9 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/pair_revoke", kind: "request", acp: false, typed: false },
   { name: "_acpmux/pair_issue", kind: "request", acp: false, typed: false },
   { name: "_acpmux/pair_set", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/machine_consent_set", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/machine_consent_get", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/machine_consent_refused", kind: "request", acp: false, typed: false },
   { name: "_acpmux/pair_redeem", kind: "request", acp: false, typed: false },
   { name: "_acpmux/event", kind: "notification", acp: false, typed: true },
   { name: "_acpmux/session_changed", kind: "notification", acp: false, typed: true },
