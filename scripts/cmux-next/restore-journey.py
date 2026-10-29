@@ -989,9 +989,13 @@ CHAT_PROFILES = {
 }
 CHAT_PICKS = {"rj-claude": {"model": "claude-sonnet-5-5"}, "rj-codex": {}}  # the test agent keeps picks only as Claude
 CLI_AGENTS = {
-    "claude": {"account": "CLAUDE_CONFIG_DIR", "flags": "--dangerously-skip-permissions --model claude-sonnet-5-5"},
-    # Each resumes by itself after a reboot ("Resume Agents After Restart" is on by default), also
-    # Claude's with its approval bypass: a resumed session waits for the person's next prompt.
+    # After a reboot a respawned terminal resumes its agent with its flags and account ("Resume
+    # Agents After Restart" is on by default). Claude's runs with its approvals off, so its resume
+    # is typed on the new prompt without Return (#22292: a respawn never starts an agent with its
+    # approvals off by itself); the journey checks it waits there, then presses Return as a
+    # person does. Codex's resume runs by itself.
+    "claude": {"account": "CLAUDE_CONFIG_DIR", "flags": "--dangerously-skip-permissions --model claude-sonnet-5-5",
+               "resume_waits": True},
     "codex": {"account": "CODEX_HOME", "flags": "-m gpt-5.5 --search"},
 }
 CHATS = []  # {"label", "harness", "session", "tab"}
@@ -1241,6 +1245,16 @@ def tagent_items(label, items, raw):
         def current():
             starts = [e for e in agent_events(agent["session"]) if e.get("event") == "start"]
             return starts[-1] if starts and _pid_alive(starts[-1].get("pid")) else None
+        if getattr(APP, "rebooted", False) and CLI_AGENTS[agent["provider"]].get("resume_waits"):
+            # Its resume is typed on the new prompt and does not run by itself: the command with
+            # its session on screen, no agent started for it. Then Return, as a person presses it.
+            typed = wait(lambda: f"--resume {agent['session']}" in screen_text(agent["terminal"])[-600:], 30, 1)
+            ran = current()
+            ran = ran if ran and ran.get("pid") != agent.get("pid") else None
+            items[f"{a}.resume_waits"] = (bool(typed) and not ran) or \
+                (f"started by itself: {ran}" if ran else f"no resume typed; screen ends {screen_text(agent['terminal'])[-200:]!r}")
+            if typed and not ran:
+                write(agent["terminal"], "\r")
         start = wait(current, 60, 1)
         raw[f"{a}.start"] = start
         raw[f"{a}.text"] = screen_text(agent["terminal"])[-4000:]
@@ -1427,11 +1441,15 @@ def history(term):
     return rows
 
 
+HISTORY_BY_SHA = {}  # history_sha -> the rows it hashes, for the history_sha row's compare
+
+
 def terminal_items(term):
     rows = history(term)
     screen = cli("terminal", term, "screen", "read", quiet=True)
     text = "\n".join(rows or []) + "\n" + (screen.get("text", "") if isinstance(screen, dict) else "")
     numbered = [int(n) for n in re.findall(rf"rj-line-(\d+)-{RUN}", text)]
+    HISTORY_BY_SHA[sha("\n".join(rows or []))] = rows or []
     return {"history_rows": len(rows) if rows is not None else None, "history_sha": sha("\n".join(rows or [])),
             "numbered_lines": len(set(numbered)), "numbered_max": max(numbered) if numbered else 0,
             "ticks": [int(t) for t in re.findall(r"rj-tick-(\d+)", text)]}
@@ -1641,6 +1659,7 @@ def snapshot(label):
     for tp, term in terms.items():
         info = terminal_items(term)
         raw[f"terminal {tp}"] = info
+        raw[f"terminal {tp} rows"] = HISTORY_BY_SHA.get(info["history_sha"])
         if info["numbered_lines"]:
             items[f"{tp}.scrollback.numbered_lines"] = info["numbered_lines"]
             items[f"{tp}.scrollback.numbered_max"] = info["numbered_max"]
@@ -1947,6 +1966,10 @@ def compare(variant, before, after):
             # prompt resumes it): the same live session as `ready`, not a lost one.
             RESULTS.append((f"{variant}: {item}", True, f"{json.dumps(b)} -> {json.dumps(a)} (idle: hibernated, resumes on the next prompt)", area_of(item)))
             continue
+        if item.startswith("tagent[") and item.endswith(".resume_waits"):
+            # Only after a reboot: nothing to compare with before it.
+            RESULTS.append((f"{variant}: {item}", a is True, json.dumps(a)[:200], area_of(item)))
+            continue
         if item.startswith(("chat[", "tagent[")) and item.endswith((".live", ".signed_in", ".running", ".page.picked")) or item.startswith("tagent[") and item.endswith(".transcript"):
             ok = a is True and b is True
             detail = f"{json.dumps(b)[:100]} -> {json.dumps(a)[:100]}"
@@ -1996,10 +2019,35 @@ def compare(variant, before, after):
             ok = a == seeded_value
             detail = (f"{len(a)} records, as seeded" if ok and isinstance(a, list)
                       else f"seeded {json.dumps(seeded_value)[:160]} -> {json.dumps(a)[:160]}")
+        elif item.endswith(".scrollback.history_sha") and a in HISTORY_BY_SHA and b in HISTORY_BY_SHA:
+            # Every row's text as before, in order; rows only after them (a respawned shell's
+            # marker line and prompt push the old screen's top rows into the history). A history
+            # replay draws each row with its own line break, so a line soft-wrapped at an older
+            # width comes back wrapped at that width (re-wrapped rows: same text, other breaks).
+            rows_b, rows_a = HISTORY_BY_SHA[b], HISTORY_BY_SHA[a]
+            text_b, text_a = "".join(rows_b), "".join(rows_a)
+            ok = bool(rows_b) and text_a.startswith(text_b)
+            if a == b:
+                detail = json.dumps(a)
+            elif ok:
+                same = rows_a[:len(rows_b)] == rows_b
+                kept = next((i for i in range(1, len(rows_a) + 1) if "".join(rows_a[:i]).startswith(text_b)
+                             and len("".join(rows_a[:i])) >= len(text_b)), len(rows_a))
+                rewrapped = sum(1 for x, y in zip(rows_b, rows_a) if x != y)
+                detail = (f"{json.dumps(b)} -> {json.dumps(a)}: text kept"
+                          + ("" if same else f", {rewrapped} rows re-wrapped")
+                          + f", {len(rows_a) - kept} rows after the old ones {json.dumps(rows_a[kept:])[:80]}")
+            else:
+                at = next((i for i, (x, y) in enumerate(zip(text_b, text_a)) if x != y), min(len(text_b), len(text_a)))
+                detail = f"{json.dumps(b)} -> {json.dumps(a)}: the text changed at {json.dumps(text_b[at:at + 40])} -> {json.dumps(text_a[at:at + 40])}"
         elif item.endswith(".scrollback.history_rows") and isinstance(a, int) and isinstance(b, int):
-            # A view re-attaching may add a prompt line, never drop rows.
-            ok = a >= b
-            detail = f"{b} -> {a}"
+            # A view re-attaching may add a prompt line, never drop rows; re-wrapped rows (see
+            # history_sha) may be fewer with the same text.
+            sha_b, sha_a = (d.get(item.replace(".history_rows", ".history_sha")) for d in (before, after))
+            rewrapped = sha_b in HISTORY_BY_SHA and sha_a in HISTORY_BY_SHA and bool(HISTORY_BY_SHA[sha_b]) \
+                and "".join(HISTORY_BY_SHA[sha_a]).startswith("".join(HISTORY_BY_SHA[sha_b]))
+            ok = a >= b or rewrapped
+            detail = f"{b} -> {a}" + (" (re-wrapped, text kept)" if a < b and rewrapped else "")
         else:
             ok = a == b
             detail = json.dumps(a)[:100] if ok else f"{json.dumps(b)[:100]} -> {json.dumps(a)[:100]}"

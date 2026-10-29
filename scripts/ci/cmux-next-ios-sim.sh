@@ -245,6 +245,10 @@ keep_test_logs() {
   cp "$log" "$out/$name-test.log" 2>/dev/null || true
   xcrun xcresulttool get log --type console --path "$bundle" > "$out/$name-console.txt" 2>/dev/null || true
   xcrun xcresulttool get test-results tests --path "$bundle" --compact > "$out/$name-tests.json" 2>/dev/null || true
+  # XCTAttachments (UI tests' keepAlways screenshots) as files, with the
+  # manifest.json that maps each one to its test.
+  mkdir -p "$out/$name-attachments"
+  xcrun xcresulttool export attachments --path "$bundle" --output-path "$out/$name-attachments" >/dev/null 2>&1 || true
   xcrun xcresulttool get test-results summary --path "$bundle" --compact 2>/dev/null | python3 -c '
 import json, sys
 d = json.load(sys.stdin)
