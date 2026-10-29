@@ -172,6 +172,39 @@ try {
     expect(host.querySelector(".acpmux-attachment-link-name")?.textContent).toBe(video().name);
   });
 
+  test("an outside-root recording uses its pasted File preview without host media reads", async () => {
+    const created: Blob[] = [];
+    const revoked: string[] = [];
+    const urlApi = URL as typeof URL & {
+      createObjectURL?: (blob: Blob) => string;
+      revokeObjectURL?: (url: string) => void;
+    };
+    const oldCreate = urlApi.createObjectURL;
+    const oldRevoke = urlApi.revokeObjectURL;
+    urlApi.createObjectURL = (blob: Blob) => {
+      created.push(blob);
+      return "blob:outside-recording";
+    };
+    urlApi.revokeObjectURL = (url: string) => revoked.push(url);
+    try {
+      const preview = new Blob([new Uint8Array([0, 1, 2])], { type: "video/quicktime" });
+      await render([linkAttachment(PATH, false, preview)], false, "outside-file");
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(calls.some((call) => call.method === "media.load")).toBe(false);
+      expect(created).toEqual([preview]);
+      expect(host.querySelector(".cv-media video")?.getAttribute("src")).toBe("blob:outside-recording");
+      await act(async () => root.render(null));
+      expect(revoked).toEqual(["blob:outside-recording"]);
+    } finally {
+      if (oldCreate) urlApi.createObjectURL = oldCreate;
+      else delete urlApi.createObjectURL;
+      if (oldRevoke) urlApi.revokeObjectURL = oldRevoke;
+      else delete urlApi.revokeObjectURL;
+    }
+  });
+
   test("a chat that turns out to be on this Mac reads the video it already holds", async () => {
     await render([video()], false, "same");
     expect(calls).toEqual([]);

@@ -29,6 +29,7 @@ import { type DropOverlayState, HIDDEN_DROP, landDropOverlay, stepDropOverlay } 
 import { FADE_BAND_PX } from "../MarkdownField";
 import { useScrollEdges } from "../summary/scrollEdges";
 import { callChipHost } from "../chips/host";
+import { ReplyMedia } from "../chips/ReplyMedia";
 import { isVideoAttachment, useVideoInfo, useVideoReading } from "./videoAttachments";
 import { VideoAttachmentTile } from "./VideoAttachmentTile";
 import { FileAttachment } from "../FileAttachment";
@@ -790,6 +791,19 @@ function AttachmentChip({
     );
   }
   // A video goes as its path too, with its poster and length once the host read them; a click plays it.
+  if (isVideoAttachment(attachment) && attachment.preview) {
+    return menu(
+      undefined,
+      <div
+        className="acpmux-attachment acpmux-attachment-media"
+        /* tooltip-allow: the media player exposes the file name to assistive technology */
+        title={attachment.path}
+      >
+        <ReplyMedia path={attachment.path} alt={attachment.name} preview={attachment.preview} />
+        {remove}
+      </div>,
+    );
+  }
   if (isVideoAttachment(attachment) && (attachment.video || videoReading)) {
     const play = () => void callChipHost("video.quickLook", { src: attachment.path });
     return menu(

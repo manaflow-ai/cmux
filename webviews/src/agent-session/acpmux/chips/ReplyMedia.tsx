@@ -98,18 +98,49 @@ function useMediaLoad(source: string, auto: boolean) {
   return { src, state, load, fail };
 }
 
+/// A pasted or dropped file is already available to the page. Keep its object URL local so an
+/// outside-root recording can draw without widening the host's `media.load` grant.
+function useFilePreview(file?: Blob): string | undefined {
+  const [src, setSrc] = useState<string>();
+  useEffect(() => {
+    if (!file || typeof URL.createObjectURL !== "function") {
+      setSrc(undefined);
+      return;
+    }
+    const url = URL.createObjectURL(file);
+    setSrc(url);
+    return () => URL.revokeObjectURL(url);
+  }, [file]);
+  return src;
+}
+
 /// `path` is a local file (absolute or from the session's folder); `fallback` is how it draws when
 /// the pane will not play it.
-export function ReplyMedia({ path, alt, fallback }: { path: string; alt: string; fallback?: ReactNode }) {
+export function ReplyMedia({
+  path,
+  alt,
+  fallback,
+  preview,
+}: {
+  path: string;
+  alt: string;
+  fallback?: ReactNode;
+  /** Optional bytes from a paste/drop, used only for a local draft preview. */
+  preview?: Blob;
+}) {
   const kind = mediaKind(path) ?? "video";
   const { info, answered } = usePathInfo(path);
   const place = info?.place;
   const loadable = answered && !isDeniedPath(path) && place !== "denied" && place !== "outside" && place !== "missing";
   const [frame, setFrame] = useState<HTMLSpanElement | null>(null);
   const near = useNearViewport(frame);
-  const { src, state, fail } = useMediaLoad(path, near && loadable);
+  const previewSrc = useFilePreview(preview);
+  // File-backed previews never ask the host for bytes. Reply media remains root-only below.
+  const { src, state, fail } = useMediaLoad(path, near && loadable && !preview);
+  const displaySrc = previewSrc ?? src;
   const name = alt || pathName(path);
-  if (src) return <MediaPlayer src={src} source={path} kind={kind} name={name} path={path} onError={fail} />;
+  if (displaySrc)
+    return <MediaPlayer src={displaySrc} source={path} kind={kind} name={name} path={path} onError={fail} />;
   if (state === "failed" && fallback) return <>{fallback}</>;
   return (
     <span ref={setFrame} className={`cv-media is-${kind}`}>

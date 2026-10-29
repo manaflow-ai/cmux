@@ -2,6 +2,7 @@
 // prompt as a PDF or fenced text. Images also get a normalized preview; their originals stay
 // accessible through the same session upload path (local, SSH or cloud).
 import {
+  isVideoFile,
   isImageFile,
   linkAttachment,
   linkItems,
@@ -102,7 +103,7 @@ export async function intakeFiles(
       if (path) {
         if (!image)
           link(index, {
-            ...linkAttachment(path.path, path.folder),
+            ...linkAttachment(path.path, path.folder, isVideoFile(file) ? file : undefined),
             mimeType: file.type || "application/octet-stream",
             size: file.size,
           });
@@ -147,7 +148,7 @@ export async function intakeFiles(
         events.original?.(index, path, file.name);
       } else if (path)
         link(index, {
-          ...savedAttachment(path, file.name),
+          ...savedAttachment(path, file.name, isVideoFile(file) ? file : undefined),
           mimeType: file.type || "application/octet-stream",
           size: file.size,
         });

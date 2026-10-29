@@ -29,6 +29,8 @@ export type ComposerAttachment = {
   shellRun?: string;
   /** A link's file or folder on this computer (Attach files or folders): the agent reads it there. */
   path?: string;
+  /** The pasted or dropped video bytes used only for a local draft preview. */
+  preview?: Blob;
   /** A file the composer could not attach that the chat's host saved for the agent: its chip says it goes as a path. */
   saved?: boolean;
   /** The original image on the session's machine; the inline bytes are a metadata-free preview. */
@@ -44,6 +46,12 @@ export type AttachmentError = {
 };
 /// A refusal with the file it refuses, so a caller can send that file another way (a chat's upload).
 export type RefusedFile = AttachmentError & { file: File; unreadable?: boolean };
+
+/// A recording stays a resource link for the agent, while its original bytes can draw a local
+/// preview even when the path is outside the session roots.
+export function isVideoFile(file: Pick<File, "name" | "type">): boolean {
+  return file.type.startsWith("video/") || /\.(mov|mp4|m4v)$/i.test(file.name);
+}
 
 export type PromptBlock =
   | { type: "text"; text: string; _meta?: { cmux: { pasted: true } } }
@@ -544,7 +552,7 @@ export function linkItems(value: unknown): LinkItem[] {
 /// A link chip for a file or folder on this computer (the host's panel chose it,
 /// `chat.attach.choose`, or the person dropped or pasted it): named by its last component, a
 /// folder's with a trailing slash.
-export function linkAttachment(path: string, folder: boolean): ComposerAttachment {
+export function linkAttachment(path: string, folder: boolean, preview?: Blob): ComposerAttachment {
   const trimmed = path.replace(/\/+$/, "") || "/";
   const name = trimmed.slice(trimmed.lastIndexOf("/") + 1) || trimmed;
   return {
@@ -554,13 +562,14 @@ export function linkAttachment(path: string, folder: boolean): ComposerAttachmen
     mimeType: "",
     size: 0,
     path: trimmed,
+    ...(preview ? { preview } : {}),
   };
 }
 
 /// A link chip for a file the composer could not attach that the chat's host saved at `path` (`chat.upload`):
 /// named as the person's file was, it goes as a resource_link to where the agent can read it.
-export function savedAttachment(path: string, name: string): ComposerAttachment {
-  const link = linkAttachment(path, false);
+export function savedAttachment(path: string, name: string, preview?: Blob): ComposerAttachment {
+  const link = linkAttachment(path, false, preview);
   return { ...link, name: name || link.name, saved: true };
 }
 

@@ -131,7 +131,7 @@ export function useVideoInfo(
     }
     if (!enabled) return;
     for (const chip of attachments) {
-      if (!isVideoAttachment(chip) || chip.video || asked.current.has(chip)) continue;
+      if (!isVideoAttachment(chip) || chip.preview || chip.video || asked.current.has(chip)) continue;
       asked.current.add(chip);
       const token = Symbol(chip.id);
       setReading(chip.id, token, true);
