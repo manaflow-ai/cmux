@@ -111,11 +111,14 @@ function checkMachine(vm: CloudVmRow, now: () => number) {
       console.info("[VM] idle pause", JSON.stringify({ vmId: vm.id, minutes, idleSince: decision.observation?.idleSince }));
       return "paused" as const;
     }
+    // A pause candidate that lost its row fence must keep the prior idle
+    // stretch. Writing a null observation here would restart the timeout on
+    // every run when unrelated metadata keeps changing updatedAt.
+    if (decision.pause) return "active" as const;
     // Every checked machine records when it was checked, so the next run starts with the others.
-    const observation = decision.pause ? null : decision.observation;
-    yield* recordObservation(vm.id, providerVmId, observation, checkedAt);
+    yield* recordObservation(vm.id, providerVmId, decision.observation, checkedAt);
     // A pause skipped because the row moved: something used the machine since the candidate read.
-    return decision.pause ? "active" as const : outcomeOf(decision);
+    return outcomeOf(decision);
   });
 }
 
@@ -129,8 +132,12 @@ function stillUnchanged(vm: CloudVmRow, providerVmId: string) {
     const repo = yield* VmRepository;
     const current = yield* repo.findUserVm({ userId: vm.userId, billingTeamId: vm.ownerTeamId, providerVmId, provider: vm.provider });
     if (!current || current.id !== vm.id || current.status !== "running" || current.providerVmId !== providerVmId) return null;
-    if (current.updatedAt.getTime() !== vm.updatedAt.getTime()) return null;
-    return vmLastApiActivityFromRow(current) === vmLastApiActivityFromRow(vm) ? current : null;
+    if (vmLastApiActivityFromRow(current) !== vmLastApiActivityFromRow(vm)) return null;
+    // Addresses are probe inputs. Generic updatedAt writes (renames,
+    // reservation bookkeeping, provider metadata) do not invalidate a check,
+    // but an address change does.
+    if (vmIdlePrivateAddressesFromRow(current).join("\u0000") !== vmIdlePrivateAddressesFromRow(vm).join("\u0000")) return null;
+    return current;
   });
 }
 
