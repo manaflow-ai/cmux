@@ -255,6 +255,11 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
         input.handle(message)
     }
 
+    /// Pixel scrolling (`u: "px"`) and pointer events that carry the held modifiers.
+    public var inputCapabilities: [String] {
+        [ScreenHostMessage.pixelScrollCapability, ScreenHostMessage.modifiedPointerCapability]
+    }
+
     public func stop() {
         let (stream, reconfiguration) = lock.withLock { () -> (SCStream?, (callback: CGDisplayReconfigurationCallBack, context: Unmanaged<ScreenCaptureBackend>)?) in
             defer {
@@ -281,8 +286,10 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
 
 /// Posts input with CGEvent at the HID level (Accessibility permission):
 /// absolute pointer positions on the streamed display, button transitions
-/// with click counting, wheel scrolling, keys by virtual key code, and text
-/// as Unicode strings.
+/// with click counting, wheel scrolling (lines, or pixels for `u: "px"`),
+/// keys by virtual key code, and text as Unicode strings. Every event
+/// carries the modifiers the viewer holds down (a modifier `key` down stays
+/// on until its up), so a ⌘, ⇧ or ⌥ key down, then a click, is a modified click.
 // crash-allow: one per backend, driven only by the input channel's callbacks, which libwebrtc delivers one at a time.
 final class EventInjector: @unchecked Sendable {
     // @unchecked: used from the data channel's callbacks, one at a time.
@@ -309,15 +316,18 @@ final class EventInjector: @unchecked Sendable {
             setButtons(input.b ?? 0)
         case "scroll":
             point = location(input)
-            post(CGEvent(mouseEventSource: source, mouseType: .mouseMoved, mouseCursorPosition: point, mouseButton: .left))
-            post(CGEvent(scrollWheelEvent2Source: source, units: .line, wheelCount: 2,
-                         wheel1: Int32(input.dy ?? 0), wheel2: Int32(input.dx ?? 0), wheel3: 0))
+            postPointer()
+            // Pixels take the same sign as lines: positive dy is wheel 1 up either way.
+            let units: CGScrollEventUnit = input.u == ScreenInput.pixelUnit ? .pixel : .line
+            post(CGEvent(scrollWheelEvent2Source: source, units: units, wheelCount: 2,
+                         wheel1: Self.wheelDelta(input.dy), wheel2: Self.wheelDelta(input.dx), wheel3: 0))
         case "key":
             guard let keysym = input.k else { return }
             key(keysym, down: input.d ?? true)
         case "chord":
             guard let keysym = input.k else { return }
-            let modifiers = input.m ?? []
+            // A modifier the viewer already holds stays held after the chord.
+            let modifiers = (input.m ?? []).filter { Self.modifierFlags[$0].map { !flags.contains($0) } ?? true }
             for modifier in modifiers { key(modifier, down: true) }
             key(keysym, down: true)
             key(keysym, down: false)
@@ -333,16 +343,29 @@ final class EventInjector: @unchecked Sendable {
         CGPoint(x: display.minX + (input.x ?? 0) * display.width, y: display.minY + (input.y ?? 0) * display.height)
     }
 
+    /// A scroll delta for the wheel field (clamped: a huge value never traps).
+    private static func wheelDelta(_ value: Int?) -> Int32 {
+        Int32(clamping: value ?? 0)
+    }
+
+    /// The pointer at `point` with the buttons held: a drag of the first of
+    /// left, right and middle that is down, or a plain move.
+    private func postPointer() {
+        let (type, button): (CGEventType, CGMouseButton) = buttons & 1 != 0 ? (.leftMouseDragged, .left)
+            : buttons & 4 != 0 ? (.rightMouseDragged, .right)
+            : buttons & 2 != 0 ? (.otherMouseDragged, .center)
+            : (.mouseMoved, .left)
+        post(CGEvent(mouseEventSource: source, mouseType: type, mouseCursorPosition: point, mouseButton: button))
+    }
+
     /// Moves, then posts a down or up for each button whose state changed.
     private func setButtons(_ next: UInt8) {
         let changed = next ^ buttons
-        let held = buttons
-        buttons = next
-        if changed == 0 {
-            let type: CGEventType = held & 1 != 0 ? .leftMouseDragged : held & 4 != 0 ? .rightMouseDragged : .mouseMoved
-            post(CGEvent(mouseEventSource: source, mouseType: type, mouseCursorPosition: point, mouseButton: .left))
+        guard changed != 0 else {
+            postPointer()
             return
         }
+        buttons = next
         for (bit, button, down, up) in [(UInt8(1), CGMouseButton.left, CGEventType.leftMouseDown, CGEventType.leftMouseUp),
                                         (4, .right, .rightMouseDown, .rightMouseUp), (2, .center, .otherMouseDown, .otherMouseUp)]
             where changed & bit != 0 {
@@ -382,8 +405,10 @@ final class EventInjector: @unchecked Sendable {
         }
     }
 
+    /// Posts `event` with the held modifiers (keys set their own flags first).
     private func post(_ event: CGEvent?) {
         guard let event else { return }
+        if event.type != .keyDown, event.type != .keyUp, event.type != .flagsChanged { event.flags = flags }
         poster(event)
     }
 
