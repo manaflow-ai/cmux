@@ -22,7 +22,12 @@ await requireBrowserLane("agent-pane-btw-side-session.test.ts", async () => {
   const MAIN = "btw-main";
   const SIDE = "btw-side-1";
   const QUESTION = "why did the retry test flake?";
-  const turn = { turnId: "turn-1", promptId: "p-turn", startedAt: Date.now(), prompt: "Fix the flaky retry test" };
+  const turn = {
+    turnId: "turn-1",
+    promptId: "p-turn",
+    startedAt: Date.now(),
+    prompt: "Fix the flaky retry test",
+  };
   const main = {
     sessionId: MAIN,
     cwd: "/home/dev/api",
@@ -64,6 +69,10 @@ await requireBrowserLane("agent-pane-btw-side-session.test.ts", async () => {
   ];
   let seq = opening.length;
   let capabilities: string[] = ["btw-inline-v1"];
+  let inlineHostFailure: "unsupported" | "trust.pending" | "trust.untrusted" | undefined;
+  let trustMode = false;
+  let trustResolved = false;
+  let trustRefusalRemaining = 0;
   const btws: Record<string, unknown>[] = [];
   const prompts: Record<string, unknown>[] = [];
   const cancels: Record<string, unknown>[] = [];
@@ -96,12 +105,19 @@ await requireBrowserLane("agent-pane-btw-side-session.test.ts", async () => {
   /// it has handled what came before, and a call it made before (a prompt, a /btw) has reached the daemon.
   async function settled(): Promise<void> {
     const before = eventReads;
-    const notice = { jsonrpc: "2.0", method: "_acpmux/lagged", params: { sessionIds: [lastSession] } };
+    const notice = {
+      jsonrpc: "2.0",
+      method: "_acpmux/lagged",
+      params: { sessionIds: [lastSession] },
+    };
     lastSocket?.send(JSON.stringify(notice));
     await until(() => eventReads > before, "the lag resync's refetch");
   }
 
-  function answer(method: string, params: Record<string, any>): { result?: unknown; error?: unknown } {
+  function answer(
+    method: string,
+    params: Record<string, any>,
+  ): { result?: unknown; error?: unknown } {
     switch (method) {
       case "initialize":
         return {
@@ -118,9 +134,39 @@ await requireBrowserLane("agent-pane-btw-side-session.test.ts", async () => {
           : { result: { session: main, lastSeq: opening.length, events: opening } };
       case "_acpmux/events":
         eventReads += 1;
-        return { result: { events: [], hasMore: false, lastSeq: params.sessionId === SIDE ? 0 : seq } };
+        return {
+          result: { events: [], hasMore: false, lastSeq: params.sessionId === SIDE ? 0 : seq },
+        };
+      case "acp.trust.get":
+        return trustMode
+          ? {
+              result: {
+                cwd: "/home/dev/api",
+                level: trustResolved
+                  ? "trusted"
+                  : inlineHostFailure === "trust.untrusted"
+                    ? "untrusted"
+                    : "unknown",
+              },
+            }
+          : { result: null };
+      case "acp.trust.set":
+        trustResolved = params.level === "trusted";
+        if (params.level === "unknown") inlineHostFailure = "trust.pending";
+        return { result: { cwd: params.cwd, level: params.level } };
       case "_acpmux/btw":
         btws.push(params);
+        if (params.inline && trustRefusalRemaining > 0) {
+          trustRefusalRemaining -= 1;
+          trustResolved = false;
+          return {
+            error: {
+              code: -32000,
+              message: "Answer the folder trust question first",
+              data: { reason: inlineHostFailure, cwd: "/home/dev/api" },
+            },
+          };
+        }
         return params.question === "refused"
           ? { error: { code: -32602, message: "This chat's agent can't start a side session." } }
           : {
@@ -142,7 +188,14 @@ await requireBrowserLane("agent-pane-btw-side-session.test.ts", async () => {
         update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text } },
       },
     };
-    const event = { sessionId: MAIN, seq: ++seq, at: Date.now(), dir: "in", kind: "agent_message_chunk", msg };
+    const event = {
+      sessionId: MAIN,
+      seq: ++seq,
+      at: Date.now(),
+      dir: "in",
+      kind: "agent_message_chunk",
+      msg,
+    };
     mainSocket?.send(JSON.stringify({ jsonrpc: "2.0", method: "_acpmux/event", params: event }));
   }
 
@@ -154,11 +207,17 @@ await requireBrowserLane("agent-pane-btw-side-session.test.ts", async () => {
       port: 0,
       hostname: "127.0.0.1",
       fetch(request, server) {
-        return server.upgrade(request, { data: undefined }) ? undefined : new Response("acpmux", { status: 426 });
+        return server.upgrade(request, { data: undefined })
+          ? undefined
+          : new Response("acpmux", { status: 426 });
       },
       websocket: {
         message(ws, raw) {
-          const message = JSON.parse(String(raw)) as { id?: number; method: string; params?: Record<string, any> };
+          const message = JSON.parse(String(raw)) as {
+            id?: number;
+            method: string;
+            params?: Record<string, any>;
+          };
           const params = message.params ?? {};
           if (message.method === "session/prompt") prompts.push(params);
           if (message.method === "session/cancel") cancels.push(params);
@@ -167,7 +226,9 @@ await requireBrowserLane("agent-pane-btw-side-session.test.ts", async () => {
           lastSocket = ws;
           // A prompt mid-turn gets no reply until its turn; this stand-in never gives it one.
           if (message.id !== undefined && message.method !== "session/prompt")
-            ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, ...answer(message.method, params) }));
+            ws.send(
+              JSON.stringify({ jsonrpc: "2.0", id: message.id, ...answer(message.method, params) }),
+            );
           for (const wake of waiting) wake();
         },
       },
@@ -210,14 +271,32 @@ await requireBrowserLane("agent-pane-btw-side-session.test.ts", async () => {
   /// Opens `session` with an optional explicit Side sessions (/btw) value (the `sideSessions` of
   /// the header state the app answers `pane.tabState` with), recording what the page asks the app to open
   /// (`chat.sideChat`) on top of the dev host. Omitting it exercises the shipped default.
-  async function openChat(session: string, gate?: boolean, inline = true): Promise<Page> {
+  async function openChat(
+    session: string,
+    gate?: boolean,
+    inline = true,
+    hostFailure?: "unsupported" | "trust.pending" | "trust.untrusted",
+    trust = false,
+  ): Promise<Page> {
     capabilities = inline ? ["btw-inline-v1"] : [];
+    inlineHostFailure = hostFailure;
+    trustMode = trust;
+    trustResolved = true;
+    trustRefusalRemaining =
+      hostFailure === "trust.pending" || hostFailure === "trust.untrusted" ? 1 : 0;
     btws.length = 0;
     prompts.length = 0;
     cancels.length = 0;
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
     await page.exposeFunction("btwNative", (params: Record<string, unknown>) =>
-      answer("_acpmux/btw", { ...params, inline: true }),
+      hostFailure === "unsupported"
+        ? { error: { code: "unsupported", message: "chat.btw.inline is unavailable" } }
+        : (() => {
+            const reply = answer("_acpmux/btw", { ...params, inline: true });
+            return reply.error && hostFailure
+              ? { error: { code: hostFailure, message: String((reply.error as any).message) } }
+              : reply;
+          })(),
     );
     await page.addInitScript((gate: boolean | undefined) => {
       const sideChats: unknown[] = [];
@@ -238,15 +317,29 @@ await requireBrowserLane("agent-pane-btw-side-session.test.ts", async () => {
                 });
               if (message?.t === "call" && message.op === "cmux.agent.chat.btw.inline") {
                 const native = window as unknown as {
-                  btwNative(params: unknown): Promise<{ result?: unknown; error?: { message: string } }>;
+                  btwNative(params: unknown): Promise<{
+                    result?: unknown;
+                    error?: { code?: string; message: string; details?: unknown };
+                  }>;
                 };
-                return native
-                  .btwNative(message.params)
-                  .then((reply) =>
-                    reply.error
-                      ? { t: "err", id: message.id, code: "btw_failed", message: reply.error.message }
-                      : { t: "ok", id: message.id, value: reply.result },
-                  );
+                return native.btwNative(message.params).then((reply) =>
+                  reply.error
+                    ? {
+                        t: "err",
+                        id: message.id,
+                        code: reply.error.code ?? "btw_failed",
+                        message: reply.error.message,
+                        details:
+                          reply.error.code === "trust.pending" ||
+                          reply.error.code === "trust.untrusted"
+                            ? {
+                                origin: "session_host",
+                                details: { reason: reply.error.code, cwd: "/home/dev/api" },
+                              }
+                            : undefined,
+                      }
+                    : { t: "ok", id: message.id, value: reply.result },
+                );
               }
               if (message?.t === "call" && message.op === "cmux.agent.chat.sideChat") {
                 sideChats.push(message.params);
@@ -313,17 +406,59 @@ await requireBrowserLane("agent-pane-btw-side-session.test.ts", async () => {
     test("an older daemon gets the legacy request and opens the side chat", async () => {
       const page = await openChat(MAIN, true, false);
       await type(page, `/btw ${QUESTION}`);
-      await page.locator(".acpmux-btw-note").getByText("Opened a side session for this question.").waitFor();
+      await page
+        .locator(".acpmux-btw-note")
+        .getByText("Opened a side session for this question.")
+        .waitFor();
       expect(btws).toEqual([{ sessionId: MAIN, question: QUESTION }]);
       expect(await sideChats(page)).toEqual([{ sessionId: SIDE }]);
       expect(prompts).toEqual([]);
       await page.close();
     });
 
+    test("an advertised inline daemon falls back when the app host is too old", async () => {
+      const page = await openChat(MAIN, true, true, "unsupported");
+      await type(page, `/btw ${QUESTION}`);
+      await page
+        .locator(".acpmux-btw-note")
+        .getByText("Opened a side session for this question.")
+        .waitFor();
+      expect(btws).toEqual([{ sessionId: MAIN, question: QUESTION }]);
+      expect(await sideChats(page)).toEqual([{ sessionId: SIDE }]);
+      await page.close();
+    });
+
+    for (const reason of ["trust.pending", "trust.untrusted"] as const) {
+      test(`inline ${reason} shows Trust and retries the same aside`, async () => {
+        const page = await openChat(MAIN, true, true, reason, true);
+        await type(page, `/btw ${QUESTION}`);
+        const aside = page.locator(".acpmux-btw-note");
+        await aside.getByRole("alert").waitFor();
+        expect(await aside.innerText()).toContain("Answer the folder trust question first");
+        const trust = page.locator(".acpmux-trust-ask");
+        if (reason === "trust.untrusted") {
+          await trust.getByRole("button", { name: "Undo" }).click();
+        }
+        await trust.getByRole("button", { name: "Trust folder" }).click();
+        await trust.waitFor({ state: "hidden" });
+        await aside.getByRole("button", { name: "Retry" }).click();
+        await aside.getByText("The retry timer raced the mocked clock.").waitFor();
+        expect(btws).toEqual([
+          { sessionId: MAIN, question: QUESTION, inline: true },
+          { sessionId: MAIN, question: QUESTION, inline: true },
+        ]);
+        expect(await sideChats(page)).toEqual([]);
+        await page.close();
+      });
+    }
+
     test("a refused /btw keeps the question in its aside and never sends a main prompt", async () => {
       const page = await openChat(MAIN, true);
       await type(page, "/btw refused");
-      await page.getByRole("alert").filter({ hasText: "This chat's agent can't start a side session." }).waitFor();
+      await page
+        .getByRole("alert")
+        .filter({ hasText: "This chat's agent can't start a side session." })
+        .waitFor();
       expect(btws).toEqual([{ sessionId: MAIN, question: "refused", inline: true }]);
       expect(await sideChats(page)).toEqual([]);
       expect(await page.locator(".acpmux-btw-note").innerText()).toContain("refused");
@@ -353,17 +488,25 @@ await requireBrowserLane("agent-pane-btw-side-session.test.ts", async () => {
     test("the palette's sideQuestion focuses the composer with /btw", async () => {
       const page = await openChat(MAIN, true);
       await page.evaluate(() =>
-        (window as unknown as { cmuxAcpmuxBridge: { command(name: string): void } }).cmuxAcpmuxBridge.command(
-          "sideQuestion",
-        ),
+        (
+          window as unknown as { cmuxAcpmuxBridge: { command(name: string): void } }
+        ).cmuxAcpmuxBridge.command("sideQuestion"),
       );
       await page.waitForFunction(
-        () => document.querySelector(".acpmux-composer-prompt .ProseMirror")?.textContent === "/btw ",
+        () =>
+          document.querySelector(".acpmux-composer-prompt .ProseMirror")?.textContent === "/btw ",
       );
-      expect(await page.evaluate(() => Boolean(document.activeElement?.closest(".acpmux-composer-prompt")))).toBe(true);
+      expect(
+        await page.evaluate(() =>
+          Boolean(document.activeElement?.closest(".acpmux-composer-prompt")),
+        ),
+      ).toBe(true);
       await page.keyboard.type(QUESTION);
       await page.keyboard.press("Enter");
-      await page.locator(".acpmux-btw-note").getByText("The retry timer raced the mocked clock.").waitFor();
+      await page
+        .locator(".acpmux-btw-note")
+        .getByText("The retry timer raced the mocked clock.")
+        .waitFor();
       expect(btws).toEqual([{ sessionId: MAIN, question: QUESTION, inline: true }]);
       await page.close();
     });
@@ -371,9 +514,9 @@ await requireBrowserLane("agent-pane-btw-side-session.test.ts", async () => {
     test("with Side sessions off, the palette's sideQuestion leaves the composer empty", async () => {
       const page = await openChat(MAIN, false);
       await page.evaluate(() =>
-        (window as unknown as { cmuxAcpmuxBridge: { command(name: string): void } }).cmuxAcpmuxBridge.command(
-          "sideQuestion",
-        ),
+        (
+          window as unknown as { cmuxAcpmuxBridge: { command(name: string): void } }
+        ).cmuxAcpmuxBridge.command("sideQuestion"),
       );
       await settled();
       expect(await composerText(page)).toBe("");
@@ -388,7 +531,10 @@ await requireBrowserLane("agent-pane-btw-side-session.test.ts", async () => {
         ).cmuxAcpmuxBridge.applyHeaderState({ sideSessions: true, version: 2 }),
       );
       await type(page, `/btw ${QUESTION}`);
-      await page.locator(".acpmux-btw-note").getByText("The retry timer raced the mocked clock.").waitFor();
+      await page
+        .locator(".acpmux-btw-note")
+        .getByText("The retry timer raced the mocked clock.")
+        .waitFor();
       expect(btws).toEqual([{ sessionId: MAIN, question: QUESTION, inline: true }]);
       await page.close();
     });
