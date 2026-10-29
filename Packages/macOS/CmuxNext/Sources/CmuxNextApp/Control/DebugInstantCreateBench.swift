@@ -6,6 +6,9 @@ import CmuxNextDaemon
 import CmuxNextSettings
 import CmuxNextWakeups
 import Darwin
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 private typealias JSON = CmuxNextSettings.JSONValue
 
@@ -14,8 +17,8 @@ private typealias JSON = CmuxNextSettings.JSONValue
 /// key path (`debug.key`).
 ///
 /// Per run it reports, in ms after the key:
-/// - `key_ms`: the key's synchronous main-thread time (handler included, ``keyTurn(_:_:)``); `key_qos` names the
-///   QoS that turn ran at;
+/// - `key_ms`: the key's synchronous main-thread time (handler included), in a run-loop turn of its own at the main
+///   thread's QoS, as a person's key (``keyTurn(_:_:)``); `key_qos` names the QoS that turn ran at;
 /// - `visible_ms`: the first display frame at which the result shows (Cmd-N: the window shows
 ///   another workspace; Cmd-T, Ctrl-`: the focused pane shows another tab; Cmd-D / Cmd-Shift-D: the
 ///   window's focused pane is a new pane);
@@ -99,13 +102,24 @@ enum DebugInstantCreateBench {
         ])
     }
 
-    /// The key's turn: run in this request's main-actor job. Returns when the turn started, its main-thread ms and
-    /// the QoS it ran at (`qos_class_self`, overrides excluded).
+    /// The key's turn as AppKit gives a person's key: one main run-loop callout of the input class, at the main
+    /// thread's own QoS (user-interactive), the way the control queue runs `debug.key` and `action.run` (cx-bpcj).
+    /// This request runs on the control connection's task, at utility (`ControlConnection`'s queue): sent from that
+    /// task's main-actor job, the key's turn took the job's utility QoS, macOS ran the main thread on an efficiency
+    /// core in most runs, and the same work took about 3.5 times as long, every span alike (Ctrl-`: 11 ms against
+    /// 3 ms, cmux17 Time Profiler, 2026-10-29). Returns when the turn started, its main-thread ms and the QoS it ran
+    /// at (`qos_class_self`, overrides excluded).
     static func keyTurn(_ inputClass: MainCallbackClass, _ send: @escaping @MainActor () -> Void) async
         -> (start: ContinuousClock.Instant, milliseconds: Double, qos: UInt32) {
-        let start = ContinuousClock.now
-        send()
-        return (start, BenchSpans.ms(.now - start), qos_class_self().rawValue)
+        typealias Turn = (start: ContinuousClock.Instant, milliseconds: Double, qos: UInt32)
+        let turn = try? await withOnceContinuation { (done: OnceContinuation<Turn, OnceContinuationError>) in
+            MainRunLoopBlock(class: inputClass) {
+                let start = ContinuousClock.now
+                send()
+                _ = done.resume(returning: (start, BenchSpans.ms(.now - start), qos_class_self().rawValue))
+            }.perform()
+        }
+        return turn ?? (.now, 0, QOS_CLASS_UNSPECIFIED.rawValue)
     }
 
     /// `qos_class_t` as the bench's JSON names it.
