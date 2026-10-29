@@ -14,6 +14,8 @@
 //! comma-separated allowlist, the Chief's turns) lists exactly those tools
 //! and refuses every other call, from a script too.
 
+use cmux_json::JsonSet as _;
+
 mod action_tools;
 mod agent_dispatch_tools;
 mod agent_events_tool;
@@ -1031,10 +1033,10 @@ fn fit(mut value: Value) -> Result<Value, Value> {
     {
         let keep = items.len() / 2;
         items.truncate(keep);
-        value["truncated"] = json!(true);
-        value["returned"] = json!(keep);
+        value.set("truncated", json!(true));
+        value.set("returned", json!(keep));
         if let Some(offset) = value.get("offset").and_then(Value::as_u64) {
-            value["next_offset"] = json!(offset + keep as u64);
+            value.set("next_offset", json!(offset + keep as u64));
         }
         if size(&value) <= MAX_RESULT_BYTES {
             return Ok(value);
@@ -1058,7 +1060,7 @@ fn fit(mut value: Value) -> Result<Value, Value> {
 fn envelope(error: Value, state: &str, idempotency_key: Option<&str>) -> Value {
     let mut envelope = json!({ "error": error, "state": state });
     if let Some(key) = idempotency_key {
-        envelope["idempotency_key"] = json!(key);
+        envelope.set("idempotency_key", json!(key));
     }
     envelope
 }

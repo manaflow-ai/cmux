@@ -281,6 +281,9 @@ pub mod method {
     pub const MUX_STEER_WITHDRAW: &str = "_acpmux/steer_withdraw";
     /// An agent message's sender takes it back (`hub/withdraw.rs`).
     pub const MUX_PROMPT_WITHDRAW: &str = "_acpmux/prompt_withdraw";
+    /// `acpmux session inbox NAME --digest`: the agent messages waiting go in as one digest
+    /// (`hub/inbox_digest.rs`).
+    pub const MUX_INBOX_DIGEST: &str = "_acpmux/inbox_digest";
     /// `acpmux send --no-wait`: queue a prompt for this daemon to deliver (`hub/outbox.rs`).
     pub const MUX_SEND_QUEUE: &str = "_acpmux/send_queue";
     pub const MUX_SEND_STATUS: &str = "_acpmux/send_status";

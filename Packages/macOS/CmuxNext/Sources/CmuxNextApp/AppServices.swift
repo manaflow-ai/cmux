@@ -113,6 +113,18 @@ final class AppServices {
     /// Add Device and Settings > Devices (plans/cmux-next/add-device-DESIGN.md): one entry, one list, one remove.
     private(set) lazy var addDevice = AddDeviceCard(services: .app(self))
     private(set) lazy var devices = DeviceDirectory.app(self)
+    #if DEBUG
+    /// `debug.joined_machines`: the joined machines' calls in place of the CLI while set (captures).
+    var debugJoinedMachines: MachineJoinService?
+    #endif
+    /// The Machines section's joined machines (Labs `labs.machineJoin`); empty while it is off.
+    private(set) lazy var joinedMachines = JoinedMachineStore(service: { [weak self] in
+        guard let self, self.settings?.snapshot.machineJoin == true else { return nil }
+        #if DEBUG
+        if let fixture = self.debugJoinedMachines { return fixture }
+        #endif
+        return MachineJoinService.app(self)
+    })
     /// Settings > Machines' "Dedicated agent machine" switch on each Cloud machine (acpmux vmHost).
     private(set) lazy var cloudVmHost = CloudVmHostStore(api: cloud.api)
     let machineHealth = MachineHealthStore()

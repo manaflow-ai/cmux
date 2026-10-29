@@ -7,6 +7,7 @@
 
 use super::subsession_runs::{TurnGuard, WaitMark};
 use super::*;
+use cmux_json::JsonSet as _;
 use std::sync::atomic::Ordering;
 
 // A prompt dequeued for a turn that never started goes back at the head (`restore_queue`).
@@ -337,7 +338,9 @@ impl Hub {
             prompt_id,
             control,
             trust_gate,
-            interrupt: true,
+            // An inbox digest whose turn ended first waits at the head of the agent messages,
+            // behind the person's prompts (`enqueue`), and stops no turn.
+            interrupt: !super::digest::inbox_digest::is_digest(provenance.as_ref()),
             provenance,
             agent: run.agent.clone(),
             class: run.class,
@@ -394,7 +397,16 @@ impl Hub {
         // Ahead of the prompts a failed turn holds: a prompt sent after the failure runs first.
         // The person's prompt goes ahead of every agent message waiting too (`digest.rs`), behind
         // the person's own and a prompt sent now.
+        // An inbox digest (`inbox_digest.rs`) goes at the head of the agent messages, behind any
+        // digest before it.
+        let is_digest = super::digest::inbox_digest::is_digest;
         let at = match p.agent {
+            Some(_) if is_digest(p.provenance) => queue.iter().position(|q| {
+                q.held
+                    || (q.run.agent.is_some()
+                        && !q.sent_now
+                        && !is_digest(q.run.provenance.as_ref()))
+            }),
             Some(_) => queue.iter().position(|q| q.held),
             None => queue.iter().position(|q| q.held || (q.run.agent.is_some() && !q.sent_now)),
         };
@@ -440,19 +452,19 @@ impl Hub {
         // run it (`restore_queues`).
         let mut queued = json!({"text": p.text, "client": p.client, "position": position, "promptId": p.prompt_id, "turnId": turn_id, "prompt": p.blocks, "control": p.control.as_str(), "trustGate": p.trust_gate});
         if let Some(agent) = p.agent {
-            queued["fromAgent"] = json!(agent);
+            queued.set("fromAgent", json!(agent));
         }
         if let Some(class) = p.class {
             queued["class"] = json!(class);
         }
         if let Some(key) = p.supersede {
-            queued["supersede"] = json!(key);
+            queued.set("supersede", json!(key));
         }
         // Its images are kept now and named, so its row shows them before it runs
         // (`prompt_images.rs`).
         let images = super::prompt_images::keep(p.blocks);
         if !images.is_empty() {
-            queued["images"] = Value::Array(images);
+            queued.set("images", Value::Array(images));
         }
         let inline_parts = super::prompt_images::inline_parts(
             p.blocks,
@@ -460,10 +472,10 @@ impl Hub {
             p.display_parts,
         );
         if !inline_parts.is_empty() {
-            queued["inlineParts"] = Value::Array(inline_parts);
+            queued.set("inlineParts", Value::Array(inline_parts));
         }
         if let Some(display_parts) = p.display_parts {
-            queued["displayParts"] = display_parts.clone();
+            queued.set("displayParts", display_parts.clone());
         }
         super::session::mark_pasted(&mut queued, p.blocks);
         self.append(

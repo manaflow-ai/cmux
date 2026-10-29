@@ -409,6 +409,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/inbox_digest",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/send_queue",
       "params": true,
       "result": true

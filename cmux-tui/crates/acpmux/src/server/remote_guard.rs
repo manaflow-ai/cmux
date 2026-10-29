@@ -260,6 +260,10 @@ async fn check_inner(
     if m == method::MUX_PROMPT_WITHDRAW {
         return Err(crate::prompt_provenance::withdraw_origin_refused());
     }
+    // And so is draining a chat's inbox into a digest (`hub/inbox_digest.rs`).
+    if m == method::MUX_INBOX_DIGEST {
+        return Err(crate::hub::Hub::inbox_digest_origin_refused());
+    }
     // A paused agent pair is the person's to resume, on this machine (`hub/agent_pairs.rs`).
     if m == method::MUX_AGENT_PAIR_RESUME && origin.web_class() {
         return Err(RpcError::invalid_params(

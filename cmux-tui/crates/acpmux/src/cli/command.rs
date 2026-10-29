@@ -458,6 +458,12 @@ pub enum Command {
     RestartAgent { session: String },
     #[command(hide = true)]
     ResumeQueue { session: String },
+    #[command(hide = true)]
+    InboxDigest {
+        session: String,
+        #[arg(long)]
+        dry_run: bool,
+    },
     #[command(hide = true, alias = "rename-session")]
     Rename { session: String, new_name: String },
     #[command(hide = true)]
@@ -539,6 +545,10 @@ pub enum Command {
     Config {
         #[arg(long)]
         show_token: bool,
+        /// Set a daemon host-wide setting as KEY=VALUE (for example,
+        /// `session.memory_mb=6144` or `session.swap_mb=2048`).
+        #[arg(long, value_name = "KEY=VALUE")]
+        set: Option<String>,
     },
     #[command(hide = true)]
     DaemonRun {
@@ -778,6 +788,21 @@ pub enum SessionCmd {
     Restart { session: String },
     /// Rename a session.
     Rename { session: String, new_name: String },
+    /// The other agents' messages waiting in a busy session's queue. With --digest they go in
+    /// as ONE prompt, now: steered into its running turn when its agent steers, else at the head
+    /// of the agents' messages in its queue, behind the person's prompts (which it never
+    /// touches). Each original keeps its full text in the log under its promptId. Without
+    /// --digest, or with --dry-run, prints that digest and changes nothing. Only this machine's
+    /// person or the session's own agent may drain it.
+    Inbox {
+        session: String,
+        /// Drain them into one digest prompt now.
+        #[arg(long)]
+        digest: bool,
+        /// Print the digest and change nothing.
+        #[arg(long)]
+        dry_run: bool,
+    },
     /// Run the queued prompts a failed turn held. An agent or a script may resume a
     /// queue; only answering a permission or a question needs the cmux app.
     Resume {
@@ -990,6 +1015,9 @@ pub enum DaemonCmd {
         /// Print the bearer tokens too (`--json` always has them).
         #[arg(long)]
         show_token: bool,
+        /// Set a host-wide session resource setting as KEY=VALUE.
+        #[arg(long, value_name = "KEY=VALUE")]
+        set: Option<String>,
     },
     /// Show configured harnesses with their family and defaults.
     Harnesses,
@@ -1132,6 +1160,9 @@ pub fn flatten(c: Command) -> Command {
             SessionCmd::Restart { session } => Command::RestartAgent { session },
             SessionCmd::Rename { session, new_name } => Command::Rename { session, new_name },
             SessionCmd::Resume { session, mesh } if !mesh.mesh => Command::ResumeQueue { session },
+            SessionCmd::Inbox { session, digest, dry_run } => {
+                Command::InboxDigest { session, dry_run: dry_run || !digest }
+            }
             control @ (SessionCmd::Start(_)
             | SessionCmd::Receipt { .. }
             | SessionCmd::Stop { .. }
@@ -1195,7 +1226,7 @@ pub fn flatten(c: Command) -> Command {
                 Command::Shutdown { keep_agents, end_agents, restart }
             }
             DaemonCmd::Restart => Command::DaemonRestart,
-            DaemonCmd::Config { show_token } => Command::Config { show_token },
+            DaemonCmd::Config { show_token, set } => Command::Config { show_token, set },
             DaemonCmd::Harnesses => Command::Harnesses,
             DaemonCmd::Reload => Command::Reload,
             DaemonCmd::Retention(args) => Command::Retention(args),
@@ -1522,5 +1553,23 @@ mod help_contract_tests {
         let shapes = command_shapes();
         let words = ["acpmux", "host", "statuz"].into_iter().map(str::to_owned).collect::<Vec<_>>();
         assert!(documented_shape(&words, &shapes).is_none());
+    }
+}
+
+#[cfg(test)]
+mod config_set_tests {
+    use super::{Cli, Command};
+    use clap::Parser;
+
+    #[test]
+    fn config_set_accepts_session_resource_assignment() {
+        let cli =
+            Cli::try_parse_from(["acpmux", "config", "--set", "session.memory_mb=6144"]).unwrap();
+        match cli.command {
+            Some(Command::Config { set: Some(value), .. }) => {
+                assert_eq!(value, "session.memory_mb=6144")
+            }
+            _ => panic!("unexpected command"),
+        }
     }
 }

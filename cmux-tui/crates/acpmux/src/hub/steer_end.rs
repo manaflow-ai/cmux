@@ -172,13 +172,15 @@ impl Hub {
         // Another session's plain message goes in with the other agents' messages waiting for
         // this step, as one message (claude_stdio `steer_batch.rs`). One read now goes alone at
         // once, and so do a family message (its gate holds until it is written), a slash command
-        // (only a line's first words run one) and one with uploaded files.
+        // (only a line's first words run one), one with uploaded files and an inbox digest (one
+        // steer, `inbox_digest.rs`).
         let sender = super::digest::agent_sender(opts.provenance.as_ref(), opts.agent.as_deref());
         if let Some(from) = sender
             && !step_now
             && !super::subsession_guard::is_family_prompt(opts.provenance.as_ref())
             && super::forum::slash_command(&blocks).is_none()
             && !crate::prompt_uploads::any(&blocks)
+            && !super::digest::inbox_digest::is_digest(opts.provenance.as_ref())
         {
             params["_meta"]["batch"] = json!({"from": from});
         }

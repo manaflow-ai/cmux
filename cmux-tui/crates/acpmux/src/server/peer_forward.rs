@@ -46,6 +46,8 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     method::MUX_RESOLVE,
     // An agent message is taken back on this daemon only (`hub/withdraw.rs`).
     method::MUX_PROMPT_WITHDRAW,
+    // So is a chat's inbox drained (`hub/inbox_digest.rs`).
+    method::MUX_INBOX_DIGEST,
     // A message to deliver is this daemon's (`outbox.rs`), whatever session it names.
     method::MUX_SEND_QUEUE,
     method::MUX_SEND_STATUS,

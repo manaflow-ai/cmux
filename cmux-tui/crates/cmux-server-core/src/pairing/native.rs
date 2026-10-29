@@ -2,6 +2,7 @@
 //! describe a reservation; neither the code nor a registration activates a role.
 use base64::Engine as _;
 use base64::engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD};
+use cmux_json::JsonSet as _;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
@@ -160,10 +161,10 @@ impl Grant {
             sign,
         )?;
         if enroll {
-            body["code"] = self.wire.code.clone().into();
-            body["name"] = self.wire.binding.name.clone().into();
-            body["wgPublicKey"] = self.wire.binding.wg_public_key.clone().into();
-            body["installPublicKey"] = self.wire.binding.install_public_key.clone().into();
+            body.set("code", self.wire.code.clone().into());
+            body.set("name", self.wire.binding.name.clone().into());
+            body.set("wgPublicKey", self.wire.binding.wg_public_key.clone().into());
+            body.set("installPublicKey", self.wire.binding.install_public_key.clone().into());
         }
         Ok(body)
     }

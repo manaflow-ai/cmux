@@ -48,7 +48,12 @@
 
 use super::queue::{Answer, PromptRun, QueuedPrompt};
 use super::*;
+use cmux_json::JsonSet as _;
 use std::sync::atomic::Ordering;
+
+// `acpmux session inbox NAME --digest`: the agent messages waiting go in as one digest.
+#[path = "inbox_digest.rs"]
+pub(super) mod inbox_digest;
 
 /// Text one turn of agent messages takes at most (the first message always goes in whole).
 pub(super) const DIGEST_MAX_BYTES: usize = 128 * 1024;
@@ -141,7 +146,7 @@ pub(super) fn digest_provenance(parts: &[Part]) -> Value {
                 m["class"] = json!(class);
             }
             if let Some(p) = &part.run.provenance {
-                m["provenance"] = p.clone();
+                m.set("provenance", p.clone());
             }
             m
         })
@@ -256,9 +261,11 @@ impl Hub {
     ) -> Vec<Part> {
         // A slash command (`/compact`) runs only as a turn's first words: it goes in alone. So does
         // a message with uploaded files: its turn reads and checks them (`prompt_uploads.rs`).
+        // An inbox digest goes in as it was made (`inbox_digest.rs`): it leads none.
         if head.agent.is_none()
             || super::forum::slash_command(&head.blocks).is_some()
             || crate::prompt_uploads::any(&head.blocks)
+            || inbox_digest::is_digest(head.provenance.as_ref())
         {
             return Vec::new();
         }
@@ -284,7 +291,8 @@ impl Hub {
                     && !q.sent_now
                     && q.run.control == head.control
                     && q.run.trust_gate == head.trust_gate
-                    && !super::subsession_guard::is_family_prompt(q.run.provenance.as_ref());
+                    && !super::subsession_guard::is_family_prompt(q.run.provenance.as_ref())
+                    && !inbox_digest::is_digest(q.run.provenance.as_ref());
                 let size = blocks_bytes(&q.run.blocks);
                 if !joins || bytes + size > DIGEST_MAX_BYTES {
                     break;
@@ -365,14 +373,14 @@ impl Hub {
             let text = prompt_text(&q.run.blocks);
             let mut queued = json!({"text": text, "client": q.client, "position": position, "promptId": q.prompt_id, "turnId": q.turn_id, "prompt": q.run.blocks, "control": q.run.control.as_str(), "trustGate": q.run.trust_gate, "requeued": true});
             if let Some(agent) = &q.run.agent {
-                queued["fromAgent"] = json!(agent);
+                queued.set("fromAgent", json!(agent));
             }
             if let Some(class) = q.run.class {
                 queued["class"] = json!(class);
             }
             let images = super::prompt_images::keep(&q.run.blocks);
             if !images.is_empty() {
-                queued["images"] = Value::Array(images);
+                queued.set("images", Value::Array(images));
             }
             super::session::mark_pasted(&mut queued, &q.run.blocks);
             let queued = crate::prompt_provenance::marked(queued, q.run.provenance.as_ref());

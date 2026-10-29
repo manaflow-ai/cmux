@@ -110,6 +110,32 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             Ok(())
         }
+        Command::InboxDigest { session, dry_run } => {
+            let client = connect(true).await?;
+            let id = crate::cli::resolve::control_id(&client, &session).await?;
+            let v = client
+                .request(method::MUX_INBOX_DIGEST, json!({"sessionId": id, "dryRun": dry_run}))
+                .await?;
+            if json_out {
+                print_json(&v);
+            } else if v["digested"].as_u64().unwrap_or(0) == 0 {
+                println!("no agent message waits in its queue");
+            } else if dry_run {
+                println!("{}", v["text"].as_str().unwrap_or_default());
+                println!("\n(dry run: nothing changed; --digest sends it)");
+            } else {
+                let how = match v["delivery"].as_str() {
+                    Some("steer") => "steered into its running turn".to_owned(),
+                    _ => format!("queued at position {}", v["position"]),
+                };
+                println!(
+                    "{} messages went into digest {}, {how}",
+                    v["digested"],
+                    v["promptId"].as_str().unwrap_or_default()
+                );
+            }
+            Ok(())
+        }
         Command::Retry(args) => crate::cli::retry::run(args, json_out).await,
         Command::Rename { session, new_name } => {
             let client = connect(true).await?;
@@ -442,8 +468,29 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             crate::cli::shutdown::run(end_agents, keep_agents, restart, json_out).await
         }
         Command::DaemonRestart => crate::cli::shutdown::restart(json_out).await,
-        Command::Config { show_token } => {
+        Command::Config { show_token, set } => {
             let path = Config::path();
+            if let Some(assignment) = set {
+                let (key, value) =
+                    assignment.split_once('=').ok_or_else(|| anyhow!("--set expects KEY=VALUE"))?;
+                let mut cfg = Config::load()?;
+                cfg.set_session_resource(key, value)?;
+                cfg.save()?;
+                // Refresh the local daemon's cached config before reporting success;
+                // a later defaults/token save must retain these resource settings.
+                // Config is local even when the CLI targets a remote peer.
+                if let Ok(client) =
+                    crate::client::Client::connect(&crate::config::socket_path()).await
+                {
+                    client.request(method::MUX_RELOAD_CONFIG, json!({})).await?;
+                }
+                if json_out {
+                    print_json(&json!({"path": path, "key": key, "value": value}));
+                } else {
+                    println!("set {key}={value} in {}", path.display());
+                }
+                return Ok(());
+            }
             if json_out {
                 let (written, config) = match std::fs::read_to_string(&path) {
                     Ok(s) => (true, serde_json::from_str::<Value>(&s).unwrap_or(Value::String(s))),

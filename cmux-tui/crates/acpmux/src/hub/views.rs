@@ -1,6 +1,7 @@
 //! Part of `Hub`; see `hub/mod.rs`.
 
 use super::*;
+use cmux_json::JsonSet as _;
 
 mod host_load;
 
@@ -455,13 +456,13 @@ impl Hub {
             self.started_at,
         );
         let mut summary = serde_json::to_value(summary).unwrap_or(Value::Null);
-        summary["qualifiedSessionId"] = Value::String(receipt.qualified_id());
-        summary["sessionReceipt"] = receipt.to_value();
+        summary.set("qualifiedSessionId", Value::String(receipt.qualified_id()));
+        summary.set("sessionReceipt", receipt.to_value());
         // The branch its folder has checked out now (`git_watch.rs`); null on
         // a detached HEAD or outside a repository.
-        summary["gitBranch"] = json!(self.git_branch_now(&m));
+        summary.set("gitBranch", json!(self.git_branch_now(&m)));
         // Since when work it started runs on past its own turn (`work_below.rs`).
-        summary["subagentsWorkingSince"] = json!(self.work_below_since(session));
+        summary.set("subagentsWorkingSince", json!(self.work_below_since(session)));
         decide(&mut summary);
         summary
     }
@@ -469,35 +470,35 @@ impl Hub {
     pub fn session_detail(&self, session: &Session) -> Value {
         let m = session.meta();
         let mut v = self.session_summary(session);
-        v["modes"] = m.modes.clone().unwrap_or(Value::Null);
-        v["configOptions"] = m.config_options.clone().unwrap_or(Value::Null);
-        v["models"] = m.models.clone().unwrap_or(Value::Null);
-        v["agentInfo"] = m.agent_info.clone().unwrap_or(Value::Null);
-        v["agentCapabilities"] = m.agent_capabilities.clone().unwrap_or(Value::Null);
-        v["usage"] = m.usage.clone().unwrap_or(Value::Null);
-        v["goal"] = m.goal.clone().unwrap_or(Value::Null);
+        v.set("modes", m.modes.clone().unwrap_or(Value::Null));
+        v.set("configOptions", m.config_options.clone().unwrap_or(Value::Null));
+        v.set("models", m.models.clone().unwrap_or(Value::Null));
+        v.set("agentInfo", m.agent_info.clone().unwrap_or(Value::Null));
+        v.set("agentCapabilities", m.agent_capabilities.clone().unwrap_or(Value::Null));
+        v.set("usage", m.usage.clone().unwrap_or(Value::Null));
+        v.set("goal", m.goal.clone().unwrap_or(Value::Null));
         // What the context holds by category, as Claude Code's /context says after each turn.
-        v["contextBreakdown"] = m.context_breakdown.clone().unwrap_or(Value::Null);
+        v.set("contextBreakdown", m.context_breakdown.clone().unwrap_or(Value::Null));
         // The account's plan usage limits, as Claude Code's rate_limit_event last said them.
-        v["usageLimits"] = m.usage_limits.clone().unwrap_or(Value::Null);
+        v.set("usageLimits", m.usage_limits.clone().unwrap_or(Value::Null));
         // The newest command list: a client that has it needs no read of the log for it.
         if let Some(commands) = &m.available_commands {
-            v["availableCommands"] = commands.clone();
+            v.set("availableCommands", commands.clone());
         }
-        v["forkSeq"] = json!(m.fork_seq);
-        v["rulesJson"] = m.permission_rules.clone().unwrap_or(Value::Null);
+        v.set("forkSeq", json!(m.fork_seq));
+        v.set("rulesJson", m.permission_rules.clone().unwrap_or(Value::Null));
         // The folder's HEAD when the session started (`git_state.rs`); its
         // `gitBranch` is the summary's, the branch checked out now.
-        v["gitHead"] = json!(m.git_head);
+        v.set("gitHead", json!(m.git_head));
         // What the session's turns cost together (`turn_usage.rs`).
-        v["totals"] = json!(m.totals);
+        v.set("totals", json!(m.totals));
         // The sub-session limits in force and where each comes from (`subsessions.rs`).
-        v["subsessionLimits"] = self.subsession_limits_value(&m);
+        v.set("subsessionLimits", self.subsession_limits_value(&m));
         let mut pending = session.permissions.lock().unwrap().pending_records();
         for p in &mut pending {
             p["personInstance"] = Value::String(self.person.instance().to_owned());
         }
-        v["pending"] = Value::Array(pending);
+        v.set("pending", Value::Array(pending));
         v
     }
 

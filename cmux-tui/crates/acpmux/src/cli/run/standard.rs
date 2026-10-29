@@ -1,6 +1,7 @@
 //! Owns the primary session and prompt command dispatch arms.
 
 use super::*;
+use cmux_json::JsonSet as _;
 use std::io::IsTerminal;
 use std::sync::Arc;
 
@@ -419,7 +420,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 meta["forceAdmit"] = json!(true);
             }
             if let Some(n) = &launch.name {
-                meta["name"] = json!(n);
+                meta.set("name", json!(n));
             }
             if let Some(p) = &args.policy {
                 meta["policy"] = json!(p);

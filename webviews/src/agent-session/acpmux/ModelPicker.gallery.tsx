@@ -83,6 +83,78 @@ const curated: ModelPickerProps = {
     })),
 };
 
+/// Provider-family recommendation states: synthetic harness reports make each family and its
+/// newest release visible, including a newly shipped Codex family and older releases in More.
+const familyRecommendationCatalog: ModelPickerProps["catalog"] = [
+  {
+    id: "claude",
+    name: "Claude Code",
+    top: ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5", "claude-fable-5-1"],
+    models: [
+      // Catalog order deliberately differs from both the explicit top list and older-version order.
+      { id: "claude-haiku-4-5", name: "Haiku 4.5", family: "Haiku" },
+      { id: "claude-opus-4-6", name: "Opus 4.6", family: "Opus" },
+      { id: "claude-fable-5-1", name: "Fable 5.1", family: "Fable" },
+      { id: "claude-sonnet-5-5", name: "Sonnet 5.5", family: "Sonnet" },
+      { id: "claude-haiku-5-5", name: "Haiku 5.5", family: "Haiku" },
+      { id: "claude-opus-5-5", name: "Opus 5.5", family: "Opus" },
+    ],
+  },
+  {
+    id: "codex",
+    name: "Codex",
+    top: ["gpt-6.1-sol", "gpt-6.1-terra", "gpt-6.1-luna", "gpt-6-astra"],
+    models: [
+      { id: "gpt-6-sol", name: "GPT-6 Sol", family: "Sol" },
+      { id: "gpt-6-astra", name: "GPT-6 Astra", family: "Astra" },
+      { id: "gpt-6.1-luna", name: "GPT-6.1 Luna", family: "Luna" },
+      { id: "gpt-6.1-terra", name: "GPT-6.1 Terra", family: "Terra" },
+      { id: "gpt-6.1-sol", name: "GPT-6.1 Sol", family: "Sol" },
+    ],
+  },
+];
+
+const recommendationPlay =
+  (top: readonly string[], more: readonly string[]): Play =>
+  async (ctx) => {
+    const rows = () =>
+      [...ctx.document.querySelectorAll<HTMLButtonElement>('.acpmux-mp button[data-key^="model:"]')].map((button) =>
+        button.getAttribute("data-key")!.slice("model:".length),
+      );
+    const assertOrder = (expected: readonly string[], state: string) => {
+      const actual = rows();
+      if (actual.length !== expected.length || actual.some((id, index) => id !== expected[index]))
+        throw new Error(`${state}: expected ${JSON.stringify(expected)}, received ${JSON.stringify(actual)}`);
+    };
+    await ctx.click({ role: "button", name: "Model" });
+    await ctx.waitFor(() => rows().length > 0);
+    assertOrder(top, "Recommended models");
+    await ctx.click({ selector: ".acpmux-mp-older" });
+    await ctx.waitFor(() => ctx.document.querySelector('.acpmux-mp-older[aria-expanded="true"]') !== null);
+    assertOrder([...top, ...more], "Expanded models");
+  };
+
+// These direct ModelPicker inputs omit top rather than borrowing the bundled harness lists.
+const fallbackRecommendationCatalog = familyRecommendationCatalog.map(({ top: _top, ...entry }) => entry);
+
+const familyRecommendationsClaude: ModelPickerProps = {
+  ...base,
+  catalog: familyRecommendationCatalog,
+  harness: "claude",
+  model: "claude-sonnet-5-5",
+  label: "Sonnet 5.5",
+};
+
+const familyRecommendationsCodex: ModelPickerProps = {
+  ...base,
+  catalog: familyRecommendationCatalog,
+  harness: "codex",
+  // A current family away from the first position must not reorder the harness's list.
+  model: "gpt-6.1-terra",
+  label: "GPT-6.1 Terra",
+  harnessFixed: true,
+};
+
 /// A machine with many agents installed (Lawrence 2026-10-13: the picker grew to the window's
 /// height): each is its own harness profile, several of one brand (Claude Code, Claude Agent,
 /// the subrouter and CodeRouter Claude routes).
@@ -457,6 +529,30 @@ export default componentEntry<GalleryProps>({
       },
     },
     curated: { props: curated, play: openModels },
+    // Explicit harness order wins over the scrambled catalog and the current family.
+    "family-recommendations-claude": {
+      props: familyRecommendationsClaude,
+      play: recommendationPlay(
+        ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5", "claude-fable-5-1"],
+        ["claude-opus-4-6", "claude-haiku-4-5"],
+      ),
+    },
+    "family-recommendations-codex": {
+      props: familyRecommendationsCodex,
+      play: recommendationPlay(["gpt-6.1-sol", "gpt-6.1-terra", "gpt-6.1-luna", "gpt-6-astra"], ["gpt-6-sol"]),
+    },
+    // Without top, keep each family's newest release in source order, then older versions newest-first.
+    "family-recommendations-claude-fallback": {
+      props: { ...familyRecommendationsClaude, catalog: fallbackRecommendationCatalog },
+      play: recommendationPlay(
+        ["claude-fable-5-1", "claude-sonnet-5-5", "claude-haiku-5-5", "claude-opus-5-5"],
+        ["claude-opus-4-6", "claude-haiku-4-5"],
+      ),
+    },
+    "family-recommendations-codex-fallback": {
+      props: { ...familyRecommendationsCodex, catalog: fallbackRecommendationCatalog },
+      play: recommendationPlay(["gpt-6-astra", "gpt-6.1-luna", "gpt-6.1-terra", "gpt-6.1-sol"], ["gpt-6-sol"]),
+    },
     // A Codex chat with a message (Leo 2026-10-19): its harness is fixed, so the menu is search,
     // Codex's models and More models, with no harness rail and no Add harness….
     "started-chat": {

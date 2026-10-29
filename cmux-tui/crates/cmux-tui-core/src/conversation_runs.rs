@@ -19,6 +19,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 
 use super::{ConversationStore, attachments, load_head, rejected, to_i64};
+use cmux_json::JsonSet as _;
 
 /// Kept in the schema batch: `CREATE TABLE IF NOT EXISTS` needs no version
 /// bump, and an older daemon ignores the tables.
@@ -395,7 +396,7 @@ fn attachment_parts(step: &StepInput) -> anyhow::Result<Vec<Part>> {
         .iter()
         .map(|fields| {
             let mut value = Value::Object(fields.clone());
-            value["type"] = json!("attachment");
+            value.set("type", json!("attachment"));
             let part: Part = serde_json::from_value(value).map_err(|_| refused("invalid_run"))?;
             invalid(matches!(part, Part::Attachment { .. }) && valid_attachment_part(&part))?;
             Ok(part)
@@ -507,9 +508,9 @@ impl ConversationStore {
             };
             run.rev += 1;
             let mut value = serde_json::to_value(step)?;
-            value["seq"] = json!(seq);
-            value["at"] = json!(at);
-            value["rev"] = json!(run.rev);
+            value.set("seq", json!(seq));
+            value.set("at", json!(at));
+            value.set("rev", json!(run.rev));
             transaction.execute(
                 "INSERT INTO conversation_run_step(conversation, run, step, seq, rev, step_json)
                  VALUES(?1, ?2, ?3, ?4, ?5, ?6)
