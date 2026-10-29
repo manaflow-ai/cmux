@@ -22,8 +22,9 @@
 /* Floating chat uses the same plain glyph treatment: no plates at rest or on hover. An open panel's toggle takes the
    selection fill on its own square, as above; the group never gains a backdrop. */
 .acpmux-floating-header .acpmux-header-tool,.acpmux-floating-bar .acpmux-header-tool{background:none;color:var(--agent-muted)}
-.acpmux-floating-header .acpmux-header-tool:not(:disabled):hover,.acpmux-floating-bar .acpmux-header-tool:not(:disabled):hover,.acpmux-floating-header .acpmux-header-tool[data-popup-open],.acpmux-floating-bar .acpmux-header-tool[data-popup-open],.acpmux-floating-header .acpmux-header-tool[aria-pressed=true],.acpmux-floating-bar .acpmux-header-tool[aria-pressed=true]{background:none;color:var(--agent-text)}
-.acpmux-floating-header .acpmux-header-tool[aria-pressed=true],.acpmux-floating-bar .acpmux-header-tool[aria-pressed=true]{background:var(--cmux-selection,color-mix(in srgb,var(--agent-text) 10%,transparent))}
+.acpmux-floating-header .acpmux-header-tool:not(:disabled):hover,.acpmux-floating-bar .acpmux-header-tool:not(:disabled):hover,.acpmux-floating-header .acpmux-header-tool[data-popup-open],.acpmux-floating-bar .acpmux-header-tool[data-popup-open]{background:none;color:var(--agent-text)}
+/* Pressed, hovered or not: the hover rule above must not take the fill back while the pointer is on it. */
+.acpmux-floating-header .acpmux-header-tool[aria-pressed=true],.acpmux-floating-bar .acpmux-header-tool[aria-pressed=true],.acpmux-floating-header .acpmux-header-tool[aria-pressed=true]:not(:disabled):hover,.acpmux-floating-bar .acpmux-header-tool[aria-pressed=true]:not(:disabled):hover{background:var(--cmux-selection,color-mix(in srgb,var(--agent-text) 10%,transparent));color:var(--agent-text)}
 .acpmux-floating-header .acpmux-header-tool:disabled,.acpmux-floating-bar .acpmux-header-tool:disabled{background:none;color:var(--agent-soft)}
 /* Shared pane styles may give focused buttons a gradient and suppress the ring. Header tools keep
    their own control-sized focus ring, with no plate, in the embedded and floating headers. */
