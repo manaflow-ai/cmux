@@ -56,7 +56,7 @@ export function RetryModelMenu({
         label={t("turn.retryWith")}
         title={t("turn.retryWith")}
       >
-        <ChevronDown size={12} />
+        <ChevronDown size={16} />
       </MenuButton>
       <MenuPopup label={t("turn.retryWith")} align="start" className="acpmux-quick-menu acpmux-retry-menu">
         <MenuGroup label={t("turn.retryWith")}>{rows(latest)}</MenuGroup>
@@ -65,7 +65,7 @@ export function RetryModelMenu({
             <MenuSeparator />
             <Submenu
               className="acpmux-quick-item acpmux-quick-sub"
-              popupClassName="acpmux-quick-menu acpmux-quick-more"
+              popupClassName="acpmux-quick-menu acpmux-quick-submenu acpmux-quick-more"
               label={<span className="acpmux-menu-label">{t("picker.moreModels")}</span>}
             >
               {rows(more)}

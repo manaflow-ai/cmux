@@ -587,7 +587,7 @@ for (const terminal of ["turn_end", "turn_result"])
 
 for (const mode of ["loadOlder", "lag"])
   for (const expired of [false, true])
-    test(`historical turn starts preserve ${expired ? "expired" : "pending"} Stop grace during ${mode}`, async () => {
+    test(`historical turn starts preserve Stop ${expired ? "after" : "before"} the old grace during ${mode}`, async () => {
       const history = record([
         ["mux", "user_message", { text: "historical prompt", turnId: "turn-history" }],
         ["mux", "turn_started", { turnId: "turn-history" }],
@@ -605,7 +605,7 @@ for (const mode of ["loadOlder", "lag"])
       try {
         await client.cancel();
         if (expired) jest.advanceTimersByTime(5_001);
-        expect(working()).toBe(!expired);
+        expect(working()).toBe(true);
         if (mode === "loadOlder") await client.loadOlder();
         else {
           const settled = new Promise<void>((resolve) => {
@@ -614,15 +614,15 @@ for (const mode of ["loadOlder", "lag"])
           daemon.lag();
           await settled;
         }
-        expect(working()).toBe(!expired);
+        expect(working()).toBe(true);
         // The folded history must restore the current identity: a second Stop is still deduped.
         await client.cancel();
         expect(daemon.sent.filter((raw) => JSON.parse(raw).method === "session/cancel")).toHaveLength(1);
         if (!expired) {
           jest.advanceTimersByTime(5_001);
-          expect(notices()).toHaveLength(1);
+          expect(notices()).toHaveLength(0);
         }
-        expect(working()).toBe(false);
+        expect(working()).toBe(true);
         daemon.push(
           record([["mux", "turn_result", { status: "cancelled", turnId: "turn-current", cancelForced: true }]], 6),
         );
@@ -635,7 +635,7 @@ for (const mode of ["loadOlder", "lag"])
 
 for (const oldTurnId of ["turn-old", undefined])
   for (const action of ["stop", "send-now"])
-    test(`expired Stop grace releases a new known turn (${oldTurnId ?? "unknown"}, ${action})`, async () => {
+    test(`a pending Stop leaves a new known turn usable (${oldTurnId ?? "unknown"}, ${action})`, async () => {
       const daemon = fakeDaemon(
         record([
           ["mux", "user_message", { text: "old prompt", turnId: oldTurnId }],
@@ -647,7 +647,7 @@ for (const oldTurnId of ["turn-old", undefined])
       try {
         await client.cancel();
         jest.advanceTimersByTime(5_001);
-        expect(working()).toBe(false);
+        expect(working()).toBe(true);
         daemon.push(
           record(
             [
@@ -681,7 +681,7 @@ for (const oldTurnId of ["turn-old", undefined])
     });
 
 for (const turnId of ["turn-grace", undefined])
-  test(`Stop grace and its authoritative result share one notice (${turnId ?? "unknown identity"})`, async () => {
+  test(`only the authoritative Stop result draws one notice (${turnId ?? "unknown identity"})`, async () => {
     const daemon = fakeDaemon(
       record([
         ["mux", "user_message", { text: "work", turnId }],
@@ -694,7 +694,7 @@ for (const turnId of ["turn-grace", undefined])
     try {
       await client.cancel();
       jest.advanceTimersByTime(5_001);
-      expect(notices()).toHaveLength(turnId ? 1 : 0);
+      expect(notices()).toHaveLength(0);
       const result = { turnId: "turn-grace", status: "cancelled", cancelForced: true };
       daemon.push(record([["mux", "turn_result", result]], 3));
       daemon.push(record([["mux", "turn_result", result]], 4));

@@ -11,6 +11,46 @@ impl Translator {
         self.end_background_asks(false, |_, deadline| deadline.is_some_and(|d| d <= now)).await;
         let kind = line.get("type").and_then(Value::as_str).unwrap_or("");
         let sub = line.get("subtype").and_then(Value::as_str).unwrap_or("");
+        let main_line = line.get("parent_tool_use_id").and_then(Value::as_str).is_none();
+        let compaction_fenced = self.compaction_metadata_fenced.load(Ordering::SeqCst);
+        if main_line && kind == "system" && sub == "status" {
+            if line.get("status").and_then(Value::as_str) == Some("compacting") {
+                // A new prompt has begun its own compaction. The stopped one may
+                // never emit a boundary or result; its marker must not consume this
+                // compaction's answer. Prompt text is not attribution evidence.
+                if !self.cancelled.load(Ordering::SeqCst) && self.prompt_echo.lock().await.is_none()
+                {
+                    self.cancelled_compaction.store(false, Ordering::SeqCst);
+                    self.cancelled_compaction_boundary.store(false, Ordering::SeqCst);
+                }
+                self.compacting.store(true, Ordering::SeqCst);
+            } else if line.get("compact_result").is_some() {
+                // A successful compaction still has its boundary and summary
+                // to deliver; the boundary below is the point at which Claude
+                // can take another prompt. Failed compactions end at result.
+                if line.get("compact_result").and_then(Value::as_str) != Some("success") {
+                    // Failed compaction has no boundary. Attribute its terminal
+                    // result separately from the fence on untagged GUI metadata.
+                    if self.cancelled_compaction.load(Ordering::SeqCst) {
+                        self.cancelled_compaction_boundary.store(true, Ordering::SeqCst);
+                    }
+                    if !compaction_fenced {
+                        self.compacting.store(false, Ordering::SeqCst);
+                    }
+                }
+            }
+        } else if main_line && ((kind == "system" && sub == "compact_boundary") || kind == "result")
+        {
+            if kind == "system"
+                && sub == "compact_boundary"
+                && self.cancelled_compaction.load(Ordering::SeqCst)
+            {
+                self.cancelled_compaction_boundary.store(true, Ordering::SeqCst);
+            }
+            if kind == "result" || !compaction_fenced {
+                self.compacting.store(false, Ordering::SeqCst);
+            }
+        }
         // A subagent's lines stream under its own session, ended or not (`subagent_route`).
         let parent = line.get("parent_tool_use_id").and_then(Value::as_str);
         let sid = self.line_session(parent);
@@ -169,6 +209,7 @@ impl Translator {
                             // A subagent's usage is its own context, not the chat's.
                             if parent.is_none() {
                                 self.context_used.store(used, Ordering::SeqCst);
+                                self.context_from_compaction.store(false, Ordering::SeqCst);
                             }
                             let size = self.context_window.load(Ordering::SeqCst);
                             // One model call's own usage, marked so a client can add a turn's
@@ -333,7 +374,7 @@ impl Translator {
                     && compaction_summary_text(line).is_some()
                     && self.awaiting_summary.swap(false, Ordering::SeqCst) =>
             {
-                if let Some(text) = compaction_summary_text(line) {
+                if !compaction_fenced && let Some(text) = compaction_summary_text(line) {
                     out.push(upd(json!({"sessionUpdate": "compaction_summary", "text": text})));
                 }
             }
@@ -581,6 +622,22 @@ impl Translator {
                 } else if let Some(uuid) = rid.strip_prefix("rebatch-") {
                     // A line dropped to be written again with more messages (`steer_batch.rs`).
                     out.extend(self.rebatched(uuid, ok, &inner).await);
+                } else if let Some(acp) = rid.strip_prefix("side-") {
+                    // Claude Code's native `/btw` callback answers once with its result payload.
+                    let id: Id = serde_json::from_str(acp).unwrap_or(Value::String(acp.to_owned()));
+                    self.pending.lock().await.remove(&id.to_string());
+                    out.push(if ok {
+                        Message::ok(id, inner)
+                    } else {
+                        Message::err(
+                            id,
+                            RpcError::internal(
+                                resp.get("error")
+                                    .and_then(Value::as_str)
+                                    .unwrap_or("Claude Code side question failed"),
+                            ),
+                        )
+                    });
                 } else if let Some(rest) = rid.strip_prefix("unsteer-") {
                     // A steer taken back, or read first (`steer_withdraw.rs`).
                     out.extend(self.steer_withdrawn(rest, ok, &inner).await);
@@ -613,6 +670,12 @@ impl Translator {
             "result" => {
                 // A compaction's summary comes before its turn's result.
                 self.awaiting_summary.store(false, Ordering::SeqCst);
+                let cancelled_compaction = main_line
+                    && self.cancelled_compaction.load(Ordering::SeqCst)
+                    && self.cancelled_compaction_boundary.swap(false, Ordering::SeqCst);
+                if cancelled_compaction {
+                    self.cancelled_compaction.store(false, Ordering::SeqCst);
+                }
                 // `is_error` with a success subtype is how Claude reports a
                 // usage limit or an API refusal: a failed turn, not a reply.
                 let is_error = line.get("is_error").and_then(Value::as_bool).unwrap_or(false);
@@ -626,6 +689,7 @@ impl Translator {
                     && !self.turn_output.load(Ordering::SeqCst)
                     && line.get("num_turns").and_then(Value::as_u64) == Some(0)
                     && line.get("duration_api_ms").and_then(Value::as_u64) == Some(0)
+                    && !cancelled_compaction
                     && !self.cancelled.load(Ordering::SeqCst);
                 if startup_noise {
                     return out;
@@ -638,9 +702,12 @@ impl Translator {
                     self.context_window.store(window, Ordering::SeqCst);
                     let used = self.context_used.load(Ordering::SeqCst);
                     if used > 0 && parent.is_none() {
-                        out.push(upd(
-                            json!({"sessionUpdate": "usage_update", "used": used, "size": window}),
-                        ));
+                        let mut usage =
+                            json!({"sessionUpdate": "usage_update", "used": used, "size": window});
+                        if self.context_from_compaction.load(Ordering::SeqCst) {
+                            usage.set("_meta", json!({"acpmux": {"compactionDerived": true}}));
+                        }
+                        out.push(upd(usage));
                     }
                 }
                 // The result of a turn acpmux already ended (a Stop Claude Code
@@ -652,14 +719,26 @@ impl Translator {
                 let abandoned = std::mem::take(&mut *self.abandoned.lock().await);
                 let next_unread = self.prompt_echo.lock().await.is_some();
                 if !abandoned.is_empty()
-                    && (next_unread || !self.turn_output.load(Ordering::SeqCst))
+                    && (cancelled_compaction
+                        || next_unread
+                        || !self.turn_output.load(Ordering::SeqCst))
                 {
-                    for k in abandoned {
+                    for k in abandoned.iter().cloned() {
                         self.pending.lock().await.remove(&k);
                         let id: Id = serde_json::from_str(&k).unwrap_or(Value::String(k));
                         out.push(Message::ok(id, json!({"stopReason": "cancelled"})));
                     }
                     return out;
+                }
+                // A normal result from the new prompt means the cancelled compaction did not
+                // produce a result. Resolve its abandoned request independently, then continue
+                // settling the new prompt; do not let the stale marker consume this result.
+                if !abandoned.is_empty() {
+                    for k in abandoned.iter().cloned() {
+                        self.pending.lock().await.remove(&k);
+                        let id: Id = serde_json::from_str(&k).unwrap_or(Value::String(k));
+                        out.push(Message::ok(id, json!({"stopReason": "cancelled"})));
+                    }
                 }
                 // A steered line Claude Code has not read yet: it runs it as
                 // one more turn of this prompt, whose result ends it (when
@@ -672,6 +751,8 @@ impl Translator {
                 // Out of the turn first: a steer that takes the steer locks after `fail_steers`
                 // finds it ended and is not left waiting (`steer_batch.rs` `write_steer`).
                 self.in_turn.store(false, Ordering::SeqCst);
+                self.cancelled_compaction.store(false, Ordering::SeqCst);
+                self.cancelled_compaction_boundary.store(false, Ordering::SeqCst);
                 out.extend(self.fail_steers().await);
                 *self.prompt_echo.lock().await = None;
                 // A Ctrl-B still unanswered leaves no mark past its turn.
@@ -686,7 +767,9 @@ impl Translator {
                     .lock()
                     .await
                     .iter()
-                    .filter(|(_, p)| matches!(p, Pending::Prompt))
+                    .filter(|(k, p)| {
+                        matches!(p, Pending::Prompt) && !abandoned.iter().any(|old| old == *k)
+                    })
                     .map(|(k, _)| k.clone())
                     .collect();
                 let cancelled = self.cancelled.swap(false, Ordering::SeqCst);
@@ -746,10 +829,22 @@ impl Translator {
             // A compaction left the context smaller than the last message held:
             // the ring waits for the next message rather than refill (cx-ncc.79).
             "system" if sub == "compact_boundary" && parent.is_none() => {
+                // There is no source turn id. Neither a fresh running status nor a
+                // boundary count proves that this is not the stopped compaction's tail.
+                // Keep turn-result attribution separate from GUI/context metadata.
+                if compaction_fenced {
+                    self.awaiting_summary.store(false, Ordering::SeqCst);
+                    return out;
+                }
                 let after = line.pointer("/compact_metadata/post_tokens").and_then(Value::as_u64);
                 self.context_used.store(after.unwrap_or(0), Ordering::SeqCst);
+                self.context_from_compaction.store(true, Ordering::SeqCst);
                 self.awaiting_summary.store(true, Ordering::SeqCst);
-                out.push(upd(compaction_update("completed", line)));
+                // Keep the cancelled boundary marker until its result; consuming it
+                // here would let that zero-turn result answer the next echoed prompt.
+                if !self.cancelled_compaction_boundary.load(Ordering::SeqCst) {
+                    out.push(upd(compaction_update("completed", line)));
+                }
             }
             // Claude Code 2.1.303 says `status: compacting` when a compaction
             // starts, and clears it with `compact_result` when it ends.
@@ -757,7 +852,7 @@ impl Translator {
                 let result = line.get("compact_result").and_then(Value::as_str);
                 match (line.get("status").and_then(Value::as_str), result) {
                     (Some("compacting"), _) => out.push(upd(compaction_update("running", line))),
-                    (None, Some(result)) if result != "success" => {
+                    (None, Some(result)) if result != "success" && !compaction_fenced => {
                         out.push(upd(compaction_update("failed", line)))
                     }
                     _ => {}
