@@ -563,7 +563,8 @@ button.cv-subagent > :last-child {
 }
 .acpmux-running-tray[data-alignment-surface="tray"] .acpmux-running-tray__head {
   display: grid;
-  grid-template-columns: var(--acpmux-tray-start-size, 28px) minmax(0, 1fr) minmax(0, var(--acpmux-tray-time-width)) minmax(0, var(--acpmux-tray-status-width));
+  position: relative;
+  grid-template-columns: var(--acpmux-tray-start-size, 28px) minmax(0, 1fr) minmax(0, var(--acpmux-tray-time-width)) minmax(0, var(--acpmux-tray-status-width)) var(--acpmux-tray-stop-width);
   column-gap: 8px;
   padding-inline: var(--acpmux-tray-start-inset, 8px) var(--acpmux-tray-end-inset, 8px);
 }
@@ -596,8 +597,9 @@ button.cv-subagent > :last-child {
   grid-column: 4;
   justify-content: flex-end;
 }
-.acpmux-running-tray[data-alignment-surface="tray"] .acpmux-running-tray__head > .acpmux-running-tray__stop-slot {
-  display: none;
+.acpmux-running-tray[data-alignment-surface="tray"] .acpmux-running-tray__head > .acpmux-running-tray__status > svg {
+  position: absolute;
+  right: calc(var(--acpmux-tray-end-inset, 8px) + (var(--acpmux-tray-end-size, 28px) - var(--grid-glyph, 12px)) / 2);
 }
 .acpmux-running-tray[data-alignment-surface="tray"] .acpmux-running-tray__finished {
   display: grid;

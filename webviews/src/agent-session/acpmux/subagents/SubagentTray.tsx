@@ -263,12 +263,9 @@ export const SubagentTray = memo(function SubagentTray({
         className="acpmux-summary-text acpmux-running-tray__finished-text"
         text={showFinished ? t("summary.showFewer") : t("summary.viewAll", { n: finished.length })}
       />
-      <Icon
-        name={showFinished ? "disclosure.expanded" : "disclosure.collapsed"}
-        size={ROW_ICON}
-        row
-        data-alignment-column="right-action"
-      />
+      <span data-alignment-column="right-action">
+        <Icon name={showFinished ? "disclosure.expanded" : "disclosure.collapsed"} size={ROW_ICON} row />
+      </span>
     </button>
   );
   return (
