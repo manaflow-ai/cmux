@@ -178,3 +178,54 @@ test("Resume retries incomplete reads and refuses a same-tick double attach", as
   expect(mount.querySelector('[data-action="test-state"]')?.textContent).not.toContain("resumeFailed");
   await act(async () => root.render(null));
 }, 10_000);
+
+
+test("a nonretryable inventory refusal ends recovery without repeated polls", async () => {
+  const { useCloudChatRecovery } = await import("../src/agent-session/acpmux/useCloudChatRecovery");
+  let listReads = 0;
+  let attaches = 0;
+  Object.assign(dom.window, {
+    webkit: {
+      messageHandlers: {
+        agentSession: {
+          postMessage: ({ method }: { method: string }) => {
+            if (method === "cloudMachine.attach") {
+              attaches += 1;
+              return { ok: true, value: {} };
+            }
+            if (method === "cloudMachine.list") {
+              listReads += 1;
+              return { ok: false, error: { code: "auth.forbidden", retryable: false, origin: "native" } };
+            }
+            return { ok: true, value: {
+              signedIn: true, loaded: true, complete: true, account: ["user", null],
+              machines: [{ id: "vm-demo", name: "Demo machine", stage: "paused" }],
+            } };
+          },
+        },
+      },
+    },
+  });
+  function Recovery() {
+    const recovery = useCloudChatRecovery({
+      cloud: { id: "vm-demo", account: ["user", null] },
+      session: "chat-demo", active: true, recheck: async () => {},
+    });
+    return (
+      <div>
+        <button data-action="refused-wake" onClick={recovery.resume}>Resume</button>
+        <span data-action="refused-state">{JSON.stringify({
+          resuming: recovery.resuming, error: recovery.error,
+        })}</span>
+      </div>
+    );
+  }
+  await act(async () => root.render(<Recovery />));
+  await act(async () => mount.querySelector<HTMLButtonElement>('[data-action="refused-wake"]')!.click());
+  expect(attaches).toBe(1);
+  expect(listReads).toBe(1);
+  const state = mount.querySelector('[data-action="refused-state"]')?.textContent ?? "";
+  expect(state).toContain('"resuming":false');
+  expect(state).toContain('"error":');
+  await act(async () => root.render(null));
+}, 10_000);
