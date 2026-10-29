@@ -215,7 +215,10 @@ export type NetworkRulePlan = {
 };
 
 export function compileNetworkPolicy(policy: NetworkPolicy): NetworkRulePlan {
-  if (policy.mode === "full" || policy.ranges.some((range) => isWholeInternet(range.cidr) && range.port === undefined)) {
+  // Ranges survive a switch to none (switching back restores them), so only allowlist reads them.
+  const wholeInternetRange = policy.mode === "allowlist"
+    && policy.ranges.some((range) => isWholeInternet(range.cidr) && range.port === undefined);
+  if (policy.mode === "full" || wholeInternetRange) {
     return { publicEgress: true, ranges: [], domains: [], dns: false };
   }
   const presetDomains = policy.mode === "allowlist"
