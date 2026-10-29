@@ -10,6 +10,8 @@ the real one, so no web test runs here.
 
 import os
 import json
+import hashlib
+import importlib.util
 import pathlib
 import shutil
 import subprocess
@@ -20,6 +22,7 @@ import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 RUNNER = ROOT / "scripts" / "ci" / "run-webviews-tests.sh"
+SHARDS = ROOT / "scripts" / "ci" / "webviews_test_shards.py"
 WORKFLOW = ROOT / ".github" / "workflows" / "ci-web.yml"
 
 FAKE_BUN = """#!/usr/bin/env bash
@@ -111,6 +114,7 @@ class PerFileRunner(unittest.TestCase):
         (bin_dir / "bun").write_text(FAKE_BUN, encoding="utf-8")
         (bin_dir / "bun").chmod(0o755)
         calls = temp / "calls"
+        self.calls_file = calls
         calls.write_text("", encoding="utf-8")
         self.overlaps = temp / "overlaps"
         self.overlaps.write_text("", encoding="utf-8")
@@ -345,6 +349,78 @@ class PerFileRunner(unittest.TestCase):
         self.assertEqual(sorted(first + second), sorted(f"./{name}" for name in files))
         self.assertEqual(set(first) & set(second), set())
 
+    def manifest(self, durations):
+        path = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory())) / "durations.json"
+        path.write_text(json.dumps(durations), encoding="utf-8")
+        return str(path)
+
+    def test_recorded_durations_split_the_shards_by_load(self):
+        """Index mod 2 put both long files (10 s, 9 s) on shard 1 and both 1 s files on shard 2.
+        Each plain file has a lane of its own, so the shards' wall times are their longest files:
+        the two long ones must part."""
+        files = ["test/a.test.ts", "test/b.test.ts", "test/c.test.ts", "test/d.test.ts"]
+        manifest = self.manifest({"test/a.test.ts": 10, "test/b.test.ts": 1, "test/c.test.ts": 9, "test/d.test.ts": 1})
+        shards = [self.run_runner(files, shard=n, shard_count=2, extra_env={"CMUX_WEB_TEST_DURATIONS": manifest})[2]
+                  for n in (1, 2)]
+        self.assertEqual(sorted(shards[0] + shards[1]), sorted(f"./{name}" for name in files))
+        a = 0 if "./test/a.test.ts" in shards[0] else 1
+        self.assertIn("./test/c.test.ts", shards[1 - a], shards)
+
+    def test_a_new_file_moves_only_itself(self):
+        known = {f"test/{name}.test.ts": seconds for name, seconds in zip("abcdefgh", (9, 8, 7, 5, 4, 3, 2, 1))}
+        manifest = self.manifest(known)
+        def split(files):
+            return {name: n for n in (1, 2, 3)
+                    for name in self.run_runner(files, shard=n, shard_count=3, extra_env={"CMUX_WEB_TEST_DURATIONS": manifest})[2]}
+        before = split(list(known))
+        after = split(list(known) + ["test/new.test.ts", "test/0-first.test.ts"])
+        self.assertEqual({name: after[name] for name in before}, before)
+        self.assertEqual(len(after), len(known) + 2)
+
+    def test_unrecorded_files_split_by_a_stable_hash_of_their_path(self):
+        names = [f"test/{index}.test.ts" for index in range(40)]
+        expected = {name: int.from_bytes(hashlib.sha256(name.encode()).digest()[:8], "big") % 4 + 1 for name in names}
+        got = {name: n for n in (1, 2, 3, 4) for name in self.run_runner(names, shard=n, shard_count=4)[2]}
+        self.assertEqual(got, {f"./{name}": shard for name, shard in expected.items()})
+
+    def test_a_config_warms_on_its_shortest_file_and_the_rest_start_longest_first(self):
+        """accent-glass-invariants warmed its config alone for 549 s of an 18.6 min shard: it came
+        first in the index. With durations the shortest file warms, and the long ones start first."""
+        pane = "// vite.config.acpmux-pane.mjs\n"
+        files = ["test/a-long.test.ts", "test/b-short.test.ts", "test/c-mid.test.ts", "test/d-plain.test.ts", "test/e-plain.test.ts"]
+        contents = {name: pane for name in files[:3]}
+        manifest = self.manifest({"test/a-long.test.ts": 549, "test/b-short.test.ts": 2, "test/c-mid.test.ts": 90,
+                                  "test/d-plain.test.ts": 1, "test/e-plain.test.ts": 30})
+        result, _, _ = self.run_runner(files, contents=contents,
+                                       extra_env={"CMUX_WEB_TEST_DURATIONS": manifest, "CMUX_WEB_TEST_JOBS": "1"})
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        order = self.calls_file.read_text(encoding="utf-8").split()
+        self.assertEqual(order, ["./test/e-plain.test.ts", "./test/d-plain.test.ts", "./test/b-short.test.ts",
+                                 "./test/a-long.test.ts", "./test/c-mid.test.ts"])
+        warm = [line.split() for line in self.dev.read_text(encoding="utf-8").splitlines()]
+        self.assertEqual(warm[0][0], "./test/b-short.test.ts")
+        self.assertEqual([entry[2] for entry in warm], ["cold", "warm", "warm"])
+
+    def test_without_durations_the_order_is_the_git_index_order(self):
+        pane = "// vite.config.acpmux-pane.mjs\n"
+        files = ["test/a-long.test.ts", "test/b-short.test.ts"]
+        result, _, _ = self.run_runner(files, contents={name: pane for name in files}, extra_env={"CMUX_WEB_TEST_JOBS": "1"})
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.calls_file.read_text(encoding="utf-8").split(), ["./test/a-long.test.ts", "./test/b-short.test.ts"])
+
+    def test_each_files_first_run_seconds_are_recorded(self):
+        out = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory())) / "out" / "shard.json"
+        result, _, calls = self.run_runner(
+            ["test/slow.test.ts", "test/a.test.ts", "test/hang.test.ts"],
+            extra_env={"CMUX_WEB_TEST_DURATIONS_OUT": str(out), "CMUX_WEB_TEST_RETRIES": "1"})
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)  # hang times out twice
+        self.assertEqual(calls.count("./test/hang.test.ts"), 2)
+        recorded = json.loads(out.read_text(encoding="utf-8"))
+        self.assertEqual(set(recorded), {"test/slow.test.ts", "test/a.test.ts", "test/hang.test.ts"})
+        self.assertGreaterEqual(recorded["test/slow.test.ts"], 2)
+        self.assertLess(recorded["test/a.test.ts"], 2)
+        self.assertGreaterEqual(recorded["test/hang.test.ts"], 2)
+
     def test_dev_server_files_run_at_once_each_on_its_own_warm_vite_cache(self):
         # Every file that starts a dev server once ran one at a time after the rest (#19812): on
         # one node_modules/.vite two at once lost each other's optimized files, and editor-page
@@ -499,6 +575,93 @@ class PerFileRunner(unittest.TestCase):
         self.assertIn("scripts/ci/webviews-tests-new-reds.sh", step)
         self.assertIn('bash "$here/run-webviews-tests.sh"', (RUNNER.parent / "webviews-tests-new-reds.sh").read_text())
         self.assertNotIn("bun run test", step)
+
+
+class ShardHelper(unittest.TestCase):
+    def run_helper(self, *args):
+        return subprocess.run([sys.executable, str(SHARDS), *args], capture_output=True, text=True, check=True)
+
+    def test_merge_averages_with_the_prior_manifest_and_drops_bad_entries(self):
+        temp = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
+        (temp / "prior.json").write_text(json.dumps({"a": 10, "gone": 4, "bad": "x"}))
+        (temp / "s1.json").write_text(json.dumps({"a": 20, "b": 5}))
+        (temp / "s2.json").write_text(json.dumps({"c": -1, "d": True, "e": 7.25}))
+        self.run_helper("merge", str(temp / "new" / "m.json"), str(temp / "prior.json"), str(temp / "s1.json"),
+                        str(temp / "s2.json"), str(temp / "missing.json"))
+        self.assertEqual(json.loads((temp / "new" / "m.json").read_text()), {"a": 15, "b": 5, "e": 7.2, "gone": 4})
+
+    def test_record_keeps_each_files_first_run(self):
+        temp = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
+        (temp / "lines").write_text("12 test/a.test.ts\n3 test/b.test.ts\n40 test/a.test.ts\nnot a line\n")
+        self.run_helper("record", str(temp / "lines"), str(temp / "out.json"))
+        self.assertEqual(json.loads((temp / "out.json").read_text()), {"test/a.test.ts": 12, "test/b.test.ts": 3})
+
+    def test_the_split_weighs_dev_server_and_alone_files_by_how_few_run_at_once(self):
+        """Seventeen dev-server files of 8 s on one config: one warms alone (8 s), sixteen share the
+        8-wide pool (16 s), 24 s in all; an alone file of 24 s is as much. A seconds-sum split would
+        put 8 dev files beside it (64 + 24 against 72 s)."""
+        temp = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
+        files = [f"test/dev{index:02}.test.ts" for index in range(17)] + ["test/alone.test.ts"]
+        (temp / "test").mkdir()
+        for name in files:
+            (temp / name).write_text("// cmux-web-test-alone\n" if "alone" in name else "// vite.config.acpmux-pane.mjs\n")
+        (temp / "files").write_bytes(b"".join(name.encode() + b"\0" for name in files))
+        (temp / "serial").write_bytes((temp / "files").read_bytes())
+        (temp / "d.json").write_text(json.dumps({**{name: 8 for name in files}, "test/alone.test.ts": 24}))
+        split = [subprocess.run([sys.executable, str(SHARDS), "assign", "files", "serial", "d.json", str(n), "2"],
+                                cwd=temp, capture_output=True, check=True).stdout.split(b"\0")[:-1] for n in (1, 2)]
+        self.assertEqual(sorted(len(shard) for shard in split), [1, 17], split)
+
+    def test_the_plan_counts_each_configs_warming_file_alone(self):
+        """One config with files of 100 s and 20 s: the 20 s file warms alone, then the 100 s one runs
+        on the warm cache. 120 s, not the 100 s of an 8-lane pool."""
+        temp = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
+        spec = importlib.util.spec_from_file_location("webviews_test_shards", SHARDS)
+        shards = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(shards)
+        for name in ("pane-a", "pane-b"):
+            (temp / name).write_text("// vite.config.acpmux-pane.mjs\n")
+        (temp / "gallery-c").write_text("// vite.config.gallery-dev.ts\n")
+        plan = shards.ShardPlan()
+        configs = {name: shards.vite_config(str(temp / name)) for name in ("pane-a", "pane-b", "gallery-c")}
+        self.assertEqual(configs, {"pane-a": "pane", "pane-b": "pane", "gallery-c": "gallery"})
+        plan.add("dev", 100_000, "pane")
+        self.assertEqual(plan.wall(), 100_000)
+        self.assertEqual(plan.wall("dev", 20_000, "pane"), 120_000)
+        plan.add("dev", 20_000, "pane")
+        self.assertEqual(plan.wall("dev", 5_000, "gallery"), 125_000)  # a second config warms alone too
+        self.assertEqual(plan.wall("plain", 30_000), 150_000)
+
+
+class Workflow(unittest.TestCase):
+    def test_every_shard_splits_by_the_one_manifest_web_subarea_scope_hands_it(self):
+        text = WORKFLOW.read_text(encoding="utf-8")
+        scope = text[text.index("  web-subarea-scope:"):text.index("  web-typecheck:")]
+        self.assertIn("restore-keys: webviews-test-durations-", scope)
+        self.assertIn("name: webviews-test-durations\n", scope)
+        self.assertIn("overwrite: true", scope[scope.index("name: webviews-test-durations\n"):][:200])
+        shard = text[text.index("  react-apps-check-shard:"):text.index("  react-apps-base-check:")]
+        download = shard[shard.index("      - name: Download the duration manifest"):]
+        download = download[:download.index("\n      - name:", 10)]
+        self.assertIn("name: webviews-test-durations\n", download)
+        self.assertNotIn("continue-on-error", download)  # a shard never splits without it
+        self.assertNotIn("webviews-test-durations-", shard.split("Download the duration manifest")[1].split("Test webviews")[0])  # no cache restore
+        self.assertIn("CMUX_WEB_TEST_DURATIONS: ${{ runner.temp }}/webviews-durations/manifest.json", shard)
+        self.assertIn("webviews_test_shards.py", shard[shard.index("cp ../scripts/ci/run-webviews-tests.sh"):][:200])
+        upload = shard[shard.index("      - name: Upload this shard's durations"):]
+        upload = upload[:upload.index("\n      - name:", 10)]
+        self.assertIn("continue-on-error: true", upload)  # optional upkeep never fails a required shard
+        self.assertIn("timeout-minutes:", upload)
+        gate = shard[shard.index("      - name: Fail on the gate checks"):]
+        self.assertIn("DURATIONS_UPLOAD: ${{ steps.durations-upload.outcome }}", gate)
+        self.assertNotIn('"DURATIONS_UPLOAD|', gate)  # read as a warning, never one of the failing gates
+        check = text[text.index("  react-apps-check:"):text.index("  webviews-test-durations:")]
+        self.assertNotIn("durations", check)  # the required gate does no manifest upkeep
+        upkeep = text[text.index("  webviews-test-durations:"):text.index("  diff-sidecar-check:")]
+        self.assertIn("webviews_test_shards.py merge", upkeep)
+        self.assertIn("key: webviews-test-durations-${{ github.run_id }}-${{ github.run_attempt }}", upkeep)
+        self.assertIn("github.event.pull_request.head.repo.full_name == github.repository", upkeep)
+        self.assertIn("timeout-minutes: 5", upkeep)
 
 
 if __name__ == "__main__":

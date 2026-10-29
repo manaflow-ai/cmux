@@ -208,6 +208,26 @@ class Wiring(unittest.TestCase):
         self.assertFalse([s for s in steps if "download-artifact" in str(s.get("uses", ""))
                           and "signer-handoff" in str((s.get("with") or {}).get("name", ""))])
 
+    def test_the_stapled_app_download_retries_once(self):
+        # Run 40809822736: GetSignedArtifactURL timed out on an office mini, signer-dmg-image failed
+        # and the macOS signer covered the build about 8 min later. Each signer job that reads the
+        # stapled app now tries for 5 min, then once more; the tar's digest is checked after.
+        for job in ("signer-dmg-image", "signer-dmg"):
+            with self.subTest(job=job):
+                steps = JOBS[job]["steps"]
+                names = [s.get("name") for s in steps]
+                first = steps[names.index("Download the stapled app")]
+                retry = steps[names.index("Download the stapled app (retry)")]
+                self.assertEqual(names.index("Download the stapled app (retry)"), names.index("Download the stapled app") + 1)
+                self.assertEqual((first["id"], first["continue-on-error"], first["timeout-minutes"]),
+                                 ("signer-download-app", True, 5))
+                self.assertEqual(retry["if"], "steps.signer-download-app.outcome == 'failure'")
+                self.assertNotIn("continue-on-error", retry)
+                self.assertEqual(first["with"], retry["with"])
+                later = yaml.safe_dump(steps[names.index("Download the stapled app (retry)") + 1:], width=1000)
+                self.assertIn("signer-app/stapled-app.tar", later)
+                self.assertIn("APP_SHA256", later)
+
     def test_verify_final_reads_one_copy_of_a_pool_signed_dmg(self):
         # cmux-nightly-variant-arm64 holds the DMG under two names; verify-final-dmg-nightly runs on
         # an office Mac, so a pool-signed build hands it the DMG once, with the appcast.
