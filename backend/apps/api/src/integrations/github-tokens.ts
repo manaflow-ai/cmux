@@ -55,6 +55,7 @@ export const principalKey = (p: Principal) => (p.kind === "install" && p.install
 export const createGithubTokenTable = (sql: SqlStorage) => {
   sql.exec(`CREATE TABLE IF NOT EXISTS github_tokens (
     token_id TEXT PRIMARY KEY, cache_key TEXT NOT NULL, principal TEXT NOT NULL, install TEXT, team TEXT NOT NULL, repo TEXT NOT NULL,
+    connection_id TEXT,
     permissions TEXT NOT NULL, expires_at INTEGER NOT NULL, provider_expires_at INTEGER NOT NULL DEFAULT 0, sealed TEXT NOT NULL,
     revoking INTEGER NOT NULL DEFAULT 0, retry_at INTEGER NOT NULL DEFAULT 0, attempts INTEGER NOT NULL DEFAULT 0)`)
   try {
@@ -62,12 +63,18 @@ export const createGithubTokenTable = (sql: SqlStorage) => {
   } catch {
     // The column already exists on current deployments.
   }
+  try {
+    sql.exec(`ALTER TABLE github_tokens ADD COLUMN connection_id TEXT`)
+  } catch {
+    // Existing tables that already have the column need no migration.
+  }
   sql.exec(`UPDATE github_tokens SET provider_expires_at = expires_at WHERE provider_expires_at = 0`)
+  sql.exec(`CREATE INDEX IF NOT EXISTS github_tokens_connection ON github_tokens (connection_id)`)
   sql.exec(`CREATE INDEX IF NOT EXISTS github_tokens_cache ON github_tokens (cache_key)`)
   sql.exec(`CREATE INDEX IF NOT EXISTS github_tokens_principal ON github_tokens (principal)`)
 }
 
-type Row = { token_id: string; principal: string; install: string | null; team: string; repo: string; permissions: string; expires_at: number; provider_expires_at: number; sealed: string }
+type Row = { token_id: string; principal: string; install: string | null; team: string; repo: string; connection_id: string | null; permissions: string; expires_at: number; provider_expires_at: number; sealed: string }
 const aad = (r: Omit<Row, "sealed">) => enc.encode(`cmux-ghtok-v1|${canonicalJson([r.team, r.principal, r.install, r.repo, r.permissions, r.token_id, Number(r.expires_at)])}`)
 const openRow = (env: Env, r: Row) => open(env.INTEGRATIONS_KEK!, JSON.parse(r.sealed) as SealedSecret, aad(r))
 
@@ -300,6 +307,7 @@ const mintOrReuse = async (h: LedgerHost, picked: { c: Connection; installation:
     install: p.kind === "install" ? (p.install ?? null) : null,
     team: h.team,
     repo: ask.repo,
+    connection_id: picked.c.id,
     permissions: JSON.stringify(minted.permissions),
     expires_at: requestedExpiry,
     provider_expires_at: minted.expires_at,
@@ -312,8 +320,8 @@ const mintOrReuse = async (h: LedgerHost, picked: { c: Connection; installation:
     return f
   }
   h.sql.exec(
-    `INSERT OR REPLACE INTO github_tokens (token_id, cache_key, principal, install, team, repo, permissions, expires_at, provider_expires_at, sealed) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    row.token_id, cacheKey, row.principal, row.install, row.team, row.repo, row.permissions, row.expires_at, row.provider_expires_at, sealed
+    `INSERT OR REPLACE INTO github_tokens (token_id, cache_key, principal, install, team, repo, connection_id, permissions, expires_at, provider_expires_at, sealed) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    row.token_id, cacheKey, row.principal, row.install, row.team, row.repo, row.connection_id, row.permissions, row.expires_at, row.provider_expires_at, sealed
   )
   // Refuse rather than hand out less than was asked (GitHub never widens; it must not narrow either), or what the state no longer allows.
   if (!exactGithubGrant(minted.permissions, ask.permissions))
@@ -355,6 +363,29 @@ export const revokeTokens = async (h: Pick<LedgerHost, "sql" | "env" | "http" | 
   const n = h.sql.exec(`UPDATE github_tokens SET revoking = 1, retry_at = ? WHERE ${col} = ? AND revoking = 0`, now, val).rowsWritten
   await drainTokenRevocations(h, now)
   return n
+}
+
+/**
+ * After an integration disconnect, fence affected tokens synchronously before the
+ * connection revoke returns. This DO owns one team; unlabelled pre-migration rows
+ * are retired conservatively because their originating connection is unknowable.
+ * The existing alarm then retries the provider DELETE until expiry.
+ */
+export const markConnectionTokensRevoked = (
+  h: Pick<LedgerHost, "sql" | "revokes">,
+  connectionId: string,
+  now: number,
+): number => {
+  const affected = h.sql.exec<{ principal: string }>(
+    `SELECT DISTINCT principal FROM github_tokens WHERE revoking = 0 AND (connection_id = ? OR connection_id IS NULL)`,
+    connectionId,
+  ).toArray()
+  for (const row of affected) h.revokes.set(row.principal, (h.revokes.get(row.principal) ?? 0) + 1)
+  return h.sql.exec(
+    `UPDATE github_tokens SET revoking = 1, retry_at = ? WHERE revoking = 0 AND (connection_id = ? OR connection_id IS NULL)`,
+    now,
+    connectionId,
+  ).rowsWritten
 }
 
 /** The alarm's pass: revokes expired rows and retries provider DELETEs (backoff up to 10 minutes). */
