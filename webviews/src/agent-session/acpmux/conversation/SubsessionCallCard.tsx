@@ -19,6 +19,7 @@ import {
   waitingLine,
 } from "../subagents/subsessions";
 import { retryLabel, sessionRetry } from "../subagents/retryState";
+import { useFindReveal } from "./chatFind";
 import { Spinner } from "./icons";
 import { Markdown } from "./Markdown";
 import { McpCallDetails } from "./McpCallRows";
@@ -28,6 +29,7 @@ import type { SubsessionCall, SubsessionDelivery, SubsessionReply } from "./subs
 import "./SubsessionCallCard.css";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
+const toolActivity = (tool: Tool): AcpmuxActivity => ({ kind: "tool", text: tool.title, tool });
 
 export type StartedGroupEntry = {
   call: Extract<SubsessionCall, { tool: "start" }>;
@@ -63,6 +65,7 @@ function StartedGroup({ entries }: { entries: readonly StartedGroupEntry[] }) {
   );
   const ids = useMemo(() => entries.map(({ call }) => call.sessionId), [entries]);
   const children = useSubsessionInfos(ids);
+  const findItems = useMemo(() => entries.map(({ tool }) => toolActivity(tool)), [entries]);
   let working = false;
   let waiting = 0;
   let failed = 0;
@@ -86,6 +89,7 @@ function StartedGroup({ entries }: { entries: readonly StartedGroupEntry[] }) {
   return (
     <DisclosureRow
       disclosureKey={`subsession-group:${entries[0]?.tool.id}`}
+      findItems={findItems}
       icon={<Icon name="agent.session" size={16} />}
       label={t("subsession.started", {
         name: `${t("turn.working.sessions", { n: entries.length })}: ${names.join(", ")}`,
@@ -159,6 +163,7 @@ function startsPrompt(line: string, prompt: string): boolean {
 
 /// The live card of sub-session `sessionId`, with what the call knew of it until the list has it.
 function SessionCard({
+  tool,
   sessionId,
   name,
   harness,
@@ -170,6 +175,7 @@ function SessionCard({
   started = false,
   children,
 }: {
+  tool: Tool;
   /// The prompt the card shows under its header (a start's preview): a `doing` line that only
   /// repeats its start is left out, so the same words never show twice (Leo 2026-10-29).
   shown?: string;
@@ -186,6 +192,7 @@ function SessionCard({
 }) {
   const t = useT();
   const live = useSubsessionInfo(sessionId);
+  const findItems = useMemo(() => [toolActivity(tool)], [tool]);
   const listed = useSenderChat("", sessionId).harness;
   const open = useContext(SubsessionContext)?.open;
   // The card's retry, as every surface reads it (retryState.ts ``sessionRetry``): while acpmux
@@ -209,6 +216,7 @@ function SessionCard({
       queued={live?.queued}
       disclosure={disclosure}
       disclosureKey={disclosureKey}
+      findItems={findItems}
       disclosureLabel={started ? t("subsession.started", { name: live?.name ?? name }) : undefined}
       onOpen={sessionId && open ? () => open(sessionId) : undefined}
     >
@@ -221,6 +229,7 @@ function StartedCard({ call, tool }: { call: Extract<SubsessionCall, { tool: "st
   const t = useT();
   return (
     <SessionCard
+      tool={tool}
       sessionId={call.sessionId}
       name={call.name ?? (call.sessionId ? shortId(call.sessionId) : t("subsession.startingBare"))}
       harness={call.harness}
@@ -249,6 +258,10 @@ export function Cut({ text, prompt }: { text: string; prompt?: boolean }) {
   const t = useT();
   const [open, setOpen] = useState(false);
   const [long, setLong] = useState(false);
+  useFindReveal(
+    useMemo((): AcpmuxActivity[] => [{ kind: "note", text }], [text]),
+    () => setOpen(true),
+  );
   const ref = useRef<HTMLDivElement>(null);
   const id = useId();
   useLayoutEffect(() => {
@@ -289,9 +302,18 @@ export function Cut({ text, prompt }: { text: string; prompt?: boolean }) {
 
 /// The call's request and response as the generic MCP row shows them, behind "Raw".
 function Raw({ tool }: { tool: Tool }) {
+  const [open, setOpen] = useState(false);
+  const [reveal, setReveal] = useState(0);
+  useFindReveal(
+    useMemo(() => [toolActivity(tool)], [tool]),
+    () => {
+      setOpen(true);
+      setReveal((value) => value + 1);
+    },
+  );
   return (
-    <RawToggle>
-      <McpDetails tool={tool} />
+    <RawToggle open={open} onOpenChange={setOpen}>
+      <McpDetails tool={tool} reveal={reveal} />
     </RawToggle>
   );
 }
@@ -365,6 +387,7 @@ function SessionCards({ call, tool }: { call: Extract<SubsessionCall, { tool: "w
     <div className="cv-subsession__cards">
       {call.sessions.map((session) => (
         <SessionCard
+          tool={tool}
           key={session.sessionId}
           sessionId={session.sessionId}
           name={session.name ?? shortId(session.sessionId)}

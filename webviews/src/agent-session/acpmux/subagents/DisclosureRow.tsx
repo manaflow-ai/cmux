@@ -1,6 +1,8 @@
 // A compact transcript disclosure shared by sub-sessions and incoming messages. The line stays
 // anchored while its light panel grows below it (conversation/useAnchoredCollapse.ts).
 import { useId, type ReactNode } from "react";
+import type { AcpmuxActivity } from "../model";
+import { useFindReveal } from "../conversation/chatFind";
 import { ChevronRight } from "../conversation/icons";
 import { useTranscriptDisclosure } from "../conversation/transcriptDisclosure";
 import { useAnchoredCollapse } from "../conversation/useAnchoredCollapse";
@@ -9,6 +11,8 @@ import "./DisclosureRow.css";
 export type DisclosureRowProps = {
   /// Stable row identity; the transcript provider scopes it to the parent session.
   disclosureKey: string;
+  /// Indexed activities enclosed by this panel; Find opens each matching ancestor and child.
+  findItems?: readonly AcpmuxActivity[];
   icon: ReactNode;
   label: ReactNode;
   meta?: ReactNode;
@@ -21,6 +25,7 @@ export type DisclosureRowProps = {
 
 export function DisclosureRow({
   disclosureKey,
+  findItems = [],
   icon,
   label,
   meta,
@@ -31,6 +36,8 @@ export function DisclosureRow({
   defaultOpen = false,
 }: DisclosureRowProps) {
   const [open, setOpen] = useTranscriptDisclosure(disclosureKey, defaultOpen);
+  // Search opens directly: anchoring here would fight Find's scroll to the selected match.
+  useFindReveal(findItems, () => setOpen(true));
   const collapse = useAnchoredCollapse({ open, onOpenChange: setOpen });
   const bodyId = useId();
   return (

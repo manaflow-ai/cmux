@@ -8,7 +8,7 @@ import { Spinner } from "../conversation/icons";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { SUBSESSION_STATE_LABEL, type SubsessionState } from "./subsessions";
-import { DisclosureRow } from "./DisclosureRow";
+import { DisclosureRow, type DisclosureRowProps } from "./DisclosureRow";
 import "./AgentCard.css";
 
 export type AgentCardProps = {
@@ -36,6 +36,7 @@ export type AgentCardProps = {
   /// Draw this card as a one-line transcript disclosure with its children in a panel.
   disclosure?: boolean;
   disclosureKey?: string;
+  findItems?: DisclosureRowProps["findItems"];
   /// The complete localized disclosure label, with its name in the locale's word order.
   disclosureLabel?: ReactNode;
   children?: ReactNode;
@@ -56,6 +57,7 @@ export function AgentCard({
   openLabel,
   disclosure = false,
   disclosureKey,
+  findItems,
   disclosureLabel,
   children,
 }: AgentCardProps) {
@@ -73,6 +75,7 @@ export function AgentCard({
     return (
       <DisclosureRow
         disclosureKey={disclosureKey ?? `subsession:${sessionId ?? name}`}
+        findItems={findItems}
         icon={
           avatar ? (
             <img className="cv-agent-avatar" src={avatar} alt="" width={16} height={16} />

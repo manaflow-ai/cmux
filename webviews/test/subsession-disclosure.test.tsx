@@ -6,6 +6,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { JSDOM } from "jsdom";
 import { setPaneLanguage } from "../src/agent-session/acpmux/i18n";
+import { FindReveal } from "../src/agent-session/acpmux/conversation/chatFind";
 import { SubsessionCallCard } from "../src/agent-session/acpmux/conversation/SubsessionCallCard";
 import { SubsessionContext, SubsessionStore } from "../src/agent-session/acpmux/subagents/subsessions";
 import {
@@ -35,7 +36,7 @@ const tool = (name: string) =>
     id: `${name}-call`,
     title: "mcp__cmux-subsessions__start_session",
     status: "completed",
-    inputSummary: JSON.stringify({ name, prompt: `Own the ${name} lane` }),
+    inputSummary: JSON.stringify({ name, prompt: start(name).prompt }),
     output: `Started sub-session ${name} (sessionId ${name}-id, depth 1).`,
   }) as never;
 
@@ -203,4 +204,26 @@ test("started labels preserve the localized space and name position", async () =
     });
     expect(container.querySelector(".cv-disclosure__label")?.textContent).toBe(expected!);
   }
+});
+
+test("Find opens both a group and its matching child's prompt, leaving siblings closed", async () => {
+  const container = installDom();
+  root = createRoot(container);
+  const entries = ["msg-fold", "picker-polish", "cloud-demo"].map((name) => ({ call: start(name), tool: tool(name) }));
+  const render = async (needle?: string) =>
+    act(async () =>
+      root!.render(
+        <FindReveal.Provider value={needle ? { rowId: "row", card: false, needle, repaint: () => {} } : undefined}>
+          <SubsessionCallCard group={entries} />
+        </FindReveal.Provider>,
+      ),
+    );
+  await render();
+  expect(container.querySelectorAll(".cv-disclosure__toggle")).toHaveLength(1);
+  expect(container.querySelector(".cv-subsession__markdown")).toBeNull();
+  await render("# picker-polish");
+  const toggles = [...container.querySelectorAll(".cv-disclosure__toggle")];
+  expect(toggles.map((button) => button.getAttribute("aria-expanded"))).toEqual(["true", "false", "true", "false"]);
+  expect(container.querySelector(".cv-subsession__markdown h1")?.textContent).toBe("picker-polish");
+  expect(container.querySelector(".cv-subsession__raw button")?.getAttribute("aria-expanded")).toBe("true");
 });
