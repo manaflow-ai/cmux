@@ -119,24 +119,57 @@ chmod 755 "$shims/curl"
 # The fake acpmux, "downloaded" from the channel. Behaviour from env:
 # JT_CAPS (capability lines), JT_JOIN_EXIT, JT_STATE (a file; present = joined),
 # JT_DOCTOR=1 (it has `host doctor --here`), JT_SERVICE=1 (`daemon service`).
+# Recovery, as acpmux's cloud_join/recovery.rs does it: JT_PENDING (a file;
+# present = joinIncomplete, a pending proposal on disk) with JT_PROBE (what
+# the hub says of it: live, unknown or revoked), and JT_REVOKED (a file;
+# present = the final credential is revoked, which only --replace with a
+# token on stdin re-enrolls; without --replace acpmux says already joined).
 cat >"$root/acpmux.src" <<EOF
 #!/bin/sh
 . "$fakes/record.sh"
+joined() { : >"\$JT_STATE"; printf '{"joined": true, "alreadyJoined": false}\n'; }
+refuse() { printf '{"error":{"code":"runtime","exit":%s,"detail":"join.incomplete","message":"%s"}}\n' "\$1" "\$2" >&2; exit "\$1"; }
 case "\$*" in
   capabilities) printf '%s\n' \$JT_CAPS ;;
   "daemon service --help") [ "\${JT_SERVICE:-0}" = 1 ] || exit 2 ;;
   "host doctor --help") [ "\${JT_DOCTOR:-0}" = 1 ] && echo "  --here" || exit 2 ;;
   "host doctor --here") echo '{"step":"credential","state":"ok"}' ;;
   "host join --status --json")
+    inc=false
+    [ ! -f "\$JT_PENDING" ] || inc=true
+    rev=false
+    [ ! -f "\$JT_REVOKED" ] || rev=true
     if [ -f "\$JT_STATE" ]; then
-      printf '{\n  "consent": {"screen": "none"},\n  "credentialPath": "/h/.acpmux/machine-credential.json",\n  "credentialPresent": true,\n  "revoked": false\n}\n'
+      printf '{\n  "consent": {"screen": "none"},\n  "credentialPath": "/h/.acpmux/machine-credential.json",\n  "credentialPresent": true,\n  "joinIncomplete": %s,\n  "revoked": %s\n}\n' "\$inc" "\$rev"
     else
-      printf '{\n  "credentialPath": "/h/.acpmux/machine-credential.json",\n  "credentialPresent": false,\n  "revoked": false\n}\n'
+      printf '{\n  "credentialPath": "/h/.acpmux/machine-credential.json",\n  "credentialPresent": false,\n  "joinIncomplete": %s,\n  "revoked": false\n}\n' "\$inc"
     fi ;;
   "host join --status") echo "credential: present" ;;
   "host join "*)
-    "$(command -v cat)" >>"\$JT_LOG/join-stdin"
+    got="\$("$(command -v cat)")"
+    [ -z "\$got" ] || printf '%s\n' "\$got" >>"\$JT_LOG/join-stdin"
     echo "\$*" >>"\$JT_LOG/joins"
+    case " \$* " in *" --replace "*) rep=1 ;; *) rep=0 ;; esac
+    if [ -f "\$JT_PENDING" ]; then
+      case "\$*" in *" --name "*) refuse 2 "join incomplete; retry with the original hub and name" ;; esac
+      case "\${JT_PROBE:-unknown}" in
+        live) ;;
+        revoked) [ "\$rep" = 1 ] && [ -n "\$got" ] || refuse 3 "revoked: run machine add again" ;;
+        *) [ -n "\$got" ] || refuse 2 "join incomplete; original join token required on stdin" ;;
+      esac
+      "$(command -v rm)" -f "\$JT_PENDING"
+      joined
+      exit 0
+    fi
+    if [ -f "\$JT_REVOKED" ]; then
+      if [ "\$rep" = 1 ] && [ -n "\$got" ]; then
+        "$(command -v rm)" -f "\$JT_REVOKED"
+        joined
+      else
+        printf '{"joined": false, "alreadyJoined": true}\n'
+      fi
+      exit 0
+    fi
     code="\${JT_JOIN_EXIT:-0}"
     [ "\$code" = 0 ] || { echo "acpmux: join failed (cmj_LeakedInError)" >&2; exit "\$code"; }
     : >"\$JT_STATE"
@@ -175,7 +208,7 @@ new_case() {
   serve_dir "$d/serve"
   JT_OS=Linux JT_ARCH=x86_64
   JT_CAPS="acpmux-v1 machine.join.stdin.v1"
-  JT_JOIN_EXIT=0 JT_DOCTOR=0 JT_SERVICE=1
+  JT_JOIN_EXIT=0 JT_DOCTOR=0 JT_SERVICE=1 JT_PROBE=unknown
   : >"$d/log/argv"
 }
 
@@ -186,7 +219,9 @@ run_join() {
   set -- env -i HOME="$d/home" PATH="$shims" TMPDIR="$d/tmp" SHELL=/bin/bash \
     JT_LOG="$d/log" JT_SERVE="$d/serve" JT_STATE="$d/home/joined" \
     JT_OS="$JT_OS" JT_ARCH="$JT_ARCH" JT_CAPS="$JT_CAPS" JT_JOIN_EXIT="$JT_JOIN_EXIT" \
-    JT_DOCTOR="$JT_DOCTOR" JT_SERVICE="$JT_SERVICE" CMUX_PLATFORM_URL="$origin" "$@"
+    JT_DOCTOR="$JT_DOCTOR" JT_SERVICE="$JT_SERVICE" JT_PROBE="$JT_PROBE" \
+    JT_PENDING="$d/home/pending" JT_REVOKED="$d/home/revoked" \
+    CMUX_PLATFORM_URL="$origin" "$@"
   rc=0
   case "$form" in
     env) "$@" CMUX_JOIN="$token" $shell_cmd -s <"$script_under_test" >"$d/out" 2>&1 || rc=$? ;;
@@ -381,6 +416,87 @@ suite() {
   check "macos exit 0 (got $rc): $(cat "$d/out")" rc_is 0
   check "macos fetches the darwin build" grep -q "cmux-tui-acpmux-aarch64-apple-darwin" "$d/log/argv"
 
+  # A join cut off after redeem (joinIncomplete) wins over a present
+  # credential: the rerun resumes through acpmux, never "already joined".
+  new_case incomplete-over-credential
+  : >"$d/home/joined"
+  : >"$d/home/pending"
+  run_join env
+  check "incomplete+credential: exit 0 (got $rc): $(cat "$d/out")" rc_is 0
+  check "incomplete+credential: resumes through acpmux host join" test -s "$d/log/joins"
+  check "incomplete+credential: never says already joined" eval '! out_has "already joined"'
+  check "incomplete+credential: says it resumes" out_has "resuming a join that did not finish"
+  check "incomplete+credential: the resume keeps the pending name (no --name)" eval '! grep -q -- "--name" "$d/log/joins"'
+  check "incomplete+credential: the join finished" test ! -e "$d/home/pending"
+  check "incomplete+credential: token on stdin, once" token_on_stdin_once
+  check "incomplete+credential: no cmj_ in any argv" no_token_in_argv
+  check "incomplete+credential: no env leak" no_env_leak
+  check "incomplete+credential: no token in output" no_token_in_output
+
+  # With no line at all, acpmux recovers the pending proposal from the hub.
+  new_case incomplete-no-token
+  : >"$d/home/joined"
+  : >"$d/home/pending"
+  JT_PROBE=live
+  run_join none
+  check "incomplete, no token: exit 0 (got $rc): $(cat "$d/out")" rc_is 0
+  check "incomplete, no token: one resume" test "$(wc -l <"$d/log/joins")" -eq 1
+  check "incomplete, no token: nothing on stdin" no_redeem
+  check "incomplete, no token: the join finished" test ! -e "$d/home/pending"
+  check "incomplete, no token: says joined" out_has "cmux join: joined"
+  check "incomplete, no token: never says already joined" eval '! out_has "already joined"'
+
+  # The hub does not know the proposal yet and there is no line: ask for it.
+  new_case incomplete-needs-line
+  : >"$d/home/pending"
+  run_join none
+  check "incomplete, needs line: exit 2 (got $rc)" rc_is 2
+  check "incomplete, needs line: says so" out_has "the join that did not finish could not resume: paste the same line again"
+  check "incomplete, needs line: pending kept" test -e "$d/home/pending"
+
+  # The hub revoked the pending proposal: the fresh line goes in with --replace.
+  new_case incomplete-revoked
+  : >"$d/home/pending"
+  JT_PROBE=revoked
+  run_join env
+  check "incomplete, revoked: exit 0 (got $rc): $(cat "$d/out")" rc_is 0
+  check "incomplete, revoked: retried with --replace" test "$(sed -n 2p "$d/log/joins" | grep -c -- "--replace")" -eq 1
+  check "incomplete, revoked: the first try had no --replace" eval '! sed -n 1p "$d/log/joins" | grep -q -- "--replace"'
+  check "incomplete, revoked: the token only ever on stdin" eval '[ "$(sort -u "$d/log/join-stdin")" = "$token" ]'
+  check "incomplete, revoked: no cmj_ in any argv" no_token_in_argv
+  check "incomplete, revoked: no env leak: $(cat "$d/log/env-leak" 2>/dev/null)" no_env_leak
+  check "incomplete, revoked: no token in output" no_token_in_output
+  check "incomplete, revoked: no token on disk" no_token_on_disk
+  new_case incomplete-revoked-no-token
+  : >"$d/home/pending"
+  JT_PROBE=revoked
+  run_join none
+  check "incomplete, revoked, no token: exit 3 (got $rc)" rc_is 3
+  check "incomplete, revoked, no token: asks for a new line" out_has "enrollment was revoked or has expired; paste a new line: cmux machine add"
+
+  # A revoked enrollment: the fresh token re-enrolls with --replace, on stdin.
+  for form in env arg; do
+    new_case "revoked-$form"
+    : >"$d/home/joined"
+    : >"$d/home/revoked"
+    run_join "$form"
+    check "revoked ($form): exit 0 (got $rc): $(cat "$d/out")" rc_is 0
+    check "revoked ($form): joins with --replace" grep -q -- "--replace" "$d/log/joins"
+    check "revoked ($form): re-enrolled" test ! -e "$d/home/revoked"
+    check "revoked ($form): never says already joined" eval '! out_has "already joined"'
+    check "revoked ($form): token on stdin, once" token_on_stdin_once
+    check "revoked ($form): no cmj_ in any argv" no_token_in_argv
+    check "revoked ($form): no env leak: $(cat "$d/log/env-leak" 2>/dev/null)" no_env_leak
+    check "revoked ($form): no token in output" no_token_in_output
+  done
+  new_case revoked-no-token
+  : >"$d/home/joined"
+  : >"$d/home/revoked"
+  run_join none
+  check "revoked, no token: exit 3 (got $rc)" rc_is 3
+  check "revoked, no token: asks for a new line" out_has "enrollment was revoked or has expired; paste a new line: cmux machine add"
+  check "revoked, no token: no join attempted" test ! -e "$d/log/joins"
+
   new_case unsupported
   JT_OS=FreeBSD
   run_join env
@@ -390,7 +506,7 @@ suite() {
 
 # The checks are live: a copy that passes the token in argv must fail them.
 mutant="$root/mutant.sh"
-sed 's/^    printf .%s\\n. "\$t" | "\$acpmux" "\$@"/    "$acpmux" "$@" "$t" <\/dev\/null/' "$script" >"$mutant"
+sed 's/^\( *\)printf .%s\\n. "\$t" | "\$acpmux" "\$@"/\1"$acpmux" "$@" "$t" <\/dev\/null/' "$script" >"$mutant"
 if cmp -s "$script" "$mutant"; then
   case_name=mutant
   fail "the mutant did not change the redeem line"
