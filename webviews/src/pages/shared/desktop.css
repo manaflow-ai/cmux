@@ -621,9 +621,9 @@ label:not([for]):has(:is(input, select, textarea):disabled):not(
   --grid-sidebar-text-comfortable: calc(44px * var(--cmux-interface-scale, 1)); /* Comfortable text start. */
   --grid-sidebar-depth-indent: calc(16px * var(--cmux-interface-scale, 1)); /* Additional inset per nested depth. */
   --grid-sidebar-trail-center: calc(24px * var(--cmux-interface-scale, 1)); /* Compact trailing center from the sidebar edge. */
-  --grid-sidebar-trail-center-comfortable: calc(26px * var(--cmux-interface-scale, 1)); /* Comfortable trailing center from the sidebar edge. */
+  --grid-sidebar-trail-center-comfortable: calc(24px * var(--cmux-interface-scale, 1)); /* Trailing center remains fixed across densities. */
   --grid-sidebar-second-mark-pitch: calc(20px * var(--cmux-interface-scale, 1)); /* Compact secondary trailing mark pitch. */
-  --grid-sidebar-second-mark-pitch-comfortable: calc(24px * var(--cmux-interface-scale, 1)); /* Comfortable secondary trailing mark pitch. */
+  --grid-sidebar-second-mark-pitch-comfortable: calc(20px * var(--cmux-interface-scale, 1)); /* Secondary trailing mark pitch remains fixed across densities. */
   --grid-transcript-icon-box: calc(16px * var(--cmux-interface-scale, 1)); /* Tool thinking and status row leading box. */
   --grid-transcript-text-gap: calc(24px * var(--cmux-interface-scale, 1)); /* Text start relative to the column lead. */
   --grid-gap-block: calc(24px * var(--cmux-interface-scale, 1)); /* Gap between transcript blocks. */
