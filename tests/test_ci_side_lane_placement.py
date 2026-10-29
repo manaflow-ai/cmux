@@ -285,6 +285,17 @@ class Decide(unittest.TestCase):
                                        GITHUB_OUTPUT=str(output)))
                 lines = dict(line.split("=", 1) for line in output.read_text().splitlines())
                 self.assertEqual(lines["session_lane_runner"], expected)
+        # Review of #27201 at 29a7db6f: an unreadable runner listing vouches for no lane.
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "out"
+            with mock.patch.object(placement.pool, "GitHub") as github, \
+                    mock.patch.object(placement.cascade, "read", return_value=(None, None, None)), \
+                    contextlib.redirect_stdout(io.StringIO()):
+                github.return_value.runners.side_effect = RuntimeError("HTTP 403")
+                placement.main(env(SESSION_LANE=lane, ROUTE_TOKEN="t", GITHUB_REPOSITORY="manaflow-ai/cmux",
+                                   GITHUB_OUTPUT=str(output)))
+            lines = dict(line.split("=", 1) for line in output.read_text().splitlines())
+            self.assertEqual(lines["session_lane_runner"], "")
 
     def test_the_rescues_full_rerun_names_the_gui_overflow(self):
         # Its GUI jobs never read gui_runner; with no route written they fell back to the fixed gui label.

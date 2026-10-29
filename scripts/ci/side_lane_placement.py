@@ -612,7 +612,9 @@ def main(env: Mapping[str, str] = os.environ) -> int:
     # Generated files' own session lane (vars.CI_SESSION_LANE_RUNNER, a glaeda-session-* label): written only while
     # it has room, so the variable never sends the job to a queue deeper than its pool.
     lane = (env.get("SESSION_LANE") or "").strip()
-    session_lane = healthy_role_label(lane, runners, seen, waiting) if lane.startswith("glaeda-") else ""
+    # Unread runners are no reading: the lane is not vouched for, so the job keeps the route it had without it.
+    session_lane = (healthy_role_label(lane, runners, seen, waiting)
+                    if lane.startswith("glaeda-") and runners is not None else "")
     # An empty session route falls through to gui_runner in the workflow, so only a declined gui route overflows.
     gui_overflow = GUI_OVERFLOW if live_gui and not gui_route else ""
     if live_gui and not gui_route:
