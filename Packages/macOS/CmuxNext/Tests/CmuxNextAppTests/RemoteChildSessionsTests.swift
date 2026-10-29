@@ -69,6 +69,21 @@ import Testing
         wire.cancel(code: 1000, reason: "done")
     }
 
+    /// A chat made on that Mac (its tab's host is `install:<id>`) viewed here: the wire notes its
+    /// children under the tab's host and under the daemon's store host (`registry:<id>`), which
+    /// opening a child checks, so a click on an unopened child opens it.
+    @Test func anInstallTabsChildrenAreNotedUnderTheDaemonsStoreHostToo() async throws {
+        let client = FakeClient(parent: "inst-chat", children: [["sessionId": "inst-child", "startedBy": "inst-chat"]])
+        let wire = RemoteAcpmuxWire(client: client, session: "inst-chat", host: "install:other-mac",
+                                    linksAlias: "registry:other-mac-store")
+        _ = try await Self.watch(wire)
+        let links = RemoteAgentSessionLinks.shared
+        for _ in 0..<50 where links.parent(of: "inst-child", host: "registry:other-mac-store") == nil { await Task.yield() }
+        #expect(links.parent(of: "inst-child", host: "install:other-mac") == "inst-chat")
+        #expect(links.parent(of: "inst-child", host: "registry:other-mac-store") == "inst-chat")
+        wire.cancel(code: 1000, reason: "done")
+    }
+
     /// A tab that names its chat by another id than acpmux's (a session name, or a chat rebound on
     /// that machine since the page got its id): the watch says which session the daemon attached as
     /// the tab's, so the page opens it instead of saying "This chat isn't available".

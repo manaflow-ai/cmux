@@ -55,20 +55,26 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
     private let start: Start?
     private let trust: Trust?
     private let host: String?
+    /// The daemon's own store host (`registry:<id>`) when the tab's `host` names another (an
+    /// `install:` tab of that machine): its links are noted under both, so a lookup by either finds them.
+    private let linksAlias: String?
     private let state: Mutex<State>
 
     /// The wire of the chat `session` (its store record), through `client`.
-    public init(client: any AgentSessionRemoteClient, session: String, host: String? = nil, trust: Trust? = nil) {
+    public init(client: any AgentSessionRemoteClient, session: String, host: String? = nil, linksAlias: String? = nil,
+                trust: Trust? = nil) {
         start = nil
         self.host = host
+        self.linksAlias = linksAlias
         self.trust = trust
         state = Mutex(State(client: client, session: session))
     }
 
     /// The wire of a new chat that has no session yet: the page's first `session/new` runs `start`.
-    public init(start: @escaping Start, host: String? = nil, trust: Trust? = nil) {
+    public init(start: @escaping Start, host: String? = nil, linksAlias: String? = nil, trust: Trust? = nil) {
         self.start = start
         self.host = host
+        self.linksAlias = linksAlias
         self.trust = trust
         state = Mutex(State())
     }
@@ -292,10 +298,11 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
         guard !summaries.isEmpty, JSONSerialization.isValidJSONObject(summaries),
               let data = try? JSONSerialization.data(withJSONObject: summaries) else { return }
         // task-owner: one main-actor note of what the daemon answered; nothing waits on it
-        let remoteHost = host
+        let remoteHost = host, alias = linksAlias.flatMap { $0 != host ? $0 : nil }
         Task { @MainActor in
             let copy = (try? JSONSerialization.jsonObject(with: data)) as? [[String: Any]] ?? []
             RemoteAgentSessionLinks.shared.note(copy, host: remoteHost)
+            if let alias { RemoteAgentSessionLinks.shared.note(copy, host: alias) }
         }
     }
 

@@ -269,6 +269,7 @@ extension AgentTabStore {
             }
             var host = AgentTabRemoteHost(surface: tab.surface.rawValue, session: session, machine: machine, hostID: record.host, endpoint: endpoint, servesTrust: daemon.supports(DaemonCapability.agentSessionTrust.rawValue),
                                            servesKeyedReason: daemon.supports(DaemonCapability.agentSessionStartKeyedReason.rawValue))
+            host.linksHost = AgentTabStore.registryHost(of: daemon)
             host.cloudMachineID = services.machines.session(daemon.machineID)?.machineID
             host.cloudCredentialRecoveryAvailable = host.cloudMachineID != nil &&
                 services.cloud.auth.isSignedIn && services.cloud.configuration.linkSource == .legacy
