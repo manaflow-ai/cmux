@@ -150,6 +150,22 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_cloud_overflow_switch.py
 
+      - name: Validate fast checks fail over with the overflow switch
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_fast_checks_failover.py
+
+      - name: Validate fast checks name the commit they test
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_fast_checks_receipt.py
+
+      - name: Validate fast checks install every locked Bun workspace
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_fast_checks_bun_workspaces.py
+
+      - name: Validate fast checks pin and launch their Playwright browsers
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_fast_checks_browsers.py
+
       - name: Validate guard failure attribution
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_guard_attribution.py
@@ -182,6 +198,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_base_red_excuse.py
 
+      - name: Validate the per-test base-red classifier (a crash is never a base red)
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_test_reds.py
+
       - name: Validate the pinned gh-merge-green install
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_install_gh_merge_green.py
@@ -205,6 +225,10 @@ jobs:
       - name: Validate the workflow_run handlers' API budget
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_workflow_run_api_budget.py
+
+      - name: Validate the glaeda-route App budget cuts
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_glaeda_route_app_budget.py
 
       - name: Validate the report-only reverse test impact selector
         if: ${{ matrix.group == 'ci' }}
@@ -724,6 +748,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_queue_janitor.py
 
+      - name: Validate when a nightly run may be cancelled (attempts, pickers, latest-wins, known-bad)
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_delivery_workflows_cancel.py
+
       - name: Validate the starved fleet runner label alert
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_starved_labels.py
@@ -845,6 +873,10 @@ jobs:
       - name: Validate CLA metadata routing
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_cla_guard_metadata_routing.py
+
+      - name: Validate the CLA guard reads each revision by git at its own sha
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_cla_guard_git_reads.py
 
       - name: Validate required checks are bounded
         if: ${{ matrix.group == 'ci' }}
@@ -1313,6 +1345,7 @@ jobs:
         run: |
           python3 tests/test_nightly_next_canary_runs_installed_app.py
           python3 tests/test_nightly_next_canary_cadence.py
+          python3 tests/test_nightly_next_canary_feed_origin.py
 
       - name: Validate the cmux NEXT DEV daily dispatcher
         if: ${{ matrix.group == 'release-notary' }}
@@ -1428,6 +1461,7 @@ jobs:
           python3 tests/test_nightly_promotion_admission.py
           python3 tests/test_nightly_next_promotion_queue.py
           python3 tests/test_nightly_next_feed_watch.py
+          python3 tests/test_nightly_next_rolling.py
           python3 tests/test_ci_nightly_push_throttle.py
           python3 tests/test_ci_nightly_off_blacksmith.py
           python3 tests/test_classic_nightly_build_runner.py

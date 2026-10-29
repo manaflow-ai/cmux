@@ -75,6 +75,7 @@
 		C0DEF0C10000000000000001 /* AgentForkSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF0C10000000000000002 /* AgentForkSupport.swift */; };
 		C0DEF0D40000000000000001 /* AgentForkTimeoutResumeGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF0D40000000000000002 /* AgentForkTimeoutResumeGate.swift */; };
 		D686A8C1DBD4EABD91766211 /* AgentHibernationBackgroundWorkTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4C4607FC6F461CC8B35343E /* AgentHibernationBackgroundWorkTests.swift */; };
+		F65760030000000000026358 /* AgentHibernationController+BackgroundWorkDrain.swift in Sources */ = {isa = PBXBuildFile; fileRef = F65760030000000000126358 /* AgentHibernationController+BackgroundWorkDrain.swift */; };
 		8997C00E8997C00E8997C00E /* AgentHibernationController+CommittedTerminationCleanup.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8997D00E8997D00E8997D00E /* AgentHibernationController+CommittedTerminationCleanup.swift */; };
 		8997C00F8997C00F8997C00F /* AgentHibernationController+CommittedTerminationObservation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8997D00F8997D00F8997D00F /* AgentHibernationController+CommittedTerminationObservation.swift */; };
 		F65760100000000000000001 /* AgentHibernationController+Confirmation.swift in Sources */ = {isa = PBXBuildFile; fileRef = F65760100000000000000002 /* AgentHibernationController+Confirmation.swift */; };
@@ -685,6 +686,7 @@
 		F3000000A1B2C3D4E5F60718 /* CJKIMEInputTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3000001A1B2C3D4E5F60718 /* CJKIMEInputTests.swift */; };
 		D3571002A1B2C3D4E5F60718 /* CJKIMEMarkedSelectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3571003A1B2C3D4E5F60718 /* CJKIMEMarkedSelectionTests.swift */; };
 		5DD791323C73D4CC4F3EEB57 /* ClaudeBackgroundSessionRestoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74EAD7E619F7F261701CF718 /* ClaudeBackgroundSessionRestoreTests.swift */; };
+		7B3A9980B8930E132356C54C /* ClaudeBackgroundWorkDrainTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88325A2907EB7D69739349B /* ClaudeBackgroundWorkDrainTests.swift */; };
 		A5D41232A1B2C3D4E5F60718 /* ClaudeBackgroundWorkNotifyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5D41233A1B2C3D4E5F60718 /* ClaudeBackgroundWorkNotifyTests.swift */; };
 		C13519000000000000000007 /* ClaudeConfigDirectoryPathTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C13519000000000000000008 /* ClaudeConfigDirectoryPathTests.swift */; };
 		2C483F9C4DD9E531BFB70041 /* ClaudeConfigDirectorySaveCaptureTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 116A20BE2E7DF60266E43B58 /* ClaudeConfigDirectorySaveCaptureTests.swift */; };
@@ -4944,6 +4946,7 @@
 		C0DEF0C10000000000000002 /* AgentForkSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentForkSupport.swift; sourceTree = "<group>"; };
 		C0DEF0D40000000000000002 /* AgentForkTimeoutResumeGate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentForkTimeoutResumeGate.swift; sourceTree = "<group>"; };
 		C4C4607FC6F461CC8B35343E /* AgentHibernationBackgroundWorkTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AgentHibernationBackgroundWorkTests.swift"; sourceTree = "<group>"; };
+		F65760030000000000126358 /* AgentHibernationController+BackgroundWorkDrain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/AgentHibernationController+BackgroundWorkDrain.swift"; sourceTree = "<group>"; };
 		8997D00E8997D00E8997D00E /* AgentHibernationController+CommittedTerminationCleanup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/AgentHibernationController+CommittedTerminationCleanup.swift"; sourceTree = "<group>"; };
 		8997D00F8997D00F8997D00F /* AgentHibernationController+CommittedTerminationObservation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/AgentHibernationController+CommittedTerminationObservation.swift"; sourceTree = "<group>"; };
 		F65760100000000000000002 /* AgentHibernationController+Confirmation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/AgentHibernationController+Confirmation.swift"; sourceTree = "<group>"; };
@@ -5536,6 +5539,7 @@
 		F3000001A1B2C3D4E5F60718 /* CJKIMEInputTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CJKIMEInputTests.swift; sourceTree = "<group>"; };
 		D3571003A1B2C3D4E5F60718 /* CJKIMEMarkedSelectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CJKIMEMarkedSelectionTests.swift; sourceTree = "<group>"; };
 		74EAD7E619F7F261701CF718 /* ClaudeBackgroundSessionRestoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ClaudeBackgroundSessionRestoreTests.swift"; sourceTree = "<group>"; };
+		B88325A2907EB7D69739349B /* ClaudeBackgroundWorkDrainTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ClaudeBackgroundWorkDrainTests.swift"; sourceTree = "<group>"; };
 		A5D41233A1B2C3D4E5F60718 /* ClaudeBackgroundWorkNotifyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeBackgroundWorkNotifyTests.swift; sourceTree = "<group>"; };
 		C13519000000000000000008 /* ClaudeConfigDirectoryPathTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeConfigDirectoryPathTests.swift; sourceTree = "<group>"; };
 		116A20BE2E7DF60266E43B58 /* ClaudeConfigDirectorySaveCaptureTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ClaudeConfigDirectorySaveCaptureTests.swift"; sourceTree = "<group>"; };
@@ -10552,6 +10556,7 @@
 				A12123000000000000000002 /* AgentHibernationController+SessionEndIntent.swift */,
 				8997F0018997F0018997F001 /* AgentHibernationController+TeardownValidation.swift */,
 				F65760030000000000000002 /* AgentHibernationController+Records.swift */,
+				F65760030000000000126358 /* AgentHibernationController+BackgroundWorkDrain.swift */,
 				F65760140000000000000002 /* AgentHibernationController+TailFingerprintSample.swift */,
 				F65760060000000000000002 /* AgentHibernationController+Teardown.swift */,
 				8740A0018740A0018740A001 /* AgentHibernationController+EvaluationScheduling.swift */,
@@ -14284,6 +14289,7 @@
 				E5E915CF2237052FDE02EE05 /* WorkspaceTitleRecoveryTests.swift */,
 				AD2084D340B702301EBB1356 /* SurfaceSocketCommandTests+NewDisplay.swift */,
 				C670411F1045A41CAD5B0FF3 /* SessionRemoteWorkspaceEternalTerminalRestoreTests.swift */,
+				B88325A2907EB7D69739349B /* ClaudeBackgroundWorkDrainTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -15181,6 +15187,7 @@
 				C0DEF0D30000000000000001 /* AgentForkExecutableIdentityResolver.swift in Sources */,
 				C0DEF0C10000000000000001 /* AgentForkSupport.swift in Sources */,
 				C0DEF0D40000000000000001 /* AgentForkTimeoutResumeGate.swift in Sources */,
+				F65760030000000000026358 /* AgentHibernationController+BackgroundWorkDrain.swift in Sources */,
 				8997C00E8997C00E8997C00E /* AgentHibernationController+CommittedTerminationCleanup.swift in Sources */,
 				8997C00F8997C00F8997C00F /* AgentHibernationController+CommittedTerminationObservation.swift in Sources */,
 				F65760100000000000000001 /* AgentHibernationController+Confirmation.swift in Sources */,
@@ -18483,6 +18490,7 @@
 				F3000000A1B2C3D4E5F60718 /* CJKIMEInputTests.swift in Sources */,
 				D3571002A1B2C3D4E5F60718 /* CJKIMEMarkedSelectionTests.swift in Sources */,
 				5DD791323C73D4CC4F3EEB57 /* ClaudeBackgroundSessionRestoreTests.swift in Sources */,
+				7B3A9980B8930E132356C54C /* ClaudeBackgroundWorkDrainTests.swift in Sources */,
 				A5D41232A1B2C3D4E5F60718 /* ClaudeBackgroundWorkNotifyTests.swift in Sources */,
 				C13519000000000000000007 /* ClaudeConfigDirectoryPathTests.swift in Sources */,
 				2C483F9C4DD9E531BFB70041 /* ClaudeConfigDirectorySaveCaptureTests.swift in Sources */,

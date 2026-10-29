@@ -288,6 +288,11 @@ struct ClaudeHookSessionRecord: Codable {
     var autoNameRecentMessages: [AutoNamingTranscriptMessage]?
     var autoNameMessageSequence: Int?
     var hadPendingBackgroundWorkAtStop: Bool?
+    /// Whether the last Stop reported a session cron or scheduled wakeup. The
+    /// app settles a pane whose background tasks ended only when this is
+    /// recorded false: a pending cron leaves nothing in the transcript or
+    /// process tree to show whether it still waits.
+    var hadSessionCronsAtStop: Bool?
     /// Unsandboxed Cursor shell calls that cmux asked Cursor to gate. The
     /// after/failure hooks do not carry a native approval decision, so the
     /// command identity is the only safe completion correlation available.
@@ -1443,6 +1448,7 @@ final class ClaudeHookSessionStore {
         runtimeStatus: AgentHookRuntimeStatus? = nil,
         updateRuntimeStatus: Bool = false,
         hadPendingBackgroundWorkAtStop: Bool? = nil,
+        hadSessionCronsAtStop: Bool? = nil,
         title: String? = nil,
         markActive: Bool = false,
         turnId: String? = nil,
@@ -1502,6 +1508,7 @@ final class ClaudeHookSessionStore {
                 runtimeStatus: runtimeStatus,
                 updateRuntimeStatus: updateRuntimeStatus,
                 hadPendingBackgroundWorkAtStop: hadPendingBackgroundWorkAtStop,
+                hadSessionCronsAtStop: hadSessionCronsAtStop,
                 title: title,
                 now: now
             )
@@ -1623,6 +1630,7 @@ final class ClaudeHookSessionStore {
                     superseded.lastNotificationStatus = nil
                     superseded.runtimeStatus = .idle
                     superseded.hadPendingBackgroundWorkAtStop = nil
+                    superseded.hadSessionCronsAtStop = nil
                     superseded.updatedAt = now
                     state.sessions[supersededSessionId] = superseded
                     if ownsTargetSurface,
@@ -1674,6 +1682,7 @@ final class ClaudeHookSessionStore {
             record.lastNotificationStatus = nil
             record.runtimeStatus = .idle
             record.hadPendingBackgroundWorkAtStop = nil
+            record.hadSessionCronsAtStop = nil
             state.sessions[normalizedSessionId] = record
 
             for (workspaceId, activeSession) in state.activeSessionsByWorkspace
@@ -2059,6 +2068,7 @@ final class ClaudeHookSessionStore {
         runtimeStatus: AgentHookRuntimeStatus?,
         updateRuntimeStatus: Bool,
         hadPendingBackgroundWorkAtStop: Bool? = nil,
+        hadSessionCronsAtStop: Bool? = nil,
         title: String? = nil,
         now: TimeInterval
     ) {
@@ -2179,6 +2189,9 @@ final class ClaudeHookSessionStore {
         }
         if let hadPendingBackgroundWorkAtStop {
             record.hadPendingBackgroundWorkAtStop = hadPendingBackgroundWorkAtStop
+        }
+        if let hadSessionCronsAtStop {
+            record.hadSessionCronsAtStop = hadSessionCronsAtStop
         }
         record.updatedAt = now
     }
@@ -27086,14 +27099,33 @@ struct CMUXCLI {
                 (key: "CMUX_CLAUDE_TEAMS_TMUX_SHIM", value: shimDirectory.appendingPathComponent("tmux").path),
             ]
         )
+        configureClaudeNodeOptionsRestore(processEnvironment: processEnvironment)
+    }
+
+    /// Prepends the restore preload to the caller's own NODE_OPTIONS. A preload
+    /// inherited from an earlier cmux Claude launch is dropped first: it can point
+    /// at a file that no longer exists, which makes every Node process fail (#22274).
+    private func configureClaudeNodeOptionsRestore(processEnvironment: [String: String]) {
+        let repair = AgentLaunchEnvironmentPolicy().inheritedNodeOptionsRepair(from: processEnvironment)
+        let existingNodeOptions: String?
+        if let repairedNodeOptions = repair["NODE_OPTIONS"] {
+            existingNodeOptions = repairedNodeOptions
+        } else {
+            existingNodeOptions = processEnvironment["NODE_OPTIONS"]
+        }
         guard let restoreModuleURL = try? createClaudeNodeOptionsRestoreModule() else {
             unsetenv("CMUX_ORIGINAL_NODE_OPTIONS_PRESENT")
             unsetenv("CMUX_ORIGINAL_NODE_OPTIONS")
+            if let existingNodeOptions {
+                setenv("NODE_OPTIONS", existingNodeOptions, 1)
+            } else {
+                unsetenv("NODE_OPTIONS")
+            }
             return
         }
-        if let existing = processEnvironment["NODE_OPTIONS"] {
+        if let existingNodeOptions {
             setenv("CMUX_ORIGINAL_NODE_OPTIONS_PRESENT", "1", 1)
-            setenv("CMUX_ORIGINAL_NODE_OPTIONS", normalizedNodeOptionsForRestore(existing), 1)
+            setenv("CMUX_ORIGINAL_NODE_OPTIONS", normalizedNodeOptionsForRestore(existingNodeOptions), 1)
         } else {
             setenv("CMUX_ORIGINAL_NODE_OPTIONS_PRESENT", "0", 1)
             unsetenv("CMUX_ORIGINAL_NODE_OPTIONS")
@@ -27101,7 +27133,7 @@ struct CMUXCLI {
         setenv(
             "NODE_OPTIONS",
             mergedNodeOptions(
-                existing: processEnvironment["NODE_OPTIONS"],
+                existing: existingNodeOptions,
                 restoreModulePath: restoreModuleURL.path
             ),
             1
@@ -29704,26 +29736,7 @@ struct CMUXCLI {
         )
         clearInheritedClaudeLaunchEnvironment()
         // omc wraps Claude Code, so it needs the same NODE_OPTIONS restore module
-        guard let restoreModuleURL = try? createClaudeNodeOptionsRestoreModule() else {
-            unsetenv("CMUX_ORIGINAL_NODE_OPTIONS_PRESENT")
-            unsetenv("CMUX_ORIGINAL_NODE_OPTIONS")
-            return
-        }
-        if let existing = processEnvironment["NODE_OPTIONS"] {
-            setenv("CMUX_ORIGINAL_NODE_OPTIONS_PRESENT", "1", 1)
-            setenv("CMUX_ORIGINAL_NODE_OPTIONS", normalizedNodeOptionsForRestore(existing), 1)
-        } else {
-            setenv("CMUX_ORIGINAL_NODE_OPTIONS_PRESENT", "0", 1)
-            unsetenv("CMUX_ORIGINAL_NODE_OPTIONS")
-        }
-        setenv(
-            "NODE_OPTIONS",
-            mergedNodeOptions(
-                existing: processEnvironment["NODE_OPTIONS"],
-                restoreModulePath: restoreModuleURL.path
-            ),
-            1
-        )
+        configureClaudeNodeOptionsRestore(processEnvironment: processEnvironment)
     }
 
     private func runOMC(
@@ -31728,6 +31741,9 @@ struct CMUXCLI {
                         lastSubtitle: completion?.subtitle,
                         lastBody: completion?.body,
                         hadPendingBackgroundWorkAtStop: hasPendingBackgroundWork,
+                        // A payload that does not report crons may still have
+                        // one, so the drain check must not settle it.
+                        hadSessionCronsAtStop: hasClaudeSessionCrons(parsedInput) ?? true,
                         markActive: true,
                         allowsNewSessionReplacement: true
                     )

@@ -2,6 +2,7 @@
 
 from pathlib import Path
 import re
+import subprocess
 import sys
 
 import yaml
@@ -31,6 +32,9 @@ ALLOWED_SHARED: dict[tuple[str, str], str] = {
         "the scheduled 'feed' tick canaries the feed's newest build when it starts; a dispatch for one "
         "build and a pull request run have their own groups"),
     ("nightly-next-feed-watch.yml", ""): "a schedule-only watch that reads the feed when it starts",
+    ("nightly-next-launch-smoke.yml", ""): (
+        "a schedule or dispatch run has a group of its own run id; only a pull request's runs share one, "
+        "per pull request, and such a run delivers nothing (it never rolls back or files)"),
     ("nightly-next-tick.yml", "request"): (
         "the tick dispatches no build itself (test_delivery_coalescers_have_fixed_backstops...); a sha "
         "request has its own group"),
@@ -250,7 +254,7 @@ def test_newest_wins_jobs_take_no_concurrency_group() -> None:
 
 def test_delivery_coalescers_have_fixed_backstops_and_non_cancelling_groups() -> None:
     tick = (WORKFLOWS / "nightly-next-tick.yml").read_text(encoding="utf-8")
-    assert re.search(r'(?m)^\s+- cron: "7,37 \* \* \* \*"$', tick)
+    assert re.search(r'(?m)^\s+- cron: "4-59/5 \* \* \* \*"$', tick)
     assert "cancel-in-progress: false" in tick
     # One shared job-level group: one tick runs, the newest waits. The tick
     # dispatches no build itself, so replacing a pending tick cancels no work.
@@ -260,6 +264,77 @@ def test_delivery_coalescers_have_fixed_backstops_and_non_cancelling_groups() ->
     dev = (WORKFLOWS / "cmux-next-dev-daily-dispatch.yml").read_text(encoding="utf-8")
     assert 'cron: "2-59/5 * * * *"' in dev or 'cron: "7,22,37,52 * * * *"' in dev
     assert "cancel-in-progress: false" in dev
+
+
+def test_the_tick_is_the_only_promoter_and_the_rolling_rule_gates_its_events() -> None:
+    """A burst of landings starts one build: the tick runs at landing, but promotes only under the rolling rule.
+
+    On 2026-10-28 every finished cmux-next or cmux-tui artifacts run on feat-cmux-next promoted, through
+    this tick's workflow_run trigger and their own request jobs, and six Release builds ran at once. A
+    30-minute cron alone then kept the feed 45-50 minutes behind each landing. Now the landing events and
+    the backstop cron run scripts/ci/nightly_next_rolling.py first, and its "wait" skips the request; only
+    a dispatch for one commit skips the rule."""
+    tick = yaml.safe_load((WORKFLOWS / "nightly-next-tick.yml").read_text(encoding="utf-8"))
+    triggers = tick.get("on", tick.get(True))
+    assert set(triggers) == {"workflow_run", "schedule", "workflow_dispatch"}
+    assert triggers["schedule"] == [{"cron": "4-59/5 * * * *"}]
+    assert triggers["workflow_run"]["types"] == ["completed"]
+    assert set(triggers["workflow_run"]["workflows"]) == {"cmux-next", "cmux-tui artifacts", "Nightly macOS build"}
+    job = tick["jobs"]["request"]
+    assert "github.event.workflow_run.event == 'push'" in job["if"]
+    assert "head_repository.full_name == github.repository" in job["if"]
+    steps = [step.get("name") for step in job["steps"]]
+    by_name = {step.get("name"): step for step in job["steps"]}
+    rolling = by_name["Apply the rolling rule"]
+    request = by_name["Request nightly-next promotion on main"]
+    assert steps.index("Apply the rolling rule") < steps.index("Request nightly-next promotion on main")
+    assert "inputs.sha == ''" in rolling["if"], "a dispatch for one commit skips the rule"
+    assert rolling.get("continue-on-error") is True, "a failed rule never holds the promotion"
+    assert "nightly_next_rolling.py" in rolling["run"]
+    assert "steps.rolling.outputs.go != 'false'" in request["if"]
+    assert request["env"]["NIGHTLY_NEXT_PROMOTE"] == "1", "request-nightly-next.sh promotes only when the tick asks"
+    for name, step in by_name.items():
+        if step is not request:
+            assert "NIGHTLY_NEXT_PROMOTE" not in (step.get("env") or {}), name
+
+
+def test_the_tick_marks_every_revisions_promotion_request(tmp_path: Path) -> None:
+    """Main's promote job admits only "tick:" requests from github-actions[bot] (promote-nightly-next.mjs
+    decideRequest); the tick's gh shim adds the prefix to whatever form each revision's script dispatches."""
+    tick = yaml.safe_load((WORKFLOWS / "nightly-next-tick.yml").read_text(encoding="utf-8"))
+    run = next(s for s in tick["jobs"]["request"]["steps"] if s.get("name") == "Request nightly-next promotion on main")["run"]
+    shim = re.search(r"cat > \"\$GH_TICK_CACHE/bin/gh\" <<'SH'\n(.*?)\nSH\n", run, re.S).group(1)
+    (tmp_path / "gh").write_text(shim, encoding="utf-8")
+    real = tmp_path / "real-gh"
+    real.write_text('#!/usr/bin/env bash\nprintf "%s\\n" "$*" >> "$LOG"\n', encoding="utf-8")
+    real.chmod(0o755)
+    env = {"PATH": "/usr/bin:/bin", "GH_REAL": str(real), "GH_TICK_CACHE": str(tmp_path), "LOG": str(tmp_path / "log")}
+    sha = "a" * 40
+    head = ["workflow", "run", "nightly.yml", "--repo", "o/r", "--ref", "main"]
+    forms = [  # (as a revision passes it, as main must receive it)
+        (["-f", f"promote_nightly_next_sha={sha}"], ["-f", f"promote_nightly_next_sha=tick:{sha}"]),
+        (["-f", f"promote_nightly_next_sha=tick:{sha}"], ["-f", f"promote_nightly_next_sha=tick:{sha}"]),
+        (["--raw-field", f"promote_nightly_next_sha={sha}"], ["--raw-field", f"promote_nightly_next_sha=tick:{sha}"]),
+        ([f"-fpromote_nightly_next_sha={sha}"], [f"-fpromote_nightly_next_sha=tick:{sha}"]),
+        ([f"-Fpromote_nightly_next_sha={sha}"], [f"-Fpromote_nightly_next_sha=tick:{sha}"]),
+        ([f"--field=promote_nightly_next_sha={sha}"], [f"--field=promote_nightly_next_sha=tick:{sha}"]),
+    ]
+    for sent, _ in forms:
+        subprocess.run(["bash", str(tmp_path / "gh"), *head, *sent], env=env, check=True)
+    other = ["workflow", "run", "cmux-tui-artifacts.yml", "--repo", "o/r", "--ref", "feat-cmux-next"]
+    subprocess.run(["bash", str(tmp_path / "gh"), *other], env=env, check=True)
+    assert (tmp_path / "log").read_text(encoding="utf-8").splitlines() == [
+        *(" ".join([*head, *got]) for _, got in forms), " ".join(other)]
+
+
+def test_a_landing_request_never_enters_the_promote_queue() -> None:
+    """GitHub keeps one waiting job in nightly-next-promote and cancels it when another request arrives, so a
+    landing's request must be skipped at the job, not after it queued: there it would evict the tick's request."""
+    job = load(WORKFLOWS / "nightly.yml")["jobs"]["promote-nightly-next"]
+    assert job["concurrency"]["group"] == "nightly-next-promote"
+    assert job["if"].endswith(
+        "&& (contains(inputs.promote_nightly_next_sha, 'tick:') || github.triggering_actor != 'github-actions[bot]')"
+    ), job["if"]
 
 
 def test_nightly_push_runs_never_share_a_build_group() -> None:
@@ -323,4 +398,9 @@ if __name__ == "__main__":
     test_delivery_coalescers_have_fixed_backstops_and_non_cancelling_groups()
     test_nightly_push_runs_never_share_a_build_group()
     test_classic_publishers_write_only_while_they_hold_the_lease()
+    test_the_tick_is_the_only_promoter_and_the_rolling_rule_gates_its_events()
+    test_a_landing_request_never_enters_the_promote_queue()
+    import tempfile
+    with tempfile.TemporaryDirectory() as scratch:
+        test_the_tick_marks_every_revisions_promotion_request(Path(scratch))
     print("PASS: nightly and DEV delivery never cancel or replace waiting builds")
