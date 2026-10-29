@@ -183,6 +183,7 @@ fn workspaces(daemon: &Daemon) -> DaemonWorkspaces {
         host_name: "test".into(),
         harness: Some("claude".into()),
         personal: false,
+        fallback: None,
     }
 }
 
