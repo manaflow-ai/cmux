@@ -121,7 +121,9 @@ mod imp {
     const PRIO_DARWIN_THREAD: libc::c_int = 3;
     const PRIO_DARWIN_BG: libc::c_int = 0x1000;
     const POSIX_SPAWN_SETEXEC: libc::c_short = 0x0040;
-    const QOS_CLASS_UTILITY: libc::c_uint = 0x11;
+    /// `POSIX_SPAWN_PROC_CLAMP_UTILITY` (spawn_private.h): the clamp takes its own small
+    /// numbers, not a `qos_class_t` (0x11 is accepted and does nothing; a fleet-mini probe).
+    const POSIX_SPAWN_PROC_CLAMP_UTILITY: libc::c_uint = 1;
 
     unsafe extern "C" {
         fn setiopolicy_np(
@@ -190,7 +192,7 @@ mod imp {
             if libc::posix_spawnattr_init(&mut attr) != 0 {
                 return;
             }
-            let ready = set_clamp(&mut attr, QOS_CLASS_UTILITY) == 0
+            let ready = set_clamp(&mut attr, POSIX_SPAWN_PROC_CLAMP_UTILITY) == 0
                 && libc::posix_spawnattr_setflags(&mut attr, POSIX_SPAWN_SETEXEC) == 0;
             if ready {
                 let mut pid: libc::pid_t = 0;
