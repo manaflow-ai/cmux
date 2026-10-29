@@ -106,7 +106,7 @@ await requireBrowserLane("new-tab-dot-focus-browser.test.ts", async () => {
       test(`${scheme}, ${width}px: immediate keyboard blur clears the name`, async () => {
         const page = await browser.newPage({ viewport: { width, height: 240 } });
         try {
-          await page.clock.install();
+          await page.clock.install({ time: new Date("2026-01-01T00:00:00Z") });
           const port = (vite.httpServer!.address() as { port: number }).port;
           await page.goto(
             `http://127.0.0.1:${port}${galleryFrame("new-tab.dot-focus", {
@@ -122,7 +122,8 @@ await requireBrowserLane("new-tab-dot-focus-browser.test.ts", async () => {
           await page.mouse.move(1, 1);
           await page.keyboard.press("Tab");
           // Freeze before selection so browser round trips cannot expire the 1100ms pick timer.
-          await page.clock.pauseAt(await page.evaluate(() => Date.now() + 1000));
+          // The gallery stubs Date.now for fixture data; use the installed clock's own epoch.
+          await page.clock.pauseAt(new Date("2026-01-02T00:00:00Z"));
           await page.keyboard.press("ArrowRight");
           // Advance only the post-pick focus frame, then hold time through Tab and its assertions.
           await page.clock.runFor(32);
