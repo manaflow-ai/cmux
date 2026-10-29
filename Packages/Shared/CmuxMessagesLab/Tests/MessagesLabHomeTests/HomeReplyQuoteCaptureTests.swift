@@ -34,6 +34,12 @@ import UniformTypeIdentifiers
                  "Could be, but where it hurts alone can't tell us whether it's a wisdom tooth, the gum around it, or another tooth.",
                  replyTo: Self.root)
         try post(MessageID("msg_quote_reply2"), author: rig.chief, "Any swelling or fever?", replyTo: Self.root)
+        // A wrapped root (user, Oct 28): its quote hugs its widest line.
+        let wrapped = MessageID("msg_quote_wrapped")
+        try post(wrapped, author: rig.me, "make sure the highlight color across everything in the app can be customized (and is consistent) based on the user's terminal theme")
+        try post(MessageID("msg_quote_other2"), author: rig.me, "and the selection color too")
+        try post(MessageID("msg_quote_reply3"), author: rig.chief, "On it.", replyTo: wrapped)
+        try post(MessageID("msg_quote_reply4"), author: rig.chief, "Both follow the theme now.", replyTo: wrapped)
         // Row bitmaps draw off main: give them a few frames.
         for _ in 0..<12 {
             rig.frame()
