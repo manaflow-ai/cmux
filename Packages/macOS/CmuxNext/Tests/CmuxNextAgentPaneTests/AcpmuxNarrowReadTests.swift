@@ -26,6 +26,15 @@ import Testing
         #expect(!AcpmuxStatusClient.shouldFallbackExactResolve(AcpmuxRPCError(code: -32002, message: "not found")))
     }
 
+    @Test func legacyLocalResolveHostDoesNotMakeFolderRemote() {
+        let result: [String: Any] = ["session": [
+            "sessionId": "local-1", "cwd": "/work", "host": "This Mac",
+        ]]
+        let summary = AcpmuxStatusClient.sessionSummary("local-1", in: result)
+        #expect(summary?["host"] == nil)
+        #expect(AgentPaneSessionFolder(sessionId: "local-1", info: summary ?? [:])?.isLocal == true)
+    }
+
     @Test func sessionInfoFolderUsesTheSingleRowAndPeerBoundary() {
         let remote = AgentPaneSessionFolder(sessionId: "s1", info: [
             "sessionId": "s1", "cwd": "/work", "peer": "gcp-codex-lane-1",

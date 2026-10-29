@@ -49,17 +49,22 @@ pub(crate) fn session_list_reply(sorted: Vec<Value>, params: &Value) -> Result<V
     let status = text_filter(params, "status")?;
     let local_only = bool_filter(params, "localOnly")?;
     let excluded = status_filter(params, "excludeStatus")?;
-    let sorted: Vec<Value> = if peer.is_none() && status.is_none() && !local_only && excluded.is_empty() {
-        sorted
-    } else {
-        sorted
-            .into_iter()
-            .filter(|s| peer.is_none_or(|p| s.get("peer").and_then(Value::as_str) == Some(p)))
-            .filter(|s| status.is_none_or(|st| s.get("status").and_then(Value::as_str) == Some(st)))
-            .filter(|s| !local_only || s.get("peer").and_then(Value::as_str).is_none())
-            .filter(|s| s.get("status").and_then(Value::as_str).is_none_or(|st| !excluded.contains(&st)))
-            .collect()
-    };
+    let sorted: Vec<Value> =
+        if peer.is_none() && status.is_none() && !local_only && excluded.is_empty() {
+            sorted
+        } else {
+            sorted
+                .into_iter()
+                .filter(|s| peer.is_none_or(|p| s.get("peer").and_then(Value::as_str) == Some(p)))
+                .filter(|s| {
+                    status.is_none_or(|st| s.get("status").and_then(Value::as_str) == Some(st))
+                })
+                .filter(|s| !local_only || s.get("peer").and_then(Value::as_str).is_none())
+                .filter(|s| {
+                    s.get("status").and_then(Value::as_str).is_none_or(|st| !excluded.contains(&st))
+                })
+                .collect()
+        };
     let start = cursor.map_or(0, |c| c.start(&sorted));
     let mut sessions: Vec<Value> = sorted.into_iter().skip(start).collect();
     let Some(limit) = limit else {
@@ -108,7 +113,11 @@ fn status_filter<'a>(params: &'a Value, name: &str) -> Result<Vec<&'a str>, RpcE
         None | Some(Value::Null) => Ok(Vec::new()),
         Some(Value::Array(values)) => values
             .iter()
-            .map(|value| value.as_str().ok_or_else(|| RpcError::invalid_params(format!("{name} must contain strings"))))
+            .map(|value| {
+                value
+                    .as_str()
+                    .ok_or_else(|| RpcError::invalid_params(format!("{name} must contain strings")))
+            })
             .collect(),
         Some(_) => Err(RpcError::invalid_params(format!("{name} must be an array"))),
     }
@@ -119,13 +128,17 @@ pub(crate) fn refuse_watch_filters(params: &Value) -> Result<(), RpcError> {
     for name in ["peer", "status", "localOnly", "excludeStatus"] {
         if name == "localOnly" {
             if bool_filter(params, name)? {
-                return Err(RpcError::invalid_params(format!("{name} filters _acpmux/sessions only: a watch streams every session")));
+                return Err(RpcError::invalid_params(format!(
+                    "{name} filters _acpmux/sessions only: a watch streams every session"
+                )));
             }
             continue;
         }
         if name == "excludeStatus" {
             if !status_filter(params, name)?.is_empty() {
-                return Err(RpcError::invalid_params(format!("{name} filters _acpmux/sessions only: a watch streams every session")));
+                return Err(RpcError::invalid_params(format!(
+                    "{name} filters _acpmux/sessions only: a watch streams every session"
+                )));
             }
             continue;
         }

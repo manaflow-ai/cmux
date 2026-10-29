@@ -85,9 +85,14 @@ public nonisolated struct AcpmuxQuit {
         // changes status between requests and drops idle Chief hosts. The
         // daemon-side local/non-closed filter is owned by the session-list
         // lane; pass it here when that protocol is available.
+        let filters: [String: any Sendable] = ["localOnly": true, "excludeStatus": ["closed"]]
+        // Keep capability discovery from consuming the census deadline. An
+        // older or slow daemon takes the bounded one-page compatibility path.
+        let supportsFilters = (try? await AcpmuxStatusClient.status(socketPath: socketPath, deadline: .milliseconds(250)))?.capabilities.contains("session-list-filters-v1") == true
         let rows = try await AcpmuxStatusClient.sessionPages(
             socketPath: socketPath,
-            params: ["localOnly": true, "excludeStatus": ["closed"]],
+            params: supportsFilters ? filters : [:],
+            maxPages: supportsFilters ? nil : 1,
             deadline: deadline
         )
         return rows.filter {

@@ -73,19 +73,22 @@ nonisolated enum AcpmuxStatusClient {
     /// single all-sessions size failure. The daemon's cursor defines the page
     /// scope while rows may still change between requests.
     @concurrent static func sessionPages(socketPath: String, params: [String: any Sendable] = [:],
-                                         pageSize: Int = 64, deadline: Duration = .seconds(2)) async throws -> sending [[String: Any]] {
+                                         pageSize: Int = 64, maxPages: Int? = nil,
+                                         deadline: Duration = .seconds(2)) async throws -> sending [[String: Any]] {
         var pageParams = params
         pageParams["limit"] = pageSize
         var cursor: String?
         var seenCursors: Set<String> = []
         var seenRows: Set<String> = []
         var rows: [[String: Any]] = []
+        var pages = 0
         let end = ContinuousClock.now + deadline
         while true { // wakeup-allow: each pass awaits one bounded socket reply; EOF, error, cursor completion, or deadline ends it
             if let cursor { pageParams["cursor"] = cursor } else { pageParams.removeValue(forKey: "cursor") }
             let remaining = end - ContinuousClock.now
             guard remaining > .zero else { throw Failure.rpc("_acpmux/sessions deadline exceeded") }
             let result = try await sessions(socketPath: socketPath, deadline: remaining, params: pageParams).value
+            pages += 1
             guard let page = result["sessions"] as? [[String: Any]] else {
                 throw Failure.rpc("_acpmux/sessions returned no sessions page")
             }
@@ -98,6 +101,7 @@ nonisolated enum AcpmuxStatusClient {
                 let key = "\(peer)/\(qualified)"
                 if seenRows.insert(key).inserted { rows.append(row) }
             }
+            if let maxPages, pages >= maxPages { return rows }
             guard let next = (result["nextCursor"] as? String).flatMap({ $0.isEmpty ? nil : $0 }) else { return rows }
             guard seenCursors.insert(next).inserted else {
                 throw Failure.rpc("_acpmux/sessions returned a repeated cursor")
@@ -140,6 +144,12 @@ nonisolated enum AcpmuxStatusClient {
     static func sessionSummary(_ sessionId: String, in result: [String: Any]) -> [String: Any]? {
         guard let summary = result["session"] as? [String: Any],
               summary["sessionId"] as? String == sessionId else { return nil }
+        var summary = summary
+        // Legacy resolver cards name the local machine in `host`; exact cards
+        // use the absence of `peer` as the local marker. Do not turn that
+        // display name into a remote folder target.
+        if (summary["peer"] as? String)?.isEmpty != false,
+           summary["hostKind"] == nil { summary.removeValue(forKey: "host") }
         return summary
     }
 
@@ -320,6 +330,7 @@ nonisolated struct ResultBox: @unchecked Sendable {
 
 /// The fields of `_acpmux/status` the app reads.
 nonisolated struct AcpmuxStatus: Sendable, Equatable {
+    var capabilities: Set<String>
     var webURL: String?
     var build: String?
     var pid: Int32?
@@ -335,8 +346,9 @@ nonisolated struct AcpmuxStatus: Sendable, Equatable {
     /// The daemon's `ACPMUX_HOME`; nil from a daemon that does not report it.
     var home: String?
 
-    init(webURL: String? = nil, build: String? = nil, pid: Int32? = nil, agentHosts: Bool = false, chatsOnDisk: Bool = false,
+    init(webURL: String? = nil, build: String? = nil, pid: Int32? = nil, capabilities: Set<String> = [], agentHosts: Bool = false, chatsOnDisk: Bool = false,
          chiefMuxHome: String? = nil, home: String? = nil) {
+        self.capabilities = capabilities
         self.webURL = webURL
         self.build = build
         self.pid = pid
@@ -350,6 +362,7 @@ nonisolated struct AcpmuxStatus: Sendable, Equatable {
         webURL = result["webUrl"] as? String
         build = result["build"] as? String
         pid = (result["pid"] as? NSNumber).map { Int32(truncating: $0) }
+        capabilities = Set(result["capabilities"] as? [String] ?? [])
         agentHosts = (result["agentHosts"] as? Bool) ?? false
         chatsOnDisk = ((result["store"] as? [String: Any])?["mode"] as? String) == "local"
         chiefMuxHome = result["chiefMuxHome"] as? String
