@@ -205,6 +205,66 @@ impl ArtifactsClient {
     fn url(&self, path: &str) -> String { format!("{}{}", self.config.base_url.trim_end_matches('/'), path) }
 }
 
+/// Run the opt-in daemon synchronizer until the daemon shuts down.
+///
+/// Each pass is bounded by `sync_once`/`pull_once`; the interval and the
+/// shutdown notification are both owned by this task, so cancellation drops
+/// the timer and no task survives daemon shutdown.
+pub async fn run_background(hub: Arc<crate::hub::Hub>) {
+    let config = hub.config.read().await.clone();
+    if !config.artifacts_sync.enabled {
+        return;
+    }
+    let Some(relay) = config.mesh_relay.as_ref() else {
+        tracing::warn!("artifacts sync enabled without meshRelay credentials");
+        return;
+    };
+    let relay = match crate::mesh_http::HttpHub::new(relay) {
+        Ok(relay) => relay,
+        Err(error) => {
+            tracing::warn!("artifacts sync mesh auth unavailable: {error}");
+            return;
+        }
+    };
+    let token = match relay.token(false).await {
+        Ok(token) => token.as_ref().as_str().to_owned(),
+        Err(error) => {
+            tracing::warn!("artifacts sync mesh auth unavailable: {error}");
+            return;
+        }
+    };
+    let Some(mut sync) = (match ArtifactsSync::new(config.artifacts_sync.clone(), Some(token)) {
+        Ok(sync) => sync,
+        Err(error) => {
+            tracing::warn!("artifacts sync configuration invalid: {error}");
+            return;
+        }
+    }) else {
+        return;
+    };
+    let trailers = Trailers {
+        machine: env::var("HOSTNAME").ok(),
+        ..Default::default()
+    };
+    let period = std::time::Duration::from_millis(config.artifacts_sync.poll_interval_ms.max(1_000));
+    let mut interval = tokio::time::interval(period);
+    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    loop {
+        tokio::select! {
+            _ = hub.shutdown.notified() => break,
+            _ = interval.tick() => {
+                if let Err(error) = sync.sync_once(trailers.clone()).await {
+                    tracing::warn!("artifacts sync upload failed: {error:#}");
+                }
+                if let Err(error) = sync.pull_once().await {
+                    tracing::warn!("artifacts sync pull failed: {error:#}");
+                }
+            }
+        }
+    }
+    tracing::debug!("artifacts sync stopped with daemon shutdown");
+}
+
 impl ArtifactsSync {
     /// Construct a sync client. Returns `None` for the safe, disabled default.
     pub fn new(config: ArtifactsSyncConfig, access_token: Option<String>) -> Result<Option<Self>> {
