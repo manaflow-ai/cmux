@@ -49,7 +49,7 @@ export default componentEntry<Props>({
   pane: true,
   height: 260,
   widths: { narrow: 320, normal: 640 },
-  covers: ["agent-session/acpmux/conversation/EditDiff.tsx", "agent-session/acpmux/conversation/EditDiffLoading.tsx"],
+  covers: ["agent-session/acpmux/conversation/EditDiff.tsx"],
   styles: () => Promise.all([import("../styles.css"), import("./conversation.css")]),
   load: async () => InlineDiffLoading,
   variants: {
