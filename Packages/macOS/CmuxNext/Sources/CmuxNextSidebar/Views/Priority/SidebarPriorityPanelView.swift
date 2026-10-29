@@ -31,6 +31,7 @@ final class SidebarPriorityPanelView: NSView {
     private(set) var panel = SidebarPriorityPanel(entries: [])
     /// Redraws the working chips' elapsed time each minute while one shows; idle otherwise.
     private let ticker = DemandTimer(owner: "sidebar-priority-minute")
+    private(set) var draggingID: String?
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -70,6 +71,13 @@ final class SidebarPriorityPanelView: NSView {
     func show(_ panel: SidebarPriorityPanel) {
         let old = self.panel
         self.panel = panel
+        // Hiding ends a drag even when the hidden feed keeps the same attention rows: the release
+        // may never reach the hidden row. A re-rank, a fold or a height change also invalidates its slot.
+        if draggingID != nil,
+           old.shown != panel.shown || old.collapsed != panel.collapsed || old.entries.map(\.id) != panel.entries.map(\.id)
+            || old.entries.map({ $0.preview != nil }) != panel.entries.map({ $0.preview != nil }) {
+            stopDrag()
+        }
         header.configure(title: Strings.priorityTitle, collapsed: panel.collapsed)
         let attention = panel.attentionCount
         count.stringValue = panel.collapsed && attention > 0 ? String(attention) : ""
@@ -189,6 +197,7 @@ final class SidebarPriorityPanelView: NSView {
             y += height
         }
         guard ended else {
+            draggingID = row.entry.id
             Motion.withoutAnimation {
                 row.layer?.zPosition = 1
                 row.animator().frame.origin.y = min(max(0, top + offset), max(0, y - heights[from]))
@@ -196,6 +205,7 @@ final class SidebarPriorityPanelView: NSView {
             return
         }
         row.layer?.zPosition = 0
+        draggingID = nil
         var order = panel.entries
         let entry = order.remove(at: from)
         order.insert(entry, at: slot)
@@ -203,6 +213,39 @@ final class SidebarPriorityPanelView: NSView {
         panel.entries = order
         placeRows(animated: window != nil)
         onAction?(.place(entry.id, order: order.map(\.id)))
+    }
+
+    func keyEventSeen(_ event: NSEvent) {
+        guard event.keyCode == 53, draggingID != nil, owns(event.window) else { return }
+        cancelDrag()
+    }
+
+    private func owns(_ eventWindow: NSWindow?) -> Bool {
+        guard let eventWindow, let window else { return false }
+        if eventWindow === window { return true }
+        var parent = eventWindow.parent
+        while let current = parent {
+            if current === window { return true }
+            parent = current.parent
+        }
+        return false
+    }
+
+    private func stopDrag() {
+        guard let id = draggingID else { return }
+        draggingID = nil
+        rows[id]?.cancelPress()
+        rows[id]?.layer?.zPosition = 0
+    }
+
+    private func cancelDrag() {
+        guard draggingID != nil else { return }
+        stopDrag()
+        placeRows(animated: window != nil)
+    }
+
+    override func cancelOperation(_ sender: Any?) {
+        if draggingID != nil { cancelDrag() }
     }
 
     /// A chip says minutes: one redraw a minute while a row works, none otherwise.

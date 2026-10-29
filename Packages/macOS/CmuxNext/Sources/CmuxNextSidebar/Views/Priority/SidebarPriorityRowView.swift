@@ -15,6 +15,7 @@ final class SidebarPriorityRowView: NSView {
     /// Where the press went down (window points), and whether it has moved far enough to drag.
     private var pressStart: NSPoint?
     private var dragging = false
+    private var pressCancelled = false
 
     private let title = ChromeLabel(labelWithString: "")
     private let placeLabel = ChromeLabel(labelWithString: "")
@@ -56,6 +57,7 @@ final class SidebarPriorityRowView: NSView {
 
     nonisolated override var isFlipped: Bool { true }
     nonisolated override var wantsUpdateLayer: Bool { true }
+    override var acceptsFirstResponder: Bool { true }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     func configure(_ entry: SidebarPriorityEntry) {
@@ -197,6 +199,8 @@ final class SidebarPriorityRowView: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
+        window?.makeFirstResponder(self)
+        pressCancelled = false
         pressStart = event.locationInWindow
         dragging = false
     }
@@ -217,6 +221,12 @@ final class SidebarPriorityRowView: NSView {
     }
 
     override func mouseUp(with event: NSEvent) {
+        if pressCancelled {
+            pressCancelled = false
+            pressStart = nil
+            dragging = false
+            return
+        }
         let start = pressStart, dragged = dragging
         pressStart = nil
         dragging = false
@@ -226,6 +236,12 @@ final class SidebarPriorityRowView: NSView {
         }
         guard bounds.contains(convert(event.locationInWindow, from: nil)) else { return }
         onAction?(.open(entry.id))
+    }
+
+    func cancelPress() {
+        pressCancelled = true
+        pressStart = nil
+        dragging = false
     }
 
     override func accessibilityPerformPress() -> Bool {
