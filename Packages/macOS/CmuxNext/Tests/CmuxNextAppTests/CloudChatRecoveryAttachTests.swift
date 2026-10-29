@@ -20,31 +20,42 @@ struct CloudChatRecoveryAttachTests {
     }
 
     /// The race: the card offered Resume on a paused row, and the machine turned live before the
-    /// click. The refresh runs before the read, so the live machine is attached, never resumed.
-    @Test func aMachineThatTurnedLiveSinceTheRecoveryReadIsNotResumed() async {
+    /// click. The refresh runs before the read, so the live machine is connected, never resumed
+    /// (a legacy machine's `attach` would do nothing for it: second review of cmux#27031).
+    @Test func aMachineThatTurnedLiveSinceTheRecoveryReadIsConnectedNotResumed() async {
         var status: CloudMachine.Status = .paused
         var steps: [String] = []
         let ran = await AgentPaneCloudMachines.recoveryAttach(
             refresh: { steps.append("refresh"); status = .running; return true },
             machine: { steps.append("read \(status.rawValue)"); return (status, false) },
-            attach: { steps.append("attach \(status.rawValue)") }
+            resume: { steps.append("resume") },
+            connect: { steps.append("connect \(status.rawValue)") }
         )
         #expect(ran)
-        #expect(steps == ["refresh", "read running", "attach running"])
-        #expect(AgentPaneCloudMachines.recoveryAttach(fresh: true, status: status, connected: false) != .resume)
+        #expect(steps == ["refresh", "read running", "connect running"])
+    }
+
+    @Test func aPausedMachineIsResumed() async {
+        var steps: [String] = []
+        let ran = await AgentPaneCloudMachines.recoveryAttach(
+            refresh: { true }, machine: { (.paused, false) },
+            resume: { steps.append("resume") }, connect: { steps.append("connect") })
+        #expect(ran && steps == ["resume"])
     }
 
     @Test func aLiveConnectedMachineIsNotTouched() async {
-        var attached = false
+        var steps: [String] = []
         let ran = await AgentPaneCloudMachines.recoveryAttach(
-            refresh: { true }, machine: { (.running, true) }, attach: { attached = true })
-        #expect(ran && !attached)
+            refresh: { true }, machine: { (.running, true) },
+            resume: { steps.append("resume") }, connect: { steps.append("connect") })
+        #expect(ran && steps.isEmpty)
     }
 
     @Test func aFailedRefreshRunsNothing() async {
-        var attached = false
+        var steps: [String] = []
         let ran = await AgentPaneCloudMachines.recoveryAttach(
-            refresh: { false }, machine: { (.paused, false) }, attach: { attached = true })
-        #expect(!ran && !attached)
+            refresh: { false }, machine: { (.paused, false) },
+            resume: { steps.append("resume") }, connect: { steps.append("connect") })
+        #expect(!ran && steps.isEmpty)
     }
 }

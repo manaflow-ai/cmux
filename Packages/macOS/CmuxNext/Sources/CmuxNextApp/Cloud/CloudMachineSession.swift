@@ -312,7 +312,9 @@ final class CloudMachineSession {
         retryNow()
     }
 
-    private func retryNow() {
+    /// Retry on the record as it stands (the caller just read it): resume a paused legacy machine,
+    /// else connect an app link, wake a legacy daemon that is starting, or connect it again.
+    func retryNow() {
         if appLink == nil, machine.status == .paused { return attach(origin: .user) }
         if case .failed = linkPhase { linkPhase = .starting }
         if appLink != nil {
