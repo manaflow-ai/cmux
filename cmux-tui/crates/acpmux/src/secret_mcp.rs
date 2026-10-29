@@ -10,7 +10,7 @@ use anyhow::{Result, anyhow};
 use serde_json::{Value, json};
 use std::future::Future;
 use std::sync::Arc;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::sync::mpsc;
 
 pub const SERVER_NAME: &str = "cmux-secrets";
@@ -71,18 +71,44 @@ where
     Fut: Future<Output = Value> + Send + 'static,
 {
     let session = std::env::var(session_env).map_err(|_| anyhow!("{session_env} is not set"))?;
-    let (tx, mut rx) = mpsc::channel::<Value>(64);
+    let call = call.clone();
+    serve_io(tokio::io::stdin(), tokio::io::stdout(), name, tools, instructions, move |params| {
+        let session = session.clone();
+        let call = call.clone();
+        async move {
+            match crate::daemon::connect(false).await {
+                Ok(daemon) => call(daemon, session, params).await,
+                Err(e) => error_result(format!("{e:#}")),
+            }
+        }
+    })
+    .await
+}
+
+async fn serve_io<R, W, E, Fut>(
+    reader: R,
+    mut writer: W,
+    name: &'static str,
+    tools: Value,
+    instructions: Option<String>,
+    execute: E,
+) -> Result<()>
+where
+    R: AsyncRead + Unpin,
+    W: AsyncWrite + Unpin + Send + 'static,
+    E: Fn(Value) -> Fut + Clone + Send + 'static,
+    Fut: Future<Output = Value> + Send + 'static,
+{
+    let (tx, mut rx) = mpsc::channel::<String>(64);
     let writer = tokio::spawn(async move {
-        let mut out = tokio::io::stdout();
-        while let Some(message) = rx.recv().await {
-            let mut line = message.to_string();
+        while let Some(mut line) = rx.recv().await {
             line.push('\n');
-            if out.write_all(line.as_bytes()).await.is_err() || out.flush().await.is_err() {
+            if writer.write_all(line.as_bytes()).await.is_err() || writer.flush().await.is_err() {
                 break;
             }
         }
     });
-    let mut lines = BufReader::new(tokio::io::stdin()).lines();
+    let mut lines = BufReader::new(reader).lines();
     while let Some(line) = lines.next_line().await? {
         let Ok(message) = serde_json::from_str::<Value>(&line) else { continue };
         let Some(id) = message.get("id").cloned() else { continue }; // a notification
@@ -104,14 +130,10 @@ where
             "tools/call" => {
                 // A card waits on the person: the next request is read meanwhile. Each call
                 // connects anew, so a restarted daemon serves the next one.
-                let (tx, session, params, call) =
-                    (tx.clone(), session.clone(), message["params"].clone(), call.clone());
+                let (tx, params, execute) =
+                    (tx.clone(), message["params"].clone(), execute.clone());
                 tokio::spawn(async move {
-                    let result = match crate::daemon::connect(false).await {
-                        Ok(daemon) => call(daemon, session, params).await,
-                        Err(e) => error_result(format!("{e:#}")),
-                    };
-                    let _ = tx.send(response(&id, result)).await;
+                    let _ = tx.send(response(&id, execute(params).await).to_string()).await;
                 });
                 continue;
             }
@@ -137,6 +159,94 @@ fn response(id: &Value, result: Value) -> Value {
 
 pub(crate) fn error_result(text: String) -> Value {
     json!({"content": [{"type": "text", "text": text}], "isError": true})
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use std::time::Duration;
+    use tokio::io::AsyncWriteExt;
+    use tokio::sync::{Barrier, Notify};
+
+    #[tokio::test]
+    async fn tools_calls_bound_concurrent_large_replies() {
+        const CALLS: usize = 500;
+        const MAX_CONCURRENT: usize = 8;
+        let rows: Vec<Value> = (0..3000)
+            .map(|i| json!({"sessionId": format!("session-{i}"), "status": "idle"}))
+            .collect();
+        let maximum = Arc::new(AtomicUsize::new(0));
+        let overflow = Arc::new(AtomicBool::new(false));
+        let overflow_seen = Arc::new(Notify::new());
+        let first = Arc::new(Barrier::new(MAX_CONCURRENT + 1));
+        let release = Arc::new(Notify::new());
+        let (client, server) = tokio::io::duplex(64 * 1024);
+        let (client_read, mut client_write) = tokio::io::split(client);
+        let (server_read, server_write) = tokio::io::split(server);
+        let call_maximum = maximum.clone();
+        let call_overflow = overflow.clone();
+        let call_overflow_seen = overflow_seen.clone();
+        let call_first = first.clone();
+        let call_release = release.clone();
+        let call_rows = rows.clone();
+        let server = tokio::spawn(serve_io(
+            server_read,
+            server_write,
+            "acpmux",
+            json!([]),
+            None,
+            move |_params| {
+                let maximum = call_maximum.clone();
+                let overflow = call_overflow.clone();
+                let overflow_seen = call_overflow_seen.clone();
+                let first = call_first.clone();
+                let release = call_release.clone();
+                let rows = call_rows.clone();
+                async move {
+                    let now = maximum.fetch_add(1, Ordering::SeqCst) + 1;
+                    if now > MAX_CONCURRENT {
+                        overflow.store(true, Ordering::SeqCst);
+                        overflow_seen.notify_waiters();
+                    }
+                    if now <= MAX_CONCURRENT {
+                        first.wait().await;
+                    }
+                    release.notified().await;
+                    maximum.fetch_sub(1, Ordering::SeqCst);
+                    json!({"sessions": rows})
+                }
+            },
+        ));
+        let requests = tokio::spawn(async move {
+            for id in 0..CALLS {
+                let request = json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "method": "tools/call",
+                    "params": {"name": "ls", "arguments": {}}
+                });
+                client_write.write_all(request.to_string().as_bytes()).await.unwrap();
+                client_write.write_all(b"\n").await.unwrap();
+            }
+        });
+        let mut output = tokio::io::BufReader::new(client_read).lines();
+        tokio::time::timeout(Duration::from_secs(5), first.wait()).await.unwrap();
+        assert!(
+            tokio::time::timeout(Duration::from_millis(100), overflow_seen.notified())
+                .await
+                .is_err(),
+            "more than {MAX_CONCURRENT} large MCP replies were retained concurrently"
+        );
+        assert!(!overflow.load(Ordering::SeqCst));
+        release.notify_waiters();
+        requests.await.unwrap();
+        for _ in 0..CALLS {
+            output.next_line().await.unwrap().expect("a response");
+        }
+        server.await.unwrap().unwrap();
+        assert_eq!(maximum.load(Ordering::SeqCst), 0);
+    }
 }
 
 async fn call(daemon: &Client, session: &str, params: &Value) -> Value {
