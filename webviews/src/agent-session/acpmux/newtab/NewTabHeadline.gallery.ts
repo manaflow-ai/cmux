@@ -35,7 +35,6 @@ const machinePage = () => ({
 const machineSnapshot = () =>
   noChat(
     [
-      ...manySessions(12),
       session({
         sessionId: "remote-api",
         title: "API request retries",
@@ -139,7 +138,7 @@ export default agentPaneEntry({
       note: "Optional greeting on, no project selected: studio is the inline machine picker; Choose project stays below the question.",
       ready: machinePage(),
       snapshot: machineSnapshot(),
-      play: (ctx) => ctx.waitFor(() => ctx.document.querySelector(".nt-headline") !== null),
+      play: (ctx) => ctx.waitFor(() => ctx.document.querySelector(".nt-headline-choose") !== null),
     },
     "machine-picker-open": {
       note: "The no-project machine picker lists studio and a connected SSH peer, devbox. The base capture opens the composer's computer picker.",

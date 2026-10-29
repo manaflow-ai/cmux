@@ -13,6 +13,7 @@ import { EnvironmentIcon, EnvironmentPicker } from "../EnvironmentPicker";
 import { ChevronIcon } from "../ComposerPickers";
 import type { Environment } from "../environments";
 import { useT } from "../i18n";
+import type { RunModeRows } from "../sandboxRun";
 
 export type NewTabHeadlineProps = {
   projects: Project[];
@@ -24,6 +25,8 @@ export type NewTabHeadlineProps = {
   machines?: Environment[];
   machineId?: string;
   onPickMachine?(id: string): void;
+  runMode?: RunModeRows;
+  onRefreshMachines?(): void;
   /// Do not work in a project was picked: it is checked in the menu.
   noProject: boolean;
   onPick(cwd: string, peer?: string): void;
@@ -72,6 +75,8 @@ export function NewTabHeadline(props: NewTabHeadlineProps) {
           environments={props.machines ?? []}
           current={selectedMachine.id}
           onPick={props.onPickMachine}
+          {...(props.runMode ? { runMode: props.runMode } : {})}
+          {...(props.onRefreshMachines ? { onOpen: props.onRefreshMachines } : {})}
         />
       </span>
     ) : (

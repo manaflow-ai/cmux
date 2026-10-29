@@ -314,6 +314,7 @@ export function NewTabScreen(props: Props) {
   // Saved SSH environments obey the same live-peer boundary as headline picks. Validate before
   // deriving any folder or send target, including the render before cleanup effects run.
   const saved = useSavedEnvironments(props.environments ? props.savedEnvironments : undefined);
+  const clearSavedPick = saved.pick;
   const savedPeer = saved.picked?.kind === "ssh" ? saved.picked.host : undefined;
   const savedPeerRemoved =
     saved.picked?.kind === "ssh" && (savedPeer === undefined || !(snapshot.peers ?? []).includes(savedPeer));
@@ -606,9 +607,18 @@ export function NewTabScreen(props: Props) {
         snapshot.peerKinds ?? {},
         [],
         snapshot.peerConnected ?? {},
+        snapshot.peerStates ?? {},
       ).filter((machine) => (snapshot.peers ?? []).includes(machine.id)),
     ],
-    [props.machineName, snapshot.peers, snapshot.sessions, snapshot.peerKinds, snapshot.peerConnected, t],
+    [
+      props.machineName,
+      snapshot.peers,
+      snapshot.sessions,
+      snapshot.peerKinds,
+      snapshot.peerConnected,
+      snapshot.peerStates,
+      t,
+    ],
   );
   const [headlineMachineSelection, setHeadlineMachineSelection] = useState("local");
   // A peer can disappear between snapshots. Keep the visible machine and the peer sent with a
@@ -871,7 +881,7 @@ export function NewTabScreen(props: Props) {
     // agent here to warm; an address the person ends up typing releases it once cleared.
     props.onPromptTyped?.(
       shell ? "" : next,
-      environment || !askFolder || !harness ? undefined : { harness, cwd: askFolder },
+      environment || projectPeer || !askFolder || !harness ? undefined : { harness, cwd: askFolder },
     );
   };
   const submit = () => {
@@ -1142,13 +1152,13 @@ export function NewTabScreen(props: Props) {
     // A removed peer may still appear in historical sessions. Clear its folder and saved
     // environment before the page falls back to this Mac, so the next send requires a fresh pick.
     projectChoice.current += 1;
-    saved.pick(undefined);
+    clearSavedPick(undefined);
     setHeadlineMachineSelection("local");
     setPicked(true);
     setNone(true);
     setProject(undefined);
     setProjectPeer(undefined);
-  }, [headlineMachineIsLive, peerRemoved, savedPeerRemoved, saved.pick]);
+  }, [headlineMachineIsLive, peerRemoved, savedPeerRemoved, clearSavedPick]);
   const startableSessions = useMemo(
     () =>
       snapshot.sessions.filter((session) => {
@@ -1631,6 +1641,8 @@ export function NewTabScreen(props: Props) {
               machineId: headlineMachine.id,
               machines: headlineMachines,
               onPickMachine: pickHeadlineMachine,
+              ...(props.environments && props.runMode ? { runMode: props.runMode } : {}),
+              ...(props.onRefreshMachines ? { onRefreshMachines: props.onRefreshMachines } : {}),
             }
           : {})}
         noProject={none}
