@@ -202,7 +202,7 @@ import { AgentsPill } from "./subagents/AgentsPill";
 import { SubagentTray } from "./subagents/SubagentTray";
 import { settleTrayExit } from "./subagents/trayMotion";
 import { SubagentDoneLine } from "./subagents/SubagentDoneLine";
-import { configureWorkflowCardOpen, WorkflowCard } from "./summary/WorkflowCard";
+import { configureWorkflowCardOpen, configureWorkflowCardSideTab, WorkflowCard } from "./summary/WorkflowCard";
 import {
   type DoneLineCache,
   configureSubagentTray,
@@ -219,6 +219,7 @@ import { createWorkflowAdapter, workflowDetailRequest, type WorkflowDetailReques
 import { workflowPaneId, workflowPaneRequest } from "./summary/workflowTranscript";
 import { useWorkflowTranscript } from "./summary/useWorkflowTranscript";
 import type { WorkflowAgent, WorkflowSummary } from "./summary/workflow";
+import { WorkflowSideTab } from "./summary/WorkflowSideTab";
 import {
   openSubagentPane,
   revealedSubagent,
@@ -358,7 +359,7 @@ import { NeedsYouPill, type TranscriptNeedsYou } from "./needsYou/JumpPill";
 import { useNeedsYou } from "./needsYou/useNeedsYou";
 import { copyText, copyTextResult } from "./conversation/clipboard";
 import { lastCodeBlock } from "./conversation/lastCodeBlock";
-import { hasTranscriptCopyText, transcriptRangeText } from "./conversation/transcriptCopy";
+import { transcriptRangeText } from "./conversation/transcriptCopy";
 import { rovingTabStopProps } from "../../ui/listRowKeyboard";
 import { chatImages, type ChatImage } from "./conversation/chatImages";
 import { ImageViewer } from "./conversation/ImageViewer";
@@ -1491,34 +1492,6 @@ function drawnHeightOf(node: HTMLElement): number | undefined {
 
 type TranscriptRange = { anchorId: string; focusId: string };
 
-/// Assistant and summary rows already expose the turn's copy action in TurnFooter, and a prompt
-/// drawn as the person's bubble has its Copy in the row under the bubble. Keep the floating action
-/// for tool rows and the user rows drawn as a line (another agent's message, a task's result); it
-/// shows only for keyboard focus and a selected range. A prompt's floating Copy sat alone at the
-/// row's top left, far from the bubble (Leo, 2026-10-21: "top left??? just remove it"); a selected
-/// range and Cmd-C still copy the prompt. The child view's "Subagent of" pill
-/// is navigation, with nothing to copy. The Edited files card keeps its own controls in that
-/// corner, where the floating Copy covered View changes once focus was in the card (cx-ncc.106);
-/// a selected range still copies it.
-/// A render row has none: the row's Copy sits at its top right, over the card's Open, and the card's
-/// panel copies the page.
-const transcriptHasFloatingCopy = (row: AcpmuxRow) =>
-  row.kind !== "assistant" &&
-  !isPromptBubbleRow(row) &&
-  row.kind !== RENDER &&
-  row.kind !== "turnSummary" &&
-  row.kind !== SUBAGENT_OF &&
-  // Each message in a card of waiting messages has its own Copy.
-  row.kind !== WAITING_MESSAGES &&
-  rowKind(row) !== "editedFiles" &&
-  // A row that draws nothing has nothing to copy, and its Copy would give it a box.
-  !onlyQuietThoughts(row) &&
-  hasTranscriptCopyText(row);
-
-/// A user row MessageRow draws as the person's bubble (`.cv-user`): not a task's result nor another
-/// agent's message or notice.
-const isPromptBubbleRow = (row: AcpmuxRow) => row.kind === "user" && !row.received && !row.incoming;
-
 /// The longest a chat opened cold takes to fade in (Leo 2026-10-21: "a fast fade in").
 const CHAT_OPEN_FADE_MS = 150; // motion-allow: a ceiling on the host's fade-in token (micro, 120 ms), not a duration of its own
 
@@ -1661,8 +1634,6 @@ const RowFrame = React.memo(function RowFrame({
   tabStop,
   onFocus,
   onRowKeyDown,
-  onCopyRow,
-  copyable,
   referenceScope,
   children,
 }: {
@@ -1698,8 +1669,6 @@ const RowFrame = React.memo(function RowFrame({
   tabStop: boolean;
   onFocus: (id: string) => void;
   onRowKeyDown: (index: number, event: React.KeyboardEvent<HTMLElement>) => void;
-  onCopyRow: (id: string) => Promise<void>;
-  copyable: boolean;
   /// What the child row draws from, compared instead of `children` (a new element every render).
   contentType: unknown;
   controls?: string;
@@ -1715,20 +1684,11 @@ const RowFrame = React.memo(function RowFrame({
   const ref = useRef<HTMLElement>(null);
   const [entering] = useState(enter);
   const [olderFade] = useState(older);
-  const copyRowResult = useCallback(
-    (id: string) =>
-      onCopyRow(id).then(
-        () => true,
-        () => false,
-      ),
-    [onCopyRow],
-  );
   const handleKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLElement>) => onRowKeyDown(index, event),
     [index, onRowKeyDown],
   );
-  const rowTabStop = rovingTabStopProps(tabStop && !copyable, handleKeyDown);
-  const copyTabStop = rovingTabStopProps(tabStop && copyable, handleKeyDown);
+  const rowTabStop = rovingTabStopProps(tabStop, handleKeyDown);
   useLayoutEffect(() => {
     if (entering) onEntered(row.id);
     // Only the first mount enters.
@@ -1778,7 +1738,6 @@ const RowFrame = React.memo(function RowFrame({
       id={rowDomId(row.id)}
       data-row-id={row.id}
       data-row-card={row.ended ? "true" : undefined}
-      data-floating-copy={copyable ? "true" : undefined}
       className={`acpmux-row acpmux-${kind}${row.below ? " acpmux-row--below" : ""}${joinsPrevious ? " acpmux-row--after-step" : ""}${joinsNext ? " acpmux-row--before-step" : ""}${beforeFooter ? " acpmux-row--before-footer" : ""}${lastFooter ? " acpmux-row--last-footer" : ""}${continuationFooter ? " acpmux-row--continuation-footer" : ""}${lastTurn ? " acpmux-row--last-turn" : ""}${entering ? " acpmux-row--enter" : ""}${olderFade ? " acpmux-row--older" : ""}`}
       data-transcript-active={active ? "true" : undefined}
       data-transcript-selected={selected ? "true" : undefined}
@@ -1793,17 +1752,11 @@ const RowFrame = React.memo(function RowFrame({
       style={{ top: top + THREAD_TOP }}
       onFocus={() => onFocus(row.id)}
     >
-      {copyable && (
-        // The row's id stands for its text: `onCopyRow` reads and copies what the row shows.
-        <CopyButton
-          text={row.id}
-          label={t("turn.copy")}
-          className="acpmux-row__copy cv-iconbtn"
-          copy={copyRowResult}
-          {...copyTabStop}
-        />
-      )}
       <ReferenceScopeContext.Provider value={referenceScope ?? null}>{children}</ReferenceScopeContext.Provider>
+      {/* The row's own trailing padding is the only row-local empty surface owned by transcript
+          selection. Keeping it as a separate hit target means content controls (including native
+          media) never need to be enumerated by the gap handler. */}
+      <span className="acpmux-row__gap" data-transcript-gap="row" aria-hidden="true" />
     </article>
   );
 }, sameRowFrame);
@@ -3075,7 +3028,7 @@ export function VirtualTranscript({
       if (!node) return;
       const mounted = [...node.querySelectorAll<HTMLElement>(".acpmux-row")].find((row) => row.dataset.rowId === id);
       if (mounted) {
-        (mounted.querySelector<HTMLButtonElement>(".acpmux-row__copy") ?? mounted).focus();
+        mounted.focus();
         pendingFocus.current = undefined;
         return;
       }
@@ -3098,7 +3051,7 @@ export function VirtualTranscript({
       (row) => row.dataset.rowId === id,
     );
     if (target) {
-      (target.querySelector<HTMLButtonElement>(".acpmux-row__copy") ?? target).focus();
+      target.focus();
       pendingFocus.current = undefined;
     }
   }, [range, effectiveActiveRowId]);
@@ -3146,16 +3099,7 @@ export function VirtualTranscript({
     [copyRows, effectiveTranscriptRange, focusRow, rows, selectedRowIds],
   );
   const rowFocus = useCallback((id: string) => setActiveRowId(id), []);
-  // Rows get stable callbacks that read the latest rows and selection, so a snapshot does not hand
-  // every memoized RowFrame a new function.
-  const copyRowsRef = useRef(copyRows);
-  copyRowsRef.current = copyRows;
-  const selectedRowIdsRef = useRef(selectedRowIds);
-  selectedRowIdsRef.current = selectedRowIds;
-  const copyRow = useCallback(async (rowId: string) => {
-    const selected = selectedRowIdsRef.current;
-    await copyRowsRef.current(selected.includes(rowId) ? selected : [rowId]);
-  }, []);
+  // Keep the keyboard callback stable across transcript snapshots.
   const rowKeyDownRef = useRef(rowKeyDown);
   rowKeyDownRef.current = rowKeyDown;
   const handleRowKeyDown = useCallback(
@@ -4190,8 +4134,6 @@ export function VirtualTranscript({
                       tabStop={tabStopId === row.id}
                       onFocus={rowFocus}
                       onRowKeyDown={handleRowKeyDown}
-                      copyable={transcriptHasFloatingCopy(row)}
-                      onCopyRow={copyRow}
                       contentType={Component}
                       controls={controls}
                       onToggleActivity={toggleRow}
@@ -5410,6 +5352,33 @@ function AcpmuxPane() {
     () => ({ rows: subsessionRows(snapshot.sessions, shownSessionId), onOpen: openOfferChat }),
     [snapshot.sessions, shownSessionId],
   );
+  const [workflowSideTabId, setWorkflowSideTabId] = useState<string>();
+  const workflowSideTabOpener = useRef<HTMLElement | undefined>(undefined);
+  const workflowSideTabFocusOnClose = useRef(false);
+  const workflowSideTab = useMemo(
+    () => (workflowLabsEnabled ? workflows.find((workflow) => workflow.id === workflowSideTabId) : undefined),
+    [workflowLabsEnabled, workflows, workflowSideTabId],
+  );
+  const clearWorkflowSideTab = useCallback(() => {
+    workflowSideTabFocusOnClose.current = false;
+    workflowSideTabOpener.current = undefined;
+    setWorkflowSideTabId(undefined);
+  }, []);
+  const closeWorkflowSideTab = useCallback(() => {
+    workflowSideTabFocusOnClose.current = true;
+    setWorkflowSideTabId(undefined);
+  }, []);
+  useLayoutEffect(() => {
+    if (workflowSideTabId !== undefined) return;
+    if (!workflowSideTabFocusOnClose.current) return;
+    workflowSideTabFocusOnClose.current = false;
+    const opener = workflowSideTabOpener.current;
+    workflowSideTabOpener.current = undefined;
+    if (opener && document.contains(opener)) opener.focus();
+  }, [workflowSideTabId]);
+  useEffect(() => {
+    clearWorkflowSideTab();
+  }, [shownSessionId, workflowLabsEnabled, clearWorkflowSideTab]);
   const summaryHasContent = useMemo(
     () => chatHasSummaryContent(snapshot.rows) || chatSubsessions.rows.length > 0 || workflows.length > 0,
     [snapshot.rows, chatSubsessions, workflows],
@@ -5496,21 +5465,25 @@ function AcpmuxPane() {
     /// The palette's Commit or Push for the open view (DiffPanel `gitIntent`).
     gitIntent?: { op: GitWriteOp; nonce: number };
   }>();
-  const toggleInspector = useCallback((open?: boolean) => {
-    if (inspectorHiddenSurfaceRef.current) {
-      inspectorOpenRef.current = false;
-      setInspectorOpen(false);
-      return false;
-    }
-    const next = typeof open === "boolean" ? open : !inspectorOpenRef.current;
-    inspectorOpenRef.current = next;
-    if (next) {
-      setDiffView(undefined);
-      inspectorOpener.current ??= document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
-    }
-    setInspectorOpen(next);
-    return next;
-  }, []);
+  const toggleInspector = useCallback(
+    (open?: boolean) => {
+      if (inspectorHiddenSurfaceRef.current) {
+        inspectorOpenRef.current = false;
+        setInspectorOpen(false);
+        return false;
+      }
+      const next = typeof open === "boolean" ? open : !inspectorOpenRef.current;
+      inspectorOpenRef.current = next;
+      if (next) {
+        clearWorkflowSideTab();
+        setDiffView(undefined);
+        inspectorOpener.current ??= document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
+      }
+      setInspectorOpen(next);
+      return next;
+    },
+    [clearWorkflowSideTab],
+  );
   const sessionIdRef = useRef(snapshot.sessionId);
   sessionIdRef.current = snapshot.sessionId;
   /// Opens the chat folder's diff in its own pane right of the chat, as the header's Changes does
@@ -6346,6 +6319,21 @@ function AcpmuxPane() {
     closeInspector();
     if (artifactCovers) setArtifact(undefined);
   }, [closeDiff, closeInspector, artifactCovers]);
+  const openWorkflowSideTab = useCallback(
+    (id: string, opener?: HTMLElement) => {
+      workflowSideTabOpener.current =
+        opener ?? (document.activeElement instanceof HTMLElement ? document.activeElement : undefined);
+      closeInspector();
+      setDiffView(undefined);
+      setArtifact(undefined);
+      setImageView(undefined);
+      setHarnessesOpen(false);
+      setReplaying(undefined);
+      setNewTab(undefined);
+      setWorkflowSideTabId(id);
+    },
+    [closeInspector],
+  );
   // Labs: the chat's workflows head the Inspector's Background tasks (inspector/WorkflowTasks.tsx).
   const inspectorWorkflows = useMemo(
     () =>
@@ -6366,6 +6354,7 @@ function AcpmuxPane() {
     onStopProcess: stopProcess,
     subagents: cardSubagents,
     sessions: cardSessions,
+    subsessions: chatSubsessions.rows,
     // acpmux takes the limit only from this Mac's app (a person-proven connection), never a Web one.
     onSetRunningLimit: snapshot.origin === "local" ? setRunningLimit : undefined,
     workflows: inspectorWorkflows,
@@ -6385,8 +6374,9 @@ function AcpmuxPane() {
     // A turn's diff in place, the event Inspector and, in a narrow pane, the side panel take the pane
     // in the chat's place, its header and the toggle with it: the panel steps aside while they show,
     // and opening it closes them.
-    covered: environmentCovered,
+    covered: environmentCovered || workflowSideTab !== undefined,
     onUncover: uncoverChat,
+    onBeforeOpen: clearWorkflowSideTab,
     beside: artifact?.opened,
     // A handoff review's form is wider than the transcript's column: the chat's shift is measured against it.
     wide: reviewing,
@@ -6398,9 +6388,21 @@ function AcpmuxPane() {
   }, [inspector.toggle]);
   const revealInspector = inspector.reveal;
   useEffect(() => {
-    configureWorkflowCardOpen(revealInspector ? () => revealInspector("tasks") : undefined);
+    const openCard = revealInspector
+      ? () => {
+          clearWorkflowSideTab();
+          revealInspector("tasks");
+        }
+      : workflowLabsEnabled
+        ? openWorkflowSideTab
+        : undefined;
+    configureWorkflowCardOpen(openCard);
     return () => configureWorkflowCardOpen(undefined);
-  }, [revealInspector]);
+  }, [clearWorkflowSideTab, openWorkflowSideTab, revealInspector, workflowLabsEnabled]);
+  useEffect(() => {
+    configureWorkflowCardSideTab(workflowLabsEnabled ? openWorkflowSideTab : undefined);
+    return () => configureWorkflowCardSideTab(undefined);
+  }, [openWorkflowSideTab, workflowLabsEnabled]);
   // The running line's counts (conversation/WorkingFor.tsx), with the tray off (Debug Settings):
   // the subagents still running, the background commands that have not ended and the started chats
   // that run. A count of one opens its subagent, the command's row or the chat; of several, the
@@ -8672,6 +8674,11 @@ function AcpmuxPane() {
     (sessionSelection?.state === "pending" || !snapshot.sessionId) &&
     snapshot.rows.length === 0 &&
     (handshaken || hostError === undefined);
+  useEffect(() => {
+    if (inspectorOpen || diffView || artifact || imageView || harnessesOpen || showNewTab || replaying) {
+      clearWorkflowSideTab();
+    }
+  }, [artifact, diffView, harnessesOpen, imageView, inspectorOpen, replaying, showNewTab, clearWorkflowSideTab]);
   const commandSession = showNewTab ? switchView.intent?.sessionId : undefined;
   const commandRevision = clientSnapshot.sessions.find((session) => session.sessionId === commandSession);
   const readSessionCommands = useCallback(
@@ -9969,6 +9976,7 @@ function AcpmuxPane() {
             tools={chatTools}
             workflows={workflows}
             workflowActionsFor={workflowActionsFor}
+            onOpenWorkflow={revealInspector ? () => revealInspector("tasks") : undefined}
           />
         </SubagentHarnessContext.Provider>
       </SubagentClockContext.Provider>
@@ -10502,6 +10510,18 @@ function AcpmuxPane() {
             onClose={() => setImageView(undefined)}
           />
         )}
+        {workflowSideTab &&
+          !harnessesOpen &&
+          !showNewTab &&
+          !replaying &&
+          !inspectorOpen &&
+          !diffView &&
+          !artifact &&
+          !imageView && (
+            <SubagentClockContext.Provider value={snapshot.clockOffsetMs ?? 0}>
+              <WorkflowSideTab workflow={workflowSideTab} onClose={closeWorkflowSideTab} onStop={stopSubagent} />
+            </SubagentClockContext.Provider>
+          )}
       </section>
     </ShortcutsContext.Provider>
   );
