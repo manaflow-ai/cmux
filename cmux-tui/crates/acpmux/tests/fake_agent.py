@@ -162,6 +162,8 @@ def codex_store_prompt(rid, params):
                         and r["payload"]["content"][0]["text"] != "history-probe"],
             "sessions": sorted({r["payload"]["id"] for r in records if r["type"] == "session_meta"}),
         })
+    # Native rollouts retain the assistant reply as well as the user's prompt.
+    codex_write(sid, "response_item", {"type": "message", "role": "assistant", "phase": "final_answer", "content": [{"type": "output_text", "text": reply}]})
     update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": reply}})
     send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
     # Codex's rollout writer flushes a turn's last records after the turn

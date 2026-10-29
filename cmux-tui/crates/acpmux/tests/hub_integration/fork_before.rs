@@ -347,7 +347,7 @@ async fn fork_before_refuses_a_truncated_or_unfinished_native_prefix() {
             records.iter().enumerate().filter(|(_, record)| starts(record)).nth(1).unwrap().0;
         let complete = |record: &Value| {
             if codex {
-                record["type"] == "event_msg" && record["payload"]["type"] == "task_complete"
+                record["type"] == "response_item" && record["payload"]["role"] == "assistant"
             } else {
                 record["type"] == "assistant"
             }
@@ -355,13 +355,9 @@ async fn fork_before_refuses_a_truncated_or_unfinished_native_prefix() {
         let original = hub.events(&id, 0, 10_000).unwrap();
         for (request, prompt_id, kept) in [
             ("truncated", "third", records[..second].iter().collect::<Vec<_>>()),
+            ("start-only", "third", records[..=second].iter().collect::<Vec<_>>()),
             ("unfinished", "second", records.iter().filter(|record| !complete(record)).collect()),
         ] {
-            // Codex completion markers may flush after the next turn starts; they carry
-            // no model context. The authoritative result already proves that turn ended.
-            if codex && request == "unfinished" {
-                continue;
-            }
             let text = kept
                 .into_iter()
                 .map(|record| serde_json::to_string(record).unwrap())
