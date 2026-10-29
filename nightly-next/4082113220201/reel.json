@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "build": "4082113220201",
+  "notes": "notes/4082113220201.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 27066,
+      "title": "ci(signing): owned Macs first for the release, repair and DEV signing jobs, with a stall-aware fallback",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27219,
+      "title": "fix(cmux-next): CmuxNextAppTests declares CmuxNextAppCore, which it imports",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26989,
+      "title": "acpmux: report persistent harness failures as stuck",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27193,
+      "title": "webviews: a gallery warm-up retries on a fresh page, and a stuck goto starts again",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24151,
+      "title": "cmux NEXT composer: quiet model button, and the quiet row fits on its own room",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27202,
+      "title": "ci(webviews): a timed-out file gets its own retry; the base replay is tested on a merge commit",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27208,
+      "title": "ci: provision the Cloud capture test account and seal its credential",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
