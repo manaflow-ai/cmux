@@ -29,14 +29,29 @@ public nonisolated struct MachineSectionRow: Identifiable, Hashable, Sendable {
     public let health: HostHealth?
     /// The step the last check flagged (its first failure, else its first warning).
     public let healthStep: HostStep?
+    /// A machine that joined with a one-line token (Labs `labs.machineJoin`): reached through the
+    /// mesh, with Check, Rotate Credential and Revoke. Nil for a machine the app connects to.
+    public let joined: JoinedMachine?
 
-    public init(id: String, name: String, isConnected: Bool, isLocal: Bool, health: HostHealth? = nil, healthStep: HostStep? = nil) {
+    public init(id: String, name: String, isConnected: Bool, isLocal: Bool, health: HostHealth? = nil, healthStep: HostStep? = nil,
+                joined: JoinedMachine? = nil) {
         self.id = id
         self.name = name
         self.isConnected = isConnected
         self.isLocal = isLocal
         self.health = health
         self.healthStep = healthStep
+        self.joined = joined
+    }
+
+    /// Whether the row is a machine the app connects to (it can open a workspace), not a joined
+    /// machine reached through the mesh alone.
+    public var isLinked: Bool { joined == nil || id != joined.map { JoinedMachine.healthID($0.id) } }
+
+    /// The row of a joined machine, with its last Check from `health`.
+    public static func joined(_ machine: JoinedMachine, health: HostReport?) -> MachineSectionRow {
+        MachineSectionRow(id: JoinedMachine.healthID(machine.id), name: machine.name, isConnected: machine.state == .online, isLocal: false,
+                          health: health?.health, healthStep: health?.worstStep?.step, joined: machine)
     }
 
     /// The tooltip of the status dot: which step the last check flagged.
@@ -69,18 +84,33 @@ public struct MachineSectionListView: View {
     let model: MachineSectionModel
     let newWorkspace: @MainActor (String) -> Void
     let addMachine: @MainActor () -> Void
+    /// A joined machine's menu item, with the row it was chosen on.
+    let joinedAction: @MainActor (JoinedMachineAction, JoinedMachine, MachineSectionRow) -> Void
+    let joinedStore: JoinedMachineStore?
 
     public init(model: MachineSectionModel, newWorkspace: @escaping @MainActor (String) -> Void,
-                addMachine: @escaping @MainActor () -> Void) {
+                addMachine: @escaping @MainActor () -> Void, joinedStore: JoinedMachineStore? = nil,
+                joinedAction: @escaping @MainActor (JoinedMachineAction, JoinedMachine, MachineSectionRow) -> Void = { _, _, _ in }) {
         self.model = model
         self.newWorkspace = newWorkspace
         self.addMachine = addMachine
+        self.joinedStore = joinedStore
+        self.joinedAction = joinedAction
     }
 
     public var body: some View {
         let rows = model.rows
+        // The store is read here, above the ForEach; each row gets values and closures only.
+        let openMenu = joinedStore?.openMenu, busy = joinedStore?.busy ?? [], failed = joinedStore?.failed ?? [:]
+        let joinedStore = joinedStore
         VStack(alignment: .leading, spacing: 2) {
             ForEach(rows) { row in
+                if let joined = row.joined {
+                    JoinedMachineRowView(row: row, machine: joined, busy: busy.contains(joined.id),
+                                         failed: failed[joined.id], menuOpen: openMenu == joined.id,
+                                         menuShown: { id, open in joinedStore?.menuShown(id, open) }, newWorkspace: newWorkspace,
+                                         perform: { action, machine in joinedAction(action, machine, row) })
+                } else {
                 HStack(alignment: .center, spacing: Metrics.panelInset) {
                     Icon(row.isLocal ? .machineLocal : .machineRemote, size: Metrics.iconSize)
                         .foregroundStyle(.secondary)
@@ -107,6 +137,7 @@ public struct MachineSectionListView: View {
                     .disabled(!row.isConnected)
                 }
                 .padding(.vertical, 2).padding(.horizontal, Metrics.panelInset)
+                }
             }
             Button(action: addMachine) {
                 Label(AddMachineStrings.addMachine, systemImage: "plus.circle")

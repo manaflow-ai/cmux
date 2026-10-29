@@ -49,7 +49,8 @@ extension AddDeviceServices {
             // clipboard managers do not keep it.
             copyConcealed: { line in
                 SystemPasswordPasteboard().write(line, markers: [ConcealedPasteboard.concealedType, ConcealedPasteboard.transientType])
-            })
+            },
+            showMachines: { [weak services] in _ = services?.registry.perform(RightSidebarMode.machines.actionID) })
     }
 }
 
@@ -83,6 +84,12 @@ extension MachineJoinService {
             return try? await auth.tokens().access
         }
         let machines = services.machines
+        // Every successful list read feeds the Machines section too (Add Device's flip shows the row).
+        // A read that lands after the switch turned off feeds nothing (the store emptied itself then).
+        let store = { @MainActor [weak services] (rows: [JoinedMachine]) in
+            guard let services, services.settings?.snapshot.machineJoin == true else { return }
+            services.joinedMachines.apply(rows)
+        }
         return MachineJoinService(
             mint: { name in
                 guard let cli else { return .failure(.failed) }
@@ -95,8 +102,9 @@ extension MachineJoinService {
             list: {
                 guard let cli, let access = await token(),
                       let run = await cli.run(["machine", "list", "--json", "--cloud-token-stdin"], secret: access, label: "machine list"),
-                      run.status == 0 else { return nil }
-                return JoinedMachine.list(from: Data(run.stdout.utf8))
+                      run.status == 0, let rows = JoinedMachine.list(from: Data(run.stdout.utf8)) else { return nil }
+                await store(rows)
+                return rows
             },
             doctor: { id in
                 guard let cli, let access = await token(),
@@ -120,6 +128,19 @@ extension MachineJoinService {
                     }
                     continuation.onTermination = { _ in follow.cancel() }
                 }
+            },
+            revoke: { id in
+                guard let cli, let access = await token(),
+                      let run = await cli.run(["machine", "revoke", id, "--yes", "--json", "--cloud-token-stdin"], secret: access,
+                                              label: "machine revoke") else { return false }
+                return run.status == 0
+            },
+            // Its output may carry the new credential: only the status is read.
+            rotate: { id in
+                guard let cli, let access = await token(),
+                      let run = await cli.run(["machine", "rotate", id, "--json", "--cloud-token-stdin"], secret: access,
+                                              label: "machine rotate") else { return false }
+                return run.status == 0
             })
     }
 
