@@ -426,9 +426,11 @@ final class SidebarBridge {
         // A pinned workspace's tile has its row's menu: name, colors, Unpin (a tile's
         // generic item menu had no colors, 2026-10-21), then the tile's Show/Hide Label.
         case .layoutItem(let id):
-            if let workspace = pinnedWorkspaceID(ofItem: id) {
+            if let workspace = pinnedWorkspaceID(ofItem: id),
+               let ref = (model.layout.item(id) ?? model.listedItem(id))?.ref,
+               let (_, owner) = WorkspaceLayoutRefs(machines: services.machines).workspace(for: ref) {
                 SidebarContextMenus.menu(for: .workspaces([workspace]), model: model, services: services, scope: container.themeScope.fullStrength,
-                                         trailing: tileRows(id))
+                                         trailing: tileRows(id), workspaceMachineID: owner.machineID)
             } else {
                 layoutItemMenu(id)?.themeRows(in: container.themeScope.fullStrength)
             }

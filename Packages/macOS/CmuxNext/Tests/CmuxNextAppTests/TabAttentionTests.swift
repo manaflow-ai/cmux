@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextBridge
+import CmuxNextDesign
 import CmuxNextRemote
 import CmuxNextSidebar
 @testable import CmuxNextDaemon
@@ -114,6 +115,40 @@ import Testing
         let tab = try #require(workspace.screens.first?.panes.first?.tabs.first)
         tab.applyState(SessionStateMirror.TabRecord(markedUnread: markedUnread, attention: Self.attention(reason, at: 1_000)), progress: nil)
         return (workspace, tab)
+    }
+
+    @Test func pinnedRemoteDismissalKeepsLocalHighlight() throws {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        let host = try SSHHost(destination: SSHDestination(parsing: "leo@lab.tail1.ts.net")).named("lab")
+        let ssh = SSHMachineSession(host: host, binary: URL(fileURLWithPath: "/usr/bin/false"),
+                                    paths: SSHPaths(root: URL(fileURLWithPath: "/private/tmp/cn-tab-attention-dismiss-unused")),
+                                    environment: { [:] })
+        services.machines.add(ssh)
+        let (remote, remoteTab) = try Self.markedWorkspace(in: ssh.daemon.store, name: "remote", reason: "Remote", markedUnread: true)
+        let (local, localTab) = try Self.markedWorkspace(in: services.daemon.store, name: "local", reason: "Local", markedUnread: true)
+        // Equal IDs and mark generations must still have independent dismissal state.
+        #expect(remoteTab.id == localTab.id && remoteTab.markedUnreadGeneration == localTab.markedUnreadGeneration)
+        AppActions.bind(services)
+        let notifications = services.notifications
+        // Pinned tiles are absent from the list model; their layout reference supplies the owner.
+        let menu = try #require(SidebarContextMenus.menu(for: .workspaces([CmuxNextSidebar.WorkspaceID(remote.id)]),
+                                                       model: SidebarModel(), services: services, scope: ThemeScope(level: .room),
+                                                       workspaceMachineID: ssh.daemon.machineID))
+        func items(_ menu: NSMenu) -> [NSMenuItem] { menu.items + menu.items.compactMap(\.submenu).flatMap(items) }
+        let dismiss = try #require(items(menu).first { ActionRegistry.menuRun(of: $0)?.id == "notifications.dismissHighlight" })
+        let action = try #require(dismiss.action)
+        #expect(NSApp.sendAction(action, to: dismiss.target, from: dismiss))
+        #expect(!notifications.hasHighlight(remote), "the pinned remote workspace kept its ring")
+        // Drop attention so this assertion specifically checks the independent manual-mark ring.
+        localTab.applyState(SessionStateMirror.TabRecord(markedUnread: true), progress: nil)
+        #expect(notifications.hasHighlight(local), "remote dismissal hid the local manual mark")
+        notifications.dismissHighlight(local)
+        #expect(!notifications.hasHighlight(local))
+        remoteTab.applyState(SessionStateMirror.TabRecord(markedUnread: false), progress: nil)
+        remoteTab.applyState(SessionStateMirror.TabRecord(markedUnread: true), progress: nil)
+        #expect(notifications.hasHighlight(remote), "a new remote mark did not ring again")
+        #expect(!notifications.hasHighlight(local), "a remote re-mark revived the local ring")
     }
 
     /// A tab on this Mac and one on an SSH machine with the same id (a forked machine keeps its
