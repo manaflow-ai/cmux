@@ -57,4 +57,28 @@ grep -q '^release slot-fakehost-0123456789ab' "$CAPTURE_HOST_ARGS_LOG" ||
 bounded 60 bash "$ROOT/scripts/cmux-next/perceived-speed-slot.sh" --job 0123456789abcdef01234567 --out "$tmp/ps2" >/dev/null 2>&1 || true
 grep -q '^release slot-fakehost-0123456789ab' "$CAPTURE_HOST_ARGS_LOG" ||
   { echo "FAIL: perceived-speed-slot.sh did not release its lease: $(cat "$CAPTURE_HOST_ARGS_LOG")" >&2; exit 1; }
+# A stop between acquire printing the lease and the runner reading it (the runner polls every 2 s): the
+# runner's cleanup must still release that lease. The stand-in prints at 1 s and stays up; TERM at 1.5 s.
+cat >"$tmp/bin/capture-host" <<'SH'
+#!/bin/sh
+printf '%s\n' "$*" >>"$CAPTURE_HOST_ARGS_LOG"
+case "$1" in
+  acquire) sleep 1; echo slot-fakehost-0123456789ab; sleep 30; exit 0 ;;
+  slot-info) exit 1 ;;
+esac
+exit 0
+SH
+stop_after_print() { # stop_after_print NAME ARGS...: TERM the runner just after the lease is printed
+  local name=$1 pid; shift
+  : >"$CAPTURE_HOST_ARGS_LOG"
+  bash "$ROOT/scripts/cmux-next/$name" "$@" >/dev/null 2>&1 &
+  pid=$!
+  sleep 1.5
+  kill -TERM "$pid" 2>/dev/null || true
+  wait "$pid" 2>/dev/null || true
+  grep -q '^release slot-fakehost-0123456789ab' "$CAPTURE_HOST_ARGS_LOG" ||
+    { echo "FAIL: $name stopped after acquire printed its lease did not release it" >&2; exit 1; }
+}
+stop_after_print restore-journey-slot.sh 0123456789abcdef01234567 "$tmp/rj3"
+stop_after_print perceived-speed-slot.sh --job 0123456789abcdef01234567 --out "$tmp/ps3"
 printf 'capture-runners-exclusive tests: ok\n'

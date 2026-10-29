@@ -50,10 +50,6 @@ cleanup() {
   rm -rf "$work"
 }
 trap cleanup EXIT
-# A stop runs the EXIT trap too.
-trap 'exit 143' TERM
-trap 'exit 130' INT
-trap 'exit 129' HUP
 
 # The app is staged once per job outside any lease (a fetch can outlive a 600 s lease). It is
 # fetched ON the slot host with that host's cmux-ci (never relayed through this machine). When the

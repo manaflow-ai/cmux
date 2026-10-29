@@ -51,10 +51,6 @@ release() {
   if [ -n "${lease:-}" ]; then capture-host release "$lease" >/dev/null 2>&1 || true; fi
 }
 trap release EXIT
-# A stop runs the EXIT trap too.
-trap 'exit 143' TERM
-trap 'exit 130' INT
-trap 'exit 129' HUP
 # Until acquire prints a lease or exits: it bounds itself (its timeout, plus an exclusive drain of up to
 # CAPTURE_HOST_EXCLUSIVE_DRAIN_SECONDS per busy host), so a fixed wait here would stop it mid-drain.
 lease=
