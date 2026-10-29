@@ -102,6 +102,16 @@ def step_stop_load(j, step):
 
 
 def _alive(pid):
+    """Whether `pid` still runs. The load processes are this driver's children: an ended one is reaped here, or it
+    would stay a zombie that kill(pid, 0) still finds."""
+    try:
+        done, _ = os.waitpid(pid, os.WNOHANG)
+        if done == pid:
+            return False
+    except ChildProcessError:
+        pass
+    except OSError:
+        return False
     try:
         os.kill(pid, 0)
     except OSError:
@@ -115,30 +125,52 @@ def _known_terminals(j):
     return {p.get("terminal_id") for p in j.app.panes() if p.get("terminal_id")}
 
 
-def _wait_prompt(j, before, started, timeout_s, workspace=None):
-    """Seconds from `started` to the first text on the daemon screen of a focused terminal not in `before`,
-    or None at the timeout. The daemon id comes from the topology (debug.surfaces' terminal_id is the app's id)."""
+def _daemon_terminal_of_pane(j, pane_key):
+    """The daemon terminal id of the selected tab of pane `pane_key`, in any workspace (snapshot.get's topology), or
+    None while the topology has none. By pane, not by workspace name: a Ctrl-` tab lands in the current workspace,
+    a new window's in its own, and the pane view's `workspace` is an id, not the name the driver's lookup wants."""
+    snap = j.app.rpc("snapshot.get") or {}
+    topo = snap.get("topology") if isinstance(snap, dict) else None
+    best = None
+    for ws in (topo or {}).get("workspaces", []):
+        for screen in ws.get("screens", []):
+            for pane in screen.get("panes", []):
+                if pane.get("id") != pane_key:
+                    continue
+                for tab in pane.get("tabs", []):
+                    term = tab.get("terminal")
+                    term = term.get("id") if isinstance(term, dict) else term
+                    if term and (best is None or tab.get("selected")):
+                        best = str(term)
+    return best
+
+
+def _wait_prompt(j, before, started, timeout_s):
+    """From `started`: (seconds to the first text on the daemon screen of a focused terminal view not in `before`, or
+    None at the timeout; the daemon terminal; the pane; the last read error). The pane is found by the app's own view
+    (debug.surfaces), its daemon terminal by the topology (the view's terminal_id is the app's id, not a selector)."""
     end = started + timeout_s
     term = pane = None
+    last = None
     while D.now() < end:
         if pane is None:
             for view in j.app.panes():
                 if view.get("focused") and view.get("terminal_id") and view["terminal_id"] not in before:
-                    pane, ws = view.get("pane"), view.get("workspace")
+                    pane = view.get("pane")
                     break
         if pane is not None:
             try:
                 if term is None:
-                    term = j.daemon_terminal(workspace or ws, pane)
-                if j.app.screen(term)["text"].strip():
-                    return D.now() - started, term
-            except D.StepError as error:
-                if "selector.not_found" in str(error):
-                    term = None
-            except Exception:  # noqa: BLE001 (a read during load can fail once; the next poll tries again)
-                pass
+                    term = _daemon_terminal_of_pane(j, pane)
+                if term is not None and j.app.screen(term)["text"].strip():
+                    return D.now() - started, term, pane, None
+            except Exception as error:  # noqa: BLE001 (a read during load can fail; the next poll tries again)
+                last = str(error)[-200:]
+                if "selector.not_found" in last:
+                    term = None  # a provisional id: read the topology again
         time.sleep(POLL_S)
-    return None, term
+    return None, term, pane, last or ("no new focused terminal pane" if pane is None else "no daemon terminal for the pane"
+                                      if term is None else "the daemon screen stayed empty")
 
 
 def _try_once(j, action, timeout_s, index):
@@ -151,7 +183,7 @@ def _try_once(j, action, timeout_s, index):
         name = f"jr-load-{j.nonce}-{index}"
         started = D.now()
         j.app.rpc("action.run", {"action": "newTab", "args": {"name": name, "focus": True}})
-        return _wait_prompt(j, before, started, timeout_s, workspace=name)
+        return _wait_prompt(j, before, started, timeout_s)
     if action == "new_window":
         started = D.now()
         j.key(KEY_NEW_WINDOW["key"], KEY_NEW_WINDOW["modifiers"])
@@ -168,9 +200,9 @@ def _try_once(j, action, timeout_s, index):
                 j.load_windows_seen = set(ids)
                 j.app.rpc("debug.window.focus", {"window": new[0]})
                 j.key(KEY_NEW_TERMINAL["key"], KEY_NEW_TERMINAL["modifiers"], window=new[0])
-                return _wait_prompt(j, before, started, max(0.0, end - D.now()) + (D.now() - started))
+                return _wait_prompt(j, before, started, timeout_s)
             time.sleep(POLL_S)
-        return None, None
+        return None, None, None, "no new window"
     raise D.StepError(f"first_prompts: unknown action {action!r}")
 
 
@@ -189,8 +221,13 @@ def step_first_prompts(j, step):
         j.load_windows_seen = {w.get("id") for w in ((j.app.rpc("debug.layers") or {}).get("windows") or [])}
     tries = []
     for index in range(count):
-        seconds, term = _try_once(j, action, timeout_s, index)
-        tries.append({"try": index + 1, "ms": None if seconds is None else round(seconds * 1000, 1), "terminal": term})
+        seconds, term, pane, error = _try_once(j, action, timeout_s, index)
+        tries.append({"try": index + 1, "ms": None if seconds is None else round(seconds * 1000, 1), "terminal": term,
+                      "pane": pane, "error": error})
+        if seconds is not None:
+            # The new terminal is the current one: later steps (the journey's last typed check) go to it, as the
+            # keyboard does.
+            j.term, j.pane = term, pane
         time.sleep(float(step.get("gap_s", 1)))
     ms = [t["ms"] for t in tries if t["ms"] is not None]
     result = {"action": action, "count": count, "tries": tries, "timeouts": sum(1 for t in tries if t["ms"] is None),

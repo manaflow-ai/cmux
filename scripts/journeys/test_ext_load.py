@@ -73,5 +73,53 @@ class LoadTests(unittest.TestCase):
         self.assertFalse(L.cond_first_prompt_p95(j, {"action": "new_window", "max_ms": 500}, {})[0])
 
 
+class FakeApp:
+    """A new focused pane appears at the 2nd read; the topology lists its terminal (in a workspace with another name);
+    the screen shows the prompt at the 3rd read."""
+    def __init__(self):
+        self.reads = 0
+        self.screens = 0
+
+    def panes(self):
+        self.reads += 1
+        old = [{"pane": "p1", "terminal_id": "old", "focused": False}]
+        return old + ([{"pane": "p2", "terminal_id": "new-app-id", "focused": True, "workspace": "ws-uuid"}]
+                      if self.reads >= 2 else [])
+
+    def rpc(self, method, params=None):
+        assert method == "snapshot.get"
+        return {"topology": {"workspaces": [{"name": "jr-load-1", "screens": [{"panes": [
+            {"id": "p1", "tabs": [{"selected": True, "terminal": {"id": "term_old"}}]},
+            {"id": "p2", "tabs": [{"selected": False, "terminal": {"id": "term_other"}},
+                                  {"selected": True, "terminal": {"id": "term_new"}}]}]}]}]}}
+
+    def screen(self, term):
+        assert term == "term_new", term
+        self.screens += 1
+        return {"text": "J> " if self.screens >= 3 else ""}
+
+
+class PromptTests(unittest.TestCase):
+    def test_a_new_pane_in_any_workspace_is_found_by_pane_and_timed_to_its_first_text(self):
+        j = types.SimpleNamespace(app=FakeApp())
+        old_poll = L.POLL_S
+        L.POLL_S = 0.001
+        try:
+            seconds, term, pane, error = L._wait_prompt(j, {"old"}, FakeDriver.now(), 5)
+        finally:
+            L.POLL_S = old_poll
+        self.assertIsNotNone(seconds, error)
+        self.assertEqual((term, pane, error), ("term_new", "p2", None))
+
+    def test_no_new_pane_is_a_timeout_that_says_so(self):
+        class NoPane(FakeApp):
+            def panes(self):
+                return [{"pane": "p1", "terminal_id": "old", "focused": True}]
+        j = types.SimpleNamespace(app=NoPane())
+        seconds, term, pane, error = L._wait_prompt(j, {"old"}, FakeDriver.now(), 0.2)
+        self.assertIsNone(seconds)
+        self.assertEqual(error, "no new focused terminal pane")
+
+
 if __name__ == "__main__":
     unittest.main()
