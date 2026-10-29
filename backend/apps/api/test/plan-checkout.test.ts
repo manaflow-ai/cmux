@@ -23,10 +23,9 @@ const hook = async (e: Env, type: string, object: unknown) => {
   }), e)
 }
 const returned = (e: Env, id: string) => handlePlanCheckout(new Request(`https://api.test/v1/billing/plan/done?session_id=${id}`), e, "done")
-const grant = async (team = TEAM) => {
-  const stub = testEnv.TEAM_DO.get(testEnv.TEAM_DO.idFromName(team))
-  return runInDurableObject(stub, async (instance) => testPlanGrant(instance.ctx.storage.sql))
-}
+// The DO's storage from inside it (`ctx` is protected on the DurableObject type; chief-jobs.test.ts does the same).
+const inDO = runInDurableObject as unknown as (stub: unknown, cb: (instance: any) => Promise<unknown>) => Promise<any>
+const grant = async (team = TEAM): Promise<string | null> => inDO(testEnv.TEAM_DO.get(testEnv.TEAM_DO.idFromName(team)), async (instance) => testPlanGrant(instance.ctx.storage.sql))
 
 afterEach(() => vi.restoreAllMocks())
 
