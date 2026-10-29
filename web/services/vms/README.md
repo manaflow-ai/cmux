@@ -571,6 +571,138 @@ provider state even when the control-plane row still says `running`, resumes a p
 machine, and only then mints its attach or port endpoint. Machines created before this policy
 are migrated when they are resumed: any finite legacy idle timeout is cleared best-effort.
 
+### Idle auto-pause
+
+Freestyle's idle timer stays off (it counts only network and exec traffic, so it would pause
+a machine whose agent is mid-turn and quiet). The server pauses idle machines instead
+(`services/vms/idlePause.ts`, `idlePauseJob.ts`):
+
+- The `vm-idle-pause` cron runs every 5 minutes. On each running Freestyle machine it runs one
+  read-only probe as root through the provider exec (`python3 -I`, so nothing in its working
+  directory or environment is imported): the session daemon's `subscribe-activity`
+  snapshot, acpmux's session list (read as the daemon user, only when its daemon already runs),
+  and `/proc` (each pseudo-terminal's foreground process group, sshd session processes,
+  established TCP connections into the machine's private address or into sshd, and the busy CPU
+  time in `/proc/stat`). A run checks at most 500 machines, least recently checked first
+  (`cmuxIdleProbedAt`), so a large fleet rotates. With more running machines than about two
+  runs can check, a machine is checked less often than every 12 minutes, its idle stretch never
+  carries and it never pauses; the cron logs a warning when a run hits the 500 cap or runs long.
+- A machine whose row has no private address (`networkIpv4`/`networkIpv6`) is not probed: the
+  app's link into it would be invisible, so it is unknown.
+- A machine is idle only when nobody typed through an attached client for the whole timeout (an
+  app that is only attached does not count: the Mac app stays attached for days), no live agent or acpmux session with
+  a turn or a pending permission, no terminal running a command (anything but a shell at its
+  prompt is a command: a build, a hand-started server, vim, an agent CLI, and a shell that is
+  itself running one, `bash -c ...` or `sh script.sh`; a login or interactive shell such as
+  `-bash`, `zsh -l` or `bash -i` is a prompt), no ssh session, no
+  inbound connection on its private address (the app's own link to the daemon port does not count, but a port the app forwards over that link counts while the daemon holds a stream to it, in legacy mode too), and CPU use since the previous probe below
+  `VM_IDLE_CPU_BUSY_CORES` (0.05 cores; a `nohup make`, a container or a systemd unit doing work
+  is over it). A CPU counter that went back (a reboot) restarts the idle stretch. A probe without
+  a CPU sample, or a `/proc/net/tcp` (or an existing `tcp6`) it cannot read, is unknown; a missing
+  `tcp6` (IPv6 off) is no IPv6 connections. A stored observation without a CPU sample does not
+  carry the stretch. A `/proc/<pid>/stat`, `cmdline` or daemon `fd` entry that cannot be read
+  or parsed makes terminals, ssh or inbound connections unknown; only a process that exited
+  mid-read is skipped. Anything the probe cannot read is unknown, and unknown never pauses.
+- Machines whose cmux-tui predates `subscribe-activity` (every image up to a9b104f3) are decided
+  in legacy mode. The probe enters it only when the daemon refuses `subscribe-activity` as an
+  unknown variant, and the whole answer must be serde's message, optionally ending in
+  serde_json's `at line L column C`. acpmux then reads as none when the CLI refuses `acp` as an
+  unknown resource scope. Any other answer stays unknown. Legacy mode has no input or agent times, so it decides
+  from busy terminals (an agent CLI in a terminal is busy), ssh, inbound connections, CPU and
+  API calls: a person sitting at an idle shell prompt for the whole timeout is paused, and
+  opening the machine resumes it. Its decision reasons end in `;legacy_daemon`.
+- Freestyle's own timer stays off as well, not as a backstop: it would pause a quiet build that
+  our probe sees on CPU, and a finite `idleTimeoutSeconds` makes the health sweep skip the
+  machine (`skipped_idle`).
+- A shell builtin that waits with no child process and no CPU, such as `read -t 3600` or a
+  `wait` with nothing to wait on, typed into an interactive shell, reads as a shell at its
+  prompt and can be paused after the timeout. On new images the typing itself is input the
+  daemon reports, so the timeout starts after it; opening the machine resumes it.
+- Quiet background work can be paused. A job with no terminal, under 0.05 cores and with no
+  inbound connection reads as idle, whatever it is doing: a `nohup` bot holding a websocket open,
+  a long `curl` download, or `claude -p` started through exec outside acpmux. The escape is to
+  create the machine with `cmux cloud new-machine --persistent` or set its idle pause to Off;
+  running the job in a terminal also keeps the machine awake (a foreground command is busy).
+  Established outbound TCP connections are deliberately not counted: the machine's own daemons
+  (cmux-tui, acpmux, language servers, package mirrors) hold long-lived outbound connections on
+  an idle machine, so counting them would keep almost every machine awake, and telling a user's
+  job from those by process would be a per-image allowlist we would have to keep in step with
+  the image.
+- A person's exec, files or attach call (`execVm`, the file workflows, `openAttachEndpoint`,
+  `openVmCmuxRemote`) records its time on the row (`cmuxLastApiActivityAt`, at most once a minute,
+  without touching `updated_at`). The cron's own probe and the resource sampler call the provider
+  directly and record nothing.
+- It pauses once every probe for the whole timeout said idle and the activity times (a person's
+  input, an agent action, an acpmux session change, the last API call) are as old, through the
+  same pause path as the Pause Machine action, with `pauseReason: "idle"`.
+- Every write that can change the verdict moves the row's idle fence (`cmuxIdleEpoch`): the
+  cron's observation, API activity, the idle setting, any status write and a resume. The
+  cron's observation write requires the fence it read, so a probe that overlapped another
+  run, an exec, or a pause and resume stores nothing instead of bringing back an old
+  `idleSince`.
+- Before the provider pause the cron re-reads the row and claims the fence (`claimIdlePause`),
+  which also leaves the claim in the row (`cmuxIdlePauseClaim`). It then probes the guest once
+  more and skips the pause unless that probe is idle too. After the provider call, the pause is
+  recorded only if the row still holds the claimed fence. Guest activity that starts during the
+  provider call itself (a few seconds) is not seen; that window is accepted, because an idle
+  pause is undone by opening the machine.
+- A pause that says why (a person's Pause Machine, or the cron's own idle pause) stamps the
+  fence its write set (`cmuxPauseIntentEpoch`); the status reconciler's paused write says
+  nothing and stamps nothing. When the cron's record loses, a person's pause stamped after the
+  claim is kept. Anything else (an exec, files or attach call, a switch to Off, or the
+  reconciler recording the provider's pause) is undone. The compensating resume is fenced too
+  (`claimIdleResume`, then a running record at the claimed fence), so a person's pause that
+  lands while it runs wins and the machine is paused again. All of it is logged and counted as
+  `aborted`.
+- A provider error or timeout on the pause is not taken as "no pause". The cron reads the
+  provider back; a pause that went through is recorded, or undone if the fence moved. If the
+  read-back cannot tell, the claim stays in the row, and the next run reads the provider again
+  and settles it: running clears the claim, paused records the idle pause (or undoes it if the
+  fence moved), and unreadable waits another run.
+- Only a write that settles the claim removes it: a stated pause, the cron's own fenced write
+  or a destroy. The status reconciler's write keeps it, and the cron also picks up any live row
+  that still holds a claim, even one the reconciler already marked paused. A compensating
+  resume that loses its own claim gives up only to a person's or the allowance enforcer's
+  later pause, a delete or a replace; after any other write (Off, activity, the reconciler) it
+  keeps the claim and the next run tries again. If that resume woke the machine but its
+  running write lost, the next run finds the provider running under a paused row and repairs
+  the row to running through a fenced write, which settles the claim. Every recovery that
+  leaves the machine running (that repair, a compensation that finds it already running, a
+  refused pause the next run clears) takes the idle-resume fence, then clears the zero runtime
+  cap the idle pause put on a Plus (go) machine, as the re-pause race does. A newer write that
+  moved the fence first keeps its own cap, and a person's or the allowance enforcer's pause
+  that wins after the cap was cleared is put back (cap zero, then pause). Clearing the cap is
+  best effort: a failed write is logged and the recovery still finishes, and the compensating
+  resume takes no plan gate. A person's Pause on a row already marked paused still records
+  their decision.
+- A deliberate pause fences its intent before any provider effect. A person's Pause Machine
+  and the allowance enforcer first write the pause as under way (`cmuxPendingPause`: cause,
+  fence and `requestedAt`, with a fence bump), then set a Plus machine's cap to zero and pause
+  the provider. While that intent is outstanding (`hasOutstandingPauseIntent`), the idle cron
+  takes no pause claim, takes no resume claim, clears no cap and resumes nothing, whatever the
+  intent's fence: the claims check it in SQL, and the claim settlement, the compensation, the
+  repair and the re-pause check it on the row they read. A zero cap left in place is the safe
+  side; opening the machine resumes it and clears the cap. The pause's own paused write is not
+  fenced, so it still lands and replaces the intent with its stamp. A pause whose provider
+  effects fail drops its own intent (fenced on its own epoch); one that times out keeps it,
+  since the provider pause may still be in flight. An intent older than 20 minutes is
+  abandoned (a process that died mid-pause): past the 30 s provider pause timeout, the pause
+  route's 300 s and every route's 960 s limit.
+- The allowance enforcer's pause (`goPause.ts`, Plus and the Pro and Max budgets) stores the
+  cause `allowance`. It settles the claim and stamps the fence like a person's pause, so no
+  idle recovery resumes a machine past its allowance, whether the allowance runs out during the
+  cron's own pause or before a later run settles a claim left behind. The API's `pauseReason`
+  shows only `idle` and `user`, so it stays null for these.
+- Every pause, resume or other status write drops the stored idle observation, so a resumed
+  machine starts a new stretch and gets the whole timeout again.
+- The timeout is per machine (`PUT /api/vm/:id/idle-pause`; `idlePauseMinutes` in the list and
+  detail): 15, 30, 60 or 120 minutes, or 0 for Off. A create may set it too (`POST /api/vm`
+  `idlePauseMinutes`, same values; `cmux cloud new-machine --persistent` sends `"off"`). It is
+  stored by the row's insert, before any provider call, so a same-key retry keeps the first
+  create's value; the answer carries it. A machine that never chose one gets
+  `VM_IDLE_PAUSE_DEFAULT_MINUTES` (30; 0 turns the default off).
+- `pauseReason` is `"idle"` or `"user"` on a paused machine the control plane paused, else
+
 There is no HTTP ingress proxy to arbitrary VM ports on the public platform (a TLS edge rule
 needs a customer-verified domain), so the daemon is reached directly at a VM address.
 
