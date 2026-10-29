@@ -90,9 +90,7 @@ test("while acpmux's record is unknown both switches are disabled and one action
   await act(async () => revoke?.click());
   await settle();
   expect(
-    page.provider.log
-      .filter((entry) => entry.op === "cmux.settings.devices.join_consent")
-      .map((entry) => entry.params),
+    page.provider.log.filter((entry) => entry.op === "cmux.settings.devices.join_consent").map((entry) => entry.params),
   ).toEqual([
     { surface: "screen", on: false },
     { surface: "control", on: false },
