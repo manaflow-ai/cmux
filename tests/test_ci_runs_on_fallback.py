@@ -253,6 +253,20 @@ def evicting(name: str, concurrency: object) -> str | None:
     return None
 
 
+def attempt_gate(term: str) -> bool:
+    """Whether `term` keeps the rescue's re-run off the alternative: every way it can be true reads the attempt
+    or the triggering actor (`github.run_attempt == 1 || !contains(<bots>, github.triggering_actor)`). An `||`
+    with any other branch (`github.run_attempt == 1 || vars.X`) can be true on every attempt, so it is no gate."""
+    text = unwrap(term)
+    alternatives = split_top(text, "||")
+    if len(alternatives) > 1:
+        return all(attempt_gate(alternative) for alternative in alternatives)
+    terms = conjuncts(text)
+    if len(terms) > 1:
+        return any(attempt_gate(inner) for inner in terms)
+    return re.search(r"\bgithub\.(?:run_attempt|triggering_actor)\b", text) is not None
+
+
 def ungated_role_labels(expression: str, gated: bool = False) -> list[str]:
     """The owned role labels in `expression` that an alternative yields with no github.run_attempt term."""
     found = []
@@ -262,7 +276,7 @@ def ungated_role_labels(expression: str, gated: bool = False) -> list[str]:
             found += ungated_role_labels(inner, gated)
             continue
         terms = conjuncts(inner)
-        here = gated or any("github.run_attempt" in term for term in terms[:-1])
+        here = gated or any(attempt_gate(term) for term in terms[:-1])
         last = unwrap(terms[-1])
         if len(split_top(last, "||")) > 1:
             found += ungated_role_labels(last, here)
@@ -417,6 +431,12 @@ class RunsOnFallbackTests(unittest.TestCase):
         self.assertEqual(role_label_problems(
             here, f"${{{{ a && github.run_attempt == 1 && (b && {gui} || {gui}) || 'blacksmith-6vcpu-macos-26' }}}}",
             {here}), [])
+        # Review of #27201: an attempt test that another `||` branch can bypass is no gate.
+        self.assertTrue(role_label_problems(
+            here, f"${{{{ (github.run_attempt == 1 || vars.X) && {gui} || 'blacksmith-6vcpu-macos-26' }}}}", {here}))
+        self.assertEqual(role_label_problems(
+            here, f"${{{{ (github.run_attempt == 1 || !contains(fromJSON('[\"b\"]'), github.triggering_actor)) "
+                  f"&& {gui} || 'blacksmith-6vcpu-macos-26' }}}}", {here}), [])
         # A Blacksmith last member, but nothing watches the workflow's queue.
         self.assertTrue(role_label_problems(here, f"${{{{ a && {gui} || 'blacksmith-6vcpu-macos-26' }}}}", set()))
         self.assertEqual(role_label_problems(

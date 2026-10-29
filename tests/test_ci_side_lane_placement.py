@@ -888,6 +888,13 @@ class CmuxNextWiring(unittest.TestCase):
                 carried = self.context("3", runner=STD)
                 carried["needs"][self.PLACEMENT]["outputs"]["gui_overflow"] = FALLBACK
                 self.assertEqual(evaluate(runs_on, carried), on(name, STD))
+                # Review of #27201: nor does a carried overflow keep a person's re-run off the session lane.
+                if name == "generated-files":
+                    rerun_lane = self.context("2", runner=STD)
+                    rerun_lane["vars"]["CI_SESSION_LANE_RUNNER"] = SESSION
+                    rerun_lane["needs"][self.PLACEMENT]["outputs"].update(gui_runner="", session_runner="",
+                                                                          gui_overflow=FALLBACK, placed_attempt="1")
+                    self.assertEqual(evaluate(runs_on, rerun_lane), SESSION)
                 self.assertEqual(jobs[name]["env"]["CMUX_NEXT_RUNNER"], label_copy(runs_on))
 
     def test_bot_retry_uses_a_newly_free_owned_session_runner(self):
