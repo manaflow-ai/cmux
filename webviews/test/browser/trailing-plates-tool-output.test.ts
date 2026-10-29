@@ -41,7 +41,10 @@ await requireBrowserLane("trailing-plates-tool-output.test.ts", async () => {
       await output.waitFor();
       const actions = output.locator(".cv-tool-output__actions");
       await actions.waitFor();
-      await actions.hover();
+      const button = actions.locator("button").first();
+      // Focus is deterministic in headless CI; :focus-within reveals the same actions without
+      // depending on the pointer still being over the output box when styles are sampled.
+      await button.focus();
       const style = await actions.evaluate((node) => {
         const computed = getComputedStyle(node);
         return {
@@ -57,7 +60,6 @@ await requireBrowserLane("trailing-plates-tool-output.test.ts", async () => {
       if (dir) await page.screenshot({ path: `${dir}/tool-output-${mode}.png` });
       expect(style.background).toBe("rgba(0, 0, 0, 0)");
       expect(style.borderRadius).toBe("0px");
-      const button = actions.locator("button").first();
       await button.hover();
       expect(await button.evaluate((node) => getComputedStyle(node).backgroundColor)).not.toBe("rgba(0, 0, 0, 0)");
       const text = output.locator("pre");
