@@ -22,11 +22,16 @@ use std::time::Duration;
 /// SIGKILL (and the SIGKILL until its lock drops).
 const HOST_GRACE: Duration = Duration::from_secs(3);
 
-pub(crate) async fn run(end_agents: bool, keep_agents: bool, json_out: bool) -> Result<()> {
+pub(crate) async fn run(
+    end_agents: bool,
+    keep_agents: bool,
+    restart: bool,
+    json_out: bool,
+) -> Result<()> {
     // `--keep-agents` is a compatibility no-op; only the explicit restart
-    // command requests service-restart signaling.
+    // command or --restart updater flag requests service-restart signaling.
     let _ = keep_agents;
-    run_on(&*TokioClock::new(), end_agents, json_out, false, false).await
+    run_on(&*TokioClock::new(), end_agents, json_out, false, restart).await
 }
 
 /// Stop and start the daemon while keeping hosted agents for handoff.

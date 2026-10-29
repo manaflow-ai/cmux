@@ -424,8 +424,8 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             Ok(())
         }
-        Command::Shutdown { end_agents, keep_agents } => {
-            crate::cli::shutdown::run(end_agents, keep_agents, json_out).await
+        Command::Shutdown { end_agents, keep_agents, restart } => {
+            crate::cli::shutdown::run(end_agents, keep_agents, restart, json_out).await
         }
         Command::DaemonRestart => crate::cli::shutdown::restart(json_out).await,
         Command::Config { show_token } => {

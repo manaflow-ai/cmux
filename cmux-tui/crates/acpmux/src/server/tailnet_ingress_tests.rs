@@ -345,3 +345,31 @@ async fn tailnet_restart_drains_device_and_waiting_ticket_with_1012() {
         }
     }
 }
+
+#[tokio::test(start_paused = true)]
+async fn tailnet_restart_interrupts_a_blocked_reply_write() {
+    use tokio_tungstenite::{WebSocketStream, tungstenite::protocol::Role as WsRole};
+    let h = hub();
+    let (device, _) = h.pairing.issue("blocked-reader", Role::Client).unwrap();
+    let (ours, theirs) = tokio::io::duplex(64);
+    let ws = WebSocketStream::from_raw_socket(ours, WsRole::Server, None).await;
+    let mut client = WebSocketStream::from_raw_socket(theirs, WsRole::Client, None).await;
+    let (_stop, stopped) = watch::channel(false);
+    let restart = super::super::WsShutdown::default();
+    let serving = tokio::spawn(device_connection(h, ws, device, stopped, restart.clone()));
+    client
+        .send(Message::Text(
+            json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}).to_string().into(),
+        ))
+        .await
+        .unwrap();
+    // Read just the frame prefix; the initialize reply is larger than the 64-byte pipe.
+    // Leave the rest unread, proving the server is already blocked in its send.
+    use tokio::io::AsyncReadExt;
+    let mut prefix = [0u8; 2];
+    client.get_mut().read_exact(&mut prefix).await.unwrap();
+    restart.close_clients();
+    let before = tokio::time::Instant::now();
+    tokio::time::timeout(Duration::from_secs(2), serving).await.unwrap().unwrap();
+    assert!(before.elapsed() <= Duration::from_secs(1), "blocked send outlived close budget");
+}

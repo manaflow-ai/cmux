@@ -550,7 +550,11 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         {
             let (term, int) = &mut stop_signals;
             tokio::select! {
-                _ = next_signal(term.as_mut()) => {},
+                // Supervisors use SIGTERM for updates and permanent stops alike. Advertise
+                // handoff: a stopped service causes one immediate retry, then normal backoff.
+                _ = next_signal(term.as_mut()) => {
+                    hub.restart_requested.store(true, std::sync::atomic::Ordering::SeqCst);
+                },
                 _ = next_signal(int.as_mut()) => {},
                 _ = hub.shutdown.notified() => {},
             }
@@ -571,12 +575,9 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     if let Some(relay) = mesh_relay {
         let _ = tokio::time::timeout(std::time::Duration::from_secs(6), relay.stop()).await;
     }
-    // Tell peers and web clients this is a service restart only for an explicit
-    // update/restart handoff. Ordinary stops use a normal WebSocket close.
-    if hub
-        .restart_requested
-        .swap(false, std::sync::atomic::Ordering::SeqCst)
-    {
+    // SIGTERM handoff and explicit updates/restarts use 1012. Explicit ordinary RPC
+    // shutdown and interactive interrupt use a normal WebSocket close.
+    if hub.restart_requested.swap(false, std::sync::atomic::Ordering::SeqCst) {
         ws_shutdown.restart();
     } else {
         ws_shutdown.normal_shutdown();
