@@ -137,7 +137,10 @@ fn a_send_during_a_daemon_handover_waits_for_the_next_daemon_and_is_delivered() 
     .spawn()
     .unwrap();
     // Let the replacement client attempt the handover before releasing the lock.
+    // It must still be waiting while the old daemon owns the lock; otherwise
+    // this test could pass without exercising the reconnect path.
     std::thread::sleep(Duration::from_millis(500));
+    assert!(send.try_wait().unwrap().is_none(), "send did not wait for the lock handover");
     // The old daemon exits.
     // SAFETY: as above.
     unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_UN) };

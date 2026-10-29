@@ -74,6 +74,21 @@ pub(crate) enum Matcher {
     Regex(regex::Regex),
 }
 
+fn remaining_timeout(started: tokio::time::Instant, timeout: Option<u64>) -> Option<u64> {
+    timeout.map(|seconds| seconds.saturating_sub(started.elapsed().as_secs()))
+}
+
+async fn resolve_id_after_update(client: &mut Arc<Client>, key: &str) -> Result<String> {
+    match resolve_id(client, key).await {
+        Ok(id) => Ok(id),
+        Err(error) if daemon_closed_error(&error) => {
+            *client = reconnect_after_update().await?;
+            resolve_id(client, key).await
+        }
+        Err(error) => Err(error),
+    }
+}
+
 impl Matcher {
     fn hit(&self, text: &str) -> Option<String> {
         match self {
@@ -97,11 +112,12 @@ fn transcript_text(t: &Transcript) -> String {
 /// `acpmux wait`: server-side state wait, or a client-side text match.
 pub(crate) async fn wait(client: Arc<Client>, opts: WaitOpts, json_out: bool) -> Result<()> {
     let mut client = client;
+    let started = tokio::time::Instant::now();
     // Resolve names first so a typo is exit 4, not a silent no-op.
     let mut ids: Vec<(String, String)> = Vec::new();
     for key in &opts.sessions {
         let key = expand_session_key(key)?;
-        let id = resolve_id(&client, &key).await?;
+        let id = resolve_id_after_update(&mut client, &key).await?;
         ids.push((key, id));
     }
     if let Some(matcher) = &opts.matcher {
@@ -110,19 +126,33 @@ pub(crate) async fn wait(client: Arc<Client>, opts: WaitOpts, json_out: bool) ->
                 AppError::usage("--match and --regex need at least one session name").into()
             );
         }
-        return wait_match(client, &ids, matcher, opts.timeout, opts.all, opts.notify, json_out)
-            .await;
+        return wait_match_after_update(
+            client,
+            &ids,
+            matcher,
+            opts.timeout,
+            opts.all,
+            opts.notify,
+            json_out,
+        )
+        .await;
     }
     let params = json!({
         "sessions": ids.iter().map(|(_, id)| id.clone()).collect::<Vec<_>>(),
         "until": opts.until,
         "all": opts.all,
-        "timeoutMs": opts.timeout.map(|s| s * 1000),
+        "timeoutMs": remaining_timeout(started, opts.timeout).map(|s| s * 1000),
     });
     let v = match client.request(method::MUX_WAIT, params.clone()).await {
         Ok(value) => value,
         Err(error) if crate::cli::output::daemon_closed_error(&error) => {
             client = crate::cli::output::reconnect_after_update().await?;
+            let params = json!({
+                "sessions": ids.iter().map(|(_, id)| id.clone()).collect::<Vec<_>>(),
+                "until": opts.until,
+                "all": opts.all,
+                "timeoutMs": remaining_timeout(started, opts.timeout).map(|s| s * 1000),
+            });
             client.request(method::MUX_WAIT, params).await?
         }
         Err(error) => return Err(error),
@@ -298,7 +328,40 @@ fn session_exit_code(s: &Value) -> i32 {
 /// Resolve when a session's transcript contains the text (with `all`,
 /// when every session's does). Existing text matches at once; then live
 /// updates are followed.
-async fn wait_match(
+async fn wait_match_after_update(
+    mut client: Arc<Client>,
+    ids: &[(String, String)],
+    matcher: &Matcher,
+    timeout: Option<u64>,
+    all: bool,
+    notify: bool,
+    json_out: bool,
+) -> Result<()> {
+    let started = tokio::time::Instant::now();
+    let mut retried = false;
+    loop {
+        match wait_match_once(
+            client.clone(),
+            ids,
+            matcher,
+            remaining_timeout(started, timeout),
+            all,
+            notify,
+            json_out,
+        )
+        .await
+        {
+            Ok(()) => return Ok(()),
+            Err(error) if !retried && daemon_closed_error(&error) => {
+                retried = true;
+                client = reconnect_after_update().await?;
+            }
+            Err(error) => return Err(error),
+        }
+    }
+}
+
+async fn wait_match_once(
     client: Arc<Client>,
     ids: &[(String, String)],
     matcher: &Matcher,

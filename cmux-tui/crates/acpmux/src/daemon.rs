@@ -1047,7 +1047,11 @@ where
         return Ok(None);
     }
 
-    let deadline = tokio::time::Instant::now() + START_BUDGET;
+    // A unit start can overlap the old daemon's graceful handover. Give the
+    // unit the same bounded window clients use for that handover, rather than
+    // failing after the shorter socket-bind budget while it still owns the
+    // lock and is waiting for the old process to exit.
+    let deadline = tokio::time::Instant::now() + HANDOVER_BUDGET;
     let mut last_start_error = None;
     let mut next_start = tokio::time::Instant::now();
     loop {
@@ -1079,7 +1083,7 @@ where
         if left.is_zero() {
             return Err(anyhow!(last_start_error.unwrap_or_else(|| {
                 format!(
-                    "acpmux.service did not provide a socket at {} within {START_BUDGET:?}",
+                    "acpmux.service did not provide a socket at {} within {HANDOVER_BUDGET:?}",
                     path.display()
                 )
             })));
