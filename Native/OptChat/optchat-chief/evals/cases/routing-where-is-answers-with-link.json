@@ -1,0 +1,58 @@
+{
+  "id": "routing-where-is-answers-with-link",
+  "group": "routing",
+  "owner": "a680",
+  "about": "\"Where is the agent on X\" gets one line: the agent id and its workspace link. No new agent, no summary of its work unless asked.",
+  "history": [
+    {
+      "kind": "user",
+      "text": "make chromium tabs faster, leo says we recompute every view's clipping each frame"
+    },
+    {
+      "kind": "talk",
+      "text": "a62 is on it: [Chromium CEF perf](cmux://workspace/ws_e327c41d), Performance group."
+    },
+    {
+      "kind": "user",
+      "text": "fix the white flash when cmux restarts"
+    },
+    {
+      "kind": "talk",
+      "text": "a63 is on it: [Fix restart white flash](cmux://workspace/ws_9f3a1c2e)."
+    }
+  ],
+  "stubs": [
+    {
+      "cmd": "control",
+      "match": "status",
+      "stdout": "outcome: done.\n- a62 [running] Chromium CEF perf: at work 40 min. [Chromium CEF perf](cmux://workspace/ws_e327c41d)\n- a63 [running] Fix restart white flash: at work 12 min. [Fix restart white flash](cmux://workspace/ws_9f3a1c2e)"
+    }
+  ],
+  "turns": [
+    {
+      "text": "wheres the agent working on chromium perf",
+      "tail": "Subagents at work now: a62, a63.",
+      "checks": [
+        {
+          "type": "reply_matches",
+          "re": "a62"
+        },
+        {
+          "type": "reply_matches",
+          "re": "ws_e327c41d"
+        },
+        {
+          "type": "not_called",
+          "cmd": "spawn"
+        },
+        {
+          "type": "max_words",
+          "n": 30
+        },
+        {
+          "type": "no_question"
+        }
+      ]
+    }
+  ]
+}

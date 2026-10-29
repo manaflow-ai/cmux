@@ -81,6 +81,40 @@ import Testing
         #expect(daemon.frames.filter { $0["cmd"] as? String == "identify" }.count == 1)
     }
 
+    /// The client's refusal code, if any, and the `agent-session-trust` frame the daemon got.
+    private func trust(serving extra: [String], ownerLink: AgentSessionAttachClient.OwnerLink?) async throws
+        -> (refusal: String?, frame: [String: Any]?) {
+        let daemon = try PresenceDaemon(capabilities: ["agent-session-attach-v1", "agent-session-trust-v1"] + extra)
+        defer { daemon.stop() }
+        let client = AgentSessionAttachClient(surface: 7) { DaemonEndpoint(socketPath: daemon.path) }
+        var refusal: String?
+        do { _ = try await client.trust(cwd: "/w", level: nil, ownerLink: ownerLink) } catch let error as AgentSessionAttachError {
+            refusal = error.code
+        }
+        await client.close()
+        return (refusal, daemon.frames.first { $0["cmd"] as? String == "agent-session-trust" })
+    }
+
+    /// Folder trust takes the start's rule, with its own capability.
+    @Test func aCloudTrustCallGoesOutOnlyOnTheOwnerAnswerOfTheSameLink() async throws {
+        let vmKind = [DaemonCapability.agentSessionTrustVMKind.rawValue]
+        #expect(vmKind == ["agent-session-trust-vm-kind-v1"])
+        let owned = try await trust(serving: vmKind, ownerLink: link(3, 3))
+        #expect(owned.refusal == nil)
+        #expect(owned.frame?["vm_kind"] as? String == "owner")
+        for (extra, answers) in [(vmKind, link(3, 4)), (vmKind, link(nil, nil)), ([], link(nil, nil))] {
+            let refused = try await trust(serving: extra, ownerLink: answers)
+            #expect(refused.refusal == "agent_session.host_unverified")
+            #expect(refused.frame == nil, "\(extra)")
+        }
+        let older = try await trust(serving: [], ownerLink: link(5, 5))
+        #expect(older.frame != nil)
+        #expect(older.frame?["vm_kind"] == nil)
+        let plain = try await trust(serving: vmKind, ownerLink: nil)
+        #expect(plain.frame != nil)
+        #expect(plain.frame?["vm_kind"] == nil)
+    }
+
     @Test func aMachineThatIsNotCloudNeedsNoAnswer() async throws {
         let plain = try await start(serving: [DaemonCapability.agentSessionStartVMKind.rawValue], ownerLink: nil)
         #expect(plain.frame != nil)

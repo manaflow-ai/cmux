@@ -900,6 +900,13 @@
    "family": "disclosure"
   },
   {
+   "name": "disclosure.folded",
+   "meaning": "A folded group whose rows are hidden (Chrome's tab group header, chevron up)",
+   "sf": "chevron.up",
+   "family": "disclosure",
+   "alias": false
+  },
+  {
    "name": "extension",
    "meaning": "Browser extension",
    "sf": "puzzlepiece.extension",
