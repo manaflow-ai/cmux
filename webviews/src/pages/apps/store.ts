@@ -84,6 +84,7 @@ export class AppsStore {
   /** Icon data URLs by `app\u0000asset`; a failed load is "" so it is not asked again. */
   private readonly icons = new Map<string, string>();
   private starting = false;
+  private lifetime = 0;
   private generation = 0;
   /** Monotonic token so a slower updates.list response cannot replace a newer one. */
   private updatesGeneration = 0;
@@ -135,31 +136,46 @@ export class AppsStore {
 
   /** Watches the owner and loads the first view. Idempotent, also while a start is in flight. */
   async start(): Promise<void> {
-    if (!this.client || this.unwatch || this.starting) return;
+    if (!this.client || this.unwatch || this.unpage || this.starting) return;
+    const lifetime = ++this.lifetime;
     this.starting = true;
     try {
-      const unwatch = await this.client.subscribe<AppsChanged>(AppsOps.watch, () => void this.reload());
-      if (!this.starting) {
-        unwatch();
-        return;
+      try {
+        const unwatch = await this.client.subscribe<AppsChanged>(AppsOps.watch, () => {
+          if (lifetime === this.lifetime) void this.reload();
+        });
+        if (lifetime !== this.lifetime) {
+          unwatch();
+          return;
+        }
+        this.unwatch = unwatch;
+      } catch (error) {
+        if (lifetime !== this.lifetime) return;
+        // Older owners without a change stream can still answer reads.
+        if (!(isPageError(error) && error.code === "cmux.protocol.unknown_op")) {
+          this.set({ connection: "disconnected", loading: false, error: message(error) });
+          return;
+        }
       }
-      this.unwatch = unwatch;
-    } catch (error) {
-      if (!(isPageError(error) && error.code === "cmux.protocol.unknown_op")) {
-        this.set({ connection: "disconnected", loading: false, error: message(error) });
-        return;
+      try {
+        const unpage = await subscribePageStreams(this.client, {
+          onConnection: (connected) => {
+            if (lifetime === this.lifetime) this.onConnection(connected);
+          },
+        });
+        if (lifetime !== this.lifetime) {
+          unpage();
+          return;
+        }
+        this.unpage = unpage;
+      } catch (error) {
+        if (lifetime !== this.lifetime) return;
+        this.set(failure(error));
       }
+      if (lifetime === this.lifetime) await this.reload();
     } finally {
-      this.starting = false;
+      if (lifetime === this.lifetime) this.starting = false;
     }
-    try {
-      this.unpage = await subscribePageStreams(this.client, {
-        onConnection: (connected) => this.onConnection(connected),
-      });
-    } catch (error) {
-      this.set(failure(error));
-    }
-    await this.reload();
   }
 
   /** The host reports the owner link: down shows the disconnected state; back up re-reads. */
@@ -173,6 +189,10 @@ export class AppsStore {
   }
 
   stop(): void {
+    ++this.lifetime;
+    ++this.generation;
+    ++this.updatesGeneration;
+    ++this.detailGeneration;
     this.unpage?.();
     this.unpage = undefined;
     this.starting = false;
