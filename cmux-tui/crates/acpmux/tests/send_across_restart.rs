@@ -400,7 +400,7 @@ fn agent_error_named_like_daemon_close_is_not_replayed() {
     let dir = scratch("agent-close-wording");
     let _shutdown = Shutdown(&dir);
     let marker = dir.join("agent-attempts");
-    let mut cmd = cli_command(&dir, &["run", "-q", "-n", "lane", "agent-daemon-closed-error"]);
+    let mut cmd = cli_command(&dir, &["--json", "run", "-q", "-n", "lane", "agent-daemon-closed-error"]);
     cmd.env("FAKE_AGENT_DAEMON_CLOSED_MARKER", &marker)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
