@@ -376,7 +376,7 @@ public struct AgentChatTranscript: View {
         .sheet(isPresented: $surface.showArtifacts) {
             SessionArtifactsSheet(store: store, surface: surface)
         }
-        .sensoryFeedback(.warning, trigger: warningTrigger)
+        .cmuxMobileSensoryFeedback(.warning, trigger: warningTrigger)
         // A live ask buzzes, and so does one a reattach caught up on (raised while the link
         // was down); one that was already waiting when the chat opened does not.
         .onChange(of: store.pendingPermission?.request.id) { _, new in
@@ -948,7 +948,9 @@ struct AnswerActionRow: View {
                     withAnimation(.cmuxMobileSnap) { copied = false }
                 }
             }
-            .sensoryFeedback(.impact(weight: .light, intensity: 0.7), trigger: copied) { _, new in new }
+            .sensoryFeedback(.impact(weight: .light, intensity: 0.7), trigger: copied) { _, new in
+                new && CmuxMobileTheme.standard.haptics.isEnabled
+            }
             ShareLink(item: turn.answerMarkdown) {
                 IconActionLabel("square.and.arrow.up")
             }

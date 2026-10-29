@@ -82,7 +82,7 @@ struct ChatComposer: View {
             guard !items.isEmpty else { return }
             Task { await loadPhotos(items) }
         }
-        .sensoryFeedback(.impact(weight: .light), trigger: sendCount)
+        .cmuxMobileSensoryFeedback(.impact(weight: .light), trigger: sendCount)
         .onChange(of: focus.wrappedValue) { _, focused in
             if focused { expandRequested = false }
         }
