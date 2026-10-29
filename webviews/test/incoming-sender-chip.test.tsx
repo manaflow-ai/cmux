@@ -1,7 +1,8 @@
-// The sender chip of another agent's message (conversation/IncomingMessageCard.tsx) goes to that
-// chat (Leo, ask-7325396234: "I THINK I WANNA BE ABLE TO CLICK ON THESE TO ACTUALLY GO TO THEM"):
-// a click opens the sender by its acpmux id, a lane on a peer found by its bare name too, and the
-// tooltip names the chat and the other machine it runs on.
+// Open chat on another agent's message line (conversation/IncomingMessageCard.tsx, the shared
+// DisclosureRow's `.cv-disclosure__open`) goes to the sender's chat (Leo, ask-7325396234: "I THINK I
+// WANNA BE ABLE TO CLICK ON THESE TO ACTUALLY GO TO THEM"): a click opens the sender by its acpmux
+// id, a lane on a peer found by its bare name too. The sender's name is plain text on the line's
+// toggle, never a button of its own; a sender no list names has no Open chat.
 import { afterAll, afterEach, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import { act } from "react";
@@ -9,7 +10,6 @@ import type { Root } from "react-dom/client";
 import { translatorFor } from "../src/agent-session/acpmux/i18n";
 import type { AcpmuxSessionEntry } from "../src/agent-session/acpmux/sessionList";
 import type { IncomingMessage } from "../src/agent-session/acpmux/conversation/incomingMessage";
-import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -60,7 +60,6 @@ const { createRoot } = await import("react-dom/client");
 const { IncomingMessageLine } = await import("../src/agent-session/acpmux/conversation/IncomingMessageCard");
 const { SubsessionContext, SubsessionStore } = await import("../src/agent-session/acpmux/subagents/subsessions");
 const { PromptMarksSession } = await import("../src/agent-session/acpmux/threadMinimap/promptMarks");
-const { WaitingMessagesCard } = await import("../src/agent-session/acpmux/conversation/WaitingMessagesCard");
 
 const t = translatorFor("en");
 const entry = (fields: Partial<AcpmuxSessionEntry> & { sessionId: string }) =>
@@ -70,6 +69,8 @@ const sessions = [
   entry({ sessionId: "mux-chief-ui", name: "huge-blue/chief-ui", peer: "huge-blue" }),
   entry({ sessionId: "mux-deputy", name: "coord-deputy", hostKind: "local" }),
 ];
+
+let nextMessageId = 0;
 
 async function line(
   message: Pick<IncomingMessage, "name" | "sessionId" | "relation">,
@@ -86,7 +87,7 @@ async function line(
       <SubsessionContext.Provider value={{ store, open: () => undefined }}>
         <PromptMarksSession.Provider value={viewer}>
           <IncomingMessageLine
-            id="row-1"
+            id={`row-${++nextMessageId}`}
             message={{ ...message, text, raw: text }}
             onOpen={(id) => void opened.push(id)}
           />
@@ -94,29 +95,39 @@ async function line(
       </SubsessionContext.Provider>,
     ),
   );
-  return { chip: host.querySelector<HTMLButtonElement>("button.cv-received__name"), opened };
+  return {
+    open: host.querySelector<HTMLButtonElement>("button.cv-disclosure__open"),
+    from: host.querySelector<HTMLElement>(".cv-received__from"),
+    toggle: host.querySelector<HTMLButtonElement>("button.cv-disclosure__toggle")!,
+    opened,
+  };
 }
 
-test("a peer lane's chip, found by its bare name, opens it and names its machine", async () => {
-  const { chip, opened } = await line({ name: "chief-ui" });
-  expect(chip?.querySelector(".acpmux-sender__name")?.textContent).toBe("chief-ui");
-  expect(chip?.title).toBe("Open chief-ui (huge-blue)");
-  expect(chip?.getAttribute("aria-label")).toBe(t("subagents.openOnHost", { name: "chief-ui", host: "huge-blue" }));
-  await act(async () => chip!.click());
+test("a peer lane, found by its bare name, opens from Open chat; its name is plain text on the toggle", async () => {
+  const { open, from, toggle, opened } = await line({ name: "chief-ui" });
+  expect(open?.textContent).toBe(t("subsession.openChat"));
+  expect(from?.querySelector(".acpmux-sender__name")?.textContent).toBe("chief-ui");
+  expect(from?.closest("button")).toBe(toggle);
+  expect(host.querySelector(".cv-received__name")).toBeNull();
+  await act(async () => open!.click());
   expect(opened).toEqual(["mux-chief-ui"]);
+  // Open chat leaves the message closed.
+  expect(toggle.getAttribute("aria-expanded")).toBe("false");
 });
 
-test("a chat on this Mac opens by the id its message gives, its tooltip naming no machine", async () => {
-  const { chip, opened } = await line({ name: "coord-deputy", sessionId: "mux-deputy" });
-  expect(chip?.title).toBe("Open coord-deputy");
-  await act(async () => chip!.click());
+test("a chat on this Mac opens by the id its message gives", async () => {
+  const { open, opened } = await line({ name: "coord-deputy", sessionId: "mux-deputy" });
+  await act(async () => open!.click());
   expect(opened).toEqual(["mux-deputy"]);
 });
 
-test("a sender no list names is no button: nothing to open", async () => {
-  const { chip } = await line({ name: "gone-lane" });
-  expect(chip).toBeNull();
-  expect(host.querySelector(".cv-received__name.is-plain")?.textContent).toBe("gone-lane");
+test("a sender no list names has no Open chat: its line only opens the message", async () => {
+  const { open, from, toggle, opened } = await line({ name: "gone-lane" });
+  expect(open).toBeNull();
+  expect(from?.textContent).toBe("gone-lane");
+  await act(async () => toggle.click());
+  expect(host.querySelector(".cv-received")?.getAttribute("data-open")).toBe("true");
+  expect(opened).toEqual([]);
 });
 
 const remote = entry({
@@ -127,56 +138,65 @@ const remote = entry({
   startedBy: "viewer",
 });
 
-test("a qualified remote sender uses its session headline in the chip, relation label and tooltip", async () => {
-  const { chip, opened } = await line({ name: remote.name!, sessionId: remote.sessionId, relation: "parent" }, [
-    remote,
-  ]);
-  expect(chip?.querySelector(".acpmux-sender__name")?.textContent).toBe("Parent · pr-row");
-  expect(chip?.querySelector(".acpmux-sender__host")?.textContent).toBe("gcp-codex-lane-10");
-  expect(chip?.title).toBe("Open pr-row (gcp-codex-lane-10)");
-  expect(chip?.getAttribute("aria-label")).toBe("Open pr-row (gcp-codex-lane-10)");
-  expect(host.querySelector(".cv-received__toggle")?.getAttribute("aria-label")).toBe(
-    t("message.label", { from: "Parent · pr-row", to: t("message.self") }),
+test("a qualified remote sender uses its session headline in the disclosure, relation label and tooltip", async () => {
+  const { open, from, toggle, opened } = await line(
+    { name: remote.name!, sessionId: remote.sessionId, relation: "parent" },
+    [remote],
   );
-  await act(async () => chip!.click());
+  expect(from?.querySelector(".acpmux-sender__name")?.textContent).toBe("Parent · pr-row");
+  expect(from?.querySelector(".acpmux-sender__host")?.textContent).toBe("gcp-codex-lane-10");
+  expect(open?.title).toBe("Open pr-row (gcp-codex-lane-10)");
+  expect(toggle.getAttribute("aria-label")).toBe(
+    t("message.collapsedLabel", { from: "Parent · pr-row", preview: "Rebased; ready for review." }),
+  );
+  await act(async () => toggle.click());
+  expect(host.querySelector(".cv-received__from-line")?.textContent).toBe(
+    t("message.fromHeader", { name: "Parent · pr-row" }),
+  );
+  await act(async () => open!.click());
   expect(opened).toEqual([remote.sessionId]);
 });
 
 test("a sender found only by its name gains no child relationship", async () => {
-  const { chip } = await line({ name: remote.name! }, [remote]);
-  expect(chip?.querySelector(".acpmux-sender__name")?.textContent).toBe("pr-row");
-  expect(chip?.textContent).not.toContain("Sub-session");
-  expect(chip?.title).toBe("Open pr-row (gcp-codex-lane-10)");
+  const { open, from } = await line({ name: remote.name! }, [remote]);
+  expect(from?.querySelector(".acpmux-sender__name")?.textContent).toBe("pr-row");
+  expect(from?.textContent).not.toContain("Sub-session");
+  expect(open?.title).toBe("Open pr-row (gcp-codex-lane-10)");
 });
 
-test("a batched peer message card uses canonical sender headlines and secondary hosts", async () => {
+test("consecutive peer messages keep independent disclosures with canonical senders and secondary hosts", async () => {
   const store = new SubsessionStore();
   store.set([remote]);
-  const message = { name: remote.name!, sessionId: remote.sessionId, text: "Ready.", raw: "Ready." };
-  const rows: AcpmuxRow[] = [1, 2].map((index) => ({
-    id: `queued-${index}`,
-    version: 1,
-    at: index,
-    kind: "queuedMessage",
-    incoming: { kind: "message", message },
-  }));
-  const row: AcpmuxRow = {
-    id: "batch",
-    version: 1,
-    at: 1,
-    kind: "waitingMessages",
-    waiting: { delivery: "turn", rows },
-  };
   root = createRoot(host);
   await act(async () =>
     root!.render(
       <SubsessionContext.Provider value={{ store, open: () => undefined }}>
-        <WaitingMessagesCard row={row} renderMessage={() => null} />
+        {[1, 2].map((index) => (
+          <IncomingMessageLine
+            key={index}
+            id={`received-${index}`}
+            message={{
+              name: remote.name!,
+              sessionId: remote.sessionId,
+              text: `Report ${index}`,
+              raw: `Report ${index}`,
+            }}
+            onOpen={() => undefined}
+          />
+        ))}
       </SubsessionContext.Provider>,
     ),
   );
-  expect(host.querySelectorAll(".cv-waiting__sender")).toHaveLength(1);
-  expect(host.querySelector(".cv-waiting__sender .acpmux-sender__name")?.textContent).toBe("pr-row");
-  expect(host.querySelector(".cv-waiting__sender .acpmux-sender__host")?.textContent).toBe("gcp-codex-lane-10");
-  expect(host.querySelector(".cv-waiting__toggle")?.getAttribute("title")).toBe("pr-row (gcp-codex-lane-10)");
+  expect(host.querySelectorAll(".cv-received")).toHaveLength(2);
+  expect(
+    Array.from(host.querySelectorAll(".cv-received__from .acpmux-sender__name"), (node) => node.textContent),
+  ).toEqual(["pr-row", "pr-row"]);
+  expect(
+    Array.from(host.querySelectorAll(".cv-received__from .acpmux-sender__host"), (node) => node.textContent),
+  ).toEqual(["gcp-codex-lane-10", "gcp-codex-lane-10"]);
+  const toggles = host.querySelectorAll<HTMLButtonElement>(".cv-disclosure__toggle");
+  await act(async () => toggles[1]!.click());
+  expect(toggles[0]!.getAttribute("aria-expanded")).toBe("false");
+  expect(toggles[1]!.getAttribute("aria-expanded")).toBe("true");
+  expect(host.querySelector(".cv-received__text")?.textContent).toBe("Report 2");
 });

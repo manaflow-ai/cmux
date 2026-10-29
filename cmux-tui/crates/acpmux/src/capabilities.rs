@@ -71,6 +71,11 @@ pub const CAPABILITIES: &[Capability] = &[
             method::MUX_SECRET_SUBMIT,
         ],
     },
+    Capability { id: "machine.join.stdin.v1", wire: &[] },
+    Capability {
+        id: "machine-consent-v1",
+        wire: &[method::MUX_MACHINE_CONSENT_SET, method::MUX_MACHINE_CONSENT_GET],
+    },
     // Owner-VM Codex app-server bridge: access-only external tokens are read
     // from the private broker file and never exposed through ACP frames.
     Capability {
@@ -162,6 +167,8 @@ pub const CAPABILITIES: &[Capability] = &[
     Capability { id: "session-offers-v1", wire: &[method::MUX_OFFER_RESPOND] },
     // Reconnect a Claude Code chat's MCP server (`hub/tools.rs`).
     Capability { id: "mcp-reconnect-v1", wire: &[method::MUX_MCP_RECONNECT] },
+    // A chat's sign-in before a send, by session or target (`hub/session_auth.rs`).
+    Capability { id: "session-auth-v1", wire: &[method::MUX_SESSION_AUTH] },
 ];
 
 /// The ids of [`CAPABILITIES`], in its order.
@@ -191,12 +198,16 @@ mod tests {
     fn every_id_is_stable_shaped_and_listed_once() {
         let mut seen = BTreeSet::new();
         for id in ids() {
-            let (name, version) = id.rsplit_once("-v").unwrap_or_else(|| panic!("{id} has no -vN"));
+            let (name, version) = id
+                .rsplit_once("-v")
+                .or_else(|| id.rsplit_once(".v"))
+                .unwrap_or_else(|| panic!("{id} has no version suffix"));
             assert!(
                 !name.is_empty()
-                    && name
-                        .bytes()
-                        .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+                    && name.bytes().all(|b| b.is_ascii_lowercase()
+                        || b.is_ascii_digit()
+                        || b == b'-'
+                        || b == b'.')
                     && !version.is_empty()
                     && version.bytes().all(|b| b.is_ascii_digit()),
                 "{id} is not a lowercase-kebab id ending in -vN"
@@ -213,6 +224,11 @@ mod tests {
         let registry: BTreeSet<&str> =
             crate::protocol::registry().iter().map(|decl| decl.name).collect();
         for capability in CAPABILITIES {
+            // Machine onboarding is CLI-only and has no daemon wire method.
+            if capability.id == "machine.join.stdin.v1" {
+                assert!(capability.wire.is_empty());
+                continue;
+            }
             assert!(!capability.wire.is_empty(), "{} covers nothing", capability.id);
             for name in capability.wire {
                 assert!(

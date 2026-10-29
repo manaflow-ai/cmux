@@ -5,7 +5,9 @@
 //! (`peer_link.rs`).
 
 use crate::no_panic::LockExt;
-use crate::peer_link::{Backoff, Link, LinkTimings, PeerState};
+use crate::peer_link::{
+    Backoff, Link, LinkTimings, PeerState, SleepWatch, WAKE_PROBE, write_deadline,
+};
 use crate::rpc::{Message, RpcError, method};
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};
@@ -22,6 +24,10 @@ mod health;
 #[cfg(test)]
 #[path = "peer_state_tests.rs"]
 mod state_tests;
+
+#[cfg(test)]
+#[path = "peer_restart_tests.rs"]
+mod restart_tests;
 
 /// Source of `Peer::generation`.
 static NEXT_GENERATION: AtomicU64 = AtomicU64::new(1);
@@ -51,6 +57,8 @@ pub fn hidden_attach(id: &str) -> Value {
 pub enum PeerNotice {
     Connected,
     Disconnected(String),
+    /// The remote daemon sent WebSocket Close 1012; its rows stay usable while it restarts.
+    Restarting,
     /// Full session list from `_acpmux/watch` or a single `session_changed`.
     Sessions(Vec<Value>),
     SessionChanged {
@@ -66,6 +74,24 @@ pub enum PeerNotice {
     },
 }
 
+/// How a backoff wait between attempts ended (`Peer::wait_backoff`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BackoffWait {
+    /// The delay passed.
+    Done,
+    /// This computer slept through it: the attempt goes now.
+    Woke,
+    /// The peer was stopped.
+    Stopped,
+}
+
+/// A deliberate restart is not a transport failure and does not advance retry backoff.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LinkEnd {
+    Stopped,
+    Restarting,
+}
+
 pub struct Peer {
     pub name: String,
     /// Unique per `Peer` instance; a replacement under the same name gets a
@@ -77,6 +103,7 @@ pub struct Peer {
     peer_token: Option<String>,
     /// The `ssh -W` process carrying an `ssh://` peer's current connection.
     tunnel: Mutex<Option<tokio::process::Child>>,
+    wireguard: std::sync::OnceLock<(Arc<crate::wireguard::Transport>, std::net::SocketAddr)>,
     /// Outbound frames, each tagged with the link epoch it was admitted on:
     /// `serve` drops one whose link is gone, so it never goes out on the next,
     /// and `fail_link_requests` fails the request it carries as not sent.
@@ -109,6 +136,20 @@ pub struct Peer {
     /// `vmBoundary`, `hub/vm_boundary.rs`): each `session/new` it forwards
     /// says `vmBoundary: true`.
     vm_boundary: AtomicBool,
+    /// This Mac lends the peer its GitHub login (`PeerConfig` `githubBroker`,
+    /// `github_broker.rs`), and how many of its actions may run at once: the slots of its name
+    /// (`owner_slots`), which a reconnect's new peer shares with the old one.
+    github_broker: AtomicBool,
+    github_slots: Arc<tokio::sync::Semaphore>,
+    /// The link (`link_epoch` + 1; 0 for none) whose handshake's watch was answered by the peer
+    /// serving this daemon as a peer: the only link a GitHub action is taken on.
+    github_link: AtomicU64,
+    /// Wakes this peer's running GitHub actions when lending ends (`githubBroker` off, the link
+    /// ended, the peer stopped), so they stop then rather than run on.
+    github_revoked: tokio::sync::Notify,
+    /// The cmux sign-in the app lent this daemon, for an App token when `gh` has no keyring
+    /// login (`github_app_token.rs`); set once by the hub.
+    github_app: std::sync::OnceLock<Arc<crate::github_app_token::AppLease>>,
     /// Whether the peer takes `_acpmux/file_put` (`hub/file_uploads.rs`).
     file_put: AtomicBool,
     /// It lists `filePutChunks` (`hub/file_uploads.rs`).
@@ -126,6 +167,8 @@ pub struct Peer {
     prompt_uploads: AtomicBool,
     /// The peer lists `uploadResume` (`hub/file_uploads.rs`).
     upload_resume: AtomicBool,
+    /// The peer lists `sessionAuth` (`hub/session_auth.rs`).
+    session_auth: AtomicBool,
     /// The peer token was held back: the transport is plain `ws://` to a
     /// host that is not loopback (`carries_peer_token`). Logged once.
     withheld: AtomicBool,
@@ -178,6 +221,7 @@ impl Peer {
             token,
             peer_token,
             tunnel: Mutex::new(None),
+            wireguard: std::sync::OnceLock::new(),
             out,
             out_rx: Mutex::new(Some(out_rx)),
             next_id: AtomicI64::new(1),
@@ -191,6 +235,11 @@ impl Peer {
             person_instance: StdMutex::new(None),
             trust_gate: AtomicBool::new(false),
             vm_boundary: AtomicBool::new(false),
+            github_broker: AtomicBool::new(false),
+            github_slots: crate::github_broker::owner_slots(name),
+            github_link: AtomicU64::new(0),
+            github_revoked: tokio::sync::Notify::new(),
+            github_app: std::sync::OnceLock::new(),
             file_put: AtomicBool::new(false),
             file_put_chunks: AtomicBool::new(false),
             media_read: AtomicBool::new(false),
@@ -199,6 +248,7 @@ impl Peer {
             send_attach: AtomicBool::new(false),
             prompt_uploads: AtomicBool::new(false),
             upload_resume: AtomicBool::new(false),
+            session_auth: AtomicBool::new(false),
             withheld: AtomicBool::new(false),
             presented: StdMutex::new(None),
             admitting: AtomicBool::new(false),
@@ -216,6 +266,14 @@ impl Peer {
             health_asking: AtomicBool::new(false),
             watch_key: StdMutex::new(None),
         })
+    }
+
+    pub(crate) fn set_wireguard(
+        &self,
+        transport: Arc<crate::wireguard::Transport>,
+        address: std::net::SocketAddr,
+    ) {
+        let _ = self.wireguard.set((transport, address));
     }
 
     pub fn link(&self) -> Link {
@@ -479,6 +537,84 @@ impl Peer {
         self.vm_boundary.load(Ordering::SeqCst)
     }
 
+    /// From its config (`Hub::spawn_peer`, a reload): whether this Mac lends the peer its
+    /// GitHub login. Read again for each action, so turning it off holds at once.
+    pub fn set_github_broker(&self, on: bool) {
+        self.github_broker.store(on, Ordering::SeqCst);
+        if !on {
+            self.github_revoked.notify_waiters();
+        }
+    }
+
+    /// Whether this Mac lends the peer GitHub now: its config says so, and the link is one an
+    /// on-path machine cannot pose as (`lends_over`).
+    pub fn github_broker(&self) -> bool {
+        self.github_broker.load(Ordering::SeqCst) && lends_over(&self.url)
+    }
+
+    /// The hub's lent cmux sign-in (`github_app_token.rs`).
+    pub fn set_github_app(&self, app: Arc<crate::github_app_token::AppLease>) {
+        let _ = self.github_app.set(app);
+    }
+
+    /// Whether the link `link` (the epoch it was read on) takes a GitHub action now: lent, the
+    /// peer not stopped, `link` still the live one, and its handshake finished with the peer
+    /// serving this daemon as a peer (not Web), so nothing sent before or around it is.
+    fn github_ready(&self, link: u64) -> bool {
+        self.github_broker()
+            && !self.stop.load(Ordering::SeqCst)
+            && self.link_epoch() == link
+            && self.github_link.load(Ordering::SeqCst) == link + 1
+    }
+
+    /// The peer's daemon asked for a GitHub action (`github_broker.rs`) and `admit_owner` let it
+    /// in on `link` (the epoch it was read on): run it, and answer on that link, never on a
+    /// later one.
+    fn serve_github_action(
+        self: &Arc<Self>,
+        id: Value,
+        params: Value,
+        slot: tokio::sync::OwnedSemaphorePermit,
+        link: u64,
+    ) {
+        let me = self.clone();
+        let epoch = link;
+        // The slot is held until the answer is queued, within the request budget: at most
+        // `OWNER_SLOTS` of these tasks exist per peer name, across reconnects, even when the link
+        // stops reading.
+        tokio::spawn(async move {
+            // Lending that ends while it runs (`githubBroker` off, the peer removed, the link
+            // ended) stops it: its `gh` is killed (`kill_on_drop`), and a link still up is told.
+            let revoked = me.github_revoked.notified();
+            tokio::pin!(revoked);
+            revoked.as_mut().enable();
+            // Lending that ended between the admission and here (the link ended, the peer was
+            // stopped or removed, `githubBroker` off) starts nothing.
+            if !me.github_ready(epoch) {
+                return;
+            }
+            let app = me.github_app.get().map(Arc::as_ref);
+            let reply = tokio::select! {
+                reply = crate::github_broker::serve_owner(&me.name, params, app) => reply,
+                () = &mut revoked => {
+                    let Err(e) = crate::github_broker::admit_owner(&me.name, false, &me.github_slots) else {
+                        return;
+                    };
+                    Err(e)
+                }
+            };
+            let msg = match reply {
+                Ok(v) => Message::ok(id, v),
+                Err(e) => Message::err(id, e),
+            };
+            if let Ok(line) = msg.bounded_line() {
+                let frame = Outbound { epoch, key: None, line };
+                let _ = tokio::time::timeout(me.timings.request, me.out.send(frame)).await;
+            }
+            drop(slot);
+        });
+    }
+
     pub fn supports_trust_gate(&self) -> bool {
         self.trust_gate.load(Ordering::SeqCst)
     }
@@ -506,6 +642,7 @@ impl Peer {
     /// A connection to the peer ended: what the peer kept for it is gone.
     pub(crate) fn link_ended(&self) {
         self.link_epoch.fetch_add(1, Ordering::SeqCst);
+        self.github_revoked.notify_waiters();
     }
 
     /// Whether the peer said at its last handshake that it serves subagent transcripts.
@@ -527,6 +664,11 @@ impl Peer {
     /// finish's `sha256` (`hub/file_uploads.rs`).
     pub fn supports_upload_resume(&self) -> bool {
         self.upload_resume.load(Ordering::SeqCst)
+    }
+
+    /// Whether the peer said at its last handshake that it answers `_acpmux/session/auth`.
+    pub fn supports_session_auth(&self) -> bool {
+        self.session_auth.load(Ordering::SeqCst)
     }
 
     /// The WebSocket is open and the handshake has not finished.
@@ -697,35 +839,75 @@ impl Peer {
         };
         while !self.stop.load(Ordering::SeqCst) {
             let outcome = self.connect_once(&mut out_rx).await;
-            // Before the link goes down, so the state note of the drop names why.
-            if let Err(e) = &outcome {
-                *self.last_error.lock_or_recover() = Some(e.clone());
-            }
-            // The epoch moves first: a handshake that marks the link ready checks it after,
-            // so `connected` never stays true for a link that is gone.
-            self.link_ended();
-            self.open.store(false, Ordering::SeqCst);
-            self.connected.store(false, Ordering::SeqCst);
-            // A link that held a while starts over; one that flaps (up, then
-            // reset seconds later) keeps backing off, so a loaded host is
-            // not hit with a reconnect every second.
-            if self.with_link(|l| l.down(crate::store::now_ms(), self.timings.stable_after)) {
-                backoff.reset();
-            }
-            if let Err(e) = outcome {
-                let notice = PeerNotice::Disconnected(e);
+            let restarting = matches!(&outcome, Ok(LinkEnd::Restarting));
+            if let Some(notice) = self.finish_link(outcome, &mut backoff) {
                 let _ = self.notices.send((self.name.clone(), self.generation, notice)).await;
             }
             self.fail_link_requests(&mut out_rx).await;
             if self.stop.load(Ordering::SeqCst) {
                 break;
             }
+            // One immediate attempt for this Close 1012. If that attempt fails, it follows
+            // the unchanged real-failure backoff; restarting is not a persistent retry mode.
+            if restarting {
+                continue;
+            }
             let delay = backoff.next(crate::peer_link::jitter());
-            tokio::select! {
-                _ = tokio::time::sleep(delay) => {}
-                _ = self.stop_signal.notified() => break,
+            match self.wait_backoff(delay).await {
+                BackoffWait::Done => {}
+                // The network that failed before the sleep may take a moment to come back: the
+                // next attempts are quick ones again.
+                BackoffWait::Woke => backoff.reset(),
+                BackoffWait::Stopped => break,
             }
         }
+    }
+
+    /// Waits out one backoff delay. A wait that this
+    /// computer slept through ends at the wake, with the backoff started over: the delay ran on
+    /// the monotonic clock, which stood still, so the attempt would otherwise come up to a
+    /// minute after the wake, while the network that failed before the sleep is likely back.
+    async fn wait_backoff(&self, delay: Duration) -> BackoffWait {
+        let deadline = tokio::time::Instant::now() + delay;
+        let mut watch = SleepWatch::now();
+        loop {
+            let check = (tokio::time::Instant::now() + SleepWatch::EVERY).min(deadline);
+            tokio::select! {
+                _ = tokio::time::sleep_until(check) => {
+                    if let Some(slept) = watch.check() {
+                        tracing::info!(peer = %self.name, "this computer slept {}s; reconnecting now", slept.as_secs());
+                        return BackoffWait::Woke;
+                    }
+                    if tokio::time::Instant::now() >= deadline {
+                        return BackoffWait::Done;
+                    }
+                }
+                _ = self.stop_signal.notified() => return BackoffWait::Stopped,
+            }
+        }
+    }
+
+    /// Publish the link ending before settling requests. Restart neither increments failed
+    /// attempts nor resets/draws from backoff, even when the previous link was stable.
+    fn finish_link(
+        &self,
+        outcome: Result<LinkEnd, String>,
+        backoff: &mut Backoff,
+    ) -> Option<PeerNotice> {
+        *self.last_error.lock_or_recover() = outcome.as_ref().err().cloned();
+        // The epoch moves first: a finishing handshake cannot leave a dead link ready.
+        self.link_ended();
+        self.open.store(false, Ordering::SeqCst);
+        self.connected.store(false, Ordering::SeqCst);
+        if matches!(&outcome, Ok(LinkEnd::Restarting)) {
+            self.with_link(|l| l.restarting(crate::store::now_ms()));
+            return Some(PeerNotice::Restarting);
+        }
+        // A genuinely stable link starts failure backoff over; a flapping one does not.
+        if self.with_link(|l| l.down(crate::store::now_ms(), self.timings.stable_after)) {
+            backoff.reset();
+        }
+        outcome.err().map(PeerNotice::Disconnected)
     }
 
     /// The link ended. A request that never went out on it (still queued, or waiting for room
@@ -752,9 +934,54 @@ impl Peer {
     async fn connect_once(
         self: &Arc<Self>,
         out_rx: &mut mpsc::Receiver<Outbound>,
-    ) -> Result<(), String> {
+    ) -> Result<LinkEnd, String> {
+        // An SSH peer may source this launch's application credentials over
+        // SSH. Resolve them before WG too, or a remote-origin handshake can
+        // reread a newer peer token and reconnect forever with the old one.
+        let ssh_tokens = if self.wireguard.get().is_some() && self.ssh_parts().is_some() {
+            Some(self.remote_tokens_settled().await?)
+        } else {
+            None
+        };
+        let credentials = ssh_tokens
+            .as_ref()
+            .map(|(token, peer)| (token.as_str(), peer.as_deref()))
+            .or_else(|| self.token.as_deref().map(|token| (token, self.peer_token.as_deref())));
+        if let Some((transport, address)) = self.wireguard.get()
+            && let Some((token, peer_token)) = credentials
+        {
+            let req = self.ws_request(
+                &format!("ws://localhost:{}", address.port()),
+                Some(token),
+                peer_token,
+            )?;
+            let opening = async {
+                let stream = transport.connect(*address).await.map_err(|e| e.to_string())?;
+                tokio_tungstenite::client_async_with_config(
+                    req,
+                    stream,
+                    Some(crate::server::ws_config()),
+                )
+                .await
+                .map_err(|e| e.to_string())
+            };
+            let opened = tokio::select! {
+                biased;
+                _ = self.stop_signal.notified() => return Err("peer stopped".to_owned()),
+                result = tokio::time::timeout(self.timings.connect, opening) => result,
+            };
+            if let Ok(Ok((ws, _))) = opened {
+                *self.presented.lock().unwrap_or_else(|e| e.into_inner()) =
+                    peer_token.map(str::to_owned);
+                return self.serve(ws, out_rx).await;
+            }
+            tracing::debug!(peer = %self.name, "WireGuard unavailable; trying the configured peer route");
+        }
         if self.ssh_parts().is_some() {
-            let (token, peer_token) = self.remote_tokens_settled().await?;
+            let (token, peer_token) = match ssh_tokens {
+                Some(tokens) => tokens,
+                None => self.remote_tokens_settled().await?,
+            };
             *self.presented.lock().unwrap_or_else(|e| e.into_inner()) = peer_token.clone();
             let (stream, remote_port) = self.open_tunnel().await?;
             let req = self.ws_request(
@@ -828,7 +1055,7 @@ impl Peer {
         self: &Arc<Self>,
         ws: tokio_tungstenite::WebSocketStream<S>,
         out_rx: &mut mpsc::Receiver<Outbound>,
-    ) -> Result<(), String>
+    ) -> Result<LinkEnd, String>
     where
         S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
     {
@@ -847,13 +1074,12 @@ impl Peer {
         let me = self.clone();
         let (stale_tx, mut stale_rx) = oneshot::channel::<String>();
         let handshake = tokio::spawn(async move {
-            let init = me
-                .link_request_on(
-                    method::INITIALIZE,
-                    json!({"protocolVersion": 1, "clientCapabilities": {}, "clientInfo": {"name": CLIENT_NAME, "version": crate::hub::VERSION}}),
-                    Some(link),
-                )
-                .await?;
+            let mut hello = json!({"protocolVersion": 1, "clientCapabilities": {}, "clientInfo": {"name": CLIENT_NAME, "version": crate::hub::VERSION}});
+            // This Mac lends the peer its GitHub login (`hub/github_owner.rs` on the peer).
+            if me.github_broker() {
+                hello["_meta"] = json!({"acpmux": {"githubBroker": true}});
+            }
+            let init = me.link_request_on(method::INITIALIZE, hello, Some(link)).await?;
             let v = init
                 .pointer("/_meta/acpmux/version")
                 .and_then(Value::as_str)
@@ -897,8 +1123,15 @@ impl Peer {
             me.prompt_uploads.store(lists(crate::prompt_uploads::FEATURE), Ordering::SeqCst);
             let resume = lists(crate::hub::file_uploads::RESUME_FEATURE);
             me.upload_resume.store(resume, Ordering::SeqCst);
+            let auth = lists(crate::hub::session_auth::FEATURE);
+            me.session_auth.store(auth, Ordering::SeqCst);
             // The reader published the reply's list (`watch_key`), so Connected follows it.
-            me.link_request_on(method::MUX_WATCH, json!({"enabled": true}), Some(link)).await?;
+            me.link_request_on(
+                method::MUX_WATCH,
+                json!({"enabled": true, "withTools": true}),
+                Some(link),
+            )
+            .await?;
             // Connected only now, and ready with it, so its state note follows `connected`.
             // `run` moves the epoch on before it clears `connected` and takes the link down, so
             // a link that dropped meanwhile is seen here: it is not made ready again, and never
@@ -941,12 +1174,44 @@ impl Peer {
         let mut ticks: u64 = 0;
         let handshake_deadline = tokio::time::sleep(timings.handshake);
         tokio::pin!(handshake_deadline);
+        // After this computer slept, the link's monotonic timers say its last frame came moments
+        // ago, while its ssh tunnel has often died: a ping goes out at once, and the link is
+        // dropped (and redialed) when nothing answers within `WAKE_PROBE`, rather than after the
+        // ssh keepalive or the whole silence budget. Stops with the link.
+        let mut wake_watch = SleepWatch::now();
+        let mut wake_check = tokio::time::interval_at(
+            tokio::time::Instant::now() + SleepWatch::EVERY,
+            SleepWatch::EVERY,
+        );
+        wake_check.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        let mut wake_probe: Option<tokio::time::Instant> = None;
+        // The clocks are read before every write too, not only on `wake_check`'s tick: after a wake
+        // the regular ping's tick may be served first, and its write must be held to the probe's
+        // deadline, never the whole send budget.
+        macro_rules! check_wake {
+            () => {
+                if let Some(slept) = wake_watch.check() {
+                    tracing::info!(peer = %self.name, "this computer slept {}s; checking the link", slept.as_secs());
+                    // One deadline for the ping to go out and its answer to come back.
+                    let deadline = tokio::time::Instant::now() + WAKE_PROBE;
+                    match tokio::time::timeout_at(deadline, sink.send(Frame::Ping(Vec::new().into()))).await {
+                        Ok(Ok(())) => wake_probe = Some(deadline),
+                        Ok(Err(e)) => break Err(e.to_string()),
+                        Err(_) => break Err(stopped_reading(WAKE_PROBE)),
+                    }
+                }
+            };
+        }
         let result = loop {
             if self.stop.load(Ordering::SeqCst) {
-                break Ok(());
+                break Ok(LinkEnd::Stopped);
             }
             tokio::select! {
-                _ = self.stop_signal.notified() => break Ok(()),
+                _ = self.stop_signal.notified() => break Ok(LinkEnd::Stopped),
+                _ = wake_check.tick() => check_wake!(),
+                _ = tokio::time::sleep_until(wake_probe.unwrap_or_else(tokio::time::Instant::now)), if wake_probe.is_some() => {
+                    break Err(format!("no answer {}s after this computer woke", WAKE_PROBE.as_secs()));
+                }
                 // Once only: a finished oneshot is not polled again.
                 stale = &mut stale_rx, if !stale_settled => {
                     stale_settled = true;
@@ -965,10 +1230,12 @@ impl Peer {
                     if silent >= timings.ping_every {
                         self.with_link(Link::overdue);
                     }
-                    match tokio::time::timeout(budget, sink.send(Frame::Ping(Vec::new().into()))).await {
+                    check_wake!();
+                    let until = write_deadline(tokio::time::Instant::now(), budget, wake_probe);
+                    match tokio::time::timeout_at(until, sink.send(Frame::Ping(Vec::new().into()))).await {
                         Ok(Ok(())) => {}
                         Ok(Err(e)) => break Err(e.to_string()),
-                        Err(_) => break Err(stopped_reading(budget)),
+                        Err(_) => break Err(write_late(budget, wake_probe)),
                     }
                     ticks += 1;
                     if ticks.is_multiple_of(health::HEALTH_EVERY) && self.link().is_ready() {
@@ -979,10 +1246,14 @@ impl Peer {
                     let Some(frame) = frame else { break Err("peer closed the connection".to_owned()) };
                     let frame = match frame { Ok(f) => f, Err(e) => break Err(e.to_string()) };
                     last_frame = tokio::time::Instant::now();
+                    wake_probe = None;
                     self.with_link(|l| l.heard(crate::store::now_ms()));
                     let text = match frame {
                         tokio_tungstenite::tungstenite::Message::Text(t) => t.to_string(),
-                        tokio_tungstenite::tungstenite::Message::Close(_) => break Err("peer closed the connection".to_owned()),
+                        Frame::Close(Some(close)) if close.code == tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode::Restart => {
+                            break Ok(LinkEnd::Restarting);
+                        }
+                        Frame::Close(_) => break Err("peer closed the connection".to_owned()),
                         _ => continue,
                     };
                     let Ok(msg) = Message::parse(&text) else { continue };
@@ -995,10 +1266,17 @@ impl Peer {
                             let Some(tx) = tx else { continue };
                             let reply = match error { Some(e) => Err(e), None => Ok(result.unwrap_or(Value::Null)) };
                             let watch = self.watch_key.lock_or_recover().take_if(|k| *k == key).is_some();
+                            // The handshake's last step answered on this link, as a peer serving
+                            // this daemon: GitHub actions are taken from here on, and the
+                            // added machine asks only after sending this answer
+                            // (`hub/github_owner.rs`).
+                            if watch && reply.is_ok() && self.served_as().as_deref() == Some("peer") {
+                                self.github_link.store(link + 1, Ordering::SeqCst);
+                            }
                             if let (true, Ok(list)) = (watch, &reply) {
                                 let notice = PeerNotice::Sessions(watch_sessions(list));
                                 if self.notices.send((self.name.clone(), self.generation, notice)).await.is_err() {
-                                    break Ok(());
+                                    break Ok(LinkEnd::Stopped);
                                 }
                             }
                             let _ = tx.send(reply);
@@ -1024,39 +1302,81 @@ impl Peer {
                                 PeerNotice::Notification { method: m, params: p, link: self.link_epoch() }
                             };
                             if self.notices.send((self.name.clone(), self.generation, notice)).await.is_err() {
-                                break Ok(());
+                                break Ok(LinkEnd::Stopped);
+                            }
+                        }
+                        Message::Request { id, method: m, params } if m == method::MUX_GITHUB_ACTION => {
+                            // Refused here, before anything is spawned, unless this Mac lends the
+                            // peer GitHub, the handshake on this link finished, and a slot is free.
+                            let admitted = crate::github_broker::admit_owner(&self.name, self.github_ready(link), &self.github_slots);
+                            match admitted {
+                                Ok(slot) => self.serve_github_action(id, params.unwrap_or(Value::Null), slot, link),
+                                Err(e) => {
+                                    // Bounded like any frame: a peer that asks and never reads
+                                    // cannot hold this loop.
+                                    let refusal = Frame::Text(Message::err(id, e).to_value().to_string().into());
+                                    match tokio::time::timeout(budget, sink.send(refusal)).await {
+                                        Ok(Ok(())) => {}
+                                        Ok(Err(e)) => break Err(e.to_string()),
+                                        Err(_) => break Err(stopped_reading(budget)),
+                                    }
+                                }
                             }
                         }
                         Message::Request { id, .. } => {
-                            // acpmux does not send requests to clients today.
-                            let _ = sink.send(tokio_tungstenite::tungstenite::Message::Text(
+                            // Any other request from the peer: the broker's is the only one.
+                            let refusal = Frame::Text(
                                 Message::err(id, RpcError::method_not_found("client-side request")).to_value().to_string().into(),
-                            )).await;
+                            );
+                            match tokio::time::timeout(budget, sink.send(refusal)).await {
+                                Ok(Ok(())) => {}
+                                Ok(Err(e)) => break Err(e.to_string()),
+                                Err(_) => break Err(stopped_reading(budget)),
+                            }
                         }
                     }
                 }
                 line = out_rx.recv() => {
-                    let Some(Outbound { epoch, key, line }) = line else { break Ok(()) };
+                    let Some(Outbound { epoch, key, line }) = line else { break Ok(LinkEnd::Stopped) };
                     // Admitted on a link that went down: its caller was failed
                     // with that link, so it never goes out on this one.
                     if epoch != self.link_epoch() {
                         continue;
                     }
+                    // Before the frame is marked: a link a wake check drops never had it.
+                    check_wake!();
                     // Marked before the write: a frame that is partly written may still run.
                     if let Some(key) = key {
                         self.on_wire.lock_or_recover().insert(key);
                     }
                     let text = line.trim_end_matches('\n').to_owned();
-                    match tokio::time::timeout(budget, sink.send(Frame::Text(text.into()))).await {
+                    let until = write_deadline(tokio::time::Instant::now(), budget, wake_probe);
+                    match tokio::time::timeout_at(until, sink.send(Frame::Text(text.into()))).await {
                         Ok(Ok(())) => {}
                         Ok(Err(e)) => break Err(e.to_string()),
-                        Err(_) => break Err(stopped_reading(budget)),
+                        Err(_) => break Err(write_late(budget, wake_probe)),
                     }
                 }
             }
         };
         handshake.abort();
         result
+    }
+}
+
+/// Whether GitHub may be lent over a link to `url`: ssh (what Add Machine saves) or TLS, or a
+/// plain WebSocket only on this machine's loopback. Over plain `ws://` to another host the
+/// handshake that makes a link a peer could come from anything on the path.
+fn lends_over(url: &str) -> bool {
+    let Ok(u) = reqwest::Url::parse(url) else { return false };
+    let host = u.host_str().unwrap_or("").trim_start_matches('[').trim_end_matches(']');
+    match u.scheme() {
+        "ssh" => ssh_target(url).is_ok(),
+        "wss" => true,
+        "ws" => {
+            host == "localhost" || host.parse::<std::net::IpAddr>().is_ok_and(|ip| ip.is_loopback())
+        }
+        _ => false,
     }
 }
 
@@ -1113,6 +1433,17 @@ fn connect_timed_out(after: Duration) -> String {
 
 fn stopped_reading(budget: Duration) -> String {
     format!("peer stopped reading (a send waited {}s)", budget.as_secs())
+}
+
+/// Why a write that timed out (`write_deadline`) dropped the link: a wake probe whose deadline
+/// passed, else the send budget.
+fn write_late(budget: Duration, wake_probe: Option<tokio::time::Instant>) -> String {
+    match wake_probe {
+        Some(probe) if probe <= tokio::time::Instant::now() => {
+            format!("no answer {}s after this computer woke", WAKE_PROBE.as_secs())
+        }
+        _ => stopped_reading(budget),
+    }
 }
 
 /// The default WebSocket port of an `ssh://` peer.
@@ -1410,6 +1741,72 @@ mod link_epoch_tests {
         assert!(answer.is_err());
         assert_eq!(peer.pending_requests().await, 0, "no entry left behind");
     }
+
+    /// Review of #24797 at 45ab6b1: lending was on for a plain `ws://` peer on another host, so
+    /// anything on the path could answer the handshake as that peer and ask as it.
+    #[test]
+    fn github_is_lent_only_over_ssh_tls_or_loopback() {
+        let (tx, _rx) = mpsc::channel(8);
+        for (url, lends) in [
+            ("ws://10.0.0.5:7777", false),
+            ("ws://box.example:7777", false),
+            ("ws://127.0.0.1:7777", true),
+            ("ws://localhost:7777", true),
+            ("ws://[::1]:7777", true),
+            ("ws://127.0.0.2:7777", true),
+            ("ws://[::2]:7777", false),
+            ("wss://box.example", true),
+            ("ssh://leo@box.example", true),
+        ] {
+            let peer = Peer::new("p", url, None, None, tx.clone());
+            peer.set_github_broker(true);
+            assert_eq!(peer.github_broker(), lends, "{url}");
+        }
+    }
+
+    /// Review of #24797 at ee07ea5: an action admitted just before the peer stopped took the
+    /// epoch after the stop as its own, so it still ran.
+    #[tokio::test]
+    async fn an_action_admitted_before_a_stop_never_runs() {
+        let (tx, _rx) = mpsc::channel(8);
+        let peer = Peer::new("stopped-mid-admit", "ws://127.0.0.1:9", None, None, tx);
+        peer.set_github_broker(true);
+        let link = peer.link_epoch();
+        peer.github_link.store(link + 1, Ordering::SeqCst);
+        let slot = crate::github_broker::admit_owner(
+            &peer.name,
+            peer.github_ready(link),
+            &peer.github_slots,
+        )
+        .unwrap();
+        peer.stop();
+        let mut out = peer.out_rx.lock().await.take().unwrap();
+        peer.serve_github_action(json!(1), json!({"action": "read", "repo": "o/r"}), slot, link);
+        let sent = tokio::time::timeout(Duration::from_secs(1), out.recv()).await;
+        assert!(
+            sent.is_err(),
+            "nothing ran or answered: {:?}",
+            sent.ok().flatten().map(|f| f.line)
+        );
+        assert_eq!(peer.github_slots.available_permits(), crate::github_broker::OWNER_SLOTS);
+    }
+
+    /// Review of #24797 at 30e24d1: each reconnect's new peer had slots of its own while the
+    /// old one's GitHub actions still ran, so reconnects started more than `OWNER_SLOTS` `gh`s.
+    #[tokio::test]
+    async fn a_reconnect_shares_its_github_slots_with_the_actions_still_running() {
+        let (tx, _rx) = mpsc::channel(8);
+        let old = Peer::new("slots-across-reconnects", "ws://127.0.0.1:9", None, None, tx.clone());
+        let running: Vec<_> = (0..crate::github_broker::OWNER_SLOTS)
+            .map(|_| crate::github_broker::admit_owner(&old.name, true, &old.github_slots).unwrap())
+            .collect();
+        old.stop();
+        let new = Peer::new("slots-across-reconnects", "ws://127.0.0.1:9", None, None, tx);
+        let e = crate::github_broker::admit_owner(&new.name, true, &new.github_slots).unwrap_err();
+        assert_eq!(e.data.unwrap()["reason"], "github.busy");
+        drop(running);
+        assert!(crate::github_broker::admit_owner(&new.name, true, &new.github_slots).is_ok());
+    }
 }
 
 #[cfg(test)]
@@ -1452,6 +1849,37 @@ mod frame_epoch_tests {
         }
         assert!(!seen.iter().any(|t| t.contains("\"stale\"")), "a stale frame went out: {seen:?}");
         serving.abort();
+    }
+
+    /// Review of #24797 at f2e68a4: a peer's request was refused with a send that had no time
+    /// limit, so a peer that asks and never reads held the link's loop, pings and all, for good.
+    #[tokio::test]
+    async fn a_peer_that_asks_and_never_reads_loses_the_link() {
+        let (tx, _rx) = mpsc::channel(8);
+        let mut peer = Peer::new("p", "ws://127.0.0.1:9", None, None, tx);
+        let timings = &mut Arc::get_mut(&mut peer).expect("only this test holds it").timings;
+        timings.ping_every = Duration::from_millis(200);
+        timings.ping_misses = 2;
+        let (ours, theirs) = tokio::io::duplex(1024);
+        let client = WebSocketStream::from_raw_socket(ours, Role::Client, None).await;
+        let mut server = WebSocketStream::from_raw_socket(theirs, Role::Server, None).await;
+        let mut out_rx = peer.out_rx.lock().await.take().unwrap();
+        let link = peer.clone();
+        let serving = tokio::spawn(async move { link.serve(client, &mut out_rx).await });
+        let asking = tokio::spawn(async move {
+            for i in 0u64.. {
+                let ask =
+                    Message::request(json!(i), method::MUX_GITHUB_ACTION, json!({})).to_line();
+                if server.send(Frame::Text(ask.trim_end().to_owned().into())).await.is_err() {
+                    break;
+                }
+            }
+        });
+        let ended = tokio::time::timeout(Duration::from_secs(10), serving)
+            .await
+            .expect("the link ends instead of hanging");
+        assert!(ended.unwrap().is_err());
+        asking.abort();
     }
 }
 
