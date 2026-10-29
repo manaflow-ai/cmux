@@ -53,7 +53,7 @@ import os
     /// Waits after a failure (the daemon may still be starting), the last repeating.
     nonisolated static let retryDelays: [Duration] = [.seconds(5), .seconds(15), .seconds(60), .seconds(300)]
 
-    convenience init(identity: MacInstallIdentity, apiBaseURL: URL, environment: @escaping () -> AcpmuxEnvironment?) {
+    convenience init(identity: MacInstallIdentity, apiBaseURL: URL, environment: @escaping @MainActor () -> AcpmuxEnvironment?) {
         self.init(origin: HomeCloudLease.origin(apiBaseURL),
                   call: { params in await Self.send(environment(), params) },
                   tokens: { team in
