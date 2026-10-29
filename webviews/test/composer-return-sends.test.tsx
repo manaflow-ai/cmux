@@ -12,7 +12,7 @@ import { act } from "react";
 import type { Root } from "react-dom/client";
 import { noChat, user } from "../src/gallery/fixtures/acpmux";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
-import type { ComposerHandle } from "../src/agent-session/acpmux/Composer";
+import type { CapturedShot, ComposerHandle } from "../src/agent-session/acpmux/Composer";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -88,7 +88,11 @@ function Chips() {
 type Sent = { text: string; steer?: boolean };
 
 /** Renders the composer over `snapshot`, types `typed` into it and returns its field and sends. */
-async function composer(snapshot: AcpmuxSnapshot, typed: string) {
+async function composer(
+  snapshot: AcpmuxSnapshot,
+  typed: string,
+  capture?: (mode: "screen" | "window") => Promise<CapturedShot | undefined>,
+) {
   const sent: Sent[] = [];
   let handle: ComposerHandle | null = null;
   const { createRoot } = await import("react-dom/client");
@@ -99,6 +103,7 @@ async function composer(snapshot: AcpmuxSnapshot, typed: string) {
       <Composer
         handle={(value) => void (handle = value)}
         snapshot={snapshot}
+        capture={capture}
         sessionId={snapshot.sessionId ?? snapshot.summary?.sessionId}
         chips={Chips}
         onSend={(text, _attachments, steer) => {
@@ -115,7 +120,7 @@ async function composer(snapshot: AcpmuxSnapshot, typed: string) {
   );
   await act(async () => handle!.restore(typed, []));
   const field = host.querySelector<HTMLElement>("[role=combobox]")!;
-  return { field, sent };
+  return { field, sent, getHandle: () => handle! };
 }
 
 // Each test is its own chat, so no draft kept for one chat comes back in the next test.
@@ -245,4 +250,32 @@ test("Shift-Return adds a line and sends nothing", async () => {
   expect(lines(field)).toBe(1);
   await dispatch(field, key({ key: "Enter", keyCode: 13, shiftKey: true }));
   expect({ sent, lines: lines(field) }).toEqual({ sent: [], lines: 2 });
+});
+
+test("a capture completing after a chat switch never attaches the source original to the destination", async () => {
+  let finish!: (shot: CapturedShot) => void;
+  let calls = 0;
+  const capture = () => {
+    calls++;
+    return new Promise<CapturedShot>((resolve) => {
+      finish = resolve;
+    });
+  };
+  await composer(chat(), "", capture);
+  const plus = host.querySelector<HTMLElement>(".acpmux-composer-plus .acpmux-picker-button")!;
+  expect(plus).not.toBeNull();
+  await dispatch(plus, new window.MouseEvent("click", { bubbles: true }));
+  const screenshot = document.querySelector<HTMLElement>('[data-value="add.screenshot"]')!;
+  expect(screenshot).not.toBeNull();
+  await dispatch(screenshot, new window.MouseEvent("mousedown", { bubbles: true }));
+  expect(calls).toBe(1);
+  const destination = await composer(chat(), "Destination chat", capture);
+  await act(async () => {
+    finish({
+      file: new File([], "Screenshot.png", { type: "application/octet-stream" }),
+      original: "/source-chat/uploads/private-capture.png",
+    });
+    await Promise.resolve();
+  });
+  expect(destination.getHandle().wakeState().attachments ?? []).toEqual([]);
 });

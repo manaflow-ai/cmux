@@ -535,6 +535,15 @@ export function Composer({
   /// The newest `onOpenInWindow`, for a ⌘Return held until a screenshot's chip is ready.
   const openInWindow = useRef(onOpenInWindow);
   openInWindow.current = onOpenInWindow;
+  // Native capture can outlive the chat (or the entire composer). Invalidate its result as
+  // soon as this chat is left, including a switch away and back before the picker completes.
+  const captureScope = useRef<object | null>(null);
+  useLayoutEffect(() => {
+    captureScope.current = {};
+    return () => {
+      captureScope.current = null;
+    };
+  }, [sessionId]);
   const allowImages = snapshot.summary?.promptCapabilities?.image !== false;
   // A paste on the prompt or the shell field, and a file drop anywhere (composer/attachmentIntake.tsx).
   // The composer's card, and the chat column around it that a file drag covers (composer/DropOverlay.tsx).
@@ -1964,10 +1973,11 @@ export function Composer({
                               command: (action, modeId) => {
                                 if (action === "composer.attachFiles") chooser.current?.click();
                                 else if (action === "composer.attachScreenshot" || action === "composer.attachWindow") {
+                                  const source = captureScope.current;
                                   void capture?.(action === "composer.attachWindow" ? "window" : "screen")
                                     .then(async (shot) => {
                                       // The host saved the original already: nothing uploads.
-                                      if (shot)
+                                      if (shot && source !== null && captureScope.current === source)
                                         await attach(
                                           [shot.file],
                                           false,
@@ -1976,6 +1986,7 @@ export function Composer({
                                         );
                                     })
                                     .finally(() => {
+                                      if (captureScope.current !== source) return;
                                       const focused = document.activeElement;
                                       if (!focused || focused === document.body || form.current?.contains(focused))
                                         field.current?.focus();
