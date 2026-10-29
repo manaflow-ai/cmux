@@ -84,6 +84,7 @@ import Testing
         startup.noteFirstFrame()
         claim.frameShown()
         #expect(startup.revealCause == .firstFrame)
+        #expect(!claim.timedOut, "the timer's thread waited 30 s for the frame and went on without it: the test did not order the frame first")
         // The failsafe sleeps; by then the stale deadline action has had its turn on main.
         try await clock.waitForSleeper()
         #expect(startup.phase == .revealed, "a stale reveal deadline settled startup")
@@ -383,6 +384,10 @@ private struct LaneSignal<Value: Sendable>: Sendable {
 private nonisolated final class Claim: Sendable {
     private let waiting = Mutex<CheckedContinuation<Void, Never>?>(nil)
     private let frame = DispatchSemaphore(value: 0)
+    private let gaveUp = Mutex(false)
+
+    /// The timer's thread stopped waiting at the bound: the test fails on this, never passes.
+    var timedOut: Bool { gaveUp.withLock { $0 } }
 
     func arm(_ continuation: CheckedContinuation<Void, Never>) {
         waiting.withLock { $0 = continuation }
@@ -391,8 +396,8 @@ private nonisolated final class Claim: Sendable {
     func claimedThenWaitForFrame() {
         guard let continuation = waiting.withLock({ $0.take() }) else { return }
         continuation.resume()
-        // Bounded: a test that never shows the frame fails on its expectations instead of hanging the run.
-        _ = frame.wait(timeout: .now() + 30)
+        // Bounded: a test that never shows the frame fails (``timedOut``) instead of hanging the run.
+        if frame.wait(timeout: .now() + 30) == .timedOut { gaveUp.withLock { $0 = true } }
     }
 
     func frameShown() { frame.signal() }
