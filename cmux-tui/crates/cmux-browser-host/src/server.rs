@@ -172,9 +172,10 @@ pub fn serve_providers(
     )
 }
 
-/// The provider's socket once the host acked it (the supervised host names
-/// the provider's app as its owner, `cmux_owner_liveness::peer_app`).
-pub type OnProvider = Arc<dyn Fn(&UnixStream) + Send + Sync>;
+/// The provider's app once the host acked it, by the socket's peer pid read
+/// before the ack (`cmux_owner_liveness::peer_app`): the supervised host's
+/// owner.
+pub type OnProvider = Arc<dyn Fn(cmux_owner_liveness::OwnerApp) + Send + Sync>;
 
 /// [`serve_providers`], and `on_change` runs after a provider connected and
 /// after it left (the supervised host's idle stop); `on_provider` runs with
@@ -235,6 +236,8 @@ fn accept_provider(
     let Ok(opening) = read_opening(&mut reader, secret) else {
         return Ok(());
     };
+    // The peer's pid while it is surely connected (macOS answers it only then).
+    let app = cmux_owner_liveness::peer_app(&stream);
     stream.set_read_timeout(None)?;
     let info = match opening {
         Opening::Provider(info) => info,
@@ -288,7 +291,7 @@ fn accept_provider(
     }
     *current = Some(driver);
     drop(current);
-    on_provider(&stream);
+    on_provider(app);
     on_change();
     Ok(())
 }

@@ -56,6 +56,17 @@ pub fn spawn_cloud_link(
         .name("cloud-link".into())
         .spawn(move || {
             let mut delay = Duration::from_millis(500);
+            // Until the first Up, a failed session is reported as Down: the
+            // brain then knows nothing can be read (brain/owner_exit.rs).
+            let up = Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let seen = up.clone();
+            let inner = sink.clone();
+            let sink: Sink = Arc::new(move |event| {
+                if matches!(event, DaemonEvent::Up { .. }) {
+                    seen.store(true, std::sync::atomic::Ordering::Release);
+                }
+                inner(event)
+            });
             loop {
                 let started = Instant::now();
                 match session(&config, &*tokens, &sink, &log) {
@@ -64,7 +75,12 @@ pub fn spawn_cloud_link(
                         sink(DaemonEvent::Fatal(why));
                         return;
                     }
-                    Err(Ended::Retry(why)) => log(&format!("cloud link: {why}")),
+                    Err(Ended::Retry(why)) => {
+                        log(&format!("cloud link: {why}"));
+                        if !up.load(std::sync::atomic::Ordering::Acquire) {
+                            sink(DaemonEvent::Down);
+                        }
+                    }
                 }
                 if started.elapsed() > Duration::from_secs(30) {
                     delay = Duration::from_millis(500);

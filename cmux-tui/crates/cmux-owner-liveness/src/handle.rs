@@ -100,6 +100,17 @@ impl Handle {
                 )
             };
             if n > 0 {
+                // An error event (other than "already gone") is no exit: the
+                // caller falls back to checking the app.
+                if event.flags & libc::EV_ERROR != 0 {
+                    return if i64::try_from(event.data).ok() == Some(i64::from(libc::ESRCH)) {
+                        Ok(())
+                    } else {
+                        Err(io::Error::from_raw_os_error(
+                            i32::try_from(event.data).unwrap_or(libc::EINVAL),
+                        ))
+                    };
+                }
                 return Ok(());
             }
             let error = io::Error::last_os_error();

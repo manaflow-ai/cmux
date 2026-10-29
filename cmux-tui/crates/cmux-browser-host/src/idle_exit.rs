@@ -118,7 +118,6 @@ impl IdleExit {
         } else {
             state.idle_since = None;
         }
-        cmux_owner_liveness::check("cmux-browser-host", state.idle_since.is_some(), keeps, false);
     }
 
     /// Something the rule reads changed: a session opened or ended, a
@@ -165,6 +164,14 @@ impl IdleExit {
                     let delay = self.delay_for(keeps.owner);
                     let idle_for = self.clock.now().saturating_duration_since(since);
                     if idle_for >= delay {
+                        drop(state);
+                        // The exit: what keeps the host, read again.
+                        cmux_owner_liveness::check(
+                            "cmux-browser-host",
+                            true,
+                            (self.probe)(),
+                            false,
+                        );
                         return true;
                     }
                     self.clock.wait_timeout(&self.changed, state, delay - idle_for)

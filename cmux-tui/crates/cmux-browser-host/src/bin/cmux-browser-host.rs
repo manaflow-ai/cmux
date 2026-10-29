@@ -365,8 +365,8 @@ mod unix {
             }
         });
         // A provider was acked: its app is the owner from now.
-        let on_provider: cmux_browser_host::server::OnProvider = Arc::new(move |stream| {
-            let _ = owner.follow(cmux_owner_liveness::peer_app(stream));
+        let on_provider: cmux_browser_host::server::OnProvider = Arc::new(move |app| {
+            let _ = owner.follow(app);
         });
         host.on_sessions_changed(on_change.clone());
         if let Some(secret) = secret {

@@ -140,10 +140,12 @@ impl Keeps {
     }
 }
 
-/// The R3 invariant, checked in debug builds at every presence or work
-/// change and at each deadline: a helper is on its way out (`exiting`)
-/// exactly when [`Keeps::exits`] says so for the facts it decided on. A
-/// helper that keeps a latched event instead of the level fails it.
+/// The R3 invariant, checked in debug builds where a helper acts on its
+/// decision to exit (after its fence, when it has one). `keeps` must be read
+/// again there, not the facts the decision used, so a helper that acts on a
+/// stale or latched answer fails it:
+/// `exiting == !(clients || owner alive || live work)`. Unit tests also check
+/// the other side (a helper that stays while the rule says exit).
 #[track_caller]
 pub fn check(helper: &str, exiting: bool, keeps: Keeps, unowned_keeps: bool) {
     debug_assert_eq!(
@@ -171,17 +173,25 @@ pub enum Watch {
     Unwatched(std::io::Error),
 }
 
+/// How a followed app is watched (a [`Watch`] without its error).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Kind {
+    Kernel,
+    Gone,
+    Polled,
+    Unwatched,
+}
+
 /// One followed app.
 struct Followed {
     app: OwnerApp,
     exited: Arc<AtomicBool>,
-    /// A thread reports the exit; without one, a read checks the app.
-    watched: bool,
+    kind: Kind,
 }
 
 impl Followed {
     fn exited(&self) -> bool {
-        self.exited.load(Ordering::Acquire) || (!self.watched && !self.app.exists())
+        self.exited.load(Ordering::Acquire) || (self.kind == Kind::Unwatched && !self.app.exists())
     }
 }
 
@@ -265,6 +275,14 @@ impl OwnerLiveness {
         self.state() == OwnerState::Alive
     }
 
+    /// Whether a change of [`OwnerLiveness::state`] reaches the observer:
+    /// false when the follow thread could not start ([`Watch::Unwatched`]).
+    /// A helper whose owner does not report its changes reads the state
+    /// again on a deadline of its own.
+    pub fn reports_changes(&self) -> bool {
+        self.lock().as_ref().is_none_or(|followed| followed.kind != Kind::Unwatched)
+    }
+
     fn lock(&self) -> cmux_threads::sync::MutexGuard<'_, Option<Followed>> {
         self.followed.lock().unwrap_or_else(PoisonError::into_inner)
     }
@@ -285,24 +303,29 @@ impl OwnerLiveness {
         if let Some(current) = followed.as_ref().filter(|f| f.app == app && !f.exited()) {
             // The same running process (its handle has not fired, so the pid
             // was not reused): one follow is enough (a provider reconnects).
-            return if current.watched { Watch::Kernel } else { Watch::Unwatched(already()) };
+            return match current.kind {
+                Kind::Kernel => Watch::Kernel,
+                Kind::Gone => Watch::Gone,
+                Kind::Polled => Watch::Polled(already()),
+                Kind::Unwatched => Watch::Unwatched(already()),
+            };
         }
         let exited = Arc::new(AtomicBool::new(false));
-        let (watch, watched) = match handle::Handle::open(pid) {
+        let (watch, kind) = match handle::Handle::open(pid) {
             Ok(None) => {
                 exited.store(true, Ordering::Release);
-                (Watch::Gone, true)
+                (Watch::Gone, Kind::Gone)
             }
             Ok(Some(handle)) => match self.spawn_wait(app, Some(handle), exited.clone()) {
-                Ok(()) => (Watch::Kernel, true),
-                Err(error) => (Watch::Unwatched(error), false),
+                Ok(()) => (Watch::Kernel, Kind::Kernel),
+                Err(error) => (Watch::Unwatched(error), Kind::Unwatched),
             },
             Err(open_error) => match self.spawn_wait(app, None, exited.clone()) {
-                Ok(()) => (Watch::Polled(open_error), true),
-                Err(error) => (Watch::Unwatched(error), false),
+                Ok(()) => (Watch::Polled(open_error), Kind::Polled),
+                Err(error) => (Watch::Unwatched(error), Kind::Unwatched),
             },
         };
-        *followed = Some(Followed { app, exited, watched });
+        *followed = Some(Followed { app, exited, kind });
         watch
     }
 
@@ -332,9 +355,10 @@ impl OwnerLiveness {
     }
 }
 
-/// The error of a follow that found the app already followed without a thread.
+/// The error of a follow that found the app already followed (the first
+/// follow's error is in its own [`Watch`]).
 fn already() -> std::io::Error {
-    std::io::Error::other("followed already, without a thread")
+    std::io::Error::other("followed already")
 }
 
 /// The app `file` names, when it is another process than `gone` and runs.

@@ -69,10 +69,7 @@ impl OrphanFacts for FakeFacts {
     }
 
     fn exits(&self) -> bool {
-        let keeps = self.keeps();
-        let exits = keeps.exits(true);
-        cmux_owner_liveness::check("chief owner (test)", exits, keeps, true);
-        exits
+        self.keeps().exits(true)
     }
 
     fn kept_by_reported_fact(&self) -> bool {
@@ -133,6 +130,7 @@ impl Fixture {
             Ok(true),
             "the Chief owner outlived its app with nothing that needs it"
         );
+        cmux_owner_liveness::check("chief owner (test)", true, self.facts.keeps(), true);
     }
 
     fn set_clients(&self, clients: usize) {

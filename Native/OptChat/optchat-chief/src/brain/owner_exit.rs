@@ -15,7 +15,10 @@
 //! working): a turn that runs or waits for the compactor, a queued prompt,
 //! a steer on its way, a cut turn that runs again, an adopted turn, a
 //! permission request nobody answered yet, a subagent or a child session at
-//! work, a wake the Chief set with `sleep`. The brain stops at the first look
+//! work, a wake the Chief set with `sleep`, and a conversation not yet read
+//! since the host started (a host started after the quit, as another Chief a
+//! message woke, reads that message first; the first link `Up` or a failed
+//! connect ends this, with no timer). The brain stops at the first look
 //! that finds none. Before it stops it sends what its outbox holds when its
 //! link is up, and saves its state: an outbox entry it could not send and a
 //! person's message it has not read stay on disk (the outbox in the memory
@@ -50,6 +53,12 @@ impl Brain {
 
     /// What live work keeps this host, None when nothing does.
     pub fn owner_exit_held_by(&self) -> Option<&'static str> {
+        if !self.read_since_start {
+            // A host started after the quit (another Chief woken by a
+            // message) reads that message before it decides. No timer: the
+            // first link Up or a failed connect ends it.
+            return Some("the conversation is not read since the host started");
+        }
         if !self.is_idle() {
             return Some("a turn runs or a prompt is queued");
         }
@@ -92,13 +101,12 @@ impl Brain {
         if self.fatal.is_some() {
             return false;
         }
-        let keeps = self.owner_keeps();
         // A host no app named stays (unowned_keeps).
-        let exits = keeps.exits(true);
-        cmux_owner_liveness::check("optchat-chief host", exits, keeps, true);
-        if !exits {
+        if !self.owner_keeps().exits(true) {
             return false;
         }
+        // The exit: the owner read again (its follow thread may have moved on).
+        cmux_owner_liveness::check("optchat-chief host", true, self.owner_keeps(), true);
         (self.log)("the app quit and the Chief is idle: stopping");
         if self.outbox_timer.take().is_some() {
             self.flush_outbox();

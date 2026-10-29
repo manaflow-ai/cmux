@@ -274,6 +274,12 @@ pub trait Liveness: Send + Sync {
     fn live_processes(&self) -> usize;
     /// The owning app, as a level.
     fn owner(&self) -> OwnerState;
+    /// Whether a change of [`Liveness::owner`] is reported
+    /// ([`ClientPresence::work_changed`]); else the daemon reads it again
+    /// every [`IDLE_EXIT_GRACE`] while it keeps the daemon.
+    fn owner_reports_changes(&self) -> bool {
+        true
+    }
 }
 
 fn live_work(liveness: &dyn Liveness) -> bool {
@@ -312,10 +318,12 @@ pub async fn wait_for_daemon_exit(
         work.mark_unchanged();
         let arrived = std::mem::take(&mut reopened) || seen.arrivals != last_arrivals;
         last_arrivals = seen.arrivals;
+        // A connected client decides alone: the work and the owner are not read.
+        let clients = seen.clients > 0;
         let keeps = Keeps {
-            clients: seen.clients > 0,
-            owner: liveness.owner(),
-            live_work: live_work(liveness),
+            clients,
+            owner: if clients { OwnerState::Alive } else { liveness.owner() },
+            live_work: !clients && live_work(liveness),
         };
         let now = clock.now();
         since = match since {
@@ -325,7 +333,6 @@ pub async fn wait_for_daemon_exit(
             Some(at) if !arrived => Some(at),
             _ => Some(now),
         };
-        cmux_owner_liveness::check("acpmux", since.is_some(), keeps, unowned_keeps);
         let wake = match since {
             Some(at) if now >= at + grace(keeps.owner) => {
                 // The fence: no client between the read above and the close,
@@ -337,6 +344,13 @@ pub async fn wait_for_daemon_exit(
                         live_work: live_work(liveness),
                     };
                     if fenced.exits(unowned_keeps) {
+                        // Read again after the close: no client can come now.
+                        let now_keeps = Keeps {
+                            clients: presence.clients() > 0,
+                            owner: liveness.owner(),
+                            live_work: live_work(liveness),
+                        };
+                        cmux_owner_liveness::check("acpmux", true, now_keeps, unowned_keeps);
                         return;
                     }
                     presence.reopen();
@@ -347,9 +361,13 @@ pub async fn wait_for_daemon_exit(
             Some(at) => Some(at + grace(keeps.owner)),
             None => {
                 // Live work alone keeps a client-less daemon: work changes the
-                // hub does not report are read again after a grace.
+                // hub does not report are read again after a grace. So is an
+                // owner whose changes are not reported (no follow thread).
                 let only_work = Keeps { live_work: false, ..keeps }.exits(unowned_keeps);
-                (keeps.live_work && only_work).then(|| now + IDLE_EXIT_GRACE)
+                let unreported_owner = !keeps.clients
+                    && keeps.owner == OwnerState::Alive
+                    && !liveness.owner_reports_changes();
+                ((keeps.live_work && only_work) || unreported_owner).then(|| now + IDLE_EXIT_GRACE)
             }
         };
         let changed = match wake {
@@ -388,6 +406,10 @@ impl Liveness for HubLiveness {
 
     fn owner(&self) -> OwnerState {
         self.owner.state()
+    }
+
+    fn owner_reports_changes(&self) -> bool {
+        self.owner.reports_changes()
     }
 }
 

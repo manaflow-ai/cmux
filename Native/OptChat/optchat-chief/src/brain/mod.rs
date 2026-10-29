@@ -875,6 +875,11 @@ pub struct Brain {
     /// The owner app this host serves, as a level (`owner_exit.rs`); None
     /// when no app named this host.
     owner: Option<OwnerProbe>,
+    /// The host has read its conversation since it started (the first link
+    /// `Up` and its catch-up), or its link reported that it could not connect
+    /// (`DaemonEvent::Down`). Until then, the messages that woke this host
+    /// are work it has not read yet (`owner_exit.rs`).
+    read_since_start: bool,
     /// How long a person's message steered into the running turn may stay
     /// unread before the turn is interrupted (`steer.rs`); None: it waits
     /// for the turn's next tool boundary.
@@ -1013,6 +1018,7 @@ impl Brain {
             handoff_at: None,
             handoff_wait: HANDOFF_DEADLINE,
             owner: None,
+            read_since_start: false,
             steer_deadline: None,
             steer_due: None,
             reply_waits: reply_ledger::REPLY_RETRY_WAITS.to_vec(),

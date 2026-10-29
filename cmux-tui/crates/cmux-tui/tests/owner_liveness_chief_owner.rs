@@ -14,6 +14,9 @@ use std::time::{Duration, Instant};
 
 use cmux_tui_core::platform::transport;
 
+#[path = "support/private_state.rs"]
+mod private_state;
+
 fn test_timeout(timeout: Duration) -> Duration {
     let scale = std::env::var("CMUX_TEST_TIMEOUT_SCALE")
         .ok()
@@ -48,8 +51,9 @@ fn exits_within(child: &mut Child, within: Duration) -> bool {
 }
 
 fn scratch() -> PathBuf {
-    // Short: the socket path must stay under the macOS limit.
-    let dir = std::env::temp_dir().join(format!("cmux-olc-{}", std::process::id()));
+    // Below /tmp (private_state.rs) and short: the socket path must stay
+    // under the macOS limit.
+    let dir = PathBuf::from("/tmp").join(format!("cmux-olc-{}", std::process::id()));
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(dir.join("home/tui")).unwrap();
     dir
@@ -58,14 +62,22 @@ fn scratch() -> PathBuf {
 fn start_owner(dir: &Path, app: &Child) -> Child {
     let socket = dir.join("mux.sock");
     let stderr = fs::File::create(dir.join("stderr.log")).unwrap();
-    let child = Command::new(env!("CARGO_BIN_EXE_cmux-tui"))
-        .args(["--headless", "--session", "cmux-chief-0wnerl1v"])
+    let mut command = Command::new(env!("CARGO_BIN_EXE_cmux-tui"));
+    private_state::use_private_state(&mut command, dir);
+    // A session of this test's own (two checkouts on one host never share it).
+    let session = format!("cmux-chief-olc{}", std::process::id());
+    let child = command
+        .args(["--headless", "--session", &session])
         .arg("--socket")
         .arg(&socket)
         .arg("--state")
         .arg(dir.join("home/tui"))
         .env("CMUX_TUI_CONFIG", dir.join("config.json"))
         .env("CMUX_TUI_OWNER_APP_PID", app.id().to_string())
+        .env("HOME", dir.join("home"))
+        .env_remove("CMUX_BUNDLE_ID")
+        .env_remove("CMUX_TAG")
+        .env_remove("CMUX_TUI_CHIEF_BRAINS")
         .stdout(Stdio::null())
         .stderr(stderr)
         .spawn()

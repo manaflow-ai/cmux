@@ -99,14 +99,13 @@ impl OrphanFacts for ChiefOwnerFacts {
 
     fn exits(&self) -> bool {
         // A Chief owner no app named never gets here (`applies`).
-        let keeps = self.keeps();
-        let exits = keeps.exits(true);
-        cmux_owner_liveness::check("chief owner", exits, keeps, true);
-        exits
+        self.keeps().exits(true)
     }
 
     fn kept_by_reported_fact(&self) -> bool {
-        self.owner.state() == OwnerState::Alive
+        // Without a follow thread the owner's exit is not reported: the watch
+        // looks again after its recheck interval.
+        self.owner.state() == OwnerState::Alive && self.owner.reports_changes()
     }
 }
 
@@ -169,6 +168,8 @@ pub(crate) fn start_for_owner(mux: &Arc<Mux>, brains: Arc<AtomicUsize>) -> Optio
         let Some(mux) = stopping.upgrade() else { return true };
         let stopped = cmux_tui_core::server::stop_orphaned_owner(&mux, || facts.exits());
         if stopped {
+            // Read again after the fenced stop: no client can come now.
+            cmux_owner_liveness::check("chief owner", true, facts.keeps(), true);
             crate::client_log::stderr_log!(
                 "lifecycle",
                 "{BIN}: stopped Chief owner {session}: its app quit and no client, terminal or brain needs it"

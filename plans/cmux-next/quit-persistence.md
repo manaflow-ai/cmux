@@ -438,4 +438,6 @@ work.
     (before, the first exit armed the stop for good).
   - Brain host: no link hold. An idle host whose app is gone stops at once; its unsent outbox is
     saved with its state and a person's unread message stays in the owner daemon's conversation,
-    so the next host sends and reads them.
+    so the next host sends and reads them. A host that has not read its conversation since it
+    started (another Chief that a message woke after the quit) counts that as live work: it reads
+    and answers first. Its link's first `Up`, or a failed connect (`Down`), ends that; no timer.
