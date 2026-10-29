@@ -60,6 +60,9 @@
      after the run before the next reply. Gallery-only attributes compare this against the prior
      roomier rhythm without adding a product setting. */
   --cv-tool-row-height: 22px;
+  /* A DisclosureRow line (a received message, a sub-session): 26px in 2px margins, which model.ts
+     estimates. */
+  --cv-disclosure-line-height: 26px;
   /* Every transcript status/control starts from one centered glyph slot. The Session Info rows use
      the same slot from styles.css so a tool, Worked for, Received and peer row share one center line.
      MessageActions.tsx uses the same shared footer slots. */
@@ -2437,7 +2440,7 @@ pre.cv-math-source {
   margin: 2px 0;
 }
 .cv-received > .cv-disclosure__line {
-  height: 26px;
+  height: var(--cv-disclosure-line-height);
   min-height: 0;
   white-space: nowrap;
   user-select: none;

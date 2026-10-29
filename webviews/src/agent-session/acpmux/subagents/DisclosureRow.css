@@ -13,7 +13,7 @@
   display: flex;
   align-items: center;
   min-width: 0;
-  min-height: 26px;
+  min-height: var(--cv-disclosure-line-height);
   gap: calc(var(--ds-space-1) + 2px);
 }
 .cv-disclosure__toggle,
@@ -25,7 +25,7 @@
   min-width: 0;
   gap: calc(var(--ds-space-1) + 2px);
   box-sizing: border-box;
-  min-height: 26px;
+  min-height: var(--cv-disclosure-line-height);
   cursor: pointer;
   border-radius: 6px;
   padding: 0 var(--ds-space-1);

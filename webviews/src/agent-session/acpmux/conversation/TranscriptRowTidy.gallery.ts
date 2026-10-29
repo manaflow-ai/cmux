@@ -11,7 +11,10 @@ import type { Play } from "../../../gallery/play";
 import { activity, assistant, chat, session, tool, user, SESSION_ID } from "../../../gallery/fixtures/acpmux";
 
 const command = (description: string, line: string) =>
-  tool(description, "execute", "completed", { command: line, inputSummary: JSON.stringify({ command: line, description }) });
+  tool(description, "execute", "completed", {
+    command: line,
+    inputSummary: JSON.stringify({ command: line, description }),
+  });
 
 const start = (name: string, id: string) =>
   tool("mcp__cmux-subsessions__start_session", "other", "completed", {
@@ -33,7 +36,10 @@ const rows = [
     3.8,
   ),
   user(LINK, 3.5, {
-    incoming: { kind: "message" as const, message: { name: "link-check", text: LINK, raw: LINK, sessionId: "sub-link" } },
+    incoming: {
+      kind: "message" as const,
+      message: { name: "link-check", text: LINK, raw: LINK, sessionId: "sub-link" },
+    },
     untyped: true,
   }),
   assistant("Started mesh; link-check has a fix on docs/link-fix.", 3.2),

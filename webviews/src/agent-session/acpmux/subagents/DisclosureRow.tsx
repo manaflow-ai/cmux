@@ -95,21 +95,14 @@ export function DisclosureRow({
       {status && <span className="cv-disclosure__status">{status}</span>}
     </>
   );
-  const chevron = (
-    <ChevronRight size={12} strokeWidth={1.4} className={`cv-rotor${collapse.open ? " is-open" : ""}`} />
-  );
+  const chevron = <ChevronRight size={12} strokeWidth={1.4} className={`cv-rotor${collapse.open ? " is-open" : ""}`} />;
   return (
     <div className={className ? `cv-disclosure ${className}` : "cv-disclosure"} data-open={collapse.open || undefined}>
       {/* The line summarizes indexed content in the panel; it adds no Find occurrences. */}
       <div className="cv-disclosure__line" data-find-skip ref={onOpen ? collapse.headerRef : undefined}>
         {onOpen ? (
           <>
-            <button
-              type="button"
-              className="cv-disclosure__open"
-              title={openTitle ?? openLabel}
-              onClick={onOpen}
-            >
+            <button type="button" className="cv-disclosure__open" title={openTitle ?? openLabel} onClick={onOpen}>
               {content}
             </button>
             <button
