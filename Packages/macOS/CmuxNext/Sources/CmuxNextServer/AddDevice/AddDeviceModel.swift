@@ -136,10 +136,6 @@ public final class AddDeviceModel {
         case .makeJoinLine, .newJoinLine:
             mintJoinLine()
             return false
-        case .showMachines:
-            services.showMachines()
-            closeCard()
-            return true
         case .done, .cancel:
             closeCard()
             return true
@@ -156,7 +152,7 @@ public final class AddDeviceModel {
     private var joinLineButtons: [AddDeviceButton] {
         switch joinLine?.phase {
         case .showing: [AddDeviceButton(action: .cancel, key: .escape), AddDeviceButton(action: .copyJoinLine, key: .return)]
-        case .joined: [AddDeviceButton(action: .showMachines, key: nil), AddDeviceButton(action: .done, key: .return)]
+        case .joined: [AddDeviceButton(action: .done, key: .return)]
         case .expired, .failed: [AddDeviceButton(action: .cancel, key: .escape), AddDeviceButton(action: .newJoinLine, key: .return)]
         case .idle: [AddDeviceButton(action: .cancel, key: .escape), AddDeviceButton(action: .makeJoinLine, key: .return)]
         case .minting, nil: [AddDeviceButton(action: .cancel, key: .escape)]

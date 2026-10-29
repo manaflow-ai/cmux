@@ -33,8 +33,10 @@ enum DebugAddDevice {
         listing = DeviceListing(network: .init(kind: up ? "tailscale" : "none", up: up, this: up ? "this-mac" : nil,
                                                detail: up ? nil : "Tailscale is not installed on this computer."),
                                 available: available)
+        // Only while labs.machineJoin is on (AddDeviceServices.app reads the switch first); a call
+        // with no `join` clears it.
         let join = params["join"]?.stringValue
-        if let join { joinService = Self.joinFixture(join) }
+        joinService = join.map(Self.joinFixture)
         let way = params["way"]?.stringValue.map { AddDeviceWay(rawValue: $0) } ?? AddDeviceWay.network
         let opening = services.addDevice.open(way: way, over: services.windows.active?.window)
         // The card's Make Line, pressed for the capture; `joined` then reads the list once (as a focus does).

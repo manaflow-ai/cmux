@@ -101,7 +101,7 @@ import Testing
         #expect(!join.isWatching, "the countdown and the mesh watch stop on the flip")
     }
 
-    @Test func aMeshChangeReadsTheListAndNothingElseDoes() async {
+    @Test func aMeshChangeReadsTheListAndNothingElseDoes() async throws {
         let fake = Fake()
         let join = fake.model()
         await join.mint()
@@ -109,8 +109,9 @@ import Testing
         for _ in 0..<20 { await Task.yield() }
         #expect(fake.lists == 1, "no timer reads the list")
         fake.rows = [Fake.joined("jt_1")]
-        while fake.mesh == nil { await Task.yield() }
-        fake.mesh?.yield()
+        for _ in 0..<1000 where fake.mesh == nil { await Task.yield() }
+        let mesh = try #require(fake.mesh, "the mesh watch subscribed")
+        mesh.yield()
         for _ in 0..<200 where join.line != nil { await Task.yield() }
         #expect(fake.lists == 2)
         if case .joined = join.phase {} else { Issue.record("a mesh change did not flip it: \(join.phase)") }
