@@ -111,6 +111,9 @@ export function Chart({
     span = max - min || 1;
   const x = (i: number) => pad.left + ((i + 0.5) / Math.max(values.length, 1)) * (width - pad.left - pad.right);
   const y = (v: number) => pad.top + (1 - (v - min) / span) * (height - pad.top - pad.bottom);
+  // Leave room for the fixture labels at their unscaled 11px size, including D1000.
+  const tickCount = Math.max(1, Math.min(7, Math.floor((width - pad.left - pad.right) / 40)));
+  const tickStride = Math.max(1, Math.ceil(rows.length / tickCount));
   const segments: string[][] = [];
   values.forEach((value, i) => {
     if (value === null) segments.push([]);
@@ -167,11 +170,11 @@ export function Chart({
         </text>
       ))}
       {rows
-        .filter((_, i) => i % Math.max(1, Math.ceil(rows.length / 7)) === 0)
+        .filter((_, i) => i % tickStride === 0)
         .map((row, i) => (
           <text
             key={row.day + "-" + i}
-            x={x(i * Math.max(1, Math.ceil(rows.length / 7)))}
+            x={x(i * tickStride)}
             y={height - 16}
             className="tc-label"
             textAnchor="middle"
