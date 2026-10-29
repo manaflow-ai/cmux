@@ -2458,6 +2458,14 @@ export class AcpmuxDirectClient {
   /// agent-gui daemons send {sessionIds, watch, dropped}; older ones send only
   /// {dropped}, so a notice without sessionIds resyncs the selected session.
   private resyncAfterLag(params: any): void {
+    // Peer state notices may be among the dropped ones: read the snapshot again, so a machine that
+    // went down while this client lagged never shows as connected (no session needs to be open).
+    if (this.peerEvents.supported)
+      void this.refreshPeerStates()
+        .then(() => {
+          if (!this.closed && !this.snapshotHold) this.emit();
+        })
+        .catch(() => undefined);
     // Needs you's asks: notices of new or answered requests may be lost, so every chat with open
     // requests is read again (after the session list, which drops the chats acpmux no longer lists).
     if (params?.watch === true)
