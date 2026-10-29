@@ -21,6 +21,7 @@ struct AgentReplySites {
         links.pullRequest = { url in AgentReplyPullRequests.shared.answer(url) }
         links.cachedPullRequest = { url in AgentReplyPullRequests.shared.answer(url, read: false) }
         links.registerPullRequests = { urls in AgentReplyPullRequests.shared.register(urls) }
+        links.siteIcons = services.agentSiteIcons
     }
 
     func sites(for urls: [URL]) -> [URL: AgentPaneReplySite] {

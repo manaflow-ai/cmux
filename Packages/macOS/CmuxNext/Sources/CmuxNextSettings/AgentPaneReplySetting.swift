@@ -11,7 +11,8 @@
 /// `remote` (default `click`): a web image in a reply shows a placeholder and loads after a
 /// click (`click`), never loads (`never`), or loads at once (`always`). Every load goes through
 /// the host's fetch rules (https only, no private or loopback address, size and time caps, no
-/// cookies); `always` changes only when it starts.
+/// cookies); `always` changes only when it starts. `never` also stops the site icons before web
+/// links (`link.favicons`), which `click` and `always` fetch without a click.
 public nonisolated struct AgentPaneReplySetting: Sendable, Hashable {
     public enum OutsideRoots: String, Sendable, Hashable, CaseIterable {
         case confirm, text, open
