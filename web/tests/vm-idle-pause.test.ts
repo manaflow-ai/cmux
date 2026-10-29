@@ -246,6 +246,7 @@ async function runProbeScript(files: Record<string, string>, acpmux: string): Pr
       CMUX_IDLE_ACPMUX: path.join(root, "acpmux.json"),
       CMUX_IDLE_DAEMON_SOCKET_FILE: path.join(root, "daemon-socket"),
       CMUX_IDLE_PRIVATE_ADDRESSES: "10.192.0.5,fd00:7::5",
+      CMUX_IDLE_DAEMON_PORT: "1337",
     },
     timeout: 30_000,
   });
@@ -278,6 +279,9 @@ describe("idle probe guest script", () => {
         + tcpRow(`${VPC}:0BB8`, "0900C00A:D431", "01")
         // The machine's own outbound connection (local port not listening): not counted.
         + tcpRow(`${VPC}:9C40`, "08080808:01BB", "01")
+        // The app's link to the daemon (ws://[vpc]:1337): the daemon reports its
+        // input itself, and an attached app with nobody typing is not activity.
+        + tcpRow(`${VPC}:0539`, "0900C00A:D432", "01")
         // A loopback connection to the daemon port: not on the private address, not counted.
         + tcpRow(`0100007F:0539`, "0100007F:D000", "01"),
       "net/tcp6": TCP_HEADER,
@@ -334,6 +338,7 @@ describe("idle probe guest script", () => {
 
   test("the probe command passes the daemon user's uid for the session socket", () => {
     expect(vmIdleProbeCommand(["10.192.0.5"])).toContain(`CMUX_IDLE_DAEMON_UID="$(id -u "$CMUX_TUI_USER")"`);
+    expect(vmIdleProbeCommand(["10.192.0.5"])).toContain("CMUX_IDLE_DAEMON_PORT=1337");
   });
 
   test("an idle machine reads all zeros; a stopped acpmux is none; an unreadable one is unknown", async () => {
