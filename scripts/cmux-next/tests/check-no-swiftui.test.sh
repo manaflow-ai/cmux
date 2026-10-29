@@ -138,6 +138,23 @@ base4=$(git -C "$repo" rev-parse HEAD)
 python3 -I "$CHECK" --base "$base4" "$repo" >/dev/null 2>"$tmp/err" \
   && grep -q "base red, already on .*B/One.swift no longer imports SwiftUI" "$tmp/err" \
   || { echo "FAIL: must pass with a warning: a stale entry already on the base" >&2; cat "$tmp/err" >&2; exit 1; }
+# A change that puts SwiftUI back into a file whose entry the base already had stale fails:
+# the entry stops being stale, but the SwiftUI is new.
+printf 'import SwiftUI\nstruct One {}\n' > "$repo/$SRC/B/One.swift"
+git -C "$repo" add -A
+code=0; python3 -I "$CHECK" --base "$base4" "$repo" >/dev/null 2>"$tmp/err" || code=$?
+[[ $code -eq 1 ]] && grep -q "^NO-SWIFTUI: $SRC/B/One.swift: imports SwiftUI, which it did not at" "$tmp/err" \
+  || { echo "FAIL: must fail: new SwiftUI in a file whose entry was stale on the base (got $code)" >&2; cat "$tmp/err" >&2; exit 1; }
+# The same when the change also moves that file and re-points its entry.
+mkdir -p "$repo/$SRC/H"; git -C "$repo" mv "$SRC/B/One.swift" "$SRC/H/One.swift"
+printf '%s\n' "$SRC/C/Two.swift" "$SRC/H/One.swift" > "$repo/$LIST"
+git -C "$repo" add -A
+code=0; python3 -I "$CHECK" --base "$base4" "$repo" >/dev/null 2>"$tmp/err" || code=$?
+[[ $code -eq 1 ]] && grep -q "^NO-SWIFTUI: $SRC/H/One.swift: imports SwiftUI, which it did not at" "$tmp/err" \
+  || { echo "FAIL: must fail: new SwiftUI in a moved file whose entry was stale on the base (got $code)" >&2; cat "$tmp/err" >&2; exit 1; }
+git -C "$repo" mv "$SRC/H/One.swift" "$SRC/B/One.swift"
+printf '%s\n' "$SRC/B/One.swift" "$SRC/C/Two.swift" > "$repo/$LIST"
+git -C "$repo" add -A
 # A change that unlists a file the base allowed (it still imports SwiftUI) fails.
 printf 'import SwiftUI\nstruct One {}\n' > "$repo/$SRC/B/One.swift"
 printf '%s\n' "$SRC/C/Two.swift" > "$repo/$LIST"
@@ -146,6 +163,8 @@ code=0; python3 -I "$CHECK" --base "$base4" "$repo" >/dev/null 2>"$tmp/err" || c
 [[ $code -eq 1 ]] && grep -q "^NO-SWIFTUI: $SRC/B/One.swift: imports SwiftUI" "$tmp/err" \
   || { echo "FAIL: must fail: an importer whose base entry the change deleted (got $code)" >&2; cat "$tmp/err" >&2; exit 1; }
 # A base red the change moves and lists under its new path is an acknowledged base red, not growth.
+# (One.swift goes back to AppKit as at base4: its SwiftUI above was the unlisting case's.)
+printf 'import AppKit\nstruct One {}\n' > "$repo/$SRC/B/One.swift"
 mkdir -p "$repo/$SRC/G"; git -C "$repo" mv "$SRC/D/Red.swift" "$SRC/G/Red.swift"
 printf '%s\n' "$SRC/B/One.swift" "$SRC/C/Two.swift" "$SRC/G/Red.swift" > "$repo/$LIST"
 git -C "$repo" add -A

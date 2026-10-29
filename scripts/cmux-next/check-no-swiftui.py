@@ -22,6 +22,11 @@ Findings, in tracked Swift files under Packages/macOS:
      gone and the added entries). An entry for a file that already imported
      SwiftUI at REF adds no SwiftUI: it is printed as a note, not a finding
      (it acknowledges a base red; the review sees the list grow).
+  4. With --base REF: an allowlisted file that imports SwiftUI now, whose
+     entry REF already had (or that entry under a moved path, as above),
+     while the file did not import SwiftUI at REF. A stale entry on the base
+     must not admit new SwiftUI: filling it stops it being stale, so 1 and 2
+     never see it.
 
 With --base REF, a finding 1 or 2 that REF already had is a base red, not
 this change's: a file that imported SwiftUI at REF outside REF's allowlist
@@ -197,6 +202,20 @@ def main() -> int:
                           file=sys.stderr)
                     continue
                 findings.append(f"{ALLOWLIST}: {f} is new since {args.base}; the allowlist only shrinks")
+            # Finding 4: an entry the base had stale, filled with SwiftUI by this change.
+            for f in sorted(importing & allowed_set):
+                name = pathlib.PurePosixPath(f).name
+                if f in old_allowed:
+                    origins = [f] + ([moves[f]] if f in moves else [])
+                elif moves.get(f) in old_allowed:
+                    origins = [moves[f]]
+                elif len(dropped.get(name, [])) == 1 and len(added_names.get(name, [])) == 1:
+                    origins = dropped[name]
+                else:
+                    continue  # an entry this change added: the growth check above judges it
+                if not any(imported_at(root, args.base, o) for o in origins):
+                    findings.append(f"{f}: imports SwiftUI, which it did not at {args.base}; its allowlist entry "
+                                    f"was stale there, so delete the line and keep the file AppKit")
 
     for line in base_reds:
         print(f"NO-SWIFTUI: base red, already on {args.base} (not this change's, warning only): {line}",
