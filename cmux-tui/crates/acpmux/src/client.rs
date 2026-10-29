@@ -216,7 +216,9 @@ impl Client {
         if !reply_lacks_lineage(reply) {
             return;
         }
-        let Some(id) = reply.get("sessionId").and_then(Value::as_str) else { return };
+        // A peer may return the same raw id as a local session. Keep the owner
+        // namespace on the tag request just like prompts and lifecycle calls.
+        let Some(id) = crate::cli::resolve::routed_id(reply).ok() else { return };
         let set = json!({ crate::hub::views::SPAWNED_BY_TAG: parent });
         let _ = self.send_request(method::MUX_TAG, json!({"sessionId": id, "set": set})).await;
     }
