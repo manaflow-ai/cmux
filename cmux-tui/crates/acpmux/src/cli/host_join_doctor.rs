@@ -101,8 +101,14 @@ pub struct Facts {
     pub binary: Binary,
     pub service: Service,
     pub daemon_running: bool,
+    /// The running daemon's capability ids (`acpmux daemon status --json`); `None` when it
+    /// could not be read (no daemon, or it did not answer).
+    pub capabilities: Option<Vec<String>>,
     pub status: Status,
 }
+
+/// The capability a daemon with the join consent gate serves.
+pub const CONSENT_GATE: &str = "machine-consent-v1";
 
 /// The join line's origin for fix text: the hub the status names, else development.
 /// Only a bare `https://host[:port]` is printed: no user, path, query or fragment (a pasted
@@ -168,7 +174,7 @@ pub fn steps(facts: &Facts, now_ms: u64) -> Vec<JoinStep> {
         for step in ["revoked", "hub", "heartbeat"] {
             steps.push(skip(step, "this machine has not joined"));
         }
-        steps.push(consent_step(status));
+        steps.push(consent_step(facts, status));
         return steps;
     };
     let revoked = status["revoked"].as_bool() == Some(true);
@@ -196,7 +202,7 @@ pub fn steps(facts: &Facts, now_ms: u64) -> Vec<JoinStep> {
             Some(at) => heartbeat_step(at, now_ms),
         }
     });
-    steps.push(consent_step(Some(status)));
+    steps.push(consent_step(facts, Some(status)));
     steps
 }
 
@@ -311,13 +317,36 @@ fn heartbeat_step(value: &Value, now_ms: u64) -> JoinStep {
 }
 
 /// Informational: never fails.
-fn consent_step(status: Option<&Value>) -> JoinStep {
-    let Some(consent) = status.map(|s| &s["consent"]).filter(|c| c.is_object()) else {
+fn consent_step(facts: &Facts, status: Option<&Value>) -> JoinStep {
+    // A running daemon without the gate serves screen and control to the team ungated.
+    if facts.daemon_running
+        && facts.capabilities.as_ref().is_some_and(|ids| !ids.iter().any(|id| id == CONSENT_GATE))
+    {
+        return JoinStep::fail(
+            "consent",
+            format!("this acpmux daemon has no consent gate ({CONSENT_GATE})"),
+            format!("Update acpmux. {}", rejoin(facts)),
+        );
+    }
+    // `consent` is the record, or the daemon's `{consent, lastRefusal}` view of it.
+    let view = status.map(|s| &s["consent"]);
+    let nested = view.map(|v| &v["consent"]).filter(|c| c.is_object());
+    let Some(consent) = nested.or(view.filter(|c| c.is_object())) else {
         return JoinStep::new("consent", StepState::Skip, "acpmux did not report consent");
     };
     let on = |key: &str| matches!(&consent[key], Value::Bool(true)) || consent[key] == "granted";
     let word = |key: &str| if on(key) { "on" } else { "off" };
     let mut detail = format!("screen sharing {}, control {}", word("screen"), word("control"));
+    let refusal = [view.map(|v| &v["lastRefusal"]), status.map(|s| &s["lastRefusal"])]
+        .into_iter()
+        .flatten()
+        .find(|r| r.is_object());
+    if let Some(surface) = refusal
+        .and_then(|r| r["surface"].as_str())
+        .filter(|s| matches!(*s, "screen" | "control"))
+    {
+        detail.push_str(&format!("; a {surface} request was last refused here"));
+    }
     if !on("screen") || !on("control") {
         detail.push_str("; to allow, run here: acpmux host consent grant --screen (or --control)");
     }
@@ -415,11 +444,13 @@ pub fn probe() -> Facts {
     let service = if linux { systemd_service(&home) } else { launchd_service(&home) };
     let daemon_running =
         std::os::unix::net::UnixStream::connect(crate::config::socket_path()).is_ok();
-    let status = match &binary {
-        Binary::Ok(path) => join_status(path),
-        _ => Status::NotRun,
+    let (status, capabilities) = match &binary {
+        Binary::Ok(path) => {
+            (join_status(path), daemon_running.then(|| daemon_capabilities(path)).flatten())
+        }
+        _ => (Status::NotRun, None),
     };
-    Facts { linux, binary, service, daemon_running, status }
+    Facts { linux, binary, service, daemon_running, capabilities, status }
 }
 
 /// `command args…` run with no stdin and a deadline: its exit code and stdout.
@@ -453,6 +484,23 @@ fn output(program: &Path, args: &[&str]) -> Option<(i32, String)> {
     };
     let text = reader.join().unwrap_or_default();
     Some((status.code().unwrap_or(-1), text))
+}
+
+/// The capability ids the running daemon reports in its status; an answer without the
+/// list is a daemon that predates capabilities (none).
+#[cfg(unix)]
+fn daemon_capabilities(binary: &Path) -> Option<Vec<String>> {
+    let (code, text) = output(binary, &["daemon", "status", "--json"])?;
+    let v: Value = serde_json::from_str(text.trim()).ok().filter(|_| code == 0)?;
+    v.is_object().then(|| capability_ids(&v))
+}
+
+/// `status.capabilities` as ids; absent or malformed is none.
+pub fn capability_ids(status: &Value) -> Vec<String> {
+    status["capabilities"]
+        .as_array()
+        .map(|ids| ids.iter().filter_map(Value::as_str).map(str::to_owned).collect())
+        .unwrap_or_default()
 }
 
 #[cfg(unix)]

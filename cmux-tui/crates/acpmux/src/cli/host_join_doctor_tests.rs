@@ -26,6 +26,7 @@ fn healthy() -> Facts {
         binary: Binary::Ok("/home/u/.local/bin/acpmux".into()),
         service: Service::Active { linger: Some(true) },
         daemon_running: true,
+        capabilities: Some(vec!["machine.join.stdin.v1".into(), CONSENT_GATE.into()]),
         status: Status::Json(status(json!({}))),
     }
 }
@@ -261,4 +262,58 @@ fn an_unsafe_hub_origin_or_path_is_never_printed() {
     assert_eq!(step(&spaced, "credential").fix.as_deref(), Some("chmod 600 '/h/my dir/m.json'"));
     let secret_id = with_status(json!({"machineId": "cmm_leak"}));
     assert_eq!(step(&secret_id, "credential").detail, "joined as this machine");
+}
+
+#[test]
+fn a_daemon_without_the_consent_gate_fails_consent_with_update_acpmux() {
+    let old = Facts { capabilities: Some(vec!["machine.join.stdin.v1".into()]), ..healthy() };
+    let checked = steps(&old, NOW);
+    let consent = step(&checked, "consent");
+    assert_eq!(consent.state, StepState::Fail);
+    assert_eq!(consent.detail, "this acpmux daemon has no consent gate (machine-consent-v1)");
+    let fix = consent.fix.as_deref().unwrap();
+    assert!(fix.starts_with("Update acpmux. Re-run the join line without a token:"), "{fix}");
+    assert!(fix.contains("https://platform.example/v1/machines/join.sh | sh"), "{fix}");
+    assert!(!render("vm", "this machine", &checked, Print::Human).1, "it is a failing check");
+    // A daemon that predates capabilities reports none: the same failure, joined or not.
+    let none = Facts { capabilities: Some(capability_ids(&json!({"pid": 1}))), ..healthy() };
+    assert_eq!(step(&steps(&none, NOW), "consent").state, StepState::Fail);
+    let unjoined = Facts { capabilities: Some(vec![]), status: Status::Unsupported, ..healthy() };
+    assert_eq!(step(&steps(&unjoined, NOW), "consent").state, StepState::Fail);
+}
+
+#[test]
+fn unread_capabilities_or_a_stopped_daemon_leave_consent_informational() {
+    let unread = steps(&Facts { capabilities: None, ..healthy() }, NOW);
+    assert_eq!(step(&unread, "consent").state, StepState::Ok);
+    let stopped = Facts { daemon_running: false, capabilities: Some(vec![]), ..healthy() };
+    let checked = steps(&stopped, NOW);
+    assert_eq!(step(&checked, "consent").state, StepState::Ok);
+    assert_eq!(step(&checked, "daemon").state, StepState::Fail);
+}
+
+#[test]
+fn capability_ids_reads_the_status_list() {
+    let v = json!({"capabilities": ["a", 7, CONSENT_GATE]});
+    assert_eq!(capability_ids(&v), ["a", CONSENT_GATE]);
+    assert!(capability_ids(&json!({"capabilities": "x"})).is_empty());
+}
+
+#[test]
+fn the_daemon_consent_view_and_its_last_refusal_are_read() {
+    let view = with_status(json!({"consent": {
+        "consent": {"screen": "granted", "control": "none"},
+        "lastRefusal": {"event": "consent_refused", "surface": "control", "at": NOW},
+    }}));
+    let consent = step(&view, "consent");
+    assert_eq!(consent.state, StepState::Ok);
+    assert!(
+        consent.detail.starts_with(
+            "screen sharing on, control off; a control request was last refused here; to allow"
+        ),
+        "{}",
+        consent.detail
+    );
+    let top = with_status(json!({"lastRefusal": {"surface": "screen\u{1b}"}}));
+    assert!(!step(&top, "consent").detail.contains("refused"), "only a known surface is named");
 }
