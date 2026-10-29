@@ -117,11 +117,15 @@ fn is_duplicate(v: &Value) -> bool {
 
 /// The peer's acceptance names the message its journal kept and that message's sender session
 /// (`hub/message_events.rs` `name_message`), and either is not ours (`(sender, message id)`).
-/// A peer from before that names neither: nothing to check.
-fn kept_another(v: &Value, ours: Option<(&str, &str)>) -> bool {
+/// A peer that names messages (`names`: it lists `session-messages-v1`) and names none kept no
+/// session's message under this prompt id (a person's prompt): not ours either. A peer from
+/// before that never names one: nothing to check.
+fn kept_another(v: &Value, ours: Option<(&str, &str)>, names: bool) -> bool {
     let Some((sender, message_id)) = ours else { return false };
-    let differs =
-        |key: &str, ours: &str| v.get(key).and_then(Value::as_str).is_some_and(|k| k != ours);
+    let differs = |key: &str, ours: &str| match v.get(key).and_then(Value::as_str) {
+        Some(kept) => kept != ours,
+        None => names,
+    };
     differs("messageId", message_id) || differs("messageSenderId", sender)
 }
 
@@ -369,6 +373,7 @@ async fn forward_inner(
             let forward_intent = forward_intent.clone();
             let target_id = id.clone();
             let (provisional_conn, provisional_peer) = (conn.clone(), peer_name.clone());
+            let names = peer.supports_session_messages();
             hub.peer_accepts.wait(
                 &peer.name,
                 &id,
@@ -377,7 +382,7 @@ async fn forward_inner(
                     let ours = sender_message
                         .as_ref()
                         .map(|(sender, _, _, message_id)| (sender.as_str(), message_id.as_str()));
-                    if is_duplicate(&v) || kept_another(&v, ours) {
+                    if is_duplicate(&v) || kept_another(&v, ours, names) {
                         // The peer ran this prompt id before, or kept another send's message
                         // under it (a direct send and its `send_queue` retry both hear the one
                         // acceptance): only its journal says whether this message is there.
@@ -704,13 +709,22 @@ mod message_identity_tests {
     fn an_acceptance_confirms_only_the_message_it_names() {
         let named = json!({"sessionId": "t", "promptId": "p", "messageId": "p",
                            "messageSenderId": "sender-a"});
-        assert!(!kept_another(&named, Some(("sender-a", "p"))));
-        assert!(kept_another(&named, Some(("sender-a", "delivery-1"))));
-        // Another session's send of the same prompt id is not ours either.
-        assert!(kept_another(&named, Some(("sender-b", "p"))));
+        for names in [true, false] {
+            assert!(!kept_another(&named, Some(("sender-a", "p")), names));
+            assert!(kept_another(&named, Some(("sender-a", "delivery-1")), names));
+            // Another session's send of the same prompt id is not ours either.
+            assert!(kept_another(&named, Some(("sender-b", "p")), names));
+            assert!(!kept_another(&named, None, names));
+        }
+        // An acceptance naming no message: from a peer that names messages it is another
+        // prompt's (a person's, under the same id), so it confirms no session's send; from a
+        // peer that never names one it is taken at its word.
         let unnamed = json!({"sessionId": "t", "promptId": "p"});
-        assert!(!kept_another(&unnamed, Some(("sender-a", "delivery-1"))));
-        assert!(!kept_another(&named, None));
+        assert!(kept_another(&unnamed, Some(("sender-a", "p")), true));
+        assert!(!kept_another(&unnamed, Some(("sender-a", "delivery-1")), false));
+        let half = json!({"sessionId": "t", "promptId": "p", "messageId": "p"});
+        assert!(kept_another(&half, Some(("sender-a", "p")), true));
+        assert!(!kept_another(&half, Some(("sender-a", "p")), false));
         assert!(is_duplicate(&json!({"promptId": "p", "duplicate": true, "turnId": "t1"})));
         assert!(is_duplicate(&json!({"stopReason": "end_turn",
                                      "_meta": {"acpmux": {"duplicate": true}}})));

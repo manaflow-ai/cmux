@@ -579,4 +579,107 @@ mod message_recovery_tests {
         assert_eq!(message_count(&hub, &child.id), 1);
         assert_eq!(message_count(&hub, &sender.id), 1);
     }
+
+    /// The memory store, whose next `fail` appends of a `_acpmux/message` record fail as a
+    /// full or unwritable disk would.
+    struct RefusingStore {
+        inner: Box<dyn crate::store::Store>,
+        fail: std::sync::atomic::AtomicUsize,
+    }
+
+    impl crate::store::Store for RefusingStore {
+        fn list(&self) -> anyhow::Result<Vec<crate::store::SessionMeta>> {
+            self.inner.list()
+        }
+        fn load(&self, id: &str) -> anyhow::Result<Option<crate::store::SessionMeta>> {
+            self.inner.load(id)
+        }
+        fn save(&self, meta: &crate::store::SessionMeta) -> anyhow::Result<()> {
+            self.inner.save(meta)
+        }
+        fn append(&self, id: &str, record: &crate::store::EventRecord) -> anyhow::Result<()> {
+            use std::sync::atomic::Ordering::SeqCst;
+            if record.kind == "_acpmux/message"
+                && self.fail.fetch_update(SeqCst, SeqCst, |n| n.checked_sub(1)).is_ok()
+            {
+                anyhow::bail!("no space left on device");
+            }
+            self.inner.append(id, record)
+        }
+        fn events(
+            &self,
+            id: &str,
+            after: u64,
+            limit: usize,
+        ) -> anyhow::Result<Vec<crate::store::EventRecord>> {
+            self.inner.events(id, after, limit)
+        }
+        fn delete(&self, id: &str) -> anyhow::Result<()> {
+            self.inner.delete(id)
+        }
+    }
+
+    /// A copy the store refused is not published: the one copy clients and peers hear is the
+    /// one the journal holds, under its own seq, after the append is retried.
+    #[tokio::test]
+    async fn a_message_copy_the_store_refuses_is_never_published() {
+        let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+        let mut config: Config = serde_json::from_value(json!({
+            "harnesses": {"fake": {"argv": ["python3", fake]}},
+            "defaultHarness": "fake",
+            "permissionPolicy": "approve-all"
+        }))
+        .expect("config");
+        config.store.mode = StoreMode::Memory;
+        let inner = crate::store::open(&config.store, Path::new("/nonexistent")).expect("store");
+        let store = RefusingStore { inner, fail: std::sync::atomic::AtomicUsize::new(1) };
+        let hub = Hub::new(config, Box::new(store));
+        let receiver = hub
+            .new_session(NewRequest {
+                name: Some("receiver".into()),
+                cwd: Some(std::env::temp_dir()),
+                policy: Some(PermissionPolicy::ApproveAll),
+                ..NewRequest::default()
+            })
+            .await
+            .expect("receiver");
+        let mut events = hub.subscribe();
+        let sender = json!({"name": "sender", "sessionId": "sender-1", "host": "local"});
+        let send = || {
+            hub.append_message_event(
+                &receiver,
+                sender.clone(),
+                "once".into(),
+                "delivery-1".into(),
+                1234,
+            )
+        };
+        assert!(!send(), "the store refused the first copy");
+        assert!(send(), "the retry is stored");
+        assert!(send(), "a third append finds the stored copy");
+        let mut heard = Vec::new();
+        while let Ok(event) = events.try_recv() {
+            if event.session_id == receiver.id && event.record.kind == "_acpmux/message" {
+                heard.push(event.record.seq);
+            }
+        }
+        assert_eq!(message_count(&hub, &receiver.id), 1);
+        let stored = hub
+            .events_page(
+                &receiver.id,
+                0,
+                None,
+                500,
+                None,
+                false,
+                &EventFilter::parse(None).unwrap(),
+            )
+            .expect("event page")
+            .events
+            .into_iter()
+            .find(|record| record.kind == "_acpmux/message")
+            .expect("stored copy")
+            .seq;
+        assert_eq!(heard, vec![stored], "only the stored copy is published");
+    }
 }

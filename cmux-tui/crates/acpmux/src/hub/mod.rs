@@ -1244,7 +1244,9 @@ impl Hub {
         }
         // The payload retains the acceptance time; the journal records when this
         // copy was appended, so recovering an old message cannot regress activity.
-        if self.append_at_locked(session, "mux", "_acpmux/message", msg, None, None).1 {
+        // Published only once stored: a failed copy is repaired later (`message_events.rs`),
+        // and that repair's copy is the one clients and peers hear.
+        if self.append_at_locked(session, "mux", "_acpmux/message", msg, None, None, true).1 {
             ids.insert(key);
             true
         } else {
@@ -1319,9 +1321,12 @@ impl Hub {
         tool_paths::add_canonical_paths(session, kind, &mut msg);
         let _order = session.append_lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         self.catch_up_locked(session);
-        self.append_at_locked(session, dir, kind, msg, host_seq, at)
+        self.append_at_locked(session, dir, kind, msg, host_seq, at, false)
     }
 
+    /// `stored_only`: a record the store refused is neither counted nor published (its caller
+    /// appends it again), so no client or peer hears a copy the journal does not hold.
+    #[allow(clippy::too_many_arguments)]
     fn append_at_locked(
         &self,
         session: &Session,
@@ -1330,6 +1335,7 @@ impl Hub {
         msg: Value,
         host_seq: Option<u64>,
         at: Option<u64>,
+        stored_only: bool,
     ) -> (EventRecord, bool) {
         let seq = session.seq.fetch_add(1, Ordering::SeqCst) + 1;
         let at = at.unwrap_or_else(now_ms);
@@ -1370,6 +1376,9 @@ impl Hub {
         // then the agent's `stopped`) each close it again (`store.rs` Writers).
         if session.status() == SessionStatus::Closed {
             self.store.close_log(&session.id);
+        }
+        if stored_only && !stored {
+            return (record, false);
         }
         {
             let mut m = session.meta.lock().unwrap();
