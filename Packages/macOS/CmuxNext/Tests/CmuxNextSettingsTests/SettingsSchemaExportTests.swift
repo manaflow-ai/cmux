@@ -84,22 +84,22 @@ import Testing
         let mcpWrite = ["settings.set", "settings.reset", "settings.unset"]
         #expect(rowsByKey.count == SettingsSchema.all.count)
         for descriptor in SettingsSchema.all {
-            let row = try #require(rowsByKey[descriptor.id], descriptor.id)
-            let surfaces = try #require(row["surfaces"] as? [String: Any], descriptor.id)
-            #expect(Set(surfaces.keys) == Set(["palette", "cli", "mcp", "socket"]), descriptor.id)
+            let row = try #require(rowsByKey[descriptor.id], Comment(rawValue: descriptor.id))
+            let surfaces = try #require(row["surfaces"] as? [String: Any], Comment(rawValue: descriptor.id))
+            #expect(Set(surfaces.keys) == Set(["palette", "cli", "mcp", "socket"]), Comment(rawValue: descriptor.id))
             for name in ["cli", "socket"] {
-                let surface = try #require(surfaces[name] as? [String: Any], "\(descriptor.id): \(name)")
-                #expect(surface["operations"] as? [String] == cliAndSocket, "\(descriptor.id): \(name)")
-                #expect(surface["offered"] as? Bool == true, "\(descriptor.id): \(name)")
+                let surface = try #require(surfaces[name] as? [String: Any], Comment(rawValue: "\(descriptor.id): \(name)"))
+                #expect(surface["operations"] as? [String] == cliAndSocket, Comment(rawValue: "\(descriptor.id): \(name)"))
+                #expect(surface["offered"] as? Bool == true, Comment(rawValue: "\(descriptor.id): \(name)"))
             }
-            let palette = try #require(surfaces["palette"] as? [String: Any], "\(descriptor.id): palette")
-            #expect(palette["offered"] as? Bool == descriptor.isPaletteExposed, descriptor.id)
-            #expect((palette["operations"] as? [String] ?? []) == (descriptor.isPaletteExposed ? ["palette.setSetting"] : []), descriptor.id)
+            let palette = try #require(surfaces["palette"] as? [String: Any], Comment(rawValue: "\(descriptor.id): palette"))
+            #expect(palette["offered"] as? Bool == descriptor.isPaletteExposed, Comment(rawValue: descriptor.id))
+            #expect((palette["operations"] as? [String] ?? []) == (descriptor.isPaletteExposed ? ["palette.setSetting"] : []), Comment(rawValue: descriptor.id))
 
-            let mcp = try #require(surfaces["mcp"] as? [String: Any], "\(descriptor.id): mcp")
+            let mcp = try #require(surfaces["mcp"] as? [String: Any], Comment(rawValue: "\(descriptor.id): mcp"))
             let expectedMCP = mcpRead + (SettingsSchema.agentSettable(descriptor) == true ? mcpWrite : [])
-            #expect(mcp["operations"] as? [String] == expectedMCP, descriptor.id)
-            #expect(mcp["offered"] as? Bool == true, descriptor.id)
+            #expect(mcp["operations"] as? [String] == expectedMCP, Comment(rawValue: descriptor.id))
+            #expect(mcp["offered"] as? Bool == true, Comment(rawValue: descriptor.id))
         }
     }
 
