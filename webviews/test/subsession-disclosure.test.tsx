@@ -312,3 +312,85 @@ test("Find retains Raw-only fields and response matches alongside the displayed 
     expect(container.querySelector(".cv-mcp-call__body")?.textContent).toBe(JSON.stringify(input, null, 2));
   }
 });
+
+test("Find highlights a prompt's link URL in Raw, including a query shared with visible Markdown", async () => {
+  const container = installDom();
+  root = createRoot(container);
+  const prompt = "[design](https://example.com/unique-design-path)";
+  const call = { ...start("first"), prompt };
+  const rawTool = {
+    id: "link-search",
+    title: "mcp__cmux-subsessions__start_session",
+    status: "completed",
+    inputSummary: JSON.stringify({ name: "first", prompt }),
+    output: "Started",
+  };
+  const row: AcpmuxRow = {
+    id: "row",
+    kind: "activity",
+    version: 1,
+    at: 1,
+    items: [{ kind: "tool", text: rawTool.title, tool: rawTool }],
+  };
+  for (const needle of ["unique-design-path", "design", "unique-design-path"]) {
+    await act(async () =>
+      root!.render(
+        <FindReveal.Provider value={{ rowId: "row", card: false, needle, repaint: () => {} }}>
+          <div data-row-id="row">
+            <SubsessionCallCard call={call} tool={rawTool} />
+          </div>
+        </FindReveal.Provider>,
+      ),
+    );
+    const matches = findMatchesIncremental([row], needle).matches;
+    expect(matches).toHaveLength(needle === "design" ? 2 : 1);
+    for (const match of matches) {
+      const range = paintFindHighlights(container, needle, { ...match, card: false });
+      expect(range?.toString()).toBe(needle);
+      expect(range?.startContainer.parentElement?.closest(".cv-mcp-call__body")).not.toBeNull();
+      const highlights = (scope.CSS as { highlights: Map<string, { ranges: Range[] }> }).highlights;
+      expect(highlights.get("acpmux-find")!.ranges).toHaveLength(matches.length - 1);
+    }
+  }
+});
+
+test("Find uses Raw for fenced code in a shadow root and Markdown while plain code is still in light DOM", () => {
+  const container = installDom();
+  const prompt = "```ts\nconst uniqueCodeMatch = 1;\n```";
+  const rawTool = {
+    id: "code-search",
+    title: "mcp__cmux-subsessions__start_session",
+    status: "completed",
+    inputSummary: JSON.stringify({ prompt }),
+    output: "Started",
+  };
+  const row: AcpmuxRow = {
+    id: "row",
+    kind: "activity",
+    version: 1,
+    at: 1,
+    items: [{ kind: "tool", text: rawTool.title, tool: rawTool }],
+  };
+  // CodeBlock starts with PlainCode in the light DOM, then loads Pierre's shadow-root renderer.
+  container.innerHTML =
+    '<div data-row-id="row"><div data-find-primary="code"><pre>const uniqueCodeMatch = 1;</pre></div><pre data-find-fallback="code"></pre></div>';
+  const primary = container.querySelector<HTMLElement>("[data-find-primary]")!;
+  container.querySelector("[data-find-fallback]")!.textContent = JSON.stringify(prompt);
+  const matches = findMatchesIncremental([row], "uniqueCodeMatch").matches;
+  expect(matches).toHaveLength(1);
+  const active = { ...matches[0]!, card: false };
+  let range = paintFindHighlights(container, "uniqueCodeMatch", active);
+  expect(primary.contains(range!.startContainer)).toBe(true);
+  expect(
+    (scope.CSS as { highlights: Map<string, { ranges: Range[] }> }).highlights.get("acpmux-find")!.ranges,
+  ).toHaveLength(0);
+  primary.replaceChildren();
+  const code = document.createElement("div");
+  code.attachShadow({ mode: "open" }).textContent = "const uniqueCodeMatch = 1;";
+  primary.append(code);
+  range = paintFindHighlights(container, "uniqueCodeMatch", active);
+  expect(range?.toString()).toBe("uniqueCodeMatch");
+  expect(range?.startContainer.parentElement?.closest("[data-find-fallback]")).not.toBeNull();
+  const highlights = (scope.CSS as { highlights: Map<string, { ranges: Range[] }> }).highlights;
+  expect(highlights.get("acpmux-find")!.ranges).toHaveLength(0);
+});

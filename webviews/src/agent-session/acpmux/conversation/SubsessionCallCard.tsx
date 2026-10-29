@@ -227,6 +227,7 @@ function SessionCard({
 
 function StartedCard({ call, tool }: { call: Extract<SubsessionCall, { tool: "start" }>; tool: Tool }) {
   const t = useT();
+  const promptFindId = useId();
   return (
     <SessionCard
       tool={tool}
@@ -242,11 +243,11 @@ function StartedCard({ call, tool }: { call: Extract<SubsessionCall, { tool: "st
       started
     >
       {call.prompt && (
-        <div className="cv-subsession__markdown selectable">
+        <div className="cv-subsession__markdown selectable" data-find-primary={promptFindId}>
           <Markdown commits="quiet">{call.prompt}</Markdown>
         </div>
       )}
-      <Raw tool={tool} promptShown={Boolean(call.prompt)} />
+      <Raw tool={tool} promptFindId={call.prompt ? promptFindId : undefined} />
     </SessionCard>
   );
 }
@@ -301,7 +302,7 @@ export function Cut({ text, prompt }: { text: string; prompt?: boolean }) {
 }
 
 /// The call's request and response as the generic MCP row shows them, behind "Raw".
-function Raw({ tool, promptShown = false }: { tool: Tool; promptShown?: boolean }) {
+function Raw({ tool, promptFindId }: { tool: Tool; promptFindId?: string }) {
   const [open, setOpen] = useState(false);
   const [reveal, setReveal] = useState(0);
   useFindReveal(
@@ -313,12 +314,12 @@ function Raw({ tool, promptShown = false }: { tool: Tool; promptShown?: boolean 
   );
   return (
     <RawToggle open={open} onOpenChange={setOpen}>
-      <McpDetails tool={tool} reveal={reveal} promptShown={promptShown} />
+      <McpDetails tool={tool} reveal={reveal} promptFindId={promptFindId} />
     </RawToggle>
   );
 }
 
-function McpDetails({ tool, reveal = 0, promptShown = false }: { tool: Tool; reveal?: number; promptShown?: boolean }) {
+function McpDetails({ tool, reveal = 0, promptFindId }: { tool: Tool; reveal?: number; promptFindId?: string }) {
   const id = useId();
   const call = useMemo(() => mcpCall(tool), [tool]);
   if (!call) return null;
@@ -330,7 +331,7 @@ function McpDetails({ tool, reveal = 0, promptShown = false }: { tool: Tool; rev
       output={tool.output}
       strip={false}
       reveal={reveal}
-      requestFindSkipKeys={promptShown ? ["prompt"] : undefined}
+      requestFindAlternatives={promptFindId ? { prompt: promptFindId } : undefined}
     />
   );
 }

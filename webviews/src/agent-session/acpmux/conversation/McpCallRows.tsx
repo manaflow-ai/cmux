@@ -137,19 +137,20 @@ function McpCallRow({ item }: { item: AcpmuxActivity }) {
   );
 }
 
-/// Keep a string argument's exact Raw text visible but exclude its duplicate from Find when a
-/// surrounding card already renders it (for example, a start's Markdown prompt). Only top-level
-/// string values are marked; keys, other arguments and the response remain searchable.
-function requestPresentation(request: string, skipKeys: readonly string[]): ReactNode {
-  if (!skipKeys.length) return request;
+/// Pair a Raw string argument with its rendered presentation. Find uses the rendered copy only
+/// when it can highlight every indexed occurrence; hidden URLs and shadow-root code use Raw.
+/// Keys, other arguments and the response remain searchable.
+function requestPresentation(request: string, alternatives: Readonly<Record<string, string>>): ReactNode {
+  if (!Object.keys(alternatives).length) return request;
   const parts: ReactNode[] = [];
   let from = 0;
   for (const match of request.matchAll(/^  ("(?:\\.|[^"\\])*"): ("(?:\\.|[^"\\])*")/gm)) {
-    if (!skipKeys.includes(JSON.parse(match[1]!))) continue;
+    const primary = alternatives[JSON.parse(match[1]!)];
+    if (!primary) continue;
     const start = match.index + 2 + match[1]!.length + 2;
     parts.push(request.slice(from, start));
     parts.push(
-      <span key={start} data-find-skip>
+      <span key={start} data-find-fallback={primary}>
         {match[2]}
       </span>,
     );
@@ -169,7 +170,7 @@ export function McpCallDetails({
   output,
   strip,
   reveal,
-  requestFindSkipKeys = [],
+  requestFindAlternatives = {},
 }: {
   id: string;
   call: McpCall;
@@ -178,8 +179,8 @@ export function McpCallDetails({
   /// Whether the call's strip shows its envelope's images, which its response then leaves out.
   strip: boolean;
   reveal: number;
-  /// String arguments already rendered by the surrounding card; Raw is a duplicate for Find.
-  requestFindSkipKeys?: readonly string[];
+  /// Maps string arguments to their rendered data-find-primary identity.
+  requestFindAlternatives?: Readonly<Record<string, string>>;
 }) {
   const t = useT();
   const request = useMemo(() => prettyValue(call.args), [call]);
@@ -197,7 +198,7 @@ export function McpCallDetails({
           <div className="cv-mcp-call__head" data-find-skip>
             {t("tools.mcp.request")}
           </div>
-          <pre className="cv-mcp-call__body selectable">{requestPresentation(request, requestFindSkipKeys)}</pre>
+          <pre className="cv-mcp-call__body selectable">{requestPresentation(request, requestFindAlternatives)}</pre>
         </div>
       )}
       {response.text && (
