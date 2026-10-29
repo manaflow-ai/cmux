@@ -331,7 +331,7 @@ export type AcpmuxRow = {
   /// Several other sessions' messages that wait for the agent, drawn as one card
   /// (conversation/WaitingMessagesCard.tsx, waitingMessages.ts): when it reads them (`step`, steers
   /// it has not read; `turn`, queued behind the running turn) and the rows, oldest first.
-  waiting?: { delivery: "step" | "turn"; rows: readonly AcpmuxRow[] };
+  waiting?: { delivery: "step" | "turn" | "chat"; rows: readonly AcpmuxRow[] };
   /// A prompt sent now that ended the turn it went into (acpmux cancels it, or the agent ends it
   /// with `end_turn`) and runs next: accepted, drawn inside that turn (turnStart.ts
   /// ``continuesTurn``), with no mark of its own.
@@ -1422,7 +1422,7 @@ export type RowHeights = WeakMap<AcpmuxRow, { width: number; height: number; edg
 
 /** DOM-free row geometry. Only visible rows need their React elements painted. */
 export function layoutConversation(
-  rows: AcpmuxRow[],
+  rows: readonly AcpmuxRow[],
   width: number,
   cache = new Map<string, PreparedRow>(),
   measureOverride?: (row: AcpmuxRow, width: number) => number | undefined,

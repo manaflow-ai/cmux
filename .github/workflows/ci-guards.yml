@@ -1668,6 +1668,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_sign_runner.py
 
+      - name: Validate a signing job on an owned Mac holds the whole Mac and deletes its keychain
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_ci_signing_owned_mac.py
+
       - name: Validate the nightly-next build takes an idle owned Mac or a moving Blacksmith label
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_build_runner.py

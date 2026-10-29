@@ -14,7 +14,7 @@ type Snapshot = components["schemas"]["SnapshotSummary"]
 /** The generated public API is the only transport here; provider IDs and credentials never enter it. */
 export class VmApiCloudDriver implements CloudProvider {
   /** The VM API sizes from the image at create; resize, snapshots, exec and HTTPS proxies it has. */
-  readonly capabilities = { sizing: false, resize: true, snapshot: true, guestExec: true, edgeTls: true }
+  readonly capabilities = { sizing: false, resize: true, snapshot: true, guestExec: true, edgeTls: true, clientSession: false }
   private readonly captures: VmApiSnapshotCaptures
   private readonly client
   constructor(private readonly settings: VmApiSettings, tenant: string, private readonly team: string, fetchFn: typeof fetch = fetch) {
