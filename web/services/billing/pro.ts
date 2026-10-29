@@ -845,7 +845,9 @@ export async function stripeBillingStatusForTeam(
       hasActiveTeamSubscriptionForTeam(stackTeamId),
     ]);
     const activeRow = options.preferActive
-      ? subscriptionRows.find((row) => (ACTIVE_STRIPE_PRO_STATUSES as readonly string[]).includes(row.status))
+      // A paid row beats a past-due one; a past-due row still beats the portal pick.
+      ? subscriptionRows.find((row) => row.status === "active" || row.status === "trialing") ??
+        subscriptionRows.find((row) => (ACTIVE_STRIPE_PRO_STATUSES as readonly string[]).includes(row.status))
       : undefined;
     const subscription = activeRow ?? pickPortalMetadataRow(subscriptionRows);
     return stripeBillingStatusFromRows(

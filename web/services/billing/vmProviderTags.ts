@@ -9,6 +9,7 @@ import {
   FOUNDERS_PLAN_ID,
   isPaidPlanId,
   isPersonalPlanId,
+  MAX_PLAN_ID,
   PRO_PLAN_ID,
   manualVmPlanOverride,
   stripeBillingStatusForTeam,
@@ -119,5 +120,8 @@ async function hasOperatorGrant(scope: VmBillingScope): Promise<boolean> {
     return isPaidPlanId(manualVmPlanOverride(team?.clientReadOnlyMetadata));
   }
   const user = await app.getUser(scope.userId);
-  return isPaidPlanId(manualVmPlanOverride(user?.clientReadOnlyMetadata));
+  const override = manualVmPlanOverride(user?.clientReadOnlyMetadata);
+  if (!isPaidPlanId(override)) return false;
+  // A Pro override does not fund a Max machine (personalPlanIdForStatus).
+  return scope.billingPlanId !== MAX_PLAN_ID || override === MAX_PLAN_ID;
 }
