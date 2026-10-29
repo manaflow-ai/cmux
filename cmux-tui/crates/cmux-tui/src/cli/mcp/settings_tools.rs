@@ -268,11 +268,10 @@ fn sensitive_value(value: &Value, url_setting: bool) -> bool {
                 }
             });
             parsed.is_ok_and(|url| {
-                matches!(url.scheme(), "http" | "https")
-                    && (!url.username().is_empty()
-                        || url.password().is_some()
-                        || url.query().is_some()
-                        || url.fragment().is_some())
+                !url.username().is_empty()
+                    || url.password().is_some()
+                    || url.query().is_some()
+                    || url.fragment().is_some()
             })
         }
         Value::Array(values) => values.iter().any(|value| sensitive_value(value, false)),
