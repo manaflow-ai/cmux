@@ -318,7 +318,10 @@ extension SidebarListViewComponents {
             if !row.isCollapsed {
                 subtree.workspaces += (groupSubtrees[id] ?? []).filter { $0 != id }.compactMap { groups[$0] }.flatMap(\.workspaces)
             }
-            view.configure(group, row: row, details: details, status: subtree.statusRollUp(collapsed: row.isCollapsed), animated: animated)
+            // The chevron turns on every fold of the user's own (Lawrence msg 15763), also an opening whose new rows show
+            // at once (`ui.animations.newWorkspace` off makes both the fold and a full apply step without motion).
+            view.configure(group, row: row, details: details, status: subtree.statusRollUp(collapsed: row.isCollapsed),
+                           animated: animated || model.followsUserIntent)
             view.railReach = railReach(for: row)
             view.isDropTarget = drag?.target == .intoGroup(id) || external?.proposal == .intoGroup(id)
         case let (.section(id), view as SectionHeaderRowView):

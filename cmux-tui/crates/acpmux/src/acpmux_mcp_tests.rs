@@ -61,12 +61,26 @@ fn the_tools_say_they_message_other_sessions_instead_of_the_shell() {
         tools.as_array().unwrap().iter().filter_map(|t| t["name"].as_str()).collect();
     assert_eq!(
         names,
-        ["send", "ls", "last", "info", "bg_start", "bg_list", "bg_output", "bg_stop"]
+        [
+            "send",
+            "ls",
+            "last",
+            "info",
+            "team_send",
+            "team_inbox",
+            "team_ack",
+            "bg_start",
+            "bg_list",
+            "bg_output",
+            "bg_stop"
+        ]
     );
     let send = tools[0]["description"].as_str().unwrap();
     assert!(send.contains("Message another agent session"), "{send}");
     assert!(send.contains("instead of running `acpmux send` in a shell"), "{send}");
     assert_eq!(tools[0]["inputSchema"]["required"], json!(["to", "text"]));
+    assert_eq!(tools[4]["inputSchema"]["required"], json!(["to", "body"]));
+    assert_eq!(tools[6]["inputSchema"]["required"], json!(["id"]));
 }
 
 #[tokio::test]
@@ -126,6 +140,7 @@ async fn ls_last_and_info_read_the_sessions() {
         &lane,
         "hello",
         crate::cli::output::CollectOpts {
+            deadline: None,
             timeout: Some(20),
             on_permission: crate::cli::output::OnPermission::Fail,
             stall_secs: 30,
@@ -165,4 +180,94 @@ async fn bg_tools_refuse_arguments_that_are_not_an_object() {
         assert_eq!(r["isError"], true, "{name}: {r}");
         assert_eq!(text(&r), "arguments must be an object", "{name}: {r}");
     }
+}
+
+/// Exercise the actual MCP-to-daemon socket path without substituting an MCP
+/// implementation. Any wrong RPC method, argument, lost receipt field or hidden
+/// refusal fails independently of the mesh client's tests.
+#[cfg(unix)]
+#[tokio::test]
+async fn team_tools_use_the_shared_rpc_paths_and_preserve_receipts_and_refusals() {
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+
+    let receipt = json!({"messageId": "msg_example", "state": "queued",
+        "resolution": {"teamAddress": "@team/reviewer", "sessionId": "resolved-agent"},
+        "startWork": "information"});
+    let inbox = json!({"messages": [{"messageId": "msg_example", "body": "review ready",
+        "from": {"teamAddress": "@member/coordinator"}, "state": "delivered",
+        "startWork": "information"}]});
+    let acknowledged = json!({"messageId": "msg_example", "state": "acked"});
+    let cases = vec![
+        (
+            "team_send",
+            json!({"to": "@team/reviewer", "body": "review ready"}),
+            "_acpmux/team/send",
+            json!({"to": "@team/reviewer", "body": "review ready"}),
+            receipt,
+        ),
+        ("team_inbox", json!({}), "_acpmux/team/inbox", json!({"unreadOnly": true}), inbox.clone()),
+        (
+            "team_inbox",
+            json!({"unreadOnly": false}),
+            "_acpmux/team/inbox",
+            json!({"unreadOnly": false}),
+            inbox,
+        ),
+        (
+            "team_ack",
+            json!({"id": "msg_example"}),
+            "_acpmux/team/ack",
+            json!({"id": "msg_example"}),
+            acknowledged,
+        ),
+    ];
+    let expected = cases
+        .iter()
+        .map(|(_, _, method, args, result)| (*method, args.clone(), result.clone()))
+        .collect::<Vec<_>>();
+    let dir = cmux_unix_socket::short_test_dir("acpmux-team-mcp");
+    let path = dir.path().join("d.sock");
+    let listener = tokio::net::UnixListener::bind(&path).unwrap();
+    let server = tokio::spawn(async move {
+        let (stream, _) = listener.accept().await.unwrap();
+        let (read, mut write) = stream.into_split();
+        let mut lines = BufReader::new(read).lines();
+        let mut requests = vec![("initialize", None, json!({}))];
+        requests.extend(expected.into_iter().map(|(m, a, r)| (m, Some(a), r)));
+        for (method, arguments, result) in requests {
+            let request: Value =
+                serde_json::from_str(&lines.next_line().await.unwrap().unwrap()).unwrap();
+            assert_eq!(request["method"], method, "{request}");
+            if let Some(arguments) = arguments {
+                assert_eq!(request["params"], arguments, "{request}");
+            }
+            let response = json!({"jsonrpc": "2.0", "id": request["id"], "result": result});
+            write.write_all(format!("{response}\n").as_bytes()).await.unwrap();
+        }
+        let request: Value =
+            serde_json::from_str(&lines.next_line().await.unwrap().unwrap()).unwrap();
+        assert_eq!(request["method"], "_acpmux/team/send");
+        let response = json!({"jsonrpc": "2.0", "id": request["id"],
+            "error": {"code": -32602, "message": "team messaging is disabled in Labs"}});
+        write.write_all(format!("{response}\n").as_bytes()).await.unwrap();
+    });
+    let client = Client::connect(&path).await.unwrap();
+    for (name, arguments, _, _, expected) in cases {
+        let result =
+            tokio::time::timeout(Duration::from_secs(5), call(&client, &tool(name, arguments)))
+                .await
+                .unwrap();
+        assert_eq!(result["isError"], false, "{result}");
+        assert_eq!(result["structuredContent"], expected, "{result}");
+        assert_eq!(serde_json::from_str::<Value>(&text(&result)).unwrap(), expected);
+    }
+    let result = tokio::time::timeout(
+        Duration::from_secs(5),
+        call(&client, &tool("team_send", json!({"to": "@team/reviewer", "body": "retry"}))),
+    )
+    .await
+    .unwrap();
+    assert_eq!(result["isError"], true, "{result}");
+    assert!(text(&result).contains("team messaging is disabled in Labs"), "{result}");
+    server.await.unwrap();
 }
