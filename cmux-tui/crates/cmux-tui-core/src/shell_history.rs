@@ -44,9 +44,9 @@ pub(crate) const MAX_INPUT_ROWS: u32 = 32;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ShellMark {
     PromptStart,
-    /// `A` with `k=s` or `k=c`: a secondary (continuation, PS2) prompt. The
-    /// shell still reads the command the last primary prompt started, so it
-    /// answers no line and ends no command.
+    /// `A` with `k=s`, `k=c` or `k=r`: a secondary (continuation, PS2) or
+    /// right prompt. It starts no prompt and ends no command; a secondary
+    /// prompt answers a line still owed one (`terminal_activity`).
     SecondaryPromptStart,
     InputStart,
     CommandStart,
@@ -63,8 +63,9 @@ impl ShellMark {
         let mut fields = data.split(|byte| *byte == b';');
         let mark = match fields.next()? {
             // The prompt kind (FinalTerm `k=`): `s` secondary, `c`
-            // continuation; `i` and `r` (and none) are primary.
-            b"A" if fields.any(|field| field == b"k=s" || field == b"k=c") => {
+            // continuation, `r` a right prompt (libghostty's PROMPT_RIGHT),
+            // none of which starts a prompt; `i` (and none) is primary.
+            b"A" if fields.any(|field| matches!(field, b"k=s" | b"k=c" | b"k=r")) => {
                 Self::SecondaryPromptStart
             }
             b"A" => Self::PromptStart,
@@ -209,6 +210,11 @@ mod shell_mark_tests {
         assert_eq!(ShellMark::parse(b"A;k=i"), Some(ShellMark::PromptStart));
         assert_eq!(ShellMark::parse(b"A;k=s"), Some(ShellMark::SecondaryPromptStart));
         assert_eq!(ShellMark::parse(b"A;aid=7;k=c"), Some(ShellMark::SecondaryPromptStart));
+        assert_eq!(
+            ShellMark::parse(b"A;k=r"),
+            Some(ShellMark::SecondaryPromptStart),
+            "a right prompt"
+        );
         assert_eq!(ShellMark::parse(b"P;k=s"), None);
         assert_eq!(
             ShellMark::parse(b"D;130"),

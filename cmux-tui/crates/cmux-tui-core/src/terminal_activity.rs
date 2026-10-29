@@ -235,14 +235,16 @@ impl ShellActivity {
                 true
             }
             // A continuation prompt (PS2: an open quote, a heredoc, a `for`
-            // loop over lines) answers the Return before it, so that line is
-            // paid, but the command it continues is not finished: the shell
-            // holds its text, so it stays not idle until a primary `A`.
+            // loop over lines) answers a Return still owed a prompt, so that
+            // line is paid, but the command it continues is not finished: the
+            // shell holds its text, so it stays not idle until a primary `A`.
+            // With no line owed it is part of a prompt (kitty marks each line
+            // of a multi-line PS1 `A;k=s`) or a redraw: it changes nothing.
             ShellMark::SecondaryPromptStart => {
-                if self.prompted {
-                    self.owed_prompts = self.owed_prompts.saturating_sub(1);
+                if self.prompted && self.owed_prompts > 0 {
+                    self.owed_prompts -= 1;
+                    self.input_after_prompt = true;
                 }
-                self.input_after_prompt = true;
                 false
             }
             ShellMark::InputStart => false,
@@ -920,6 +922,42 @@ mod tests {
         activity.note_input(b"EOF\r");
         activity.observe(ShellMark::PromptStart, 1_300);
         assert!(activity.foreground_check_due().is_some(), "the primary prompt after it");
+    }
+
+    /// Review of cp/fix-tip-continuation-prompt-idle, finding 1: kitty marks
+    /// the second line of a multi-line PS1 `A;k=s`; with no line typed it is
+    /// part of the prompt, which reads idle.
+    #[test]
+    fn shell_idle_a_multi_line_prompt_with_secondary_marks_is_idle() {
+        let mut activity = ShellActivity::default();
+        activity.observe(ShellMark::PromptStart, 1_000);
+        activity.observe(ShellMark::SecondaryPromptStart, 1_001);
+        activity.observe(ShellMark::InputStart, 1_002);
+        let epoch = activity.foreground_check_due().expect("the prompt asks for a check");
+        activity.record_foreground(epoch, true);
+        assert_eq!(activity.idle_since(), Some(1_000));
+    }
+
+    /// The same prompt after a line typed ahead into an open quote: the
+    /// primary `A` came before the shell read the line, and the `A;k=s` that
+    /// answers it must keep the unfinished command not idle.
+    #[test]
+    fn shell_idle_an_open_quote_typed_ahead_of_its_prompt_is_not_idle() {
+        let mut activity = idle_at(1_000);
+        activity.note_input(b"true\recho \"x\r");
+        activity.observe(ShellMark::PromptStart, 2_000);
+        assert_eq!(activity.idle_since(), None, "a line is owed");
+        activity.observe(ShellMark::SecondaryPromptStart, 2_001);
+        assert_eq!(activity.foreground_check_due(), None, "the quote is open");
+        assert_eq!(activity.idle_since(), None);
+        // A multi-line PS1's own `A;k=s` pays one more typed-ahead line, and
+        // blocks idle the same way (review nit 3).
+        let mut activity = idle_at(1_000);
+        activity.note_input(b"true\rsleep 1\rsleep 600\r");
+        activity.observe(ShellMark::PromptStart, 2_000);
+        activity.observe(ShellMark::SecondaryPromptStart, 2_001);
+        assert_eq!(activity.foreground_check_due(), None);
+        assert_eq!(activity.idle_since(), None);
     }
 
     #[test]
