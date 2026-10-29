@@ -1,0 +1,170 @@
+[
+  {
+    "id": "pr27069-machine-no-project-light-w420",
+    "path_or_url": "frame.html",
+    "params": {
+      "entry": "agent-pane.new-tab-headline",
+      "variant": "machine-no-project",
+      "source": "src/agent-session/acpmux/newtab/NewTabHeadline.gallery.ts",
+      "locale": "en",
+      "theme": "Apple System Colors Light",
+      "colorScheme": "light",
+      "width": 420,
+      "height": 640
+    }
+  },
+  {
+    "id": "pr27069-machine-no-project-dark-w420",
+    "path_or_url": "frame.html",
+    "params": {
+      "entry": "agent-pane.new-tab-headline",
+      "variant": "machine-no-project",
+      "source": "src/agent-session/acpmux/newtab/NewTabHeadline.gallery.ts",
+      "locale": "en",
+      "theme": "Apple System Colors",
+      "colorScheme": "dark",
+      "width": 420,
+      "height": 640
+    }
+  },
+  {
+    "id": "pr27069-machine-no-project-light-w900",
+    "path_or_url": "frame.html",
+    "params": {
+      "entry": "agent-pane.new-tab-headline",
+      "variant": "machine-no-project",
+      "source": "src/agent-session/acpmux/newtab/NewTabHeadline.gallery.ts",
+      "locale": "en",
+      "theme": "Apple System Colors Light",
+      "colorScheme": "light",
+      "width": 900,
+      "height": 640
+    }
+  },
+  {
+    "id": "pr27069-machine-no-project-dark-w900",
+    "path_or_url": "frame.html",
+    "params": {
+      "entry": "agent-pane.new-tab-headline",
+      "variant": "machine-no-project",
+      "source": "src/agent-session/acpmux/newtab/NewTabHeadline.gallery.ts",
+      "locale": "en",
+      "theme": "Apple System Colors",
+      "colorScheme": "dark",
+      "width": 900,
+      "height": 640
+    }
+  },
+  {
+    "id": "pr27069-machine-picker-open-light-w420",
+    "path_or_url": "frame.html",
+    "params": {
+      "entry": "agent-pane.new-tab-headline",
+      "variant": "machine-picker-open",
+      "source": "src/agent-session/acpmux/newtab/NewTabHeadline.gallery.ts",
+      "locale": "en",
+      "theme": "Apple System Colors Light",
+      "colorScheme": "light",
+      "width": 420,
+      "height": 640
+    }
+  },
+  {
+    "id": "pr27069-machine-picker-open-dark-w420",
+    "path_or_url": "frame.html",
+    "params": {
+      "entry": "agent-pane.new-tab-headline",
+      "variant": "machine-picker-open",
+      "source": "src/agent-session/acpmux/newtab/NewTabHeadline.gallery.ts",
+      "locale": "en",
+      "theme": "Apple System Colors",
+      "colorScheme": "dark",
+      "width": 420,
+      "height": 640
+    }
+  },
+  {
+    "id": "pr27069-machine-picker-open-light-w900",
+    "path_or_url": "frame.html",
+    "params": {
+      "entry": "agent-pane.new-tab-headline",
+      "variant": "machine-picker-open",
+      "source": "src/agent-session/acpmux/newtab/NewTabHeadline.gallery.ts",
+      "locale": "en",
+      "theme": "Apple System Colors Light",
+      "colorScheme": "light",
+      "width": 900,
+      "height": 640
+    }
+  },
+  {
+    "id": "pr27069-machine-picker-open-dark-w900",
+    "path_or_url": "frame.html",
+    "params": {
+      "entry": "agent-pane.new-tab-headline",
+      "variant": "machine-picker-open",
+      "source": "src/agent-session/acpmux/newtab/NewTabHeadline.gallery.ts",
+      "locale": "en",
+      "theme": "Apple System Colors",
+      "colorScheme": "dark",
+      "width": 900,
+      "height": 640
+    }
+  },
+  {
+    "id": "pr27069-machine-remote-light-w420",
+    "path_or_url": "frame.html",
+    "params": {
+      "entry": "agent-pane.new-tab-headline",
+      "variant": "machine-remote",
+      "source": "src/agent-session/acpmux/newtab/NewTabHeadline.gallery.ts",
+      "locale": "en",
+      "theme": "Apple System Colors Light",
+      "colorScheme": "light",
+      "width": 420,
+      "height": 640
+    }
+  },
+  {
+    "id": "pr27069-machine-remote-dark-w420",
+    "path_or_url": "frame.html",
+    "params": {
+      "entry": "agent-pane.new-tab-headline",
+      "variant": "machine-remote",
+      "source": "src/agent-session/acpmux/newtab/NewTabHeadline.gallery.ts",
+      "locale": "en",
+      "theme": "Apple System Colors",
+      "colorScheme": "dark",
+      "width": 420,
+      "height": 640
+    }
+  },
+  {
+    "id": "pr27069-machine-remote-light-w900",
+    "path_or_url": "frame.html",
+    "params": {
+      "entry": "agent-pane.new-tab-headline",
+      "variant": "machine-remote",
+      "source": "src/agent-session/acpmux/newtab/NewTabHeadline.gallery.ts",
+      "locale": "en",
+      "theme": "Apple System Colors Light",
+      "colorScheme": "light",
+      "width": 900,
+      "height": 640
+    }
+  },
+  {
+    "id": "pr27069-machine-remote-dark-w900",
+    "path_or_url": "frame.html",
+    "params": {
+      "entry": "agent-pane.new-tab-headline",
+      "variant": "machine-remote",
+      "source": "src/agent-session/acpmux/newtab/NewTabHeadline.gallery.ts",
+      "locale": "en",
+      "theme": "Apple System Colors",
+      "colorScheme": "dark",
+      "width": 900,
+      "height": 640
+    }
+  }
+]

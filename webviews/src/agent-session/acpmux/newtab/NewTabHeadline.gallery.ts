@@ -7,7 +7,7 @@
 // arms starts from the first variant and the experiment matrix runs every one, so each has a picker.
 import { agentPaneEntry } from "../../../gallery/format";
 import type { PlayContext } from "../../../gallery/play";
-import { CWD, manySessions, noChat } from "../../../gallery/fixtures/acpmux";
+import { CWD, manySessions, noChat, session } from "../../../gallery/fixtures/acpmux";
 import { newTabHeadline } from "./headline.experiment";
 
 const PROJECTS = [CWD, "/Users/you/src/cmux", "/Users/you/src/manaflow"];
@@ -26,6 +26,49 @@ const page = (pageWidgets: string[]) => ({
 });
 
 const button = ".nt-headline .acpmux-project-button";
+const machineButton = '.nt-headline-machine-picker button[aria-haspopup="dialog"]';
+const composerMachineButton = '.acpmux-composer-strip [data-kind="computer"] button';
+const machinePage = () => ({
+  ...page(["greeting"]),
+  newTab: { ...page(["greeting"]).newTab, cwd: "/Users/you", host: "studio" },
+});
+const machineSnapshot = () =>
+  noChat(
+    [
+      ...manySessions(12),
+      session({
+        sessionId: "remote-api",
+        title: "API request retries",
+        cwd: "/home/dev/api",
+        peer: "devbox",
+        host: "devbox",
+      }),
+    ],
+    {
+      peers: ["devbox"],
+      peerKinds: { devbox: "ssh" },
+      peerConnected: { devbox: true },
+      peerStates: { devbox: "connected" },
+    },
+  );
+
+// The head fixture can overlay the base for a before/after: the base opens its existing
+// composer computer picker, while the head opens the new inline machine picker.
+const openMachine = async (ctx: PlayContext) => {
+  await ctx.waitFor(() => ctx.document.querySelector(".nt-headline") !== null);
+  await ctx.click({ selector: ctx.document.querySelector(machineButton) ? machineButton : composerMachineButton });
+  await ctx.waitFor(() => ctx.document.querySelector('.acpmux-location-menu [role="option"]') !== null);
+};
+const pickRemoteMachine = async (ctx: PlayContext) => {
+  await openMachine(ctx);
+  await ctx.click({ role: "option", name: /^devbox(?:\s|$)/ });
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-location-menu") === null);
+  await ctx.waitFor(
+    () =>
+      (ctx.document.querySelector(machineButton) ?? ctx.document.querySelector(composerMachineButton))
+        ?.getAttribute("aria-label")?.includes("devbox") ?? false,
+  );
+};
 /// Picks `name` from the headline's picker, as a click on the project's name and then on its row.
 const pick = async (ctx: PlayContext, name: string) => {
   await ctx.waitFor(() => ctx.document.querySelector(button) !== null);
@@ -37,9 +80,14 @@ const pick = async (ctx: PlayContext, name: string) => {
 /// variant that already picked cmux (or left its menu open) is brought there without a second pick.
 const start = async (ctx: PlayContext) => {
   await ctx.waitFor(() => ctx.document.querySelector(button) !== null);
-  if (ctx.document.querySelector(".acpmux-project-menu")) {
+  if (ctx.document.querySelector(".acpmux-project-menu, .acpmux-location-menu")) {
     await ctx.press("Escape");
-    await ctx.waitFor(() => ctx.document.querySelector(".acpmux-project-menu") === null);
+    await ctx.waitFor(() => ctx.document.querySelector(".acpmux-project-menu, .acpmux-location-menu") === null);
+  }
+  if (ctx.document.querySelector(machineButton)?.textContent?.includes("devbox")) {
+    await openMachine(ctx);
+    await ctx.click({ role: "option", name: /^studio(?:\s|$)/ });
+    await ctx.waitFor(() => ctx.document.querySelector(".acpmux-location-menu") === null);
   }
   if (!ctx.document.querySelector(".nt-headline-text")?.textContent?.includes("cmux")) await pick(ctx, "cmux");
 };
@@ -85,6 +133,24 @@ export default agentPaneEntry({
         await ctx.click({ selector: button });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-project-menu") !== null);
       },
+    },
+    "machine-no-project": {
+      note: "Optional greeting on, no project selected: studio is the inline machine picker; Choose project stays below the question.",
+      ready: machinePage(),
+      snapshot: machineSnapshot(),
+      play: (ctx) => ctx.waitFor(() => ctx.document.querySelector(".nt-headline") !== null),
+    },
+    "machine-picker-open": {
+      note: "The no-project machine picker lists studio and a connected SSH peer, devbox. The base capture opens the composer's computer picker.",
+      ready: machinePage(),
+      snapshot: machineSnapshot(),
+      play: openMachine,
+    },
+    "machine-remote": {
+      note: "Pick devbox from the machine picker: the no-project headline scopes work to devbox, whose session supplies the /home/dev/api project.",
+      ready: machinePage(),
+      snapshot: machineSnapshot(),
+      play: pickRemoteMachine,
     },
   },
 });
