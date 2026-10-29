@@ -79,6 +79,13 @@ const gapVariants = Object.fromEntries(
         note: `Drag from the gap between ${above} and ${below} rows; the nearest visible text caret starts a new native selection.`,
         snapshot: chat(gapPair(above, below), { title: "Select through transcript gaps" }),
         play: async (ctx: PlayContext) => {
+          // Consecutive tools intentionally have no production row gap. This fixture supplies a
+          // visible gap for that pair, as the midpoint browser regression does; content stays native.
+          if (above === "tool" && below === "tool") {
+            const style = ctx.document.createElement("style");
+            style.textContent = '.acpmux-row[data-row-id="upper"] { padding-bottom: 32px; }';
+            ctx.document.head.append(style);
+          }
           for (const id of ["upper", "lower"]) {
             const selector = `[data-row-id="${id}"] .cv-tool.is-toggle`;
             if (ctx.document.querySelector(selector)) await ctx.click({ selector });
