@@ -79,9 +79,7 @@ extension CrashReporter {
 /// panic log forwarders. Starts only for the app itself
 /// (`marksRun`), after the run marker installed its signal handlers.
 ///
-/// With feature `sentryHandlersFirst` Sentry starts with
-/// ``CrashReporter/StartProfile/handlersFirst`` and its app-hang reports resume
-/// in one afterStartup post (``AfterStartup``). With feature
+/// With feature
 /// `crashForwardersAfterStartup` the forwarders' first pass
 /// (the DiagnosticReports listing, the panic logs) and their watches are one
 /// afterStartup best-effort files-lane post, behind the best-effort fence; the
@@ -103,7 +101,6 @@ struct AppCrashReporting: Sendable {
     /// - Parameters:
     ///   - features: The features the app runs with, put on the Sentry scope right after it starts
     ///     (`DebugSettingsService.start` keeps them current as live Debug toggles change, `CrashReporter.followFeatures`).
-    ///   - afterStartup: How Sentry starts and when its paused part resumes (feature `sentryHandlersFirst`).
     ///   - hangSinks: The main-thread watchdog's hang sinks, set before Sentry starts; they decide whether Sentry's
     ///     app-hang tracker runs (``WatchdogHangSinks/hangTracking``). Nil (tests, no watchdog) keeps the tracker.
     ///   - forwardersAfterStartup: The launch's scheduler with feature `crashForwardersAfterStartup`: the
@@ -111,7 +108,6 @@ struct AppCrashReporting: Sendable {
     ///   - runMarker: The app's run marker: the previous run's crash event, sent after the start, gets that run's
     ///     crash keys and black box.
     init(environment: AppEnvironment, features: CrashFeatureScope? = nil,
-         afterStartup: AfterStartup = AfterStartup(handlersFirst: false, startup: nil),
          hangSinks: WatchdogHangSinks? = nil, forwardersAfterStartup: StartupScheduler? = nil, runMarker: AppRunMarker? = nil) {
         let previousRun = CrashReporter.previousRunEvidence(marker: runMarker, bundleID: environment.launch.bundleID)
         reporter = CrashReporter.forThisLaunch(bundleID: environment.launch.bundleID, hangTracking: hangSinks?.hangTracking ?? .sentry,
@@ -127,12 +123,11 @@ struct AppCrashReporting: Sendable {
         // Before the start: with Sentry's tracker off, the watchdog reports every hang from the start on.
         hangSinks?.install(reporter: reporter)
         DebugTimings.markLaunch("crash.sentry_start")
-        let sends = reporter.start(profile: afterStartup.profile)
+        let sends = reporter.start()
         DebugTimings.markLaunch("crash.sentry_started")
         // After the start, so the invariant sink sends only when Sentry runs.
         InvariantSink.install(reporter: reporter, bundleVersion: bundleVersion)
         if let features { reporter.setFeatures(features) }
-        afterStartup.schedule { [reporter = self.reporter] in reporter.resumeAfterStartup() }
         // A Rust crash's black box goes only while hang reports are on in effect (079's opt-in).
         let blackboxConsent = RustBlackBoxConsent(consentRecorded: { [key = HangReportsController.consentKey] in
             UserDefaults.standard.object(forKey: key) is Date
@@ -205,26 +200,6 @@ struct AppCrashReporting: Sendable {
             }
             collector.noteProcessHang(durationMs: Int(clamping: record.overdueMs), frames: frames,
                                       thread: HangSample.WatchedThread(name: record.thread, kind: record.threadKind))
-        }
-    }
-
-    /// How Sentry starts and when the part it pauses resumes. Off (the standard start): nothing is paused,
-    /// so nothing waits. On (feature `sentryHandlersFirst`): app-hang reports are paused at start and resume
-    /// in one afterStartup main post of the launch's scheduler, or at once without a scheduler (tests).
-    struct AfterStartup {
-        /// The post's name in the startup log.
-        static let taskName: StaticString = "CrashReporting.afterStartup"
-        let handlersFirst: Bool
-        let startup: StartupScheduler?
-
-        /// The start profile that matches ``schedule(_:)``.
-        var profile: CrashReporter.StartProfile { handlersFirst ? .handlersFirst : .standard }
-
-        /// Runs `resume` once startup completes, with ``profile`` `.handlersFirst`; never with `.standard`.
-        func schedule(_ resume: @escaping @MainActor @Sendable () -> Void) {
-            guard handlersFirst else { return }
-            guard let startup else { return resume() }
-            startup.post(.afterStartup, Self.taskName, on: .main, resume)
         }
     }
 

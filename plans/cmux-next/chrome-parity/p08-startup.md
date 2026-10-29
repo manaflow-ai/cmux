@@ -844,6 +844,9 @@ URLSession swizzle from the start but loses them for the whole run. The forwarde
 `launch.sentry_start` interval (`crash.sentry_start` to `crash.sentry_started`) measures the call; the 3 ms
 target and the early-crash test are open until the fleet measures them. If the start is still over 3 ms, the
 cost is in SentryCrash install and the binary image cache, which only a lead decision on the spec can move.
+Deleted 2026-10-29 (principled audit, row p08-05): the app always runs the main-thread watchdog, so Sentry's
+app-hang tracking is off (`HangTracking.watchdog`) and the pause had nothing to pause. `sentryHandlersFirst`,
+`StartProfile`, `AppCrashReporting.AfterStartup` and `resumeAfterStartup()` are gone; the measurement marks stay.
 
 **033 main().** Files: `CmuxNextApp.swift`, `AppEnvironment.swift`, `CmuxNextApp+LaunchEnvironment.swift`. Change:
 signpost each step; directory creation for scroll anchors and draft attachments, SidebarSnapshotFile paths and

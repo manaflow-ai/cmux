@@ -36,23 +36,10 @@ import CmuxNextCompat
 /// Start cost. `SentrySDK.start` on main installs every
 /// integration in that call; the SDK (sentry-cocoa 9.28) has no public API
 /// to install one later. Session tracking already does its file I/O on the
-/// SDK's own queue, and network breadcrumbs stay on for the whole run. So
-/// ``StartProfile/handlersFirst`` changes no option: it only pauses app-hang
-/// reports until ``resumeAfterStartup()``. The app's `crash.sentry_start`
+/// SDK's own queue. The app's `crash.sentry_start`
 /// and `crash.sentry_started` launch marks bound the call
 /// (`LaunchSignposts.Interval.sentryStart`).
 public final class CrashReporter: Sendable {
-    /// What `SentrySDK.start` turns on at launch.
-    public nonisolated enum StartProfile: Sendable, Equatable {
-        /// Every integration the options allow, reporting from the start.
-        case standard
-        /// The same integrations, but app-hang reports wait for startup (feature `sentryHandlersFirst`):
-        /// paused until ``CrashReporter/resumeAfterStartup()``; the main-thread watchdog reports launch
-        /// hangs. Crash capture, sessions and breadcrumbs are as in ``standard``. With
-        /// ``HangTracking/watchdog`` there is no app-hang tracker to pause.
-        case handlersFirst
-    }
-
     /// The DSN of the macOS app's Sentry project (`manaflow/cmuxterm-macos`),
     /// as in the main app; cmux-next events are told apart by
     /// ``CrashEventLabels``.
@@ -76,7 +63,7 @@ public final class CrashReporter: Sendable {
         /// (`MainThreadWatchdog.onHang`), each episode of ``CrashReporter/appHangThreshold`` and up as an app
         /// hang (``AppHangReporter``), and with feature `fatalHangReports` keeps the fatal-hang
         /// record the next launch reports; Sentry's tracker is off. The app sets these
-        /// sinks before ``CrashReporter/start(profile:)`` (`WatchdogHangSinks`), so a launch hang is reported too.
+        /// sinks before ``CrashReporter/start()`` (`WatchdogHangSinks`), so a launch hang is reported too.
         case watchdog
     }
 
@@ -181,11 +168,9 @@ public final class CrashReporter: Sendable {
 
     /// Starts Sentry when the policy allows it. Call once, on the main
     /// thread, after the run marker's handlers are installed.
-    /// - Parameter profile: With ``StartProfile/handlersFirst``, call
-    ///   ``resumeAfterStartup()`` once startup completes.
     /// - Returns: whether Sentry started.
     @discardableResult
-    public func start(profile: StartProfile = .standard) -> Bool {
+    public func start() -> Bool {
         guard policy.shouldStart, !isStarted else { return false }
         // The main app's startup race (#836): Sentry's init thread reads the
         // environment while the main thread first builds the locale.
@@ -194,20 +179,11 @@ public final class CrashReporter: Sendable {
         let appOwned = SignalActions(capturing: Self.appOwnedSignals)
         let exceptionPorts = TaskExceptionPorts.captureBeforeSentry()
         SentrySDK.start(options: options())
-        if profile == .handlersFirst { SentrySDK.pauseAppHangTracking() }
         TaskExceptionPorts.noteSentryStarted(exceptionPorts)
         appOwned.restore()
         let handlers = SignalActions(capturing: Self.fatalSignals)
         sentryHandlers.withLock { $0 = handlers }
         return true
-    }
-
-    /// The part of a ``StartProfile/handlersFirst`` start that waits for
-    /// startup: app-hang reports resume. Call once, on main, after startup
-    /// completes; does nothing while Sentry is off.
-    public func resumeAfterStartup() {
-        guard isStarted else { return }
-        SentrySDK.resumeAppHangTracking()
     }
 
     /// Puts Sentry's fatal-signal handlers back after something reset them
