@@ -25,6 +25,10 @@ mod health;
 #[path = "peer_state_tests.rs"]
 mod state_tests;
 
+#[cfg(test)]
+#[path = "peer_prompt_tests.rs"]
+mod prompt_tests;
+
 /// Source of `Peer::generation`.
 static NEXT_GENERATION: AtomicU64 = AtomicU64::new(1);
 
@@ -45,6 +49,20 @@ pub const CLIENT_NAME: &str = "acpmux-peer";
 /// log in one frame, and one of 32.8 MB reset the link with its 29 chats (2026-10-21).
 pub fn hidden_attach(id: &str) -> Value {
     json!({"sessionId": id, "limit": 0, "visible": false, "maxBytes": crate::hub::page_bytes(&json!({}))})
+}
+
+/// A reconnect attach resumes the mirror after its last delivered event. Keep
+/// the same byte bound as normal pages; the peer's `hasMore` response remains
+/// authoritative and a later reconnect will request the remainder.
+pub fn hidden_attach_after(id: &str, after: u64) -> Value {
+    json!({
+        "sessionId": id,
+        "afterSeq": after,
+        "limit": 2000,
+        "visible": false,
+        "eventStream": true,
+        "maxBytes": crate::hub::page_bytes(&json!({})),
+    })
 }
 
 /// What the hub receives from a peer, tagged with the peer's name and
@@ -100,6 +118,8 @@ pub struct Peer {
     /// The pending keys whose frame `serve` wrote to the live link: when the link drops, only
     /// these may have run on the peer; every other request waiting fails as not sent.
     on_wire: OnWire,
+    /// Accepted prompt identities survive transport loss; reconnect only reads their outcome.
+    prompts: Arc<StdMutex<HashMap<String, PendingPrompt>>>,
     /// The handshake finished on the live link (`initialize` and `_acpmux/watch` answered, the
     /// sessions listed): what `connected` reports. False from the moment the link drops.
     pub connected: AtomicBool,
@@ -164,7 +184,15 @@ pub struct Peer {
     /// requests and notifications are refused, so none goes out on a link
     /// that is dropped to reconnect as a peer, or waits to go out on the next.
     admitting: AtomicBool,
-    attached: StdMutex<HashSet<String>>,
+    /// Sessions with a client stream attached, and the greatest event sequence
+    /// the client has already received.  A reconnect asks the peer for records
+    /// after this cursor instead of attaching with `limit: 0` (which silently
+    /// loses the gap between links).
+    attached: StdMutex<HashMap<String, u64>>,
+    /// Highest live sequence observed while a session is being replayed. The
+    /// payload is intentionally not retained: the next bounded page fetches it
+    /// from the peer journal, so memory cannot grow with a long turn.
+    replay_highwater: StdMutex<HashMap<String, u64>>,
     notices: mpsc::Sender<(String, u64, PeerNotice)>,
     stop: AtomicBool,
     /// Wakes `serve` so `stop` closes the live connection.
@@ -212,6 +240,7 @@ impl Peer {
             next_id: AtomicI64::new(1),
             pending: Arc::new(Mutex::new(HashMap::new())),
             on_wire: Default::default(),
+            prompts: Default::default(),
             connected: AtomicBool::new(false),
             open: AtomicBool::new(false),
             last_error: StdMutex::new(None),
@@ -237,7 +266,8 @@ impl Peer {
             withheld: AtomicBool::new(false),
             presented: StdMutex::new(None),
             admitting: AtomicBool::new(false),
-            attached: StdMutex::new(HashSet::new()),
+            attached: StdMutex::new(HashMap::new()),
+            replay_highwater: StdMutex::new(HashMap::new()),
             notices,
             stop: AtomicBool::new(false),
             stop_signal: Notify::new(),
@@ -681,7 +711,70 @@ impl Peer {
     /// Remember that local clients want this session's stream, so it is
     /// re-attached after a reconnect.
     pub fn mark_attached(&self, session_id: &str) -> bool {
-        self.attached.lock_or_recover().insert(session_id.to_owned())
+        let mut attached = self.attached.lock_or_recover();
+        if attached.contains_key(session_id) {
+            false
+        } else {
+            attached.insert(session_id.to_owned(), 0);
+            true
+        }
+    }
+
+    /// Advance the reconnect cursor from a page returned by `_acpmux/attach`.
+    /// The page's `lastSeq` includes records filtered out by `kinds`, so only
+    /// the records actually delivered to the client may advance the cursor.
+    pub fn note_attached_page(&self, session_id: &str, page: &Value) {
+        // A fresh client can read ahead while older clients still need the replay gap.
+        let replay = self.replay_highwater.lock_or_recover();
+        if replay.contains_key(session_id) {
+            return;
+        }
+        let seq = page
+            .get("events")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(|e| e.get("seq").and_then(Value::as_u64))
+            .max()
+            .unwrap_or(0);
+        self.attached
+            .lock_or_recover()
+            .entry(session_id.to_owned())
+            .and_modify(|cursor| {
+                *cursor = (*cursor).max(seq);
+            })
+            .or_insert(seq);
+    }
+
+    /// A first hidden attach deliberately reads no history. Its snapshot is the
+    /// stream baseline even when the page has no events. Keep a newer live cursor
+    /// if notifications raced the response; never move beyond the peer's snapshot.
+    pub fn note_hidden_attach_page(&self, session_id: &str, page: &Value) {
+        let replay = self.replay_highwater.lock_or_recover();
+        if replay.contains_key(session_id) {
+            return;
+        }
+        // Older peers may sample lastSeq after the page. It cannot establish a
+        // no-history baseline without risking a live event lost in that interval.
+        let Some(seq) = page.get("pageThrough").and_then(Value::as_u64) else {
+            return;
+        };
+        if let Some(cursor) = self.attached.lock_or_recover().get_mut(session_id) {
+            *cursor = (*cursor).max(seq);
+        }
+    }
+
+    /// Advance the cursor for a live event sent on this peer link.
+    fn note_live(&self, params: &Value) {
+        let Some(id) = params.get("sessionId").and_then(Value::as_str) else { return };
+        let seq = params
+            .get("seq")
+            .and_then(Value::as_u64)
+            .or_else(|| params.pointer("/_meta/acpmux/seq").and_then(Value::as_u64));
+        let Some(seq) = seq else { return };
+        if let Some(cursor) = self.attached.lock_or_recover().get_mut(id) {
+            *cursor = (*cursor).max(seq);
+        }
     }
 
     /// How many requests wait for the peer's answer now.
@@ -727,6 +820,21 @@ impl Peer {
         let (tx, rx) = oneshot::channel();
         let key = Value::from(id).to_string();
         self.pending.lock().await.insert(key.clone(), tx);
+        if m == method::SESSION_PROMPT
+            && let (Some(session), Some(prompt)) = (
+                params.get("sessionId").and_then(Value::as_str),
+                params.pointer("/_meta/acpmux/promptId").and_then(Value::as_str),
+            )
+        {
+            self.prompts.lock_or_recover().insert(
+                key.clone(),
+                PendingPrompt {
+                    session: session.to_owned(),
+                    prompt: prompt.to_owned(),
+                    accepted: false,
+                },
+            );
+        }
         if m == method::MUX_WATCH {
             *self.watch_key.lock_or_recover() = Some(key.clone());
         }
@@ -735,6 +843,7 @@ impl Peer {
         let _forget = ForgetPending {
             pending: self.pending.clone(),
             on_wire: self.on_wire.clone(),
+            prompts: self.prompts.clone(),
             key: Some(key.clone()),
         };
         // The link it was admitted on went down before it was registered: `run`
@@ -755,8 +864,8 @@ impl Peer {
             Err(_) => return Err(queue_timed_out(&self.name, started.elapsed())),
         }
         // A prompt or a wait answers when the peer's turn ends, however long that is; the
-        // keepalive drops a link that stops answering, which fails it as `peer disconnected`,
-        // and a forwarder whose client left drops it (`server/peer_forward.rs`).
+        // keepalive drops a link that stops answering. Accepted prompts retain their caller
+        // across that drop; a forwarder whose client left drops it (`server/peer_forward.rs`).
         let answer = if waits_on_turn(m) {
             Ok(rx.await)
         } else {
@@ -848,6 +957,9 @@ impl Peer {
                 BackoffWait::Stopped => break,
             }
         }
+        // Stopping during backoff (or before the loop starts) also retires
+        // accepted callers retained by the previous link. No reconnect owns them now.
+        self.fail_link_requests(&mut out_rx).await;
     }
 
     /// Waits out one backoff delay. A wait that this
@@ -877,12 +989,20 @@ impl Peer {
     /// The link ended. A request that never went out on it (still queued, or waiting for room
     /// in the queue) fails as not sent (`peer_unreachable`, retryable), and its frame is dropped,
     /// never sent on the next link. One that went out fails as `peer_disconnected`: the peer
-    /// may have run it.
+    /// may have run it. An accepted prompt instead keeps its original waiter for recovery.
     async fn fail_link_requests(&self, out_rx: &mut mpsc::Receiver<Outbound>) {
         let mut pending = self.pending.lock().await;
         while out_rx.try_recv().is_ok() {}
         let on_wire = std::mem::take(&mut *self.on_wire.lock_or_recover());
+        let mut survivors = HashMap::new();
         for (key, tx) in pending.drain() {
+            if !self.stop.load(Ordering::SeqCst)
+                && !tx.is_closed()
+                && self.prompts.lock_or_recover().get(&key).is_some_and(|p| p.accepted)
+            {
+                survivors.insert(key, tx);
+                continue;
+            }
             let _ = tx.send(Err(if on_wire.contains(&key) {
                 RpcError::internal("peer disconnected").with_data(json!({
                     "reason": "peer_disconnected",
@@ -893,6 +1013,33 @@ impl Peer {
                 self.unreachable_error()
             }));
         }
+        *pending = survivors;
+    }
+
+    /// Rebind the original caller to the ledger's result, never resend its prompt.
+    async fn recover_prompts(&self, link: u64) -> Result<(), RpcError> {
+        let prompts: Vec<_> = self
+            .prompts
+            .lock_or_recover()
+            .iter()
+            .filter(|(_, p)| p.accepted)
+            .map(|(k, p)| (k.clone(), p.clone()))
+            .collect();
+        for (key, prompt) in prompts {
+            if !self.pending.lock().await.contains_key(&key) {
+                continue;
+            }
+            let id: Value =
+                serde_json::from_str(&key).map_err(|e| RpcError::internal(e.to_string()))?;
+            let line = Message::request(id, method::MUX_WAIT,
+                json!({"sessionId": prompt.session, "promptId": prompt.prompt, "until": ["promptOutcome"]}))
+                .bounded_line().map_err(RpcError::too_large)?;
+            self.out
+                .send(Outbound { epoch: link, key: Some(key), line })
+                .await
+                .map_err(|_| RpcError::internal("peer connection closed"))?;
+        }
+        Ok(())
     }
 
     async fn connect_once(
@@ -985,6 +1132,10 @@ impl Peer {
         let link = self.link_epoch();
         self.admitting.store(true, Ordering::SeqCst);
         self.open.store(true, Ordering::SeqCst);
+        // Gate existing streams before initialize/watch or outcome recovery can
+        // produce events. A live record must not move the replay cursor past a gap.
+        let replay_cursors = self.attached.lock_or_recover().clone();
+        *self.replay_highwater.lock_or_recover() = replay_cursors;
         *self.last_error.lock_or_recover() = None;
         self.with_link(|l| l.opened(crate::store::now_ms()));
         tracing::info!(peer = %self.name, "link open to {}; handshaking", self.url);
@@ -992,7 +1143,7 @@ impl Peer {
         // Handshake in a task so the read loop below can serve the responses.
         let me = self.clone();
         let (stale_tx, mut stale_rx) = oneshot::channel::<String>();
-        let handshake = tokio::spawn(async move {
+        let mut handshake = tokio::spawn(async move {
             let mut hello = json!({"protocolVersion": 1, "clientCapabilities": {}, "clientInfo": {"name": CLIENT_NAME, "version": crate::hub::VERSION}});
             // This Mac lends the peer its GitHub login (`hub/github_owner.rs` on the peer).
             if me.github_broker() {
@@ -1045,8 +1196,108 @@ impl Peer {
             let auth = lists(crate::hub::session_auth::FEATURE);
             me.session_auth.store(auth, Ordering::SeqCst);
             // The reader published the reply's list (`watch_key`), so Connected follows it.
-            me.link_request_on(method::MUX_WATCH, json!({"enabled": true}), Some(link)).await?;
-            // Connected only now, and ready with it, so its state note follows `connected`.
+            let watched =
+                me.link_request_on(method::MUX_WATCH, json!({"enabled": true}), Some(link)).await?;
+            // A purged attachment must not fail replay and reconnect every other chat forever.
+            let listed: HashSet<String> = watch_sessions(&watched)
+                .iter()
+                .filter_map(|row| row.get("sessionId").and_then(Value::as_str).map(str::to_owned))
+                .collect();
+            me.attached.lock_or_recover().retain(|id, _| listed.contains(id));
+            me.replay_highwater.lock_or_recover().retain(|id, _| listed.contains(id));
+            me.recover_prompts(link).await?;
+            let attached: Vec<(String, u64)> = me
+                .attached
+                .lock_or_recover()
+                .iter()
+                .map(|(sid, cursor)| (sid.clone(), *cursor))
+                .collect();
+            // Forwarders can register an attachment during the handshake before
+            // request_on refuses their request. Gate those sessions too, without
+            // replacing high-water marks already observed on this connection.
+            {
+                let mut highwater = me.replay_highwater.lock_or_recover();
+                for (sid, cursor) in &attached {
+                    highwater.entry(sid.clone()).or_insert(*cursor);
+                }
+            }
+            for (sid, cursor) in attached {
+                let mut after = cursor;
+                let mut rewound = false;
+                loop {
+                    // Pin every bounded page to this connection. Replay its records through
+                    // the same hub path as live events before releasing this session's gate.
+                    let page = me
+                        .link_request_on(
+                            method::MUX_ATTACH,
+                            hidden_attach_after(&sid, after),
+                            Some(link),
+                        )
+                        .await?;
+                    // A restored journal may be shorter than the copy we saw on
+                    // the previous link. Reset both cursors before requesting its
+                    // bounded pages, or every new live event below `after` is lost.
+                    if page.get("lastSeq").and_then(Value::as_u64).is_some_and(|last| last < after)
+                    {
+                        if rewound {
+                            return Err(RpcError::internal(
+                                "peer journal kept moving backwards during replay",
+                            ));
+                        }
+                        let mut highwater = me.replay_highwater.lock_or_recover();
+                        me.attached.lock_or_recover().insert(sid.clone(), 0);
+                        highwater.insert(sid.clone(), 0);
+                        after = 0;
+                        rewound = true;
+                        continue;
+                    }
+                    let mut progressed = false;
+                    if let Some(events) = page.get("events").and_then(Value::as_array) {
+                        for event in events {
+                            if let Some(seq) = event.get("seq").and_then(Value::as_u64) {
+                                progressed |= seq > after;
+                                after = after.max(seq);
+                            }
+                            if me
+                                .notices
+                                .send((
+                                    me.name.clone(),
+                                    me.generation,
+                                    PeerNotice::Notification {
+                                        method: method::MUX_EVENT.to_owned(),
+                                        params: event.clone(),
+                                        link,
+                                    },
+                                ))
+                                .await
+                                .is_err()
+                            {
+                                return Err(RpcError::internal(
+                                    "peer replay notice channel closed",
+                                ));
+                            }
+                            me.note_live(event);
+                        }
+                    }
+                    let caught_up = {
+                        let mut highwater = me.replay_highwater.lock_or_recover();
+                        let caught_up = page.get("hasMore") != Some(&Value::Bool(true))
+                            && highwater.get(&sid).copied().unwrap_or(after) <= after;
+                        if caught_up {
+                            highwater.remove(&sid);
+                        }
+                        caught_up
+                    };
+                    if caught_up {
+                        break;
+                    }
+                    if !progressed {
+                        return Err(RpcError::internal("peer replay page made no progress"));
+                    }
+                }
+            }
+            // Admit new requests only after all replay pages have reached subscribers.
+            // Otherwise a fresh attach can return those pages before replay emits them again.
             // `run` moves the epoch on before it clears `connected` and takes the link down, so
             // a link that dropped meanwhile is seen here: it is not made ready again, and never
             // left reading connected.
@@ -1064,10 +1315,6 @@ impl Peer {
             }
             tracing::info!(peer = %me.name, "connected to {}", me.url);
             let _ = me.notices.send((me.name.clone(), me.generation, PeerNotice::Connected)).await;
-            let attached: Vec<String> = me.attached.lock_or_recover().iter().cloned().collect();
-            for sid in attached {
-                let _ = me.request(method::MUX_ATTACH, hidden_attach(&sid)).await;
-            }
             me.refresh_health();
             Ok::<(), RpcError>(())
         });
@@ -1085,6 +1332,7 @@ impl Peer {
         ping.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         let mut last_frame = tokio::time::Instant::now();
         let mut stale_settled = false;
+        let mut handshake_settled = false;
         let mut ticks: u64 = 0;
         let handshake_deadline = tokio::time::sleep(timings.handshake);
         tokio::pin!(handshake_deadline);
@@ -1125,6 +1373,14 @@ impl Peer {
                 _ = wake_check.tick() => check_wake!(),
                 _ = tokio::time::sleep_until(wake_probe.unwrap_or_else(tokio::time::Instant::now)), if wake_probe.is_some() => {
                     break Err(format!("no answer {}s after this computer woke", WAKE_PROBE.as_secs()));
+                }
+                outcome = &mut handshake, if !handshake_settled => {
+                    handshake_settled = true;
+                    match outcome {
+                        Ok(Ok(())) => {}
+                        Ok(Err(e)) => break Err(format!("peer handshake/replay failed: {}", e.message)),
+                        Err(e) => break Err(format!("peer handshake/replay task failed: {e}")),
+                    }
                 }
                 // Once only: a finished oneshot is not polled again.
                 stale = &mut stale_rx, if !stale_settled => {
@@ -1194,6 +1450,42 @@ impl Peer {
                         }
                         Message::Notification { method: m, params } => {
                             let p = params.unwrap_or(Value::Null);
+                            if matches!(m.as_str(), method::MUX_EVENT | method::SESSION_UPDATE) {
+                                let mut highwater = self.replay_highwater.lock_or_recover();
+                                let id = p.get("sessionId").and_then(Value::as_str);
+                                let seq = p.get("seq").and_then(Value::as_u64)
+                                    .or_else(|| p.pointer("/_meta/acpmux/seq").and_then(Value::as_u64));
+                                if let (Some(id), Some(seq)) = (id, seq)
+                                    && let Some(high) = highwater.get_mut(id)
+                                {
+                                    *high = (*high).max(seq);
+                                    continue;
+                                }
+                                drop(highwater);
+                            }
+                            // Record before publishing the acceptance: a link can drop before the
+                            // hub consumes its notice, but the original client still owns the turn.
+                            if m == method::MUX_PROMPT_ACCEPTED {
+                                let mut prompts = self.prompts.lock_or_recover();
+                                for prompt in prompts.values_mut() {
+                                    if p.get("sessionId").and_then(Value::as_str) == Some(&prompt.session)
+                                        && p.get("promptId").and_then(Value::as_str) == Some(&prompt.prompt)
+                                    { prompt.accepted = true; }
+                                }
+                            }
+                            let cursor_event = matches!(m.as_str(), method::MUX_EVENT | method::SESSION_UPDATE)
+                                .then(|| {
+                                    let id = p.get("sessionId")?.as_str()?.to_owned();
+                                    let seq = p.get("seq").and_then(Value::as_u64)
+                                        .or_else(|| p.pointer("/_meta/acpmux/seq").and_then(Value::as_u64))?;
+                                    Some((id, seq))
+                                }).flatten();
+                            // A live frame can have been queued before the final replay page,
+                            // yet be read after the gate opens. Its sequence already arrived.
+                            if let Some((id, seq)) = &cursor_event
+                                && *seq > 0
+                                && self.attached.lock_or_recover().get(id).is_some_and(|last| last >= seq)
+                            { continue; }
                             let notice = if m == method::MUX_SESSION_CHANGED {
                                 let session = p.get("session").cloned().unwrap_or(Value::Null);
                                 // Remote session_changed notifications carry the
@@ -1215,6 +1507,9 @@ impl Peer {
                             if self.notices.send((self.name.clone(), self.generation, notice)).await.is_err() {
                                 break Ok(());
                             }
+                            if let Some((id, seq)) = cursor_event
+                                && let Some(last) = self.attached.lock_or_recover().get_mut(&id)
+                            { *last = (*last).max(seq); }
                         }
                         Message::Request { id, method: m, params } if m == method::MUX_GITHUB_ACTION => {
                             // Refused here, before anything is spawned, unless this Mac lends the
@@ -1257,13 +1552,24 @@ impl Peer {
                     // Before the frame is marked: a link a wake check drops never had it.
                     check_wake!();
                     // Marked before the write: a frame that is partly written may still run.
-                    if let Some(key) = key {
-                        self.on_wire.lock_or_recover().insert(key);
+                    let prompt_key = key.as_ref();
+                    if let Some(key) = prompt_key {
+                        self.on_wire.lock_or_recover().insert(key.clone());
                     }
                     let text = line.trim_end_matches('\n').to_owned();
                     let until = write_deadline(tokio::time::Instant::now(), budget, wake_probe);
                     match tokio::time::timeout_at(until, sink.send(Frame::Text(text.into()))).await {
-                        Ok(Ok(())) => {}
+                        Ok(Ok(())) => {
+                            // Once the prompt frame reaches the socket, the remote may have
+                            // accepted it even if its acceptance notification is still queued
+                            // behind the frame that caused this link to drop. Retain it for the
+                            // durable outcome lookup across reconnects.
+                            if let Some(key) = prompt_key
+                                && let Some(prompt) = self.prompts.lock_or_recover().get_mut(key)
+                            {
+                                prompt.accepted = true;
+                            }
+                        }
                         Ok(Err(e)) => break Err(e.to_string()),
                         Err(_) => break Err(write_late(budget, wake_probe)),
                     }
@@ -1559,11 +1865,19 @@ type PendingReplies = Arc<Mutex<HashMap<String, oneshot::Sender<Result<Value, Rp
 /// `Peer::on_wire`.
 type OnWire = Arc<StdMutex<HashSet<String>>>;
 
+#[derive(Clone)]
+struct PendingPrompt {
+    session: String,
+    prompt: String,
+    accepted: bool,
+}
+
 /// Removes a request's pending entry when `Peer::request` returns or is
 /// dropped; the reader has already removed it when the reply came.
 struct ForgetPending {
     pending: PendingReplies,
     on_wire: OnWire,
+    prompts: Arc<StdMutex<HashMap<String, PendingPrompt>>>,
     key: Option<String>,
 }
 
@@ -1571,6 +1885,7 @@ impl Drop for ForgetPending {
     fn drop(&mut self) {
         let Some(key) = self.key.take() else { return };
         self.on_wire.lock_or_recover().remove(&key);
+        self.prompts.lock_or_recover().remove(&key);
         if let Ok(mut map) = self.pending.try_lock() {
             map.remove(&key);
         } else if let Ok(rt) = tokio::runtime::Handle::try_current() {

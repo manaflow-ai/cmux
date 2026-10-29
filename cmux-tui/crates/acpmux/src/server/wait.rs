@@ -2,6 +2,10 @@
 //! state sequence is read before the first check, every hub event
 //! re-evaluates, and peer sessions are re-read once a second, so a change
 //! between "list" and "subscribe" cannot be missed.
+//!
+//! `until: ["promptOutcome"]`, `sessionId` and `promptId` instead await that
+//! accepted prompt's ledger result (`requests.rs`), without submitting work.
+//! The explicit until value makes older daemons reject an unsupported query.
 
 use super::*;
 use crate::no_panic::JsonExt;

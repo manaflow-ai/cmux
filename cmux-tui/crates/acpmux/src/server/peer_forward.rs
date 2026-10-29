@@ -234,10 +234,18 @@ async fn forward_inner(
         // The peer cannot see the session this connection runs in: it gets that session's name.
         if m == method::SESSION_PROMPT {
             name_sender(hub, conn, &mut p);
+            if p.pointer("/_meta/acpmux/promptId").and_then(Value::as_str).is_none_or(str::is_empty)
+            {
+                crate::hub::merge_mux_meta(
+                    &mut p,
+                    json!({"promptId": uuid::Uuid::now_v7().to_string()}),
+                );
+            }
         }
         if m == method::MUX_PERMISSION_RESPOND {
             count_hop(&mut p)?;
         }
+        let mut first_attach = false;
         if matches!(
             m,
             method::MUX_ATTACH
@@ -255,15 +263,26 @@ async fn forward_inner(
             } else {
                 super::view::subscribe_remote(hub, conn, &id, None);
             }
-            if peer.mark_attached(&id) && m != method::MUX_ATTACH {
+            first_attach = peer.mark_attached(&id);
+            if first_attach && m != method::MUX_ATTACH {
                 // The link is not a person: only a client's own attach or view shows the chat.
                 // Its own task, so the attach the marker stands for always goes out, whoever else
                 // relies on it; only this client's wait for it ends when the client leaves.
                 let attach = tokio::spawn({
                     let (peer, id) = (peer.clone(), id.clone());
                     async move {
-                        let _ =
-                            peer.request(method::MUX_ATTACH, crate::peer::hidden_attach(&id)).await;
+                        let link = peer.link_epoch();
+                        if let Ok(page) = peer
+                            .request_on(
+                                method::MUX_ATTACH,
+                                crate::peer::hidden_attach(&id),
+                                Some(link),
+                            )
+                            .await
+                            && peer.link_epoch() == link
+                        {
+                            peer.note_hidden_attach_page(&id, &page);
+                        }
                     }
                 });
                 tokio::select! {
@@ -345,6 +364,22 @@ async fn forward_inner(
         let held = |r: &Value| r.get("events").and_then(Value::as_array).map(Vec::len);
         let before = held(&result);
         strip_asks(hub, &peer.name, &id, m, &mut result);
+        if m == method::MUX_ATTACH
+            && first_attach
+            && peer.link_epoch() == link
+            && params.get("beforeSeq").is_none_or(Value::is_null)
+        {
+            // Only the first attachment establishes a baseline. A later client's
+            // page can outrun queued live events still owed to existing subscribers.
+            if params.get("limit").and_then(Value::as_u64) == Some(0)
+                && params.get("afterSeq").is_none_or(Value::is_null)
+            {
+                peer.note_hidden_attach_page(&id, &result);
+            } else {
+                // Advance only after permission-history filtering.
+                peer.note_attached_page(&id, &result);
+            }
+        }
         // What the client reads of a peer's chat is kept here too, so the chat
         // paints while the peer is paused or offline (`hub/peer_snapshot.rs`).
         // A page that lost records here no longer holds every seq it covers.
