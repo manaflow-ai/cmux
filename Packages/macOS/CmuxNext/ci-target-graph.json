@@ -172,7 +172,6 @@
         "CmuxNextPagesTestSupport",
         "CmuxNextRemoteFetch",
         "CmuxNextSettings",
-        "CmuxNextTestSupport",
         "CmuxNextWakeups",
         "CmuxNextWakeupsTestSupport"
       ],
@@ -949,7 +948,6 @@
         "CmuxNextCompat",
         "CmuxNextDesign",
         "CmuxNextDesignTokens",
-        "CmuxNextTestSupport",
         "CmuxNextWakeupsTestSupport"
       ],
       "packages": [
@@ -1096,8 +1094,7 @@
       "kind": "test",
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextFloatingTests",
       "targets": [
-        "CmuxNextFloating",
-        "CmuxNextTestSupport"
+        "CmuxNextFloating"
       ],
       "packages": [],
       "reads": []
@@ -1364,8 +1361,7 @@
         "CmuxNextAgentPane",
         "CmuxNextMobileHost",
         "CmuxNextPages",
-        "CmuxNextSettings",
-        "CmuxNextTestSupport"
+        "CmuxNextSettings"
       ],
       "packages": [],
       "reads": []
@@ -1439,8 +1435,7 @@
         "CmuxNextDesign",
         "CmuxNextPages",
         "CmuxNextPagesTestSupport",
-        "CmuxNextSettings",
-        "CmuxNextTestSupport"
+        "CmuxNextSettings"
       ],
       "packages": [],
       "reads": [
@@ -1464,8 +1459,7 @@
       "kind": "test",
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextPaletteTests",
       "targets": [
-        "CmuxNextPalette",
-        "CmuxNextTestSupport"
+        "CmuxNextPalette"
       ],
       "packages": [
         "CmuxTheme"
@@ -1531,8 +1525,7 @@
       "targets": [
         "CmuxNextBrowser",
         "CmuxNextDesign",
-        "CmuxNextPopups",
-        "CmuxNextTestSupport"
+        "CmuxNextPopups"
       ],
       "packages": [],
       "reads": []
@@ -1665,8 +1658,7 @@
       "targets": [
         "CmuxNextFileGrid",
         "CmuxNextFiles",
-        "CmuxNextScreenshots",
-        "CmuxNextTestSupport"
+        "CmuxNextScreenshots"
       ],
       "packages": [],
       "reads": []
@@ -1857,8 +1849,7 @@
       "kind": "test",
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextTerminalTests",
       "targets": [
-        "CmuxNextTerminal",
-        "CmuxNextTestSupport"
+        "CmuxNextTerminal"
       ],
       "packages": [],
       "reads": []
