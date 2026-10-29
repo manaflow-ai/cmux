@@ -1,4 +1,4 @@
-import { cmuxTuiAsDaemonUser, cmuxTuiLayoutSelector } from "./drivers/cmuxTuiDaemon";
+import { CMUX_TUI_PORT, cmuxTuiAsDaemonUser, cmuxTuiLayoutSelector } from "./drivers/cmuxTuiDaemon";
 
 /**
  * Idle auto-pause for Cloud machines (pilot blocker 1a). A 4 vCPU / 8 GB
@@ -19,7 +19,8 @@ import { cmuxTuiAsDaemonUser, cmuxTuiLayoutSelector } from "./drivers/cmuxTuiDae
  *   daemon's live agents and every acpmux session with a turn or a pending
  *   permission), no terminal running a foreground command (a build, a server
  *   started by hand, vim, an agent CLI), and no inbound connection on the
- *   machine's private address (a forwarded port in use), no CPU use above
+ *   machine's private address (a forwarded port in use; the app's own link
+ *   to the daemon port does not count), no CPU use above
  *   {@link VM_IDLE_CPU_BUSY_CORES} since the previous probe (a `nohup make`,
  *   a container, a systemd unit), and no exec, files or attach call through
  *   the API within the timeout ({@link VM_LAST_API_ACTIVITY_KEY});
@@ -312,6 +313,8 @@ function activeReasons(probe: KnownVmIdleProbe, cpuCores: number | "reset" | nul
  *   anything but a shell in it is a running command), sshd session processes,
  *   and established TCP connections into a listening port, counted when they
  *   reach the machine's private address ($CMUX_IDLE_PRIVATE_ADDRESSES) or sshd,
+ *   except the daemon's own port ($CMUX_IDLE_DAEMON_PORT: the app's link, whose
+ *   input the daemon already reports; the link alone is not activity),
  *   and the aggregate `cpu` line of /proc/stat (busy CPU time since boot).
  * $CMUX_IDLE_PROC_ROOT, $CMUX_IDLE_DAEMON_SOCKET_FILE and
  * $CMUX_IDLE_DAEMON_SOCKET_ROOTS exist for tests.
@@ -455,9 +458,10 @@ def inbound_connections():
             except Exception:
                 pass
     listening = {port for _, port, state in rows if state == "0A"}
+    daemon_port = os.environ.get("CMUX_IDLE_DAEMON_PORT", "")
     n = 0
     for local, port, state in rows:
-        if state != "01" or port not in listening:
+        if state != "01" or port not in listening or str(port) == daemon_port:
             continue
         mapped = local.ipv4_mapped if local.version == 6 else None
         if port == 22 or local in private or (mapped is not None and mapped in private):
@@ -508,7 +512,7 @@ export function vmIdleProbeCommand(privateAddresses: readonly string[]): string 
     `t=$(mktemp) || exit 1`,
     `s=$(${acp("daemon status")} </dev/null 2>/dev/null)`,
     `case "$s" in *'"pid":'[0-9]*|*'"pid": '[0-9]*) ${acp("ls")} </dev/null >"$t" 2>/dev/null || printf ERR >"$t" ;; *'"running":false'*|*'"running": false'*) printf NONE >"$t" ;; *) printf ERR >"$t" ;; esac`,
-    `CMUX_IDLE_ACPMUX="$t" CMUX_IDLE_DAEMON_UID="$(id -u "$CMUX_TUI_USER")" CMUX_IDLE_PRIVATE_ADDRESSES='${addresses}' python3 - <<'CMUX_IDLE_PY'\n${VM_IDLE_PROBE_SCRIPT}\nCMUX_IDLE_PY`,
+    `CMUX_IDLE_ACPMUX="$t" CMUX_IDLE_DAEMON_UID="$(id -u "$CMUX_TUI_USER")" CMUX_IDLE_DAEMON_PORT=${CMUX_TUI_PORT} CMUX_IDLE_PRIVATE_ADDRESSES='${addresses}' python3 - <<'CMUX_IDLE_PY'\n${VM_IDLE_PROBE_SCRIPT}\nCMUX_IDLE_PY`,
     `rc=$?; rm -f "$t"; exit $rc`,
   ].join("\n");
 }
