@@ -289,7 +289,6 @@ fn note_unfinished_tool(
                 enrich_tool(existing, update);
             }
         }
-        _ if update.get("sessionUpdate").and_then(Value::as_str) != Some("tool_call") => {}
         _ => {
             if let Some(existing) = open.iter_mut().find(|tool| tool.id_digest == id_digest) {
                 enrich_tool(existing, update);
