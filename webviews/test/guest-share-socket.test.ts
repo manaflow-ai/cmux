@@ -201,6 +201,6 @@ test("the socket boundary drops malformed nested frame payloads and keeps render
       msg: { method: "session/update", params: { update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "still live" } } } },
     }],
   });
-  expect(r.seen.snapshots).toEqual([[]]);
+  expect(r.seen.snapshots).toEqual([[], []]);
   expect(r.seen.records).toEqual([3]);
 });
