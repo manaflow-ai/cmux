@@ -27,6 +27,7 @@ on:
       - scripts/ci/pr_runner_pool.py
       - scripts/ci/runner_label_policy.py
       - scripts/ci/runs_on_values.py
+      - scripts/ci/signing_runner_variables.py
   workflow_dispatch:
 
 permissions:

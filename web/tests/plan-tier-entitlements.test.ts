@@ -78,12 +78,12 @@ describe("Cloud entitlement matrix", () => {
     {
       plan: "go",
       paid: true,
-      maxMemoryMb: 4 * GB,
-      maxVcpus: 2,
-      maxDiskMb: 16 * GB,
+      maxMemoryMb: 16 * GB,
+      maxVcpus: 8,
+      maxDiskMb: 128 * GB,
       maxActiveVms: 1,
       pool: null,
-      lockedUpgrade: "pro",
+      lockedUpgrade: "max",
     },
     {
       plan: "pro",

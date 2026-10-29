@@ -150,22 +150,25 @@ class NightlyPooledRoutingTests(unittest.TestCase):
                 self.assertNotRegex(runs_on, SHARED_RUNNER_VARIABLES)
 
     @unittest.skipUnless((WORKFLOWS / "cmux-next.yml").exists(), "no cmux-next on this branch")
-    def test_the_thirty_minute_tick_is_the_nightly_next_cadence(self) -> None:
-        """nightly-next is promoted on a 30-minute tick, not on every landing.
+    def test_the_tick_runs_at_landing_under_the_rolling_rule(self) -> None:
+        """nightly-next is asked for at landing, but promoted under the rolling rule.
 
-        Until 2026-10-28 the tick also ran whenever a cmux-next or cmux-tui
-        artifacts push run on feat-cmux-next completed (workflow_run), so each
-        landing promoted and started a full nightly build: six ran at once.
-        Leo: "every 30 mins or so you do it / within 30min you replace". It
-        runs on its cron and by hand only. A schedule runs only from the
-        default branch, so the file must exist on main.
+        Until 2026-10-28 the tick promoted whenever a cmux-next or cmux-tui
+        artifacts push run on feat-cmux-next completed, so each landing
+        started a full nightly build: six ran at once. Leo: "every 30 mins or
+        so you do it / within 30min you replace". A 30-minute cron alone then
+        kept the feed 45-50 minutes behind. The landing events now run the
+        rolling rule (scripts/ci/nightly_next_rolling.py) before the request,
+        with a 5-minute backstop cron. A schedule runs only from the default
+        branch, so the file must exist on main.
         """
         path = WORKFLOWS / "nightly-next-tick.yml"
         self.assertTrue(path.exists(), "nightly-next-tick.yml must exist")
         text = path.read_text(encoding="utf-8")
         self.assertRegex(text, r"(?m)^\s+schedule:\s*$")
-        self.assertRegex(text, r'(?m)^\s+- cron: "7,37 \* \* \* \*"$')
-        self.assertNotIn("workflow_run:", text)
+        self.assertRegex(text, r'(?m)^\s+- cron: "4-59/5 \* \* \* \*"$')
+        self.assertIn("workflow_run:", text)
+        self.assertIn("scripts/ci/nightly_next_rolling.py", text)
         self.assertIn("workflow_dispatch:", text)
         self.assertIn("scripts/cmux-next/request-nightly-next.sh --tree-ready", text)
         self.assertIn("cancel-in-progress: false", text)
