@@ -20,6 +20,7 @@ if [[ "${HEAVY_MINIFY:-}" != 1 ]]; then
   trap restore EXIT
 fi
 "$root/scripts/cmux-next/build-agent-pane-web.sh" --out "$work/pane"
-export PLAYWRIGHT_BROWSERS_PATH="${PLAYWRIGHT_BROWSERS_PATH:-/opt/pw-webviews/browsers}"
+# The webviews browser snapshot's browsers when the VM has them, else Playwright's own install.
+if [[ -z "${PLAYWRIGHT_BROWSERS_PATH:-}" && -d /opt/pw-webviews/browsers ]]; then export PLAYWRIGHT_BROWSERS_PATH=/opt/pw-webviews/browsers; fi
 (cd "$root/webviews" && node "$here/heavy_bench.mjs" --pane "$work/pane" --out "$out/heavy.json" "$@") | tee "$out/heavy.txt"
 echo "results in $out"
