@@ -3684,8 +3684,8 @@ describe("VM Effect workflows", () => {
       from cloud_vms
       where billing_team_id = 'team-workflow-go-destroyed-retry'
     `;
-    expect(rows).toHaveLength(1);
-    expect(rows[0]?.status).toBe("running");
+    // The replacement is retained alongside the destroyed machine's history.
+    expect(rows.map((row) => row.status).sort()).toEqual(["destroyed", "running"]);
   });
 
   test("create configures the first guest prompt with the stored display name", async () => {
