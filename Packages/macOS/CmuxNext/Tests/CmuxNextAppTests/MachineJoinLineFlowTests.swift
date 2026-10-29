@@ -7,7 +7,9 @@ import Testing
 /// expired at `expiresAt`, the list read on a trigger (the line shown, the focus, a mesh change) and
 /// never on a timer, and the countdown and mesh watch stopped on close, on the flip and at expiry.
 @MainActor @Suite(.serialized) struct MachineJoinLineFlowTests {
-    final class Fake: @unchecked Sendable {
+    // The service's closures are @Sendable and run off the main actor: the fake is not isolated to it.
+    // The suite is serialized and each test drives one model, so no two calls race.
+    nonisolated final class Fake: @unchecked Sendable {
         var now = Date(timeIntervalSince1970: 1_000_000)
         var rows: [JoinedMachine] = []
         var lists = 0
