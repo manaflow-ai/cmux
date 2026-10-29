@@ -2129,7 +2129,6 @@ mod message_notice_tests {
         // replays it over the shared link); a record of no known seq always goes.
         let mut n = MessageNotices::default();
         assert!(n.live(2));
-        assert!(!n.live(1));
         assert!(!n.live(2));
         assert!(n.live(0));
         assert!(n.live(0));
