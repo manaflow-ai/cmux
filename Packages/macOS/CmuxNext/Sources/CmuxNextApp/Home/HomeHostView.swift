@@ -43,6 +43,8 @@ final class HomeHostView: NSView {
     static let memoryOfferUsedKey = "home.firstRun.memoryOfferUsed"
     private var shortcutsWatch: Task<Void, Never>?
     private var spellCheckingWatch: Task<Void, Never>?
+    /// This chat's bubble colours: its own (Chat Colors…) over the default for every chat (`home.bubbleColors.*`).
+    private var chatColorsWatch: Task<Void, Never>?
     /// The Chief's avatar when its profile sets none: the pet character `mascot` picks
     /// (`home.chiefPetMascot`; Leo 2026-10-20: one of the nine characters, never a plain circle),
     /// else 🫡 if its picture is missing from the bundle.
@@ -111,6 +113,16 @@ final class HomeHostView: NSView {
         settingsView.onSwitchHost = { [weak service] in
             guard let service, let other = service.tabChiefs.otherHost(of: conversation) else { return }
             service.hostedChief.pick(other)
+        }
+        // task-owner: lives as long as this view; event-driven (Observation)
+        chatColorsWatch = Task { [weak self, weak service] in
+            for await colors in ObservationStream({ () -> HomeBubbleColors in
+                guard let service else { return HomeBubbleColors() }
+                let all = HomeChatColorStore.colors(fromHexes: DesignSettings.shared.homeBubbleColors)
+                return service.chatColors.colors(for: conversation).over(all)
+            }) {
+                self?.transcript.bubbleColors = colors
+            }
         }
         // task-owner: lives as long as this view; event-driven (Observation)
         hostWatch = Task { [weak self, weak service] in
@@ -375,7 +387,7 @@ final class HomeHostView: NSView {
     // the app's claim registry and cancels its wake on the app's timer (both outlive this view). A guard that
     // returned off main skipped all of it.
     nonisolated deinit {
-        for task in [availability, engineWatch, avatarsWatch, hostWatch, agentsWatch, shortcutsWatch, spellCheckingWatch, headerPanelsWatch, firstPage, memoryOfferWatch, chiefIntroWatch] {
+        for task in [availability, engineWatch, avatarsWatch, hostWatch, chatColorsWatch, agentsWatch, shortcutsWatch, spellCheckingWatch, headerPanelsWatch, firstPage, memoryOfferWatch, chiefIntroWatch] {
             task?.cancel()
         }
         let settings = settings, transcript = transcript

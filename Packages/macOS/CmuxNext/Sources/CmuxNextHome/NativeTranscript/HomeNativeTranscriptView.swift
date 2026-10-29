@@ -98,6 +98,9 @@ public final class HomeNativeTranscriptView: NSView {
     /// The bubbles' look: iMessage's (the default) or the theme's colours; follows
     /// `home.chiefBubbleStyle` (`DesignSettings.homeChiefBubblesThemed`, `followBubbleStyle`).
     public var bubbleStyle: HomePalette.BubbleStyle = .iMessage { didSet { if bubbleStyle != oldValue { applyTheme() } } }
+    /// This chat's chosen bubble colours over the default for every chat (Chat Colors…,
+    /// `home.bubbleColors.*`); empty keeps the bubble style's colours.
+    public var bubbleColors = HomeBubbleColors() { didSet { if bubbleColors != oldValue { applyTheme() } } }
     /// The first-run panel's open-a-terminal or start-an-agent row was
     /// picked (the host runs the matching registry action).
     public var onFirstRunAction: (HomeFirstRunAction) -> Void = { _ in }
@@ -488,9 +491,11 @@ public final class HomeNativeTranscriptView: NSView {
     /// The theme's palette (the key window's, for every window) for the MessagesLab
     /// Fixture colours, and the first-run panel's colours.
     private func applyTheme() {
-        let accent = accentOverride, style = bubbleStyle
-        let active = performWithTheme { HomeThemePalette.resolveInScope(active: true, style: style, accentOverride: accent) }
-        let measured = performWithTheme { HomeThemePalette.usesMessagesBlueInScope(style: style, accentOverride: accent) }
+        let accent = accentOverride, style = bubbleStyle, chosen = bubbleColors
+        let active = performWithTheme { HomeThemePalette.resolveInScope(active: true, style: style, accentOverride: accent) }.applying(chosen)
+        // A chosen sent colour replaces MessagesLab's measured blue (and its white text).
+        let measured = chosen.sent == nil && chosen.sentText == nil
+            && performWithTheme { HomeThemePalette.usesMessagesBlueInScope(style: style, accentOverride: accent) }
         transcript.applyTheme(active: active, measuredAccent: measured)
         // The header's top fade (Debug Settings > Home > Top of the chat; the glass band by default,
         // HeaderGlass.swift), or no header and the rows' own short fade (HomeNativeTranscriptView+TopFade.swift).

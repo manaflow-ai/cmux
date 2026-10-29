@@ -787,6 +787,798 @@
         }
       }
     },
+    "settings.home.bubbleColors.default": {
+      "comment": "Default label of the Home bubble color rows (home.bubbleColors.*): unset keeps the Bubble Style's color.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bubble Style"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "نمط الفقاعات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Stil oblačića"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Boblestil"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Blasenstil"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Estilo de burbujas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Style des bulles"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Stile dei fumetti"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "吹き出しのスタイル"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "រចនាប័ទ្មពពុះ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "말풍선 스타일"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Boblestil"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Styl dymków"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Estilo dos balões"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Стиль пузырей"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "รูปแบบฟองข้อความ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Balon Stili"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Стиль бульбашок"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kiểu bong bóng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "气泡样式"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "氣泡樣式"
+          }
+        }
+      }
+    },
+    "settings.home.bubbleColors.sent": {
+      "comment": "Title of the setting for the fill of my own chat bubbles (home.bubbleColors.sent).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "My Bubble Color"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لون فقاعاتي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Boja mojih oblačića"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Farve på mine bobler"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Farbe meiner Blasen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Color de mis burbujas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Couleur de mes bulles"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Colore dei miei fumetti"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "自分の吹き出しの色"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ពណ៌ពពុះរបស់ខ្ញុំ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "내 말풍선 색상"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Farge på mine bobler"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kolor moich dymków"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cor dos meus balões"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Цвет моих пузырей"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "สีฟองข้อความของฉัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Balonlarımın Rengi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Колір моїх бульбашок"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Màu bong bóng của tôi"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "我的气泡颜色"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "我的氣泡顏色"
+          }
+        }
+      }
+    },
+    "settings.home.bubbleColors.sentText": {
+      "comment": "Title of the setting for the text color in my own chat bubbles (home.bubbleColors.sentText).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "My Text Color"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لون نصي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Boja mog teksta"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Farve på min tekst"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Farbe meines Texts"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Color de mi texto"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Couleur de mon texte"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Colore del mio testo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "自分の文字の色"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ពណ៌អក្សររបស់ខ្ញុំ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "내 텍스트 색상"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Farge på min tekst"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kolor mojego tekstu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cor do meu texto"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Цвет моего текста"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "สีข้อความของฉัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Metnimin Rengi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Колір мого тексту"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Màu chữ của tôi"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "我的文字颜色"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "我的文字顏色"
+          }
+        }
+      }
+    },
+    "settings.home.bubbleColors.received": {
+      "comment": "Title of the setting for the fill of the other side's chat bubbles (home.bubbleColors.received).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Their Bubble Color"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لون فقاعاتهم"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Boja njihovih oblačića"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Farve på deres bobler"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Farbe ihrer Blasen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Color de sus burbujas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Couleur de leurs bulles"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Colore dei loro fumetti"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "相手の吹き出しの色"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ពណ៌ពពុះរបស់ពួកគេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "상대 말풍선 색상"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Farge på deres bobler"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kolor ich dymków"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cor dos balões deles"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Цвет их пузырей"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "สีฟองข้อความของอีกฝ่าย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Karşı Tarafın Balon Rengi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Колір їхніх бульбашок"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Màu bong bóng của họ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "对方气泡颜色"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "對方氣泡顏色"
+          }
+        }
+      }
+    },
+    "settings.home.bubbleColors.receivedText": {
+      "comment": "Title of the setting for the text color in the other side's chat bubbles (home.bubbleColors.receivedText).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Their Text Color"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لون نصهم"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Boja njihovog teksta"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Farve på deres tekst"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Farbe ihres Texts"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Color de su texto"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Couleur de leur texte"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Colore del loro testo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "相手の文字の色"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ពណ៌អក្សររបស់ពួកគេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "상대 텍스트 색상"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Farge på deres tekst"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kolor ich tekstu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cor do texto deles"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Цвет их текста"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "สีข้อความของอีกฝ่าย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Karşı Tarafın Metin Rengi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Колір їхнього тексту"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Màu chữ của họ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "对方文字颜色"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "對方文字顏色"
+          }
+        }
+      }
+    },
+    "settings.home.bubbleColors.help": {
+      "comment": "Help of the Home bubble color settings (home.bubbleColors.*). 'Chat Colors' is the chat right-click menu item.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Every chat starts with these colors. Right-click a chat and choose Chat Colors to set its own. Unset text colors are picked to stay readable."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تبدأ كل محادثة بهذه الألوان. انقر بزر الماوس الأيمن على محادثة واختر ألوان المحادثة لتعيين ألوانها. تُختار ألوان النص غير المعيّنة لتبقى مقروءة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Svaki razgovor počinje s ovim bojama. Desnim klikom na razgovor odaberite Boje razgovora da postavite njegove. Neodređene boje teksta biraju se tako da ostanu čitljive."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Alle chats starter med disse farver. Højreklik på en chat, og vælg Chatfarver for at give den sine egne. Tekstfarver, der ikke er valgt, vælges, så de er lette at læse."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Jeder Chat beginnt mit diesen Farben. Klicke mit der rechten Maustaste auf einen Chat und wähle Chatfarben, um eigene festzulegen. Nicht gesetzte Textfarben werden lesbar gewählt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Todos los chats empiezan con estos colores. Haz clic derecho en un chat y elige Colores del chat para darle los suyos. Los colores de texto sin definir se eligen para que sigan siendo legibles."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chaque discussion commence avec ces couleurs. Faites un clic droit sur une discussion et choisissez Couleurs de la discussion pour définir les siennes. Les couleurs de texte non définies sont choisies pour rester lisibles."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ogni chat inizia con questi colori. Fai clic destro su una chat e scegli Colori chat per impostarne di propri. I colori del testo non impostati vengono scelti per restare leggibili."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "すべてのチャットはこの色で始まります。チャットを右クリックして「チャットの色」を選ぶと、そのチャットだけの色を設定できます。未設定の文字色は読みやすい色が自動で選ばれます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការជជែកនីមួយៗចាប់ផ្តើមដោយពណ៌ទាំងនេះ។ ចុចកណ្ដុរស្ដាំលើការជជែក ហើយជ្រើស ពណ៌ការជជែក ដើម្បីកំណត់ពណ៌ផ្ទាល់ខ្លួន។ ពណ៌អក្សរដែលមិនបានកំណត់ ត្រូវបានជ្រើសដើម្បីឱ្យអានបាន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "모든 채팅은 이 색상으로 시작합니다. 채팅을 오른쪽 클릭하고 채팅 색상을 선택하면 해당 채팅만의 색상을 설정할 수 있습니다. 지정하지 않은 텍스트 색상은 읽기 쉽게 자동으로 선택됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Alle chatter starter med disse fargene. Høyreklikk på en chat og velg Chatfarger for å gi den egne farger. Tekstfarger som ikke er valgt, velges slik at de er lette å lese."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Każdy czat zaczyna się od tych kolorów. Kliknij czat prawym przyciskiem i wybierz Kolory czatu, aby ustawić własne. Nieustawione kolory tekstu są dobierane tak, by pozostały czytelne."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Toda conversa começa com estas cores. Clique com o botão direito em uma conversa e escolha Cores da conversa para definir as dela. Cores de texto não definidas são escolhidas para continuar legíveis."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Каждый чат начинается с этих цветов. Нажмите на чат правой кнопкой и выберите «Цвета чата», чтобы задать свои. Незаданные цвета текста подбираются так, чтобы текст оставался читаемым."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ทุกแชทเริ่มด้วยสีเหล่านี้ คลิกขวาที่แชทแล้วเลือก สีของแชท เพื่อตั้งสีเฉพาะ สีข้อความที่ไม่ได้ตั้งจะถูกเลือกให้อ่านได้ชัด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Her sohbet bu renklerle başlar. Kendi renklerini ayarlamak için bir sohbete sağ tıklayıp Sohbet Renkleri'ni seçin. Ayarlanmayan metin renkleri okunaklı kalacak şekilde seçilir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Кожен чат починається з цих кольорів. Клацніть чат правою кнопкою й виберіть «Кольори чату», щоб задати власні. Незадані кольори тексту добираються так, щоб текст залишався читабельним."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mọi cuộc trò chuyện bắt đầu với các màu này. Nhấp chuột phải vào một cuộc trò chuyện và chọn Màu trò chuyện để đặt màu riêng. Màu chữ chưa đặt sẽ được chọn sao cho dễ đọc."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "每个聊天都以这些颜色开始。右键点按聊天并选择“聊天颜色”可单独设置。未设置的文字颜色会自动选择以保持清晰可读。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "每個聊天都以這些顏色開始。按右鍵點聊天並選擇「聊天顏色」可單獨設定。未設定的文字顏色會自動選擇以保持清晰易讀。"
+          }
+        }
+      }
+    },
     "settings.group.workspaceHibernation": {
       "extractionState": "manual",
       "localizations": {
