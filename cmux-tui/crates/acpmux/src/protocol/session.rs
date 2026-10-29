@@ -24,6 +24,21 @@ pub struct SessionSummary {
     /// `idle`, `ready`, `running`, `waiting`, `disconnected` or `closed`;
     /// a peer's session also `unreachable`.
     pub status: String,
+    /// Effective liveness: `stuck` after three classified harness failures, else `status`.
+    #[serde(default)]
+    #[schemars(default)]
+    pub state: String,
+    #[serde(default)]
+    #[schemars(default)]
+    pub stuck_reason: Option<crate::session_liveness::StuckReason>,
+    /// Unix milliseconds when the third failure established stuck. Omitted for peers.
+    #[serde(default)]
+    #[schemars(default)]
+    pub stuck_since: Option<u64>,
+    /// Last classified error, redacted and bounded. Omitted for peers.
+    #[serde(default)]
+    #[schemars(default)]
+    pub stuck_error: Option<String>,
     pub agent_session_id: Option<String>,
     pub created_at: u64,
     pub updated_at: u64,
@@ -33,9 +48,26 @@ pub struct SessionSummary {
     pub parent_id: Option<String>,
     /// Where a fork branched off its parent.
     pub fork_seq: Option<u64>,
-    /// The session whose agent started this one (its `spawnedBy` tag), kept
-    /// only while that parent is listed; one level.
+    /// The session whose agent started this one, kept only while that parent
+    /// is listed and is a root itself: one level, for lists that fold one level.
+    /// `parent` without those rules, else an older client's `spawnedBy` tag.
     pub spawned_by: Option<String>,
+    /// The session whose agent started this one (`acpmux new` in its shell, or its
+    /// `start_session` tool), recorded at creation from the proven caller; null for a
+    /// session a person or the app started. Not the fork parent (`parentId`). Absent
+    /// from a peer on an older acpmux.
+    #[serde(default)]
+    #[schemars(default)]
+    pub parent: Option<String>,
+    /// The root of its lineage tree: the first ancestor no agent started; its own
+    /// id for a root. Absent from a peer on an older acpmux.
+    #[serde(default)]
+    #[schemars(default)]
+    pub root: String,
+    /// The parent's tool call that started it, when acpmux could tell.
+    #[serde(default)]
+    #[schemars(default)]
+    pub spawn_tool_call_id: Option<String>,
     /// The pull request URLs its `gh pr create` calls printed, oldest first;
     /// absent from a peer on an older acpmux.
     #[serde(default)]
@@ -48,7 +80,8 @@ pub struct SessionSummary {
     pub started_by: Option<String>,
     /// Its name among its parent's sub-sessions; null for a root.
     pub short_name: Option<String>,
-    /// 0 for a root session, 1 for its sub-sessions, and so on.
+    /// Its lineage depth (`parent`): 0 for a root session, 1 for the sessions
+    /// its agent started, and so on.
     pub depth: u32,
     /// Its sub-sessions that are not closed.
     pub children: u32,
@@ -95,6 +128,9 @@ pub struct SessionSummary {
     #[schemars(with = "Option<String>")]
     pub current_mode_id: Value,
     pub model: Option<String>,
+    /// The harness's current reasoning effort, when it reports one.
+    /// Additive for older clients and peers.
+    pub effort: Option<String>,
     pub policy: Option<String>,
     #[schemars(with = "Enforcement")]
     pub enforcement: Value,
@@ -121,10 +157,12 @@ pub struct SessionSummary {
     pub attached: u64,
     /// Some attached client shows the chat.
     pub shown: bool,
-    /// The chat's tools (`hub/tools.rs`).
-    pub tools: Vec<ToolSummary>,
-    /// `_acpmux/set_tools` can change them.
-    pub tools_mutable: bool,
+    /// The chat's tools (`hub/tools.rs`), present on per-session reads and attachments.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tools: Option<Vec<ToolSummary>>,
+    /// `_acpmux/set_tools` can change them; omitted from census rows.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tools_mutable: Option<bool>,
     /// The MCP servers the harness says it loaded, from its own report (Claude
     /// Code's system/init); null when it reports none (every ACP harness).
     pub mcp_servers: Option<Vec<McpServerSummary>>,
@@ -321,6 +359,19 @@ pub struct QueuedPromptSummary {
     /// The sending agent's name when it is another agent's message, null for the person's: an
     /// app draws it as a received message waiting for the turn, not as a composer row.
     pub from_agent: Option<String>,
+    /// The sending session's id when the daemon bound it (its caller token, a peer daemon's word
+    /// on its own proven caller, the mesh relay's sender, a lane's report), null otherwise
+    /// (`prompt_provenance.rs` `FROM_SESSION_ID`). Display only, never authority.
+    pub from_session_id: Option<String>,
+    /// That session's harness family (`claude`, `codex`, ...), bound the same way: what an app
+    /// draws the sender's icon from. Null when unknown (a mesh relay carries none yet).
+    pub from_harness: Option<String>,
+    /// What another agent's message asks of this chat (`_meta.acpmux.class`, `prompt_class.rs`):
+    /// `result` when it named none; null for the person's own prompt and from a peer on an older
+    /// acpmux.
+    #[serde(default)]
+    #[schemars(default)]
+    pub class: Option<crate::prompt_class::PromptClass>,
     /// The teammate who queued it in a shared chat (`_meta.provenance` `person_message`,
     /// `author.rs`), null for the owner's and for an agent's message: an app shows it under their
     /// name and offers none of its own actions on it (only they change it, `queue.not_author`).
@@ -379,9 +430,10 @@ pub struct LastTurn {
     /// Why a turn ended without an answer, e.g. `outcome_unknown`.
     pub detail: Option<String>,
     /// What kind of failure a failed turn was (`recovery.rs`): `disk.full`, `disk.low`,
-    /// `peer.unreachable`, `daemon.restarting`, `spawn.failed` or `agent.exited`. A client
-    /// treats a kind it does not know as a plain error. The same key is on a request's error
-    /// `data` and on the `turn_error` and `turn_result` records.
+    /// `peer.unreachable`, `daemon.restarting`, `spawn.failed`, `agent.exited`,
+    /// `auth.signed_out` or `auth.expired`. A client treats a kind it does not know as a plain
+    /// error. The same key is on a request's error `data` and on the `turn_error` and
+    /// `turn_result` records.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error_kind: Option<String>,
     /// One sentence saying what to do about the failure.
@@ -510,6 +562,9 @@ pub enum RetryKind {
 #[serde(rename_all = "camelCase")]
 #[schemars(deny_unknown_fields)]
 pub struct SessionsParams {
+    /// Include tool inventories explicitly; default census rows omit them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub with_tools: Option<bool>,
     /// Page size, at least 1. Without it the reply is the whole list.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(range(min = 1))]
@@ -525,6 +580,15 @@ pub struct SessionsParams {
     /// (`running`, `ready`, `idle`, `waiting`, `closed`). Empty is no filter.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub status: Option<String>,
+    /// `_acpmux/sessions` only: exclude peer sessions before pagination.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub local_only: Option<bool>,
+    /// `_acpmux/sessions` only: `sessionId` orders by immutable ID for complete scans.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub order_by: Option<String>,
+    /// `_acpmux/sessions` only: exclude these statuses before pagination.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exclude_status: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, JsonSchema)]

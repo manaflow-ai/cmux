@@ -102,3 +102,10 @@ Reading it:
 - Cmd-T was already optimistic; unchanged within noise.
 - The earlier "frames_to_visible" column above (ms divided by the refresh period) counted a
   late first frame as several; the bench now reports the frame index.
+
+## Changes by other lanes (for PL-cef-tab)
+
+- 2026-10-27, workspace hibernation (plans/cmux-next/workspace-hibernation-DESIGN.md): `TabContentCache+Lifecycle.swift`
+  gains `holdsMemory(_:)`, `hibernateTabs(_:)` and `evictHiddenTerminal(_:)`. They run only when an idle workspace
+  hibernates (at most one pass a minute), never on the new-tab path; a hidden terminal is evicted through the new
+  `SurfaceLedger.evictHidden`, a page through `BrowserHibernation.hibernateForWorkspace`.

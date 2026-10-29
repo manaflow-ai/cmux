@@ -51,16 +51,21 @@ struct DebugSidebarNestedFixture {
 
 /// `debug.daemon_update {state?, id?, name?, ssh_host?, reason?, build?, notify?, sidebar?, tooltip?, window?}`
 /// (DEBUG builds, captures of the daemon update): a capture host has no ssh peer and no update runs.
-/// - `state` (`updating`, `retrying`, `updated`, `failed`, `rolled_back`, `cleared`): applies that
+/// - `state` (`updating`, `retrying`, `updated`, `failed`, `rolled_back`, `cannot_update`, `cleared`): applies that
 ///   ``DaemonUpdateEvent`` to ``DaemonUpdateBoard/shared`` for the machine `id` (default
 ///   `ssh:build-box`), named `name` (`build-box`), on `ssh_host` (`build-box.example.com`); `reason`
-///   for a failure, `build` for an update, `notify` as the policy sets it for a recorded failure.
+///   for a failure (for `cannot_update`, the whole line), `build` for an update and the build a
+///   failure is about (its notice stays closed for that build), `notify` as the policy sets it for
+///   a recorded failure. A `cannot_update` machine has no toast; Settings > Updates lists it.
 /// - `sidebar: true`: the window's sidebar shows a fixture This Mac and that ssh machine, a section each, whose
 ///   header tooltip is composed as a live connected one's (``SidebarBridge/sshTooltip(destination:session:detail:)``,
 ///   so whatever the live tooltip adds shows here too); `false` brings the live rows back. Shown again
 ///   after a `state`, it reads the board anew.
 /// - `tooltip: true`: the synthetic pointer rests on that header (`debug.pointer_hover`), so its tooltip
 ///   opens after the usual delay; `false` moves the pointer away.
+/// - `click: true`: the person's Update on that machine's line in Settings > Updates, as the board takes
+///   it when the policy accepts it (no update runs): its line then says it is updating while its state is
+///   `updating`.
 extension DebugSidebarNestedFixture {
     static func daemonUpdate(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
         let id = params["id"]?.stringValue ?? "ssh:build-box"
@@ -71,11 +76,18 @@ extension DebugSidebarNestedFixture {
             guard let state = state(raw, reason: params["reason"]?.stringValue ?? "the machine ran out of disk space",
                                     build: params["build"]?.stringValue ?? "abc123def") else {
                 return .object(["error": .string("unknown state"),
-                                "available": .array(["updating", "retrying", "updated", "failed", "rolled_back", "cleared"].map { .string($0) })])
+                                "available": .array(["updating", "retrying", "updated", "failed", "rolled_back", "cannot_update", "cleared"]
+                                    .map { .string($0) })])
             }
             DaemonUpdateBoard.shared.apply(DaemonUpdateEvent(id: id, displayName: name, sshHost: host, state: state,
-                                                             notify: params["notify"]?.boolValue ?? false))
+                                                             notify: params["notify"]?.boolValue ?? false,
+                                                             build: params["build"]?.stringValue))
             answer["state"] = .string(raw)
+        }
+        if params["click"]?.boolValue == true {
+            // task-owner: one board call that returns at once (the stand-in policy accepts at once)
+            Task { _ = await DaemonUpdateBoard.shared.update(id) { _ in true } }
+            answer["click"] = .bool(true)
         }
         guard let controller = services.windows.controllers.first(where: { c in params["window"]?.stringValue.map { $0 == c.state.id } ?? true })
                 ?? services.windows.active else {
@@ -112,6 +124,7 @@ extension DebugSidebarNestedFixture {
         case "updated": .updated(build: build)
         case "failed": .failed(reason: reason, rolledBack: false)
         case "rolled_back": .failed(reason: reason, rolledBack: true)
+        case "cannot_update": .cannotUpdate(reason: reason)
         case "cleared": .cleared
         default: nil
         }

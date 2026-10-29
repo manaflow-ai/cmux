@@ -17,6 +17,7 @@ use serde_json::{Value, json};
 use super::run::run_git;
 use super::{MAX_SMALL_OUTPUT_BYTES, Repository, git_failed, parse};
 use crate::resource::ResourceError;
+use cmux_json::JsonSet as _;
 
 const OPERATION: &str = "git.files.search";
 /// The candidate listing stops here; a cut listing marks the reply truncated.
@@ -90,9 +91,9 @@ pub(super) fn search(
             json!({"path": entry.path, "matches": utf16_offsets(entry.path, &entry.matches)})
         })
         .collect();
-    reply["results"] = Value::Array(results);
-    reply["truncated"] = json!(cut || total > limit);
-    reply["total_matches"] = json!(u32::try_from(total).unwrap_or(u32::MAX));
+    reply.set("results", Value::Array(results));
+    reply.set("truncated", json!(cut || total > limit));
+    reply.set("total_matches", json!(u32::try_from(total).unwrap_or(u32::MAX)));
     Ok(reply)
 }
 

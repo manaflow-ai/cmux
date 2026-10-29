@@ -1,11 +1,12 @@
 /// When a notification's attention clears on its own
 /// (`notifications.dismissal`). The dismiss verbs always clear it.
 public nonisolated enum NotificationDismissal: String, Hashable, Sendable, CaseIterable {
-    /// The pane is focused (in the key window, app active), clicked, typed in, or opened.
+    /// The pane is selected (focused in the key window, app active, including by entering its
+    /// workspace), clicked, typed in, or opened (default, as in cmux classic).
     case focus
     /// The user types into the pane, or opens the notification.
     case keystroke
-    /// The user clicks in the pane or types into it, or opens the notification (default).
+    /// The user clicks in the pane or types into it, or opens the notification.
     case click
     /// Only opening the notification (jump, banner click) or a dismiss verb.
     case explicit

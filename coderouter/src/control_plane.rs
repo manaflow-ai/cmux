@@ -159,7 +159,7 @@ pub fn login_at(no_browser: bool, server: Option<&str>) -> Result<(), Error> {
         .append_pair("login_code", &started.login_code);
     println!("Authorize coderouter:\n  {confirmation}");
     if !no_browser {
-        let _ = webbrowser::open(confirmation.as_str());
+        crate::browser::open(confirmation.as_str());
     }
 
     let waiting = crate::loading::DelayedSpinner::new("Waiting for coderouter authorization");

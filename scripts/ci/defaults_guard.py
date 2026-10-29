@@ -2,17 +2,24 @@
 """Guard against unannounced default changes (Leo 2026-10-13).
 
 A default is what someone gets without configuring anything: an action's
-default keys, a setting's default value, a Ghostty keybind cmux writes (an
-unbind takes a chord from Ghostty), a feature flag compiled on or off. Changing
-one changes what everyone gets, so it needs a call.
+default keys, a setting's default value, a Debug Tunable's `default:`, a
+Ghostty keybind cmux writes (an unbind takes a chord from Ghostty), a feature
+flag compiled on or off. Changing one changes what everyone gets, so it needs
+a call.
 
 schemas/defaults/<app>.json is the golden snapshot of every default, made from
 the sources of truth with no hand list:
 - cmux NEXT: plans/cmux-next/action-surfaces.json (each action's default
   shortcut, chord and aliases, exported from the catalog by Swift) and
   schemas/settings/settings-schema.json (each setting's default), both kept
-  current by the generated-files check; the Ghostty `keybind = ...` lines and
-  the `static let ...Enabled = true|false` flags in the app's Swift sources.
+  current by the generated-files check; the Ghostty `keybind = ...` lines, the
+  `static let ...Enabled = true|false` flags and each
+  `Tunable<T>.choice|toggle|number|color|spring("key", ..., default: ...)` in
+  the app's Swift sources. Tunable initializers/helpers and their symbolic source
+  dependencies also have conservative declaration fingerprints (not whole-file hashes),
+  so helper, interpolated-key and nonliteral defaults cannot silently remain unchanged
+  when their defining declaration changes. An edit to a tracked declaration's help text
+  also needs review; comments and formatting do not.
 
   python3 scripts/ci/defaults_guard.py snapshot           # regenerate it
   python3 scripts/ci/defaults_guard.py check-fresh        # it matches the sources
@@ -102,6 +109,9 @@ MODIFIER_ORDER = ("ctrl", "opt", "shift", "cmd")
 KEYBIND_RE = re.compile(r'"keybind\s*=\s*([^"=]+?)\s*=\s*([^"]*)"')
 YIELDS_RE = re.compile(r"static\s+let\s+(yieldsTo\w+)\s*:\s*Set<ActionID>\s*=\s*\[(.*?)\]", re.S)
 FLAG_RE = re.compile(r"\bstatic\s+(?:let|var)\s+(\w*Enabled)\s*(?::\s*Bool\s*)?=\s*(true|false)\b")
+# A Debug Tunable with a constant default. The call parser below handles commas and
+# parentheses in nested arguments and string literals; interpolated keys are skipped.
+TUNABLE_RE = re.compile(r'\bTunable<[\w.?]+>\s*\.(choice|toggle|number|color|spring)\(\s*"([^"\\]+)"')
 # An independent review's verdict on the exact head, on a comment's or review's first line:
 # "Review (subagent, correctness first): SHIP at <full head sha>". Same grammar as
 # scripts/ci/risk_tier.py RECEIPT (and next_autoland, merge_audit).
@@ -293,6 +303,12 @@ def defaults(tree: Tree) -> dict[str, object]:
                 found[f"ghostty.{trigger.strip()}"] = action.strip()
     for name, block in YIELDS_RE.findall(tree.read(KEY_BINDING_DEFAULTS) or ""):
         found[f"steps-aside.{name}"] = sorted(re.findall(r'"([^"]+)"', block))
+    sources = sorted(name for name in tree.files(SWIFT_SOURCES) if name.endswith(".swift"))
+    swift = {name: text.decode("utf-8") for name, text in tree.read_bytes(sources).items()}
+    found.update(tunable_source_defaults(swift))
+    for text in swift.values():
+        for key, value in tunables(text):
+            found[f"tunable.{key}"] = value
     for name, line in tree.grep(r"static +(let|var) +[A-Za-z0-9_]*Enabled *(: *Bool *)?= *(true|false)", SWIFT_SOURCES):
         for flag, value in FLAG_RE.findall(line):
             # The file's path under the sources keeps two `isEnabled` flags apart; a second one in
@@ -303,6 +319,200 @@ def defaults(tree: Tree) -> dict[str, object]:
                 key, n = f"{base}#{n}", n + 1
             found[key] = value == "true"
     return dict(sorted(found.items()))
+
+
+def call_arguments(text: str, start: int) -> list[str]:
+    """Return top-level arguments in a Swift call whose arguments start at ``start``."""
+    args, depth, current, i = [], 0, [], start
+    while i < len(text):
+        char = text[i]
+        if char == '"':
+            end = i + 1
+            while end < len(text) and text[end] not in '"\n':
+                end += 2 if text[end] == "\\" else 1
+            current.append(text[i:end + 1])
+            i = end + 1
+            continue
+        if char in "([{":
+            depth += 1
+        elif char in ")]}":
+            if depth == 0:
+                break
+            depth -= 1
+        elif char == "," and depth == 0:
+            args.append("".join(current))
+            current = []
+            i += 1
+            continue
+        current.append(char)
+        i += 1
+    return [argument.strip() for argument in [*args, "".join(current)]]
+
+
+def strip_swift_comments(text: str) -> str:
+    """Replace Swift comments with spaces while preserving literals and newlines.
+
+    The defaults guard reads source as data, so it must not treat an example in a comment as a
+    live Tunable. Keeping string bytes and line breaks intact also means a quoted default retains
+    its exact contents when it is reported.
+    """
+    output, i, block_depth = [], 0, 0
+    while i < len(text):
+        if block_depth:
+            if text.startswith("/*", i):
+                block_depth += 1
+                output.extend("  ")
+                i += 2
+            elif text.startswith("*/", i):
+                block_depth -= 1
+                output.extend("  ")
+                i += 2
+            else:
+                output.append("\n" if text[i] == "\n" else " ")
+                i += 1
+            continue
+        if text.startswith("//", i):
+            output.extend("  ")
+            i += 2
+            while i < len(text) and text[i] != "\n":
+                output.append(" ")
+                i += 1
+            continue
+        if text.startswith("/*", i):
+            block_depth = 1
+            output.extend("  ")
+            i += 2
+            continue
+        if text[i] == '"':
+            end = i + 1
+            while end < len(text):
+                if text[end] == "\\":
+                    end += 2
+                elif text[end] == '"':
+                    end += 1
+                    break
+                else:
+                    end += 1
+            output.append(text[i:end])
+            i = end
+            continue
+        output.append(text[i])
+        i += 1
+    return "".join(output)
+
+
+# Source fingerprints complement the readable literal values. Swift defaults may be built by a
+# helper or depend on other declarations; reading an unchanged expression is not its value.
+# Track those declarations and their dependencies instead of evaluating untrusted Swift.
+SWIFT_TOKEN = re.compile(r'"(?:\\.|[^"\\])*"|[A-Za-z_]\w*|[^\s]', re.S)
+STATIC_DECL = re.compile(r"\bstatic\s+(let|var|func)\s+(`?\w+`?)")
+
+
+def static_declarations(text: str) -> list[tuple[str, str, list[str]]]:
+    """Static initializer/function tokens; comments and formatting do not change a stamp."""
+    text = strip_swift_comments(text)
+    found = []
+    # A help string may contain a Swift example; only actual declarations count.
+    syntax = SWIFT_TOKEN.sub(lambda match: " " * len(match.group())
+                             if match.group().startswith('"') else match.group(), text)
+    for match in STATIC_DECL.finditer(syntax):
+        kind, name = match.groups()
+        name = name.strip("`")
+        tokens = [kind, name]
+        depth, started, previous_end = 0, False, match.end()
+        for token in SWIFT_TOKEN.finditer(text, match.end()):
+            value = token.group()
+            gap = text[previous_end:token.start()]
+            if depth == 0 and started:
+                if value in ("}", ";"):
+                    break
+                if "\n" in gap and tokens[-1] not in ("=", ",", ".", ":", "+", "-", "*", "/", "%", "&", "|", "?", "??") and value not in (".", "{", "(", "+", "-", "*", "/", "%", "&", "|", "?", "=", "<", ">", "!"):
+                    break
+            if value in ("(", "[", "{"):
+                depth += 1
+            elif value in (")", "]", "}"):
+                if depth == 0:
+                    break
+                depth -= 1
+            if value == "=" or (value == "{" and kind in ("func", "var")):
+                started = True
+            tokens.append(value)
+            previous_end = token.end()
+        if started:
+            found.append((kind, name, tokens))
+    return found
+
+
+def tunable_source_defaults(sources: Mapping[str, str]) -> dict[str, object]:
+    """Fingerprint tunable initializers, their helpers and symbolic source dependencies.
+
+    This is conservative source tracking, not a Swift interpreter: editing a selected declaration's
+    help text or implementation also needs review. Unrelated declarations in its file do not.
+    Same-file names and qualified Type.member references resolve to all possible source declarations
+    (including extensions); ambiguity adds evidence rather than silently choosing one definition.
+    """
+    nodes, by_file_name, types = {}, {}, {}
+    for path, text in sources.items():
+        for type_name in re.findall(r"\b(?:enum|struct|class|extension)\s+(\w+)", strip_swift_comments(text)):
+            types.setdefault(type_name, set()).add(path)
+        for kind, name, tokens in static_declarations(text):
+            key = f"tunable-source.{path.removeprefix(SWIFT_SOURCES + '/')}:{name}"
+            while key in nodes:
+                key += "#"
+            nodes[key] = (path, kind, name, tokens)
+            by_file_name.setdefault((path, name), set()).add(key)
+    selected = {key for key, (_, _, _, tokens) in nodes.items()
+                if any(re.fullmatch(r"(?:Derived)?Tunable|\w+Tunable", token) for token in tokens)}
+    # A helper returning Tunable (e.g. points) has callers whose initializer has no Tunable token.
+    helper_names = {name for key, (_, kind, name, _) in nodes.items()
+                    if key in selected and kind == "func"}
+    for key, (_, _, _, tokens) in nodes.items():
+        if any(token in helper_names for token in tokens):
+            selected.add(key)
+    pending = list(selected)
+    while pending:
+        key = pending.pop()
+        path, _, _, tokens = nodes[key]
+        dependencies = set()
+        for i, token in enumerate(tokens):
+            dependencies.update(by_file_name.get((path, token), ()))
+            if i + 2 < len(tokens) and tokens[i + 1] == ".":
+                for owner in types.get(token, ()):
+                    dependencies.update(by_file_name.get((owner, tokens[i + 2]), ()))
+        for dependency in dependencies - selected:
+            selected.add(dependency)
+            pending.append(dependency)
+    return {key: hashlib.sha256(json.dumps(nodes[key][3], ensure_ascii=False).encode()).hexdigest()
+            for key in sorted(selected)}
+
+
+def tunables(text: str) -> list[tuple[str, object]]:
+    """Return (key, default) for Tunables with a literal default value."""
+    text = strip_swift_comments(text)
+    found = []
+    for match in TUNABLE_RE.finditer(text):
+        kind, key = match.groups()
+        value = next((argument.partition(":")[2].strip()
+                      for argument in call_arguments(text, match.end())
+                      if re.match(r"^default\s*:", argument)), None)
+        if value is None:
+            continue
+        if kind == "toggle" and value in ("true", "false"):
+            found.append((key, value == "true"))
+            continue
+        if value.startswith('"') and value.endswith('"'):
+            try:
+                found.append((key, json.loads(value)))
+                continue
+            except json.JSONDecodeError:
+                pass
+        if re.fullmatch(r"\.[A-Za-z_]\w*", value):
+            found.append((key, value[1:]))
+        elif re.fullmatch(r"-?\d+(?:\.\d+)?", value):
+            found.append((key, float(value)))
+        # Nonliteral defaults are covered by tunable-source dependency fingerprints above.
+        # Never present an expression such as devDefault as though it were the default value.
+    return found
 
 
 def render_snapshot(values: Mapping[str, object]) -> str:

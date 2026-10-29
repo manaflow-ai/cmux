@@ -22,7 +22,7 @@ extension NotificationCenterService {
     func notifyChiefPet(_ notification: DaemonNotification, located: LocatedTab, decision: NotificationPolicy.Decision, program: ProgramStatusNotification?) {
         // Off, the pet takes nothing: no notice is built (the body reads whether the screen is locked).
         guard decision.alerts, let chiefPet, chiefPet.isOn else { return }
-        chiefPet.arrive(ChiefPetNotice(notification, tab: located.tab, workspace: located.workspace.displayName,
+        chiefPet.arrive(ChiefPetNotice(notification, tab: located.tab, name: shownName(of: located.tab), workspace: located.workspace.displayName,
                                             programTitle: program?.title(localizations: localizations),
                                             body: notification.bannerBody(previews: previews, screenLocked: screenLocked())))
     }

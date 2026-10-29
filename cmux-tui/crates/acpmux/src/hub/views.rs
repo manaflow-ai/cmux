@@ -1,8 +1,18 @@
 //! Part of `Hub`; see `hub/mod.rs`.
 
 use super::*;
+use cmux_json::JsonSet as _;
 
 mod host_load;
+
+/// Strip the inventory from census rows, including rows supplied by older peers.
+pub(crate) fn without_summary_tools(mut summary: Value) -> Value {
+    if let Some(row) = summary.as_object_mut() {
+        row.remove("tools");
+        row.remove("toolsMutable");
+    }
+    summary
+}
 
 /// The tag naming the session whose agent started this one (`Hub::spawned_by`).
 pub const SPAWNED_BY_TAG: &str = "spawnedBy";
@@ -266,15 +276,15 @@ impl Hub {
         enforcement(m, self.config.try_read().ok().map(|c| c.permission_policy))
     }
 
-    /// The session whose agent started this one: its `spawnedBy` tag, which the acpmux client
-    /// sets after a `session/new` sent from inside a session (the caller's `ACPMUX_SESSION_ID`).
-    /// A child lists under it, never on its own in a chat list. Kept only while that session is
-    /// here, listed (not archived) and not a child itself: one level, so a loop of tags or a
-    /// parent nobody sees never hides a chat.
-    /// A sub-session (`subsessions.rs`) names its parent the same way, by its proven link.
+    /// The session whose agent started this one, as the chat lists fold it (`spawnedBy`): its
+    /// lineage parent (`lineage.rs`), else the `spawnedBy` tag an older acpmux client set after a
+    /// `session/new` sent from inside a session it could not prove (the caller's
+    /// `ACPMUX_SESSION_ID`). A child lists under it, never on its own in a chat list. Kept only
+    /// while that session is here, listed (not archived) and a root itself: one level, so a loop
+    /// of tags or a parent nobody sees never hides a chat. `parent` gives the whole tree.
     pub fn spawned_by(&self, m: &SessionMeta) -> Option<String> {
-        let parent = match &m.subsession {
-            Some(link) => link.started_by.clone(),
+        let parent = match self.lineage_of(m) {
+            Some(lineage) => lineage.parent,
             None => live_tags(m).get(SPAWNED_BY_TAG)?.as_str()?.to_owned(),
         };
         let session =
@@ -282,22 +292,34 @@ impl Hub {
         let pm = session.meta();
         let tags = live_tags(&pm);
         let listed = tags.get(SPAWNED_BY_TAG).is_none()
-            && pm.subsession.is_none()
+            && self.lineage_of(&pm).is_none()
             && tags.get("archived").is_none();
         (parent != m.id && listed).then_some(parent)
     }
 
     pub fn session_summary(&self, session: &Session) -> Value {
+        self.summary_with_tools(session, true)
+    }
+
+    /// Census rows omit the inventory; `_acpmux/info` and attach keep it.
+    pub(crate) fn session_list_summary(&self, session: &Session) -> Value {
+        self.summary_with_tools(session, false)
+    }
+
+    fn summary_with_tools(&self, session: &Session, with_tools: bool) -> Value {
         use crate::protocol::session::{
             QueuedImage, QueuedPromptSummary, SessionSummary, TurnSummary,
         };
         let m = session.meta();
         let waiting = super::subsession_send::waiting_on(session);
         let turn = session.turn();
+        let lineage = self.lineage_of(&m);
         let stall_after = self.config.try_read().ok().and_then(|c| c.stalled_turn());
         let heard_at = session.last_model_at.load(Ordering::Relaxed);
         // After `turn`: a retry's turn that started since is seen there (`retry_row`).
         let (retry, retry_deciding) = self.retry_row(session, m.last_turn.as_ref());
+        let stuck =
+            (m.status != SessionStatus::Closed).then(|| m.harness_failures.stuck()).flatten();
         let summary = SessionSummary {
             session_id: m.id.clone(),
             name: m.name.clone(),
@@ -305,6 +327,10 @@ impl Hub {
             family: m.family.clone(),
             cwd: m.cwd.to_string_lossy().into_owned(),
             status: m.status.to_string(),
+            state: if stuck.is_some() { "stuck".to_owned() } else { m.status.to_string() },
+            stuck_reason: stuck.map(|s| s.0),
+            stuck_since: stuck.map(|s| s.1),
+            stuck_error: stuck.map(|s| s.2.to_owned()),
             agent_session_id: m.agent_session_id.clone(),
             created_at: m.created_at,
             updated_at: m.updated_at,
@@ -315,10 +341,13 @@ impl Hub {
             // Where a fork branched off its parent (the pane's < 1/2 > arrows, cx-ncc.61).
             fork_seq: m.fork_seq,
             spawned_by: self.spawned_by(&m),
+            parent: lineage.as_ref().map(|l| l.parent.clone()),
+            root: lineage.as_ref().map_or_else(|| m.id.clone(), |l| l.root.clone()),
+            spawn_tool_call_id: lineage.as_ref().and_then(|l| l.tool_call_id.clone()),
             pull_requests: m.pull_requests.clone(),
             started_by: m.subsession.as_ref().map(|l| l.started_by.clone()),
             short_name: m.subsession.as_ref().map(|l| l.short_name.clone()),
-            depth: m.subsession.as_ref().map_or(0, |l| l.depth),
+            depth: lineage.as_ref().map_or(0, |l| l.depth),
             children: self.subsessions.open_count(&m.id),
             title: m.title.clone(),
             title_source: m.title_source.clone(),
@@ -367,6 +396,11 @@ impl Hub {
                     queued_at: q.queued_at,
                     held: q.held,
                     from_agent: q.run.agent.clone(),
+                    // The sending session and its harness, as the daemon bound them.
+                    from_session_id: crate::prompt_provenance::sender_of(q.run.provenance.as_ref())
+                        .0,
+                    from_harness: crate::prompt_provenance::sender_of(q.run.provenance.as_ref()).1,
+                    class: q.run.class,
                     author: crate::author::listed(q.run.provenance.as_ref()),
                     // By attachment id: `_acpmux/attachment` reads each back.
                     images: super::prompt_images::named(&q.run.blocks)
@@ -394,12 +428,13 @@ impl Hub {
                 .cloned()
                 .unwrap_or(Value::Null),
             model: current_model(&m),
+            effort: current_effort(&m).or_else(|| current_option(&m, "reasoning_effort")),
             policy: m.permission_policy.clone(),
             enforcement: self.session_enforcement(&m),
             rules: m.permission_rules.is_some(),
             // The chat's tools and whether `_acpmux/set_tools` can change them (`hub/tools.rs`).
-            tools: m.tools.rows.iter().map(Into::into).collect(),
-            tools_mutable: m.tools.mutable,
+            tools: with_tools.then(|| m.tools.rows.iter().map(Into::into).collect()),
+            tools_mutable: with_tools.then_some(m.tools.mutable),
             // The MCP servers the harness reported loaded (cx-ncc.105), never guessed from config.
             mcp_servers: crate::protocol::session::McpServerSummary::loaded(&m.tools.rows),
             tags: live_tags(&m),
@@ -425,13 +460,13 @@ impl Hub {
             self.started_at,
         );
         let mut summary = serde_json::to_value(summary).unwrap_or(Value::Null);
-        summary["qualifiedSessionId"] = Value::String(receipt.qualified_id());
-        summary["sessionReceipt"] = receipt.to_value();
+        summary.set("qualifiedSessionId", Value::String(receipt.qualified_id()));
+        summary.set("sessionReceipt", receipt.to_value());
         // The branch its folder has checked out now (`git_watch.rs`); null on
         // a detached HEAD or outside a repository.
-        summary["gitBranch"] = json!(self.git_branch_now(&m));
+        summary.set("gitBranch", json!(self.git_branch_now(&m)));
         // Since when work it started runs on past its own turn (`work_below.rs`).
-        summary["subagentsWorkingSince"] = json!(self.work_below_since(session));
+        summary.set("subagentsWorkingSince", json!(self.work_below_since(session)));
         decide(&mut summary);
         summary
     }
@@ -439,55 +474,73 @@ impl Hub {
     pub fn session_detail(&self, session: &Session) -> Value {
         let m = session.meta();
         let mut v = self.session_summary(session);
-        v["modes"] = m.modes.clone().unwrap_or(Value::Null);
-        v["configOptions"] = m.config_options.clone().unwrap_or(Value::Null);
-        v["models"] = m.models.clone().unwrap_or(Value::Null);
-        v["agentInfo"] = m.agent_info.clone().unwrap_or(Value::Null);
-        v["agentCapabilities"] = m.agent_capabilities.clone().unwrap_or(Value::Null);
-        v["usage"] = m.usage.clone().unwrap_or(Value::Null);
-        v["goal"] = m.goal.clone().unwrap_or(Value::Null);
+        v.set("modes", m.modes.clone().unwrap_or(Value::Null));
+        v.set("configOptions", m.config_options.clone().unwrap_or(Value::Null));
+        v.set("models", m.models.clone().unwrap_or(Value::Null));
+        v.set("agentInfo", m.agent_info.clone().unwrap_or(Value::Null));
+        v.set("agentCapabilities", m.agent_capabilities.clone().unwrap_or(Value::Null));
+        v.set("usage", m.usage.clone().unwrap_or(Value::Null));
+        v.set("goal", m.goal.clone().unwrap_or(Value::Null));
         // What the context holds by category, as Claude Code's /context says after each turn.
-        v["contextBreakdown"] = m.context_breakdown.clone().unwrap_or(Value::Null);
+        v.set("contextBreakdown", m.context_breakdown.clone().unwrap_or(Value::Null));
         // The account's plan usage limits, as Claude Code's rate_limit_event last said them.
-        v["usageLimits"] = m.usage_limits.clone().unwrap_or(Value::Null);
+        v.set("usageLimits", m.usage_limits.clone().unwrap_or(Value::Null));
         // The newest command list: a client that has it needs no read of the log for it.
         if let Some(commands) = &m.available_commands {
-            v["availableCommands"] = commands.clone();
+            v.set("availableCommands", commands.clone());
         }
-        v["forkSeq"] = json!(m.fork_seq);
-        v["rulesJson"] = m.permission_rules.clone().unwrap_or(Value::Null);
+        v.set("forkSeq", json!(m.fork_seq));
+        v.set("rulesJson", m.permission_rules.clone().unwrap_or(Value::Null));
         // The folder's HEAD when the session started (`git_state.rs`); its
         // `gitBranch` is the summary's, the branch checked out now.
-        v["gitHead"] = json!(m.git_head);
+        v.set("gitHead", json!(m.git_head));
         // What the session's turns cost together (`turn_usage.rs`).
-        v["totals"] = json!(m.totals);
+        v.set("totals", json!(m.totals));
         // The sub-session limits in force and where each comes from (`subsessions.rs`).
-        v["subsessionLimits"] = self.subsession_limits_value(&m);
+        v.set("subsessionLimits", self.subsession_limits_value(&m));
         let mut pending = session.permissions.lock().unwrap().pending_records();
         for p in &mut pending {
             p["personInstance"] = Value::String(self.person.instance().to_owned());
         }
-        v["pending"] = Value::Array(pending);
+        v.set("pending", Value::Array(pending));
         v
     }
 
     pub async fn status(&self) -> Value {
         // Before the config lock: it may wait up to `host_pressure::SAMPLE_WAIT` for a sample.
-        let host_pressure = self.host_pressure_status().await;
+        let loading = !self.store_loaded() || !self.startup_complete();
+        let host_pressure = if loading { Value::Null } else { self.host_pressure_status().await };
         let cfg = self.config.read().await;
         // The space of acpmux's disk, `disk.low` with what to free under the floor. Blocking
         // (statvfs and a bounded, cached folder walk), so off the async workers.
         let low = cfg.disk_low_bytes.unwrap_or(crate::recovery::DISK_LOW_DEFAULT_BYTES);
-        let disk = tokio::task::spawn_blocking(move || crate::recovery::disk_status(low))
-            .await
-            .unwrap_or(Value::Null);
+        let disk = if loading {
+            Value::Null
+        } else {
+            tokio::task::spawn_blocking(move || crate::recovery::disk_status(low))
+                .await
+                .unwrap_or(Value::Null)
+        };
         let sessions = self.sessions();
+        let stuck: Vec<Value> = sessions
+            .iter()
+            .filter_map(|s| {
+                let m = s.meta();
+                let (reason, since, error) = (m.status != SessionStatus::Closed)
+                    .then(|| m.harness_failures.stuck())
+                    .flatten()?;
+                Some(json!({"sessionId": m.id, "name": m.name, "harness": m.harness,
+                "lastSeq": m.last_seq, "state": "stuck", "stuckReason": reason,
+                "stuckSince": since, "stuckError": error}))
+            })
+            .collect();
         let mut live = 0;
         for s in &sessions {
             if s.child.lock().await.is_some() {
                 live += 1;
             }
         }
+        let exe_unstable = crate::daemon::exe_path::current_unstable();
         json!({
             "version": VERSION,
             "build": BUILD,
@@ -499,6 +552,11 @@ impl Hub {
             // processes. Never its command line: `--token` is on it.
             "exe": std::env::current_exe().ok().map(|e| e.to_string_lossy().into_owned()),
             "runsAsCmuxTuiAcp": runs_as_cmux_tui_acp(std::env::args_os()),
+            // Whether that executable is a stable install, and why not (`runner-work`, `temp`,
+            // `build-tree`): reach, lane-place and `host ls` flag a daemon that a runner's
+            // cleanup can delete (`daemon/exe_path.rs`).
+            "exeStable": exe_unstable.is_none(),
+            "exeUnstable": exe_unstable,
             "startedAt": self.started_at,
             // Whether this run holds a person key, and its id (`hub/person.rs`):
             // the app checks that a daemon it started with a key still runs.
@@ -510,6 +568,7 @@ impl Hub {
             "store": cfg.store,
             "sessions": sessions.len(),
             "liveAgents": live,
+            "stuckSessions": stuck,
             "disk": disk,
             // macOS: whether this daemon's agents can read the login keychain
             // (`daemon/login_session.rs`); absent elsewhere.
@@ -534,6 +593,7 @@ impl Hub {
             "webUrl": web_url(&cfg),
             "listen": cfg.web_listener().map(|w| w.listen.clone()),
             "ready": self.startup_complete(),
+            "loading": self.loading_status(),
             "loginEnv": crate::login_env::state(self.login_env_requested.load(Ordering::SeqCst)),
             // The Chief home the built-in Chief presets use (`config/chief_builtins.rs`),
             // from this daemon's own environment; the app hands off a Chief-home

@@ -107,11 +107,19 @@ READ_ONLY_POSTCONDITION_METHODS = {
     "debug.layers", "debug.surfaces", "debug.focus", "debug.window_list", "debug.windows",
     "debug.pane_chrome", "debug.notifications", "debug.themes",
 }
+# The tour's shells read these rc files, never the runner account's, whose `%n@%m` prompt names the CI
+# Mac. A DEBUG app launched with CMUX_CAPTURE_SHELL_HOME (as a PR capture slot is) starts its terminals'
+# zsh there (ZDOTDIR; Ghostty's wrapper hands it back before `.zshrc` runs) and names the showcase Mac
+# ("Studio Mac") on its panes and its machine picker, so pr-media's privacy check
+# (scripts/ci/pr_media_privacy.py) passes the tour's shots.
+FIXTURE_ZSHRC = "PROMPT='tour@studio-mac %1~ %# '\nRPROMPT=''\n"
 # Inherited caller context a cmux terminal exports. Left in place, a local run
-# inside cmux would route the tour's commands at the caller's own workspace.
+# inside cmux would route the tour's commands at the caller's own workspace, and
+# any of LaunchIdentity.otherCmuxMarkers makes the app drop the tour's
+# CMUX_NEXT_SOCKET_PATH and CMUX_CAPTURE_SHELL_HOME as another cmux's.
 SCRUBBED_ENV = ("CMUX_WORKSPACE_ID", "CMUX_SURFACE_ID", "CMUX_TAB_ID", "CMUX_PANEL_ID",
                 "CMUX_SOCKET_PATH", "CMUX_SOCKET_PASSWORD", "CMUX_TUI_SOCKET", "CMUX_TAG",
-                "CMUX_BUNDLE_ID", "CMUX_SOCKET")
+                "CMUX_BUNDLE_ID", "CMUX_SOCKET", "MUX_AGENT_TOKEN_FILE")
 
 
 class TourError(Exception):
@@ -479,6 +487,7 @@ class App:
         self.executable = app_path / "Contents/MacOS" / info["CFBundleExecutable"]
         self.bundle_tag = clean_tag((info.get("LSEnvironment") or {}).get("CMUX_TAG"))
         # sun_path holds 104 bytes, so the socket lives in a short private directory.
+        self.workdir = workdir
         self.socket_path = session.shareable(workdir) / "s.sock"
         self.log_path = workdir / "app.log"
         # The tour's own settings file; None keeps the session user's.
@@ -524,13 +533,22 @@ class App:
             self.session.run(["rm", "-rf", str(directory)])
             print(f"fresh state: cleared {directory}", flush=True)
 
+    def write_shell_home(self) -> Path:
+        """The tour's own zsh startup folder (FIXTURE_ZSHRC), readable by the session's user."""
+        home = self.session.shareable(self.workdir / "shell-home")
+        rc = home / ".zshrc"
+        rc.write_text(FIXTURE_ZSHRC, encoding="utf-8")
+        rc.chmod(0o644)
+        return home
+
     def launch(self) -> None:
         self.stop_daemon()
         self.clear_leftovers()
         self.clear_state()
         # CMUX_NEXT_NO_ACTIVATE: the app refuses every activation, so tours side by side on one Mac never take
         # focus or the key window from each other; debug.key and the CLI work on a window that is never key.
-        knobs = [f"CMUX_NEXT_SOCKET_PATH={self.socket_path}", "CMUX_NEXT_SOCKET_MODE=allowAll", "CMUX_NEXT_NO_ACTIVATE=1"]
+        knobs = [f"CMUX_NEXT_SOCKET_PATH={self.socket_path}", "CMUX_NEXT_SOCKET_MODE=allowAll", "CMUX_NEXT_NO_ACTIVATE=1",
+                 f"CMUX_CAPTURE_SHELL_HOME={self.write_shell_home()}"]
         if self.settings_path:
             knobs.append(f"CMUX_NEXT_CONFIG_FILE={self.settings_path}")
         knobs += [f"{key}={value}" for key, value in sorted(self.launch_env.items())]

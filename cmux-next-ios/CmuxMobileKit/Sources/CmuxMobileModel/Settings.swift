@@ -156,6 +156,15 @@ public final class SettingsStore {
     public var notifyPreviews: Bool { didSet { save(notifyPreviews, "notifyPreviews") } }
     public var requireFaceID: Bool { didSet { save(requireFaceID, "requireFaceID") } }
 
+    /// The terminal's key row zooms by writing the font size directly.
+    @ObservationIgnored private var defaultsObserver: (any NSObjectProtocol)?
+
+    /// The key row's zoom keys changed the size: show it (no write back).
+    private func reloadTerminalFontSize() {
+        let stored = defaults.object(forKey: "cmuxMobile.settings.terminalFontSize") as? Int ?? Self.defaultTerminalFontSize
+        if stored != terminalFontSize { terminalFontSize = stored }
+    }
+
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         func string(_ key: String) -> String? { defaults.string(forKey: "cmuxMobile.settings.\(key)") }
@@ -179,6 +188,9 @@ public final class SettingsStore {
         notifyMutedMacs = defaults.stringArray(forKey: "cmuxMobile.settings.notifyMutedMacs") ?? []
         notifyPreviews = bool("notifyPreviews", true)
         requireFaceID = bool("requireFaceID", false)
+        defaultsObserver = NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: defaults, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.reloadTerminalFontSize() }
+        }
         // Retired settings that never took effect (a terminal theme the phone
         // cannot read from the Mac, and a connection-details switch).
         for key in Self.retiredKeys { defaults.removeObject(forKey: "cmuxMobile.settings.\(key)") }

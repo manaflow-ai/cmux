@@ -38,6 +38,8 @@ public nonisolated struct SidebarDocProjection: Hashable, Sendable {
         public var parent: String?
         /// Group levels above it: 0 at the top level.
         public var depth = 0
+        /// The open workspace members (rows that are not a closed one's, dimmed): the window listing one owns the group.
+        public var openMembers: [SidebarDocWorkspaceRef] = []
 
         /// A url, tab or app member and the workspace member's item it follows (nil: first).
         public struct Listed: Hashable, Sendable {
@@ -134,6 +136,7 @@ public nonisolated struct SidebarDocProjection: Hashable, Sendable {
             } else if row.depth > 0, let parent = row.parent ?? item.parent,
                       let at = bandGroups.lastIndex(where: { $0.id == parent }) {
                 bandGroups[at].add(id, item) // a workspace, link, tab or app member: a member row in the list
+                if let ref = item.body.workspace, !row.dimmed { bandGroups[at].openMembers.append(ref) }
             } else if row.depth == 0 {
                 sections[index].items.append(Self.layoutItem(item))
             }
@@ -269,7 +272,7 @@ extension SidebarDocStore {
     /// machine stayed connected closed there: the client sends `close` for
     /// it (the home daemon closes its own machine's workspaces itself).
     public func show(live: [SidebarDocWorkspaceRef], connectedRemotes: Set<String> = []) {
-        let previous = shown
+        let previous = lastLiveProjection
         let next = projection(live: live)
         shownVersion = version
         if next != shown { shown = next }
@@ -278,6 +281,7 @@ extension SidebarDocStore {
         let stillConnected = connectedRemotes.intersection(lastConnectedRemotes)
         let closed = lastLive.subtracting(now).filter { stillConnected.contains($0.sessionID) && previous?.items[$0] != nil }
         (lastLive, lastConnectedRemotes) = (now, connectedRemotes)
+        lastLiveProjection = next
         guard isActive, !closed.isEmpty else { return }
         let refs = closed.sorted { ($0.sessionID, $0.workspaceID) < ($1.sessionID, $1.workspaceID) }
             .map { ["session_id": $0.sessionID, "workspace_id": $0.workspaceID] }

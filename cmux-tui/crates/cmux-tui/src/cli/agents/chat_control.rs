@@ -28,6 +28,7 @@ use super::super::app::{self, ActionName};
 use super::super::mcp::{self, CallFailure, FailureKind};
 use super::super::{GlobalArgs, UsageError};
 use super::chat;
+use cmux_json::JsonSet as _;
 
 /// The permission policies an agent may start a chat with.
 pub(in crate::cli) const AGENT_POLICIES: [&str; 3] = ["ask", "approve-reads", "deny-all"];
@@ -67,10 +68,9 @@ const NEW_USAGE: &str = "agents chat new [--workspace <ws>|--pane <pane>] [--har
 pub(in crate::cli) fn parse_new(words: &[&str]) -> Result<NewChat, UsageError> {
     let mut chat = NewChat::default();
     let mut index = 0;
-    while index < words.len() {
-        let word = words[index];
+    while let Some(&word) = words.get(index) {
         if word == "--" {
-            let rest = &words[index + 1..];
+            let rest = words.get(index + 1..).unwrap_or_default();
             match rest {
                 [] => {}
                 [text] => chat.prompt = Some((*text).to_owned()),
@@ -198,7 +198,8 @@ fn place(global: &GlobalArgs, chat: &NewChat) -> Result<Place, CallFailure> {
     }
     let snapshot = mcp::agent_resource(global, super::snapshot_plan())
         .map_err(|error| CallFailure { kind: FailureKind::NotRun, error, idempotency_key: None })?;
-    let list = |name: &str| snapshot[name].as_array().cloned().unwrap_or_default();
+    let list =
+        |name: &str| snapshot.get(name).and_then(Value::as_array).cloned().unwrap_or_default();
     let (workspaces, screens, panes) = (list("workspaces"), list("screens"), list("panes"));
     let by_id = |items: &[Value], id: &Value| items.iter().find(|item| &item["id"] == id).cloned();
     // The app gets the ids the snapshot names, never the caller's spelling.
@@ -261,11 +262,22 @@ fn uuid_form(key: &str) -> String {
     if hex.len() != 32 {
         return key.to_owned();
     }
-    [&hex[0..8], &hex[8..12], &hex[12..16], &hex[16..20], &hex[20..32]].join("-")
+    let dashed = || {
+        let (time_low, rest) = hex.split_at_checked(8)?;
+        let (time_mid, rest) = rest.split_at_checked(4)?;
+        let (time_high, rest) = rest.split_at_checked(4)?;
+        let (clock, node) = rest.split_at_checked(4)?;
+        Some([time_low, time_mid, time_high, clock, node].join("-"))
+    };
+    dashed().unwrap_or_else(|| key.to_owned())
 }
 
 /// `chat new`: the chat, its tab, and its first prompt.
-pub(in crate::cli) fn new(global: &GlobalArgs, chat: &NewChat, origin: &str) -> Result<Value, CallFailure> {
+pub(in crate::cli) fn new(
+    global: &GlobalArgs,
+    chat: &NewChat,
+    origin: &str,
+) -> Result<Value, CallFailure> {
     // The app's own acpmux when the caller's is another one (a Chief turn): the chat is one
     // of the app's ordinary chats, as New Agent Chat makes, not a subagent of the caller's.
     let app_socket = chat::app_acpmux(global);
@@ -292,11 +304,15 @@ pub(in crate::cli) fn new(global: &GlobalArgs, chat: &NewChat, origin: &str) -> 
         }
     }
     meta.insert("env".into(), json!({"CMUX_WORKSPACE_ID": uuid_form(&place.key)}));
-    let created = chat::acp::new_session(&cwd, Value::Object(meta), socket)
-        .map_err(|error| not_run("chat.create_failed", format!("cannot start the chat: {error}")))?;
+    let created = chat::acp::new_session(&cwd, Value::Object(meta), socket).map_err(|error| {
+        not_run("chat.create_failed", format!("cannot start the chat: {error}"))
+    })?;
     let session = created["sessionId"].as_str().unwrap_or_default().to_owned();
     if session.is_empty() {
-        return Err(not_run("chat.create_failed", format!("acpmux answered no session: {created}")));
+        return Err(not_run(
+            "chat.create_failed",
+            format!("acpmux answered no session: {created}"),
+        ));
     }
     let mut result = json!({
         "chat": session,
@@ -321,20 +337,28 @@ pub(in crate::cli) fn new(global: &GlobalArgs, chat: &NewChat, origin: &str) -> 
     params.insert("args".into(), Value::Object(arguments));
     params.insert("background".into(), json!(true));
     // No key: a retry starts another chat, so it must not get the first one's tab.
-    match mcp::agent_app(global, "action.run", Value::Object(params), app::WAITING_RUN_TIMEOUT, None) {
+    match mcp::agent_app(
+        global,
+        "action.run",
+        Value::Object(params),
+        app::WAITING_RUN_TIMEOUT,
+        None,
+    ) {
         Ok(run) => {
-            result["opened"] = json!(true);
+            result.set("opened", json!(true));
             for field in ["tab", "pane", "workspace"] {
-                if let Some(value) = run["result"].get(field).filter(|value| !value.is_null()) {
-                    result[field] = value.clone();
+                if let Some(value) = run["result"].get(field).filter(|value| !value.is_null())
+                    && let Some(result) = result.as_object_mut()
+                {
+                    result.insert(field.to_owned(), value.clone());
                 }
             }
         }
         // The app took the run but did not answer in time: the tab may still come (a slow
         // agent tab create), so the chat stays and the receipt says so.
         Err(error) if matches!(error["code"].as_str(), Some("timeout" | "app.transport")) => {
-            result["opened"] = json!("pending");
-            result["open_error"] = error;
+            result.set("opened", json!("pending"));
+            result.set("open_error", error);
         }
         Err(error) if new_workspace => {
             // No workspace has the chat's key, so no chat verb could ever reach it: it ends.
@@ -344,8 +368,8 @@ pub(in crate::cli) fn new(global: &GlobalArgs, chat: &NewChat, origin: &str) -> 
         Err(error) => {
             // The chat runs in that workspace and `chat send|read` reach it; the receipt
             // says why no tab shows it, so the caller can `agent open` it later.
-            result["opened"] = json!(false);
-            result["open_error"] = error;
+            result.set("opened", json!(false));
+            result.set("open_error", error);
         }
     }
 
@@ -353,10 +377,13 @@ pub(in crate::cli) fn new(global: &GlobalArgs, chat: &NewChat, origin: &str) -> 
     // and presses Return (a chat this caller just started, as `cmux acp new PROMPT` does).
     if let Some(prompt) = &chat.prompt {
         let id = uuid::Uuid::new_v4().to_string();
-        result["prompt"] = match chat::acp::prompt(&session, prompt, &id, None, socket) {
-            Ok(_) => json!({"state": "accepted", "prompt_id": id}),
-            Err(error) => json!({"state": "failed", "prompt_id": id, "error": error}),
-        };
+        result.set(
+            "prompt",
+            match chat::acp::prompt(&session, prompt, &id, None, socket) {
+                Ok(_) => json!({"state": "accepted", "prompt_id": id}),
+                Err(error) => json!({"state": "failed", "prompt_id": id, "error": error}),
+            },
+        );
     }
     Ok(json!({
         "schema_version": 1,
@@ -370,8 +397,9 @@ pub(in crate::cli) fn new(global: &GlobalArgs, chat: &NewChat, origin: &str) -> 
 pub(in crate::cli) fn state(global: &GlobalArgs, target: &str) -> Result<Value, CallFailure> {
     let found = chat::scoped_chat(global, target)?;
     let chat = &found.id;
-    let (_, info) = chat::acp::lookup(chat, found.socket())
-        .map_err(|error| not_run("chat.unavailable", format!("cannot read chat {chat}: {error}")))?;
+    let (_, info) = chat::acp::lookup(chat, found.socket()).map_err(|error| {
+        not_run("chat.unavailable", format!("cannot read chat {chat}: {error}"))
+    })?;
     let mut state = Map::new();
     state.insert("chat".into(), json!(chat));
     for (from, to) in [
@@ -405,8 +433,9 @@ pub(in crate::cli) fn interrupt(
     let found = chat::scoped_chat(global, target)?;
     let chat = &found.id;
     chat::refuse_own_chat(chat, target)?;
-    chat::acp::cancel(chat, found.socket())
-        .map_err(|error| not_run("chat.unavailable", format!("cannot interrupt {chat}: {error}")))?;
+    chat::acp::cancel(chat, found.socket()).map_err(|error| {
+        not_run("chat.unavailable", format!("cannot interrupt {chat}: {error}"))
+    })?;
     Ok(json!({
         "schema_version": 1,
         "action": "chat.interrupt",

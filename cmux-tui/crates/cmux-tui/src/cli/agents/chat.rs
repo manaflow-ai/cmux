@@ -30,6 +30,7 @@ use serde_json::{Map, Value, json};
 use super::super::agent_message::{self, Body, MessagePlan};
 use super::super::mcp::{self, CallFailure, FailureKind};
 use super::super::{GlobalArgs, UsageError, wire};
+use cmux_json::JsonSet as _;
 
 /// Items one read returns by default and at most.
 pub(in crate::cli) const DEFAULT_READ_LIMIT: usize = 50;
@@ -45,14 +46,25 @@ const MAX_EVENT_PAGES: usize = 20;
 /// One `cmux agents chat` verb.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(in crate::cli) enum ChatCommand {
-    Send { target: String, text: String },
-    Read { target: String, after: u64, limit: usize },
+    Send {
+        target: String,
+        text: String,
+    },
+    Read {
+        target: String,
+        after: u64,
+        limit: usize,
+    },
     /// Start a GUI agent chat (chat_control.rs).
     New(super::chat_control::NewChat),
     /// What a chat is doing.
-    State { target: String },
+    State {
+        target: String,
+    },
     /// Cancel a chat's running turn.
-    Interrupt { target: String },
+    Interrupt {
+        target: String,
+    },
 }
 
 /// `chat send <chat> [--] <text>`, `chat read <chat> [--after N]
@@ -345,15 +357,15 @@ fn send(
     if let Some(reason) =
         delivery.and_then(|delivery| delivery.get("reason")).filter(|r| !r.is_null())
     {
-        result["reason"] = reason.clone();
+        result.set("reason", reason.clone());
     }
     // Stored but not handed to the chat: the receipt says so, and the CLI
     // and the tool report it as an error (`delivery_failed`).
     if sent.failed {
-        result["state"] = json!("failed");
+        result.set("state", json!("failed"));
     }
     if !sent.problems.is_empty() {
-        result["problems"] = json!(sent.problems);
+        result.set("problems", json!(sent.problems));
     }
     Ok(json!({
         "schema_version": 1,
@@ -575,7 +587,7 @@ impl Transcript {
                 let Some(&index) = self.tools.get(id) else { return };
                 let item = &mut self.items[index];
                 if let Some(status) = update["status"].as_str() {
-                    item.extra["tool"]["status"] = json!(status);
+                    item.extra.set_path(&["tool", "status"], json!(status));
                 }
             }
             _ => {}
@@ -701,7 +713,10 @@ pub(super) mod acp {
     }
 
     /// The id and `_acpmux/info` of the session `key` names.
-    pub(in crate::cli) fn lookup(key: &str, socket: Option<&Path>) -> Result<(String, Value), String> {
+    pub(in crate::cli) fn lookup(
+        key: &str,
+        socket: Option<&Path>,
+    ) -> Result<(String, Value), String> {
         block_on(async {
             let client = client(socket).await?;
             let (id, _name) = acpmux::deliver::resolve_session(&client, key).await?;
