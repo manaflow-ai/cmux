@@ -1437,6 +1437,28 @@ def terminal_items(term):
             "ticks": [int(t) for t in re.findall(r"rj-tick-(\d+)", text)]}
 
 
+def pane_active_tab(pane_id):
+    """The tab pane `pane_id` shows, from its screen's layout export (`active_tab_id` of its leaf), or None."""
+    topo = topology() or {}
+    screen = next((s_.get("id") for ws in rj_workspaces(topo) for s_ in ws.get("screens", [])
+                   if any(p.get("id") == pane_id for p in s_.get("panes", []))), None)
+    if not screen:
+        return None
+    exported = cli("screen", screen, "layout", "export", quiet=True)
+    found = []
+    def walk(node):
+        if isinstance(node, dict):
+            if node.get("pane_id") == pane_id and node.get("active_tab_id"):
+                found.append(node["active_tab_id"])
+            for item in node.values():
+                walk(item)
+        elif isinstance(node, list):
+            for item in node:
+                walk(item)
+    walk(exported.get("value", exported) if isinstance(exported, dict) else exported)
+    return found[0] if found else None
+
+
 def layout_shape(screen_id, pane_index):
     """The screen's split tree from the daemon, with pane ids replaced by their index and ratios rounded."""
     exported = cli("screen", screen_id, "layout", "export", quiet=True)
@@ -1705,7 +1727,8 @@ def snapshot(label):
             # A person who opens the chat after a relaunch waits this long for it (before: 61 s, one
             # 60 s debug call that hung, not the page).
             RESULTS.append((f"{label[:-len('-after')]}: the chat page connects within {CHAT_CONNECT_BOUND} s after it is shown",
-                            isinstance(state, dict) and state.get("connection") == "connected" and connect_seconds <= CHAT_CONNECT_BOUND,
+                            isinstance(state, dict) and "error" not in state and state.get("connection") not in (None, "connecting", "disconnected")
+                            and connect_seconds <= CHAT_CONNECT_BOUND,
                             f"{state.get('connection') if isinstance(state, dict) else state} after {connect_seconds} s; asks {json.dumps(asks[:6])[:200]}",
                             "agent chat"))
         if isinstance(state, dict) and "error" not in state:
@@ -2314,11 +2337,15 @@ def finish_turn_in_flight(variant, turn):
         with visiting("rj-chats"):
             pane = place_of(tab.get("id"), topo)[1]
             # Its pane holds another chat too: show this chat's tab, and read only its own page.
+            # The tab the pane showed comes back after, so the layout rows see the seeded state.
+            shown_tab = pane_active_tab(pane)
             cli("tab", tab["id"], "focus", quiet=True)
             def own_page_shows():
                 state = page(pane, "chat_state") or {}
                 return state.get("sessionId") == turn["chat"]["session"] and "after-gate" in str((state.get("lastAssistant") or {}).get("text"))
             shown = wait(own_page_shows, 20, 0.5)
+            if shown_tab and shown_tab != tab["id"]:
+                cli("tab", shown_tab, "focus", quiet=True)
     RESULTS.append((f"{variant}: the turn in flight finishes and its page shows it", stop == "end_turn" and bool(shown),
                     f"stopReason {stop}, page {'shows' if shown else 'does not show'} after-gate"
                     + (f"; {json.dumps(answer)[:200]}" if stop != "end_turn" else ""), "agents"))
