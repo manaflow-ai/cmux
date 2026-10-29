@@ -26,9 +26,10 @@ import Testing
         let collected = collector.result
         let artifact = try #require(collected.artifacts.first { $0.reference == "Attachments/build.log" })
 
+        // A small text file previews as text, read from the phone's file.
         let content = try await collected.source(fallback: MacFiles()).load(artifact)
-        guard case .quickLook(let shown) = content else { Issue.record("expected the phone's file, got \(content)"); return }
-        #expect(shown == url)
+        guard case .text(let text) = content else { Issue.record("expected the phone's file, got \(content)"); return }
+        #expect(text == "large log")
     }
 
     /// Two attachments of one name: the newer one opens, bytes or file.
@@ -45,8 +46,8 @@ import Testing
         smallThenLarge.add(small)
         smallThenLarge.add(large)
         let newerFile = try await Self.open("Attachments/build.log", in: smallThenLarge.result)
-        guard case .quickLook(let shown) = newerFile else { Issue.record("expected the newer file, got \(newerFile)"); return }
-        #expect(shown == url)
+        guard case .text(let fromFile) = newerFile else { Issue.record("expected the newer file, got \(newerFile)"); return }
+        #expect(fromFile == "large log")
 
         var largeThenSmall = SessionArtifacts.Collector(cwd: "/Users/me/cmux")
         largeThenSmall.add(large)
@@ -54,6 +55,17 @@ import Testing
         let newerBytes = try await Self.open("Attachments/build.log", in: largeThenSmall.result)
         guard case .text(let text) = newerBytes else { Issue.record("expected the newer bytes, got \(newerBytes)"); return }
         #expect(text == "small log")
+    }
+
+    /// A newer attachment of a name takes its kind too: an image then a file opens as the file.
+    @Test func theNewerAttachmentOfANameTakesItsKind() throws {
+        let image = AgentAttachment(kind: .image, name: "shot", data: Data([0x89, 0x50]))
+        let file = AgentAttachment(kind: .file, name: "shot", data: Data("notes".utf8))
+        var collector = SessionArtifacts.Collector(cwd: "/Users/me/cmux")
+        collector.add(image)
+        collector.add(file)
+        let artifact = try #require(collector.result.artifacts.first { $0.reference == "Attachments/shot" })
+        #expect(artifact.kind != .image)
     }
 
     static func open(_ reference: String, in collected: SessionArtifacts) async throws -> ArtifactContent {
