@@ -113,9 +113,12 @@ impl Mux {
             Some(incarnation),
             None,
         )?;
+        // Its own statement: the guard must end before the placeholder
+        // takes default_colors (both are leaf locks).
+        let options = self.surface_options.lock().unwrap().clone();
         let surface = Surface::exited_terminal_placeholder(
             self.next_id(),
-            self.surface_options.lock().unwrap().clone(),
+            options,
             Arc::downgrade(self),
             TerminalHostIdentity {
                 terminal_id: terminal_id.to_string(),
