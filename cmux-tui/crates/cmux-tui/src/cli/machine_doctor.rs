@@ -67,11 +67,17 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     let origin = match machine_join::platform_origin(command.auth.platform.as_deref(), &env) {
         Ok(origin) => origin,
         Err(message) => {
-            return Some(super::app::failure("usage.invalid", &format!("cmux: {message}"), global.output, 2));
+            return Some(super::app::failure(
+                "usage.invalid",
+                &format!("cmux: {message}"),
+                global.output,
+                2,
+            ));
         }
     };
-    let platform = credential
-        .and_then(|credential| Platform::new(origin.clone(), credential, machine_join::LIST_TIMEOUT).ok());
+    let platform = credential.and_then(|credential| {
+        Platform::new(origin.clone(), credential, machine_join::LIST_TIMEOUT).ok()
+    });
     let list = platform.as_ref().map(Platform::credentials);
     let found = list
         .as_ref()
@@ -174,7 +180,11 @@ pub(super) fn remote_steps(
             steps.push(JoinStep::new("signed-in", StepState::Ok, "signed in"));
             match result {
                 Ok(entries) => {
-                    steps.push(JoinStep::new("platform", StepState::Ok, format!("{origin} answers")));
+                    steps.push(JoinStep::new(
+                        "platform",
+                        StepState::Ok,
+                        format!("{origin} answers"),
+                    ));
                     Ok(entries)
                 }
                 Err(CallError::Status { status: 404, .. }) => {
@@ -187,7 +197,9 @@ pub(super) fn remote_steps(
                 }
                 Err(error) => {
                     let why = match error {
-                        CallError::Status { status, code } => format!("{status} {code}").trim_end().to_owned(),
+                        CallError::Status { status, code } => {
+                            format!("{status} {code}").trim_end().to_owned()
+                        }
                         CallError::Unreachable(_) => "no answer".to_owned(),
                         CallError::Unreadable(status) => format!("{status}, unreadable"),
                     };

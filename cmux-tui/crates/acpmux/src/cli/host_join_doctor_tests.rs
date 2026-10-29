@@ -49,7 +49,9 @@ fn a_healthy_join_is_all_ok_in_order() {
     assert!(checked.iter().all(|s| s.state == StepState::Ok), "{checked:?}");
     assert_eq!(step(&checked, "credential").detail, "joined as m_1");
     assert_eq!(step(&checked, "hub").detail, "reaches https://platform.example");
-    assert!(step(&checked, "consent").detail.starts_with("screen sharing off, control off; to allow"));
+    assert!(
+        step(&checked, "consent").detail.starts_with("screen sharing off, control off; to allow")
+    );
 }
 
 #[test]
@@ -71,7 +73,10 @@ fn a_revoked_machine_fails_revoked_with_the_same_fix() {
     let checked = with_status(json!({"revoked": true}));
     let revoked = step(&checked, "revoked");
     assert_eq!(revoked.state, StepState::Fail);
-    assert_eq!(revoked.fix, step(&with_status(json!({"credentialPresent": false})), "credential").fix);
+    assert_eq!(
+        revoked.fix,
+        step(&with_status(json!({"credentialPresent": false})), "credential").fix
+    );
     assert_eq!(step(&checked, "heartbeat").state, StepState::Skip);
 }
 
@@ -80,7 +85,9 @@ fn an_unreachable_hub_and_a_stale_heartbeat_fail_with_their_fixes() {
     let checked = with_status(json!({"hubReachable": false}));
     assert_eq!(
         step(&checked, "hub").fix.as_deref(),
-        Some("This machine cannot reach https://platform.example on 443: check its outbound HTTPS or proxy")
+        Some(
+            "This machine cannot reach https://platform.example on 443: check its outbound HTTPS or proxy"
+        )
     );
     for stale in [json!(NOW - 91_000), json!("2026-10-29T02:50:00Z"), Value::Null] {
         let heartbeat = step(&with_status(json!({"lastHeartbeat": stale})), "heartbeat").clone();
@@ -90,8 +97,14 @@ fn an_unreachable_hub_and_a_stale_heartbeat_fail_with_their_fixes() {
             Some("acpmux daemon restart; if it persists, acpmux config must name meshRelay")
         );
     }
-    assert_eq!(step(&with_status(json!({"lastHeartbeat": "2026-10-29T02:50:00Z"})), "heartbeat").detail, "last heartbeat 10 min ago");
-    assert_eq!(step(&with_status(json!({"lastHeartbeat": (NOW - 5_000) / 1000})), "heartbeat").state, StepState::Ok);
+    assert_eq!(
+        step(&with_status(json!({"lastHeartbeat": "2026-10-29T02:50:00Z"})), "heartbeat").detail,
+        "last heartbeat 10 min ago"
+    );
+    assert_eq!(
+        step(&with_status(json!({"lastHeartbeat": (NOW - 5_000) / 1000})), "heartbeat").state,
+        StepState::Ok
+    );
 }
 
 #[test]
@@ -102,10 +115,19 @@ fn missing_optional_status_fields_skip_instead_of_failing() {
     assert_eq!(step(&checked, "hub").state, StepState::Skip);
     assert_eq!(step(&checked, "consent").state, StepState::Skip);
     // No hub origin: the fixes name the development platform.
-    let checked = steps(&Facts { binary: Binary::Missing("/h/.local/bin/acpmux".into()), status: Status::NotRun, ..healthy() }, NOW);
+    let checked = steps(
+        &Facts {
+            binary: Binary::Missing("/h/.local/bin/acpmux".into()),
+            status: Status::NotRun,
+            ..healthy()
+        },
+        NOW,
+    );
     assert_eq!(
         step(&checked, "binary").fix.as_deref(),
-        Some("Re-run the join line without a token: curl -fsSL https://cmux-platform-development.debussy.workers.dev/v1/machines/join.sh | sh")
+        Some(
+            "Re-run the join line without a token: curl -fsSL https://cmux-platform-development.debussy.workers.dev/v1/machines/join.sh | sh"
+        )
     );
     assert_eq!(step(&checked, "credential").state, StepState::Skip);
 }
@@ -117,23 +139,42 @@ fn an_old_acpmux_a_failed_status_and_a_loose_credential_file_fail_credential() {
     assert!(step(&old, "credential").fix.as_deref().unwrap().starts_with("Re-run the join line"));
     let failed = steps(&Facts { status: Status::Failed("exit 5".into()), ..healthy() }, NOW);
     assert_eq!(step(&failed, "credential").detail, "acpmux host join --status failed (exit 5)");
-    let loose = with_status(json!({"credentialMode": "0644", "credentialPath": "/h/.acpmux/machine.json"}));
-    assert_eq!(step(&loose, "credential").fix.as_deref(), Some("chmod 600 /h/.acpmux/machine.json"));
-    let tight = with_status(json!({"credentialMode": "0600", "credentialPath": "/h/.acpmux/machine.json"}));
+    let loose =
+        with_status(json!({"credentialMode": "0644", "credentialPath": "/h/.acpmux/machine.json"}));
+    assert_eq!(
+        step(&loose, "credential").fix.as_deref(),
+        Some("chmod 600 /h/.acpmux/machine.json")
+    );
+    let tight =
+        with_status(json!({"credentialMode": "0600", "credentialPath": "/h/.acpmux/machine.json"}));
     assert_eq!(step(&tight, "credential").state, StepState::Ok);
 }
 
 #[test]
 fn service_and_daemon_failures_name_local_commands() {
-    let off = steps(&Facts { service: Service::Inactive { installed: true }, daemon_running: false, ..healthy() }, NOW);
-    assert_eq!(step(&off, "service").fix.as_deref(), Some("systemctl --user enable --now acpmux.service"));
+    let off = steps(
+        &Facts {
+            service: Service::Inactive { installed: true },
+            daemon_running: false,
+            ..healthy()
+        },
+        NOW,
+    );
+    assert_eq!(
+        step(&off, "service").fix.as_deref(),
+        Some("systemctl --user enable --now acpmux.service")
+    );
     assert_eq!(step(&off, "daemon").fix.as_deref(), Some("acpmux daemon start"));
-    let mac = steps(&Facts { linux: false, service: Service::Inactive { installed: true }, ..healthy() }, NOW);
+    let mac = steps(
+        &Facts { linux: false, service: Service::Inactive { installed: true }, ..healthy() },
+        NOW,
+    );
     assert_eq!(
         step(&mac, "service").fix.as_deref(),
         Some("launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.acpmux.daemon.plist")
     );
-    let linger = steps(&Facts { service: Service::Active { linger: Some(false) }, ..healthy() }, NOW);
+    let linger =
+        steps(&Facts { service: Service::Active { linger: Some(false) }, ..healthy() }, NOW);
     assert_eq!(step(&linger, "service").state, StepState::Warn);
     assert_eq!(step(&linger, "service").fix.as_deref(), Some("loginctl enable-linger $USER"));
     let none = steps(&Facts { service: Service::NoManager, ..healthy() }, NOW);

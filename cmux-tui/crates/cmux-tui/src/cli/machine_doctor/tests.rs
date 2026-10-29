@@ -31,9 +31,15 @@ fn doctor_with_no_machine_is_this_machine_and_other_flags_are_the_apps() {
     let here = parse(&strings(&["machine", "doctor"])).unwrap().unwrap();
     assert_eq!(here.machine, None);
     assert!(!here.fix);
-    let remote = parse(&strings(&["machine", "doctor", "lane-vm-3", "--fix", "--platform=https://p.example"]))
-        .unwrap()
-        .unwrap();
+    let remote = parse(&strings(&[
+        "machine",
+        "doctor",
+        "lane-vm-3",
+        "--fix",
+        "--platform=https://p.example",
+    ]))
+    .unwrap()
+    .unwrap();
     assert_eq!(remote.machine.as_deref(), Some("lane-vm-3"));
     assert!(remote.fix);
     assert_eq!(remote.auth.platform.as_deref(), Some("https://p.example"));
@@ -80,11 +86,16 @@ fn a_platform_with_joining_off_points_at_development() {
     assert_eq!(platform.detail, "joining is off on https://platform.example");
     assert_eq!(
         platform.fix.as_deref(),
-        Some("Point at development: --platform https://cmux-platform-development.debussy.workers.dev")
+        Some(
+            "Point at development: --platform https://cmux-platform-development.debussy.workers.dev"
+        )
     );
     let down = Some(Err(CallError::Unreachable("connection refused".into())));
     let checked = remote_steps(ORIGIN, "lane-vm-3", down, None, 0);
-    assert_eq!(state(&checked, "platform").detail, "https://platform.example did not list the machines (no answer)");
+    assert_eq!(
+        state(&checked, "platform").detail,
+        "https://platform.example did not list the machines (no answer)"
+    );
 }
 
 #[test]
@@ -100,7 +111,10 @@ fn an_unlisted_or_revoked_machine_fails_listed_with_the_machine_add_fix() {
         let listed = state(&checked, "listed");
         assert_eq!(listed.state, StepState::Fail);
         assert_eq!(listed.detail, detail);
-        assert_eq!(listed.fix.as_deref(), Some("Not joined (or revoked): cmux machine add --name lane-vm-3"));
+        assert_eq!(
+            listed.fix.as_deref(),
+            Some("Not joined (or revoked): cmux machine add --name lane-vm-3")
+        );
         assert_eq!(state(&checked, "heartbeat").state, StepState::Skip);
     }
 }

@@ -425,7 +425,8 @@ impl Platform {
     pub(super) fn mesh_daemons(&self, daemon_id: &str) -> Result<Vec<String>, CallError> {
         let path = format!("/v1/mesh/sessions?daemonId={daemon_id}");
         let body = self.runtime.block_on(self.call(reqwest::Method::GET, &path, None))?;
-        let daemons = body.get("daemons").and_then(Value::as_array).ok_or(CallError::Unreadable(200))?;
+        let daemons =
+            body.get("daemons").and_then(Value::as_array).ok_or(CallError::Unreadable(200))?;
         Ok(daemons
             .iter()
             .filter_map(|d| d.get("daemonId").and_then(Value::as_str))

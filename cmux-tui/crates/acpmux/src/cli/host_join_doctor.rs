@@ -159,9 +159,7 @@ pub fn steps(facts: &Facts, now_ms: u64) -> Vec<JoinStep> {
         Some(false) => JoinStep::fail(
             "hub",
             format!("cannot reach {hub}"),
-            format!(
-                "This machine cannot reach {hub} on 443: check its outbound HTTPS or proxy"
-            ),
+            format!("This machine cannot reach {hub} on 443: check its outbound HTTPS or proxy"),
         ),
         None => skip("hub", "acpmux did not say whether it reaches the hub"),
     });
@@ -176,12 +174,12 @@ pub fn steps(facts: &Facts, now_ms: u64) -> Vec<JoinStep> {
 
 fn binary_step(facts: &Facts) -> JoinStep {
     match &facts.binary {
-        Binary::Ok(path) => JoinStep::new("binary", StepState::Ok, format!("acpmux at {}", path.display())),
-        Binary::Missing(path) => JoinStep::fail(
-            "binary",
-            format!("no acpmux at {}", path.display()),
-            rejoin(facts),
-        ),
+        Binary::Ok(path) => {
+            JoinStep::new("binary", StepState::Ok, format!("acpmux at {}", path.display()))
+        }
+        Binary::Missing(path) => {
+            JoinStep::fail("binary", format!("no acpmux at {}", path.display()), rejoin(facts))
+        }
         Binary::NotExecutable(path) => JoinStep::fail(
             "binary",
             format!("{} is not executable", path.display()),
@@ -372,7 +370,8 @@ pub fn probe() -> Facts {
     };
     let linux = cfg!(target_os = "linux");
     let service = if linux { systemd_service(&home) } else { launchd_service(&home) };
-    let daemon_running = std::os::unix::net::UnixStream::connect(crate::config::socket_path()).is_ok();
+    let daemon_running =
+        std::os::unix::net::UnixStream::connect(crate::config::socket_path()).is_ok();
     let status = match &binary {
         Binary::Ok(path) => join_status(path),
         _ => Status::NotRun,
@@ -431,11 +430,9 @@ fn systemd_service(home: &Path) -> Service {
     };
     if state.trim() == "active" {
         let user = std::env::var("USER").unwrap_or_default();
-        let linger = output(
-            Path::new("loginctl"),
-            &["show-user", &user, "--property=Linger", "--value"],
-        )
-        .map(|(_, v)| v.trim() == "yes");
+        let linger =
+            output(Path::new("loginctl"), &["show-user", &user, "--property=Linger", "--value"])
+                .map(|(_, v)| v.trim() == "yes");
         return Service::Active { linger };
     }
     let installed = home.join(".config/systemd/user").join(SERVICE).is_file();
