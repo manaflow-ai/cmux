@@ -62,7 +62,12 @@ fn launches(log: &[String]) -> Vec<&String> {
 async fn a_chats_harness_runs_in_its_own_cgroup_scope() {
     let log = chat_scope_log(
         "scope",
-        &[("ACPMUX_SESSION_MEMORY_MB", "512"), ("ACPMUX_SESSION_CPU_WEIGHT", "40")],
+        &[
+            ("ACPMUX_SESSION_MEMORY_MB", "512"),
+            ("ACPMUX_SESSION_SWAP_MB", "0"),
+            ("ACPMUX_SESSIONS_SWAP_MAX", "0"),
+            ("ACPMUX_SESSION_CPU_WEIGHT", "40"),
+        ],
     )
     .await;
     let launches = launches(&log);
