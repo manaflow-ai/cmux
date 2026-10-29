@@ -1,8 +1,26 @@
 # Generated files git still tracks that no "committed" generator in generated-files.json covers.
 # Shrink only: a cutover removes lines; nothing adds one (generated_files_guard.py).
+# A line with a `# checked by` comment above it is a generated file kept in git because its generator has a
+# --check that the train runs (lead ruling 2026-10-29, slice 1); the other lines wait for their cutover.
 Packages/macOS/CmuxComputerUseHelper/Sources/CCuaDriverABI/include/cua_driver_abi.h
+# checked by scripts/cmux-next/gen-chromium-host-wire.py --check
+Packages/macOS/CmuxNext/ChromiumHost/client/generated/remote_shim.inc
+# checked by scripts/cmux-next/gen-chromium-host-wire.py --check
+Packages/macOS/CmuxNext/ChromiumHost/src/generated/host_dispatch.inc
 Packages/macOS/CmuxNext/Sources/CmuxNextAppearance/Backdrop/BackdropArt+Entries.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextAppearance/Backdrop/BackdropArt.swift
+# checked by scripts/cmux-next/gen-chromium-host-wire.py --check
+Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/ChromiumHost/Generated/ChromiumHostOps.swift
+# checked by scripts/cmux-next/generate-word-lists.py --check tlds
+Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/Omnibox/TopLevelDomains+List.swift
+# checked by scripts/cmux-next/gen-daemon-command-names.py --check
+Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Connection/DaemonCommandName+Commands.swift
+# checked by scripts/cmux-next/gen-daemon-command-names.py --check
+Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Connection/DaemonCommandName+Resources.swift
+# checked by scripts/cmux-next/gen-features.py --check
+Packages/macOS/CmuxNext/Sources/CmuxNextFeatures/Features.generated.swift
+# checked by scripts/cmux-next/generate-word-lists.py --check pairing-words
+Packages/macOS/CmuxNext/Sources/CmuxNextServer/Model/PairingWords+List.swift
 Resources/markdown-viewer/ondine.min.js
 THIRD_PARTY_LICENSES.md
 agent-chat/adapters/claude-environment-policy.generated.ts
@@ -12,6 +30,8 @@ cmux-tui/build-support/notices/REVIEW.md
 cmux-tui/build-support/notices/browser-host/THIRD_PARTY_LICENSES.linux.md
 cmux-tui/crates/acpmux/rules/secrets/gitleaks.toml
 cmux-tui/crates/cmux-app-host/js/dist/cmux-app-runtime.js
+# checked by scripts/cmux-next/gen-features.py --check
+cmux-tui/crates/cmux-features/src/generated.rs
 cmux-tui/crates/cmux-tasks-core/catalog/mux-task.d.ts
 first-party-apps/codemirror/THIRD_PARTY_NOTICES
 first-party-apps/codemirror/web/THIRD_PARTY_NOTICES.txt
