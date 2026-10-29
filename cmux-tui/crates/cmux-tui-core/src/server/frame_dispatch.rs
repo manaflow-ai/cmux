@@ -10,12 +10,16 @@
 //! connection error (chromium mojo/public/cpp/bindings/lib/
 //! interface_endpoint_client.cc, `HandleValidatedMessage`).
 //!
-//! The body then takes its line's path, so it runs the same handler and its
-//! reply is the same JSON. The writer it runs with answers the frame
-//! (`MessageWriter::replying_to`, Mojo's responder): the reply leaves as one
-//! REPLY frame, or ERROR when `ok` is false, with the request's call fields,
-//! in the control FIFO behind every event the request emitted. A request id
-//! is in flight until that frame; reusing it before then is a bad message.
+//! The method id picks the handler: the body is decoded once, as a request of
+//! that method (`connection_frame::decode_framed_request`), with no line
+//! sniffing, and runs the handler its line runs, so its reply is the same
+//! JSON. A body of another method is a bad message. The writer it runs with
+//! answers the frame (`MessageWriter::replying_to`, Mojo's responder): the
+//! reply leaves as one REPLY frame, or ERROR when `ok` is false, with the
+//! request's call fields, in the control FIFO behind every event the request
+//! emitted. A request id is in flight until that frame; reusing it before
+//! then is a bad message. The payload's bytes are zeroed when the frame
+//! drops (cmux-ipc reader), as a line's are.
 //!
 //! A CANCEL frame fires the request's cancellation: a waiting handler
 //! (`wait-for`) ends with an ERROR reply, and a request still queued is
@@ -51,10 +55,11 @@
 //! (chromium third_party/blink/public/mojom/input/input_handler.mojom,
 //! `DispatchNonBlockingEvent`).
 //!
-//! Only `Command` methods answer on frames yet. A feature route or a v2
-//! operation replies on its own writer, so a frame naming one gets the ERROR
-//! [`METHOD_NOT_FRAMED`]; the routes move to the method table in
-//! A client does not find these by trial, which would
+//! `Command` methods and the v2 operations the router answers at once are
+//! served on frames. A feature route, and a v2 operation the connection owns
+//! (attaches, streams, waits), still replies on its own writer, so a frame
+//! naming one gets the ERROR [`METHOD_NOT_FRAMED`]; those routes move to the
+//! method table later. A client does not find these by trial, which would
 //! run a refused request after the ones written behind it: `identify
 //! {revisions}` lists [`framed_method_ids`] and the [`sdk_schema_digest`]
 //! their ids and priorities come from, and a client frames only those
@@ -83,8 +88,9 @@ use super::line_connection::{
 };
 use super::pending_streams::{ClientStreams, RequestLane, StreamEndpoint, post_request};
 use super::{
-    ClientTransport, Command, ConnectionCancellation, MessageWriter, Mux,
-    handle_connection_frame_at,
+    ClientTransport, Command, ConnectionCancellation, FramedBodyMismatch, FramedMethod,
+    FramedRequest, MessageWriter, Mux, ResourceOperation, decode_framed_request,
+    handle_framed_request_at,
 };
 
 /// The `error_code` of the ERROR reply to a method that answers only lines.
@@ -280,6 +286,9 @@ pub(super) struct RequestFrames {
     sweep_at: usize,
     /// The streams the client announced.
     streams: ClientStreams,
+    /// Each method id's handler (`None`: served only as a line), resolved
+    /// on its first frame.
+    routes: HashMap<u16, Option<FramedMethod>>,
 }
 
 impl Default for RequestFrames {
@@ -289,6 +298,7 @@ impl Default for RequestFrames {
             in_flight: HashMap::new(),
             sweep_at: SWEEP_MIN,
             streams: ClientStreams::default(),
+            routes: HashMap::new(),
         }
     }
 }
@@ -358,27 +368,48 @@ impl RequestFrames {
         // An admitted REQUEST is one framed request of `server-stats` `ipc`:
         // the body parses below and on its line's path count toward it.
         let _parses = JsonParseScope::enter(connection.mux.ipc_stats(), IpcTransport::Frames);
-        if !served_on_frames(self.tables, method) {
+        let Some(framed) = self.route_of(method) else {
             let call = Arc::new(FrameCall::new(stream, call));
             return Ok(send_not_framed(&connection.writer.replying_to(call), method));
-        }
-        names_method(body, method).map_err(ConnectionBadMessage::Call)?;
-        let opens =
-            matches!(lane, RequestLane::Open).then(|| self.streams.announce(stream, connection));
+        };
+        // The method id routes the body; it is decoded once, before anything
+        // runs or a stream is announced. A stream request is decoded on its
+        // stream's sequence and an opener on a live stream does not run, so
+        // only their `cmd` is read here.
+        let opens_stream = matches!(lane, RequestLane::Open);
+        let run = match lane {
+            RequestLane::Stream(endpoint) => {
+                names_method(body, method).map_err(ConnectionBadMessage::Call)?;
+                FramedRun::Stream(endpoint)
+            }
+            RequestLane::InUse => {
+                names_method(body, method).map_err(ConnectionBadMessage::Call)?;
+                FramedRun::InUse
+            }
+            RequestLane::Control | RequestLane::Open => FramedRun::Here(
+                decode_framed_request(body, framed).map_err(|FramedBodyMismatch| {
+                    ConnectionBadMessage::Call(CallRefusal::MethodMismatch {
+                        method_id: call.method_id,
+                    })
+                })?,
+            ),
+        };
+        let opens = opens_stream.then(|| self.streams.announce(stream, connection));
         let frame_call = Arc::new(FrameCall::opening(stream, call, opens));
         let writer = connection.writer.replying_to(frame_call.clone());
         self.in_flight.insert(call.request_id, frame_call.clone());
-        match lane {
-            RequestLane::InUse => Ok(send_stream_in_use(&writer, stream)),
-            RequestLane::Stream(endpoint) => {
+        match run {
+            FramedRun::InUse => Ok(send_stream_in_use(&writer, stream)),
+            FramedRun::Stream(endpoint) => {
                 post_request(&endpoint, body, frame_call, connection);
                 Ok(true)
             }
-            RequestLane::Control | RequestLane::Open => Ok(handle_connection_frame_at(
+            FramedRun::Here(request) => Ok(handle_framed_request_at(
                 connection.mux,
                 connection.client,
                 connection.transport,
                 body,
+                request,
                 &writer,
                 connection.scheduler,
                 connection.arrived,
@@ -459,6 +490,13 @@ impl RequestFrames {
         Ok(method)
     }
 
+    /// The handler of `method`'s frames, or None when it answers only as a
+    /// line: its reply must go through the responder.
+    fn route_of(&mut self, method: &MethodAttrs) -> Option<FramedMethod> {
+        let tables = self.tables;
+        *self.routes.entry(method.id.raw()).or_insert_with(|| framed_method(tables, method))
+    }
+
     /// Refuses an id still in flight; sweeps answered requests in batches,
     /// so the table stays proportional to what is in flight.
     fn admit(&mut self, request_id: u32) -> Result<(), CallRefusal> {
@@ -473,12 +511,35 @@ impl RequestFrames {
     }
 }
 
-/// Whether the method's reply goes through the responder: a JSON v12
-/// `Command` (its handler replies through `responses`).
-fn served_on_frames(tables: &MethodTables, method: &MethodAttrs) -> bool {
-    tables.v12(method.id).is_some()
-        && method.payload == Payload::Json
-        && Command::method_of_wire(method.name).is_some()
+/// Where an admitted REQUEST frame runs, its body checked against its method.
+enum FramedRun<'a> {
+    /// An opener naming a live stream: answered `stream_in_use`, not run.
+    InUse,
+    /// A stream-scoped request, run on its stream's sequence.
+    Stream(Arc<StreamEndpoint>),
+    /// A request of the connection's control sequence, decoded.
+    Here(FramedRequest<'a>),
+}
+
+/// The handler of a method whose reply goes through the responder: a JSON
+/// v12 `Command` (its handler replies through `responses`), or a JSON v2
+/// operation the router answers at once (through `send_resource_response`).
+fn framed_method(tables: &MethodTables, method: &MethodAttrs) -> Option<FramedMethod> {
+    if method.payload != Payload::Json {
+        return None;
+    }
+    if tables.v12(method.id).is_some() {
+        return Command::method_of_wire(method.name).map(|(row, _)| FramedMethod::Command(row));
+    }
+    if tables.v2(method.id).is_some() {
+        let operation = ResourceOperation::ALL
+            .iter()
+            .copied()
+            .find(|operation| operation.wire_name() == method.name)?;
+        return (!crate::resource_router::requires_connection_context(operation))
+            .then_some(FramedMethod::Resource(operation));
+    }
+    None
 }
 
 /// The v12 method ids this daemon answers on REQUEST frames, in id order
@@ -489,7 +550,7 @@ pub(super) fn framed_method_ids() -> &'static [u16] {
         tables
             .v12_families()
             .flat_map(|family| family.iter())
-            .filter(|method| served_on_frames(tables, method))
+            .filter(|method| framed_method(tables, method).is_some())
             .map(|method| method.id.raw())
             .collect()
     });
@@ -530,8 +591,8 @@ fn member_present<'de, D: Deserializer<'de>>(deserializer: D) -> Result<bool, D:
     IgnoredAny::deserialize(deserializer).map(|_| true)
 }
 
-/// The body must be the v12 line of the header's method, so the handler that
-/// runs is the one the header was checked for.
+/// A stream request's body must be the v12 line of the header's method, so
+/// the handler its stream runs is the one the header was checked for.
 fn names_method(body: &str, method: &MethodAttrs) -> Result<(), CallRefusal> {
     match crate::line_parses::parse::<BodyHead<'_>>(body) {
         Ok(BodyHead { cmd: Some(cmd), protocol: false }) if cmd == method.name => Ok(()),

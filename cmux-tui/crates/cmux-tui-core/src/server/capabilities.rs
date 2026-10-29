@@ -225,9 +225,10 @@ impl IpcCapability {
 /// Which framed IPC capabilities have a transport in this daemon. One that
 /// has none is never advertised or granted: Mojo exposes an interface only
 /// once its implementation is bound. The task that lands a transport adds its
-/// capability to [`Self::BOUND`]: the frame reader `Frames`,
-/// streams and `cancel-stream` `AttachStreams`, attach frames
-/// `AttachFrames`, the ring `OutputRing`.
+/// capability to [`Self::BOUND`], or binds it behind its feature
+/// ([`Self::apply_features`]): the frame route `Frames` behind `ipcFrames`,
+/// streams and `cancel-stream` `AttachStreams`, attach frames `AttachFrames`,
+/// the ring `OutputRing`.
 pub(super) struct IpcTransports(AtomicU8);
 
 impl IpcTransports {
@@ -236,6 +237,15 @@ impl IpcTransports {
 
     pub(super) fn bound(&self, capability: IpcCapability) -> bool {
         self.0.load(Ordering::Acquire) & capability.bit() != 0
+    }
+
+    /// Binds the transports `features` turns on: the REQUEST frame route
+    /// behind `ipcFrames`. The daemon calls it once, before its
+    /// first client.
+    pub(super) fn apply_features(&self, features: &cmux_features::Snapshot) {
+        if features.is_enabled(cmux_features::feature::IPC_FRAMES) {
+            self.0.fetch_or(IpcCapability::Frames.bit(), Ordering::AcqRel);
+        }
     }
 
     /// Binds every transport, so tests can check the grant rule before the
@@ -365,6 +375,15 @@ pub(super) fn revoke_lapsed_ipc_grants(record: &mut ClientRecord, transports: &I
 pub(super) fn holds(record: &ClientRecord, transports: &IpcTransports, capability: &str) -> bool {
     record.capabilities.contains(capability)
         && IpcCapability::named(capability).is_none_or(|ipc| still_allowed(record, transports, ipc))
+}
+
+impl Mux {
+    /// Binds the framed IPC transports the daemon's feature snapshot turns
+    /// on ([`IpcTransports::apply_features`]). Call it before serving: a
+    /// client's grant is decided at its `set-client-info`.
+    pub fn apply_ipc_features(&self, features: &cmux_features::Snapshot) {
+        self.control_clients.ipc_transports.apply_features(features);
+    }
 }
 
 impl ClientRegistry {
