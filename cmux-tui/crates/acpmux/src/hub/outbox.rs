@@ -76,6 +76,10 @@ pub struct Delivery {
 }
 
 impl Delivery {
+    fn is_team_receipt(&self) -> bool {
+        self.id.starts_with("mesh:") && self.request.get("teamOrigin") == Some(&Value::Bool(true))
+    }
+
     pub fn prompt_id(&self) -> &str {
         self.request.pointer("/_meta/acpmux/promptId").and_then(Value::as_str).unwrap_or_default()
     }
@@ -197,7 +201,8 @@ impl Outbox {
         let mut book = self.book();
         let prompt_id = delivery.prompt_id().to_owned();
         if let Some(first) = book.deliveries.values().find(|d| {
-            d.prompt_id() == prompt_id
+            !d.is_team_receipt()
+                && d.prompt_id() == prompt_id
                 && d.request.pointer("/_meta/acpmux/forwardProjection").is_some() == scoped
                 && (!scoped
                     || (d.caller == delivery.caller
@@ -228,8 +233,44 @@ impl Outbox {
         self.book().deliveries.values().filter(|d| !d.settled()).count()
     }
 
+    /// Keep the original team destination independently of the hub's resolved receipt shape.
+    /// Terminal records survive restart but are never submitted as prompts by `resume`.
+    pub(crate) fn record_team_receipt(
+        &self,
+        id: &str,
+        address: &str,
+        caller: Option<&str>,
+    ) -> bool {
+        let key = format!("mesh:{id}");
+        let mut book = self.book();
+        let now = crate::store::now_ms();
+        book.deliveries.entry(key.clone()).or_insert_with(|| Delivery {
+            id: key.clone(),
+            target: address.to_owned(),
+            request: json!({"teamOrigin": true, "_meta": {"acpmux": {"promptId": key}}}),
+            caller: caller.map(str::to_owned),
+            state: State::Delivered,
+            attempts: 0,
+            error: None,
+            accepted: None,
+            created_at: now,
+            updated_at: now,
+        });
+        let change = book.changed();
+        drop(book);
+        self.save(change);
+        self.path.lock().unwrap_or_else(|e| e.into_inner()).is_none()
+            || *self.saved.lock().unwrap_or_else(|e| e.into_inner()) >= change
+    }
+
+    pub(crate) fn team_receipt(&self, id: &str) -> Option<Delivery> {
+        self.book().deliveries.get(&format!("mesh:{id}")).filter(|d| d.is_team_receipt()).cloned()
+    }
+
     pub fn get(&self, id: &str) -> Option<Delivery> {
-        self.book().deliveries.get(id).cloned()
+        // Receipt metadata is readable only through the team-authorized mesh status path.
+        // In particular, disabling the relay must not expose it as an ordinary delivery.
+        self.book().deliveries.get(id).filter(|d| !d.is_team_receipt()).cloned()
     }
 
     /// Changes delivery `id` with `f` and saves.
@@ -293,8 +334,12 @@ impl Book {
     /// Counts a change and drops what settled long ago; returns the change's number.
     fn changed(&mut self) -> u64 {
         let now = crate::store::now_ms();
-        self.deliveries
-            .retain(|_, d| !d.settled() || now.saturating_sub(d.updated_at) < KEEP_SETTLED_MS);
+        self.deliveries.retain(|_, d| {
+            // Team bodies/receipts live at the hub for seven days; retain their origin
+            // for that entire lifetime, including owner sends with no caller session.
+            let keep = if d.is_team_receipt() { 7 * KEEP_SETTLED_MS } else { KEEP_SETTLED_MS };
+            !d.settled() || now.saturating_sub(d.updated_at) < keep
+        });
         self.changes += 1;
         self.changes
     }

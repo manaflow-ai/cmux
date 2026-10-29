@@ -102,7 +102,7 @@ impl Edit {
             .map(|(i, _)| i)
             .collect();
         let blocks = std::iter::once(json!({"type": "text", "text": text}))
-            .chain(kept.iter().map(|&i| before[i].clone()))
+            .chain(kept.iter().filter_map(|&i| before.get(i).cloned()))
             .collect();
         (blocks, std::iter::once(None).chain(kept.into_iter().map(Some)).collect())
     }
@@ -336,7 +336,8 @@ impl Hub {
             let Some(from) = queue.iter().position(|q| q.prompt_id == prompt_id) else {
                 return Ok(false);
             };
-            crate::author::may_change(editor, queue[from].sender())?;
+            let Some(item) = queue.get(from) else { return Ok(false) };
+            crate::author::may_change(editor, item.sender())?;
             let q = queue.remove(from);
             let to = index.min(queue.len());
             queue.insert(to, q);

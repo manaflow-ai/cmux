@@ -267,7 +267,7 @@ const GLOBBED: char = '\0';
 fn names_signature(text: &str) -> bool {
     text.contains("signature")
         || text.match_indices('%').any(|(i, _)| {
-            let rest = &text[i + 1..];
+            let rest = text.get(i + 1..).unwrap_or("");
             rest.strip_prefix(['+', '-', ' ']).unwrap_or(rest).starts_with('G')
         })
 }
@@ -390,7 +390,7 @@ fn command_name(word: &str) -> Option<&str> {
 
 /// A short option cluster (`-no`) holding `flag`.
 fn short_has(arg: &str, flag: char) -> bool {
-    arg.starts_with('-') && !arg.starts_with("--") && arg[1..].contains(flag)
+    arg.starts_with('-') && !arg.starts_with("--") && arg.get(1..).unwrap_or("").contains(flag)
 }
 
 /// A long option that GNU getopt and git read as `full`: any unambiguous prefix of it, with or
@@ -429,7 +429,7 @@ fn segment_ok(words: &[String]) -> Option<Reads> {
             a.len() > 1
                 && a.starts_with('-')
                 && !a.starts_with("--")
-                && a[1..].chars().all(|c| "cdiu".contains(c))
+                && a.get(1..).unwrap_or("").chars().all(|c| "cdiu".contains(c))
         }),
         // Only the time, as is or `+FORMAT`: an operand sets the clock, and BSD `-f` reads the
         // operand after it as the time to set.
@@ -492,7 +492,7 @@ fn git_ok(args: &[String]) -> Option<Option<String>> {
             }
             a if a.starts_with("-C") => {
                 i += 1;
-                a[2..].to_owned()
+                a.get(2..).unwrap_or("").to_owned()
             }
             a if a.starts_with('-') => return None,
             _ => break,
@@ -555,7 +555,8 @@ fn git_read_ok(args: &[String]) -> bool {
                             )
                             || a.starts_with("--sort=")
                             || a.starts_with("--format=")
-                            || (a.starts_with("-n") && a[2..].chars().all(|c| c.is_ascii_digit()))
+                            || (a.starts_with("-n")
+                                && a.get(2..).unwrap_or("").chars().all(|c| c.is_ascii_digit()))
                     }))
         }
         "remote" => match rest {
@@ -640,7 +641,8 @@ fn repository_runs_nothing(git_bin: &Path, env: &Env, dir: &Path, depth: u8) -> 
     // `-z`: scope NUL key LF value NUL; a key with no value has no LF.
     let fields: Vec<&[u8]> = config.split(|b| *b == 0).collect();
     for pair in fields.chunks_exact(2) {
-        let (Ok(scope), Ok(entry)) = (std::str::from_utf8(pair[0]), std::str::from_utf8(pair[1]))
+        let [scope, entry] = pair else { return false };
+        let (Ok(scope), Ok(entry)) = (std::str::from_utf8(scope), std::str::from_utf8(entry))
         else {
             return false;
         };

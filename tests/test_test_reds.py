@@ -53,6 +53,38 @@ class Replay26346(unittest.TestCase):
         self.assertIn("crashed (signal 6)", json.loads(done.stdout)["reasons"][0])
 
 
+class KnownIssueSuiteCompletion(unittest.TestCase):
+    # Reduced from the #27127 comparison: a completed ClassicUpgradeSimulationTests suite
+    # was treated as unfinished even though its known-issue test and run summary were read.
+    def setUp(self):
+        self.whole = (FIXTURES / "known-issue-suite.log").read_text()
+
+    def test_a_completed_known_issue_suite_does_not_hide_a_shared_red(self):
+        self.assertEqual(reds.read(self.whole).truncated, [])
+        both = log(failed("unrelated()"), SUMMARY) + "\n" + self.whole
+        verdict = reds.classify(both, both)
+        self.assertFalse(verdict.own, verdict.reasons)
+        self.assertEqual(verdict.shared, ["unrelated()"])
+
+    def test_a_known_issue_marker_does_not_excuse_missing_completion(self):
+        for end in ("━ Test aRunCutOffMidwayFinishesWithoutDuplicates() passed",
+                    "━ Suite ClassicUpgradeSimulationTests passed", "━ Test run with"):
+            with self.subTest(end=end):
+                cut = "\n".join(line for line in self.whole.splitlines() if not line.startswith(end))
+                verdict = reds.classify(cut, cut)
+                self.assertTrue(verdict.own)
+                self.assertIn("per-test results are not whole", verdict.reasons[0])
+                if end.startswith("━ Suite"):
+                    self.assertIn("suite(s) started and never finished: ClassicUpgradeSimulationTests",
+                                  verdict.reasons[0])
+
+    def test_a_crash_after_a_completed_known_issue_suite_is_still_its_own(self):
+        crashed = self.whole + "\n" + ABORT
+        verdict = reds.classify(crashed, crashed)
+        self.assertTrue(verdict.own)
+        self.assertIn("crashed (signal 6)", verdict.reasons[0])
+
+
 class PerTest(unittest.TestCase):
     def test_the_same_test_failing_on_both_sides_is_a_base_red(self):
         verdict = reds.classify(log(failed("a()"), SUMMARY), log(failed("a()"), failed("b()"), SUMMARY))
@@ -372,6 +404,158 @@ class Demangle(unittest.TestCase):
 
     def test_a_frame_outside_a_tests_module_is_not_a_test(self):
         self.assertIsNone(reds.demangle_test("$s12CmuxNextHome0C12FirstRunViewC12applySpacing"))
+
+
+
+def web_job(*files, summary=True):
+    """A webview test job log (run-webviews-tests.sh): each file is (name, [(test, error, line) or (test, None)])."""
+    lines = []
+    for name, tests in files:
+        lines.append(f"##[group]FAIL {name}")
+        lines.append("--- first run: FAIL ---")
+        for test, *rest in tests:
+            error, at = (rest + [None, None])[:2]
+            if error:
+                lines += [f"error: {error}", "", f"      at <anonymous> (/home/runner/_work/cmux/cmux/webviews/{name}:{at}:22)"]
+            lines.append(f"(fail) {test} [12.00ms]")
+        lines.append("##[endgroup]")
+    lines.append(f"### webviews tests: 295 files, {len(files)} failed or timed out")
+    if summary:
+        lines += [f"FAIL {name} (limit 120s)" for name, _ in files]
+    return log(*lines)
+
+
+def replay(charged=(), shared=()):
+    """react-apps-base-check's log: guards_new_reds.py's verdicts on the head's reds replayed on the merge parent."""
+    return log(*[f"##[error]{name}" for name in charged], *[f"##[warning]{name}" for name in shared],
+               f"{len(charged)} webview test steps red on this change, {len(shared)} red on the base too, 0 fixed")
+
+
+CAPSULES = "test/agent-pane-no-capsules.test.ts"
+CAPSULE_TEST = "agent pane page > rounds its controls as small-radius rects, not capsules"
+CAPSULE_ERROR = "expect(received).toBe(expected)"
+
+
+class WebviewTestsAcrossJobs(unittest.TestCase):
+    """2026-10-29: agent-pane-no-capsules was red on feat-cmux-next as `react-apps-check (1)` and on a PR as
+    `react-apps-base-check (4)`; a per-job comparison could never match the two names. A webview test is judged by its
+    file, title and error across every job that ran it."""
+
+    def test_a_replay_red_the_base_shares_in_another_shard_is_the_base(self):
+        head_shard = web_job((CAPSULES, [(CAPSULE_TEST, CAPSULE_ERROR, 87)]))  # react-apps-check (3) on the head
+        base_shard = web_job((CAPSULES, [(CAPSULE_TEST, CAPSULE_ERROR, 87)]))  # react-apps-check (1) on the base
+        verdict = reds.classify_web([replay(charged=[f"{CAPSULES} > {CAPSULE_TEST}"]), head_shard], [base_shard],
+                                    "react-apps-base-check (4)", "feat-cmux-next")
+        self.assertFalse(verdict.own, verdict.reasons)
+        self.assertEqual(verdict.shared, [f"{CAPSULES} > {CAPSULE_TEST}"])
+
+    def test_the_same_test_failing_differently_on_the_base_is_its_own(self):
+        head_shard = web_job((CAPSULES, [(CAPSULE_TEST, "expect(received).toEqual(expected)", 140)]))
+        base_shard = web_job((CAPSULES, [(CAPSULE_TEST, CAPSULE_ERROR, 87)]))
+        verdict = reds.classify_web([replay(charged=[f"{CAPSULES} > {CAPSULE_TEST}"]), head_shard], [base_shard])
+        self.assertTrue(verdict.own)
+        self.assertIn("fail differently", verdict.reasons[0])
+
+    def test_a_test_only_the_head_fails_is_its_own_and_one_shared_test_excuses_nothing_else(self):
+        other = "test/composer-footer-plain.test.ts"
+        head_shard = web_job((CAPSULES, [(CAPSULE_TEST, CAPSULE_ERROR, 87)]), (other, [("rests flat", CAPSULE_ERROR, 9)]))
+        base_shard = web_job((CAPSULES, [(CAPSULE_TEST, CAPSULE_ERROR, 87)]))
+        verdict = reds.classify_web([replay(charged=[f"{CAPSULES} > {CAPSULE_TEST}", f"{other} > rests flat"]),
+                                     head_shard], [base_shard])
+        self.assertTrue(verdict.own)
+        self.assertIn("composer-footer-plain", verdict.reasons[0])
+
+    def test_a_head_shard_red_matches_the_base_in_another_shard(self):
+        verdict = reds.classify_web([web_job((CAPSULES, [(CAPSULE_TEST, CAPSULE_ERROR, 87)]))],
+                                    [web_job(("test/x.test.ts", [("x", "boom", 1)])),
+                                     web_job((CAPSULES, [(CAPSULE_TEST, CAPSULE_ERROR, 87)]))])
+        self.assertFalse(verdict.own, verdict.reasons)
+
+    def test_an_error_read_on_one_side_only_or_a_timeout_or_no_base_is_its_own(self):
+        named = f"{CAPSULES} > {CAPSULE_TEST}"
+        no_error = web_job((CAPSULES, [(CAPSULE_TEST, None)]))
+        with_error = web_job((CAPSULES, [(CAPSULE_TEST, CAPSULE_ERROR, 87)]))
+        self.assertTrue(reds.classify_web([replay(charged=[named]), no_error], [with_error]).own)
+        timed = log(f"##[group]TIMEOUT {CAPSULES}", "##[endgroup]", "### webviews tests: 1 files",
+                    f"TIMEOUT {CAPSULES} (limit 120s)")
+        verdict = reds.classify_web([timed], [timed])
+        self.assertTrue(verdict.own)
+        self.assertIn("timed out", verdict.reasons[0])
+        self.assertTrue(reds.classify_web([with_error], []).own)
+        self.assertTrue(reds.classify_web([with_error], [None]).own)
+        self.assertTrue(reds.classify_web([None], [with_error]).own)
+
+    def test_assertion_values_are_part_of_the_error(self):
+        head = web_job((CAPSULES, [(CAPSULE_TEST, CAPSULE_ERROR + "\nExpected: 3\nReceived: 9", 87)]))
+        base = web_job((CAPSULES, [(CAPSULE_TEST, CAPSULE_ERROR + "\nExpected: 3\nReceived: 4", 87)]))
+        self.assertTrue(reds.classify_web([head], [base]).own)
+
+    def test_an_unnamed_file_failure_needs_a_matching_error(self):
+        def unloadable(error):
+            return log(f"##[group]FAIL {CAPSULES}", f"error: {error}", "##[endgroup]",
+                       "### webviews tests: 1 files, 1 failed or timed out", f"FAIL {CAPSULES} (limit 120s)")
+        self.assertTrue(reds.classify_web([unloadable("missing export foo")],
+                                          [unloadable("missing export bar")]).own)
+        self.assertTrue(reds.classify_web([unloadable("")], [unloadable("")]).own)
+        self.assertFalse(reds.classify_web([unloadable("missing export foo")],
+                                           [unloadable("missing export foo")]).own)
+
+    def test_crashes_and_cut_short_logs_are_never_shared(self):
+        shared = web_job((CAPSULES, [(CAPSULE_TEST, CAPSULE_ERROR, 87)]))
+        for broken in (shared + "\n2026-10-28T03:40:35Z Segmentation fault (core dumped)",
+                       shared.split("### webviews tests:")[0],
+                       shared.replace("##[endgroup]", "... output truncated; complete log retained ...\n##[endgroup]")):
+            with self.subTest(log=broken):
+                self.assertTrue(reds.classify_web([broken], [broken]).own)
+
+    def test_replay_cannot_excuse_a_crashed_head_shard(self):
+        head = web_job((CAPSULES, [(CAPSULE_TEST, CAPSULE_ERROR, 87)]))
+        head += "\n2026-10-28T03:40:35Z oh no: Bun has crashed"
+        verdict = reds.classify_web([replay(charged=[f"{CAPSULES} > {CAPSULE_TEST}"]), head], [head])
+        self.assertTrue(verdict.own)
+
+    def test_retry_only_failure_cannot_be_excused_by_the_first_attempt(self):
+        head = web_job((CAPSULES, [(CAPSULE_TEST, CAPSULE_ERROR, 87)]))
+        head = head.replace("##[endgroup]", "--- retry, alone ---\nerror: new retry failure\n(fail) " + CAPSULE_TEST + "\n##[endgroup]")
+        base = web_job((CAPSULES, [(CAPSULE_TEST, CAPSULE_ERROR, 87)]))
+        self.assertTrue(reds.classify_web([head], [base]).own)
+
+    def test_another_head_job_cannot_overwrite_the_red_jobs_diagnostic(self):
+        own = web_job((CAPSULES, [(CAPSULE_TEST, "new failure", 87)]))
+        shared = web_job((CAPSULES, [(CAPSULE_TEST, CAPSULE_ERROR, 87)]))
+        self.assertTrue(reds.classify_web([own, shared], [shared]).own)
+
+    def test_a_started_webview_file_without_results_is_cut_short(self):
+        broken = log(f"START {CAPSULES} (hard limit 120s)")
+        verdict = reds.classify_web([broken], [broken])
+        self.assertIsNotNone(verdict)
+        self.assertTrue(verdict.own)
+
+    def test_a_later_invocation_needs_its_own_completion(self):
+        shared = web_job((CAPSULES, [(CAPSULE_TEST, CAPSULE_ERROR, 87)]))
+        later = shared + "\n" + log("START test/other.test.ts (hard limit 120s)")
+        self.assertTrue(reds.classify_web([later], [later]).own)
+        later += "\n" + log("PASS test/other.test.ts (raw log retained for the final bounded summary)")
+        self.assertTrue(reds.classify_web([later], [later]).own)
+
+    def test_a_pass_does_not_erase_an_unnamed_error(self):
+        shared = web_job((CAPSULES, [(CAPSULE_TEST, CAPSULE_ERROR, 87)]))
+        extra = shared.replace("--- first run: FAIL ---", "--- first run: FAIL ---\nerror: unhandled failure\n(pass) unrelated test")
+        self.assertTrue(reds.classify_web([extra], [shared]).own)
+
+    def test_replay_compares_unnamed_errors_in_its_charged_files(self):
+        shared = web_job((CAPSULES, [(CAPSULE_TEST, CAPSULE_ERROR, 87)]))
+        extra = shared.replace("--- first run: FAIL ---", "--- first run: FAIL ---\nerror: unhandled failure\n(pass) unrelated test")
+        verdict = reds.classify_web([replay(charged=[f"{CAPSULES} > {CAPSULE_TEST}"]), extra], [shared])
+        self.assertTrue(verdict.own)
+        self.assertIn(CAPSULES, verdict.reasons[0])
+
+    def test_missing_auxiliary_head_evidence_is_own(self):
+        shared = web_job((CAPSULES, [(CAPSULE_TEST, CAPSULE_ERROR, 87)]))
+        self.assertTrue(reds.classify_web([shared, None], [shared]).own)
+
+    def test_a_job_that_names_no_webview_test_is_not_this_classifiers(self):
+        self.assertIsNone(reds.classify_web([log("error: oxlint found 3 problems")], [replay()]))
 
 
 if __name__ == "__main__":

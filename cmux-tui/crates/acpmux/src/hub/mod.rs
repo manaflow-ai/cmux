@@ -17,6 +17,7 @@ mod bg_tasks;
 mod bounded;
 mod btw;
 mod exit_reason;
+mod fallback_start;
 pub(crate) mod session_auth;
 pub(crate) mod subagent_retry;
 pub(crate) mod turn_errors;
@@ -55,6 +56,8 @@ pub mod media_handles;
 pub mod media_read;
 mod mesh_rows;
 pub(crate) mod subagent_transcript;
+mod team_information;
+mod team_sent;
 pub(crate) mod workflow_index;
 pub use handoff::{HANDOFF_OPERATIONS, MAX_CAPSULE_BYTES};
 pub use media_read::FEATURE as MEDIA_READ_FEATURE;
@@ -215,7 +218,7 @@ pub(crate) fn question_prompt(request: &Value) -> Option<&str> {
         .and_then(Value::as_str)
         .filter(|p| !p.is_empty())
 }
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
@@ -1048,6 +1051,7 @@ impl Hub {
             turn: StdMutex::new(None),
             queued: AtomicU64::new(0),
             queue: StdMutex::new(Vec::new()),
+            team_information: Default::default(),
             queue_moved: Notify::new(),
             moving: StdMutex::new(None),
             restored: StdMutex::new(Vec::new()),
@@ -1161,7 +1165,7 @@ impl Hub {
 
     // ------------------------------------------------------------ logging
 
-    pub(super) fn append(
+    pub(crate) fn append(
         &self,
         session: &Session,
         dir: &str,
@@ -1283,6 +1287,16 @@ impl Hub {
         } else {
             false
         }
+    }
+
+    pub(crate) fn append_stored(
+        &self,
+        session: &Session,
+        dir: &str,
+        kind: &str,
+        msg: Value,
+    ) -> bool {
+        self.append_logged(session, dir, kind, msg, None).1
     }
 
     /// Append one record; `host_seq` names the agent host entry it logs.
