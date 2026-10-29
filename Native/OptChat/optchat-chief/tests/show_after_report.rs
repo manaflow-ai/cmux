@@ -481,6 +481,10 @@ fn a_report_consumed_then_resumed_without_an_assignment_does_not_reuse_its_old_r
         optchat_chief::state::SubStatus::Reported
     );
     assert!(h.brain.state().spawns["s1"].subs[0].report_run.is_none());
+    assert!(
+        !h.brain.state().spawns["s1"].subs[0].answers.is_empty(),
+        "the consumed report keeps its assignment answers for reply routing"
+    );
     let before = report_steps(&h);
 
     // Model a resumed/standalone run that has no new assignment question.
