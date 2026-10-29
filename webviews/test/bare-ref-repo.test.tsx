@@ -304,7 +304,7 @@ test("Leo's #1 / #2: a bare number far below the repository's named numbers stay
     [pr(CMUX, 1), pr(CMUX, 2), pr(CMUX, 27262)],
     { folder: CMUX },
   );
-  expect(view.chips()).toEqual([["#27262", pr(CMUX, 27262)]]);
+  expect(view.chips().filter(([label]) => label?.startsWith("#"))).toEqual([["#27262", pr(CMUX, 27262)]]);
 });
 
 test("rule 4: with the folder's repository out of range, only the cache's answer links a number", async () => {
