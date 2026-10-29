@@ -108,23 +108,29 @@ fn check_local_resize_order(add_later_output: bool) {
     }
     // No new output or EOF: the resize's wake must publish the drained title
     // without trying a blocking read on the readiness it already consumed.
+    // With later output, the reader publishes both titles in one run, and
+    // the bus keeps one pending title per terminal for each subscriber (a
+    // newer title replaces an unread one): a subscriber that reads after
+    // that run sees only the later title, the drained one folded into it.
+    // So read every title up to the end of what was published.
     let deadline = Instant::now() + WAIT;
-    let mut title_published = false;
-    let later_output_published = loop {
+    let mut titles = Vec::new();
+    loop {
         match events.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
-            Ok(MuxEvent::TitleChanged { title, .. }) if title.as_ref() == "resize-drained" => {
-                title_published = true;
-                if !add_later_output {
-                    break true;
+            Ok(MuxEvent::TitleChanged { title, .. })
+                if matches!(title.as_ref(), "resize-drained" | "after-resize") =>
+            {
+                let drained = title.as_ref() == "resize-drained";
+                titles.push(title.to_string());
+                if drained && !add_later_output {
+                    break;
                 }
             }
-            Ok(MuxEvent::TitleChanged { title, .. }) if title.as_ref() == "after-resize" => {
-                break true;
-            }
+            Ok(MuxEvent::Bell(PUBLISHED_MARKER)) => break,
             Ok(_) => continue,
-            Err(_) => break false,
+            Err(_) => break,
         }
-    };
+    }
     let later_text = surface.try_with_terminal(|term| term.viewport_text()).unwrap().unwrap();
     drop(child);
     end_tx.send(()).unwrap();
@@ -132,8 +138,22 @@ fn check_local_resize_order(add_later_output: bool) {
     assert!(pty.reader_completion.wait_until(Instant::now() + WAIT));
     assert!(pty.reaper_completion.wait_until(Instant::now() + WAIT));
     resize.unwrap();
-    assert!(title_published, "the resize consumed output without publishing its title");
-    assert!(later_output_published, "output after the drain snapshot was not published");
+    let titles: Vec<&str> = titles.iter().map(String::as_str).collect();
+    if add_later_output {
+        // The later output's title is the last one published; the drained
+        // one, when a subscriber read it before the later one replaced it,
+        // came first. Its own publication is the other case's subject.
+        assert!(
+            matches!(titles.as_slice(), ["after-resize"] | ["resize-drained", "after-resize"]),
+            "output after the drain snapshot was not published last: {titles:?}"
+        );
+    } else {
+        assert_eq!(
+            titles,
+            ["resize-drained"],
+            "the resize consumed output without publishing its title"
+        );
+    }
     assert_eq!(text.lines().next().unwrap_or_default().find('X'), Some(19), "{text:?}");
     if add_later_output {
         assert_eq!(
