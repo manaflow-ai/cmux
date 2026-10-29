@@ -68,12 +68,8 @@ impl Hub {
             .agent_session_id
             .ok_or_else(|| RpcError::internal("no agent session"))?;
         self.cancel_pending_permissions(session);
-        // A compacting Stop settles the logical turn before sending this session-wide cancel.
-        // Hold the same handoff gate used by prompts so a new turn cannot enqueue its prompt
-        // while this cancel is delayed in the child writer.
-        let input_handoff = session.input_handoff.clone().lock_owned().await;
         // Another Stop or a natural result may have ended the captured turn while this
-        // caller waited. Never send its session-wide interrupt into a different turn.
+        // caller prepared. Never settle or send its session-wide interrupt into a different turn.
         if session.turn().as_ref().map(|t| &t.turn_id) != turn.as_ref().map(|t| &t.turn_id) {
             return Ok(());
         }
@@ -93,6 +89,13 @@ impl Hub {
                 self.remove_queued_because(session, &prompt_id, Some("cancel_forced"));
             }
             Self::force_cancel(session, turn);
+        }
+        // The logical Stop must not wait behind a prompt writer stuck on backpressure. The
+        // handoff gate protects only transport ordering: once acquired, this cancel is queued
+        // before the next prompt can be handed to the child.
+        let input_handoff = session.input_handoff.clone().lock_owned().await;
+        if session.turn().as_ref().map(|t| &t.turn_id) != turn.as_ref().map(|t| &t.turn_id) {
+            return Ok(());
         }
         #[cfg(test)]
         {
