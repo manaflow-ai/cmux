@@ -34,7 +34,7 @@ fn process_threads() -> usize {
 fn process_threads() -> usize {
     // SAFETY: proc_taskinfo is plain integers; all zeroes is a valid value.
     let mut info: libc::proc_taskinfo = unsafe { std::mem::zeroed() };
-    let size = std::mem::size_of::<libc::proc_taskinfo>() as libc::c_int;
+    let size = size_of::<libc::proc_taskinfo>() as libc::c_int;
     // SAFETY: `info` is a proc_taskinfo, the layout of PROC_PIDTASKINFO.
     let read = unsafe {
         libc::proc_pidinfo(
