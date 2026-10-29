@@ -34,6 +34,8 @@ type MockAuthGlobals = {
   cmuxAcpmuxMockHarnessHealth?: Record<string, { auth: "signedIn" | "signedOut" | "unknown"; login?: string }>;
   cmuxAcpmuxMockNative?: Record<string, unknown>;
   cmuxAcpmuxMockSessionAuth?: MockSessionAuth;
+  /** Capability ids `initialize` names (`_meta.acpmux.capabilities`); absent names none, as an older daemon. */
+  cmuxAcpmuxMockCapabilities?: string[];
 };
 
 // Mock transport: the host answers `ready` with `{transport: "mock"}` when no
@@ -402,6 +404,9 @@ export class MockAcpmuxSocket {
               operations: [FORK_OP, ...Object.values(HANDOFF_OPS)],
               handoff: { maxCapsuleBytes: 65536 },
               ...((globalThis as MockAuthGlobals).cmuxAcpmuxMockSessionAuth ? { features: ["sessionAuth"] } : {}),
+              ...((globalThis as MockAuthGlobals).cmuxAcpmuxMockCapabilities
+                ? { capabilities: (globalThis as MockAuthGlobals).cmuxAcpmuxMockCapabilities }
+                : {}),
             },
           },
         };

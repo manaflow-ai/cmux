@@ -248,7 +248,9 @@ pub(super) fn gated(origin: Origin, params: &Value) -> bool {
     match origin {
         Origin::LocalApp | Origin::Web => true,
         Origin::Peer => matches!(via, Some("web" | "app")),
-        Origin::Local => false,
+        // Native inline /btw uses the app marker on the local status socket so the
+        // daemon applies the same folder-trust gate as a LocalApp WebSocket.
+        Origin::Local => via == Some("app"),
     }
 }
 
@@ -316,4 +318,17 @@ pub(super) async fn answer(hub: &Arc<Hub>, m: &str, params: &Value) -> Result<Va
         crate::trust::Failure::Invalid(message) => RpcError::invalid_params(message),
         crate::trust::Failure::Record(message) => RpcError::internal(message),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn local_inline_btw_app_marker_is_trust_gated() {
+        let params = serde_json::json!({"_meta": {"acpmux": {"via": "app"}}});
+        assert!(gated(Origin::Local, &params));
+        assert!(!gated(Origin::Local, &serde_json::json!({})));
+        assert!(gated(Origin::LocalApp, &serde_json::json!({})));
+    }
 }

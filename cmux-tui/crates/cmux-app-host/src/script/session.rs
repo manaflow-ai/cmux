@@ -21,6 +21,7 @@ use crate::protocol::{
     AppInfo, FatalReason, FromHost, MAX_LINE_BYTES, SCRIPT_MEMORY_BYTES, SCRIPT_PROFILE,
     SCRIPT_STEP_MS, ToHost,
 };
+use cmux_json::JsonSet as _;
 
 /// Wall time of one cell when the caller gives none.
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(60);
@@ -90,7 +91,7 @@ impl ScriptError {
     pub fn to_json(&self) -> Value {
         let mut value = json!({ "code": self.code, "message": self.message });
         if !self.details.is_null() {
-            value["details"] = self.details.clone();
+            value.set("details", self.details.clone());
         }
         value
     }

@@ -1,7 +1,8 @@
 // l10n-allow-file: gallery fixtures (sample sessions), not shipped UI.
-// Agent Activity (cmux://agent-activity): the page's view over fixture states, with no host bridge
-// (screenshots stay placeholders). Empty on a Mac where computer use never ran, and three agents
-// across two machines in each layout.
+// Agent Activity (cmux://agent-activity): the page's view over fixture states, with no host bridge;
+// screenshots are drawn here (fixtureFrame) in place of the host's. Empty on a Mac where computer use
+// never ran, three agents across two machines in each layout, and the frame viewer: inline on the
+// newest or an earlier frame, a session with no screenshots, and opened over the grid.
 import { useEffect, useState } from "react";
 import { componentEntry } from "../gallery/format";
 import {
@@ -12,6 +13,7 @@ import {
   type ActivityState,
 } from "./model";
 import { ActivityView } from "./view";
+import type { FrameLoader } from "./viewer";
 
 type Props = { state: ActivityState };
 
@@ -45,16 +47,41 @@ function session(
   };
 }
 
-function events(count: number, bad?: number): ActivityEvent[] {
-  const kinds = ["screenshot", "click", "type", "scroll", "key"];
-  return Array.from({ length: count }, (_, index) => ({
-    seq: index + 1,
-    time: now - (count - index) * 4_000,
-    kind: kinds[index % kinds.length]!,
-    tool: index % 2 ? "computer" : undefined,
-    ok: index !== bad,
-  }));
+/** A session's steps as the helper logs them: an app launch (no pixels), then reads and actions that
+ * each kept a screenshot, except a key press here and there. `frames: false` keeps none. */
+function events(id: string, count: number, bad?: number, frames = true): ActivityEvent[] {
+  const tools = ["get_window_state", "click", "type_text", "click", "scroll", "press_key", "click", "drag"];
+  const steps: ActivityEvent[] = [
+    { seq: 0, time: now - (count + 1) * 4_000, kind: "act", tool: "launch_app", target: "Safari", ok: true },
+  ];
+  for (let index = 0; index < count; index += 1) {
+    const tool = tools[index % tools.length]!;
+    steps.push({
+      seq: index + 1,
+      time: now - (count - index) * 4_000,
+      kind: tool === "get_window_state" ? "observe" : "act",
+      tool,
+      target: "Safari",
+      ok: index !== bad,
+      afterFrame: frames && tool !== "press_key" ? { blob: `${id}|${index + 1}`, width: 320, height: 200 } : undefined,
+    });
+  }
+  return steps;
 }
+
+/** A stand-in screenshot: a window with a title bar, a sidebar and rows, and the step number. */
+const fixtureFrame: FrameLoader = async (frame) => {
+  const [session = "", step = "0"] = frame.blob.split("|");
+  const tint = { s1: "#5b8def", s2: "#c27bd6", s3: "#4caf7d" }[session] ?? "#888888";
+  const row = Number(step) % 6;
+  const rows = Array.from(
+    { length: 6 },
+    (_, index) =>
+      `<rect x="96" y="${44 + index * 24}" width="${120 + ((index * 37 + Number(step) * 19) % 90)}" height="10" rx="3" fill="${index === row ? "#8a8f98" : "#d4d7dc"}"/>`,
+  ).join("");
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${frame.width}" height="${frame.height}" viewBox="0 0 320 200"><rect width="320" height="200" fill="#f6f6f7"/><rect width="320" height="22" fill="${tint}"/><rect y="22" width="80" height="178" fill="#e7e8ea"/>${rows}<text x="8" y="15" font-family="-apple-system, sans-serif" font-size="11" font-weight="600" fill="#fff">Safari · step ${step}</text></svg>`;
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+};
 
 const empty: ActivityState = { ...initialActivityState(), connections: { local: "not_started" } };
 
@@ -79,8 +106,13 @@ const busy: ActivityState = {
   },
   machineNames: { local: "This Mac", mini: "build-mini" },
   connections: { local: "connected", mini: "connected" },
-  eventsBySession: { s1: events(9, 6), s2: events(4), s3: events(14) },
+  eventsBySession: { s1: events("s1", 9, 6), s2: events("s2", 4), s3: events("s3", 14) },
   selectedSessionID: "s1",
+};
+
+const noFrames: ActivityState = {
+  ...busy,
+  eventsBySession: { ...busy.eventsBySession, s1: events("s1", 5, undefined, false) },
 };
 
 function ActivityGallery({ state: initial }: Props) {
@@ -89,7 +121,11 @@ function ActivityGallery({ state: initial }: Props) {
   useEffect(() => setState(initial), [initial]);
   return (
     <div style={{ height: "100%" }}>
-      <ActivityView state={state} dispatch={(action) => setState((current) => reduceActivity(current, action))} />
+      <ActivityView
+        state={state}
+        dispatch={(action) => setState((current) => reduceActivity(current, action))}
+        loadFrame={fixtureFrame}
+      />
     </div>
   );
 }
@@ -104,12 +140,34 @@ export default componentEntry<Props>({
   load: async () => ActivityGallery,
   styles: async () => {
     await import("../pages/shared/desktop.css");
+    await import("../ui/ui.css");
     await import("./styles.css");
   },
   variants: {
     empty: { note: "No computer use yet on This Mac; the machine says why.", props: { state: empty } },
-    split: { note: "Three agents on two machines; the first is selected.", props: { state: busy } },
-    timeline: { note: "Every session as a lane of steps.", props: { state: { ...busy, layout: "timeline" } } },
-    grid: { note: "One tile per session with its latest step.", props: { state: { ...busy, layout: "grid" } } },
+    split: {
+      note: "Three agents on two machines; the first is selected, its newest screenshot in the viewer.",
+      props: { state: busy },
+    },
+    "split-earlier-frame": {
+      note: "The viewer stepped back to the third screenshot (Previous, the Left arrow, or a filmstrip click).",
+      props: { state: { ...busy, scrubSeq: 3 } },
+    },
+    "split-no-frames": {
+      note: "A session whose steps kept no screenshot: the viewer says so and shows no filmstrip.",
+      props: { state: noFrames },
+    },
+    timeline: {
+      note: "Every session as a lane of its screenshots; a click opens one in the viewer.",
+      props: { state: { ...busy, layout: "timeline" } },
+    },
+    grid: {
+      note: "One tile per session with its newest screenshot.",
+      props: { state: { ...busy, layout: "grid" } },
+    },
+    "grid-viewer": {
+      note: "A tile clicked in the grid: the viewer over the page on that session, at its fifth screenshot.",
+      props: { state: { ...busy, layout: "grid", selectedSessionID: "s3", scrubSeq: 5, viewing: true } },
+    },
   },
 });

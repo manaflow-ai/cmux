@@ -181,7 +181,7 @@ pub(super) fn parse(stdout: &str) -> Found {
     let lines: Vec<&str> = stdout.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
     let begin = format!("{MARK}begin");
     let Some(start) = lines.iter().rposition(|l| *l == begin) else { return found };
-    let mine = &lines[start + 1..];
+    let mine = lines.get(start + 1..).unwrap_or_default();
     found.checked = mine.last().and_then(|l| l.strip_prefix(MARK)) == Some("checked");
     for word in mine.iter().filter_map(|line| line.strip_prefix(MARK)) {
         match word {
