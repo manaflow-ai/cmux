@@ -104,6 +104,15 @@ await requireBrowserLane("tray-composer-alignment.test.ts", async () => {
                 return rectFrom(node);
               };
               return {
+                tracks: ["time", "status"].map((track) => ({
+                  name: track,
+                  head: rect(`.acpmux-running-tray__head > .acpmux-running-tray__${track}`),
+                  rows: [
+                    ...document.querySelectorAll<HTMLElement>(
+                      `.acpmux-running-tray__list .acpmux-agent-line__${track}`,
+                    ),
+                  ].map(rectFrom),
+                })),
                 tray: rect('[data-alignment-surface="tray"][data-alignment-inset="surface"]'),
                 composer: rect('[data-alignment-surface="composer"][data-alignment-inset="surface"]'),
                 trayLeft: rect(
@@ -197,10 +206,13 @@ await requireBrowserLane("tray-composer-alignment.test.ts", async () => {
                   : {};
               });
               await page.evaluate(() => {
-                for (const selector of ['[data-alignment-surface="composer"]', '[data-alignment-surface="tray"]']) {
+                for (const selector of [".acpmux-composer", '[data-alignment-surface="tray"]']) {
                   const node = document.querySelector<HTMLElement>(selector);
                   if (node) node.style.translate = "-36px 0";
                 }
+                // Translate does not resize a box. Trigger the observed action subtree so
+                // this checks a fresh measurement in the inspector's shifted coordinates.
+                document.querySelector(".acpmux-composer-actions")?.classList.add("alignment-measurement-probe");
               });
               await page.evaluate(
                 () => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))),
@@ -217,6 +229,21 @@ await requireBrowserLane("tray-composer-alignment.test.ts", async () => {
                   : {};
               });
               expect(afterShift, "inspector child translate must not alter layout columns").toEqual(beforeShift);
+              const shifted = await page.evaluate(() => {
+                const bounds = (selector: string) => {
+                  const rect = document.querySelector(selector)!.getBoundingClientRect();
+                  return { left: rect.left, right: rect.right };
+                };
+                return {
+                  dockDisplay: getComputedStyle(document.querySelector(".acpmux-dock")!).display,
+                  composer: bounds('[data-alignment-surface="composer"]'),
+                  tray: bounds('[data-alignment-surface="tray"]'),
+                };
+              });
+              expect(shifted.dockDisplay).toBe("contents");
+              expect(shifted.composer.left).toBeCloseTo(result.composer.left - 36, 1);
+              expect(shifted.tray.left).toBeCloseTo(shifted.composer.left, 1);
+              expect(shifted.tray.right).toBeCloseTo(shifted.composer.right, 1);
             }
             expect(result.actualLook).toBe(expectedLook);
             expect(result.quiet).toBe(expectedQuiet);
@@ -280,6 +307,15 @@ await requireBrowserLane("tray-composer-alignment.test.ts", async () => {
               evidenceDir + "/" + evidenceKey + ".json",
               JSON.stringify({ variant, scheme, width, plainFooter, result, checks }, null, 2),
             );
+            for (const track of result.tracks)
+              for (const row of track.rows) {
+                expect(Math.abs(row.left - track.head.left), `${track.name} track start`).toBeLessThanOrEqual(
+                  TOLERANCE,
+                );
+                expect(Math.abs(row.right - track.head.right), `${track.name} track end`).toBeLessThanOrEqual(
+                  TOLERANCE,
+                );
+              }
             for (const [name, value] of Object.entries(checks))
               expect(value, `${name} drifted by ${value.toFixed(2)}px`).toBeLessThanOrEqual(TOLERANCE);
             if (variant.endsWith("expanded")) {
