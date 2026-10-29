@@ -279,7 +279,10 @@ def run_lease(specs, build, out, frame_interval):
                      timeout=left(420)).stdout.decode().strip()
         if not app.endswith(".app"):
             raise RuntimeError(f"build {build['id']} has no app bundle")
-        launched = run([ch, "launch", lease, app, build.get("tag") or "journeys", "--"], timeout=left(180), check=False)
+        # capture-host launches only the build of the commit it is told (hq 6e1b413, 2026-10-29): the build's exact ref.
+        commit = str(build.get("ref") or build.get("source_digest") or "")
+        launched = run([ch, "launch", "--commit", commit, lease, app, build.get("tag") or "journeys", "--"],
+                       timeout=left(180), check=False)
         facts = launch_facts(launched.stdout.decode())
         if facts.get("socket", "none") == "none":
             raise RuntimeError(f"the app did not answer on its control socket: "
