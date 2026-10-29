@@ -1263,6 +1263,49 @@ export default agentPaneEntry({
     "agent-session/acpmux/chips/BareReferenceChip.tsx#BareReferenceChip",
   ],
   variants: {
+    "grid-rhythm": {
+      height: 900,
+      note: "One received header, a two-paragraph reply, two completed commands and a live command above the composer. Synthetic grid measurement fixture.",
+      snapshot: chat(
+        [
+          // Prior history exercises the followed composer boundary, including narrow panes.
+          assistant(Array.from({ length: 32 }, (_, i) => `Earlier verification result ${i + 1}.`).join("\n\n"), 5, {
+            id: "grid-history",
+          }),
+          user("Check the verification and report the result.", 4, { id: "grid-prompt" }),
+          user("Review the current verification results", 3, {
+            id: "grid-header",
+            incoming: {
+              kind: "message",
+              message: {
+                name: "review-agent",
+                text: "Review the current verification results",
+                raw: "Review the current verification results",
+              },
+            },
+            untyped: true,
+          }),
+          assistant(
+            "I am reading the verification report and checking the current changes.\n\nThe same column and equal block gaps keep the progress easy to follow.",
+            2.8,
+            { id: "grid-message" },
+          ),
+          activity(
+            [
+              tool("Read verification results", "execute", "completed", { command: "cat verification.txt" }),
+              tool("Inspect current changes", "execute", "completed", { command: "git diff --stat" }),
+              tool("Run focused checks", "execute", "in_progress", {
+                command: "bun test transcript",
+                startedAt: minutesAgo(0.5),
+              }),
+            ],
+            2.7,
+            { id: "grid-tools" },
+          ),
+        ],
+        { isWorking: true },
+      ),
+    },
     "message-surfaces-bordered": {
       note: "Before arm: the bordered user bubble and agent-message cards, captured on busy wallpaper and plain dark surfaces in light and dark themes.",
       documentAttributes: { "message-surfaces": "bordered" },

@@ -1,6 +1,7 @@
 // l10n-allow-file: transcript geometry fixtures.
 import { expect, test } from "bun:test";
-import { layoutConversation, type AcpmuxRow, type RowHeights } from "./model";
+import { layoutConversation, placeRows, type AcpmuxRow, type RowHeights } from "./model";
+import { TRANSCRIPT_BLOCK_GAP, TRANSCRIPT_TURN_GAP } from "./transcriptGrid";
 
 const row = (id: string, kind: string, fields: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
   id,
@@ -9,39 +10,50 @@ const row = (id: string, kind: string, fields: Partial<AcpmuxRow> = {}): AcpmuxR
   at: 0,
   ...fields,
 });
+const answer = row("answer", "assistant", { text: "Done." });
 const footer = row("footer", "turnSummary", { text: "Done.", durationMs: 1000, status: "completed" });
+const hidden = row("hidden", "user", { incoming: { kind: "hidden" } });
 
-test("same assistant continuation halves the footer gap; a speaker change and the end retain it", () => {
-  const assistant = row("next", "assistant", { text: "Next update." });
-  const height = (next?: AcpmuxRow) => layoutConversation(next ? [footer, next] : [footer], 720).heights[0];
-  expect(height(assistant)).toBe(32);
-  expect(height(row("user", "user", { text: "Next task." }))).toBe(40);
-  expect(
-    height(
-      row("peer", "user", {
-        incoming: { kind: "message", message: { name: "other-agent", text: "Report.", raw: "Report." } },
-      }),
-    ),
-  ).toBe(40);
-  expect(height()).toBe(40);
+test("container gaps cross hover footers and bookkeeping without adding a second gap", () => {
+  for (const next of [
+    row("reply", "assistant", { text: "Next." }),
+    row("prompt", "user", { text: "Next." }),
+    row("peer", "user", { incoming: { kind: "message", message: { name: "peer", text: "Report", raw: "Report" } } }),
+  ]) {
+    const rows = [answer, footer, hidden, next];
+    const layout = layoutConversation(rows, 720);
+    expect(layout.heights[1]).toBe(0);
+    expect(layout.heights[2]).toBe(0);
+    const gap = next.id === "prompt" ? TRANSCRIPT_TURN_GAP : TRANSCRIPT_BLOCK_GAP;
+    expect(layout.tops[3]! - layout.heights[0]!).toBe(gap);
+    const measured = placeRows(layout, (index) => (index === 0 ? 100 : undefined));
+    expect(measured.tops[3]).toBe(100 + gap);
+  }
 });
 
-test("a retained footer changes its estimate when a continuation arrives or becomes a user row", () => {
-  const hidden = row("hidden", "user", { incoming: { kind: "hidden" } });
+test("incremental placement matches fresh placement when a continuation becomes a prompt", () => {
   const known: RowHeights = new WeakMap();
-  const rows = [footer, hidden];
+  const rows = [answer, footer, hidden];
   const layout = layoutConversation(rows, 720, undefined, undefined, known);
   const next = [...rows, row("next", "assistant", { text: "Next update." })];
   const continued = layoutConversation(next, 720, undefined, undefined, known, { rows, layout });
-  expect(continued.heights[0]).toBe(32);
   expect(continued).toEqual(layoutConversation(next, 720));
   const changed = [...rows, row("next", "user", { text: "Next task." })];
-  const switched = layoutConversation(changed, 720, undefined, undefined, known, { rows: next, layout: continued });
-  expect(switched.heights[0]).toBe(40);
-  expect(switched).toEqual(layoutConversation(changed, 720));
+  expect(layoutConversation(changed, 720, undefined, undefined, known, { rows: next, layout: continued })).toEqual(
+    layoutConversation(changed, 720),
+  );
 });
 
-test("empty continuation footers retain the full hover-control floor", () => {
-  const empty = row("empty", "turnSummary", { status: "completed", durationMs: 0 });
-  expect(layoutConversation([empty, row("next", "assistant", { text: "Next update." })], 720).heights[0]).toBe(24);
+test("failure and Continue controls remain content; completed footer copy is an overlay", () => {
+  expect(layoutConversation([footer], 720).totalHeight).toBe(0);
+  for (const fields of [{ status: "failed", error: "Retry" }, { resumable: true }])
+    expect(layoutConversation([{ ...footer, ...fields }], 720).heights[0]).toBeGreaterThan(0);
+});
+
+test("measured empty rows do not leave a gap at the beginning or the end", () => {
+  const rows = [hidden, answer, footer];
+  const estimate = layoutConversation(rows, 720);
+  const measured = placeRows(estimate, (index) => (index === 1 ? 40 : 0));
+  expect([...measured.tops]).toEqual([0, 0, 40]);
+  expect(measured.totalHeight).toBe(40);
 });

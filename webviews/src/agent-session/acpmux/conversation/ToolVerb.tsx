@@ -123,12 +123,14 @@ export function ToolLabel({
   if (!column || !head) return <>{children ?? text}</>;
   // One run for Find's highlights (chatFind.ts findRuns): a match may span the verb and the subject.
   return (
-    <span data-find-join="">
+    <span className="cv-tool-label" data-find-join="">
       <ToolVerb column={column} skip={skip}>
         {head}
       </ToolVerb>
-      {skip ? <span data-find-skip> </span> : " "}
-      {subject ?? split?.subject}
+      <span className="cv-tool-label__space" data-find-skip={skip || undefined}>
+        {" "}
+      </span>
+      <span className="cv-tool-label__subject">{subject ?? split?.subject}</span>
     </span>
   );
 }

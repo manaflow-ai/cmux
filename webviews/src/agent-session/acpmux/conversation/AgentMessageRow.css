@@ -8,6 +8,7 @@
   flex: 1;
   min-width: 0;
   margin: 0;
+  gap: var(--grid-gap-inner);
   font-family: var(--cv-font);
   font-size: var(--cv-font-size);
   letter-spacing: var(--cv-tracking, 0.045px);
@@ -56,9 +57,9 @@ button.cv-agentmsg__name:focus-visible {
   display: flex;
   flex: 1;
   align-items: center;
-  gap: 4px;
+  gap: var(--grid-gap);
   min-width: 0;
-  height: 26px;
+  height: var(--grid-row);
   cursor: pointer;
   border-radius: 4px;
 }
@@ -70,7 +71,7 @@ button.cv-agentmsg__name:focus-visible {
   color: var(--cv-text-dim);
 }
 .cv-agentmsg__toggle > .cv-tool__chevron {
-  margin-left: 0;
+  margin-left: auto;
 }
 .cv-agentmsg__toggle:hover > .cv-tool__chevron,
 .cv-agentmsg__toggle:focus-visible > .cv-tool__chevron,
@@ -84,7 +85,7 @@ button.cv-agentmsg__name:focus-visible {
 }
 /* A finished send's check at the line's end shows on hover, as a tool row's does. */
 .cv-agentmsg__line > .cv-command__meta {
-  margin-left: 4px;
+  margin-left: 0;
 }
 .cv-agentmsg__line:is(:hover, :focus-within) .cv-command__ok {
   opacity: 1;
@@ -93,8 +94,8 @@ button.cv-agentmsg__name:focus-visible {
    -1.5px margin, plus the 8px gap). */
 .cv-agentmsg__card {
   box-sizing: border-box;
-  margin: 2px 0 4px 22.5px;
-  padding: 7px 11px;
+  margin: 0;
+  padding: 0 0 0 var(--grid-transcript-text-gap);
   border-radius: 0;
   background: none;
   box-shadow: none;
@@ -123,8 +124,9 @@ button.cv-agentmsg__name:focus-visible {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 5px;
-  margin: 0 0 6px 22.5px;
+  gap: var(--grid-gap);
+  margin: 0;
+  padding-inline-start: var(--grid-transcript-text-gap);
   color: var(--cv-text-dim);
   font-size: var(--text-detail);
   line-height: 18px;
@@ -134,5 +136,6 @@ button.cv-agentmsg__name:focus-visible {
   color: var(--agent-status-failure);
 }
 .cv-agentmsg__output.cv-tool-output {
-  margin: 0 0 6px 22.5px;
+  margin: 0;
+  padding-inline-start: var(--grid-transcript-text-gap);
 }

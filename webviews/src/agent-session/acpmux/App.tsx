@@ -1,3 +1,4 @@
+import { TRANSCRIPT_COMPOSER_GAP } from "./transcriptGrid";
 import { forkMenuRows } from "./header/forkMenu";
 import { openFork } from "./conversation/openFork";
 import React, {
@@ -2938,7 +2939,7 @@ export function VirtualTranscript({
   // The last footer's turn gap and the thread's top inset make the normal turn gap over the
   // floating stack. The old permanent TRANSCRIPT_RUNWAY (removed after #23094) kept an extra blank
   // band here; the pinned-bottom layout below already follows streaming growth before paint.
-  const rowsAtDock = measured.layout.totalHeight + THREAD_TOP + dockSpace;
+  const rowsAtDock = measured.layout.totalHeight + THREAD_TOP + TRANSCRIPT_COMPOSER_GAP + dockSpace;
   const atDock = Math.max(floorHeight, rowsAtDock);
   // A card that grew is drawn up by at most what the offset can take back: the view keeps more than
   // the follow deadband to scroll, so the reader's scroll up still leaves the latest row (and the
@@ -2963,7 +2964,7 @@ export function VirtualTranscript({
         )
       : grown;
   const room = sessionSwitched || following ? dockSpace - lifted : heldRoom.current;
-  const rowsHeight = measured.layout.totalHeight + THREAD_TOP + room;
+  const rowsHeight = measured.layout.totalHeight + THREAD_TOP + TRANSCRIPT_COMPOSER_GAP + room;
   // The held room less the lift, as the rows' end is: what the reader sees stays where it was drawn.
   const layout = useMemo(
     () => ({ ...measured.layout, totalHeight: Math.max(floorHeight - lifted, rowsHeight) }),
