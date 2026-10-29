@@ -182,6 +182,26 @@ def _settled(j, names, timeout):
 
 
 def step_resize_fuzz(j, step):
+    """`seeds: [..]` plays each seed's sequence in turn (one result per seed) and fails at the end with every
+    failing seed; `seed: N` plays one."""
+    if "seeds" in step:
+        results, failed = [], []
+        for seed in step["seeds"]:
+            one = dict(step, seed=seed)
+            one.pop("seeds")
+            try:
+                results.append(_fuzz_one(j, one))
+            except D.StepError as error:
+                results.append(getattr(j, "ext_resize_fuzz", None))
+                failed.append(f"seed {seed}: {str(error)[:300]}")
+        summary = {"seeds": step["seeds"], "results": results, "failed_seeds": failed}
+        if failed:
+            raise D.StepError(f"resize_fuzz: {len(failed)} of {len(step['seeds'])} seeds failed: " + " | ".join(failed)[:1200])
+        return summary
+    return _fuzz_one(j, step)
+
+
+def _fuzz_one(j, step):
     seed = int(step.get("seed", 1))
     rng = random.Random(seed)
     names = list(step["panes"])

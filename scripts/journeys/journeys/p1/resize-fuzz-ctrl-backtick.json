@@ -4,7 +4,7 @@
  "title": "Fuzz window and divider resizes with a New Terminal Tab (Ctrl-`) terminal in the right pane",
  "why": "As resize-fuzz, with the right pane's terminal opened by Ctrl-` (the optimistic stand-in path): from v2.2.5-opt such a terminal keeps the Ghostty grid of its first size (second-window-resize: 110x40 in a 656x408 view).",
  "source": "felt 1e resize fuzz (agent af8ead9045fd2317d); scripts/journeys/ext_resize.py",
- "budget_seconds": 240,
+ "budget_seconds": 260,
  "steps": [
   {
    "do": "new_terminal",
@@ -94,9 +94,8 @@
   },
   {
    "do": "resize_fuzz",
-   "title": "seed 2: 16 random window and divider resizes",
-   "seed": 2,
-   "ops": 16,
+   "title": "seeds 11-20: 12 random window and divider resizes each",
+   "ops": 12,
    "panes": [
     "left",
     "right"
@@ -104,6 +103,18 @@
    "divider": [
     "left",
     "right"
+   ],
+   "seeds": [
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20
    ]
   },
   {

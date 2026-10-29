@@ -4,7 +4,7 @@
  "title": "Fuzz window and divider resizes: every terminal ends at the grid its view fits, and the drawn grid follows the view during each drag",
  "why": "Lawrence 2026-10-29 (felt 1e): 'there are resize bugs where the terminal doesnt resize properly, make sure to fuzz it out. and it needs to be super fluid, like i resize, and the terminal immediately resizes.' A seeded random sequence of corner, edge, tiny, burst, out-and-back, held and minimum-size window drags and divider drags, with one terminal streaming output and one opened with New Terminal Tab (Ctrl-`), must leave every terminal's grid, fitted grid, drawn grid, daemon screen and PTY at the size its view fits; the step reports how long the drawn and owner grids trail the view during the drags.",
  "source": "felt 1e resize fuzz (agent af8ead9045fd2317d); scripts/journeys/ext_resize.py",
- "budget_seconds": 240,
+ "budget_seconds": 260,
  "steps": [
   {
    "do": "new_terminal",
@@ -79,9 +79,8 @@
   },
   {
    "do": "resize_fuzz",
-   "title": "seed 1: 16 random window and divider resizes",
-   "seed": 1,
-   "ops": 16,
+   "title": "seeds 1-10: 12 random window and divider resizes each",
+   "ops": 12,
    "panes": [
     "left",
     "right"
@@ -89,6 +88,18 @@
    "divider": [
     "left",
     "right"
+   ],
+   "seeds": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10
    ]
   },
   {
