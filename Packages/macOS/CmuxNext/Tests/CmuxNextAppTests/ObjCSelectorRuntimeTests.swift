@@ -33,6 +33,8 @@ struct ObjCSelectorRuntimeTests {
         "CmuxNextBrowser.AddressField.textView:menu:forEvent:atIndex:",
         // NSDraggingDestination's optional end (NSView has none): no super call.
         "CmuxNextBrowser.CEFHostView.draggingEnded:",
+        // Tells its drag destination the session left (ChromiumHostPageView+Drag.swift), no super call.
+        "CmuxNextBrowser.ChromiumHostPageView.draggingEnded:",
         "CmuxNextHome.HomeNativeTranscriptView.draggingEnded:",
         // Forwards to its drop target, no super call.
         "CmuxNextHome.HomeSidebarSplitView.draggingEnded:",
