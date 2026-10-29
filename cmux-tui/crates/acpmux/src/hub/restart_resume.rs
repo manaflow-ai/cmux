@@ -41,6 +41,32 @@ const MAX_TOOL_FIELD_CHARS: usize = 200;
 const MAX_TOOL_SCAN_BYTES: usize = 4096;
 /// Maximum unfinished calls listed in a restart prompt.
 const MAX_UNFINISHED_TOOLS: usize = 32;
+const MAX_OMITTED_TOOL_IDS: usize = 64;
+
+#[derive(Default)]
+struct OmittedTools {
+    ids: HashSet<[u8; 32]>,
+    unknown: bool,
+}
+
+impl OmittedTools {
+    fn len(&self) -> usize {
+        self.ids.len() + usize::from(self.unknown)
+    }
+    fn contains(&self, id: &[u8; 32]) -> bool {
+        self.ids.contains(id)
+    }
+    fn remove(&mut self, id: &[u8; 32]) {
+        self.ids.remove(id);
+    }
+    fn insert(&mut self, id: [u8; 32]) {
+        if self.ids.len() < MAX_OMITTED_TOOL_IDS {
+            self.ids.insert(id);
+        } else {
+            self.unknown = true;
+        }
+    }
+}
 
 /// One tool call that started before the daemon restart and has no terminal update.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -74,7 +100,7 @@ fn input_prefix(update: &Value) -> Option<String> {
         (!raw.is_null()).then(|| {
             let mut bytes = Vec::with_capacity(MAX_TOOL_SCAN_BYTES);
             let mut writer = BoundedJsonWriter { bytes: &mut bytes, limit: MAX_TOOL_SCAN_BYTES };
-            let truncated = serde_json::to_writer(&mut writer, &MaskedInput(raw)).is_err();
+            let truncated = serde_json::to_writer(&mut writer, &MaskedInput::new(raw)).is_err();
             let valid = match std::str::from_utf8(&bytes) {
                 Ok(text) => text.len(),
                 Err(error) => error.valid_up_to(),
@@ -97,34 +123,56 @@ fn input_prefix(update: &Value) -> Option<String> {
 
 /// Mask decoded strings before JSON escaping (e.g. PASSWORD="value" in a shell
 /// command). Serialize lazily so the bounded writer still stops large arrays/objects.
-struct MaskedInput<'a>(&'a Value);
+struct MaskedInput<'a> {
+    value: &'a Value,
+    context: Option<&'a str>,
+}
+
+impl<'a> MaskedInput<'a> {
+    fn new(value: &'a Value) -> Self {
+        Self { value, context: None }
+    }
+    fn with_context(value: &'a Value, context: Option<&'a str>) -> Self {
+        Self { value, context }
+    }
+}
 
 impl serde::Serialize for MaskedInput<'_> {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         use serde::ser::{SerializeMap, SerializeSeq};
-        match self.0 {
-            Value::String(text) => serializer.serialize_str(&masked_scan(text)),
+        match self.value {
+            Value::String(text) => {
+                let masked =
+                    self.context.map_or_else(|| masked_scan(text), |key| masked_field(key, text));
+                serializer.serialize_str(&masked)
+            }
             Value::Array(values) => {
                 let mut seq = serializer.serialize_seq(Some(values.len()))?;
                 for value in values {
-                    seq.serialize_element(&MaskedInput(value))?;
+                    seq.serialize_element(&MaskedInput::with_context(value, self.context))?;
                 }
                 seq.end()
             }
             Value::Object(values) => {
                 let mut map = serializer.serialize_map(Some(values.len()))?;
                 for (key, value) in values {
-                    let value = match value {
-                        Value::String(text) => Value::String(masked_field(key, text)),
-                        _ => value.clone(),
-                    };
-                    map.serialize_entry(&masked_scan(key), &MaskedInput(&value))?;
+                    let context =
+                        if sensitive_key(key) { Some(key.as_str()) } else { self.context };
+                    map.serialize_entry(
+                        &masked_scan(key),
+                        &MaskedInput::with_context(value, context),
+                    )?;
                 }
                 map.end()
             }
             value => serde::Serialize::serialize(value, serializer),
         }
     }
+}
+
+fn sensitive_key(key: &str) -> bool {
+    let key: String = key.chars().take(MAX_TOOL_FIELD_CHARS).flat_map(char::to_lowercase).collect();
+    key.contains("pass") || key.contains("secret") || key.contains("token")
 }
 
 struct BoundedJsonWriter<'a> {
@@ -171,6 +219,14 @@ fn masked_scan(value: &str) -> String {
 /// `password` value may contain quotes that JSON escaping would otherwise
 /// hide from the assignment rule.
 fn masked_field(key: &str, value: &str) -> String {
+    let end = value
+        .char_indices()
+        .map(|(at, _)| at)
+        .chain([value.len()])
+        .take_while(|at| *at <= MAX_TOOL_SCAN_BYTES)
+        .last()
+        .unwrap_or(0);
+    let value = &value[..end];
     let assignment = format!("{key}={value}");
     let masked = crate::secret_scan::mask(&assignment);
     masked.strip_prefix(&format!("{key}=")).unwrap_or(&masked).to_owned()
@@ -204,7 +260,7 @@ fn enrich_tool(existing: &mut UnfinishedTool, update: &Value) {
 /// removed by terminal updates, so the omission notice describes calls still in flight.
 fn note_unfinished_tool(
     open: &mut Vec<UnfinishedTool>,
-    omitted: &mut HashSet<[u8; 32]>,
+    omitted: &mut OmittedTools,
     update: &Value,
 ) {
     let Some(id) = update.get("toolCallId").and_then(Value::as_str).filter(|id| !id.is_empty())
@@ -253,7 +309,7 @@ fn note_unfinished_tool(
 #[cfg(test)]
 fn unfinished_tools(records: &[EventRecord]) -> (Vec<UnfinishedTool>, usize) {
     let mut open = Vec::<UnfinishedTool>::new();
-    let mut omitted = HashSet::new();
+    let mut omitted = OmittedTools::default();
     for record in records {
         if let Some(update) = tool_update(record) {
             note_unfinished_tool(&mut open, &mut omitted, update);
@@ -321,7 +377,7 @@ impl Hub {
         let mut control_ended = false;
         let mut floor_cancelled = false;
         let mut unfinished = Vec::new();
-        let mut omitted_tools = HashSet::new();
+        let mut omitted_tools = OmittedTools::default();
         let _ = self.store.scan_heads(&session.id, &mut |head: &RecordHead<'_>| {
             // Headers are cheap to inspect. Parse payloads only after the interrupted turn starts,
             // and stop at its result so a long session does not deserialize historical tool I/O.
@@ -533,7 +589,7 @@ mod tests {
                 input: None,
             })
             .collect::<Vec<_>>();
-        let mut omitted = HashSet::new();
+        let mut omitted = OmittedTools::default();
         note_unfinished_tool(
             &mut open,
             &mut omitted,
@@ -646,6 +702,11 @@ mod tests {
         .unwrap();
         assert!(!masked.contains(password), "structured password leaked: {masked}");
         assert!(masked.contains("[secret]"), "{masked}");
+        let masked = input_prefix(&json!({
+            "rawInput": {"password": [password]}
+        }))
+        .unwrap();
+        assert!(!masked.contains(password), "nested structured password leaked: {masked}");
     }
 
     #[test]
@@ -661,7 +722,7 @@ mod tests {
         assert!(tool_update(&child).is_none());
 
         let mut open = Vec::new();
-        let mut omitted = HashSet::new();
+        let mut omitted = OmittedTools::default();
         let huge = "x".repeat(MAX_TOOL_FIELD_CHARS + 100);
         note_unfinished_tool(
             &mut open,
