@@ -154,6 +154,95 @@ struct CLIDifficultyAssessmentHookTests {
         try run.stop()
         #expect(run.priorityParams().first?["difficulty"] as? String == "normal")
     }
+
+    // MARK: - This turn's reply (Claude Code writes it after the async Stop hook starts)
+
+    /// The transcript ends with the new prompt when the hook starts; its reply lands 300 ms
+    /// after the hook's probe. The rating pairs the prompt with that reply, not the previous one.
+    @Test func ratesTheReplyThatLandsAfterTheHookStarts() throws {
+        let reply = "Cut the sync engine over in three phases."
+        let run = try Fixture(
+            probe: Probe(),
+            answer: "Hard.",
+            transcript: Fixture.sixExchanges + [Fixture.userLine("Redesign the sync engine, step 7")],
+            lateReply: reply
+        )
+        defer { run.cleanup() }
+        try run.stop()
+        let prompts = run.classifierPrompts()
+        #expect(prompts.count == 1)
+        #expect(prompts.first?.contains("<user_message>\nRedesign the sync engine, step 7\n</user_message>") == true)
+        #expect(
+            prompts.first?.contains("<assistant_message>\n\(reply)\n</assistant_message>") == true,
+            "the rating must see this turn's reply; saw \(prompts)"
+        )
+        #expect(run.priorityParams().first?["difficulty"] as? String == "hard")
+    }
+
+    /// A new conversation's first turn: only the prompt is on disk when the hook starts.
+    @Test func ratesTheFirstTurnOfAConversation() throws {
+        let reply = "Here is the migration plan."
+        let run = try Fixture(
+            probe: Probe(),
+            answer: "Hard.",
+            transcript: [Fixture.userLine("Plan a zero-downtime migration to async/await.")],
+            lateReply: reply
+        )
+        defer { run.cleanup() }
+        try run.stop()
+        let prompts = run.classifierPrompts()
+        #expect(prompts.count == 1, "the first turn must be rated")
+        #expect(prompts.first?.contains("<assistant_message>\n\(reply)\n</assistant_message>") == true)
+        #expect(run.priorityParams().first?["difficulty"] as? String == "hard")
+    }
+
+    /// No reply within the wait: no call, rather than pairing the prompt with an older reply.
+    /// The skip does not start the 3 minute window, so the next turn end is rated.
+    @Test func makesNoCallWhenNoReplyArrives() throws {
+        let run = try Fixture(
+            probe: Probe(),
+            answer: "Hard.",
+            transcript: Fixture.sixExchanges + [Fixture.userLine("Redesign the sync engine, step 7")]
+        )
+        defer { run.cleanup() }
+        try run.stop()
+        #expect(run.classifierPrompts().isEmpty, "a prompt must never be rated with the previous turn's reply")
+        #expect(run.priorityParams().isEmpty)
+
+        try run.appendToTranscript(Fixture.assistantLine("Step 7 is mapped."))
+        try run.stop()
+        #expect(run.classifierPrompts().count == 1)
+        #expect(run.classifierPrompts().first?.contains("<assistant_message>\nStep 7 is mapped.\n</assistant_message>") == true)
+    }
+
+    /// Claude Code passes the turn's final reply to the `Stop` hook as `last_assistant_message`;
+    /// it is used even before it reaches the transcript.
+    @Test func usesTheReplyTheStopInputCarries() throws {
+        let reply = "Planned the cut-over for step 7."
+        let run = try Fixture(
+            probe: Probe(),
+            answer: "Hard.",
+            transcript: Fixture.sixExchanges + [Fixture.userLine("Redesign the sync engine, step 7")]
+        )
+        defer { run.cleanup() }
+        try run.stop(lastAssistantMessage: reply)
+        let prompts = run.classifierPrompts()
+        #expect(prompts.count == 1)
+        #expect(prompts.first?.contains("<user_message>\nRedesign the sync engine, step 7\n</user_message>") == true)
+        #expect(prompts.first?.contains("<assistant_message>\n\(reply)\n</assistant_message>") == true, "saw \(prompts)")
+    }
+
+    @Test func ratesAFirstTurnFromTheStopInput() throws {
+        let run = try Fixture(
+            probe: Probe(),
+            answer: "Hard.",
+            transcript: [Fixture.userLine("Plan a zero-downtime migration to async/await.")]
+        )
+        defer { run.cleanup() }
+        try run.stop(lastAssistantMessage: "Here is the migration plan.")
+        #expect(run.classifierPrompts().count == 1, "the first turn must be rated")
+        #expect(run.priorityParams().first?["difficulty"] as? String == "hard")
+    }
 }
 
 /// One test's mock cmux, fake `claude`, transcript and state files.
@@ -165,25 +254,48 @@ private struct Fixture {
     let transcript: URL
     let fakeClaude: URL
     let effortLog: URL
+    let promptLog: URL
     let paneEffort: String?
 
-    init(probe: Tests.Probe, answer: String, paneEffort: String? = nil) throws {
+    /// Six exchanges: past auto-naming's short-transcript skip; the last one is rated.
+    static let sixExchanges: [String] = (1...6).flatMap { index in
+        [userLine("Redesign the sync engine, step \(index)"), assistantLine("Mapping the dependencies for step \(index).")]
+    }
+
+    static func userLine(_ text: String) -> String {
+        jsonLine(["type": "user", "message": ["role": "user", "content": text]])
+    }
+
+    static func assistantLine(_ text: String) -> String {
+        jsonLine(["type": "assistant", "message": ["role": "assistant", "content": [["type": "text", "text": text]]]])
+    }
+
+    private static func jsonLine(_ object: [String: Any]) -> String {
+        let data = (try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])) ?? Data()
+        return String(data: data, encoding: .utf8) ?? ""
+    }
+
+    /// - Parameter lateReply: an assistant line appended to the transcript 300 ms after the
+    ///   hook's difficulty probe reaches cmux, as Claude Code writes the turn's reply after the
+    ///   async `Stop` hook has started.
+    init(
+        probe: Tests.Probe,
+        answer: String,
+        paneEffort: String? = nil,
+        transcript lines: [String] = Fixture.sixExchanges,
+        lateReply: String? = nil
+    ) throws {
         context = try Harness.makeContext(name: "difficulty-hook")
         self.paneEffort = paneEffort
         try Self.writeFreshSessionRecord(context: context)
 
-        // Six exchanges: past auto-naming's short-transcript skip; the last one is rated.
         transcript = context.root.appendingPathComponent("transcript.jsonl")
-        var lines: [String] = []
-        for index in 1...6 {
-            lines.append(#"{"type":"user","message":{"role":"user","content":"Redesign the sync engine, step \#(index)"}}"#)
-            lines.append(#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Mapping the dependencies for step \#(index)."}]}}"#)
-        }
         try (lines.joined(separator: "\n") + "\n").write(to: transcript, atomically: true, encoding: .utf8)
 
-        // Answers the rating prompt with `answer` and logs the effort it ran at; answers
-        // auto-naming's prompt with a title.
+        // Answers the rating prompt with `answer`, logging the prompt and the effort it ran at;
+        // answers auto-naming's prompt with a title.
         effortLog = context.root.appendingPathComponent("classifier-efforts.log")
+        promptLog = context.root.appendingPathComponent("classifier-prompts.log")
         fakeClaude = context.root.appendingPathComponent("fake-claude")
         let script = """
         #!/bin/sh
@@ -191,6 +303,7 @@ private struct Fixture {
         case "$input" in
           *"Classify how demanding"*)
             printf '%s\\n' "${CLAUDE_CODE_EFFORT_LEVEL:-unset}" >> '\(effortLog.path)'
+            printf '%s\\n%s\\n' "$input" '\(Self.promptSeparator)' >> '\(promptLog.path)'
             printf '%s\\n' '\(answer)'
             ;;
           *)
@@ -201,29 +314,70 @@ private struct Fixture {
         try script.write(to: fakeClaude, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeClaude.path)
 
+        let transcriptURL = transcript
+        let lateLine = lateReply.map(Self.assistantLine)
         _ = Harness.startMockServer(listenerFD: context.listenerFD, state: context.state) { line in
-            Self.respond(to: line, probe: probe)
+            if let lateLine, Self.isDifficultyProbe(line) {
+                DispatchQueue.global().asyncAfter(deadline: .now() + .milliseconds(300)) {
+                    try? Self.append(lateLine, to: transcriptURL)
+                }
+            }
+            return Self.respond(to: line, probe: probe)
         }
     }
 
+    private static let promptSeparator = "----- end of rating prompt -----"
+
     func cleanup() { context.cleanup() }
 
-    /// Runs the turn-end hook once.
-    func stop() throws {
+    /// Runs the turn-end hook once. `lastAssistantMessage` is the turn's reply as Claude Code
+    /// passes it in the `Stop` input; `nil` leaves the key out.
+    func stop(lastAssistantMessage: String? = nil) throws {
         var environment = Harness.hookEnvironment(context: context)
         environment["CMUX_WORKSPACE_ID"] = Tests.workspaceId
         environment["CMUX_SURFACE_ID"] = Tests.surfaceId
         environment["CMUX_CLAUDE_PID"] = "43301"
         environment["CMUX_CUSTOM_CLAUDE_PATH"] = fakeClaude.path
         if let paneEffort { environment["CLAUDE_CODE_EFFORT_LEVEL"] = paneEffort }
+        var input: [String: Any] = [
+            "session_id": Tests.sessionId,
+            "hook_event_name": "Stop",
+            "cwd": context.root.path,
+            "transcript_path": transcript.path,
+        ]
+        if let lastAssistantMessage { input["last_assistant_message"] = lastAssistantMessage }
         let result = Harness.runHookProcess(
             context: context,
             arguments: ["hooks", "claude", "auto-name"],
             environment: environment,
-            standardInput: #"{"session_id":"\#(Tests.sessionId)","hook_event_name":"Stop","cwd":"\#(context.root.path)","transcript_path":"\#(transcript.path)"}"#
+            standardInput: Self.jsonLine(input)
         )
         #expect(!result.timedOut, Comment(rawValue: result.stderr))
         #expect(result.status == 0, Comment(rawValue: result.stderr))
+    }
+
+    func appendToTranscript(_ line: String) throws {
+        try Self.append(line, to: transcript)
+    }
+
+    private static func append(_ line: String, to url: URL) throws {
+        let handle = try FileHandle(forWritingTo: url)
+        defer { try? handle.close() }
+        try handle.seekToEnd()
+        try handle.write(contentsOf: Data((line + "\n").utf8))
+    }
+
+    private static func isDifficultyProbe(_ line: String) -> Bool {
+        guard let payload = Harness.jsonObject(line), payload["method"] as? String == "session_priority.set" else {
+            return false
+        }
+        return (payload["params"] as? [String: Any])?["probe"] as? Bool == true
+    }
+
+    /// The prompt of each rating call, one per call.
+    func classifierPrompts() -> [String] {
+        guard let text = try? String(contentsOf: promptLog, encoding: .utf8) else { return [] }
+        return text.components(separatedBy: Self.promptSeparator + "\n").filter { !$0.isEmpty }
     }
 
     /// What a Claude restart leaves in the hook session store: `SessionEnd` removed the

@@ -62,16 +62,35 @@ import Testing
         #expect(Engine.parse("medium") == nil)
     }
 
-    @Test func excerptTakesLastOfEachRole() {
+    /// The excerpt is the last user message and the reply that follows it in the same turn.
+    @Test func excerptPairsTheLastUserMessageWithItsReply() {
+        func message(_ role: String, _ text: String) -> AutoNamingTranscriptMessage {
+            AutoNamingTranscriptMessage(role: role, text: text)
+        }
+        let pair = Engine.excerpt(from: [message("user", "u1"), message("assistant", "a1"), message("user", "u2"), message("assistant", "a2")])
+        #expect(pair?.user == "u2")
+        #expect(pair?.assistant == "a2")
+        // Several assistant messages after the prompt: the last one is the reply.
+        let multi = Engine.excerpt(from: [message("user", "u1"), message("assistant", "a1a"), message("assistant", "a1b")])
+        #expect(multi?.user == "u1")
+        #expect(multi?.assistant == "a1b")
+    }
+
+    /// A conversation's first turn before Claude Code wrote its reply: nothing to rate yet.
+    @Test func excerptIsNilWhileThereIsOnlyTheUserMessage() {
+        #expect(Engine.excerpt(from: [AutoNamingTranscriptMessage(role: "user", text: "u1")]) == nil)
+        #expect(Engine.excerpt(from: []) == nil)
+        #expect(Engine.excerpt(from: [AutoNamingTranscriptMessage(role: "assistant", text: "a0")]) == nil)
+    }
+
+    /// The previous turn's reply never pairs with the new prompt.
+    @Test func excerptIsNilWhenTheOnlyReplyPrecedesTheLastUserMessage() {
         let messages = [
             AutoNamingTranscriptMessage(role: "user", text: "u1"),
             AutoNamingTranscriptMessage(role: "assistant", text: "a1"),
             AutoNamingTranscriptMessage(role: "user", text: "u2"),
         ]
-        let pair = Engine.excerpt(from: messages)
-        #expect(pair?.user == "u2")
-        #expect(pair?.assistant == "a1")
-        #expect(Engine.excerpt(from: Array(messages.prefix(1))) == nil)
+        #expect(Engine.excerpt(from: messages) == nil)
     }
 
     @Test func throttleWaitsTheMinInterval() {
