@@ -96,6 +96,11 @@ export const VM_IDLE_CPU_BUSY_CORES = 0.05;
 
 /** Why the control plane paused a machine: the idle timer, or a person or client asking. */
 export type VmPauseReason = "idle" | "user";
+/**
+ * What a paused write may store as its cause: a reason, or the allowance
+ * enforcer (goPause.ts), whose pause is deliberate but shows no reason.
+ */
+export type VmPauseCause = VmPauseReason | "allowance";
 
 /** The cron's period (vercel.json `/api/cron/vm-idle-pause`). */
 export const VM_IDLE_PROBE_INTERVAL_MS = 5 * 60_000;
@@ -136,6 +141,13 @@ export function vmPauseIntentEpochFromRow(row: MetadataRow): number | null {
 export function vmIdlePauseMinutesFromRow(row: MetadataRow): VmIdlePauseMinutes {
   const stored = row.providerMetadata?.[VM_IDLE_PAUSE_MINUTES_KEY];
   return isVmIdlePauseMinutes(stored) ? stored : VM_IDLE_PAUSE_DEFAULT_MINUTES;
+}
+
+/** The stored cause of a paused machine's pause, including the allowance enforcer's; null otherwise. */
+export function vmPauseCauseFromRow(row: MetadataRow & { readonly status: string }): VmPauseCause | null {
+  if (row.status !== "paused") return null;
+  const stored = row.providerMetadata?.[VM_PAUSE_REASON_KEY];
+  return stored === "idle" || stored === "user" || stored === "allowance" ? stored : null;
 }
 
 /** Why a paused machine is paused, when the control plane paused it; null otherwise. */

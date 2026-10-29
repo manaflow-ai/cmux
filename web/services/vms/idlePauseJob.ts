@@ -17,7 +17,7 @@ import {
 import { VmProviderGateway } from "./providerGateway";
 import { VmRepository, type CloudVmRow } from "./repository";
 import {
-  isPersonsPauseSince,
+  isDeliberatePauseSince,
   pauseIdleVmRow,
   readIdleProviderState,
   recordIdlePauseAt,
@@ -184,7 +184,7 @@ function undoLostPause(vm: CloudVmRow, providerVmId: string, claimEpoch: number)
       console.info("[VM] idle pause lost; the machine was replaced or is gone", JSON.stringify({ vmId: vm.id }));
       return "aborted" as const;
     }
-    if (isPersonsPauseSince(current, claimEpoch)) {
+    if (isDeliberatePauseSince(current, claimEpoch)) {
       console.info("[VM] idle pause lost to a person's pause; kept", JSON.stringify({ vmId: vm.id }));
       return "aborted" as const;
     }

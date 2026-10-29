@@ -54,7 +54,7 @@ import {
   VM_PAUSE_REASON_KEY,
   type VmIdleObservation,
   type VmIdlePauseMinutes,
-  type VmPauseReason,
+  type VmPauseCause,
 } from "./idlePause";
 import {
   VmCreateDisabledError,
@@ -758,7 +758,7 @@ export type VmRepositoryShape = Partial<VmHealthRepositoryMethods> & {
      * status clears it, so a resumed machine carries no stale reason. Every
      * write also drops the idle observation (services/vms/idlePause.ts).
      */
-    readonly pauseReason?: VmPauseReason;
+    readonly pauseReason?: VmPauseCause;
     /**
      * The idle cron's own writes: record only if the row still holds this
      * idle fence (claimIdlePause's or claimIdleResume's answer). False when

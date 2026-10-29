@@ -170,6 +170,7 @@ import {
   vmIdleEpochFromRow,
   vmLastApiActivityFromRow,
   vmPauseIntentEpochFromRow,
+  vmPauseCauseFromRow,
   vmPauseReasonFromRow,
   type VmIdlePauseMinutes,
   type VmPauseReason,
@@ -4192,7 +4193,7 @@ export function resumeAfterLostIdlePause(vm: CloudVmRow, providerVmId: string, c
     if (epoch === null) {
       const winner = yield* repo.findUserVm({ userId: vm.userId, billingTeamId: vm.ownerTeamId, providerVmId, provider: vm.provider });
       const gone = !winner || winner.id !== vm.id || winner.providerVmId !== providerVmId || winner.status === "destroyed";
-      return gone || isPersonsPauseSince(winner, claimEpoch) ? "superseded" as const : "retry" as const;
+      return gone || isDeliberatePauseSince(winner, claimEpoch) ? "superseded" as const : "retry" as const;
     }
     const state = yield* readIdleProviderState(vm, providerVmId);
     if (state === null) {
@@ -4209,7 +4210,7 @@ export function resumeAfterLostIdlePause(vm: CloudVmRow, providerVmId: string, c
       return "resumed" as const;
     }
     const current = yield* repo.findUserVm({ userId: vm.userId, billingTeamId: vm.ownerTeamId, providerVmId, provider: vm.provider });
-    if (current && isPersonsPauseSince(current, epoch)) {
+    if (current && isDeliberatePauseSince(current, epoch)) {
       yield* bestEffortPause(providers, current, providerVmId);
       return "superseded" as const;
     }
@@ -4228,7 +4229,7 @@ export function resumeAfterLostIdlePause(vm: CloudVmRow, providerVmId: string, c
 export function repairRunningAfterLostIdlePause(vm: CloudVmRow, providerVmId: string, claimEpoch: number) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
-    if (isPersonsPauseSince(vm, claimEpoch)) return false;
+    if (isDeliberatePauseSince(vm, claimEpoch)) return false;
     const epoch = yield* repo.claimIdleResume!({ id: vm.id, providerVmId, epoch: vmIdleEpochFromRow(vm) });
     if (epoch === null) return false;
     yield* restoreIdlePauseBudget(vm, providerVmId);
@@ -4239,7 +4240,7 @@ export function repairRunningAfterLostIdlePause(vm: CloudVmRow, providerVmId: st
     }
     // A person's Pause since the claim won the row, but the machine still runs: pause it, as the compensation does.
     const current = yield* repo.findUserVm({ userId: vm.userId, billingTeamId: vm.ownerTeamId, providerVmId, provider: vm.provider });
-    if (current && isPersonsPauseSince(current, epoch)) yield* bestEffortPause(yield* VmProviderGateway, current, providerVmId);
+    if (current && isDeliberatePauseSince(current, epoch)) yield* bestEffortPause(yield* VmProviderGateway, current, providerVmId);
     return false;
   });
 }
@@ -4260,9 +4261,14 @@ export function restoreIdlePauseBudget(vm: CloudVmRow, providerVmId: string): Ef
   });
 }
 
-/** A paused row whose pause a person chose (reason user) after the fence `epoch`. */
-export function isPersonsPauseSince(row: CloudVmRow, epoch: number): boolean {
-  return vmPauseReasonFromRow(row) === "user" && (vmPauseIntentEpochFromRow(row) ?? -1) > epoch;
+/**
+ * A paused row whose pause was chosen after the fence `epoch`: a person's
+ * (reason user) or the allowance enforcer's. Recovery from a lost idle pause
+ * never undoes either.
+ */
+export function isDeliberatePauseSince(row: CloudVmRow, epoch: number): boolean {
+  const cause = vmPauseCauseFromRow(row);
+  return (cause === "user" || cause === "allowance") && (vmPauseIntentEpochFromRow(row) ?? -1) > epoch;
 }
 
 function preflightResumeIfSuspended(
