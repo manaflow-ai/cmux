@@ -537,6 +537,22 @@ test("shell substitutions and conditions retain executed mutations", () => {
   ]);
 });
 
+test("shell loops retain executed mutations without treating iterable words as commands", () => {
+  for (const command of [
+    "for attempt in 1 2 3; do gh pr merge 41 -R acme/app && break; done",
+    "while true; do gh pr merge 41 -R acme/app; break; done",
+    "until false; do gh pr merge 41 -R acme/app; break; done",
+  ])
+    expect(transcriptPullRequests(toolsRows(shell(command)))).toMatchObject([{ number: 41, changed: true }]);
+  for (const command of [
+    "for attempt in; do gh pr merge 41 -R acme/app; done",
+    "while false; do gh pr merge 41 -R acme/app; done",
+    "until true; do gh pr merge 41 -R acme/app; done",
+    "for word in gh pr merge 41 -R acme/app; do echo $word; done",
+  ])
+    expect(transcriptPullRequests(toolsRows(shell(command)))).toEqual([]);
+});
+
 test("short-circuit and negated shell forms reflect executed mutations", () => {
   expect(transcriptPullRequests(toolsRows(shell("false || gh pr merge 41 -R acme/app --squash")))[0]).toMatchObject({
     number: 41,

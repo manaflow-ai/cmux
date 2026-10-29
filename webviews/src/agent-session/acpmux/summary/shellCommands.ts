@@ -82,6 +82,27 @@ export function shellCommands(text: string): string[] {
       // certainty only when every possible path has the same status.
       if (remaining) outcomes.push(true);
       status = outcomes.length && outcomes.every((value) => value === outcomes[0]) ? outcomes[0] : undefined;
+    } else if (["for", "while", "until"].includes(tokens[at] ?? "")) {
+      const loop = tokens[at++]!;
+      let runs = active;
+      if (loop === "for") {
+        // The variable and iterable are data, not executable commands. An explicitly
+        // empty iterable never enters the body; positional arguments remain unknown.
+        const header: string[] = [];
+        while (at < tokens.length && ![";", "\n", "do"].includes(tokens[at]!)) header.push(tokens[at++]!);
+        if (header[1] === "in" && header.length === 2) runs = false;
+        while ([";", "\n"].includes(tokens[at] ?? "")) at++;
+      } else {
+        const condition = list(active, ["do", "done"], depth);
+        runs = active && (loop === "while" ? condition !== false : condition !== true);
+      }
+      if (tokens[at] === "do") {
+        at++;
+        list(runs, ["done"], depth);
+        if (tokens[at] === "done") at++;
+      }
+      // A loop may execute multiple times; retain no unsupported exit-status certainty.
+      status = runs ? undefined : true;
     } else if (tokens[at] === "(") {
       at++;
       status = list(active, [")"], depth);
