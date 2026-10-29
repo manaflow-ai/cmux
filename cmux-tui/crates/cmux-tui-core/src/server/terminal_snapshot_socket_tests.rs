@@ -554,6 +554,85 @@ fn a_resize_reaches_a_local_history_viewer_as_one_ready_at_the_resize_cut() {
     mux.shutdown();
 }
 
+/// The stale view of a new terminal (felt row cp/fix-wrap-stale-view): its
+/// first line (118 bytes) is wider than the 110-column grid the view sets at
+/// its first resize, and that resize lands while the line is still coming.
+/// The viewer must get every byte after its last READY, at contiguous
+/// offsets, through the end of the output, and the idle digest must name
+/// that end: no byte is lost at the resize cut.
+#[test]
+fn a_local_history_viewer_whose_first_line_wraps_across_the_first_resize_gets_every_later_byte() {
+    // (case, bytes of the line before the resize, attach history sent before it)
+    let cases = [
+        ("cut inside the line", 70, true),
+        ("line wrapped before the resize", 118, true),
+        ("resize before the attach history is sent", 70, false),
+    ];
+    for (case, before, drained) in cases {
+        let (mux, surface) = quiet_surface_with_scrollback("snapshot-local-history-wrap", 0);
+        let (_writer, outbound, client) = attach_local_history_viewer(&mux, &surface);
+        let first = if drained {
+            drain_ready_and_history(&outbound)
+        } else {
+            next_event(&outbound, Duration::from_secs(10)).expect("ready")
+        };
+        assert_eq!(first["phase"], "ready", "{case}: {first}");
+        let start = first["offset"].as_u64().unwrap();
+
+        let mut stream = vec![b'w'; 118];
+        stream.extend_from_slice(b"\r\n");
+        surface.inject_output_for_test(&stream[..before]);
+        surface.resize(110, 40).unwrap();
+        let later = b"later-output-1\r\nlater-output-2\r\n$ ";
+        surface.inject_output_for_test(&stream[before..]);
+        surface.inject_output_for_test(later);
+        stream.extend_from_slice(later);
+
+        // Follow the stream as the view does, through the idle digest.
+        let (mut position, mut generation) = (start, first["generation"].as_u64().unwrap());
+        let (mut readies, mut local, mut since_ready) = (0, false, Vec::new());
+        let digest = loop {
+            let event = next_event(&outbound, Duration::from_secs(10))
+                .unwrap_or_else(|| panic!("{case}: no digest; the view is at {position}"));
+            match (event["event"].as_str(), event["phase"].as_str()) {
+                (Some("output"), _) => {
+                    let bytes = data(&event);
+                    position += bytes.len() as u64;
+                    assert_eq!(event["offset"].as_u64(), Some(position), "{case}: a gap: {event}");
+                    assert_eq!(event["generation"].as_u64(), Some(generation), "{case}: {event}");
+                    since_ready.extend_from_slice(&bytes);
+                }
+                (Some("snapshot"), Some("ready")) => {
+                    readies += 1;
+                    local = event["history"] == "local";
+                    position = event["offset"].as_u64().unwrap();
+                    generation = event["generation"].as_u64().unwrap();
+                    assert!(position >= start, "{case}: {event}");
+                    since_ready.clear();
+                }
+                (Some("digest"), _) => break event,
+                _ => {}
+            }
+        };
+        assert_eq!(readies, 1, "{case}: the resize gives one READY");
+        if drained {
+            assert!(local, "{case}: a viewer that holds every frame gets the local READY");
+        }
+        let total = start + stream.len() as u64;
+        assert_eq!(position, total, "{case}: the view reaches the end of the output");
+        let cut = usize::try_from(total - since_ready.len() as u64 - start).unwrap();
+        assert_eq!(
+            String::from_utf8_lossy(&since_ready),
+            String::from_utf8_lossy(&stream[cut..]),
+            "{case}: every byte after the READY reaches the view"
+        );
+        assert_eq!(digest["offset"].as_u64(), Some(total), "{case}: {digest}");
+        assert_eq!(digest["generation"].as_u64(), Some(generation), "{case}: {digest}");
+        disconnect_client(&mux, client, false);
+        mux.shutdown();
+    }
+}
+
 /// A burst of resizes gives one local READY per resize, in order, each at
 /// its own generation.
 #[test]
