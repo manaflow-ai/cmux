@@ -12,12 +12,12 @@ import Foundation
 /// method, here or on the peer, answers `unsupported`, so the composer keeps its own note.
 @MainActor
 struct AgentPeerUploads {
-    private struct Stage { var target: Target; var file: URL; var name: String; var size: Int; var received: Int; var expires: Date }
+    private struct Stage {
+        var target: Target; var file: URL; var name: String; var size: Int; var received: Int; var expires: Date
+        var finish: Task<Result<String, Error>, Never>?
+    }
     private struct Batch { var session: String; var remaining: [AgentPaneUploadBatchEntry]; var expires: Date }
     private static var stages: [String: Stage] = [:]
-    /// Keep ownership of a staged file until the peer transfer reaches a terminal result.  A cancel
-    /// can then cancel and await this task instead of deleting a file that the host is still reading.
-    private static var finishTasks: [String: Task<Result<String, Error>, Never>] = [:]
     private static var batches: [String: Batch] = [:]
     /// The peer chat tab `tab` shows: its session, the peer's name and the pane's acpmux.
     struct Target {
@@ -57,11 +57,11 @@ struct AgentPeerUploads {
                 }
                 let token = UUID().uuidString.lowercased(), file = FileManager.default.temporaryDirectory.appending(path: "cmux-peer-staged-" + token + "-" + name)
                 guard FileManager.default.createFile(atPath: file.path, contents: nil, attributes: [.posixPermissions: 0o600]) else { return AgentPaneReply.failure(code: "upload_failed", message: AgentPeerUploadStrings.failed(target.machine)) }
-                stages[token] = Stage(target: target, file: file, name: name, size: size, received: 0, expires: Date().addingTimeInterval(10 * 60))
+                stages[token] = Stage(target: target, file: file, name: name, size: size, received: 0, expires: Date().addingTimeInterval(10 * 60), finish: nil)
                 Task { @MainActor in
                     // wakeup-allow: one-shot peer stage expiry; a later chunk refreshes the expiry date.
                     try? await Task.sleep(for: .seconds(10 * 60))
-                    if finishTasks[token] == nil, let expired = stages[token], expired.expires <= Date() {
+                    if stages[token]?.finish == nil, let expired = stages[token], expired.expires <= Date() {
                         stages.removeValue(forKey: token); try? FileManager.default.removeItem(at: expired.file)
                     }
                 }
@@ -84,13 +84,13 @@ struct AgentPeerUploads {
                 Task { @MainActor in
                     // wakeup-allow: one-shot peer stage expiry; a later chunk refreshes the expiry date.
                     try? await Task.sleep(for: .seconds(10 * 60))
-                    if finishTasks[token] == nil, let expired = stages[token], expired.expires <= Date() {
+                    if stages[token]?.finish == nil, let expired = stages[token], expired.expires <= Date() {
                         stages.removeValue(forKey: token); try? FileManager.default.removeItem(at: expired.file)
                     }
                 }
                 return AgentPaneReply.success(["offset": stage.received])
             case .finish(let token):
-                guard let stage = stages[token], stage.target.session == target.session, stage.received == stage.size, finishTasks[token] == nil else { return AgentPaneReply.failure(code: "upload_failed", message: AgentPeerUploadStrings.failed(target.machine)) }
+                guard var stage = stages[token], stage.target.session == target.session, stage.received == stage.size, stage.finish == nil else { return AgentPaneReply.failure(code: "upload_failed", message: AgentPeerUploadStrings.failed(target.machine)) }
                 let task = Task { () -> Result<String, Error> in
                     do {
                         return .success(try await stage.target.host.putFile(sessionId: stage.target.session, name: stage.name, file: stage.file))
@@ -98,9 +98,9 @@ struct AgentPeerUploads {
                         return .failure(error)
                     }
                 }
-                finishTasks[token] = task
+                stage.finish = task
+                stages[token] = stage
                 let result = await withTaskCancellationHandler(operation: { await task.value }, onCancel: { task.cancel() })
-                finishTasks.removeValue(forKey: token)
                 stages.removeValue(forKey: token)
                 try? FileManager.default.removeItem(at: stage.file)
                 switch result {
@@ -109,7 +109,7 @@ struct AgentPeerUploads {
                 }
             case .cancel(let token):
                 if let stage = stages[token], stage.target.session == target.session {
-                    if let task = finishTasks[token] {
+                    if let task = stage.finish {
                         task.cancel()
                         _ = await task.value
                         return AgentPaneReply.success()
