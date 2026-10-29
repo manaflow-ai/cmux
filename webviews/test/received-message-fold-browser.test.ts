@@ -260,6 +260,44 @@ await requireBrowserLane("received-message-fold-browser.test.ts", async () => {
     await page.close();
   });
 
+  test("a plain sender chip toggles without becoming a gap selection", async () => {
+    const page = await open("reduce");
+    try {
+      await show(page, [...done, received, after]);
+      await settle(page);
+      await lineAt(page, 100);
+      await settle(page);
+      const chip = page.locator('[data-row-id="msg"] .cv-received__name.is-plain');
+      await chip.evaluate((node) => {
+        node.addEventListener("pointerdown", (event) => {
+          document.body.dataset.senderPressPrevented = String(event.defaultPrevented);
+        });
+        document.addEventListener("pointermove", (event) => {
+          if (event.buttons === 1) document.body.dataset.senderMovePrevented = String(event.defaultPrevented);
+        });
+      });
+      for (const open of [true, false]) {
+        // The chip's padding, not merely its text, is part of the control's hit area.
+        await chip.click({ position: { x: 2, y: 2 } });
+        expect(await page.locator('[data-row-id="msg"] .cv-received').getAttribute("data-open")).toBe(
+          open ? "true" : null,
+        );
+        expect(await page.locator("body").getAttribute("data-sender-press-prevented")).toBe("false");
+        expect(await page.evaluate(() => window.getSelection()?.toString() ?? "")).toBe("");
+      }
+      const box = (await chip.boundingBox())!;
+      await page.mouse.move(box.x + 2, box.y + 2);
+      await page.mouse.down();
+      await page.mouse.move(box.x + box.width + 60, box.y + box.height + 50, { steps: 6 });
+      expect(await page.locator("body").getAttribute("data-sender-press-prevented")).toBe("false");
+      expect(await page.locator("body").getAttribute("data-sender-move-prevented")).toBe("false");
+      expect(await page.evaluate(() => window.getSelection()?.toString() ?? "")).toBe("");
+    } finally {
+      await page.mouse.up();
+      await page.close();
+    }
+  });
+
   test("under Reduce Motion the message opens and closes at once, and stays on its pixel", async () => {
     const page = await open("reduce");
     await show(page, [...done, received, after]);

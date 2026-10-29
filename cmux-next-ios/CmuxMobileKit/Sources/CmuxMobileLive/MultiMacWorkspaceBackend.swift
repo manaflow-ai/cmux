@@ -64,6 +64,9 @@ public final class MultiMacWorkspaceBackend: WorkspaceCreationBackend, Workspace
     public func duplicateTab(_ tab: WorkspaceTab, in workspace: Workspace) async throws -> WorkspaceTab {
         try await backend(workspace.macID).duplicateTab(tab, in: workspace)
     }
+    public func openLink(_ url: URL, besides tab: WorkspaceTab, in workspace: Workspace) async throws -> WorkspaceTab {
+        try await backend(workspace.macID).openLink(url, besides: tab, in: workspace)
+    }
     public func moveTab(_ tab: WorkspaceTab, to target: WorkspaceTab, in workspace: Workspace) async throws {
         try await backend(workspace.macID).moveTab(tab, to: target, in: workspace)
     }
@@ -92,6 +95,24 @@ public final class MultiMacWorkspaceBackend: WorkspaceCreationBackend, Workspace
     public func deleteSavedTabGroup(_ saved: SavedTabGroup, on macID: String) async throws {
         try await backend(macID).deleteSavedTabGroup(saved, on: macID)
     }
+    public func canMoveTabGroup(of tab: WorkspaceTab, forward: Bool, in workspace: Workspace) -> Bool {
+        on(workspace.macID)?.canMoveTabGroup(of: tab, forward: forward, in: workspace) ?? false
+    }
+    public func newTabInGroup(of tab: WorkspaceTab, in workspace: Workspace) async throws -> WorkspaceTab {
+        try await backend(workspace.macID).newTabInGroup(of: tab, in: workspace)
+    }
+    public func selectScreen(_ screen: MacScreen, in workspace: Workspace) async throws {
+        try await backend(workspace.macID).selectScreen(screen, in: workspace)
+    }
+    public func newScreen(in workspace: Workspace) async throws -> WorkspaceTab {
+        try await backend(workspace.macID).newScreen(in: workspace)
+    }
+    public func renameScreen(_ screen: MacScreen, in workspace: Workspace, to name: String) async throws {
+        try await backend(workspace.macID).renameScreen(screen, in: workspace, to: name)
+    }
+    public func closeScreen(_ screen: MacScreen, in workspace: Workspace) async throws {
+        try await backend(workspace.macID).closeScreen(screen, in: workspace)
+    }
 
     // MARK: WorkspaceArrangementBackend
 
@@ -112,6 +133,9 @@ public final class MultiMacWorkspaceBackend: WorkspaceCreationBackend, Workspace
         try await backend(workspace.macID).setIcon(workspace, icon)
     }
     public func clearName(_ workspace: Workspace) async throws { try await backend(workspace.macID).clearName(workspace) }
+    public func place(_ workspace: Workspace, next anchor: Workspace, after: Bool) async throws {
+        try await backend(workspace.macID).place(workspace, next: anchor, after: after)
+    }
 
     // MARK: NotificationClearing
 

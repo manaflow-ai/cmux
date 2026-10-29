@@ -20,14 +20,15 @@ use std::sync::atomic::Ordering;
 const REBUILDS: usize = 1;
 
 tokio::task_local! {
-    /// The request's id, and whether its reply was sent here.
-    static REPLY: RefCell<(Value, bool)>;
+    /// The request's id, and whether its reply was sent here: then whether it went whole.
+    static REPLY: RefCell<(Value, Option<bool>)>;
 }
 
-/// Runs request `id`, whose list reply may be sent here: then the bool is true.
-pub(super) async fn scope<F: Future>(id: Value, request: F) -> (F::Output, bool) {
+/// Runs request `id`, whose list reply may be sent here: then the option is set, true if the
+/// reply went whole (not as its too-large error).
+pub(super) async fn scope<F: Future>(id: Value, request: F) -> (F::Output, Option<bool>) {
     let run = async move { (request.await, REPLY.with(|r| r.borrow().1)) };
-    REPLY.scope(RefCell::new((id, false)), run).await
+    REPLY.scope(RefCell::new((id, None)), run).await
 }
 
 /// `limit`, `cursor`, `peer` and `status` all absent, null or empty: the whole list.
@@ -64,8 +65,8 @@ async fn reply(
         let Ok(id) = REPLY.try_with(|r| r.borrow().0.clone()) else {
             return Ok(serde_json::from_str(&text).unwrap_or(Value::Null));
         };
-        if conn.send_serialized(&id, &text, seen, reads == REBUILDS) {
-            REPLY.with(|r| r.borrow_mut().1 = true);
+        if let Some(whole) = conn.send_serialized(&id, &text, seen, reads == REBUILDS) {
+            REPLY.with(|r| r.borrow_mut().1 = Some(whole));
             break;
         }
     }
@@ -78,9 +79,29 @@ fn busy(wait: std::time::Duration) -> RpcError {
         .with_data(json!({"reason": "list.paced", "retryable": true, "retryAfterMs": ms}))
 }
 
+fn with_tools(params: &Value) -> Result<bool, RpcError> {
+    match params.get("withTools") {
+        None | Some(Value::Null) => Ok(false),
+        Some(Value::Bool(value)) => Ok(*value),
+        Some(_) => Err(RpcError::invalid_params("withTools must be a boolean")),
+    }
+}
+
 /// `_acpmux/sessions`: the whole list shared, or a page or filter cut from it.
 pub(super) async fn sessions(hub: &Hub, conn: &Conn, params: &Value) -> Result<Value, RpcError> {
     let raw = conn.raw_text;
+    if with_tools(params)? {
+        return reply(hub, conn, params.get("limit").and_then(Value::as_u64), |list| {
+            let full = list.full_whole(hub);
+            let mut result: Value = serde_json::from_str(&full).unwrap_or_default();
+            if !whole(params) {
+                let rows = result["sessions"].take().as_array().cloned().unwrap_or_default();
+                result = crate::hub::session_pages::session_list_reply(rows, params)?;
+            }
+            Ok(Arc::new(if raw { result.to_string() } else { masked(result) }))
+        })
+        .await;
+    }
     if !whole(params) {
         return reply(hub, conn, params.get("limit").and_then(Value::as_u64), |list| {
             let page = list.page(params)?;
@@ -106,6 +127,8 @@ pub(super) async fn sessions(hub: &Hub, conn: &Conn, params: &Value) -> Result<V
 pub(super) async fn watch(hub: &Hub, conn: &Conn, params: &Value) -> Result<Value, RpcError> {
     crate::hub::session_pages::refuse_watch_filters(params)?;
     let on = params.get("enabled").and_then(Value::as_bool).unwrap_or(true);
+    let tools = with_tools(params)?;
+    conn.watch_tools.store(on && tools, Ordering::SeqCst);
     conn.watch_all.store(on, Ordering::SeqCst);
     sessions(hub, conn, params).await
 }
@@ -115,7 +138,9 @@ pub(super) async fn acp_list(hub: &Hub, conn: &Conn) -> Result<Value, RpcError> 
     let raw = conn.raw_text;
     reply(hub, conn, None, |list| {
         Ok(list.made(if raw { "acp" } else { "acp masked" }, |list| {
-            let sessions: Vec<Value> = list.values().iter().map(acp_row).collect();
+            let full: Value = serde_json::from_str(&list.full_whole(hub)).unwrap_or_default();
+            let sessions: Vec<Value> =
+                full["sessions"].as_array().into_iter().flatten().map(acp_row).collect();
             let result = json!({"sessions": sessions});
             if raw { result.to_string() } else { masked(result) }
         }))

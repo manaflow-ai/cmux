@@ -372,6 +372,8 @@ extension AgentPaneRequest {
             self = Self.uploadStage(method, params)
         case "chat.toolCard.respond":
             if let answer = AgentPaneToolCard.answer(params) { self = .toolCard(card: answer.card, action: answer.action, value: answer.value) } else { self = .unsupported(method) }
+        case "chat.computerUsePreview":
+            if let action = AgentPaneComputerUsePreview.action(params) { self = .computerUsePreview(action) } else { self = .unsupported(method) }
         case "shortcut.edit":
             if let kind = (params?["kind"] as? String).flatMap(AgentPaneTabKind.init(rawValue:)) {
                 self = .editShortcut(kind)

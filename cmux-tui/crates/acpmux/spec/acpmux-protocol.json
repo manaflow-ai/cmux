@@ -385,6 +385,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/github_app_lease",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/bookmark_get",
       "params": true,
       "result": true
@@ -3639,6 +3645,13 @@
           "minimum": 0,
           "type": "integer"
         },
+        "effort": {
+          "description": "The harness's current reasoning effort, when it reports one.\nAdditive for older clients and peers.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "enforcement": {
           "$ref": "#/types/Enforcement"
         },
@@ -3895,6 +3908,11 @@
             "null"
           ]
         },
+        "state": {
+          "default": "",
+          "description": "Effective liveness: `stuck` after three classified harness failures, else `status`.",
+          "type": "string"
+        },
         "stateSeq": {
           "format": "uint64",
           "minimum": 0,
@@ -3907,6 +3925,35 @@
         "steering": {
           "description": "The agent takes a prompt mid-turn.",
           "type": "boolean"
+        },
+        "stuckError": {
+          "default": null,
+          "description": "Last classified error, redacted and bounded. Omitted for peers.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "stuckReason": {
+          "anyOf": [
+            {
+              "$ref": "#/types/StuckReason"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "stuckSince": {
+          "default": null,
+          "description": "Unix milliseconds when the third failure established stuck. Omitted for peers.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "tags": {
           "additionalProperties": {
@@ -3930,15 +3977,21 @@
           ]
         },
         "tools": {
-          "description": "The chat's tools (`hub/tools.rs`).",
+          "description": "The chat's tools (`hub/tools.rs`), present on per-session reads and attachments.",
           "items": {
             "$ref": "#/types/ToolSummary"
           },
-          "type": "array"
+          "type": [
+            "array",
+            "null"
+          ]
         },
         "toolsMutable": {
-          "description": "`_acpmux/set_tools` can change them.",
-          "type": "boolean"
+          "description": "`_acpmux/set_tools` can change them; omitted from census rows.",
+          "type": [
+            "boolean",
+            "null"
+          ]
         },
         "turn": {
           "anyOf": [
@@ -4017,8 +4070,6 @@
         "unread",
         "attached",
         "shown",
-        "tools",
-        "toolsMutable",
         "pending"
       ],
       "type": "object"
@@ -4119,6 +4170,13 @@
           "format": "uint32",
           "minimum": 0,
           "type": "integer"
+        },
+        "effort": {
+          "description": "The harness's current reasoning effort, when it reports one.\nAdditive for older clients and peers.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "enforcement": {
           "$ref": "#/types/Enforcement"
@@ -4364,6 +4422,11 @@
             "null"
           ]
         },
+        "state": {
+          "default": "",
+          "description": "Effective liveness: `stuck` after three classified harness failures, else `status`.",
+          "type": "string"
+        },
         "stateSeq": {
           "format": "uint64",
           "minimum": 0,
@@ -4376,6 +4439,35 @@
         "steering": {
           "description": "The agent takes a prompt mid-turn.",
           "type": "boolean"
+        },
+        "stuckError": {
+          "default": null,
+          "description": "Last classified error, redacted and bounded. Omitted for peers.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "stuckReason": {
+          "anyOf": [
+            {
+              "$ref": "#/types/StuckReason"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "stuckSince": {
+          "default": null,
+          "description": "Unix milliseconds when the third failure established stuck. Omitted for peers.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "tags": {
           "additionalProperties": {
@@ -4399,15 +4491,21 @@
           ]
         },
         "tools": {
-          "description": "The chat's tools (`hub/tools.rs`).",
+          "description": "The chat's tools (`hub/tools.rs`), present on per-session reads and attachments.",
           "items": {
             "$ref": "#/types/ToolSummary"
           },
-          "type": "array"
+          "type": [
+            "array",
+            "null"
+          ]
         },
         "toolsMutable": {
-          "description": "`_acpmux/set_tools` can change them.",
-          "type": "boolean"
+          "description": "`_acpmux/set_tools` can change them; omitted from census rows.",
+          "type": [
+            "boolean",
+            "null"
+          ]
         },
         "turn": {
           "anyOf": [
@@ -4484,9 +4582,7 @@
         "stateSeq",
         "unread",
         "attached",
-        "shown",
-        "tools",
-        "toolsMutable"
+        "shown"
       ],
       "type": "object"
     },
@@ -4523,6 +4619,13 @@
             "string",
             "null"
           ]
+        },
+        "withTools": {
+          "description": "Include tool inventories explicitly; default census rows omit them.",
+          "type": [
+            "boolean",
+            "null"
+          ]
         }
       },
       "type": "object"
@@ -4548,6 +4651,15 @@
         "sessions"
       ],
       "type": "object"
+    },
+    "StuckReason": {
+      "enum": [
+        "harness_unavailable",
+        "capacity",
+        "auth",
+        "spawn_failed"
+      ],
+      "type": "string"
     },
     "ToolSummary": {
       "description": "One row of a chat's tool list (`store::ToolRow`).",
@@ -4723,6 +4835,13 @@
           "minimum": 0,
           "type": [
             "integer",
+            "null"
+          ]
+        },
+        "withTools": {
+          "description": "Include tool inventories explicitly; default census rows omit them.",
+          "type": [
+            "boolean",
             "null"
           ]
         }

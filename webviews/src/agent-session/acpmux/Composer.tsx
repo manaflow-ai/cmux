@@ -336,6 +336,8 @@ type Props = {
   /// A new chat waiting on its folder choice: no prompt goes, including a trust-resend callback.
   /// Shell mode still runs. This is separate from a trust read's empty `blocked` object.
   blockSend?: boolean;
+  /// Current session/route auth refusal. Unlike folder Trust, force-send cannot bypass it.
+  authBlock?: string;
   /// Opens the Inspector at its Context section: the context ring's card links to it (Details ›).
   onOpenContext?(): void;
 };
@@ -403,6 +405,7 @@ export function Composer({
   switching,
   blocked,
   blockSend = false,
+  authBlock,
   placeholder,
   onOpenContext,
 }: Props) {
@@ -500,6 +503,10 @@ export function Composer({
   /// The person edited this chat's prompt before its durable draft read answered (a clear too):
   /// that read keeps their text, empty or not, and a quit before it answers saves it.
   const editedBeforeHydration = useRef(false);
+  /// The text the durable read left in the prompt (acpmux's draft, or what the prompt already held):
+  /// with nothing queued since, a quit compares the editor with it, so an untouched prompt never
+  /// clears a draft another client (the CLI, another window) saved while this page was open.
+  const hydratedText = useRef("");
   const prompts = usePromptHistory(snapshot.rows);
   // Send becomes Stop in place once the turn starts; a second click of a
   // double-click, or a click right after Enter, must not cancel the new turn.
@@ -688,7 +695,10 @@ export function Composer({
         // Before the durable read answers, only what the person typed goes (the read keeps a typed
         // prompt over acpmux's the same way); an untouched editor leaves acpmux's draft alone.
         const ready = hydratedSession.current === session || editedBeforeHydration.current;
-        if (session && ready && !restoringSession.current && typed !== lastQueuedDraftText(session)) {
+        const known =
+          lastQueuedDraftText(session ?? "") ??
+          (hydratedSession.current === session ? hydratedText.current : undefined);
+        if (session && ready && !restoringSession.current && typed !== known) {
           writePersistedDraft(session, typed);
         }
         const unsent = unsentDraft.current;
@@ -791,9 +801,13 @@ export function Composer({
         setText(restored);
         setCaret(restored.length);
         pendingCaret.current = restored.length;
-      } else if (!hasPendingWrite && (currentText.trim() || edited)) {
-        // A local remount cache or keystroke arrived before the daemon read. Preserve it durably.
-        writePersistedDraft(sessionId, currentText);
+        hydratedText.current = restored;
+      } else {
+        hydratedText.current = currentText;
+        if (!hasPendingWrite && (currentText.trim() || edited)) {
+          // A local remount cache or keystroke arrived before the daemon read. Preserve it durably.
+          writePersistedDraft(sessionId, currentText);
+        }
       }
       hydratedSession.current = sessionId;
       flushPendingDraftWrites();
@@ -960,7 +974,7 @@ export function Composer({
     // acpmux refuses this chat on this connection (remoteEditing.ts): keep the draft.
     if (!remote.canSend) return false;
     // The folder's trust question is open: the prompt stays where it is.
-    if (blockSend || (blocked?.reason && !force)) return false;
+    if (authBlock || blockSend || (blocked?.reason && !force)) return false;
     // The host has not taken the last prompt yet: it is still here, so Enter sends no copy, and
     // the composer says so instead of doing nothing.
     if (sending.current) {
@@ -1702,7 +1716,12 @@ export function Composer({
           {t(remote.note)}
         </p>
       )}
-      {!remote.note && blocked?.reason && !blocked.shownAbove && (
+      {!remote.note && authBlock && (
+        <p className="acpmux-composer-remote-note acpmux-composer-trust-note" role="alert">
+          {authBlock}
+        </p>
+      )}
+      {!remote.note && !authBlock && blocked?.reason && !blocked.shownAbove && (
         <p className="acpmux-composer-remote-note acpmux-composer-trust-note" role="note">
           {t(blocked.reason)}
         </p>
@@ -2050,23 +2069,25 @@ export function Composer({
               key="send"
               ref={sendButton}
               type="submit"
-              disabled={(blockSend || Boolean(blocked?.reason)) && !shell}
+              disabled={Boolean(authBlock || blockSend || blocked?.reason) && !shell}
               className={`acpmux-send${(shell ? shellText.trim() : !blockSend && !blocked?.reason && hasDraft) ? " acpmux-send-ready" : ""}`}
               aria-label={shell ? t("composer.shellRun") : t(COMPOSER_LABELS.send)}
               title={
                 shell
                   ? t("composer.shellRun")
-                  : blocked?.reason
-                    ? t(blocked.reason)
-                    : t(
-                        !snapshot.isWorking
-                          ? "composer.sendTooltip"
-                          : steersAlways
-                            ? "composer.steerTooltip"
-                            : returnSteers
-                              ? "composer.queueLaterTooltip"
-                              : "composer.queueTooltip",
-                      )
+                  : authBlock
+                    ? authBlock
+                    : blocked?.reason
+                      ? t(blocked.reason)
+                      : t(
+                          !snapshot.isWorking
+                            ? "composer.sendTooltip"
+                            : steersAlways
+                              ? "composer.steerTooltip"
+                              : returnSteers
+                                ? "composer.queueLaterTooltip"
+                                : "composer.queueTooltip",
+                        )
               }
             >
               <ArrowUpIcon />
