@@ -46,7 +46,7 @@ public nonisolated struct GroupHoverCardOptions: Sendable, Hashable {
     public var tabGroups = true
     /// How long the pointer rests on a group before its card opens. Longer than a row's card by
     /// default: the person asked for "a while", and a sweep across headers must open none.
-    public var delay: Duration = .milliseconds(600)
+    public var delay: Duration = .milliseconds(1500)
     /// Which part leads.
     public var order: Order = .status
     /// The parts that show; a part not in the set is left out.
