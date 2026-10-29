@@ -73,10 +73,21 @@ public final class NativePopupHost {
     @discardableResult
     public func show(size: CGSize, anchor: CGRect, in window: NSWindow, preferred: PopupPlacement.Side = .below,
                      trailing: Bool = false, centered: Bool = false, makeKey: Bool = false,
-                     entrance: Bool = false) -> (frame: CGRect, side: PopupPlacement.Side)? {
+                     entrance: Bool = false, sideBySide: Bool = false) -> (frame: CGRect, side: PopupPlacement.Side)? {
         guard window.isVisible, let screen = PopupPlacement.screen(for: anchor, fallback: window) else { return nil }
-        let (frame, side) = PopupPlacement.frame(anchor: anchor, size: size, preferred: preferred, trailing: trailing,
-                                                 centered: centered, screen: screen.visibleFrame)
+        let frame: CGRect
+        let side: PopupPlacement.Side
+        if sideBySide {
+            frame = PopupPlacement.sideBySideFrame(anchor: anchor, size: size, screen: screen.visibleFrame).frame
+            // Side-by-side placement follows the row vertically; preserve the conventional side
+            // in the return value for callers that only record the vertical preference.
+            side = preferred
+        } else {
+            let placed = PopupPlacement.frame(anchor: anchor, size: size, preferred: preferred, trailing: trailing,
+                                              centered: centered, screen: screen.visibleFrame)
+            frame = placed.frame
+            side = placed.side
+        }
         generation += 1
         // A fresh open, or a reopen during the close (whose fade runs on the card, not the alpha).
         let opening = !panel.isVisible || isClosing

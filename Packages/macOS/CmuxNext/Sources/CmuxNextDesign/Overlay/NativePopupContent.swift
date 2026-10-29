@@ -25,6 +25,7 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
 
     func update(_ next: NativePopupModel) {
         let focused = fields.first { $0.value.currentEditor() != nil }
+        let focusedID = focused?.key ?? editableControls.first(where: { $0.value === window?.firstResponder })?.key
         if let editor = focused?.value.currentEditor() as? NSTextView, editor.hasMarkedText() {
             pendingCompositionModel = next
             return
@@ -33,7 +34,7 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
         let priorSelection = selected
         if next.rows != model?.rows || next.rail != model?.rail || next.footer != model?.footer || next.title != model?.title || next.search?.id != model?.search?.id {
             rebuild(next)
-            if let focused, let replacement = fields[focused.key] {
+            if let focusedID, let replacement = editableControls[focusedID] ?? fields[focusedID] {
                 window?.makeFirstResponder(replacement)
                 if let selection, let editor = replacement.currentEditor() as? NSTextView {
                     editor.setSelectedRange(NSRange(location: min(selection.location, (editor.string as NSString).length), length: 0))

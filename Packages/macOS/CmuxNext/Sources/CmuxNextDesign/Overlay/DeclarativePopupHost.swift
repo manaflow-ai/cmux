@@ -19,6 +19,7 @@ final class DeclarativePopupHost {
     private weak var parent: DeclarativePopupHost?
     private weak var returnResponder: NSResponder?
     private weak var returnWindow: NSWindow?
+    private var sideBySide = false
     private var retired: [String: Int] = [:]
 
     init(webView: NSView, zoom: @escaping () -> CGFloat, send: @escaping ([String: Any]) -> Void,
@@ -64,8 +65,10 @@ final class DeclarativePopupHost {
         return window === panel || child?.contains(window) == true
     }
 
-    func show(_ next: NativePopupModel, screenAnchor: CGRect? = nil, in parentWindow: NSWindow? = nil) -> [String: Any] {
+    func show(_ next: NativePopupModel, screenAnchor: CGRect? = nil, in parentWindow: NSWindow? = nil,
+              sideBySide: Bool = false) -> [String: Any] {
         guard next.isValid, let webView, let window = parentWindow ?? webView.window, window.isVisible else { return ["shown": false] }
+        self.sideBySide = sideBySide
         guard next.revision > (retired[next.id] ?? -1) else { return ["shown": false] }
         if let current = model, current.id == next.id, next.revision < current.revision { return ["shown": false] }
         let opening = !popup.isShown || model?.id != next.id
@@ -96,7 +99,8 @@ final class DeclarativePopupHost {
         popup.dismissalWindow = webView.window
         guard let placed = popup.show(size: NSSize(width: next.width * scale, height: content.contentHeight),
                                       anchor: anchor, in: window, preferred: next.side == .top ? .above : .below,
-                                      trailing: next.align == .end, makeKey: opening, entrance: false) else { model = nil; return ["shown": false] }
+                                      trailing: sideBySide ? false : next.align == .end, makeKey: opening,
+                                      entrance: false, sideBySide: sideBySide) else { model = nil; return ["shown": false] }
         content.setFrameSize(NSSize(width: content.superview?.bounds.width ?? placed.frame.width,
                                    height: content.contentHeight))
         content.layoutSubtreeIfNeeded()
@@ -107,7 +111,7 @@ final class DeclarativePopupHost {
 
     func update(_ next: NativePopupModel) {
         guard let current = model, current.id == next.id, next.revision > current.revision, popup.isShown else { return }
-        _ = show(next, screenAnchor: parent == nil ? nil : shownAnchor, in: shownParent)
+        _ = show(next, screenAnchor: parent == nil ? nil : shownAnchor, in: shownParent, sideBySide: sideBySide)
         let enabled = Self.enabledRows((next.rail ?? []) + next.rows + (next.footer ?? []))
         if let child, let childRowID,
            let row = enabled.first(where: { $0.id == childRowID && $0.kind == .submenu }),
@@ -119,6 +123,7 @@ final class DeclarativePopupHost {
             submenu.search = nil
             submenu.title = row.label
             submenu.parentId = next.id
+            submenu.align = .start
             child.update(submenu)
         } else {
             child?.hide()
@@ -210,8 +215,10 @@ final class DeclarativePopupHost {
         next.highlighted = nil
         next.parentId = model.id
         let rowFrame = panel.convertToScreen(view.convert(view.bounds, to: nil))
-        let anchor = CGRect(x: rowFrame.maxX, y: rowFrame.maxY, width: 0, height: 0)
-        _ = submenu.show(next, screenAnchor: anchor, in: panel)
+        // A child is a side-by-side menu. Its placement owns the horizontal side, so the
+        // root's trailing alignment cannot pull it back over its parent row.
+        next.align = .start
+        _ = submenu.show(next, screenAnchor: rowFrame, in: panel, sideBySide: true)
     }
 
     private static func enabledRows(_ rows: [NativePopupRow]) -> [NativePopupRow] {

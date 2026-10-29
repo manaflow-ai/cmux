@@ -115,7 +115,7 @@ import Testing
         defer { host.hide() }
         var model = NativePopupModel(schemaVersion: 1, id: "submenu-focus", revision: 1,
                                      anchor: NativePopupAnchor(left: 20, top: 30, right: 120, bottom: 60),
-                                     side: .bottom, align: .start, width: 240,
+                                     side: .bottom, align: .end, width: 240,
                                      rows: [NativePopupRow(id: "more", kind: .submenu, label: "More",
                                                            children: [NativePopupRow(id: "pick", kind: .action, label: "Pick")])])
         #expect(host.show(model)["shown"] as? Bool == true)
@@ -130,6 +130,9 @@ import Testing
         let childPanel = try #require(parentPanel.childWindows?.compactMap { $0 as? NativePopupPanel }.first)
         #expect(await GUIAnimationTestSupport.settle { childPanel.isKeyWindow }, "the submenu did not take keyboard focus")
         #expect(host.activeID == model.id && host.shownFrame != nil, "opening the submenu dismissed its parent")
+        let parentCard = try #require(host.shownFrame)
+        let childCard = PopupStyle.standard.cardFrame(inWindow: childPanel.frame)
+        #expect(childCard.minX >= parentCard.maxX, "root alignment pulled the submenu over its parent")
         let childContent = try #require(childPanel.firstResponder as? NativePopupContent)
         model.revision += 1
         model.width += 40

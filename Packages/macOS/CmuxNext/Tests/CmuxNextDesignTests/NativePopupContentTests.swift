@@ -89,6 +89,30 @@ import Testing
         else { #expect(window.firstResponder is NSSlider) }
     }
 
+    @Test(arguments: [NativePopupRowKind.choice, .slider])
+    func descriptorRebuildKeepsTheFocusedEditableControl(kind: NativePopupRowKind) throws {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        let content = NativePopupContent()
+        window.contentView = content
+        defer { window.orderOut(nil) }
+        var model = Self.model()
+        model.rows = [NativePopupRow(id: "control", kind: kind, label: "Control", value: kind == .choice ? "0" : "0",
+                                     minimum: kind == .slider ? 0 : nil, maximum: kind == .slider ? 1 : nil,
+                                     options: kind == .choice ? [NativePopupOption(id: "0", label: "First"),
+                                                                 NativePopupOption(id: "1", label: "Second")] : nil)]
+        content.update(model)
+        window.makeKeyAndOrderFront(nil)
+        let original = try #require(Self.descendants(of: content).first { $0 is NSSegmentedControl || $0 is NSSlider })
+        #expect(window.makeFirstResponder(original))
+        model.revision += 1
+        model.rows[0].value = kind == .choice ? "1" : "0.5"
+        content.update(model)
+        let replacement = try #require(Self.descendants(of: content).first { $0 is NSSegmentedControl || $0 is NSSlider })
+        #expect(replacement !== original)
+        #expect(window.firstResponder === replacement, "the descriptor update dropped control focus")
+    }
+
     @Test func sliderStepRoundingStaysWithinItsBounds() throws {
         let content = NativePopupContent()
         var model = Self.model()
