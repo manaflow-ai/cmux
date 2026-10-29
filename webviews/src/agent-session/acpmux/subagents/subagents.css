@@ -522,15 +522,16 @@ button.cv-subagent > :last-child {
 .acpmux-agent-line > .acpmux-chat-inspector-stop {
   margin: 0 4px 0 2px;
 }
-/* Quiet at rest. The composer chips' wash belongs to the line's main control only:
-   hovering Stop highlights Stop itself, never the surrounding line. A disabled main
-   button has no line hover. */
+/* Quiet at rest. The line is the tray's main control, so its wash covers the whole line
+   while that control is hovered; Stop has no box of its own. A disabled main button has
+   no line hover. */
 .acpmux-running-tray .acpmux-summary-row,
-.acpmux-running-tray .acpmux-summary-link:is(:hover, :active) {
+.acpmux-running-tray .acpmux-summary-link:is(:hover, :active),
+.acpmux-running-tray :is(.acpmux-chat-inspector-stop, .cv-subagent__stop):is(:hover, :active) {
   border-radius: 0;
   background: none;
 }
-.acpmux-running-tray .acpmux-agent-line:has(> .acpmux-agent-line__button:enabled:hover),
+.acpmux-running-tray .acpmux-agent-line:has(> .acpmux-agent-line__button:enabled):hover,
 .acpmux-running-tray .acpmux-running-tray__head:hover {
   background: var(--acpmux-pill-hover, color-mix(in srgb, var(--agent-text) 11%, transparent));
 }
