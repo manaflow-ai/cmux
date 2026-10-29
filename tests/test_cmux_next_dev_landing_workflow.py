@@ -113,6 +113,11 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("inputs.same_tree_sha || inputs.dev_daily_sha", step["env"]["SHA"])
         compile_job = self.jobs["cmux-scheme-compile"]
         self.assertIn("dev-daily-place", compile_job["needs"])
+        # dev-daily-place is skipped on every run but a placed DEV daily, and dev-daily-tree-wait whenever the tree
+        # is not deferred. A skipped need skips a job only under GitHub's implicit success(), which an `if` with
+        # a status function (here !cancelled()) does not get: both jobs must keep one.
+        for name in ("cmux-scheme-compile", "dev-daily-place"):
+            self.assertIn("!cancelled()", self.jobs[name]["if"], f"{name} must not inherit success() from skipped needs")
         runs_on, label = compile_job["runs-on"], compile_job["env"]["CMUX_NEXT_RUNNER"]
         pick = "needs.dev-daily-place.outputs.runs_on != '' && fromJSON(needs.dev-daily-place.outputs.runs_on)"
         self.assertIn(pick, runs_on)
