@@ -20,6 +20,8 @@ final class NewTabButtonView: NSView {
         }
     }
     var isPressed = false { didSet { if oldValue != isPressed { updateColors(animated: false) } } }
+    /// Held only by this button's menu, including accessibility invocation without hover.
+    var isMenuOpen = false { didSet { if oldValue != isMenuOpen { updateColors(animated: false) } } }
     var onPress: (() -> Void)?
     /// The new tab action's shortcut as the person sees it ("⌘T"), read on hover so a rebinding
     /// shows at once; the tooltip draws it after its text.
@@ -107,13 +109,14 @@ final class NewTabButtonView: NSView {
     }
 
     private func updateColors(animated: Bool) {
-        let token = animated ? ChromeHover.fade(showing: isHovered || isPressed, pressed: isPressed) : nil
+        let hovering = isHovered || isMenuOpen
+        let token = animated ? ChromeHover.fade(showing: hovering || isPressed, pressed: isPressed) : nil
         // An instant change also ends a fill still easing in.
         if (token.map(Motion.tabs.duration) ?? 0) == 0 { fillLayer.removeAnimation(forKey: "backgroundColor") }
         Motion.tabs.transaction(token) {
             performWithTheme {
-                fillLayer.backgroundColor = ChromeHover.fillColor(.init(hovering: isHovered, pressed: isPressed))?.cgColor
-                glyphLayer.strokeColor = (isHovered ? Palette.textPrimary : Palette.textSecondary).cgColor
+                fillLayer.backgroundColor = ChromeHover.fillColor(.init(hovering: hovering, pressed: isPressed))?.cgColor
+                glyphLayer.strokeColor = (hovering ? Palette.textPrimary : Palette.textSecondary).cgColor
             }
         }
     }
