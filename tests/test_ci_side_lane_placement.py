@@ -246,6 +246,33 @@ class Decide(unittest.TestCase):
                 lines = dict(line.split("=", 1) for line in output.read_text().splitlines())
                 self.assertEqual((lines["gui_runner"], lines["gui_overflow"]), expected)
 
+    def test_no_online_role_runner_names_overflow_even_without_a_side_route(self):
+        offline = runner("mini-a-glaeda-4", status="offline", labels=(STD, GUI, SESSION))
+        for fleet in ([], [runner("mini-a-glaeda-3")], [offline]):
+            with self.subTest(fleet=fleet), tempfile.TemporaryDirectory() as tmp:
+                output = Path(tmp) / "out"
+                summary = Path(tmp) / "summary"
+                with mock.patch.object(placement.pool, "GitHub") as github, \
+                        mock.patch.object(placement.cascade, "read", return_value=(None, None, None)), \
+                        contextlib.redirect_stdout(io.StringIO()):
+                    github.return_value.runners.return_value = fleet
+                    placement.main(env(ROUTE_TOKEN="t", GITHUB_REPOSITORY="manaflow-ai/cmux",
+                                       GITHUB_OUTPUT=str(output), GITHUB_STEP_SUMMARY=str(summary)))
+                values = dict(line.split("=", 1) for line in output.read_text().splitlines())
+                self.assertEqual((values["gui_runner"], values["session_runner"], values["gui_overflow"]),
+                                 ("", "", FALLBACK))
+                self.assertIn("no online GUI runner", summary.read_text())
+                # Feed the placement's actual output into each workflow expression, without inventing a
+                # side route. No fixed gui/session label may override the empty-role decision.
+                wiring = CmuxNextWiring()
+                context = wiring.context()
+                context["vars"]["CI_SESSION_LABEL"] = "1"
+                context["needs"][wiring.PLACEMENT]["outputs"].update(values, placed_attempt="1")
+                for name in GUI_JOBS:
+                    job = wiring.workflow()["jobs"][name]
+                    self.assertEqual(evaluate(job["runs-on"], context), FALLBACK, name)
+                    self.assertEqual(evaluate(job["env"]["CMUX_NEXT_RUNNER"], context), FALLBACK, name)
+
     def test_a_declined_gui_route_keeps_the_cascade_placement(self):
         """Review of #27201: the declined-route summary reused `owned`, the jobs the idle minis took, for the
         snapshot's queue counts, so cascade.place() read every queued pool label as a placed job and the fast
@@ -962,6 +989,27 @@ class CmuxNextWiring(unittest.TestCase):
                                                                           gui_overflow=FALLBACK, placed_attempt="1")
                     self.assertEqual(evaluate(runs_on, rerun_lane), SESSION)
                 self.assertEqual(jobs[name]["env"]["CMUX_NEXT_RUNNER"], label_copy(runs_on))
+
+    def test_a_human_rerun_never_takes_a_role_from_an_earlier_placement_attempt(self):
+        jobs = self.workflow()["jobs"]
+        for attempt in ("2", "3", "9"):
+            for missing in (False, True):
+                with self.subTest(attempt=attempt, missing=missing):
+                    context = self.context(attempt, runner=STD)
+                    context["vars"].update(CI_SESSION_LABEL="1", CI_SESSION_LANE_RUNNER=SESSION)
+                    outputs = context["needs"][self.PLACEMENT]["outputs"]
+                    outputs.update(placed_attempt="1", gui_runner=GUI, session_runner=SESSION,
+                                   free_gui_runner=GUI, free_session_runner=SESSION, session_lane_runner=SESSION)
+                    if missing:
+                        outputs.clear()
+                    for name in GUI_JOBS:
+                        self.assertEqual(evaluate(jobs[name]["runs-on"], context), FALLBACK, name)
+                        self.assertEqual(evaluate(jobs[name]["env"]["CMUX_NEXT_RUNNER"], context), FALLBACK, name)
+        # A rerun with a placement that actually ran in this attempt can still take an owned role.
+        fresh = self.context("2", runner=STD)
+        fresh["needs"][self.PLACEMENT]["outputs"].update(placed_attempt="2", session_runner=SESSION)
+        for name in GUI_JOBS:
+            self.assertEqual(evaluate(jobs[name]["runs-on"], fresh), SESSION if name in SESSION_JOBS else GUI)
 
     def test_a_carried_free_role_label_is_not_read_on_a_later_attempt(self):
         # Review of #27201 at 175560bc: attempt 1's "free" reading may be busy or offline by a person's re-run.
