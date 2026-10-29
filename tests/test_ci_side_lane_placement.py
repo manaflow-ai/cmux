@@ -236,6 +236,36 @@ class Decide(unittest.TestCase):
                 lines = dict(line.split("=", 1) for line in output.read_text().splitlines())
                 self.assertEqual((lines["gui_runner"], lines["gui_overflow"]), expected)
 
+    def test_a_declined_gui_route_keeps_the_cascade_placement(self):
+        """Review of #27201: the declined-route summary reused `owned`, the jobs the idle minis took, for the
+        snapshot's queue counts, so cascade.place() read every queued pool label as a placed job and the fast
+        tier lost its free Blacksmith slot while the busy owned pool was the only other route."""
+        busy = [runner(f"mini-{host}-glaeda-4", busy=True, labels=(STD, SIDE, GUI)) for host in "abc"]
+        small, large = placement.cascade.SMALL, placement.cascade.LARGE
+        seen = placement.cascade.Seen(waits={}, owned={GUI: 5, SIDE: 4, STD: 2})
+        free = {large: 0, small: 0}
+        places = []
+        real_place = placement.cascade.place
+
+        def spy(env_, owned, *args, **kwargs):
+            places.append(tuple(owned))
+            return real_place(env_, owned, *args, **kwargs)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "out"
+            with mock.patch.object(placement.pool, "GitHub") as github, \
+                    mock.patch.object(placement.cascade, "read", return_value=(dict(free), dict(free), seen)), \
+                    mock.patch.object(placement.cascade, "place", side_effect=spy), \
+                    contextlib.redirect_stdout(io.StringIO()):
+                github.return_value.runners.return_value = busy
+                placement.main(env(JOBS="fast-tier " + " ".join(JOBS), CASCADE_RUNS=" fast-tier ",
+                                   ROUTE_TOKEN="t", GITHUB_REPOSITORY="manaflow-ai/cmux", GITHUB_OUTPUT=str(output)))
+            lines = dict(line.split("=", 1) for line in output.read_text().splitlines())
+        # No idle mini took a job, so the cascade sees none placed, and the fast tier takes a free Blacksmith slot.
+        self.assertEqual(places, [()])
+        self.assertEqual(lines["gui_overflow"], small)
+        self.assertIn(" fast-tier ", lines["blacksmith_12_jobs"] + lines["blacksmith_6_jobs"])
+
     def test_the_rescues_full_rerun_names_the_gui_overflow(self):
         # Its GUI jobs never read gui_runner; with no route written they fell back to the fixed gui label.
         with tempfile.TemporaryDirectory() as tmp, contextlib.redirect_stdout(io.StringIO()):

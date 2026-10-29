@@ -236,10 +236,10 @@ def role_room(candidate: str, runners: Sequence[Mapping[str, Any]], seen: Any = 
         return False
     if idle:
         return True
-    owned = getattr(seen, "owned", None)
-    if owned is None:
+    queues = getattr(seen, "owned", None)
+    if queues is None:
         return True
-    queued = int(owned.get(candidate, 0))
+    queued = int(queues.get(candidate, 0))
     if queued < online:
         return True
     if waiting is None:
@@ -609,8 +609,9 @@ def main(env: Mapping[str, str] = os.environ) -> int:
     # An empty session route falls through to gui_runner in the workflow, so only a declined gui route overflows.
     gui_overflow = GUI_OVERFLOW if live_gui and not gui_route else ""
     if live_gui and not gui_route:
-        owned = getattr(seen, "owned", {}) or {}
-        why += (f"; `{live_gui}` has no room ({owned.get(live_gui, 0)} queued, "
+        # Its own name: `owned` is the jobs the idle minis took, which cascade.place() reads below.
+        role_queues = getattr(seen, "owned", None) or {}
+        why += (f"; `{live_gui}` has no room ({role_queues.get(live_gui, 0)} queued, "
                 f"{_role_online(live_gui, runners or [])[0]} online, none idle), so the GUI jobs take `{GUI_OVERFLOW}`")
     if route and route != label:
         why += (f"; `{route}` has more live room than `{label}`, routing jobs there"
