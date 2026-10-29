@@ -749,12 +749,6 @@
       "why": "p14-energy-120: SuspendWatch (CmuxNextEnergy) is the app's one sleep, wake and display sleep adapter the task asks for: it subscribes once per app to NSWorkspace willSleep, didWake, screensDidSleep and screensDidWake through the app's workspace AppEvents fan-out (recipe R-notif; the display notices share AppVisibilitySource's NotificationCenter observer there), the four sites counted, and publishes them to every keepalive owner through EnergyPolicy instead of each owner observing them. Chrome's PowerMonitor is the same single suspend and resume source (base/power_monitor/power_monitor.h). Made only with the sleepWakeKeepalives feature on; FeedService's own sleep notices move onto it once that feature ships."
     },
     {
-      "date": "2026-10-26",
-      "row": "stateful_singletons",
-      "allow": 1,
-      "why": "p04-input-076: CmuxNextWakeups MainJobGateRoute.installed, the address of the one installed MainJobGate. The Swift runtime's swift_task_enqueueMainExecutor_hook is itself one process-wide variable holding a thin function with no context argument, so the hook reaches its gate only through a process-wide word; the gate is made in the composition root (CmuxNextApp.main, MainJobGateSwitch) and injected into MainJobGateHook.install, which claims the word once and refuses a second gate. Like p02-threads-130's BlockingCallHookSlot.process for the same reason (a context-free entry point), and Chrome's base::TaskAnnotator observer hook (base/task/common/task_annotator.cc)."
-    },
-    {
       "date": "2026-10-27",
       "row": "observer_sites",
       "allow": 1,
@@ -795,12 +789,6 @@
       "row": "blocking_allow_escapes",
       "allow": 1,
       "why": "p15-oracle-120: StandardErrorLogSink (CmuxNextCompat/Platform, Linux only) writes a Logger line to stderr synchronously, as Chromium's LOG() does on Linux (base/logging.cc, LOG_TO_STDERR, no ScopedBlockingCall), so the last lines before a crash are not lost. The blocking detector reports its violations through Logger, so a checked write would report itself. The file is not compiled on Darwin, where Logger is os.Logger."
-    },
-    {
-      "date": "2026-10-27",
-      "row": "global_mutable_statics",
-      "allow": 1,
-      "why": "p06-scheduler-202: MainExecutorHook.installedBits (CmuxNextWakeups), the one word through which the priority-ordered main executor reaches its queues. swift_task_enqueueMainExecutor_hook is a thin function with no context argument, so the hook the composition root makes (MainWorkScheduler.installMainExecutorHook) is published here once (a compare-exchange from 0; a second install is refused). Off unless the mainExecutorHook feature or CMUX_MAIN_EXECUTOR_HOOK=1 asks. The same shape as GlobalJobCensus.installedBits (p08-startup-082); Chrome reaches its process-wide task observers from the posting thread the same way (base/task/common/task_annotator.cc)."
     },
     {
       "date": "2026-10-28",
