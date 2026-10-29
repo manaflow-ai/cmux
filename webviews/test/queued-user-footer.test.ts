@@ -209,6 +209,25 @@ await requireBrowserLane("queued-user-footer.test.ts", async () => {
       }
     });
   }
+  test("a waiting steer's Copy writes its text without sending or withdrawing the steer", async () => {
+    const page = await open();
+    try {
+      await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
+      const row = footer(page);
+      expect(await row.getByRole("button", { name: "Copy", exact: true }).count()).toBe(1);
+      await row.getByRole("button", { name: "Copy", exact: true }).click();
+      await row.getByRole("button", { name: "Copied", exact: true }).waitFor();
+      expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(TEXT);
+      expect(
+        calls.filter((call) => call.method === "_acpmux/queue_edit" || call.method === "_acpmux/steer_withdraw"),
+      ).toHaveLength(0);
+      expect(await row.locator(".cv-user__send-now").count()).toBe(1);
+      expect(await row.locator(".cv-user__take-back").count()).toBe(1);
+      expect(await row.locator(".cv-user__time, .cv-user__read, .cv-user__dot, .cv-message-retry").count()).toBe(0);
+    } finally {
+      await page.context().close();
+    }
+  });
   test("an unread steer shows only queue controls; pointer Send now reaches its prompt and accepted delivery shows only hover actions", async () => {
     const page = await open();
     try {
