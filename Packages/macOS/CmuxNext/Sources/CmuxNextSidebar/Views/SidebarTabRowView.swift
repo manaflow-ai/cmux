@@ -25,7 +25,7 @@ final class SidebarTabRowView: SidebarRowView {
     /// Whether the icon is a template agent mark (tinted with the text) rather than a page favicon.
     private var iconIsMark = false
     /// The unread dot: a workspace row's dot (`UnreadBadgeView`, same shape and size) in the quiet, muted look.
-    private let unreadDot = UnreadBadgeView()
+    let unreadDot = UnreadBadgeView()
     /// The tab its workspace shows: a quiet fill marks it.
     private(set) var isFocusedTab = false
     /// Activates this tab from an accessibility AXPress.
@@ -193,8 +193,9 @@ final class SidebarTabRowView: SidebarRowView {
         unreadDot.alphaValue = showClose && !activity.showsGlyph ? 0 : 1
         if unreadDot.state.isUnread {
             let side = SidebarStyle.dotSize
+            // Beside a status, on the next slot (`trailingSlotPitch`), the line a workspace row's chevron takes.
             unreadDot.frame = activity.showsGlyph
-                ? NSRect(x: trailing - side - Metrics.space2, y: cy - side / 2, width: side, height: side)
+                ? NSRect(x: SidebarStyle.trailingSlotCenterX(rowWidth: b.width, slot: 1) - side / 2, y: cy - side / 2, width: side, height: side)
                 : SidebarStyle.trailingColumnFrame(rowWidth: b.width, centerY: cy, side: side)
             trailing = min(trailing, SidebarStyle.trailingColumnStart(rowWidth: b.width), unreadDot.frame.minX) - Metrics.space2
         }
