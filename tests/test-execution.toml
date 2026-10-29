@@ -2221,3 +2221,7 @@ reason = "Run by hand before changing the Cloud capture provision scripts; no ne
 [[test]]
 path = "tests/test_cmux_next_kill_switches.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_layout_grid.py"
+lane = "linux-guard"
