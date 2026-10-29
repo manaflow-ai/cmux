@@ -594,6 +594,14 @@ pub(crate) async fn collect_reply(
     }
 }
 
+#[cfg(test)]
+tokio::task_local! {
+    /// Test seam: `collect_once` lets its turn settle before each wait, so
+    /// the result and every update the reader queued before it are ready at
+    /// once (the order a loaded host makes common).
+    static SETTLE_TURN_BEFORE_WAIT: ();
+}
+
 async fn collect_once(
     client: Arc<Client>,
     id: &str,
@@ -621,6 +629,12 @@ async fn collect_once(
         } else {
             None
         };
+        #[cfg(test)]
+        if SETTLE_TURN_BEFORE_WAIT.try_with(|()| ()).is_ok() {
+            while !turn.is_finished() {
+                tokio::task::yield_now().await;
+            }
+        }
         let next_tick = [deadline, stall_at].into_iter().flatten().min();
         let tick = async {
             match next_tick {
@@ -1136,12 +1150,10 @@ mod prompt_tests {
     /// a ready result and a ready notification at random and could end the
     /// turn with its words still queued. Every reply must carry its words.
     ///
-    /// One worker makes both ready at every turn's select: the client's reader
-    /// reads the two lines in one poll and wakes this task (the notification)
-    /// and then the request task (the result); the worker's LIFO slot runs the
-    /// request task first, so this task finds the result and the words both
-    /// ready. An unbiased select then loses about half of the replies.
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    /// The seam lets each turn settle first, so the words and the result are
+    /// both ready at every wait: a wait that may take the result first loses
+    /// about half of the 200 replies.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn collect_reply_keeps_the_words_that_came_just_before_the_result() {
         let dir = cmux_unix_socket::short_test_dir("acpmux-w");
         let client = chunk_then_result_daemon(&dir).await;
@@ -1153,9 +1165,8 @@ mod prompt_tests {
         };
         let mut lost = Vec::new();
         for n in 0..200u32 {
-            let r = collect_reply(client.clone(), "s1", "hi", opts, &PromptId::new(None))
-                .await
-                .unwrap();
+            let collect = collect_reply(client.clone(), "s1", "hi", opts, &PromptId::new(None));
+            let r = SETTLE_TURN_BEFORE_WAIT.scope((), collect).await.unwrap();
             if r.reply != format!("reply {n}") {
                 lost.push((n, r.reply));
             }
