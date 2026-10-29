@@ -199,3 +199,21 @@ fn settings_reads_redact_credentials_in_schema_urls_and_maps() {
     }
     assert_eq!(items[3]["managed"]["source"], "mdm");
 }
+
+#[test]
+fn settings_get_redacts_tokens_in_all_url_schemes() {
+    for value in ["about:blank?token=fixture-secret-937", "file:///tmp/page#fixture-secret-937"] {
+        let mut server = Server::new(
+            Fake {
+                resource_result: Some(json!({"key": "browser.newTabPage", "value": value,
+                "row": {"key": "browser.newTabPage", "value": value}})),
+                ..Fake::default()
+            },
+            None,
+        );
+        let result = call(&mut server, "settings_get", json!({"key": "browser.newTabPage"}));
+        assert_eq!(result["isError"], false, "{result}");
+        assert_eq!(result["structuredContent"]["value_redacted"], true, "{result}");
+        assert!(!result.to_string().contains("fixture-secret-937"));
+    }
+}
