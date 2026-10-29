@@ -1,10 +1,11 @@
+import CmuxMobileMarkdown
 import Foundation
 
 /// Feed rows whose text needs no web view (full verify D10: 86 events, each
 /// with a pooled WKWebView measured in JavaScript, hitched while scrolling).
 /// Short text with at most inline markdown (bold, italics, code spans, links)
 /// draws as native text; anything with blocks (code fences, lists, quotes,
-/// headings, tables, HTML) keeps the web renderer.
+/// headings, tables, HTML) or math keeps the full markdown renderer.
 public struct FeedPlainText: Sendable {
     /// At most this many characters and lines: always under the collapsed
     /// height (8 body lines), so no Show more is needed.
@@ -20,6 +21,11 @@ public struct FeedPlainText: Sendable {
     /// Whether native text draws this as the web view would.
     public var isInline: Bool {
         guard markdown.count <= Self.maxCharacters, !markdown.contains("```"), !markdown.contains("<") else { return false }
+        // Use the transcript's parser so short math reaches the shared web
+        // renderer too. Ordinary prices and escaped dollar signs stay native.
+        if markdown.contains("$") || markdown.contains("\\") {
+            guard !MarkdownDocument(parsing: markdown).needsWebRenderer else { return false }
+        }
         let lines = markdown.split(separator: "\n", omittingEmptySubsequences: false)
         guard lines.count <= Self.maxLines else { return false }
         for line in lines {
