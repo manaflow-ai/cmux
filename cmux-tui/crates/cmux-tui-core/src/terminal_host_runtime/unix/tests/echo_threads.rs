@@ -351,3 +351,58 @@ fn blocking_cascade_a_disconnect_ends_a_wait_for_another_clients_blocked_write()
     assert!(a_still_writing, "client A's write ended before B's check: the test proves nothing");
     assert!(b_returned, "client B's serve loop did not return while it waited for A's write");
 }
+
+/// A client that sends its input and then closes its sending side
+/// (half-close) still gets that input written when the program has room:
+/// the client's end of input ends only a write that would wait (for the
+/// program, or behind another writer), never one that can be made at once.
+/// The Input frame here waits behind a cell-metric commit until the
+/// client's end of input has been read, then finds the writer free.
+#[test]
+fn blocking_cascade_input_queued_before_a_half_close_is_written() {
+    let (host, parser_commands) = exited_host_fixture_with_parser();
+    let (pty, program) = UnixStream::pair().unwrap();
+    program.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+    let master =
+        UnreadMaster { stream: pty, size: Mutex::new(pty_size(80, 24, DEFAULT_CELL_PIXELS)) };
+    *host.writer.lock().unwrap() = master.take_writer().unwrap();
+    *host.master.lock().unwrap() = Box::new(master);
+    let (server_stream, mut client_stream) = UnixStream::pair().unwrap();
+    client_stream.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+    let server = {
+        let host = host.clone();
+        thread::spawn(move || serve_client(host, server_stream))
+    };
+    let hello = snapshot_boundary_client_hello(&host, false).unwrap();
+    write_frame(&mut client_stream, &hello).unwrap();
+    for label in ["host hello", "snapshot", "colors"] {
+        read_required_frame(&mut client_stream, label).unwrap();
+    }
+    // The commit waits for the parser, which is not running yet, so the
+    // Input queues behind it on the client's control thread.
+    let mut metrics = Frame::new(MessageKind::SetCellPixelSize, Vec::new());
+    metrics.payload.extend_from_slice(&9u16.to_le_bytes());
+    metrics.payload.extend_from_slice(&18u16.to_le_bytes());
+    metrics.request_id = 7;
+    write_frame(&mut client_stream, &metrics).unwrap();
+    write_frame(&mut client_stream, &Frame::new(MessageKind::Input, b"typed".to_vec())).unwrap();
+    client_stream.shutdown(std::net::Shutdown::Write).unwrap();
+    // client-input reads the end of input, then the parser runs the commit.
+    thread::sleep(Duration::from_millis(200));
+    let initial_colors = host.term.lock().unwrap().color_overrides();
+    let parser = {
+        let host = host.clone();
+        thread::spawn(move || {
+            run_host_parser(host, parser_commands, initial_colors, ParserSignals::new());
+        })
+    };
+    let mut typed = [0u8; 5];
+    let read = (&program).read_exact(&mut typed);
+    let _ = client_stream.shutdown(std::net::Shutdown::Both);
+    drop(client_stream);
+    let _ = server.join();
+    host.parser_commands.send(ParserCommand::Drain).unwrap();
+    parser.join().unwrap();
+    assert!(read.is_ok(), "the input queued before the half-close never reached the program");
+    assert_eq!(&typed, b"typed");
+}
