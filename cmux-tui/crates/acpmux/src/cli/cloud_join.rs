@@ -374,7 +374,7 @@ pub async fn join_with_token(
         crate::cli::errors::AppError::new(
             crate::cli::errors::Code::Runtime,
             "join.store",
-            "join token was used but the credential could not be saved; fix local storage, then run machine add again for a fresh token",
+            "join token was used but the credential could not be saved; fix local storage, revoke this machine in the machine list, then run machine add again for a fresh token",
         )
         .with_exit(5)
     })?;

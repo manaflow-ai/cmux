@@ -213,6 +213,7 @@ async fn credential_write_failure_after_redeem_requires_a_fresh_token_without_se
     let error = String::from_utf8_lossy(&result.stderr);
     assert!(error.contains("join token was used"), "{error}");
     assert!(error.contains("fix local storage"), "{error}");
+    assert!(error.contains("revoke this machine in the machine list"), "{error}");
     assert!(error.contains("machine add again for a fresh token"), "{error}");
     for text in [&result.stderr, &result.stdout] {
         let text = String::from_utf8_lossy(text);
