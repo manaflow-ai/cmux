@@ -5570,6 +5570,10 @@ export class AcpmuxDirectClient {
       this.stopTimer = setTimeout(() => {
         if (this.closed || generation !== this.selectionGeneration || this.actingSessionId !== sessionId) return;
         if (!this.turnOpen && this.summary?.status !== "running") return;
+        // A new explicit turn started before the old cancel's grace elapsed. Its live state must
+        // never inherit the old Stop's forced notice.
+        if (this.stopTurnId !== undefined && this.runningTurnId !== undefined && this.runningTurnId !== this.stopTurnId)
+          return;
         this.stopGaveUp = true;
         this.notice(translate("stop.forced"));
       }, STOP_GRACE_MS);

@@ -422,13 +422,13 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
       const queuedPromptId = prompts.at(-1)?._meta?.acpmux?.promptId;
       expect(typeof queuedPromptId).toBe("string");
       record("queue_removed", { promptId: queuedPromptId, _meta: { acpmux: { withdrawn: true } } });
-      await expect(page.locator(`.acpmux-queued[data-prompt-id="${queuedPromptId}"]`)).toHaveCount(0);
+      expect(await page.locator(`.acpmux-queued[data-prompt-id="${queuedPromptId}"]`).count()).toBe(0);
       await page.getByRole("button", { name: "Stop" }).click();
       await until(() => cancels.length > 0, "Stop's session/cancel");
       record("turn_end", { stopReason: "cancelled", turnId: "turn-1" });
       record("turn_result", { status: "cancelled", stopReason: "cancelled", turnId: "turn-1", cancelForced: true });
       await page.getByText("The agent didn't answer Stop, so cmux ended its turn.").waitFor({ timeout: 5_000 });
-      await expect(page.getByRole("button", { name: "Continue", exact: true })).toHaveCount(1);
+      expect(await page.getByRole("button", { name: "Continue", exact: true }).count()).toBe(1);
       // The cancelled compaction can report its boundary after a new explicit prompt. It must not
       // revive the old row; a fresh running update still gets its own row.
       record("user_message", { text: "next prompt", promptId: "p-next", turnId: "turn-2" });
@@ -437,7 +437,7 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
         method: "session/update",
         params: { update: { sessionUpdate: "compaction", state: "completed" } },
       });
-      await expect(page.locator('.cv-compaction[data-state="completed"]')).toHaveCount(0);
+      expect(await page.locator('.cv-compaction[data-state="completed"]').count()).toBe(0);
       recordInbound("compaction", {
         method: "session/update",
         params: { update: { sessionUpdate: "compaction", state: "running" } },
@@ -446,7 +446,7 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
         method: "session/update",
         params: { update: { sessionUpdate: "compaction", state: "completed" } },
       });
-      await expect(page.locator('.cv-compaction[data-state="completed"]')).toHaveCount(1);
+      expect(await page.locator('.cv-compaction[data-state="completed"]').count()).toBe(1);
       await page.close();
     });
 
