@@ -12,7 +12,7 @@
 // follows `agentPane.images.remote` like a web image: a placeholder with its site and Load
 // (click, the default), its link only (never), or at once (always). The host fetches it under
 // its network rules and plays a checked copy.
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type ReactNode, type Ref, type RefObject } from "react";
 import { Dialog } from "../../../ui/Dialog";
 import { keyedIconProps } from "../../../ui/DialogButton";
 import { useT } from "../i18n";
@@ -167,6 +167,13 @@ export function MediaPlayer({
 }) {
   const t = useT();
   const [expanded, setExpanded] = useState(false);
+  const inlinePlayer = useRef<VideoPlaybackHandle>(null);
+  const expandedPlayer = useRef<VideoPlaybackHandle>(null);
+  const closeExpanded = () => {
+    const playback = expandedPlayer.current?.takePlayback();
+    if (playback?.started) inlinePlayer.current?.restorePlayback(playback);
+    setExpanded(false);
+  };
   const close = useRef<HTMLButtonElement>(null);
   const media = useRef<HTMLSpanElement>(null);
   const [short, setShort] = useState(false);
@@ -196,7 +203,7 @@ export function MediaPlayer({
   const open = mediaOpenRequest(source);
   return (
     <span ref={media} className={`cv-media is-video${short ? " has-short-video" : ""}`} data-path={path}>
-      <VideoThumbnail src={src} name={name} onError={onError} />
+      <VideoThumbnail ref={inlinePlayer} src={src} name={name} onError={onError} />
       <span className="cv-media__actions">
         {open && (
           <button
@@ -227,7 +234,7 @@ export function MediaPlayer({
         <Dialog
           open
           onOpenChange={(open) => {
-            if (!open) setExpanded(false);
+            if (!open) closeExpanded();
           }}
           label={name || t("media.player")}
           className="acpmux-image-viewer"
@@ -242,14 +249,14 @@ export function MediaPlayer({
                 className="acpmux-image-viewer-action"
                 ref={close}
                 {...keyedIconProps(t("image.close"), "escape")}
-                onClick={() => setExpanded(false)}
+                onClick={closeExpanded}
               >
                 <Close />
               </button>
             </div>
             <div className="cv-media-stage">
               {/* Opens paused, like the thumbnail: only Play starts it with sound (never autoplay). */}
-              <VideoThumbnail src={src} name={name} onError={onError} />
+              <VideoThumbnail ref={expandedPlayer} playbackSource={inlinePlayer} src={src} name={name} onError={onError} />
             </div>
           </div>
         </Dialog>
@@ -283,7 +290,19 @@ function useMediaPreviewAllowed(): boolean {
 /// metadata), a glass play button in its middle and its length in a corner. The pointer resting on
 /// it previews it muted after the shared hover-intent dwell; a click plays it from the start with
 /// sound and the player's controls. Every part a click lands on shows the pointing hand.
-export function VideoThumbnail({ src, name, onError }: { src: string; name: string; onError(): void }) {
+type VideoPlayback = { currentTime: number; started: boolean };
+type VideoPlaybackHandle = {
+  takePlayback(): VideoPlayback;
+  restorePlayback(playback: VideoPlayback): void;
+};
+
+export function VideoThumbnail({ src, name, onError, ref, playbackSource }: {
+  src: string;
+  name: string;
+  onError(): void;
+  ref?: Ref<VideoPlaybackHandle>;
+  playbackSource?: RefObject<VideoPlaybackHandle | null>;
+}) {
   const t = useT();
   const video = useRef<HTMLVideoElement>(null);
   const startedRef = useRef(false);
@@ -293,6 +312,24 @@ export function VideoThumbnail({ src, name, onError }: { src: string; name: stri
   const previewAllowed = useMediaPreviewAllowed();
   const { shown, hover: setHover, dismiss } = useHoverIntent<boolean>({ delay: MEDIA_PREVIEW_DWELL });
   const previewing = previewAllowed && shown === true;
+
+  useImperativeHandle(ref, () => ({
+    takePlayback() {
+      const element = video.current;
+      element?.pause();
+      return { currentTime: element?.currentTime ?? 0, started: startedRef.current };
+    },
+    restorePlayback(playback) {
+      const element = video.current;
+      startedRef.current = playback.started;
+      setStarted(playback.started);
+      dismiss();
+      if (element) {
+        element.pause();
+        element.currentTime = playback.currentTime;
+      }
+    },
+  }), [dismiss]);
 
   useEffect(() => {
     if (!previewAllowed) dismiss();
@@ -326,12 +363,15 @@ export function VideoThumbnail({ src, name, onError }: { src: string; name: stri
 
   const play = () => {
     const element = video.current;
+    // Read at Play, not Expand: the inline player may have advanced while the dialog was open.
+    // Only this occurrence's paired player participates; other media and page-away keep playing.
+    const playback = playbackSource?.current?.takePlayback();
     startedRef.current = true;
     dismiss();
     setStarted(true);
     if (!element) return;
     element.muted = false;
-    element.currentTime = 0;
+    element.currentTime = playback?.started ? playback.currentTime : 0;
     void element.play()?.catch(() => {});
   };
   return (
