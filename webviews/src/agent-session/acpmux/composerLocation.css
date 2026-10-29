@@ -752,12 +752,20 @@
   pointer-events: auto;
 }
 /* A tight row (#20548's narrow step): the group gap narrows and the card reaches 10px from the
-   pane's edges. Every chevron and the turn's own controls stay. */
+   pane's edges. Every chevron and the turn's own controls stay. The default queue and its fold
+   continue the card's surface, so all joined edges take the same outset (ask-a1c7dd28ee). */
+.acpmux-composer { --acpmux-composer-narrow-outset: 8px; }
 @container composer (max-width: 297px) {
   .acpmux-composer-bar { --acpmux-row-group-gap: 8px; }
-  .acpmux-composer:not(.acpmux-quick .acpmux-composer) > .acpmux-composer-box { margin-inline: -8px; }
+  .acpmux-composer:not(.acpmux-quick .acpmux-composer) > .acpmux-composer-box,
+  :root:not([data-top-strip]) .acpmux-composer:not(.acpmux-quick .acpmux-composer)
+    > :is(.acpmux-composer-queue, .acpmux-queue-foldbar) {
+    margin-inline: calc(-1 * var(--acpmux-composer-narrow-outset));
+  }
   /* The quiet row widens with the box, so the mode text stays on the prompt's 16 px edge. */
-  .acpmux-composer:not(.acpmux-quick .acpmux-composer) .acpmux-composer-foot { margin-inline: -8px; }
+  .acpmux-composer:not(.acpmux-quick .acpmux-composer) .acpmux-composer-foot {
+    margin-inline: calc(-1 * var(--acpmux-composer-narrow-outset));
+  }
 }
 /* Keep the complete control rail usable in a very narrow pane: preserve every action and only
    tighten their rhythm. */
