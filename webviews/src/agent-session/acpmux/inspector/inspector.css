@@ -219,8 +219,8 @@
   flex: none;
   display: flex;
   align-items: center;
-  gap: 6px;
-  height: 28px;
+  gap: var(--grid-gap);
+  height: var(--grid-row);
   padding: 6px 10px 0 14px;
 }
 .acpmux-chat-inspector[data-chrome="close"] .acpmux-chat-inspector__body {
@@ -246,8 +246,8 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 8px 10px 10px;
+  gap: var(--grid-gap-block);
+  padding: var(--grid-gap) var(--grid-sidebar-highlight-inset);
   overflow-x: hidden;
   overflow-y: auto;
 }
@@ -268,10 +268,10 @@
   position: absolute;
   z-index: var(--layer-raised);
   top: 0;
-  /* The body's 6px side padding (data-layout). */
-  left: -6px;
-  width: 6px;
-  height: 28px;
+  /* The handle occupies the surface inset, outside the row highlight. */
+  left: calc(-1 * var(--grid-sidebar-highlight-inset));
+  width: var(--grid-sidebar-highlight-inset);
+  height: var(--grid-row);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -306,21 +306,24 @@
    (glance), a hairline between blocks and none around them; the top block's rows run together. The
    body's sides are the head's, so a row's text lines up under the panel's title. */
 .acpmux-chat-inspector__body[data-layout] {
-  padding-right: 6px;
-  padding-left: 6px;
+  padding-right: var(--grid-sidebar-highlight-inset);
+  padding-left: var(--grid-sidebar-highlight-inset);
 }
 .acpmux-chat-inspector-group {
   flex: none;
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 6px;
-}
-.acpmux-chat-inspector-group[data-group="about"] {
-  gap: 0;
+  gap: var(--grid-gap-inner);
 }
 .acpmux-chat-inspector__body[data-layout="glance"] > .acpmux-chat-inspector-group + .acpmux-chat-inspector-group {
-  padding-top: 8px;
+  position: relative;
+}
+.acpmux-chat-inspector__body[data-layout="glance"] > .acpmux-chat-inspector-group + .acpmux-chat-inspector-group::before {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  top: calc(-1 * var(--grid-gap-block) / 2);
   border-top: var(--cmux-hairline, 0.5px) solid var(--agent-border);
 }
 /* Gallery alternative (rules): every section titled, a hairline between each. */
@@ -361,7 +364,7 @@
 .acpmux-chat-inspector {
   --acpmux-inspector-card-radius: 10px;
   --acpmux-inspector-panel-radius: 14px;
-  --acpmux-inspector-inset: 8px;
+  --acpmux-inspector-inset: var(--grid-gap);
   --acpmux-inspector-card-pad: 4px;
   --acpmux-inspector-row-radius: max(4px, calc(var(--acpmux-inspector-card-radius) - var(--acpmux-inspector-card-pad)));
   --acpmux-inspector-row-hover: color-mix(in srgb, var(--agent-text) 7%, transparent);
@@ -398,17 +401,17 @@ button.acpmux-chat-inspector-port:hover,
 .acpmux-chat-inspector-section__head {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--grid-gap);
   width: 100%;
-  height: 28px;
-  padding: 0 8px;
+  height: var(--grid-row);
+  padding: 0 var(--grid-gap);
   box-sizing: border-box;
   border-radius: var(--acpmux-inspector-row-radius);
   text-align: left;
 }
 .acpmux-chat-inspector-section :is(.ui-disclosure-trigger, .acpmux-chat-inspector-section__head):has(> .acpmux-chat-inspector-section__icon) {
   /* Context and Connectors share the Environment rows' icon and text columns. */
-  gap: var(--ds-space-2);
+  gap: var(--grid-gap);
 }
 .acpmux-chat-inspector-section .ui-disclosure-trigger {
   margin: 0;
@@ -425,20 +428,35 @@ button.acpmux-chat-inspector-port:hover,
   outline-offset: -1.5px;
 }
 .acpmux-chat-inspector-section__title {
-  flex: none;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
   font-weight: 500;
 }
 .acpmux-chat-inspector-section__fold {
   flex: none;
+  order: 1;
+  width: var(--grid-icon-box);
+  height: var(--grid-icon-box);
   color: var(--agent-muted);
 }
+.acpmux-chat-inspector-section :is(.ui-disclosure-trigger, .acpmux-chat-inspector-section__head):not(:has(> .acpmux-chat-inspector-section__icon)) > .acpmux-chat-inspector-section__title {
+  margin-left: calc(var(--grid-icon-box) + var(--grid-gap));
+}
+.acpmux-chat-inspector-section__fold:not(:has(~ .acpmux-chat-inspector-section__meta)) {
+  margin-left: auto;
+}
 .acpmux-chat-inspector-section__meta {
-  flex: 0 1 auto;
+  /* Counts yield to the section name before either reaches the trailing control. */
+  flex: 1 1 0;
   min-width: 0;
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--grid-gap);
   margin-left: auto;
+  justify-content: flex-end;
   color: var(--agent-muted);
   font-variant-numeric: tabular-nums;
 }
@@ -483,10 +501,10 @@ button.acpmux-chat-inspector-port:hover,
 .acpmux-chat-inspector-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--grid-gap);
   width: 100%;
-  height: 28px;
-  padding: 0 8px;
+  height: var(--grid-row);
+  padding: 0 var(--grid-gap);
   box-sizing: border-box;
   border: 0;
   border-radius: var(--acpmux-inspector-row-radius);
@@ -499,8 +517,8 @@ button.acpmux-chat-inspector-port:hover,
 }
 .acpmux-chat-inspector-row > svg {
   flex: none;
-  width: var(--acpmux-glyph-slot);
-  height: var(--acpmux-glyph-slot);
+  width: var(--grid-icon-box);
+  height: var(--grid-icon-box);
   color: var(--agent-muted);
 }
 .acpmux-chat-inspector-row--button {
@@ -574,7 +592,7 @@ button.acpmux-chat-inspector-port:hover,
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--grid-gap);
 }
 .acpmux-chat-inspector-switch__input {
   flex: none;
@@ -623,8 +641,8 @@ button.acpmux-chat-inspector-port:hover,
   position: relative;
   display: flex;
   align-items: flex-start;
-  gap: 4px;
-  padding-right: 4px;
+  gap: var(--grid-gap);
+  padding-right: var(--grid-gap);
   border-radius: var(--acpmux-inspector-row-radius);
   transition: background-color var(--acpmux-motion-hover, 80ms) var(--acpmux-motion-ease, ease-out);
 }
@@ -633,8 +651,8 @@ button.acpmux-chat-inspector-port:hover,
   min-width: 0;
   display: flex;
   align-items: flex-start;
-  gap: 8px;
-  padding: 5px 4px 5px 8px;
+  gap: var(--grid-gap);
+  padding: var(--grid-base) 0 var(--grid-base) var(--grid-gap);
   border-radius: var(--acpmux-inspector-row-radius);
   color: inherit;
   text-decoration: none;
@@ -662,7 +680,11 @@ button.acpmux-chat-inspector-port:hover,
 .acpmux-chat-inspector-pr__icon {
   flex: none;
   display: inline-flex;
-  margin-top: 3px;
+  align-items: center;
+  justify-content: center;
+  width: var(--grid-icon-box);
+  height: var(--grid-icon-box);
+  margin-top: 0;
   color: var(--agent-muted);
 }
 .acpmux-chat-inspector-pr[data-state="open"] .acpmux-chat-inspector-pr__icon {
@@ -687,7 +709,7 @@ button.acpmux-chat-inspector-port:hover,
 .acpmux-chat-inspector-pr__head {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--grid-gap);
   min-width: 0;
 }
 .acpmux-chat-inspector-pr__title {
@@ -700,7 +722,7 @@ button.acpmux-chat-inspector-port:hover,
 .acpmux-chat-inspector-pr__line {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--grid-gap);
   min-width: 0;
   overflow: hidden;
   color: var(--agent-muted);
@@ -724,7 +746,7 @@ button.acpmux-chat-inspector-port:hover,
   flex: none;
   display: inline-flex;
   align-items: center;
-  gap: 3px;
+  gap: var(--grid-base);
 }
 .acpmux-chat-inspector-pr__checks {
   flex: 0 1 auto;
@@ -755,7 +777,7 @@ button.acpmux-chat-inspector-port:hover,
 .acpmux-chat-inspector-pr__owner {
   flex: none;
   max-width: 40%;
-  padding: 0 6px;
+  padding: 0 var(--grid-base);
   overflow: hidden;
   border-radius: 6px;
   background: color-mix(in srgb, var(--agent-text) 8%, transparent);
@@ -767,17 +789,18 @@ button.acpmux-chat-inspector-port:hover,
   letter-spacing: var(--text-detail--letter-spacing);
 }
 .acpmux-chat-inspector-pr__more {
-  margin-top: 4px;
+  margin-top: var(--grid-pill-inset);
 }
 .acpmux-chat-inspector-pr-fold {
-  margin-top: 2px;
+  margin-top: 0;
 }
 .acpmux-chat-inspector-source {
   min-width: 0;
   display: flex;
   align-items: center;
-  height: var(--ui-row-height);
-  padding: 0 8px;
+  gap: var(--grid-gap);
+  height: var(--grid-row);
+  padding: 0 var(--grid-gap);
   border-radius: var(--acpmux-inspector-row-radius);
 }
 .acpmux-chat-inspector-source__link {
@@ -789,8 +812,8 @@ button.acpmux-chat-inspector-port:hover,
   flex: 1 1 auto;
   display: flex;
   align-items: center;
-  gap: 8px;
-  height: var(--ui-row-height);
+  gap: var(--grid-gap);
+  height: var(--grid-row);
   padding: 0;
   border-radius: var(--acpmux-inspector-row-radius);
   color: inherit;
@@ -804,6 +827,8 @@ button.acpmux-chat-inspector-port:hover,
 .acpmux-chat-inspector-source__link > svg,
 .acpmux-chat-inspector-source > svg {
   flex: none;
+  width: var(--grid-icon-box);
+  height: var(--grid-icon-box);
   color: var(--agent-muted);
 }
 .acpmux-chat-inspector-source__label {
@@ -813,7 +838,7 @@ button.acpmux-chat-inspector-port:hover,
   white-space: nowrap;
 }
 .acpmux-chat-inspector-sources-fold {
-  margin-top: 2px;
+  margin-top: 0;
 }
 .acpmux-chat-inspector-breakdown__rows {
   display: grid;
@@ -829,9 +854,10 @@ button.acpmux-chat-inspector-port:hover,
 .acpmux-chat-inspector-server {
   display: flex;
   align-items: center;
-  gap: 8px;
-  min-height: 26px;
-  padding: 2px 4px 2px 8px;
+  gap: var(--grid-gap);
+  box-sizing: border-box;
+  min-height: var(--grid-row);
+  padding: var(--grid-pill-inset) var(--grid-gap);
 }
 .acpmux-chat-inspector-task > svg,
 .acpmux-chat-inspector-task__open > svg {
@@ -840,17 +866,18 @@ button.acpmux-chat-inspector-port:hover,
 }
 /* A command's row is a button that opens its terminal; Stop sits beside it. */
 .acpmux-chat-inspector-task--command {
-  gap: 2px;
-  padding: 0 4px 0 0;
+  gap: var(--grid-gap);
+  padding: 0 var(--grid-gap) 0 0;
 }
 .acpmux-chat-inspector-task__open {
   flex: 1 1 auto;
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: 8px;
-  min-height: 26px;
-  padding: 2px 4px 2px 8px;
+  gap: var(--grid-gap);
+  box-sizing: border-box;
+  min-height: var(--grid-row);
+  padding: var(--grid-pill-inset) var(--grid-gap);
   box-sizing: border-box;
   border: 0;
   border-radius: var(--acpmux-inspector-row-radius);
@@ -866,15 +893,15 @@ button.acpmux-chat-inspector-port:hover,
 }
 .acpmux-chat-inspector-server {
   align-items: flex-start;
-  padding-top: 5px;
-  padding-bottom: 5px;
+  padding-top: var(--grid-base);
+  padding-bottom: var(--grid-base);
 }
 .acpmux-chat-inspector-server__dot {
   flex: none;
   width: 7px;
   height: 7px;
   /* Keep the status mark's size while sharing the task glyph's leading column. */
-  margin: 6px calc((var(--acpmux-glyph-slot) - 7px) / 2) 0;
+  margin: calc((var(--grid-icon-box) - 7px) / 2) calc((var(--grid-icon-box) - 7px) / 2) 0;
   border-radius: 50%;
   background: var(--agent-status-success);
 }
@@ -887,7 +914,7 @@ button.acpmux-chat-inspector-port:hover,
 .acpmux-chat-inspector-server__line {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--grid-gap);
   min-width: 0;
   color: var(--agent-muted);
   font-size: var(--text-detail);
@@ -896,8 +923,8 @@ button.acpmux-chat-inspector-port:hover,
 .acpmux-chat-inspector-port {
   display: inline-flex;
   align-items: center;
-  gap: 2px;
-  padding: 0 4px;
+  gap: var(--grid-base);
+  padding: 0 var(--grid-base);
   border: 0;
   border-radius: 4px;
   background: none;
@@ -934,10 +961,10 @@ button.acpmux-chat-inspector-port:focus-visible {
 .acpmux-chat-inspector-fold {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--grid-gap);
   width: 100%;
-  height: 26px;
-  padding: 0 8px;
+  height: var(--grid-row);
+  padding: 0 var(--grid-gap);
   border: 0;
   border-radius: var(--acpmux-inspector-row-radius);
   background: none;
@@ -954,10 +981,10 @@ button.acpmux-chat-inspector-port:focus-visible {
 /* Subagents (SubagentsSection.tsx): the running ones' lines, "Show more" under them, then the one
    row of the ended ones, which opens into their lines. */
 .acpmux-chat-inspector-subagents__more {
-  margin-top: 2px;
+  margin-top: 0;
 }
 .acpmux-chat-inspector-subagents > .acpmux-chat-inspector-subagents__ended {
-  margin-top: 2px;
+  margin-top: 0;
   color: var(--agent-muted);
 }
 .acpmux-chat-inspector-subagents > .acpmux-chat-inspector-subagents__ended:hover {
@@ -967,7 +994,7 @@ button.acpmux-chat-inspector-port:focus-visible {
   flex: none;
 }
 .acpmux-chat-inspector-subagents__list {
-  margin-top: 2px;
+  margin-top: 0;
 }
 .acpmux-chat-inspector-menu {
   min-width: 180px;
@@ -1042,14 +1069,14 @@ button.acpmux-chat-inspector-scope__parent:focus-visible {
 .acpmux-chat-inspector-scope[data-variant="card"] {
   flex: none;
   align-items: flex-start;
-  gap: 8px;
+  gap: var(--grid-gap);
   padding: 8px 10px;
   border: var(--cmux-hairline, 0.5px) solid var(--agent-border);
   border-radius: var(--acpmux-inspector-card-radius);
 }
 .acpmux-chat-inspector-scope__glyph {
   flex: none;
-  margin-top: 2px;
+  margin-top: 0;
   color: var(--agent-muted);
 }
 .acpmux-chat-inspector-scope__text {
@@ -1066,4 +1093,48 @@ button.acpmux-chat-inspector-scope__parent:focus-visible {
   color: var(--agent-muted);
   font-size: var(--text-detail);
   letter-spacing: var(--text-detail--letter-spacing);
+}
+
+/* Session Info's rows share their leading and trailing slots, including compact glyphs. */
+.acpmux-chat-inspector :is(.acpmux-chat-inspector-task__open, .acpmux-chat-inspector-task, .acpmux-chat-inspector-source__link, .acpmux-chat-inspector-fold) > svg {
+  flex: none;
+  width: var(--grid-icon-box);
+  height: var(--grid-icon-box);
+}
+.acpmux-chat-inspector .acpmux-chat-inspector-section__icon {
+  width: var(--grid-icon-box);
+  height: var(--grid-icon-box);
+}
+.acpmux-chat-inspector .acpmux-chat-inspector-context__swatch {
+  margin-inline: calc((var(--grid-icon-box) - 10px) / 2);
+}
+
+.acpmux-chat-inspector :is(.acpmux-summary-row, .acpmux-chat-inspector-fold, .acpmux-chat-inspector-row, .ui-disclosure-trigger) {
+  box-sizing: border-box;
+  height: var(--grid-row);
+  border-block: var(--grid-pill-inset) solid transparent;
+  background-clip: padding-box;
+}
+.acpmux-chat-inspector .acpmux-summary-row {
+  gap: var(--grid-gap);
+  padding-inline: var(--grid-gap);
+}
+.acpmux-chat-inspector .acpmux-lineage__icon {
+  align-items: center;
+  justify-content: center;
+  width: var(--grid-icon-box);
+  height: var(--grid-icon-box);
+}
+.acpmux-chat-inspector .acpmux-agent-line__stop-slot {
+  margin-right: var(--grid-gap);
+}
+
+.acpmux-chat-inspector-fold:not(:has(> svg)) {
+  padding-left: calc(var(--grid-gap) + var(--grid-icon-box) + var(--grid-gap));
+}
+
+/* StopButton also appears in the running tray; only panel rows take these slots. */
+.acpmux-chat-inspector__body .acpmux-chat-inspector-icon-button {
+  width: var(--grid-icon-box);
+  height: var(--grid-pill);
 }

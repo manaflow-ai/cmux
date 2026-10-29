@@ -281,8 +281,7 @@ const summary = {
   ],
 };
 
-// Icon-bearing section heads belong to the Environment rows' text column. The ordinary
-// section titles intentionally start at the icon column instead.
+// Every section title shares the Environment rows' text column, with or without an icon.
 const checkTopBlockAlignment: Play = async (ctx) => {
   const rect = (selector: string) => ctx.find({ selector }).getBoundingClientRect();
   const environment = '[data-section="environment"] .acpmux-chat-inspector-row__name';
@@ -293,10 +292,9 @@ const checkTopBlockAlignment: Play = async (ctx) => {
     if (Math.abs(title.left - labelLeft) > 0.5)
       throw new Error(`${section} label starts ${title.left - labelLeft}px from the Environment text column`);
   }
-  const iconLeft = rect('[data-section="environment"] .acpmux-chat-inspector-row > svg').left;
   const heading = rect('[data-section="changes"] .acpmux-chat-inspector-section__title');
-  if (Math.abs(heading.left - iconLeft) > 0.5)
-    throw new Error("The heading-only Changes section moved from the icon column");
+  if (Math.abs(heading.left - labelLeft) > 0.5)
+    throw new Error("The Changes heading moved from the shared text column");
 };
 
 const full: Props = {
@@ -625,6 +623,13 @@ export default componentEntry<Props>({
       note: "Narrow-width check: at 260px the longest supported model label truncates while the running agent name stays visible and state plus elapsed time keep separate columns.",
       props: workflowProps("running", "detail", 260, "anthropic/claude-sonnet-5-5"),
       play: assertNarrowWorkflowLayout,
+    },
+    "grid-expanded": {
+      note: "All Session Info sections expanded for shared lead, text, trail and spacing measurements.",
+      props: { ...full, sections: { ...DEFAULT_SECTIONS, context: true, connectors: true } },
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: /4 finished/ });
+      },
     },
     "layout-glance": {
       note: "Chosen (Leo, 2026-10-22: \"this session rail is tmi and too many boxes?\"). Eight cards became three blocks with a hairline between them and no box: the Environment's rows with no title, Context and Connectors one row each; Changes and Outputs; Subagents and Background tasks, the Servers card's row now heading Background tasks. Least ink of the three while every section and click stays; the rows line up under the panel's title.",
