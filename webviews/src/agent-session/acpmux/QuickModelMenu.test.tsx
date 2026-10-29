@@ -296,6 +296,7 @@ for (const searchField of ["always", "typed", "long"] as const) {
 
 test("an empty harness list does not claim an empty search had no matches", async () => {
   const container = installDom();
+  await loadQuickModelMenu();
   await act(async () => {
     root = createRoot(container);
     root.render(
