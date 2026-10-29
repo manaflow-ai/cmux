@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "verbs": 749,
-    "mcp": 667
+    "verbs": 752,
+    "mcp": 670
   },
   "nouns": [
     {
@@ -294,6 +294,13 @@
           "mcpTool": "app_agent_toggle_display_settings"
         },
         {
+          "command": "cmux agent toggle-files",
+          "title": "Toggle Files Beside Chat",
+          "id": "agentPane.toggleFiles",
+          "mcp": true,
+          "mcpTool": "app_agent_toggle_files"
+        },
+        {
           "command": "cmux agent toggle-minimap",
           "title": "Toggle Thread Minimap",
           "id": "agentPane.toggleMinimap",
@@ -301,11 +308,25 @@
           "mcpTool": "app_agent_toggle_minimap"
         },
         {
+          "command": "cmux agent toggle-preview",
+          "title": "Toggle Preview Beside Chat",
+          "id": "agentPane.togglePreview",
+          "mcp": true,
+          "mcpTool": "app_agent_toggle_preview"
+        },
+        {
           "command": "cmux agent toggle-session-info",
           "title": "Toggle Session Info",
           "id": "agentPane.toggleSessionInfo",
           "mcp": true,
           "mcpTool": "app_agent_toggle_session_info"
+        },
+        {
+          "command": "cmux agent toggle-side-tabs",
+          "title": "Toggle Tabs Beside Chat",
+          "id": "agentPane.toggleSideTabs",
+          "mcp": true,
+          "mcpTool": "app_agent_toggle_side_tabs"
         },
         {
           "command": "cmux agent toggle-ui-pointer",

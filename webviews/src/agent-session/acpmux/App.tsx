@@ -7030,9 +7030,14 @@ function AcpmuxPane() {
           toggleSessionInfo.current?.();
           return;
         }
-        const paletteCommand = paletteCommands.current[name];
-        if (paletteCommand) {
-          paletteCommand();
+        if (name.startsWith("header:")) {
+          const separator = name.indexOf("|");
+          if (separator < 0) return;
+          const target = name.slice(separator + 1);
+          // Both the live client and rendered callbacks must still belong to the captured chat.
+          if ((directClient.current?.selectedSession ?? "") !== target) return;
+          if ((snapshotRef.current?.sessionId ?? "") !== target) return;
+          paletteCommands.current[name.slice("header:".length, separator)]?.();
           return;
         }
         // Native palette rows carry the session id that was focused when the action was queued.

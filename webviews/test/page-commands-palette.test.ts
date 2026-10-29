@@ -3,7 +3,7 @@
 // CMUX_BROWSER_TESTS=1 bun test test/page-commands-palette.test.ts
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { chromium, type Browser, type Page } from "playwright";
-import { papercutPane } from "./support/papercutChat";
+import { PAPERCUT_CHAT, papercutPane } from "./support/papercutChat";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 type NativeCall = { method: string; params: Record<string, unknown> };
@@ -78,15 +78,44 @@ await requireBrowserLane("page-commands-palette.test.ts", async () => {
         { timeout: 10_000 },
       );
 
-      await page.evaluate(() => window.cmuxAcpmuxBridge!.command!("toggleFiles"));
+      await page.evaluate(
+        (session) => window.cmuxAcpmuxBridge!.command!(`header:toggleFiles|${session}`),
+        PAPERCUT_CHAT,
+      );
       await made(page, "pane.action", 1);
       // Not offered here: the command changes nothing, so the next call is the side tabs' own.
-      await page.evaluate(() => window.cmuxAcpmuxBridge!.command!("togglePreview"));
-      await page.evaluate(() => window.cmuxAcpmuxBridge!.command!("toggleSideTabs"));
+      await page.evaluate(
+        (session) => window.cmuxAcpmuxBridge!.command!(`header:togglePreview|${session}`),
+        PAPERCUT_CHAT,
+      );
+      await page.evaluate(
+        (session) => window.cmuxAcpmuxBridge!.command!(`header:toggleSideTabs|${session}`),
+        PAPERCUT_CHAT,
+      );
       await made(page, "pane.action", 2);
       expect((await calls(page, "pane.action")).map((call) => call.params)).toEqual([
         { id: "files", cwd: "/home/dev/cmux", mode: "toggle" },
         { id: "sideTabs" },
+      ]);
+    } finally {
+      await page.close();
+    }
+  });
+
+  test("a delayed header command cannot affect a replacement chat", async () => {
+    const page = await pane.open({ width: 1200, height: 760 }, record);
+    try {
+      await made(page, "pane.commandAvailability", 1);
+      await page.evaluate((session) => {
+        // Delivery after a replacement: a captured old session and an unscoped legacy command
+        // must not use this chat's current Files callback. A current command proves it is live.
+        window.cmuxAcpmuxBridge!.command!("header:toggleFiles|replaced-chat");
+        window.cmuxAcpmuxBridge!.command!("toggleFiles");
+        window.cmuxAcpmuxBridge!.command!(`header:toggleFiles|${session}`);
+      }, PAPERCUT_CHAT);
+      await made(page, "pane.action", 1);
+      expect((await calls(page, "pane.action")).map((call) => call.params)).toEqual([
+        { id: "files", cwd: "/home/dev/cmux", mode: "toggle" },
       ]);
     } finally {
       await page.close();
