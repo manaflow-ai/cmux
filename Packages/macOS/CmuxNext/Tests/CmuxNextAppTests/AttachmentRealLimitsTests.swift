@@ -81,15 +81,28 @@ struct AttachmentRealLimitsTests {
         reply["ok"] as? Bool == true ? reply["value"] as? [String: Any] : nil
     }
 
-    /// The app's stager for a chat whose folder is on this Mac, and that chat's session.
+    /// One app for the suite: an `AppServices` that goes away leaves its observers registered on
+    /// the running application, and the next one's teardown crashed the test process.
+    private static var services: AppServices?
+
+    private static func app() -> AppServices {
+        if let services { return services }
+        _ = NSApplication.shared
+        let made = AppServices(environment: AppEnvironment.current([:]))
+        AppActions.bind(made)
+        services = made
+        return made
+    }
+
+    /// The app's stager for a chat whose folder is on this Mac (a tab and session of its own),
+    /// and that chat's session.
     static func withLocalChat(_ body: (_ stage: @MainActor (AgentPaneUploadStageRequest) async -> [String: Any], _ session: String) async throws -> Void)
         async throws {
-        _ = NSApplication.shared
-        let services = AppServices(environment: AppEnvironment.current([:]))
-        AppActions.bind(services)
+        let services = app()
         let tab = "tab-\(UUID().uuidString)", session = "real-limits-\(UUID().uuidString.lowercased())"
         services.agentTabs.gitLink = { _ in services.agentGit.local }
         services.agentTabs.sessions[tab] = session
+        defer { services.agentTabs.sessions[tab] = nil }
         let stager = try #require(services.agentTabs.uploadStager?(tab), "no stager for a chat on this Mac")
         try await body({ await stager($0, session) }, session)
     }
