@@ -350,7 +350,7 @@ public final class ComputerUseHelperDaemon {
                 let record = await MainActor.run { upstream.consentRefused }
                 await record(surface)
             },
-            unverified: { [weak self] why in self?.consentHostUnverified = why })
+            unverified: { [weak self] why in self?.consentHostUnverified = why })  // nil: accepted again
         consentHost = host
         consentHostUnverified = nil
         host.start(AgentActivitySocketSource.Configuration(socketPath: socketPath, authToken: agentToken,

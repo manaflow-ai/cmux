@@ -25,8 +25,9 @@ nonisolated private let consentHostLogger = Logger(subsystem: "com.cmuxterm.app.
 final class ComputerUseConsentHost {
     private let consent: @Sendable () async -> Data?
     private let refused: @Sendable (String) async -> Void
-    /// The helper refused this app as its host (`host_unverified`), with its reason.
-    private let unverified: @MainActor (String) -> Void
+    /// The helper refused this app as its host (`host_unverified`), with its
+    /// reason; nil when a later connection is accepted, so a stale refusal clears.
+    private let unverified: @MainActor (String?) -> Void
     private let acceptsServer: (@Sendable (UnixSocketPeer) -> Bool)?
     private var configuration: AgentActivitySocketSource.Configuration?
     private var connection: AgentActivityLineConnection?
@@ -38,7 +39,7 @@ final class ComputerUseConsentHost {
     private var backoff = Backoff(initial: .milliseconds(250), maximum: .seconds(5))
 
     init(consent: @escaping @Sendable () async -> Data?, refused: @escaping @Sendable (String) async -> Void,
-         unverified: @escaping @MainActor (String) -> Void = { _ in },
+         unverified: @escaping @MainActor (String?) -> Void = { _ in },
          acceptsServer: (@Sendable (UnixSocketPeer) -> Bool)? = CuaHelperIdentity.isHelperServer) {
         self.consent = consent
         self.refused = refused
@@ -120,8 +121,9 @@ final class ComputerUseConsentHost {
                 _ = ComputerUseHelperV2Consent.handle(object, send: { connection.send($0) },
                                                       consent: consent, refused: refused)
             case .attached:
-                // task-owner: one main-actor hop per attach; it only resets the retry spacing.
-                Task { @MainActor in self?.backoff.reset() }
+                // task-owner: one main-actor hop per attach; it resets the retry spacing and
+                // clears an earlier host_unverified.
+                Task { @MainActor in self?.accepted(connection: id) }
             case .refusedAttach:
                 consentHostLogger.notice("cmux Computer Use helper does not take machine consent from this app: \(String(decoding: line.prefix(256), as: UTF8.self), privacy: .public)")
                 connection.cancel()
@@ -137,6 +139,12 @@ final class ComputerUseConsentHost {
             // task-owner: one main-actor hop per lost connection; it schedules at most one retry.
             Task { @MainActor in self?.lost(connection) }
         })
+    }
+
+    private func accepted(connection id: ObjectIdentifier) {
+        guard current.withLock({ $0 == id }) else { return }
+        backoff.reset()
+        unverified(nil)
     }
 
     private func refusedAsUnverified(_ why: String, connection id: ObjectIdentifier) {

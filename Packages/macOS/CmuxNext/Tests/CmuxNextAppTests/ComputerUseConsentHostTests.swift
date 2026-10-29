@@ -109,10 +109,11 @@ struct ComputerUseConsentHostTests {
     }
 
     /// An unverified host is logged and reported once with the helper's reason, and the host hangs up.
-    @MainActor @Test(.timeLimit(.minutes(1))) func anUnverifiedRefusalIsReported() async throws {
+    /// When a later connection is accepted (the helper restarted and now verifies it), the report clears.
+    @MainActor @Test(.timeLimit(.minutes(1))) func anUnverifiedRefusalIsReportedAndClearsOnRecovery() async throws {
         let helper = try FakeHelper()
         defer { helper.close() }
-        let (reasons, reasonContinuation) = AsyncStream<String>.makeStream()
+        let (reasons, reasonContinuation) = AsyncStream<String?>.makeStream()
         let host = ComputerUseConsentHost(consent: { nil }, refused: { _ in }, unverified: { reasonContinuation.yield($0) },
                                           acceptsServer: nil)
         defer { host.stop() }
@@ -122,11 +123,18 @@ struct ComputerUseConsentHostTests {
         _ = try json(await peer.readLine())
         peer.send(["ok": false, "exit_code": 77,
                    "error": "Unauthorized host-only consent request: host_unverified (not signed by cmux's team)"])
+        var reported: [String?] = []
+        var retried: FakeHelperPeer?
+        defer { retried?.close() }
         for await reason in reasons {
-            #expect(reason == "not signed by cmux's team")
-            break
+            reported.append(reason)
+            guard reported.count == 1 else { break }
+            #expect(await peer.readLine(timeout: 5_000) == nil)
+            // The host retries; this time the helper accepts it.
+            retried = try #require(await helper.accept())
+            try await retried?.attach()
         }
-        #expect(await peer.readLine(timeout: 5_000) == nil)
+        #expect(reported == ["not signed by cmux's team", nil])
     }
 }
 
