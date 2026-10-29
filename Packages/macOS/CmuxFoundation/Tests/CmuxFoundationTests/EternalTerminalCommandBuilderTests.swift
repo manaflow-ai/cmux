@@ -97,6 +97,51 @@ struct EternalTerminalCommandBuilderTests {
         }
     }
 
+    @Test("leaves reachability to ET when SSH config resolution fails or omits hostname", arguments: [true, false])
+    func unresolvedHostSkipsServerProbe(queryFails: Bool) throws {
+        try withFakeCommands(serverReachable: false) { directory, environment in
+            var environment = environment
+            environment["FAKE_CONFIG_STATUS"] = queryFails ? "255" : "0"
+            environment["FAKE_CONFIG_HOST"] = queryFails ? "unusable.example.com" : ""
+            let result = try run(builder(), environment: environment)
+
+            #expect(result.status == 0)
+            #expect(result.stderr.isEmpty)
+            #expect(!fileExists(directory, "nc.args"))
+            #expect(fileExists(directory, "et.args"))
+        }
+    }
+
+    @Test("rejects malformed and out-of-range tunnel endpoints before ET starts", arguments: [
+        "3000:4000:5000", "3000", "3000:", ":4000", "0:80", "70000:80", "80:65536",
+        "0-2:80-82", "65534-65536:80-82", "80-82:65534-65536", "/tmp/socket:70000",
+        "70000:/tmp/socket", "localhost:70000:db.internal:80", "localhost:80:db.internal:0",
+    ])
+    func invalidTunnelEndpoints(tunnel: String) {
+        for tunnels in [[tunnel], [tunnel, "5037:5037"], [tunnel + ",5037:5037"]] {
+            #expect(EternalTerminalOptions(tunnels: tunnels) == nil)
+            #expect(EternalTerminalOptions(reverseTunnels: tunnels) == nil)
+        }
+    }
+
+    @Test("identity paths survive OpenSSH config parsing", arguments: [
+        #"/keys/work "2026"/id"#, #"/keys/work\2026/id"#, #"/keys/work \"2026\"/id"#,
+    ])
+    func identityPathSurvivesSSHConfig(path: String) throws {
+        let options = EternalTerminalCommandBuilder.sessionSSHOptions(fromSSHArguments: ["ssh", "-i", path])
+        let process = Process()
+        let output = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
+        process.arguments = ["-G", "-F", "/dev/null", "-o", try #require(options.first), "example.com"]
+        process.standardOutput = output
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        let config = String(decoding: output.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        process.waitUntilExit()
+        #expect(process.terminationStatus == 0)
+        #expect(config.split(separator: "\n").contains(Substring("identityfile " + path)))
+    }
+
     @Test("probes an explicit --terminal-path instead of searching PATH")
     func explicitTerminalPathIsProbed() throws {
         try withFakeCommands(executeRemoteCommand: true, installRemoteTerminal: .custom) { directory, environment in
@@ -387,9 +432,10 @@ struct EternalTerminalCommandBuilderTests {
             printf '%s\\n' "$@" >> "$SSH_ARGS_FILE"
             for cmux_arg in "$@"; do
               if [ "$cmux_arg" = "-G" ]; then
-                printf '%s\\n' 'user user' 'hostname resolved.example.com' 'port 22'
+                printf '%s\\n' 'user user' 'port 22'
+                if [ -n "$FAKE_CONFIG_HOST" ]; then printf 'hostname %s\\n' "$FAKE_CONFIG_HOST"; fi
                 if [ -n "$FAKE_PROXY_JUMP" ]; then printf 'proxyjump %s\\n' "$FAKE_PROXY_JUMP"; fi
-                exit 0
+                exit "$FAKE_CONFIG_STATUS"
               fi
             done
             cmux_remote_command=
@@ -439,6 +485,8 @@ struct EternalTerminalCommandBuilderTests {
             "FAKE_REMOTE_HOME": remoteHome.path,
             "FAKE_REMOTE_TERMINAL_PATH": remoteTerminalPath,
             "FAKE_PROXY_JUMP": proxyJump ?? "",
+            "FAKE_CONFIG_HOST": "resolved.example.com",
+            "FAKE_CONFIG_STATUS": "0",
             "FAKE_LIFECYCLE_STATUS": String(lifecycleStatus),
             "FAKE_NC_STATUS": serverReachable ? "0" : "1",
             "SSH_ARGS_FILE": directory.appendingPathComponent("ssh.args").path,
