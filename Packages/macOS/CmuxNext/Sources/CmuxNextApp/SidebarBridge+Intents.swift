@@ -180,7 +180,7 @@ extension SidebarBridge {
     /// Puts daemon truth back after a refused or rejected intent.
     func resync() {
         guard let state else { return }
-        model.ungroupedFirst = !usesMixedOrder
+        model.ungroupedFirst = model.docDrag == nil && !usesMixedOrder
         var sections = Self.sections(services.machines, members: services.windows.registry.members(of: state.id), profile: state.profileID,
                                      hidesHome: Self.hidesHome(services.sidebarLayout.document), selection: state.selection,
                                      newTabPages: Self.newTabPages(services.agentTabs, in: services.machines.local.store), muted: services.notifications.preferences.mutedWorkspaces,
