@@ -209,7 +209,7 @@ mod tests {
         memo.remember(root, &head, &base, None);
         let reader = FinishedMemo::load(path);
         assert_eq!(reader.remembered(root, &head, &base), Some(None));
-        assert!(reader.path.is_none(), "a second writer cannot overwrite progress");
+        assert!(reader._writer.is_none(), "a second writer cannot overwrite progress");
         drop(reader);
         drop(memo);
         std::fs::remove_dir_all(dir).unwrap();
