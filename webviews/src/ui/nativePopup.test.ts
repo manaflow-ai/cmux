@@ -50,4 +50,55 @@ describe("declarative native popup transport", () => {
     stop();
     expect(receive).toBeUndefined();
   });
+  test("native events cannot activate legacy rows or leave a legacy owner", async () => {
+    const listeners = new Set<(event: PopupEvent) => void>();
+    const calls: string[] = [];
+    const host = createPopupHost(
+      async (call) => {
+        calls.push(call);
+        return { shown: true };
+      },
+      (listener) => {
+        listeners.add(listener);
+        return () => {
+          listeners.delete(listener);
+        };
+      },
+    );
+    const legacy: PopupEvent[] = [];
+    const native: NativePopupEvent[] = [];
+    const stopLegacy = host.listen((event) => legacy.push(event));
+    const stopNative = host.native!.listen((event) => native.push(event));
+    const owner = {};
+    await host.show(
+      {
+        items: [{ id: "0", label: "Legacy" }],
+        highlighted: null,
+        anchor: { left: 0, top: 0, right: 10, bottom: 10 },
+        side: "bottom",
+        align: "start",
+        width: 240,
+      },
+      owner,
+    );
+    await host.native!.show({
+      schemaVersion: 1,
+      id: "native",
+      revision: 1,
+      anchor: { left: 0, top: 0, right: 10, bottom: 10 },
+      side: "bottom",
+      align: "start",
+      width: 240,
+      rows: [{ id: "0", kind: "action", label: "Native" }],
+    });
+    expect(host.owner()).toBeNull();
+    const event: NativePopupEvent = { type: "pick", popupId: "native", revision: 1, id: "0" };
+    listeners.forEach((listener) => listener(event as unknown as PopupEvent));
+    expect(legacy).toEqual([]);
+    expect(native).toEqual([event]);
+    host.hide(owner);
+    expect(calls).toEqual(["show", "show"]);
+    stopNative();
+    stopLegacy();
+  });
 });
