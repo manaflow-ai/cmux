@@ -50,7 +50,7 @@ public final class DisplayBackdropBinding {
     }
 
     nonisolated deinit {
-        teardown()
+        MainActor.assumeIsolated { teardown() }
     }
 
     /// Resolves and lists a folder on the global executor, including all symlink and metadata reads.
