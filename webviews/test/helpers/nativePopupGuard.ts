@@ -18,7 +18,12 @@ export interface NativePresentation extends PopupIdentity {
 export type SurfaceSemantics =
   | { kind: "persistent" }
   | { kind: "modal" }
-  | { kind: "escape-mirror"; shell: Element; expected: PopupIdentity; presentation: NativePresentation | null }
+  | {
+      kind: "escape-mirror";
+      shell: Element;
+      expected: PopupIdentity;
+      presentation: NativePresentation | null;
+    }
   | { kind: "native-content"; expected: PopupIdentity; presentation: NativePresentation | null };
 
 export interface PopupGuardOptions {
@@ -68,11 +73,15 @@ export function currentPopupEvent(
   );
 }
 
-export function nativePresentationProblem(expected: PopupIdentity, actual: NativePresentation | null): string | null {
+export function nativePresentationProblem(
+  expected: PopupIdentity,
+  actual: NativePresentation | null,
+): string | null {
   if (!actual) return "missing native presentation";
   if (actual.host !== "WebPopupHost") return "presentation used a different native host";
   if (actual.state !== "shown") return `native presentation ${actual.state}`;
-  if (!currentPopupEvent(actual, expected, actual.owner)) return "stale popup identity, revision or mounted owner";
+  if (!currentPopupEvent(actual, expected, actual.owner))
+    return "stale popup identity, revision or mounted owner";
   return null;
 }
 
@@ -81,7 +90,10 @@ function parent(element: Element): Element | null {
   return element.parentElement ?? ("host" in root ? (root as ShadowRoot).host : null);
 }
 
-function elementsIn(root: Document | Element | ShadowRoot, supplied: ReadonlySet<ShadowRoot> = new Set()): Element[] {
+function elementsIn(
+  root: Document | Element | ShadowRoot,
+  supplied: ReadonlySet<ShadowRoot> = new Set(),
+): Element[] {
   const result: Element[] = [];
   const byHost = new Map([...supplied].map((shadow) => [shadow.host, shadow]));
   const visited = new Set<Document | Element | ShadowRoot>();
@@ -104,19 +116,30 @@ function elementsIn(root: Document | Element | ShadowRoot, supplied: ReadonlySet
   return result;
 }
 
-function escapeMirrorProblem(element: Element, declaration: Extract<SurfaceSemantics, { kind: "escape-mirror" }>): string | null {
+function escapeMirrorProblem(
+  element: Element,
+  declaration: Extract<SurfaceSemantics, { kind: "escape-mirror" }>,
+): string | null {
   const { shell, expected, presentation } = declaration;
   if (!presentation) return "missing escape presentation observation";
-  if (presentation.host !== "WebPopupHost" || !currentPopupEvent(presentation, expected, presentation.owner))
+  if (
+    presentation.host !== "WebPopupHost" ||
+    !currentPopupEvent(presentation, expected, presentation.owner)
+  )
     return "stale escape identity, revision, mounted owner or host";
-  if (shell !== element && !shell.contains(element)) return "escape shell does not contain its declared mirror";
+  if (shell !== element && !shell.contains(element))
+    return "escape shell does not contain its declared mirror";
   const style = shell.ownerDocument.defaultView?.getComputedStyle(shell);
-  const escaped = shell.hasAttribute("data-escaped") && style?.opacity === "0" && style.pointerEvents === "none";
+  const escaped =
+    shell.hasAttribute("data-escaped") && style?.opacity === "0" && style.pointerEvents === "none";
   if (presentation.state === "pending" || presentation.state === "shown")
     return escaped ? null : "pending/shown escape mirror is not invisible and pointer-disabled";
   if (presentation.state === "rejected")
-    return !shell.hasAttribute("data-escaped") && style?.opacity !== "0" && style?.pointerEvents !== "none"
-      ? null : "rejected escape presentation did not restore the page surface";
+    return !shell.hasAttribute("data-escaped") &&
+      style?.opacity !== "0" &&
+      style?.pointerEvents !== "none"
+      ? null
+      : "rejected escape presentation did not restore the page surface";
   return "dismissed escape presentation retains popup DOM";
 }
 
@@ -144,7 +167,8 @@ export function inspectNativePopups(
   const violations: PopupViolation[] = [];
   for (const { expected, actual } of options.presentations ?? []) {
     const detail = nativePresentationProblem(expected, actual);
-    if (detail) violations.push({ kind: "native-presentation", detail: `${expected.popupId}: ${detail}` });
+    if (detail)
+      violations.push({ kind: "native-presentation", detail: `${expected.popupId}: ${detail}` });
   }
   const elements = elementsIn(root, options.shadowRoots);
   const compatibleShells = new Set<Element>();
@@ -182,7 +206,11 @@ export function inspectNativePopups(
     }
     if (declaration?.kind === "modal") {
       if (isModal(element)) continue;
-      violations.push({ kind: "invalid-modal", element, detail: "declared modal has no observed modal ownership" });
+      violations.push({
+        kind: "invalid-modal",
+        element,
+        detail: "declared modal has no observed modal ownership",
+      });
     } else if (isModal(element)) {
       continue;
     }
@@ -197,14 +225,19 @@ export function inspectNativePopups(
       (role === "listbox" && (floating || portaled || anchored)) ||
       ((role === "dialog" || (element.localName === "dialog" && element.hasAttribute("open"))) &&
         (floating || portaled || anchored));
-    const marked = element.hasAttribute("popover") || element.getAttribute("data-placement") === "popover";
+    const marked =
+      element.hasAttribute("popover") || element.getAttribute("data-placement") === "popover";
     if (!(semantic || marked || portaled || (floating && (anchored || raised)))) continue;
     // One finding per frame; a menu's positioned descendants are not additional frames.
     let ancestor = parent(element);
     while (ancestor && !candidates.has(ancestor)) ancestor = parent(ancestor);
     if (ancestor) continue;
     candidates.add(element);
-    violations.push({ kind: "dom-popup", element, detail: "mounted floating popup DOM in the native adapter" });
+    violations.push({
+      kind: "dom-popup",
+      element,
+      detail: "mounted floating popup DOM in the native adapter",
+    });
   }
   return violations;
 }
