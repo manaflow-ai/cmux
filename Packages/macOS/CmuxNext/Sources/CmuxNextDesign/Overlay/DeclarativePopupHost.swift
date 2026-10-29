@@ -109,13 +109,14 @@ final class DeclarativePopupHost {
                 "frame": [placed.frame.minX, placed.frame.minY, placed.frame.width, placed.frame.height]]
     }
 
-    func update(_ next: NativePopupModel) {
+    func update(_ next: NativePopupModel, screenAnchor: CGRect? = nil) {
         guard let current = model, current.id == next.id, next.revision > current.revision, popup.isShown else { return }
-        _ = show(next, screenAnchor: parent == nil ? nil : shownAnchor, in: shownParent, sideBySide: sideBySide)
+        _ = show(next, screenAnchor: screenAnchor ?? (parent == nil ? nil : shownAnchor), in: shownParent, sideBySide: sideBySide)
         let enabled = Self.enabledRows((next.rail ?? []) + next.rows + (next.footer ?? []))
         if let child, let childRowID,
            let row = enabled.first(where: { $0.id == childRowID && $0.kind == .submenu }),
-           let rows = row.children, !rows.isEmpty {
+           let rows = row.children, !rows.isEmpty,
+           let view = content.rowView(id: childRowID) {
             var submenu = next
             submenu.rows = rows
             submenu.rail = nil
@@ -124,7 +125,7 @@ final class DeclarativePopupHost {
             submenu.title = row.label
             submenu.parentId = next.id
             submenu.align = .start
-            child.update(submenu)
+            child.update(submenu, screenAnchor: submenuAnchor(for: view))
         } else {
             child?.hide()
             child = nil
@@ -214,11 +215,16 @@ final class DeclarativePopupHost {
         next.search = nil
         next.highlighted = nil
         next.parentId = model.id
-        let rowFrame = panel.convertToScreen(view.convert(view.bounds, to: nil))
         // A child is a side-by-side menu. Its placement owns the horizontal side, so the
         // root's trailing alignment cannot pull it back over its parent row.
         next.align = .start
-        _ = submenu.show(next, screenAnchor: rowFrame, in: panel, sideBySide: true)
+        _ = submenu.show(next, screenAnchor: submenuAnchor(for: view), in: panel, sideBySide: true)
+    }
+
+    private func submenuAnchor(for view: NSView) -> CGRect {
+        let rowFrame = panel.convertToScreen(view.convert(view.bounds, to: nil))
+        let card = popup.cardFrame
+        return CGRect(x: card.minX, y: rowFrame.minY, width: card.width, height: rowFrame.height)
     }
 
     private static func enabledRows(_ rows: [NativePopupRow]) -> [NativePopupRow] {
