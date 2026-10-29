@@ -115,12 +115,14 @@ struct SessionPriorityStatusSnapshotTests {
     private func reported(
         _ state: SessionPriorityCoordinatorState,
         panelId: UUID,
+        sessionId: String? = "s1",
         arguments: [String] = ["claude", "--session-id", "s1"],
         environment: [String: String] = [:],
         workspaceEnvironment: [String: String] = [:]
     ) -> SessionPriorityPaneState {
         state.reportedPaneState(
             panelId: panelId,
+            sessionId: sessionId,
             workspaceMarkedManual: false,
             launchArguments: arguments,
             launchEnvironment: environment,
@@ -194,6 +196,28 @@ struct SessionPriorityStatusSnapshotTests {
         let relaunched = reported(state, panelId: panelId, arguments: ["claude", "--effort", "max"])
 
         #expect(relaunched == .manual(.launchArgumentEffort))
+    }
+
+    /// A Claude that died without a `SessionEnd` leaves its record; a new `claude --effort max` in
+    /// the pane is another session, which the record does not decide, so its launch counts. A
+    /// record waiting for its restarted Claude's start still counts while the index lags.
+    @Test
+    func recordForAnotherSessionDoesNotDecideTheNewOne() {
+        var state = SessionPriorityCoordinatorState()
+        let panelId = UUID()
+        let decided = state.noteDecision(.leave(.upToDate), panelId: panelId, workspaceId: workspaceId, sessionId: "s1")
+        #expect(decided == .upToDate)
+
+        let newSession = reported(state, panelId: panelId, sessionId: "s2", arguments: ["claude", "--effort", "max"])
+        let sameSession = reported(state, panelId: panelId, sessionId: "s1", arguments: ["claude", "--effort", "max"])
+
+        #expect(newSession == .manual(.launchArgumentEffort))
+        #expect(!snapshot(panes: [newSession]).isAdjustable)
+        #expect(sameSession == .upToDate, "the record still decides its own session")
+
+        let restarting = UUID()
+        state.noteRestartStarted(panelId: restarting, sessionId: "s3", target: SessionPriorityTarget(effort: .high), nowMs: 0)
+        #expect(reported(state, panelId: restarting, sessionId: "s0") == .applying)
     }
 
     /// Once the coordinator decided the pane, its record is what the status reports.

@@ -392,6 +392,7 @@ struct SessionPriorityCoordinatorState: Equatable {
     /// target before any turn (ruling R37). The screen and the transcript are not read here.
     func reportedPaneState(
         panelId: UUID,
+        sessionId: String?,
         workspaceMarkedManual: Bool,
         launchArguments: [String],
         launchEnvironment: [String: String],

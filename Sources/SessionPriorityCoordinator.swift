@@ -450,6 +450,7 @@ final class SessionPriorityCoordinator {
                 ? .applying
                 : state.reportedPaneState(
                     panelId: pane.panelId,
+                    sessionId: pane.snapshot?.sessionId,
                     workspaceMarkedManual: workspace.sessionPriorityState.isManual,
                     launchArguments: launchCommand?.arguments ?? [],
                     launchEnvironment: launchCommand?.environment ?? [:],
