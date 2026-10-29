@@ -1051,7 +1051,6 @@ export class HomeChannelsStore {
    * without runs answers nothing: the page shows no run cards. */
   private async loadRuns(conversation: string, messages: readonly HomeMessage[], newest: boolean): Promise<void> {
     if (!this.client) return;
-    if (messages.length === 0) return;
     const generation = this.generation;
     const life = this.life;
     const agents = new Set(
@@ -1075,7 +1074,9 @@ export class HomeChannelsStore {
     const messageIds = new Set(messages.map((message) => message.id));
     const unresolvedReplies = new Set(replyKeys);
     const published = new Map<string, HomeRun>();
-    let answersComplete = messageIds.size > 0;
+    // With no messages there are no direct answer keys to resolve, but the newest-runs
+    // query still restores background activity when a conversation is reopened.
+    let answersComplete = true;
     // Publish and hydrate each successful batch before asking for more history. A slow or failed
     // later page must not hold back the rows already found for the visible conversation.
     const publish = async (runs: readonly HomeRun[], direct = false) => {
