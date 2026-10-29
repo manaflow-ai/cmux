@@ -85,6 +85,35 @@ struct WorkspaceTabHoverCardTests {
         }
     }
 
+    @Test func aPressedRowCannotSelectAReusedRowAfterItsTabChanges() throws {
+        let view = WorkspaceTabHoverCardView()
+        var selected: TabID?
+        view.onSelect = { selected = $0 }
+        view.configure(title: "app", tabs: [
+            SidebarTab(id: TabID("first"), title: "first"),
+            SidebarTab(id: TabID("second"), title: "second"),
+        ])
+        let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 320, height: 120), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.contentView = nil; window.close() }
+        window.contentView = view
+        view.frame = NSRect(x: 0, y: 0, width: 320, height: 120)
+        view.layoutSubtreeIfNeeded()
+        let row = try #require(view.subviews.compactMap { $0 as? NSScrollView }.first?.documentView?.subviews.first)
+        let point = row.convert(NSPoint(x: row.bounds.midX, y: row.bounds.midY), to: nil)
+        let down = try #require(NSEvent.mouseEvent(with: .leftMouseDown, location: point, modifierFlags: [], timestamp: 1,
+                                                   windowNumber: window.windowNumber, context: nil, eventNumber: 1,
+                                                   clickCount: 1, pressure: 1))
+        let up = try #require(NSEvent.mouseEvent(with: .leftMouseUp, location: point, modifierFlags: [], timestamp: 1,
+                                                 windowNumber: window.windowNumber, context: nil, eventNumber: 2,
+                                                 clickCount: 1, pressure: 0))
+        row.mouseDown(with: down)
+        view.configure(title: "app", tabs: [SidebarTab(id: TabID("second"), title: "second")])
+        row.mouseUp(with: up)
+        #expect(selected == nil, "a release from a stale press selected the replacement tab")
+    }
+
     @Test func tabRowActivatesOnRelease() throws {
         let view = WorkspaceTabHoverCardView()
         var selected: TabID?

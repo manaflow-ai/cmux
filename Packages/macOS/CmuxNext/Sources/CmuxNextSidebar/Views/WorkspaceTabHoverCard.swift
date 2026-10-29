@@ -147,7 +147,9 @@ private final class WorkspaceTabHoverCardRow: NSView {
     var isKeyboardSelected = false { didSet { paint() } }
     var onRelease: (() -> Void)?
     private var pressed = false
+    private var pressedTabID: TabID?
     private(set) var reportedLine = ""
+    private var currentTabID: TabID?
 
     override var isFlipped: Bool { true }
 
@@ -207,6 +209,9 @@ private final class WorkspaceTabHoverCardRow: NSView {
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     func configure(_ tab: SidebarTab) {
+        currentTabID = tab.id
+        pressed = false
+        pressedTabID = nil
         icon.image = tab.favicon.map { NSImage(cgImage: $0.image, size: NSSize(width: Metrics.iconSize, height: Metrics.iconSize)) }
             ?? tab.brand.flatMap { AgentBrandCatalog.templateImage(brand: $0, size: Metrics.iconSize) }
             ?? NSImage.icon(tab.kind.icon, size: Metrics.iconSize)
@@ -241,13 +246,17 @@ private final class WorkspaceTabHoverCardRow: NSView {
 
     override func mouseEntered(with event: NSEvent) { isHovered = true }
     override func mouseExited(with event: NSEvent) { isHovered = false }
-    override func mouseDown(with event: NSEvent) { pressed = true; paint() }
+    override func mouseDown(with event: NSEvent) {
+        pressed = true
+        pressedTabID = currentTabID
+        paint()
+    }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { super.hitTest(point) == nil ? nil : self }
     override func accessibilityPerformPress() -> Bool { onRelease?(); return onRelease != nil }
     override func mouseUp(with event: NSEvent) {
         defer { pressed = false; paint() }
-        guard pressed, bounds.contains(convert(event.locationInWindow, from: nil)) else { return }
+        guard pressed, bounds.contains(convert(event.locationInWindow, from: nil)), pressedTabID == currentTabID else { return }
         onRelease?()
     }
 
