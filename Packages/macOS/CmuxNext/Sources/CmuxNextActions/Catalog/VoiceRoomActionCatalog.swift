@@ -10,12 +10,14 @@ nonisolated enum VoiceRoomActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "voiceRoom.open", title: t("action.voiceRoom.open", "Open Voice Room"),
                 keywords: ["voice", "room", "call", "meeting", "talk", "transcribe", "screen", "chief", "labs"],
-                category: .agents, symbol: "person.wave.2", surfaces: [.palette]
+                category: .agents, symbol: "person.wave.2", surfaces: [.palette],
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
             ),
             ActionDescriptor(
                 id: "voiceRoom.stop", title: t("action.voiceRoom.stop", "Stop Voice Room"),
                 keywords: ["voice", "room", "call", "meeting", "stop", "recording", "mic", "labs"],
-                category: .agents, symbol: "stop.circle", surfaces: [.palette]
+                category: .agents, symbol: "stop.circle", surfaces: [.palette],
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
             ),
         ]
     }
