@@ -274,6 +274,12 @@ class Seen:
     # release.yml runs (queue_janitor.RESERVED_POOL_WORKFLOW) queued for it. No PR job takes a label's
     # slot while it is above 0 (place()).
     reserved: Mapping[str, int] = dataclasses.field(default_factory=dict)
+    # Each owned label's oldest queued wait by now (minutes), for the labels the snapshot saw a queue on:
+    # how long the side route's queue has gone without starting its oldest job (dead_end()).
+    owned: Mapping[str, float] = dataclasses.field(default_factory=dict)
+    # Queue counts are a separate unit from oldest waits. GUI/session placement weighs them against
+    # online runners; the side-route dead-end check above keeps reading wait durations.
+    owned_queued: Mapping[str, int] = dataclasses.field(default_factory=dict)
 
 
 def _fresh(snapshot: Mapping[str, Any] | None, now: dt.datetime) -> tuple[float, Mapping[str, Any]] | None:
@@ -321,7 +327,12 @@ def seen(snapshot: Mapping[str, Any] | None, now: dt.datetime) -> Seen | None:
     waits = {label: float(_field(pools, label, "oldest_queued_minutes")) + age
              if _field(pools, label, "queued") else 0.0 for label in LABELS}
     reserved = {label: _field(pools, label, "reserved_queued") for label in LABELS}
-    return Seen(waits=waits, age=age, reserved={k: v for k, v in reserved.items() if v})
+    owned = {str(label): float(_field(pools, str(label), "oldest_queued_minutes")) + age
+             for label in pools if str(label).startswith("glaeda-") and _field(pools, str(label), "queued")}
+    owned_queued = {str(label): _field(pools, str(label), "queued")
+                    for label in pools if str(label).startswith("glaeda-") and _field(pools, str(label), "queued")}
+    return Seen(waits=waits, age=age, reserved={k: v for k, v in reserved.items() if v}, owned=owned,
+                owned_queued=owned_queued)
 
 
 def stalled(live: Mapping[str, int], waiting: Mapping[str, int], waits: Mapping[str, float],
@@ -375,6 +386,27 @@ def _pool_backlog(waiting: Mapping[str, int]) -> int:
     return sum(count for label, count in waiting.items() if pool_label(label) and label != LARGE)
 
 
+def dead_end(route_wait: float | None, live: Mapping[str, int], waiting: Mapping[str, int],
+             seen: "Seen | None") -> bool:
+    """Whether the owned route the jobs would stay on is a worse queue than SMALL's: overflow() then waives
+    SMALL's stall and backlog rules.
+
+    `route_wait` (side_lane_placement.route_wait()) is how long the route's oldest queued job has waited with
+    no idle runner carrying the route, in minutes (math.inf when every online runner carrying it is on one
+    host), or None (an idle runner, or nothing read). It is a dead end once that wait reaches STALL_MINUTES
+    (the stall rule every picker reads) and exceeds SMALL's own oldest wait, while SMALL still starts jobs:
+    a runner in flight, or no queue. On 2026-10-29 cmux#26723's fast tier (run 40841809952) queued on
+    glaeda-side-std-xcode-26.6 from 08:24Z behind 96 jobs whose oldest had waited 443 minutes, while
+    blacksmith-6vcpu-macos-26 ran 4 with its oldest queued 27 minutes: overflow() called that queue stalled
+    and kept the job on the far longer one.
+    """
+    if route_wait is None or route_wait < STALL_MINUTES:
+        return False
+    small_wait = seen.waits.get(SMALL, 0.0) if seen is not None else 0.0
+    moving = live.get(SMALL, 0) > 0 or waiting.get(SMALL, 0) == 0
+    return moving and small_wait < route_wait
+
+
 def overflow_refusal(waiting: Mapping[str, int], stall: Sequence[str], reserved: Sequence[str]) -> str:
     """Why SMALL takes no overflow job that is not a feed's compile, or "" when it does."""
     if SMALL in stall:
@@ -388,7 +420,7 @@ def overflow_refusal(waiting: Mapping[str, int], stall: Sequence[str], reserved:
 
 def overflow(jobs: Sequence[str], waiting: Mapping[str, int], *, stall: Sequence[str] = (),
              reserved: Sequence[str] = (), fresh: Sequence[str] = (),
-             fresh_stall: Sequence[str] = (), already: int = 0) -> tuple[str, ...]:
+             fresh_stall: Sequence[str] = (), already: int = 0, dead_end: bool = False) -> tuple[str, ...]:
     """The `jobs` (no idle mini and no free slot took them) that queue on SMALL instead of the owned label.
 
     Leo's routing order is Linux, then owned Macs, then Blacksmith macOS as the last resort, and no job
@@ -405,13 +437,17 @@ def overflow(jobs: Sequence[str], waiting: Mapping[str, int], *, stall: Sequence
     one stall rule), not while OVERFLOW_BACKLOG or more jobs queue ahead (_pool_backlog()), at most
     MAX_PER_RUN jobs of one run on SMALL counting the `already` its free slots took, and, as in cascade(), only a feed's compile while freshness work is
     queued for it and never a feed's compile on a fresh-stalled label.
+
+    `dead_end` (dead_end(): the owned route the jobs would otherwise wait on has started nothing for longer
+    than SMALL's oldest job has waited, or one host alone serves it) waives SMALL's stall and backlog rules:
+    the shorter queue wins. MAX_PER_RUN, freshness work and a fresh-stalled label still hold.
     """
-    if SMALL in stall:
+    if SMALL in stall and not dead_end:
         return ()
     taken: list[str] = []
     ahead = _pool_backlog(waiting)
     for job in jobs:
-        if already + len(taken) >= MAX_PER_RUN or ahead + len(taken) >= OVERFLOW_BACKLOG:
+        if already + len(taken) >= MAX_PER_RUN or not dead_end and ahead + len(taken) >= OVERFLOW_BACKLOG:
             break
         if SMALL in reserved and job not in fresh or job in fresh and SMALL in fresh_stall:
             continue
@@ -457,13 +493,19 @@ def skipped(env: Mapping[str, str]) -> str:
     return ""
 
 
+def cascade_jobs(env: Mapping[str, str]) -> tuple[str, ...]:
+    """CASCADE_JOBS plus the env's CASCADE_JOBS: another side workflow's own Mac jobs (the post-publish
+    launch smoke's `launch-smoke`) take the same cascade without joining cmux-next's list."""
+    return (*CASCADE_JOBS, *(job for job in (env.get("CASCADE_JOBS") or "").split() if job not in CASCADE_JOBS))
+
+
 def candidates(env: Mapping[str, str], owned: Sequence[str], promote_busy: bool = False) -> list[str]:
     """The cascade jobs that run here and no idle mini takes, in the order they take Blacksmith slots."""
     runs = set((env.get("CASCADE_RUNS") or "").split())
     # idle_placement() hands the idle minis to the first JOBS, running or not, and
     # every side job takes the side label whatever owned_jobs says: so the idle
     # minis count against the jobs that run here, in order, before Blacksmith.
-    running = [job for job in (env.get("JOBS") or "").split() if job in CASCADE_JOBS and job in runs]
+    running = [job for job in (env.get("JOBS") or "").split() if job in cascade_jobs(env) and job in runs]
     promoted = [job for job in running if job in PROMOTE_JOBS] if (env.get("PROMOTE_LABEL") or "").strip() else []
     side = [job for job in running if job not in promoted]
     # FIRST_JOBS (a feat-cmux-next push's Release compile, which gates the nightly-next request) take the
@@ -483,7 +525,7 @@ def candidates(env: Mapping[str, str], owned: Sequence[str], promote_busy: bool 
 
 def place(env: Mapping[str, str], owned: Sequence[str], live: Mapping[str, int] | None,
           waiting: Mapping[str, int] | None, seen: Seen | None = None, promote_busy: bool = False,
-          saturated: bool = False) -> Placement:
+          saturated: bool = False, route_wait: float | None = None) -> Placement:
     """The Blacksmith jobs of attempt 1, after the idle minis took `owned`.
 
     With PROMOTE_LABEL set (a feat-cmux-next push), PROMOTE_JOBS run on that label: they cascade,
@@ -492,6 +534,8 @@ def place(env: Mapping[str, str], owned: Sequence[str], live: Mapping[str, int] 
     `saturated`: the owned runners were read live, so the jobs past `owned` are known to have no idle
     mini. Those jobs then never stay on the owned label while Blacksmith 6 vCPU is a live last resort
     (overflow(); with the counts unread, the same MAX_PER_RUN cap as a feed's compile).
+
+    `route_wait`: how long the owned route the jobs would stay on has started nothing (dead_end()).
     """
     empty = {label: () for label in LABELS}
     if skipped(env):
@@ -535,8 +579,9 @@ def place(env: Mapping[str, str], owned: Sequence[str], live: Mapping[str, int] 
     # Free slots taken, the jobs left would wait on the owned label. With the owned pool read saturated,
     # 6 vCPU's moving queue takes them instead (overflow()): it is the routing order's last resort.
     unplaced = [job for job in jobs if not any(job in names for names in placed.values())]
+    blocked = saturated and dead_end(route_wait, live, waiting, seen)
     spilled = (overflow(unplaced, waiting, stall=stall, reserved=reserved, fresh=fresh, fresh_stall=fresh_stall,
-                        already=len(placed[SMALL])) if saturated else ())
+                        already=len(placed[SMALL]), dead_end=blocked) if saturated else ())
     if spilled:
         placed = {**placed, SMALL: (*placed[SMALL], *spilled)}
     # The overflow label counts the slots this run's own jobs just took: they fit, so they start, and hold
@@ -561,7 +606,12 @@ def place(env: Mapping[str, str], owned: Sequence[str], live: Mapping[str, int] 
     moved = "; ".join(f"`{label}` takes {', '.join(names)}" for label, names in placed.items() if names)
     left = [job for job in jobs if not any(job in names for names in placed.values())]
     why = f"Blacksmith: {load}; {pool_text}. " + (moved or "No free Blacksmith slot")
-    if spilled:
+    if spilled and blocked:
+        why += (f"; no idle mini and no free slot, and the owned route has started nothing for "
+                f"{'ever: one host serves it' if route_wait == float('inf') else f'{route_wait:.0f} min'}, "
+                f"so {', '.join(spilled)} queue on `{SMALL}`, the shorter queue "
+                f"({_pool_backlog(waiting)} queued ahead)")
+    elif spilled:
         why += (f"; no idle mini and no free slot, so {', '.join(spilled)} queue on `{SMALL}`, which is moving "
                 f"({_pool_backlog(waiting)} queued ahead, under {OVERFLOW_BACKLOG})")
     elif saturated and left:
@@ -584,7 +634,7 @@ def unread_fresh_jobs(env: Mapping[str, str], owned: Sequence[str]) -> tuple[str
     """The FRESH_JOBS that run here and that no idle mini took (`owned` counts against the run's other jobs
     first, as in place()), at most MAX_PER_RUN."""
     runs = set((env.get("CASCADE_RUNS") or "").split())
-    running = [job for job in (env.get("JOBS") or "").split() if job in CASCADE_JOBS and job in runs]
+    running = [job for job in (env.get("JOBS") or "").split() if job in cascade_jobs(env) and job in runs]
     fresh = [job for job in running if job in set((env.get("FRESH_JOBS") or "").split())]
     others = len(running) - len(fresh)
     return tuple(fresh[max(0, len(owned) - others):][:MAX_PER_RUN])

@@ -13,6 +13,7 @@ import {
   parseVmIdleProbe,
   vmIdleObservationFromRow,
   vmIdlePauseMinutesFromRow,
+  vmIdlePrivateAddressesFromRow,
   vmIdleProbeCommand,
   vmLastApiActivityFromRow,
   vmPauseReasonFromRow,
@@ -206,12 +207,14 @@ describe("idle probe output", () => {
   });
 
   test("the probe command runs acpmux as the daemon user only when its daemon runs, and passes only IP literals", () => {
-    const command = vmIdleProbeCommand(["10.192.0.5", "fd00:7::5", "10.0.0.1; rm -rf /"]);
+    const command = vmIdleProbeCommand(["10.192.0.5", "fd00:7::5", "10.0.0.1; rm -rf /", "10.192.0.999", "deadbeef"]);
     expect(command).toContain(`CMUX_IDLE_PRIVATE_ADDRESSES='10.192.0.5,fd00:7::5'`);
     expect(command).toContain(`acp --json daemon status`);
     expect(command).toContain(`*'"running":false'*`);
     expect(command).toContain("setpriv");
     expect(command).not.toContain("rm -rf");
+    expect(command).not.toContain("10.192.0.999");
+    expect(command).not.toContain("deadbeef");
   });
 });
 
@@ -385,6 +388,35 @@ describe("idle probe guest script", () => {
       .toEqual({ busy_sessions: 0, last_updated_at_ms: null });
   });
 
+  test("durably queued acpmux work prevents an idle verdict before its next turn starts", async () => {
+    for (const marker of [
+      { queued: 1 },
+      { queuePaused: true },
+      { waitsForSlot: true },
+      { moving: true },
+      { waitingOn: "question" },
+    ]) {
+      const out = await runProbeScript({ "net/tcp": TCP_HEADER, "net/tcp6": TCP_HEADER }, JSON.stringify({
+        sessions: [{ name: "queued", status: "ready", turn: null, queued: 0, pendingPermissions: 0, ...marker }],
+      }));
+      expect({ marker, acpmux: out.acpmux }).toEqual({
+        marker, acpmux: { busy_sessions: 1, last_updated_at_ms: null },
+      });
+      expect(parseVmIdleProbe(JSON.stringify(out))?.acpmux?.busySessions).toBe(1);
+    }
+    const idle = await runProbeScript({ "net/tcp": TCP_HEADER }, JSON.stringify({
+      sessions: [{ name: "ready", status: "ready", turn: null, queued: 0 }],
+    }));
+    expect(idle.acpmux).toEqual({ busy_sessions: 0, last_updated_at_ms: null });
+  });
+
+  test("an invalid acpmux queue count cannot look idle", async () => {
+    const out = await runProbeScript({ "net/tcp": TCP_HEADER }, JSON.stringify({
+      sessions: [{ name: "broken", status: "ready", turn: null, queued: "1" }],
+    }));
+    expect(out.acpmux).toBeNull();
+  });
+
   test("counts an IPv6 connection to the private address, a v4-mapped one, and any connection into sshd", async () => {
     // fd00:7::5 in /proc/net/tcp6 word order; a remote fd00:7::9.
     const local6 = "070000FD000000000000000005000000";
@@ -401,6 +433,25 @@ describe("idle probe guest script", () => {
         + tcpRow(`${mapped}:0BB8`, "0000000000000000FFFF00000900C00A:C001", "01"),
     }, "NONE");
     expect(out.inbound_connections).toBe(3);
+  });
+
+  test("a missing IPv4 TCP table is unknown, while a kernel without tcp6 can be idle", async () => {
+    const missingIpv4 = await runProbeScript({ "net/tcp6": TCP_HEADER }, "NONE");
+    expect(missingIpv4.inbound_connections).toBeNull();
+    expect(parseVmIdleProbe(JSON.stringify(missingIpv4))).toBeNull();
+    const noIpv6 = await runProbeScript({ "net/tcp": TCP_HEADER }, "NONE");
+    expect(noIpv6.inbound_connections).toBe(0);
+  });
+
+  test("malformed TCP rows fail closed instead of hiding an established connection", async () => {
+    for (const broken of [
+      { "net/tcp": TCP_HEADER + "0: truncated\n", "net/tcp6": TCP_HEADER },
+      { "net/tcp": TCP_HEADER, "net/tcp6": TCP_HEADER + tcpRow("invalid:0BB8", "00000000:0000", "01") },
+    ]) {
+      const out = await runProbeScript(broken, "NONE");
+      expect(out.inbound_connections).toBeNull();
+      expect(parseVmIdleProbe(JSON.stringify(out))).toBeNull();
+    }
   });
 });
 
@@ -462,7 +513,7 @@ function cronFakes(
   fakeOptions: { readonly reread?: (row: CloudVmRow) => CloudVmRow | null } = {},
 ) {
   const recorded = {
-    execs: [] as Array<{ vmId: string; asRoot: boolean | undefined; command: string }>,
+    execs: [] as Array<{ vmId: string; asRoot: boolean | undefined; command: string; cancelOnInterrupt?: boolean }>,
     paused: [] as string[],
     statuses: [] as Array<{ id: string; status: string; pauseReason?: string }>,
     observations: [] as Array<{ id: string; observation: VmIdleObservation | null }>,
@@ -520,8 +571,8 @@ function cronFakes(
     },
   } as unknown as VmRepositoryShape;
   const provider = {
-    exec: (_provider: string, vmId: string, command: string, options?: { asRoot?: boolean }) => {
-      recorded.execs.push({ vmId, asRoot: options?.asRoot, command });
+    exec: (_provider: string, vmId: string, command: string, options?: { asRoot?: boolean; cancelOnInterrupt?: boolean }) => {
+      recorded.execs.push({ vmId, asRoot: options?.asRoot, command, cancelOnInterrupt: options?.cancelOnInterrupt });
       const out = probeOut(vmId);
       return out === "fails" ? Effect.fail(new Error("exec failed")) : Effect.succeed({ ...out, stderr: "" });
     },
@@ -555,6 +606,72 @@ const probeLine = (overrides: Record<string, unknown> = {}) => JSON.stringify({
   ...overrides,
 });
 
+describe("a shell running a command", () => {
+  // pts/0's foreground group is only a shell. At its prompt that is idle; a
+  // shell that is itself the command (`bash -c ...`, `sh script.sh`) is not.
+  const shellOnly = (comm: string, cmdline: readonly string[]) => ({
+    "100/stat": stat(100, comm, 100, 100, PTS0, 100),
+    "100/cmdline": cmdline.join("\0") + "\0",
+    "net/tcp": TCP_HEADER,
+  });
+
+  test("bash -c, sh -lc and a shell running a script are busy terminals", async () => {
+    for (const cmdline of [["bash", "-c", "read -t 3600"], ["sh", "-lc", "sleep 600"], ["bash", "deploy.sh"], ["/bin/bash", "-e", "./run.sh", "x"],
+      // -c after -s still runs it; a bare - ends options like --; an empty rcfile operand is still an operand.
+      ["bash", "-s", "-c", "read -t 3600"], ["bash", "-", "deploy.sh"], ["bash", "--rcfile", "", "deploy.sh"]]) {
+      const comm = path.basename(cmdline[0]);
+      expect({ cmdline, busy: (await runProbeScript(shellOnly(comm, cmdline), "NONE")).busy_terminals }).toEqual({ cmdline, busy: 1 });
+    }
+  });
+
+  test("a login or interactive shell at its prompt stays idle", async () => {
+    for (const [comm, cmdline] of [["bash", ["-bash"]], ["bash", ["bash"]], ["zsh", ["zsh", "-l"]], ["bash", ["bash", "-i"]], ["bash", ["bash", "--login"]],
+      // Option operands are not scripts: an rcfile, a set -o option, a shopt name; -s reads commands from stdin.
+      ["bash", ["bash", "--rcfile", "/home/cmux/.cmux/bashrc", "-i"]], ["bash", ["bash", "--init-file", "x.sh"]],
+      ["bash", ["bash", "-o", "emacs"]], ["bash", ["bash", "+O", "extglob"]], ["zsh", ["zsh", "-o", "vi"]],
+      ["bash", ["bash", "-s", "arg"]], ["bash", ["bash", "-io", "emacs"]], ["bash", ["bash", "-"]]] as const) {
+      expect({ cmdline, busy: (await runProbeScript(shellOnly(comm, cmdline), "NONE")).busy_terminals }).toEqual({ cmdline, busy: 0 });
+    }
+  });
+});
+
+describe("unreadable process sources", () => {
+  const base = {
+    "100/stat": stat(100, "zsh", 100, 100, PTS0, 100),
+    "100/cmdline": "-zsh\0",
+    "net/tcp": TCP_HEADER,
+  };
+
+  test("a process that exited mid-read is skipped", async () => {
+    // pid 300 is listed but its stat and cmdline are gone.
+    const out = await runProbeScript({ ...base, "300/environ": "" }, "NONE");
+    expect({ busy: out.busy_terminals, ssh: out.ssh_sessions, inbound: out.inbound_connections }).toEqual({ busy: 0, ssh: 0, inbound: 0 });
+  });
+
+  test("a stat that cannot be read or parsed makes terminals and ssh unknown", async () => {
+    // Unreadable (here a directory), then present but not a stat line.
+    for (const broken of [{ "300/stat/x": "" }, { "300/stat": "garbage" }] as Record<string, string>[]) {
+      const out = await runProbeScript({ ...base, ...broken }, "NONE");
+      expect({ broken, busy: out.busy_terminals, ssh: out.ssh_sessions }).toEqual({ broken, busy: null, ssh: null });
+    }
+  });
+
+  test("a cmdline that cannot be read hides a possible ssh session: unknown, so never paused", async () => {
+    const out = await runProbeScript({ ...base, "400/stat": stat(400, "sshd", 400, 400, 0, -1), "400/cmdline/x": "" }, "NONE");
+    expect(out.ssh_sessions).toBeNull();
+    expect(parseVmIdleProbe(JSON.stringify(out))).toBeNull();
+  });
+
+  test("a daemon fd that cannot be read could hide a forwarded port: inbound is unknown", async () => {
+    // A regular file where /proc/<pid>/fd/<n> should be a symlink: readlink fails with EINVAL, not ENOENT.
+    const out = await runProbeScript({ ...base, "500/stat": stat(500, "cmux-tui", 500, 500, 0, -1), "500/fd/x": "" }, "NONE");
+    expect(out.inbound_connections).toBeNull();
+    // A daemon with no fd directory at all (it exited) is skipped.
+    const gone = await runProbeScript({ ...base, "500/stat": stat(500, "cmux-tui", 500, 500, 0, -1) }, "NONE");
+    expect(gone.inbound_connections).toBe(0);
+  });
+});
+
 describe("idle pause cron", () => {
   test("pauses an idle machine past its timeout through the pause path, with reason idle", async () => {
     const idle = machineRow({
@@ -569,6 +686,14 @@ describe("idle pause cron", () => {
     expect(recorded.paused).toEqual([VM]);
     expect(recorded.statuses).toEqual([{ id: "row-1", status: "paused", pauseReason: "idle" }]);
     expect(recorded.events).toEqual([{ source: "idle", automated: true }]);
+  });
+
+  test("the probe's exec is cancelled at the provider when its budget runs out", async () => {
+    // Effect.timeout only interrupts the fiber; the gateway aborts the provider request only with cancelOnInterrupt.
+    const { recorded, layer } = cronFakes([machineRow()], () => ({ exitCode: 0, stdout: probeLine() }));
+    await Effect.runPromise(enforceVmIdlePause({ now: () => T0 }).pipe(Effect.provide(layer)));
+    expect(recorded.execs.length).toBeGreaterThan(0);
+    expect(recorded.execs.map((e) => e.cancelOnInterrupt)).toEqual(recorded.execs.map(() => true));
   });
 
   test("a machine running an agent turn is not paused and its stretch is cleared", async () => {
@@ -795,6 +920,28 @@ describe("no private address", () => {
     expect(recorded.execs).toEqual([]);
     expect(recorded.paused).toEqual([]);
     expect(recorded.observations).toEqual([{ id: "row-1", observation: null }]);
+  });
+});
+
+describe("invalid private addresses", () => {
+  test("invalid stored VPC addresses prevent idle pause instead of silently disabling connection checks", async () => {
+    const observation = { providerVmId: VM, idleSince: T0 - 31 * MIN, observedAt: T0 - 5 * MIN };
+    for (const providerMetadata of [
+      { networkIpv4: "10.192.0.999", networkIpv6: "fd00::ggg" },
+      { networkIpv4: "10.192.0.5", networkIpv6: "fd00::ggg" },
+      { networkIpv4: "10.192.0.5", networkIpv6: 1234 },
+    ]) {
+      const row = machineRow({ providerMetadata: { ...providerMetadata, cmuxIdleObservation: observation } });
+      expect(vmIdlePrivateAddressesFromRow(row)).toEqual([]);
+      const { recorded, layer } = cronFakes([row], () => ({ exitCode: 0, stdout: probeLine() }));
+      const summary = await Effect.runPromise(enforceVmIdlePause({ now: () => T0 }).pipe(Effect.provide(layer)));
+      expect(summary).toMatchObject({ checked: 1, unknown: 1, paused: 0 });
+      expect(recorded.execs).toEqual([]);
+      expect(recorded.paused).toEqual([]);
+      expect(recorded.observations).toEqual([{ id: "row-1", observation: null }]);
+    }
+    expect(vmIdlePrivateAddressesFromRow({ providerMetadata: { networkIpv4: "10.192.0.5", networkIpv6: "fd00:7::5" } }))
+      .toEqual(["10.192.0.5", "fd00:7::5"]);
   });
 });
 

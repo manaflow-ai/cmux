@@ -47,9 +47,23 @@ public struct SSHCommandLine: Sendable {
     /// `ssh … host 'sh -s'`: the caller writes a POSIX script to stdin, so
     /// the user's login shell (bash, zsh, fish) only ever sees `sh -s`.
     public func script(_ host: SSHHost) -> [String] {
+        script(host.destination)
+    }
+
+    /// ``script(_:)`` for a destination with no saved machine (an acpmux peer's).
+    public func script(_ destination: SSHDestination) -> [String] {
         var argv = [sshBinary, "-T"] + Self.enforcedOptions
-        if let port = host.destination.port { argv += ["-p", String(port)] }
-        argv += ["--", host.destination.sshArgument, "sh -s"]
+        if let port = destination.port { argv += ["-p", String(port)] }
+        argv += ["--", destination.sshArgument, "sh -s"]
+        return argv
+    }
+
+    /// `ssh -tt … host <command>`: the command on a pty of its own, which only the caller's
+    /// process reads and types into (`cmux cloud deliver-secrets`'s receiver, SSHMachineSecrets).
+    public func pty(_ destination: SSHDestination, _ command: String) -> [String] {
+        var argv = [sshBinary, "-tt"] + Self.enforcedOptions
+        if let port = destination.port { argv += ["-p", String(port)] }
+        argv += ["--", destination.sshArgument, command]
         return argv
     }
 
