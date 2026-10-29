@@ -12,7 +12,8 @@ private let socketLogger = Logger(subsystem: "com.cmuxterm.cua", category: "sock
 /// (getpeereid), then with `AdmissionPolicy`, before the helper reads a
 /// byte; a refused peer gets one
 /// line `{"ok":false,"error":"refused","reason":...}` and the connection closes.
-/// An admitted peer sends `{"secret":"<hex>"}` first, then requests:
+/// An admitted peer sends `{"secret":"<hex>"}` first and gets
+/// `{"ok":true,"protocol":N,"capabilities":["machine-consent-gate-v1"]}`, then requests:
 ///   {"id":N,"method":"tools/list"}
 ///   {"id":N,"method":"machine/consent"}
 ///   {"id":N,"method":"tools/call","name":"click","arguments":{...}}
@@ -20,7 +21,9 @@ private let socketLogger = Logger(subsystem: "com.cmuxterm.cua", category: "sock
 /// `machine/consent` answers `{consentRequired, consent: {screen, control}}`
 /// from `consent`, fresh on every request; the request's other fields are
 /// ignored. A call refused for consent also carries
-/// `"code":"consent_required","surface":S`, and the connection stays open.
+/// `"code":"consent_required","surface":S` (plus `"reason":"host_unverified"`
+/// when the helper could not verify the cmux app that started it, never for
+/// a person's refusal), and the connection stays open.
 public final class HelperSocketServer: Sendable {
     public let path: String
     private let admission: AdmissionState
@@ -142,7 +145,7 @@ public final class HelperSocketServer: Sendable {
                         return connection.refuse(refusal)
                     }
                     admitted = true
-                    connection.write(HelperWire.line(["ok": true, "protocol": HelperWire.protocolVersion]))
+                    connection.write(Self.admittedReply)
                     continue
                 }
                 handle(line, connection: connection)
@@ -150,6 +153,10 @@ public final class HelperSocketServer: Sendable {
         }
         connection.close()
     }
+
+    /// The reply to a peer that presented the secret.
+    static let admittedReply = HelperWire.line(["ok": true, "protocol": HelperWire.protocolVersion,
+                                                "capabilities": [MachineConsent.gateCapability]])
 
     /// The connected peer's effective uid, from the kernel.
     static func peerUID(_ descriptor: Int32) -> uid_t? {
@@ -181,9 +188,10 @@ public final class HelperSocketServer: Sendable {
                 }
                 connection.write(HelperWire.line(["ok": true], raw: ["id": id, "result": result]))
             } catch let refusal as ConsentRefusal {
-                connection.write(HelperWire.line(["ok": false, "error": refusal.description,
-                                                  "code": ConsentRefusal.code, "surface": refusal.surface.rawValue],
-                                                 raw: ["id": id]))
+                var fields: [String: Any] = ["ok": false, "error": refusal.description,
+                                             "code": ConsentRefusal.code, "surface": refusal.surface.rawValue]
+                if let reason = refusal.reason { fields["reason"] = reason.rawValue }
+                connection.write(HelperWire.line(fields, raw: ["id": id]))
             } catch {
                 connection.write(HelperWire.line(["ok": false, "error": String(describing: error)],
                                                  raw: ["id": id]))

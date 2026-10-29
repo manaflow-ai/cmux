@@ -11,6 +11,14 @@ private let controlLogger = Logger(subsystem: "com.cmuxterm.cua", category: "con
 /// stopped the helper: the helper removes its socket and exits. The pipe is
 /// not reachable by any other process, so the secret travels here.
 ///
+/// The host is checked once at startup (`HostVerifying`: the parent must be
+/// a team-signed cmux app). An unverified host can still configure, register
+/// acpmux and request permissions, but its `machine_consent` answers are
+/// ignored, the helper never asks it, every consent check refuses with
+/// reason `host_unverified`, and a `call` is refused without running.
+/// Nothing in cmux sends `call` today (the app and acpmux use the socket);
+/// it stays only for a verified host, behind the same consent gate.
+///
 /// host -> helper:
 ///   {"type":"configure","socket":PATH,"secret":HEX,"acpmux_cdhashes":[HEX],"acpmux_requirement":STRING|null}
 ///   {"type":"register_acpmux","pid":N,"start_sec":N,"start_usec":N}
@@ -22,7 +30,7 @@ private let controlLogger = Logger(subsystem: "com.cmuxterm.cua", category: "con
 ///   {"type":"consent_refused","surface":"screen"|"control","tool":TOOL}
 ///   {"type":"ready","protocol":1,"pid":N,"socket":PATH}
 ///   {"type":"ack","of":"register_acpmux","ok":BOOL}
-///   {"type":"result","id":N,"ok":BOOL,"result":...|"error":STRING}
+///   {"type":"result","id":N,"ok":BOOL,"result":...|"error":STRING[,"code":"consent_required"[,"reason":R]]}
 ///   {"type":"error","error":STRING}
 public final class HelperController: Sendable {
     private let input: Int32
@@ -34,6 +42,8 @@ public final class HelperController: Sendable {
     /// Machine consent, asked of the host; nil means no host answers and
     /// every call that needs consent is refused.
     private let consent: HostConsentChannel?
+    /// Fixed at startup; nothing on the pipe changes it.
+    private let hostVerified: Bool
     public let admission = AdmissionState()
     private let server = OSAllocatedUnfairLock<HelperSocketServer?>(initialState: nil)
     private let writeLock = OSAllocatedUnfairLock(initialState: ())
@@ -42,6 +52,7 @@ public final class HelperController: Sendable {
                 inspector: any PeerInspecting = KernelPeerInspector(),
                 requestPermission: @escaping @Sendable (HelperPermission) async -> Bool = { await $0.request() },
                 consent: HostConsentChannel? = nil,
+                hostVerifier: any HostVerifying = ParentProcessVerifier(),
                 onExit: @escaping @Sendable (Int32) -> Void = { exit($0) }) {
         self.input = input
         self.output = output
@@ -50,7 +61,15 @@ public final class HelperController: Sendable {
         self.onExit = onExit
         self.requestPermission = requestPermission
         self.consent = consent
-        consent?.bind { [self] line in write(line) }
+        switch hostVerifier.verify() {
+        case .verified:
+            hostVerified = true
+            consent?.bind { [self] line in write(line) }
+        case .unverified(let reason):
+            hostVerified = false
+            consent?.refuseUnverifiedHost()
+            controlLogger.error("host not verified; Computer Use stays off: \(reason, privacy: .public)")
+        }
     }
 
     /// Reads the control pipe on its own thread until EOF.
@@ -110,18 +129,30 @@ public final class HelperController: Sendable {
             }
             send(["type": "ack", "of": "register_acpmux", "ok": ok])
         case "machine_consent":
-            guard let id = message["id"] as? Int else { return }
+            // The helper never asks an unverified host; its answers are ignored.
+            guard hostVerified, let id = message["id"] as? Int else { return }
             let result = message["ok"] as? Bool == true ? message["result"].map { HelperWire.json($0) } : nil
             consent?.receive(id: id, result: result)
         case "call":
             let id = HelperWire.json(message["id"] ?? NSNull())
             let name = message["name"] as? String ?? ""
             let arguments = HelperWire.json(message["arguments"] ?? [String: Any]())
+            guard hostVerified else {
+                let refusal = ConsentRefusal(surface: .screen, tool: name, reason: .hostUnverified)
+                return write(HelperWire.line(["type": "result", "ok": false, "error": refusal.description,
+                                              "code": ConsentRefusal.code, "reason": ConsentRefusal.Reason.hostUnverified.rawValue],
+                                             raw: ["id": id]))
+            }
             let tools = self.tools
             Task.detached { [self] in
                 do {
                     let result = try await tools.invoke(name: name, arguments: arguments)
                     write(HelperWire.line(["type": "result", "ok": true], raw: ["id": id, "result": result]))
+                } catch let refusal as ConsentRefusal {
+                    var fields: [String: Any] = ["type": "result", "ok": false, "error": refusal.description,
+                                                 "code": ConsentRefusal.code]
+                    if let reason = refusal.reason { fields["reason"] = reason.rawValue }
+                    write(HelperWire.line(fields, raw: ["id": id]))
                 } catch {
                     write(HelperWire.line(["type": "result", "ok": false, "error": String(describing: error)],
                                           raw: ["id": id]))

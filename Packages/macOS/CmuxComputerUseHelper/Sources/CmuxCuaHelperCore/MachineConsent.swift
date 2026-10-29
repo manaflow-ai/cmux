@@ -11,6 +11,12 @@ import os
 /// helper's environment, endpoint.json or a socket request names can
 /// redirect the question. Every answer is fetched fresh, and any failure
 /// is "joined, nothing granted".
+public enum MachineConsent {
+    /// Advertised in the socket's admission reply: every tool call passes
+    /// the machine-consent gate at execution.
+    public static let gateCapability = "machine-consent-gate-v1"
+}
+
 public enum ConsentSurface: String, Sendable, CaseIterable {
     case screen
     case control
@@ -98,6 +104,13 @@ public protocol MachineConsentAuthority: Sendable {
     func current() async -> MachineConsentStatus
     /// Records a refused call for the app's consent sheet. Best effort.
     func recordRefusal(surface: ConsentSurface, tool: String) async
+    /// Why every answer is unavailable, when that is known (the host was
+    /// not verified); nil otherwise, including a person's refusal.
+    var refusalReason: ConsentRefusal.Reason? { get }
+}
+
+extension MachineConsentAuthority {
+    public var refusalReason: ConsentRefusal.Reason? { nil }
 }
 
 /// No host to ask: every call that needs consent is refused.
@@ -117,6 +130,7 @@ public struct UnavailableConsent: MachineConsentAuthority {
 public final class HostConsentChannel: MachineConsentAuthority {
     private struct State {
         var send: (@Sendable (Data) -> Void)?
+        var hostUnverified = false
         var nextID = 1
         var pending: [Int: CheckedContinuation<Data?, Never>] = [:]
     }
@@ -128,19 +142,39 @@ public final class HostConsentChannel: MachineConsentAuthority {
         self.timeout = timeout
     }
 
-    /// Connects the channel to the control pipe's writer.
+    /// Connects the channel to the control pipe's writer (only once the
+    /// host is verified; ignored after `refuseUnverifiedHost`).
     public func bind(_ send: @escaping @Sendable (Data) -> Void) {
-        state.withLockUnchecked { $0.send = send }
+        state.withLockUnchecked { if !$0.hostUnverified { $0.send = send } }
     }
 
-    /// A host reply. Unknown or late ids are ignored.
+    /// The control pipe's host was not verified: never ask it, never accept
+    /// an answer, and report `host_unverified` on every refusal.
+    public func refuseUnverifiedHost() {
+        let waiters = state.withLockUnchecked { state -> [CheckedContinuation<Data?, Never>] in
+            state.hostUnverified = true
+            state.send = nil
+            let waiters = Array(state.pending.values)
+            state.pending = [:]
+            return waiters
+        }
+        for waiter in waiters { waiter.resume(returning: nil) }
+    }
+
+    public var refusalReason: ConsentRefusal.Reason? {
+        state.withLockUnchecked { $0.hostUnverified } ? .hostUnverified : nil
+    }
+
+    /// A host reply. Unknown or late ids, and every reply from an
+    /// unverified host, are ignored.
     public func receive(id: Int, result: Data?) {
         let waiter = state.withLockUnchecked { $0.pending.removeValue(forKey: id) }
         waiter?.resume(returning: result)
     }
 
     public func current() async -> MachineConsentStatus {
-        guard let data = await ask(), let status = MachineConsentStatus(daemonResult: data) else { return .unavailable }
+        guard refusalReason == nil, let data = await ask(),
+              let status = MachineConsentStatus(daemonResult: data) else { return .unavailable }
         return status
     }
 
@@ -173,11 +207,28 @@ public final class HostConsentChannel: MachineConsentAuthority {
 /// The refusal a gated call returns in place of running.
 public struct ConsentRefusal: Error, Sendable, Equatable, CustomStringConvertible {
     public static let code = "consent_required"
+    /// Set only when the refusal is not a person's choice.
+    public enum Reason: String, Sendable, Equatable {
+        case hostUnverified = "host_unverified"
+    }
+
     public let surface: ConsentSurface
     public let tool: String
+    public let reason: Reason?
+
+    public init(surface: ConsentSurface, tool: String, reason: Reason? = nil) {
+        self.surface = surface
+        self.tool = tool
+        self.reason = reason
+    }
 
     public var description: String {
-        "\(Self.code): this machine is joined to a cmux team, and the person at it has not allowed "
+        if reason == .hostUnverified {
+            return "\(Self.code) (\(Reason.hostUnverified.rawValue)): Computer Use is off: Computer Use could not verify "
+                + "the cmux app that started it (a cmux build that isn't team-signed can't be verified). "
+                + "`\(tool)` did not run. Use a signed cmux build."
+        }
+        return "\(Self.code): this machine is joined to a cmux team, and the person at it has not allowed "
             + "\(surface.rawValue) access. `\(tool)` did not run. Ask them to allow \(surface.rawValue) access on this machine."
     }
 }
@@ -213,7 +264,7 @@ public final class ConsentGate: Sendable {
     public func admit(_ name: String, requirement: ConsentRequirement) async throws {
         guard let surface = await authority.current().missing(for: requirement) else { return }
         await authority.recordRefusal(surface: surface, tool: name)
-        throw ConsentRefusal(surface: surface, tool: name)
+        throw ConsentRefusal(surface: surface, tool: name, reason: authority.refusalReason)
     }
 
     static func readOnlyNames(_ inventory: Data) -> Set<String> {

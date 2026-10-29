@@ -85,7 +85,7 @@ import Testing
         let controller = HelperController(input: input.fileHandleForReading.fileDescriptor,
                                           output: output.fileHandleForWriting.fileDescriptor,
                                           tools: UnavailableTools(reason: "test"), consent: channel,
-                                          onExit: { _ in })
+                                          hostVerifier: StubHost(result: .verified), onExit: { _ in })
         controller.start()
         let host = Host(toHelper: input.fileHandleForWriting, fromHelper: output.fileHandleForReading.fileDescriptor)
         // Each question is answered by the host; the helper never reads a home.
@@ -137,6 +137,7 @@ import Testing
         var reply = try client.call("click")
         #expect(reply["code"] as? String == "consent_required")
         #expect(reply["surface"] as? String == "screen")
+        #expect(reply["reason"] == nil, "a person's refusal carries no reason")
 
         authority.set(MachineConsentStatus(consentRequired: true, screen: true, control: true))
         answer = try client.consent(extra: redirects)
@@ -174,7 +175,139 @@ import Testing
         #expect(authority.refusals.withLock { $0 } == ["screen:click"], "the refusal is recorded")
     }
 
+    // MARK: The controlling host
+
+    /// The reviewer's case: a same-user launcher that is not the verified
+    /// cmux app sends a `call` and answers its own consent question. The
+    /// helper never asks it, ignores its answers, and the tool never runs.
+    @Test(.timeLimit(.minutes(1))) func anUnverifiedLauncherNeverRunsACallOrGrantsItself() async throws {
+        let input = Pipe(), output = Pipe()
+        let channel = HostConsentChannel(timeout: .seconds(10))
+        let tools = GatedTools(gate: ConsentGate(authority: channel))
+        let controller = HelperController(input: input.fileHandleForReading.fileDescriptor,
+                                          output: output.fileHandleForWriting.fileDescriptor,
+                                          tools: tools, consent: channel,
+                                          hostVerifier: StubHost(result: .unverified("test launcher")),
+                                          onExit: { _ in })
+        controller.start()
+        let host = Host(toHelper: input.fileHandleForWriting, fromHelper: output.fileHandleForReading.fileDescriptor)
+        let grant = #"{"consentRequired":false,"consent":{"screen":"granted","control":"granted"}}"#
+        for id in 1...3 { try host.reply(id: id, ok: true, result: grant) }
+        try host.send(["type": "call", "id": 7, "name": "click", "arguments": [String: Any]()])
+        for id in 1...3 { try host.reply(id: id, ok: true, result: grant) }
+        let reply = try await host.nextLine()
+        #expect(reply["type"] as? String == "result", "the helper answers the call without asking the host")
+        #expect(reply["id"] as? Int == 7)
+        #expect(reply["ok"] as? Bool == false)
+        #expect(reply["code"] as? String == "consent_required")
+        #expect(reply["reason"] as? String == "host_unverified")
+        #expect(reply["error"] as? String
+            == ConsentRefusal(surface: .screen, tool: "click", reason: .hostUnverified).description)
+        #expect(await channel.current() == .unavailable)
+        #expect(channel.refusalReason == .hostUnverified)
+        #expect(tools.executed.withLock { $0 }.isEmpty, "nothing executed")
+    }
+
+    @Test(.timeLimit(.minutes(1))) func aVerifiedHostsDenialIsPlainConsentRequired() async throws {
+        let input = Pipe(), output = Pipe()
+        let channel = HostConsentChannel(timeout: .seconds(10))
+        let tools = GatedTools(gate: ConsentGate(authority: channel))
+        let controller = HelperController(input: input.fileHandleForReading.fileDescriptor,
+                                          output: output.fileHandleForWriting.fileDescriptor,
+                                          tools: tools, consent: channel,
+                                          hostVerifier: StubHost(result: .verified), onExit: { _ in })
+        controller.start()
+        let host = Host(toHelper: input.fileHandleForWriting, fromHelper: output.fileHandleForReading.fileDescriptor)
+        try host.send(["type": "call", "id": 8, "name": "click", "arguments": [String: Any]()])
+        let question = try await host.nextLine()
+        #expect(question["type"] as? String == "machine_consent")
+        try host.reply(id: try #require(question["id"] as? Int), ok: true,
+                       result: #"{"consentRequired":true,"consent":{"screen":"none","control":"none"}}"#)
+        var reply = try await host.nextLine()
+        while reply["type"] as? String != "result" { reply = try await host.nextLine() }
+        #expect(reply["id"] as? Int == 8)
+        #expect(reply["code"] as? String == "consent_required")
+        #expect(reply["reason"] == nil, "a person's refusal carries no reason")
+        #expect((reply["error"] as? String)?.hasPrefix("consent_required: this machine") == true)
+        #expect(tools.executed.withLock { $0 }.isEmpty)
+    }
+
+    @Test(.timeLimit(.minutes(1))) func overTheSocketAnUnverifiedHostsRefusalSaysWhy() async throws {
+        let channel = HostConsentChannel()
+        channel.refuseUnverifiedHost()
+        let tools = GatedTools(gate: ConsentGate(authority: channel))
+        let client = try Client(tools: tools, consent: channel)
+        let reply = try client.call("get_window_state")
+        #expect(reply["ok"] as? Bool == false)
+        #expect(reply["code"] as? String == "consent_required")
+        #expect(reply["reason"] as? String == "host_unverified")
+        #expect((reply["error"] as? String)?.hasPrefix(
+            "consent_required (host_unverified): Computer Use is off: Computer Use could not verify the cmux app") == true)
+        #expect(try client.consent()["consentRequired"] as? Bool == true)
+        #expect(tools.executed.withLock { $0 }.isEmpty)
+    }
+
+    @Test func onlyATeamSignedCmuxAppIdentifierIsAHost() {
+        for identifier in ["com.cmuxterm.app", "com.cmuxterm.app.nightly", "com.cmuxterm.app.debug.tag"] {
+            #expect(ParentProcessVerifier.isCmuxAppIdentifier(identifier), "\(identifier)")
+        }
+        for identifier in ["com.cmuxterm.apple", "com.cmuxterm.app.", "com.cmuxterm.cua", "", "xcom.cmuxterm.app"] {
+            #expect(!ParentProcessVerifier.isCmuxAppIdentifier(identifier), "\(identifier)")
+        }
+        // The test runner's parent is not a team-signed cmux app.
+        #expect(ParentProcessVerifier().verify() != .verified)
+    }
+
+    @Test(.timeLimit(.minutes(1))) func theAdmissionReplyAdvertisesTheConsentGate() throws {
+        let client = try Client(tools: UnavailableTools(reason: "test"), consent: UnavailableConsent())
+        #expect(client.admitted["capabilities"] as? [String] == [MachineConsent.gateCapability])
+        #expect(MachineConsent.gateCapability == "machine-consent-gate-v1")
+    }
+
+    // MARK: readOnlyHint parity with acpmux's bridge
+
+    /// acpmux's bridge reads the helper's served `tools/list`: a tool is
+    /// screen-only exactly when `annotations.readOnlyHint === true` (a JSON
+    /// boolean); anything else is screen+control. The gate must agree.
+    @Test(.timeLimit(.minutes(1))) func theGateObservesExactlyWhenTheServedHintIsJSONTrue() async throws {
+        let fixture: [(name: String, entry: String, bridge: ConsentRequirement)] = [
+            ("hint_true", #"{"name":"hint_true","annotations":{"readOnlyHint":true}}"#, .observe),
+            ("hint_false", #"{"name":"hint_false","annotations":{"readOnlyHint":false}}"#, .act),
+            ("hint_missing", #"{"name":"hint_missing","annotations":{"title":"x"}}"#, .act),
+            ("hint_string", #"{"name":"hint_string","annotations":{"readOnlyHint":"true"}}"#, .act),
+            ("hint_number", #"{"name":"hint_number","annotations":{"readOnlyHint":1}}"#, .act),
+            ("hint_null", #"{"name":"hint_null","annotations":{"readOnlyHint":null}}"#, .act),
+            ("no_annotations", #"{"name":"no_annotations"}"#, .act),
+        ]
+        let inventory = Data(("{\"tools\":[" + fixture.map(\.entry).joined(separator: ",") + "]}").utf8)
+        let client = try Client(tools: InventoryTools(inventory: inventory), consent: UnavailableConsent())
+        let reply = try client.request(["method": "tools/list"])
+        let served = try #require(reply["result"] as? [String: Any])
+        let servedData = try JSONSerialization.data(withJSONObject: served)
+        let entries = try #require(served["tools"] as? [[String: Any]])
+        let gate = ConsentGate(authority: UnavailableConsent())
+        for tool in fixture {
+            let entry = try #require(entries.first { $0["name"] as? String == tool.name })
+            let hint = (entry["annotations"] as? [String: Any])?["readOnlyHint"] as? NSNumber
+            let bridgeObserves = hint.map { CFGetTypeID($0) == CFBooleanGetTypeID() && $0.boolValue } ?? false
+            #expect(bridgeObserves == (tool.bridge == .observe), "\(tool.name): fixture matches the bridge rule")
+            #expect(await gate.requirement(for: tool.name) { servedData } == tool.bridge, "\(tool.name)")
+        }
+        #expect(await gate.requirement(for: "not_in_inventory") { servedData } == .act)
+    }
+
     // MARK: Fixtures
+
+    struct StubHost: HostVerifying {
+        let result: HostVerification
+        func verify() -> HostVerification { result }
+    }
+
+    struct InventoryTools: ToolInvoking {
+        let inventory: Data
+        func listTools() async throws -> Data { inventory }
+        func invoke(name: String, arguments: Data) async throws -> Data { throw ToolError("not in this test") }
+    }
 
     final class ScriptedAuthority: MachineConsentAuthority {
         let state = OSAllocatedUnfairLock(initialState: MachineConsentStatus.unavailable)
@@ -208,6 +341,8 @@ import Testing
         private let descriptor: Int32
         private var buffer = HelperWire.LineBuffer()
         private var nextID = 1
+        /// The helper's reply to the secret.
+        private(set) var admitted: [String: Any] = [:]
 
         init(tools: any ToolInvoking, consent: any MachineConsentAuthority) throws {
             var descriptors: [Int32] = [-1, -1]
@@ -226,7 +361,8 @@ import Testing
             let serverDescriptor = descriptors[1]
             Thread { server.serve(serverDescriptor) }.start()
             try write(HelperWire.line(["secret": HelperWire.hex(secret)]))
-            #expect(try readLine()["ok"] as? Bool == true)
+            admitted = try readLine()
+            #expect(admitted["ok"] as? Bool == true)
         }
 
         deinit { close(descriptor) }
@@ -241,7 +377,7 @@ import Testing
             try request(["method": "tools/call", "name": name, "arguments": [String: Any]()])
         }
 
-        private func request(_ fields: [String: Any]) throws -> [String: Any] {
+        func request(_ fields: [String: Any]) throws -> [String: Any] {
             let id = nextID
             nextID += 1
             try write(HelperWire.line(fields.merging(["id": id]) { _, new in new }))
@@ -301,6 +437,10 @@ import Testing
                 pending += try #require(lines)
             }
             return try #require(HelperWire.object(pending.removeFirst()))
+        }
+
+        func send(_ fields: [String: Any]) throws {
+            try toHelper.write(contentsOf: HelperWire.line(fields))
         }
 
         func reply(id: Int, ok: Bool, result: String) throws {
