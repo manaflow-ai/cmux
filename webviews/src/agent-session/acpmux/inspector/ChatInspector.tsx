@@ -68,6 +68,7 @@ import { useChangesStatuses, useStableUrls, withHeader } from "./changesStatus";
 import { ConnectorsSection } from "./ConnectorsSection";
 import { ContextSection } from "./ContextSection";
 import { EnvironmentSection, type ProjectRowLook } from "./EnvironmentSection";
+import { InspectorGroup } from "./InspectorGroup";
 import { InspectorSection } from "./InspectorSection";
 import { SUBAGENT_HEADER, SubagentBanner, SubagentTitle } from "./SubagentScopeHeader";
 import { subagentProcesses, subagentSummary, withChatEnds, type SubagentScope } from "./subagentScope";
@@ -1249,24 +1250,12 @@ export function ChatInspector({
     <div ref={body} className="acpmux-chat-inspector__body" data-layout={layout}>
       {banner}
       {/* Where it runs. */}
-      <div className="acpmux-chat-inspector-group" data-group="about">
-        {environment}
-        {context}
-        {connectors}
-      </div>
+      <InspectorGroup group="about" sections={{ environment, context, connectors }} />
       {/* What it made. */}
-      {(changes || outputsSection) && (
-        <div className="acpmux-chat-inspector-group" data-group="made">
-          {changes}
-          {outputsSection}
-        </div>
-      )}
+      {(changes || outputsSection) && <InspectorGroup group="made" sections={{ changes, outputs: outputsSection }} />}
       {/* What it runs. */}
       {(subagentsSection || tasks) && (
-        <div className="acpmux-chat-inspector-group" data-group="running">
-          {subagentsSection}
-          {tasks}
-        </div>
+        <InspectorGroup group="running" sections={{ subagents: subagentsSection, tasks }} />
       )}
       {gallery && (
         <GalleryDialog
