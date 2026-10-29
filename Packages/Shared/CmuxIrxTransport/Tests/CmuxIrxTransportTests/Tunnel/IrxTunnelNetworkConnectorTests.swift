@@ -33,7 +33,7 @@ struct IrxTunnelNetworkConnectorTests {
 
     @Test func closedLoopbackPortIsRefused() async throws {
         let port = try Self.closedLoopbackPort()
-        let error = await Self.openError {
+        let error = await Self.openError { () async throws(IrxTunnelOpenError) -> any IrxTunnelByteChannel in
             try await IrxTunnelNetworkConnector().connect(to: [Self.loopback], port: port, timeout: .seconds(10))
         }
         #expect(error == IrxTunnelOpenError(status: .refused))
@@ -43,7 +43,7 @@ struct IrxTunnelNetworkConnectorTests {
     /// returns at once, and TEST-NET-1 (RFC 5737) never answers.
     @Test func elapsedDeadlineIsTimedOut() async {
         let connector = IrxTunnelNetworkConnector(sleep: { _ in })
-        let error = await Self.openError {
+        let error = await Self.openError { () async throws(IrxTunnelOpenError) -> any IrxTunnelByteChannel in
             try await connector.connect(to: [.v4([192, 0, 2, 1])], port: 9, timeout: .seconds(10))
         }
         #expect(error == IrxTunnelOpenError(status: .timedOut))
@@ -56,7 +56,7 @@ struct IrxTunnelNetworkConnectorTests {
         defer { server.stop() }
         let error = await Task {
             withUnsafeCurrentTask { $0?.cancel() }
-            return await Self.openError {
+            return await Self.openError { () async throws(IrxTunnelOpenError) -> any IrxTunnelByteChannel in
                 try await IrxTunnelNetworkConnector().connect(
                     to: [Self.loopback], port: server.port, timeout: .seconds(10)
                 )
