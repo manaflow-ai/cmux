@@ -4821,6 +4821,35 @@ class NightlySigningStall(unittest.TestCase):
         self.assertNotEqual(outcome, "stalled")
         self.assertEqual(mutations(api), [])
 
+    def test_legacy_blacksmith_fallback_is_rescued_only_with_an_alternate(self):
+        # The owned legacy signer fails its claim gate, then its Blacksmith fallback stalls.
+        # Re-running failed jobs retries the primary signer on its alternate label.
+        fallback = "sign-nightly-identity-legacy-blacksmith"
+        fallback_workflow = f"""  {fallback}:
+    runs-on: ${{{{ github.run_attempt > 1 && needs.legacy-identity-target.outputs.sign_alternate || 'blacksmith-6vcpu-macos-26' }}}}
+"""
+
+        def jobs(seconds):
+            return [dict(job("sign-nightly-identity-legacy", status="completed", labels=[LIGHT], runner="mini"),
+                         id=1, conclusion="failure"),
+                    dict(job(fallback, labels=[BLACKSMITH], created=0), id=2)]
+
+        for has_alternate in (True, False):
+            with self.subTest(has_alternate=has_alternate):
+                current = SIGN_WORKFLOW + (fallback_workflow if has_alternate else fallback_workflow.replace(
+                    "github.run_attempt > 1 && needs.legacy-identity-target.outputs.sign_alternate || ", "")
+                )
+                clock = Clock()
+                clock.seconds = rescue.SIGN_STALL_SECONDS + 30
+                api = NightlyAPI(clock, jobs, workflow=current)
+                target = rescue.target_from_event(nightly_event(head_branch="nightly-next"), "manaflow-ai/cmux")
+                summary = rescue.rescue_stalled_signing(
+                    api, target, now=clock.now, sleep=clock.sleep, log=lambda text: None,
+                    deadline=clock.now() + dt.timedelta(hours=1), sign_seen={2: START}, workflow_text=current)
+                self.assertEqual(mutations(api), ["cancel", "rerun-failed"] if has_alternate else [], summary)
+                if not has_alternate:
+                    self.assertIn("takes no alternate label on a re-run", summary)
+
     def test_the_look_before_the_cancel_sees_a_job_that_started(self):
         clock = Clock()
         api = NightlyAPI(clock, signing_run(started_at=0), workflow=SIGN_WORKFLOW)
