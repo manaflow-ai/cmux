@@ -227,8 +227,9 @@ RUST_ATTRIBUTE = re.compile(r"#\s*\[([^\[\]]*)\]\s*")
 RUST_CFG_ARGUMENT = r'(?:[A-Za-z_]\w*|not\([A-Za-z_]\w*\)|[A-Za-z_]\w*="[\w.+-]*")'
 RUST_TEST_CFG = re.compile(rf"cfg\((?:test|all\((?:{RUST_CFG_ARGUMENT},)*test(?:,{RUST_CFG_ARGUMENT})*,?\))\)")
 RUST_MOD = re.compile(r"(?:pub\s*(?:\([^)]*\))?\s*)?mod\s+\w+\s*\{")
-RUST_RAW_STRING = re.compile(r'(?<![A-Za-z0-9_])b?r(#*)"')
-RUST_CHAR = re.compile(r"'(?:\\[^']*|[^\\'])'")
+RUST_RAW_STRING = re.compile(r'(?<![A-Za-z0-9_])[bc]?r(#*)"')
+# A char or byte literal: one character, or one escape (`'\''`, `'\x7f'`, `'\u{1F600}'`).
+RUST_CHAR = re.compile(r"'(?:\\(?:x[0-9A-Fa-f]{2}|u\{[0-9A-Fa-f_]{1,6}\}|.)|[^\\'\n])'")
 
 
 class RustBraces:
@@ -312,8 +313,15 @@ def rust_test_lines(lines: list[str]) -> set[int]:
     module_depth: int | None = None  # the depth outside the open test module
     for index, text in enumerate(lines):
         opened = False
-        if module_depth is None and braces.in_code():
-            rest = text.strip()
+        if module_depth is None and not braces.in_code():
+            # A line that starts inside a comment is read from where the comment ends; one that starts
+            # inside a string ends the search.
+            rest = skip_block_comment("/*" * braces.comments + text.strip()) if braces.comments else None
+            if rest is None:
+                test_attribute = False
+        else:
+            rest = text.strip() if module_depth is None else None
+        if rest is not None:
             while True:
                 if attribute := RUST_ATTRIBUTE.match(rest):
                     test_attribute |= RUST_TEST_CFG.fullmatch("".join(attribute.group(1).split())) is not None

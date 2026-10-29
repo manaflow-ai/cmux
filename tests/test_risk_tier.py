@@ -413,6 +413,22 @@ class RustTestModuleTests(unittest.TestCase):
         # Unbalanced on purpose: one brace too many closes the module before the delete.
         self.assertEqual(self.tier(patch.replace("{} } } }", "{} } } } }")), "high")
 
+    def test_a_comment_that_ends_before_code_ends_the_attribute_search(self):
+        # The comment closes on a line that goes on with another item, so the attribute was that item's.
+        self.assertEqual(self.tier(self.around("#[cfg(test)]\n/* comment\n*/ fn helper() {}\nmod production {")), "high")
+        self.assertEqual(self.tier(self.around("#[cfg(test)]\n/* a /* b\n*/ */ fn helper() {}\nmod production {")), "high")
+        self.assertEqual(self.tier(self.around("#[cfg(test)]\n/* comment\n*/ mod tests {")), "normal")
+
+    def test_raw_c_strings_and_escaped_chars_do_not_hide_the_module_end(self):
+        for line in ('    const C: &CStr = cr#"a " { b"#;', "    const T: (char, char) = ('\\'', '{');",
+                     "    const U: char = '\\u{7B}'; const X: u8 = b'\\x7b';"):
+            with self.subTest(line=line):
+                patch = hunk(1, 1, context("#[cfg(test)]\nmod tests {\n" + line + "\n}\nfn prune(dir: &Path) {")
+                             + ["+" + CLEANUP, " }"])
+                self.assertEqual(self.tier(patch), "high")
+                inside = hunk(1, 1, context("#[cfg(test)]\nmod tests {\n" + line) + ["+" + CLEANUP, " }"])
+                self.assertEqual(self.tier(inside), "normal")
+
     def test_a_raw_string_ends_at_its_quote_even_after_a_backslash(self):
         patch = hunk(1, 1, context("#[cfg(test)]\nmod tests {\n    const S: &str = r\"\\\";\n}\nfn prune(dir: &Path) {")
                      + ["+" + CLEANUP, " }"])
