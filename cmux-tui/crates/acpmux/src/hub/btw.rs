@@ -48,6 +48,7 @@
 
 use super::*;
 use std::future::Future;
+use std::pin::Pin;
 
 /// The tag that marks a side chat, valued with its chat's session id
 /// (webviews sessionList.ts `SIDE_TAG`, `_acpmux/side`).
@@ -88,14 +89,11 @@ where
 
 /// Creation publishes a session before all of its startup awaits finish. Abort a timed-out
 /// creation; its publication guard purges the exact session it may already have published.
-async fn with_inline_creation<F>(
+async fn with_inline_creation(
     hub: Arc<Hub>,
     deadline: Option<tokio::time::Instant>,
-    future: F,
-) -> Result<Arc<Session>, RpcError>
-where
-    F: Future<Output = Result<Arc<Session>, RpcError>> + Send + 'static,
-{
+    future: Pin<Box<dyn Future<Output = Result<Arc<Session>, RpcError>> + Send>>,
+) -> Result<Arc<Session>, RpcError> {
     let Some(deadline) = deadline else {
         return future.await;
     };
@@ -204,14 +202,25 @@ impl Hub {
         .await??
         {
             Some(through) => (
-                with_inline_creation(self.clone(), inline_deadline, {
-                    let hub = self.clone();
-                    let parent = session.clone();
-                    async move {
-                        hub.fork(&parent, Some(name), None, Default::default(), None, Some(through))
+                with_inline_creation(
+                    self.clone(),
+                    inline_deadline,
+                    Box::pin({
+                        let hub = self.clone();
+                        let parent = session.clone();
+                        async move {
+                            Box::pin(hub.fork(
+                                &parent,
+                                Some(name),
+                                None,
+                                Default::default(),
+                                None,
+                                Some(through),
+                            ))
                             .await
-                    }
-                })
+                        }
+                    }),
+                )
                 .await?,
                 None,
             ),
@@ -239,21 +248,32 @@ impl Hub {
                     disallowed_tools: Vec::new(),
                     checked_cwd: None,
                 };
-                let side = match with_inline_creation(self.clone(), inline_deadline, {
-                    let hub = self.clone();
-                    let req = req.clone();
-                    async move { hub.new_session(req).await }
-                })
+                let side = match with_inline_creation(
+                    self.clone(),
+                    inline_deadline,
+                    Box::pin({
+                        let hub = self.clone();
+                        let req = req.clone();
+                        async move { Box::pin(hub.new_session(req)).await }
+                    }),
+                )
                 .await
                 {
                     // A default model the harness refuses: its own default instead.
                     Err(e) if !inline && explicit.is_none() && model.is_some() => {
                         tracing::warn!(session = %session.id, "side session model: {}", e.message);
                         model = None;
-                        with_inline_creation(self.clone(), inline_deadline, {
-                            let hub = self.clone();
-                            async move { hub.new_session(NewRequest { model: None, ..req }).await }
-                        })
+                        with_inline_creation(
+                            self.clone(),
+                            inline_deadline,
+                            Box::pin({
+                                let hub = self.clone();
+                                async move {
+                                    Box::pin(hub.new_session(NewRequest { model: None, ..req }))
+                                        .await
+                                }
+                            }),
+                        )
                         .await?
                     }
                     other => other?,
@@ -319,7 +339,7 @@ impl Hub {
         }));
         let (hub, run_on, client) = (self.clone(), side.clone(), client.to_owned());
         let run = tokio::spawn(async move {
-            let r = hub.prompt_with(&run_on, blocks, &client, false, opts).await;
+            let r = Box::pin(hub.prompt_with(&run_on, blocks, &client, false, opts)).await;
             if let Err(e) = &r {
                 tracing::warn!(session = %run_on.id, "side session question: {}", e.message);
             }
