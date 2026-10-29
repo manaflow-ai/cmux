@@ -400,6 +400,32 @@ class Decide(unittest.TestCase):
             self.assertEqual((lines["free_gui_runner"], lines["free_session_runner"]), (GUI, SESSION))
 
 
+class AutofixActionExportsRoute(unittest.TestCase):
+    """Review of #27201 at 8a5fe9af: action exports need a logged-in session. Attempt 1 and a person's re-run take
+    the owned session/gui label; a rescue bot's re-run leaves that queue for Blacksmith macOS, never
+    vars.MACOS_RUNNER_26, which may name a generic owned pool with no session."""
+
+    def context(self, attempt: str, actor: str) -> dict:
+        context = github_context("pull_request", ref="refs/pull/1/merge", CI_PR_POOL_OWNED="1",
+                                 MACOS_RUNNER_26="glaeda-std-xcode-26.6")
+        context["github"].update(repository="manaflow-ai/cmux", run_attempt=attempt, triggering_actor=actor,
+                                 event={"pull_request": {"head": {"repo": {"full_name": "manaflow-ai/cmux"}}}})
+        return context
+
+    def test_the_owned_session_label_on_attempt_1_and_a_persons_rerun_blacksmith_for_the_rescue(self):
+        for name in ("cmux-next-pr-autofix.yml", "cmux-next-base-autofix.yml"):
+            runs_on = yaml.safe_load((WORKFLOWS / name).read_text())["jobs"]["action-exports"]["runs-on"]
+            with self.subTest(workflow=name):
+                self.assertEqual(evaluate(runs_on, self.context("1", "teamleaderleo")), GUI)
+                self.assertEqual(evaluate(runs_on, self.context("2", "teamleaderleo")), GUI)
+                for bot in RESCUE_BOTS:
+                    for attempt in ("2", "3"):
+                        self.assertEqual(evaluate(runs_on, self.context(attempt, bot)), FALLBACK, (bot, attempt))
+                session = self.context("2", "teamleaderleo")
+                session["vars"]["CI_SESSION_LABEL"] = "1"
+                self.assertEqual(evaluate(runs_on, session), SESSION)
+
+
 LIGHT_SIDE = "glaeda-side-light-xcode-26.6"
 LIGHT = "glaeda-light-xcode-26.6"
 # The fleet dashboard at 2026-10-20 22:22Z: 133 jobs queued on the light side label's 3 online (all
