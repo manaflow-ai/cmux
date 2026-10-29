@@ -452,6 +452,9 @@ export interface Env {
   readonly INFERENCE_DAILY_CAP_USD_FIREWORKS?: string
   readonly INFERENCE_DAILY_CAP_USD_BASETEN?: string
   readonly INFERENCE_DAILY_CAP_USD_DEEPINFRA?: string
+  readonly INFERENCE_DAILY_CAP_USD_AZURE?: string
+  readonly INFERENCE_DAILY_CAP_USD_CUSTOM?: string
+  readonly INFERENCE_DAILY_CAP_USD_OPENAI?: string
   /** Hard USD cap per UTC day for all free-tier requests together. Missing = 0 = refuse. */
   readonly INFERENCE_FREE_DAILY_CAP_USD?: string
   /** Open requests per team (default 4) and per free device (default 1). */
@@ -465,6 +468,23 @@ export interface Env {
   readonly INFERENCE_FIREWORKS_KEY?: string
   readonly INFERENCE_BASETEN_KEY?: string
   readonly INFERENCE_DEEPINFRA_KEY?: string
+  /** Comma list of public model ids this deployment serves; unset = the whole catalog. */
+  readonly INFERENCE_MODEL_ALLOWLIST?: string
+  /** The provider tried first for every model it serves (staging and production: "vercel"; unset = cheapest first); the rest stay cheapest first. */
+  readonly INFERENCE_PRIMARY_PROVIDER?: string
+  /** Vercel AI Gateway through the dashboard's OIDC relay: its URL and the shared relay key (secret). */
+  readonly INFERENCE_VERCEL_RELAY_URL?: string
+  readonly INFERENCE_VERCEL_RELAY_KEY?: string
+  /** Azure AI Foundry resource endpoint (https://<resource>.services.ai.azure.com) and its key (secret). */
+  readonly INFERENCE_AZURE_ENDPOINT?: string
+  readonly INFERENCE_AZURE_KEY?: string
+  /** OpenAI's own API key (secret). */
+  readonly INFERENCE_OPENAI_KEY?: string
+  /** Our own OpenAI-compatible chat/completions URL and its bearer key (secret, optional). */
+  readonly INFERENCE_CUSTOM_URL?: string
+  readonly INFERENCE_CUSTOM_KEY?: string
+  /** Cloudflare AI Gateway id Workers AI calls go through (for example "cmux-ai-proxy"); unset = direct. */
+  readonly INFERENCE_CF_GATEWAY_ID?: string
   /**
    * Hard cap per team per UTC month for automations (USD, decision A18). Staging and development: "25"
    * until Lawrence sets the value (Stripe TEST only). Missing = 0 = no metered run may start.
