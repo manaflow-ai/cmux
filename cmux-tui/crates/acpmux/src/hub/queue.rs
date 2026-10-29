@@ -866,7 +866,7 @@ impl Hub {
                     waiting.remove_turn(Some(&turn_id));
                     order.remove(&prompt_id);
                 }
-                digests.read(&e, &mut waiting, &mut order);
+                digests.read(&e);
                 let turn_id = e.msg.get("turnId");
                 // Queued or run again under another turn id (a daemon that had not restored it
                 // took its id as new): that copy is the prompt's, so this one does not run too.
@@ -999,7 +999,7 @@ impl Hub {
         self.restore_agent_pairs(&session.id, pair_records, &recorded);
         session.moving.lock().unwrap_or_else(|e| e.into_inner()).clone_from(&moving);
         // An inbox digest whose turn never started gives its messages back in its place.
-        digests.dissolve(&mut waiting, &mut order, |id, order| {
+        digests.finish(&mut waiting, &mut order, |id, order| {
             unstarted.key(Some(&json!(id)), order).unwrap_or_else(|| order.key(Some(&json!(id))))
         });
         let mut waiting = waiting.into_records();
@@ -1008,9 +1008,10 @@ impl Hub {
         }
         // The last reorder holds (a prompt that left the queue for its turn went back ahead of
         // it); a prompt queued after it keeps its place at the end.
+        // An inbox digest's messages share its place, in their order (`Digests::rank`).
         waiting.sort_by_key(|q| {
             let id = q.msg.get("promptId");
-            unstarted.key(id, &order).unwrap_or_else(|| order.key(id))
+            (unstarted.key(id, &order).unwrap_or_else(|| order.key(id)), digests.rank(id))
         });
         // A prompt that left the queue for its turn runs first, as it would have.
         for id in unstarted.prompts() {

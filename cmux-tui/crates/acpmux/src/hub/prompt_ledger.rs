@@ -122,6 +122,13 @@ impl Hub {
                 {
                     digest = field("promptId").map(str::to_owned);
                 }
+                // The digest it went into was withdrawn before its turn: so was it.
+                ("queue_removed", Some(_))
+                    if digest.is_some() && field("promptId") == digest.as_deref() =>
+                {
+                    ended = Some(json!({"stopReason": "cancelled", "status": "withdrawn"}));
+                    return false;
+                }
                 // The digest's turn started: the one its `user_message` names (a steer goes into
                 // the turn that ran then) is this prompt's.
                 ("user_message", Some(_))

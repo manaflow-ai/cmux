@@ -444,20 +444,19 @@ impl Hub {
         tokio::spawn(async move {
             let result = hub.run_prompt(&s, blocks, &who, false, opts).await;
             if let Err(e) = &result {
+                // The messages it took go back first, so a stop between these records loses none
+                // (`queue_waiting.rs` `Digests`), and before its answer, so their waiting tasks
+                // wait again (`queue_slot`). Refused before its turn (it still waits), they go
+                // back as they were (held when a failed turn held them); after a turn that took
+                // it, held, as messages that joined a failed turn are (`requeue_joined`).
+                let unstarted = s.queue().iter().any(|q| q.prompt_id == id);
+                hub.requeue_joined(&s, &digest, !unstarted || held);
                 // Refused before its turn (as a restored prompt is, `resume_restored`): it leaves
                 // the queue, so the prompts behind it still run, and the log says why.
-                let unstarted = hub.remove_queued(&s, &id);
-                if unstarted {
+                if hub.remove_queued(&s, &id) {
                     let msg = json!({"promptId": id, "turnId": turn, "client": who, "error": e.message, "data": e.data});
                     hub.append(&s, "mux", "prompt_refused", msg);
                 }
-                // The messages it took go back, before its answer, so their waiting tasks wait
-                // again (`queue_slot`) and a restart restores them (their `requeued` records
-                // follow the digest's). Refused before its turn, they go back as they were (held
-                // when a failed turn held them); after a turn that took it, held, as messages
-                // that joined a failed turn are (`requeue_joined`).
-                let hold = !unstarted || held;
-                hub.requeue_joined(&s, &digest, hold);
             }
             digest.answer.send_replace(Some(result));
         });

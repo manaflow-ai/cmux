@@ -172,55 +172,104 @@ fn str_field<'a>(e: &'a EventRecord, key: &str) -> Option<&'a str> {
     e.msg.get(key).and_then(Value::as_str)
 }
 
-/// The inbox digests the log queued (`inbox_digest.rs`), and which of them started. A digest whose turn started (its `user_message`, a steer's too, or
-/// its `turn_started`) is its messages' turn: none runs on its own again, unless the digest
-/// failed and put it back (its `requeued` record, read later). A digest whose turn never started
-/// (still queued, refused, or cut before its steer was written) is dropped, and its messages come
-/// back in its place as they were: a restart loses none and runs none twice. Their `dequeued`
-/// records leave them waiting until then (`restore_queue`).
+/// The inbox digests the log queued (`inbox_digest.rs`) and what became of each, read in log
+/// order. A digest's messages stay waiting in the restore (their `dequeued` records name the
+/// digest) until the scan ends ([`Digests::finish`]):
+///
+/// - A digest whose turn started (its `turn_started`, or its steer's `user_message`), that the
+///   person edited (`queue_updated`: it is their prompt now) or withdrew (`queue_removed`) has
+///   them: none runs again on its own.
+/// - A digest still waiting (queued, or cut before its turn or steer started) is dropped, and its
+///   messages take its place, in its order: a restart loses none and runs none twice. A steer the
+///   agent had no turn for, queued again, waits again.
+///
+/// A message is a digest's until a later digest takes it. One a refused or failed digest put back
+/// (`requeue_joined`: its `requeued` record, logged before the digest's removal) is its own copy:
+/// it stays when the digest ended, and takes the digest's place with the others when the stop
+/// came before the digest's removal. A stop in the middle of a failed digest turn's puts-back
+/// loses the rest, as one in the middle of a failed turn of joined messages does (`digest.rs`).
 #[derive(Default)]
 pub(super) struct Digests {
-    took: std::collections::HashMap<String, Vec<String>>,
-    started: std::collections::HashSet<String>,
+    /// In log order.
+    list: Vec<Digest>,
+    by_id: HashMap<String, usize>,
+    /// Each message's digest, its place among that digest's messages, and whether it was put
+    /// back.
+    owner: HashMap<String, (usize, u64, bool)>,
+}
+
+struct Digest {
+    id: String,
+    waits: bool,
 }
 
 impl Digests {
     /// One record of the scan, in log order.
-    pub(super) fn read(&mut self, e: &EventRecord, waiting: &mut Waiting, order: &mut Order) {
+    pub(super) fn read(&mut self, e: &EventRecord) {
         let Some(id) = e.msg.get("promptId").and_then(Value::as_str) else { return };
-        match e.kind.as_str() {
-            "queued" if inbox_digest::is_digest_record(&e.msg) => {
-                self.took.insert(id.to_owned(), inbox_digest::took(&e.msg));
-            }
-            "user_message" | "turn_started" if !self.started.contains(id) => {
-                let Some(messages) = self.took.get(id) else { return };
-                for m in messages {
-                    waiting.remove_prompt(m);
-                    order.remove(&Value::String(m.clone()));
+        let digest = self.by_id.get(id).copied();
+        match (e.kind.as_str(), digest) {
+            ("queued", _) if inbox_digest::is_digest_record(&e.msg) => {
+                let at = digest.unwrap_or_else(|| {
+                    self.list.push(Digest { id: id.to_owned(), waits: true });
+                    self.by_id.insert(id.to_owned(), self.list.len() - 1);
+                    self.list.len() - 1
+                });
+                if let Some(d) = self.list.get_mut(at) {
+                    d.waits = true;
                 }
-                self.started.insert(id.to_owned());
+                for (rank, m) in (0u64..).zip(inbox_digest::took(&e.msg)) {
+                    self.owner.insert(m, (at, rank, false));
+                }
+            }
+            ("queued", None) if e.msg.get("requeued") == Some(&Value::Bool(true)) => {
+                if let Some(owned) = self.owner.get_mut(id) {
+                    owned.2 = true;
+                }
+            }
+            ("turn_started" | "queue_updated" | "queue_removed", Some(at)) => self.ended(at),
+            ("user_message", Some(at)) if e.msg.get("steer") == Some(&Value::Bool(true)) => {
+                self.ended(at);
             }
             _ => {}
         }
     }
 
-    /// After the scan: each digest that never started leaves, and its messages take its place
-    /// (`key`), in the order they were queued, unless a later reorder placed them.
-    pub(super) fn dissolve(
+    fn ended(&mut self, at: usize) {
+        if let Some(d) = self.list.get_mut(at) {
+            d.waits = false;
+        }
+    }
+
+    /// After the scan: the messages of a digest that ended leave, but for the ones it put back; a
+    /// digest still waiting leaves and its messages take its place (`key`), unless a later reorder
+    /// placed them.
+    pub(super) fn finish(
         &self,
         waiting: &mut Waiting,
         order: &mut Order,
         key: impl Fn(&str, &Order) -> (i64, u64),
     ) {
-        for (digest, messages) in &self.took {
-            if self.started.contains(digest) {
-                continue;
-            }
-            let place = key(digest, order);
-            waiting.remove_prompt(digest);
-            for m in messages {
-                order.place_if_unplaced(m, place);
+        let places: Vec<Option<(i64, u64)>> =
+            self.list.iter().map(|d| d.waits.then(|| key(&d.id, order))).collect();
+        for d in self.list.iter().filter(|d| d.waits) {
+            waiting.remove_prompt(&d.id);
+        }
+        for (m, &(at, _, put_back)) in &self.owner {
+            match places.get(at) {
+                Some(Some(place)) => order.place_if_unplaced(m, *place),
+                _ if put_back => {}
+                _ => {
+                    waiting.remove_prompt(m);
+                    order.remove(&Value::String(m.clone()));
+                }
             }
         }
+    }
+
+    /// Where a message stands among its digest's messages, which share the digest's place.
+    pub(super) fn rank(&self, prompt_id: Option<&Value>) -> u64 {
+        let id = prompt_id.and_then(Value::as_str);
+        id.and_then(|id| self.owner.get(id)).map_or(0, |&(_, rank, _)| rank)
     }
 }
