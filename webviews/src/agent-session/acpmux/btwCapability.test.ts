@@ -1,4 +1,5 @@
 import { askBtwQuestion } from "./btwCapability";
+import { expect, test } from "bun:test";
 
 function client() {
   return {

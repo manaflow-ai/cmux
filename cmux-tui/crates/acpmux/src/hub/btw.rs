@@ -256,7 +256,10 @@ impl Hub {
                 None => self.btw_default_model(&meta).await,
             }
         };
-        let name = self.unique_name(&format!("{}-btw", meta.name));
+        // Reserve a request-specific name before publishing the fork/new session. A plain
+        // unique_name check races when two inline requests start together, which could make
+        // timeout cleanup identify and purge the other request's session too.
+        let name = self.unique_name(&format!("{}-btw-{}", meta.name, uuid::Uuid::now_v7()));
         let (side, context) = match with_inline_deadline(
             inline_deadline,
             self.btw_fork_point(session, &meta),
