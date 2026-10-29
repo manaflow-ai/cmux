@@ -8,8 +8,8 @@
 //   draws a starting style for one to enter from (outside its exit state). A popup surface is one of
 //   the listed classes, any class named like one (`-menu`, `-popover`, `-popup`, `-dropdown`,
 //   `-picker`, `-listbox`), or an ARIA menu or listbox.
-// - No component gives a menu or listbox a `data-enter` entrance, and every `.animate()` fade-in
-//   under webviews/src is a listed non-popup surface (SCRIPT_FADE_INS).
+// - No component gives a menu or listbox a `data-enter` entrance, and every Web Animations call
+//   under webviews/src is a listed non-popup surface (WEB_ANIMATIONS).
 // - Palettes are exempt (Leo: "Command palette gets a pass"): the quick-open and jump palettes keep
 //   their entrance, and each is named in PALETTES.
 // popover-instant-open-pane.test.ts opens the real agent pane's ... menu in Chromium.
@@ -43,7 +43,7 @@ const POPUP_SUFFIXES = ["menu", "popover", "popup", "dropdown", "picker", "listb
 const POPUP = new RegExp(
   `\\.(${POPUP_CLASSES.join("|")})(?![\\w-])` +
     `|\\.[\\w-]+-(${POPUP_SUFFIXES.join("|")})(?![\\w-])` +
-    `|\\[role=["']?(menu|listbox)["']?\\]`,
+    `|\\[\\s*role\\s*[~|^$*]?=\\s*["']?(menu|listbox)["']?(\\s+[is])?\\s*\\]`,
 );
 /// Palettes keep their entrance (Leo 2026-10-24: "Command palette gets a pass"). Each is a
 /// keyboard-summoned, centered quick-open surface, not a menu a control drops down.
@@ -115,9 +115,10 @@ function popupEntrances(source: string): string[] {
     const where = `${rule.line} \`${subjects.join(", ")}\``;
     const values = (...names: string[]) => rule.decls.filter(([name]) => names.includes(name)).map(([, v]) => v);
     const loops = values("animation-iteration-count").some((value) => /infinite/.test(value));
-    const animation = values("animation", "animation-name").find(
-      (value) => !/^none\b/.test(value) && !/\binfinite\b/.test(value) && !loops,
-    );
+    // Each animation in a comma list on its own: `none, ui-enter 120ms` still runs ui-enter.
+    const animation = values("animation", "animation-name")
+      .flatMap((value) => splitTop(value, /,/))
+      .find((value) => !/^none\b/.test(value) && !/\binfinite\b/.test(value) && !loops);
     if (animation) found.push(`${where} starts \`animation: ${animation}\``);
     if (subjects.some((one) => /\[data-starting-style\]|\[data-open\]|\[data-instant\]/.test(one))) {
       const moves = rule.decls.some(
@@ -154,8 +155,9 @@ const POPUP_WORD = new RegExp(
 );
 const PALETTE_WORD = new RegExp(`(?<![\\w-])(${PALETTES.join("|")})(?![\\w-])`);
 
-/// The opening JSX tag around `at`: from its `<Name` to the `>` that closes it, skipping `{...}`
-/// expressions (so `onClick={() => x}` or `className={cx("a", b)}` stay inside).
+/// The opening JSX tag around `at`: from its `<Name` to the `>` that closes it, skipping quoted
+/// strings and `{...}` expressions (so `title="a > b"`, `onClick={() => x}` or
+/// `className={cx("a", b)}` stay inside).
 function enclosingTag(source: string, at: number): string | undefined {
   let start = at;
   while (start >= 0 && !(source[start] === "<" && /[A-Za-z]/.test(source[start + 1] ?? ""))) start--;
@@ -163,6 +165,12 @@ function enclosingTag(source: string, at: number): string | undefined {
   let depth = 0;
   for (let index = start + 1; index < source.length; index++) {
     const char = source[index];
+    if (char === '"' || char === "'" || char === "`") {
+      const close = source.indexOf(char, index + 1);
+      if (close < 0) return undefined;
+      index = close;
+      continue;
+    }
     if (char === "{") depth++;
     else if (char === "}") depth--;
     else if (char === ">" && depth === 0) return index >= at ? source.slice(start, index + 1) : undefined;
@@ -192,24 +200,28 @@ function scriptEntrances(source: string): string[] {
   return found;
 }
 
-/// Scripts that fade an element in with `.animate()`, and how many times. None of them is a popup;
-/// a new fade-in anywhere under webviews/src fails until it is listed here with its reason.
-const SCRIPT_FADE_INS: Record<string, { count: number; why: string }> = {
-  "src/agent-session/acpmux/App.tsx": { count: 1, why: "a cold-opened chat's transcript fades in" },
-  "src/motion/SyncTitle.tsx": { count: 1, why: "a title's new text cross-fades" },
-  "src/motion/useSyncListMotion.ts": { count: 1, why: "a list row that arrives fades in" },
+/// Every script that drives the Web Animations API (`.animate(`, `new KeyframeEffect(`), with its
+/// call count and what it animates. None of them is a popup or menu. A new call anywhere under
+/// webviews/src fails until it is listed here, so a popup cannot fade in from script, however its
+/// keyframes are built.
+const WEB_ANIMATIONS: Record<string, { count: number; what: string }> = {
+  "src/agent-session/acpmux/App.tsx": { count: 1, what: "a cold-opened chat's transcript fades in" },
+  "src/agent-session/acpmux/changes/treeMotionDom.ts": { count: 4, what: "the changes tree's rows move and tint" },
+  "src/agent-session/acpmux/changes/treeTitles.ts": { count: 2, what: "a long tree title's marquee" },
+  "src/agent-session/acpmux/conversation/PromptText.tsx": { count: 3, what: "a prompt bubble resizes" },
+  "src/agent-session/acpmux/conversation/fold.ts": { count: 3, what: "a transcript block folds" },
+  "src/agent-session/acpmux/conversation/turnFold.ts": { count: 1, what: "a turn folds" },
+  "src/agent-session/acpmux/newtab/listMotion.ts": { count: 1, what: "New Tab rows move to their new place" },
+  "src/agent-session/acpmux/threadMinimap/ThreadMinimap.tsx": { count: 1, what: "the minimap glides" },
+  "src/agent-session/acpmux/threadMinimap/scrollMotion.ts": { count: 1, what: "the minimap's scroll bubble" },
+  "src/files-panel-motion.ts": { count: 2, what: "the files panel slides in from its edge" },
+  "src/motion/SyncTitle.tsx": { count: 3, what: "a title's new text cross-fades" },
+  "src/motion/useSyncListMotion.ts": { count: 3, what: "list rows arrive, move and leave" },
 };
 
-/// The `.animate()` calls in a script that start at opacity 0 (`[{ opacity: 0 }, ...]` or
-/// `{ opacity: [0, ...] }`), as their lines.
-function scriptFadeIns(source: string): number[] {
-  const lineAt = (index: number) => source.slice(0, index).split("\n").length;
-  return [
-    ...source.matchAll(
-      /\.animate\(\s*(\[\s*\{\s*opacity:\s*["']?0(\.0+)?["']?\s*[,}]|\{\s*opacity:\s*\[\s*["']?0(\.0+)?["']?\s*,)/g,
-    ),
-  ].map((match) => lineAt(match.index));
-}
+/// How many times a script drives the Web Animations API.
+const webAnimationCalls = (source: string) =>
+  source.match(/\.animate\s*\(|\bnew\s+KeyframeEffect\s*\(/g)?.length ?? 0;
 
 describe("popovers and menus open in one frame", () => {
   // The effort track is the model menu's slider (EffortPicker), and stands on its own in the gallery:
@@ -248,6 +260,7 @@ describe("popovers and menus open in one frame", () => {
         .file-tree-context-menu { animation: ui-enter 120ms both }
         .model-dropdown, .color-picker { animation: ui-enter 120ms both }
         [role=listbox] { animation: ui-enter 120ms both }
+        [role = "menu"] { animation-name: none, ui-enter }
         .acpmux-file-search { animation: ui-enter 120ms both }
         .lg-palette { animation: ui-enter 120ms both }
         .nt-edit-add-menu-item { animation: row-in 80ms }`),
@@ -256,6 +269,7 @@ describe("popovers and menus open in one frame", () => {
       "3 `.file-tree-context-menu` starts `animation: ui-enter 120ms both`",
       "4 `.model-dropdown, .color-picker` starts `animation: ui-enter 120ms both`",
       "5 `[role=listbox]` starts `animation: ui-enter 120ms both`",
+      '6 `[role = "menu"]` starts `animation: ui-enter`',
     ]);
   });
 
@@ -274,13 +288,10 @@ describe("popovers and menus open in one frame", () => {
       "4 a role=listbox element enters with data-enter",
       "5 a .ui-popup element enters with data-enter",
     ]);
-    expect(
-      scriptFadeIns(`
-        el.animate([{ opacity: 0 }, { opacity: 1 }], 80);
-        el.animate({ opacity: [0, 1] }, 80);
-        el.animate([{ opacity: 1 }, { opacity: 0 }], 80);
-        el.animate([{ opacity: 0.5 }, { opacity: 1 }], 80);`),
-    ).toEqual([2, 3]);
+    expect(scriptEntrances(`<div title="a > b" role="menu" data-enter="top" />`)).toEqual([
+      "1 a role=menu element enters with data-enter",
+    ]);
+    expect(webAnimationCalls("a.animate(k, t); b.animate (k); new KeyframeEffect(el, k); c.animated = 1")).toBe(3);
   });
 
   test("no component animates a popup or menu in", () => {
@@ -291,14 +302,14 @@ describe("popovers and menus open in one frame", () => {
     expect(found).toEqual([]);
   });
 
-  test("every script fade-in is a listed non-popup surface", () => {
+  test("every Web Animations call is a listed non-popup surface", () => {
     const found: Record<string, number> = {};
     for (const file of scripts(path.join(WEBVIEWS, "src"))) {
-      const count = scriptFadeIns(readFileSync(file, "utf8")).length;
+      const count = webAnimationCalls(readFileSync(file, "utf8"));
       if (count) found[path.relative(WEBVIEWS, file)] = count;
     }
     expect(found).toEqual(
-      Object.fromEntries(Object.entries(SCRIPT_FADE_INS).map(([file, { count }]) => [file, count])),
+      Object.fromEntries(Object.entries(WEB_ANIMATIONS).map(([file, { count }]) => [file, count])),
     );
   });
 
