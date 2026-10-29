@@ -31,7 +31,7 @@ export default async function CloudTroubleshootingPage({
         <thead><tr><th>{t("nextSymptom")}</th><th>{t("nextFix")}</th></tr></thead>
         <tbody>
           <tr><td><code>{"new-machine: pending: true"}</code></td><td>{t("nextPendingFix")}</td></tr>
-          <tr><td><code>{"No Cloud machine is selected. Right-click a machine or pass --target machine:<id>"}</code></td><td>{t("nextTargetFix")}</td></tr>
+          <tr><td><code>{"No Cloud machine is selected. Right-click a machine or pass --target machine:<id>"}</code></td><td>{t("nextTargetFix", { machineTarget: "machine:<id>" })}</td></tr>
           <tr><td><code>{"cmux cloud open-machine is not a CLI verb; run it with: cmux action run cloudOpenMachine"}</code></td><td>{t("nextOpenFix")}</td></tr>
           <tr><td><code>{"start-session: cannot hold agent chat tabs yet: update it"}</code></td><td>{t("nextAgentFix")}</td></tr>
           <tr><td><code>{"open-browser: its cmux is too old"}</code></td><td>{t("nextBrowserFix")}</td></tr>

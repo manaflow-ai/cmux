@@ -4775,7 +4775,7 @@
       "nextSymptom": "Message or symptom",
       "nextFix": "What to do",
       "nextPendingFix": "Creation continues in the background. Check list-machines before creating another machine. A list with loaded: false is still unknown, not an empty account.",
-      "nextTargetFix": "Copy target from list-machines and pass --target machine:<id>, even if you have only one machine.",
+      "nextTargetFix": "Copy target from list-machines and pass --target {machineTarget}, even if you have only one machine.",
       "nextOpenFix": "open-machine is a GUI-only action. To open and show a terminal from the CLI, use new-terminal-on-machine with the machine target and --focus.",
       "nextAgentFix": "Native agent chat tabs are not yet available. Open a terminal on the machine and run claude or codex there. Changing the agent selection does not fix the missing chat support.",
       "nextBrowserFix": "Opening a dev-server browser tab is not yet available. machine-link --port returns a link, but browser access through that link was not verified. A returned link alone does not prove the port is reachable.",

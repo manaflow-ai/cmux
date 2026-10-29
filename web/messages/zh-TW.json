@@ -3233,7 +3233,7 @@
       "nextSymptom": "訊息或症狀",
       "nextFix": "處理方式",
       "nextPendingFix": "建立作業正在背景繼續。再次建立機器前請查看 list-machines。loaded: false 表示清單狀態仍未知，不代表帳號中沒有機器。",
-      "nextTargetFix": "從 list-machines 複製 target，並傳入 --target machine:<id>，即使只有一台機器也一樣。",
+      "nextTargetFix": "從 list-machines 複製 target，並傳入 --target {machineTarget}，即使只有一台機器也一樣。",
       "nextOpenFix": "open-machine 是僅限 GUI 的動作。若要透過 CLI 開啟並顯示終端機，請使用 new-terminal-on-machine，並指定機器 target 和 --focus。",
       "nextAgentFix": "原生代理聊天分頁尚無法使用。請在機器上開啟終端機並執行 claude 或 codex。更換代理無法解決缺少聊天支援的問題。",
       "nextBrowserFix": "開啟開發伺服器瀏覽器分頁尚無法使用。machine-link --port 會傳回連結，但透過該連結使用瀏覽器存取尚未驗證。僅傳回連結並不證明連接埠可連線。",

@@ -3234,7 +3234,7 @@
       "nextSymptom": "Meldung oder Symptom",
       "nextFix": "Was zu tun ist",
       "nextPendingFix": "Die Erstellung läuft im Hintergrund weiter. Prüfe list-machines, bevor du eine weitere Maschine erstellst. Bei einer Liste mit loaded: false ist der Inhalt noch unbekannt; sie bedeutet nicht, dass das Konto leer ist.",
-      "nextTargetFix": "Kopiere target aus list-machines und übergib --target machine:<id>, auch wenn du nur eine Maschine hast.",
+      "nextTargetFix": "Kopiere target aus list-machines und übergib --target {machineTarget}, auch wenn du nur eine Maschine hast.",
       "nextOpenFix": "open-machine ist eine reine GUI-Aktion. Um über die CLI ein Terminal zu öffnen und anzuzeigen, verwende new-terminal-on-machine mit dem Maschinenziel und --focus.",
       "nextAgentFix": "Native Agent-Chat-Tabs sind noch nicht verfügbar. Öffne ein Terminal auf der Maschine und führe dort claude oder codex aus. Eine andere Agentenauswahl behebt die fehlende Chat-Unterstützung nicht.",
       "nextBrowserFix": "Das Öffnen eines Browser-Tabs für einen Entwicklungsserver ist noch nicht verfügbar. machine-link --port gibt einen Link zurück, aber der Browserzugriff über diesen Link wurde nicht überprüft. Ein zurückgegebener Link allein beweist nicht, dass der Port erreichbar ist.",

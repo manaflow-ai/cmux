@@ -3232,7 +3232,7 @@
       "nextSymptom": "Mesaj veya belirti",
       "nextFix": "Yapılması gereken",
       "nextPendingFix": "Oluşturma işlemi arka planda devam eder. Başka bir makine oluşturmadan önce list-machines sonucunu kontrol edin. loaded: false içeren bir liste henüz bilinmiyordur; hesabın boş olduğu anlamına gelmez.",
-      "nextTargetFix": "list-machines sonucundan target değerini kopyalayın ve yalnızca tek makineniz olsa bile --target machine:<id> belirtin.",
+      "nextTargetFix": "list-machines sonucundan target değerini kopyalayın ve yalnızca tek makineniz olsa bile --target {machineTarget} belirtin.",
       "nextOpenFix": "open-machine yalnızca GUI üzerinden kullanılabilen bir eylemdir. CLI üzerinden terminal açıp göstermek için makine hedefi ve --focus ile new-terminal-on-machine kullanın.",
       "nextAgentFix": "Yerleşik ajan sohbet sekmeleri henüz kullanılamıyor. Makinede bir terminal açın ve orada claude veya codex çalıştırın. Ajan seçimini değiştirmek eksik sohbet desteğini düzeltmez.",
       "nextBrowserFix": "Geliştirme sunucusu için tarayıcı sekmesi açma henüz kullanılamıyor. machine-link --port bir bağlantı döndürür, ancak bu bağlantı üzerinden tarayıcı erişimi doğrulanmadı. Yalnızca bir bağlantının döndürülmesi, porta erişilebildiğini kanıtlamaz.",

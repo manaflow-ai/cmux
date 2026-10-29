@@ -3231,7 +3231,7 @@
       "nextSymptom": "Melding eller symptom",
       "nextFix": "Hva du bør gjøre",
       "nextPendingFix": "Opprettelsen fortsetter i bakgrunnen. Sjekk list-machines før du oppretter en ny maskin. En liste med loaded: false er fortsatt ukjent; den betyr ikke at kontoen er tom.",
-      "nextTargetFix": "Kopier target fra list-machines, og angi --target machine:<id>, selv om du bare har én maskin.",
+      "nextTargetFix": "Kopier target fra list-machines, og angi --target {machineTarget}, selv om du bare har én maskin.",
       "nextOpenFix": "open-machine er en handling som bare er tilgjengelig i GUI-et. For å åpne og vise en terminal fra CLI-et bruker du new-terminal-on-machine med maskinmålet og --focus.",
       "nextAgentFix": "Innebygde agentchatfaner er ennå ikke tilgjengelige. Åpne en terminal på maskinen, og kjør claude eller codex der. Å velge en annen agent løser ikke manglende chatstøtte.",
       "nextBrowserFix": "Åpning av en nettleserfane for utviklingsserveren er ennå ikke tilgjengelig. machine-link --port returnerer en lenke, men tilgang via lenken i nettleseren er ikke verifisert. En returnert lenke alene beviser ikke at porten kan nås.",

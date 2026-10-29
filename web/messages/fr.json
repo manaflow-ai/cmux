@@ -3236,7 +3236,7 @@
       "nextSymptom": "Message ou symptôme",
       "nextFix": "Que faire",
       "nextPendingFix": "La création se poursuit en arrière-plan. Consultez list-machines avant de créer une autre machine. Une liste avec loaded: false est encore inconnue ; cela ne signifie pas que le compte est vide.",
-      "nextTargetFix": "Copiez target depuis list-machines et passez --target machine:<id>, même si vous n’avez qu’une machine.",
+      "nextTargetFix": "Copiez target depuis list-machines et passez --target {machineTarget}, même si vous n’avez qu’une machine.",
       "nextOpenFix": "open-machine est une action réservée à l’interface graphique. Pour ouvrir et afficher un terminal depuis la CLI, utilisez new-terminal-on-machine avec la cible de la machine et --focus.",
       "nextAgentFix": "Les onglets de chat natifs des agents ne sont pas encore disponibles. Ouvrez un terminal sur la machine et exécutez-y claude ou codex. Choisir un autre agent ne résout pas l’absence de prise en charge des chats.",
       "nextBrowserFix": "L’ouverture d’un onglet de navigateur pour un serveur de développement n’est pas encore disponible. machine-link --port renvoie un lien, mais l’accès par le navigateur via ce lien n’a pas été vérifié. Un lien renvoyé ne prouve pas à lui seul que le port est accessible.",

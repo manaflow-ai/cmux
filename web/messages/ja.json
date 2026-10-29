@@ -4687,7 +4687,7 @@
       "nextSymptom": "メッセージまたは症状",
       "nextFix": "対処方法",
       "nextPendingFix": "作成処理はバックグラウンドで続いています。別のマシンを作成する前に list-machines を確認してください。loaded: false の一覧はまだ状態が不明であり、アカウントが空という意味ではありません。",
-      "nextTargetFix": "list-machines から target をコピーし、マシンが 1 台だけでも --target machine:<id> を指定してください。",
+      "nextTargetFix": "list-machines から target をコピーし、マシンが 1 台だけでも --target {machineTarget} を指定してください。",
       "nextOpenFix": "open-machine は GUI 専用のアクションです。CLI からターミナルを開いて表示するには、new-terminal-on-machine にマシンの target と --focus を指定します。",
       "nextAgentFix": "ネイティブのエージェントチャットタブはまだ利用できません。マシンでターミナルを開き、そこで claude または codex を実行してください。エージェントの選択を変えても、チャット機能が未対応であることは解決しません。",
       "nextBrowserFix": "開発サーバーのブラウザタブを開く操作はまだ利用できません。machine-link --port はリンクを返しますが、そのリンク経由のブラウザアクセスは検証されていません。リンクが返っただけでは、ポートに到達できるとは限りません。",

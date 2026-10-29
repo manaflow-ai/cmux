@@ -3234,7 +3234,7 @@
       "nextSymptom": "Poruka ili simptom",
       "nextFix": "Šta uraditi",
       "nextPendingFix": "Kreiranje se nastavlja u pozadini. Provjerite list-machines prije kreiranja još jedne mašine. Lista s loaded: false još nije poznata; to ne znači da je račun prazan.",
-      "nextTargetFix": "Kopirajte target iz list-machines i navedite --target machine:<id>, čak i ako imate samo jednu mašinu.",
+      "nextTargetFix": "Kopirajte target iz list-machines i navedite --target {machineTarget}, čak i ako imate samo jednu mašinu.",
       "nextOpenFix": "open-machine je radnja dostupna samo u GUI-ju. Da otvorite i prikažete terminal iz CLI-ja, koristite new-terminal-on-machine s ciljem mašine i --focus.",
       "nextAgentFix": "Ugrađene kartice razgovora s agentima još nisu dostupne. Otvorite terminal na mašini i tamo pokrenite claude ili codex. Promjena izbora agenta ne rješava nedostatak podrške za razgovore.",
       "nextBrowserFix": "Otvaranje kartice preglednika za razvojni server još nije dostupno. machine-link --port vraća vezu, ali pristup toj vezi kroz preglednik nije provjeren. Sama vraćena veza ne dokazuje da je port dostupan.",

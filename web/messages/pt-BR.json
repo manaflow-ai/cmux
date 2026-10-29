@@ -3234,7 +3234,7 @@
       "nextSymptom": "Mensagem ou sintoma",
       "nextFix": "O que fazer",
       "nextPendingFix": "A criação continua em segundo plano. Confira list-machines antes de criar outra máquina. Uma lista com loaded: false ainda é desconhecida; ela não significa que a conta está vazia.",
-      "nextTargetFix": "Copie target de list-machines e passe --target machine:<id>, mesmo se você tiver apenas uma máquina.",
+      "nextTargetFix": "Copie target de list-machines e passe --target {machineTarget}, mesmo se você tiver apenas uma máquina.",
       "nextOpenFix": "open-machine é uma ação exclusiva da interface gráfica. Para abrir e mostrar um terminal pela CLI, use new-terminal-on-machine com o destino da máquina e --focus.",
       "nextAgentFix": "As abas de chat nativas dos agentes ainda não estão disponíveis. Abra um terminal na máquina e execute claude ou codex nele. Escolher outro agente não resolve a falta de suporte a chats.",
       "nextBrowserFix": "A abertura de uma aba do navegador para um servidor de desenvolvimento ainda não está disponível. machine-link --port retorna um link, mas o acesso pelo navegador por meio desse link não foi verificado. Um link retornado, por si só, não comprova que a porta está acessível.",

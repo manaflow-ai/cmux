@@ -3234,7 +3234,7 @@
       "nextSymptom": "Messaggio o sintomo",
       "nextFix": "Cosa fare",
       "nextPendingFix": "La creazione continua in background. Controlla list-machines prima di creare un’altra macchina. Un elenco con loaded: false è ancora sconosciuto; non indica un account vuoto.",
-      "nextTargetFix": "Copia target da list-machines e passa --target machine:<id>, anche se hai una sola macchina.",
+      "nextTargetFix": "Copia target da list-machines e passa --target {machineTarget}, anche se hai una sola macchina.",
       "nextOpenFix": "open-machine è un’azione disponibile solo nell’interfaccia grafica. Per aprire e mostrare un terminale dalla CLI, usa new-terminal-on-machine con la destinazione della macchina e --focus.",
       "nextAgentFix": "Le schede di chat native degli agenti non sono ancora disponibili. Apri un terminale sulla macchina ed esegui claude o codex. Scegliere un altro agente non risolve la mancanza del supporto chat.",
       "nextBrowserFix": "L’apertura di una scheda del browser per un server di sviluppo non è ancora disponibile. machine-link --port restituisce un link, ma l’accesso dal browser tramite quel link non è stato verificato. Un link restituito, da solo, non dimostra che la porta sia raggiungibile.",

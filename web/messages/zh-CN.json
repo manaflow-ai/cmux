@@ -3234,7 +3234,7 @@
       "nextSymptom": "消息或现象",
       "nextFix": "处理方法",
       "nextPendingFix": "创建操作正在后台继续。再次创建机器前请查看 list-machines。loaded: false 表示列表状态仍未知，不代表账户中没有机器。",
-      "nextTargetFix": "从 list-machines 复制 target，并传入 --target machine:<id>，即使只有一台机器也如此。",
+      "nextTargetFix": "从 list-machines 复制 target，并传入 --target {machineTarget}，即使只有一台机器也如此。",
       "nextOpenFix": "open-machine 是仅限 GUI 的操作。要通过 CLI 打开并显示终端，请使用 new-terminal-on-machine，并指定机器 target 和 --focus。",
       "nextAgentFix": "原生智能体聊天标签页尚不可用。请在机器上打开终端并运行 claude 或 codex。更换智能体无法解决缺少聊天支持的问题。",
       "nextBrowserFix": "打开开发服务器浏览器标签页尚不可用。machine-link --port 会返回链接，但通过该链接访问浏览器页面尚未验证。仅返回链接并不证明端口可达。",

@@ -3234,7 +3234,7 @@
       "nextSymptom": "Komunikat lub objaw",
       "nextFix": "Co zrobić",
       "nextPendingFix": "Tworzenie trwa dalej w tle. Przed utworzeniem kolejnej maszyny sprawdź list-machines. Lista z loaded: false jest nadal nieznana; nie oznacza pustego konta.",
-      "nextTargetFix": "Skopiuj target z list-machines i podaj --target machine:<id>, nawet jeśli masz tylko jedną maszynę.",
+      "nextTargetFix": "Skopiuj target z list-machines i podaj --target {machineTarget}, nawet jeśli masz tylko jedną maszynę.",
       "nextOpenFix": "open-machine jest działaniem dostępnym wyłącznie w GUI. Aby otworzyć i wyświetlić terminal z CLI, użyj new-terminal-on-machine z celem maszyny oraz --focus.",
       "nextAgentFix": "Natywne karty czatu agentów nie są jeszcze dostępne. Otwórz terminal na maszynie i uruchom tam claude lub codex. Wybór innego agenta nie rozwiązuje braku obsługi czatu.",
       "nextBrowserFix": "Otwieranie karty przeglądarki serwera deweloperskiego nie jest jeszcze dostępne. machine-link --port zwraca link, ale dostęp przez ten link w przeglądarce nie został sprawdzony. Sam zwrócony link nie dowodzi, że port jest osiągalny.",
