@@ -19,16 +19,17 @@ cmux-next is a track inside the nightly channel, under `/docs/next`. It is not a
 
 ## Pages
 
-Hand-written, short, plain: `web/data/next-docs/pages.ts`. Getting started, Install and update, Home and Chief, Agents and subagents, Workspaces/panes/tabs/groups, Browser, Markdown and files, Cloud machines, Keyboard shortcuts (links to the generated page).
+Hand-written, short, plain: `web/data/next-docs/pages.ts`. Getting started, Install and update, Home and Chief, Agents and subagents, Workspaces/panes/tabs/groups, Spaces and columns, Browser, Markdown and files, Remote machines and Tailscale, Cloud machines, Plans and credits (no prices until plans are on sale), MCP server.
 
 Generated, so they cannot drift:
 
 | Page | Source | Generated file |
 | --- | --- | --- |
 | CLI and MCP reference | `plans/cmux-next/action-surfaces.json` (what `cmux action list` reports): verbs with `cli: offered`, the `mcp` field says if `cmux mcp serve` also offers it | `web/data/next-docs/cli-reference.generated.json` |
+| Command palette and Keyboard shortcuts | the same catalog: entries with `palette: offered` by palette section, with `default_shortcut` and the CLI command | `web/data/next-docs/palette-reference.generated.json` |
 | Settings reference | `schemas/settings/settings-schema.json` (Settings page rows, hidden rows left out) | `web/data/next-docs/settings-reference.generated.json` |
 
-Refresh with `bun web/scripts/export-next-docs.ts`. `web/` never reads `plans/` or `schemas/` at build time, so the copies are committed.
+Refresh with `bun web/scripts/export-next-docs.ts`. The base autofix runs it after the action exports change (`base-autofix.sh` step 1e1), and the settings export runs it with `--settings`; before 2026-10-27 only the shortcuts copy was regenerated, so these pages went stale. The CLI page's MCP column is the `app_` tool name, made by the same rule as `tool_name` in `cli/mcp/action_tools.rs`. `web/` never reads `plans/` or `schemas/` at build time, so the copies are committed.
 
 ## CI check
 
@@ -47,4 +48,5 @@ Refresh with `bun web/scripts/export-next-docs.ts`. `web/` never reads `plans/` 
 
 - Screenshots from Mac mini builds (the fleet capture path: `cmux-ci capture`). Pages have no images yet.
 - Translations. English only.
-- A page for subagents separate from Agents; MCP tool names per verb (the page says which verbs are MCP tools, not their wire names).
+- A page for subagents separate from Agents.
+- Protocol MCP tools (`workspace_list`, `browser_navigate`, ...) are named on the MCP page by example only; `cmux mcp tools --json` is the full list.

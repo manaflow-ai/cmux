@@ -9,6 +9,7 @@ import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import type { ChatFind } from "../src/agent-session/acpmux/conversation/chatFind";
 import type { ScrollAnchor } from "../src/agent-session/acpmux/App";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
+import { installJsdomScroller, scrollerEnd } from "./support/jsdomScroller";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -50,18 +51,8 @@ Object.assign(scope, replacements);
 // moves when written, with no scroll event.
 const VIEWPORT = 600;
 let viewport = VIEWPORT;
-Object.defineProperty(dom.window.HTMLElement.prototype, "clientHeight", { configurable: true, get: () => viewport });
 Object.defineProperty(dom.window.HTMLElement.prototype, "clientWidth", { configurable: true, get: () => 760 });
-const offsets = new WeakMap<object, number>();
-Object.defineProperty(dom.window.HTMLElement.prototype, "scrollTop", {
-  configurable: true,
-  get(this: object) {
-    return offsets.get(this) ?? 0;
-  },
-  set(this: object, value: number) {
-    offsets.set(this, value);
-  },
-});
+installJsdomScroller(dom.window as never, () => viewport);
 
 const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
@@ -88,8 +79,7 @@ test("a Find jump stays on its match when the transcript measures again before t
   const rows = turnView(turns, new Set());
   const root = createRoot(dom.window.document.getElementById("root")!);
   const scroller = () => dom.window.document.querySelector<HTMLElement>(".acpmux-scroll")!;
-  const latest = () =>
-    parseFloat(dom.window.document.querySelector<HTMLElement>(".acpmux-spacer")!.style.height) - VIEWPORT;
+  const latest = () => scrollerEnd(dom.window.document.querySelector<HTMLElement>(".acpmux-scroll")!);
   const target = rows.findIndex((shown) => shown.id === "t3-user");
   const find: ChatFind = {
     open: true,

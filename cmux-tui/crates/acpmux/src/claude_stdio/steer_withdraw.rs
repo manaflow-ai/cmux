@@ -14,9 +14,17 @@ impl Translator {
         let prompt_id = p.get("promptId").and_then(Value::as_str).unwrap_or_default();
         // Under the steers lock, which `fail_pending` takes before it answers what waits: a steer
         // failed meanwhile is not asked for, and a withdraw registered here is answered by it.
+        let batches = self.batches.lock().await;
         let steers = self.steers.lock().await;
         let uuid = self.steer_lines.lock().await.get(prompt_id).cloned();
-        let Some(uuid) = uuid.filter(|u| steers.iter().any(|(s, _)| s == u)) else {
+        let uuid = uuid.filter(|u| steers.iter().any(|(s, _)| s == u));
+        // Another session's message batched with others, or held for a line written again: it
+        // stays, as one Claude Code read first does (`steer_batch.rs`).
+        if Self::batched(&batches, prompt_id, uuid.as_deref(), &steers) {
+            return Outbound::Reply(Message::ok(id.clone(), json!({"withdrawn": false})));
+        }
+        drop(batches);
+        let Some(uuid) = uuid else {
             return Outbound::Reply(Message::ok(id.clone(), json!({"withdrawn": false})));
         };
         self.pending.lock().await.insert(id.to_string(), Pending::Withdraw);
@@ -53,6 +61,7 @@ impl Translator {
             {
                 drop(steers);
                 self.steer_lines.lock().await.retain(|_, u| u != uuid);
+                self.forget_batch(uuid).await;
                 let steer: Id = serde_json::from_str(&k).unwrap_or(Value::String(k));
                 out.push(Message::err(steer, RpcError::internal(STEER_WITHDRAWN)));
                 withdrawn = true;

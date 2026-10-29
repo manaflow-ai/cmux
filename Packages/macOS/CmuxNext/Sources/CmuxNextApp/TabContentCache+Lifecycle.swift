@@ -119,7 +119,9 @@ extension TabContentCache {
 
     /// Content for `key` now exists: answers an outstanding `mount`.
     func contentDidMount(_ key: String) {
-        guard let token = pendingMounts.removeValue(forKey: key) else { return }
+        // Created with no pane showing it (a tab opened in the background): live and hidden, so
+        // hibernation may release it and its first show restores it.
+        guard let token = pendingMounts.removeValue(forKey: key) else { return applyLifecycle(lifecycle.send(.adopted(key))) }
         applyLifecycle(lifecycle.send(.mounted(key, token)))
     }
 
