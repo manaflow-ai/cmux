@@ -69,6 +69,7 @@ type Page = {
   update?: HarnessHealth["update"];
   checking?: boolean;
   refreshed?: string[];
+  openTerminal?(): Promise<unknown>;
 };
 
 async function renderPage(calls: Call[] = [], closed: string[] = [], page: Page = {}) {
@@ -77,6 +78,7 @@ async function renderPage(calls: Call[] = [], closed: string[] = [], page: Page 
   let reads = 0;
   const native = (method: string, params: Record<string, unknown> = {}) => {
     calls.push({ method, params });
+    if (method === "tab.open" && params.kind === "terminal" && page.openTerminal) return page.openTerminal();
     if (method === "harness.health")
       return Promise.resolve({
         health: {
@@ -173,6 +175,28 @@ test("Sign In runs the CLI's login in a terminal tab in the chat's folder", asyn
       params: { kind: "terminal", text: "codex login", cwd: "/Users/you/src/cmux", run: true, keep: true },
     },
   ]);
+});
+
+test("a failed sign-in terminal launch shows its error and retries the same login", async () => {
+  const calls: Call[] = [];
+  let attempts = 0;
+  const container = await renderPage(calls, [], {
+    openTerminal: () => {
+      attempts += 1;
+      return attempts === 1 ? Promise.reject(new Error("Terminal could not open")) : Promise.resolve({});
+    },
+  });
+  const codex = row(container, "Codex")!;
+  await act(async () => codex.querySelector<HTMLButtonElement>("button")!.click());
+  expect(status(container, "Codex")).toBe("Failed: Terminal could not open");
+  expect(codex.querySelector(".acpmux-harness-spinner")).toBeNull();
+  expect(codex.querySelector("button")?.textContent).toBe("Sign In");
+  await act(async () => codex.querySelector<HTMLButtonElement>("button")!.click());
+  expect(attempts).toBe(2);
+  expect(codex.dataset.harnessStatus).toBe("waiting");
+  const logins = calls.filter((call) => call.method === "tab.open");
+  expect(logins[1]).toEqual(logins[0]);
+  expect(calls.some((call) => call.method === "chat.new" || call.method === "chat.send")).toBe(false);
 });
 
 test("Start Chat starts a chat on that harness in this tab", async () => {
