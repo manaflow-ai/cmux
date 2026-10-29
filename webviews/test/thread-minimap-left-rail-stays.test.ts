@@ -77,6 +77,14 @@ await requireBrowserLane("thread-minimap-left-rail-stays.test.ts", async () => {
     await page.locator('aside.acpmux-chat-inspector[data-presence="shown"]').waitFor({ timeout: 10_000 });
     await settle(page);
   };
+  const setRailSide = async (page: Page, side: "left" | "right") =>
+    page.evaluate(async (side) => {
+      const url = "/chatDisplay.ts";
+      const display = (await import(/* @vite-ignore */ url)) as {
+        setChatDisplay(value: unknown): void;
+      };
+      display.setChatDisplay({ "agentPane.display.rail.side": side });
+    }, side);
   /// Where the rail draws, against the pane and the transcript's column (its rows' left edge).
   const rail = (page: Page) =>
     page.evaluate(() => {
@@ -202,4 +210,54 @@ await requireBrowserLane("thread-minimap-left-rail-stays.test.ts", async () => {
           await page.close();
         }
       });
+  for (const name of browsers.keys())
+    test(`${name}: a right-edge rail and card track the chat through the inspector at 1084px`, async () => {
+      current = browsers.get(name)!;
+      const page = await pane!.open({ width: 1084, height: 700 });
+      try {
+        await setRailSide(page, "right");
+        await page.locator('.acpmux-minimap__rail[data-side="right"]').waitFor();
+        await closeInspector(page);
+        await page.locator(".acpmux-minimap__tick").first().focus();
+        const card = page.locator(".acpmux-minimap__card");
+        await card.waitFor({ state: "visible" });
+        await card.locator(".acpmux-minimap__bookmark").focus();
+        await page.evaluate(() => {
+          const samples: { rail: number; card: number | null; column: number }[] = [];
+          const stop = window.cmuxAfterPaint(() => {
+            const rail = document.querySelector(".acpmux-minimap__rail")!.getBoundingClientRect();
+            const card = document.querySelector(".acpmux-minimap__card")?.getBoundingClientRect();
+            const row = document.querySelector(".acpmux-row")!.getBoundingClientRect();
+            samples.push({ rail: rail.left, card: card?.right ?? null, column: row.right });
+            return true;
+          });
+          Object.assign(window, { rightRailFrames: { samples, stop } });
+        });
+        const toggle = () =>
+          page.locator("button.acpmux-chat-inspector-toggle").evaluate((node) => (node as HTMLElement).click());
+        for (const open of [true, false, true]) {
+          await toggle();
+          await page.locator("aside.acpmux-chat-inspector").waitFor({ state: open ? "visible" : "detached" });
+          await settle(page);
+          await page.evaluate(() => window.cmuxPaintFrame());
+        }
+        const samples = await page.evaluate(() => {
+          const trace = (
+            window as unknown as {
+              rightRailFrames: {
+                samples: { rail: number; card: number | null; column: number }[];
+                stop(): void;
+              };
+            }
+          ).rightRailFrames;
+          trace.stop();
+          return trace.samples;
+        });
+        expect(samples.length).toBeGreaterThan(0);
+        expect(new Set(samples.map((sample) => Math.round(sample.column - sample.rail))).size).toBe(1);
+        expect(samples.filter((sample) => sample.card === null || Math.abs(sample.card - sample.rail) > 1)).toEqual([]);
+      } finally {
+        await page.close();
+      }
+    });
 });
