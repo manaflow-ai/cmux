@@ -5,11 +5,11 @@ import CmuxNextWakeups
 /// Shown or not (recipe R-hide, plans/cmux-next/main-thread-budget.md section 11): AppKit's hide hooks
 /// only tell the view's ``visibilityNode``, and the window and parking checks only set its child
 /// ``windowNode``. The flips of that child (the view hidden or shown, its tab selected or not, its pane
-/// suspended, its workspace parked, its window left) all reach
+/// suspended, its workspace parked, its window minimized or left, the app hidden) all reach
 /// ``syncWindowState()`` through its subscription. A terminal that is not shown does no size or scale work;
 /// the edge to shown reconciles both from its current bounds and window, once (``reconcileShown()``). Only a move
-/// reads AppKit's hidden state (below). An occluded or minimized window keeps its terminals shown: they keep their
-/// layout ready and the watch of their window's node pauses the drawing (``watchWindowNode(of:)``).
+/// reads AppKit's hidden state (below). An occluded window keeps its terminals shown: they keep their layout ready
+/// and the watch of their window's node pauses the drawing (``watchWindowNode(of:)``).
 ///
 /// The node's own state is AppKit's hidden state, given at each AppKit edge that can change it: a hide, an unhide,
 /// and a move (into a window, under another superview, or the host moved within its window: ``ancestorsMoved()``), so
@@ -34,6 +34,8 @@ extension TerminalSurfaceView {
     /// The surface or a container above it moved (into a window, between hosts, or its host within its window): a
     /// move can change AppKit's hidden state with no hide or unhide. The node takes it, as a hide or unhide would
     /// have given it; a flip runs ``syncWindowState()`` (the pause, shown work, watches). Transitions only.
+    /// Not covered: a container above the host moved under a hidden view with no hide notice (no such move in the
+    /// app today); DEBUG's D1 (``drawTruthMismatch``) reports that state.
     func ancestorsMoved() {
         // visibility-walk-allow: a move is an AppKit edge with no hide or unhide; the node takes AppKit's state once per move, never per frame
         visibilityNode.set(isHiddenOrHasHiddenAncestor ? .hidden : .visible)

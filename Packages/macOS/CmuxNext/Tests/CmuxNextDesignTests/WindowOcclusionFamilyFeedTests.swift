@@ -47,6 +47,32 @@ import Testing
         checker.stop()
     }
 
+    /// The app's one checker (principled-audit restoreFrameHold R1) with `windowOcclusionFamily` off and
+    /// `occludedWindowDiscard` on: the families stay unset, and the listener (the hibernation's cache) hears each
+    /// judgment and the close of a window it heard off screen.
+    @Test func withTheFamiliesOffTheListenerHearsTheJudgmentsAndTheFamiliesStayUnset() {
+        let backFamily = WindowOcclusionFamily.of(back)
+        _ = WindowOcclusionFamily.of(front)
+        let ordered = [self.front, self.back], key = self.front, center = NotificationCenter()
+        var heard: [(ObjectIdentifier, Bool)] = [], closed: [ObjectIdentifier] = []
+        let checker = WindowOcclusionChecker.feedingFamilies(
+            feedsFamilies: false, windows: { ordered }, orderedWindows: { ordered },
+            facts: { window in
+                WindowOcclusionFacts(id: ObjectIdentifier(window), frame: CGRect(x: 0, y: 0, width: 800, height: 600),
+                                     systemVisible: true, isActive: window === key)
+            },
+            isAppHidden: { false }, drawsWhenOccluded: false, center: center,
+            workspaceEvents: AppEvents(center: NotificationCenter()), mainWork: MainWorkScheduler(budget: MainFrameBudget()),
+            listener: { heard.append(($0, $1)) }, closed: { closed.append($0) })
+        checker.update()
+        #expect(heard.map(\.0) == [ObjectIdentifier(back)] && heard.map(\.1) == [true], "the listener did not hear the covered window")
+        #expect(!backFamily.isOccluded, "a family was fed with windowOcclusionFamily off")
+        center.post(name: NSWindow.willCloseNotification, object: back)
+        #expect(closed == [ObjectIdentifier(back)], "the close of a window heard off screen did not reach the listener")
+        #expect(!backFamily.isOccluded)
+        checker.stop()
+    }
+
     /// Only windows that have a family are judged: a window no reader follows costs nothing.
     @Test func windowsWithoutAFamilyAreNotJudged() {
         let backFamily = WindowOcclusionFamily.of(back)

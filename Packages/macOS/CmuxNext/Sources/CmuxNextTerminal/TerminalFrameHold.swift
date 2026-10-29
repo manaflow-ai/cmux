@@ -54,6 +54,9 @@ final class TerminalFrameHold {
     private var awaitingContent = false
     /// The frame on screen when the target's content was parsed: a different one is drawn after it.
     private var frameAtParse: AnyObject?
+    /// The held surface's presented frame when the hold showed: a frame it presented before the hold (a fresh
+    /// surface's frame between its `ghostty_surface_new` and its first pause) is never its content either.
+    private var frameAtShow: AnyObject?
     /// Where the parsed content's refresh is posted.
     private let mainWork: MainWorkScheduler
     private let parsedOwner: MainTaskOwner
@@ -145,6 +148,7 @@ final class TerminalFrameHold {
         // surface's layer); under the banner, scroller and find bar over it.
         host.addSubview(view, positioned: .above, relativeTo: fresh)
         fresh.awaitsContent = true // it draws nothing until its target's content is parsed
+        frameAtShow = fresh.presentedFrame
         checkInvariant()
     }
 
@@ -182,6 +186,7 @@ final class TerminalFrameHold {
         presentedSeq = targetSeq
         parsedSeq = targetSeq
         frameAtParse = nil
+        frameAtShow = nil
         awaitingContent = false
         checkInvariant()
     }
@@ -193,11 +198,14 @@ final class TerminalFrameHold {
             return false
         }
         guard parsedSeq == targetSeq, presentedSeq < targetSeq else { return false }
-        guard let shown = surface.presentedFrame, shown !== frameAtParse else { return surface.pause == nil }
+        guard let shown = surface.presentedFrame, shown !== frameAtParse, shown !== frameAtShow else { return surface.pause == nil }
         presentedSeq = parsedSeq
         end()
         return false
     }
+
+    /// Whether a hold is over `view` now (D2: only the held surface may await content).
+    func holds(_ view: TerminalSurfaceView) -> Bool { surface === view }
 
     /// The R3 invariant (DEBUG `InputInvariantMonitor`; principled-audit restoreFrameHold): the held frame is on
     /// screen iff the surface has not presented the target's content, and a surface that waits for content is

@@ -74,12 +74,10 @@ import Testing
 
         /// The window goes off screen or comes back, and AppKit's occlusion notice reaches the window's node
         /// (`WindowVisibilitySource` refreshes on it; the source observes the process's center, so the test refreshes
-        /// it instead of posting there): a flip reaches each shown surface through its node watch. A notice with no
-        /// change computes each pause again, which changes nothing.
+        /// it instead of posting there): each shown surface hears the flip only through its watch of that node.
         func minimize(_ offScreen: Bool) {
             if offScreen { screens.offScreen.insert(ObjectIdentifier(window)) } else { screens.offScreen.remove(ObjectIdentifier(window)) }
             WindowVisibilitySource.of(window).refresh()
-            for session in sessions { session.surfaceView.updateOcclusion() }
         }
 
         func close() {

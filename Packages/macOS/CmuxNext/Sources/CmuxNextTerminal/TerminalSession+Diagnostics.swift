@@ -66,7 +66,7 @@ public struct TerminalSurfaceDiagnostics: Sendable, Equatable {
     /// True when the surface can show terminal content right now: it draws, or a held frame covers it while it
     /// waits for its content (``SurfacePause/awaitingContent``: the pane shows the terminal's last frame).
     public var isPresentable: Bool {
-        guard hasSurface, surfaceInHost, inWindow, !hidden, drawing == true || pause == .awaitingContent else { return false }
+        guard hasSurface, surfaceInHost, inWindow, !hidden, drawing == true || (pause == .awaitingContent && holdingFrame) else { return false }
         guard let grid, grid.columns > 0, grid.rows > 0 else { return false }
         return viewSize.width >= 1 && viewSize.height >= 1
     }
@@ -94,7 +94,8 @@ extension TerminalSession {
     /// D1 its surface draws iff its nodes are shown (``TerminalSurfaceView/drawTruthMismatch``), D2 its held frame is up
     /// iff its content is not presented yet (``TerminalFrameHold/invariantViolation``).
     package var drawingViolations: [(code: String, detail: String)] {
-        [surfaceView.drawTruthMismatch.map { ("D1", $0) }, frameHold.invariantViolation.map { ("D2", $0) }].compactMap { $0 }
+        let stuck = surfaceView.awaitsContent && !frameHold.holds(surfaceView) ? "the live surface awaits content with no hold over it" : nil
+        return [surfaceView.drawTruthMismatch.map { ("D1", $0) }, (frameHold.invariantViolation ?? stuck).map { ("D2", $0) }].compactMap { $0 }
     }
 
     public var diagnostics: TerminalSurfaceDiagnostics {

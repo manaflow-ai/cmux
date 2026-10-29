@@ -110,10 +110,10 @@ extension AppServices {
         guard discards || families else { return }
         windowOcclusionFamilies = WindowOcclusionChecker.feedingFamilies(
             feedsFamilies: families, workspaceEvents: workspaceEvents, mainWork: mainWork,
-            listener: { [weak self] id, offScreen in  // the hibernation hears its own windows only, as its checker did
-                guard discards, let self, windows.controllers.contains(where: { controller in controller.window.map { ObjectIdentifier($0) } == id }) else { return }
-                cache.windowDidChangeOnScreen(id, offScreen: offScreen)
-            }, closed: { [weak self] id in if discards { self?.cache.offScreenWindowDidClose(id) } })
+            // Every judged window: one judged before its controller adopted it (the launch shell) still counts, and the
+            // cache acts only on the panes a window presents.
+            listener: { [weak self] id, offScreen in if discards { self?.cache.windowDidChangeOnScreen(id, offScreen: offScreen) } },
+            closed: { [weak self] id in if discards { self?.cache.offScreenWindowDidClose(id) } })
     }
 
     /// Each tab script opened with a live `window.opener` and its opener, by key (`BrowserScriptOpeners`): the opener groups'
