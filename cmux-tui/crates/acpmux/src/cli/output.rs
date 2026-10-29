@@ -1155,7 +1155,8 @@ mod prompt_tests {
         };
         let mut lost = Vec::new();
         for n in 0..200u32 {
-            let collect = collect_reply(client.clone(), "s1", "hi", opts, &PromptId::new(None));
+            let prompt = PromptId::new(None);
+            let collect = collect_reply(client.clone(), "s1", "hi", opts, &prompt);
             let r = SETTLE_TURN_BEFORE_WAIT.scope((), collect).await.unwrap();
             if r.reply != format!("reply {n}") {
                 lost.push((n, r.reply));
