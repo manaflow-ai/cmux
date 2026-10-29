@@ -153,7 +153,7 @@ test("a failed native plus action stays on New Tab with its draft and attachment
   await act(async () => {
     const setter = Object.getOwnPropertyDescriptor(dom!.window.HTMLTextAreaElement.prototype, "value")!.set!;
     setter.call(field, "Keep this draft");
-    field.dispatchEvent(new dom!.window.Event("input", { bubbles: true }));
+    field.dispatchEvent(new dom!.window.InputEvent("input", { bubbles: true, inputType: "insertText", data: "Keep this draft" }));
   });
   expect(container.querySelector<HTMLTextAreaElement>(".nt-field")?.value).toBe("Keep this draft");
   const input = container.querySelector<HTMLInputElement>(".acpmux-attach-input")!;
