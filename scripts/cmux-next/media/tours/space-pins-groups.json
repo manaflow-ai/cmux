@@ -1,0 +1,10 @@
+{
+  "title": "Each space owns its pins and groups",
+  "steps": [
+    {"title": "Launch", "wait": 3, "shot": false},
+    {"title": "Default space: an empty group Design", "cmux": ["action", "run", "space.newGroup", "--name", "Design"], "wait": 2, "shot": false},
+    {"title": "Default space: a link pinned to Pinned", "cmux": ["action", "run", "sidebar.item.add", "--item", "https://example.com", "--section", "Pinned"], "wait": 2},
+    {"title": "A new space, Work: its sidebar has none of the default space's groups or pins", "cmux": ["space", "create", "--name", "Work"], "wait": 3},
+    {"title": "Back in the default space: its group and pin are there", "cmux": ["action", "run", "space.previous"], "wait": 3}
+  ]
+}
