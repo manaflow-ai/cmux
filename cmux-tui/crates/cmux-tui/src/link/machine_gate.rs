@@ -19,6 +19,7 @@ use std::os::unix::net::UnixStream;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 
 /// The error code of a machine whose cmux-tui is too old for a verb.
@@ -107,7 +108,7 @@ fn call_within(socket: &Path, mut request: Value, budget: Duration) -> Result<Va
     let stream = UnixStream::connect(socket).map_err(|e| format!("cannot connect: {e}"))?;
     stream.set_write_timeout(Some(budget)).map_err(|e| e.to_string())?;
     let mut reader = BufReader::new(stream);
-    request["id"] = json!(1);
+    request.set("id", json!(1));
     let mut line = request.to_string();
     line.push('\n');
     reader.get_mut().write_all(line.as_bytes()).map_err(|e| e.to_string())?;
