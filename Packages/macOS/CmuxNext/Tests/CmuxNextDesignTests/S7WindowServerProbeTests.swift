@@ -78,6 +78,27 @@ struct S7WindowServerProbeTests {
     private func activeDisplays() -> UInt32 { var n: UInt32 = 0; CGGetActiveDisplayList(0, nil, &n); return n }
     private func onlineDisplays() -> UInt32 { var n: UInt32 = 0; CGGetOnlineDisplayList(0, nil, &n); return n }
 
+    /// Does an NSAnimationContext group on a window that has a screen but is not on screen ever call its
+    /// completion? QuickComposerPanel's fold (and Motion.animateTimed) wait on it.
+    @Test func anAnimationGroupOnAnOffScreenWindowCompletes() {
+        _ = NSApplication.shared
+        let window = NSWindow(contentRect: CGRect(x: 200, y: 200, width: 300, height: 200), styleMask: [.titled],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.orderOut(nil) }
+        window.orderFrontRegardless()
+        spin(0.3)
+        let started = Date()
+        var done: Date?
+        NSAnimationContext.runAnimationGroup({ context in
+            context.duration = 0.25
+            context.allowsImplicitAnimation = true
+            window.animator().setFrame(CGRect(x: 200, y: 200, width: 300, height: 44), display: true)
+        }, completionHandler: { done = Date() })
+        spin(3)
+        say("animation group: screen=\(window.screen != nil) onScreen=\(onScreen(window)) completedAfter=\(done.map { String(format: "%.2f s", $0.timeIntervalSince(started)) } ?? "never (3 s)") frameHeight=\(window.frame.height)")
+    }
+
     @Test func activationPolicyAndWindow() {
         let app = NSApplication.shared
         say("bundle=\(Bundle.main.bundleIdentifier ?? "nil") path=\(Bundle.main.bundlePath) LSUIElement=\(Bundle.main.object(forInfoDictionaryKey: "LSUIElement") ?? "-") LSBackgroundOnly=\(Bundle.main.object(forInfoDictionaryKey: "LSBackgroundOnly") ?? "-")")
