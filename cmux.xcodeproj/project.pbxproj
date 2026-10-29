@@ -777,9 +777,11 @@
 		C1AB00000000000000000010 /* CLICommandSuggestionDerivationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1AB00000000000000000011 /* CLICommandSuggestionDerivationTests.swift */; };
 		C1A900000000000000000020 /* CLICompletionCandidateLiveTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A900000000000000000021 /* CLICompletionCandidateLiveTests.swift */; };
 		C1A900000000000000000010 /* CLICompletionCandidateSafetyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A900000000000000000011 /* CLICompletionCandidateSafetyTests.swift */; };
+		743F7585323FC16DF33CECE6 /* CLIDifficultyAssessmentHookFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7DC4DF38E02854A1CDC1E0B /* CLIDifficultyAssessmentHookFixture.swift */; };
 		878189AC7D0B0C7EEEC8A8D3 /* CLIDifficultyAssessmentHookTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40FD0F9B2FD092AB1895A21C /* CLIDifficultyAssessmentHookTests.swift */; };
 		CE18BFF02CEC85CB2C8D8C2B /* CLIDifficultyAssessmentStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E08CC53567D4FDA41157831A /* CLIDifficultyAssessmentStoreTests.swift */; };
 		AB51A9138DD7097F30E8F1C1 /* CLIDifficultyAssessmentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 067DE6719DBA28DDA93D9B71 /* CLIDifficultyAssessmentTests.swift */; };
+		24D87C7CF78D2E87644DA371 /* CLIDifficultyAssessmentTurnTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A98483BA5757437E6B1EAC5D /* CLIDifficultyAssessmentTurnTests.swift */; };
 		C11218000000000000000052 /* CLIError.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11218000000000000000051 /* CLIError.swift */; };
 		C11218000000000000000053 /* CLIError.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11218000000000000000051 /* CLIError.swift */; };
 		C11218000000000000000054 /* CLIError.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11218000000000000000051 /* CLIError.swift */; };
@@ -5725,9 +5727,11 @@
 		C1AB00000000000000000011 /* CLICommandSuggestionDerivationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLICommandSuggestionDerivationTests.swift; sourceTree = "<group>"; };
 		C1A900000000000000000021 /* CLICompletionCandidateLiveTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLICompletionCandidateLiveTests.swift; sourceTree = "<group>"; };
 		C1A900000000000000000011 /* CLICompletionCandidateSafetyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLICompletionCandidateSafetyTests.swift; sourceTree = "<group>"; };
+		A7DC4DF38E02854A1CDC1E0B /* CLIDifficultyAssessmentHookFixture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CLIDifficultyAssessmentHookFixture.swift"; sourceTree = "<group>"; };
 		40FD0F9B2FD092AB1895A21C /* CLIDifficultyAssessmentHookTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CLIDifficultyAssessmentHookTests.swift"; sourceTree = "<group>"; };
 		E08CC53567D4FDA41157831A /* CLIDifficultyAssessmentStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CLIDifficultyAssessmentStoreTests.swift"; sourceTree = "<group>"; };
 		067DE6719DBA28DDA93D9B71 /* CLIDifficultyAssessmentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CLIDifficultyAssessmentTests.swift"; sourceTree = "<group>"; };
+		A98483BA5757437E6B1EAC5D /* CLIDifficultyAssessmentTurnTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CLIDifficultyAssessmentTurnTests.swift"; sourceTree = "<group>"; };
 		C11218000000000000000051 /* CLIError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIError.swift; sourceTree = "<group>"; };
 		12756C0212756C0212756C02 /* CLIEventsStreamPeerCloseTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIEventsStreamPeerCloseTests.swift; sourceTree = "<group>"; };
 		C51600000000000000000002 /* CLIExecInheritedSignalStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIExecInheritedSignalStateTests.swift; sourceTree = "<group>"; };
@@ -14582,6 +14586,8 @@
 				067DE6719DBA28DDA93D9B71 /* CLIDifficultyAssessmentTests.swift */,
 				40FD0F9B2FD092AB1895A21C /* CLIDifficultyAssessmentHookTests.swift */,
 				E08CC53567D4FDA41157831A /* CLIDifficultyAssessmentStoreTests.swift */,
+				A7DC4DF38E02854A1CDC1E0B /* CLIDifficultyAssessmentHookFixture.swift */,
+				A98483BA5757437E6B1EAC5D /* CLIDifficultyAssessmentTurnTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -18895,9 +18901,11 @@
 				C1AB00000000000000000010 /* CLICommandSuggestionDerivationTests.swift in Sources */,
 				C1A900000000000000000020 /* CLICompletionCandidateLiveTests.swift in Sources */,
 				C1A900000000000000000010 /* CLICompletionCandidateSafetyTests.swift in Sources */,
+				743F7585323FC16DF33CECE6 /* CLIDifficultyAssessmentHookFixture.swift in Sources */,
 				878189AC7D0B0C7EEEC8A8D3 /* CLIDifficultyAssessmentHookTests.swift in Sources */,
 				CE18BFF02CEC85CB2C8D8C2B /* CLIDifficultyAssessmentStoreTests.swift in Sources */,
 				AB51A9138DD7097F30E8F1C1 /* CLIDifficultyAssessmentTests.swift in Sources */,
+				24D87C7CF78D2E87644DA371 /* CLIDifficultyAssessmentTurnTests.swift in Sources */,
 				C11218000000000000000053 /* CLIError.swift in Sources */,
 				12756C0112756C0112756C01 /* CLIEventsStreamPeerCloseTests.swift in Sources */,
 				C51600000000000000000001 /* CLIExecInheritedSignalStateTests.swift in Sources */,
