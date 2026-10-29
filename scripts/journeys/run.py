@@ -63,6 +63,11 @@ RESULT_MAX_BYTES = 64 << 20
 LOAD_LIMIT = 4.0
 LOAD_WAIT_SECONDS = 600
 LOAD_POLL_SECONDS = 30
+# While it holds a lease, run.py reads the load this often: a host just drained of its builds still reads a high
+# 1-minute load for a minute or two (from 26 about 110 s to go under 4), and a lease given back lets builds return.
+LOAD_HOLD_POLL_SECONDS = 10
+# The launch's share of a held lease (capture-host waits up to 90 s for the app's socket).
+LAUNCH_RESERVE_SECONDS = 90
 # A journey lease holds the mini's host.lock exclusively (a whole-host lease; the lock the proof runs'
 # exclusive steps hold), so the controller places no build on that Mac until it ends; a shared slot lease
 # does not stop one. Its acquire waits (draining running jobs) up to EXCLUSIVE_ACQUIRE_SECONDS. Journeys draw
@@ -285,29 +290,45 @@ class LoadedHost(Exception):
         self.host = host
 
 
-def run_lease(specs, build, out, frame_interval, exclusive=True):
-    """Plays `specs` in one slot of a quiet host; {id: result} (driver results, or not run with the reason).
-    A loaded host's lease goes back (a lease lasts at most 10 minutes) while the host is read again every
-    LOAD_POLL_SECONDS; then the same host is preferred. After LOAD_WAIT_SECONDS it drives anyway, load-invalid."""
+def new_load_budget():
+    """The load wait of one whole run (every lease of it shares it): LOAD_WAIT_SECONDS in all."""
+    return {"left_s": float(LOAD_WAIT_SECONDS)}
+
+
+def load_wait(gate, budget, seconds):
+    """Sleeps at most `seconds` of the run's load budget; False when the budget is spent."""
+    step = min(seconds, budget["left_s"])
+    if step <= 0:
+        return False
+    time.sleep(step)
+    budget["left_s"] -= step
+    gate["waited_s"] = round(gate["waited_s"] + step, 1)
+    return True
+
+
+def run_lease(specs, build, out, frame_interval, exclusive=True, load_budget=None):
+    """Plays `specs` in one lease of a quiet host; {id: result} (driver results, or not run with the reason).
+    After setup, a host whose 1-minute load is LOAD_LIMIT or more is read again every LOAD_HOLD_POLL_SECONDS
+    while the lease is held (its exclusive lock keeps new builds off) and still has room for the journeys; only
+    then the lease goes back, the host is read every LOAD_POLL_SECONDS, and the next lease prefers it. All
+    waiting comes out of `load_budget` (the run's, LOAD_WAIT_SECONDS); once it is spent every lease drives at
+    once, and a loaded one is load-invalid."""
+    budget = load_budget if load_budget is not None else new_load_budget()
     gate = {"limit": LOAD_LIMIT, "reads": [], "waited_s": 0.0, "exclusive": exclusive}
-    began = time.monotonic()
-    gate_end = began + LOAD_WAIT_SECONDS
     prefer = None
     while True:
         try:
-            return play_lease(specs, build, out, frame_interval, gate, gate_end, prefer)
+            return play_lease(specs, build, out, frame_interval, gate, budget, prefer)
         except LoadedHost as loaded:
             prefer = loaded.host
-            while time.monotonic() < gate_end:
-                time.sleep(min(LOAD_POLL_SECONDS, gate_end - time.monotonic()))
+            while load_wait(gate, budget, LOAD_POLL_SECONDS):
                 load = host_load(prefer)
-                gate["reads"].append({"host": prefer, "load": load})
+                gate["reads"].append({"host": prefer, "load": load, "held": False})
                 if load is not None and load < LOAD_LIMIT:
                     break
-            gate["waited_s"] = round(time.monotonic() - began, 1)
 
 
-def play_lease(specs, build, out, frame_interval, gate, gate_end, prefer):
+def play_lease(specs, build, out, frame_interval, gate, budget, prefer):
     ch = capture_host()
     ids = [s["id"] for s in specs]
     try:
@@ -332,14 +353,6 @@ def play_lease(specs, build, out, frame_interval, gate, gate_end, prefer):
     try:
         info = dict(kv.split("=", 1) for kv in run([ch, "slot-info", lease]).stdout.decode().split() if "=" in kv)
         host, root = info["host"], info["root"]
-        load = host_load(host)
-        gate["reads"].append({"host": host, "load": load})
-        if load is not None and load >= LOAD_LIMIT and time.monotonic() < gate_end:
-            log(f"{host} has a 1-minute load of {load:.1f} (limit {LOAD_LIMIT:g}): giving {lease} back until it is quieter")
-            raise LoadedHost(host)
-        gate.update(host=host, start=load, load_invalid=load is None or load >= LOAD_LIMIT)
-        if gate["load_invalid"]:
-            log(f"{host}: load {load} after {gate['waited_s']:.0f}s of waiting: driving anyway; the run is load-invalid")
         work = f"{root}/journeys"
         remote(host, f"mkdir -p {q(work + '/kit')} && tar x -C {q(work + '/kit')}", input=kit_tar(specs), timeout=left(120))
         # One compiled text reader per mini and source version, outside the slot (release removes the slot).
@@ -354,6 +367,24 @@ def play_lease(specs, build, out, frame_interval, gate, gate_end, prefer):
                      timeout=left(420)).stdout.decode().strip()
         if not app.endswith(".app"):
             raise RuntimeError(f"build {build['id']} has no app bundle")
+        # The load gate, after the download (a drained host's load falls meanwhile), before the app starts.
+        need = sum(int(s.get("budget_seconds", 60)) for s in specs) + LAUNCH_RESERVE_SECONDS + 45
+        load = host_load(host)
+        gate["reads"].append({"host": host, "load": load, "held": True})
+        while load is None or load >= LOAD_LIMIT:
+            if budget["left_s"] <= 0:
+                break
+            if deadline - time.monotonic() - LOAD_HOLD_POLL_SECONDS < need:
+                log(f"{host} still has a 1-minute load of {load} (limit {LOAD_LIMIT:g}) and {lease} has no room left "
+                    f"to wait: giving it back")
+                raise LoadedHost(host)
+            load_wait(gate, budget, LOAD_HOLD_POLL_SECONDS)
+            load = host_load(host)
+            gate["reads"].append({"host": host, "load": load, "held": True})
+        gate.update(host=host, start=load, load_invalid=load is None or load >= LOAD_LIMIT)
+        if gate["load_invalid"]:
+            log(f"{host}: load {load} after {gate['waited_s']:.0f}s of waiting (the run's load wait is spent): "
+                f"driving anyway; the run is load-invalid")
         launched = run([ch, "launch", lease, app, build.get("tag") or "journeys", "--"], timeout=left(180), check=False)
         facts = launch_facts(launched.stdout.decode())
         if facts.get("socket", "none") == "none":
@@ -727,13 +758,15 @@ def main(argv=None):
     out.mkdir(parents=True, exist_ok=True)
     log(f"build {build['id']} ({build['state']}) of {str(build['commit'])[:12]} tag {build['tag']}; results in {out}")
 
-    results = {}
+    results, load_budget = {}, new_load_budget()
     if build["state"] != "done":
         why = f"build {build['id']} is {build['state']}" + ("" if build["state"] in ("failed", "cancelled") else " (still building)")
         results = {s["id"]: {"status": "not run", "reason": why} for s in chosen}
     else:
         for group in batches(chosen):
-            results.update(run_lease(group, build, out, opts.frame_interval, exclusive=not opts.shared_slot))
+            results.update(run_lease(group, build, out, opts.frame_interval, exclusive=not opts.shared_slot,
+                                     load_budget=load_budget))
+        log(f"load gate: waited {LOAD_WAIT_SECONDS - load_budget['left_s']:.0f}s of the run's {LOAD_WAIT_SECONDS}s")
 
     lines = []
     for spec in chosen:

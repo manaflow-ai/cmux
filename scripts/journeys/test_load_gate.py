@@ -5,9 +5,9 @@
 
 The v2.2.7-opt gate had three new-terminal failures (a 6 s timeout, a terminal the daemon did not know, an
 empty screen) on hosts with a 1-minute load of 7-12; none repeated on a quieter host. The proof runs' rule:
-1. Before a lease drives journeys, run.py reads the host's 1-minute load (one ssh read). At 4 or more it gives
-   the lease back and waits for the host to go under 4, for at most 10 minutes, then drives anyway and marks
-   the run load-invalid.
+1. Before a lease drives journeys (after the download), run.py reads the host's 1-minute load (one ssh read).
+   At 4 or more it keeps the lease and reads again every 10 s while the lease has room for its journeys, then
+   gives it back and waits. The whole run waits at most 10 minutes; then it drives anyway, load-invalid.
 2. Each journey's result.json has the load at its start and its end.
 4. The lease holds the mini's host.lock exclusively (a whole-host lease, the lock the proof runs' exclusive
    steps hold): the controller places no build on that Mac until the lease ends (cmux21 ran fleet Swift
@@ -107,12 +107,12 @@ class LoadGate(unittest.TestCase):
         RUN.run, RUN.remote, RUN.subprocess.run, RUN.time.monotonic, RUN.time.sleep, RUN.kit_tar = self.saved
         self.tmp.cleanup()
 
-    def lease(self, fleet, ids=("ctrl-d",)):
+    def lease(self, fleet, ids=("ctrl-d",), **kw):
         fleet.out, fleet.ids = self.out, list(ids)
         RUN.run, RUN.remote, RUN.subprocess.run = fleet.run, fleet.remote, fleet.subprocess_run
         RUN.time.monotonic, RUN.time.sleep, RUN.kit_tar = fleet.monotonic, fleet.sleep, lambda specs: b""
-        specs = [{"id": i, "priority": "P0"} for i in ids]
-        return RUN.run_lease(specs, {"id": "job", "tag": "t"}, self.out, 1.0)
+        specs = [{"id": i, "priority": "P0", "budget_seconds": 90} for i in ids]
+        return RUN.run_lease(specs, {"id": "job", "tag": "t"}, self.out, 1.0, **kw)
 
     def test_a_quiet_host_drives_at_once(self):
         fleet = Fleet({"cmux19": [1.5]})
@@ -134,25 +134,33 @@ class LoadGate(unittest.TestCase):
 
     def test_a_shared_slot_lease_is_marked_not_exclusive(self):
         fleet = Fleet({"cmux19": [1.0]})
-        fleet.out, fleet.ids = self.out, ["ctrl-d"]
-        RUN.run, RUN.remote, RUN.subprocess.run = fleet.run, fleet.remote, fleet.subprocess_run
-        RUN.time.monotonic, RUN.time.sleep, RUN.kit_tar = fleet.monotonic, fleet.sleep, lambda specs: b""
-        result = RUN.run_lease([{"id": "ctrl-d", "priority": "P0"}], {"id": "job", "tag": "t"}, self.out, 1.0,
-                               exclusive=False)["ctrl-d"]
+        result = self.lease(fleet, exclusive=False)["ctrl-d"]
         self.assertIn("--slot", fleet.acquires[0][0])
         self.assertFalse(result["lease_load"]["exclusive"], result)
 
-    def test_a_loaded_host_is_given_back_until_it_is_quiet(self):
-        fleet = Fleet({"cmux19": [9.0, 7.0, 3.0]})
+    def test_a_held_lease_waits_while_a_drained_hosts_load_falls(self):
+        # The exclusive acquire drained the builds; the 1-minute load falls 9 -> 5 -> 3 while the lease is held.
+        fleet = Fleet({"cmux19": [9.0, 5.0, 3.0]})
         result = self.lease(fleet)["ctrl-d"]
         kinds = [e[0] for e in fleet.events]
-        # The lease of the loaded host goes back before any wait; the drive starts only on a load under 4.
-        self.assertEqual(fleet.events[:3], [("acquire", None), ("load", 9.0), ("release", "lease-1")], fleet.events)
-        self.assertIn(("acquire", "cmux19"), fleet.events)
+        self.assertEqual(kinds.count("acquire"), 1, fleet.events)
         drive_at = kinds.index("drive")
-        self.assertEqual([e[1] for e in fleet.events[:drive_at] if e[0] == "load"][-1], 3.0, fleet.events)
+        self.assertNotIn("release", kinds[:drive_at], fleet.events)
+        self.assertEqual([e[1] for e in fleet.events[:drive_at] if e[0] == "load"], [9.0, 5.0, 3.0], fleet.events)
+        self.assertEqual([e[1] for e in fleet.events[:drive_at] if e[0] == "sleep"], [10, 10], fleet.events)
         self.assertFalse(result["load_invalid"], result)
-        self.assertGreater(result["lease_load"]["waited_s"], 0, result)
+        self.assertEqual(result["lease_load"]["start"], 3.0, result)
+        self.assertEqual(result["lease_load"]["waited_s"], 20, result)
+
+    def test_a_lease_with_no_room_left_goes_back_and_the_host_is_preferred_again(self):
+        # Loaded for longer than the lease has room for: it goes back, the host is read, and a new lease prefers it.
+        fleet = Fleet({"cmux19": [9.0] * 34 + [2.0]})
+        result = self.lease(fleet)["ctrl-d"]
+        kinds = [e[0] for e in fleet.events]
+        self.assertEqual(kinds.count("acquire"), 2, fleet.events)
+        self.assertLess(kinds.index("release"), kinds.index("drive"), fleet.events)
+        self.assertIn(("acquire", "cmux19"), fleet.events)
+        self.assertFalse(result["load_invalid"], result)
 
     def test_after_ten_minutes_it_drives_anyway_and_marks_the_run_load_invalid(self):
         fleet = Fleet({"cmux19": [11.0]})
@@ -163,6 +171,19 @@ class LoadGate(unittest.TestCase):
         self.assertGreaterEqual(waited, 590, fleet.events)
         self.assertTrue(result["load_invalid"], result)
         self.assertEqual(result["lease_load"]["start"], 11.0, result)
+
+    def test_the_ten_minutes_are_for_the_whole_run_not_each_lease(self):
+        budget = RUN.new_load_budget()
+        fleet = Fleet({"cmux19": [11.0]})
+        first = self.lease(fleet, load_budget=budget)["ctrl-d"]
+        self.assertTrue(first["load_invalid"], first)
+        waited = sum(e[1] for e in fleet.events if e[0] == "sleep")
+        fleet.events.clear()
+        second = self.lease(fleet, load_budget=budget)["ctrl-d"]
+        # The run's wait is spent: the next lease drives at once, load-invalid, and waits no more.
+        self.assertNotIn("sleep", [e[0] for e in fleet.events], fleet.events)
+        self.assertTrue(second["load_invalid"], second)
+        self.assertLessEqual(waited, 600)
 
 
 class Summary(unittest.TestCase):
