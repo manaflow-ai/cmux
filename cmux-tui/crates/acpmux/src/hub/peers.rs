@@ -81,6 +81,12 @@ impl Hub {
             pc.peer_token.clone(),
             self.peer_notices.clone(),
         );
+        if let Some(transport) = &self.wireguard
+            && let Some(configured) = &pc.wireguard
+            && let Some(address) = transport.route_for(name, configured)
+        {
+            peer.set_wireguard(transport.clone(), address);
+        }
         peer.set_vm_boundary(pc.vm_boundary);
         peer.set_github_broker(pc.github_broker);
         peer.set_github_app(self.github_app.clone());
@@ -166,6 +172,7 @@ impl Hub {
             let github_broker =
                 github_broker.unwrap_or_else(|| same.is_some_and(|old| old.github_broker));
             let pc = crate::config::PeerConfig {
+                wireguard: same.and_then(|old| old.wireguard.clone()),
                 url: url.to_owned(),
                 token,
                 peer_token,
@@ -1100,6 +1107,7 @@ mod tests {
         let hub = Hub::new(cfg, store);
         let url = "ws://127.0.0.1:9/m";
         let lent = |url: &str| PeerConfig {
+            wireguard: None,
             url: url.into(),
             token: None,
             peer_token: None,

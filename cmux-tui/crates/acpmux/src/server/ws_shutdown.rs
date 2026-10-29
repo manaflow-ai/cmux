@@ -94,6 +94,21 @@ impl WsShutdown {
     }
 }
 
+/// Stop admitting for good before clients see 1012. A process the daemon spawns meanwhile
+/// (an agent, git) holds a copy of the listening socket from its clone until its exec, and the
+/// kernel keeps completing handshakes until the last copy closes, so dropping ours alone could
+/// let an immediate retry connect to this dying listener. Linux stops a listening socket on
+/// shutdown, whatever copies remain; other systems refuse that, and only the drop applies.
+pub(super) fn close_admission(listener: tokio::net::TcpListener) {
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::fd::AsRawFd;
+        // SAFETY: shutdown on the listener's own descriptor, open for the whole call.
+        unsafe { libc::shutdown(listener.as_raw_fd(), libc::SHUT_RD) };
+    }
+    drop(listener);
+}
+
 /// A connection task owns its reader/writer/watchers even when the listener's bounded drain
 /// aborts it. Dropping JoinHandle alone would detach those children.
 pub(super) struct Children(Vec<tokio::task::AbortHandle>);

@@ -1,3 +1,5 @@
+import { forkMenuRows } from "./header/forkMenu";
+import { openFork } from "./conversation/openFork";
 import React, {
   lazy,
   memo,
@@ -45,7 +47,6 @@ import {
   isLastFooter,
   isContinuationFooter,
   QUEUED_MESSAGE,
-  WAITING_MESSAGES,
 } from "./model";
 import { ownQueue, queuedAttachments, queuedMessageRows } from "./conversation/queuedMessages";
 import {
@@ -53,8 +54,6 @@ import {
   SteerWaitingActions,
   type QueuedMessageActionsValue,
 } from "./conversation/QueuedMessageCard";
-import { WaitingMessagesCard } from "./conversation/WaitingMessagesCard";
-import { groupWaitingTurn } from "./conversation/waitingMessages";
 import { AcpmuxDirectClient, type AcpmuxHostConfig, harnessBlock, type HarnessBlock, isTrustRefusal } from "./direct";
 import {
   authBlocksSend,
@@ -192,6 +191,7 @@ import { Inspector, type ExportOutcome } from "./Inspector";
 import { SummaryButton } from "./summary/SummaryButton";
 import { SummaryCard } from "./summary/SummaryCard";
 import { runningBackgroundTasks } from "./summary/sessionSummary";
+import { openSourceFile } from "./inspector/SourcesSection";
 import { useChatInspector } from "./inspector/ChatInspector";
 import { environmentToSave } from "./inspector/EnvironmentSection";
 import {
@@ -334,7 +334,6 @@ import {
   canFork,
   forkRefusal,
   forkToTarget,
-  earlierForkPrompts,
   forksAnyTurn,
   latestForkSeq,
   messageMenuTarget,
@@ -1438,21 +1437,6 @@ const StartedSessionsRow = memo(
   (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
 );
 
-/// Several other sessions' waiting messages as one card (conversation/WaitingMessagesCard.tsx): each
-/// message draws in it as its own row draws alone.
-const WaitingMessagesRow = memo(
-  function WaitingMessagesRow(props: RowProps) {
-    const renderMessage = (message: AcpmuxRow) =>
-      message.kind === QUEUED_MESSAGE ? (
-        <QueuedMessageRow {...props} row={message} />
-      ) : (
-        <MessageRow {...props} row={message} />
-      );
-    return <WaitingMessagesCard row={props.row} renderMessage={renderMessage} />;
-  },
-  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version && a.githubRepository === b.githubRepository,
-);
-
 const defaultRegistry: NativeRegistry = {
   user: MessageRow,
   assistant: MessageRow,
@@ -1477,7 +1461,6 @@ const defaultRegistry: NativeRegistry = {
   sessionOffer: SessionOfferRow,
   [OFFER_RESULT]: OfferResultRow,
   [QUEUED_MESSAGE]: QueuedMessageRow,
-  [WAITING_MESSAGES]: WaitingMessagesRow,
   [STARTED_SESSIONS]: StartedSessionsRow,
   typing: NoticeRow,
   permission: PermissionRow,
@@ -3469,14 +3452,10 @@ export function VirtualTranscript({
   const findIndex = findTargetRowId !== undefined ? findRowIndex(rows, findTargetRowId) : -1;
   const drawnId = rows[findIndex]?.id;
   const drawnCard = Boolean(rows[findIndex]?.ended);
-  // A card of waiting messages draws its messages in one row (conversation/WaitingMessagesCard.tsx):
-  // which of them holds the match.
-  const findMember =
-    rows[findIndex]?.kind === WAITING_MESSAGES && findTargetRowId !== drawnId ? findTargetRowId : undefined;
   const revealing = useRef<string | undefined>(undefined);
   const targetKey =
     findTargetRowId !== undefined && findTargetOccurrence !== undefined && findQuery && drawnId !== undefined
-      ? `${drawnId}:${drawnCard}:${findTargetOccurrence}:${findQuery}${findMember ? `:${findMember}` : ""}`
+      ? `${drawnId}:${drawnCard}:${findTargetOccurrence}:${findQuery}`
       : undefined;
   // A group or call that opens to show the match asks for a render here, so the highlights and
   // the scroll below see its text.
@@ -3491,10 +3470,9 @@ export function VirtualTranscript({
             card: drawnCard,
             needle: findQuery.toLocaleLowerCase(),
             repaint: () => setRevealed((count) => count + 1),
-            ...(findMember ? { member: findMember } : {}),
           }
         : undefined,
-    [drawnId, drawnCard, findQuery, findMember],
+    [drawnId, drawnCard, findQuery],
   );
   // Find's scroll is the reader's: it stops following now, not when the browser reports the
   // scroll a frame later, or a re-measure before then puts the view back at the latest row.
@@ -3566,7 +3544,7 @@ export function VirtualTranscript({
       node,
       findQuery,
       findTargetRowId !== undefined && findTargetOccurrence !== undefined && drawnId !== undefined
-        ? { rowId: drawnId, card: drawnCard, occurrence: findTargetOccurrence, member: findMember }
+        ? { rowId: drawnId, card: drawnCard, occurrence: findTargetOccurrence }
         : undefined,
     );
     if (!current || revealing.current !== targetKey) return;
@@ -3615,7 +3593,6 @@ export function VirtualTranscript({
   }, [
     drawnCard,
     drawnId,
-    findMember,
     findQuery,
     findTargetOccurrence,
     findMoved,
@@ -5285,16 +5262,13 @@ function AcpmuxPane() {
     subagentTray,
     workflowLabsEnabled,
   ]);
-  // Another agent's messages waiting in the queue: their received cards after the running turn, in
-  // the queue's order (conversation/queuedMessages.ts), never composer-queue rows; two or more, one
-  // card that holds them (conversation/waitingMessages.ts). A chat with none keeps its rows as they
-  // are; one with some copies the row list once per change.
+  // Another agent's messages waiting in the queue: each its own received line after the running
+  // turn, in the queue's order (conversation/queuedMessages.ts), never composer-queue rows. A chat
+  // with none keeps its rows as they are; one with some copies the row list once per change.
   const lastQueuedRows = useRef<readonly AcpmuxRow[] | undefined>(undefined);
-  const lastQueuedTail = useRef<readonly AcpmuxRow[] | undefined>(undefined);
   const queuedRows = useMemo(() => {
     if (childRows) return NO_ROWS;
-    lastQueuedRows.current = queuedMessageRows(snapshot.queue, lastQueuedRows.current);
-    return (lastQueuedTail.current = groupWaitingTurn(lastQueuedRows.current, lastQueuedTail.current));
+    return (lastQueuedRows.current = queuedMessageRows(snapshot.queue, lastQueuedRows.current));
   }, [childRows, snapshot.queue]);
   const transcriptRows = useMemo(
     () => (queuedRows.length ? [...turnRowsShown, ...queuedRows] : turnRowsShown),
@@ -6368,6 +6342,7 @@ function AcpmuxPane() {
     repository: githubRepository,
     shell,
     onOpenOutput: quick ? undefined : inspectorSubagent ? openSubagentOutput : openOutput,
+    onOpenSourceFile: quick || !inspectorLocal ? undefined : (path) => openSourceFile(path, callNative),
     onOpenUrl: quick
       ? undefined
       : (url) => ignoreFailure(callNative("pane.action", { id: HEADER_ACTIONS.preview, url, mode: "open" })),
@@ -7596,13 +7571,13 @@ function AcpmuxPane() {
         /// (hub/start_mode.rs; Leo 2026-10-21).
         const setMode = (modeId: string, ticket?: string) => client.setMode(modeId, ticket);
         /// `placement`: where the app opens it (AgentForkDestination: right, left, up, down, tab,
-        /// workspace, window); none is a tab after this chat's.
+        /// workspace, window); hand-offs explicitly retain a tab after this chat.
         const openOwnTab = (sessionId: string, placement?: string) => {
           if (mock) return Promise.resolve(false);
           // The new tab draws this chat from the host's tail, and this page keeps it selected, so
           // nothing else hands it over (tailCache.ts).
           client.handOverCurrentTail();
-          return callNative("chat.openTab", placement ? { sessionId, placement } : { sessionId }).then(
+          return callNative("chat.openTab", { sessionId, placement: placement ?? "tab" }).then(
             () => true,
             () => false,
           );
@@ -7939,14 +7914,17 @@ function AcpmuxPane() {
           // A fork and a started Continue In… open in a tab of their own, so the chat keeps its tab
           // and stays in the sidebar (Leo 2026-10-13). A host that opens none (an older app, the
           // floating chat) gets the new chat in this tab, as before.
-          "chat.fork": async ({ throughSeq }) => {
+          "chat.fork": async ({ throughSeq, placement }) => {
             harnessSwitch.cancel();
             const chat = client.selectedSession;
             const forked = await client.fork(Number(throughSeq), undefined, true);
-            if (!forked || (await openOwnTab(forked)) || client.selectedSession !== chat) return forked;
-            const selected = await client.select(forked);
-            await persistSession(selected);
-            return selected;
+            return openFork(forked, chat, placement, {
+              open: openOwnTab,
+              selected: () => client.selectedSession,
+              select: (id) => client.select(id),
+              persist: persistSession,
+              focus: () => composerHandle.current?.focus(),
+            });
           },
           // Fork Conversation from the app (the palette's step, the chat's right-click menu, its
           // shortcut): a fork through the chat's latest finished turn, or of a working chat as it is
@@ -7966,9 +7944,13 @@ function AcpmuxPane() {
             const chat = client.selectedSession;
             // A working chat forks now, as it is; its own turn goes on (acpmux `hub/fork.rs`).
             const forked = await client.fork("live" in target ? "live" : target.throughSeq, undefined, true);
-            if (!forked || (await openOwnTab(forked, String(placement ?? "tab"))) || client.selectedSession !== chat)
-              return forked;
-            return persistSession(await client.select(forked));
+            return openFork(forked, chat, placement, {
+              open: openOwnTab,
+              selected: () => client.selectedSession,
+              select: (id) => client.select(id),
+              persist: persistSession,
+              focus: () => composerHandle.current?.focus(),
+            });
           },
           // Edit and resend (cx-ncc.60): a fork through the turn before the prompt, which then gets the
           // edited text with the prompt's attachments; the original chat stays as it was.
@@ -8525,35 +8507,9 @@ function AcpmuxPane() {
       t,
       () => window.cmuxAcpmuxBridge?.conversationMarkdown?.() ?? Promise.resolve(null),
     );
-    // Fork › From here (the last turn), then, for a harness that forks at any turn, the earlier
-    // prompts, newest first (ChatGPT's "from a message"); otherwise one Fork row.
-    const forkPrompts = forksAnyTurn(summary?.family) ? earlierForkPrompts(snapshot.rows) : [];
-    const fork: ChatMenuItem[] =
-      forkable && lastForkSeq !== undefined
-        ? [
-            {
-              key: "fork",
-              label: t("chatMenu.fork"),
-              icon: "agent.fork",
-              ...(forkPrompts.length > 0
-                ? {
-                    children: [
-                      {
-                        key: "forkHere",
-                        label: t("chatMenu.forkFromHere"),
-                        onSelect: () => turnActions.fork?.(lastForkSeq),
-                      },
-                      ...forkPrompts.map((prompt) => ({
-                        key: `fork-${prompt.seq}`,
-                        label: prompt.text,
-                        onSelect: () => turnActions.fork?.(prompt.seq),
-                      })),
-                    ],
-                  }
-                : { onSelect: () => turnActions.fork?.(lastForkSeq) }),
-            },
-          ]
-        : [];
+    // Fork immediately; destination choices are a separate action and Option-click shortcut.
+    const fork =
+      forkable && lastForkSeq !== undefined ? forkMenuRows(lastForkSeq, () => turnActions.fork?.(lastForkSeq), t) : [];
     // New side chat, New terminal and New browser: something new beside the chat, every time.
     const opensBeside = opensBesideRows({ sideChat, quick }, { terminal: newTerminal, browser: newBrowser }, t);
     const continueIn: ChatMenuItem[] =
@@ -8631,7 +8587,7 @@ function AcpmuxPane() {
         : []),
     ];
     // Quick Chat's panel is not a tab: only the chat's own actions.
-    if (quick) return menuGroups([...fork, ...continueIn], copy ? [copy] : [], tools);
+    if (quick) return menuGroups(fork, continueIn, copy ? [copy] : [], tools);
     // ChatGPT's order: the chat's name and pin, new chats from it, Copy, where it shows, then Archive.
     return menuGroups(
       [
@@ -8650,7 +8606,8 @@ function AcpmuxPane() {
           onSelect: () => runHeaderAction(HEADER_ACTIONS.pin),
         },
       ],
-      [...opensBeside, ...fork, ...continueIn],
+      [...opensBeside, ...fork],
+      continueIn,
       copy ? [copy] : [],
       [
         {
@@ -9943,7 +9900,7 @@ function AcpmuxPane() {
           // Warm for the new tab: this chat if it is the one on screen, and otherwise whatever this
           // page already read of it, which rememberTail handed over when it was left.
           directClient.current?.handOverCurrentTail();
-          void callNative("chat.openTab", { sessionId }).catch(() => undefined);
+          void callNative("chat.openTab", { sessionId, placement: "tab" }).catch(() => undefined);
         },
       }
     : undefined;

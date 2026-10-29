@@ -32,6 +32,7 @@ pub(crate) mod dispatch;
 pub(crate) mod file_uploads;
 pub use file_uploads::FEATURE as FILE_PUT_FEATURE;
 mod fork;
+pub(crate) use fork::offers_fork;
 mod fork_at;
 mod fork_transcript_auth;
 pub mod forum;
@@ -376,6 +377,7 @@ pub(super) struct StreamState {
 
 pub struct Hub {
     pub config: RwLock<Config>,
+    pub(crate) wireguard: Option<Arc<crate::wireguard::Transport>>,
     pub(super) store: Box<dyn Store>,
     pub(super) mailbox: Mailbox,
     /// The forum log (`forum.rs`, `hub/forum.rs`).
@@ -598,16 +600,25 @@ impl Hub {
     /// logs (their tails, queues and unsettled turns) load in `load_logs`, after
     /// the ready line (2026-10-20: reading 3.9 GB of logs first took 26.8 s).
     pub fn new_deferred(config: Config, store: Box<dyn Store>, mailbox: Mailbox) -> Arc<Self> {
-        Self::build(config, store, mailbox, true, false)
+        Self::build(config, store, mailbox, true, false, None)
     }
 
     pub fn new_with_mailbox(config: Config, store: Box<dyn Store>, mailbox: Mailbox) -> Arc<Self> {
-        Self::build(config, store, mailbox, false, false)
+        Self::build(config, store, mailbox, false, false, None)
     }
 
     /// A daemon serves immediately; metadata is read after its ready line.
     pub fn new_loading(config: Config, store: Box<dyn Store>, mailbox: Mailbox) -> Arc<Self> {
-        Self::build(config, store, mailbox, true, true)
+        Self::build(config, store, mailbox, true, true, None)
+    }
+
+    pub(crate) fn new_loading_with_wireguard(
+        config: Config,
+        store: Box<dyn Store>,
+        mailbox: Mailbox,
+        wireguard: Option<Arc<crate::wireguard::Transport>>,
+    ) -> Arc<Self> {
+        Self::build(config, store, mailbox, true, true, wireguard)
     }
 
     fn build(
@@ -616,6 +627,7 @@ impl Hub {
         mailbox: Mailbox,
         deferred: bool,
         loading: bool,
+        wireguard: Option<Arc<crate::wireguard::Transport>>,
     ) -> Arc<Self> {
         let events = list_guard::Events::new(8192);
         let (peer_notices, peer_notices_rx) = mpsc::channel(4096);
@@ -631,6 +643,7 @@ impl Hub {
         let briefs = dispatch::Briefs::open(store.briefs_path());
         let hub = Arc::new(Self {
             config: RwLock::new(config),
+            wireguard,
             store,
             mailbox,
             forum: std::sync::OnceLock::new(),
@@ -1047,6 +1060,7 @@ impl Hub {
             cancel_forced_turn: StdMutex::new(None),
             cancel_forced_result_turn: StdMutex::new(None),
             compacting: AtomicBool::new(false),
+            compaction_metadata_fenced: AtomicBool::new(false),
             status_writes: AtomicU64::new(0),
             state_seq: AtomicU64::new(0),
             attached: std::sync::atomic::AtomicUsize::new(0),
@@ -1179,7 +1193,23 @@ impl Hub {
         self.catch_up_locked(session);
         let seq = session.seq.fetch_add(1, Ordering::SeqCst) + 1;
         let at = at.unwrap_or_else(now_ms);
-        let record = EventRecord { seq, at, dir: dir.into(), kind: kind.into(), msg, host_seq };
+        // Record a harmless mux receipt instead of ambiguous completion metadata.
+        // Hosted delivery must persist host_seq before acknowledging the entry; a
+        // silent drop would lose its durable cursor and allow replay after reconnect.
+        let fenced = dir == "in"
+            && msg.pointer("/params/update").is_some_and(|u| session.fences_compaction_update(u));
+        let record = if fenced {
+            EventRecord {
+                seq,
+                at,
+                dir: "mux".into(),
+                kind: "compaction_metadata_fenced".into(),
+                msg: json!({"sourceKind": kind}),
+                host_seq,
+            }
+        } else {
+            EventRecord { seq, at, dir: dir.into(), kind: kind.into(), msg, host_seq }
+        };
         // The agent message runaway guard reads progress from here, not the store.
         if agent_pairs::progress_record(&record) {
             session.last_progress.store(seq, Ordering::SeqCst);
