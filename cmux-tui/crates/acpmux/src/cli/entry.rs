@@ -183,13 +183,14 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
                 // restart status; detached clients still use the readiness
                 // line and retry through `connect`.
                 if error.to_string().starts_with("another acpmux daemon holds ") {
-                    return Err(crate::cli::errors::AppError::new(
+                    let error: anyhow::Error = crate::cli::errors::AppError::new(
                         crate::cli::errors::Code::Runtime,
                         "daemon_lock_held",
                         error.to_string(),
                     )
                     .with_exit(75)
-                    .into());
+                    .into();
+                    crate::cli::errors::exit_with(&error, false);
                 }
                 return Err(error);
             }

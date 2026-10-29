@@ -435,6 +435,17 @@ fn agent_error_named_like_daemon_close_is_not_replayed() {
 }
 
 #[test]
+fn daemon_lock_holder_exits_with_systemd_prevented_status() {
+    let dir = scratch("lock-held-exit");
+    let _shutdown = Shutdown(&dir);
+    let mut daemon = start_custom_daemon(&dir, &[]);
+    let second = cli(&dir, &["daemon", "run", "--log", "warn"]);
+    daemon.stop();
+    assert_eq!(second.status.code(), Some(75), "{}", text(&second));
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn cli_daemon_restart_preserves_bound_listener_with_saved_token() {
     let dir = scratch("cli-listener");
     let _daemon = start_custom_daemon(&dir, &[]);
