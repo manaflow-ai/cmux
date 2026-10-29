@@ -30,9 +30,17 @@ pub enum Command {
         #[arg(long)]
         codex: PathBuf,
     },
+    /// `gh` for an agent on a machine the person added: the GitHub broker's actions, run by the
+    /// Mac that lends this machine its login (`cli/gh_shim.rs`).
+    #[command(hide = true, disable_help_flag = true)]
+    Gh {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
     /// Send a local brief to another harness on a peer (or the least-loaded
     /// allowed host with `--host auto`) and record its identity.
     Dispatch(DispatchArgs),
+    /// Task briefs: list, steer and report work tracked by the daemon.
     #[command(subcommand)]
     Briefs(BriefsCmd),
     /// Give a session here a task, end one with its result in one call, list a chat's tasks.
@@ -139,10 +147,6 @@ pub enum Command {
     /// Print the protocol capability ids this build serves, one per line (`--json`: an object).
     /// Needs no daemon: the app bundle records them for the web agent pane.
     Capabilities,
-    /// Show or set session defaults per model family or alias: `defaults`, `defaults claude`,
-    /// `defaults claude model=claude-opus-5 effort=high policy=approve-edits prefer=claude-cr,claude`,
-    /// `defaults deepseek prefer=opencode,pi models.opencode=opencode-go/deepseek-v4-pro models.pi=openrouter/deepseek/deepseek-v4`.
-    /// A name that is not a family or profile is an alias: `-u deepseek` then works. `key=` clears one key; `--clear` removes the entry.
     /// Show or set presets: `preset`, `preset deepseek harness=opencode model=opencode-go/deepseek-v4-pro effort=low`,
     /// `preset omx harness=codex 'env.CODEX_HOME=${cwd}/.codex'`. `key=` clears one key; `--clear` removes the preset.
     #[command(alias = "presets")]
@@ -153,6 +157,10 @@ pub enum Command {
         #[arg(long)]
         clear: bool,
     },
+    /// Show or set default harness settings per model family or alias: `defaults`, `defaults claude`,
+    /// `defaults claude model=claude-opus-5 effort=high policy=approve-edits prefer=claude-cr,claude`,
+    /// `defaults deepseek prefer=opencode,pi models.opencode=opencode-go/deepseek-v4-pro models.pi=openrouter/deepseek/deepseek-v4`.
+    /// A name that is not a family or profile is an alias: `-u deepseek` then works. `key=` clears one key; `--clear` removes the entry.
     Defaults {
         family: Option<String>,
         /// key=value pairs: model, effort, policy, prefer (comma list), env.KEY
@@ -220,12 +228,20 @@ pub enum Command {
         /// order it corrects. Prints how many it replaced. A prompt whose turn started stays.
         #[arg(long, value_name = "KEY")]
         supersede: Option<String>,
+        /// What your message asks of the receiver: block (you cannot go on until it acts),
+        /// question (you wait for its answer), result (work you finished; the default for an
+        /// agent's message) or fyi. A coordinator is woken by blocks and questions only; results
+        /// and FYIs wait for its next turn's inbox digest.
+        #[arg(long, value_name = "CLASS", value_parser = ["block", "question", "result", "fyi"])]
+        class: Option<String>,
         /// Send this file with the message (repeatable): an image reaches the agent and its
         /// transcript as an image, any other file as a link to its copy. Saved owner-only on the
         /// session's machine, a peer's too. Any size and number: large ones are uploaded first.
         #[arg(long, value_name = "FILE")]
         attach: Vec<PathBuf>,
     },
+    /// Team-scoped durable messages. Requires Labs `meshRelay.teamMessaging`.
+    Inbox(InboxArgs),
     /// Append a report to a human basket without waking any agent session.
     /// The target must be `reports:<person>`; the sender is the attached local
     /// ACP session (or `--from` when the daemon can bind that session).
@@ -244,6 +260,9 @@ pub enum Command {
     /// List sessions on every host.
     #[command(alias = "list", alias = "list-sessions")]
     Ls {
+        /// Include tool inventories in JSON rows (otherwise read `session info SESSION`).
+        #[arg(long)]
+        with_tools: bool,
         /// Only sessions in this state: running, ready, idle, closed, waiting.
         #[arg(long)]
         status: Option<String>,
@@ -253,6 +272,15 @@ pub enum Command {
         /// Only sessions carrying this tag (key or key=value).
         #[arg(long)]
         tag: Option<String>,
+        /// Return at most N sessions, newest first.
+        #[arg(long, value_name = "N", value_parser = clap::value_parser!(u64).range(1..))]
+        limit: Option<u64>,
+        /// Select comma-separated fields from each session record.
+        #[arg(long, value_name = "FIELD[,FIELD…]")]
+        fields: Option<String>,
+        /// Only sessions updated within this duration (for example `24h` or `30m`).
+        #[arg(long, value_name = "DURATION")]
+        since: Option<String>,
     },
     /// Open the TUI on a session, or on the session list.
     #[command(alias = "a")]
@@ -333,7 +361,7 @@ pub enum Command {
         #[arg(long)]
         rotate_token: bool,
     },
-    /// Remote daemons: add, ls, rm.
+    /// Remote daemons and machines: add, ls, status, place, setup, update, enroll, doctor, ticket and more.
     #[command(subcommand, aliases = ["hosts", "peer"])]
     Host(PeerCmd),
     /// Bring your own harness: list, add, doctor and reload harness profile
@@ -362,7 +390,7 @@ pub enum Command {
     /// This machine as a hand of a Cloud Chief: pair, run, status.
     #[command(subcommand)]
     Hand(crate::hand::HandCmd),
-    /// The daemon: run, status, shutdown (also stop), config, harnesses, reload, models, schema.
+    /// The daemon: run, status, start, restart, shutdown (also stop), config, harnesses, reload, models, schema.
     #[command(subcommand, alias = "d")]
     Daemon(DaemonCmd),
     /// Serve the local CodeRouter in a separate process.
@@ -493,11 +521,16 @@ pub enum Command {
     /// `daemon start`: status, starting a daemon first when none runs.
     #[command(hide = true)]
     DaemonStart { person_key_fd: Option<i32>, show_token: bool },
+    #[command(hide = true)]
+    DaemonRestart,
     #[command(hide = true, alias = "kill-server")]
     Shutdown {
         /// Accepted for callers of older builds; hosted agents keep running anyway.
         #[arg(long, hide = true, conflicts_with = "end_agents")]
         keep_agents: bool,
+        /// Signal service restart to clients while stopping for an external updater.
+        #[arg(long, conflicts_with = "end_agents")]
+        restart: bool,
         /// End every agent process too, hosted agents and their hosts included.
         #[arg(long)]
         end_agents: bool,
@@ -506,6 +539,10 @@ pub enum Command {
     Config {
         #[arg(long)]
         show_token: bool,
+        /// Set a daemon host-wide setting as KEY=VALUE (for example,
+        /// `session.memory_mb=6144` or `session.swap_mb=2048`).
+        #[arg(long, value_name = "KEY=VALUE")]
+        set: Option<String>,
     },
     #[command(hide = true)]
     DaemonRun {
@@ -720,6 +757,10 @@ pub enum SecretCmd {
 
 #[derive(Subcommand)]
 pub enum SessionCmd {
+    /// Queue a new session on a mesh host; prints a receipt, not completed execution.
+    Start(crate::cli::mesh_control::StartArgs),
+    /// Read one mesh lifecycle receipt without waiting.
+    Receipt { message_id: String },
     /// Show session details.
     Info { session: String },
     /// Cancel the running turn.
@@ -728,6 +769,8 @@ pub enum SessionCmd {
     #[command(alias = "kill")]
     Stop {
         session: String,
+        #[command(flatten)]
+        mesh: crate::cli::mesh_control::RouteArgs,
         /// Also delete the log.
         #[arg(long)]
         purge: bool,
@@ -741,7 +784,11 @@ pub enum SessionCmd {
     Rename { session: String, new_name: String },
     /// Run the queued prompts a failed turn held. An agent or a script may resume a
     /// queue; only answering a permission or a question needs the cmux app.
-    Resume { session: String },
+    Resume {
+        session: String,
+        #[command(flatten)]
+        mesh: crate::cli::mesh_control::RouteArgs,
+    },
     /// Fork a session into a new one that shares the history so far.
     Fork {
         session: String,
@@ -754,7 +801,13 @@ pub enum SessionCmd {
         force_admit: bool,
     },
     /// Change mode, model, a config option, or the permission policy: key=value.
-    Set { session: String, assignment: String },
+    Set {
+        session: String,
+        assignment: Option<String>,
+        /// Claim a team-scoped address (for example `coordinator`).
+        #[arg(long, conflicts_with = "assignment")]
+        team_address: Option<String>,
+    },
     /// Answer a pending permission request. The daemon accepts an allow
     /// only from the cmux app (approve it on the Mac app); a deny option
     /// works from here.
@@ -845,6 +898,25 @@ pub enum SessionCmd {
     },
 }
 
+#[derive(Args)]
+pub struct InboxArgs {
+    /// Continue browsing from the previous JSON response's `next` cursor.
+    #[arg(long)]
+    pub before: Option<u64>,
+    #[command(subcommand)]
+    pub command: Option<InboxCmd>,
+}
+
+#[derive(Subcommand)]
+pub enum InboxCmd {
+    /// List team messages currently held by the hub.
+    List,
+    /// Read one message by id (the message remains acknowledged only when `ack` is used).
+    Read { id: String },
+    /// Acknowledge one team message.
+    Ack { id: String },
+}
+
 #[derive(Subcommand)]
 pub enum DaemonCmd {
     /// Run the daemon in the foreground.
@@ -898,6 +970,8 @@ pub enum DaemonCmd {
         #[arg(long)]
         show_token: bool,
     },
+    /// Restart the daemon, preserving hosted sessions so they resume on startup.
+    Restart,
     /// Stop the daemon. Hosted agents keep running for the next daemon to
     /// adopt (a restart or an update); pooled hosts end. `--end-agents` ends
     /// every agent process too, agent hosts included, returns once they all
@@ -908,6 +982,9 @@ pub enum DaemonCmd {
         /// the agents; hosted agents keep running anyway.
         #[arg(long, hide = true, conflicts_with = "end_agents")]
         keep_agents: bool,
+        /// Signal service restart to clients while stopping for an external updater.
+        #[arg(long, conflicts_with = "end_agents")]
+        restart: bool,
         /// End every agent process too, hosted agents and their hosts included.
         #[arg(long)]
         end_agents: bool,
@@ -917,6 +994,9 @@ pub enum DaemonCmd {
         /// Print the bearer tokens too (`--json` always has them).
         #[arg(long)]
         show_token: bool,
+        /// Set a host-wide session resource setting as KEY=VALUE.
+        #[arg(long, value_name = "KEY=VALUE")]
+        set: Option<String>,
     },
     /// Show configured harnesses with their family and defaults.
     Harnesses,
@@ -1019,8 +1099,8 @@ pub struct NewArgs {
     /// reused when there; implies --reuse. Replaces --cwd.
     #[arg(long, value_name = "REPO[@BASE]")]
     pub worktree: Option<String>,
-    /// Read the first prompt from this file (after any prompt words), now; a
-    /// missing or empty file fails before anything starts.
+    /// Read the first prompt from this file (after any prompt words), now; `-`
+    /// reads stdin. A missing or empty file fails before anything starts.
     #[arg(long, value_name = "FILE")]
     pub prompt_file: Option<PathBuf>,
     /// Tell the new session that this session started it and how to report back.
@@ -1053,14 +1133,25 @@ pub fn flatten(c: Command) -> Command {
         Command::Session(sc) => match sc {
             SessionCmd::Info { session } => Command::Info { session },
             SessionCmd::Cancel { session } => Command::Cancel { session },
-            SessionCmd::Stop { session, purge } => Command::Kill { session, purge },
+            SessionCmd::Stop { session, purge, mesh } if !mesh.mesh => {
+                Command::Kill { session, purge }
+            }
             SessionCmd::Restart { session } => Command::RestartAgent { session },
             SessionCmd::Rename { session, new_name } => Command::Rename { session, new_name },
-            SessionCmd::Resume { session } => Command::ResumeQueue { session },
+            SessionCmd::Resume { session, mesh } if !mesh.mesh => Command::ResumeQueue { session },
+            control @ (SessionCmd::Start(_)
+            | SessionCmd::Receipt { .. }
+            | SessionCmd::Stop { .. }
+            | SessionCmd::Resume { .. }) => Command::Session(control),
             SessionCmd::Fork { session, name, cwd, force_admit } => {
                 Command::Fork { session, name, cwd, force_admit }
             }
-            SessionCmd::Set { session, assignment } => Command::Set { session, assignment },
+            SessionCmd::Set { session, assignment, team_address } => Command::Set {
+                session,
+                assignment: assignment
+                    .or_else(|| team_address.map(|address| format!("team-address={address}")))
+                    .unwrap_or_default(),
+            },
             SessionCmd::Allow { session, option } => Command::Allow { session, option },
             SessionCmd::Deny { session } => Command::Deny { session },
             SessionCmd::Answer { session, answer } => Command::Answer { session, answer },
@@ -1107,10 +1198,11 @@ pub fn flatten(c: Command) -> Command {
             DaemonCmd::Start { person_key_fd, show_token } => {
                 Command::DaemonStart { person_key_fd, show_token }
             }
-            DaemonCmd::Shutdown { keep_agents, end_agents } => {
-                Command::Shutdown { keep_agents, end_agents }
+            DaemonCmd::Shutdown { keep_agents, end_agents, restart } => {
+                Command::Shutdown { keep_agents, end_agents, restart }
             }
-            DaemonCmd::Config { show_token } => Command::Config { show_token },
+            DaemonCmd::Restart => Command::DaemonRestart,
+            DaemonCmd::Config { show_token, set } => Command::Config { show_token, set },
             DaemonCmd::Harnesses => Command::Harnesses,
             DaemonCmd::Reload => Command::Reload,
             DaemonCmd::Retention(args) => Command::Retention(args),
@@ -1355,6 +1447,18 @@ mod help_contract_tests {
         assert!(missing.is_empty(), "documented acpmux surface drifted:\n{}", missing.join("\n"));
     }
 
+    /// `send --class`: the four classes only (`prompt_class.rs`).
+    #[test]
+    fn send_class_takes_one_of_the_four_classes() {
+        for class in crate::prompt_class::PromptClass::ALL {
+            let argv = ["acpmux", "send", "coord", "done", "--class", class.as_str()];
+            assert!(Cli::try_parse_from(argv).is_ok(), "{argv:?} did not parse");
+        }
+        assert!(
+            Cli::try_parse_from(["acpmux", "send", "coord", "x", "--class", "urgent"]).is_err()
+        );
+    }
+
     /// `host vm-host [NAME] [on|off]`: the state is on or off only.
     #[test]
     fn host_vm_host_takes_a_machine_and_on_or_off() {
@@ -1425,5 +1529,23 @@ mod help_contract_tests {
         let shapes = command_shapes();
         let words = ["acpmux", "host", "statuz"].into_iter().map(str::to_owned).collect::<Vec<_>>();
         assert!(documented_shape(&words, &shapes).is_none());
+    }
+}
+
+#[cfg(test)]
+mod config_set_tests {
+    use super::{Cli, Command};
+    use clap::Parser;
+
+    #[test]
+    fn config_set_accepts_session_resource_assignment() {
+        let cli =
+            Cli::try_parse_from(["acpmux", "config", "--set", "session.memory_mb=6144"]).unwrap();
+        match cli.command {
+            Some(Command::Config { set: Some(value), .. }) => {
+                assert_eq!(value, "session.memory_mb=6144")
+            }
+            _ => panic!("unexpected command"),
+        }
     }
 }
