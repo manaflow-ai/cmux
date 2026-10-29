@@ -9659,6 +9659,7 @@ function AcpmuxPane() {
             accessory={<DictationMic dictation={dictation} />}
             dictating={isWaitingForWords(dictation.state)}
             onImportFile={importFile}
+            importSandboxed={sandbox.mode === "sandboxed"}
             onEdit={(command) => ignoreFailure(callNative("pane.edit", { command }))}
           />
         </ImageViewerContext.Provider>

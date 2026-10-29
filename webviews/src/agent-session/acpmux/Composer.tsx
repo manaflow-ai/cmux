@@ -271,6 +271,9 @@ type Props = {
   keptAttachments?: KeptAttachments;
   /// Reads a transcript chosen by the cmux-owned `/import` command.
   onImportFile?(file: File): void | Promise<void>;
+  /// The selected New Chat mode is Sandboxed. Transcript import creates a persistent chat, so
+  /// refuse it while this mode is active instead of bypassing the sandbox send path.
+  importSandboxed?: boolean;
   /// Searches the session's files; the + menu offers Search files only when set.
   searchFiles?: FileSearchSource;
   plusExtensions?: readonly ComposerPlusExtension[];
@@ -367,6 +370,7 @@ export function Composer({
   onTyping,
   keptAttachments,
   onImportFile,
+  importSandboxed,
   searchFiles,
   capture,
   plusExtensions,
@@ -979,6 +983,10 @@ export function Composer({
     const owned = command?.kind === "cmux" ? command.command : undefined;
     if (owned) {
       if (owned.name === "import") {
+        if (importSandboxed) {
+          setAttachError(t("composer.cmuxImportSandbox"));
+          return false;
+        }
         if (!onImportFile) {
           setAttachError(t("composer.cmuxUnavailable"));
           return false;
@@ -1828,6 +1836,10 @@ export function Composer({
               onChange={(event) => {
                 const file = event.currentTarget.files?.[0];
                 event.currentTarget.value = "";
+                if (importSandboxed) {
+                  setAttachError(t("composer.cmuxImportSandbox"));
+                  return;
+                }
                 if (file) void onImportFile?.(file);
               }}
             />

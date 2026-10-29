@@ -94,6 +94,7 @@ async function composer(
   snapshot: AcpmuxSnapshot,
   typed: string,
   onCmuxCommand?: (command: CmuxCommand, args?: string) => boolean | string,
+  importSandboxed = false,
 ) {
   const sent: Sent[] = [];
   let handle: ComposerHandle | null = null;
@@ -115,6 +116,7 @@ async function composer(
         onProject={() => {}}
         onNewChat={() => {}}
         {...(onCmuxCommand ? { onCmuxCommand } : {})}
+        {...(importSandboxed ? { importSandboxed } : {})}
         localName="studio"
         projectChoices={[{ cwd: "/Users/you/src/app", label: "app" }]}
       />,
@@ -203,6 +205,35 @@ test("a cmux-owned command with an invalid target keeps its draft and explains t
   expect(sent).toEqual([]);
   expect(field.textContent).toContain("/continue nope");
   expect(host.querySelector(".acpmux-attachment-note")?.textContent).toContain("No matching harness");
+});
+
+test("a Sandboxed chat refuses /import before the picker and ignores a late file", async () => {
+  const imported: File[] = [];
+  const { field, sent } = await composer(
+    chat(),
+    "/import",
+    (command) => {
+      if (command.name === "import") imported.push(new File(["unexpected"], "transcript.json"));
+      return true;
+    },
+    true,
+  );
+  const input = host.querySelector<HTMLInputElement>('input[aria-label="/import"]')!;
+  let opened = false;
+  input.click = () => {
+    opened = true;
+  };
+  await dispatch(field, key({ key: "Enter", keyCode: 13 }));
+  expect(opened).toBe(false);
+  expect(field.textContent).toContain("/import");
+  expect(host.querySelector(".acpmux-attachment-note")?.textContent).toContain(
+    "Transcript import is unavailable in Sandboxed mode",
+  );
+
+  Object.defineProperty(input, "files", { configurable: true, value: [new File(["{}"], "transcript.json")] });
+  await act(async () => input.dispatchEvent(new window.Event("change", { bubbles: true })));
+  expect(imported).toEqual([]);
+  expect(sent).toEqual([]);
 });
 
 test("Return after Dictation (keyCode 229, no composition) steers the running turn, never adds a line", async () => {
