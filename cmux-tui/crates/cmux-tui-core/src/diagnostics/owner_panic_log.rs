@@ -1,6 +1,6 @@
 //! Where the session owner's panic log lives (cx-urd.59). The owner's panic
-//! hook appends to it (cmux-tui `owner_start/owner_panic.rs`) and
-//! `oracle-state` reports it, so both read the one path rule here. The
+//! hook appends to it (cmux-tui `owner_start/owner_panic.rs`), which reads
+//! the one path rule here. The
 //! owner's hang log lives beside it; the request watchdog writes it
 //! (server/request_watchdog.rs).
 

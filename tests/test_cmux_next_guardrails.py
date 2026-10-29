@@ -13,6 +13,7 @@ import dataclasses
 import fcntl
 import importlib.util
 import io
+import json
 import os
 from pathlib import Path
 import re
@@ -280,6 +281,7 @@ class RuleTests(Fixture):
                 self.commit("rewords the reason, keeps the escape")
                 self.assertEqual(self.refused(), [])
         self.git("reset", "--quiet", "--hard", start)
+        self.rebase_on({f"{KIT}/Old.swift": "final class Old {\n    static let shared = Old()\n}\n"}, "old singleton")
         self.write(f"{KIT}/Old.swift", "final class Old {\n    // the old cache\n    static let shared = Old()\n}\n")
         self.commit("a comment above old unescaped debt")
         self.assertEqual(self.refused(), [], "base debt the push only comments on is not new")
@@ -516,7 +518,8 @@ class RuleTests(Fixture):
                    "    nonisolated final class Entry {\n        var key: Key?\n    }\n"
                    "    nonisolated deinit {}\n}\n")
         self.write(f"{KIT}/Plain.swift", "final class Plain {\n    final class Inner {\n        var x = 0\n    }\n}\n"
-                   "extension Plain {\n    final class Other {\n        var y = 0\n    }\n}\n"
+                   "extension Plain {\n    final class Other {\n        var y = 0\n    }\n}\n")
+        self.write(f"{KIT}/Holder.swift",
                    "final class Holder<T> {\n    class func make() -> Holder { Holder() }\n    class var name: String { \"\" }\n"
                    "    nonisolated deinit {}\n}\n")
         self.write(f"{KIT}/Box.swift", "final class Box<T> { var value: T?; nonisolated deinit {} }\n")
@@ -3105,6 +3108,221 @@ class HookTests(Fixture):
                                         if not args else [sys.executable, "-I", str(gate), *args],
                                         cwd=self.repo, env={**self.env, **env}, text=True, capture_output=True)
                 self.assertNotIn("guardrails", result.stdout + result.stderr)
+
+
+SHARED = "Packages/Shared/CmuxFoo/Sources/CmuxFoo"
+FOO_TESTS = "Packages/Shared/CmuxFoo/Tests/CmuxFooTests"
+# rule id -> (a file that adds the debt, the same file justified or written the right way). The quality ratchet
+# reads every package, so the cases sit in a Shared package (CmuxNext's Sources: QualityRatchetTests below).
+QUALITY_CASES = {
+    "carve-out": (f"{SHARED}/Box.swift",
+                  "final class Box {\n    private let lock = NSLock()\n}\n",
+                  "final class Box {\n    // concurrency-allow: the C callback runs on any thread and holds it for one store\n"
+                  "    private let lock = NSLock()\n}\n"),
+    "static-shared": (f"{SHARED}/Store.swift",
+                      "public final class Store {\n    public static let shared = Store()\n}\n",
+                      "public final class Store {\n    public init() {}\n}\n"),
+    "product-sleep": (f"{SHARED}/Retry.swift",
+                      "func retry() async throws {\n    try await Task.sleep(for: .seconds(1))\n}\n",
+                      "func retry() async throws {\n    // wakeup-allow: backoff one bounded, cancellable retry after a failed connect\n"
+                      "    try await clock.sleep(for: .seconds(1))\n}\n"),
+    "source-reading-test": (f"{FOO_TESTS}/ShapeTests.swift",
+                            "import Testing\n@Test func shape() throws {\n"
+                            "    let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent()\n"
+                            "    let text = try String(contentsOf: root.appending(path: \"Sources/CmuxFoo/Box.swift\"), encoding: .utf8)\n"
+                            "    #expect(text.contains(\"NSLock\"))\n}\n",
+                            "import Testing\n@testable import CmuxFoo\n@Test func box() {\n    #expect(Box().count == 0)\n}\n"),
+    "multi-type-file": (f"{SHARED}/Pair.swift",
+                        "public struct Left {\n    public let x = 0\n}\n\npublic struct Right {\n    public let y = 0\n}\n",
+                        "public struct Left {\n    public let x = 0\n}\n\nprivate struct Helper {\n    let y = 0\n}\n"),
+}
+
+
+class QualityRatchetTests(Fixture):
+    """The quality ratchet (guardrails.py, block `quality ratchet`): five line rules and the baseline's record rule."""
+
+    def ids(self, *args):
+        return [r.id for r, _ in self.check(*args)[0]]
+
+    def test_each_rule_refuses_what_a_push_adds_and_passes_the_justified_or_right_pattern(self):
+        for rule, (path, bad, good) in QUALITY_CASES.items():
+            with self.subTest(rule=rule):
+                self.git("reset", "--quiet", "--hard", self.base)
+                self.write(path, bad)
+                self.commit(f"adds {rule}")
+                self.assertIn(rule, self.ids(), f"{rule} not refused")
+                self.git("reset", "--quiet", "--hard", self.base)
+                self.write(path, good)
+                self.commit(f"right pattern for {rule}")
+                self.assertNotIn(rule, self.ids(), f"{rule}: the right pattern was refused")
+
+    def test_every_carve_out_is_refused_in_a_shared_package(self):
+        for line in ("nonisolated(unsafe) var cache: [Int] = []", "final class C: @unchecked Sendable {}",
+                     "let lock = NSRecursiveLock()", "var lock = os_unfair_lock()",
+                     "let state = OSAllocatedUnfairLock(initialState: 0)", "let state = Mutex<[String: Int]>([:])",
+                     "func f() { DispatchQueue.main.async { g() } }", "func f() { DispatchQueue.main.sync { g() } }",
+                     "func f() { queue.asyncAfter(deadline: .now() + 1) { g() } }"):
+            with self.subTest(line=line):
+                self.git("reset", "--quiet", "--hard", self.base)
+                self.write(f"{SHARED}/Added.swift", line + "\n")
+                self.commit("adds a carve-out")
+                self.assertIn("carve-out", self.ids())
+
+    def test_carve_outs_other_checks_own_in_cmux_next_are_not_judged_twice(self):
+        self.write(f"{KIT}/Added.swift", "func f() {\n    DispatchQueue.main.async { print(1) }\n}\n"
+                                         "final class C: @unchecked Sendable {}\nlet lock = NSLock()\n"
+                                         "func g() async { try? await Task.sleep(for: .seconds(1)) }\n")
+        self.commit("adds a main hop, an unchecked conformance, a lock and a sleep")
+        self.assertEqual(sorted(self.ids()), ["main-async", "unchecked-sendable"])
+        self.write(f"{KIT}/Added.swift", "let state = Mutex<Int>(0)\n")
+        self.commit("adds a Mutex")
+        self.assertIn("carve-out", self.ids())
+
+    def test_test_support_targets_and_tests_are_not_product_sources(self):
+        self.write("Packages/Shared/CmuxFoo/Sources/CmuxFooTestSupport/Clock.swift",
+                   "func f() async { try? await Task.sleep(for: .seconds(1)) }\nstruct A {}\nstruct B {}\n")
+        self.write(f"{FOO_TESTS}/Waits.swift", "func f() async { try? await Task.sleep(for: .seconds(1)) }\nlet lock = NSLock()\n")
+        self.commit("sleeps and a lock in test code")
+        self.assertEqual([i for i in self.ids() if i in ("carve-out", "product-sleep", "multi-type-file")], [])
+
+    def test_editing_old_debt_adds_none_and_removing_its_justification_is_new_debt(self):
+        path, _, good = QUALITY_CASES["carve-out"]
+        self.rebase_on({path: good.replace("NSLock()", "NSLock() // one")})
+        self.write(path, good.replace("NSLock()", "NSLock() // two"))
+        self.commit("edits the justified line")
+        self.assertNotIn("carve-out", self.ids())
+        self.write(path, "final class Box {\n    private let lock = NSLock()\n}\n")
+        self.commit("drops the justification")
+        self.assertIn("carve-out", self.ids())
+
+    def test_a_moved_multi_type_file_is_no_new_file(self):
+        path, bad, _ = QUALITY_CASES["multi-type-file"]
+        self.rebase_on({path: bad})
+        (self.repo / SHARED / "Moved").mkdir()
+        self.git("mv", path, f"{SHARED}/Moved/Pair.swift")
+        self.commit("moves the file")
+        self.assertNotIn("multi-type-file", self.ids())
+
+    def test_a_second_type_in_an_existing_file_and_a_generated_file_are_not_judged(self):
+        self.rebase_on({f"{SHARED}/One.swift": "public struct One {}\n"})
+        self.write(f"{SHARED}/One.swift", "public struct One {}\npublic struct Two {}\n")
+        self.write(f"{SHARED}/Gen.swift", "// GENERATED by gen.py. Do not edit.\npublic struct A {}\npublic struct B {}\n")
+        self.commit("a type in an old file, and a generated file")
+        self.assertNotIn("multi-type-file", self.ids())
+
+    def baseline(self, rev="HEAD"):
+        saved = {k: os.environ.pop(k) for k in list(os.environ) if k.startswith("GIT_")}
+        try:
+            data = guardrails.quality_counts(self.repo, rev)
+        finally:
+            os.environ.update(saved)
+        return json.dumps(data, indent=1, sort_keys=True) + "\n"
+
+    def test_the_baseline_lets_old_lines_in_from_a_base_that_lacks_them_and_nothing_else(self):
+        # The slice case: the branch holds old debt and the json listing it; the base (origin/feat-cmux-next) has
+        # neither. The old lines pass; a new line in the same file does not.
+        for rule, (path, bad, _) in QUALITY_CASES.items():
+            self.write(path, bad)
+        self.commit("old debt")
+        self.write(guardrails.QUALITY_BASELINE, self.baseline())
+        self.commit("the baseline")
+        self.assertEqual([i for i in self.ids() if i in QUALITY_CASES or i == "quality-baseline"], [])
+        self.write(QUALITY_CASES["carve-out"][0], QUALITY_CASES["carve-out"][1].replace(
+            "}\n", "    private let other = NSLock()\n}\n", 1))
+        self.commit("a new lock beside the old one")
+        self.assertEqual([i for i in self.ids() if i in QUALITY_CASES], ["carve-out"])
+
+    def test_without_the_baseline_the_same_old_lines_are_refused(self):
+        for rule, (path, bad, _) in QUALITY_CASES.items():
+            self.write(path, bad)
+        self.commit("old debt, no baseline")
+        self.assertEqual(sorted(i for i in self.ids() if i in QUALITY_CASES), sorted(QUALITY_CASES))
+
+    def test_a_removed_old_line_cannot_pay_for_a_different_new_one(self):
+        path, bad, _ = QUALITY_CASES["static-shared"]
+        self.write(path, bad)
+        self.commit("old singleton")
+        self.write(guardrails.QUALITY_BASELINE, self.baseline())
+        self.commit("the baseline")
+        self.rebase_on({path: "public final class Store {\n}\n"}, "removes the singleton")
+        self.write(path, "public final class Store {\n    public static var shared = Store()\n}\n")
+        self.commit("a different singleton")
+        self.assertIn("static-shared", self.ids())
+        self.write(path, bad)
+        self.commit("the old line back as it was")
+        self.assertNotIn("static-shared", self.ids())
+
+    def test_the_baseline_may_lose_sites_but_never_gain_one(self):
+        path, bad, _ = QUALITY_CASES["carve-out"]
+        self.write(path, bad)
+        self.commit("old lock")
+        self.rebase_on({guardrails.QUALITY_BASELINE: self.baseline()}, "the baseline")
+        data = json.loads(self.baseline())
+        data["sites"]["carve-out"][path] += " 0123456789ab"
+        self.write(guardrails.QUALITY_BASELINE, json.dumps(data, indent=1))
+        self.commit("adds a site by hand")
+        self.assertIn("quality-baseline", self.ids())
+        self.git("reset", "--quiet", "--hard", self.base)
+        self.write(path, "final class Box {\n}\n")
+        self.commit("drops the lock")
+        self.write(guardrails.QUALITY_BASELINE, self.baseline())
+        self.commit("lowers the baseline")
+        self.assertNotIn("quality-baseline", self.ids())
+
+    def test_a_json_rewritten_after_new_debt_on_a_base_without_it_is_refused(self):
+        # The slice onto origin/feat-cmux-next before the json lands there: the first commit that adds the json is
+        # the reference, so new debt that a later `--write` lists is still new.
+        path, bad, _ = QUALITY_CASES["static-shared"]
+        self.write(path, bad)
+        self.commit("old singleton")
+        self.write(guardrails.QUALITY_BASELINE, self.baseline())
+        self.commit("the baseline")
+        self.write(f"{SHARED}/Other.swift", "public final class Other {\n    public static let shared = Other()\n}\n")
+        self.commit("a new singleton")
+        self.write(guardrails.QUALITY_BASELINE, self.baseline())
+        self.commit("the baseline written again, with the new singleton")
+        ids = self.ids()
+        self.assertIn("static-shared", ids)
+        self.assertIn("quality-baseline", ids)
+
+    def test_a_base_that_deleted_the_json_does_not_let_the_head_json_list_new_debt(self):
+        # The json was added in shared history, then the base deleted it; a branch made before the deletion
+        # still has it. No commit of base..head adds it, so the head's json must not be the reference.
+        path, bad, _ = QUALITY_CASES["static-shared"]
+        self.write(path, bad)
+        self.write(guardrails.QUALITY_BASELINE, self.baseline())
+        self.commit("old singleton and the baseline")
+        fork = self.git("rev-parse", "HEAD").stdout.strip()
+        self.git("rm", "--quiet", guardrails.QUALITY_BASELINE)
+        self.commit("the base deletes the baseline")
+        deleted = self.git("rev-parse", "HEAD").stdout.strip()
+        self.git("checkout", "--quiet", "--detach", fork)
+        self.write(f"{SHARED}/Other.swift", "public final class Other {\n    public static let shared = Other()\n}\n")
+        self.commit("a new singleton")
+        self.write(guardrails.QUALITY_BASELINE, self.baseline())
+        self.commit("the baseline written again, with the new singleton")
+        self.assertIn("static-shared", self.ids(None, deleted, "HEAD"))
+
+    def test_a_base_json_that_does_not_parse_allows_nothing(self):
+        path, bad, _ = QUALITY_CASES["static-shared"]
+        self.rebase_on({guardrails.QUALITY_BASELINE: "{not json"}, "a broken baseline")
+        self.write(path, bad)
+        self.write(guardrails.QUALITY_BASELINE, self.baseline())
+        self.commit("old-looking singleton and a fresh json")
+        ids = self.ids()
+        self.assertIn("static-shared", ids)
+        self.assertIn("quality-baseline", ids)
+
+    def test_the_counts_name_each_rule_and_the_rules_are_listed(self):
+        for rule, (path, bad, _) in QUALITY_CASES.items():
+            self.write(path, bad)
+        self.commit("one of each")
+        data = json.loads(self.baseline())
+        self.assertEqual(data["counts"], {"carve-out": 1, "static-shared": 1, "product-sleep": 1,
+                                          "source-reading-test": 1, "multi-type-file": 1})
+        listed = {r.id for r in guardrails.RULES}
+        self.assertTrue(set(QUALITY_CASES) | {"quality-baseline"} <= listed)
+        self.assertTrue(all(r.local_only for r in guardrails.QUALITY_RULES))
 
 
 if __name__ == "__main__":

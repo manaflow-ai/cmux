@@ -107,7 +107,7 @@ COMPANIONS = {
     CEF: (REMOTE_BROWSER_HOST_PIN,),
 }
 # CEF manifest fields that describe the fork build at fork_ref: its artifact, version, API level and storage. Any
-# other field (repo, arch, require_dcheck_off, require_official_pgo, a new one) is cmux's own choice.
+# other field (repo, arch, require_dcheck_off, a new one) is cmux's own choice.
 CEF_ARTIFACT_FIELDS = frozenset({
     "fork_ref", "fork_branch", "version", "cef", "chromium", "tag", "asset", "url", "sha256", "r2_bucket", "r2_key",
     "debug_asset", "debug_sha256", "debug_r2_key", "debug_symbols", "cmux_cef_api_version", "missing_api", "x86_64",

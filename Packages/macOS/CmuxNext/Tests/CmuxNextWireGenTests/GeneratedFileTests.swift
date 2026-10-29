@@ -37,8 +37,23 @@ import Testing
         return unsafe String(cString: resolved)
     }
 
+    /// The newest modification date of CmuxNextWireGen's sources: a tool older than that is from an
+    /// earlier build (a lane that rebuilt only the test bundle), and testing it says nothing of this one.
+    private static func newestToolSource() throws -> (path: String, date: Date) {
+        var root = URL(fileURLWithPath: #filePath)
+        for _ in 0..<3 { root.deleteLastPathComponent() }
+        let sources = root.appending(path: "Sources/CmuxNextWireGen", directoryHint: .isDirectory)
+        var newest = (path: sources.path(percentEncoded: false), date: Date.distantPast)
+        for name in try FileManager.default.contentsOfDirectory(atPath: sources.path(percentEncoded: false)) {
+            let path = sources.appending(path: name, directoryHint: .notDirectory).path(percentEncoded: false)
+            let date = try FileManager.default.attributesOfItem(atPath: path)[.modificationDate] as? Date
+            if let date, date > newest.date { newest = (path, date) }
+        }
+        return newest
+    }
+
     /// The CmuxNextWireGen executable of this build: the plugin's host tool (`CmuxNextWireGen-tool`)
-    /// or the product, in a directory above this test bundle's image.
+    /// or the product, in a directory above this test bundle's image, and not older than its sources.
     private static func toolExecutable() throws -> URL {
         var info = Dl_info()
         guard unsafe dladdr(#dsohandle, &info) != 0, let name = unsafe info.dli_fname else {
@@ -54,6 +69,14 @@ import Testing
                     !isDirectory.boolValue,
                     FileManager.default.isExecutableFile(atPath: candidate.path(percentEncoded: false))
                 {
+                    let path = candidate.path(percentEncoded: false)
+                    let built = try FileManager.default.attributesOfItem(atPath: path)[.modificationDate] as? Date
+                    let source = try newestToolSource()
+                    guard let built, built >= source.date else {
+                        let stale = "\(path) (\(String(describing: built))) is older than \(source.path) (\(source.date))"
+                        Issue.record("\(stale): a stale tool from an earlier build; build CmuxNextWireGen before this test")
+                        throw CocoaError(.fileReadUnknown)
+                    }
                     return candidate
                 }
             }
@@ -91,11 +114,38 @@ import Testing
         #expect(try FileManager.default.contentsOfDirectory(atPath: directory.path(percentEncoded: false)) == [])
     }
 
+    /// A rename that fails (the output is a directory) says so with its errno and leaves no temporary file.
+    @Test func aFailedRenameNamesItsErrorAndRemovesTheTemporaryFile() throws {
+        let directory = try Self.scratchDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let output = directory.appending(path: "Out.swift", directoryHint: .notDirectory)
+        try FileManager.default.createDirectory(at: output, withIntermediateDirectories: false)
+        FileManager.default.createFile(atPath: output.appending(path: "keep").path(percentEncoded: false), contents: nil)
+
+        let error = #expect(throws: WireGenError.self) {
+            try GeneratedFile(url: output).write("let a = 1\n")
+        }
+        guard case .unwritable(let path, let reason) = error else {
+            Issue.record("expected unwritable, got \(String(describing: error))")
+            return
+        }
+        #expect(path == output.path(percentEncoded: false))
+        let isDirectory = unsafe String(cString: strerror(EISDIR))
+        #expect(reason.hasPrefix("rename ") && reason.hasSuffix(": \(isDirectory)"), "\(reason)")
+        #expect(try FileManager.default.contentsOfDirectory(atPath: directory.path(percentEncoded: false)) == ["Out.swift"])
+        #expect(try FileManager.default.contentsOfDirectory(atPath: output.path(percentEncoded: false)) == ["keep"])
+    }
+
     /// The built tool in a sandbox that refuses writes outside its output directory and the
     /// coreservicesd look-up: it writes the fixture's DaemonWireEvent there, the same bytes as
     /// EventEmitter in this process, and nothing else. Foundation's atomic write fails here (it
     /// writes in the item-replacement directory first).
     @Test func writesOnlyInTheOutputDirectoryInASandbox() async throws {
+        let sandboxExec = "/usr/bin/sandbox-exec"
+        guard FileManager.default.isExecutableFile(atPath: sandboxExec) else {
+            Issue.record("\(sandboxExec) is missing on this Mac: this test needs it to run the tool in a sandbox")
+            return
+        }
         let tool = try Self.toolExecutable()
         let output = try Self.scratchDirectory()
         let logs = try Self.scratchDirectory()
@@ -120,7 +170,7 @@ import Testing
         defer { try? stderrHandle.close() }
 
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/sandbox-exec")
+        process.executableURL = URL(fileURLWithPath: sandboxExec)
         process.arguments = [
             "-p", profile, tool.path(percentEncoded: false),
             "--sdk-schema", sdkSchema.path(percentEncoded: false),
@@ -139,12 +189,22 @@ import Testing
         }
         let hung = process.isRunning
         if hung {
+            // SIGTERM, then SIGKILL after 5 s: a tool blocked in a Mach message may not end on SIGTERM.
             process.terminate()
-            while process.isRunning { try await Task.sleep(for: .milliseconds(50)) }
+            let killAt = ContinuousClock.now + .seconds(5)
+            while process.isRunning, ContinuousClock.now < killAt { try await Task.sleep(for: .milliseconds(50)) }
+            if process.isRunning { kill(process.processIdentifier, SIGKILL) }
+            let giveUpAt = ContinuousClock.now + .seconds(5)
+            while process.isRunning, ContinuousClock.now < giveUpAt { try await Task.sleep(for: .milliseconds(50)) }
         }
         let stderrText = String(decoding: try Data(contentsOf: stderrFile), as: UTF8.self)
 
         #expect(!hung, "CmuxNextWireGen did not end in 60 s in the sandbox; stderr: \(stderrText)")
+        // terminationStatus raises while the process runs: a tool that outlives SIGKILL ends the test here.
+        guard !process.isRunning else {
+            Issue.record("CmuxNextWireGen \(process.processIdentifier) still runs after SIGKILL; stderr: \(stderrText)")
+            return
+        }
         #expect(process.terminationStatus == 0, "exit \(process.terminationStatus); stderr: \(stderrText)")
         let expected = try EventEmitter(sdkSchema: Data(contentsOf: sdkSchema),
                                         resourceOperations: Data(contentsOf: resourceOperations))

@@ -33,8 +33,7 @@ impl Sequence {
         if (!ready && !has_delayed) || !self.shared.wake_or_reserve(&mut state, priority) {
             return;
         }
-        if self.shared.spawn_worker_locked(&mut state, priority)
-            || state.workers[priority].live > 0
+        if self.shared.spawn_worker_locked(&mut state, priority) || state.workers[priority].live > 0
         {
             return;
         }

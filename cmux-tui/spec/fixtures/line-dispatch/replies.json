@@ -302,12 +302,6 @@
       ]
     },
     {
-      "line": "{\"id\":38,\"cmd\":\"oracle-state\",\"x\":1}",
-      "replies": [
-        "{\"error\":\"bad request: oracle-state takes no field \\\"x\\\"\",\"id\":38,\"ok\":false}"
-      ]
-    },
-    {
       "line": "{\"id\":39,\"cmd\":\"fs.stat\",\"protocol\":7}",
       "replies": [
         "{\"error\":{\"code\":\"validation.invalid\",\"details\":{\"field\":\"id\",\"reason\":\"request id must be a string of 1 to 128 UTF-8 bytes\"},\"message\":\"request id must be a string of 1 to 128 UTF-8 bytes\",\"retryable\":false},\"id\":39,\"ok\":false,\"protocol\":\"cmux.protocol/2\",\"type\":\"response\"}"

@@ -15,13 +15,9 @@
 //!
 //! The same file holds the translator's behavior vectors. Each [`Vector`]
 //! carries its own rule chain, one message as written, and what the
-//! translation must give. The crate's tests replay them with
-//! [`check_vectors`]; `scripts/cmux-next/oracle/gen_api_compat.py` writes one
-//! oracle case per vector (`tests/oracle/corpus/api-compat/`), which sends the
-//! whole vector to the build under test: that build runs
-//! [`Translation::run`] and fails the case on a [`Vector::mismatch`]. One set of vectors for every
-//! runner, as Mojo's validation vectors are (chromium/src
-//! `mojo/public/interfaces/bindings/tests/data/validation/`).
+//! translation must give. The crate's tests and `api-compat-check` replay
+//! them with [`check_vectors`], as Mojo's validation vectors are replayed
+//! (chromium/src `mojo/public/interfaces/bindings/tests/data/validation/`).
 //!
 //! ```json
 //! { "vectors": [ { "id": "rename-upgrades", "title": "a rename upgrades",
@@ -57,7 +53,7 @@ pub struct Fixtures {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Vector {
-    /// Unique slug (`[a-z0-9][a-z0-9-]{0,63}`); the oracle case id.
+    /// Unique slug (`[a-z0-9][a-z0-9-]{0,63}`).
     pub id: String,
     /// What the vector shows.
     pub title: String,
@@ -163,10 +159,7 @@ impl Vector {
         self.mismatch(&self.translation.run())
     }
 
-    /// Why `outcome` is not what the vector expects, if it is not. The
-    /// oracle's `__oracle-api-compat` mode runs the translation once and
-    /// checks it here, so a case fails in the build that gives the wrong
-    /// result.
+    /// Why `outcome` is not what the vector expects, if it is not.
     pub fn mismatch(&self, outcome: &Outcome) -> Option<String> {
         let matches = match (&self.expect, outcome) {
             (Expect::Bytes(want), Outcome::Output(got)) => want == got,
@@ -184,7 +177,7 @@ impl Vector {
     }
 }
 
-/// The case-v1 slug the oracle names cases by: `[a-z0-9][a-z0-9-]{0,63}`.
+/// A vector id: `[a-z0-9][a-z0-9-]{0,63}`.
 fn is_slug(id: &str) -> bool {
     let bytes = id.as_bytes();
     (1..=64).contains(&bytes.len())

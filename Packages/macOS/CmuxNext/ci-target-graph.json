@@ -504,18 +504,27 @@
         "Native/OptChat/optchat-chief/inspector/index.html",
         "Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/Resources/agent-activity/",
         "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Focus/Keybindings/KeybindingsPage.swift",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/ChiefInspectorPage.swift",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/ChiefMemoryPageService.swift",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Home/HomeDockTab.swift",
         "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/ChangelogPageTab.swift",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/ChiefUsagePage.swift",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/ChiefViewsPageTab.swift",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/HomeChannelsPageTab.swift",
         "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/StatsPage.swift",
         "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Settings/DebugSettingsService.swift",
         "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Settings/SettingsWindowService.swift",
         "Packages/macOS/CmuxNext/Sources/CmuxNextApp/TaskManager/TaskManagerPageService.swift",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextApp/TopPages/HomePageTab.swift",
         "Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages/",
         "Resources/cmux-themes/",
         "Resources/ghostty/themes/",
         "Resources/markdown-viewer/ondine.min.js",
+        "cmux-tui/spec/",
         "plans/cmux-next/",
         "schemas/debug-memory/debug-memory.schema.json",
         "schemas/features/flags-vectors.json",
+        "schemas/keybindings/ghostty-reserved-keys.json",
         "schemas/keybindings/keybinding-vectors.json",
         "scripts/cmux-next/bundle-ghostty-resources.sh",
         "scripts/cmux-next/pin-cmux-tui.sh",
@@ -569,7 +578,6 @@
         "CmuxNextDaemon",
         "CmuxNextIcons",
         "CmuxNextLayout",
-        "CmuxNextOracle",
         "CmuxNextSidebar",
         "CmuxNextTabs",
         "CmuxNextTrace",
@@ -709,7 +717,6 @@
       "targets": [
         "CmuxNextBrowser",
         "CmuxNextDaemon",
-        "CmuxNextOracle",
         "CmuxNextSettings"
       ],
       "packages": []
@@ -933,9 +940,7 @@
       "packages": [
         "CmuxThreading"
       ],
-      "reads": [
-        "schemas/oracle/fixtures/switch-hits-reply.json"
-      ]
+      "reads": []
     },
     "CmuxNextComputerUse": {
       "kind": "regular",
@@ -1112,8 +1117,11 @@
         "CmuxFuzzSupport"
       ],
       "reads": [
-        "cmux-tui/spec/fixtures/ipc-method-latency/buckets.json",
-        "cmux-tui/spec/sdk-schema.json",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Conversations/",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Requests/Agents/",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Requests/Apps/",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Requests/TerminalIO/",
+        "cmux-tui/spec/",
         "plans/cmux-next/daemon-capabilities.json",
         "scripts/cmux-next/pin-cmux-tui.sh"
       ]
@@ -1980,9 +1988,7 @@
         "CmuxNextOracle"
       ],
       "packages": [],
-      "reads": [
-        "schemas/oracle/fixtures/path-rewrite.json"
-      ]
+      "reads": []
     },
     "CmuxNextPages": {
       "kind": "regular",
@@ -2038,9 +2044,7 @@
         "CmuxNextWakeups"
       ],
       "packages": [],
-      "reads": [
-        "tests/oracle/corpus/pane-protocol/"
-      ]
+      "reads": []
     },
     "CmuxNextPalette": {
       "kind": "regular",
@@ -2785,17 +2789,6 @@
       ],
       "packages": [],
       "reads": []
-    },
-    "OracleConfigDump": {
-      "kind": "executable",
-      "path": "Packages/macOS/CmuxNext/Sources/OracleConfigDump",
-      "targets": [
-        "CmuxNextActions",
-        "CmuxNextCompat",
-        "CmuxNextSettings",
-        "CmuxNextWakeups"
-      ],
-      "packages": []
     }
   }
 }
