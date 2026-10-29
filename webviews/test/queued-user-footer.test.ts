@@ -1,6 +1,8 @@
 // l10n-allow-file: synthetic prompts and replies used by a behavioral regression.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
+import { agentPaneTheme } from "../src/gallery/theme/web";
+import { deriveTokens, GHOSTTY_DEFAULT, rgbHex } from "../src/gallery/theme/tokens";
 import { chromium, type Browser, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
@@ -27,9 +29,7 @@ await requireBrowserLane("queued-user-footer.test.ts", async () => {
     msg,
   });
   const event = (kind: string, msg: unknown, dir = "mux") =>
-    socket?.send(
-      JSON.stringify({ jsonrpc: "2.0", method: "_acpmux/event", params: record(kind, msg, dir) }),
-    );
+    socket?.send(JSON.stringify({ jsonrpc: "2.0", method: "_acpmux/event", params: record(kind, msg, dir) }));
   const summary = () => ({
     sessionId: SESSION,
     cwd: "/home/dev/cmux",
@@ -44,7 +44,7 @@ await requireBrowserLane("queued-user-footer.test.ts", async () => {
     turn: { turnId: "turn-1", promptId: "p-turn", startedAt: start },
     updatedAt: start,
   });
-  const opening = () => {
+  const opening = (text = TEXT) => {
     seq = 0;
     return [
       record("user_message", { text: "Check the cache", promptId: "p-turn", turnId: "turn-1" }),
@@ -64,7 +64,7 @@ await requireBrowserLane("queued-user-footer.test.ts", async () => {
         },
         "in",
       ),
-      record("user_message", { text: TEXT, promptId: PROMPT, turnId: "turn-1", steer: true }),
+      record("user_message", { text, promptId: PROMPT, turnId: "turn-1", steer: true }),
     ];
   };
   let history = opening();
@@ -97,9 +97,7 @@ await requireBrowserLane("queued-user-footer.test.ts", async () => {
       port: 0,
       hostname: "127.0.0.1",
       fetch(request, server) {
-        return server.upgrade(request, { data: undefined })
-          ? undefined
-          : new Response("acpmux", { status: 426 });
+        return server.upgrade(request, { data: undefined }) ? undefined : new Response("acpmux", { status: 426 });
       },
       websocket: {
         async message(ws, raw) {
@@ -110,8 +108,7 @@ await requireBrowserLane("queued-user-footer.test.ts", async () => {
             params?: Record<string, unknown>;
           };
           const result = await answer(message.method, message.params ?? {});
-          if (message.id !== undefined)
-            ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result }));
+          if (message.id !== undefined) ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result }));
         },
       },
     });
@@ -129,12 +126,12 @@ await requireBrowserLane("queued-user-footer.test.ts", async () => {
     await vite?.close();
     await daemon?.stop(true);
   });
-  const open = async () => {
+  const open = async (text = TEXT) => {
     calls.length = 0;
     accept = true;
     hold = false;
     resolveEdit = undefined;
-    history = opening();
+    history = opening(text);
     const evidence = process.env.CMUX_QUEUE_FOOTER_EVIDENCE;
     const context = await browser.newContext({
       viewport: { width: 880, height: 650 },
@@ -143,19 +140,16 @@ await requireBrowserLane("queued-user-footer.test.ts", async () => {
     const page = await context.newPage();
     const address = vite.httpServer!.address() as { port: number };
     const endpoint = encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`);
-    await page.goto(
-      `http://127.0.0.1:${address.port}/#endpoint=${endpoint}&token=t&session=${SESSION}`,
-    );
-    await page.locator(".cv-user__bubble", { hasText: TEXT }).waitFor();
-    await page.locator(".cv-user__bubble", { hasText: TEXT }).hover();
+    await page.goto(`http://127.0.0.1:${address.port}/#endpoint=${endpoint}&token=t&session=${SESSION}`);
+    await page.locator(".cv-user__bubble", { hasText: text }).waitFor();
+    await page.locator(".cv-user__bubble", { hasText: text }).hover();
     await page.waitForFunction(() => {
       const actions = [...document.querySelectorAll(".cv-user__actions")].at(-1);
       return actions && getComputedStyle(actions).opacity === "1";
     });
     return page;
   };
-  const footer = (page: Page) =>
-    page.locator(".cv-user", { has: page.locator(".cv-user__bubble", { hasText: TEXT }) });
+  const footer = (page: Page) => page.locator(".cv-user", { has: page.locator(".cv-user__bubble", { hasText: TEXT }) });
   const capture = async (page: Page, name: string) => {
     const evidence = process.env.CMUX_QUEUE_FOOTER_EVIDENCE;
     if (evidence) {
@@ -169,15 +163,29 @@ await requireBrowserLane("queued-user-footer.test.ts", async () => {
   };
   for (const width of [880, 360]) {
     test(`waiting steer actions stay beside a short bubble at ${width}px`, async () => {
-      const page = await open();
+      const page = await open("helo");
       try {
         await page.setViewportSize({ width, height: 650 });
         const row = page.locator(".cv-user", { has: page.locator(".cv-user__pending") });
         const bubble = row.locator(".cv-user__bubble");
-        await bubble.evaluate((element) => (element.textContent = "helo"));
         await bubble.hover();
         const evidence = process.env.CMUX_QUEUE_FOOTER_EVIDENCE;
-        if (evidence) await page.screenshot({ path: path.join(evidence, `attached-${width}.png`) });
+        if (evidence) {
+          for (const isDark of [true, false]) {
+            const theme = agentPaneTheme(
+              deriveTokens({
+                ...GHOSTTY_DEFAULT,
+                background: rgbHex(isDark ? 0x1e1e1e : 0xffffff),
+                foreground: rgbHex(isDark ? 0xe5e5e5 : 0x1c1c1c),
+              }),
+              true,
+            );
+            await page.evaluate((theme) => window.cmuxAcpmuxBridge!.applyTheme(theme), theme);
+            await page.screenshot({
+              path: path.join(evidence, `attached-${width}-${isDark ? "dark" : "light"}.png`),
+            });
+          }
+        }
         const geometry = await row.evaluate((element) => {
           const bubble = element.querySelector(".cv-user__bubble")!.getBoundingClientRect();
           const actions = element.querySelector(".cv-user__pending")!.getBoundingClientRect();
@@ -210,9 +218,7 @@ await requireBrowserLane("queued-user-footer.test.ts", async () => {
       expect(await row.locator(".cv-user__take-back").count()).toBe(1);
       expect(
         await row
-          .locator(
-            ".cv-user__read, .cv-user__dot, .cv-user__time, button[aria-label='Copy'], .cv-message-retry",
-          )
+          .locator(".cv-user__read, .cv-user__dot, .cv-user__time, button[aria-label='Copy'], .cv-message-retry")
           .count(),
       ).toBe(0);
       hold = true;
