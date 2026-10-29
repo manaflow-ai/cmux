@@ -435,7 +435,7 @@ struct HomeChiefCardLayout {
 
 /// The cards' tile symbols, made once per symbol, colour and scale; owned by the card provider
 /// (row bitmaps draw on their threads).
-final class HomeChiefCardIcons: @unchecked Sendable {
+final class HomeChiefCardIcons: Sendable {
     // Lock carve-out: a tiny synchronous cache read from drawing threads; no async caller.
     private let cache = OSAllocatedUnfairLock(initialState: [String: CGImage]())
 

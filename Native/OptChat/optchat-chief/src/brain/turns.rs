@@ -1285,6 +1285,9 @@ impl Brain {
             add_answers(&mut self.state.carry_answers, answers.clone());
         } else if !answers.is_empty() {
             self.state.last_answers = answers.clone();
+            self.state.last_run = conversation
+                .clone()
+                .map(|conversation| (conversation, key.to_owned()));
         }
         let pending: Vec<String> = answers
             .iter()
