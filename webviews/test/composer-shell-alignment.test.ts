@@ -11,7 +11,7 @@
 // the app offers (DesignSettings.interfaceScale, clamped as the gallery clamps it). A still of each
 // goes to webviews/artifacts/composer-shell-alignment/ (the fleet step returns them).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
