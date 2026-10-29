@@ -65,20 +65,25 @@ import Testing
                               backing: .buffered, defer: false)
         defer { window.orderOut(nil) }
         let host = WindowOverlayHost.host(for: window)
+        // Still the window's child window: the panel is on screen (its surface can show).
+        let onWindow = { window.childWindows?.contains { $0 === host.panel } == true }
         let toast = OverlayOptions(kind: .toast, isModal: false, dimsContent: false, passesThroughClicks: true)
         let first = host.present(NSView(frame: NSRect(x: 0, y: 0, width: 120, height: 30)), options: toast)
-        #expect(host.isPanelAttached && host.panel.alphaValue == 1)
+        #expect(host.isPanelAttached && onWindow() && host.panel.alphaValue == 1)
         first.dismiss()
-        #expect(host.isPanelAttached, "the panel left in the turn its content did, with its old surface")
+        #expect(!host.isPanelAttached, "the host kept using a panel nothing needs")
+        #expect(onWindow(), "the panel left in the turn its content did, with its old surface")
         // Presented again before that commit: the panel never leaves.
         let second = host.present(NSView(frame: NSRect(x: 0, y: 0, width: 120, height: 30)), options: toast)
+        #expect(host.isPanelAttached)
         await Self.nextTurns()
-        #expect(host.isPanelAttached, "a pending detach took the panel from under a new overlay")
+        #expect(host.isPanelAttached && onWindow(), "a pending detach took the panel from under a new overlay")
         second.dismiss()
-        #expect(await GUIAnimationTestSupport.settle(within: 3) { !host.isPanelAttached }, "the panel never left")
+        await Self.nextTurns()
+        #expect(!onWindow(), "the panel never left after its empty frame")
         let third = host.present(NSView(frame: NSRect(x: 0, y: 0, width: 120, height: 30)), options: toast)
         defer { third.dismiss() }
-        #expect(host.isPanelAttached && host.panel.alphaValue == 1, "an attach hid the panel")
+        #expect(host.isPanelAttached && onWindow() && host.panel.alphaValue == 1, "an attach hid the panel")
     }
 
     /// Waits until two main run-loop passes have committed, so any after-commit work the
