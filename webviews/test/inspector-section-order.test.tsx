@@ -115,7 +115,7 @@ test("the default layout: three blocks and their sections, in order", async () =
   const { container, root } = await mount();
   expect(layout(container)).toEqual([
     { group: "about", sections: ["environment", "context", "connectors"] },
-    { group: "made", sections: ["changes", "outputs"] },
+    { group: "made", sections: ["changes", "sources", "outputs"] },
     { group: "running", sections: ["subagents", "tasks"] },
   ]);
   // A handle is the only thing each section gained, first in it, and it takes no text.
@@ -148,7 +148,7 @@ test("dragging a handle past a neighbour's middle moves the section there, and t
   expect(container.querySelector("[data-dragging]")).toBeNull();
   // The other blocks never moved.
   expect(layout(container).slice(1)).toEqual([
-    { group: "made", sections: ["changes", "outputs"] },
+    { group: "made", sections: ["changes", "sources", "outputs"] },
     { group: "running", sections: ["subagents", "tasks"] },
   ]);
   await act(async () => root.unmount());
@@ -183,7 +183,7 @@ test("another pane's drag reaches this one", async () => {
   await act(async () => {
     dom.window.dispatchEvent(new dom.window.StorageEvent("storage", { key: ORDER_KEY, newValue: value }));
   });
-  expect(layout(container)[1]!.sections).toEqual(["outputs", "changes"]);
+  expect(layout(container)[1]!.sections).toEqual(["outputs", "changes", "sources"]);
   await act(async () => root.unmount());
 });
 
@@ -228,8 +228,23 @@ test("a saved order with unknown or missing sections keeps every section once", 
   expect(layout(container).map((block) => block.sections)).toEqual([
     // Connectors, missing, takes its place after Context, the section it follows by default.
     ["context", "connectors", "environment"],
-    ["changes", "outputs"],
+    ["changes", "sources", "outputs"],
     ["subagents", "tasks"],
   ]);
   await act(async () => root.unmount());
+});
+
+test("Sources remains visible and keeps its reordered position after reopening", async () => {
+  const first = await mount();
+  await act(async () => {
+    handle(first.container, "sources").dispatchEvent(
+      new dom.window.KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true }),
+    );
+  });
+  expect(layout(first.container)[1]!.sections).toEqual(["sources", "changes", "outputs"]);
+  await act(async () => first.root.unmount());
+  resetSectionOrderForTests();
+  const again = await mount();
+  expect(layout(again.container)[1]!.sections).toEqual(["sources", "changes", "outputs"]);
+  await act(async () => again.root.unmount());
 });

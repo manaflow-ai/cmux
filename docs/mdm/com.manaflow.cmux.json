@@ -2494,6 +2494,12 @@
       "title" : "Classic Home",
       "type" : "boolean"
     },
+    "labs.machineJoin" : {
+      "default" : false,
+      "description" : "Add Device shows a line to paste on any Mac or Linux computer; it joins your team's machines. Screen sharing and control stay off until that machine allows them.",
+      "title" : "Join Any Machine with One Line",
+      "type" : "boolean"
+    },
     "labs.previewFeatures" : {
       "default" : false,
       "description" : "Unfinished surfaces, such as the agent session's coverage label and Pull requests view.",

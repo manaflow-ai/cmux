@@ -454,15 +454,15 @@ fn the_probe_finds_an_app_with_a_space_in_its_name() {
     let _ = std::fs::remove_dir_all(&home);
     let bin = home.join(".local/bin/acpmux");
     std::fs::create_dir_all(bin.parent().unwrap()).unwrap();
-    std::fs::write(&bin, "#!/bin/sh\ncase \"$*\" in --version) echo 'acpmux 0.1.0 (b1)';; esac\n")
-        .unwrap();
-    use std::os::unix::fs::PermissionsExt;
-    std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
+    crate::test_exec::write_executable(
+        &bin,
+        "#!/bin/sh\ncase \"$*\" in --version) echo 'acpmux 0.1.0 (b1)';; esac\n",
+    );
     // The /Applications glob of the real script, pointed at a temp folder.
     let apps = home.join("Applications");
     let app_bin = apps.join("cmux NIGHTLY.app/Contents/Resources/bin");
     std::fs::create_dir_all(&app_bin).unwrap();
-    std::fs::copy(&bin, app_bin.join("acpmux")).unwrap();
+    crate::test_exec::write_executable(app_bin.join("acpmux"), std::fs::read(&bin).unwrap());
     let script = probe_script().replace("/Applications/", &format!("{}/", apps.display()));
     let out = std::process::Command::new("sh")
         .args(["-c", &script])
@@ -825,7 +825,6 @@ fn the_harness_scripts_copy_owner_only_and_catch_a_writable_profile() {
 #[test]
 #[cfg(unix)]
 fn the_probe_finds_a_cmux_tui_and_asks_it_through_acp() {
-    use std::os::unix::fs::PermissionsExt;
     let home = std::env::temp_dir().join(format!("acpmux-enroll-tui-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&home);
     // Answers only as `cmux-tui acp …`, as the real one does.
@@ -834,8 +833,7 @@ fn the_probe_finds_a_cmux_tui_and_asks_it_through_acp() {
     for dir in [".local/bin", ".cmux/bin"] {
         let bin = home.join(dir).join("cmux-tui");
         std::fs::create_dir_all(bin.parent().unwrap()).unwrap();
-        std::fs::write(&bin, script).unwrap();
-        std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
+        crate::test_exec::write_executable(&bin, script);
         paths.push(bin.to_string_lossy().into_owned());
     }
     let script =
