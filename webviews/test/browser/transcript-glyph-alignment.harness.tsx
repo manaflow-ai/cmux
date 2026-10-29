@@ -128,7 +128,7 @@ function App() {
           />
         </div>
         <div data-glyph-row="plan">
-          <PlanList ended entries={[{ content: "The completed plan step", status: "completed", priority: "medium" }]} />
+          <PlanList ended entries={[{ content: "The completed plan step", status: "completed" }]} />
         </div>
         <div data-glyph-row="session-info">
           <InspectorSection
