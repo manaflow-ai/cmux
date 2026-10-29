@@ -99,6 +99,7 @@ PEERS = {
     "serve.motion": "the computer-use helper's manifest (CuaHelperManifestReader)",
     "optchat-chief-brain": "the cloud pairing server (CloudPairingSource)",
     "daemon_lane.v1": "the iOS client's mobile host info (MobileCompatHostInfo)",
+    "machine-consent-v1": "acpmux join consent (JoinConsentPersonLine); capture branch only",
 }
 
 GATE, REFUSAL, LISTED = "gate", "refusal", "listed"
