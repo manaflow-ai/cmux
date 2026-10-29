@@ -958,6 +958,10 @@ pub struct Config {
     /// (`mesh_http.rs`, `server/mesh_relay.rs`). Unset (the default): no relay.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mesh_relay: Option<crate::mesh_http::MeshRelayConfig>,
+    /// Labs-only team messaging. Team-scoped `@` addresses are refused when
+    /// this flag is false (the default), even when a mesh relay is configured.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub mesh_team_messaging: bool,
     /// Where this config was loaded from. A config built in code (tests,
     /// `--memory` runs) has no path and is never written to disk.
     #[serde(skip)]

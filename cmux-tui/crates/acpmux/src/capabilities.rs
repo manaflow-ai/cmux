@@ -168,7 +168,12 @@ pub const CAPABILITIES: &[Capability] = &[
     // daemon applies the Labs gate and the hub's team permissions before these methods act.
     Capability {
         id: "team-messaging-v1",
-        wire: &[method::MUX_TEAM_SEND, method::MUX_TEAM_INBOX, method::MUX_TEAM_ACK],
+        wire: &[
+            method::MUX_TEAM_SEND,
+            method::MUX_TEAM_INBOX,
+            method::MUX_TEAM_ACK,
+            method::MUX_TEAM_READ,
+        ],
     },
 ];
 

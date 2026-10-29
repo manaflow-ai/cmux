@@ -39,6 +39,13 @@ impl Hub {
                         harness: m.harness.clone(),
                         state: m.status.to_string(),
                         stuck_reason: None,
+                        team_address: m
+                            .tags
+                            .get("teamAddress")
+                            .filter(|tag| {
+                                tag.expires_at.map(|at| at > crate::store::now_ms()).unwrap_or(true)
+                            })
+                            .map(|tag| tag.value.clone()),
                     };
                     (rank(m.status), m.updated_at, row)
                 })
@@ -98,8 +105,31 @@ impl Hub {
         if let Some(id) = to.session_id.as_deref().filter(|id| !id.is_empty()) {
             return sessions.get(id).cloned().ok_or_else(|| format!("no session {id:?} here"));
         }
-        let key =
-            to.name.as_deref().filter(|n| !n.is_empty()).ok_or("the message names no session")?;
+        let key = to
+            .name
+            .as_deref()
+            .filter(|n| !n.is_empty())
+            .or_else(|| to.team_address.as_deref().filter(|a| !a.is_empty()))
+            .ok_or("the message names no session")?;
+        if to.name.is_none() {
+            let mut addressed: Vec<_> = sessions
+                .values()
+                .filter(|s| {
+                    s.meta
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .tags
+                        .get("teamAddress")
+                        .is_some_and(|tag| tag.value == key)
+                })
+                .cloned()
+                .collect();
+            return match addressed.len() {
+                1 => Ok(addressed.remove(0)),
+                0 => Err(format!("no session {key:?} here")),
+                n => Err(format!("{key:?} names {n} sessions here; send to its session id")),
+            };
+        }
         let name = match key.split_once('/') {
             Some((host, rest)) if !rest.is_empty() && is_own_host(host) => rest,
             _ => key,

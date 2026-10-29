@@ -401,6 +401,11 @@ fn clip(mut ack: Ack) -> Ack {
 fn sender_name(message: &InMessage) -> String {
     let clean = |s: &str| s.chars().filter(|c| !c.is_control()).collect::<String>();
     let field = |f: &Option<String>| clean(f.as_deref().unwrap_or_default().trim());
+    if let Some(address) =
+        message.from.team_address.as_deref().map(str::trim).filter(|v| !v.is_empty())
+    {
+        return clean(address).chars().take(crate::hub::MAX_FROM_AGENT_CHARS).collect();
+    }
     let (host, name) = (field(&message.from.host), field(&message.from.name));
     let named = match (host.is_empty(), name.is_empty()) {
         (false, false) => format!("{host}/{name}"),
@@ -437,6 +442,28 @@ pub async fn deliver(
         Err(why) => return Some(Ack::refused(why)),
     };
     let prompt_id = message.message_id.as_str();
+    // Team messages are information by default. Record them in the target
+    // session's event stream and acknowledge delivery without starting a
+    // model turn; a later inbox read/ack records the durable user action.
+    if message.to.team_address.is_some() && !message.start_work {
+        hub.append(
+            &session,
+            "in",
+            "team_message",
+            json!({
+                "messageId": message.message_id,
+                "from": message.from.team_address.clone().or(message.from.name.clone()),
+                "text": format!("Team message from {}: {}", sender_name(message), message.body),
+                "information": true,
+                "startWork": false,
+                "state": message.state,
+            }),
+        );
+        return Some(Ack::delivered(
+            prompt_id,
+            Some("information queued for the next turn boundary".into()),
+        ));
+    }
     let request = json!({
         "sessionId": session.id,
         "prompt": [{"type": "text", "text": message.body}],
@@ -445,6 +472,8 @@ pub async fn deliver(
             "promptId": prompt_id,
             "resend": true,
             "fromAgent": sender_name(message),
+            "teamMessage": message.to.team_address.is_some(),
+            "startWork": message.start_work,
         }},
     });
     use super::outbox::Next;
@@ -481,6 +510,8 @@ mod tests {
             attempt: 1,
             kind: Kind::Prompt,
             op: None,
+            start_work: false,
+            state: "queued".into(),
         }
     }
 

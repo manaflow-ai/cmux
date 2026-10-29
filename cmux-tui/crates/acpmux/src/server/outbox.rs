@@ -64,6 +64,16 @@ pub(super) async fn handle(
         .filter(|t| !t.is_empty())
         .ok_or_else(|| RpcError::invalid_params("request.sessionId is required"))?
         .to_owned();
+    // Team-scoped addresses are always hub-routed and are never resolved as
+    // local session names. The mesh sender applies the Labs gate and address
+    // validation before posting them.
+    if target.starts_with('@') {
+        if let Some(mesh) = hub.mesh.get() {
+            return super::mesh_send::send(hub, conn, mesh, &request, &target).await;
+        }
+        return Err(RpcError::invalid_params("team messaging requires a configured mesh relay")
+            .with_data(json!({"reason": "team_messaging_unavailable", "address": target})));
+    }
     // A session here, one a peer lists, or one on a peer that is down now: anything else is no
     // session, said at once.
     if hub.resolve(&target).is_err()

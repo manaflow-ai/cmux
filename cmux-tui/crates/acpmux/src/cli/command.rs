@@ -6,6 +6,14 @@ use std::path::PathBuf;
 pub use crate::cli::command_host::{PeerCmd, TicketCmd};
 pub use crate::cli::task::BriefsCmd;
 
+#[derive(Subcommand)]
+pub enum InboxCmd {
+    /// Mark one team message read.
+    Read { id: String },
+    /// Acknowledge one team message.
+    Ack { id: String },
+}
+
 #[derive(Parser)]
 #[command(name = "acpmux", version = concat!(env!("CARGO_PKG_VERSION"), " (", env!("ACPMUX_BUILD"), ")"), about = "tmux for coding-agent harnesses: Claude Code, Codex, OpenCode, pi, Gemini", long_about = None, after_help = "Agents: `acpmux guide` (also --guide, --skill) prints the full guide for driving acpmux from a script or another agent.")]
 pub struct Cli {
@@ -233,6 +241,14 @@ pub enum Command {
         /// session's machine, a peer's too. Any size and number: large ones are uploaded first.
         #[arg(long, value_name = "FILE")]
         attach: Vec<PathBuf>,
+    },
+    /// List durable team messages, or mark one read/acked.
+    Inbox {
+        #[command(subcommand)]
+        action: Option<InboxCmd>,
+        /// Include messages already read or acknowledged.
+        #[arg(long)]
+        all: bool,
     },
     /// Append a report to a human basket without waking any agent session.
     /// The target must be `reports:<person>`; the sender is the attached local

@@ -27,6 +27,10 @@ pub struct SessionRow {
     /// Why a session whose harness keeps failing is stuck, once the daemon reports it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stuck_reason: Option<String>,
+    /// Optional team-scoped address claimed by this session (for example
+    /// `coordinator`). The hub prefixes it with the member/team namespace.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub team_address: Option<String>,
 }
 
 /// A heartbeat: it replaces this daemon's sessions in the address book.
@@ -54,6 +58,11 @@ pub struct HeartbeatReply {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Target {
+    /// A team-scoped address (`@member/agent` or `@team/role`). The hub
+    /// resolves this field; it is never interpreted as a host name locally.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "teamAddress", alias = "address")]
+    pub team_address: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -69,6 +78,10 @@ pub struct Target {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Sender {
+    /// The sender's team-scoped address, when it has claimed one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "teamAddress", alias = "address")]
+    pub team_address: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -124,6 +137,13 @@ pub struct InMessage {
     /// How many times it was leased (1 for the first).
     #[serde(default)]
     pub attempt: u32,
+    /// The hub's policy decision. Information messages are delivered at a
+    /// turn boundary; only `true` may start an idle agent.
+    #[serde(default, rename = "startWork")]
+    pub start_work: bool,
+    /// Durable hub state (`queued`, `delivered`, `read`, or `acked`).
+    #[serde(default)]
+    pub state: String,
 }
 
 /// A message to post.
@@ -160,6 +180,12 @@ pub struct Receipt {
     pub leased_until: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub acked_at: Option<u64>,
+    /// The hub's resolved destination for a team address.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resolved_to: Option<Target>,
+    /// Whether the hub permits this message to start work on an idle agent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub start_work: Option<bool>,
 }
 
 /// How a delivery settled.
@@ -244,6 +270,16 @@ impl std::error::Error for HubError {}
 pub trait MeshHub: Send + Sync {
     /// Up to `max` messages for this daemon, leased to it, waiting up to `wait` for one.
     fn inbox(&self, wait: Duration, max: usize) -> BoxFuture<'_, Result<Vec<InMessage>, HubError>>;
+    /// List durable team messages. Implementations may use the same leased
+    /// inbox endpoint when the hub has not split team messages into a route.
+    fn team_inbox(&self, unread_only: bool) -> BoxFuture<'_, Result<Vec<InMessage>, HubError>> {
+        let _ = unread_only;
+        Box::pin(async { Err(HubError::unavailable("team inbox is unavailable")) })
+    }
+    /// Mark a team message read without acknowledging delivery.
+    fn read<'a>(&'a self, _message_id: &'a str) -> BoxFuture<'a, Result<(), HubError>> {
+        Box::pin(async { Err(HubError::unavailable("team message read is unavailable")) })
+    }
     fn ack<'a>(&'a self, message_id: &'a str, ack: &'a Ack) -> BoxFuture<'a, Result<(), HubError>>;
     /// Replace this daemon's sessions in the address book.
     fn heartbeat<'a>(

@@ -245,6 +245,10 @@ const KNOWN_CODES: &[&str] = &[
     "mesh.too_large",
     "mesh.unavailable",
     "mesh.not_found",
+    "team.messaging_disabled",
+    "team.forbidden",
+    "team.unknown_recipient",
+    "team.invalid_address",
 ];
 
 /// The hub's answer as a value, or the error it names.
@@ -291,6 +295,28 @@ impl MeshHub for HttpHub {
             );
             let inbox = self.call(reqwest::Method::GET, &path, None, wait + CALL_WAIT).await?;
             decode(inbox.get("messages").cloned().unwrap_or(json!([])))
+        })
+    }
+
+    fn team_inbox(&self, unread_only: bool) -> BoxFuture<'_, Result<Vec<InMessage>, HubError>> {
+        Box::pin(async move {
+            let path =
+                format!("/v1/mesh/inbox?team=true&unreadOnly={}&waitSeconds=0&max=50", unread_only);
+            let inbox = self.call(reqwest::Method::GET, &path, None, CALL_WAIT).await?;
+            decode(inbox.get("messages").cloned().unwrap_or(json!([])))
+        })
+    }
+
+    fn read<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<(), HubError>> {
+        Box::pin(async move {
+            self.call(
+                reqwest::Method::POST,
+                &format!("/v1/mesh/messages/{id}/read"),
+                Some(&json!({})),
+                CALL_WAIT,
+            )
+            .await
+            .map(drop)
         })
     }
 

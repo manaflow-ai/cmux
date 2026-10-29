@@ -1062,7 +1062,7 @@ impl Hub {
 
     // ------------------------------------------------------------ logging
 
-    pub(super) fn append(
+    pub(crate) fn append(
         &self,
         session: &Session,
         dir: &str,

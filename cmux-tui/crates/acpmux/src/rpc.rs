@@ -288,6 +288,7 @@ pub mod method {
     pub const MUX_TEAM_SEND: &str = "_acpmux/team_send";
     pub const MUX_TEAM_INBOX: &str = "_acpmux/team_inbox";
     pub const MUX_TEAM_ACK: &str = "_acpmux/team_ack";
+    pub const MUX_TEAM_READ: &str = "_acpmux/team_read";
     /// Resume agent message pairs the runaway guard paused (`hub/agent_pairs.rs`).
     pub const MUX_AGENT_PAIR_RESUME: &str = "_acpmux/agent_pair_resume";
     /// Retry a chat's failed last turn now (`hub/auto_resume/retry_turn.rs`).
