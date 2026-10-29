@@ -2128,3 +2128,7 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_ci_fleet_rule_lints.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_devbox_bubblewrap.py"
+lane = "linux-guard"
