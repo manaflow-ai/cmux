@@ -3974,6 +3974,42 @@ class IOSWiring(unittest.TestCase):
         self.assertEqual(capture["env"]["SNAPSHOT_DERIVED_DATA_PATH"],
                          "${{ runner.temp }}/cmux-ios-snapshot-derived-data")
 
+    def test_screenshots_capture_holds_no_secret_and_a_literal_job_uploads(self):
+        # The capture runs on ios_runner_pool.py's pick, an owned simulator Mac
+        # when CI_IOS_OWNED is 1, a reused machine. So it holds no secret and
+        # enters no environment; the App Store Connect key is only in the short
+        # upload job on a literal ephemeral label, which takes the screenshots
+        # from this run's artifact.
+        jobs = self.workflow("ios-screenshots.yml")["jobs"]
+        capture = jobs["screenshots"]
+        self.assertNotIn("environment", capture)
+        self.assertNotRegex(yaml.safe_dump(capture, width=100000), r"(?i)\$\{\{[^}]*\bsecrets\b|ASC_API|appstoreconnect")
+        uploaded = next(step for step in capture["steps"] if step.get("name") == "Upload screenshots artifact")
+        self.assertEqual(uploaded["with"]["name"], "ios-appstore-screenshots")
+        self.assertEqual(uploaded["with"]["path"], "ios/fastlane/screenshots")
+
+        upload = jobs["app-store-upload"]
+        self.assertEqual(upload["runs-on"], "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || "
+                                            "'blacksmith-6vcpu-macos-26' }}")
+        self.assertIn("screenshots", upload["needs"])
+        self.assertEqual(upload["if"], "${{ github.event_name == 'workflow_dispatch' && inputs.upload }}")
+        self.assertEqual(upload["environment"], "release")
+        steps = upload["steps"]
+        names = [step.get("name") for step in steps]
+        self.assertEqual(names[0], "Guard trusted upload ref")
+        self.assertLess(names.index("Select Xcode"), names.index("Upload screenshots to App Store Connect"))
+        download = next(step for step in steps if step.get("name") == "Download screenshots artifact")
+        self.assertTrue(download["uses"].startswith("actions/download-artifact@"), download)
+        self.assertEqual(download["with"], {"name": "ios-appstore-screenshots", "path": "ios/fastlane/screenshots"})
+        self.assertLess(names.index("Download screenshots artifact"),
+                        names.index("Upload screenshots to App Store Connect"))
+        key = next(step for step in steps if step.get("name") == "Materialize App Store Connect API key")
+        self.assertIn('KEY_DIR="$RUNNER_TEMP/', key["run"])
+        self.assertNotIn("$HOME", key["run"])
+        deliver = next(step for step in steps if step.get("name") == "Upload screenshots to App Store Connect")
+        self.assertEqual(deliver["run"].strip(), "fastlane upload_screenshots")
+        self.assertEqual(deliver["working-directory"], "ios")
+
     def test_a_persistent_pick_publishes_the_rescue_marker(self):
         for name in ("test-ios.yml", "ios-screenshots.yml"):
             steps = self.workflow(name)["jobs"]["runner"]["steps"]
