@@ -160,7 +160,13 @@ export function AgentLine({
       ) : (
         button
       )}
-      {trayColumns ? <span className="acpmux-agent-line__stop-slot" data-alignment-column="right-action">{after}</span> : after}
+      {trayColumns ? (
+        <span className="acpmux-agent-line__stop-slot" data-alignment-column="right-action">
+          {after}
+        </span>
+      ) : (
+        after
+      )}
     </div>
   );
 }

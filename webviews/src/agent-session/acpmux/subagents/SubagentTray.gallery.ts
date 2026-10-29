@@ -554,7 +554,7 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__list"));
         await ctx.waitFor(() =>
           ctx.document.querySelector(
-            '.acpmux-running-tray__list .acpmux-agent-line > .acpmux-chat-inspector-stop[data-alignment-column="right-action"]',
+            '.acpmux-running-tray__list .acpmux-agent-line__stop-slot > .acpmux-chat-inspector-stop[data-alignment-column="right-action"]',
           ),
         );
       },

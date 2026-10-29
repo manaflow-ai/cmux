@@ -562,11 +562,19 @@ button.cv-subagent > :last-child {
   margin-inline: var(--acpmux-tray-surface-start, var(--cv-inset)) var(--acpmux-tray-surface-end, var(--cv-inset));
 }
 .acpmux-running-tray[data-alignment-surface="tray"] .acpmux-running-tray__head {
+  display: grid;
+  grid-template-columns: var(--acpmux-tray-start-size, 28px) minmax(0, 1fr) minmax(0, var(--acpmux-tray-time-width)) minmax(0, var(--acpmux-tray-status-width)) var(--acpmux-tray-stop-width);
   padding-inline: var(--acpmux-tray-start-inset, 8px) var(--acpmux-tray-end-inset, 8px);
 }
 .acpmux-running-tray[data-alignment-surface="tray"] .acpmux-agent-line__button {
+  display: grid;
+  grid-template-columns: var(--acpmux-tray-start-size, 28px) minmax(0, 1fr) minmax(0, var(--acpmux-tray-time-width)) minmax(0, var(--acpmux-tray-status-width));
   padding-left: var(--acpmux-tray-start-inset, 8px);
   padding-right: calc(var(--acpmux-tray-end-inset, 8px) + var(--acpmux-tray-stop-width) + 8px);
+}
+.acpmux-running-tray[data-alignment-surface="tray"] :is(.acpmux-running-tray__time, .acpmux-running-tray__status, .acpmux-agent-line__time, .acpmux-agent-line__status) {
+  min-width: 0;
+  overflow: hidden;
 }
 .acpmux-running-tray[data-alignment-surface="tray"] [data-alignment-column="left-icon"] {
   width: var(--acpmux-tray-start-size, 28px);
