@@ -96,7 +96,7 @@ public struct CredentialResolver: Sendable {
 
     /// Whether `key` has the format Connect accepts for `provider`'s API key. One rule for the
     /// resolver and for detection, so Accounts never shows a key as signed in that Connect refuses.
-    static func isWellFormedKey(_ key: String, for provider: AIProvider) -> Bool {
+    public static func isWellFormedKey(_ key: String, for provider: AIProvider) -> Bool {
         switch provider.codeRouterLink {
         case .anthropicAPIKey: key.hasPrefix("sk-ant-") && !key.hasPrefix("sk-ant-oat") && looksLikeKey(key)
         default: looksLikeKey(key)
