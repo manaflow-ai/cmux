@@ -249,7 +249,7 @@ public struct WorkspaceLayout: Hashable, Sendable {
         /// each scrolling column is its share of the strip's width at the strip's height, rows at
         /// their heights. Docked columns are never split, so they are left out. Without columns,
         /// the screen's tree in the window.
-        var autoLayoutFrames: [Int: CGRect] {
+        public var autoLayoutFrames: [Int: CGRect] {
             guard !columns.isEmpty else { return root?.frames(in: CGRect(origin: .zero, size: Self.window)) ?? [:] }
             let docks = columns.compactMap(\.dock)
             let sides = docks.filter { !$0.isBand }.count, bands = docks.filter(\.isBand).count
