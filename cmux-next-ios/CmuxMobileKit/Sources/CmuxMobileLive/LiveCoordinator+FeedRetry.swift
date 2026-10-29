@@ -5,6 +5,25 @@ import CmuxMobileTransport
 import Foundation
 
 extension LiveCoordinator {
+    /// Only currently reachable Macs participate; one sleeping Mac cannot hold
+    /// back another. Structured children end with the Retry task on cancellation.
+    public func reconnectFeeds() async {
+        await reconnectFeeds { [weak self] macID in await self?.reconnectFeed(macID: macID) }
+    }
+
+    func reconnectFeeds(recover: @escaping @MainActor @Sendable (String) async -> Void) async {
+        let eligible = (store.activeTeam?.macs ?? []).filter {
+            canLink(macID: $0.id) && ($0.isOnline || sessions[$0.id]?.link.phase.isConnected == true)
+        }
+        await withTaskGroup(of: Void.self) { group in
+            for mac in eligible {
+                group.addTask { @MainActor in
+                    await recover(mac.id)
+                }
+            }
+        }
+    }
+
     /// Recover the Feed's application channel without redialing a healthy Mac link.
     /// The Retry control owns this task; the existing readiness waiter stops on
     /// readiness, cancellation or its bounded timeout and removes its waiter/timer.

@@ -102,6 +102,40 @@ import Testing
         #expect(feed.actions != nil)
     }
 
+    @Test func feedRecoverySkipsSleepingMacsAndStartsOnlineMacsTogether() async {
+        UserDefaults.standard.removeObject(forKey: Self.teamKey)
+        defer { UserDefaults.standard.removeObject(forKey: Self.teamKey) }
+        let store = emptyStore()
+        let live = coordinator(store: store, feed: FeedStore(items: []), dialer: PerMacDialer())
+        defer { live.stop() }
+        store.teams[0].macs.append(MacDevice(id: "sleeping", name: "Demo sleeping Mac", isOnline: false))
+        let (entered, record) = AsyncStream<String>.makeStream()
+        let (release, resume) = AsyncStream<Void>.makeStream()
+        var started = Set<String>()
+        let deadline = Task {
+            do { try await Task.sleep(for: .seconds(2)) } catch { return }
+            record.finish()
+            resume.finish()
+        }
+        defer { deadline.cancel() }
+        let work = Task { @MainActor in
+            await live.reconnectFeeds { macID in
+                started.insert(macID)
+                record.yield(macID)
+                // Both calls must enter before either can complete.
+                if macID == "m1" { for await _ in release { break } }
+            }
+            record.finish()
+        }
+        for await _ in entered {
+            if started.count == 2 { break }
+        }
+        #expect(started == ["m1", "m2"])
+        resume.yield(())
+        resume.finish()
+        await work.value
+    }
+
     @Test func retryReopensFailedFeedChannelOnConnectedMac() async throws {
         UserDefaults.standard.removeObject(forKey: Self.teamKey)
         defer { UserDefaults.standard.removeObject(forKey: Self.teamKey) }
