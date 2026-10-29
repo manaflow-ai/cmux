@@ -30,6 +30,10 @@ Claude Code 2.1 does it: user lines written during the step wait; at the
 interrupt the step's result comes first, then each waiting line is echoed and
 answered ("read: TEXT") as one more turn (cosmic-gray, 2026-10-20); a
 cancel_async_message drops a waiting line by its uuid.
+"gated: PATH" runs turn after turn on gates PATH.1, PATH.2, ...: user lines written meanwhile
+wait. A gate that says "read" reads them at a tool boundary (each echoed), then the turn ends and
+the prompt is done. One that says "end" ends the turn first; the lines waiting then run as the
+next turn of Claude Code's own (echoed, "read: TEXT"), which waits for the next gate.
 A stop_task control request ends its task killed (task_updated);
 FAKE_CLAUDE_STOP_NOTIFY=1 sends the task's task_notification too.
 "fg-shell" runs a foreground Bash call until a background_tasks control
@@ -338,6 +342,54 @@ def long_step(prompt):
                                                  "delta": {"type": "text_delta", "text": "read: " + said}}})
         send({"type": "result", "subtype": "success", "result": "read: " + said, "num_turns": 1,
               "duration_api_ms": 5, "usage": {"input_tokens": 1, "output_tokens": 1}})
+
+
+def gated(prompt, base):
+    """The "gated: PATH" turns (module doc)."""
+    import time
+    send({"type": "user", "isReplay": True, "uuid": prompt.get("uuid"), "message": prompt.get("message")})
+    send({"type": "stream_event", "event": {"type": "content_block_delta", "index": 0,
+                                             "delta": {"type": "text_delta", "text": "gated turn 1"}}})
+    waiting = []
+    n = 1
+    while True:
+        gate = "%s.%d" % (base, n)
+        while not os.path.exists(gate):
+            try:
+                got = LINES.get(timeout=0.02)
+            except queue.Empty:
+                continue
+            if got is None:
+                sys.exit(0)
+            msg = json.loads(got)
+            if msg.get("type") == "user":
+                waiting.append(msg)
+            elif msg.get("type") == "control_request":
+                send({"type": "control_response", "response": {"subtype": "success",
+                      "request_id": msg.get("request_id"), "response": {}}})
+        with open(gate) as f:
+            how = f.read().strip()
+        said = " | ".join("".join(b.get("text", "") for b in (m.get("message") or {}).get("content") or []
+                                  if isinstance(b, dict)) for m in waiting)
+        if how == "read":
+            for m in waiting:
+                send({"type": "user", "isReplay": True, "uuid": m.get("uuid"), "message": m.get("message")})
+            text = "read: " + said if waiting else "done"
+            send({"type": "stream_event", "event": {"type": "content_block_delta", "index": 0,
+                                                     "delta": {"type": "text_delta", "text": text}}})
+            send({"type": "result", "subtype": "success", "result": text, "num_turns": 1,
+                  "duration_api_ms": 5, "usage": {"input_tokens": 1, "output_tokens": 1}})
+            return
+        send({"type": "result", "subtype": "success", "result": "ended %d" % n, "num_turns": 1,
+              "duration_api_ms": 5, "usage": {"input_tokens": 1, "output_tokens": 1}})
+        if not waiting:
+            return
+        for m in waiting:
+            send({"type": "user", "isReplay": True, "uuid": m.get("uuid"), "message": m.get("message")})
+        waiting = []
+        n += 1
+        send({"type": "stream_event", "event": {"type": "content_block_delta", "index": 0,
+                                                 "delta": {"type": "text_delta", "text": "read: " + said}}})
 
 
 def flood():
@@ -688,6 +740,9 @@ while True:
             continue
         if said.strip() == "long-step":
             long_step(msg)
+            continue
+        if said.startswith("gated: "):
+            gated(msg, said[len("gated: "):].strip())
             continue
         if said.strip() == "fg-shell":
             fg_shell()

@@ -223,6 +223,8 @@ mod agent_transcript_tests;
 #[cfg(test)]
 mod background_output_tests;
 #[cfg(test)]
+mod carry_tests;
+#[cfg(test)]
 mod context_usage_tests;
 mod early_calls;
 #[cfg(test)]
