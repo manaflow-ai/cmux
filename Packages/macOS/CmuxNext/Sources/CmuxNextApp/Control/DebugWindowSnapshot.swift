@@ -112,6 +112,13 @@ enum DebugWindowSnapshot {
     static func captureAsync(_ params: [String: JSONValue], services: AppServices) async -> JSONValue {
         if params["webviews"]?.boolValue == false { return await capture(params, services: services) }
         guard let window = window(params, services: services) else { return .object(["error": .string("no such window")]) }
+#if DEBUG || CMUX_BENCH_HOOKS
+        // Floating palettes can be visible while the app is inactive, when the window server
+        // reports them as occluded and returns a blank standalone image. Use the existing DEBUG
+        // palette renderer for the named-window capture route so a real palette fixture records
+        // the panel's content without requiring Screen Recording permission.
+        if services.palette.owns(window) { return DebugPaletteCapture.capture(params, services: services) }
+#endif
         let kind = kind(of: window, services: services)
         let path = params["path"]?.stringValue.map { ($0 as NSString).expandingTildeInPath }
             ?? (NSTemporaryDirectory() as NSString).appendingPathComponent("cmux-window-\(kind)-\(window.windowNumber).png")
