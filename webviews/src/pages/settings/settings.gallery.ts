@@ -1029,6 +1029,19 @@ Object.assign(variants, {
     steps: [wait("[data-registry-agent]")],
     note: "Add Agent from ACP Registry…: one click per agent; Added when it is a harness, disabled when it cannot start here.",
   }),
+  "agents-stable-check-idle": variant("agents", {
+    note: "Check actions at rest, reserving their translated Checking label width.",
+    agents: { doctor: {} },
+  }),
+  "agents-stable-check-busy": variant("agents", {
+    note: "The same Check actions while diagnostics run; button widths stay fixed.",
+    agents: { doctor: { "acme-agent": { running: true } } },
+  }),
+  "agents-stable-added": variant("agents", {
+    focus: "agents.registry",
+    steps: [wait('[data-registry-agent="goose"]'), click('[data-registry-agent="goose"] button')],
+    note: "The registry action after Add becomes Added, with its original width preserved.",
+  }),
   "agents-doctor": variant("agents", {
     steps: [click('[data-agent-harness="acme-agent"] button'), wait("[data-agent-doctor]")],
     note: "Check: the doctor's steps inline, a failed step with its fix, later steps skipped.",
