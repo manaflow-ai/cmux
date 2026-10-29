@@ -146,7 +146,7 @@ final class BrowserEntry {
 
     // No isolated-deinit hop inside an action's task-local scope (cx-t7hu).
     nonisolated deinit {
-        BrowserPageRetirement.retire(tab, chrome: chrome)
+        BrowserPageRetirement(tab: tab, chrome: chrome).retire()
     }
 
     init(tab: any BrowserTab, suggestionEngine: OmniboxSuggestionEngine = OmniboxSuggestionEngine(), history: (any BrowserHistoryStore)? = nil) {
@@ -158,6 +158,6 @@ final class BrowserEntry {
     }
 
     func close() {
-        BrowserPageRetirement.retire(tab, chrome: chrome)
+        BrowserPageRetirement(tab: tab, chrome: chrome).retire()
     }
 }

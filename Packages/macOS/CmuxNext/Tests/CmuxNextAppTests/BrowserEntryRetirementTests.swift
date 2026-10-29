@@ -1,7 +1,7 @@
 import AppKit
 @testable import CmuxNextApp
 @testable import CmuxNextBrowser
-import Synchronization
+import CmuxNextCompat
 import Testing
 
 /// The entry owns the chrome. Its page must leave that hierarchy before AppKit destroys the
