@@ -196,7 +196,7 @@ jobs:
         run: python3 scripts/ci/signing_runner.py
 
   build-sign-notarize:
-    permissions:
+    permissions: &build-sign-notarize-permissions
       contents: write
       attestations: write
       id-token: write
@@ -216,18 +216,30 @@ jobs:
     # duration. Ten more minutes are the release publisher's rate-limit budget
     # (publish-release-assets.py, RATE_LIMIT_BUDGET_SECONDS), which waits at the end.
     timeout-minutes: 100
-    steps:
+    outputs: &build-sign-notarize-outputs
+      # owned when the claim gate passed on an owned Mac; the Blacksmith twin signs when it did not.
+      claim: ${{ steps.claim-gate.outputs.claim }}
+    steps: &build-sign-notarize-steps
       # First, before the checkout's token or any secret: on an owned Mac this job holds the whole
       # mini (glaeda's exclusive class) or fails here (tests/test_ci_signing_owned_mac.py CLAIM_GATE).
       - name: Hold the whole Mac before any credential
+        id: claim-gate
         shell: bash
         run: |
           owned=""
           case "${RUNNER_NAME:-}" in *-glaeda|*-glaeda-*) owned=1 ;; esac
           if [ -d /Users/Shared/cmux-build-fleet ]; then owned=1; fi
-          if [ -n "$owned" ] && [ "${GLAEDA_JOB_CLAIM:-}" != exclusive ]; then
-            echo "::error title=Signing runner::This owned Mac did not give the job the whole mini; its re-run takes Blacksmith."
-            exit 1
+          if [ -n "$owned" ]; then
+            if [ "${GLAEDA_JOB_CLAIM:-}" != exclusive ]; then
+              echo "::error title=Signing runner::This owned Mac did not give the job the whole mini; this run's Blacksmith job signs instead."
+              exit 1
+            fi
+            case "${GLAEDA_HOOK_SHA256:-}" in
+              2695209c13db5fe7514daf76d3e8e547b9569ad9a545225e52f7e07dd83d69e4|41e29cd9dca8cdee88ce069b61956674bb79c2c3da90af5520e3e397bfbedeef) ;;
+              *) echo "::error title=Signing runner::glaeda hook ${GLAEDA_HOOK_SHA256:-unnamed} is not one scripts/ci/glaeda-signing-hooks.txt lists; this run's Blacksmith job signs instead."
+                 exit 1 ;;
+            esac
+            echo "claim=owned" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Clear stale git locks (self-hosted reused workspace)
@@ -1010,3 +1022,16 @@ jobs:
           ./scripts/ci/signing-keychain.sh delete --keychain build.keychain \
             || security delete-keychain build.keychain >/dev/null 2>&1 || true
           rm -f /tmp/cert.p12
+
+  build-sign-notarize-blacksmith:
+    permissions: *build-sign-notarize-permissions
+    environment: release
+    needs: [build-ghostty-cli-helper, resolve-release-cmux-tui-client, pick-sign-runner, build-sign-notarize]
+    # The same run signs on Blacksmith when the owned Mac took build-sign-notarize but its claim gate never passed
+    # (glaeda refused the job, or a hook scripts/ci/glaeda-signing-hooks.txt does not list admitted it).
+    if: "!cancelled() && github.run_attempt == 1 && needs.pick-sign-runner.outputs.owned != '' && needs.build-sign-notarize.result != 'skipped' && needs.build-sign-notarize.result != 'cancelled' && needs.build-sign-notarize.outputs.claim != 'owned'"
+    # Blacksmith only: this run's sign when the owned Mac refused the job (its claim gate).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt > 1 && needs.pick-sign-runner.outputs.alternate || needs.pick-sign-runner.outputs.runner || 'blacksmith-6vcpu-macos-26' }}
+    timeout-minutes: 100
+    outputs: *build-sign-notarize-outputs
+    steps: *build-sign-notarize-steps

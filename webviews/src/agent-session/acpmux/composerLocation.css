@@ -599,7 +599,8 @@
    New Tab page and interface scale collapse the row the same way; the window's width never decides
    it (agent-pane.narrow, test/narrow-layouts.test.ts). */
 .acpmux-composer,
-.nt-composer {
+.nt-composer,
+.acpmux-newtab {
   container: composer / inline-size;
 }
 /* The row's two clusters (hq#1957 item 15): + and the chips (model, effort, permission mode,
