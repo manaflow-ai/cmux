@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextSidebar
 import Observation
 
 /// The window's content host as the curved main pane (cx-rkgu): a rounded
