@@ -754,8 +754,7 @@ function includeCatalogIdentity(
 /** Recover family/provider metadata for a reported release that was filtered from `listed`. */
 function catalogIdentity(id: string, join: Join): HarnessModel | undefined {
   for (const harness of join.sourceCatalog.harnesses)
-    for (const model of harness.models)
-      if (model.id === id) return model;
+    for (const model of harness.models) if (model.id === id) return model;
   return undefined;
 }
 

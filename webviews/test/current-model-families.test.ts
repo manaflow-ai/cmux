@@ -146,7 +146,9 @@ test("a reported current release keeps its catalog family metadata", () => {
     session: { harness: "codex" },
     provisional: true,
   });
-  const terra = catalog.harnesses.find((entry) => entry.id === "codex")!.models.find((model) => model.id === "gpt-6.1-terra");
+  const terra = catalog.harnesses
+    .find((entry) => entry.id === "codex")!
+    .models.find((model) => model.id === "gpt-6.1-terra");
   expect(terra?.family).toBe("Terra");
 });
 
