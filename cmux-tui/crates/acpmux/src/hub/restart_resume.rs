@@ -302,7 +302,10 @@ fn mask_input_assignments(text: &str) -> String {
         let mut ansi_c = false;
         while end < bytes.len() {
             let byte = bytes[end];
-            if byte == b'\\' && (quote != Some(b'\'') || ansi_c) && end + 1 < bytes.len() {
+            if byte == b'\\'
+                && (!shell_assignment || quote != Some(b'\'') || ansi_c)
+                && end + 1 < bytes.len()
+            {
                 // Consume an escaped quote as content, not the end of its value.
                 end += 2;
                 continue;
@@ -1039,6 +1042,21 @@ mod tests {
             ] {
                 assert_eq!(input_prefix(&json!({"rawInput": raw})).unwrap(), expected, "{command}");
             }
+        }
+    }
+
+    #[test]
+    fn colon_delimited_quoted_values_keep_data_escape_semantics() {
+        let code = r#"config = {'password': 'prefix\' open sesame'}"#;
+        let safe = "config = {'password': [secret]}";
+        for (raw, expected) in [
+            (json!(code), json!(safe)),
+            (json!({"code": code}), json!({"code": safe})),
+            (json!([code]), json!([safe])),
+        ] {
+            let prefix = input_prefix(&json!({"rawInput": raw})).unwrap();
+            assert_eq!(prefix, expected.to_string());
+            assert!(!prefix.contains("open sesame"));
         }
     }
 
