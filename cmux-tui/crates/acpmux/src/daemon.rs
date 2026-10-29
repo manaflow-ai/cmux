@@ -1078,7 +1078,7 @@ fn unit_environment_path(environment: &str, key: &str) -> Option<std::path::Path
 #[cfg(target_os = "linux")]
 fn equivalent_path(left: &std::path::Path, right: &std::path::Path) -> bool {
     fn normalized(path: &std::path::Path) -> Option<std::path::PathBuf> {
-        std::fs::canonicalize(path).or_else(|_| {
+        std::fs::canonicalize(path).ok().or_else(|| {
             let parent = path.parent()?;
             Some(std::fs::canonicalize(parent).ok()?.join(path.file_name()?))
         })
