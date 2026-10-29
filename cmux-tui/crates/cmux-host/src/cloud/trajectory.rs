@@ -213,7 +213,7 @@ fn list(api: &mut dyn Api, body: &Value) -> Result<Vec<Remote>, Pass> {
                 }
                 let page = remotes_of(&v);
                 if page.len() != raw.len()
-                    || page.windows(2).any(|rows| rows[0].session >= rows[1].session)
+                    || page.windows(2).any(|rows| rows[0].session.as_str() >= rows[1].session.as_str())
                     || cursor.as_deref().is_some_and(|after| {
                         page.first().is_some_and(|row| row.session.as_str() <= after)
                     })
@@ -229,7 +229,7 @@ fn list(api: &mut dyn Api, body: &Value) -> Result<Vec<Remote>, Pass> {
                     let Some(next) = v["next_after_session"].as_str() else {
                         return Err(Pass::Failed("trajectory list has no next cursor".to_owned()));
                     };
-                    if page.last().is_none_or(|row| row.session != next)
+                    if page.last().is_none_or(|row| row.session.as_str() != next)
                         || cursor.as_deref().is_some_and(|after| next <= after)
                     {
                         return Err(Pass::Failed("trajectory list cursor did not advance".to_owned()));
