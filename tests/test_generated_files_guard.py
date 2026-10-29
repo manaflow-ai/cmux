@@ -182,6 +182,9 @@ class GuardTests(unittest.TestCase):
         self.assertFails({guard.BASELINE: "# baseline\nmoved/old.generated.ts\nnew/x.generated.ts\n",
                           "legacy/old.generated.ts": None, "moved/old.generated.ts": "x\n",
                           "new/x.generated.ts": "y\n"}, "new/x.generated.ts")
+        # A look-alike under another name is a different generated file, not a move.
+        self.assertFails({guard.BASELINE: "# baseline\nmoved/renamed.generated.ts\n",
+                          "legacy/old.generated.ts": None, "moved/renamed.generated.ts": "x\n"}, "new to the baseline")
         # Keeping the old line too is a new line, not a move.
         self.assertFails({guard.BASELINE: "# baseline\nlegacy/old.generated.ts\nmoved/copy.generated.ts\n",
                           "moved/copy.generated.ts": "x\n"}, "new to the baseline")

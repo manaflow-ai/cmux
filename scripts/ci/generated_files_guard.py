@@ -256,7 +256,7 @@ def changes(repo: Path, base: str, head: str) -> list[tuple[str, str]]:
 
 def moved_baseline(repo: Path, base: Rules, head: Rules, base_rev: str, head_rev: str) -> dict[str, str]:
     """{new path: old path} for each file the base's baseline lists that the change moves (a git rename)
-    to a path the head's baseline lists instead. Such a line moves with its file; the baseline keeps its
+    to a path the head's baseline lists instead, under the same file name. Such a line moves with its file; the baseline keeps its
     size (a package split moved BackdropArt.swift from CmuxNextDesign to CmuxNextAppearance/Backdrop)."""
     dropped = base.baseline - head.baseline
     added = head.baseline - base.baseline
@@ -269,7 +269,8 @@ def moved_baseline(repo: Path, base: Rules, head: Rules, base_rev: str, head_rev
         status = fields[index]
         if status.startswith(("R", "C")):
             old, new = fields[index + 1], fields[index + 2]
-            if status.startswith("R") and old in dropped and new in added:
+            # Same file name too: a move, not a different generated file that happens to look alike.
+            if status.startswith("R") and old in dropped and new in added and Path(old).name == Path(new).name:
                 moves[new] = old
             index += 3
         else:
