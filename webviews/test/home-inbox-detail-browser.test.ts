@@ -54,7 +54,16 @@ await requireBrowserLane("home-inbox-detail-browser.test.ts", async () => {
           // capture and full-title evidence together; never draw a stand-in tooltip in the page.
           if (process.env.HOME_INBOX_CAPTURE && width === 280) {
             const png = await page.locator(".acpmux-home-inbox").screenshot();
-            console.log("HOME_INBOX_EVIDENCE=" + JSON.stringify({ phase: process.env.HOME_INBOX_CAPTURE, width, colorScheme, commands, png: png.toString("base64") }));
+            console.log(
+              "HOME_INBOX_EVIDENCE=" +
+                JSON.stringify({
+                  phase: process.env.HOME_INBOX_CAPTURE,
+                  width,
+                  colorScheme,
+                  commands,
+                  png: png.toString("base64"),
+                }),
+            );
           }
           expect(commands).toHaveLength(2);
           expect(commands[0]!.text).not.toBe(commands[1]!.text);
