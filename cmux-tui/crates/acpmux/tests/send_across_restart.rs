@@ -128,7 +128,17 @@ fn a_send_during_a_daemon_handover_waits_for_the_next_daemon_and_is_delivered() 
     assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) }, 0);
 
     let started = Instant::now();
-    let mut send = cli_command(&dir, &["send", "--no-wait", "lane", "across the handover"])
+    let mut send = cli_command(
+        &dir,
+        &[
+            "send",
+            "--no-wait",
+            "--prompt-id",
+            "handover-prompt",
+            "lane",
+            "across the handover",
+        ],
+    )
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -161,6 +171,22 @@ fn a_send_during_a_daemon_handover_waits_for_the_next_daemon_and_is_delivered() 
         "the next daemon did not deliver the send: {}",
         text(&last)
     );
+
+    // The retry uses the original prompt id with `resend=true`.  The handover
+    // can cut the request after the old daemon recorded it, so this assertion
+    // protects the exactly-once ledger contract: one user message for this
+    // text, with one stable id, even though the CLI reconnects and resends.
+    let tail = cli(&dir, &["tail", "lane", "--last", "100"]);
+    assert!(tail.status.success(), "tail: {}", text(&tail));
+    let sends: Vec<serde_json::Value> = String::from_utf8_lossy(&tail.stdout)
+        .lines()
+        .filter_map(|line| serde_json::from_str(line).ok())
+        .filter(|event: &serde_json::Value| {
+            event["kind"] == "user_message" && event["msg"]["text"] == "across the handover"
+        })
+        .collect();
+    assert_eq!(sends.len(), 1, "the prompt was delivered more than once: {}", text(&tail));
+    assert_eq!(sends[0]["msg"]["promptId"], "handover-prompt", "the retry changed its id");
 }
 
 #[test]
