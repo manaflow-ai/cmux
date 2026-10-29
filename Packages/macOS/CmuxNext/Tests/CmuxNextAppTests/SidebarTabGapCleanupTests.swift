@@ -4,7 +4,7 @@ import CmuxNextBridge
 @testable import CmuxNextDaemon
 import CmuxNextDesign
 @testable import CmuxNextSidebar
-import CmuxNextTabs
+@testable import CmuxNextTabs
 import CmuxNextTestSupport
 import Foundation
 import Testing
