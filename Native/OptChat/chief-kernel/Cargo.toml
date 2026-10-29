@@ -1,0 +1,17 @@
+[package]
+name = "chief-kernel"
+version = "0.1.0"
+edition = "2024"
+description = "The Chief kernel's pure core: prompt rendering, the tool contract and the ledger fold; native and wasm32, no I/O"
+license = "GPL-3.0-or-later"
+publish = false
+
+# Its own workspace and lockfile, like the other OptChat crates.
+[workspace]
+
+[dependencies]
+optchat-core = { path = "../optchat-core" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# Dates for `date(id)` in the person's offset: no clock, no time zone database (wasm-clean).
+chrono = { version = "0.4", default-features = false, features = ["alloc"] }

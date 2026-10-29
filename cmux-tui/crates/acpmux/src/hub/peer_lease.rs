@@ -34,13 +34,15 @@ impl Hub {
     /// `peer::carries_peer_token`). Refused for the name of a saved peer.
     /// A lease of a name already leased replaces that peer (the caller
     /// renews it with fresh tokens). Returns the lease and the peer's
-    /// settled receiver.
+    /// settled receiver. `vm_boundary`: the caller's own opt-out for this
+    /// peer's remote chains (`vm_boundary.rs`), held with the lease only.
     pub fn lease_peer(
         &self,
         name: &str,
         url: &str,
         token: String,
         peer_token: Option<String>,
+        vm_boundary: bool,
         saved: &crate::config::Config,
     ) -> Result<(PeerLease, tokio::sync::watch::Receiver<u64>), RpcError> {
         crate::session_name::validate(name).map_err(RpcError::invalid_params)?;
@@ -56,7 +58,14 @@ impl Hub {
                 "{name:?} is a saved peer; a lease takes a name of its own"
             )));
         }
-        let pc = crate::config::PeerConfig { url: url.to_owned(), token: Some(token), peer_token };
+        let pc = crate::config::PeerConfig {
+            url: url.to_owned(),
+            token: Some(token),
+            peer_token,
+            vm_boundary,
+            // A Cloud VM gets its own GitHub App token; the Mac's login is not lent to it.
+            github_broker: false,
+        };
         // Held while the peer starts, so none of its notices finds it unleased
         // and saves its sessions (`save_peer_cache`).
         let mut leases = self.peer_leases.lock().unwrap_or_else(|e| e.into_inner());
@@ -88,6 +97,7 @@ impl Hub {
         };
         let Some(peer) = peer else { return };
         peer.stop();
+        self.note_peer_removed(&peer);
         self.purge_peer_rows(&lease.name);
         tracing::info!(peer = %lease.name, "peer lease ended");
     }
@@ -115,11 +125,11 @@ mod tests {
         let cfg = crate::config::Config::default();
         for url in ["ws://10.0.0.5:4000", "ssh://me@host", "http://127.0.0.1:1", "ws://example.com"]
         {
-            let e = hub.lease_peer("vm", url, "t".into(), None, &cfg).unwrap_err();
+            let e = hub.lease_peer("vm", url, "t".into(), None, false, &cfg).unwrap_err();
             assert!(e.message.contains("loopback"), "{url}: {}", e.message);
         }
-        assert!(hub.lease_peer("vm", "ws://127.0.0.1:1", "t".into(), None, &cfg).is_ok());
-        assert!(hub.lease_peer("vm2", "wss://example.com", "t".into(), None, &cfg).is_ok());
+        assert!(hub.lease_peer("vm", "ws://127.0.0.1:1", "t".into(), None, false, &cfg).is_ok());
+        assert!(hub.lease_peer("vm2", "wss://example.com", "t".into(), None, false, &cfg).is_ok());
     }
 
     #[tokio::test]
@@ -128,9 +138,16 @@ mod tests {
         let mut cfg = crate::config::Config::default();
         cfg.peers.insert(
             "box".into(),
-            crate::config::PeerConfig { url: "ssh://box".into(), token: None, peer_token: None },
+            crate::config::PeerConfig {
+                url: "ssh://box".into(),
+                token: None,
+                peer_token: None,
+                vm_boundary: false,
+                github_broker: false,
+            },
         );
-        let e = hub.lease_peer("box", "ws://127.0.0.1:1", "t".into(), None, &cfg).unwrap_err();
+        let e =
+            hub.lease_peer("box", "ws://127.0.0.1:1", "t".into(), None, false, &cfg).unwrap_err();
         assert!(e.message.contains("saved peer"), "{}", e.message);
     }
 
@@ -138,8 +155,10 @@ mod tests {
     async fn ending_an_old_lease_leaves_its_renewal_running() {
         let hub = hub();
         let cfg = crate::config::Config::default();
-        let (old, _) = hub.lease_peer("vm", "ws://127.0.0.1:1", "t".into(), None, &cfg).unwrap();
-        let (new, _) = hub.lease_peer("vm", "ws://127.0.0.1:2", "t".into(), None, &cfg).unwrap();
+        let (old, _) =
+            hub.lease_peer("vm", "ws://127.0.0.1:1", "t".into(), None, false, &cfg).unwrap();
+        let (new, _) =
+            hub.lease_peer("vm", "ws://127.0.0.1:2", "t".into(), None, false, &cfg).unwrap();
         hub.end_peer_lease(&old);
         assert!(hub.is_leased("vm"));
         assert_eq!(hub.peers().len(), 1);
@@ -178,8 +197,9 @@ mod tests {
                 let _entered = handle.enter();
                 let cfg = crate::config::Config::default();
                 for _ in 0..2_000 {
-                    let (lease, _) =
-                        hub.lease_peer("vm", "ws://127.0.0.1:1", "t".into(), None, &cfg).unwrap();
+                    let (lease, _) = hub
+                        .lease_peer("vm", "ws://127.0.0.1:1", "t".into(), None, false, &cfg)
+                        .unwrap();
                     hub.end_peer_lease(&lease);
                 }
                 let _ = done.send(());
@@ -198,7 +218,8 @@ mod tests {
     async fn a_saved_peer_takes_a_leased_name_over_and_drops_its_rows() {
         let hub = hub();
         let cfg = crate::config::Config::default();
-        let (lease, _) = hub.lease_peer("vm", "ws://127.0.0.1:9", "t".into(), None, &cfg).unwrap();
+        let (lease, _) =
+            hub.lease_peer("vm", "ws://127.0.0.1:9", "t".into(), None, false, &cfg).unwrap();
         let row = json!({"sessionId": "m1", "name": "lane", "status": "idle", "updatedAt": 5});
         hub.apply_peer_notice("vm", lease.generation, crate::peer::PeerNotice::Sessions(vec![row]));
         hub.add_peer("vm", "ws://127.0.0.1:8", None, None, false).await.unwrap();
@@ -219,7 +240,8 @@ mod tests {
         cfg.store.mode = crate::config::StoreMode::Local;
         let store = crate::store::open(&cfg.store, dir.path()).unwrap();
         let hub = Hub::new(cfg.clone(), store);
-        let (lease, _) = hub.lease_peer("vm", "ws://127.0.0.1:9", "t".into(), None, &cfg).unwrap();
+        let (lease, _) =
+            hub.lease_peer("vm", "ws://127.0.0.1:9", "t".into(), None, false, &cfg).unwrap();
         let row = json!({"sessionId": "m1", "name": "lane", "status": "idle", "updatedAt": 5});
         hub.apply_peer_notice("vm", lease.generation, crate::peer::PeerNotice::Sessions(vec![row]));
         assert_eq!(hub.remote_sessions().len(), 1);
@@ -254,14 +276,16 @@ mod tests {
         };
 
         // A saved peer takes the leased name over.
-        let (lease, _) = hub.lease_peer("vm", "ws://127.0.0.1:9", "t".into(), None, &cfg).unwrap();
+        let (lease, _) =
+            hub.lease_peer("vm", "ws://127.0.0.1:9", "t".into(), None, false, &cfg).unwrap();
         hub.add_peer("vm", "ws://127.0.0.1:8", None, None, false).await.unwrap();
         hub.apply_peer_notice("vm", lease.generation, PeerNotice::Sessions(vec![row.clone()]));
         hub.apply_peer_notice("vm", lease.generation, changed());
         assert_clean("saved peer took over");
 
         // The lease ended.
-        let (lease, _) = hub.lease_peer("vm2", "ws://127.0.0.1:9", "t".into(), None, &cfg).unwrap();
+        let (lease, _) =
+            hub.lease_peer("vm2", "ws://127.0.0.1:9", "t".into(), None, false, &cfg).unwrap();
         hub.end_peer_lease(&lease);
         hub.apply_peer_notice("vm2", lease.generation, PeerNotice::Sessions(vec![row.clone()]));
         hub.apply_peer_notice("vm2", lease.generation, changed());
@@ -290,7 +314,8 @@ mod tests {
         cfg.path = Some(path.clone());
         let store = crate::store::open(&cfg.store, dir.path()).unwrap();
         let hub = Hub::new(cfg.clone(), store);
-        let (lease, _) = hub.lease_peer("vm", "ws://127.0.0.1:9", "t".into(), None, &cfg).unwrap();
+        let (lease, _) =
+            hub.lease_peer("vm", "ws://127.0.0.1:9", "t".into(), None, false, &cfg).unwrap();
         let e = hub.remove_peer("vm").await.unwrap_err();
         assert!(e.message.contains("leased"), "{}", e.message);
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "{}", "peer_remove saved config");

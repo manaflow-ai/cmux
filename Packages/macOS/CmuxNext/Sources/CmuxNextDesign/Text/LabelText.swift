@@ -51,7 +51,8 @@ enum LabelText {
         return manager
     }()
 
-    /// `content` with `font` on the runs that have none and `color` (if any) on the runs that have none.
+    /// `content` with `font` on the runs that have none and `color` (if any) on the runs that have none,
+    /// and the UI font's tracking on its runs (`BundledFonts.tracked`).
     static func styled(_ content: NSAttributedString, font: NSFont?, color: NSColor?) -> NSAttributedString {
         let text = NSMutableAttributedString(attributedString: content)
         let all = NSRange(location: 0, length: text.length)
@@ -64,7 +65,7 @@ enum LabelText {
                 if value == nil { text.addAttribute(.foregroundColor, value: color, range: range) }
             }
         }
-        return text
+        return BundledFonts.tracked(text)
     }
 
     /// `text` with the paragraph settings of `shape`: alignment (a run's own wins over

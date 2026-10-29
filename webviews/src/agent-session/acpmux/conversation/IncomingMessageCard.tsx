@@ -48,7 +48,7 @@ import { FindReveal } from "./chatFind";
 import { PromptMarksSession } from "../threadMinimap/promptMarks";
 import { Bot, ChevronRight, TerminalSquare } from "./icons";
 import { Markdown } from "./Markdown";
-import { AgentMark, agentBrand } from "../../shared/AgentMark";
+import { AgentMark } from "../../shared/AgentMark";
 import { useSenderChat, useSenderPlace } from "../subagents/subsessions";
 import { useAgentAvatar } from "../agentAvatar";
 import "../subagents/AgentCard.css";
@@ -284,6 +284,7 @@ export function IncomingMessageLine({
       id={bodyId}
       className="cv-received__body selectable"
       data-cut={cut || undefined}
+      data-interactive={cut ? "" : undefined}
       onClick={cut ? openCut : undefined}
     >
       {/* The chips read whose files these are (chips/messageScope.ts). */}
@@ -370,10 +371,8 @@ export function IncomingMessageLine({
         <span className="cv-received__icon">
           {avatar ? (
             <img className="cv-agent-avatar" src={avatar} alt="" width={16} height={16} />
-          ) : agentBrand(sender.harness) ? (
-            <AgentMark agent={sender.harness} size={14} />
           ) : (
-            <Bot size={16} />
+            <AgentMark agent={sender.harness} size={14} fallback={<Bot size={16} />} />
           )}
         </span>
         {sessionId ? (
@@ -387,7 +386,7 @@ export function IncomingMessageLine({
             {from}
           </button>
         ) : (
-          <span className="cv-received__name is-plain" aria-hidden onClick={toggle}>
+          <span className="cv-received__name is-plain" data-interactive="" aria-hidden onClick={toggle}>
             {from}
           </span>
         )}

@@ -1,8 +1,8 @@
 //! Pairing: add a machine with one pasted line.
 //!
 //! The person mints a ticket here (`acpmux host ticket new --role R`). The new
-//! machine redeems it once (`acpmux host join TICKET`, which the install
-//! script runs) over this daemon's WebSocket listener, and gets a device
+//! machine redeems it once (`acpmux host join`, the ticket on its stdin, which
+//! the install line runs) over this daemon's WebSocket listener, and gets a device
 //! credential bound to the role the minter chose:
 //!
 //! - `client`: the new machine adds this daemon as its peer and drives its
@@ -237,17 +237,32 @@ impl Pairing {
         label: Option<String>,
         url: String,
         minter: String,
+        identity: String,
     ) -> Result<(Ticket, TicketRecord), RpcError> {
         let secret = random_secret()?;
         let now = crate::store::now_ms();
-        let record = self.change(|s| s.mint(&secret, role, ttl_secs, label, now))?;
+        let record = self.change(|s| s.mint(&secret, role, identity, ttl_secs, label, now))?;
         let ticket = Ticket { url, minter, role, expires_ms: record.expires_ms, secret };
         Ok((ticket, record))
     }
 
     /// Whether the ticket `secret` could be redeemed now (the handshake's check).
-    pub fn ticket_open(&self, secret: &str) -> bool {
-        self.lock().store.find_open(secret, crate::store::now_ms()).is_some()
+    pub fn ticket_open(&self, secret: &str, identity: &str) -> bool {
+        let inner = self.lock();
+        inner
+            .store
+            .find_open(secret, crate::store::now_ms())
+            .is_some_and(|ticket| ticket.identity.is_empty() || ticket.identity == identity)
+    }
+
+    /// Tailnet ingress never accepts migration-era unbound tickets.
+    pub fn ticket_open_bound(&self, secret: &str, identity: &str) -> bool {
+        !identity.is_empty()
+            && self
+                .lock()
+                .store
+                .find_open(secret, crate::store::now_ms())
+                .is_some_and(|ticket| ticket.identity == identity)
     }
 
     /// Redeem `secret` for a device named `name`; `check` runs on the ticket's
@@ -256,12 +271,13 @@ impl Pairing {
         &self,
         secret: &str,
         name: &str,
+        self_instance: &str,
         check: impl FnOnce(Role) -> Result<(), RpcError>,
     ) -> Result<Redeemed, RpcError> {
         let token = random_secret()?;
         let device_id = store::new_id("dv")?;
         let now = crate::store::now_ms();
-        self.change(|s| s.redeem(secret, name, &token, &device_id, now, check))
+        self.change(|s| s.redeem((secret, self_instance), name, &token, &device_id, now, check))
     }
 
     /// Issue a device credential with no ticket: the joining side's own

@@ -126,6 +126,7 @@ GENERATED_INPUTS = (
     "plans/cmux-next/",
     "scripts/cmux-next/regenerate-action-contracts.sh",
     "scripts/cmux-next/check-action-surfaces.sh",
+    "scripts/cmux-next/judge-action-exports.sh",
     # The settings exports (regenerate-settings-exports.sh; the generated
     # files job exports them fresh and compares). The CmuxNextSettings sources
     # and the export tests are under PACKAGE.
@@ -136,6 +137,32 @@ GENERATED_INPUTS = (
     "scripts/cmux-next/check-settings-exports.sh",
     "scripts/cmux-next/settings-exports.txt",
 )
+
+# The PR's Mac Release compile (check-release-compile.sh) builds the CmuxNext package, scheme
+# CmuxNextApp, with xcodebuild: not the Xcode app target (App/, Resources/, cmux.xcodeproj and its
+# build phases are the scheme compile's). The fleet Release compile check (cmux-next/compile)
+# builds the same package sources with SwiftPM and compiles its string catalogs. What
+# only xcodebuild sees: how it resolves the package graph (every local package's Package.swift and
+# Package.resolved), actool on package asset catalogs, package plists, xcconfigs and entitlements,
+# and the Xcode pin and the compile scripts. A same-repository pull request runs the Mac Release
+# compile only when it changes one of these. Xcode's own Swift (26.6) against the check's
+# toolchain, -O codegen and tests are caught after the merge by the base push's Mac Release
+# compile.
+MAC_RELEASE_INPUTS = (
+    "Packages/*/Package.swift", "Packages/*/Package.resolved", "Packages/*.xcassets/*",
+    "Packages/*.plist", "Packages/*.xcconfig", "Packages/*.entitlements",
+    # check-release-compile.sh and what it sources or runs. (scripts/ci/ files are CI-only: the
+    # router sends them to the Linux CI tests, never to a Mac tier, before and after this.)
+    "scripts/cmux-next/check-release-compile.sh", "scripts/cmux-next/release-derived-data-path.sh",
+    "scripts/cmux-next/lib/*", "scripts/cmux-next/stale-pcm-retry-needed.sh",
+    "scripts/cmux-next/clear-stale-scheme-build-state.sh",
+    "scripts/select-ci-xcode.sh", ".xcode-version",
+)
+
+
+def mac_release_input(path: str) -> bool:
+    return any(fnmatch.fnmatch(path, pattern) for pattern in MAC_RELEASE_INPUTS)
+
 
 # The path classes of the original routing: these never need a Mac.
 WEB_ONLY = (
@@ -165,6 +192,8 @@ BUNDLE_INPUTS = (
     # tests/test_web_bundle_key_inputs.sh keeps this list complete).
     "web/data/model-catalog/*", "Resources/markdown-viewer/viewer-navigation.js", "config/vite-plus/*",
     "schemas/sync-motion/*",
+    # The UI font the gallery frame imports (src/gallery/frame/uiFont.ts).
+    "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/Fonts/InterVariable.woff2",
 )
 BUNDLE_TARGETS = ("CmuxNextAgentPane", "CmuxNextPages", "CmuxNextAgentActivity", "CmuxNextPalette")
 # Committed web bundles that ci-web rebuilds and compares (`--check`) on every pull request,
@@ -180,7 +209,7 @@ CI_ONLY = (
     ".github/workflows/*", "scripts/ci/*", "scripts/gh-merge-green",
     "tests/test_cmux_next_route.py", "tests/test_cmux_next_route_replay.py",
     "tests/test_cmux_next_checks_workflow.py", "tests/test_gh_merge_green*.py",
-    "tests/test_base_red_excuse.py", "tests/test_ci_*.py",
+    "tests/test_base_red_excuse.py", "tests/test_test_reds.py", "tests/fixtures/test_reds/*", "tests/test_ci_*.py",
 )
 # The CI files that route themselves (the router reads them; the replay checks them).
 CI_SELF = (".github/workflows/cmux-next.yml", "scripts/ci/cmux_next_route.py", "scripts/ci/select_package_tests.py")
@@ -204,6 +233,30 @@ def ci_only(path: str) -> bool:
     return any(fnmatch.fnmatch(path, pattern) for pattern in CI_ONLY)
 
 
+# The Python test registry. A tests/test_*.py file whose lane there is linux-guard runs only on
+# Linux (scripts/ci/run_python_test_lane.py; the macOS lanes are ci-macos.yml's), so a change to it
+# needs no Mac tier unless a Mac tier reads it (consumed()). Its lane is read from the registry,
+# never from a list here: a file moved to a macOS lane routes to the Mac tiers again. No cmux-next
+# Mac tier reads the registry itself.
+REGISTRY = "tests/test-execution.toml"
+LINUX_LANE = "linux-guard"
+
+
+def linux_guard_tests(root: Path) -> frozenset[str]:
+    """The registry's linux-guard test files; none when it or its reader cannot be read, so they keep their tiers."""
+    try:
+        from test_execution_registry import load_registry  # noqa: PLC0415 - a copied router may come without it
+        entries = load_registry(root / REGISTRY)
+    except (ImportError, OSError, ValueError, SyntaxError):
+        return frozenset()
+    return frozenset(str(entry.get("path")) for entry in entries
+                     if entry.get("lane") == LINUX_LANE and fnmatch.fnmatch(str(entry.get("path")), "tests/test_*.py"))
+
+
+def linux_only_test(path: str, linux_tests: frozenset[str]) -> bool:
+    return path in linux_tests or (path == REGISTRY and bool(linux_tests))
+
+
 def consumed(path: str, tree_inputs: list[str], read) -> bool:
     """A Mac tier reads this file (a toolchain pin, a job script, a daemon or tree input, a
     generated-file input or a test fixture), whatever its name looks like."""
@@ -223,6 +276,9 @@ class Route:
     swift_canary: bool = False
     # Any .swift file under the CmuxNext package (Sources or Tests): the PR runs the Release compile.
     cmuxnext_swift: bool = False
+    # An input only the Mac Release compile sees changed (MAC_RELEASE_INPUTS): a same-repository
+    # pull request runs it. Every tier sets it.
+    mac_release: bool = False
     webview: bool = False
     scheme: bool = False
     generated: bool = False
@@ -238,6 +294,7 @@ class Route:
 
     def everything(self, reason: str) -> None:
         self.full = self.native = self.scheme = self.generated = self.swift = self.daemon = True
+        self.mac_release = True
         self.reasons.append(reason)
 
 
@@ -312,6 +369,11 @@ def priority_suites(root: Path, graph: dict, changed: list[str]) -> set[str]:
 
 def route(root: Path, event: str, changed: list[str] | None, labels: set[str]) -> Route:
     result = Route()
+    mac_inputs = [path for path in changed or [] if mac_release_input(path)]
+    if mac_inputs:
+        result.mac_release = True
+        more = f" and {len(mac_inputs) - 3} more" if len(mac_inputs) > 3 else ""
+        result.reasons.append(f"{', '.join(mac_inputs[:3])}{more} only the Mac Release compile sees: it runs")
     # Release-only optimizer crashes (cx-ebm.59.5) are invisible to the Debug tiers, so a PR that
     # changes any CmuxNext package Swift file runs the Release compile, whatever else it changes.
     result.cmuxnext_swift = any(path.startswith(PACKAGE) and path.endswith(".swift") for path in changed or [])
@@ -342,10 +404,13 @@ def route(root: Path, event: str, changed: list[str] | None, labels: set[str]) -
     # the app compile; actionlint, the CI tests and the routing replay check CI changes. A file a Mac
     # tier reads keeps its tier, and a dev-build PR still compiles its dogfood app.
     tree_inputs_early = tree_input_paths(root)
+    linux_tests = linux_guard_tests(root)
     if "dev-build" not in labels and all(
-        (web_fast(path) or ci_only(path)) and not consumed(path, tree_inputs_early, read) for path in changed
+        (web_fast(path) or ci_only(path) or linux_only_test(path, linux_tests))
+        and not consumed(path, tree_inputs_early, read) for path in changed
     ):
-        kinds = sorted({"CI" if ci_only(path) else "web" for path in changed})
+        kinds = sorted({"CI" if ci_only(path) else "Linux-lane test" if linux_only_test(path, linux_tests) else "web"
+                        for path in changed})
         result.reasons.append(f"only {' and '.join(kinds)} files changed: Linux checks cover them (no Mac tier)")
         return result
     packages = package_inputs(root, graph)
@@ -480,6 +545,7 @@ def outputs(result: Route) -> dict[str, str]:
         "native": flag(result.native),
         "swift_canary": flag(result.swift_canary),
         "cmuxnext_swift": flag(result.cmuxnext_swift),
+        "mac_release": flag(result.mac_release),
         "macos": flag(macos),
         "scheme": flag(result.scheme or result.webview or result.full),
         "generated": flag(result.generated),
@@ -518,7 +584,7 @@ def main(argv: list[str]) -> int:
     if args.summary:
         with args.summary.open("a", encoding="utf-8") as stream:
             stream.write("### cmux-next tiers\n\n| tier | runs |\n| --- | --- |\n")
-            for key in ("generated", "native", "swift_canary", "cmuxnext_swift", "scheme", "swift", "daemon", "full"):
+            for key in ("generated", "native", "swift_canary", "cmuxnext_swift", "mac_release", "scheme", "swift", "daemon", "full"):
                 stream.write(f"| {key} | {values[key]} |\n")
             stream.write(f"\nSwift test targets: {values['swift_targets'] or 'none'}\n\n")
             stream.write(f"Swift canary targets: {values['swift_canary_targets'] or 'none'}\n\n")

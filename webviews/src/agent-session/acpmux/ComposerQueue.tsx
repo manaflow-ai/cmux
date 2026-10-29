@@ -243,6 +243,12 @@ export function ComposerQueue({
   useLayoutEffect(() => {
     const current = list.current;
     if (current) {
+      // Clear the collapsed list's scroll offset before measuring the opened rows. A pointer click
+      // can leave focus on a row that the browser keeps anchored while the list grows; measuring
+      // first then resetting lets that stale offset survive the max-height transition and puts a
+      // row above the list's own top edge (the short-pane queue stack regression).
+      const opening = unfolded && !wasOpen.current;
+      if (opening) current.scrollTop = 0;
       const firstFit = !current.hasAttribute("data-fit-ready");
       fitList(current);
       if (firstFit) {
@@ -252,8 +258,6 @@ export function ComposerQueue({
         });
       }
     }
-    // Opening lands at the top: the header and the next prompt.
-    if (current && unfolded && !wasOpen.current) current.scrollTop = 0;
     wasOpen.current = unfolded;
     if (watched.current?.list !== current) {
       watched.current?.observer.disconnect();

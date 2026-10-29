@@ -22,12 +22,14 @@ mod agent_wait_tool;
 mod browser_tools;
 mod caller_scope;
 mod code_mode;
+mod computer_use_gate;
 mod config;
 mod keybinding_tools;
 mod messages;
 mod placement;
 mod render_tool;
 mod schema;
+mod settings_tools;
 mod terminal_talk_tools;
 #[cfg(test)]
 mod tests;
@@ -168,6 +170,12 @@ pub(super) trait Backend {
             "this server cannot reach acpmux agent dispatch",
         ))
     }
+    /// App calls that may run on another thread: a computer use call's
+    /// setup card waits with the call, not on this server's thread
+    /// (`computer_use_gate`). `None`: the call runs without the card.
+    fn app_caller(&self) -> Option<computer_use_gate::AppCaller> {
+        None
+    }
     /// The app's `system.identify` (`caller`, `beside`); `None` with no caller (placement.rs).
     fn identity(&self) -> Result<Option<Value>, CallFailure> {
         Ok(None)
@@ -244,6 +252,13 @@ impl Backend for LiveBackend {
 
     fn identity(&self) -> Result<Option<Value>, CallFailure> {
         placement::app_identity(&self.global)
+    }
+
+    fn app_caller(&self) -> Option<computer_use_gate::AppCaller> {
+        let global = self.global.clone();
+        Some(std::sync::Arc::new(move |method: &str, params: Value, timeout: Duration| {
+            transport::app_method(&global, method, params, timeout, None, false)
+        }))
     }
 
     fn focus(&self) -> Result<Option<Value>, CallFailure> {
@@ -475,6 +490,8 @@ pub(super) struct Server<B> {
     /// While a `cmux_exec` script runs: its time limit, which also bounds a
     /// proxied call it makes (the script holds this thread).
     call_cap: Option<Duration>,
+    /// While a `cmux_exec` script runs: when its time limit ends.
+    call_deadline: Option<Instant>,
     /// Where `run` writes, for a call's `notifications/progress`.
     notes: Option<watch::Output>,
     /// The ids `render` returned in this process: a render may update only one of these.
@@ -496,6 +513,7 @@ impl<B: Backend> Server<B> {
             allowed: None,
             upstreams: Vec::new(),
             call_cap: None,
+            call_deadline: None,
             notes: None,
             renders: std::collections::HashSet::new(),
         }
@@ -607,6 +625,8 @@ impl<B: Backend> Server<B> {
         tools.push(agent_events_tool::descriptor());
         tools.extend(terminal_talk_tools::descriptors());
         tools.push(render_tool::descriptor());
+        tools
+            .extend(settings_tools::TOOLS.iter().map(settings_tools::SettingTool::descriptor_json));
         tools.extend(
             keybinding_tools::TOOLS.iter().map(keybinding_tools::KeybindingTool::descriptor_json),
         );
@@ -690,10 +710,12 @@ impl<B: Backend> Server<B> {
             let mut tools = None;
             let mut images = Vec::new();
             self.call_cap = Some(self.script_limits.total);
+            self.call_deadline = Some(Instant::now() + self.script_limits.total);
             let answered = code_mode::exec(&arguments, self.script_limits, &mut |request| {
                 self.script_request(request, &mut tools, &mut images)
             });
             self.call_cap = None;
+            self.call_deadline = None;
             let mut result = answered.unwrap_or_else(|message| {
                 tool_error(envelope(v2_tools::invalid(message), "not_run", None))
             });
@@ -819,6 +841,9 @@ impl<B: Backend> Server<B> {
                 Ok(receipt) => success(receipt, false),
                 Err(message) => tool_error(envelope(v2_tools::invalid(message), "not_run", None)),
             });
+        }
+        if let Some(tool) = settings_tools::find(name) {
+            return Ok(tool.call(&self.backend, &arguments));
         }
         if let Some(tool) = keybinding_tools::find(name) {
             return Ok(match tool.params(&arguments) {

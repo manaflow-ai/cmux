@@ -9,6 +9,6 @@ const newTab = readFileSync(resolve(src, "newtab/screen.css"), "utf8").replace(/
 test("all composer fields share the Goldilocks twelve-line, forty-percent cap", () => {
   expect(chat).toContain("*var(--acpmux-composer-max-lines,12)+var(--cmux-control-height,23px)");
   expect(chat).toContain("min(calc(");
-  expect(newTab).toContain("var(--acpmux-composer-max-lines,12)*1lh+32px");
+  expect(newTab).toContain("var(--acpmux-composer-max-lines,12)*1lh+2*var(--nt-input-pad-block)");
   expect(newTab).toContain("min(calc(");
 });

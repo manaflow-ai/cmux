@@ -224,6 +224,8 @@ async fn a_peer_lease_never_takes_a_saved_peers_name() {
             url: "ws://127.0.0.1:1".into(),
             token: None,
             peer_token: None,
+            vm_boundary: false,
+            github_broker: false,
         },
     );
     let a = hub(cfg);
@@ -291,4 +293,136 @@ async fn a_closing_connection_ends_its_peer_lease_before_killing_its_ephemeral_s
     assert!(lease_ended < killed, "the lease ended after the kill ({lease_ended} >= {killed})");
     assert!(a.peers().is_empty(), "{:?}", a.peers());
     assert!(a.resolve(&id).is_err(), "the ephemeral session was not purged");
+}
+
+/// A saved peer's `vmBoundary` (`hub/vm_boundary.rs`) follows config.json at a
+/// reload: the caller taking it back applies to the running peer at once, with
+/// no reconnect.
+#[tokio::test]
+async fn a_reload_takes_a_saved_peers_vm_boundary_back() {
+    let scratch_a = scratch("reload-vmb");
+    let path = scratch_a.0.join("config.json");
+    let write = |on: bool| {
+        let mut cfg = config();
+        cfg.path = Some(path.clone());
+        cfg.peers.insert(
+            "vm".into(),
+            acpmux::config::PeerConfig {
+                url: "ws://127.0.0.1:1".into(),
+                token: None,
+                peer_token: None,
+                vm_boundary: on,
+                github_broker: false,
+            },
+        );
+        cfg.save().unwrap();
+        cfg
+    };
+    let a = hub(write(true));
+    a.reconnect_peer("vm", false).await.unwrap();
+    assert!(a.peer_by_name("vm").unwrap().vm_boundary());
+    write(false);
+    a.reload_catalog().await.unwrap();
+    assert!(!a.peer_by_name("vm").unwrap().vm_boundary(), "the reload left the boundary on");
+    write(true);
+    a.reload_catalog().await.unwrap();
+    assert!(a.peer_by_name("vm").unwrap().vm_boundary());
+}
+
+/// The caller's side of the VM boundary (`hub/vm_boundary.rs`): a lease with
+/// `vmBoundary` makes each `session/new` the person's own clients forward to the
+/// peer carry `_meta.acpmux.vmBoundary: true`; a field the client sent itself is
+/// dropped first. A Web client's never carries it, nor a paired machine's (which
+/// goes as `via: device`), nor anything through a plain lease.
+#[tokio::test]
+async fn a_vm_boundary_lease_forwards_the_boundary_for_the_persons_own_clients_only() {
+    use acpmux::server::{ConnAuth, serve_connection_authed};
+    use futures_util::{SinkExt, StreamExt};
+    use tokio_tungstenite::tungstenite::Message as Ws;
+
+    for vm_boundary in [true, false] {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let (received_tx, mut received_rx) = mpsc::channel(8);
+        let server = tokio::spawn(async move {
+            let (tcp, _) = listener.accept().await.unwrap();
+            let mut ws = tokio_tungstenite::accept_async(tcp).await.unwrap();
+            while let Some(Ok(Ws::Text(text))) = ws.next().await {
+                let Ok(Message::Request { id, method: m, params }) = Message::parse(&text) else {
+                    continue;
+                };
+                let reply = if m == method::SESSION_NEW {
+                    received_tx.send(params.unwrap_or_default()).await.unwrap();
+                    Message::err(id, acpmux::rpc::RpcError::invalid_params("recorded"))
+                } else if m == method::INITIALIZE {
+                    Message::ok(
+                        id,
+                        json!({"protocolVersion": 1, "_meta": {"acpmux": {
+                        "version": "0", "build": "test", "origin": "peer",
+                        "features": ["trustGate"]}}}),
+                    )
+                } else {
+                    Message::ok(id, json!({}))
+                };
+                ws.send(Ws::Text(reply.to_line().into())).await.unwrap();
+            }
+        });
+        let a = hub(config());
+        let mut ca = C::new(&a, Origin::Local);
+        let mut lease = json!({"name": "cloud-vm", "url": format!("ws://127.0.0.1:{port}"),
+            "token": "tok", "wait": true});
+        if vm_boundary {
+            lease["vmBoundary"] = json!(true);
+        }
+        ca.call("_acpmux/peer_lease", lease).await.unwrap();
+        let new = |name: &str| {
+            json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {
+                "peer": "cloud-vm", "name": name, "vmBoundary": true}}})
+        };
+        let mut received = BTreeMap::new();
+        let mut replies = BTreeMap::new();
+        let mut clients = vec![
+            ("own", C::new(&a, Origin::Local)),
+            ("app", C::new(&a, Origin::LocalApp)),
+            ("web", C::new(&a, Origin::Web)),
+        ];
+        // A paired machine's `client` credential: served as a peer (`pairing::origin_of`).
+        let (in_tx, in_rx) = mpsc::channel(64);
+        let (out_tx, out_rx) = mpsc::channel(4096);
+        tokio::spawn(serve_connection_authed(
+            a.clone(),
+            in_rx,
+            out_tx,
+            Origin::Peer,
+            ConnAuth::Device,
+        ));
+        clients.push(("device", C { tx: in_tx, rx: out_rx, next: 0 }));
+        for (name, c) in &mut clients {
+            let reply = c.call(method::SESSION_NEW, new(name)).await;
+            replies.insert(name.to_string(), format!("{reply:?}"));
+            if let Ok(Some(p)) =
+                tokio::time::timeout(Duration::from_millis(500), received_rx.recv()).await
+            {
+                received.insert(name.to_string(), p["_meta"]["acpmux"].clone());
+            }
+        }
+        server.abort();
+        for name in ["own", "app"] {
+            let meta =
+                received.get(name).unwrap_or_else(|| panic!("{name} never reached the peer"));
+            assert_eq!(
+                meta.get("vmBoundary"),
+                vm_boundary.then_some(&json!(true)),
+                "{name}: {meta}"
+            );
+        }
+        // A Web client and a paired machine: if the guard here lets the start through
+        // at all, it goes as theirs, never at the boundary.
+        for (name, via) in [("web", "web"), ("device", "device")] {
+            if let Some(meta) = received.get(name) {
+                assert_eq!(meta["via"], via, "{name}: {meta}");
+                assert!(meta.get("vmBoundary").is_none(), "{name}: {meta}");
+            }
+        }
+    }
 }
