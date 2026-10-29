@@ -120,4 +120,50 @@ import Testing
         #expect(events.last?["type"] as? String == "search" && events.last?["value"] as? String == "committed")
         #expect(events.last?["revision"] as? Int == 1)
     }
+    @Test(.enabled("needs an awake display") { !NSScreen.screens.isEmpty })
+    func childReopeningKeepsEditSequencesMonotonicBeforeAcknowledgment() throws {
+        let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 500, height: 400),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        let page = NSView(frame: NSRect(x: 0, y: 0, width: 500, height: 400))
+        window.contentView = page
+        window.makeKeyAndOrderFront(nil)
+        defer { window.orderOut(nil) }
+        var events: [[String: Any]] = []
+        let host = DeclarativePopupHost(webView: page, zoom: { 1 }, send: { events.append($0) }, isAppActive: { true })
+        defer { host.hide() }
+        let field = NativePopupRow(id: "text", kind: .textField, label: "Text", value: "", editSequence: 0)
+        var model = NativePopupModel(schemaVersion: 1, id: "same", revision: 1,
+                                     anchor: NativePopupAnchor(left: 0, top: 0, right: 20, bottom: 20),
+                                     side: .bottom, align: .start, width: 320,
+                                     rows: [NativePopupRow(id: "parent", kind: .submenu, label: "Parent", children: [field])])
+        #expect(host.show(model)["shown"] as? Bool == true)
+        func descendants(_ view: NSView) -> [NSView] { view.subviews.flatMap { [$0] + descendants($0) } }
+        func content(in panel: NSWindow) throws -> NativePopupContent {
+            try #require(descendants(try #require(panel.contentView)).compactMap { $0 as? NativePopupContent }.first)
+        }
+        let panel = try #require(window.childWindows?.compactMap { $0 as? NativePopupPanel }.first)
+        let root = try content(in: panel)
+        func openChild() throws -> NativePopupContent {
+            root.openSubmenu(model.rows[0], try #require(root.rowView(id: "parent")))
+            return try content(in: #require(panel.childWindows?.compactMap { $0 as? NativePopupPanel }.first))
+        }
+        let first = try openChild()
+        let firstField = try #require(first.rowView(id: "text") as? NSTextField)
+        firstField.stringValue = "first"
+        first.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: firstField))
+        let firstSequence = try #require(events.last?["editSequence"] as? Int)
+        first.dismiss()
+        let second = try openChild()
+        let secondField = try #require(second.rowView(id: "text") as? NSTextField)
+        secondField.stringValue = "second"
+        second.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: secondField))
+        let secondSequence = try #require(events.last?["editSequence"] as? Int)
+        #expect(secondSequence > firstSequence)
+        model.revision += 1
+        model.rows[0].children?[0].value = "first"
+        model.rows[0].children?[0].editSequence = firstSequence
+        host.update(model)
+        #expect((second.rowView(id: "text") as? NSTextField)?.stringValue == "second")
+    }
+
 }
