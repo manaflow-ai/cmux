@@ -445,6 +445,12 @@ struct ThreadPreview: Hashable {
         let safe = cut < ns.length ? ns.rangeOfComposedCharacterSequence(at: cut).location : cut
         var head = ns.substring(to: safe)
         while head.last == " " { head.removeLast() }
+        // cmux: the index lookup can land past the room (the glyph under `room` is kept); drop characters until the line
+        // with "…" fits, so a cut quote never runs past its outline (user, 2026-10-28).
+        while !head.isEmpty, TextDraw.width(head + "…", font: textFont) > maxWidth + 0.01 {
+            head.removeLast()
+            while head.last == " " { head.removeLast() }
+        }
         return head + "…"
     }
     static let titleFont = UIFont.systemFont(ofSize: 12, weight: .semibold)
