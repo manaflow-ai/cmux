@@ -10,11 +10,14 @@ import type { VideoInfo } from "./videoAttachments";
 
 export function VideoAttachmentTile({
   name,
+  title = name,
   video,
   remove,
   onPlay,
 }: {
   name: string;
+  /// The poster's tooltip: its name, with the line naming where it came from (SourceBadge.tsx).
+  title?: string;
   /// Unset while the host reads it.
   video: VideoInfo | undefined;
   remove: ReactNode;
@@ -36,7 +39,7 @@ export function VideoAttachmentTile({
   return (
     <div
       className="acpmux-attachment acpmux-attachment-image acpmux-attachment-video"
-      /* tooltip-allow: a video's poster shows no name */ title={name}
+      /* tooltip-allow: a video's poster shows no name */ title={title}
     >
       <button
         type="button"
