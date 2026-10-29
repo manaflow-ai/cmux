@@ -15,7 +15,7 @@ struct AgentPanePeerSnapshotRelayTests {
         #"{"jsonrpc":"2.0","id":\#(id),"method":"_acpmux/peer_snapshot","params":\#(params)}"#
     }
 
-    @Test func thePaneMaySendPeerReconnectForTheNamedMachineOnly() {
+    @Test func thePaneMaySendPeerReconnectForTheNamedMachineOnly() throws {
         let frame = #"{"jsonrpc":"2.0","id":1,"method":"_acpmux/peer_reconnect","params":{"name":"huge-blue","wait":true}}"#
         guard case .send = AcpmuxPaneMethods.decide(frame, isFirst: false, localAppToken: nil) else {
             Issue.record("the relay refused the pane's _acpmux/peer_reconnect")
@@ -24,8 +24,8 @@ struct AgentPanePeerSnapshotRelayTests {
         let object = (try? JSONSerialization.jsonObject(with: Data(frame.utf8))) as? [String: Any]
         #expect(!AcpmuxPaneMethods.breaksParamsRule(object, modeFields: []))
         for extra in [#""sessionId":"s""#, #""url":"ssh://host""#, #""token":"secret""#] {
-            let invalid = #"{"jsonrpc":"2.0","id":1,"method":"_acpmux/peer_reconnect","params":{"name":"huge-blue","wait":true,#(extra)}}"#
-            let invalidObject = (try? JSONSerialization.jsonObject(with: Data(invalid.utf8))) as? [String: Any]
+            let invalid = #"{"jsonrpc":"2.0","id":1,"method":"_acpmux/peer_reconnect","params":{"name":"huge-blue","wait":true,\#(extra)}}"#
+            let invalidObject = try #require((try? JSONSerialization.jsonObject(with: Data(invalid.utf8))) as? [String: Any], "\(extra)")
             #expect(AcpmuxPaneMethods.breaksParamsRule(invalidObject, modeFields: []), "\(extra)")
         }
     }
