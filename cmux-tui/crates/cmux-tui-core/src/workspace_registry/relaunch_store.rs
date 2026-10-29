@@ -525,7 +525,7 @@ fn stored_agent_launch(agent: &Value) -> Option<AgentLaunch> {
     }
     let args = kept_agent_args(harness, &args);
     let env = account_env_key(harness)
-        .and_then(|key| Some((key, agent["env"][key].as_str()?)))
+        .and_then(|key| Some((key, agent.get("env")?.get(key)?.as_str()?)))
         .filter(|(_, dir)| Path::new(dir).is_absolute() && !dir.chars().any(char::is_control))
         .map(|(key, dir)| vec![(key.to_string(), dir.to_string())])
         .unwrap_or_default();

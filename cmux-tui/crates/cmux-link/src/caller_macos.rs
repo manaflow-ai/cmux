@@ -264,6 +264,16 @@ fn static_code_signed_by(
     flags: u32,
     what: &str,
 ) -> Result<Owned, String> {
+    let code = static_code(path)?;
+    let team_requirement = requirement(&format!(
+        "anchor apple generic and certificate leaf[subject.OU] = \"{team}\""
+    ))?;
+    // SAFETY: both references are live owned objects.
+    status(unsafe { SecStaticCodeCheckValidity(code.0, flags, team_requirement.0) }, what)?;
+    Ok(code)
+}
+
+fn static_code(path: &std::path::Path) -> Result<Owned, String> {
     let bytes = path.as_os_str().as_encoded_bytes();
     // SAFETY: the bytes are live for the call; CFURL copies them.
     let url = Owned::new(
@@ -283,13 +293,7 @@ fn static_code_signed_by(
         unsafe { SecStaticCodeCreateWithPath(url.0, 0, &raw mut code) },
         "SecStaticCodeCreateWithPath",
     )?;
-    let code = Owned::new(code, "SecStaticCodeCreateWithPath")?;
-    let team_requirement = requirement(&format!(
-        "anchor apple generic and certificate leaf[subject.OU] = \"{team}\""
-    ))?;
-    // SAFETY: both references are live owned objects.
-    status(unsafe { SecStaticCodeCheckValidity(code.0, flags, team_requirement.0) }, what)?;
-    Ok(code)
+    Owned::new(code, "SecStaticCodeCreateWithPath")
 }
 
 /// A Team ID is ten upper-case letters or digits; anything else never goes
@@ -325,16 +329,25 @@ fn clone_signature(path: &std::path::Path) -> Option<crate::sign_clone::Identity
 fn check_running_clone(code: &Owned, installed: &std::path::Path) -> Result<(), String> {
     let team = own_signing()?.team.filter(|team| plain_team(team)).ok_or("no signing team")?;
     let installed = static_code_signed_by(installed, &team, 0, "installed clone executable")?;
+    check_running_requirement(code, &installed)
+}
+
+/// `installed` must already have passed the caller's static signature policy.
+fn check_running_requirement(code: &Owned, installed: &Owned) -> Result<(), String> {
+    let requirement = designated_requirement(installed)?;
+    // SAFETY: both owned references are live. Dynamic code was obtained from
+    // this process or the connection's audit token, never from a bare PID.
+    status(unsafe { SecCodeCheckValidity(code.0, 0, requirement.0) }, "running clone signature")
+}
+
+fn designated_requirement(installed: &Owned) -> Result<Owned, String> {
     let mut requirement: CFTypeRef = ptr::null();
     // SAFETY: the static code is live and the out-pointer is valid.
     status(
         unsafe { SecCodeCopyDesignatedRequirement(installed.0, 0, &raw mut requirement) },
         "installed executable requirement",
     )?;
-    let requirement = Owned::new(requirement, "installed executable requirement")?;
-    // SAFETY: both owned references are live. Dynamic code was obtained from
-    // this process or the connection's audit token, never from a bare PID.
-    status(unsafe { SecCodeCheckValidity(code.0, 0, requirement.0) }, "running clone signature")
+    Owned::new(requirement, "installed executable requirement")
 }
 
 pub(crate) fn verified_clone_executable(path: &std::path::Path) -> Option<std::path::PathBuf> {
@@ -507,3 +520,7 @@ fn requirement(text: &str) -> Result<Owned, String> {
     )?;
     Owned::new(requirement, "SecRequirementCreateWithString")
 }
+
+#[cfg(test)]
+#[path = "caller_macos_sign_clone_tests.rs"]
+mod sign_clone_tests;

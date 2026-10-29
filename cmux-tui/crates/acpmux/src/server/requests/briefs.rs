@@ -304,7 +304,8 @@ pub(super) async fn task_new(
         .ok_or_else(|| RpcError::invalid_params("a task has a one-line title"))?;
     let idempotency = text("idempotencyKey");
     let id = loop {
-        let id = format!("t-{}", &uuid::Uuid::new_v4().simple().to_string()[..8]);
+        let uuid = uuid::Uuid::new_v4().simple().to_string();
+        let id = format!("t-{}", uuid.get(..8).unwrap_or(&uuid));
         if hub.briefs.get(&id).is_none() {
             break id;
         }

@@ -33,6 +33,50 @@ PATH containing acpmux and the installed harness. `host doctor` checks
 `target/release` is not enough for that check. For SSH peering, harness login
 and remote project access, follow [Remote agents and cmux Cloud](../../../docs/remote-agents-and-cloud.md).
 
+## Labs: static userspace WireGuard
+
+`transport.wireguard` defaults to false. When enabled, acpmux carries its peer
+WebSocket streams over one userspace WireGuard UDP socket, using boringtun and
+smoltcp. It needs no root access, TUN device or system routes. The existing
+listener token, peer token, and permission rules still apply; a WireGuard key
+alone does not grant access to sessions or app-only operations.
+
+Configure each side in its private `config.json`, with different node keys and
+virtual addresses. The endpoint is the other machine's UDP address; `address`
+is its virtual service address, used only inside acpmux:
+
+```json
+{
+  "transport": {
+    "wireguard": true,
+    "wireguardStatic": {"listen": "0.0.0.0:51820", "address": "10.77.0.1:4100"}
+  },
+  "peers": {
+    "workstation": {
+      "url": "ssh://workstation",
+      "token": "<existing remote listener token>",
+      "peerToken": "<existing remote peer token>",
+      "wireguard": {
+        "publicKey": "<remote standard padded base64 public key>",
+        "endpoint": "203.0.113.2:51820",
+        "address": "10.77.0.2:4100"
+      }
+    }
+  }
+}
+```
+
+The key helper owns `~/.acpmux/node.wg.key`; status reports only `node.wgPublicKey`.
+Provision application credentials through the existing authorized path. The peer
+token changes when its daemon starts. Direct WireGuard is tried before the saved
+peer URL when a listener credential is configured; that URL remains the fallback.
+
+This first Labs version reads the Labs flag, interface and peer routes at daemon
+startup. Changes, including disabling the transport or removing an allowed key,
+require a daemon restart. Its WebSocket listener must bind loopback or a
+wildcard address, and each endpoint must resolve to the UDP listener's address
+family. Discovery, hole punching and relays are separate components.
+
 ## Quick start
 
 ```sh
@@ -193,6 +237,29 @@ session with the same name, and list qualified IDs to select from. Once resolved
 keeps the owning peer and session ID even if another host has a copy of that session.
 The target daemon decides which start policy and controls the caller may use; a peer link
 does not grant app-only permissions.
+
+With the mesh relay configured, lifecycle commands can reach hosts without a peer link:
+
+```sh
+acpmux session start review --host worker -m codex --policy ask --cwd /workspace
+acpmux session resume worker/review --mesh
+acpmux session stop SESSION_ID --mesh --id
+acpmux session receipt MESSAGE_ID
+```
+
+These commands print a queued receipt; only a `delivered` receipt means the target finished
+the operation. `receipt` reads once. Reuse the printed `--idempotency-key` after an uncertain
+enqueue. Mesh names must match uniquely; UUIDs are treated as stable session IDs, and `--id`
+selects any other exact ID. Stop preserves the stored session; resume releases held prompts.
+The local daemon sends through its configured relay client and keeps its token out of the CLI.
+Remote connections cannot borrow this daemon's identity to enqueue controls.
+
+Control reception is off unless the target machine's owner adds a hub-stamped sender daemon
+ID to `meshRelay.controlFrom` in its own `config.json`, for example
+`[{"daemonId":"inst_example","ops":["start","resume","stop"]}]`. Omitting `ops` allows those
+three operations; an empty list allows none. Claimed names, hosts and session IDs confer no
+authority. An allowed sender still follows the target daemon's existing peer and start-policy
+rules, including app-only permission checks.
 
 ## Orchestrating agents from scripts
 

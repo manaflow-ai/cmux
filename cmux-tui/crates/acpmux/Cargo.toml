@@ -30,6 +30,7 @@ cmux-local-auth.workspace = true
 cmux-link.workspace = true
 cmux-git.workspace = true
 cmux-worktree-care.workspace = true
+cmux-wg.workspace = true
 anyhow = "1"
 cmux-agent-pane-policy.workspace = true
 cmux-unix-socket.workspace = true
