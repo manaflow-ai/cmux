@@ -59,6 +59,11 @@ export function EffortPicker({
   const recommended = visibleEfforts.find((choice) => choice.recommended);
   const sliderShown = selectedVisible ?? recommended ?? visibleEfforts[0];
   const sliding = slider && visibleEfforts.length > 1;
+  // Match the browser slider's commit guard while the host is still echoing a pick.
+  const nativeSliderSent = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    nativeSliderSent.current = undefined;
+  }, [current, open]);
 
   useEffect(() => registerPicker(label, () => setOpen(true)), [label]);
 
@@ -158,13 +163,21 @@ export function EffortPicker({
       width: 280,
       title: label,
       rows,
-      highlighted: selectedVisible ? popupIdentity("effort", selectedVisible.id) : undefined,
+      highlighted: sliding
+        ? "reasoning-slider"
+        : selectedVisible
+          ? popupIdentity("effort", selectedVisible.id)
+          : undefined,
     },
     onEvent: (event: NativePopupEvent) => {
       if (event.type === "change" && event.id === "reasoning-slider") {
+        if (!sliding || !event.value?.trim()) return;
         const index = Number(event.value);
         const choice = Number.isInteger(index) ? visibleEfforts[index] : undefined;
-        if (choice) onPick(choice.id);
+        if (choice && choice.id !== selectedVisible?.id && choice.id !== nativeSliderSent.current) {
+          nativeSliderSent.current = choice.id;
+          onPick(choice.id);
+        }
         return;
       }
       if (event.type !== "pick" || !event.id) return;
