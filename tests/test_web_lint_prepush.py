@@ -83,6 +83,7 @@ class WebLintPrePushTests(unittest.TestCase):
         self.env.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=str(self.global_config),
                         HOME=str(self.root), ESLINT_LOG=str(self.eslint_log))
         git_fixture_env.without_auto_maintenance(self.env)
+        git_fixture_env.with_lint_tools(self.env)
 
         subprocess.run(["git", "init", "--quiet", "--bare", "--initial-branch=feat-cmux-next", str(self.origin)],
                        env=self.env, check=True, capture_output=True)

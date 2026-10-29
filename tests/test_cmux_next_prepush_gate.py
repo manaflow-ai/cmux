@@ -938,6 +938,64 @@ class PinnedToolTests(unittest.TestCase):
         with self.urlopen(True):
             self.assertEqual(self.gate.ensure_tool(self.lock, "ast-grep").read_bytes(), FAKE_TOOL, "fetched again")
 
+    def place_unrecorded(self) -> Path:
+        """The pinned binary in the hook's cache with no record beside it (as an install before the record left it)."""
+        self.cached.parent.mkdir(parents=True)
+        self.cached.write_bytes(FAKE_TOOL)
+        self.cached.chmod(0o755)
+        return self.cached
+
+    def test_two_threads_that_record_the_same_tool_at_once_both_get_it(self):
+        # The gate's ast-grep layer and the guardrails' Rust rules ask for ast-grep on two threads of one push. The
+        # record's temporary file was named by the process id only, so the second rename found it gone.
+        import threading
+        self.place_unrecorded()
+        real_replace = os.replace
+        both = threading.Barrier(2)
+
+        def replace(source, destination):
+            if str(destination).endswith(".sha256"):
+                both.wait(timeout=10)  # both threads have written their temporary file before either renames
+            return real_replace(source, destination)
+
+        results, errors = [], []
+
+        def ask():
+            try:
+                results.append(self.gate.ensure_tool(self.lock, "ast-grep"))
+            except BaseException as error:  # noqa: BLE001 - the test reports what each thread raised
+                errors.append(error)
+
+        with self.urlopen(), self.mock.patch.object(self.gate.os, "replace", replace):
+            threads = [threading.Thread(target=ask) for _ in range(2)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join()
+        self.assertEqual(errors, [])
+        self.assertEqual(results, [self.cached, self.cached])
+        self.assertTrue(self.gate.verified_tool(self.cached))
+        self.assertEqual([p.name for p in self.cached.parent.iterdir() if p.name.endswith(".tmp")], [],
+                         "no temporary record is left behind")
+
+    def test_a_read_only_cache_still_runs_a_binary_whose_hash_matched(self):
+        if os.geteuid() == 0:
+            self.skipTest("root writes into a read-only folder")
+        folder = self.place_unrecorded().parent
+        with self.urlopen():
+            self.assertEqual(self.gate.fetch_tool(self.lock, "ast-grep"), self.cached)  # recorded while writable
+        os.utime(self.cached)  # a new mtime: the next ask hashes the binary again and rewrites the record
+        folder.chmod(0o555)
+        self.addCleanup(folder.chmod, 0o755)
+        with self.urlopen(OSError("offline")) as opened:
+            self.assertEqual(self.gate.ensure_tool(self.lock, "ast-grep"), self.cached)
+        self.assertEqual(opened.call_count, 0, "a matched hash needs no download, even unrecorded")
+        folder.chmod(0o755)
+        self.gate.tool_record(self.cached).unlink()
+        folder.chmod(0o555)
+        with self.urlopen(OSError("offline")):
+            self.assertEqual(self.gate.ensure_tool(self.lock, "ast-grep"), self.cached, "no record and none writable")
+
     def test_a_platform_with_no_pinned_build_still_refuses(self):
         self.lock.write_text("ast-grep\t0.51.0\tplan9-mips\thttps://example.invalid/tool.zip\t00\tast-grep\n")
         with self.assertRaises(SystemExit) as refused:

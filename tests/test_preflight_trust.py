@@ -33,6 +33,7 @@ class PreflightTrustTests(unittest.TestCase):
         self.env.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull,
                         CMUX_FIXTURE_MARKER=str(self.marker), PYTHONDONTWRITEBYTECODE="1")
         git_fixture_env.without_auto_maintenance(self.env)
+        git_fixture_env.with_lint_tools(self.env)
         self.git("init", "--quiet", "--initial-branch=main")
         self.git("config", "user.name", "Trust fixture")
         self.git("config", "user.email", "fixture@example.invalid")
