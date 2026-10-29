@@ -115,3 +115,39 @@ fn a_terminal_notification_is_posted_and_the_reader_keeps_reading_in_panic_mode(
     mux.close_surface(surface.id).unwrap();
     mux.shutdown();
 }
+
+/// A local terminal's registry publication runs on its publication
+/// sequence at every load. It ran as a job of the terminal work pool, and
+/// with that pool full the read worker ran it inline (`will_block`, which
+/// frees the worker's slot but still disallows blocking): in panic mode the
+/// reader panicked at the SQLite commit, exactly under load, and the
+/// directory never reached the graph. A hosted terminal's publication
+/// already took the sequence; now both take the one path.
+#[cfg(unix)]
+#[test]
+fn publication_sequence_a_directory_report_with_the_terminal_pool_full_is_published_in_panic_mode()
+{
+    cmux_threads::blocking::set_mode(cmux_threads::BlockingMode::Panic);
+    let script = "sleep 0.5; printf '\\033]7;file://localhost/usr\\007'; sleep 0.3; \
+                  printf 'after-full-pool-report'; exec cat";
+    let options = SurfaceOptions {
+        command: Some(vec!["/bin/sh".into(), "-c".into(), script.into()]),
+        ..SurfaceOptions::default()
+    };
+    let mux = Mux::new(format!("directory-pool-full-{}", std::process::id()), options);
+    let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+    let full = mux.fill_terminal_work_for_test();
+    wait_until("the reported directory is the terminal's published directory", || {
+        surface.published_directory().as_deref() == Some("/usr")
+    });
+    wait_until("the reader shows the output after the report", || {
+        surface
+            .with_terminal(|terminal| terminal.plain_text())
+            .and_then(Result::ok)
+            .is_some_and(|text| text.contains("after-full-pool-report"))
+    });
+    drop(full);
+    assert!(mux.terminal_registry_revision().is_ok());
+    mux.close_surface(surface.id).unwrap();
+    mux.shutdown();
+}
