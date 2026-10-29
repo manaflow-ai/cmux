@@ -262,7 +262,9 @@ extension WindowManager {
     /// that window's workspaces, the window itself moves there: none opens, none is left empty.
     func openMovedWindow(_ ids: [String], from origin: MoveOrigin, select: Bool) {
         let source = origin.window.flatMap(controller(for:))
-        let open = controllers.compactMap { $0.window }.filter { $0.isVisible }.map(\.frame)
+        // Every open window's frame, also one not ordered in yet (a window a move just opened shows a turn later, and a
+        // test or behind window never orders in): a frame is taken whether or not the window is on screen now.
+        let open = controllers.compactMap { $0.window?.frame }
         let frame = source?.window.map { MovedWindowPlacement().frame(beside: $0.frame, on: ($0.screen ?? NSScreen.main)?.visibleFrame ?? .infinite,
                                                                      avoiding: open) }
         let whole = source.map { Set(ids) == Set(registry.members(of: $0.state.id)) } == true
