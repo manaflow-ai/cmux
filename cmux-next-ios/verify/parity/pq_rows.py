@@ -126,16 +126,17 @@ def labels(j):
     return [e.label for e in j.sim.find() if e.label and e.kind in ("Button", "PopUpButton", "MenuItem")]
 
 
-def tap(j, label, timeout=6, contains=False):
+def tap(j, label, timeout=6, contains=False, bottom=775):
     for _ in range(4):
         e = (j.sim.wait(contains=label, kind="Button", timeout=timeout) if contains
              else j.sim.wait(label=label, kind="Button", timeout=timeout) or j.sim.wait(label=label, timeout=1))
-        if e and e.frame[1] + e.frame[3] < 840:
+        # A long context menu ends above the tab bar (about y 770) and scrolls inside itself.
+        if e and e.frame[1] + e.frame[3] < bottom:
             j.sim.tap_el(e)
             time.sleep(1.0)
             return
         if e:
-            j.sim.swipe(215, 700, 215, 380, 0.4)
+            j.sim.swipe(140, 680, 140, 380, 0.4)
             time.sleep(0.8)
             timeout = 2
             continue
@@ -166,9 +167,21 @@ def hold(j, e):
 
 
 def row_menu(j, title):
-    hold(j, list_row(j, title))
-    if not labels(j) or not any(x in labels(j) for x in ("Rename", "Close Workspace")):
+    """Holds a workspace row until its menu shows (a hold the loaded simulator dropped is tried again)."""
+    for _ in range(4):
         hold(j, list_row(j, title))
+        if j.sim.find(label="Close Workspace", kind="Button") or j.sim.find(label="Rename", kind="Button"):
+            break
+        dismiss(j)
+    return labels(j)
+
+
+def group_menu(j, gid):
+    for _ in range(4):
+        hold(j, group_header(j, gid))
+        if j.sim.find(label="Rename Group…", kind="Button"):
+            break
+        dismiss(j)
     return labels(j)
 
 
@@ -177,11 +190,6 @@ def group_header(j, gid, timeout=20):
     e = j.sim.wait(ident=f"workspace.group.{gid}", timeout=timeout)
     check(e, f"no group header {gid}")
     return e
-
-
-def group_menu(j, gid):
-    hold(j, group_header(j, gid))
-    return labels(j)
 
 
 def dismiss(j):
@@ -250,8 +258,22 @@ def closes(j, label):
     gb = group(f"{PREFIX}B", names[2:4], "green")
     out = {"start": {"groups": groups(), "workspaces": sorted(workspaces())}}
     out["row_menu"] = row_menu(j, names[0])
-    if "Close" in out["row_menu"]:
-        tap(j, "Close")
+    pq.shot(f"closes-{label}-row-menu")
+    out["close_rows"] = [(e.label, e.kind, [int(x) for x in e.frame]) for e in j.sim.find(contains="Close")]
+    folder = [e for e in j.sim.find(label="Close", kind="Button")]
+    if folder:
+        # The menu scrolls inside itself: drag from its last visible row (Close Workspace) upward.
+        for _ in range(3):
+            last = j.sim.find(label="Close Workspace", kind="Button")
+            if not last or folder[0].frame[1] + 10 < (last[0].frame[1] + last[0].frame[3] + 20) and \
+                    j.sim.ocr_find("Close", timeout=0) and len([o for o in j.sim.ocr() if o[4].strip() == "Close"]) > 0:
+                break
+            y = last[0].center[1]
+            j.sim.swipe(140, y, 140, max(140, y - 260), 0.5)
+            time.sleep(0.8)
+            folder = [e for e in j.sim.find(label="Close", kind="Button")]
+        j.sim.tap_el(folder[0])
+        time.sleep(1.0)
     out["close_folder"] = labels(j)
     pq.shot(f"closes-{label}-row-close")
     if label == "before":
@@ -324,7 +346,7 @@ def ordering(j, label):
     tap(j, "Move")
     tap(j, "Sort Workspaces")
     pq.shot("order-after-sort-menu")
-    tap(j, "By Name")
+    tap(j, "Sort Workspaces by Name")
     want = sorted(names)
     out["sorted"], took = wait_mac(lambda: (lambda o: o if o == want else None)(order()), "sorted by name", timeout=40)
     out["sorted_s"] = round(took, 1)
@@ -471,8 +493,8 @@ def retry(j, label):
     s0 = session(st["session"]) or {}
     out = {"start": {"model": s0.get("model"), "turns": s0.get("turnCount") or s0.get("turns")}}
     open_chat(j, st)
-    more = [e for e in j.sim.find(label="More", kind="Button")]
-    check(more, "no More button on the answer")
+    more = [e for e in j.sim.find(label="More") if e.kind in ("Button", "PopUpButton")]
+    check(more, f"no More button on the answer: {labels(j)}")
     j.sim.tap_el(more[-1])
     time.sleep(1.2)
     out["more_menu"] = labels(j)
@@ -484,7 +506,7 @@ def retry(j, label):
     tap(j, "Retry with another model")
     out["models"] = labels(j)
     pq.shot("retry-after-models")
-    current = [e for e in j.sim.find(kind="Button") if e.label and e.frame[1] > 100]
+    current = [e for e in j.sim.find() if e.kind in ("Button", "MenuItem") and e.label and e.frame[1] > 100]
     pick = next((e for e in current if e.label and "Sonnet" in e.label), None) or next(
         (e for e in current if e.label and "Haiku" in e.label), None)
     check(pick, f"no other model to pick: {out['models']}")
@@ -508,14 +530,9 @@ def diff(j, label):
     """Agent Edits > notes.txt: Next Hunk twice, Previous Hunk, then Search in File "thirty"."""
     st = chat_seed()
     open_chat(j, st)
-    bottom = [e for e in j.sim.find(kind="Button") if e.frame[1] > 740 and e.frame[2] > 120]
-    check(bottom, "no title capsule")
-    j.sim.tap_el(bottom[0])
-    time.sleep(1.2)
-    tap(j, "Agent Edits")
-    time.sleep(1.5)
-    f = j.sim.wait(contains="notes.txt", timeout=8)
-    check(f, "no notes.txt in the agent edits")
+    # The answer's edited-files card: its notes.txt row opens the file's diff.
+    f = j.sim.wait(prefix="notes.txt", kind="Button", timeout=10)
+    check(f, f"no notes.txt row in the edited files card: {labels(j)}")
     j.sim.tap_el(f)
     time.sleep(2)
     out = {"buttons": labels(j)}
@@ -525,18 +542,18 @@ def diff(j, label):
         out["has_search"] = "Search in File" in out["buttons"]
         return out
     visible = lambda text: bool(j.sim.find(contains=text))
-    tap(j, "Next Hunk")
+    tap(j, "Next Hunk", bottom=900)
     time.sleep(1.2)
     pq.shot("diff-after-hunk1")
     out["hunk1_line_five"] = visible("line five")
-    tap(j, "Next Hunk")
+    tap(j, "Next Hunk", bottom=900)
     time.sleep(1.2)
     pq.shot("diff-after-hunk2")
     out["hunk2_line_thirty"] = visible("line thirty")
-    tap(j, "Previous Hunk")
+    tap(j, "Previous Hunk", bottom=900)
     time.sleep(1.2)
     out["back_line_five"] = visible("line five")
-    tap(j, "Search in File")
+    tap(j, "Search in File", bottom=900)
     time.sleep(0.8)
     pq.type_text("thirty")
     time.sleep(1.2)
@@ -571,7 +588,7 @@ def address(j, label):
     if label == "before":
         out["has_row"] = any((x or "").startswith("Open Address in New Tab") for x in out["suggestions"])
         return out
-    e = j.sim.wait(ident="address.openInNewTab", timeout=5)
+    e = j.sim.wait(ident="address.openInNewTab", timeout=3) or j.sim.wait(contains="Open Address in New Tab", timeout=5)
     check(e, "no Open Address in New Tab row")
     j.sim.tap_el(e)
     out["after"], took = wait_mac(lambda: (lambda b: [x.get("url") for x in b] if len(b) == 2 else None)(browsers()),
@@ -592,8 +609,22 @@ def fresh(j):
     over the real link), whatever page the last flow left open."""
     j.sim.launch(pq.BUNDLE)
     time.sleep(4)
-    j.tab("Workspaces")
-    t.until(lambda: j.sim.find(prefix=pq.load()["ws_name"], kind="Button"), timeout=60, what="the rig Mac's rows")
+    seed = pq.load()["ws_name"]
+    for _ in range(12):
+        if j.sim.find(prefix=seed, kind="Button"):
+            return
+        menu_open = [e for e in j.sim.find(kind="Button") if e.label in ("Done",) and e.frame[1] < 120]
+        back = [e for e in j.sim.find(label="Back", kind="Button") if e.frame[1] > 760] or \
+               [e for e in j.sim.find(label="Workspaces", kind="Button") if e.frame[1] < 120]
+        tabbar = j.sim.find(label="Workspaces", kind="RadioButton")
+        if menu_open:
+            j.sim.tap_el(menu_open[0])
+        elif back:
+            j.sim.tap_el(back[0])
+        elif tabbar:
+            j.sim.tap_el(tabbar[0])
+        time.sleep(1.5)
+    raise Fail("could not get to the Workspaces list after a relaunch")
 
 
 def run(name, label):
