@@ -193,6 +193,9 @@ pub(super) async fn remember_forward(
 async fn reconcile_forward(hub: &Arc<Hub>, delivery: &Delivery) -> Result<Value, (String, Next)> {
     let intent = &delivery.request["_meta"]["acpmux"]["forwardProjection"];
     let caller = delivery.caller.as_deref().unwrap_or_default();
+    // A restart resumes the outbox before the saved sessions load (`daemon.rs`): the sender is
+    // read on demand, or after the load, before its absence counts.
+    hub.session_meta(caller).await;
     let source = hub
         .resolve(caller)
         .ok()
@@ -707,8 +710,13 @@ mod forward_projection_tests {
         let before = receiver.meta().event_count;
         original.detach_child(&sender).await;
         original.store.flush().unwrap();
-        // Reopen the source state as daemon startup does. No original callback survives.
-        let restarted = make_hub();
+        // Reopen the source state as daemon startup does: the outbox resumes before the saved
+        // sessions load (`daemon.rs`). No original callback survives.
+        let restarted = Hub::new_loading(
+            config.clone(),
+            crate::store::open(&config.store, &dir).unwrap(),
+            crate::mailbox::Mailbox::open(dir.join("mailbox")).unwrap(),
+        );
         let pending = restarted.outbox.open(&outbox_path);
         assert_eq!(pending.len(), 1);
         assert_eq!(pending[0].state, State::Held, "older daemons must never execute the lookup");
@@ -736,6 +744,8 @@ mod forward_projection_tests {
             .await
             .unwrap();
         resume(&restarted, pending);
+        let loading = restarted.clone();
+        tokio::spawn(async move { loading.load_store_async().await });
         let done =
             status(&restarted, &json!({"deliveryId": intent_id, "waitMs": 10_000})).await.unwrap();
         assert_eq!(done["status"], "delivered", "{done}");
