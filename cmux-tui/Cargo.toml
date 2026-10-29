@@ -48,7 +48,6 @@ members = [
     "crates/cmux-panic-log",
     "crates/cmux-ffi-guard",
     "crates/cmux-blocking",
-    "crates/cmux-lock-rank",
     "crates/cmux-memory",
     "crates/cmux-pty",
     "crates/cmux-holder",
@@ -131,7 +130,6 @@ default-members = [
     "crates/cmux-focus-core",
     "crates/cmux-pty",
     "crates/cmux-blocking",
-    "crates/cmux-lock-rank",
     "crates/cmux-memory",
     "crates/cmux-process",
     "crates/cmux-threads",
@@ -221,7 +219,6 @@ cmux-unix-socket = { path = "crates/cmux-unix-socket" }
 cmux-panic-log = { path = "crates/cmux-panic-log" }
 cmux-ffi-guard = { path = "crates/cmux-ffi-guard" }
 cmux-blocking = { path = "crates/cmux-blocking" }
-cmux-lock-rank = { path = "crates/cmux-lock-rank" }
 cmux-memory = { path = "crates/cmux-memory" }
 cmux-agent-pane-policy = { path = "crates/cmux-agent-pane-policy" }
 cmux-chat-index = { path = "crates/cmux-chat-index" }
