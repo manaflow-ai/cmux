@@ -39,11 +39,10 @@
 #![cfg(unix)]
 
 use super::*;
+use std::collections::VecDeque;
 use std::fmt::Write as _;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
-
-use base64::Engine as _;
 
 const WAIT: Duration = Duration::from_secs(20);
 const LIVE_RESIZE_CAPABILITY: &str = "live-resize-v1";
@@ -127,7 +126,7 @@ fn scratch_dir(seed: u64) -> PathBuf {
     dir
 }
 
-fn child_size(dir: &std::path::Path) -> Option<(u16, u16)> {
+fn child_size(dir: &Path) -> Option<(u16, u16)> {
     let text = std::fs::read_to_string(dir.join("size")).ok()?;
     let mut parts = text.split_whitespace();
     let rows = parts.next()?.parse().ok()?;
@@ -194,7 +193,7 @@ struct Viewer {
     /// and whether it was contiguous (only local READYs) through the burst.
     burst_bytes: Vec<u8>,
     burst_contiguous: bool,
-    log: std::collections::VecDeque<String>,
+    log: VecDeque<String>,
     errors: Vec<String>,
 }
 
@@ -1026,9 +1025,17 @@ fn run_case(seed: u64, steps: usize) {
     // Attach before or after the daemon parsed the first line.
     if !first_line.is_empty() && rng.chance(50) {
         let deadline = Instant::now() + WAIT;
-        while case.surface.snapshot_stream_position().unwrap_or_default().1
-            < first_line.len() as u64
-        {
+        // No view is attached yet, so the stream position does not move:
+        // read the screen (soft wraps break the line over rows).
+        let parsed = |surface: &crate::Surface| {
+            surface
+                .try_with_terminal(|term| term.plain_text().unwrap_or_default())
+                .unwrap()
+                .chars()
+                .filter(|c| *c == 'f')
+                .count()
+        };
+        while parsed(&case.surface) < first_line.len() {
             if Instant::now() > deadline {
                 case.fail("the child's first line never reached the daemon");
             }
