@@ -111,6 +111,7 @@ extension ScreenContentView {
         if panPresentationPending { applyPresentation() }
         // A divider drag's events that waited in the last frame show now, at their latest values; the drag keeps
         // the ticks ``panTickTail`` frames after its last event, as a pan does, so a still pointer stops them.
+        dragPresentedInFrame = false
         if dragPresentationPending, activeDrag != nil { DividerDrag.presentPreview(on: self) }
         let dragging = dragTicksLeft > 0 && activeDrag != nil
         dragTicksLeft = dragging ? dragTicksLeft - 1 : 0

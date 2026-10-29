@@ -137,14 +137,19 @@ struct DividerDrag {
     /// pass, the camera kept on the dragged column (`syncScroll`, its drag anchor). The model stores the live
     /// values without a sync (`LayoutModel.updateScreen`), so a drag event costs no observation turn, no snapshot
     /// compare and no chrome pass.
-    /// The values show at the next display frame's tick (`displayFrameBegan`), the latest of the events since the
-    /// last one, in one pass: input aligned to the begin-frame, as Chrome does. Each pass resizes the panes' pages,
-    /// so two in one frame (the event's own turn and the tick) cost a Chromium page more than it gives (pane-perf
-    /// drag, 120 Hz with a page: 22 missed frames on the base, 37 with a pass in the event's turn).
+    /// Events faster than the display (a 1 kHz mouse, a trackpad's coalesced bursts) show once per display frame,
+    /// as a strip pan does (`presentPan`): the frame's first event lays out in its own turn, later ones wait for
+    /// the frame's tick (`displayFrameBegan`) and show the latest values in one pass.
     private func present(_ values: [DividerDragValue]) {
         screen.dragPreview.values = values
         screen.dragTicksLeft = ScreenContentView.panTickTail
-        screen.dragPresentationPending = true
+        if screen.dragPresentedInFrame {
+            screen.dragPresentationPending = true
+        } else {
+            screen.dragPresentedInFrame = true
+            Self.presentPreview(on: screen)
+        }
+        // The tick that opens the next frame (and shows a waiting event).
         screen.context.requestFrames()
     }
 

@@ -98,8 +98,8 @@ import Testing
             let start = probe.screen.convert(CGPoint(x: handle.frame.midX, y: handle.frame.midY), to: nil)
             _ = await probe.measure { handle.mouseDown(with: probe.event(.leftMouseDown, start)) }
             var moves = LayoutWorkProbe.Counts()
-            // 60 display frames of 4 drag events each (a fast mouse sends several per frame): the frame's tick shows the
-            // latest values in one pass (`displayFrameBegan`).
+            // 60 display frames of 4 drag events each (a fast mouse sends several per frame): the frame's first event
+            // lays out in its turn, the rest show once at the frame's tick (`displayFrameBegan`).
             let steps = 60, perFrame = 4
             var point = start
             for step in 1...steps {
@@ -120,8 +120,8 @@ import Testing
             print(release.line("drag-\(name)-release", steps: 1))
             print("drag-\(name)-still frames=\(still)")
             #expect(moves.modelWrites == 0, "\(name): \(moves.modelWrites) model writes over \(steps * perFrame) moves")
-            #expect(moves.reconciles <= steps, "\(name): \(moves.reconciles) layout passes over \(steps) frames of \(perFrame) moves")
-            #expect(moves.presentations <= steps, "\(name): \(moves.presentations) presentation passes over \(steps) frames")
+            #expect(moves.reconciles <= 2 * steps, "\(name): \(moves.reconciles) layout passes over \(steps) frames of \(perFrame) moves")
+            #expect(moves.presentations <= 2 * steps, "\(name): \(moves.presentations) presentation passes over \(steps) frames")
             #expect(moves.catcherChanges == 0, "\(name): the catcher areas moved on \(moves.catcherChanges) of \(steps) frames")
             #expect(still <= ScreenContentView.panTickTail, "\(name): \(still) frame ticks with the pointer still")
             #expect(probe.window.overlayLayer.catcherAreas == probe.window.overlayLayer.dividerAreas,
