@@ -24,6 +24,9 @@ public final class SessionStateStore {
     public private(set) var hasCurrentSnapshot = false
     /// Every replacement snapshot establishes a quiet baseline for replay-sensitive consumers.
     public private(set) var snapshotGeneration: UInt64 = 0
+    /// Requests already present in the stream's initial snapshot. Capture at application time,
+    /// before later deltas can coalesce with it in an observer or arrive ahead of the live tree.
+    public private(set) var snapshotAttention: [ResourceID: UInt64] = [:]
     /// Recently closed tabs, screens, and workspaces, newest first. Its own
     /// stored value: written only when the closed list changed, so its
     /// observers do not run on every status tick.
@@ -55,6 +58,7 @@ public final class SessionStateStore {
     func apply(_ item: SessionStreamItem, in store: DaemonStore) {
         switch item {
         case .snapshot(let snapshot):
+            snapshotAttention = snapshot.tabs.compactMapValues { $0.attention?.atMs }
             snapshotGeneration &+= 1
             hasCurrentSnapshot = true
             if mirror != snapshot { mirror = snapshot }

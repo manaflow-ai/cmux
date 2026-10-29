@@ -13,6 +13,14 @@ public struct AttentionBannerLifecycle {
         return (current.filter { !before.contains(attentionBannerID($0)) }, previous.map(attentionBannerID).filter { !now.contains($0) })
     }
 
+    /// The watch has already classified current-launch changes per machine. Its eligible set
+    /// may include a request seen earlier while the tree was unready, so don't diff it away.
+    public nonisolated static func posts(previous: [AgentPaneAttentionTabs.Item]?, current: [AgentPaneAttentionTabs.Item],
+                                         eligibleRequests: Set<String>?) -> [AgentPaneAttentionTabs.Item] {
+        if let eligibleRequests { return current.filter { eligibleRequests.contains($0.tabId) } }
+        return attentionChanges(previous: previous, current: current).post
+    }
+
     /// One banner per request: a new request on the same tab is a new banner.
     public nonisolated static func attentionBannerID(_ item: AgentPaneAttentionTabs.Item) -> String {
         "\(attentionBannerPrefix)\(item.atMs).\(item.tabId)"

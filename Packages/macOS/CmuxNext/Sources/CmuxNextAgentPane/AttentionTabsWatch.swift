@@ -19,6 +19,7 @@ public final class AttentionTabsWatch {
         public var storeID: ObjectIdentifier
         public var ready: Bool
         public var items: [AgentPaneAttentionTabs.Item]
+        public var baselineRequests: Set<String>
 
         @MainActor public init(machine: String, store: DaemonStore) {
             self.machine = machine
@@ -32,6 +33,10 @@ public final class AttentionTabsWatch {
                 && store.liveTreeEpoch == epoch && store.session.known
                 && (!store.servesStateResources || store.session.hasCurrentSnapshot)
             items = AttentionTabsWatch.items(in: store.workspaces.map { ($0, machine: machine) })
+            baselineRequests = Set(store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).compactMap { tab in
+                guard let resource = tab.resourceID, let at = store.session.snapshotAttention[resource] else { return nil }
+                return AttentionTabsWatch.key(machine: machine, tab: tab.id, atMs: at)
+            })
         }
     }
 
@@ -39,17 +44,29 @@ public final class AttentionTabsWatch {
     /// local request. Store replacement, reconnect and session-stream replay all rebaseline.
     public nonisolated struct SnapshotBaseline: Sendable {
         private var previous: [String: Snapshot] = [:]
+        private var reported: [String: Set<String>] = [:]
 
         public init() {}
 
         public mutating func eligibleRequests(_ snapshots: [Snapshot]) -> Set<String> {
             var eligible: Set<String> = []
+            let present = Set(snapshots.map(\.machine))
+            reported = reported.filter { present.contains($0.key) }
             for snapshot in snapshots {
-                if snapshot.ready, let old = previous[snapshot.machine], old.ready,
-                   old.storeID == snapshot.storeID, old.epoch == snapshot.epoch,
-                   old.stateGeneration == snapshot.stateGeneration {
-                    eligible.formUnion(snapshot.items.map(\.tabId))
+                let old = previous[snapshot.machine]
+                if old?.storeID != snapshot.storeID || old?.epoch != snapshot.epoch
+                    || old?.stateGeneration != snapshot.stateGeneration {
+                    reported[snapshot.machine] = []
                 }
+                guard snapshot.ready else { continue }
+                let current = Set(snapshot.items.map(\.tabId))
+                // Eligibility comes from the session snapshot, not the last observation:
+                // a delta may precede tree readiness or coalesce with the initial snapshot.
+                let candidates = current.subtracting(snapshot.baselineRequests)
+                let new = candidates.subtracting(reported[snapshot.machine] ?? [])
+                eligible.formUnion(new)
+                // Only live candidates are retained; clears and machine removal bound memory.
+                reported[snapshot.machine] = candidates
             }
             previous = Dictionary(snapshots.map { ($0.machine, $0) }, uniquingKeysWith: { _, last in last })
             return eligible

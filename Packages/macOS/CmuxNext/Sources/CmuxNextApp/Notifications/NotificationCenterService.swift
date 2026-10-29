@@ -691,6 +691,7 @@ extension NotificationCenterService {
     func attentionMarksChanged(_ items: [AgentPaneAttentionTabs.Item], eligibleRequests: Set<String>? = nil) {
         let firstList = attentionSeen == nil
         let changes = AttentionBannerLifecycle.attentionChanges(previous: attentionSeen, current: items)
+        let posts = AttentionBannerLifecycle.posts(previous: attentionSeen, current: items, eligibleRequests: eligibleRequests)
         attentionSeen = items
         desktop.withdraw(changes.withdraw)
         attentionBanners.subtract(changes.withdraw)
@@ -707,7 +708,7 @@ extension NotificationCenterService {
             })
         }
         guard desktopPostingEnabled else { return }
-        for item in changes.post where eligibleRequests?.contains(item.tabId) ?? true { postAttention(item) }
+        for item in posts { postAttention(item) }
     }
 
     func attentionDecision(_ item: AgentPaneAttentionTabs.Item) -> NotificationPolicy.Decision {

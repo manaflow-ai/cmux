@@ -116,4 +116,65 @@ struct AttentionSnapshotTests {
         #expect(baseline.eligibleRequests([.init(machine: "local", store: replacement)]).count == 1)
     }
 
+    @Test(arguments: [false, true])
+    func reconnectDeltaBeforeTreePostsOnceEvenWhenObservationCoalesces(coalesced: Bool) throws {
+        let store = try Self.connectedStore()
+        Self.tree(store)
+        Self.state(store, mark: 1_000)
+        var baseline = AttentionTabsWatch.SnapshotBaseline()
+        func eligible() -> Set<String> { baseline.eligibleRequests([.init(machine: "local", store: store)]) }
+        #expect(eligible().isEmpty)
+        store.connectionEpoch += 1
+        store.session.connected(servesStateResources: true)
+        Self.state(store, mark: 1_000)
+        if !coalesced { #expect(eligible().isEmpty) }
+        Self.mark(store, at: 2_000)
+        if !coalesced { #expect(eligible().isEmpty, "posting must wait for the live tree") }
+        let unreadyItems = AttentionTabsWatch.Snapshot(machine: "local", store: store).items
+        Self.tree(store)
+        let readyItems = AttentionTabsWatch.Snapshot(machine: "local", store: store).items
+        let readyEligible = eligible()
+        #expect(readyEligible.count == 1, "a delta after the session baseline was swallowed before tree readiness")
+        #expect(AttentionBannerLifecycle.posts(previous: unreadyItems, current: readyItems,
+                                               eligibleRequests: readyEligible).count == 1,
+                "the lifecycle diff discarded a request already observed while unready")
+        #expect(eligible().isEmpty, "the deferred request posted twice")
+    }
+
+    @Test func clearedOrReplayedPendingRequestsDoNotPost() throws {
+        let store = try Self.connectedStore()
+        Self.tree(store)
+        Self.state(store, mark: nil)
+        var baseline = AttentionTabsWatch.SnapshotBaseline()
+        func eligible() -> Set<String> { baseline.eligibleRequests([.init(machine: "local", store: store)]) }
+        #expect(eligible().isEmpty)
+        store.connectionEpoch += 1
+        store.session.connected(servesStateResources: true)
+        Self.state(store, mark: nil)
+        Self.mark(store, at: 2_000)
+        #expect(eligible().isEmpty)
+        store.session.apply(.delta([.tab("tab_test", .init())]), in: store)
+        Self.tree(store)
+        #expect(eligible().isEmpty, "a cleared pending request posted")
+        store.session.apply(.ended(reason: "replay"), in: store)
+        Self.state(store, mark: 3_000)
+        #expect(eligible().isEmpty, "replayed baseline posted as a new request")
+    }
+
+    @Test func lateTreeWithNoRetainedModelsKeepsOnlyPostSnapshotRequests() throws {
+        let store = try Self.connectedStore()
+        var baseline = AttentionTabsWatch.SnapshotBaseline()
+        #expect(baseline.eligibleRequests([.init(machine: "local", store: store)]).isEmpty)
+        Self.state(store, mark: 1_000)
+        Self.mark(store, at: 2_000)
+        #expect(baseline.eligibleRequests([.init(machine: "local", store: store)]).isEmpty)
+        Self.tree(store)
+        let current = AttentionTabsWatch.Snapshot(machine: "local", store: store)
+        let eligible = baseline.eligibleRequests([current])
+        #expect(eligible.count == 1, "a delta before the tab model existed was lost")
+        #expect(AttentionBannerLifecycle.posts(previous: [], current: current.items,
+                                               eligibleRequests: eligible).first?.atMs == 2_000)
+        #expect(baseline.eligibleRequests([current]).isEmpty)
+    }
+
 }
