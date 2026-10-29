@@ -1,0 +1,27 @@
+# DO NOT MERGE. A no-secret probe of Developer ID-style signing on owned Macs (errSecInternalComponent, run 40920248555).
+name: zz owned signing probe
+on:
+  pull_request:
+    paths: [".github/workflows/zz-owned-signing-probe.yml", "scripts/ci/zz-owned-signing-probe.sh"]
+permissions:
+  contents: read
+jobs:
+  probe:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: ["glaeda-side-std-xcode-26.6", "glaeda-session-light-xcode-26.6", "blacksmith-6vcpu-macos-26"]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Context
+        run: |
+          set -x
+          sw_vers; id; launchctl managername; echo "HOME=$HOME"
+          security list-keychains -d user; security default-keychain -d user
+          launchctl print "gui/$(id -u)" >/dev/null 2>&1 && echo "gui domain reachable" || echo "no gui domain"
+      - name: Probe
+        run: bash scripts/ci/zz-owned-signing-probe.sh
