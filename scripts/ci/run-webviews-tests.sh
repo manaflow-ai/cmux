@@ -359,8 +359,11 @@ echo "running $count webviews test files${shard_note}, $pool_note ($serial dev s
 if [ "$plain_jobs" -ge 1 ] && [ -s "$results/browser" ] && [ -s "$results/plain" ]; then
   xargs -0 -P "$browser_jobs" -I{} bash "$self" --one {} "$results" "$timeout_seconds" < "$results/browser" &
   browser_pool=$!
-  xargs -0 -P "$plain_jobs" -I{} bash "$self" --one {} "$results" "$timeout_seconds" < "$results/plain"
+  # A failed plain pool still waits for the browser pool, so no worker outlives the results directory.
+  plain_status=0
+  xargs -0 -P "$plain_jobs" -I{} bash "$self" --one {} "$results" "$timeout_seconds" < "$results/plain" || plain_status=$?
   wait "$browser_pool"
+  [ "$plain_status" -eq 0 ] || exit "$plain_status"
 else
   if [ -s "$results/plain" ]; then
     xargs -0 -P "$jobs" -I{} bash "$self" --one {} "$results" "$timeout_seconds" < "$results/plain"
