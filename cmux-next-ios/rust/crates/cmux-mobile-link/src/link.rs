@@ -207,6 +207,15 @@ enum Next {
 
 /// One stream's outgoing frames, by priority.
 #[derive(Default)]
+/// What became of a data frame [`Outbox::push_data`] was given.
+enum Pushed {
+    Queued,
+    /// The writer is gone.
+    Shutdown,
+    /// Its channel closed while it waited for room.
+    ChannelClosed,
+}
+
 struct Outbox {
     queues: Mutex<Queues>,
     /// Wakes the writer.
@@ -254,8 +263,9 @@ impl Outbox {
     }
 
     /// Queue a channel's data frame, waiting while that channel already
-    /// has [`CHANNEL_QUEUE_BYTES`] queued. `false` once the writer is gone.
-    async fn push_data(&self, class: Class, frame: Frame) -> bool {
+    /// has [`CHANNEL_QUEUE_BYTES`] queued. Gives up once the writer is gone
+    /// or the channel is `closed` (its close wakes the wait).
+    async fn push_data(&self, class: Class, frame: Frame, closed: &AtomicBool) -> Pushed {
         loop {
             let room = self.room.notified();
             tokio::pin!(room);
@@ -263,14 +273,17 @@ impl Outbox {
             {
                 let mut queues = self.lock();
                 if queues.shutdown {
-                    return false;
+                    return Pushed::Shutdown;
+                }
+                if closed.load(Ordering::Acquire) {
+                    return Pushed::ChannelClosed;
                 }
                 let used = queues.bytes.get(&frame.channel).copied().unwrap_or(0);
                 if used == 0 || used + frame.payload.len() <= CHANNEL_QUEUE_BYTES {
                     Self::enqueue(&mut queues, class, frame);
                     drop(queues);
                     self.ready.notify_one();
-                    return true;
+                    return Pushed::Queued;
                 }
             }
             room.await;
@@ -956,12 +969,14 @@ impl ChannelSender {
         let mut rest = data;
         while !rest.is_empty() {
             let chunk = rest.split_to(rest.len().min(DATA_CHUNK));
-            if self.inner.closed_reason().is_some()
-                || !self.inner.outboxes[self.stream]
-                    .push_data(self.class, Frame::new(self.id, FrameType::Data, chunk))
-                    .await
-            {
+            if self.inner.closed_reason().is_some() {
                 return Err(self.inner.closed_error());
+            }
+            let frame = Frame::new(self.id, FrameType::Data, chunk);
+            match self.inner.outboxes[self.stream].push_data(self.class, frame, &self.closed).await {
+                Pushed::Queued => {}
+                Pushed::Shutdown => return Err(self.inner.closed_error()),
+                Pushed::ChannelClosed => return Err(LinkError::ChannelClosed),
             }
         }
         Ok(())
@@ -976,6 +991,8 @@ impl ChannelSender {
         self.inner.lock_channels().remove(&self.id);
         let payload = serde_json::to_vec(&CloseInfo::new(code, reason)).expect("close serializes");
         let _ = self.inner.push(self.stream, self.class, Frame::new(self.id, FrameType::Close, payload));
+        // A send of this channel waiting for room gives up now, not when the link moves again.
+        self.inner.outboxes[self.stream].room.notify_waiters();
     }
 }
 
