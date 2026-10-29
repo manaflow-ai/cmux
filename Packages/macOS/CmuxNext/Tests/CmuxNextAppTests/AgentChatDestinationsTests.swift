@@ -135,6 +135,38 @@ struct AgentChatDestinationsTests {
 /// fixture data; no remote account or peer process is needed to check routing and refusals.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
 struct AgentChatDestinationActionTests {
+    @Test func aLocalDestinationDoesNotWaitForPeerOrCloudInventory() async throws {
+        try await AgentChatActionFixture.withApp { services, _ in
+            services.agentTabs.localHost = AgentSessionRef.host(installID: "local-fast-path-fixture")
+            try #require(services.agentTabs.canHostChat, "this build has no agent page")
+            let neverPeers: () async throws -> [AgentChatPeer] = {
+                try await withCheckedThrowingContinuation { (_: CheckedContinuation<[AgentChatPeer], Error>) in }
+            }
+            let neverCloud: () async -> AgentPaneCloudMachines.Inventory = {
+                await withCheckedContinuation { (_: CheckedContinuation<AgentPaneCloudMachines.Inventory, Never>) in }
+            }
+            let source = AgentChatDestinations(localTitle: "This Mac", peers: neverPeers, cloud: neverCloud)
+            let pane = try #require(services.windows.active?.focusedPane)
+            let before = Set(PasswordManagerRouteTests.tabs(services).map(\.id))
+            let invocation = ActionInvocation(arguments: ["host": .string("local"), "cwd": .string(AgentChatActionFixture.localCwd)], origin: .cli)
+            let result = try await withThrowingTaskGroup(of: Result<[String: ActionResultValue], ActionWorkFailure>.self) { group in
+                group.addTask {
+                    await AgentHandlers.createOnHost("local", invocation: invocation,
+                        destinations: source, context: AppActionContext(services: services))
+                }
+                group.addTask {
+                    try await Task.sleep(for: .seconds(2))
+                    throw CancellationError()
+                }
+                defer { group.cancelAll() }
+                return try await #require(group.next())
+            }
+            _ = pane
+            let created = try await AgentChatActionFixture.created(in: services, after: before, fields: result.get())
+            #expect(services.agentTabs.view(for: created.id) != nil)
+        }
+    }
+
     @Test(arguments: [false, true])
     func cloudPlacementUsesWindowFocusBeforeDaemonRecency(away: Bool) async throws {
         try await AgentChatActionFixture.withApp { services, _ in
