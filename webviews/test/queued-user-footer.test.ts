@@ -155,6 +155,7 @@ await requireBrowserLane("queued-user-footer.test.ts", async () => {
       viewport: { width: 880, height: 650 },
     });
     const page = await context.newPage();
+    await page.clock.setFixedTime(start + 120_000);
     const address = vite.httpServer!.address() as { port: number };
     const endpoint = encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`);
     await page.goto(`http://127.0.0.1:${address.port}/#endpoint=${endpoint}&token=t&session=${SESSION}`);
