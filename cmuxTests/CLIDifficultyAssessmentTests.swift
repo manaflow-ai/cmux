@@ -41,13 +41,20 @@ import Testing
     }
 
     /// Auto-naming's call and this one run one after the other in the same async `Stop` hook,
-    /// and a call that overruns takes up to 3 more seconds to kill. Both fit in the hook's 120 s.
+    /// with this pass's wait for the turn's reply before its call, and a call that overruns
+    /// takes up to 3 more seconds to kill. All of it fits in the hook's 120 s.
     @Test func bothTurnEndCallsFitInTheAsyncHookTimeout() {
         let killGrace: TimeInterval = 3
-        #expect(DifficultyAssessmentConfig.llmTimeout == 30)
-        #expect(DifficultyAssessmentConfig.inFlightExpiry == 45)
-        #expect(AutoNamingConfig().llmTimeout + killGrace + DifficultyAssessmentConfig.llmTimeout + killGrace < 120)
-        #expect(DifficultyAssessmentConfig.inFlightExpiry > DifficultyAssessmentConfig.llmTimeout + killGrace)
+        let config = DifficultyAssessmentConfig.self
+        #expect(config.llmTimeout == 30)
+        #expect(config.inFlightExpiry == 45)
+        #expect(config.replyWait == 5)
+        #expect(config.replyPollInterval == 0.2)
+        // The wait can end one poll late, after one more read of the transcript.
+        let replyWait = config.replyWait + config.replyPollInterval
+        #expect(AutoNamingConfig().llmTimeout + killGrace + replyWait + config.llmTimeout + killGrace < 120)
+        // The wait comes before the in-flight mark, so the expiry only covers the call.
+        #expect(config.inFlightExpiry > config.llmTimeout + killGrace)
     }
 
     @Test func parseAcceptsOneWordWithPunctuation() {
@@ -91,6 +98,30 @@ import Testing
             AutoNamingTranscriptMessage(role: "user", text: "u2"),
         ]
         #expect(Engine.excerpt(from: messages) == nil)
+    }
+
+    /// Claude Code's `Stop` input carries the turn's final reply as `last_assistant_message`.
+    @Test func stopReplyReadsTheStopInput() {
+        #expect(Engine.stopReply(fromHookInput: ["last_assistant_message": "  Done.\nAll tests pass.\n"]) == "Done.\nAll tests pass.")
+        #expect(Engine.stopReply(fromHookInput: ["lastAssistantMessage": "Done."]) == "Done.")
+        #expect(Engine.stopReply(fromHookInput: ["last_assistant_message": " \n "]) == nil)
+        #expect(Engine.stopReply(fromHookInput: ["last_assistant_message": 3]) == nil)
+        #expect(Engine.stopReply(fromHookInput: ["session_id": "s1"]) == nil)
+        #expect(Engine.stopReply(fromHookInput: nil) == nil)
+    }
+
+    /// With the `Stop` input's reply, the user excerpt is the last user message on disk, whatever
+    /// reply the transcript holds yet.
+    @Test func stopReplyExcerptPairsItWithTheLastUserMessage() {
+        let messages = [
+            AutoNamingTranscriptMessage(role: "user", text: "u1"),
+            AutoNamingTranscriptMessage(role: "assistant", text: "a1"),
+            AutoNamingTranscriptMessage(role: "user", text: "u2"),
+        ]
+        let pair = Engine.excerpt(from: messages, stopReply: "a2")
+        #expect(pair?.user == "u2")
+        #expect(pair?.assistant == "a2")
+        #expect(Engine.excerpt(from: [AutoNamingTranscriptMessage(role: "assistant", text: "a1")], stopReply: "a2") == nil)
     }
 
     @Test func throttleWaitsTheMinInterval() {

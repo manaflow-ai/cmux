@@ -51,12 +51,13 @@ extension CMUXCLI {
             return
         }
 
-        // `extractMessages` drops blank messages, so an excerpt is never blank.
+        // The raw input: the parsed `object` cuts `last_assistant_message` to 240 characters.
         guard let transcriptPath = parsedInput.transcriptPath ?? mappedSession?.transcriptPath,
-              let lines = readRecentTextFileLines(path: transcriptPath, maxBytes: 512 * 1024),
-              !lines.isEmpty else { return }
-        let messages = AutoNamingEngine().extractMessages(fromTranscriptLines: lines)
-        guard let excerpt = DifficultyAssessmentEngine.excerpt(from: messages) else { return }
+              let excerpt = claudeDifficultyTurnExcerpt(
+                  transcriptPath: transcriptPath,
+                  stopReply: DifficultyAssessmentEngine.stopReply(fromHookInput: parsedInput.rawObject),
+                  telemetry: telemetry
+              ) else { return }
 
         // Not the hook session store: `SessionEnd` removes that record on every
         // Claude restart, including the one a rating causes.
@@ -112,5 +113,38 @@ extension CMUXCLI {
             return
         }
         telemetry.breadcrumb("claude-hook.difficulty.applied")
+    }
+
+    /// This turn's last user message and its reply, or `nil` when there is
+    /// nothing to rate.
+    ///
+    /// The reply is the one the `Stop` input carries. Without it, the reply is
+    /// read from the transcript, which Claude Code writes just after this async
+    /// hook starts: the transcript is read again every 200 ms, for at most
+    /// 5 seconds, until an assistant message follows the last user message. A
+    /// reply that never comes skips the turn, so a prompt is never rated with
+    /// an earlier turn's reply.
+    private func claudeDifficultyTurnExcerpt(
+        transcriptPath: String,
+        stopReply: String?,
+        telemetry: CLISocketSentryTelemetry
+    ) -> (user: String, assistant: String)? {
+        let deadline = Date().addingTimeInterval(DifficultyAssessmentConfig.replyWait)
+        while true {
+            // `extractMessages` drops blank messages, so an excerpt is never blank.
+            guard let lines = readRecentTextFileLines(path: transcriptPath, maxBytes: 512 * 1024) else { return nil }
+            let messages = AutoNamingEngine().extractMessages(fromTranscriptLines: lines)
+            if let stopReply {
+                return DifficultyAssessmentEngine.excerpt(from: messages, stopReply: stopReply)
+            }
+            guard messages.contains(where: { $0.role == "user" }) else { return nil }
+            if let excerpt = DifficultyAssessmentEngine.excerpt(from: messages) { return excerpt }
+            let remaining = deadline.timeIntervalSinceNow
+            guard remaining > 0 else {
+                telemetry.breadcrumb("claude-hook.difficulty.no-reply")
+                return nil
+            }
+            Thread.sleep(forTimeInterval: min(DifficultyAssessmentConfig.replyPollInterval, remaining))
+        }
     }
 }
