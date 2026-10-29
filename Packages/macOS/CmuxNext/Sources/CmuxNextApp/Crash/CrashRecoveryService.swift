@@ -231,7 +231,8 @@ final class CrashRecoveryService {
                                         info: [String: Any] = Bundle.main.infoDictionary ?? [:]) -> CrashIssueReport {
         let log = systemLog ?? systemCrashLog(after: previous.launched)
         let system = log.flatMap { try? Data(blockingContentsOf: $0) }.flatMap(SystemCrashReport.init(data:))
-        let symbolicator = StackSymbolicator()
+        // The app's own map (release builds strip the executable's names); read here, off main, as the files above.
+        let symbolicator = StackSymbolicator(map: AppSymbolMap.loadMain())
         // The crashed build, not this one: an update may have installed since. A marker from before
         // these fields names it through macOS's report; this build's commit only when that is this build.
         let running = info["CMUXCommit"] as? String

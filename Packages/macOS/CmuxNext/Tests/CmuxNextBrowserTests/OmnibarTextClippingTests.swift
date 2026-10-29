@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextBrowser
 import CmuxNextDesign
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -69,7 +70,7 @@ struct OmnibarTextClippingTests {
     // MARK: Address text
 
     private func bar(_ url: URL, security: BrowserSecurityState) -> (AddressBarView, NSWindow) {
-        let bar = AddressBarView()
+        let bar = AddressBarView(mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         let window = window(NSSize(width: 900, height: 80))
         window.contentView!.addSubview(bar)
         NSLayoutConstraint.activate([

@@ -133,7 +133,7 @@ final class CaptureSceneRegistry {
         }
 
         let sceneAction = await applySceneAction(definition.name)
-        let actionReadiness: JSONValue
+        let actionReadiness: CmuxNextSettings.JSONValue
         if isHome {
             actionReadiness = await showHomeChief(windowID: targetWindowID, longDraft: definition.name == Self.homeChiefLongDraftScene)
         } else if isTaskManager {
@@ -244,7 +244,7 @@ final class CaptureSceneRegistry {
     /// `energy-saver`: Low Power Mode laid over the Mac's inputs through the app's one
     /// energy monitor (`debug.energy.simulate`), so the policy driver turns the saver on as it would on
     /// a real Mac; then the active sidebar's leaf card opens and the scene waits until both show.
-    private func showEnergySaver() async -> JSONValue {
+    private func showEnergySaver() async -> CmuxNextSettings.JSONValue {
         guard services.energy.driver.isEnabled else {
             return .object(["error": .string("feature energySaver is off: launch with CMUX_ENABLE_FEATURES=energySaver")])
         }
@@ -266,7 +266,7 @@ final class CaptureSceneRegistry {
             window: 100,
             deadline: 3_000,
         )
-        var report = sidebar.debugEnergyCardState().mapValues { JSONValue.string($0) }
+        var report = sidebar.debugEnergyCardState().mapValues { CmuxNextSettings.JSONValue.string($0) }
         report["energy_frames"] = frames.stop()
         if settled == nil { report["error"] = .string("the Energy Saver leaf or its card did not show before the deadline") }
         return .object(report)
@@ -278,7 +278,7 @@ final class CaptureSceneRegistry {
     /// this Mac offers ("On Battery" only with a battery). Waits until the Settings page has painted
     /// (its paint is held until its reads finish) and its `energy.saver` row is in the page, then for
     /// the frames after it. The report says what the page leaves out; an error names what never showed.
-    private func showEnergySetting() async -> JSONValue {
+    private func showEnergySetting() async -> CmuxNextSettings.JSONValue {
         guard services.energy.driver.isEnabled else {
             return .object(["error": .string("feature energySaver is off: launch with CMUX_ENABLE_FEATURES=energySaver")])
         }
@@ -288,7 +288,7 @@ final class CaptureSceneRegistry {
         } catch {
             return .object(["error": .string(String(describing: error))])
         }
-        var report: [String: JSONValue] = ["availability": services.settingsAvailability.json]
+        var report: [String: CmuxNextSettings.JSONValue] = ["availability": services.settingsAvailability.json]
         let settingsWindow = services.settingsWindow
         frames.start()
         let painted = await frames.settled(until: { settingsWindow.shownPage?.hasPainted == true },
@@ -342,7 +342,7 @@ final class CaptureSceneRegistry {
     /// the tab the pane showed; fixture renderer readings (``HighEnergySceneReadings``) give it 8 % of a core over a
     /// whole window; then the pointer rests on it until its card shows "Using high energy" with Discard. The fixtures
     /// and the card's pointer stay until the next scene. An error names the step that never happened.
-    private func showHighEnergyTab() async -> JSONValue {
+    private func showHighEnergyTab() async -> CmuxNextSettings.JSONValue {
         guard let monitor = services.cache.hibernation?.highEnergy else {
             return .object(["error": .string("feature highEnergyTabs is off: launch with CMUX_ENABLE_FEATURES=highEnergyTabs")])
         }
@@ -380,7 +380,7 @@ final class CaptureSceneRegistry {
         TabStripDebug.pointerMoved(in: strip, to: center)
         let target = TabStripDebug.cardTarget(of: tab)
         let settled = await frames.settled(until: { coordinator.isShowing(target) }, start: .now, window: 300, deadline: 4_000)
-        var report: [String: JSONValue] = ["tab": .string(tab.rawValue), "card_text": .string(coordinator.report["card_text"] ?? ""),
+        var report: [String: CmuxNextSettings.JSONValue] = ["tab": .string(tab.rawValue), "card_text": .string(coordinator.report["card_text"] ?? ""),
                                            "high_energy_frames": frames.stop()]
         if settled == nil { report["error"] = .string("the hidden tab's card did not show before the deadline") }
         return .object(report)
@@ -391,7 +391,7 @@ final class CaptureSceneRegistry {
     /// `task-manager`: opens the Task Manager in window `windowID` with `taskManagerMemorySaved` on,
     /// over the app's sample plus ``TaskManagerFixtureSource/captureDiscarded``, then waits until its
     /// page is in the window and lists those pages. An error names what never appeared.
-    private func showTaskManager(windowID: String) async -> JSONValue {
+    private func showTaskManager(windowID: String) async -> CmuxNextSettings.JSONValue {
         guard let controller = services.windows.controllerBuildingIfWaiting(for: windowID) else {
             return .object(["error": .string("capture window is gone")])
         }
@@ -414,7 +414,7 @@ final class CaptureSceneRegistry {
             deadline: 5_000,
         )
         let snapshot = taskManager.model?.snapshot
-        var report: [String: JSONValue] = [
+        var report: [String: CmuxNextSettings.JSONValue] = [
             "task_manager_frames": frames.stop(),
             "rows": .number(Double(snapshot?.rows.count ?? 0)),
             "discarded": .number(Double(snapshot?.discarded.count ?? 0)),
@@ -429,7 +429,7 @@ final class CaptureSceneRegistry {
     /// `latency-hud`: publishes ``ActionLatencyHUD/captureInputs`` to the app's input latency feed, shows the action latency
     /// HUD over window `windowID` and waits until its input section lists them. The capture's floating windows
     /// include the panel. An error names what never appeared.
-    private func showLatencyHUD(windowID: String) async -> JSONValue {
+    private func showLatencyHUD(windowID: String) async -> CmuxNextSettings.JSONValue {
         guard let window = services.windows.controller(for: windowID)?.window else {
             return .object(["error": .string("capture window is gone")])
         }
@@ -445,7 +445,7 @@ final class CaptureSceneRegistry {
             window: 100,
             deadline: 5_000,
         )
-        var report: [String: JSONValue] = [
+        var report: [String: CmuxNextSettings.JSONValue] = [
             "latency_hud_frames": frames.stop(),
             "input_rows": .number(Double(hud.inputRows.count)),
             "action_rows": .number(Double(hud.rows.count)),

@@ -534,9 +534,10 @@ pub fn main() -> anyhow::Result<()> {
         stop();
     }
     {
-        let (task, dir) = (task.clone(), dir.clone());
+        let (spool_task, spool_dir) = (task.clone(), dir.clone());
         let spool_thread =
             cmux_threads::spawn(OUTPUT_THREAD, cmux_threads::ThreadQos::Utility, move || {
+                let (task, dir) = (spool_task, spool_dir);
                 let mut buf = vec![0u8; 64 << 10];
                 let mut failed = false;
                 loop {

@@ -368,7 +368,7 @@ pub(crate) struct HandoffReleases {
 }
 
 impl HandoffReleases {
-    fn note(&self) {
+    pub(super) fn note(&self) {
         *self.count.lock().recover_poison() += 1;
         self.released.notify_all();
     }

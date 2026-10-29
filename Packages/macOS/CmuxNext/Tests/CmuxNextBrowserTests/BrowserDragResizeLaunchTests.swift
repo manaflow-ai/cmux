@@ -1,4 +1,5 @@
 import CmuxNextDesign
+import CmuxNextWakeups
 import Foundation
 import Testing
 @testable import CmuxNextBrowser
@@ -14,7 +15,7 @@ struct BrowserDragResizeLaunchTests {
         try Data(#"{"version": 1, "values": {"browserResize.dragResize": "synced"}}"#.utf8).write(to: file)
         let store = TunableStore()
         store.register(BrowserResizeTunables.all)
-        store.activate(file: file)
+        store.activate(file: TunableStore.FileSource(url: file, landingOn: MainWorkScheduler(budget: MainFrameBudget())))
         // The store's own read lands on the main actor later; this turn has not yielded.
         #expect(store.settledOverride(BrowserResizeTunables.dragResize.key) == .choice("synced"))
     }
@@ -25,7 +26,7 @@ struct BrowserDragResizeLaunchTests {
         defer { try? FileManager.default.removeItem(at: file) }
         let store = TunableStore()
         store.register(BrowserResizeTunables.all)
-        store.activate(file: file)
+        store.activate(file: TunableStore.FileSource(url: file, landingOn: MainWorkScheduler(budget: MainFrameBudget())))
         #expect(store.settledOverride(BrowserResizeTunables.dragResize.key) == .choice("synced"))
         #expect(store.override(BrowserResizeTunables.dragResize.key) == .choice("synced"))
     }
@@ -37,7 +38,7 @@ struct BrowserDragResizeLaunchTests {
         defer { try? FileManager.default.removeItem(at: file) }
         let store = TunableStore()
         store.register(BrowserResizeTunables.all)
-        store.activate(file: file)
+        store.activate(file: TunableStore.FileSource(url: file, landingOn: MainWorkScheduler(budget: MainFrameBudget())))
         store.set(BrowserResizeTunables.dragResize.key, nil)
         #expect(store.settledOverride(BrowserResizeTunables.dragResize.key) == nil)
         try await Task.sleep(for: .milliseconds(300))  // the store's read lands on the main actor
@@ -50,7 +51,7 @@ struct BrowserDragResizeLaunchTests {
         defer { try? FileManager.default.removeItem(at: file) }
         let store = TunableStore()
         store.register(BrowserResizeTunables.all)
-        store.activate(file: file)
+        store.activate(file: TunableStore.FileSource(url: file, landingOn: MainWorkScheduler(budget: MainFrameBudget())))
         store.resetAll()
         #expect(store.settledOverride(BrowserResizeTunables.dragResize.key) == nil)
     }
@@ -64,7 +65,7 @@ struct BrowserDragResizeLaunchTests {
         let store = TunableStore()
         store.register(BrowserResizeTunables.all)
         BrowserResizeTunables.registerRenames(store)
-        store.activate(file: file)
+        store.activate(file: TunableStore.FileSource(url: file, landingOn: MainWorkScheduler(budget: MainFrameBudget())))
         #expect(store.settledOverride(BrowserResizeTunables.dragResize.key) == .choice(expected))
     }
 

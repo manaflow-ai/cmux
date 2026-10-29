@@ -270,6 +270,7 @@ final class HomeService {
         observeChiefEngine()
         // The team behind the list's teammate rows and New Message's To:, read again once the
         // launch restore signs in, on another account, and when the account's teams change.
+        let auth = services.cloudAuth
         directory.follow { [weak auth] in
             guard let auth, auth.isSignedIn, let user = auth.user?.id else { return nil }
             return user + "|" + auth.activeTeam.teams.map(\.id).sorted().joined(separator: ",")

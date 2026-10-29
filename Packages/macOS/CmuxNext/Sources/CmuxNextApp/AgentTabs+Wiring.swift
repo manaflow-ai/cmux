@@ -2,11 +2,11 @@ import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextCloud
 import CmuxNextCompat
-import CmuxNextCloud
 import CmuxNextDaemon
 import CmuxNextFeatures
 import CmuxNextFloating
 import CmuxNextHomeEngine
+import CmuxNextRemote
 import struct CmuxNextLayout.MainPaneLayout
 import CmuxNextWakeups
 import Foundation
@@ -120,7 +120,8 @@ extension AgentTabStore {
                                  mainThread: AgentPaneMainThread(deadlines: services.mainDeadlines, appEvents: services.appEvents,
                                                                  workspaceEvents: services.workspaceEvents),
                                  chatStores: state.map { AgentPaneChatStores(directory: $0) } ?? .keepsNothing,
-                                 daemonFeatures: services.features.daemonEnvironment)
+                                 daemonFeatures: services.features.daemonEnvironment,
+                                 peerUpdates: RemoteInstaller(paths: .standard(bundleID: Bundle.main.bundleIdentifier), work: services.work))
         (tabs.launchImages, tabs.pullRequestReader) = (services.launchImages, services.pullRequests.reader)
         tabs.agentAvatars = AgentAvatars(uploads: services.chiefAvatarUploads, openPanel: services.openPanel)
         tabs.pageShown = { [weak services] in services?.home.launchFeeds?.need() }  // the New Tab feeds right after the first frame
@@ -196,8 +197,8 @@ extension AgentTabStore {
                 return tabs.openTab(in: target, session: session, select: placed == nil) { [weak services, weak tabs] key in
                     // task-owner: one creation reply; ends after tree arrival, cancellation or the mirror deadline
                     Task { [weak services, weak tabs] in
-                        guard let tabs else { return }
-                        await TabMirror.performWhenReached(key, in: tabs.locate) {
+                        guard let tabs, let mainWork = services?.mainWork else { return }
+                        await TabMirror.performWhenReached(key, in: tabs.locate, on: mainWork) {
                             if let placed { if let surface = services?.locateTab(key)?.0.surface { placed(surface) }; return }
                             _ = tabs.actionRegistry?.perform("tab.focus", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: key), origin: .user))
                         }

@@ -170,12 +170,12 @@ import CmuxNextWakeups
         controller.close()
         let open = Self.fastest {
             controller.show(host: tab, handler: handler, anchor: anchor)
+            controller.close()
+        }
         if let results = try PerfResultWriter() {
             try results.record("swift.extensions_menu.prepare", unit: .ms, samples: [Self.milliseconds(prepare)])
             try results.record("swift.extensions_menu.first_open", unit: .ms, samples: [Self.milliseconds(first)])
             try results.record("swift.extensions_menu.open", unit: .ms, samples: [Self.milliseconds(open)])
-        }
-            controller.close()
         }
         calibration.checkpoint()
         print("TOOLBAR-PERF extensions.prepare=\(Self.milliseconds(prepare)) ms extensions.firstOpen=\(Self.milliseconds(first)) ms "

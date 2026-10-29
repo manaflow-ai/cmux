@@ -28,7 +28,7 @@ struct LaunchSnapshotWindow {
         let id = UUID().uuidString.lowercased()
         manager.launchWindowID = id
         // Where the front window last was (#25568): the restore moves it there when it adopts no saved window.
-        let last = manager.services.daemon.launchSnapshotWindows
+        let last = manager.services.daemon.launchSnapshot.windows
         manager.makeController(for: WindowRegistry.Window(id: id, frame: last?.lastFrame?.rect, display: last?.lastDisplay))
     }
 
@@ -63,7 +63,7 @@ struct LaunchSnapshotWindow {
         let id = UUID().uuidString.lowercased()
         manager.launchWindowID = id
         manager.registry.provisional[id] = workspaces
-        let last = manager.services.daemon.launchSnapshotWindows
+        let last = manager.services.daemon.launchSnapshot.windows
         manager.makeController(for: WindowRegistry.Window(id: id, frame: last?.lastFrame?.rect, display: last?.lastDisplay))
         DebugTimings.markLaunch("launch_snapshot_shown")
         return true

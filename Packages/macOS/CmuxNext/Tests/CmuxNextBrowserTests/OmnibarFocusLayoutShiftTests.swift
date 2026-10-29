@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextBrowser
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -11,7 +12,7 @@ struct OmnibarFocusLayoutShiftTests {
     private let address = "https://github.com/manaflow-ai/cmuxterm-hq"
 
     private func bar() -> (AddressBarView, NSWindow) {
-        let bar = AddressBarView()
+        let bar = AddressBarView(mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 80), styleMask: [.titled], backing: .buffered, defer: false)
         window.contentView!.addSubview(bar)
         NSLayoutConstraint.activate([

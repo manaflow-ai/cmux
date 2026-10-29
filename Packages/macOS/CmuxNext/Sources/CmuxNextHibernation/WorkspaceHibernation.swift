@@ -22,8 +22,9 @@ public protocol WorkspaceHibernationHost: AnyObject {
 public nonisolated protocol WorkspaceHibernationDeadline: AnyObject, Sendable {
     /// True while a deadline is pending.
     var isScheduled: Bool { get }
-    /// Runs `action` once after `delay`, replacing any pending deadline.
-    func schedule(after delay: Duration, _ action: @escaping @isolated(any) @Sendable () async -> Void)
+    /// Runs `action` once after `delay` (within `tolerance`; nil: the timer's own), replacing any
+    /// pending deadline. The App's `DemandTimer` has this shape.
+    func schedule(after delay: Duration, tolerance: Duration?, _ action: @escaping @isolated(any) @Sendable () async -> Void)
     /// Drops the pending deadline.
     func cancel()
 }
@@ -198,6 +199,6 @@ public final class WorkspaceHibernation {
     }
 
     private func schedulePass(after delay: Duration) {
-        deadline.schedule(after: delay) { @MainActor [weak self] in self?.pass() }
+        deadline.schedule(after: delay, tolerance: nil) { @MainActor [weak self] in self?.pass() }
     }
 }

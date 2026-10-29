@@ -150,7 +150,7 @@ extension SettingsWindowService {
     /// caller does not own is never asked. `busy` (the switch disabled) while a set runs or the
     /// machine is not reachable now.
     func vmHostRow(_ row: JSONValue, id: String) -> JSONValue {
-        guard case .object(var members) = row, let reach = vmHostReach(id) else { return row }
+        guard let services, case .object(var members) = row, let reach = vmHostReach(id) else { return row }
         let owns = services.machines.session(id)?.link?.ownership.callerOwnsVM == true
         let store = services.cloudVmHost
         let entry = owns ? store.state(id, readable: reach) : nil
@@ -177,7 +177,7 @@ extension SettingsWindowService {
     /// Cloud machine on the legacy link with exec). The row and every set ask this, so a switch
     /// drawn while connected never execs (or wakes the machine) once it is not.
     func vmHostReach(_ id: String) -> Bool? {
-        guard let session = services.machines.session(id), session.appLink == nil,
+        guard let services, let session = services.machines.session(id), session.appLink == nil,
               session.machine.allows(.exec) else { return nil }
         guard !services.machines.isFeatureDisabled(.cloud) else { return false }
         if case .connected = session.daemon.store.connectionState { return true }

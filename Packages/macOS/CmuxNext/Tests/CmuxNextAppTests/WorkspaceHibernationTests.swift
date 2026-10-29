@@ -30,7 +30,7 @@ import Testing
     /// A deadline that never fires: each test runs its passes itself.
     final class Deadline: WorkspaceHibernationDeadline, @unchecked Sendable { // test-only; touched on the main actor alone
         var isScheduled = false
-        func schedule(after delay: Duration, _ action: @escaping @isolated(any) @Sendable () async -> Void) { isScheduled = true }
+        func schedule(after delay: Duration, tolerance: Duration?, _ action: @escaping @isolated(any) @Sendable () async -> Void) { isScheduled = true }
         func cancel() { isScheduled = false }
     }
 

@@ -11,8 +11,9 @@ enum TabMirror {
     private static let owner = "TabMirror.reaches"
 
     /// A creation reply is not yet a usable placement target until its tree has the tab.
-    @MainActor static func performWhenReached(_ key: String, in locate: @escaping Locate, perform: @MainActor () -> Void) async {
-        guard await reaches(key, in: locate), !Task.isCancelled else { return }
+    @MainActor static func performWhenReached(_ key: String, in locate: @escaping Locate, on mainWork: MainWorkScheduler,
+                                              perform: @MainActor () -> Void) async {
+        guard await reaches(key, in: locate, on: mainWork), !Task.isCancelled else { return }
         perform()
     }
 

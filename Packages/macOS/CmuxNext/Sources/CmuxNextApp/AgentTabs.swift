@@ -251,7 +251,8 @@ final class AgentTabStore {
     init(build: BuildIdentity?, registry: ActionRegistry, work: any MayBlockRunner, webUI: WebUIHost, input: InputEventTap, environment: [String: String] = ProcessInfo.processInfo.environment,
          showcase: Bool = false, linkScheme: String? = nil, settings: SettingsController? = nil,
          openPanel: MadeAheadOpenPanel? = nil, warmup: AgentPageWarmup? = nil, chromiumChat: @escaping @MainActor () -> Bool = { true }, defaults: UserDefaults = .standard,
-         mainThread: AgentPaneMainThread? = nil, chatStores: AgentPaneChatStores = .keepsNothing, daemonFeatures: [String: String] = [:]) {
+         mainThread: AgentPaneMainThread? = nil, chatStores: AgentPaneChatStores = .keepsNothing, daemonFeatures: [String: String] = [:],
+         peerUpdates: RemoteInstaller? = nil) {
         gestureRouter = AgentPaneGestureRouter(input: input)
         let mainThread = mainThread ?? .standalone()
         mainWork = mainThread.mainWork
@@ -274,8 +275,8 @@ final class AgentTabStore {
         // task-owner: once per store; ends after the prewarm and the one peer-update offer
         Task {
             try? await resolvedHost.prewarm()
-            guard resolvedHost is AcpmuxHost else { return }
-            let installer = RemoteInstaller(paths: .standard(bundleID: Bundle.main.bundleIdentifier))
+            // The installer on the app's blocking-work lanes (``wired(to:)``); none (a test's store): no offer.
+            guard resolvedHost is AcpmuxHost, let installer = peerUpdates else { return }
             DaemonUpdatePolicy.startOnce(build: build, environment: environment) { try await installer.download(artifact: $0, nextTo: $1) }
         }
         #if DEBUG || CMUX_BENCH_HOOKS

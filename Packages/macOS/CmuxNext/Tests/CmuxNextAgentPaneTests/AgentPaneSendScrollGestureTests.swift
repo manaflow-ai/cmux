@@ -30,7 +30,7 @@ struct AgentPaneSendScrollGestureTests {
     }
 
     @Test func sharedPageHostRejectsTheSettingWithoutItsUserGestureContext() async throws {
-        let provider = AgentPageProvider { _ in nil }
+        let provider = AgentPageProvider(mainWork: AgentPaneMainThread.standalone().mainWork) { _ in nil }
         let params: JSONValue = .object(["show": .bool(false)])
         do {
             _ = try await provider.call(
@@ -50,7 +50,7 @@ struct AgentPaneSendScrollGestureTests {
         let model = AgentPaneModel(host: NoHost())
         var writes = 0
         model.onComposerSetting = { _, _ in writes += 1 }
-        let provider = AgentPageProvider { _ in model }
+        let provider = AgentPageProvider(mainWork: AgentPaneMainThread.standalone().mainWork) { _ in model }
         let result = try await provider.call(
             AgentPageOps.namespace + "pane.setScrollToBottomOnSend",
             params: .object(["show": .bool(false)]),
