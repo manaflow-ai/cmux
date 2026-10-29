@@ -109,13 +109,15 @@ fi
 TWIN_SUFFIX = "-blacksmith"
 # Signing jobs whose twin also signs when the owned attempt passed its claim and then failed, with the condition that
 # says it failed. sign-nightly-identity-legacy runs with continue-on-error, so its result reads success after a failed
-# step; signed_ok (true only when every step passed) says, unless the old feed already had the build (skip). On
+# step; signed_ok (true only when every step passed) says, unless the old feed already had the build (skip) or Apple
+# already holds its submission (pending: a second signer would submit it again). On
 # 2026-10-29 it failed codesign on a mini after its claim (errSecInternalComponent) and, its twin skipped, the run
 # published nothing to the old feed. The other twins sign only after a refused claim: release and the v0.64.25 repair
 # publish from inside the signing job, so a second signer after a failed one could publish twice.
 FALLBACK_ON_FAILURE = {
     ("nightly.yml", "sign-nightly-identity-legacy"):
-        "needs.{name}.outputs.signed_ok != 'true' && needs.{name}.outputs.skip != 'true'",
+        "needs.{name}.outputs.signed_ok != 'true' && needs.{name}.outputs.skip != 'true' && "
+        "needs.{name}.outputs.pending != 'true'",
 }
 # The hook from before the leftover-process check (glaeda before #1738): the gate refuses it.
 OLD_HOOK = "fb0442d31e23f01326118b7d6be2effd0ba91bff9a0b59c62016c39bc23116da"
@@ -379,6 +381,9 @@ class LegacyTwinAfterAFailedOwnedSign(unittest.TestCase):
         # Still in Apple's queue counts as signed (signed_ok true), so the pending submission is not repeated.
         self.assertFalse(self.run_twin(claim="owned", skip="false", signed_ok="true", pending="true"))
         self.assertFalse(self.run_twin(claim="owned", skip="true"), "the old feed already has the build")
+        # Apple holds the submission but a later step (an upload, the record) failed: never submit it again.
+        self.assertFalse(self.run_twin(claim="owned", skip="false", pending="true", signed_ok="false"))
+        self.assertFalse(self.run_twin(claim="owned", skip="false", pending="true"))
 
     def test_readers_take_the_twins_outputs_whenever_it_ran(self) -> None:
         env = self.jobs["verify-nightly-identity-legacy"]["env"]

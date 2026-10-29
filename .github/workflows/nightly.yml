@@ -7120,9 +7120,9 @@ jobs:
 
   sign-nightly-identity-legacy-blacksmith:
     needs: [decide, build-nightly-app, legacy-identity-target, pick-nightly-sign-runner, sign-nightly-identity-legacy]
-    # Signs in this run when the owned attempt never passed its claim gate, or failed after it (its result
-    # reads success under continue-on-error, so signed_ok says; 2026-10-29 errSecInternalComponent on a mini).
-    if: "!cancelled() && github.run_attempt == 1 && needs.pick-nightly-sign-runner.outputs.sign_owned != '' && needs.sign-nightly-identity-legacy.result != 'skipped' && needs.sign-nightly-identity-legacy.result != 'cancelled' && (needs.sign-nightly-identity-legacy.outputs.claim != 'owned' || needs.sign-nightly-identity-legacy.outputs.signed_ok != 'true' && needs.sign-nightly-identity-legacy.outputs.skip != 'true')"
+    # Signs when the owned attempt never passed its claim gate, or failed after it with no submission at
+    # Apple (signed_ok, as continue-on-error reads a failure as success).
+    if: "!cancelled() && github.run_attempt == 1 && needs.pick-nightly-sign-runner.outputs.sign_owned != '' && needs.sign-nightly-identity-legacy.result != 'skipped' && needs.sign-nightly-identity-legacy.result != 'cancelled' && (needs.sign-nightly-identity-legacy.outputs.claim != 'owned' || needs.sign-nightly-identity-legacy.outputs.signed_ok != 'true' && needs.sign-nightly-identity-legacy.outputs.skip != 'true' && needs.sign-nightly-identity-legacy.outputs.pending != 'true')"
     continue-on-error: true
     environment: release-next
     concurrency: *sign-nightly-identity-legacy-concurrency
