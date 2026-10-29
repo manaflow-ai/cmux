@@ -11,10 +11,10 @@ import Testing
 /// (`scripts/cmux-next/pin-cmux-tui.sh fetch`; `path` names it).
 nonisolated enum SameTreeDaemonBinary {
     static let url: URL? = {
-        // A CI lane that resolved (and fetched) the tree once names it here.
-        if let path = ProcessInfo.processInfo.environment["CMUX_NEXT_TUI_TREE_PATH"], !path.isEmpty,
-           FileManager.default.isExecutableFile(atPath: path) {
-            return URL(fileURLWithPath: path)
+        // A CI lane that resolved (and fetched) the tree once names it here. A path that is no
+        // binary means the lane has none: the suites skip, and nothing looks again (as RealBinary.sameTree).
+        if let path = ProcessInfo.processInfo.environment["CMUX_NEXT_TUI_TREE_PATH"], !path.isEmpty {
+            return FileManager.default.isExecutableFile(atPath: path) ? URL(fileURLWithPath: path) : nil
         }
         var root = URL(fileURLWithPath: #filePath)
         for _ in 0..<6 { root.deleteLastPathComponent() }

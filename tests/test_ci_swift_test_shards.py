@@ -191,6 +191,26 @@ class Workflow(unittest.TestCase):
         self.assertIn("--exclude CmuxNextControlTests", broad["run"])
         self.assertNotIn("swift-test-with-hang-sampler.sh --skip-build ${filter", broad["run"])
 
+    def test_every_shard_sees_the_same_tree_the_broad_pass_started_with(self) -> None:
+        # Run 40932106119: shards that started after a CmuxNextDaemonTests suite fetched the same-tree cmux-tui ran
+        # live-daemon suites the base's one process skipped. The tree is resolved once, after the changed-suites
+        # pass, and only the broad pass gets it (the changed-suites pass keeps its own lookup and fetch).
+        steps = yaml.safe_load(WORKFLOW.read_text())["jobs"]["swift-test"]["steps"]
+        broad = next(s for s in steps if s.get("name", "").startswith("Run package tests (changed suites first"))
+        self.assertNotIn("CMUX_NEXT_TUI_TREE_PATH", broad.get("env", {}))
+        run = broad["run"]
+        resolve = run.index('tree_path="$(../../../scripts/cmux-next/pin-cmux-tui.sh path')
+        self.assertLess(run.index("SWIFT_PRIORITY_FILTER\" ]]; then"), resolve)
+        self.assertLess(resolve, run.index('CMUX_NEXT_TUI_TREE_PATH="$tree_path" python3 ../../../scripts/cmux-next/swift-test-shards.py run'))
+        self.assertIn("tree_path=/dev/null/no-same-tree-here", run)
+        # Every live-daemon helper reads a set path that is no binary as none, without looking again.
+        tests = ROOT / "Packages" / "macOS" / "CmuxNext" / "Tests"
+        for helper in ("CmuxNextAppTests/FirstLaunchTests.swift", "CmuxNextMobileTests/LiveDaemonTests.swift",
+                       "CmuxNextDaemonTests/IntegrationTests.swift"):
+            with self.subTest(helper=helper):
+                self.assertRegex((tests / helper).read_text(),
+                                 r"\? URL\(fileURLWithPath: (?:path|resolved)\) : nil")
+
 
 class SignalPolicy(unittest.TestCase):
     def test_the_sigpipe_handler_calls_only_async_signal_safe_functions(self) -> None:

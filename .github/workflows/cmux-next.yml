@@ -3328,16 +3328,6 @@ jobs:
           # hang ends in ~5 min; this only caps a slow healthy pass (~860 s).
           # Both passes share one deadline below the step's 30 minutes.
           CMUX_NEXT_TEST_HANG_SECONDS: "1500"
-          # No suite here fetches the same-tree cmux-tui, so the live-daemon
-          # suites skip here as they did in the one shared process. There every
-          # suite read the tree's path before a CmuxNextDaemonTests suite
-          # fetched it (RealBinary.sameTree, IntegrationTests.swift), so all of
-          # them skipped. As shards, a shard that starts after that fetch ran
-          # them (run 40932106119: 87 skipped, 315 on the base), and the
-          # same-tree suites the base never runs in this job came out red here.
-          # A path that is never a file: RealBinary takes it and does not
-          # fetch. The live-daemon suites run in the daemon tests job.
-          CMUX_NEXT_TUI_TREE_PATH: /dev/null/no-same-tree-here
           # One Swift Testing test at a time inside each shard process; the
           # shards themselves run side by side (swift-test-shards.py). A test's
           # time limit counts from its start, and Swift Testing otherwise starts
@@ -3379,8 +3369,26 @@ jobs:
           # windows they left open piled up (3 -> 428), so throughput fell from
           # ~2,000 to ~100 tests a minute and the pass hit its limit with 466
           # tests unfinished (#26809, run 40705037968).
+          # The same-tree cmux-tui as it is when the broad pass starts, the same
+          # for every shard. In the one shared process the base runs, the
+          # live-daemon suites read the tree once, early, before any
+          # CmuxNextDaemonTests suite could fetch it (RealBinary.sameTree), so
+          # they ran only when the tree was already here (after the
+          # changed-suites pass fetched it, say) and skipped otherwise. As
+          # shards, those that started after a fetch ran them and the rest
+          # skipped (run 40932106119: 87 skipped, 315 on the base). Resolved
+          # once here, a missing tree is a path that is never a file: no shard
+          # fetches it, and every live-daemon suite skips as on the base. The
+          # daemon tests job fetches the tree and runs the daemon suites.
+          tree_path="$(../../../scripts/cmux-next/pin-cmux-tui.sh path 2>/dev/null)" || tree_path=""
+          if [[ -n "$tree_path" && -x "$tree_path" ]]; then
+            echo "Broad pass same-tree cmux-tui: $tree_path"
+          else
+            echo "Broad pass same-tree cmux-tui: not here yet; the live-daemon suites skip"
+            tree_path=/dev/null/no-same-tree-here
+          fi
           broad_status=0
-          if python3 ../../../scripts/cmux-next/swift-test-shards.py run --targets "$SWIFT_TARGETS" \
+          if CMUX_NEXT_TUI_TREE_PATH="$tree_path" python3 ../../../scripts/cmux-next/swift-test-shards.py run --targets "$SWIFT_TARGETS" \
               --exclude CmuxNextControlTests --wrapper ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh \
               --deadline "$deadline" -- ${priority_skip[@]+"${priority_skip[@]}"} --skip BranchStateResourcesTests \
               --skip CloudBringBackTests --skip CommitBoundaryAppKitTests ${heavy_skip[@]+"${heavy_skip[@]}"}; then
