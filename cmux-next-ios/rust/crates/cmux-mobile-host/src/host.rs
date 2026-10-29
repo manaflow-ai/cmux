@@ -75,11 +75,17 @@ impl IceSource {
         }
     }
 
-    /// Measurement support (`CMUX_MOBILE_BASELINE`): fetch per answer, as before the cache.
-    async fn servers_uncached(&self) -> (Vec<IceServer>, bool) {
+    /// A sleep can outlast TURN credentials while the platform's monotonic clock
+    /// stands still. Never reuse pre-wake ICE credentials for the next phone dial.
+    fn invalidate(&self) {
         if let Self::Api { cache, .. } = self {
             cache.clear();
         }
+    }
+
+    /// Measurement support (`CMUX_MOBILE_BASELINE`): fetch per answer, as before the cache.
+    async fn servers_uncached(&self) -> (Vec<IceServer>, bool) {
+        self.invalidate();
         self.servers().await
     }
 
@@ -173,6 +179,7 @@ async fn run_with_changes(config: HostConfig, mut changes: tokio::sync::watch::R
             biased;
             result = connect_once(&config, &tokens, &services, &ice, &mailbox) => result,
             Ok(()) = changes.changed() => {
+                ice.invalidate();
                 backoff = Duration::from_secs(1);
                 continue;
             }
@@ -207,7 +214,10 @@ async fn run_with_changes(config: HostConfig, mut changes: tokio::sync::watch::R
         control::emit(&Event::Waiting { reason, retry_in_seconds: backoff.as_secs() });
         tokio::select! {
             () = tokio::time::sleep(backoff) => {},
-            Ok(()) = changes.changed() => { backoff = Duration::from_secs(1); }
+            Ok(()) = changes.changed() => {
+                ice.invalidate();
+                backoff = Duration::from_secs(1);
+            }
         }
     }
 }
