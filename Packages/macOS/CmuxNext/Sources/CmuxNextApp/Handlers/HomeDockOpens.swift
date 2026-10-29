@@ -28,16 +28,19 @@ enum HomeDockOpens {
 
     /// The `then` of a new tab made in `pane`: `then` runs, and a tab made in Home's dock then moves
     /// to a new column right of it, focusing `target` there when `focus` (else the focus stays where
-    /// it is). `then` itself anywhere else.
+    /// it is). `then` itself anywhere else. Called before the tab is made: the dock's strip leaves it
+    /// out until it has moved (``OutboundTab``), so it first shows in the column on the right.
     static func placing(_ pane: PaneModel, services: AppServices, focus: Bool, target: FocusState.Target = .content,
                         then: (@MainActor (SurfaceID) -> Void)?) -> (@MainActor (SurfaceID) -> Void)? {
         guard opensBeside(pane, services: services) else { return then }
+        let outbound = services.paneController(for: pane).map { OutboundTab.begin(in: $0) }
         return { [weak services] surface in
             then?(surface)
-            guard let services else { return }
+            guard let services else { outbound?.finish(moved: false); return }
             if let controller = services.paneController(for: pane) {
-                services.linkOpener.moveBeside(surface, from: controller, focus: focus, target: target)
+                services.linkOpener.moveBeside(surface, from: controller, focus: focus, target: target, outbound: outbound)
             } else {
+                outbound?.finish(moved: false)
                 moveOffscreen(surface, from: pane, services: services)
             }
         }
