@@ -19,6 +19,10 @@ cat >"$TMP/bin/rustup" <<STUB
 echo "rustup \$(basename "\$PWD") \$*" >> "$TMP/calls"
 [[ "\$1" != which ]] || echo "$TMP/bin/cargo"
 STUB
+cat >"$TMP/bin/swift" <<STUB
+#!/bin/bash
+echo "swift \${CMUX_SWIFTPM_TARGET_LINUX:-unset} \$*" >> "$TMP/calls"
+STUB
 cat >"$TMP/bin/bun" <<STUB
 #!/bin/bash
 [[ "\$1" != --version ]] || { echo 1.4.4; exit 0; }
@@ -27,7 +31,7 @@ STUB
 chmod +x "$TMP/bin/"*
 # A checkout with every input the modes read.
 W="$TMP/work"
-mkdir -p "$W/.github/scripts" "$W/crates/ws" "$W/crates/off" "$W/cmux-tui" "$W/scripts/cmux-next" "$W/web/scripts"
+mkdir -p "$W/.github/workflows" "$W/Packages/Shared/Port/Tests" "$W/Packages/Shared/NoTests" "$W/.github/scripts" "$W/crates/ws" "$W/crates/off" "$W/cmux-tui" "$W/scripts/cmux-next" "$W/web/scripts"
 cp "$ROOT/.github/scripts/rust-workspaces.py" "$W/.github/scripts/"
 cat >"$W/.github/rust-workspaces.toml" <<'TOML'
 [[workspace]]
@@ -40,6 +44,20 @@ skip = "a test root nothing checks"
 TOML
 printf '[package]\nname = "ws"\nversion = "0.1.0"\n\n[workspace]\n' >"$W/crates/ws/Cargo.toml"
 printf '[package]\nname = "off"\nversion = "0.1.0"\n\n[workspace]\n' >"$W/crates/off/Cargo.toml"
+cat >"$W/.github/workflows/swift-packages-linux.yml" <<'YML'
+jobs:
+  packages:
+    strategy:
+      matrix:
+        include:
+          - group: shared
+            packages: >-
+              Packages/Shared/Port
+              Packages/Shared/NoTests
+    steps:
+      - run: echo Packages/Shared/Other
+YML
+touch "$W/Packages/Shared/Port/Tests/.keep" "$W/Packages/Shared/NoTests/Package.swift"
 for t in a b; do printf '#!/bin/bash\necho "cpp %s" >> "%s"\n[[ "%s" != "${CPP_RED:-}" ]]\n' "$t" "$TMP/calls" "$t" >"$W/scripts/cmux-next/test-$t-cpp.sh"; done
 printf '#!/bin/bash\necho "run-tests $*" >> "%s"\n' "$TMP/calls" >"$W/web/scripts/run-tests.sh"
 chmod +x "$W"/scripts/cmux-next/*.sh "$W/web/scripts/run-tests.sh"
@@ -101,6 +119,21 @@ rm -f "$TMP/calls"
 run CMUX_CI_STEP_KEY=k CPP_RED=a >/dev/null && fail "a red shim test passed"
 [[ "$(calls)" == $'cpp a\ncpp b' ]] || fail "a red shim test stopped the others: $(calls)"
 rm -f "$TMP/calls"
+
+# swift-portable PKG: swift-packages-linux.yml's build and test, only for a package its matrix lists.
+ARGS=(swift-portable Packages/Shared/Port)
+run CMUX_CI_STEP_KEY=k >/dev/null || fail "swift-portable refused"
+[[ "$(calls)" == "$(printf '%s\n' 'swift 1 build --package-path Packages/Shared/Port --build-tests' 'swift 1 test --package-path Packages/Shared/Port --skip-build --parallel')" ]] || fail "swift-portable: $(calls)"
+rm -f "$TMP/calls"
+ARGS=(swift-portable Packages/Shared/NoTests)
+run CMUX_CI_STEP_KEY=k >/dev/null || fail "swift-portable with no Tests refused"
+[[ "$(calls)" == 'swift 1 build --package-path Packages/Shared/NoTests --build-tests' ]] || fail "swift-portable ran tests a package does not have: $(calls)"
+rm -f "$TMP/calls"
+for bad in Packages/Shared/Other Packages/Shared ../Packages/Shared/Port; do
+  ARGS=(swift-portable "$bad")
+  run CMUX_CI_STEP_KEY=k >/dev/null && fail "swift-portable accepted $bad"
+done
+[[ -z "$(calls)" ]] || fail "swift ran for a refused package: $(calls)"
 
 # web: ci-web.yml's web/ checks with the pinned bun.
 ARGS=(web)
