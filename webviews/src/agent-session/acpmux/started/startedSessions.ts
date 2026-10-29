@@ -38,6 +38,8 @@ export type StartedPullRequests = {
 export type StartedSession = {
   sessionId: string;
   title: string;
+  /// Its harness identity, used by agent and session lists.
+  harness?: string;
   state: StartedState;
   /// Its last turn ended and nobody has looked at it yet.
   unread?: boolean;
@@ -144,6 +146,7 @@ export function startedSessions(
       return {
         sessionId: entry.sessionId,
         title,
+        ...(entry.harness ? { harness: entry.harness } : {}),
         state,
         ...(named ? { named: true } : {}),
         ...(state === "idle" && entry.unread ? { unread: true } : {}),

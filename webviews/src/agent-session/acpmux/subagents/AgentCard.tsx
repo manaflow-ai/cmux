@@ -18,6 +18,8 @@ export type AgentCardProps = {
   harness?: string;
   /// Its acpmux session, whose own avatar (Set Avatar…, agentAvatar.ts) replaces the mark.
   sessionId?: string;
+  /// Stable list identity used when the harness has no icon.
+  identity?: string;
   model?: string;
   /// Undefined while the session list does not have it (a gallery, an archived chat).
   state?: SubsessionState;
@@ -47,6 +49,7 @@ export function AgentCard({
   name,
   harness,
   sessionId,
+  identity,
   model,
   state,
   doing,
@@ -65,7 +68,7 @@ export function AgentCard({
   const t = useT();
   // A profile names its family first (`claude-sr2`): its family's mark when it has none.
   const avatar = useAgentAvatar(sessionId);
-  const tone = agentTone(sessionId ?? name);
+  const tone = agentTone(identity ?? sessionId ?? name);
   const stateText = state
     ? slot
       ? t("subsession.state.slot")

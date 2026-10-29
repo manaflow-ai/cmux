@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { AgentMark, knownMark } from "../../shared/AgentMark";
 import { Icon } from "../icons/Icon";
 
@@ -17,6 +17,7 @@ export function AgentIdentity({
   fallback = "agent.session",
   fallbackNode,
   className,
+  style,
 }: {
   harness?: string;
   tone?: number;
@@ -24,13 +25,14 @@ export function AgentIdentity({
   fallback?: string;
   fallbackNode?: ReactNode;
   className?: string;
+  style?: CSSProperties;
 }) {
   const mark = harness ? knownMark(harness, harness.split(/[-_/]/)[0]) : undefined;
   return (
     <span
       className={className}
       data-agent-tone={tone}
-      style={{ color: "var(--agent-tone-ink, var(--agent-muted))" }}
+      style={{ color: "var(--agent-tone-ink, var(--agent-muted))", ...style }}
       aria-hidden="true"
     >
       <AgentMark

@@ -84,6 +84,7 @@ type Line = {
   /// Its whole task, for the hover card.
   task?: string;
   icon: string;
+  mark?: string;
   depth: number;
   /// When it ended (or, for a chat, was made): the ended list's order.
   at: number;
@@ -107,7 +108,7 @@ const EndedAvatars = memo(
               <Avatar agent={item.agent} />
             ) : (
               <span className="cv-subagent-avatar" data-state={item.status}>
-                <AgentIdentity harness={undefined} tone={agentTone(item.identity)} size={14} fallback={item.icon} />
+                <AgentIdentity harness={item.mark} tone={agentTone(item.identity)} size={14} fallback={item.icon} />
               </span>
             )}
           </span>
@@ -178,6 +179,7 @@ export function SubagentsSection({
     key: `session:${child.sessionId}`,
     identity: child.sessionId,
     name: child.title,
+    mark: child.harness,
     status: sessionStatus(child),
     ...(({ text, working }) => ({ state: text, working }))(sessionStateText(t, child)),
     icon: "agent.chat",
@@ -220,7 +222,7 @@ export function SubagentsSection({
         depth={item.depth}
         onOpen={item.open}
         wave={inWave ? wave[index] : undefined}
-        mark={item.agent?.harness}
+        mark={item.mark ?? item.agent?.harness}
         tone={agentTone(item.identity)}
         card={
           <span className="acpmux-agent-card">

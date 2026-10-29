@@ -120,6 +120,7 @@ export const AgentsPill = memo(function AgentsPill({
                           harness={agent.harness}
                           tone={tones.get(agent.id) ?? agentTone(agent.id)}
                           size={9}
+                          style={{ background: "none" }}
                         />
                         <span className="acpmux-agents-list__text">
                           <span className="acpmux-agents-list__name">{agent.name}</span>

@@ -411,6 +411,7 @@ export const SubagentTray = memo(function SubagentTray({
         name={item.session.title}
         detail={liveSession(item.session) ? doingDetail(t, item.session.doing, item.session.doingTool) : undefined}
         title={item.session.doing}
+        mark={item.session.harness}
         tone={agentTone(item.session.sessionId)}
         chevron
         icon="agent.chat"

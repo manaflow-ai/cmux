@@ -105,10 +105,18 @@ export function AgentLine({
     >
       <span
         className={shimmer.className ? `acpmux-lineage__icon ${shimmer.className}` : "acpmux-lineage__icon"}
-        style={shimmer.style}
+        style={{ ...shimmer.style, ...(working ? { position: "relative" } : {}) }}
         data-state={status}
       >
-        {working ? <Spinner size={iconSize} loading /> : <AgentIdentity harness={mark} tone={tone} size={iconSize} fallback={icon} />}
+        <AgentIdentity harness={mark} tone={tone} size={iconSize} fallback={icon} />
+        {working && (
+          <span
+            aria-hidden="true"
+            style={{ position: "absolute", inset: 0, display: "grid", placeItems: "center", transform: "scale(.55)" }}
+          >
+            <Spinner size={iconSize} loading />
+          </span>
+        )}
       </span>
       <span className="acpmux-summary-text">
         {kind && <span className="acpmux-agent-line__kind">{kind}</span>}

@@ -8,8 +8,9 @@
 import { useT, type StringKey, type Translate } from "../i18n";
 import { Spinner } from "../conversation/icons";
 import { retryLabel, sessionRetry } from "../subagents/retryState";
-import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
+import { AgentIdentity } from "../subagents/AgentIdentity";
+import { agentTone } from "../subagents/agentTones";
 import type { StartedSession, StartedState } from "../started/startedSessions";
 import type { SubagentStatus } from "../summary/SubagentStatusList";
 
@@ -76,7 +77,7 @@ export function ChildSessionRows({
               onClick={() => onOpen?.(child.sessionId)}
             >
               <span className="acpmux-lineage__icon" data-state={status}>
-                <Icon name="agent.chat" size={ROW_ICON} row />
+                <AgentIdentity harness={child.harness} tone={agentTone(child.sessionId)} size={ROW_ICON} fallback="agent.chat" />
               </span>
               <span className="acpmux-summary-text">
                 <span className="acpmux-summary-agent__name">{child.title}</span>
