@@ -91,6 +91,7 @@ createRoot(root).render(
             omnibar: {
               tabs: [],
               workspaces: [],
+              sessions: [],
               folders: [],
               commands: [],
               history: Array.from({ length: 4 }, (_, index) => ({
