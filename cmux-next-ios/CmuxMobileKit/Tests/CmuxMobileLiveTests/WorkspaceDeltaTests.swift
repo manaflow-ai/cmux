@@ -8,7 +8,7 @@ import Testing
 @Suite struct WorkspaceDeltaTests {
     nonisolated static let snapshot = #"{"ok":true,"data":{"workspace_revision":1,"workspaces":[{"id":1,"key":"one","name":"First","screens":[{"id":1,"active":true,"active_pane":1,"panes":[{"id":1,"active_tab":0,"tabs":[{"surface":1,"kind":"pty","title":"Before"}]}]}]},{"id":2,"key":"two","name":"Second","screens":[]}]}}"#
 
-    @Test func titleDeltaUpdatesOneRowWithoutFullFetch() async throws {
+    @Test(.timeLimit(.minutes(1))) func titleDeltaUpdatesOneRowWithoutFullFetch() async throws {
         let requests = CommandLog()
         let link = MockMacLink { _, data in
             data.split(separator: 0x0A).compactMap { line in
@@ -25,12 +25,18 @@ import Testing
         await sync.refresh()
         let before = try #require(sync.tree)
         let count = requests.count
+        let (updates, continuation) = AsyncStream<DaemonTree>.makeStream()
+        defer { continuation.finish() }
+        var changedIDs = Set<String>()
+        sync.onRows = { tree, ids, _ in changedIDs = ids; continuation.yield(tree) }
         sync.handle(.titleChanged(surface: 1, title: "After"))
-        for _ in 0..<5000 where sync.tree?.workspaces[0].tabs[0].title != "After" { await Task.yield() }
-        let after = try #require(sync.tree)
+        var iterator = updates.makeAsyncIterator()
+        let after = try #require(await iterator.next())
         #expect(after.workspaces[0].tabs[0].title == "After")
         #expect(after.workspaces[1] == before.workspaces[1])
+        #expect(changedIDs == ["one"])
         #expect(requests.count == count)
+        await sync.daemon?.close()
         await sync.bind(nil, macID: "mac")
     }
 }

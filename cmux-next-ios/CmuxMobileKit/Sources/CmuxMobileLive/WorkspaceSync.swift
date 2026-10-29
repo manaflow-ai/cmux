@@ -155,7 +155,10 @@ public final class WorkspaceSync {
             initializing = false
             onTree?(next)
             // The Mac's own order and pins follow in one more round trip.
-            Task { await refresh() }
+            Task {
+                guard self.client === client else { return }
+                await refresh()
+            }
         } catch {
             guard self.client === client else { return }
             initializing = false
@@ -262,7 +265,10 @@ public final class WorkspaceSync {
             } catch {
                 guard self.client === client, !Task.isCancelled else { return }
                 // The current drain ends before the refresh waits for it.
-                Task { await refresh() }
+                Task {
+                    guard self.client === client else { return }
+                    await refresh()
+                }
             }
         }
     }

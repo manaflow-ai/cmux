@@ -65,10 +65,16 @@ public actor WorkspaceProjection {
         }
         let data = object["data"] as? [String: Any] ?? object
         guard let values = data["workspaces"] as? [Any] else { throw ProjectionError.malformedSnapshot }
-        rows = values.compactMap { value in
+        let nextRows = values.compactMap { value -> Row? in
             guard let row = value as? [String: Any] else { return nil }
             return Row(value: row, key: Self.rowKey(row), handle: row["id"] as? Int)
         }
+        guard nextRows.count == values.count,
+              nextRows.allSatisfy({ !$0.key.isEmpty }),
+              Set(nextRows.map(\.key)).count == nextRows.count else { throw ProjectionError.malformedSnapshot }
+        var parsed = try DaemonTree(reply: snapshot, macID: macID, previous: previous, agents: agents, activity: activity)
+        parsed.apply(arrangement)
+        rows = nextRows
         metadata = Dictionary(uniqueKeysWithValues: rows.map { ($0.key, Self.metadata(for: $0.value)) })
         removedMetadata = [:]
         rebuildSurfaceIndex()
@@ -78,40 +84,37 @@ public actor WorkspaceProjection {
         self.arrangement = arrangement
         revision = data["workspace_revision"] as? Int
         registryID = data["registry_id"] as? String
-        var parsed = try DaemonTree(reply: snapshot, macID: macID, previous: previous, agents: agents, activity: activity)
-        parsed.apply(arrangement)
         self.tree = parsed
         return parsed
     }
 
     /// Applies one typed tree/title/agent event. `nil` means the event changes
-    /// no workspace row (for example a notification).
+    /// no workspace row (for example a replayed add).
     public func apply(_ event: DaemonEvent, agents: AgentStates, activity: [Int: Date]) throws -> Update? {
+        guard tree != nil else { throw ProjectionError.needsSnapshot }
         let oldAgents = self.agents
         let oldActivity = self.activity
         self.agents = agents
         self.activity = activity
         do {
             switch event {
-        case .delta(let delta):
-            let changed = try apply(delta)
-            return try publish(changed: changed.ids, topology: changed.topology)
-        case .titleChanged(let surface, let title):
-            guard let rowIndex = rowIndex(surface: surface) else { throw ProjectionError.needsSnapshot }
-            rows[rowIndex].setTitle(surface: surface, title: title)
-            let id = try rowID(at: rowIndex)
-            return try publish(changed: [id], topology: false)
-        case .agentChanged(let surface, _, _, _, _):
-            guard let rowIndex = rowIndex(surface: surface) else { throw ProjectionError.needsSnapshot }
-            let id = try rowID(at: rowIndex)
-            return try publish(changed: [id], topology: false)
-        case .notification:
-            // Notifications carry no workspace state. WorkspaceSync forwards
-            // the post to its notification consumer; refreshing here would
-            // turn every notification into a full list-workspaces request.
-            return nil
-        case .other:
-            return nil
+            case .delta(let delta):
+                let changed = try apply(delta)
+                return try publish(changed: changed.ids, topology: changed.topology)
+            case .titleChanged(let surface, let title):
+                guard let rowIndex = rowIndex(surface: surface) else { throw ProjectionError.needsSnapshot }
+                rows[rowIndex].setTitle(surface: surface, title: title)
+                let id = try rowID(at: rowIndex)
+                return try publish(changed: [id], topology: false)
+            case .agentChanged(let surface, _, _, _, _):
+                guard let rowIndex = rowIndex(surface: surface) else { throw ProjectionError.needsSnapshot }
+                let id = try rowID(at: rowIndex)
+                return try publish(changed: [id], topology: false)
+            case .notification:
+                // The event carries text, but unread markers live in the snapshot.
+                throw ProjectionError.needsSnapshot
+            case .other:
+                return nil
             case .treeChanged, .resubscribe:
                 throw ProjectionError.needsSnapshot
             }
@@ -191,9 +194,9 @@ public actor WorkspaceProjection {
         if changed { removedMetadata[rows[workspaceIndex].key] = metadata[rows[workspaceIndex].key] }
         refreshMetadata(for: rows[workspaceIndex].key, at: workspaceIndex)
         if !changed && (delta.kind.isAdd || delta.kind.isClose) { return ([], false) }
-        // Renames and metadata replacements keep the row's topology intact;
-        // only add/close deltas need the full-tree publication path.
-        return (Set([id]), delta.kind.isAdd || delta.kind.isClose)
+        // Renames keep structure intact. Changed entities may replace children
+        // or change tab kind, so retain the full consumer reconciliation there.
+        return (Set([id]), delta.kind != .tabRenamed && delta.kind != .screenRenamed)
     }
 
     private func patchWorkspace(_ delta: DaemonTreeDelta) throws -> (ids: Set<String>, topology: Bool) {
