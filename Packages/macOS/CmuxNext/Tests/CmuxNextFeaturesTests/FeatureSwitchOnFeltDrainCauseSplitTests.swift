@@ -1,15 +1,14 @@
 import CmuxNextFeatures
 import Testing
 
-/// Feature switch policy (plans/cmux-next/feature-switch-policy.md, rule 2, the measurement window): the felt-queue
-/// switch `drainCauseSplit` is on by default in DEV and NIGHTLY, so the optimized dogfood build measures it, and off
-/// in Release until a passing bench.
+/// Feature switch policy: the felt-queue switch `drainCauseSplit` is off in every channel until its redesign is judged PRINCIPLED by the principled-optimization audit (R4, on/off parity, is unproven; cmux-ad 2026-10-29).
+/// `CMUX_ENABLE_FEATURES=drainCauseSplit` still turns it on for a measurement run.
 struct FeatureSwitchOnFeltDrainCauseSplitTests {
-    @Test func itIsOnInDevAndNightlyAndOffInRelease() {
-        #expect(Feature.drainCauseSplit.defaults == FeatureDefaults(dev: true, nightly: true, release: false))
+    @Test func itIsOffInEveryChannelUntilItsRedesignIsPrincipled() {
+        #expect(Feature.drainCauseSplit.defaults == FeatureDefaults(dev: false, nightly: false, release: false))
         for channel in Feature.Channel.allCases {
             #expect(FeatureList(registry: FeatureRegistry(), channel: channel).resolution(of: .drainCauseSplit)
-                == Feature.Resolution(isEnabled: channel != .release, source: .channelDefault), "\(channel)")
+                == Feature.Resolution(isEnabled: false, source: .channelDefault), "\(channel)")
         }
     }
 }
