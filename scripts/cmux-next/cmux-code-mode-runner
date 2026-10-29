@@ -34,21 +34,34 @@ script=$(CDPATH= cd -P -- "$(dirname -- "$script")" && pwd -P)/$(basename -- "$s
 
 tmp_parent=${TMPDIR:-/tmp}
 tmp_parent=${tmp_parent%/}
-proxy_dir=$(mktemp -d "$tmp_parent/cmux-code-mode-proxy.XXXXXX")
-proxy_dir=$(realpath "$proxy_dir")
-proxy_socket="$proxy_dir/cmux.sock"
-cloud_socket="$proxy_dir/cloud.sock"
-proxy="$sdk/code-mode/proxy.mjs"
+proxy_dir=
 sandbox_pid=
 cloud_relay_pid=
+# A cancel sends TERM to this whole process group and once more to this shell.
+# The traps are set before the directory exists, and cleanup ignores a second
+# INT/TERM and waits for the helpers, so a cancel at any point leaves no
+# directory behind.
 cleanup() {
+  trap '' INT TERM
   if [ -n "$sandbox_pid" ]; then kill "$sandbox_pid" 2>/dev/null || true; sandbox_pid=; fi
-  kill "${proxy_pid:-}" 2>/dev/null || true
-  kill "${cloud_relay_pid:-}" 2>/dev/null || true
-  rm -rf "$proxy_dir"
+  # Wait for the helpers to exit: one still starting can bind its socket in
+  # the directory while rm runs, and rm then leaves it behind.
+  for pid in "${proxy_pid:-}" "${cloud_relay_pid:-}"; do
+    [ -n "$pid" ] || continue
+    kill "$pid" 2>/dev/null || true
+    wait "$pid" 2>/dev/null || true
+  done
+  if [ -n "$proxy_dir" ]; then rm -rf "$proxy_dir"; fi
 }
 trap cleanup EXIT
 trap 'exit 143' INT TERM
+proxy_dir=$(mktemp -d "$tmp_parent/cmux-code-mode-proxy.XXXXXX")
+# A killed realpath must not blank proxy_dir: set -e exits and cleanup removes it.
+proxy_dir_real=$(realpath "$proxy_dir")
+proxy_dir=$proxy_dir_real
+proxy_socket="$proxy_dir/cmux.sock"
+cloud_socket="$proxy_dir/cloud.sock"
+proxy="$sdk/code-mode/proxy.mjs"
 "$bun" "$proxy" "$socket" "$proxy_socket" "$catalog" >/dev/null 2>&1 &
 proxy_pid=$!
 for _ in $(seq 1 100); do
