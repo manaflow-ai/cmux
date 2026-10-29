@@ -140,6 +140,36 @@ test("native combobox presents once its own input anchor mounts", async () => {
   expect(container.querySelector('[role="option"]')).toBeNull();
 });
 
+test("native combobox search keeps the invoking field query in sync", async () => {
+  const container = installDom();
+  const { host, shown, listeners } = nativeHost();
+  const queries: string[] = [];
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <UiProvider container={container} popupHost={host}>
+        <Combobox
+          inline
+          label="Projects"
+          defaultValue="alpha"
+          suggestions={["alpha", "beta"]}
+          onQuery={(value) => queries.push(value)}
+          onSubmit={() => {}}
+          onCancel={() => {}}
+          native={{ model: comboboxDescription({ suggestions: ["alpha", "beta"], query: "alpha" }) }}
+        />
+      </UiProvider>,
+    );
+  });
+  const model = shown[0]!;
+  await act(async () => {
+    for (const listener of listeners)
+      listener({ type: "search", popupId: model.id, revision: model.revision, id: "query", value: "beta" });
+  });
+  expect(queries).toEqual(["beta"]);
+  expect(container.querySelector<HTMLInputElement>("input")!.value).toBe("beta");
+});
+
 test("native combobox ignores picks absent from its enabled suggestions", async () => {
   const container = installDom();
   const { host, shown, listeners } = nativeHost();
