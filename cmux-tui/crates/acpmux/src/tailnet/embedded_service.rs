@@ -96,7 +96,7 @@ async fn drain<T>(task: &mut JoinHandle<T>, bound: Duration) {
 async fn fence(controller: &Controller, fenced: &tokio::sync::Mutex<bool>) {
     let mut fenced = fenced.lock().await;
     *fenced = true;
-    controller.begin_shutdown();
+    controller.fence().await;
 }
 
 /// One reconciliation of the listener against the controller, serialized

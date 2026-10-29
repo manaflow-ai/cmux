@@ -201,6 +201,10 @@ pub struct Controller {
     pending_retirement: Arc<AtomicBool>,
     retirement_finished: Arc<TokioNotify>,
     stopping: Arc<AtomicBool>,
+    /// Held by a failure cleanup from its shutdown check through its close,
+    /// and taken by the shutdown fence, so a close admitted before the fence
+    /// finishes before it returns and none starts after it.
+    close_gate: Arc<tokio::sync::Mutex<()>>,
     #[cfg(test)]
     node_factory: Mutex<Option<NodeFactory>>,
     #[cfg(test)]
@@ -230,6 +234,7 @@ impl Controller {
             pending_retirement: Arc::new(AtomicBool::new(false)),
             retirement_finished: Arc::new(TokioNotify::new()),
             stopping: Arc::new(AtomicBool::new(false)),
+            close_gate: Arc::new(tokio::sync::Mutex::new(())),
             #[cfg(test)]
             node_factory: Mutex::new(None),
             #[cfg(test)]
@@ -277,6 +282,9 @@ impl Controller {
         loop {
             let retirement = self.await_retirement_gate().await;
             let lifecycle = self.lifecycle.lock().await;
+            if self.shutting_down() {
+                return Ok(());
+            }
             let waiting_for_logout = {
                 let inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
                 matches!(
@@ -360,6 +368,20 @@ impl Controller {
         }
     }
 
+    /// The daemon's shutdown fence: from here no start, resume or failure
+    /// cleanup acts, and a failure cleanup's close already under way finishes
+    /// (within a bound) before this returns. Daemon shutdown closes the node
+    /// later, after the WebSocket drain.
+    pub(crate) async fn fence(&self) {
+        self.begin_shutdown();
+        let _ = tokio::time::timeout(FENCE_CLOSE_BOUND, self.close_gate.lock()).await;
+    }
+
+    fn shutting_down(&self) -> bool {
+        self.stopping.load(Ordering::Acquire)
+            || self.inner.lock().unwrap_or_else(PoisonError::into_inner).closed
+    }
+
     pub(crate) fn begin_shutdown(&self) {
         let mut inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
         self.stopping.store(true, Ordering::Release);
@@ -391,6 +413,7 @@ impl Controller {
             Arc::clone(&self.retirement_gate),
             Arc::clone(&self.lifecycle),
             move || async move {
+                let close_gate = Arc::clone(&controller.close_gate).lock_owned().await;
                 let plan = controller.begin_retirement_close(generation, &node);
                 if !plan.logout && controller.stopping.load(Ordering::Acquire) {
                     // Queued before the shutdown fence, running after it. The
@@ -398,13 +421,21 @@ impl Controller {
                     // after the WebSocket drain has sent its close frames.
                     controller.pending_retirement.store(false, Ordering::Release);
                     controller.retirement_finished.notify_waiters();
+                    drop(close_gate);
                     release_node(cleanup_node);
                     release_node(node);
                     release_node(failed);
                     return;
                 }
                 let remote_logout = controller.remote_logout(Arc::clone(&cleanup_node));
+                #[cfg(test)]
+                let before_close =
+                    controller.before_close.lock().unwrap_or_else(PoisonError::into_inner).take();
                 let result = tokio::task::spawn_blocking(move || {
+                    #[cfg(test)]
+                    if let Some(before_close) = before_close {
+                        before_close();
+                    }
                     if plan.logout {
                         logout_and_close(remote_logout, || cleanup_node.close().map_err(|e| e.0))
                     } else {
@@ -413,6 +444,7 @@ impl Controller {
                 })
                 .await
                 .map_err(|error| error.to_string());
+                drop(close_gate);
                 let logout_pending = controller.finish_retirement(generation, &node, plan, result);
                 controller.note_listener_error_if_current(generation);
                 if !logout_pending {
@@ -462,6 +494,11 @@ impl Controller {
         loop {
             let _retirement = self.await_retirement_gate().await;
             let _lifecycle = self.lifecycle.lock().await;
+            if self.shutting_down() {
+                // A deferred retirement may never notify; start_locked
+                // refuses with the shutdown reason instead of waiting.
+                return self.start_locked().await;
+            }
             let waiting_for_retirement = {
                 let inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
                 matches!(
@@ -768,6 +805,8 @@ impl Controller {
         if let Some(node) = node {
             release_node(node);
         }
+        // A retirement deferred to shutdown is over now; wake its waiters.
+        self.retirement_finished.notify_waiters();
     }
 
     fn retire_node(
@@ -1232,6 +1271,10 @@ where
 pub(crate) fn release_node(node: Arc<Node>) {
     release_on_background(node);
 }
+
+/// How long the shutdown fence waits for a failure cleanup's close already
+/// under way. The fence takes effect at once either way.
+const FENCE_CLOSE_BOUND: std::time::Duration = std::time::Duration::from_secs(3);
 
 pub fn state_dir(home: &Path) -> PathBuf {
     home.join("tailnet")
@@ -2086,8 +2129,53 @@ mod tests {
         assert!(Arc::ptr_eq(&retained, &node));
         release_node(retained);
         assert!(!controller.retirement_pending());
+        // A start or resume arriving now must not wait on the deferred
+        // retirement, which no watcher will ever notify again.
+        tokio::time::timeout(std::time::Duration::from_secs(1), controller.start())
+            .await
+            .expect("a start after the fence returns instead of waiting on retirement")
+            .expect_err("nothing starts after the fence");
+        tokio::time::timeout(std::time::Duration::from_secs(1), controller.resume())
+            .await
+            .expect("a resume after the fence returns instead of waiting on retirement")
+            .unwrap();
         controller.shutdown().await.unwrap();
         assert!(controller.state_node().is_none());
+        release_node(node);
+    }
+
+    #[tokio::test]
+    async fn the_fence_waits_for_a_failure_close_already_under_way() {
+        let temporary = tempfile::tempdir().unwrap();
+        let config = NodeConfig::new(temporary.path(), "close-under-way");
+        let node = tokio::task::spawn_blocking(move || Arc::new(Node::new(&config).unwrap()))
+            .await
+            .unwrap();
+        let controller = Controller::new(temporary.path(), "close-under-way");
+        controller.set_running_for_test(Arc::clone(&node), "node.example.ts.net");
+        let (closing, release) = block_close(&controller);
+        let watcher = {
+            let (controller, node) = (controller.clone(), Arc::clone(&node));
+            tokio::spawn(async move { controller.listener_failed(&node).await })
+        };
+        // The cleanup passed its shutdown check and is inside its close.
+        closing.await.unwrap();
+        let mut fence = {
+            let controller = controller.clone();
+            tokio::spawn(async move { controller.fence().await })
+        };
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(50), &mut fence).await.is_err(),
+            "the fence must not return while an admitted close is under way"
+        );
+        release.send(()).unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(2), fence)
+            .await
+            .expect("the fence returns once the admitted close finished")
+            .unwrap();
+        watcher.await.unwrap();
+        assert!(controller.state_node().is_none());
+        controller.shutdown().await.unwrap();
         release_node(node);
     }
 
