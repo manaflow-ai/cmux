@@ -329,6 +329,46 @@ async function commandPage(
 }
 
 for (const template of ["screen", "classic"] as const) {
+  test(`${template}: /import supersedes an earlier send held for a pending image`, async () => {
+    const imported: File[] = [];
+    const page = await commandPage(template, async (file) => {
+      imported.push(file);
+    });
+    const file = new File([PNG], "pending.png", { type: "image/png" });
+    const bytes = await file.arrayBuffer();
+    let resolve!: (bytes: ArrayBuffer) => void;
+    Object.defineProperty(file, "arrayBuffer", {
+      value: () =>
+        new Promise<ArrayBuffer>((done) => {
+          resolve = done;
+        }),
+    });
+    await page.paste(file, true);
+    await page.send();
+    expect(page.prompts).toEqual([]);
+    await page.edit("/import");
+    const input = host.querySelector<HTMLInputElement>('input[aria-label="/import"]')!;
+    let opened = 0;
+    input.click = () => {
+      opened += 1;
+    };
+    await page.send();
+    expect(opened).toBe(1);
+    expect(page.prompts).toEqual([]);
+    expect(input.isConnected).toBe(true);
+    expect(page.field.value).toBe("");
+    expect(host.querySelector(".acpmux-attachment-pending")).toBeNull();
+    await act(async () => resolve(bytes));
+    expect(page.prompts).toEqual([]);
+    const transcript = new File(["A transcript"], "conversation.txt", { type: "text/plain" });
+    Object.defineProperty(input, "files", { configurable: true, value: [transcript] });
+    await act(async () => input.dispatchEvent(new window.Event("change", { bubbles: true })));
+    expect(imported).toEqual([transcript]);
+    await page.edit("A later prompt");
+    await page.send();
+    expect(page.prompts).toEqual([{ text: "A later prompt", attachments: [] }]);
+  });
+
   for (const outcome of ["resolve", "reject", "edited"] as const) {
     test(`${template}: an async owned command preserves its text until ${outcome}`, async () => {
       let settle!: () => void;
