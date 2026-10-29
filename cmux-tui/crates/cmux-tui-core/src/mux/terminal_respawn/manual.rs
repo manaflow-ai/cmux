@@ -109,7 +109,7 @@ impl Mux {
     fn plan_user_restart(&self, surface: SurfaceId) -> anyhow::Result<RespawnPlan> {
         if self.shutting_down.load(Ordering::Acquire)
             || self.session_shutdown.began()
-            || self.terminal_host_root().is_none()
+            || self.terminal_host_paths().root.is_none()
         {
             return Err(TabRestartError::Unavailable.into());
         }

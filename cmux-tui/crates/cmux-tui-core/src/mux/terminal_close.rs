@@ -296,14 +296,10 @@ impl Mux {
         #[cfg(any(unix, windows))]
         {
             self.clear_pending_terminal(terminal_id);
-            let root = self
-                .surface_options
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .terminal_host_root
-                .clone();
-            let Some(root) = root else { return };
-            let panic_log = self.host_panic_log();
+            let TerminalHostPaths { root: Some(root), panic_log } = self.terminal_host_paths()
+            else {
+                return;
+            };
             terminate_discovered_terminal_host_in(
                 &self.work_owner(),
                 &root,

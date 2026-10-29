@@ -247,9 +247,9 @@ fn end_all_terminals_ends_placed_and_detached_terminals() {
 
 /// `shutdown-daemon --end-terminals` on an owner with a terminal host root
 /// (every real owner) answers. end_terminals read the root under the
-/// surface-options guard of an `if let` scrutinee, which in edition 2024
-/// lives through the `then` block, and the block's `host_panic_log()` locked
-/// the same mutex again: the request thread deadlocked, so `cmux-tui server
+/// surface-options guard of an `if let` scrutinee, which lives through the
+/// `then` block in every edition, and the block locked the same mutex again
+/// for the panic log: the request thread deadlocked, so `cmux-tui server
 /// stop --end-terminals` never got an answer.
 #[test]
 fn end_all_terminals_with_a_terminal_host_root_returns() {

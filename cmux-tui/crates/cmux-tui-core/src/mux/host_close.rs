@@ -281,14 +281,14 @@ impl Mux {
                 }
                 return;
             }
-            let host_root = self.surface_options.lock().recover_poison().terminal_host_root.clone();
+            let TerminalHostPaths { root: host_root, panic_log } = self.terminal_host_paths();
             self.terminal_host_closes.enqueue(PendingHostClose {
                 runtime: runtime.clone(),
                 step: HostCloseStep::Signal,
                 identity,
                 host_root,
                 owner: self.work_owner(),
-                panic_log: self.host_panic_log(),
+                panic_log,
             });
         }
         #[cfg(not(any(unix, windows)))]
@@ -305,8 +305,7 @@ impl Mux {
     pub(super) fn terminate_terminal_runtimes_deferred(&self, runtimes: Vec<Arc<Surface>>) {
         #[cfg(any(unix, windows))]
         {
-            let host_root = self.surface_options.lock().recover_poison().terminal_host_root.clone();
-            let panic_log = self.host_panic_log();
+            let TerminalHostPaths { root: host_root, panic_log } = self.terminal_host_paths();
             for runtime in runtimes {
                 let identity = self.resource_terminal_host_identity(&runtime);
                 if let Some(identity) = identity.as_ref() {
