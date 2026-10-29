@@ -160,6 +160,10 @@ public final class TabStripView: NSView {
     var pressedAudioID: TabID?
     /// The tab whose speaker the pointer is on: its fill and the strip's tooltip.
     var audioHoveredID: TabID?
+    /// A press on a zoomed pane's indicator (`TabCell.zoomButtonRect`): its release there restores the layout.
+    var pressedZoomID: TabID?
+    /// The tab whose zoom indicator the pointer is on: its fill and the strip's tooltip.
+    var zoomHoveredID: TabID?
     var middlePressID: TabID?
     var pressedNewTab = false
     /// Press-and-hold on + opens the new tab menu (`TabNewTabHold`).
