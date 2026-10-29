@@ -131,6 +131,17 @@ import Testing
         #expect(await GUIAnimationTestSupport.settle { childPanel.isKeyWindow }, "the submenu did not take keyboard focus")
         #expect(host.activeID == model.id && host.shownFrame != nil, "opening the submenu dismissed its parent")
         let childContent = try #require(childPanel.firstResponder as? NativePopupContent)
+        model.revision += 1
+        model.width += 40
+        model.rows.append(NativePopupRow(id: "extra", kind: .action, label: "Extra"))
+        host.update(model)
+        // Drain the main-actor notification work queued by resizing the ancestor panel.
+        await withCheckedContinuation { continuation in
+            DispatchQueue.main.async { continuation.resume() }
+        }
+        #expect(host.activeID == model.id && host.shownFrame != nil)
+        #expect(childPanel.isVisible && childPanel.isKeyWindow, "ancestor layout dismissed its submenu")
+        #expect(events.isEmpty)
         childContent.dismiss()
         #expect(await GUIAnimationTestSupport.settle { parentPanel.isKeyWindow }, "hiding the submenu did not restore its parent")
         #expect(parentPanel.firstResponder === parentContent)

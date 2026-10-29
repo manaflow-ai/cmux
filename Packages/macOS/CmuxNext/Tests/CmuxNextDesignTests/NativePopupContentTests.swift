@@ -67,6 +67,46 @@ import Testing
         #expect(model.rows.first(where: { $0.id == "name" })?.value != "日本")
     }
 
+    @Test(arguments: [NativePopupRowKind.choice, .slider])
+    func keyboardActivationFocusesTheEditableControl(kind: NativePopupRowKind) throws {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        let content = NativePopupContent()
+        window.contentView = content
+        defer { window.orderOut(nil) }
+        var model = Self.model()
+        model.rows = [NativePopupRow(id: "control", kind: kind, label: "Control", value: "0",
+                                    options: [NativePopupOption(id: "0", label: "First"), NativePopupOption(id: "1", label: "Second")])]
+        content.update(model)
+        window.makeKeyAndOrderFront(nil)
+        window.makeFirstResponder(content)
+        let enter = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
+                                                timestamp: 0, windowNumber: window.windowNumber,
+                                                context: nil, characters: "\r", charactersIgnoringModifiers: "\r",
+                                                isARepeat: false, keyCode: 36))
+        content.keyDown(with: enter)
+        if kind == .choice { #expect(window.firstResponder is NSSegmentedControl) }
+        else { #expect(window.firstResponder is NSSlider) }
+    }
+
+    @Test func sliderStepRoundingStaysWithinItsBounds() throws {
+        let content = NativePopupContent()
+        var model = Self.model()
+        model.rows = [NativePopupRow(id: "slider", kind: .slider, label: "Slider", value: "0",
+                                    minimum: 0, maximum: 1, step: 0.6)]
+        var value: String?
+        content.emit = { type, id, next in if type == .change, id == "slider" { value = next } }
+        content.update(model)
+        let slider = try #require(Self.descendants(of: content).compactMap { $0 as? NSSlider }.first)
+        slider.doubleValue = 1
+        #expect(slider.sendAction(slider.action, to: slider.target))
+        #expect(value.flatMap(Double.init) == 1)
+    }
+
+    private static func descendants(of view: NSView) -> [NSView] {
+        view.subviews.flatMap { [$0] + descendants(of: $0) }
+    }
+
     private static func model() -> NativePopupModel {
         NativePopupModel(schemaVersion: 1, id: "content", revision: 1,
                          anchor: NativePopupAnchor(left: 0, top: 0, right: 20, bottom: 20),
