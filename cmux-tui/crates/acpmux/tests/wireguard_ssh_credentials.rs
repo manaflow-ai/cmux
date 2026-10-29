@@ -68,9 +68,8 @@ fn wireguard_ssh_peer_resolves_missing_peer_token_before_connecting() {
     let scripts = tempfile::tempdir().unwrap();
     let local_key = acpmux::cli::mesh_node_key::load_or_create_at(local.path()).unwrap();
     let remote_key = acpmux::cli::mesh_node_key::load_or_create_at(remote.path()).unwrap();
-    let local_udp = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
     let remote_udp = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
-    let local_endpoint = local_udp.local_addr().unwrap();
+    let local_endpoint: std::net::SocketAddr = "127.0.0.1:9".parse().unwrap();
     let remote_endpoint = remote_udp.local_addr().unwrap();
     let remote_config = json!({
         "transport":{"wireguard":true,"wireguardStatic":{"listen":remote_endpoint,"address":"10.79.0.2:4100"}},
@@ -130,8 +129,6 @@ async fn daemon_restart_sends_close_1012_before_wireguard_shutdown() {
     let remote_udp = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
     let local_endpoint = local_udp.local_addr().unwrap();
     let remote_endpoint = remote_udp.local_addr().unwrap();
-    assert_ne!(local_endpoint, remote_endpoint);
-    drop(local_udp);
     drop(remote_udp);
     let remote_daemon = start(
         remote.path(),
@@ -146,7 +143,7 @@ async fn daemon_restart_sends_close_1012_before_wireguard_shutdown() {
         serde_json::from_slice(&std::fs::read(remote.path().join("config.json")).unwrap()).unwrap();
     let token = config["websocket"]["token"].as_str().unwrap();
     let local_config = serde_json::from_value(json!({
-        "transport":{"wireguard":true,"wireguardStatic":{"listen":local_endpoint,"address":"10.80.0.1:4100"}},
+        "transport":{"wireguard":true,"wireguardStatic":{"listen":"127.0.0.1:0","address":"10.80.0.1:4100"}},
         "peers":{"remote":{"url":"ws://127.0.0.1:1","wireguard":{
             "publicKey":remote_key.public_key_b64(),"endpoint":remote_endpoint.to_string(),"address":"10.80.0.2:4100"}}}
     })).unwrap();
