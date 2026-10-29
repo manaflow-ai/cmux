@@ -139,6 +139,27 @@ test("native combobox presents once its own input anchor mounts", async () => {
   expect(container.querySelector('[role="option"]')).toBeNull();
 });
 
+test("native combobox ignores picks absent from its enabled suggestions", async () => {
+  const container = installDom();
+  const { host, shown, listeners } = nativeHost();
+  const submitted: string[] = [];
+  await act(async () => {
+    root = createRoot(container);
+    root.render(<UiProvider container={container} popupHost={host}>
+      <Combobox inline label="Projects" suggestions={["alpha", "beta"]}
+        isItemDisabled={(value) => value === "beta"}
+        onQuery={() => {}} onSubmit={(value) => submitted.push(value)} onCancel={() => {}}
+        native={{ model: comboboxDescription({ suggestions: ["alpha", "beta"], disabled: (value) => value === "beta" }), anchor: () => container }} />
+    </UiProvider>);
+  });
+  const model = shown[0]!;
+  await act(async () => {
+    for (const id of ["missing", "beta", "alpha"])
+      for (const listener of listeners) listener({ type: "pick", popupId: model.id, revision: model.revision, id });
+  });
+  expect(submitted).toEqual(["alpha"]);
+});
+
 test("controlled native menu closes on terminal picks and reopens without a dismiss event", async () => {
   const container = installDom();
   const { host, shown, listeners } = nativeHost();
@@ -175,7 +196,7 @@ test("controlled native menu closes on terminal picks and reopens without a dism
   expect(shown).toHaveLength(2);
 });
 
-test("native popover preserves Escape cancellation details", async () => {
+test.each(["escape", "outside"])("native popover preserves %s cancellation details", async (reason) => {
   const container = installDom();
   const { host, shown, listeners } = nativeHost();
   const changes: { open: boolean; escape: boolean | undefined }[] = [];
@@ -192,7 +213,31 @@ test("native popover preserves Escape cancellation details", async () => {
   });
   const model = shown[0]!;
   await act(async () => {
-    for (const listener of listeners) listener({ type: "dismiss", popupId: model.id, revision: model.revision, reason: "escape" });
+    for (const listener of listeners) listener({ type: "dismiss", popupId: model.id, revision: model.revision, reason });
   });
-  expect(changes).toEqual([{ open: false, escape: true }]);
+  expect(changes).toEqual([{ open: false, escape: reason === "escape" }]);
+});
+
+test("uncontrolled native menu closes on a pick and opens on the next trigger click", async () => {
+  const container = installDom();
+  const { host, shown, listeners } = nativeHost();
+  await act(async () => {
+    root = createRoot(container);
+    root.render(<UiProvider container={container} popupHost={host}>
+      <Menu native={{ model: menuModel }}>
+        <MenuButton label="Actions">Actions</MenuButton>
+        <MenuPopup>Page rows must not mount</MenuPopup>
+      </Menu>
+    </UiProvider>);
+  });
+  const button = container.querySelector<HTMLButtonElement>("button")!;
+  await act(async () => button.click());
+  expect(shown).toHaveLength(1);
+  const model = shown[0]!;
+  await act(async () => {
+    for (const listener of listeners) listener({ type: "pick", popupId: model.id, revision: model.revision, id: "done" });
+  });
+  expect(button.getAttribute("aria-expanded")).toBe("false");
+  await act(async () => button.click());
+  expect(shown).toHaveLength(2);
 });

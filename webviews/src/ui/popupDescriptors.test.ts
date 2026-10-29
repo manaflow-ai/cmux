@@ -3,6 +3,7 @@ import {
   comboboxDescription,
   contextDescription,
   popoverDescription,
+  popupAction,
   selectDescription,
   separatorId,
   textRow,
@@ -62,4 +63,17 @@ test("popover descriptors preserve caller row order without rendering elements",
       { id: "role", kind: "text", label: "Admin" },
     ],
   });
+});
+
+test("native action resolution preserves keep-open and rejects disabled ancestors", () => {
+  const child = { id: "child", kind: "action" as const, label: "Child" };
+  const model = popoverDescription({ rows: [
+    { id: "parent", kind: "submenu", label: "Parent", disabled: true, children: [child] },
+    { id: "hold", kind: "action", label: "Hold", keepOpen: true },
+    { id: "control", kind: "toggle", label: "Toggle", checked: true },
+  ] });
+  expect(popupAction(model, "child")).toBeUndefined();
+  expect(popupAction(model, "hold")?.keepOpen).toBe(true);
+  expect(popupAction(model, "control")).toBeUndefined();
+  expect(popupAction(model, "missing")).toBeUndefined();
 });

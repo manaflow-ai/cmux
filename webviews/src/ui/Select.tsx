@@ -54,9 +54,10 @@ export function Select({
             ? {
                 model: native.model,
                 onEvent: (event: NativePopupEvent) => {
-                  if ((event.type === "pick" || event.type === "change") && event.value !== undefined)
-                    onChange(event.value);
-                  else if (event.type === "pick" && event.id !== undefined) onChange(event.id);
+                  const picked = event.value ?? event.id;
+                  if ((event.type === "pick" || event.type === "change") &&
+                    picked !== undefined && options.some((option) => option.value === picked && !option.disabled))
+                    onChange(picked);
                 },
                 onDismiss: native.onDismiss,
               }

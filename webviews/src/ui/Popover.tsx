@@ -6,6 +6,7 @@ import { useOverlayPosition, usePortalContainer } from "./UiProvider";
 import { cx } from "./cx";
 import { useNativePopup, type NativePopupDescription } from "./nativePopup";
 import type { NativePopupEvent } from "./generated/popupProtocol";
+import { popupAction } from "./popupDescriptors";
 import { UI_ANCHOR_GAP } from "./anchor";
 
 /** A point or box on the page to place a popover at (a caret's coordinates, for example). */
@@ -93,10 +94,14 @@ export function Popover({
     open: open === true && native !== undefined,
     model: native?.model ?? { side: "bottom", align: "start", width: 0, rows: [] },
     anchor: native?.anchor ?? (() => null),
-    onEvent: (event) => native?.onEvent?.(event),
-    onDismiss: () => {
+    onEvent: (event) => {
+      const action = event.type === "pick" && native ? popupAction(native.model, event.id) : undefined;
+      native?.onEvent?.(event);
+      if (action && !action.keepOpen) onOpenChange(false, { escape: false });
+    },
+    onDismiss: (reason) => {
       native?.onDismiss?.();
-      onOpenChange?.(false);
+      onOpenChange(false, { escape: reason === "escape" });
     },
   });
   if (nativePopup.available && native !== undefined) return null;
