@@ -31,7 +31,9 @@ public struct ScreenInput: Codable, Sendable {
     /// listed ``ScreenHostMessage/pixelScrollCapability``.
     public var u: String?
 
-    /// `u` for a scroll in pixels.
+    /// `u` for a scroll in pixels. Send whole pixels and carry the leftover
+    /// fraction into the next scroll: a fraction rounds to the nearest pixel,
+    /// so many small deltas sent as they come would round to nothing.
     public static let pixelUnit = "px"
 
     public init(t: String, x: Double? = nil, y: Double? = nil, b: UInt8? = nil, dx: Int? = nil, dy: Int? = nil,
@@ -528,6 +530,9 @@ public final class ScreenStreamHost: @unchecked Sendable {
             return
         }
         guard !viewOnly || Self.viewOnlyMessages.contains(input.t) else { return }
+        // A scroll in a unit the backend did not advertise never reaches it (40 px is not 40 lines).
+        if input.t == "scroll", let unit = input.u,
+           unit != ScreenInput.pixelUnit || !backend.inputCapabilities.contains(ScreenHostMessage.pixelScrollCapability) { return }
         backend.handle(input)
     }
 

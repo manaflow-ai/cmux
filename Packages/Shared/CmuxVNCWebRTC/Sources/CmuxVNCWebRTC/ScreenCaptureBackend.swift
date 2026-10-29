@@ -280,6 +280,7 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
             }
             if Thread.isMainThread { release() } else { DispatchQueue.main.async(execute: release) }
         }
+        input.releaseAll()
         if let stream { Task { try? await stream.stopCapture() } }
     }
 }
@@ -290,9 +291,9 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
 /// keys by virtual key code, and text as Unicode strings. Every event
 /// carries the modifiers the viewer holds down (a modifier `key` down stays
 /// on until its up), so a ⌘, ⇧ or ⌥ key down, then a click, is a modified click.
-// crash-allow: one per backend, driven only by the input channel's callbacks, which libwebrtc delivers one at a time.
+// crash-allow: one per backend; input state is touched only under `lock` (the channel's callbacks and the session's end).
 final class EventInjector: @unchecked Sendable {
-    // @unchecked: used from the data channel's callbacks, one at a time.
+    // @unchecked: input state behind `lock`; `display` is set once per capture start.
     var display = CGRect.zero
     private let source: CGEventSource?
     private let poster: @Sendable (CGEvent) -> Void
@@ -308,8 +309,19 @@ final class EventInjector: @unchecked Sendable {
     private var point = CGPoint.zero
     private var lastClick: (time: TimeInterval, button: UInt8, count: Int64) = (0, 0, 0)
     private var flags: CGEventFlags = []
+    /// The session ended (``releaseAll()``): late input posts nothing.
+    private var ended = false
+    /// Input and ``releaseAll()`` come from different tasks (the channel, the session's end).
+    private let lock = NSLock()
 
     func handle(_ input: ScreenInput) {
+        lock.withLock {
+            guard !ended else { return }
+            apply(input)
+        }
+    }
+
+    private func apply(_ input: ScreenInput) {
         switch input.t {
         case "move":
             point = location(input)
@@ -327,7 +339,7 @@ final class EventInjector: @unchecked Sendable {
         case "chord":
             guard let keysym = input.k else { return }
             // A modifier the viewer already holds stays held after the chord.
-            let modifiers = (input.m ?? []).filter { Self.modifierFlags[$0].map { !flags.contains($0) } ?? true }
+            let modifiers = (input.m ?? []).filter { keysym in Self.modifierFlags[keysym].map { held in !flags.contains(held) } ?? true }
             for modifier in modifiers { key(modifier, down: true) }
             key(keysym, down: true)
             key(keysym, down: false)
@@ -339,8 +351,23 @@ final class EventInjector: @unchecked Sendable {
         }
     }
 
-    /// Lets go of every button and modifier the viewer holds; input after it posts nothing.
-    func releaseAll() {}
+    /// Lets go of every button and modifier the viewer holds (a viewer that
+    /// drops mid-click or with ⌘ down leaves none stuck on the Mac); input
+    /// after it posts nothing.
+    func releaseAll() {
+        lock.withLock {
+            guard !ended else { return }
+            setButtons(0)
+            for (keysym, flag) in Self.releaseOrder where flags.contains(flag) { key(keysym, down: false) }
+            flags = []
+            ended = true
+        }
+    }
+
+    /// One keysym per modifier flag, for ``releaseAll()``.
+    private static let releaseOrder: [(UInt32, CGEventFlags)] = [
+        (0xFFE7, .maskCommand), (0xFFE9, .maskAlternate), (0xFFE3, .maskControl), (0xFFE1, .maskShift),
+    ]
 
     private func location(_ input: ScreenInput) -> CGPoint {
         CGPoint(x: display.minX + (input.x ?? 0) * display.width, y: display.minY + (input.y ?? 0) * display.height)
@@ -409,6 +436,8 @@ final class EventInjector: @unchecked Sendable {
     }
 
     /// Posts `event` with the held modifiers (keys set their own flags first).
+    /// The viewer's modifiers replace the source state's, so a key held on
+    /// the Mac's own keyboard is not added to a remote click.
     private func post(_ event: CGEvent?) {
         guard let event else { return }
         if event.type != .keyDown, event.type != .keyUp, event.type != .flagsChanged { event.flags = flags }
