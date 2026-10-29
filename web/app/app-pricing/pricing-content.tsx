@@ -43,6 +43,7 @@ import {
 } from "../components/pricing-shared";
 import { PricingCheckoutButton } from "../components/pricing-checkout";
 import { ProPlanCard } from "../components/pro-plan-card";
+import type { PlanCardSubscriptionPrice } from "../../services/billing/subscriptionPrice";
 import {
   MAX_PRICING_USD,
   GO_PRICING_USD,
@@ -132,6 +133,10 @@ export function AppPricingContent({
     yearly: pricing.pro.annual.yearly,
     monthly: pricing.monthly,
     perMonth: pricing.perMonth,
+    billedYearlyTemplate: pricing.billedYearly,
+    billedMonthly: pricing.billedMonthly,
+    earlySupporterPrice: pricing.earlySupporterPrice,
+    foundersEdition: pricing.foundersEditionPrice,
   };
   const teamCheckoutHref = appPricingCheckoutURL(
     "team",
@@ -268,6 +273,8 @@ export function AppPricingContent({
         location="app_pricing"
         requiresSignIn={!pending && !snapshot.authenticated}
         ctaLabel={pricing.pro.cta}
+        currentPrice={isProCurrent ? snapshot.currentPrice : undefined}
+        currentPlan={isProCurrent}
         badge={
           isProCurrent ? (
             <CurrentPlanBadge>{pricing.currentPlan}</CurrentPlanBadge>
@@ -300,6 +307,8 @@ export function AppPricingContent({
         location="app_pricing"
         requiresSignIn={!pending && !snapshot.authenticated}
         ctaLabel={pricing.max.cta}
+        currentPrice={isMax ? snapshot.currentPrice : undefined}
+        currentPlan={isMax}
         badge={
           isMax ? (
             <CurrentPlanBadge>{pricing.currentPlan}</CurrentPlanBadge>
@@ -465,6 +474,8 @@ export type AppPlanSnapshot = {
   cancelScheduled?: boolean;
   /** The Stripe subscription has a failed payment to fix before a switch. */
   paymentPastDue?: boolean;
+  /** What the Stripe subscription charges; the current plan's card shows it. */
+  currentPrice?: PlanCardSubscriptionPrice;
   email: string | null;
 };
 

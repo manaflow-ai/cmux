@@ -103,6 +103,13 @@ export function isPortalSwitchableLookupKey(lookupKey: string | null | undefined
 }
 
 /**
+ * Founder's Edition was sold at the original $30/mo Pro price. A purchase
+ * recorded without a Stripe Price (a one-time payment-link checkout) is shown
+ * at this price.
+ */
+export const FOUNDERS_EDITION_PRICE_USD = { amountUsd: 30, interval: "month" } as const;
+
+/**
  * Lookup keys that no new checkout may use. Each stays active in Stripe for
  * the subscriptions grandfathered on it; the dashboard prices those rows from
  * the subscription's own Stripe amount, never from these keys.

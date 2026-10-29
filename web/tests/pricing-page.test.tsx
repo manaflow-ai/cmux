@@ -106,6 +106,7 @@ mock.module("../db/client", () => ({
       from: (table: unknown) => ({
         where: () => Object.assign(Promise.resolve(rowsFor(table)), {
           limit: async () => rowsFor(table),
+          orderBy: () => ({ limit: async () => rowsFor(table) }),
         }),
       }),
     }),
@@ -113,6 +114,23 @@ mock.module("../db/client", () => ({
 }));
 
 const { default: PricingPage } = await import("../app/[locale]/(landing)/pricing/page");
+
+/** The streamed signed-in individual plans, not the static fallback before them. */
+function personalizedIndividualSection(html: string): string {
+  return Array.from(
+    html.matchAll(/aria-labelledby="individual-pricing-category"[\s\S]*?<\/section>/g),
+    (match) => match[0],
+  ).find((section) => section.includes("Current plan")) ?? "";
+}
+
+/** Select one rendered plan card so assertions do not mix sibling plans' labels. */
+function personalizedPlanCard(html: string, planName: string): string {
+  const cardMarker =
+    '<div class="relative flex h-full min-w-0 flex-col border border-border p-6">';
+  return personalizedIndividualSection(html)
+    .split(cardMarker)
+    .find((card) => card.includes(`>${planName}</h2>`)) ?? "";
+}
 
 describe("localized pricing page", () => {
   test("hides Go when the Go rollout is disabled", async () => {
@@ -379,6 +397,138 @@ describe("localized pricing page", () => {
     expect(card).toContain("/api/billing/checkout?plan=max");
     expect(html).not.toContain("/api/billing/portal?flow=switch_plan");
     expect(html).toMatch(/plan=max[^"]*"[^>]*><span>Get Max/);
+  });
+
+  test("shows a grandfathered subscriber their own price under today's list price", async () => {
+    stackConfigured = true;
+    stripeSubscriptionRows = [{
+      id: "sub_early",
+      plan: "pro",
+      status: "active",
+      raw: { items: { data: [{ price: { currency: "usd", unit_amount: 3000, recurring: { interval: "month" } } }] } },
+    }];
+
+    const html = await renderSettled(await PricingPage({ params: Promise.resolve({ locale: "en" }) }));
+    const individual = personalizedIndividualSection(html);
+
+    expect(individual).toMatch(/<s[^>]*>\$50<\/s>/);
+    expect(individual).toContain(">$30<");
+    expect(individual).toContain("Early supporter price");
+  });
+
+  test("shows a Founder's Edition owner their $30 price under the $50 list price", async () => {
+    stackConfigured = true;
+    stripeSubscriptionRows = [{
+      id: "sub_founder",
+      plan: "pro",
+      status: "active",
+      raw: {
+        metadata: { founders_edition: "true" },
+        items: { data: [{ price: { currency: "usd", unit_amount: 3000, recurring: { interval: "month" } } }] },
+      },
+    }];
+
+    const html = await renderSettled(await PricingPage({ params: Promise.resolve({ locale: "en" }) }));
+    const individual = personalizedIndividualSection(html);
+
+    expect(individual).toMatch(/<s[^>]*>\$50<\/s>/);
+    expect(individual).toContain(">$30<");
+    expect(individual).toContain("Founder&#x27;s Edition");
+    expect(individual).not.toContain("Early supporter price");
+  });
+
+  test("a yearly subscriber at today's yearly price sees the yearly bill, not a discount", async () => {
+    stackConfigured = true;
+    stripeSubscriptionRows = [{
+      id: "sub_yearly",
+      plan: "pro",
+      status: "active",
+      raw: { items: { data: [{ price: { currency: "usd", unit_amount: 48000, recurring: { interval: "year" } } }] } },
+    }];
+
+    const html = await renderSettled(await PricingPage({ params: Promise.resolve({ locale: "en" }) }));
+    const individual = personalizedIndividualSection(html);
+
+    expect(individual).toContain(">$40<");
+    expect(individual).toContain("Billed $480 yearly");
+    expect(individual).not.toContain("Early supporter price");
+  });
+
+  test("a subscriber whose own price is unknown is not told a billing period", async () => {
+    stackConfigured = true;
+    stripeSubscriptionRows = [{ id: "sub_no_price", plan: "pro", status: "active" }];
+
+    const html = await renderSettled(await PricingPage({ params: Promise.resolve({ locale: "en" }) }));
+    const proCard = personalizedPlanCard(html, "Pro");
+
+    expect(proCard).toContain("Manage billing");
+    expect(proCard).toContain(">$50<");
+    expect(proCard).toMatch(/<span class="truncate">\s*<\/span>/);
+  });
+
+  test("a Max subscriber's Pro card still states its monthly list bill", async () => {
+    stackConfigured = true;
+    stripeSubscriptionRows = [{ id: "sub_max_no_price", plan: "max", status: "active" }];
+
+    const html = await renderSettled(await PricingPage({ params: Promise.resolve({ locale: "en" }) }));
+    const individual = personalizedIndividualSection(html);
+
+    // Pro shows Manage billing at its $50 monthly list price; Max is the
+    // plan in force with no known own price, so it names no period.
+    expect(individual).toContain(">$50<");
+    expect(individual.match(/Billed monthly/g)).toHaveLength(1);
+    expect(individual).not.toMatch(/Billed \$\d+ yearly/);
+  });
+
+  test("a yearly early supporter sees both the discount and the yearly bill", async () => {
+    stackConfigured = true;
+    stripeSubscriptionRows = [{
+      id: "sub_yearly_early",
+      plan: "pro",
+      status: "active",
+      raw: { items: { data: [{ price: { currency: "usd", unit_amount: 30000, recurring: { interval: "year" } } }] } },
+    }];
+
+    const html = await renderSettled(await PricingPage({ params: Promise.resolve({ locale: "en" }) }));
+    const individual = personalizedIndividualSection(html);
+
+    expect(individual).toMatch(/<s[^>]*>\$40<\/s>/);
+    expect(individual).toContain(">$25<");
+    expect(individual).toContain("Early supporter price");
+    expect(individual).toContain("Billed $300 yearly");
+  });
+
+  test("prices a card only from the subscription behind the plan in force", async () => {
+    const { currentPersonalSubscriptionPrice } = await import("../services/billing/dashboardBilling");
+    const price: { amountUsd: number; interval: "month" | "year" } = { amountUsd: 30, interval: "month" };
+    const proRow = async () => ({
+      foundersEdition: false,
+      foundersPrice: null,
+      subscription: { plan: "pro", status: "active", currentPeriodEnd: null, cancelAtPeriodEnd: false, price },
+    });
+
+    // A Max plan granted on top of a Stripe Pro row keeps the Max list price.
+    expect(await currentPersonalSubscriptionPrice("user-pro", "max", proRow)).toBeUndefined();
+    expect(await currentPersonalSubscriptionPrice("user-pro", "pro", proRow)).toEqual(price);
+    // Founder's Edition prices Pro at its own Stripe Price, else the $30/mo it was sold at.
+    const founders = (foundersPrice: typeof price | null) => async () => ({ foundersEdition: true, foundersPrice, subscription: null });
+    expect(await currentPersonalSubscriptionPrice("user-pro", "pro", founders(null))).toEqual({ amountUsd: 30, interval: "month", foundersEdition: true });
+    expect(await currentPersonalSubscriptionPrice("user-pro", "pro", founders({ amountUsd: 288, interval: "year" as const }))).toEqual({ amountUsd: 288, interval: "year", foundersEdition: true });
+    expect(await currentPersonalSubscriptionPrice("user-pro", "max", founders(null))).toBeUndefined();
+    // A failed read falls back to the list price.
+    expect(await currentPersonalSubscriptionPrice("user-pro", "pro", async () => { throw new Error("db down"); })).toBeUndefined();
+  });
+
+  test("states the yearly total next to the yearly per-month price", async () => {
+    const html = await renderSettled(
+      await PricingPage({
+        params: Promise.resolve({ locale: "en" }),
+        searchParams: Promise.resolve({ interval: "year" }),
+      }),
+    );
+
+    expect(html).toContain("Billed $480 yearly");
+    expect(html).toContain("Billed $1920 yearly");
   });
 
   test("routes a granted Pro user's Max CTA through checkout", async () => {

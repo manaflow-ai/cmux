@@ -14,6 +14,7 @@ import {
 } from "./mobile-drawer";
 import { BrandLogoLink } from "./brand-logo-link";
 import { ContentLocaleLink } from "./content-locale-link";
+import { AccountLink } from "./account-link";
 
 export function SiteHeader({
   section,
@@ -69,9 +70,10 @@ export function SiteHeader({
             <NavLinks />
           </nav>
 
-          {/* Right: GitHub stars + Download + theme + mobile */}
+          {/* Right: GitHub stars + account + Download + theme + mobile */}
           <div className="ml-auto flex min-w-0 items-center justify-end gap-3 min-[940px]:ml-0">
             <GitHubStarsBadge />
+            <AccountLink className="hidden whitespace-nowrap text-sm text-muted transition-colors hover:text-foreground min-[940px]:block" />
             <div className="hidden min-[940px]:block">
               <DownloadButton size="sm" location="navbar" />
             </div>
@@ -156,6 +158,10 @@ export function SiteHeader({
           >
             {t("pricing")}
           </ContentLocaleLink>
+          <AccountLink
+            onClick={close}
+            className="hover:text-foreground transition-colors py-1"
+          />
           <GitHubStarsBadge location="mobile_drawer" />
           <div className="pt-2">
             <DownloadButton size="sm" location="mobile_drawer" />

@@ -11,6 +11,15 @@ export type SubscriptionPrice = {
   readonly interval: "month" | "year";
 };
 
+/**
+ * The price a pricing-page plan card shows for the plan in force. A Founder's
+ * Edition owner's Pro card is labelled with the edition rather than as an
+ * early-supporter price.
+ */
+export type PlanCardSubscriptionPrice = SubscriptionPrice & {
+  readonly foundersEdition?: boolean;
+};
+
 export function subscriptionPriceFromRaw(raw: unknown): SubscriptionPrice | null {
   const price = stripePrice(raw);
   const unitAmount = price?.unit_amount;

@@ -69,6 +69,8 @@ import {
 } from "../../../../services/billing/plans";
 import { isVaultEnabled } from "../../../../services/vault/config";
 import { isGoPlanEnabled } from "../../../../services/billing/goPlanFlag";
+import { currentPersonalSubscriptionPrice } from "../../../../services/billing/dashboardBilling";
+import type { PlanCardSubscriptionPrice } from "../../../../services/billing/subscriptionPrice";
 
 const ENTERPRISE_CTA_URL = "/enterprise";
 const ANONYMOUS_IF_EXISTS = "anonymous-if-exists[deprecated]" as const;
@@ -267,6 +269,10 @@ function PricingContent({
     yearly: t("pro.annual.yearly"),
     monthly: t("monthly"),
     perMonth: t("perMonth"),
+    billedYearlyTemplate: t.raw("billedYearly") as string,
+    billedMonthly: t("billedMonthly"),
+    earlySupporterPrice: t("earlySupporterPrice"),
+    foundersEdition: t("foundersEditionPrice"),
   };
   const proCheckoutHrefs = {
     month: proCheckoutHref,
@@ -375,6 +381,8 @@ function PricingContent({
         checkoutHrefs={proCheckoutHrefs}
         requiresSignIn={!pending && !snapshot.authenticated}
         ctaLabel={t("pro.cta")}
+        currentPrice={isProCurrent ? snapshot.currentPrice : undefined}
+        currentPlan={isProCurrent}
         badge={
           isProCurrent ? (
             <CurrentPlanBadge>{t("currentPlan")}</CurrentPlanBadge>
@@ -407,6 +415,8 @@ function PricingContent({
         }}
         requiresSignIn={!pending && !snapshot.authenticated}
         ctaLabel={t("max.cta")}
+        currentPrice={isMax ? snapshot.currentPrice : undefined}
+        currentPlan={isMax}
         badge={
           isMax ? <CurrentPlanBadge>{t("currentPlan")}</CurrentPlanBadge> : null
         }
@@ -644,6 +654,11 @@ type PlanSnapshot = {
   cancelScheduled?: boolean;
   /** The Stripe subscription has a failed payment to fix before a switch. */
   paymentPastDue?: boolean;
+  /**
+   * What the Stripe subscription actually charges. A grandfathered or yearly
+   * subscriber's card shows this instead of today's list price.
+   */
+  currentPrice?: PlanCardSubscriptionPrice;
 };
 
 /**
@@ -684,6 +699,11 @@ async function readPlanSnapshot(): Promise<PlanSnapshot> {
   }
 
   const status = await resolveProPlanStatus(user);
+  // App Store plans are priced by Apple; everything else may have a Stripe
+  // subscription or Founder's Edition behind it.
+  const currentPrice = status.isPro && status.billingSource !== "apple"
+    ? await currentPersonalSubscriptionPrice(user.id, status.planId)
+    : undefined;
   return {
     userId: user.id,
     authenticated: !user.isAnonymous,
@@ -693,5 +713,6 @@ async function readPlanSnapshot(): Promise<PlanSnapshot> {
     billingSource: status.billingSource,
     cancelScheduled: status.cancelScheduled ?? false,
     paymentPastDue: status.paymentPastDue ?? false,
+    currentPrice,
   };
 }

@@ -229,7 +229,9 @@
     "changelog": "Изменения",
     "community": "Сообщество",
     "jobs": "Вакансии",
-    "github": "GitHub"
+    "github": "GitHub",
+    "signIn": "Войти",
+    "account": "Аккаунт"
   },
   "footer": {
     "product": "Продукт",
@@ -5331,7 +5333,11 @@
     "billingUnavailable": "Оплата сейчас недоступна. Повторите попытку позже.",
     "signedOutNotice": "Вы не вошли в систему. Войдите, чтобы увидеть текущий план или восстановить существующую покупку.",
     "signedOutSignIn": "Войти",
-    "manageInAppStore": "Управлять в App Store"
+    "manageInAppStore": "Управлять в App Store",
+    "billedYearly": "${amount} в год",
+    "billedMonthly": "Оплата ежемесячно",
+    "earlySupporterPrice": "Цена для ранних пользователей",
+    "foundersEditionPrice": "Founder's Edition"
   },
   "platforms": {
     "macos": "macOS",
