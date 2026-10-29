@@ -5,7 +5,7 @@ A fixture repository holds a small CmuxNextApp and every kind of path-keyed file
 godfile's Module/Type rows, OWNERS.md, a regex in autofix-areas.sh, globs in a workflow paths filter, a doc). The
 tests rename or delete a file without following it and check that --check names the stale entry, that base debt
 passes, that --from-git repairs a plain rename, that the gate refuses only what the push's own commits leave, and
-that the gate credits a pure rename (RenameCredit).
+that the gate credits a pure rename (RenameCredit, CrashRows).
 
   python3 -m pytest scripts/cmux-next/tests/test_follow_renames.py
   python3 -m unittest discover -s scripts/cmux-next/tests -p test_follow_renames.py
@@ -320,6 +320,67 @@ class RenameCredit(unittest.TestCase):
         self.assertEqual(left, {})
         self.assertEqual(carried, {("swift", "unchecked", "CmuxNextApp"): -1, ("swift", "unchecked", "CmuxNextPalette"): 1})
         self.assertEqual(gate.followed_rows(rows, old, new, {})[0], rows, "no rename across modules, nothing carried")
+
+class CrashRows(unittest.TestCase):
+    """The module-keyed crash baseline follows a pure cross-module move (crash_ratchet.py --update-baseline --base
+    HEAD after a git mv), and the gate needs no Crash-allow-OK trailer for it: crash_raises carries the rows and
+    apply_reviewed_crash_data writes them."""
+
+    def fixture(self) -> Fixture:
+        files = dict(FILES)
+        files[APP + "FixtureSearch/FixtureSearchHandlers.swift"] = (
+            "final class FixtureSearchBox: @unchecked Sendable {}\nenum FixtureSearchHandlers {\n    static func bind() {}\n}\n")
+        files[APP + "Other.swift"] = files[APP + "Other.swift"].replace(
+            "struct Other {", "final class OtherBox: @unchecked Sendable {}\nstruct Other {")
+        files["scripts/cmux-next/crash_ratchet.py"] = (HERE.parent / "crash_ratchet.py").read_text(encoding="utf-8")
+        fx = Fixture(files)
+        self.ratchet(fx, "--update-baseline")
+        fx.git("add", "-A")
+        fx.commit("crash baseline")
+        return fx
+
+    def ratchet(self, fx: Fixture, *args: str) -> subprocess.CompletedProcess:
+        return subprocess.run([sys.executable, "-I", str(fx.root / "scripts/cmux-next/crash_ratchet.py"),
+                               "--repo", str(fx.root), *args], capture_output=True, text=True)
+
+    def rows(self, fx: Fixture) -> dict:
+        return json.loads(fx.read("scripts/cmux-next/crash-safety-baseline.json"))["swift"]["unchecked"]
+
+    def test_moved_hit_carries_its_row_and_the_gate_needs_no_trailer(self) -> None:
+        gate = load("cmux_next_prepush_gate_for_crash_rows_move", "prepush-gate.py")
+        fx = self.fixture()
+        try:
+            self.assertEqual(self.rows(fx), {"CmuxNextApp": 2})
+            base = fx.git("rev-parse", "HEAD").strip()
+            fx.git("mv", APP + "FixtureSearch", PKG + "Sources/CmuxNextPalette/FixtureSearch")
+            with contextlib.redirect_stdout(io.StringIO()):
+                fx.commit("move FixtureSearch")
+                self.assertEqual(follow.main(["--repo", str(fx.root), "--from-git", f"{base}..HEAD"]), 0)
+            update = self.ratchet(fx, "--update-baseline", "--base", base)
+            self.assertEqual(update.returncode, 0, update.stdout + update.stderr)
+            self.assertEqual(self.rows(fx), {"CmuxNextApp": 1, "CmuxNextPalette": 1})
+            fx.git("add", "-A")
+            fx.git("commit", "-q", "--amend", "--no-edit")
+            moved = fx.git("rev-parse", "HEAD").strip()
+            raises = gate.crash_raises(fx.root, base, moved)
+            self.assertEqual([rows for _, _, _, _, rows, _ in raises if rows], [], "no raised row is left for a trailer")
+            self.assertEqual(raises[0][5].rows, {("swift", "unchecked", "CmuxNextApp"): -1,
+                                                 ("swift", "unchecked", "CmuxNextPalette"): 1})
+            self.assertEqual(raises[0][5].allow, {
+                (APP + "FixtureSearch/FixtureSearchControl.swift", "swift.unowned"):
+                    (PKG + "Sources/CmuxNextPalette/FixtureSearch/FixtureSearchControl.swift", "swift.unowned")})
+            self.assertEqual(gate.crash_allow_unreviewed(fx.root, base, moved), [])
+            with tempfile.TemporaryDirectory() as tmp:
+                scripts = Path(tmp)
+                for name in ("crash-safety-baseline.json", "crash-allowlist.json"):
+                    (scripts / name).write_text(fx.git("show", f"{base}:scripts/cmux-next/{name}"))
+                taken = gate.apply_reviewed_crash_data(fx.root, base, moved, scripts)
+                carried = json.loads((scripts / "crash-safety-baseline.json").read_text())["swift"]["unchecked"]
+                self.assertEqual(carried, {"CmuxNextApp": 1, "CmuxNextPalette": 1}, taken)
+                allow = json.loads((scripts / "crash-allowlist.json").read_text())["allow"]
+                self.assertEqual(allow[0]["path"], PKG + "Sources/CmuxNextPalette/FixtureSearch/FixtureSearchControl.swift")
+        finally:
+            fx.close()
 
 class CheckFailures(unittest.TestCase):
     def test_an_unknown_rev_exits_2_and_the_gate_does_not_refuse(self) -> None:
