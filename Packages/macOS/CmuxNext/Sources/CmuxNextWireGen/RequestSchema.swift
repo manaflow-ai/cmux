@@ -136,9 +136,21 @@ struct RequestSchema: Equatable {
                                      message: "the line envelope owns \(envelope.wire)")
         }
         if try flag(node, "stream_scoped", path: path) {
-            guard !fields.contains(where: { $0.swift == streamField.swift }) else {
-                throw RequestSchemaError(path: "\(path).request.fields.stream",
-                                         message: "a stream-scoped request has its own stream")
+            // A command whose daemon handler reads the stream itself (the attached-view commands
+            // check it against the view's stream) declares it; the declaration must be the
+            // envelope's stream, and the request sends it as the envelope does.
+            if let declared = fields.firstIndex(where: { $0.swift == streamField.swift }) {
+                let field = fields[declared]
+                guard field.wire == streamField.wire, field.type == streamField.type, !field.required,
+                      field.nullable
+                else {
+                    throw RequestSchemaError(
+                        path: "\(path).request.fields.stream",
+                        message: "a stream-scoped request has its own stream: declare it as an optional, "
+                            + "nullable uint16 or not at all"
+                    )
+                }
+                fields.remove(at: declared)
             }
             fields.append(streamField)
         }

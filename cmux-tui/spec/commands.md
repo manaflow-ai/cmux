@@ -1411,7 +1411,8 @@ Neither is journaled.
 Result: `object{changed:bool, saver:bool}`.
 
 `energy.status` takes no params. Result: `object{saver:bool,
-source:"app"|"daemon", reason:string|null, override:bool|null, reading:bool,
+source:"app"|"daemon", reason:"lowPowerMode"|"battery"|"thermal"|"setting"|null,
+override:bool|null, reading:bool,
 setting:"auto"|"onBattery"|"always"|"off"|null, offForNow:bool}`.
 
 Errors: `energy.not_trusted`; `energy.bad_request` (a missing or malformed
