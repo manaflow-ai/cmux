@@ -81,20 +81,21 @@ const isPointer = (p: unknown, prefix: string): p is Pointer => {
 export function productionAnchors(root: string): Pointer[] {
   const file = path.join(root, PRODUCTION);
   const prod = existsSync(file) ? (JSON.parse(readFileSync(file, "utf8")) as Json) : undefined;
-  const pointer = (value: unknown, label: string, allowDev = false): Pointer | undefined => {
-    if (value === undefined) return undefined;
+  const pointer = (value: unknown, label: string, options: { allowDev?: boolean; allowEmpty?: boolean; allowNull?: boolean } = {}): Pointer | undefined => {
+    if (value === undefined || (options.allowNull && value === null)) return undefined;
     if (isPointer(value, PROD_IMAGE_PREFIX)) return value;
     // A channel rollback keeps the prior dev pointer in `previous`; it is a valid record, but never
     // an anchor for the production account.
-    if (allowDev && isPointer(value, "cmuxnp-dev-vmimg-")) return undefined;
+    if (options.allowDev && isPointer(value, "cmuxnp-dev-vmimg-")) return undefined;
+    if (options.allowEmpty && value && typeof value === "object" && !Object.hasOwn(value, "snapshot") && !Object.hasOwn(value, "snapshot_id")) return undefined;
     throw new Error(`${label} is malformed; refusing to check a production account`);
   };
   const field = (value: Json | undefined, key: string, label: string): unknown => value !== undefined && Object.prototype.hasOwnProperty.call(value, key) ? value[key] : undefined;
-  const current = pointer(prod, `${PRODUCTION} current`);
-  const previous = pointer(field(prod, "previous", `${PRODUCTION} previous`), `${PRODUCTION} previous`, true);
+  const current = pointer(prod, `${PRODUCTION} current`, { allowEmpty: true });
+  const previous = pointer(field(prod, "previous", `${PRODUCTION} previous`), `${PRODUCTION} previous`, { allowDev: true, allowNull: true });
   const team = field(prod, "team_vm", `${PRODUCTION} team_vm`) as Json | undefined;
-  const teamCurrent = pointer(team, `${PRODUCTION} team_vm`);
-  const teamPrevious = pointer(field(team, "previous", `${PRODUCTION} team_vm previous`), `${PRODUCTION} team_vm previous`, true);
+  const teamCurrent = pointer(team, `${PRODUCTION} team_vm`, { allowEmpty: true });
+  const teamPrevious = pointer(field(team, "previous", `${PRODUCTION} team_vm previous`), `${PRODUCTION} team_vm previous`, { allowDev: true, allowNull: true });
   const history = readDev(root).history;
   const historyProduction = Array.isArray(history) ? (history as Json[]).flatMap((h, i) => {
     const names = h.names as Json | undefined;

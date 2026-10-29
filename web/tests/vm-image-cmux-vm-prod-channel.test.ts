@@ -268,6 +268,26 @@ describe("prod-copy.ts account-check", () => {
     await expect(accountCheck(history.root, async () => undefined)).rejects.toThrow(/names\.production is malformed/);
   });
 
+  test("accepts the normal first production and team-only channel record shapes", async () => {
+    const first = fakeRoot([]);
+    writeFileSync(path.join(first.root, "images/cmux-vm/channels/production.json"), JSON.stringify({
+      schema: 1,
+      env: "production",
+      snapshot: "cmuxnp-prod-vmimg-ci-500-1",
+      snapshot_id: ID(500),
+      previous: null,
+    }));
+    expect(await accountCheck(first.root, async (n) => (n === "cmuxnp-prod-vmimg-ci-500-1" ? ID(500) : undefined))).toContain("account check passed");
+
+    const team = fakeRoot([]);
+    writeFileSync(path.join(team.root, "images/cmux-vm/channels/production.json"), JSON.stringify({
+      schema: 1,
+      env: "production",
+      team_vm: { snapshot: "cmuxnp-prod-vmimg-team-500-1", snapshot_id: ID(501), previous: null },
+    }));
+    expect(await accountCheck(team.root, async (n) => (n === "cmuxnp-prod-vmimg-team-500-1" ? ID(501) : undefined))).toContain("account check passed");
+  });
+
   test("fails closed without a dev pointer to check against", async () => {
     const root = scratch();
     mkdirSync(path.join(root, "images/cmux-vm/channels"), { recursive: true });
