@@ -306,7 +306,10 @@ def main():
             # code until live data starts); the Mac then answers the earlier ask with the code.
             subprocess.run(simctl + ["terminate", a.udid, a.bundle_id], capture_output=True, timeout=60)
             # As the Camera opens a scanned code: cmux-next://pair?... (RootView .onOpenURL).
-            opened = subprocess.run(simctl + ["openurl", a.udid, url], capture_output=True, text=True, timeout=60)
+            try:  # a TimeoutExpired names its argv, the link with its token: never raised with it
+                opened = subprocess.run(simctl + ["openurl", a.udid, url], capture_output=True, text=True, timeout=60)
+            except subprocess.TimeoutExpired:
+                raise SystemExit("simctl openurl took more than 60 s") from None
             if opened.returncode != 0:  # the error names the link: redacted, never raised with it
                 raise SystemExit(f"simctl openurl failed ({opened.returncode}): {redact(opened.stderr.strip())[-400:]}")
             paired = mac_log.wait(PAIRED, 180)
