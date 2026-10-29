@@ -43,13 +43,14 @@ function room(unresolved: string[] = []) {
     records: [] as number[],
     pages: [] as number[][],
     ended: [] as GuestEnd[],
+    presence: [] as string[][],
   };
   const states: string[] = [];
   const listener: ShareListener = {
     snapshot: (snapshot) => seen.snapshots.push(snapshot.records.map((each) => each.seq)),
     records: (records) => seen.records.push(...records.map((each) => each.seq)),
     page: (records) => seen.pages.push(records.map((each) => each.seq)),
-    presence: () => undefined,
+    presence: (participants) => seen.presence.push(participants.map((participant) => participant.id)),
     promptState: () => undefined,
     connection: (state) => states.push(state),
     ended: (reason) => seen.ended.push(reason),
@@ -156,4 +157,25 @@ test("frames of another version or malformed are ignored", () => {
   r.last().onmessage?.({ data: JSON.stringify({ v: 2, t: "snapshot", records: [record(1)] }) });
   r.last().onmessage?.({ data: "{" });
   expect(r.seen.snapshots).toEqual([]);
+});
+
+test("malformed snapshot prompts are dropped at the socket boundary", () => {
+  const r = room();
+  r.client.connect();
+  expect(() => r.last().frame("snapshot", {
+    records: [],
+    watermark: 0,
+    prompts: [null, {}, { client_id: "guest-1", state: "held" }],
+  })).not.toThrow();
+  expect(r.seen.snapshots).toEqual([[]]);
+});
+
+test("malformed presence entries are dropped before reaching the page", () => {
+  const r = room();
+  r.client.connect();
+  r.last().frame("snapshot", { records: [], watermark: 0 });
+  expect(() => r.last().frame("presence", {
+    participants: [{}, { id: "guest-1" }, { id: "guest-2", name: "Theo" }],
+  })).not.toThrow();
+  expect(r.seen.presence).toEqual([["guest-2"]]);
 });
