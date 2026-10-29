@@ -147,15 +147,34 @@
    It keeps no backdrop blur of its own: a long transcript repeats it, and the lens frosts it. Reduce
    Transparency makes it the same grey, opaque. */
 .cv-user__bubble {
-  --glass-tint: var(--cv-bubble);
+  /* The selected borderless arm keeps a stronger glass fill for wallpaper contrast while its
+     outline is removed. The fill remains liquid glass; it is not a solid message plate. */
+  --glass-tint: color-mix(in srgb, var(--cv-fg) 10%, transparent);
   /* glass-opaque-allow: the Reduce Transparency fill only (glass.css applies it under that setting) */
-  --glass-opaque: color-mix(in srgb, var(--cv-fg) 5%, var(--glass-surface));
-  --glass-edge: var(--acpmux-composer-edge, transparent);
+  --glass-opaque: color-mix(in srgb, var(--cv-fg) 10%, var(--glass-surface));
+  /* No rim in any glass mode: the edge is Plain's whole rim, and --glass-rim 0 clears Lens's and
+     Spectrum's specular line, lower shade and colour fringes (ui/glass/glass.css --glass-rim-shadow). */
+  --glass-edge: transparent;
+  --glass-rim: 0;
   --glass-backdrop: none;
 }
 .acpmux-shell .cv-user__bubble {
-  --glass-tint: color-mix(in srgb, var(--agent-text) 12%, transparent);
+  --glass-tint: color-mix(in srgb, var(--agent-text) 14%, transparent);
   /* glass-opaque-allow: the Reduce Transparency fill only (glass.css applies it under that setting) */
+  --glass-opaque: color-mix(in srgb, var(--agent-text) 14%, var(--glass-surface));
+}
+
+/* Message-surface gallery arms. The selected default is borderless; the historical bordered arm
+   remains available for before/after captures without changing the app's other surfaces. */
+:root[data-message-surfaces="bordered"] .cv-user__bubble {
+  --glass-tint: var(--cv-bubble);
+  --glass-opaque: color-mix(in srgb, var(--cv-fg) 5%, var(--glass-surface));
+  --glass-edge: var(--acpmux-composer-edge, transparent);
+  /* The page's rim strength again (0 under appearance.borders none). */
+  --glass-rim: inherit;
+}
+:root[data-message-surfaces="bordered"] .acpmux-shell .cv-user__bubble {
+  --glass-tint: color-mix(in srgb, var(--agent-text) 12%, transparent);
   --glass-opaque: color-mix(in srgb, var(--agent-text) 12%, var(--glass-surface));
 }
 
