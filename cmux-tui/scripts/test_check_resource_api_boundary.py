@@ -411,6 +411,56 @@ fn internal() { let surface_id: u64 = 4; }
                 ("boundary.surface", 5),
             ])
 
+    def test_cli_test_code_and_spec_fixtures_are_outside_the_public_scan(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            tui = Path(directory)
+            write(
+                tui / "crates/cmux-tui/src/cli/catalog.rs",
+                """\
+const HELP: &str = "cmux surface list";
+#[cfg(test)]
+mod tests {
+    // A brace in a comment: }
+    const OPEN: char = '}';
+    fn action() -> Value {
+        json!({"surfaces": {"cli": "offered"}, "brace": "}"})
+    }
+}
+""",
+            )
+            write(
+                tui / "crates/cmux-tui/src/cli/catalog_tests.rs",
+                'fn f() { json!({"surfaces": {}}); }\n',
+            )
+            write(
+                tui / "spec/fixtures/ipc-method-tables/resource-operations-v2.json",
+                '{"families": {"agent": {"id": 96}}}\n',
+            )
+
+            diagnostics, scanned = CHECKER.scan_public_boundaries(tui)
+
+            self.assertEqual(scanned, 1)
+            # Production text before the test module is still scanned.
+            self.assertEqual([(item.code, item.line) for item in diagnostics], [("boundary.surface", 1)])
+
+    def test_cli_code_after_an_inline_test_module_is_scanned(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            tui = Path(directory)
+            write(
+                tui / "crates/cmux-tui/src/cli/catalog.rs",
+                """\
+#[cfg(test)]
+mod tests {
+    fn f() { let _ = "{"; let _ = '{'; }
+}
+const HELP: &str = "cmux surface list";
+""",
+            )
+
+            diagnostics, _ = CHECKER.scan_public_boundaries(tui)
+
+            self.assertEqual([(item.code, item.line) for item in diagnostics], [("boundary.surface", 5)])
+
     def test_cli_allows_relay_transport_slot_but_rejects_resource_slot(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             tui = Path(directory)
