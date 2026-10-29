@@ -407,7 +407,7 @@ ensure_product_description() {
     --data-urlencode "description=${description}" >/dev/null
   echo "Set description for ${product_id}." >&2
 }
-ensure_product_description "$plus_product_id" "1 Cloud VM with 2 vCPU, 4 GiB RAM, and 16 GiB disk. No monthly hour cap. Community support."
+ensure_product_description "$plus_product_id" "1 Cloud VM total, including paused machines. Choose 2, 4, or 8 vCPUs with 4, 8, or 16 GiB RAM. Disk up to 128 GiB. No monthly hour cap. Community support."
 ensure_product_description "$pro_product_id" "Up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM, plus the cmux iOS app."
 ensure_product_description "$max_product_id" "Everything in Pro, with up to 5 Cloud VMs sharing 80 vCPUs and 160 GB RAM."
 ensure_product_description "$team_product_id" "Up to 5 Cloud VMs per paid seat, sharing 20 vCPUs and 40 GB RAM per paid seat across the team, plus the cmux iOS app and priority support."

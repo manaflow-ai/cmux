@@ -136,8 +136,8 @@
       "activeAction": "cmux vm pause <id>\ncmux billing checkout --plan pro",
       "hoursMessage": "Plus: 無每月時數上限",
       "hoursAction": "cmux billing checkout --plan pro",
-      "shapeMessage": "Plus: 每台 VM：2 vCPU、4 GiB 記憶體和 16 GiB 磁碟",
-      "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
+      "shapeMessage": "Plus: 2–8 vCPU · 4–16 GiB RAM · 16–128 GiB disk",
+      "shapeAction": "cmux vm new --size 8g\ncmux billing checkout --plan max"
     },
     "planBudget": {
       "computeTitle": "{plan} 運算額度已用完",
@@ -157,7 +157,7 @@
       "action": "暫停或刪除一台 VM。"
     },
     "activeLimit": {
-      "counted": "目前計入：{machines}。已暫停的機器不計入。",
+      "counted": "目前計入：{machines}。已暫停的機器也計入上限。",
       "provisioning": "{name}（正在佈建）",
       "separator": "、"
     }
@@ -568,8 +568,8 @@
             "本機工作階段紀錄"
           ],
           "go": [
-            "1 台 Cloud VM",
-            "每台 VM：2 vCPU、4 GiB 記憶體和 16 GiB 磁碟",
+            "共可儲存 1 台 VM，包含已暫停的機器",
+            "2–8 vCPU · 4–16 GiB RAM · 16–128 GiB disk",
             "社群支援",
             "無每月時數上限"
           ],
@@ -5343,8 +5343,8 @@
       "cta": "取得 Plus",
       "featuresLead": "包含：",
       "features": [
-        "1 台 Cloud VM",
-        "每台 VM：2 vCPU、4 GiB 記憶體和 16 GiB 磁碟",
+        "共可儲存 1 台 VM，包含已暫停的機器",
+        "2–8 vCPU · 4–16 GiB RAM · 16–128 GiB disk",
         "社群支援",
         "無每月時數上限"
       ]

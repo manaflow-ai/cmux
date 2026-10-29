@@ -303,8 +303,8 @@
       "activeAction": "cmux vm pause <id>\ncmux billing checkout --plan pro",
       "hoursMessage": "Plus: 月間の時間上限なし",
       "hoursAction": "cmux billing checkout --plan pro",
-      "shapeMessage": "Plus: 各 VM: 2 vCPU、4 GiB RAM、16 GiB ディスク",
-      "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
+      "shapeMessage": "Plus: 2–8 vCPU · 4–16 GiB RAM · 16–128 GiB disk",
+      "shapeAction": "cmux vm new --size 8g\ncmux billing checkout --plan max"
     },
     "planBudget": {
       "computeTitle": "{plan} のコンピュート枠を使い切りました",
@@ -324,7 +324,7 @@
       "action": "VM を一時停止または削除してください。"
     },
     "activeLimit": {
-      "counted": "現在カウント中: {machines}。一時停止中のマシンはカウントされません。",
+      "counted": "カウント対象: {machines}。一時停止中のマシンも上限に含まれます。",
       "provisioning": "{name}（プロビジョニング中）",
       "separator": "、"
     }
@@ -881,8 +881,8 @@
             "ローカルのセッション履歴"
           ],
           "go": [
-            "Cloud VM 1 台",
-            "各 VM: 2 vCPU、4 GiB RAM、16 GiB ディスク",
+            "一時停止中も含めて保存できる VM は合計 1 台",
+            "16 GiB RAM / 8 vCPU",
             "コミュニティサポート",
             "月間の時間上限なし"
           ],
@@ -1837,8 +1837,8 @@
       "cta": "Plus を入手",
       "featuresLead": "含まれるもの:",
       "features": [
-        "Cloud VM 1 台",
-        "各 VM: 2 vCPU、4 GiB RAM、16 GiB ディスク",
+        "一時停止中も含めて保存できる VM は合計 1 台",
+        "16 GiB RAM / 8 vCPU",
         "コミュニティサポート",
         "月間の時間上限なし"
       ]
@@ -1985,7 +1985,7 @@
           "max": "80 vCPU と 160 GB RAM（共有）",
           "team": "有料シートごとに 20 vCPU と 40 GB RAM（チーム全体で共有）",
           "enterprise": "カスタム",
-          "go": "各 VM: 2 vCPU、4 GiB RAM、16 GiB ディスク"
+          "go": "16 GiB RAM / 8 vCPU"
         },
         {
           "label": "最大の Cloud VM",
@@ -1994,7 +1994,7 @@
           "max": "64 GB RAM / 32 vCPU（24 GB / 12 vCPU と 32 GB / 16 vCPU を含む）",
           "team": "16 GB RAM / 8 vCPU（24 GB / 12 vCPU と 32 GB / 16 vCPU は Max が必要）",
           "enterprise": "カスタム",
-          "go": "4 GiB RAM / 2 vCPU"
+          "go": "16 GiB RAM / 8 vCPU"
         },
         {
           "label": "ワークスペース",

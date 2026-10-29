@@ -111,13 +111,13 @@ describe("Stripe catalog provisioning", () => {
       .filter((call) => call.args.includes(`https://api.stripe.com/v1/products/${productId}`) && call.args.includes("POST"))
       .flatMap((call) => call.args)
       .find((argument) => argument.startsWith("description="));
-    expect(description("prod_starter")).toContain("1 Cloud VM with 2 vCPU, 4 GiB RAM, and 16 GiB disk. No monthly hour cap.");
+    expect(description("prod_starter")).toContain("1 Cloud VM total, including paused machines. Choose 2, 4, or 8 vCPUs with 4, 8, or 16 GiB RAM. Disk up to 128 GiB. No monthly hour cap.");
     expect(description("prod_pro")).toBe("description=Up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM, plus the cmux iOS app.");
     expect(description("prod_max")).toBe("description=Everything in Pro, with up to 5 Cloud VMs sharing 80 vCPUs and 160 GB RAM.");
     expect(description("prod_team")).toBe("description=Up to 5 Cloud VMs per paid seat, sharing 20 vCPUs and 40 GB RAM per paid seat across the team, plus the cmux iOS app and priority support.");
   });
 
-  test("renames the Starter product to cmux Plus in place", async () => {
+  test("renames the Plus product to cmux Plus in place", async () => {
     const result = await runProvision("test", "valid");
 
     expect(result.exitCode).toBe(0);
@@ -427,7 +427,7 @@ const respond = (value) => {
 const products = {
   starter: {
     id: "prod_starter",
-    name: scenario === "plus-renamed" ? "cmux Plus" : "cmux Starter",
+    name: scenario === "plus-renamed" ? "cmux Plus" : "cmux Plus",
     active: true,
     metadata: { app: "cmux", plan: "go" },
   },

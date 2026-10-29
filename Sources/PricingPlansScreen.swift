@@ -522,7 +522,7 @@ private struct NativePricingPlansView: View {
                     action: snapshot.isGo ? { ProUpgradePresenter.presentBillingPortal() } : { ProUpgradePresenter.presentCheckout(source: .nativePricingPreview, plan: .go) },
                     isProminent: snapshot.isGo,
                     features: [
-                        String(localized: "pricing.native.go.feature.vm", defaultValue: "1 active Cloud VM, 2 vCPU, 4 GiB RAM, 16 GiB disk"),
+                        String(localized: "pricing.native.go.feature.vm", defaultValue: "2–8 vCPU · 4–16 GiB RAM · 16–128 GiB disk"),
                         String(localized: "pricing.native.go.feature.saved", defaultValue: "1 saved VM total, including paused machines"),
                         String(localized: "pricing.native.go.feature.hours", defaultValue: "No monthly hour cap"),
                     ]

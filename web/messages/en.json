@@ -303,8 +303,8 @@
       "activeAction": "cmux vm pause <id>\ncmux billing checkout --plan pro",
       "hoursMessage": "Plus: No monthly hour cap",
       "hoursAction": "cmux billing checkout --plan pro",
-      "shapeMessage": "Plus: Each VM: 2 vCPU, 4 GiB RAM, and 16 GiB disk",
-      "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
+      "shapeMessage": "Plus: 2–8 vCPU · 4–16 GiB RAM · 16–128 GiB disk",
+      "shapeAction": "cmux vm new --size 8g\ncmux billing checkout --plan max"
     },
     "planBudget": {
       "computeTitle": "{plan} compute allowance used",
@@ -324,7 +324,7 @@
       "action": "Pause or delete a VM."
     },
     "activeLimit": {
-      "counted": "Counted now: {machines}. Paused machines do not count.",
+      "counted": "Counted now: {machines}. Paused machines count toward the limit.",
       "provisioning": "{name} (provisioning)",
       "separator": ", "
     }
@@ -881,8 +881,8 @@
             "Local session history"
           ],
           "go": [
-            "1 Cloud VM",
-            "Each VM: 2 vCPU, 4 GiB RAM, and 16 GiB disk",
+            "1 saved VM total, including paused machines",
+            "2–8 vCPU · 4–16 GiB RAM · 16–128 GiB disk",
             "Community support",
             "No monthly hour cap"
           ],
@@ -1837,8 +1837,8 @@
       "cta": "Get Plus",
       "featuresLead": "Includes:",
       "features": [
-        "1 Cloud VM",
-        "Each VM: 2 vCPU, 4 GiB RAM, and 16 GiB disk",
+        "1 saved VM total, including paused machines",
+        "2–8 vCPU · 4–16 GiB RAM · 16–128 GiB disk",
         "Community support",
         "No monthly hour cap"
       ]
@@ -1985,7 +1985,7 @@
           "max": "80 vCPUs and 160 GB RAM, shared",
           "team": "20 vCPUs and 40 GB RAM per paid seat, shared across the team",
           "enterprise": "Custom",
-          "go": "Each VM: 2 vCPU, 4 GiB RAM, and 16 GiB disk"
+          "go": "2–8 vCPU · 4–16 GiB RAM · 16–128 GiB disk"
         },
         {
           "label": "Largest Cloud VM",
@@ -1994,7 +1994,7 @@
           "max": "64 GB RAM / 32 vCPU (includes 24 GB / 12 vCPU and 32 GB / 16 vCPU)",
           "team": "16 GB RAM / 8 vCPU (24 GB / 12 vCPU and 32 GB / 16 vCPU require Max)",
           "enterprise": "Custom",
-          "go": "4 GiB RAM / 2 vCPU"
+          "go": "16 GiB RAM / 8 vCPU"
         },
         {
           "label": "Workspaces",
@@ -4588,7 +4588,7 @@
       "agentUpdatesToggle": "The New Machine sheet turns this on by default. To change it for an existing machine, right-click the machine and choose Keep Agents Up to Date, or run cmux vm agent-updates. cmux vm new keeps the image's versions unless you pass --agent-updates latest. Turning updates off keeps the versions already installed.",
       "agentUpdatesNetwork": "Updates use only github.com, api.github.com, objects.githubusercontent.com, and release-assets.githubusercontent.com. cmux allows these hosts in every network mode, including Allowlist and No internet, so a network policy never blocks updates.",
       "resizeTitle": "Resize",
-      "resizeDesc": "You can make a machine larger without data loss. Right-click the machine and choose Resize machine, or use cmux vm resize. Resize can only grow a machine. Disk grows in 4 GB steps up to 128 GB on Pro and Team, or 256 GB on Max (Plus is limited to 16 GB). Memory grows up to 16 GB and CPU up to 8 vCPU on Pro, Team, and Founder's Edition, or up to 64 GB and 32 vCPU on Max. A larger machine uses more of your pool. Your plan sets the real maximum.",
+      "resizeDesc": "You can make a machine larger without data loss. Right-click the machine and choose Resize machine, or use cmux vm resize. Resize can only grow a machine. Disk grows in 4 GB steps up to 128 GB on Pro and Team, or 256 GB on Max (Plus is limited to 128 GB). Memory grows up to 16 GB and CPU up to 8 vCPU on Pro, Team, and Founder's Edition, or up to 64 GB and 32 vCPU on Max. A larger machine uses more of your pool. Your plan sets the real maximum.",
       "pauseTitle": "Pause and resume",
       "pauseDesc": "cmux vm pause stops the machine's compute. The disk, workspaces, and terminal history stay. Running processes stop. cmux vm resume starts the machine again. Opening a paused machine or running a command on it also starts it.",
       "pauseIdle": "Machines do not pause by themselves when they are idle. A machine keeps running until you pause it or delete it.",

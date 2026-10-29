@@ -236902,55 +236902,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Machines on your plan. Sleeping machines cost nothing."
+            "value": "Running and paused machines count toward your plan’s machine limit."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "プランのマシン数です。スリープ中のマシンは無料です。"
+            "value": "実行中および一時停止中のマシンは、プランのマシン台数の上限にカウントされます。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "你套餐下的机器。休眠中的机器不产生费用。"
+            "value": "运行中和已暂停的机器均计入套餐的机器数量上限。"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Maschinen in deinem Tarif. Ruhende Maschinen kosten nichts."
+            "value": "Laufende und pausierte Maschinen zählen zum Maschinenlimit deines Plans."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Machines incluses dans votre forfait. Les machines en veille ne coûtent rien."
+            "value": "Les machines actives et en pause comptent dans la limite de machines de votre forfait."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "الأجهزة المشمولة في خطتك. الأجهزة الخاملة لا تكلف شيئًا."
+            "value": "تُحتسب الأجهزة قيد التشغيل والأجهزة المتوقفة مؤقتًا ضمن حد الأجهزة في خطتك."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Máquinas de tu plan. Las máquinas inactivas no cuestan nada."
+            "value": "Las máquinas en ejecución y en pausa cuentan para el límite de máquinas de tu plan."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "您方案中的機器。睡眠中的機器不收取任何費用。"
+            "value": "執行中和已暫停的機器均計入方案的機器數量上限。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "요금제에 포함된 머신입니다. 절전 상태의 머신은 비용이 들지 않습니다."
+            "value": "실행 중인 머신과 일시 중지된 머신 모두 요금제의 머신 한도에 포함됩니다."
           }
         }
       }
@@ -526422,121 +526422,121 @@
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "1 aktivni Cloud VM, 2 vCPU-a, 4 GiB RAM-a, disk od 16 GiB"
+            "value": "1 aktivni Cloud VM, 2–8 vCPU-a, 4–16 GiB RAM-a, disk od 16–128 GiB"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "1 aktiv Cloud VM, 2 vCPU, 4 GiB RAM, 16 GiB disk"
+            "value": "1 aktiv Cloud VM, 2–8 vCPU, 4–16 GiB RAM, 16–128 GiB disk"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "1 Cloud VM attiva, 2 vCPU, 4 GiB di RAM, disco da 16 GiB"
+            "value": "1 Cloud VM attiva, 2–8 vCPU, 4–16 GiB di RAM, disco da 16–128 GiB"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud VM សកម្ម 1 គ្រឿង, 2 vCPU, RAM 4 GiB, ថាស 16 GiB"
+            "value": "Cloud VM សកម្ម 1 គ្រឿង, 2–8 vCPU, RAM 4–16 GiB, ថាស 16–128 GiB"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "1 aktiv Cloud VM, 2 vCPU, 4 GiB RAM, 16 GiB disk"
+            "value": "1 aktiv Cloud VM, 2–8 vCPU, 4–16 GiB RAM, 16–128 GiB disk"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "1 aktywna Cloud VM, 2 vCPU, 4 GiB RAM, dysk 16 GiB"
+            "value": "1 aktywna Cloud VM, 2–8 vCPU, 4–16 GiB RAM, dysk 16–128 GiB"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "1 Cloud VM ativa, 2 vCPUs, 4 GiB de RAM, disco de 16 GiB"
+            "value": "1 Cloud VM ativa, 2–8 vCPUs, 4–16 GiB de RAM, disco de 16–128 GiB"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "1 активная Cloud VM, 2 vCPU, 4 ГиБ RAM, диск 16 ГиБ"
+            "value": "1 активная Cloud VM, 2–8 vCPU, 4–16 ГиБ RAM, диск 16–128 ГиБ"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud VM ที่ใช้งานอยู่ 1 เครื่อง, 2 vCPU, RAM 4 GiB, ดิสก์ 16 GiB"
+            "value": "Cloud VM ที่ใช้งานอยู่ 1 เครื่อง, 2–8 vCPU, RAM 4–16 GiB, ดิสก์ 16–128 GiB"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "1 etkin Cloud VM, 2 vCPU, 4 GiB RAM, 16 GiB disk"
+            "value": "1 etkin Cloud VM, 2–8 vCPU, 4–16 GiB RAM, 16–128 GiB disk"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "1 активна Cloud VM, 2 vCPU, 4 ГіБ RAM, диск 16 ГіБ"
+            "value": "1 активна Cloud VM, 2–8 vCPU, 4–16 ГіБ RAM, диск 16–128 ГіБ"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "1 active Cloud VM, 2 vCPU, 4 GiB RAM, 16 GiB disk"
+            "value": "2–8 vCPU · 4–16 GiB RAM · 16–128 GiB disk"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "アクティブな Cloud VM 1 台、2 vCPU、4 GiB RAM、16 GiB ディスク"
+            "value": "2–8 vCPU · 4–16 GiB RAM · 16–128 GiB ディスク"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "1 台活跃云端虚拟机，2 个 vCPU、4 GiB 内存、16 GiB 磁盘"
+            "value": "2–8 vCPU · 4–16 GiB 内存 · 16–128 GiB 磁盘"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "1 aktive Cloud-VM, 2 vCPU, 4 GiB RAM, 16 GiB Speicher"
+            "value": "2–8 vCPU · 4–16 GiB RAM · 16–128 GiB Festplatte"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "1 VM cloud active, 2 vCPU, 4 Go de RAM, 16 Go de disque"
+            "value": "2–8 vCPU · 4–16 Gio de RAM · 16–128 Gio de disque"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "آلة Cloud VM نشطة واحدة، و2 vCPU، و4 GiB RAM، و16 GiB قرص"
+            "value": "2–8 vCPU · 4–16 GiB ذاكرة · 16–128 GiB قرص"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "1 VM cloud activa, 2 vCPU, 4 GiB de RAM y 16 GiB de disco"
+            "value": "2–8 vCPU · 4–16 GiB de RAM · 16–128 GiB de disco"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "1 台使用中的 Cloud VM、2 個 vCPU、4 GiB RAM、16 GiB 磁碟"
+            "value": "2–8 vCPU · 4–16 GiB 記憶體 · 16–128 GiB 磁碟"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "활성 Cloud VM 1개, 2 vCPU, 4 GiB RAM, 16 GiB 디스크"
+            "value": "2–8 vCPU · 4–16 GiB RAM · 16–128 GiB 디스크"
           }
         }
       }
@@ -655250,55 +655250,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ · Go"
+            "value": "%1$@ · Plus"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ · Go"
+            "value": "%1$@ · Plus"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ · Go"
+            "value": "%1$@ · Plus"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ · Go"
+            "value": "%1$@ · Plus"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ · Go"
+            "value": "%1$@ · Plus"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ · Go"
+            "value": "%1$@ · Plus"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ · Go"
+            "value": "%1$@ · Plus"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ · Go"
+            "value": "%1$@ · Plus"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ · Go"
+            "value": "%1$@ · Plus"
           }
         }
       }

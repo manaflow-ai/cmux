@@ -136,8 +136,8 @@
       "activeAction": "cmux vm pause <id>\ncmux billing checkout --plan pro",
       "hoursMessage": "Plus: ไม่จำกัดชั่วโมงรายเดือน",
       "hoursAction": "cmux billing checkout --plan pro",
-      "shapeMessage": "Plus: แต่ละ VM: 2 vCPU, RAM 4 GiB และดิสก์ 16 GiB",
-      "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
+      "shapeMessage": "Plus: 2–8 vCPU · 4–16 GiB RAM · 16–128 GiB disk",
+      "shapeAction": "cmux vm new --size 8g\ncmux billing checkout --plan max"
     },
     "planBudget": {
       "computeTitle": "ใช้โควตาการประมวลผลของ {plan} หมดแล้ว",
@@ -157,7 +157,7 @@
       "action": "หยุดชั่วคราวหรือลบ VM"
     },
     "activeLimit": {
-      "counted": "ที่นับอยู่ตอนนี้: {machines} เครื่องที่หยุดชั่วคราวจะไม่ถูกนับ",
+      "counted": "เครื่องที่นับในขณะนี้: {machines} เครื่องที่หยุดชั่วคราวก็นับรวมในขีดจำกัด",
       "provisioning": "{name} (กำลังจัดเตรียม)",
       "separator": ", "
     }
@@ -568,8 +568,8 @@
             "ประวัติเซสชันในเครื่อง"
           ],
           "go": [
-            "Cloud VM 1 เครื่อง",
-            "แต่ละ VM: 2 vCPU, RAM 4 GiB และดิสก์ 16 GiB",
+            "บันทึก VM ได้ทั้งหมด 1 เครื่อง รวมเครื่องที่หยุดชั่วคราว",
+            "2–8 vCPU · 4–16 GiB RAM · 16–128 GiB disk",
             "การสนับสนุนจากชุมชน",
             "ไม่จำกัดชั่วโมงรายเดือน"
           ],
@@ -3052,7 +3052,7 @@
       "agentUpdatesToggle": "ชีต New Machine เปิดการตั้งค่านี้เป็นค่าเริ่มต้น หากต้องการเปลี่ยนสำหรับเครื่องที่มีอยู่ ให้คลิกขวาที่เครื่องแล้วเลือก Keep Agents Up to Date หรือรัน cmux vm agent-updates คำสั่ง cmux vm new จะคงเวอร์ชันของอิมเมจไว้ เว้นแต่คุณจะส่ง --agent-updates latest การปิดการอัปเดตจะคงเวอร์ชันที่ติดตั้งแล้วไว้",
       "agentUpdatesNetwork": "การอัปเดตใช้เฉพาะ github.com, api.github.com, objects.githubusercontent.com และ release-assets.githubusercontent.com เท่านั้น cmux อนุญาตโฮสต์เหล่านี้ในทุกโหมดเครือข่าย รวมถึง Allowlist และ No internet นโยบายเครือข่ายจึงไม่บล็อกการอัปเดต",
       "resizeTitle": "ปรับขนาด",
-      "resizeDesc": "คุณขยายเครื่องได้โดยไม่สูญเสียข้อมูล คลิกขวาที่เครื่องแล้วเลือก Resize machine หรือใช้ cmux vm resize การปรับขนาดทำได้เฉพาะการขยายเท่านั้น ดิสก์ขยายทีละ 4 GB ได้ถึง 128 GB ใน Pro และ Team หรือ 256 GB ใน Max (Plus จำกัดที่ 16 GB) หน่วยความจำขยายได้ถึง 16 GB และ CPU ได้ถึง 8 vCPU ใน Pro และ Team หรือถึง 64 GB และ 32 vCPU ใน Max เครื่องที่ใหญ่ขึ้นจะใช้พูลของคุณมากขึ้น แผนของคุณเป็นตัวกำหนดค่าสูงสุดจริง",
+      "resizeDesc": "คุณขยายเครื่องได้โดยไม่สูญเสียข้อมูล คลิกขวาที่เครื่องแล้วเลือก Resize machine หรือใช้ cmux vm resize การปรับขนาดทำได้เฉพาะการขยายเท่านั้น ดิสก์ขยายทีละ 4 GB ได้ถึง 128 GB ใน Pro และ Team หรือ 256 GB ใน Max (Plus จำกัดที่ 128 GB) หน่วยความจำขยายได้ถึง 16 GB และ CPU ได้ถึง 8 vCPU ใน Pro และ Team หรือถึง 64 GB และ 32 vCPU ใน Max เครื่องที่ใหญ่ขึ้นจะใช้พูลของคุณมากขึ้น แผนของคุณเป็นตัวกำหนดค่าสูงสุดจริง",
       "pauseTitle": "หยุดชั่วคราวและทำงานต่อ",
       "pauseDesc": "cmux vm pause จะหยุดการประมวลผลของเครื่อง ดิสก์ workspace และประวัติเทอร์มินัลยังคงอยู่ แต่โปรเซสที่ทำงานอยู่จะหยุด cmux vm resume จะเริ่มเครื่องอีกครั้ง การเปิดเครื่องที่หยุดชั่วคราวหรือรันคำสั่งบนเครื่องนั้นก็จะเริ่มเครื่องเช่นกัน",
       "pauseIdle": "เครื่องจะไม่หยุดชั่วคราวเองเมื่อไม่มีการใช้งาน เครื่องจะทำงานต่อไปจนกว่าคุณจะหยุดชั่วคราวหรือลบ",
@@ -5349,8 +5349,8 @@
       "cta": "เลือก Plus",
       "featuresLead": "ประกอบด้วย:",
       "features": [
-        "Cloud VM 1 เครื่อง",
-        "แต่ละ VM: 2 vCPU, RAM 4 GiB และดิสก์ 16 GiB",
+        "บันทึก VM ได้ทั้งหมด 1 เครื่อง รวมเครื่องที่หยุดชั่วคราว",
+        "2–8 vCPU · 4–16 GiB RAM · 16–128 GiB disk",
         "การสนับสนุนจากชุมชน",
         "ไม่จำกัดชั่วโมงรายเดือน"
       ]

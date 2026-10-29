@@ -1,9 +1,9 @@
 export { runtimeSecondsWithinPeriod, subscriptionPeriodStart } from "./planUsage";
 
-/** Plus retains one fixed-size machine, including while paused. */
+/** Plus retains one machine, including while paused. */
 export const GO_SAVED_VM_LIMIT = 1;
 /** A durable marker for clearing runtime caps on pre-Plus machines. */
-export const GO_UNLIMITED_RUNTIME_METADATA_KEY = "cmuxStarterUnlimitedRuntime";
+export const GO_UNLIMITED_RUNTIME_METADATA_KEY = "cmuxPlusUnlimitedRuntime";
 
 /** Drizzle wraps PostgreSQL constraints; inspect only the known public limits. */
 export function goCapacityConstraint(cause: unknown): "saved" | "active" | "hours" | "period" | null {

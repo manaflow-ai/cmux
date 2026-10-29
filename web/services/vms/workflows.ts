@@ -417,6 +417,10 @@ export function isRetiredProviderRow(row: Pick<CloudVmRow, "provider">): boolean
   return !isProviderId(row.provider);
 }
 
+export function countSavedUserVms(userId: string, billingTeamId?: string | null) {
+  return Effect.flatMap(VmRepository, (repo) => repo.countSavedUserVms(userId, billingTeamId));
+}
+
 export function listUserVms(userId: string, billingTeamId?: string | null) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
@@ -1095,11 +1099,13 @@ function requestedCreateVcpus(input: { imageSize?: { cpu: number }; resourceRese
   return vcpus > 0 ? vcpus : null;
 }
 
-const GO_VM_RESERVATION = { vcpus: 2, memoryMb: 4096, diskMb: 16384 } as const;
-/** Enforce Go's fixed machine shape when a Go allocation is requested. */
+/** Plus shares Pro's per-machine sizes and resize ceilings. */
 function requireGoShape(planId: string | null | undefined, shape: VmResourceReservation | null) {
-  return planId === "go" && (!shape || shape.vcpus !== GO_VM_RESERVATION.vcpus || shape.memoryMb !== GO_VM_RESERVATION.memoryMb || shape.diskMb !== GO_VM_RESERVATION.diskMb)
-    ? Effect.fail(new VmGoShapeError()) : Effect.void;
+  if (planId !== "go" || !shape) return Effect.void;
+  return requireMemoryPlan(planId, shape.memoryMb, shape.vcpus).pipe(
+    Effect.andThen(shape.diskMb > maxDiskMbForPlan(planId)
+      ? Effect.fail(new VmGoShapeError()) : Effect.void),
+  );
 }
 
 const MB_PER_GB = 1024;
@@ -1163,7 +1169,7 @@ function requestedCreateDiskMb(input: Pick<Parameters<typeof createVm>[0], "imag
   return (input.resourceReservation ?? vmResourceReservationForCreate({ memoryMb: input.memoryMb, imageSize: input.imageSize })).diskMb;
 }
 
-/** Check the fixed Plus shape and any enabled Pro or Max allowances. */
+/** Check Plus machine limits and any enabled Pro or Max allowances. */
 function requirePlanCreate(input: Pick<Parameters<typeof createVm>[0], "billingPlanId" | "userId" | "imageSize" | "resourceReservation" | "memoryMb">) {
   return Effect.gen(function* () {
     if (isBudgetPlanId(input.billingPlanId)) {
@@ -1244,9 +1250,7 @@ type CreateVmInput = {
 
 /** Build the repository reservation and entitlement inputs for a new VM row. */
 function createVmBeginInput(input: CreateVmInput): CreateVmInput & Pick<Parameters<VmRepositoryShape["beginCreate"]>[0], "resourcePool" | "resourcePoolPhase" | "planMaxMemoryMb" | "planMaxVcpus"> {
-  const resourceReservation = input.resourceReservation ?? (input.billingPlanId === "go"
-    ? GO_VM_RESERVATION
-    : vmResourceReservationForCreate({ memoryMb: input.memoryMb, imageSize: input.imageSize }));
+  const resourceReservation = input.resourceReservation ?? vmResourceReservationForCreate({ memoryMb: input.memoryMb, imageSize: input.imageSize });
   return {
     ...input,
     // Reserve the logical CPU and memory profile when memoryMb is present,
@@ -1699,9 +1703,7 @@ export function openBaseVm(input: {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const billing = yield* VmBillingGateway;
-    const resourceReservation = input.billingPlanId === "go"
-      ? GO_VM_RESERVATION
-      : vmResourceReservationForCreate({ imageSize: input.imageSize });
+    const resourceReservation = vmResourceReservationForCreate({ imageSize: input.imageSize });
     const beginInput = {
       ...input,
       planMaxMemoryMb: maxMemoryMbForPlan(input.billingPlanId),
@@ -1753,9 +1755,7 @@ export function resetBaseVm(input: {
       ...input,
       planMaxMemoryMb: maxMemoryMbForPlan(input.billingPlanId),
       planMaxVcpus: maxVcpusForPlan(input.billingPlanId),
-      resourceReservation: input.billingPlanId === "go"
-        ? GO_VM_RESERVATION
-        : vmResourceReservationForCreate({ imageSize: input.imageSize }),
+      resourceReservation: vmResourceReservationForCreate({ imageSize: input.imageSize }),
       ...(isPaidVmPlan(input.billingPlanId)
         ? { resourcePool: resourcePoolPolicyForPlan(input.billingPlanId, input.maxActiveVms) }
         : {}),
@@ -2079,9 +2079,7 @@ function reopenBaseIfProviderDeleted(
               ...input,
               planMaxMemoryMb: maxMemoryMbForPlan(input.billingPlanId),
               planMaxVcpus: maxVcpusForPlan(input.billingPlanId),
-              resourceReservation: input.billingPlanId === "go"
-                ? GO_VM_RESERVATION
-                : vmResourceReservationForCreate({ imageSize: input.imageSize }),
+              resourceReservation: vmResourceReservationForCreate({ imageSize: input.imageSize }),
               ...(isPaidVmPlan(input.billingPlanId)
                 ? { resourcePool: resourcePoolPolicyForPlan(input.billingPlanId, input.maxActiveVms) }
                 : {}),
@@ -4931,9 +4929,6 @@ export function resizeVm(input: {
     const providers = yield* VmProviderGateway;
     let vm = yield* requireAccessibleUserVm({ ...input, callerPlanId: input.billingPlanId });
     const planId = input.billingPlanId ?? vm.billingPlanId ?? "free";
-    if (planId === "go" && ((input.storageMb ?? 0) > 16 * 1024 || (input.cpu ?? 0) > 2 || (input.memoryMb ?? 0) > 4 * 1024)) {
-      return yield* Effect.fail(new VmGoShapeError());
-    }
     for (const [resource, requested, max] of [
       ["cpu", input.cpu, maxVcpusForPlan(planId)],
       ["memory", input.memoryMb, maxMemoryMbForPlan(planId)],

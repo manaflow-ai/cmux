@@ -3635,6 +3635,37 @@ describe("VM Effect workflows", () => {
     expect(usageEventAttempts).toBe(2);
   });
 
+  dbTest.each([
+    { name: "sm", cpu: 2, memoryMb: 4096, storageMb: 16384 },
+    { name: "md", cpu: 4, memoryMb: 8192, storageMb: 32768 },
+    { name: "lg", cpu: 8, memoryMb: 16384, storageMb: 65536 },
+  ])("Plus provisions the requested Pro size: $name", async (imageSize) => {
+    if (!sql) throw new Error("test database not initialized");
+    const userId = `plus-size-${imageSize.name}`;
+    let requestedSize: unknown;
+    const provider = {
+      ...unusedProviderGateway(),
+      create: (_provider: unknown, options: { imageSize?: unknown }) => Effect.sync(() => {
+        requestedSize = options.imageSize;
+        return testVmHandle({ providerVmId: `plus-provider-${imageSize.name}` });
+      }),
+    };
+    await Effect.runPromise(createVm({
+      userId, billingCustomerType: "user", billingTeamId: userId,
+      billingPlanId: "go", maxActiveVms: 1, provider: "freestyle",
+      image: "snapshot-plus", imageSize, memoryMb: imageSize.memoryMb,
+    }).pipe(Effect.provide(providerLayer(provider))));
+    expect(requestedSize).toEqual(imageSize);
+    const [row] = await sql<{ id: string; status: string }[]>`select id, status from cloud_vms where user_id = ${userId}`;
+    expect(row.status).toBe("running");
+    await sql`update cloud_vms set status = 'paused' where user_id = ${userId}`;
+    // Resuming an existing machine does not claim a second saved-machine slot.
+    const reserved = await Effect.runPromise(vmRepositoryLiveShape.reservePausedResume({
+      id: row.id, userId, billingTeamId: userId, providerVmId: `plus-provider-${imageSize.name}`, maxActiveVms: 1,
+    }));
+    expect(reserved?.status).toBe("provisioning");
+  });
+
   dbTest("replaces a destroyed Plus idempotent row without a billing-period or hour gate", async () => {
     if (!sql) throw new Error("test database not initialized");
     await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
@@ -3668,7 +3699,7 @@ describe("VM Effect workflows", () => {
         maxActiveVms: 1,
         provider: "freestyle",
         image: "snapshot-go",
-        // Match the fixed Plus image sent by the create route so this
+        // Match a supported Plus image sent by the create route so this
         // exercises replacement admission without any subscription period.
         imageSize: { name: "sm", cpu: 2, memoryMb: 4096, storageMb: 16384 },
         idempotencyKey: "go-destroyed-retry",

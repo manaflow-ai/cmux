@@ -136,8 +136,8 @@
       "activeAction": "cmux vm pause <id>\ncmux billing checkout --plan pro",
       "hoursMessage": "Plus: Bez mjesečnog ograničenja sati",
       "hoursAction": "cmux billing checkout --plan pro",
-      "shapeMessage": "Plus: Svaka mašina: 2 vCPU, 4 GiB RAM-a i 16 GiB diska",
-      "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
+      "shapeMessage": "Plus: 2–8 vCPU · 4–16 GiB RAM · 16–128 GiB disk",
+      "shapeAction": "cmux vm new --size 8g\ncmux billing checkout --plan max"
     },
     "planBudget": {
       "computeTitle": "Kvota računanja za {plan} je potrošena",
@@ -157,7 +157,7 @@
       "action": "Pauzirajte ili obrišite VM."
     },
     "activeLimit": {
-      "counted": "Trenutno se broje: {machines}. Pauzirane mašine se ne broje.",
+      "counted": "Trenutno se računaju: {machines}. Pauzirane mašine se računaju u ograničenje.",
       "provisioning": "{name} (priprema se)",
       "separator": ", "
     }
@@ -568,8 +568,8 @@
             "Lokalna historija sesija"
           ],
           "go": [
-            "1 Cloud virtuelna mašina",
-            "Svaka mašina: 2 vCPU, 4 GiB RAM-a i 16 GiB diska",
+            "Ukupno 1 sačuvana mašina, uključujući pauziranu",
+            "2–8 vCPU · 4–16 GiB RAM · 16–128 GiB disk",
             "Podrška zajednice",
             "Bez mjesečnog ograničenja sati"
           ],
@@ -3047,7 +3047,7 @@
       "agentUpdatesToggle": "List New Machine ovo uključuje po defaultu. Da to promijeniš za postojeću mašinu, desnim klikom na mašinu izaberi Keep Agents Up to Date ili pokreni cmux vm agent-updates. cmux vm new zadržava verzije iz slike osim ako proslijediš --agent-updates latest. Isključivanjem ažuriranja zadržavaju se već instalirane verzije.",
       "agentUpdatesNetwork": "Ažuriranja koriste samo github.com, api.github.com, objects.githubusercontent.com i release-assets.githubusercontent.com. cmux dozvoljava ove hostove u svakom mrežnom načinu, uključujući Allowlist i No internet, pa mrežna politika nikad ne blokira ažuriranja.",
       "resizeTitle": "Promjena veličine",
-      "resizeDesc": "Mašinu možete povećati bez gubitka podataka. Kliknite desnim klikom na mašinu i izaberite Resize machine ili koristite cmux vm resize. Veličina se može samo povećati. Disk raste u koracima od 4 GB do 128 GB na Pro i Team, ili 256 GB na Max (Plus je ograničen na 16 GB). Memorija raste do 16 GB, a CPU do 8 vCPU na Pro i Team planu, ili do 64 GB i 32 vCPU na Max planu. Veća mašina troši više vašeg zajedničkog skupa. Stvarni maksimum određuje vaš plan.",
+      "resizeDesc": "Mašinu možete povećati bez gubitka podataka. Kliknite desnim klikom na mašinu i izaberite Resize machine ili koristite cmux vm resize. Veličina se može samo povećati. Disk raste u koracima od 4 GB do 128 GB na Pro i Team, ili 256 GB na Max (Plus je ograničen na 128 GB). Memorija raste do 16 GB, a CPU do 8 vCPU na Pro i Team planu, ili do 64 GB i 32 vCPU na Max planu. Veća mašina troši više vašeg zajedničkog skupa. Stvarni maksimum određuje vaš plan.",
       "pauseTitle": "Pauziranje i nastavak",
       "pauseDesc": "cmux vm pause zaustavlja računarske resurse mašine. Disk, radni prostori i historija terminala ostaju. Pokrenuti procesi se zaustavljaju. cmux vm resume ponovo pokreće mašinu. Otvaranje pauzirane mašine ili pokretanje komande na njoj također je pokreće.",
       "pauseIdle": "Mašine se ne pauziraju same kada miruju. Mašina radi dok je ne pauzirate ili obrišete.",
@@ -5344,8 +5344,8 @@
       "cta": "Odaberi Plus",
       "featuresLead": "Uključuje:",
       "features": [
-        "1 Cloud virtuelna mašina",
-        "Svaka mašina: 2 vCPU, 4 GiB RAM-a i 16 GiB diska",
+        "Ukupno 1 sačuvana mašina, uključujući pauziranu",
+        "2–8 vCPU · 4–16 GiB RAM · 16–128 GiB disk",
         "Podrška zajednice",
         "Bez mjesečnog ograničenja sati"
       ]

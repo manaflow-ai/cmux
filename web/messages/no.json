@@ -136,8 +136,8 @@
       "activeAction": "cmux vm pause <id>\ncmux billing checkout --plan pro",
       "hoursMessage": "Plus: Ingen månedlig timegrense",
       "hoursAction": "cmux billing checkout --plan pro",
-      "shapeMessage": "Plus: Hver VM: 2 vCPU, 4 GiB RAM og 16 GiB disk",
-      "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
+      "shapeMessage": "Plus: 2–8 vCPU · 4–16 GiB RAM · 16–128 GiB disk",
+      "shapeAction": "cmux vm new --size 8g\ncmux billing checkout --plan max"
     },
     "planBudget": {
       "computeTitle": "{plan}-regnekvoten er brukt opp",
@@ -157,7 +157,7 @@
       "action": "Sett en VM på pause eller slett den."
     },
     "activeLimit": {
-      "counted": "Telles nå: {machines}. Maskiner på pause telles ikke.",
+      "counted": "Telles nå: {machines}. Maskiner på pause teller med i grensen.",
       "provisioning": "{name} (klargjøres)",
       "separator": ", "
     }
@@ -568,8 +568,8 @@
             "Lokal økthistorikk"
           ],
           "go": [
-            "1 Cloud-VM",
-            "Hver VM: 2 vCPU, 4 GiB RAM og 16 GiB disk",
+            "Totalt 1 lagret VM, også når den er på pause",
+            "2–8 vCPU · 4–16 GiB RAM · 16–128 GiB disk",
             "Brukerstøtte fra fellesskapet",
             "Ingen månedlig timegrense"
           ],
@@ -1750,7 +1750,7 @@
         "p2": "Alle jobber forskjellig. Noen prosjekter er spredt over flere git-repoer. Noen har mange utsjekkinger av samme repo (medgründeren min har kloner kalt cmux0 til cmux40, av grunner jeg fortsatt ikke forstår). Noen bruker SSH og fjernutvikling som standard.",
         "p3": "cmux er bare terminaler og nettlesere, med en CLI for å styre dem. Med noen få bash-skript kan du håndtere worktrees, sjonglere flere utsjekkinger eller åpne eksterne økter, og sette opp arbeidsområdet slik det passer deg.",
         "p4": "cmux bør tilpasse seg arbeidsflyten din i stedet for å tvinge en på deg. Vi vil at cmux skal føles som et hjem.",
-        "p5": "<link>cmux-home</link> er ett eksempel på dette. Det er en liten Rust-TUI som starter Claude- og Codex-arbeidsområder og følger med på statusen deres i sanntid, bygget helt på cmux-primitiver. Starteren bruker kommandomaler, så du kan bytte inn dine egne skript for å lage worktrees, velge en utsjekking eller koble til en VM via SSH. Fork den og gjør den til din."
+        "p5": "<link>cmux-home</link> er ett eksempel på dette. Det er en liten Rust-TUI som starter Claude- og Codex-arbeidsområder og følger med på statusen deres i sanntid, bygget helt på cmux-primitiver. Plusen bruker kommandomaler, så du kan bytte inn dine egne skript for å lage worktrees, velge en utsjekking eller koble til en VM via SSH. Fork den og gjør den til din."
       }
     },
     "zenOfCmux": {
@@ -1999,7 +1999,7 @@
       "socketParams": "Parametere",
       "socketMeaning": "Hva den gjør",
       "methodSessions": "Returnerer tmux-øktene som finnes på verten.",
-      "methodAttach": "Starter en kontrollklient på én økt. Med create opprettes en manglende økt først.",
+      "methodAttach": "Plus en kontrollklient på én økt. Med create opprettes en manglende økt først.",
       "methodDetach": "Stopper kontrollklienten og lar den eksterne økten leve videre.",
       "methodState": "Diagnostisk øyeblikksbilde av det kontrollklienten ser akkurat nå.",
       "socketSafetyDesc": "For å hindre injeksjon av SSH-alternativer avvises en vert eller identitetsfil som begynner med bindestrek, så snart forespørselen kommer inn.",
@@ -2352,7 +2352,7 @@
       "actionTypeBuiltinCopy": "Innebygde kopihandlinger: cmux.copyWorkingDirectory kopierer terminalens arbeidsmappe, cmux.copyProjectRoot kopierer roten av git-repositoriet (eller arbeidsmappen utenfor et repository), og cmux.copyScreen kopierer den synlige skjermen.",
       "actionTypeBuiltinCopyRemote": "I et SSH-, sky- eller eksternt tmux-arbeidsområde kopierer cmux.copyProjectRoot den eksterne arbeidsmappen, fordi cmux ikke kan slå opp git-repositoriet på den andre verten.",
       "actionTypeCommand": "Kjører shell-tekst i en terminal. Bruk target for å velge gjeldende terminal eller en ny fane i gjeldende panel.",
-      "actionTypeAgent": "Starter en støttet kodeagent. I dag støttes codex og claude, med valgfrie argumenter.",
+      "actionTypeAgent": "Plus en støttet kodeagent. I dag støttes codex og claude, med valgfrie argumenter.",
       "actionTypeWorkspaceCommand": "Kjører en navngitt arbeidsområdedefinisjon fra commands. Bruk dette for flerpane-layouter, egendefinerte arbeidsmapper og oppstartskommandoer.",
       "actionTypeSetting": "Endrer én innstilling i din globale cmux.json, for eksempel slå en true/false-innstilling av eller på eller bla gjennom en liste med verdier. Se Innstillingshandlinger nedenfor.",
       "actionTypeSettingPreset": "Bruker en navngitt gruppe innstillinger fra settingPresets i ett steg.",
@@ -3044,7 +3044,7 @@
       "agentUpdatesToggle": "Arket New Machine slår dette på som standard. For å endre det på en eksisterende maskin høyreklikker du maskinen og velger Keep Agents Up to Date, eller kjører cmux vm agent-updates. cmux vm new beholder versjonene fra bildet med mindre du sender --agent-updates latest. Når du slår av oppdateringer, beholdes versjonene som allerede er installert.",
       "agentUpdatesNetwork": "Oppdateringer bruker bare github.com, api.github.com, objects.githubusercontent.com og release-assets.githubusercontent.com. cmux tillater disse vertene i alle nettverksmoduser, også Allowlist og No internet, så en nettverkspolicy blokkerer aldri oppdateringer.",
       "resizeTitle": "Endre størrelse",
-      "resizeDesc": "Du kan gjøre en maskin større uten å miste data. Høyreklikk på maskinen og velg Resize machine, eller bruk cmux vm resize. Størrelsesendring kan bare gjøre en maskin større. Disken vokser i steg på 4 GB opptil 128 GB på Pro og Team, eller 256 GB på Max (Plus er begrenset til 16 GB). Minnet vokser opptil 16 GB og CPU opptil 8 vCPU med Pro og Team, eller opptil 64 GB og 32 vCPU med Max. En større maskin bruker mer av potten din. Abonnementet ditt bestemmer det reelle maksimumet.",
+      "resizeDesc": "Du kan gjøre en maskin større uten å miste data. Høyreklikk på maskinen og velg Resize machine, eller bruk cmux vm resize. Størrelsesendring kan bare gjøre en maskin større. Disken vokser i steg på 4 GB opptil 128 GB på Pro og Team, eller 256 GB på Max (Plus er begrenset til 128 GB). Minnet vokser opptil 16 GB og CPU opptil 8 vCPU med Pro og Team, eller opptil 64 GB og 32 vCPU med Max. En større maskin bruker mer av potten din. Abonnementet ditt bestemmer det reelle maksimumet.",
       "pauseTitle": "Pause og gjenoppta",
       "pauseDesc": "cmux vm pause stopper maskinens beregningsressurser. Disken, arbeidsområdene og terminalhistorikken beholdes. Kjørende prosesser stopper. cmux vm resume starter maskinen igjen. Å åpne en maskin på pause eller kjøre en kommando på den starter den også.",
       "pauseIdle": "Maskiner settes ikke på pause av seg selv når de er inaktive. En maskin kjører til du setter den på pause eller sletter den.",
@@ -5341,8 +5341,8 @@
       "cta": "Velg Plus",
       "featuresLead": "Inkluderer:",
       "features": [
-        "1 Cloud-VM",
-        "Hver VM: 2 vCPU, 4 GiB RAM og 16 GiB disk",
+        "Totalt 1 lagret VM, også når den er på pause",
+        "2–8 vCPU · 4–16 GiB RAM · 16–128 GiB disk",
         "Brukerstøtte fra fellesskapet",
         "Ingen månedlig timegrense"
       ]
