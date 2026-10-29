@@ -102,7 +102,22 @@ export function Menu({ open, onOpenChange, onOpenChangeComplete, children }: Men
       pointerCleanup.current = trackPressRelease(event, {
         hover: (row) => row.focus({ preventScroll: true }),
         // Base UI items act on the click.
-        pick: (row) => row.click(),
+        pick: (row, event) => {
+          const View = row.ownerDocument.defaultView!.MouseEvent;
+          row.dispatchEvent(
+            new View("click", {
+              bubbles: true,
+              cancelable: true,
+              altKey: event.altKey,
+              ctrlKey: event.ctrlKey,
+              metaKey: event.metaKey,
+              shiftKey: event.shiftKey,
+              clientX: event.clientX,
+              clientY: event.clientY,
+              button: event.button,
+            }),
+          );
+        },
         // A row that keeps its menu open (`MenuItem` `closeOnClick={false}`) keeps it open here too.
         picked: (row) => {
           if (!row.hasAttribute("data-keeps-open")) setMenuOpen(false);
@@ -417,7 +432,7 @@ export interface MenuItemProps {
   className?: string;
   disabled?: boolean;
   shortcut?: ReactNode;
-  onSelect?(): void;
+  onSelect?(event: MouseEvent<HTMLElement> | PointerEvent<HTMLElement>): void;
   children: ReactNode;
 }
 
@@ -451,18 +466,18 @@ export function MenuItem({
       onPointerMove={(event) => context?.movePointer(event)}
       onPointerUp={(event) => {
         if (disabled) return;
-        if (context?.activatePointer(event, () => onSelect?.(), closeOnClick === false)) {
+        if (context?.activatePointer(event, () => onSelect?.(event), closeOnClick === false)) {
           handledClick.current = true;
           event.preventDefault();
         }
         context?.endPointer();
       }}
-      onClick={() => {
+      onClick={(event) => {
         if (handledClick.current) {
           handledClick.current = false;
           return;
         }
-        onSelect?.();
+        onSelect?.(event);
       }}
     >
       {children}
