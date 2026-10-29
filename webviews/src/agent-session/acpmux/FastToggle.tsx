@@ -141,8 +141,16 @@ export function FastToggle({ speed, inline = false }: { speed: SpeedTiers; inlin
         </button>
       )}
       {native && !inline && (
-        <button ref={trigger} type="button" className="acpmux-speed-choices" aria-label={label}
-          data-menu="Speed" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((was) => !was)}>
+        <button
+          ref={trigger}
+          type="button"
+          className="acpmux-speed-choices"
+          aria-label={label}
+          data-menu="Speed"
+          aria-haspopup="menu"
+          aria-expanded={open}
+          onClick={() => setOpen((was) => !was)}
+        >
           ⌄
         </button>
       )}

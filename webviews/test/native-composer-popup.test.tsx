@@ -19,7 +19,10 @@ const scope = globalThis as Record<string, unknown>;
 const saved = new Map<string, unknown>();
 
 function installDom(): HTMLElement {
-  dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>", { pretendToBeVisual: true, url: "https://cmux.test" });
+  dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>", {
+    pretendToBeVisual: true,
+    url: "https://cmux.test",
+  });
   const globals: Record<string, unknown> = {
     window: dom.window,
     document: dom.window.document,
@@ -162,7 +165,10 @@ test("plus actions preserve keep and close without restoring focus", async () =>
 
 test("native fast pick closes and can reopen without a dismiss event", async () => {
   const picks: string[] = [];
-  const menu = await mount(<FastToggle speed={{ off: "", tiers: ["fast"], onPick: (value) => picks.push(value) }} />, ".acpmux-speed-choices");
+  const menu = await mount(
+    <FastToggle speed={{ off: "", tiers: ["fast"], onPick: (value) => picks.push(value) }} />,
+    ".acpmux-speed-choices",
+  );
   const row = menu.model.rows.find((row) => row.checked)!;
   await menu.pick(row.label);
   expect(picks).toEqual([""]);
@@ -225,13 +231,44 @@ test("effort and speed domain values do not collide and default hint survives", 
 });
 
 test.each(["claude", "codex"])("native %s mode metadata and action preserve harness behavior", async (harness) => {
-  const ids = harness === "claude" ? ["auto", "default", "acceptEdits", "plan", "bypassPermissions"] : ["read-only", "auto-review", "agent-full-access"];
+  const ids =
+    harness === "claude"
+      ? ["auto", "default", "acceptEdits", "plan", "bypassPermissions"]
+      : ["agent", "auto-review", "agent-full-access"];
   const picks: string[] = [];
-  const snapshot = { type: "snapshot", protocolVersion: 1, rows: [], sessions: [], connection: "test", isWorking: false, queue: [], canLoadOlder: false, catalog: [],
-    summary: { sessionId: "s", harness, family: harness, model: "default", turnCount: 0, modes: { currentModeId: ids[0], availableModes: ids.map((id) => ({ id, name: id })) } },
+  const snapshot = {
+    type: "snapshot",
+    protocolVersion: 1,
+    rows: [],
+    sessions: [],
+    connection: "test",
+    isWorking: false,
+    queue: [],
+    canLoadOlder: false,
+    catalog: [],
+    summary: {
+      sessionId: "s",
+      harness,
+      family: harness,
+      model: "default",
+      turnCount: 0,
+      modes: { currentModeId: ids[0], availableModes: ids.map((id) => ({ id, name: id })) },
+    },
   } as unknown as AcpmuxSnapshot;
-  const menu = await mount(<QueryClientProvider client={new QueryClient()}><ComposerPickers snapshot={snapshot} showPlan={false}
-    onModel={() => {}} onMode={(id) => { picks.push(id); }} onEffort={() => {}} /></QueryClientProvider>, ".acpmux-access-trigger");
+  const menu = await mount(
+    <QueryClientProvider client={new QueryClient()}>
+      <ComposerPickers
+        snapshot={snapshot}
+        showPlan={false}
+        onModel={() => {}}
+        onMode={(id) => {
+          picks.push(id);
+        }}
+        onEffort={() => {}}
+      />
+    </QueryClientProvider>,
+    ".acpmux-access-trigger",
+  );
   const actions = menu.model.rows.filter((row) => row.kind === "action");
   expect(actions).toHaveLength(ids.length);
   expect(actions.some((row) => row.checked)).toBe(true);
@@ -243,14 +280,21 @@ test.each(["claude", "codex"])("native %s mode metadata and action preserve harn
 });
 
 test("native presentation refusal never mounts the browser popup", async () => {
-  const menu = await mount(<FastToggle speed={{ off: "", tiers: ["fast"], onPick() {} }} />, ".acpmux-speed-choices", false);
+  const menu = await mount(
+    <FastToggle speed={{ off: "", tiers: ["fast"], onPick() {} }} />,
+    ".acpmux-speed-choices",
+    false,
+  );
   expect(menu.button.getAttribute("aria-expanded")).toBe("false");
   expect(menu.container.querySelector('[role="menu"], [role="listbox"], [role="option"]')).toBeNull();
 });
 
 test("native reopen ignores a pick from the previous popup revision", async () => {
   const picks: string[] = [];
-  const menu = await mount(<FastToggle speed={{ off: "", tiers: ["fast"], onPick: (id) => picks.push(id) }} />, ".acpmux-speed-choices");
+  const menu = await mount(
+    <FastToggle speed={{ off: "", tiers: ["fast"], onPick: (id) => picks.push(id) }} />,
+    ".acpmux-speed-choices",
+  );
   await menu.pick(menu.model.rows[0]!.label);
   await act(async () => menu.button.click());
   await act(async () => {
