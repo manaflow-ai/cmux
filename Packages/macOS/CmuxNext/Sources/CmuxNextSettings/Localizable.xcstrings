@@ -1579,6 +1579,110 @@
         }
       }
     },
+    "settings.appearance.highlightColor": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Highlight Color"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "لون التمييز"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Boja isticanja"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Fremhævningsfarve"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Hervorhebungsfarbe"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Color de resaltado"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Couleur de surlignage"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Colore di evidenziazione"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "ハイライトカラー"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ពណ៌​បន្លិច"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "강조 색상"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Uthevingsfarge"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Kolor podświetlenia"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Cor de destaque"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Цвет выделения"}},
+        "th": {"stringUnit": {"state": "translated", "value": "สีไฮไลต์"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Vurgu Rengi"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Колір виділення"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Màu tô sáng"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "高亮颜色"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "醒目提示顏色"}}
+      }
+    },
+    "settings.appearance.highlightColor.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "The color of selected text everywhere: terminals, Markdown, editors, the address bar and text fields. Unset, it is the terminal theme's selection color."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "لون النص المحدد في كل مكان: الطرفيات وMarkdown والمحررات وشريط العنوان وحقول النص. إن لم يُضبط، فهو لون التحديد في سمة الطرفية."}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Boja odabranog teksta svuda: u terminalima, Markdownu, uređivačima, adresnoj traci i tekstualnim poljima. Ako nije postavljena, to je boja odabira teme terminala."}},
+        "da": {"stringUnit": {"state": "translated", "value": "Farven på markeret tekst overalt: terminaler, Markdown, editorer, adresselinjen og tekstfelter. Uden en værdi er det terminaltemaets markeringsfarve."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Die Farbe markierten Textes überall: Terminals, Markdown, Editoren, Adressleiste und Textfelder. Ohne Wert ist es die Auswahlfarbe des Terminal-Themas."}},
+        "es": {"stringUnit": {"state": "translated", "value": "El color del texto seleccionado en todas partes: terminales, Markdown, editores, la barra de direcciones y los campos de texto. Sin valor, es el color de selección del tema del terminal."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "La couleur du texte sélectionné partout : terminaux, Markdown, éditeurs, barre d'adresse et champs de texte. Sans valeur, c'est la couleur de sélection du thème du terminal."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Il colore del testo selezionato ovunque: terminali, Markdown, editor, barra degli indirizzi e campi di testo. Se non impostato, è il colore di selezione del tema del terminale."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "選択したテキストの色(ターミナル、Markdown、エディタ、アドレスバー、テキストフィールドのすべて)。未設定の場合はターミナルテーマの選択色です。"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ពណ៌​អត្ថបទ​ដែល​បាន​ជ្រើស​គ្រប់​ទីកន្លែង៖ ទែមីណាល់ Markdown កម្មវិធី​កែ របារ​អាសយដ្ឋាន និង​វាល​អត្ថបទ។ បើ​មិន​កំណត់ វា​ជា​ពណ៌​ជ្រើស​របស់​រចនាប័ទ្ម​ទែមីណាល់។"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "모든 곳에서 선택한 텍스트의 색상입니다: 터미널, Markdown, 편집기, 주소 표시줄, 텍스트 필드. 설정하지 않으면 터미널 테마의 선택 색상입니다."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Fargen på markert tekst overalt: terminaler, Markdown, redigeringsprogrammer, adresselinjen og tekstfelt. Uten verdi er det terminaltemaets markeringsfarge."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Kolor zaznaczonego tekstu wszędzie: w terminalach, Markdownie, edytorach, pasku adresu i polach tekstowych. Bez ustawienia jest to kolor zaznaczenia motywu terminala."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "A cor do texto selecionado em todo lugar: terminais, Markdown, editores, barra de endereço e campos de texto. Sem valor, é a cor de seleção do tema do terminal."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Цвет выделенного текста везде: в терминалах, Markdown, редакторах, адресной строке и текстовых полях. Если не задан, это цвет выделения темы терминала."}},
+        "th": {"stringUnit": {"state": "translated", "value": "สีของข้อความที่เลือกในทุกที่: เทอร์มินัล Markdown ตัวแก้ไข แถบที่อยู่ และช่องข้อความ หากไม่ได้ตั้งค่า จะเป็นสีการเลือกของธีมเทอร์มินัล"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Her yerde seçili metnin rengi: terminaller, Markdown, düzenleyiciler, adres çubuğu ve metin alanları. Ayarlanmazsa terminal temasının seçim rengidir."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Колір виділеного тексту всюди: у терміналах, Markdown, редакторах, адресному рядку й текстових полях. Якщо не задано, це колір виділення теми термінала."}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Màu của văn bản được chọn ở mọi nơi: terminal, Markdown, trình soạn thảo, thanh địa chỉ và trường văn bản. Nếu không đặt, đó là màu chọn của chủ đề terminal."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "所有位置中所选文本的颜色:终端、Markdown、编辑器、地址栏和文本字段。未设置时为终端主题的选区颜色。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "所有位置中所選文字的顏色:終端機、Markdown、編輯器、網址列和文字欄位。未設定時為終端機主題的選取顏色。"}}
+      }
+    },
+    "settings.appearance.highlightColor.summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Color of selected text"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "لون النص المحدد"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Boja odabranog teksta"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Farve på markeret tekst"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Farbe markierten Textes"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Color del texto seleccionado"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Couleur du texte sélectionné"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Colore del testo selezionato"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "選択したテキストの色"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ពណ៌​អត្ថបទ​ដែល​បាន​ជ្រើស"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "선택한 텍스트의 색상"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Farge på markert tekst"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Kolor zaznaczonego tekstu"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Cor do texto selecionado"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Цвет выделенного текста"}},
+        "th": {"stringUnit": {"state": "translated", "value": "สีของข้อความที่เลือก"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Seçili metnin rengi"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Колір виділеного тексту"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Màu văn bản được chọn"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "所选文本的颜色"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "所選文字的顏色"}}
+      }
+    },
+    "settings.default.terminalTheme": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Terminal Theme"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "سمة الطرفية"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Tema terminala"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Terminaltema"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Terminal-Thema"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Tema del terminal"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Thème du terminal"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Tema del terminale"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "ターミナルテーマ"}},
+        "km": {"stringUnit": {"state": "translated", "value": "រចនាប័ទ្ម​ទែមីណាល់"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "터미널 테마"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Terminaltema"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Motyw terminala"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Tema do terminal"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Тема терминала"}},
+        "th": {"stringUnit": {"state": "translated", "value": "ธีมเทอร์มินัล"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Terminal Teması"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Тема термінала"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Chủ đề terminal"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "终端主题"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "終端機主題"}}
+      }
+    },
     "settings.group.workspaceHibernation": {
       "extractionState": "manual",
       "localizations": {
@@ -21976,138 +22080,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "密度預設值"
-          }
-        }
-      }
-    },
-    "settings.default.neverDiscard": {
-      "comment": "Settings > Browser > Memory > Hibernate Hidden Tabs: the value with nothing in cmux.json: hidden tabs only freeze and are never discarded (reloaded) on their own.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Never Discard"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "破棄しない"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "عدم التجاهل أبدًا"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nikad ne odbacuj"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Kassér aldrig"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nie verwerfen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "No descartar nunca"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ne jamais décharger"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Non scartare mai"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "កុំបោះចោលឡើយ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "삭제 안 함"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Forkast aldri"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nigdy nie odrzucaj"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nunca descartar"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Не выгружать"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ไม่ทิ้งเลย"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Asla atma"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Не вивантажувати"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Không bao giờ loại bỏ"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "从不丢弃"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "永不捨棄"
           }
         }
       }
@@ -182720,6 +182692,532 @@
         "vi": {"stringUnit": {"state": "needs_review", "value": "Mép thanh bên không còn mờ dần và toàn bộ danh sách hiển thị. Thanh hồ sơ và tìm kiếm ở dưới cũng bị ẩn. Tắt: mép mờ dần và thanh hiển thị."}},
         "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "侧边栏边缘不再渐隐，整个列表全部显示。同时隐藏底部的个人资料和搜索栏。关闭时边缘渐隐，并显示该栏。"}},
         "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "側邊欄邊緣不再漸隱，整個列表全部顯示。同時隱藏底部的個人資料和搜尋列。關閉時邊緣漸隱，並顯示該列。"}}
+      }
+    },
+    "settings.computerUse.livePreview": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live Preview in Chat"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チャットでのライブプレビュー"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "معاينة مباشرة في الدردشة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pregled uživo u chatu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Live-forhåndsvisning i chat"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Live-Vorschau im Chat"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vista previa en directo en el chat"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aperçu en direct dans le chat"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Anteprima dal vivo nella chat"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការមើលជាមុនផ្ទាល់ក្នុងការជជែក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "채팅의 실시간 미리보기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Direkteforhåndsvisning i chat"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Podgląd na żywo w czacie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prévia ao vivo no chat"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Живой просмотр в чате"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ตัวอย่างสดในแชท"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sohbette canlı önizleme"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Живий перегляд у чаті"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Xem trước trực tiếp trong cuộc trò chuyện"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "聊天中的实时预览"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "聊天中的即時預覽"
+          }
+        }
+      }
+    },
+    "settings.computerUse.livePreview.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "While an agent uses an app, its chat shows a small live view of that app. Click the view to open Agent Activity."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントがアプリを使っている間、そのチャットにアプリの小さなライブビューが表示されます。ビューをクリックするとエージェントのアクティビティが開きます。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "عندما يستخدم وكيل تطبيقًا، تعرض دردشته عرضًا مباشرًا صغيرًا لهذا التطبيق. انقر على العرض لفتح نشاط الوكيل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dok agent koristi aplikaciju, njegov chat prikazuje mali prikaz te aplikacije uživo. Kliknite prikaz da otvorite Aktivnost agenta."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mens en agent bruger en app, viser dens chat en lille livevisning af appen. Klik på visningen for at åbne Agentaktivitet."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Während ein Agent eine App verwendet, zeigt sein Chat eine kleine Live-Ansicht dieser App. Klicke auf die Ansicht, um die Agentenaktivität zu öffnen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mientras un agente usa una app, su chat muestra una pequeña vista en directo de esa app. Haz clic en la vista para abrir Actividad de agentes."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pendant qu'un agent utilise une app, son chat affiche un petit aperçu en direct de cette app. Clique sur l'aperçu pour ouvrir Activité des agents."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mentre un agente usa un'app, la sua chat mostra una piccola vista dal vivo di quell'app. Fai clic sulla vista per aprire Attività degli agenti."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ពេលភ្នាក់ងារប្រើកម្មវិធីមួយ ការជជែករបស់វាបង្ហាញទិដ្ឋភាពផ្ទាល់តូចមួយនៃកម្មវិធីនោះ។ ចុចលើទិដ្ឋភាពដើម្បីបើកសកម្មភាពភ្នាក់ងារ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "에이전트가 앱을 사용하는 동안 해당 채팅에 그 앱의 작은 실시간 보기가 표시됩니다. 보기를 클릭하면 에이전트 활동이 열립니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mens en agent bruker en app, viser chatten en liten direktevisning av appen. Klikk på visningen for å åpne Agentaktivitet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gdy agent używa aplikacji, jego czat pokazuje mały podgląd tej aplikacji na żywo. Kliknij podgląd, aby otworzyć Aktywność agentów."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Enquanto um agente usa um app, o chat dele mostra uma pequena visualização ao vivo desse app. Clique na visualização para abrir Atividade de agentes."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Пока агент работает с приложением, его чат показывает небольшой живой вид этого приложения. Нажмите на вид, чтобы открыть Активность агентов."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ขณะที่เอเจนต์ใช้แอป แชทของเอเจนต์จะแสดงมุมมองสดขนาดเล็กของแอปนั้น คลิกมุมมองเพื่อเปิดกิจกรรมของเอเจนต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bir ajan bir uygulamayı kullanırken sohbeti o uygulamanın küçük bir canlı görünümünü gösterir. Ajan etkinliğini açmak için görünüme tıkla."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Поки агент працює з застосунком, його чат показує невеликий живий вигляд цього застосунку. Натисніть на вигляд, щоб відкрити Активність агентів."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Khi một tác tử dùng một ứng dụng, cuộc trò chuyện của nó hiển thị một khung xem trực tiếp nhỏ của ứng dụng đó. Nhấp vào khung xem để mở Hoạt động của tác tử."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "代理使用某个应用时，其聊天会显示该应用的小型实时视图。点按视图可打开代理活动。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "代理使用某個 App 時，其聊天會顯示該 App 的小型即時檢視。按一下檢視即可開啟代理活動。"
+          }
+        }
+      }
+    },
+    "settings.computerUse.livePreview.summary": {
+      "comment": "Settings row summary: one short line under the setting's title.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shows the app an agent uses in its chat"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントが使うアプリをそのチャットに表示"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يعرض التطبيق الذي يستخدمه الوكيل في دردشته"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prikazuje aplikaciju koju agent koristi u njegovom chatu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Viser den app, en agent bruger, i dens chat"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zeigt die App, die ein Agent verwendet, in seinem Chat"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Muestra la app que usa un agente en su chat"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Affiche l'app qu'un agent utilise dans son chat"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostra l'app che un agente usa nella sua chat"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បង្ហាញកម្មវិធីដែលភ្នាក់ងារប្រើ ក្នុងការជជែករបស់វា"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "에이전트가 사용하는 앱을 채팅에 표시"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Viser appen en agent bruker, i chatten"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pokazuje w czacie aplikację, której używa agent"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostra no chat o app que um agente usa"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показывает в чате приложение, с которым работает агент"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แสดงแอปที่เอเจนต์ใช้ในแชทของเอเจนต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ajanın kullandığı uygulamayı sohbetinde gösterir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показує в чаті застосунок, з яким працює агент"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hiển thị ứng dụng mà tác tử đang dùng trong cuộc trò chuyện"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在聊天中显示代理使用的应用"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在聊天中顯示代理使用的 App"
+          }
+        }
+      }
+    },
+    "settings.default.neverDiscard": {
+      "comment": "Settings > Browser > Memory > Hibernate Hidden Tabs: the value with nothing in cmux.json: hidden tabs only freeze and are never discarded (reloaded) on their own.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Never Discard"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "破棄しない"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "عدم التجاهل أبدًا"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nikad ne odbacuj"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kassér aldrig"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nie verwerfen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No descartar nunca"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ne jamais décharger"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Non scartare mai"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កុំបោះចោលឡើយ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "삭제 안 함"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Forkast aldri"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nigdy nie odrzucaj"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nunca descartar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не выгружать"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่ทิ้งเลย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Asla atma"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не вивантажувати"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không bao giờ loại bỏ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "从不丢弃"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "永不捨棄"
+          }
+        }
       }
     },
     "settings.sidebar.controlsOnHover": {
