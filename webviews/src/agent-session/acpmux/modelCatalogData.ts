@@ -417,7 +417,7 @@ function catalogHarness(harness: CatalogHarness, members: AcpmuxHarness[], join:
     if (hiddenReleases.has(probe.id)) continue;
     models.push(probedModel(probe, harness.id, join));
   }
-  addSessionModels(models, live, harness.id, listed, join, hiddenReleases);
+  addSessionModels(models, live, harness.id, listed, join, probed, hiddenReleases);
   const releases = models.filter((model) => listed.some((pinned) => pinned.id === model.id));
   const offered = foldAliases(models, releases, runs, reported, join, (release, alias) =>
     aliasRow(listed, release, alias, harness.id, probed, join),
@@ -466,7 +466,7 @@ function uncataloguedHarness(entry: AcpmuxHarness, join: Join): PickerHarness {
     .filter((probe) => includeReportedIdentity(probe, entry, kin?.id ?? entry.id, runs, join))
     .filter((probe) => !isHiddenByUser(entry.id, probe.id, join) && !hiddenReleases.has(probe.id))
     .map((probe) => probedModel(probe, entry.id, join, kin?.id));
-  addSessionModels(models, live, entry.id, listed, join, hiddenReleases, kin?.id);
+  addSessionModels(models, live, entry.id, listed, join, entry.models, hiddenReleases, kin?.id);
   const releases = listed.map((model) => listedModel(model, entry.id, entry.models, join));
   const offered = kin
     ? foldAliases(models, releases, runs, reported, join, (release, alias) =>
@@ -669,6 +669,7 @@ function addSessionModels(
   harnessId: string,
   listed: HarnessModel[],
   join: Join,
+  probed: AcpmuxModel[],
   hiddenReleases: Set<string> = new Set(),
   identityHarnessId = harnessId,
 ): void {
@@ -684,10 +685,16 @@ function addSessionModels(
     if (isHiddenByUser(harnessId, choice.id, join)) continue;
     if (hiddenReleases.has(choice.id)) continue;
     const pinned = listed.find((model) => model.id === choice.id);
+    const probe = probed.find((model) => model.id === choice.id);
     models.push(
       pinned
-        ? pickerModel(layeredModel(pinned, harnessId, undefined, join), join.catalog)
-        : probedModel({ id: choice.id, name: choice.name } as AcpmuxModel, harnessId, join, identityHarnessId),
+        ? pickerModel(layeredModel(pinned, harnessId, probe, join), join.catalog, probe?.unavailable)
+        : probedModel(
+            { ...probe, id: choice.id, name: choice.name ?? probe?.name },
+            harnessId,
+            join,
+            identityHarnessId,
+          ),
     );
   }
 }

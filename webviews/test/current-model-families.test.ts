@@ -229,6 +229,39 @@ test("Retry keeps the running unavailable model and excludes unavailable alterna
 });
 
 for (const harnessId of ["codex", "codex-sr"]) {
+  test(`${harnessId}: session choices retain a filtered fallback's refusal`, () => {
+    const catalog = buildPickerCatalog({
+      catalog: BUNDLED_MODEL_CATALOG,
+      acpmux: [
+        {
+          id: harnessId,
+          family: harnessId,
+          name: "Codex",
+          models: [{ id: "gpt-6.1-terra", name: "Terra", curated: true, unavailable: "account unavailable" }],
+        },
+      ],
+      session: {
+        harness: harnessId,
+        model: "gpt-6.1-sol",
+        configOptions: [
+          {
+            id: "model",
+            name: "Model",
+            category: "model",
+            type: "select",
+            currentValue: "gpt-6.1-sol",
+            options: [{ value: "gpt-6.1-terra", name: "Terra" }],
+          },
+        ],
+      },
+    });
+    const harness = catalog.harnesses.find((entry) => entry.id === harnessId)!;
+    expect(harness.models.find((model) => model.id === "gpt-6.1-terra")?.unavailable).toBe("account unavailable");
+    expect(ids(relevantModelSections(harness.models, harness.topModels).shown)).not.toContain("gpt-6.1-terra");
+    const retry = retryModelSections(harness.models, "gpt-6.1-sol", harness.name, harness.topModels);
+    expect(ids([...retry.latest, ...retry.more])).not.toContain("gpt-6.1-terra");
+  });
+
   test(`${harnessId}: a session-reported current release survives an empty live probe`, () => {
     const current = "gpt-6.1-terra";
     const catalog = buildPickerCatalog({
