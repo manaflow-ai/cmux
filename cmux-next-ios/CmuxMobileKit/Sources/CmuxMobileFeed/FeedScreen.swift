@@ -34,9 +34,11 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
 
     public var body: some View {
         NavigationStack(path: $path) {
-            // UIKit rows (FeedRowCell), laid out off the main thread (verify/feed-perf-20261022.md).
+            // Keep the SwiftUI overlay coordinate space inside the safe area while the
+            // UIKit collection itself extends under the navigation and tab bars.
             Color.clear
                 .background {
+                    // UIKit rows (FeedRowCell), laid out off the main thread (verify/feed-perf-20261022.md).
                     FeedCollection(
                         items: store.visibleItems, context: rowContext, swipe: swipe, control: list,
                         header: AnyView(header), headerSignature: AnyHashable(headerSignature),

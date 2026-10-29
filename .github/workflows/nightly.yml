@@ -5021,7 +5021,9 @@ jobs:
     # path-routed daemon/app integration lane. publish-nightly publishes this
     # run's build only when both verification jobs passed.
     needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, build-sign-notarize-nightly, pick-nightly-sign-runner, signer-dmg]
-    if: "!cancelled() && (needs.build-sign-notarize-nightly.result == 'success' || needs.signer-dmg.result == 'success') && needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.import_paused != 'true'"
+    # The macOS signer's app only: signer-dmg-image runs these checks on a pool-signed app, on the
+    # Mac that builds its DMG (signer-verify-signed.sh), and signer-dmg needs that job.
+    if: "!cancelled() && needs.build-sign-notarize-nightly.result == 'success' && needs.signer-dmg.result != 'success' && needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.import_paused != 'true'"
     permissions:
       contents: read
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.owned || github.run_attempt > 1 && needs.pick-nightly-sign-runner.outputs.alternate || needs.pick-nightly-sign-runner.outputs.runner || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
@@ -5033,8 +5035,6 @@ jobs:
     env:
       # Set only when the 6 h stapled-app fallback shipped the first DMG.
       STAPLED_APP_FALLBACK_ID: ${{ needs.build-sign-notarize-nightly.outputs.stapled_app_fallback_id }}
-      # A pool-signed app's Computer Use helper carries its own notarization ticket.
-      REQUIRE_HELPER_TICKET: ${{ needs.signer-dmg.result == 'success' }}
       # An owned Mac has the PR lane's Xcode pin (as DEV's verify); Blacksmith the macOS 26 one.
       CMUX_CI_XCODE_APP: ${{ needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.owned != '' && vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
@@ -5488,17 +5488,26 @@ jobs:
           echo "$APP_SHA256  signer-app/stapled-app.tar" | shasum -a 256 -c -
           mkdir -p "$SIGNER_WORK" && tar -C "$SIGNER_WORK" -xf signer-app/stapled-app.tar
           bash .publish-tooling/scripts/ci/nightly-steps/signer-apple-checks.sh "$SIGNER_WORK/$CHANNEL_APP_NAME.app"
-      # signer-dmg makes verify-signed-nightly's handoff from the same stapled-app.tar on Linux,
-      # so this Mac uploads only the unsigned DMG over the office uplink.
-      - name: The signed-app checks
+      # The checks of the stapled app run on copies in the background while the DMG is built and
+      # sent, and the job fails after the upload when one fails, so signer-dmg never reads that DMG.
+      # They include verify-signed-nightly's checks: a pool-signed build has no second download of
+      # the app to another office Mac (2-5 min in runs 40905688542, 40913618519, 40918131595), and
+      # verify-signed-nightly runs only for the macOS signer's app.
+      - name: Start the signed-app checks
         env:
           CHECK_MINOS: "true"
           PACKAGE_HANDOFF: "false"
           PACKAGE_UNNOTARIZED_ZIP: "false"
-        run: |
-          set -euo pipefail
-          bash scripts/ci/signed-app-checks.sh start "$SIGNER_WORK/$CHANNEL_APP_NAME.app"
-          bash scripts/ci/signed-app-checks.sh finish
+        run: bash scripts/ci/signed-app-checks.sh start "$SIGNER_WORK/$CHANNEL_APP_NAME.app"
+      - *download-ssh-daemon-assets-2
+      - name: Start the verify-signed checks
+        env:
+          NIGHTLY_BUILD: ${{ needs.build-nightly-app.outputs.daemon_build }}
+          BUNDLE_REMOTE_DAEMON_ASSETS: ${{ needs.decide.outputs.fast_build == 'true' || needs.decide.outputs.should_publish != 'true' }}
+          CHANNEL_RELEASE_TAG: ${{ needs.decide.outputs.release_tag }}
+          CHANNEL_ENTITLEMENTS: ${{ needs.decide.outputs.entitlements }}
+          TRACK: ${{ needs.decide.outputs.track }}
+        run: bash .publish-tooling/scripts/ci/nightly-steps/signer-verify-signed.sh start "$SIGNER_WORK/$CHANNEL_APP_NAME.app"
       - name: Build the unsigned DMG
         id: dmg
         run: bash .publish-tooling/scripts/ci/nightly-steps/signer-dmg-image.sh
@@ -5510,6 +5519,13 @@ jobs:
           if-no-files-found: error
           retention-days: 1
           overwrite: true
+      - name: Finish the signed-app and verify-signed checks
+        run: |
+          set -uo pipefail
+          status=0
+          bash scripts/ci/signed-app-checks.sh finish || status=1
+          bash .publish-tooling/scripts/ci/nightly-steps/signer-verify-signed.sh finish || status=1
+          exit "$status"
 
   signer-dmg:
     environment: ${{ needs.decide.outputs.environment }}
@@ -5545,12 +5561,6 @@ jobs:
           path: signer-out
       - *signer-download-app
       - *signer-download-app-retry
-      # verify-signed-nightly's handoff, gzipped from the stapled app here while the DMG waits on
-      # Apple, rather than on signer-dmg-image's Mac and sent back over the office uplink.
-      - name: Start packaging the stapled app for the verify job
-        env:
-          APP_SHA256: ${{ needs.signer-app.outputs.sha256 }}
-        run: bash .publish-tooling/scripts/ci/nightly-steps/signer-handoff.sh start
       - name: Sign, notarize and staple the DMG
         env:
           UNSIGNED_SHA256: ${{ needs.signer-dmg-image.outputs.sha256 }}
@@ -5571,8 +5581,6 @@ jobs:
         run: |
           echo "$APP_SHA256  signer-app/stapled-app.tar" | sha256sum -c -
           bash .publish-tooling/scripts/ci/nightly-steps/signer-appcast.sh
-      - name: Finish packaging the stapled app for the verify job
-        run: bash .publish-tooling/scripts/ci/nightly-steps/signer-handoff.sh finish
       # Hand it on under the names the macOS signer job uses: the verify jobs
       # check it on a Mac before publish reads it. Never overwrite: once the
       # macOS job has uploaded (a rerun after it covered a failed pool run),
@@ -5584,13 +5592,6 @@ jobs:
             signer-out/${{ env.NIGHTLY_DMG_RELEASE }}
             signer-out/${{ env.NIGHTLY_DMG_IMMUTABLE }}
             signer-out/appcast-arm64.xml
-          if-no-files-found: error
-          retention-days: 3
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: cmux-${{ needs.decide.outputs.channel }}-signed-app-arm64-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
-          path: signed-app-handoff/*
-          compression-level: 0
           if-no-files-found: error
           retention-days: 3
       # verify-final-dmg-nightly's read: cmux-nightly-variant-arm64 without the DMG's second copy.
@@ -5910,7 +5911,7 @@ jobs:
       downloads: ${{ steps.notes.outputs.downloads }}
       feed_written: ${{ steps.upload_next_appcasts.outputs.feed_written }}
       feed_check: ${{ steps.feedcheck.outcome }}
-    if: "!cancelled() && needs.decide.result == 'success' && needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.decide.outputs.no_publish != 'true' && (((needs.build-sign-notarize-nightly.result == 'success' || needs.signer-dmg.result == 'success') && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true' && needs.verify-signed-nightly.result == 'success' && needs.verify-final-dmg-nightly.result == 'success') || (needs.recover-nightly-next-notarization.outputs.accepted == 'true' && needs.verify-recovered-nightly-next.result == 'success'))"
+    if: "!cancelled() && needs.decide.result == 'success' && needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.decide.outputs.no_publish != 'true' && (((needs.build-sign-notarize-nightly.result == 'success' || needs.signer-dmg.result == 'success') && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true' && (needs.signer-dmg.result == 'success' || needs.verify-signed-nightly.result == 'success') && needs.verify-final-dmg-nightly.result == 'success') || (needs.recover-nightly-next-notarization.outputs.accepted == 'true' && needs.verify-recovered-nightly-next.result == 'success'))"
     # The release App key remains scoped to this protected environment.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-32vcpu-ubuntu-2404' }}
     timeout-minutes: 120
@@ -5935,9 +5936,9 @@ jobs:
         env:
           OWN_RESULT: ${{ (needs.build-sign-notarize-nightly.result == 'success' || needs.signer-dmg.result == 'success') && 'success' || needs.build-sign-notarize-nightly.result }}
           OWN_PENDING: ${{ needs.build-sign-notarize-nightly.outputs.notary_pending }}
-          # verify-signed-nightly verified this run's signed artifact and
-          # verify-final-dmg-nightly its final DMG.
-          OWN_VERIFIED: ${{ needs.verify-signed-nightly.result }}
+          # verify-signed-nightly verified the macOS signer's app (signer-dmg-image a pool-signed
+          # one: signer-dmg needs it) and verify-final-dmg-nightly the final DMG.
+          OWN_VERIFIED: ${{ needs.signer-dmg.result == 'success' && 'success' || needs.verify-signed-nightly.result }}
           OWN_DMG_VERIFIED: ${{ needs.verify-final-dmg-nightly.result }}
           # NIGHTLY_NEXT_TREE_AT_INSTALL: a build made before its tree published, or resumed, needs await-nightly-tree-marker.
           OWN_TREE: ${{ (needs.resolve-nightly-cmux-tui-client.outputs.tree_pending != 'true' && inputs.nightly_next_unsigned_run == '' || needs.await-nightly-tree-marker.result == 'success') && 'ok' || 'unmarked' }}
@@ -6596,22 +6597,7 @@ jobs:
       # write below (rolling name, feed copy, body, tag) runs it just before writing, so an
       # older run whose uploads waited out a rate limit never writes over a newer build's.
       - name: Install the feed order check
-        run: |
-          set -euo pipefail
-          cat > "$RUNNER_TEMP/still-newest" <<'SH'
-          #!/usr/bin/env bash
-          set -euo pipefail
-          live="$(mktemp)"
-          curl -fsSL --retry 5 --retry-all-errors -A "cmux-nightly-next-github/1" -H "Cache-Control: no-cache" \
-            -o "$live" "${NIGHTLY_NEXT_FEED_BASE}/appcast-arm64.xml?github=${GITHUB_RUN_ID}-$RANDOM"
-          newest="$(python3 -I -c 'import re,sys; print(max([int(v) for v in re.findall(r"<sparkle:version>\s*(\d+)\s*</sparkle:version>", open(sys.argv[1]).read())] or [0]))' "$live")"
-          rm -f "$live"
-          if (( newest > NIGHTLY_BUILD )); then
-            echo "The feed serves build $newest, newer than $NIGHTLY_BUILD: its release state stays as that run writes it."
-            exit 1
-          fi
-          SH
-          chmod +x "$RUNNER_TEMP/still-newest"
+        run: bash .publish-tooling/scripts/ci/nightly-steps/github-names-install-still-newest.sh
 
       - name: Publish the rolling DMG name and the feed copy
         id: publish_names
@@ -6619,19 +6605,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_APP_TOKEN: ${{ steps.gh-app-token.outputs.token }} # App first, GH_TOKEN as fallback
           CMUX_RELEASE_RATE_LIMIT_SECONDS: "3600"
-        run: |
-          set -euo pipefail
-          if ! "$RUNNER_TEMP/still-newest"; then echo "newest=false" >> "$GITHUB_OUTPUT"; exit 0; fi
-          feeds=()
-          for feed in $NIGHTLY_FEEDS; do feeds+=(--feed "nightly-out/$feed"); done
-          # The versioned DMG publish-nightly-next-github uploaded: the publisher needs one
-          # immutable asset, reuses the remote copy with the same size and digest, and so writes
-          # the rolling name only while its versioned file is on the release.
-          python3 "$PUBLISH_TOOLING/ci/publish-release-assets.py" \
-            --repo "$GITHUB_REPOSITORY" --tag "$CHANNEL_RELEASE_TAG" \
-            --immutable "nightly-out/${CHANNEL_DMG_PREFIX}-arm64-${NIGHTLY_BUILD}.dmg" \
-            --alias "nightly-out/${CHANNEL_DMG_PREFIX}-arm64.dmg" --replace-feeds "${feeds[@]}"
-          echo "newest=true" >> "$GITHUB_OUTPUT"
+        run: bash .publish-tooling/scripts/ci/nightly-steps/github-names-publish-rolling-name.sh
 
       - name: Mint release tag app token
         id: release-tag-token
@@ -7082,6 +7056,7 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-nightly-identity-pending-bundle
+          overwrite: true
           path: pending/
           if-no-files-found: error
           retention-days: 3
@@ -7091,6 +7066,7 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-nightly-identity-pending-meta
+          overwrite: true
           path: pending-meta/pending.json
           if-no-files-found: error
           retention-days: 3
@@ -7108,6 +7084,7 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-nightly-identity-signed
+          overwrite: true
           path: legacy-signed/
           compression-level: 0
           if-no-files-found: error
@@ -7130,6 +7107,7 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-nightly-identity-attempt-meta
+          overwrite: true
           path: attempt-meta/pending.json
           if-no-files-found: error
           retention-days: 3
@@ -7142,8 +7120,9 @@ jobs:
 
   sign-nightly-identity-legacy-blacksmith:
     needs: [decide, build-nightly-app, legacy-identity-target, pick-nightly-sign-runner, sign-nightly-identity-legacy]
-    # Signs in this run when the owned attempt never passed its claim gate.
-    if: "!cancelled() && github.run_attempt == 1 && needs.pick-nightly-sign-runner.outputs.sign_owned != '' && needs.sign-nightly-identity-legacy.result != 'skipped' && needs.sign-nightly-identity-legacy.result != 'cancelled' && needs.sign-nightly-identity-legacy.outputs.claim != 'owned'"
+    # Signs when the owned attempt never passed its claim gate, or failed after it with no submission at
+    # Apple (signed_ok, as continue-on-error reads a failure as success).
+    if: "!cancelled() && github.run_attempt == 1 && needs.pick-nightly-sign-runner.outputs.sign_owned != '' && needs.sign-nightly-identity-legacy.result != 'skipped' && needs.sign-nightly-identity-legacy.result != 'cancelled' && (needs.sign-nightly-identity-legacy.outputs.claim != 'owned' || needs.sign-nightly-identity-legacy.outputs.signed_ok != 'true' && needs.sign-nightly-identity-legacy.outputs.skip != 'true' && needs.sign-nightly-identity-legacy.outputs.pending != 'true')"
     continue-on-error: true
     environment: release-next
     concurrency: *sign-nightly-identity-legacy-concurrency
@@ -7160,7 +7139,7 @@ jobs:
   # publishes.
   verify-nightly-identity-legacy:
     needs: [legacy-identity-target, sign-nightly-identity-legacy, pick-nightly-sign-runner, sign-nightly-identity-legacy-blacksmith]
-    if: "!cancelled() && (needs.sign-nightly-identity-legacy-blacksmith.outputs.signed_ok || needs.sign-nightly-identity-legacy.outputs.signed_ok) == 'true' && (needs.sign-nightly-identity-legacy-blacksmith.outputs.dmg_sha256 || needs.sign-nightly-identity-legacy.outputs.dmg_sha256) != ''"
+    if: "!cancelled() && (needs.sign-nightly-identity-legacy-blacksmith.result == 'skipped' && needs.sign-nightly-identity-legacy.outputs.signed_ok || needs.sign-nightly-identity-legacy-blacksmith.outputs.signed_ok) == 'true' && (needs.sign-nightly-identity-legacy-blacksmith.result == 'skipped' && needs.sign-nightly-identity-legacy.outputs.dmg_sha256 || needs.sign-nightly-identity-legacy-blacksmith.outputs.dmg_sha256) != ''"
     continue-on-error: true
     permissions:
       contents: read
@@ -7178,10 +7157,10 @@ jobs:
       CMUX_CI_XCODE_APP: ${{ needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.owned != '' && vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
       NIGHTLY_BUILD: ${{ needs.legacy-identity-target.outputs.build }}
-      SIGNED_SHA256: ${{ (needs.sign-nightly-identity-legacy-blacksmith.outputs.dmg_sha256 || needs.sign-nightly-identity-legacy.outputs.dmg_sha256) }}
-      BUILD_SHA: ${{ (needs.sign-nightly-identity-legacy-blacksmith.outputs.build_sha || needs.sign-nightly-identity-legacy.outputs.build_sha) }}
+      SIGNED_SHA256: ${{ (needs.sign-nightly-identity-legacy-blacksmith.result == 'skipped' && needs.sign-nightly-identity-legacy.outputs.dmg_sha256 || needs.sign-nightly-identity-legacy-blacksmith.outputs.dmg_sha256) }}
+      BUILD_SHA: ${{ (needs.sign-nightly-identity-legacy-blacksmith.result == 'skipped' && needs.sign-nightly-identity-legacy.outputs.build_sha || needs.sign-nightly-identity-legacy-blacksmith.outputs.build_sha) }}
       LEGACY_DMG_PREFIX: cmux-nightly-next-macos-nightlyid-arm64-
-      STAPLED_APP_FALLBACK_ID: ${{ (needs.sign-nightly-identity-legacy-blacksmith.outputs.stapled_app_fallback_id || needs.sign-nightly-identity-legacy.outputs.stapled_app_fallback_id) }}
+      STAPLED_APP_FALLBACK_ID: ${{ (needs.sign-nightly-identity-legacy-blacksmith.result == 'skipped' && needs.sign-nightly-identity-legacy.outputs.stapled_app_fallback_id || needs.sign-nightly-identity-legacy-blacksmith.outputs.stapled_app_fallback_id) }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -7290,10 +7269,10 @@ jobs:
       LEGACY_DMG_PREFIX: cmux-nightly-next-macos-nightlyid-arm64-
       LEGACY_APPCAST: appcast-arm64.xml
       SIGN_RESULT: ${{ (needs.sign-nightly-identity-legacy-blacksmith.result == 'skipped' && needs.sign-nightly-identity-legacy.result || needs.sign-nightly-identity-legacy-blacksmith.result) }}
-      SIGN_SKIP: ${{ (needs.sign-nightly-identity-legacy-blacksmith.outputs.skip || needs.sign-nightly-identity-legacy.outputs.skip) }}
-      SIGN_OK: ${{ (needs.sign-nightly-identity-legacy-blacksmith.outputs.signed_ok || needs.sign-nightly-identity-legacy.outputs.signed_ok) }}
-      SIGN_PENDING: ${{ (needs.sign-nightly-identity-legacy-blacksmith.outputs.pending || needs.sign-nightly-identity-legacy.outputs.pending) }}
-      SIGNED_SHA256: ${{ (needs.sign-nightly-identity-legacy-blacksmith.outputs.dmg_sha256 || needs.sign-nightly-identity-legacy.outputs.dmg_sha256) }}
+      SIGN_SKIP: ${{ (needs.sign-nightly-identity-legacy-blacksmith.result == 'skipped' && needs.sign-nightly-identity-legacy.outputs.skip || needs.sign-nightly-identity-legacy-blacksmith.outputs.skip) }}
+      SIGN_OK: ${{ (needs.sign-nightly-identity-legacy-blacksmith.result == 'skipped' && needs.sign-nightly-identity-legacy.outputs.signed_ok || needs.sign-nightly-identity-legacy-blacksmith.outputs.signed_ok) }}
+      SIGN_PENDING: ${{ (needs.sign-nightly-identity-legacy-blacksmith.result == 'skipped' && needs.sign-nightly-identity-legacy.outputs.pending || needs.sign-nightly-identity-legacy-blacksmith.outputs.pending) }}
+      SIGNED_SHA256: ${{ (needs.sign-nightly-identity-legacy-blacksmith.result == 'skipped' && needs.sign-nightly-identity-legacy.outputs.dmg_sha256 || needs.sign-nightly-identity-legacy-blacksmith.outputs.dmg_sha256) }}
       TESTED_SHA256: ${{ needs.verify-nightly-identity-legacy.outputs.tested_sha256 }}
     steps:
       - name: Checkout
@@ -7367,7 +7346,7 @@ jobs:
           # Rewritten from the verdicts below (nightly_next_ring.py legacy).
           SPARKLE_CHANNEL: cmux-next
           DEV_RING: ${{ steps.ring.outputs.mode || 'off' }}
-          SPARKLE_MINIMUM_SYSTEM_VERSION: ${{ (needs.sign-nightly-identity-legacy-blacksmith.outputs.minimum_system_version || needs.sign-nightly-identity-legacy.outputs.minimum_system_version) }}
+          SPARKLE_MINIMUM_SYSTEM_VERSION: ${{ (needs.sign-nightly-identity-legacy-blacksmith.result == 'skipped' && needs.sign-nightly-identity-legacy.outputs.minimum_system_version || needs.sign-nightly-identity-legacy-blacksmith.outputs.minimum_system_version) }}
         run: bash scripts/ci/nightly-steps/legacy-identity-appcast.sh
 
       - name: Publish the cmux NIGHTLY DMG, release notes and the old feed
@@ -7403,12 +7382,12 @@ jobs:
         if: always() && env.SIGN_SKIP == 'false' && steps.order.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
-          PENDING: ${{ (needs.sign-nightly-identity-legacy-blacksmith.outputs.pending || needs.sign-nightly-identity-legacy.outputs.pending) == 'true' }}
-          NOTARIZE: ${{ (needs.sign-nightly-identity-legacy-blacksmith.outputs.notarize || needs.sign-nightly-identity-legacy.outputs.notarize) || 'failure' }}
+          PENDING: ${{ (needs.sign-nightly-identity-legacy-blacksmith.result == 'skipped' && needs.sign-nightly-identity-legacy.outputs.pending || needs.sign-nightly-identity-legacy-blacksmith.outputs.pending) == 'true' }}
+          NOTARIZE: ${{ (needs.sign-nightly-identity-legacy-blacksmith.result == 'skipped' && needs.sign-nightly-identity-legacy.outputs.notarize || needs.sign-nightly-identity-legacy-blacksmith.outputs.notarize) || 'failure' }}
           PUBLISHED: ${{ steps.publish.outcome == 'success' }}
           # Apple's answer as the signing job saw it (a notary log or a stapled ticket).
-          APPLE: ${{ (needs.sign-nightly-identity-legacy-blacksmith.outputs.apple || needs.sign-nightly-identity-legacy.outputs.apple) || 'unknown' }}
-          REQUIREMENT_REFUSED: ${{ (needs.sign-nightly-identity-legacy-blacksmith.outputs.requirement_refused || needs.sign-nightly-identity-legacy.outputs.requirement_refused) || 'false' }}
+          APPLE: ${{ (needs.sign-nightly-identity-legacy-blacksmith.result == 'skipped' && needs.sign-nightly-identity-legacy.outputs.apple || needs.sign-nightly-identity-legacy-blacksmith.outputs.apple) || 'unknown' }}
+          REQUIREMENT_REFUSED: ${{ (needs.sign-nightly-identity-legacy-blacksmith.result == 'skipped' && needs.sign-nightly-identity-legacy.outputs.requirement_refused || needs.sign-nightly-identity-legacy-blacksmith.outputs.requirement_refused) || 'false' }}
         run: bash scripts/ci/nightly-steps/legacy-identity-resolve.sh
 
       - name: Store the accepted submission's metadata
@@ -7509,9 +7488,9 @@ jobs:
       ACTION: ${{ needs.legacy-identity-target.outputs.action }}
       BUILD: ${{ needs.legacy-identity-target.outputs.build }}
       NEXT_BUILD: ${{ needs.publish-nightly.outputs.build }}
-      SIGN_SKIP: ${{ (needs.sign-nightly-identity-legacy-blacksmith.outputs.skip || needs.sign-nightly-identity-legacy.outputs.skip) }}
-      SIGN_PENDING: ${{ (needs.sign-nightly-identity-legacy-blacksmith.outputs.pending || needs.sign-nightly-identity-legacy.outputs.pending) }}
-      SIGN_OK: ${{ (needs.sign-nightly-identity-legacy-blacksmith.outputs.signed_ok || needs.sign-nightly-identity-legacy.outputs.signed_ok) }}
+      SIGN_SKIP: ${{ (needs.sign-nightly-identity-legacy-blacksmith.result == 'skipped' && needs.sign-nightly-identity-legacy.outputs.skip || needs.sign-nightly-identity-legacy-blacksmith.outputs.skip) }}
+      SIGN_PENDING: ${{ (needs.sign-nightly-identity-legacy-blacksmith.result == 'skipped' && needs.sign-nightly-identity-legacy.outputs.pending || needs.sign-nightly-identity-legacy-blacksmith.outputs.pending) }}
+      SIGN_OK: ${{ (needs.sign-nightly-identity-legacy-blacksmith.result == 'skipped' && needs.sign-nightly-identity-legacy.outputs.signed_ok || needs.sign-nightly-identity-legacy-blacksmith.outputs.signed_ok) }}
       TESTED: ${{ needs.verify-nightly-identity-legacy.outputs.tested_sha256 }}
       ALREADY: ${{ needs.publish-nightly-identity-legacy.outputs.already }}
       PUBLISHED: ${{ needs.publish-nightly-identity-legacy.outputs.published }}

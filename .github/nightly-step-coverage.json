@@ -200,9 +200,11 @@
         "Pack the stapled app": {"plumbing": true}},
       "signer-dmg-image": {"Initialize cmux-next notices submodule": {"plumbing": true}, "Select Xcode": {"plumbing": true},
         "Apple's checks of the stapled app": {"nightly_only": "Apple's tools on a notarized release build; only a release run has one"},
-        "The signed-app checks": {"nightly_only": "the checks build-sign-notarize-nightly runs on its signed app, on the release-pool build"},
+        "Start the signed-app checks": {"nightly_only": "the checks build-sign-notarize-nightly runs on its signed app, on the release-pool build"},
+        "Start the verify-signed checks": {"nightly_only": "verify-signed-nightly's checks of the signed Release app (signer-verify-signed.sh), on the release-pool build that only the nightly signs"},
+        "Finish the signed-app and verify-signed checks": {"nightly_only": "waits for the two background check runs above on the release-pool build and fails on their failure"},
         "Build the unsigned DMG": {"nightly_only": "packages the notarized release-pool app with create-dmg, as notarize-nightly-dmg.sh does"}},
-      "signer-dmg": {"Install the signer": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the release signer scripts"}, "Sign, notarize and staple the DMG": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the release signer scripts"}, "Write the appcast": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the release signer scripts"}, "Start packaging the stapled app for the verify job": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the release signer scripts"}, "Finish packaging the stapled app for the verify job": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the release signer scripts"}},
+      "signer-dmg": {"Install the signer": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the release signer scripts"}, "Sign, notarize and staple the DMG": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the release signer scripts"}, "Write the appcast": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the release signer scripts"}},
       "find-nightly-next-recovery": {
         "Wait through GitHub API rate limits in this job's gh calls": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly publish-path gh calls wait through a rate limit"},
 

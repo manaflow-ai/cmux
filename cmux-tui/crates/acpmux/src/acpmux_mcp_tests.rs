@@ -59,7 +59,22 @@ fn the_tools_say_they_message_other_sessions_instead_of_the_shell() {
     let tools = tools();
     let names: Vec<&str> =
         tools.as_array().unwrap().iter().filter_map(|t| t["name"].as_str()).collect();
-    assert_eq!(names, ["send", "ls", "last", "info", "team_send", "team_inbox", "team_ack"]);
+    assert_eq!(
+        names,
+        [
+            "send",
+            "ls",
+            "last",
+            "info",
+            "team_send",
+            "team_inbox",
+            "team_ack",
+            "bg_start",
+            "bg_list",
+            "bg_output",
+            "bg_stop"
+        ]
+    );
     let send = tools[0]["description"].as_str().unwrap();
     assert!(send.contains("Message another agent session"), "{send}");
     assert!(send.contains("instead of running `acpmux send` in a shell"), "{send}");
@@ -113,6 +128,26 @@ async fn send_goes_through_the_outbox_and_names_its_delivery() {
     assert_eq!(status["promptId"], r["structuredContent"]["promptId"], "{status} {r}");
 }
 
+/// `class` (`prompt_class.rs`) goes with the message; a class that is not one of the four is
+/// this call's error, sent nowhere.
+#[tokio::test]
+async fn send_carries_its_class_and_refuses_any_other() {
+    let (_hub, client, _dir) = daemon().await;
+    session(&client, "lane-d").await;
+    let bad = json!({"to": "lane-d", "text": "x", "class": "urgent"});
+    let r = call(&client, &tool("send", bad)).await;
+    assert_eq!(r["isError"], true, "{r}");
+    assert!(text(&r).contains("class must be one of"), "{r}");
+    let block = json!({"to": "lane-d", "text": "stuck on review", "class": "block"});
+    let r = call(&client, &tool("send", block)).await;
+    assert_eq!(r["isError"], false, "{r}");
+    assert_eq!(send_class(&json!({"class": "fyi"})), Ok(Some("fyi".to_owned())));
+    assert_eq!(send_class(&json!({})), Ok(None));
+    assert!(send_class(&json!({"class": 2})).is_err());
+    let schema = &tools()[0]["inputSchema"]["properties"]["class"]["enum"];
+    assert_eq!(schema, &json!(["block", "question", "result", "fyi"]));
+}
+
 #[tokio::test]
 async fn ls_last_and_info_read_the_sessions() {
     let (_hub, client, _dir) = daemon().await;
@@ -154,6 +189,17 @@ async fn an_unknown_session_or_a_missing_argument_is_an_error_the_agent_reads() 
     assert_eq!(text(&r), "to and text are required", "{r}");
     let r = call(&client, &tool("nope", json!({}))).await;
     assert_eq!(text(&r), "unknown tool: nope", "{r}");
+}
+
+/// Arguments that are not an object are an error the agent reads, never a panic.
+#[tokio::test]
+async fn bg_tools_refuse_arguments_that_are_not_an_object() {
+    let (_hub, client, _dir) = daemon().await;
+    for name in bg::TOOLS {
+        let r = bg::call(&client, "any", name, &json!([])).await;
+        assert_eq!(r["isError"], true, "{name}: {r}");
+        assert_eq!(text(&r), "arguments must be an object", "{name}: {r}");
+    }
 }
 
 /// Exercise the actual MCP-to-daemon socket path without substituting an MCP
