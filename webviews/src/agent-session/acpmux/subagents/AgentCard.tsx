@@ -6,6 +6,7 @@ import type { ReactNode } from "react";
 import { useAgentAvatar } from "../agentAvatar";
 import { Spinner } from "../conversation/icons";
 import { useT } from "../i18n";
+import { Icon } from "../icons/Icon";
 import { SUBSESSION_STATE_LABEL, type SubsessionState } from "./subsessions";
 import { DisclosureRow, type DisclosureRowProps } from "./DisclosureRow";
 import { AgentIdentity } from "./AgentIdentity";
@@ -83,7 +84,12 @@ export function AgentCard({
           avatar ? (
             <img className="cv-agent-avatar" src={avatar} alt="" width={16} height={16} />
           ) : (
-            <AgentIdentity harness={harness} tone={tone} size={14} />
+            <AgentIdentity
+              harness={harness}
+              tone={tone}
+              size={14}
+              fallbackNode={<Icon name="agent.session" size={16} />}
+            />
           )
         }
         label={disclosureLabel ?? name}
@@ -112,7 +118,12 @@ export function AgentCard({
         {avatar ? (
           <img className="cv-agent-avatar" src={avatar} alt="" width={16} height={16} />
         ) : (
-            <AgentIdentity harness={harness} tone={tone} size={14} />
+          <AgentIdentity
+            harness={harness}
+            tone={tone}
+            size={14}
+            fallbackNode={<Icon name="agent.session" size={16} />}
+          />
         )}
       </span>
       <span className="cv-agent-card__name">{name}</span>

@@ -1,5 +1,5 @@
 import type { CSSProperties, ReactNode } from "react";
-import { AgentMark, knownMark } from "../../shared/AgentMark";
+import { AgentMark } from "../../shared/AgentMark";
 import { Icon } from "../icons/Icon";
 
 /// The type label is already established by a list heading or a harness mark. Keep it out of
@@ -27,15 +27,20 @@ export function AgentIdentity({
   className?: string;
   style?: CSSProperties;
 }) {
-  const mark = harness ? knownMark(harness, harness.split(/[-_/]/)[0]) : undefined;
+  // Keep the full id subscribed: a profile icon may arrive after this row mounts.
+  const family = harness?.split(/[-_/]/)[0];
+  const glyph = (
+    <span data-agent-tone={tone} style={{ color: "var(--agent-tone-ink, var(--agent-muted))" }}>
+      {fallbackNode ?? <Icon name={fallback} size={size} row />}
+    </span>
+  );
   return (
-    <span
-      className={className}
-      data-agent-tone={tone}
-      style={{ color: "var(--agent-tone-ink, var(--agent-muted))", ...style }}
-      aria-hidden="true"
-    >
-      <AgentMark agent={mark} size={size} fallback={fallbackNode ?? <Icon name={fallback} size={size} row />} />
+    <span className={className} style={style} aria-hidden="true">
+      <AgentMark
+        agent={harness}
+        size={size}
+        fallback={family && family !== harness ? <AgentMark agent={family} size={size} fallback={glyph} /> : glyph}
+      />
     </span>
   );
 }
