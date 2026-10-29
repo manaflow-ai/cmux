@@ -1,6 +1,6 @@
 use super::*;
 use crate::resource_api::{public_terminal_snapshot, terminal_tab_ids_in_canonical_order};
-use cmux_threads::work::{Lane, Priority, Shutdown};
+use cmux_threads::work::{Lane, Priority};
 
 impl Mux {
     /// Commit terminal cwd under the same registry -> state fence as topology.
@@ -149,16 +149,21 @@ impl Mux {
         );
     }
 
-    /// Publishes local terminal `surface`'s exit, if it is ready, on the
-    /// Files lane: its reader may not commit to the registry itself
-    /// (`exit_state::post_local_exit_if_ready`).
-    pub(crate) fn post_local_terminal_exit(&self, surface: Arc<Surface>) {
-        let _ = self.post_mux_work(
-            Priority::UserVisible,
-            Lane::Files,
-            Shutdown::SkipOnShutdown,
-            move |_| surface.publish_local_exit_if_ready(),
-        );
+    /// Queues the end of a local terminal's reader (`surface::local_reader`)
+    /// on the Files lane, in the terminal's publication `sequence`: after
+    /// every publication its output queued, and on a thread that may block
+    /// (the exit is a registry commit, `Mux::surface_exited`). A refused or
+    /// dropped item drops `end`, which releases what the reader held and
+    /// publishes nothing (shutdown, the owner gone).
+    pub(crate) fn post_terminal_end(
+        &self,
+        sequence: &Arc<mux_work::Sequence>,
+        end: impl FnOnce() + Send + 'static,
+    ) {
+        let _ =
+            self.post_mux_work_sequenced(sequence, Priority::UserVisible, Lane::Files, move |_| {
+                end()
+            });
     }
 
     /// Close the startup race where the first prompt preceded runtime registration.

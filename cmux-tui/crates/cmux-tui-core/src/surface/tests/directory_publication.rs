@@ -151,3 +151,43 @@ fn publication_sequence_a_directory_report_with_the_terminal_pool_full_is_publis
     mux.close_surface(surface.id).unwrap();
     mux.shutdown();
 }
+
+/// A local terminal's end (its final frame and its exit, a registry
+/// commit) runs on its publication sequence at every load, after the
+/// publications its output queued. It ran on the terminal work pool, and
+/// inline on the read worker when that pool was full: a second path.
+#[cfg(unix)]
+#[test]
+fn publication_sequence_an_exit_with_the_terminal_pool_full_is_published_in_panic_mode() {
+    cmux_threads::blocking::set_mode(cmux_threads::BlockingMode::Panic);
+    let options = SurfaceOptions {
+        command: Some(vec![
+            "/bin/sh".into(),
+            "-c".into(),
+            "sleep 0.5; printf '\\033]7;file://localhost/usr\\007'; exit 0".into(),
+        ]),
+        ..SurfaceOptions::default()
+    };
+    let mux = Mux::new(format!("exit-pool-full-{}", std::process::id()), options);
+    let events = mux.subscribe();
+    let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+    let full = mux.fill_terminal_work_for_test();
+    let deadline = Instant::now() + WAIT;
+    let exited = loop {
+        if events
+            .try_iter()
+            .any(|event| matches!(event, MuxEvent::SurfaceExited(id, _) if id == surface.id))
+        {
+            break true;
+        }
+        if Instant::now() >= deadline {
+            break false;
+        }
+        cmux_threads::checked::sync::sleep(Duration::from_millis(10));
+    };
+    drop(full);
+    assert!(exited, "the terminal's exit is published with the terminal pool full");
+    assert_eq!(surface.published_directory().as_deref(), Some("/usr"), "its last cwd first");
+    assert!(mux.terminal_registry_revision().is_ok(), "nothing poisoned the registry");
+    mux.shutdown();
+}

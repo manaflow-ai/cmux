@@ -134,26 +134,6 @@ pub(super) fn mark_hosted_runtime_exited(
     }
 }
 
-/// [`publish_local_exit_if_ready`] for the terminal's reader, an echo
-/// thread with blocking disallowed: the publication is a registry commit
-/// (`Mux::surface_exited`), so it runs as a Files-lane work item, as the
-/// reader's cwd and progress publications do. A refused item (the mux is
-/// shutting down) publishes nothing; the reaper publishes the exit if it
-/// ends after the reader.
-pub(super) fn post_local_exit_if_ready(surface: &Arc<Surface>) {
-    let Some(pty) = surface.as_pty() else { return };
-    let Some(mux) = pty.mux.upgrade() else { return };
-    mux.post_local_terminal_exit(surface.clone());
-}
-
-impl Surface {
-    /// [`publish_local_exit_if_ready`] from a work item
-    /// ([`post_local_exit_if_ready`]).
-    pub(crate) fn publish_local_exit_if_ready(self: &Arc<Self>) {
-        publish_local_exit_if_ready(self);
-    }
-}
-
 pub(super) fn publish_local_exit_if_ready(surface: &Arc<Surface>) {
     let Some(pty) = surface.as_pty() else { return };
     if !pty.local_pty_drained.load(Ordering::Acquire) || pty.exit.lock().recover_poison().is_none()

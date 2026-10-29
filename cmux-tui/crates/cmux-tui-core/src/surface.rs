@@ -78,9 +78,7 @@ use pending_bells::PendingBells;
 mod reconnect_backoff;
 #[cfg(any(unix, windows))]
 use exit_state::mark_hosted_runtime_exited;
-use exit_state::{
-    close_local_terminal_master_after_exit, post_local_exit_if_ready, publish_local_exit_if_ready,
-};
+use exit_state::{close_local_terminal_master_after_exit, publish_local_exit_if_ready};
 #[cfg(all(unix, test))]
 use reconnect_backoff::TERMINAL_HOST_RECONNECT_MAX_FAILURES;
 #[cfg(any(unix, windows))]

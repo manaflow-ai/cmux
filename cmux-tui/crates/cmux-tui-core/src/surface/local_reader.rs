@@ -161,9 +161,28 @@ impl LocalReader {
         self.end();
     }
 
-    /// The stream ended: release the parser's descriptor, publish the final
-    /// frame and, once the far side ended too, the exit.
+    /// The stream ended. The end runs on the terminal's publication
+    /// sequence (Files lane, may block), after every publication its output
+    /// queued, from both readers and at every load: it releases the
+    /// parser's descriptor, publishes the final frame and, once the far side
+    /// ended too, the exit (a registry commit, which a reader may not make).
+    /// No inline path. An end that never runs there (shutdown dropped it, or
+    /// the owner is gone) still releases the descriptor and the final frame
+    /// as it drops ([`ReaderEnd`]); nothing is left to publish then.
     fn end(self) {
+        let target = self
+            .surface
+            .as_pty()
+            .and_then(|pty| Some((pty.mux.upgrade()?, pty.publications.clone())));
+        let end = ReaderEnd(Some(self));
+        if let Some((owner, publications)) = target {
+            owner.post_terminal_end(&publications, move || end.run());
+        }
+    }
+
+    /// Releases the parser's descriptor and publishes the final frame:
+    /// memory only, and the PTY is drained.
+    fn release(&self) {
         #[cfg(unix)]
         {
             let mut output = self.output.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -175,7 +194,33 @@ impl LocalReader {
             pty.publish_final_frame();
             pty.local_pty_drained.store(true, Ordering::Release);
         }
-        post_local_exit_if_ready(&self.surface);
+    }
+}
+
+/// A local reader's end, owned from its post to its run. It runs on the
+/// terminal's publication sequence; dropped unrun, it still releases what
+/// the reader held. The reader (and its completion) drops with it, after
+/// the exit is published.
+struct ReaderEnd(Option<LocalReader>);
+
+impl ReaderEnd {
+    fn run(mut self) {
+        let Some(reader) = self.0.take() else { return };
+        // R3 (Debug): the exit commit never runs where blocking is disallowed.
+        debug_assert!(
+            !cmux_threads::blocking::is_blocking_disallowed(),
+            "a terminal's end ran on a thread that disallows blocking"
+        );
+        reader.release();
+        publish_local_exit_if_ready(&reader.surface);
+    }
+}
+
+impl Drop for ReaderEnd {
+    fn drop(&mut self) {
+        if let Some(reader) = self.0.take() {
+            reader.release();
+        }
     }
 }
 
@@ -193,14 +238,8 @@ impl ReadSource for LocalReader {
         ReadFlow::Continue
     }
 
-    /// The end publishes the exit through the registry (sqlite), so it
-    /// runs on the owner's terminal work pool, not on the read worker; with
-    /// no owner or a full pool, here (the loop runs it in `will_block`).
+    /// The end runs on the terminal's publication sequence ([`LocalReader::end`]).
     fn finish(self: Box<Self>) {
-        let owner = self.surface.as_pty().and_then(|pty| pty.mux.upgrade());
-        let Some(owner) = owner else { return self.end() };
-        if let Err(end) = owner.submit_terminal_work(Box::new(move || self.end())) {
-            end();
-        }
+        (*self).end();
     }
 }
