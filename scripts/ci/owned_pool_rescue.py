@@ -467,6 +467,13 @@ TRUSTED_SIDE_EVENTS = frozenset({"push", "schedule", "workflow_dispatch"})
 # their re-runs. owned_pool_sources.py must find no owned workflow outside these and
 # WATCHED_WORKFLOW_PATHS (tests/test_ci_owned_pool_sources.py).
 UNRESCUED_WORKFLOW_PATHS = {
+    ".github/workflows/release.yml":
+        "the release signing job takes a drained owned Mac only on attempt 1 while vars.CI_SIGN_OWNED is 1 "
+        "(pick-sign-runner, scripts/ci/signing_runner.py); glaeda refuses it within 300 s if the mini does not "
+        "drain, and a person's re-run takes the Blacksmith alternate: a release step, so a person re-runs it",
+    ".github/workflows/repair-v0-64-25-helper-rpaths.yml":
+        "a manual repair that signs a release; like release.yml it takes a drained owned Mac only on attempt 1 "
+        "while vars.CI_SIGN_OWNED is 1, and a person's re-run takes the Blacksmith alternate",
     ".github/workflows/app-ffi-release.yml":
         "feat-cmux-next only; builds and publishes the FFI xcframework every app build links on the trusted "
         "promote mini: a release step, so a person re-runs it",
