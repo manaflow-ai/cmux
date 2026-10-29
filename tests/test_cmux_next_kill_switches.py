@@ -149,6 +149,9 @@ class KillSwitchLintTest(unittest.TestCase):
     def test_a_flags_document_of_the_wrong_shape_is_an_error_not_a_crash(self):
         for flags in ([], "pr-1", {"version": 1, "default": "pr-1"}, {"version": 1, "cohorts": []},
                       {"version": 1, "default": {"DisabledFeatures": "pr-1"}},
+                      {"version": 1, "default": {"DisabledFeatures": False}},
+                      {"version": 1, "default": {"DisabledFeatures": 0}},
+                      {"version": 1, "default": {"DisabledFeatures": ""}},
                       {"version": 1, "cohorts": {"dev": {"DisabledFeatures": {"pr-1": True}}}}):
             with self.subTest(flags=flags):
                 done = self.run_lint({"pr-23456": entry()}, self.call(), flags)
