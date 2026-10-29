@@ -92,6 +92,8 @@ extension SettingsSchema {
         "layout.scrollAreas",
         "layout.scrollModifier",
         "layout.pagesHandleCommandScroll",
+        // The cmux model router's default model is the same choice exposed by its Settings and MCP pickers.
+        "agents.modelRouter.model",
         "layout.minimumPaneWidth",
         "layout.minimumPaneHeight",
         "appearance.theme",

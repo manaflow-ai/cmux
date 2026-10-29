@@ -2806,6 +2806,19 @@ export class AcpmuxDirectClient {
     return this.request(MCP_RECONNECT_METHOD, { sessionId, server }, 35_000);
   }
 
+  /// Reads only this pane's selected chat; the native relay enforces the same scope.
+  readWorkflowAgent(params: {
+    sessionId: string;
+    runId: string;
+    agentId: string;
+    before?: number;
+    after?: number;
+  }): Promise<unknown> {
+    // l10n-allow: internal selection race; the transcript surface renders its own localized state.
+    if (params.sessionId !== this.selectedSessionId) return Promise.reject(new Error("Session changed"));
+    return this.request("_acpmux/subagent_transcript", params, 15_000);
+  }
+
   /// Asks the local daemon to retry the configured peer and wait for its doctor result.
   /// The daemon returns the refreshed peer list; a settled state other than `connected` is a
   /// doctor refusal, which the offline banner renders as its failure detail.
@@ -3011,7 +3024,14 @@ export class AcpmuxDirectClient {
             );
           }, deadline)
         : undefined;
-      this.pending.set(id, { resolve, reject, timer });
+      this.pending.set(id, {
+        resolve,
+        reject: (error: unknown) => {
+          warnIfNotAllowlisted(method, error);
+          reject(error);
+        },
+        timer,
+      });
       const text = JSON.stringify({ jsonrpc: "2.0", id, method, params });
       this.wire.sent(text, method, id);
       this.socket!.send(text);
@@ -5915,7 +5935,15 @@ export class AcpmuxDirectClient {
   /// returns unknown when no current credential evidence exists. Never use cached harness health.
   async sessionAuth(query: SessionAuthQuery, refresh = false): Promise<unknown> {
     if (!this.features.has("sessionAuth")) return UNKNOWN_AUTH;
-    return this.request("_acpmux/session/auth", { ...query, ...(refresh ? { refresh: true } : {}) });
+    try {
+      return await this.request("_acpmux/session/auth", { ...query, ...(refresh ? { refresh: true } : {}) });
+    } catch (error) {
+      // The pane's host refusing to relay the check (its allowlist, AcpmuxPaneMethods) means no
+      // answer, the same as a daemon without `sessionAuth`: unknown, never a sign-in prompt.
+      // `warnIfNotAllowlisted` already said so in the console.
+      if (error instanceof AcpmuxRpcError && refusedByHost(error)) return UNKNOWN_AUTH;
+      throw error;
+    }
   }
   /// The routes acpmux has (`_acpmux/route/list`) with `sessionId`'s active one: the composer's
   /// Account menu. Each route says whether it `serves` the session's harness family.
@@ -7333,6 +7361,18 @@ function pageShown(): boolean {
 
 /// JSON-RPC's method-not-found code: a daemon that predates the method.
 const METHOD_NOT_FOUND = -32601;
+
+/// Methods the pane's host refused because they are not on its allowlist, said once each.
+const notAllowlisted = new Set<string>();
+/// A page request the host refuses as `transport.method_refused` is missing from its allowlist
+/// (AcpmuxPaneMethods.swift and cmux-agent-pane-policy policy.json): a bug, not a user error. Say
+/// so once per method in the console, so a missing entry never fails silently.
+function warnIfNotAllowlisted(method: string, error: unknown): void {
+  if (!(error instanceof AcpmuxRpcError) || !refusedByHost(error) || error.code !== "transport.method_refused") return;
+  if (notAllowlisted.has(method)) return;
+  notAllowlisted.add(method);
+  console.warn(`cmux: the host refused ${method}: it is not on the agent pane's relay allowlist`);
+}
 
 /// Whether the pane's host refused to relay a request (`data.origin: "native"`): acpmux never saw it.
 function refusedByHost(error: AcpmuxRpcError): boolean {
