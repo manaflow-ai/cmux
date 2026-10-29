@@ -133,7 +133,7 @@ const decodeRepoCursor = (value: string): RepoCursor | TokenFail => {
   try {
     const padded = value.replaceAll("-", "+").replaceAll("_", "/") + "===".slice((value.length + 3) % 4)
     const parsed = JSON.parse(atob(padded)) as { installation?: unknown; page?: unknown }
-    if (!Number.isSafeInteger(parsed.installation) || parsed.installation < 0 || !Number.isSafeInteger(parsed.page) || parsed.page < 1)
+    if (typeof parsed.installation !== "number" || !Number.isSafeInteger(parsed.installation) || parsed.installation < 0 || typeof parsed.page !== "number" || !Number.isSafeInteger(parsed.page) || parsed.page < 1)
       return fail(400, "request.invalid", "cursor is invalid")
     return { installation: parsed.installation, page: parsed.page }
   } catch {
@@ -211,7 +211,7 @@ const mintOrReuse = async (h: LedgerHost, picked: { c: Connection; installation:
   if (live) {
     const token = await openRow(h.env, live).catch(() => null)
     const again = authorize(h.state(), p, ask)
-    if (token && stillLive(h.sql, live.token_id) && (h.revokes.get(pk) ?? 0) === generation && !("ok" in again) && again.c.id === picked.c.id) {
+    if (token && Number(live.expires_at) > Date.now() + REUSE_MARGIN_MS && stillLive(h.sql, live.token_id) && (h.revokes.get(pk) ?? 0) === generation && !("ok" in again) && again.c.id === picked.c.id) {
       return { ok: true, value: { token, expires_at: new Date(Number(live.expires_at)).toISOString(), repo: ask.repo, permissions: JSON.parse(live.permissions) as Record<string, string>, token_id: live.token_id } }
     }
     if ("ok" in again) return again
@@ -275,6 +275,9 @@ const mintOrReuse = async (h: LedgerHost, picked: { c: Connection; installation:
   }
   // A revoke that ran during the awaits above marked the row, or ran before it existed: never hand it out.
   if (!stillLive(h.sql, tokenId) || (h.revokes.get(pk) ?? 0) !== generation) return refuse(fail(401, "auth.required", "this caller's GitHub tokens were revoked"))
+  // Provider calls, sealing and install registration can outlast a short requested TTL.
+  // Keep the durable revocation path even when GitHub's native token is still live.
+  if (row.expires_at <= Date.now()) return refuse(fail(503, "integration.unavailable", "the GitHub token expired before it could be returned; retry"))
   const kind = p.kind === "install" ? (p.install_kind ?? "cli") : "session"
   h.audit({
     at: now, team: h.team, principal_kind: kind, user: p.user!,
@@ -336,6 +339,6 @@ export const githubStatus = (env: Env, state: ConnectionsState, p: Principal) =>
   return {
     configured: Boolean(env.INTEGRATIONS_KEK) && github.configured(env),
     app_slug: env.GITHUB_APP_SLUG ?? null,
-    connection: c ? { id: c.id, account: c.account?.name ?? null, status: c.status, repos: c.resources?.repos ?? null, allow_workflows: policyOf(state).github.allow_workflows === true } : null
+    connection: c ? { id: c.id, account: c.account?.name ?? null, status: c.status === "expired" ? "needs_reauth" : c.status, repos: c.resources?.repos ?? null, allow_workflows: policyOf(state).github.allow_workflows === true } : null
   }
 }
