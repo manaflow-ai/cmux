@@ -508,7 +508,9 @@ export function NewTabScreen(props: Props) {
     ? environment.kind === "ssh" && environment.host && snapshot.peers?.includes(environment.host)
       ? environment.host
       : undefined
-    : peerRemoved ? undefined : projectPeer;
+    : peerRemoved
+      ? undefined
+      : projectPeer;
   const remoteTarget = environment ? environment.kind === "ssh" : Boolean(projectPeer && !peerRemoved);
   const authQuery =
     harness && (!remoteTarget || targetHost)

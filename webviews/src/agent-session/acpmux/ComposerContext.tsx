@@ -90,7 +90,6 @@ export function ComposerContext({
   environments = false,
   started = false,
   onProject,
-  onComputer,
   projectChoices,
   onBrowseProject,
   onNewWorktree,
@@ -125,8 +124,6 @@ export function ComposerContext({
   environments?: boolean;
   started?: boolean;
   onProject?(cwd: string, peer?: string): void;
-  /// A controlled new-page machine pick, including machines with no known folder.
-  onComputer?(id: string): void;
   projectChoices?: Project[];
   onBrowseProject?(): void;
   /// New Worktree (cx-lyqio.2): a new chat on this Mac starts in a worktree of its folder.
@@ -160,8 +157,7 @@ export function ComposerContext({
   /// A quiet line in the folder menu: where a new chat starts while it has no folder (its
   /// workspace's private folder).
   folderNote?: string;
-  /// A new chat's machine was picked (`local` for this Mac) where no folder of it is known; with a
-  /// known folder the pick is `onProject(folder, peer)`.
+  /// A controlled new-page machine pick (`local` for this Mac), including machines with no folder.
   onComputer?(computer: string): void;
   /// The account's Cloud machines (cloudMachines.ts); by default the app's list, read again as the
   /// machine list opens. Only a new chat lists them.
@@ -292,7 +288,6 @@ export function ComposerContext({
       if (onComputer) return onComputer(id);
       const folder = availableFolders(summary, sessions, id)[0]?.id;
       if (folder) onProject?.(folder, id === "local" ? undefined : id);
-      else onComputer?.(id);
     }
   };
   // A started chat's picker lists only where it runs and its move (EnvironmentPicker `offload`).
