@@ -478,7 +478,7 @@ function observedStatusMetadata(metadata: Record<string, unknown>, input: Observ
   const base = settles ? omit(withoutObservation(metadata), "cmuxIdlePauseClaim") : withoutObservation(metadata);
   if (input.status !== "paused") return omit(omit(base, "cmuxPauseReason"), "cmuxPauseIntentEpoch");
   // A pause that says why is someone's decision, stamped with the fence it set; the status reconciler's write says nothing.
-  return input.pauseReason ? { ...base, cmuxPauseReason: input.pauseReason, cmuxPauseIntentEpoch: nextEpoch } : base;
+  return input.pauseReason ? { ...omit(base, "cmuxPendingPause"), cmuxPauseReason: input.pauseReason, cmuxPauseIntentEpoch: nextEpoch } : base;
 }
 
 /**
@@ -633,6 +633,15 @@ function cronFakes(
       recorded.events.push(input.metadata ?? {});
       return Effect.void;
     },
+    recordPauseIntent: (input: { id: string; providerVmId: string; cause: string }) => Effect.sync(() => {
+      const row = rows.find((r) => r.id === input.id);
+      if (!row || row.providerVmId !== input.providerVmId || row.status === "destroyed") return false;
+      update(input.id, (current) => ({
+        ...current,
+        providerMetadata: bumped(current, { ...(current.providerMetadata ?? {}), cmuxPendingPause: { cause: input.cause, epoch: epochOf(current) + 1 } }),
+      }));
+      return true;
+    }),
     mergeProviderMetadata: (input: { id: string; patch: Record<string, unknown> }) => Effect.sync(() => {
       update(input.id, (row) => ({ ...row, providerMetadata: { ...(row.providerMetadata ?? {}), ...input.patch } }));
     }),
@@ -1796,6 +1805,17 @@ describe("idle pause SQL", () => {
     expect((await meta()).cmuxIdlePauseClaim).toBeUndefined();
     expect(await run(repo.markProviderObservedStatus({ id: keptId, providerVmId: vmId, status: "paused" }))).toBe(true);
     expect((await run(repo.idlePauseCandidates!({ limit: 10_000 }))).map((c) => c.id)).not.toContain(keptId);
+
+    // A deliberate pause's intent moves the fence before its provider effects; its own paused write still
+    // lands (it is not fenced) and replaces the intent with its stamp.
+    expect(await meta()).toMatchObject({ cmuxIdleEpoch: 5 });
+    expect(await run(repo.recordPauseIntent!({ id: keptId, providerVmId: vmId, cause: "user" }))).toBe(true);
+    expect(await meta()).toMatchObject({ cmuxIdleEpoch: 6, cmuxPendingPause: { cause: "user", epoch: 6 } });
+    expect(await run(repo.claimIdleResume!({ id: keptId, providerVmId: vmId, epoch: 5 }))).toBeNull();
+    expect(await run(repo.markProviderObservedStatus({ id: keptId, providerVmId: vmId, status: "paused", pauseReason: "user" }))).toBe(true);
+    const settled = await meta();
+    expect(settled).toMatchObject({ cmuxIdleEpoch: 7, cmuxPauseReason: "user", cmuxPauseIntentEpoch: 7 });
+    expect(settled.cmuxPendingPause).toBeUndefined();
   });
 });
 

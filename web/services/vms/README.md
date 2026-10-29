@@ -675,6 +675,12 @@ a machine whose agent is mid-turn and quiet). The server pauses idle machines in
   best effort: a failed write is logged and the recovery still finishes, and the compensating
   resume takes no plan gate. A person's Pause on a row already marked paused still records
   their decision.
+- A deliberate pause fences its intent before any provider effect. A person's Pause Machine
+  and the allowance enforcer first write the pause as under way (`cmuxPendingPause`, with a
+  fence bump), then set a Plus machine's cap to zero and pause the provider. An idle recovery
+  that read the row earlier loses its fence and leaves the cap alone; one that already held a
+  fence loses its later write and puts the pause back. The pause's own paused write is not
+  fenced, so it still lands, and replaces the intent with its stamp.
 - The allowance enforcer's pause (`goPause.ts`, Plus and the Pro and Max budgets) stores the
   cause `allowance`. It settles the claim and stamps the fence like a person's pause, so no
   idle recovery resumes a machine past its allowance, whether the allowance runs out during the

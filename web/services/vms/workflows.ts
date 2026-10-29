@@ -172,6 +172,7 @@ import {
   vmPauseIntentEpochFromRow,
   vmPauseCauseFromRow,
   vmPauseReasonFromRow,
+  vmPendingPauseEpochFromRow,
   type VmIdlePauseMinutes,
   type VmPauseReason,
 } from "./idlePause";
@@ -2488,6 +2489,7 @@ function pauseRow(vm: CloudVmRow, requestedProviderVmId: string, reason: VmPause
       return yield* Effect.fail(new VmNotFoundError({ vmId: input.providerVmId }));
     }
     if (observed !== "paused" && observed !== "stopped") {
+      yield* recordUserPauseIntent(repo, vm, providerVmId, reason);
       const pauseOperation = Effect.gen(function* () {
         if (vm.billingPlanId === "go") yield* setRuntimeBudget(providers, vm, providerVmId, 0);
         yield* pause(vm.provider, providerVmId);
@@ -2533,6 +2535,16 @@ function pauseRow(vm: CloudVmRow, requestedProviderVmId: string, reason: VmPause
  * still their decision: record it (reason user, stamped with its fence), so an
  * idle pause the cron is undoing yields to it. The cron never pauses a paused row.
  */
+/**
+ * A person's pause fences its intent before any provider effect, so no idle
+ * recovery clears its zero cap or resumes the machine while the provider
+ * pause is in flight. The cron's own idle pause is fenced by its claim.
+ */
+function recordUserPauseIntent(repo: VmRepositoryShape, vm: CloudVmRow, providerVmId: string, reason: VmPauseReason) {
+  if (reason !== "user" || !repo.recordPauseIntent) return Effect.void;
+  return repo.recordPauseIntent({ id: vm.id, providerVmId, cause: "user" }).pipe(Effect.asVoid);
+}
+
 function recordPausedDecision(repo: VmRepositoryShape, vm: CloudVmRow, providerVmId: string, reason: VmPauseReason) {
   if (reason !== "user") return Effect.void;
   return repo.markProviderObservedStatus({ id: vm.id, providerVmId, status: "paused", pauseReason: "user" }).pipe(Effect.asVoid);
@@ -4281,6 +4293,8 @@ export function restoreIdlePauseBudget(vm: CloudVmRow, providerVmId: string): Ef
  * never undoes either.
  */
 export function isDeliberatePauseSince(row: CloudVmRow, epoch: number): boolean {
+  // Under way (its intent written, its provider effects maybe still in flight) counts too.
+  if ((vmPendingPauseEpochFromRow(row) ?? -1) > epoch) return true;
   const cause = vmPauseCauseFromRow(row);
   return (cause === "user" || cause === "allowance") && (vmPauseIntentEpochFromRow(row) ?? -1) > epoch;
 }

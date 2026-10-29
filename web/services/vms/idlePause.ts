@@ -84,6 +84,15 @@ export const VM_IDLE_PAUSE_CLAIM_KEY = "cmuxIdlePauseClaim";
  */
 export const VM_PAUSE_INTENT_EPOCH_KEY = "cmuxPauseIntentEpoch";
 
+/**
+ * A deliberate pause under way: a person's Pause Machine or the allowance
+ * enforcer writes `{ cause, epoch }` with a fence bump before any provider
+ * effect (a zero runtime cap, the provider pause), so an idle recovery that
+ * read the row earlier loses its fence, and one that already holds a fence
+ * sees the pause as newer than it. Kept until the pause's own paused write.
+ */
+export const VM_PENDING_PAUSE_KEY = "cmuxPendingPause";
+
 /** API activity is written at most this often per machine. */
 export const VM_API_ACTIVITY_MIN_INTERVAL_MS = 60_000;
 
@@ -141,6 +150,14 @@ export function vmPauseIntentEpochFromRow(row: MetadataRow): number | null {
 export function vmIdlePauseMinutesFromRow(row: MetadataRow): VmIdlePauseMinutes {
   const stored = row.providerMetadata?.[VM_IDLE_PAUSE_MINUTES_KEY];
   return isVmIdlePauseMinutes(stored) ? stored : VM_IDLE_PAUSE_DEFAULT_MINUTES;
+}
+
+/** The fence a deliberate pause under way set (VM_PENDING_PAUSE_KEY), or null. */
+export function vmPendingPauseEpochFromRow(row: MetadataRow): number | null {
+  const stored = row.providerMetadata?.[VM_PENDING_PAUSE_KEY];
+  if (!stored || typeof stored !== "object") return null;
+  const epoch = (stored as { epoch?: unknown }).epoch;
+  return typeof epoch === "number" && Number.isSafeInteger(epoch) && epoch >= 0 ? epoch : null;
 }
 
 /** The stored cause of a paused machine's pause, including the allowance enforcer's; null otherwise. */

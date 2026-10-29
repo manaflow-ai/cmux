@@ -50,6 +50,8 @@ function pauseForAllowance(
     yield* mergeMetadata({ id: vm.id, patch: {
       [GO_PAUSE_INTENT_KEY]: { requestedAt: new Date().toISOString(), reason: options.reason },
     } });
+    // Fence the pause before any provider effect, so no idle recovery undoes it while it is in flight.
+    if (repo.recordPauseIntent) yield* repo.recordPauseIntent({ id: vm.id, providerVmId, cause: "allowance" });
     if (options.capRuntime && setRuntimeBudget) yield* setRuntimeBudget(vm.provider, providerVmId, 0);
     // The database may already say paused. An idempotent provider pause also
     // stops machines resumed outside the control plane.

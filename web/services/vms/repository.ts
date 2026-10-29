@@ -52,6 +52,7 @@ import {
   VM_LAST_API_ACTIVITY_KEY,
   VM_PAUSE_INTENT_EPOCH_KEY,
   VM_PAUSE_REASON_KEY,
+  VM_PENDING_PAUSE_KEY,
   type VmIdleObservation,
   type VmIdlePauseMinutes,
   type VmPauseCause,
@@ -446,6 +447,17 @@ export type VmRepositoryShape = Partial<VmHealthRepositoryMethods> & {
     readonly providerVmId: string;
     readonly epoch: number;
   }) => Effect.Effect<number | null, VmDatabaseError>;
+  /**
+   * A deliberate pause about to touch the provider (a person's Pause Machine,
+   * the allowance enforcer): moves the idle fence and stores the pause as
+   * under way at the new fence (VM_PENDING_PAUSE_KEY), so the idle cron's
+   * recoveries never undo it. False when the row is gone or replaced.
+   */
+  readonly recordPauseIntent?: (input: {
+    readonly id: string;
+    readonly providerVmId: string;
+    readonly cause: "user" | "allowance";
+  }) => Effect.Effect<boolean, VmDatabaseError>;
   /** Running Freestyle machines for the idle cron, least recently checked (never checked first). */
   readonly idlePauseCandidates?: (input: { readonly limit: number }) => Effect.Effect<CloudVmRow[], VmDatabaseError>;
   /**
@@ -1413,6 +1425,7 @@ function providerMetadataPatchForPersistence(
       key !== VM_IDLE_EPOCH_KEY &&
       key !== VM_IDLE_PAUSE_CLAIM_KEY &&
       key !== VM_PAUSE_INTENT_EPOCH_KEY &&
+      key !== VM_PENDING_PAUSE_KEY &&
       key !== VM_LAST_API_ACTIVITY_KEY &&
       key !== VM_PAUSE_REASON_KEY,
     ),
@@ -1457,7 +1470,8 @@ function observedStatusMetadata(input: Parameters<VmRepositoryShape["markProvide
   }
   if (input.status !== "paused") return bumpIdleEpoch(cleared);
   if (!input.pauseReason) return bumpIdleEpoch(base);
-  return bumpIdleEpoch(sql`(${base} || jsonb_build_object(
+  // A stated pause is the end of any deliberate pause under way: its stamp takes over.
+  return bumpIdleEpoch(sql`((${base} - ${VM_PENDING_PAUSE_KEY}::text) || jsonb_build_object(
     ${VM_PAUSE_REASON_KEY}::text, ${input.pauseReason}::text,
     ${VM_PAUSE_INTENT_EPOCH_KEY}::text, ${metadataMillis(VM_IDLE_EPOCH_KEY)} + 1
   ))`);
@@ -2137,6 +2151,22 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
         ))
         .returning({ id: cloudVms.id });
       return rows.length > 0 ? input.epoch + 1 : null;
+    }),
+  recordPauseIntent: (input) =>
+    dbEffect("recordPauseIntent", async () => {
+      const rows = await cloudDb()
+        .update(cloudVms)
+        .set({ providerMetadata: bumpIdleEpoch(sql`(coalesce(${cloudVms.providerMetadata}, '{}'::jsonb) || jsonb_build_object(
+          ${VM_PENDING_PAUSE_KEY}::text,
+          jsonb_build_object('cause', ${input.cause}::text, 'epoch', ${metadataMillis(VM_IDLE_EPOCH_KEY)} + 1)
+        ))`) })
+        .where(and(
+          eq(cloudVms.id, input.id),
+          eq(cloudVms.providerVmId, input.providerVmId),
+          ne(cloudVms.status, "destroyed"),
+        ))
+        .returning({ id: cloudVms.id });
+      return rows.length > 0;
     }),
   idlePauseCandidates: (input) =>
     dbEffect("idlePauseCandidates", async () => await cloudDb()
