@@ -472,7 +472,7 @@ impl Hub {
             &session.id,
             0,
             u64::MAX,
-            &|_, kind| !boundaries.iter().any(|wanted| *wanted == kind),
+            &|_, kind| !boundaries.contains(&kind),
             &mut |e: EventRecord| {
                 journal_scheduled = e.kind == "auto_resume_scheduled";
                 false
