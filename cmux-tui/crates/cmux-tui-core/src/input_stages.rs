@@ -259,6 +259,28 @@ mod tests {
         );
     }
 
+    /// The read that echoes a press proves its bytes reached the PTY by
+    /// then. A writer stamps its write after the write returned, so its
+    /// thread can be preempted there while the reader reads the echo: the
+    /// echo then carries the read as the write's bound, never no write, and
+    /// the late stamp never puts the write after the read.
+    #[test]
+    fn input_stages_an_echo_read_before_its_write_stamp_bounds_the_write() {
+        let ring = InputStageRing::default();
+        ring.received(42, 100);
+        ring.echoed(42, 400);
+        assert_eq!(
+            ring.stages(42).map(|stages| stages.written_ns),
+            Some(400),
+            "the echo is sent with a write stamp"
+        );
+        ring.written(42, 450);
+        assert_eq!(
+            ring.stages(42),
+            Some(KeyStages { received_ns: 100, written_ns: 400, read_ns: 400, lost: 0 })
+        );
+    }
+
     #[test]
     fn input_stages_threads_never_read_another_press_stamps() {
         let ring = std::sync::Arc::new(InputStageRing::default());
