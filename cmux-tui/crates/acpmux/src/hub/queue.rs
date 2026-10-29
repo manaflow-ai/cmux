@@ -249,7 +249,7 @@ impl Hub {
         // is queued for one, so the summary that `queued` record brings already says so.
         let (withdraw, _slot_wait): (_, Option<WaitMark>) = match withdraw {
             Some(withdraw) => (withdraw, None),
-            None => {
+            None => 'run: {
                 let guard = if p.no_queue {
                     // A prompt about to start holds the lock with no turn shown yet. Held, a
                     // turn or a prompt waiting in the queue (read under its lock: the count may
@@ -264,7 +264,22 @@ impl Hub {
                         }
                     }
                 } else {
-                    session.turn_lock.lock().await
+                    let guard = session.turn_lock.lock().await;
+                    // `waiting` was read before the lock: a prompt the owner approved (or a
+                    // resumed one) since then waits in the queue ahead of this one and keeps its
+                    // place (`queue_approve.rs`). This one queues behind it.
+                    if queue_waits(session) {
+                        drop(guard);
+                        // Its `queued` reservation is still counted: its place is the count.
+                        let position = session.queued();
+                        let waits =
+                            self.enqueue(session, &p, position, &turn_id).map_err(Answer::Err)?;
+                        accept(
+                            json!({"sessionId": session.id, "promptId": p.prompt_id, "turnId": turn_id, "queued": true, "position": position}),
+                        );
+                        break 'run (waits, None);
+                    }
+                    guard
                 };
                 session.queued.fetch_sub(1, Ordering::SeqCst);
                 // Its close may have begun while it waited for the turn.
