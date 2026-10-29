@@ -287,7 +287,16 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
 final class EventInjector: @unchecked Sendable {
     // @unchecked: used from the data channel's callbacks, one at a time.
     var display = CGRect.zero
-    private let source = CGEventSource(stateID: .hidSystemState)
+    private let source: CGEventSource?
+    private let poster: @Sendable (CGEvent) -> Void
+
+    /// `post` sends each event (tests capture them; the backend posts at the HID tap).
+    init(source: CGEventSource? = CGEventSource(stateID: .hidSystemState),
+         post: @escaping @Sendable (CGEvent) -> Void = { $0.post(tap: .cghidEventTap) }) {
+        self.source = source
+        poster = post
+    }
+
     private var buttons: UInt8 = 0
     private var point = CGPoint.zero
     private var lastClick: (time: TimeInterval, button: UInt8, count: Int64) = (0, 0, 0)
@@ -374,7 +383,8 @@ final class EventInjector: @unchecked Sendable {
     }
 
     private func post(_ event: CGEvent?) {
-        event?.post(tap: .cghidEventTap)
+        guard let event else { return }
+        poster(event)
     }
 
     private static let modifierFlags: [UInt32: CGEventFlags] = [

@@ -26,11 +26,18 @@ public struct ScreenInput: Codable, Sendable {
     public var i: Int?
     /// Modifier keysyms for `chord`.
     public var m: [UInt32]?
+    /// The unit of a `scroll`'s `dx`/`dy`: nil for lines (every host), or
+    /// ``pixelUnit`` for pixels, sent only to a host whose `caps` message
+    /// listed ``ScreenHostMessage/pixelScrollCapability``.
+    public var u: String?
+
+    /// `u` for a scroll in pixels.
+    public static let pixelUnit = "px"
 
     public init(t: String, x: Double? = nil, y: Double? = nil, b: UInt8? = nil, dx: Int? = nil, dy: Int? = nil,
-                k: UInt32? = nil, d: Bool? = nil, s: String? = nil, i: Int? = nil, m: [UInt32]? = nil) {
+                k: UInt32? = nil, d: Bool? = nil, s: String? = nil, i: Int? = nil, m: [UInt32]? = nil, u: String? = nil) {
         self.t = t; self.x = x; self.y = y; self.b = b; self.dx = dx; self.dy = dy
-        self.k = k; self.d = d; self.s = s; self.i = i; self.m = m
+        self.k = k; self.d = d; self.s = s; self.i = i; self.m = m; self.u = u
     }
 }
 
@@ -135,6 +142,17 @@ public struct ScreenHostMessage: Codable, Sendable {
     public var name: String?
     /// The frames per second the stream is set to (the agreed rate, not the measured one).
     public var fps: Int?
+    /// For `caps`: the input this host understands beyond the first
+    /// protocol, as a comma list (``pixelScrollCapability``,
+    /// ``modifiedPointerCapability``). An older host sends no `caps`.
+    public var s: String?
+
+    /// `t` of the message a host sends once its input channel opens.
+    public static let capabilitiesType = "caps"
+    /// The host posts `scroll` with `u: "px"` as pixel (continuous) scrolling.
+    public static let pixelScrollCapability = "scroll-px"
+    /// Pointer events carry the modifier keys held down (a modifier `key` down, then a click, is a modified click).
+    public static let modifiedPointerCapability = "mods"
 }
 
 /// Where a screen stream's pictures come from and where its input goes.
@@ -149,6 +167,9 @@ public protocol ScreenBackend: AnyObject, Sendable {
     func select(display index: Int)
     func handle(_ input: ScreenInput)
     func stop()
+    /// What the host tells the viewer it understands in `caps`
+    /// (``ScreenHostMessage/pixelScrollCapability``, ...); none by default.
+    var inputCapabilities: [String] { get }
     /// The most frames per second the streaming display shows (ProMotion:
     /// 120); nil when the source does not know. Read again whenever the
     /// source reports its displays.
@@ -161,6 +182,7 @@ public protocol ScreenBackend: AnyObject, Sendable {
 /// loopback) report none and keep their own pace: the stream stays at 60.
 public extension ScreenBackend {
     var maximumFrameRate: Int? { nil }
+    var inputCapabilities: [String] { [] }
     func setFrameRate(_ fps: Int) {}
 }
 
@@ -486,6 +508,11 @@ public final class ScreenStreamHost: @unchecked Sendable {
     /// What a view-only viewer may still send: a request for a fresh frame (no input reaches the Mac).
     static let viewOnlyMessages: Set<String> = ["refresh"]
 
+    /// The `caps` message for a backend's input capabilities.
+    static func capabilitiesMessage(for capabilities: [String], viewOnly: Bool) -> ScreenHostMessage? {
+        nil
+    }
+
     /// Sets the encoder and the source for the session's quality and the
     /// rate both displays agree on. True when the rate changed (the viewer
     /// hears it with the next displays message).
@@ -797,6 +824,16 @@ public final class ScreenStreamViewer: @unchecked Sendable {
         case .hello, .offer, .path:
             break
         }
+    }
+
+    /// Whether a host message is the displays message (`onDisplays`).
+    static func isDisplays(_ message: ScreenHostMessage) -> Bool {
+        true
+    }
+
+    /// The host's input capabilities from its `caps` message; nil for any other message.
+    static func capabilities(in message: ScreenHostMessage) -> [String]? {
+        nil
     }
 
     /// The input message type that reports the viewer's display rate.
