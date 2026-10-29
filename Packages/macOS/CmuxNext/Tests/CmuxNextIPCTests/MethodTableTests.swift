@@ -272,7 +272,9 @@ private func dense<Entry: Hashable & Sendable>(
         let names = ["send", "close-tab", "workspace.list", "output", "", "no-such-method"]
             + (tables.first?.v12Families.compactMap { $0?.entries.last??.name } ?? [])
         var hits = 0
-        func allocations(_ lookup: (MethodTable, UInt16, String) -> Bool) -> Int? {
+        // `@Sendable`: the probe's body closure takes the test's isolation, and a Release build refuses
+        // to send a non-Sendable parameter into it (SendingRisksDataRace). The lookups capture nothing.
+        func allocations(_ lookup: @Sendable (MethodTable, UInt16, String) -> Bool) -> Int? {
             MallocProbe.allocations {
                 for table in tables {
                     for raw in UInt16.min...UInt16.max where lookup(table, raw, "") { hits += 1 }
@@ -283,6 +285,9 @@ private func dense<Entry: Hashable & Sendable>(
 
         let control = MallocProbe.allocations { hits += ContiguousArray(repeating: 1, count: 64).count }
         try #require((control ?? 0) > 0, "malloc_logger saw no allocation on this thread: the probe cannot measure here")
+        // Warm-up outside the count: the loop's first run instantiates its generic metadata and witness
+        // tables once (9 allocations in a Debug build), which the baseline must not include.
+        _ = allocations { _, _, _ in true }
         let baseline = try #require(allocations { _, _, _ in true })
 
         let ids = allocations { table, raw, _ in
