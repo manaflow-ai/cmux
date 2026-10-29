@@ -1,6 +1,7 @@
 // A sub-session as the transcript's cards draw it (conversation/SubsessionCallCard.tsx): its
-// harness's mark, name, model, state (the working spinner, never a dot), what its turn does now, and
-// "Open chat". The caller reads its state live (subsessions.ts) and adds a prompt or a reply below.
+// harness's mark, name, model, state (the working spinner, never a dot), and what its turn does now.
+// When a session can open, its header row is the chat target. The caller reads its state live
+// (subsessions.ts) and adds a prompt or a reply below.
 import type { ReactNode } from "react";
 import { AgentMark, knownMark } from "../../shared/AgentMark";
 import { useAgentAvatar } from "../agentAvatar";
@@ -107,7 +108,23 @@ export function AgentCard({
   }
   return (
     <div className="cv-agent-card" data-state={state}>
-      <div className="cv-agent-card__head">
+      <div
+        className="cv-agent-card__head"
+        role={onOpen ? "button" : undefined}
+        tabIndex={onOpen ? 0 : undefined}
+        aria-label={onOpen ? t("subagents.open", { name }) : undefined}
+        onClick={onOpen}
+        onKeyDown={
+          onOpen
+            ? (event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  onOpen();
+                }
+              }
+            : undefined
+        }
+      >
         <span className="cv-agent-card__icon" aria-hidden>
           {avatar ? (
             <img className="cv-agent-avatar" src={avatar} alt="" width={16} height={16} />
@@ -126,16 +143,6 @@ export function AgentCard({
             {queued ? ` · ${t("subsession.queued", { n: queued })}` : ""}
             {time ? ` · ${time}` : ""}
           </span>
-        )}
-        {onOpen && (
-          <button
-            type="button"
-            className="cv-agent-card__open"
-            aria-label={t("subagents.open", { name })}
-            onClick={onOpen}
-          >
-            {openLabel ?? t("subsession.openChat")}
-          </button>
         )}
       </div>
       {doing && <div className="cv-agent-card__doing">{doing}</div>}
