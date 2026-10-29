@@ -124,7 +124,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
             displayBackdrop.apply(settings.snapshot.root)
             displayBackdropObservation = Task { [weak self, weak settings] in
                 guard let settings else { return }
-                for await root in ObservationStream({ settings.snapshot.root }) {
+                for await root in ObservationStream({ settings.applied.root }) {
                     self?.displayBackdrop?.apply(root)
                 }
             }
