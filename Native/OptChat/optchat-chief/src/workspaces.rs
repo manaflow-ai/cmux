@@ -1147,8 +1147,9 @@ impl Workspaces for DaemonWorkspaces {
             Ok::<(), String>(())
         })();
         client.close();
-        // A workspace made before a later step failed (create-terminal's "failed to spawn
-        // PTY command", a622-a627) is closed, not left as an empty row with no chat.
+        // A workspace made before a later step failed (new-conversation-tab refused, or
+        // earlier create-terminal's "failed to spawn PTY command", a622-a627) is closed,
+        // not left as an empty row with no chat.
         if let Err(e) = &result
             && !e.starts_with("create-workspace")
             && let Err(close) = close_by_key(daemon, &key)
