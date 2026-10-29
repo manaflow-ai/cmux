@@ -2299,6 +2299,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // Test-only: the test process runs as an app (finishes launching, is active, dispatches NSApp's events),
         // so suites that need a key window, an activation or an event-driven AppKit change get them
         // (CmuxNextTestGUIHost.m). One setup for the whole test bundle, started when it loads.
+        // settings-allow: C/Objective-C target, no Swift sources (CmuxNextTestGUIHost.m)
         .target(
             name: "CmuxNextTestGUIHost",
             path: "Tests/Support/CmuxNextTestGUIHost",
