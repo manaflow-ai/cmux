@@ -522,6 +522,12 @@ class RigKeychain:
         return (cls.NO_DEFAULT in err or cls.NO_DEFAULT in out), None
 
     def start(self):
+        # Only a step's own HOME (build-fleet buildEnv: HOME=<job>/home, one per run): its keychain
+        # preferences are this run's alone, so no other run or person can see or undo what it sets.
+        home = os.path.realpath(os.path.expanduser("~"))
+        if home == os.path.realpath(pwd.getpwuid(os.getuid()).pw_dir):
+            raise SystemExit("the rig's keychain needs the step's own HOME, not the account's: "
+                             "run pair-e2e through cmux-ci")
         # The preferences folder of this HOME (a step's own HOME has none): without it `security` reports
         # success for -s and keeps nothing (macOS 27, 2026-10-29), and the app still has no default.
         os.makedirs(os.path.expanduser("~/Library/Preferences"), mode=0o700, exist_ok=True)
