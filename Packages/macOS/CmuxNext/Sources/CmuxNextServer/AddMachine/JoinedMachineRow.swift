@@ -3,7 +3,8 @@ public import SwiftUI
 import CmuxNextDesign
 import CmuxNextIcons
 
-/// What a joined machine's menu does (its ellipsis button and its right-click).
+/// What a joined machine's menu does (its "…" button). Each is a registered action
+/// (`machine.joined.<rawValue>`, `ActionMenuContext.joinedMachine`) the App binds.
 public nonisolated enum JoinedMachineAction: String, CaseIterable, Sendable {
     /// `machine doctor ID` in the Check Machine checklist.
     case check
@@ -21,7 +22,7 @@ public nonisolated enum JoinedMachineAction: String, CaseIterable, Sendable {
 /// A joined machine's row in the Machines section: its name with the last Check's mark, its state
 /// and who made its line, and a "…" button that shows on hover. The hover fill covers the button
 /// alone, never the row; the button stays shown and lit while its menu is open. The menu opens on
-/// the click (an `NSMenu`, no fade-in).
+/// the click (an `NSMenu`, no fade-in); its rows are the registry's (`menu`).
 struct JoinedMachineRowView: View {
     let row: MachineSectionRow
     let machine: JoinedMachine
@@ -33,7 +34,8 @@ struct JoinedMachineRowView: View {
     let menuShown: @MainActor (_ id: String, _ open: Bool) -> Void
     /// New Workspace on a row the app also connects to (`workspace.newOnMachine`).
     let newWorkspace: @MainActor (String) -> Void
-    let perform: @MainActor (JoinedMachineAction, JoinedMachine) -> Void
+    /// The "…" button's menu, made when it opens (nil: no menu, as in a picture with no app).
+    let menu: @MainActor () -> NSMenu?
 
     @State private var rowHovered = false
     @State private var buttonHovered = false
@@ -80,12 +82,6 @@ struct JoinedMachineRowView: View {
         .padding(.vertical, 2).padding(.horizontal, Metrics.panelInset)
         .contentShape(Rectangle())
         .onHover { rowHovered = $0 }
-        .contextMenu {
-            ForEach(JoinedMachineAction.allCases, id: \.self) { action in
-                Button(JoinedMachineStrings.title(action)) { perform(action, machine) }
-                    .disabled(busy || !action.isAvailable(for: machine.state))
-            }
-        }
     }
 
     private var menuButton: some View {
@@ -110,9 +106,9 @@ struct JoinedMachineRowView: View {
     /// Opens the menu under the pointer, lit until it closes. `popUp` returns when the menu
     /// closes; the state change lands first, so the lit button is drawn under the open menu.
     private func showMenu() {
+        guard let menu = menu() else { return }
         let id = machine.id, menuShown = menuShown
         menuShown(id, true)
-        let menu = JoinedMachineMenu.make(machine, busy: busy, perform: perform)
         let point = NSEvent.mouseLocation
         // task-owner: one menu per click; ends when the menu closes.
         Task { @MainActor in
@@ -122,59 +118,34 @@ struct JoinedMachineRowView: View {
     }
 }
 
-/// The joined machine's menu as an `NSMenu` (the ellipsis button's; opens with no fade-in).
-@MainActor
-enum JoinedMachineMenu {
-    static func make(_ machine: JoinedMachine, busy: Bool, perform: @escaping @MainActor (JoinedMachineAction, JoinedMachine) -> Void) -> NSMenu {
-        let menu = NSMenu()
-        menu.autoenablesItems = false
-        for action in JoinedMachineAction.allCases {
-            let target = JoinedMachineMenuTarget { perform(action, machine) }
-            let item = NSMenuItem(title: JoinedMachineStrings.title(action), action: #selector(JoinedMachineMenuTarget.run), keyEquivalent: "")
-            item.target = target
-            item.representedObject = target
-            item.isEnabled = !busy && action.isAvailable(for: machine.state)
-            item.setAccessibilityIdentifier("cmux.machines.joined.\(action.rawValue)")
-            if action == .revoke { menu.addItem(.separator()) }
-            menu.addItem(item)
-        }
-        return menu
-    }
-}
-
-/// Keeps a menu item's closure alive as its target (the item holds it in `representedObject`).
-final class JoinedMachineMenuTarget: NSObject {
-    private let body: @MainActor () -> Void
-
-    init(_ body: @escaping @MainActor () -> Void) {
-        self.body = body
-    }
-
-    @MainActor @objc func run() { body() }
-}
-
 nonisolated enum JoinedMachineMetrics {
     static let buttonSize: CGFloat = 20
     static let buttonRadius: CGFloat = 5
 }
 
+/// What the App shows around a joined machine's actions: Revoke's question, and why an action
+/// cannot run (Labs off, a change already running).
+extension JoinedMachineAction {
+    /// Revoke's question: its title, its body (the heartbeat bound) and its button.
+    public static func revokePrompt(_ name: String) -> (title: String, body: String, button: String) {
+        (JoinedMachineStrings.revokeTitle(name), JoinedMachineStrings.revokeBody, JoinedMachineStrings.revokeButton)
+    }
+
+    /// Why a joined machine's action does nothing: Labs `labs.machineJoin` is off.
+    public static var labsOff: String { JoinedMachineStrings.labsOff }
+    /// Why Rotate or Revoke waits: another change on the machine is still running.
+    public static var busy: String { JoinedMachineStrings.busy }
+}
+
 /// Text of the joined rows (Resources/AddMachine.xcstrings).
-public nonisolated enum JoinedMachineStrings {
+nonisolated enum JoinedMachineStrings {
     private static func s(_ key: StaticString, _ value: String.LocalizationValue) -> String {
         String(localized: key, defaultValue: value, table: "AddMachine", bundle: .module)
     }
 
     /// How long a revoked machine keeps access at most: the platform's heartbeat interval. Every
     /// heartbeat and relay request checks live revocation, so it is cut off at the next one.
-    public static let heartbeatSeconds = 30
-
-    static func title(_ action: JoinedMachineAction) -> String {
-        switch action {
-        case .check: s("machines.joined.check", "Check")
-        case .rotate: s("machines.joined.rotate", "Rotate Credential")
-        case .revoke: s("machines.joined.revoke", "Revoke…")
-        }
-    }
+    static let heartbeatSeconds = 30
 
     static func caption(_ machine: JoinedMachine, failed: JoinedMachineChange?) -> String {
         if let failed {
@@ -192,13 +163,14 @@ public nonisolated enum JoinedMachineStrings {
 
     static func more(_ name: String) -> String { String(format: s("machines.joined.more", "More for %@"), name) }
     static var noWorkspace: String { s("machines.joined.noWorkspace", "Reached through the mesh; workspaces need a link") }
-    /// A joined machine's Check asked to run after Labs `labs.machineJoin` turned off.
-    public static var labsOff: String { s("machines.joined.labsOff", "Joined machines are off in Labs.") }
+    /// A joined machine's action asked to run after Labs `labs.machineJoin` turned off.
+    static var labsOff: String { s("machines.joined.labsOff", "Joined machines are off in Labs.") }
+    static var busy: String { s("machines.joined.busy", "Wait for the last change on this machine to finish.") }
 
-    public static func revokeTitle(_ name: String) -> String { String(format: s("machines.joined.revokeTitle", "Revoke %@?"), name) }
-    public static var revokeBody: String {
+    static func revokeTitle(_ name: String) -> String { String(format: s("machines.joined.revokeTitle", "Revoke %@?"), name) }
+    static var revokeBody: String {
         String(format: s("machines.joined.revokeBody", "It leaves your team's machines. Its access ends on its next heartbeat, within %lld seconds. To use it again, paste a new line on it."),
                heartbeatSeconds)
     }
-    public static var revokeButton: String { s("machines.joined.revokeButton", "Revoke") }
+    static var revokeButton: String { s("machines.joined.revokeButton", "Revoke") }
 }

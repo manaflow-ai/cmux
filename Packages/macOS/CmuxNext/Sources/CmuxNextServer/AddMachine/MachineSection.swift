@@ -1,4 +1,5 @@
 import Foundation
+public import AppKit
 public import Observation
 public import SwiftUI
 import CmuxNextDesign
@@ -84,18 +85,18 @@ public struct MachineSectionListView: View {
     let model: MachineSectionModel
     let newWorkspace: @MainActor (String) -> Void
     let addMachine: @MainActor () -> Void
-    /// A joined machine's menu item, with the row it was chosen on.
-    let joinedAction: @MainActor (JoinedMachineAction, JoinedMachine, MachineSectionRow) -> Void
+    /// A joined machine's "…" menu (the registry's rows for it), with the row it opens on.
+    let joinedMenu: @MainActor (JoinedMachine, MachineSectionRow) -> NSMenu?
     let joinedStore: JoinedMachineStore?
 
     public init(model: MachineSectionModel, newWorkspace: @escaping @MainActor (String) -> Void,
                 addMachine: @escaping @MainActor () -> Void, joinedStore: JoinedMachineStore? = nil,
-                joinedAction: @escaping @MainActor (JoinedMachineAction, JoinedMachine, MachineSectionRow) -> Void = { _, _, _ in }) {
+                joinedMenu: @escaping @MainActor (JoinedMachine, MachineSectionRow) -> NSMenu? = { _, _ in nil }) {
         self.model = model
         self.newWorkspace = newWorkspace
         self.addMachine = addMachine
         self.joinedStore = joinedStore
-        self.joinedAction = joinedAction
+        self.joinedMenu = joinedMenu
     }
 
     public var body: some View {
@@ -109,7 +110,7 @@ public struct MachineSectionListView: View {
                     JoinedMachineRowView(row: row, machine: joined, busy: busy.contains(joined.id),
                                          failed: failed[joined.id], menuOpen: openMenu == joined.id,
                                          menuShown: { id, open in joinedStore?.menuShown(id, open) }, newWorkspace: newWorkspace,
-                                         perform: { action, machine in joinedAction(action, machine, row) })
+                                         menu: { joinedMenu(joined, row) })
                 } else {
                 HStack(alignment: .center, spacing: Metrics.panelInset) {
                     Icon(row.isLocal ? .machineLocal : .machineRemote, size: Metrics.iconSize)

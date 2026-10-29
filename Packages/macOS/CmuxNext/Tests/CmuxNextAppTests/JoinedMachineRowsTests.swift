@@ -1,4 +1,6 @@
 import AppKit
+import CmuxNextActions
+@testable import CmuxNextApp
 import CmuxNextRemote
 @testable import CmuxNextServer
 import Foundation
@@ -103,28 +105,50 @@ import Testing
         #expect(JoinedMachineStrings.caption(revoked, failed: nil).hasPrefix("Revoked"))
     }
 
-    @Test func theMenuOffersCheckRotateAndRevokeAndARevokedMachineOnlyCheck() {
-        let menu = JoinedMachineMenu.make(Fake.machine("m_1", "lane-vm-3"), busy: false) { _, _ in }
-        let items = menu.items.filter { !$0.isSeparatorItem }
-        #expect(items.map(\.title) == ["Check", "Rotate Credential", "Revoke…"])
-        #expect(items.map(\.isEnabled) == [true, true, true])
-        let gone = JoinedMachineMenu.make(Fake.machine("m_2", "old-box", state: .revoked), busy: false) { _, _ in }
-        #expect(gone.items.filter { !$0.isSeparatorItem }.map(\.isEnabled) == [true, false, false])
-        let busy = JoinedMachineMenu.make(Fake.machine("m_1", "lane-vm-3"), busy: true) { _, _ in }
-        #expect(busy.items.allSatisfy { $0.isSeparatorItem || !$0.isEnabled })
+    /// The joined machines' menu rows bound as the app binds them, on `store`.
+    static func registry(_ store: JoinedMachineStore, labs: @escaping @MainActor () -> Bool = { true },
+                         ran: @escaping @MainActor (JoinedMachineAction, JoinedMachine, String) -> Void = { _, _, _ in }) -> ActionRegistry {
+        let registry = ActionRegistry.standard()
+        MachineSectionHostView.bindJoinedActions(into: registry, store: { store }, labsOn: labs, perform: ran)
+        return registry
     }
 
-    @Test func aMenuItemRunsItsAction() throws {
-        var ran: [(JoinedMachineAction, String)] = []
-        let menu = JoinedMachineMenu.make(Fake.machine("m_1", "lane-vm-3"), busy: false) { ran.append(($0, $1.id)) }
+    /// A menu's rows: each title, and whether it is enabled as AppKit asks when the menu opens.
+    static func rows(_ menu: NSMenu) -> [(title: String, enabled: Bool)] {
+        menu.items.filter { !$0.isSeparatorItem }.map { item in
+            (item.title, (item.target as? NSMenuItemValidation)?.validateMenuItem(item) ?? false)
+        }
+    }
+
+    @Test func theMenuOffersCheckRotateAndRevokeAndARevokedMachineOnlyCheck() async {
+        let fake = Fake()
+        fake.rows = [Fake.machine("m_1", "lane-vm-3"), Fake.machine("m_2", "old-box", state: .revoked)]
+        let store = fake.store()
+        await store.refresh()
+        let registry = Self.registry(store)
+        let menu = MachineSectionHostView.joinedMenu(store.machines[0], rowID: "joined:m_1", registry: registry)
+        #expect(Self.rows(menu).map { $0.title } == ["Check", "Rotate Credential", "Revoke…"])
+        #expect(Self.rows(menu).map { $0.enabled } == [true, true, true])
+        let gone = MachineSectionHostView.joinedMenu(store.machines[1], rowID: "joined:m_2", registry: registry)
+        #expect(Self.rows(gone).map { $0.title } == ["Check"], "a revoked machine offers only Check")
+        let off = MachineSectionHostView.joinedMenu(store.machines[0], rowID: "joined:m_1", registry: Self.registry(store, labs: { false }))
+        #expect(Self.rows(off).map { $0.enabled } == [false, false, false], "nothing runs while labs.machineJoin is off")
+    }
+
+    @Test func aMenuRowRunsItsActionThroughTheRegistryOnItsRow() async throws {
+        let fake = Fake()
+        let store = fake.store()
+        await store.refresh()
+        var ran: [(JoinedMachineAction, String, String)] = []
+        let registry = Self.registry(store) { ran.append(($0, $1.id, $2)) }
+        let menu = MachineSectionHostView.joinedMenu(store.machines[0], rowID: "ssh-1", registry: registry)
         let rotate = try #require(menu.items.first { $0.title == "Rotate Credential" })
-        // A test process has no running NSApplication to dispatch the item, so send its action to
-        // its target the way AppKit does.
-        #expect(rotate.action == #selector(JoinedMachineMenuTarget.run))
-        let target = try #require(rotate.target as? JoinedMachineMenuTarget)
-        target.run()
-        #expect(ran.map(\.0) == [.rotate])
-        #expect(ran.map(\.1) == ["m_1"])
+        // A test process has no running NSApplication to dispatch the item: send its action to its
+        // target as AppKit does.
+        _ = (rotate.target as? NSObject)?.perform(rotate.action, with: rotate)
+        #expect(ran.map { $0.0 } == [.rotate])
+        #expect(ran.map { $0.1 } == ["m_1"])
+        #expect(ran.map { $0.2 } == ["ssh-1"], "the row it opened on goes with it (where Check records)")
     }
 
     @Test func revokeAsksWithTheHeartbeatBound() {
@@ -200,6 +224,8 @@ import Testing
         let first = Task { await store.perform(.revoke, "m_1") }
         await gate.waitEntered()
         #expect(store.busy.contains("m_1"))
+        let busyMenu = MachineSectionHostView.joinedMenu(rows[0], rowID: "joined:m_1", registry: Self.registry(store))
+        #expect(Self.rows(busyMenu).map { $0.enabled } == [true, false, false], "Rotate and Revoke wait; Check can still run")
         #expect(!(await store.perform(.rotate, "m_1")), "a second change while the first is in flight is refused")
         gate.release()
         #expect(await first.value)
