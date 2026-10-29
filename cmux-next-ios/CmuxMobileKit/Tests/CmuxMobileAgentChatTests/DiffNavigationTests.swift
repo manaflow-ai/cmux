@@ -28,6 +28,41 @@ import Testing
         #expect(DiffNavigation.changeStarts(file) == [0, 2])
     }
 
+    /// Toggling Hide Whitespace keeps Next / Previous Hunk on the same change: the current
+    /// hunk's index follows the line, so Next goes to the later hunk, never back.
+    @Test func hideWhitespaceKeepsTheCurrentHunk() {
+        // 0 ctx, 1-3 whitespace-only additions, 4 ctx, 5 "+a", 6 ctx, 7 "+b", 8 ctx.
+        let file = lines("     + + ", texts: ["c0", "  ", " ", "\t", "c4", "a", "c6", "b", "c8"])
+            .enumerated().map { offset, line in
+                var line = line
+                if (1...3).contains(offset) { line.kind = .added }
+                return line
+            }
+        let shown = DiffNavigation.visibleLines(file, hideWhitespace: false)
+        let hidden = DiffNavigation.visibleLines(file, hideWhitespace: true)
+        #expect(hidden.map(\.text) == ["c0", "c4", "a", "c6", "b", "c8"])
+
+        // On "+a" (line 5 of the whole file), turn Hide Whitespace on.
+        #expect(DiffNavigation.changeStarts(shown) == [1, 5, 7])
+        let onA = DiffNavigation.remap(5, from: shown, to: hidden)
+        #expect(onA == 2)
+        #expect(DiffNavigation.step(DiffNavigation.changeStarts(hidden), from: onA, forward: true) == 4)
+        #expect(DiffNavigation.step(DiffNavigation.changeStarts(hidden), from: onA, forward: false) == nil)
+
+        // On "+b" (line 4 while hidden), turn it off again.
+        let onB = DiffNavigation.remap(4, from: hidden, to: shown)
+        #expect(onB == 7)
+        #expect(DiffNavigation.step(DiffNavigation.changeStarts(shown), from: onB, forward: true) == nil)
+        #expect(DiffNavigation.step(DiffNavigation.changeStarts(shown), from: onB, forward: false) == 5)
+
+        // A current line that the filter hides maps to the line before it, so Next goes on
+        // to the next change and Previous to the one before.
+        let onBlank = DiffNavigation.remap(1, from: shown, to: hidden)
+        #expect(onBlank == 0)
+        #expect(DiffNavigation.step(DiffNavigation.changeStarts(hidden), from: onBlank, forward: true) == 2)
+        #expect(DiffNavigation.remap(nil, from: shown, to: hidden) == nil)
+    }
+
     @Test func searchFindsLinesAndRanges() {
         let file = lines("   ", texts: ["let Café = 1", "nothing", "café café"])
         #expect(DiffNavigation.matches("cafe", in: file) == [0, 2])

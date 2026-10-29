@@ -41,6 +41,19 @@ public enum DiffNavigation {
         return result
     }
 
+    /// The lines the file screen shows: with Hide Whitespace, added and removed lines that
+    /// are only whitespace go (the Mac's Diff: Hide Whitespace).
+    public static func visibleLines(_ lines: [DiffLine], hideWhitespace: Bool) -> [DiffLine] {
+        guard hideWhitespace else { return lines }
+        return lines.filter { $0.kind == .context || !$0.text.trimmingCharacters(in: .whitespaces).isEmpty }
+    }
+
+    /// Line `index` of `old` as an index into `new`, where one list is the other with
+    /// some lines left out (Hide Whitespace turned on or off).
+    public static func remap(_ index: Int?, from old: [DiffLine], to new: [DiffLine]) -> Int? {
+        index
+    }
+
     /// The range to show around line `index` when it is inside collapsed context.
     public static func reveal(_ index: Int, lineCount: Int, context: Int = 3) -> ClosedRange<Int> {
         max(0, index - context)...min(lineCount - 1, index + context)

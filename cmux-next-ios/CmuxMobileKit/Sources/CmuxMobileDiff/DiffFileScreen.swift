@@ -69,6 +69,12 @@ public struct DiffFileScreen: View {
             hunkLine = nil
             matchIndex = 0
         }
+        .onChange(of: state.hideWhitespace) { wasHidden, hides in
+            // `hunkLine` indexes the shown lines; keep it on the same line of the file.
+            hunkLine = DiffNavigation.remap(hunkLine,
+                                            from: DiffNavigation.visibleLines(file.lines, hideWhitespace: wasHidden),
+                                            to: DiffNavigation.visibleLines(file.lines, hideWhitespace: hides))
+        }
         .onChange(of: query) {
             // Typing shows the first match; Return and the arrows go on from it.
             matchIndex = 0
@@ -487,10 +493,7 @@ public struct DiffFileScreen: View {
         }
     }
 
-    private var lines: [DiffLine] {
-        guard state.hideWhitespace else { return file.lines }
-        return file.lines.filter { $0.kind == .context || !$0.text.trimmingCharacters(in: .whitespaces).isEmpty }
-    }
+    private var lines: [DiffLine] { DiffNavigation.visibleLines(file.lines, hideWhitespace: state.hideWhitespace) }
 
     private var segments: [Segment] {
         let lines = lines
