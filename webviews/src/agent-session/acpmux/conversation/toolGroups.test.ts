@@ -86,9 +86,32 @@ test("every MCP call draws in an MCP, message or sub-session card, never as a To
     const groups = toolGroups(items);
     expect(drawnByToolRow(groups).filter((entry) => entry.tool && mcpCall(entry.tool))).toEqual([]);
     const carded = groups.flatMap((group) =>
-      group.type === "mcp" ? group.items : group.type === "message" || group.type === "subsession" ? [group.item] : [],
+      group.type === "mcp"
+        ? group.items
+        : group.type === "message" || group.type === "subsession"
+          ? [group.item]
+          : group.type === "subsessionGroup"
+            ? group.items
+            : [],
     );
     expect(carded).toHaveLength(items.filter((entry) => mcpCall(entry.tool!)).length);
+  }
+});
+
+test("adjacent start_session calls become one grouped disclosure", () => {
+  const starts = ["msg-fold", "picker-polish", "cloud-demo"].map((name) =>
+    item({
+      title: "mcp__cmux-subsessions__start_session",
+      inputSummary: JSON.stringify({ name, prompt: `Own the ${name} lane` }),
+      output: `Started sub-session ${name} (sessionId ${name}-id, depth 1).`,
+    }),
+  );
+  const group = toolGroups(starts);
+  expect(group).toHaveLength(1);
+  expect(group[0]?.type).toBe("subsessionGroup");
+  if (group[0]?.type === "subsessionGroup") {
+    expect(group[0].items).toHaveLength(3);
+    expect(group[0].calls.map((call) => call.name)).toEqual(["msg-fold", "picker-polish", "cloud-demo"]);
   }
 });
 

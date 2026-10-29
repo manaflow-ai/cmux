@@ -8,6 +8,7 @@ import { Spinner } from "../conversation/icons";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { SUBSESSION_STATE_LABEL, type SubsessionState } from "./subsessions";
+import { DisclosureRow } from "./DisclosureRow";
 import "./AgentCard.css";
 
 export type AgentCardProps = {
@@ -32,6 +33,10 @@ export type AgentCardProps = {
   onOpen?: () => void;
   /// The open button's word: "Open chat" when absent.
   openLabel?: string;
+  /// Draw this card as a one-line transcript disclosure with its children in a panel.
+  disclosure?: boolean;
+  /// Optional localized prefix for the disclosure line (for example, "Started").
+  disclosurePrefix?: ReactNode;
   children?: ReactNode;
 };
 
@@ -48,12 +53,57 @@ export function AgentCard({
   stateLabel,
   onOpen,
   openLabel,
+  disclosure = false,
+  disclosurePrefix,
   children,
 }: AgentCardProps) {
   const t = useT();
   // A profile names its family first (`claude-sr2`): its family's mark when it has none.
   const mark = harness ? knownMark(harness, harness.split(/[-_/]/)[0]) : undefined;
   const avatar = useAgentAvatar(sessionId);
+  const stateText = state
+    ? slot
+      ? t("subsession.state.slot")
+      : (stateLabel ?? t(SUBSESSION_STATE_LABEL[state]))
+    : undefined;
+  if (disclosure) {
+    const liveDetail = state === "input" || state === "failed" || slot ? doing : undefined;
+    return (
+      <DisclosureRow
+        icon={
+          avatar ? (
+            <img className="cv-agent-avatar" src={avatar} alt="" width={16} height={16} />
+          ) : mark ? (
+            <AgentMark agent={mark} size={14} />
+          ) : (
+            <Icon name="agent.session" size={16} />
+          )
+        }
+        label={
+          <>
+            {disclosurePrefix && <span className="cv-disclosure__prefix">{disclosurePrefix}</span>}
+            {name}
+          </>
+        }
+        meta={model}
+        status={
+          stateText && (
+            <>
+              {state === "working" && !slot && <Spinner size={12} loading />}
+              {stateText}
+              {queued ? ` · ${t("subsession.queued", { n: queued })}` : ""}
+              {time ? ` · ${time}` : ""}
+              {liveDetail ? ` · ${liveDetail}` : ""}
+            </>
+          )
+        }
+        openLabel={openLabel ?? t("subsession.openChat")}
+        onOpen={onOpen}
+      >
+        {children}
+      </DisclosureRow>
+    );
+  }
   return (
     <div className="cv-agent-card" data-state={state}>
       <div className="cv-agent-card__head">

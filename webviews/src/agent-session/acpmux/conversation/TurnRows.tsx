@@ -137,6 +137,13 @@ function groupNode(
       return <AcpmuxSendLine key={group.item.tool!.id || index} tool={group.item.tool!} send={group.send} />;
     case "subsession":
       return <SubsessionCallCard key={group.item.tool!.id || index} call={group.call} tool={group.item.tool!} />;
+    case "subsessionGroup":
+      return (
+        <SubsessionCallCard
+          key={group.items[0]!.tool!.id || index}
+          group={group.calls.map((call, i) => ({ call, tool: group.items[i]!.tool! }))}
+        />
+      );
     case "item":
       // A short interim note folded into the run (turns.ts mergeShortNotes).
       if (group.item.kind === "note")
