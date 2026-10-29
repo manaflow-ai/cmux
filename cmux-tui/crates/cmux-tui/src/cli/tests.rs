@@ -11,6 +11,16 @@ fn strings(values: &[&str]) -> Vec<String> {
 }
 
 #[cfg(unix)]
+#[test]
+fn settings_separator_keeps_literal_confirm_with_daemon() {
+    let literal = strings(&["settings", "set", "--", "custom.label", "--confirm"]);
+    assert!(daemon_settings_scope(&literal));
+
+    let confirmed = strings(&["settings", "set", "custom.label", "value", "--confirm"]);
+    assert!(!daemon_settings_scope(&confirmed));
+}
+
+#[cfg(unix)]
 mod remote_cli_docs {
     use super::*;
     use std::collections::HashSet;
