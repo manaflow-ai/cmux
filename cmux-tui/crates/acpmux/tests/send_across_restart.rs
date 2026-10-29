@@ -198,10 +198,8 @@ fn cli_daemon_restart_reattaches_an_active_turn() {
         .expect("ls JSON before restart");
     let before_id = before["sessions"][0]["sessionId"].as_str().unwrap().to_owned();
 
-    let stopped = cli(&dir, &["--json", "daemon", "shutdown"]);
-    assert!(stopped.status.success(), "shutdown: {}", text(&stopped));
-    let restarted = cli(&dir, &["--json", "daemon", "start"]);
-    assert!(restarted.status.success(), "start: {}", text(&restarted));
+    let restarted = cli(&dir, &["--json", "daemon", "restart"]);
+    assert!(restarted.status.success(), "restart: {}", text(&restarted));
     let restart_json: serde_json::Value =
         serde_json::from_slice(&restarted.stdout).expect("restart JSON");
     assert_eq!(restart_json["restarted"], true);
@@ -249,8 +247,10 @@ fn cli_wait_reconnects_during_restart_and_keeps_one_prompt() {
         .unwrap();
     // Let wait establish its request before cutting the daemon connection.
     std::thread::sleep(Duration::from_millis(300));
-    let restarted = cli(&dir, &["--json", "daemon", "restart"]);
-    assert!(restarted.status.success(), "restart: {}", text(&restarted));
+    let stopped = cli(&dir, &["--json", "daemon", "shutdown"]);
+    assert!(stopped.status.success(), "shutdown: {}", text(&stopped));
+    let restarted = cli(&dir, &["--json", "daemon", "start"]);
+    assert!(restarted.status.success(), "start: {}", text(&restarted));
     let waited = waiting.wait_with_output().unwrap();
     assert!(waited.status.success(), "wait failed across restart: {}", text(&waited));
 
