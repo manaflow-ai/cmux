@@ -5,15 +5,25 @@
 // with no event dispatch the process stayed inactive after setActivationPolicy(.regular) and finishLaunching;
 // dispatching NSApp's events made activate succeed (active, key and main window), also with a system alert
 // frontmost. Linked into the test bundle only: when the bundle loads, this queues one setup on the main
-// queue: finish launching as a regular app, activate, and dispatch NSApp's pending events on every main
-// run-loop turn, as NSApplication.run would. A listing run (`swift test list`) does nothing.
+// queue that dispatches NSApp's pending events on every main run-loop turn, as NSApplication.run would (harmless
+// on any Mac). Only a run that asks for a GUI (`CMUX_TEST_REQUIRE_GUI=1`, which the fleet's gui-session-v1 steps
+// set) also finishes launching as a regular app and activates: a person running `swift test` on their own Mac
+// keeps their focus. A listing run (`swift test list`) does nothing.
 #import <AppKit/AppKit.h>
 #include <crt_externs.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "CmuxNextTestGUIHost.h"
 
 static int running;
+static int activated;
+
+/// The run asked for a GUI: the fleet's gui-session-v1 steps, or a person who opts in.
+static int requires_gui(void) {
+    const char *value = getenv("CMUX_TEST_REQUIRE_GUI");
+    return value != NULL && strcmp(value, "1") == 0;
+}
 
 /// Sends every event NSApp has queued now; never waits.
 static void dispatch_pending_events(void) {
@@ -37,8 +47,11 @@ static int lists_tests(void) {
 
 static void start_gui_host(void) {
     [NSApplication sharedApplication];
-    [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
-    [NSApp finishLaunching];
+    int gui = requires_gui();
+    if (gui) {
+        [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
+        [NSApp finishLaunching];
+    }
     // Before each wait of the main run loop: dispatch what NSApp has queued (activation, key and mouse changes).
     CFRunLoopObserverRef observer = CFRunLoopObserverCreateWithHandler(
         kCFAllocatorDefault, kCFRunLoopBeforeWaiting | kCFRunLoopAfterWaiting, true, 0,
@@ -48,7 +61,10 @@ static void start_gui_host(void) {
         });
     CFRunLoopAddObserver(CFRunLoopGetMain(), observer, kCFRunLoopCommonModes);
     CFRelease(observer);
-    [NSApp activateIgnoringOtherApps:YES];
+    if (gui) {
+        [NSApp activateIgnoringOtherApps:YES];
+        activated = 1;
+    }
     dispatch_pending_events();
     running = 1;
 }
@@ -61,4 +77,8 @@ __attribute__((constructor)) static void cmux_next_test_gui_host_install(void) {
 
 int cmux_next_test_gui_host_running(void) {
     return running;
+}
+
+int cmux_next_test_gui_host_activated(void) {
+    return activated;
 }
