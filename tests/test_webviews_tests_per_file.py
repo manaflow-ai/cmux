@@ -648,6 +648,13 @@ class Workflow(unittest.TestCase):
         self.assertNotIn("webviews-test-durations-", shard.split("Download the duration manifest")[1].split("Test webviews")[0])  # no cache restore
         self.assertIn("CMUX_WEB_TEST_DURATIONS: ${{ runner.temp }}/webviews-durations/manifest.json", shard)
         self.assertIn("webviews_test_shards.py", shard[shard.index("cp ../scripts/ci/run-webviews-tests.sh"):][:200])
+        upload = shard[shard.index("      - name: Upload this shard's durations"):]
+        upload = upload[:upload.index("\n      - name:", 10)]
+        self.assertIn("continue-on-error: true", upload)  # optional upkeep never fails a required shard
+        self.assertIn("timeout-minutes:", upload)
+        gate = shard[shard.index("      - name: Fail on the gate checks"):]
+        self.assertIn("DURATIONS_UPLOAD: ${{ steps.durations-upload.outcome }}", gate)
+        self.assertNotIn('"DURATIONS_UPLOAD|', gate)  # read as a warning, never one of the failing gates
         check = text[text.index("  react-apps-check:"):text.index("  webviews-test-durations:")]
         self.assertNotIn("durations", check)  # the required gate does no manifest upkeep
         upkeep = text[text.index("  webviews-test-durations:"):text.index("  diff-sidecar-check:")]

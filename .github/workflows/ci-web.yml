@@ -515,8 +515,13 @@ jobs:
           retention-days: 14
 
       # Every event: push runs on feat-cmux-next keep the manifest fresh for everyone.
+      # Optional upkeep: an artifact-service failure or stall never fails the
+      # shard; the gate step below reports it as a warning.
       - name: Upload this shard's durations
+        id: durations-upload
         if: ${{ !cancelled() }}
+        continue-on-error: true
+        timeout-minutes: 2
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: webviews-test-durations-shard${{ matrix.shard }}
@@ -538,12 +543,17 @@ jobs:
           REACT_COMPILER: ${{ steps.react-compiler.outcome }}
           WEBVIEWS_CHECK: ${{ steps.webviews-check.outcome }}
           PR_SCOPED_RULES: ${{ steps.pr-scoped-rules.outcome }}
+          # Warn-only: the next run's shard split, never this run's verdict.
+          DURATIONS_UPLOAD: ${{ steps.durations-upload.outcome }}
           # The eager JS budget (a size cap) and the React Compiler coverage are
           # structural: for feat-cmux-next they warn (Leo 2026-10-19).
           CMUX_NEXT_STYLE_GUARDS: ${{ (github.base_ref == 'feat-cmux-next' || github.ref == 'refs/heads/feat-cmux-next') && 'warn' || 'fail' }}
           STYLE_GATES: EAGER_JS_BUDGET REACT_COMPILER
         run: |
           failed=0
+          if [ "$DURATIONS_UPLOAD" = failure ]; then
+            echo "::warning::This shard's test durations did not upload; the next run's shard split misses them."
+          fi
           for gate in \
             "SOURCE_BUILD|Verify webviews source checks" \
             "BUNDLES|Build the web bundles" \
