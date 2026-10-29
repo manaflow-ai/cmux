@@ -825,9 +825,8 @@ class WorkflowTests(unittest.TestCase):
         self.assertNotIn("ubuntu-24.04", runs_on)
         self.assertNotIn("ubuntu-latest", runs_on)
         self.assertNotIn("github-hosted-required", runs_on)
-        # Blacksmith macOS (or CI_CONTROL_RUNNER when set): never a size the probes ask for, so it never
-        # queues behind them.
-        self.assertEqual(runs_on, "${{ vars.CI_CONTROL_RUNNER || 'blacksmith-6vcpu-macos-26' }}")
+        # Blacksmith macOS: never a size the probes ask for, so it never queues behind them.
+        self.assertEqual(runs_on, "blacksmith-6vcpu-macos-26")
         self.assertNotIn("ubuntu", runs_on)
         names = set(switch.SWITCHED_VARIABLES) | {switch.RECORD_VARIABLE, switch.OVERRIDES_VARIABLE,
                                                   "CMUX_CI_XCODE_APP_PR"}
@@ -836,6 +835,30 @@ class WorkflowTests(unittest.TestCase):
                       or f"            {name}=${{{{ vars.{name} }}}}\n" in self.text)
             self.assertTrue(passed, name)
         self.assertIn("force-cancel", self.text)
+
+    def test_the_job_with_the_variable_write_key_runs_on_a_literal_ephemeral_label(self) -> None:
+        # The watch mints the GLAEDA_ROUTE_APP_KEY token that writes repository variables. #27022 let
+        # CI_CONTROL_RUNNER pick its runner, an owned (reused) Mac for one, so a variable could put that
+        # key on a machine where it outlives the job, and the job could write the variable that picks
+        # its own runner. Only a literal ephemeral label may carry it, as for promote-nightly-next.
+        for name, job in yaml.safe_load(self.text)["jobs"].items():
+            if "secrets." not in json.dumps(job) and "create-github-app-token" not in json.dumps(job):
+                continue
+            self.assertNotIn("${{", job["runs-on"], name)
+            self.assertTrue(job["runs-on"].startswith(switch.CLOUD_PREFIX), name)
+
+    def test_no_job_that_ci_control_runner_moves_holds_a_secret(self) -> None:
+        # CI_CONTROL_RUNNER may name a reused machine, so the control jobs it moves hold only their
+        # job-scoped GITHUB_TOKEN: no secret, and no App token minted from one.
+        moved = []
+        for path in sorted(WORKFLOW.parent.glob("*.y*ml")):
+            for name, job in (yaml.safe_load(path.read_text(encoding="utf-8")).get("jobs") or {}).items():
+                if "CI_CONTROL_RUNNER" not in str(job.get("runs-on", "")):
+                    continue
+                moved.append(f"{path.name}:{name}")
+                self.assertNotIn("secrets.", json.dumps(job), f"{path.name}:{name}")
+                self.assertNotIn("create-github-app-token", json.dumps(job), f"{path.name}:{name}")
+        self.assertIn("nightly-next-tick.yml:request", moved)
 
     def test_one_fixed_group_so_two_watches_never_write_at_once(self) -> None:
         # The switch's variable writes and record delete are separate calls; a group keyed by anything a
