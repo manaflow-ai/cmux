@@ -8,10 +8,19 @@
   "footprint=^samples\\.\\*\\.total_footprint_mb$"
  ],
  "validity": [],
- "probe": [],
+ "probe": [
+  {
+   "name": "hibernated pictures kept",
+   "method": "debug.surfaces",
+   "params": {},
+   "regex": "^hibernation\\.snapshots$",
+   "min": 1
+  }
+ ],
  "inner_args": [
   "--workspaces=1,10",
   "--mix=terminal,terminal+browser,terminal+chat",
-  "--settle=30"
+  "--settle=90",
+  "--config={\"browser\":{\"hibernation\":1}}"
  ]
 }
