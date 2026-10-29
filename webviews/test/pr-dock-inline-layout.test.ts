@@ -8,6 +8,7 @@ import { createServer, type ViteDevServer } from "vite";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { playFailures } from "./support/galleryPlay";
+import type { PlayReport } from "../src/gallery/play";
 
 await requireBrowserLane("pr-dock-inline-layout.test.ts", () => {
   setDefaultTimeout(120_000);
@@ -35,9 +36,23 @@ await requireBrowserLane("pr-dock-inline-layout.test.ts", () => {
     for (const width of [760, 320])
       test(`pr-queue fallback at ${width}px in ${theme} keeps PR links before any assistant reply`, async () => {
         const page = await browser.newPage({ viewport: { width, height: 660 } });
+        const geometry = () =>
+          page.evaluate(() => {
+            const rect = (selector: string) => {
+              const { x, y, width, height, bottom } = document.querySelector(selector)!.getBoundingClientRect();
+              return { x, y, width, height, bottom };
+            };
+            return {
+              queue: rect(".acpmux-composer-queue"),
+              fallback: rect(".acpmux-pr-fallback"),
+              bar: rect(".acpmux-composer-bar"),
+            };
+          });
+        let before: Awaited<ReturnType<typeof geometry>> | undefined;
         try {
           await page.exposeFunction("cmuxGalleryInput", async (action: { kind: string; x: number; y: number }) => {
             if (action.kind !== "click") throw new Error(`Unexpected PR-queue input: ${action.kind}`);
+            before = await geometry();
             await page.mouse.click(action.x, action.y);
           });
           const { port } = vite.httpServer!.address() as { port: number };
@@ -53,7 +68,43 @@ await requireBrowserLane("pr-dock-inline-layout.test.ts", () => {
           const report = await page.evaluate(() =>
             JSON.stringify((window as unknown as { cmuxGalleryPlayReport?: unknown }).cmuxGalleryPlayReport ?? {}),
           );
-          expect(playFailures(report)).toEqual([]);
+          expect(before).toBeDefined();
+          const after = await geometry();
+          const growth = after.queue.height - before!.queue.height;
+          expect(growth).toBeGreaterThanOrEqual(-1);
+          expect(Math.abs(after.fallback.y - before!.fallback.y + growth)).toBeLessThanOrEqual(1);
+          for (const key of ["x", "width", "height"] as const)
+            expect(Math.abs(after.fallback[key] - before!.fallback[key])).toBeLessThanOrEqual(1);
+          for (const key of ["x", "y", "width", "height"] as const)
+            expect(Math.abs(after.bar[key] - before!.bar[key])).toBeLessThanOrEqual(1);
+          expect(before!.fallback.bottom).toBeLessThanOrEqual(before!.queue.y + 1);
+          expect(after.fallback.bottom).toBeLessThanOrEqual(after.queue.y + 1);
+          // This click expands the queued prompt, not the PR overflow. Only the form growing
+          // upward and its fallback following it are expected; all other shift sources and
+          // directions stay failures. The precise movement and fixed bar are checked above.
+          const measured = JSON.parse(report) as PlayReport;
+          for (const step of measured.steps ?? []) {
+            const expected =
+              step.step === "click .acpmux-queued" &&
+              step.shifts.length > 0 &&
+              step.shifts.every(
+                (shift) =>
+                  shift.sources.length > 0 &&
+                  shift.sources.every((source) => {
+                    const match =
+                      /^(form\.acpmux-composer|div\.acpmux-transcript-after-latest) \[(-?[\d.]+) (-?[\d.]+) (-?[\d.]+) (-?[\d.]+)\]$/.exec(
+                        source,
+                      );
+                    if (!match) return false;
+                    const [x, y, width, height] = match.slice(2).map(Number);
+                    return (
+                      x === 0 && width === 0 && y! <= 0 && height === (match[1] === "form.acpmux-composer" ? -y! : 0)
+                    );
+                  }),
+              );
+            if (expected) step.problems = step.problems.filter((problem) => !problem.startsWith("layout shift "));
+          }
+          expect(playFailures(JSON.stringify(measured))).toEqual([]);
           expect(await page.locator(".acpmux-assistant").count()).toBe(0);
           expect(await page.locator(".acpmux-pr-dock").count()).toBe(1);
           const link = page.locator(".acpmux-pr-dock__bar");
@@ -68,6 +119,49 @@ await requireBrowserLane("pr-dock-inline-layout.test.ts", () => {
           await page.close();
         }
       });
+
+  for (const theme of ["Apple System Colors", "Apple System Colors Light"])
+    test(`revealed prefix keeps a PR fallback in ${theme}`, async () => {
+      const page = await browser.newPage({ viewport: { width: 760, height: 660 } });
+      try {
+        const { port } = vite.httpServer!.address() as { port: number };
+        await page.goto(
+          `http://127.0.0.1:${port}${galleryFrame("agent-pane.pr-dock", {
+            variant: "streaming-fence-opener",
+            width: 760,
+            theme,
+          })}`,
+        );
+        await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
+        await page.locator(".acpmux-pr-fallback .acpmux-pr-dock").waitFor();
+        await page.evaluate(async () => {
+          const revealPath = "/gallery/src/agent-session/acpmux/conversation/RevealedMarkdown.tsx";
+          const fixturePath = "/gallery/src/agent-session/acpmux/summary/PullRequestDock.gallery.ts";
+          const { revealFrames } = await import(/* @vite-ignore */ revealPath);
+          const { default: entry } = await import(/* @vite-ignore */ fixturePath);
+          // Freeze only the reply's reveal frames; layout and the rest of the pane still run.
+          revealFrames.request = () => 1;
+          revealFrames.cancel = () => {};
+          const snapshot = structuredClone(entry.variants["streaming-fence-opener"].snapshot);
+          const reply = snapshot.rows.find((row: { kind: string }) => row.kind === "assistant");
+          reply.text = "```ts\nconst ready = true;\n";
+          reply.version += 1;
+          window.cmuxAcpmuxBridge!.receive(snapshot);
+        });
+        await page.waitForFunction(() => document.querySelector(".acpmux-assistant .cv-md")?.textContent === "");
+        // Wait for the snapshot's React commit, with reveal still held at its empty safe prefix.
+        await page.evaluate(
+          () => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))),
+        );
+        await page.screenshot({
+          path: `${captures}/revealed-prefix-${theme.endsWith("Light") ? "light" : "dark"}.png`,
+        });
+        expect(await page.locator(".acpmux-pr-dock").count()).toBe(1);
+        expect(await page.locator(".acpmux-pr-fallback .acpmux-pr-dock__bar").count()).toBe(1);
+      } finally {
+        await page.close();
+      }
+    });
 
   for (const width of [760, 320])
     test(`${width}px: PR pills share the action row and overflow never moves the transcript`, async () => {

@@ -57,5 +57,9 @@ export class MessagePlacement {
 }
 
 export function latestMessageRow(rows: readonly AcpmuxRow[], layout: ConversationLayout): string | undefined {
-  return rows[latest.get(layout) ?? -1]?.id;
+  return latestMessage(rows, layout)?.id;
+}
+
+export function latestMessage(rows: readonly AcpmuxRow[], layout: ConversationLayout): AcpmuxRow | undefined {
+  return rows[latest.get(layout) ?? -1];
 }

@@ -374,7 +374,7 @@ import { ChatHeaderTools, HEADER_ACTIONS, menuGroups, type ChatMenuItem } from "
 import { headerState, setHeaderState, useHeaderState } from "./header/headerState";
 import { setTabRow, tabRowStyle, useTabRow, useTabRowTools } from "./header/tabRow";
 import { PullRequestDock, RowPullRequests, useTranscriptPullRequests } from "./summary/PullRequestDock";
-import { latestMessageRow } from "./conversation/messagePlacement";
+import { PullRequestHostVisibility, usePullRequestPlacement } from "./summary/pullRequestPlacement";
 import { pullRequestRows as prSourceRows } from "./summary/pullRequestRows";
 import { SubagentPaneFooter } from "./subagents/SubagentPaneFooter";
 import { RecapCard, useRecapCard } from "./RecapCard";
@@ -1641,6 +1641,7 @@ const RowFrame = React.memo(function RowFrame({
   onFocus,
   onRowKeyDown,
   pullRequests,
+  onPullRequestVisibility,
   referenceScope,
   children,
 }: {
@@ -1680,6 +1681,7 @@ const RowFrame = React.memo(function RowFrame({
   onFocus: (id: string) => void;
   onRowKeyDown: (index: number, event: React.KeyboardEvent<HTMLElement>) => void;
   pullRequests?: React.ContextType<typeof RowPullRequests>;
+  onPullRequestVisibility?: (visible: boolean) => void;
   /// What the child row draws from, compared instead of `children` (a new element every render).
   contentType: unknown;
   controls?: string;
@@ -1766,7 +1768,9 @@ const RowFrame = React.memo(function RowFrame({
       onFocus={() => onFocus(row.id)}
     >
       <ReferenceScopeContext.Provider value={referenceScope ?? null}>
-        <RowPullRequests.Provider value={pullRequests}>{children}</RowPullRequests.Provider>
+        <PullRequestHostVisibility.Provider value={onPullRequestVisibility}>
+          <RowPullRequests.Provider value={pullRequests}>{children}</RowPullRequests.Provider>
+        </PullRequestHostVisibility.Provider>
       </ReferenceScopeContext.Provider>
       {/* The row's own trailing padding is the only row-local empty surface owned by transcript
           selection. Keeping it as a separate hit target means content controls (including native
@@ -2810,10 +2814,11 @@ export function VirtualTranscript({
     lastEstimate.current = { rows, layout, width: rowWidth, sessionId };
     return { layout, ms: acpmuxPerf.enabled ? performance.now() - layoutStart : 0 };
   }, [rows, registry, sessionId, width, chatWidth, chatLook, endReserve]);
-  const prRow = pullRequests.length ? latestMessageRow(rows, estimated.layout) : undefined;
-  // A successful tool can open a PR before any reply exists, even if the turn stops there.
-  // Keep its links above the composer until a message can host them inline.
-  const fallbackPullRequests = pullRequests.length > 0 && prRow === undefined;
+  const {
+    rowId: prRow,
+    report: reportPullRequestHost,
+    fallback: fallbackPullRequests,
+  } = usePullRequestPlacement(rows, estimated.layout, pullRequests.length > 0, sessionId);
   // A row that draws moves only the rows below it: place them again, measuring none.
   const measured = useMemo(() => {
     const layoutStart = acpmuxPerf.enabled ? performance.now() : 0;
@@ -4192,6 +4197,7 @@ export function VirtualTranscript({
                       onFocus={rowFocus}
                       onRowKeyDown={handleRowKeyDown}
                       pullRequests={row.id === prRow ? pullRequests : undefined}
+                      onPullRequestVisibility={row.id === prRow ? reportPullRequestHost : undefined}
                       contentType={Component}
                       controls={controls}
                       onToggleActivity={toggleRow}
