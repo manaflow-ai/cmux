@@ -264,8 +264,11 @@ if [ -n "$t" ] || [ "$resume" = 1 ]; then
   with_token=0
   [ -z "$t" ] || with_token=1
   while :; do
-    # A resume leaves out --name: the pending proposal keeps its own.
-    set -- host join --hub "$origin"
+    # A resume leaves out --name: the pending proposal keeps its own. One
+    # with no token leaves out --hub too, so acpmux asks the pending hub; a
+    # token only ever goes to this script's origin.
+    set -- host join
+    [ "$resume" = 1 ] && [ "$with_token" = 0 ] || set -- "$@" --hub "$origin"
     [ "$resume" = 1 ] || set -- "$@" --name "$name"
     set -- "$@" --json
     if [ "$replace" = 1 ]; then

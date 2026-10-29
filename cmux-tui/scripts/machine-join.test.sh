@@ -120,7 +120,8 @@ chmod 755 "$shims/curl"
 # JT_CAPS (capability lines), JT_JOIN_EXIT, JT_STATE (a file; present = joined),
 # JT_DOCTOR=1 (it has `host doctor --here`), JT_SERVICE=1 (`daemon service`).
 # Recovery, as acpmux's cloud_join/recovery.rs does it: JT_PENDING (a file;
-# present = joinIncomplete, a pending proposal on disk) with JT_PROBE (what
+# present = joinIncomplete, a pending proposal on disk; it holds the
+# proposal's hub when a case sets one) with JT_PROBE (what
 # the hub says of it: live, unknown or revoked), and JT_REVOKED (a file;
 # present = the final credential is revoked, which only --replace with a
 # token on stdin re-enrolls; without --replace acpmux says already joined).
@@ -152,6 +153,13 @@ case "\$*" in
     case " \$* " in *" --replace "*) rep=1 ;; *) rep=0 ;; esac
     if [ -f "\$JT_PENDING" ]; then
       case "\$*" in *" --name "*) refuse 2 "join incomplete; retry with the original hub and name" ;; esac
+      ph="\$("$(command -v cat)" "\$JT_PENDING")"
+      if [ -n "\$ph" ]; then
+        case " \$* " in
+          *" --hub \$ph "*) ;;
+          *" --hub "*) refuse 2 "join incomplete; retry with the original hub and name" ;;
+        esac
+      fi
       case "\${JT_PROBE:-unknown}" in
         live) ;;
         revoked) [ "\$rep" = 1 ] && [ -n "\$got" ] || refuse 3 "revoked: run machine add again" ;;
@@ -445,6 +453,25 @@ suite() {
   check "incomplete, no token: the join finished" test ! -e "$d/home/pending"
   check "incomplete, no token: says joined" out_has "cmux join: joined"
   check "incomplete, no token: never says already joined" eval '! out_has "already joined"'
+
+  # A tokenless resume asks the pending proposal's own hub (no --hub), so a
+  # join started against another platform origin still recovers.
+  new_case incomplete-other-hub
+  printf '%s\n' "https://other.example.test" >"$d/home/pending"
+  JT_PROBE=live
+  run_join none
+  check "incomplete, other hub: exit 0 (got $rc): $(cat "$d/out")" rc_is 0
+  check "incomplete, other hub: no --hub on a tokenless resume" eval '! grep -q -- "--hub" "$d/log/joins"'
+  check "incomplete, other hub: the join finished" test ! -e "$d/home/pending"
+  # With a token, the token goes only to this script's origin.
+  new_case incomplete-other-hub-token
+  printf '%s\n' "https://other.example.test" >"$d/home/pending"
+  run_join env
+  check "incomplete, other hub, token: refused (got $rc)" rc_is 2
+  check "incomplete, other hub, token: --hub is this origin" grep -q -- "--hub $origin" "$d/log/joins"
+  check "incomplete, other hub, token: says so" out_has "the join that did not finish could not resume"
+  check "incomplete, other hub, token: no token in output" no_token_in_output
+  check "incomplete, other hub, token: no token on disk" no_token_on_disk
 
   # The hub does not know the proposal yet and there is no line: ask for it.
   new_case incomplete-needs-line
