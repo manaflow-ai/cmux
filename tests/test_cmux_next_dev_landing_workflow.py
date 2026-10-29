@@ -108,7 +108,8 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(step["continue-on-error"], "true", "a failed placement keeps the compile's route")
         self.assertIn("scripts/ci/dev_landing_place.py", step["run"])
         self.assertIn("FRESH_LABEL", step["env"])
-        self.assertLessEqual(int(step["env"]["WAIT_SECONDS"]), 300, "a fallback within minutes")
+        self.assertNotIn("WAIT_SECONDS", step["env"], "a DEV daily placement never waits")
+        self.assertLessEqual(int(job["timeout-minutes"]), 4)
         self.assertIn("inputs.same_tree_sha || inputs.dev_daily_sha", step["env"]["SHA"])
         compile_job = self.jobs["cmux-scheme-compile"]
         self.assertIn("dev-daily-place", compile_job["needs"])

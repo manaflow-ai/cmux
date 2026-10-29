@@ -33,19 +33,16 @@ GAP_REPO and GAP_REMOTE (a bare repository and the remote to fetch commits into 
 has a deadline, so a stalled network never holds the job.
 
 `place` with FRESH_LABEL set places a DEV daily's Release compile (cmux-next.yml, dev-daily-place, for
-cmux-scheme-compile) the same way, with the DEV compile slots as candidates too. Of 15 DEV compiles on
-2026-10-28, 4 hit a warm cache, every one on the same host: the slot label FRESH_LABEL went to whichever
-slot was idle, and with both busy the compile took the side label onto a host with no tree (0 of 509
-cache hits, 808 s against 130 s warm). So in this mode:
-1. the candidates are the free runners carrying FRESH_LABEL (pinned by their static label when they
-   have one; an unpinned slot is a host-specific pick only while it is the one idle slot) and the free
-   pinnable root runners, scored by their host's holder distance, a slot before a root at equal distance;
-2. when the nearest host overall (by record, idle or not) is busy and the best free pick is WAIT_GAP or
-   more commits farther (or cold), it looks again every POLL_SECONDS for up to WAIT_SECONDS for that
-   host to free, then takes the best free pick (rulebook: a fallback within minutes);
-3. with no free owned runner on a host with a record, a free slot by label, then a free side runner;
-   with none of those it prints an empty runs_on and the compile keeps macos-placement's route.
-A host where another DEV compile runs holds its host lock, so it is not free until that runner is idle.
+cmux-scheme-compile; place_daily()). Of 15 DEV compiles on 2026-10-28, 4 hit a warm cache, every one on
+the same host: the DEV slot label went to whichever slot was idle. It reads one runner listing, nothing
+else, and never waits:
+1. a host is occupied while any of its runners is busy: whatever holds the host lock runs on one of them,
+   so the busy flags cover every holder, with no job names to keep in step;
+2. a pick claims a host only when its label resolves to exactly one idle runner: an idle DEV slot or root
+   runner pinned by its static label, or the one idle DEV slot when there is only one; the nearest record
+   wins, a slot first at equal distance;
+3. otherwise the shared DEV slot label when a slot is idle, then the side label, at once; with nothing
+   owned idle, or the runners unreadable, it prints an empty runs_on and the compile keeps its route.
 """
 from __future__ import annotations
 
@@ -66,13 +63,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 HOLDER_PREFIX = "cmux-next-dev-cas-holder-"
 BRANCH = "feat-cmux-next"
 COMPILE_JOB = "cmux NEXT DEV Release compile (landing)"
-# The DEV daily's compile (cmux-scheme-compile's name in a dev_daily run): it holds a host lock too.
-DAILY_COMPILE_JOB = "cmux NEXT DEV Release compile"
-COMPILE_JOBS = frozenset({COMPILE_JOB, DAILY_COMPILE_JOB})
+RUNNER_LABEL_PREFIX = "glaeda-runner-"
 # A DEV daily placement that places nothing: the compile keeps macos-placement's route.
 DAILY_KEEP = {"runs_on": "", "runner_label": "", "pool": "", "host": "", "holder_sha": "", "gap": ""}
-RUNNER_LABEL_PREFIX = "glaeda-runner-"
-DEV_SLOT_PREFIX = "glaeda-dev-"  # the DEV compile slots' label (glaeda's freshness slot)
 SHA = re.compile(r"^[0-9a-f]{40}$")
 FETCH_SECONDS = 45
 # In-flight landings older than this are not read (a compile takes minutes).
@@ -112,11 +105,7 @@ def free_runners(runners: Sequence[Mapping[str, Any]], side_label: str,
 
 def in_flight(runs: Sequence[Mapping[str, Any]], jobs_of: Callable[[int], Sequence[Mapping[str, Any]]],
               own_run: str, now: dt.datetime) -> tuple[set[str], set[str]]:
-    """(labels other queued jobs claim a runner by, runners other DEV compiles run on).
-
-    Both a landing's compile and a DEV daily's (COMPILE_JOBS) hold their host's lock. The second set
-    names runners, not hosts: a host is busy while that runner is (busy_hosts()), so a placement that
-    keeps looking sees the host free once that compile ends."""
+    """(static labels other landings' queued compiles wait on, hosts other landings compile on)."""
     taken, busy_hosts = set(), set()
     recent = []
     for run in runs:
@@ -129,24 +118,13 @@ def in_flight(runs: Sequence[Mapping[str, Any]], jobs_of: Callable[[int], Sequen
             recent.append(run)
     for run in recent[:IN_FLIGHT_RUNS]:
         for job in jobs_of(int(run["id"])):
-            labels = [str(label) for label in job.get("labels") or []]
-            if job.get("status") in ("queued", "waiting", "pending", "requested"):
-                pinned = [label for label in labels if label.startswith(RUNNER_LABEL_PREFIX)]
-                # Any queued job pinned to a runner claims it. One that asked for a DEV slot by its label
-                # alone (a feed compile on macos-placement's fresh_runner) claims whichever slot is idle,
-                # so its label goes in too and free_slots() offers no slot while it waits.
-                taken.update(pinned or [label for label in labels if label.startswith(DEV_SLOT_PREFIX)])
-            if job.get("name") not in COMPILE_JOBS:
+            if job.get("name") != COMPILE_JOB:
                 continue
-            if job.get("status") == "in_progress" and job.get("runner_name"):
-                busy_hosts.add(str(job["runner_name"]))
+            if job.get("status") in ("queued", "waiting", "pending", "requested"):
+                taken.update(label for label in job.get("labels") or [] if str(label).startswith(RUNNER_LABEL_PREFIX))
+            elif job.get("status") == "in_progress" and job.get("runner_name"):
+                busy_hosts.add(host_of(str(job["runner_name"])))
     return taken, busy_hosts
-
-
-def busy_hosts(compiling: set[str], runners: Sequence[Mapping[str, Any]]) -> set[str]:
-    """The hosts of the runners in `compiling` (in_flight()) that are still busy, or not listed."""
-    idle = {str(runner.get("name") or "") for runner in runners if runner.get("status") == "online" and not runner.get("busy")}
-    return {host_of(name) for name in compiling if name not in idle}
 
 
 def holder_sha(artifacts: Sequence[Mapping[str, Any]], host: str, repository_id: str) -> str:
@@ -203,87 +181,6 @@ def git_distance(repo: str, holder: str, head: str, remote: str = "") -> int | N
     return int(out) if out.isdigit() else None
 
 
-def labels_of(runner: Mapping[str, Any]) -> set[str]:
-    return {str(label.get("name")) for label in runner.get("labels") or [] if isinstance(label, Mapping)}
-
-
-def free_slots(runners: Sequence[Mapping[str, Any]], fresh_label: str,
-               taken: set[str] = frozenset()) -> list[tuple[str, bool]]:
-    """The free runners carrying FRESH_LABEL (the DEV compile slots), as (name, has its static label).
-
-    None while a queued job asked for FRESH_LABEL alone (in_flight() puts the label in `taken`): GitHub
-    hands that job the next idle slot, and which one is unknown."""
-    if fresh_label in taken:
-        return []
-    free = []
-    for runner in runners:
-        name = str(runner.get("name") or "")
-        if not name or not fresh_label or runner.get("status") != "online" or runner.get("busy"):
-            continue
-        labels = labels_of(runner)
-        if fresh_label in labels and static_label(name) not in taken:
-            free.append((name, static_label(name) in labels))
-    return sorted(free)
-
-
-def record_hosts(runners: Sequence[Mapping[str, Any]], labels: set[str]) -> list[str]:
-    """The hosts of the online runners carrying any of `labels`: where a warm tree can be."""
-    return sorted({host_of(str(runner.get("name") or "")) for runner in runners
-                   if runner.get("name") and runner.get("status") == "online" and labels & labels_of(runner)})
-
-
-def waitable_hosts(runners: Sequence[Mapping[str, Any]], labels: set[str], busy: set[str]) -> list[str]:
-    """The hosts worth waiting for: a runner there carries one of `labels` and its static label (a pick could
-    claim it once free), and none of those is idle, or another DEV compile holds the host's lock (`busy`). A
-    host whose only runners are unpinned slots is never waited for: freeing it gives no pick to claim, so the
-    compile takes the shared label at once."""
-    pinnable: dict[str, bool] = {}
-    for runner in runners:
-        name = str(runner.get("name") or "")
-        names = labels_of(runner)
-        if not name or runner.get("status") != "online" or not (labels & names) or static_label(name) not in names:
-            continue
-        host = host_of(name)
-        pinnable[host] = pinnable.get(host, False) or not runner.get("busy")
-    return sorted(host for host, idle in pinnable.items() if host in busy or not idle)
-
-
-def choose_daily(roots: Sequence[str], slots: Sequence[tuple[str, bool]], side_label: str, fresh_label: str,
-                 distance_of: Callable[[str], tuple[str, int | None]],
-                 busy: set[str] = frozenset()) -> tuple[tuple[int, int, str] | None, dict[str, str] | None]:
-    """(the best host-specific pick's (distance, kind, name) and placement) for a DEV daily, or (None, None).
-
-    A pick claims a host only when its label can land on exactly one runner: a slot with its static label, or
-    an unpinned slot while it is the one free slot of them all (`slots`, busy hosts included: GitHub can hand
-    the shared label to any of them). kind 0 is a slot, 1 a root runner: a slot first at equal distance.
-    A root runner is pinned as [its pool's root label, its static label], as the landing compile pins it: the
-    owned-pool rescue watches a job queued on a glaeda-root-* label, so a runner taken between this read and
-    the job's start has the rescue's fallback. runner_label is the first label (the job's CMUX_NEXT_RUNNER)."""
-    root_label = side_label.replace("glaeda-side-", "glaeda-root-", 1)
-    scored = []
-    for name, pinned in slots:
-        if host_of(name) in busy:
-            continue
-        if pinned or len(slots) == 1:
-            holder, distance = distance_of(host_of(name))
-            if distance is not None:
-                runs_on = [fresh_label, static_label(name)] if pinned else fresh_label
-                scored.append(((distance, 0, name), holder, runs_on, fresh_label))
-    for name in roots:
-        if host_of(name) in busy:
-            continue
-        holder, distance = distance_of(host_of(name))
-        if distance is not None:
-            scored.append(((distance, 1, name), holder, [root_label, static_label(name)], root_label))
-    if not scored:
-        return None, None
-    key, holder, runs_on, label = min(scored, key=lambda item: item[0])
-    distance, _, name = key
-    return key, {"runs_on": json.dumps(runs_on), "runner_label": label, "pool": "owned", "host": host_of(name),
-                 "holder_sha": holder, "gap": str(distance),
-                 "reason": f"{name} is free on {host_of(name)}, whose cache is {distance} commits from this commit"}
-
-
 def choose(roots: Sequence[str], sides: Sequence[str], side_label: str,
            distance_of: Callable[[str], tuple[str, int | None]], busy_hosts: set[str] = frozenset()) -> dict[str, str] | None:
     """The owned placement for this read, or None when no owned runner is free."""
@@ -319,8 +216,9 @@ def place(env: Mapping[str, str], read_runners: Callable[[], Sequence[Mapping[st
     overflow = env.get("OVERFLOW_LABEL") or "blacksmith-12vcpu-macos-26"
     overflowed = {"runs_on": json.dumps(overflow), "runner_label": overflow, "pool": "blacksmith",
                   "host": "", "holder_sha": "", "gap": ""}
+    fresh_label = (env.get("FRESH_LABEL") or "").strip()
     if not side_label.startswith("glaeda-side-"):
-        if (env.get("FRESH_LABEL") or "").strip():  # a DEV daily keeps the route its run already has
+        if fresh_label:  # a DEV daily keeps the route its run already has
             return {**DAILY_KEEP, "reason": f"owned pools are off for this run (side route {side_label or 'unset'})"}
         return {**overflowed, "reason": f"owned pools are off for this run (side route {side_label or 'unset'})"}
     head, repo_id = env.get("SHA", ""), env.get("GITHUB_REPOSITORY_ID", "")
@@ -338,25 +236,22 @@ def place(env: Mapping[str, str], read_runners: Callable[[], Sequence[Mapping[st
             holders[host] = (sha, git_distance(gap_repo, sha, head, gap_remote) if sha else None)
         return holders[host]
 
+    if fresh_label:
+        return place_daily(side_label, fresh_label, read_runners, distance_of)
     try:
-        taken, compiling = read_in_flight()
+        taken, busy_hosts = read_in_flight()
     except Exception as error:  # noqa: BLE001 - unknown in-flight landings: place on the live state
         print(f"dev_landing_place: landings in flight unreadable: {error}", file=sys.stderr)
-        taken, compiling = set(), set()
-    fresh_label = (env.get("FRESH_LABEL") or "").strip()
-    if fresh_label:
-        return place_daily(env, side_label, fresh_label, read_runners, distance_of, taken, compiling,
-                           wait, poll, sleep, clock)
+        taken, busy_hosts = set(), set()
     started = clock()
     reads = 0
     while True:
         reads += 1
         try:
-            runners = read_runners()
-            roots, sides = free_runners(runners, side_label, taken)
+            roots, sides = free_runners(read_runners(), side_label, taken)
         except Exception as error:  # noqa: BLE001 - nobody saw an owned runner free
             return {**overflowed, "reason": f"owned runners unreadable ({error}); overflow at once"}
-        picked = choose(roots, sides, side_label, distance_of, busy_hosts(compiling, runners))
+        picked = choose(roots, sides, side_label, distance_of, busy_hosts)
         if picked:
             return picked
         if clock() - started + poll > wait:
@@ -364,46 +259,46 @@ def place(env: Mapping[str, str], read_runners: Callable[[], Sequence[Mapping[st
         sleep(poll)
 
 
-def place_daily(env: Mapping[str, str], side_label: str, fresh_label: str,
-                read_runners: Callable[[], Sequence[Mapping[str, Any]]],
-                distance_of: Callable[[str], tuple[str, int | None]], taken: set[str], compiling: set[str],
-                wait: float, poll: float, sleep: Callable[[float], None], clock: Callable[[], float]) -> dict[str, str]:
-    """A DEV daily's compile: the free runner nearest its cache, waiting at most WAIT_SECONDS for a nearer busy host."""
+def place_daily(side_label: str, fresh_label: str, read_runners: Callable[[], Sequence[Mapping[str, Any]]],
+                distance_of: Callable[[str], tuple[str, int | None]]) -> dict[str, str]:
+    """A DEV daily's compile: the idle runner nearest its cache, from one runner listing (see the module doc)."""
     root_label = side_label.replace("glaeda-side-", "glaeda-root-", 1)
-    keep = DAILY_KEEP
-    wait_gap = int(env.get("WAIT_GAP") or 3)
-    started = clock()
-    reads = 0
-    while True:
-        reads += 1
-        try:
-            runners = read_runners()
-        except Exception as error:  # noqa: BLE001 - nobody saw an owned runner free: keep the route
-            return {**keep, "reason": f"owned runners unreadable ({error}); the compile keeps its route"}
-        busy = busy_hosts(compiling, runners)
-        roots, sides = free_runners(runners, side_label, taken)
-        slots = free_slots(runners, fresh_label, taken)
-        key, picked = choose_daily(roots, slots, side_label, fresh_label, distance_of, busy)
-        known = [(distance, host) for host in waitable_hosts(runners, {fresh_label, root_label}, busy)
-                 for _, distance in [distance_of(host)] if distance is not None]
-        nearest = min(known) if known else None
-        better_busy = nearest is not None and (key is None or key[0] - nearest[0] >= wait_gap)
-        if not better_busy or clock() - started + poll > wait:
-            if picked:
-                if better_busy:
-                    picked["reason"] += f"; {nearest[1]} ({nearest[0]} commits) stayed busy for {int(clock() - started)}s"
-                return picked
-            if slots:
-                return {**keep, "runs_on": json.dumps(fresh_label), "runner_label": fresh_label, "pool": "owned",
-                        "reason": f"no free runner on a host with a cache record; {len(slots)} DEV slots are free"}
-            if sides:
-                return {**keep, "runs_on": json.dumps(side_label), "runner_label": side_label, "pool": "owned",
-                        "reason": f"no free runner on a host with a cache record; {len(sides)} side runners are free"}
-            if not better_busy:
-                return {**keep, "reason": "no owned runner is free; the compile keeps its route"}
-            return {**keep, "reason": f"no owned runner was free in {reads} looks over {int(clock() - started)}s; "
-                                      "the compile keeps its route"}
-        sleep(poll)
+    try:
+        runners = list(read_runners())
+    except Exception as error:  # noqa: BLE001 - nobody saw an owned runner idle: keep the route
+        return {**DAILY_KEEP, "reason": f"owned runners unreadable ({error}); the compile keeps its route"}
+    online = [runner for runner in runners if runner.get("name") and runner.get("status") == "online"]
+    occupied = {host_of(str(runner["name"])) for runner in online if runner.get("busy")}
+    idle = [(str(runner["name"]), {str(label.get("name")) for label in runner.get("labels") or []
+                                   if isinstance(label, Mapping)}) for runner in online if not runner.get("busy")]
+    slots = [(name, labels) for name, labels in idle if fresh_label in labels]
+    sides = [name for name, labels in idle if side_label in labels]
+    scored = []
+    for name, labels in idle:
+        if host_of(name) in occupied:
+            continue
+        pinned = static_label(name) in labels
+        if fresh_label in labels and (pinned or len(slots) == 1):
+            kind, label, runs_on = 0, fresh_label, [fresh_label, static_label(name)] if pinned else fresh_label
+        elif root_label in labels and pinned:
+            kind, label, runs_on = 1, root_label, [root_label, static_label(name)]
+        else:
+            continue
+        holder, distance = distance_of(host_of(name))
+        if distance is not None:
+            scored.append(((distance, kind, name), holder, label, runs_on))
+    if scored:
+        (distance, _, name), holder, label, runs_on = min(scored, key=lambda item: item[0])
+        return {"runs_on": json.dumps(runs_on), "runner_label": label, "pool": "owned", "host": host_of(name),
+                "holder_sha": holder, "gap": str(distance),
+                "reason": f"{name} is idle on {host_of(name)}, whose cache is {distance} commits from this commit"}
+    if slots:
+        return {**DAILY_KEEP, "runs_on": json.dumps(fresh_label), "runner_label": fresh_label, "pool": "owned",
+                "reason": f"no idle runner on a free host with a cache record; {len(slots)} DEV slots are idle"}
+    if sides:
+        return {**DAILY_KEEP, "runs_on": json.dumps(side_label), "runner_label": side_label, "pool": "owned",
+                "reason": f"no idle runner on a free host with a cache record; {len(sides)} side runners are idle"}
+    return {**DAILY_KEEP, "reason": "no owned runner is idle; the compile keeps its route"}
 
 
 def gap_main(source: str, head: str) -> int:
@@ -445,17 +340,13 @@ def main(argv: Sequence[str]) -> int:
     def read_in_flight() -> tuple[set[str], set[str]]:
         if api is None:
             return set(), set()
-        # A landing's compile runs in a push run, a DEV daily's in a dispatch: both hold a host lock.
-        runs = []
-        for event in ("push", "workflow_dispatch"):
-            runs += api.get(f"/actions/workflows/cmux-next.yml/runs?event={event}&branch={BRANCH}&status=in_progress"
-                            "&per_page=30").get("workflow_runs") or []
-        runs.sort(key=lambda run: str(run.get("created_at") or ""), reverse=True)
+        runs = api.get(f"/actions/workflows/cmux-next.yml/runs?event=push&branch={BRANCH}&status=in_progress"
+                       "&per_page=30").get("workflow_runs") or []
         return in_flight(runs, lambda run_id: api.get(f"/actions/runs/{run_id}/jobs?filter=latest&per_page=100")
                          .get("jobs") or [], env.get("GITHUB_RUN_ID", ""), dt.datetime.now(dt.timezone.utc))
 
     outputs = place(env, read_runners, read_holders, read_in_flight)
-    print(f"::notice title=DEV compile placement::{outputs['reason']}", file=sys.stderr)
+    print(f"::notice title=DEV landing placement::{outputs['reason']}", file=sys.stderr)
     for key in ("runs_on", "runner_label", "pool", "host", "holder_sha", "gap", "reason"):
         print(f"{key}={' '.join(str(outputs.get(key, '')).split())}")
     return 0

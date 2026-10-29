@@ -4771,13 +4771,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: scripts/cmux-next/continue-nightly-next.sh --repo "$GITHUB_REPOSITORY"
 
-  # A DEV daily's Release compile (cmux-scheme-compile) goes to the free owned Mac whose host tree last
-  # compiled the nearest commit, the landing compile's rule (scripts/ci/dev_landing_place.py with
-  # FRESH_LABEL): the DEV compile slots and the pinnable root runners are scored by their host's
-  # cmux-next-dev-cas-holder-<host> record. When the nearest host is busy and the free pick is much
-  # farther, it looks again for at most four minutes, then takes the free pick; with nothing owned free it
-  # prints no route and the compile keeps macos-placement's. A warm host compiles in about 130 s of
-  # xcodebuild, a host with no tree in about 808 s (2026-10-28, 15 DEV compiles, 4 warm).
+  # A DEV daily's Release compile (cmux-scheme-compile) goes to the idle owned Mac whose host tree last
+  # compiled the nearest commit (scripts/ci/dev_landing_place.py with FRESH_LABEL, place_daily()). From one
+  # runner listing: a host with any busy runner is occupied (whatever holds its host lock runs there); a
+  # pick claims a host only when its label resolves to exactly one idle runner (a DEV slot or root runner by
+  # its static label, or the one idle DEV slot), scored by the host's cmux-next-dev-cas-holder-<host>
+  # record. Otherwise the shared DEV slot label, then the side label, at once: it never waits. With nothing
+  # owned idle it prints no route and the compile keeps macos-placement's. A warm host compiles in about
+  # 130 s of xcodebuild, a host with no tree in about 808 s (2026-10-28, 15 DEV compiles, 4 warm).
   # vars.CMUX_NEXT_DEV_COMPILE_AFFINITY=0 turns it off.
   # It runs only when cmux-scheme-compile will (the same tree condition), so it never waits for a skipped compile.
   # It places only a run whose DEV Release app gets built: it carries that step's dispatch condition
@@ -4789,7 +4790,7 @@ jobs:
     name: cmux NEXT DEV compile placement
     environment: ci-routing-agent
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 8
+    timeout-minutes: 4
     permissions:
       actions: read
       contents: read
@@ -4820,15 +4821,12 @@ jobs:
       - name: Place the DEV compile on the nearest cache
         id: place
         continue-on-error: true
-        timeout-minutes: 6
+        timeout-minutes: 3
         env:
           ROUTE_TOKEN: ${{ steps.route-token.outputs.token }}
           SHA: ${{ inputs.same_tree_sha || inputs.dev_daily_sha || github.sha }}
           SIDE_LABEL: ${{ env.CMUX_NEXT_SIDE_ROUTE }}
           FRESH_LABEL: ${{ vars.CI_DEV_COMPILE_RUNNER || 'glaeda-dev-std-xcode-26.6' }}
-          WAIT_SECONDS: "240"
-          POLL_SECONDS: "30"
-          WAIT_GAP: "3"
           GAP_REPO: ${{ runner.temp }}/dev-compile-history
           GAP_REMOTE: ${{ github.server_url }}/${{ github.repository }}
         run: |
