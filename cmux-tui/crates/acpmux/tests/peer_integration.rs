@@ -1175,19 +1175,19 @@ async fn prompt_with_events(
             .expect("client closed");
         match Message::parse(&line).unwrap() {
             Message::Notification { method: m, params: Some(p) }
-                if m == method::MUX_PROMPT_ACCEPTED =>
+                if m == method::MUX_PROMPT_ACCEPTED
+                    && p.get("promptId").and_then(Value::as_str) == Some("resume-flap") =>
             {
-                if p.get("promptId").and_then(Value::as_str) == Some("resume-flap") {
-                    if let Some(flap) = flap.take() {
-                        let _ = flap.send(());
-                    }
+                if let Some(flap) = flap.take() {
+                    let _ = flap.send(());
                 }
             }
-            Message::Notification { method: m, params: Some(p) } if m == method::MUX_EVENT => {
-                if p.get("sessionId").and_then(Value::as_str) == Some(session) {
-                    ended |= matches!(p["kind"].as_str(), Some("turn_end" | "turn_result"));
-                    events.push(p);
-                }
+            Message::Notification { method: m, params: Some(p) }
+                if m == method::MUX_EVENT
+                    && p.get("sessionId").and_then(Value::as_str) == Some(session) =>
+            {
+                ended |= matches!(p["kind"].as_str(), Some("turn_end" | "turn_result"));
+                events.push(p);
             }
             Message::Response { id: rid, result, error } if rid == id => {
                 answer = Some(match error {
