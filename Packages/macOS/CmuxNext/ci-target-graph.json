@@ -380,6 +380,7 @@
         "CmuxNextAgentPermissions",
         "CmuxNextAgentUpdates",
         "CmuxNextApp",
+        "CmuxNextAppCore",
         "CmuxNextApps",
         "CmuxNextBrowserHistory",
         "CmuxNextBrowserImport",
@@ -996,6 +997,7 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextDictation",
       "targets": [
+        "CmuxNextCompat",
         "CmuxNextWakeups"
       ],
       "packages": []
@@ -1196,6 +1198,7 @@
       "targets": [
         "CmuxNextDaemon",
         "CmuxNextDesign",
+        "CmuxNextHome",
         "CmuxNextHomeEngine"
       ],
       "packages": [
@@ -1401,8 +1404,10 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextOnboarding",
       "targets": [
         "CmuxNextBrowserImport",
+        "CmuxNextCompat",
         "CmuxNextDesign",
-        "CmuxNextIcons"
+        "CmuxNextIcons",
+        "CmuxNextWakeups"
       ],
       "packages": []
     },

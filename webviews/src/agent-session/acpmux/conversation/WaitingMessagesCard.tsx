@@ -12,9 +12,12 @@ import { useT } from "../i18n";
 import type { AcpmuxRow } from "../model";
 import { PromptMarksSession } from "../threadMinimap/promptMarks";
 import { FindReveal } from "./chatFind";
-import { ChevronRight } from "./icons";
+import { Icon } from "../icons/Icon";
+import { rowIconSize } from "../icons/iconSize";
 import { messageOpened, setMessageOpened } from "./incomingOpened";
 import "./WaitingMessagesCard.css";
+
+const ROW_ICON = rowIconSize(12);
 
 /// The senders of `rows`, each once, in the order they first wrote.
 export function waitingSenders(rows: readonly AcpmuxRow[]): string[] {
@@ -69,6 +72,7 @@ export function WaitingMessagesCard({
     senders.length === 1
       ? t("message.waitingFromOne", { n })
       : t("message.waitingFrom", { n, sessions: senders.length });
+  const isChat = waiting.delivery === "chat";
   return (
     <div className="cv-waiting" data-open={open || undefined} data-delivery={waiting.delivery}>
       {/* Find counts the messages' text, not the head's names. */}
@@ -82,7 +86,7 @@ export function WaitingMessagesCard({
           onClick={() => show(!open)}
         >
           <span className="cv-waiting__icon">
-            <ChevronRight size={12} strokeWidth={1.4} className={`cv-rotor${open ? " is-open" : ""}`} />
+            <Icon name={open ? "disclosure.expanded" : "disclosure.collapsed"} size={ROW_ICON} row />
           </span>
           <span className="cv-waiting__count">{count}</span>
           <span className="cv-waiting__senders">
@@ -93,9 +97,11 @@ export function WaitingMessagesCard({
             ))}
           </span>
         </button>
-        <span className="cv-received__queued">
-          {t(waiting.delivery === "step" ? "message.readAfterStep" : "message.readAfterTurn")}
-        </span>
+        {!isChat && (
+          <span className="cv-received__queued">
+            {t(waiting.delivery === "step" ? "message.readAfterStep" : "message.readAfterTurn")}
+          </span>
+        )}
       </div>
       <div id={bodyId} className="cv-waiting__messages" hidden={!open}>
         {open &&
