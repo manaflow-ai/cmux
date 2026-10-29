@@ -28,7 +28,11 @@ pub struct MeshRelayConfig {
     /// The hub's origin, `https://` (`http://` only for a loopback address).
     pub url: String,
     /// The program that prints a cmux access token, and its own arguments.
+    #[serde(default)]
     pub token_command: Vec<String>,
+    /// Read the joined machine credential from the owner-only store.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub credential: Option<String>,
     /// Daemons whose authenticated mesh messages may run lifecycle controls here. An empty
     /// list is fail-closed; the machine owner must opt each sender in explicitly.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -75,7 +79,9 @@ impl MeshRelayConfig {
         if url.query().is_some() || url.fragment().is_some() {
             return Err("meshRelay.url must carry no query or fragment".into());
         }
-        if self.token_command.first().is_none_or(|p| p.trim().is_empty()) {
+        if self.credential.as_deref() != Some("join")
+            && self.token_command.first().is_none_or(|p| p.trim().is_empty())
+        {
             return Err("meshRelay.tokenCommand names no program".into());
         }
         let path = url.path().trim_end_matches('/');
@@ -141,6 +147,7 @@ fn parse_token(stdout: &str) -> Result<Token, String> {
 pub struct HttpHub {
     origin: String,
     command: Vec<String>,
+    credential: Option<String>,
     http: reqwest::Client,
     token: tokio::sync::Mutex<Option<Token>>,
 }
@@ -154,12 +161,25 @@ impl HttpHub {
             .user_agent(concat!("acpmux/", env!("CARGO_PKG_VERSION")))
             .build()
             .map_err(|e| e.to_string())?;
-        Ok(Self { origin, command: config.token_command.clone(), http, token: Default::default() })
+        Ok(Self {
+            origin,
+            command: config.token_command.clone(),
+            credential: config.credential.clone(),
+            http,
+            token: Default::default(),
+        })
     }
 
     /// A token: the one held while it is good, else a new one from the command.
     async fn token(&self, fresh: bool) -> Result<Arc<Zeroizing<String>>, HubError> {
         let mut held = self.token.lock().await;
+        if self.credential.as_deref() == Some("join") {
+            let value = crate::cli::cloud_join::read_join_credential(&self.origin)
+                .map_err(|_| HubError::refused("machine credential is unavailable"))?;
+            let token = Arc::new(Zeroizing::new(value));
+            *held = Some((Arc::clone(&token), 0));
+            return Ok(token);
+        }
         let now = crate::store::now_ms();
         if !fresh
             && let Some((token, expires)) = held.as_ref()
@@ -240,6 +260,16 @@ impl HttpHub {
                 .await
                 .map_err(|e| HubError::unavailable(format!("the hub: {}", e.without_url())))?;
             let status = response.status().as_u16();
+            if self.credential.as_deref() == Some("join") {
+                if status == 401 {
+                    let _ = crate::cli::cloud_join::record_auth_result(token.as_str(), true, false);
+                    return Err(HubError::refused("revoked: run machine add again"));
+                }
+                if (200..300).contains(&status) && path == "/v1/mesh/heartbeat" {
+                    let _ = crate::cli::cloud_join::record_auth_result(token.as_str(), false, true);
+                }
+            }
+
             let mut bytes = Vec::new();
             while let Some(chunk) = response
                 .chunk()
@@ -263,6 +293,7 @@ impl HttpHub {
 /// The hub's error codes this client acts on or names in a log (the contract leaves `code` a free
 /// string): any other code is dropped, since a free string could carry anything.
 const KNOWN_CODES: &[&str] = &[
+    "machine.revoked",
     "mesh.unauthorized",
     "mesh.forbidden",
     "mesh.bad_request",
@@ -397,6 +428,7 @@ mod tests {
             url: url.into(),
             token_command: cmd.iter().map(|s| (*s).to_owned()).collect(),
             control_from: Vec::new(),
+            credential: None,
         };
         let hub = "https://cmux-platform-development.debussy.workers.dev/";
         assert_eq!(
@@ -427,6 +459,7 @@ mod tests {
             url: "http://127.0.0.1:9".into(),
             token_command: ["sh", "-c", "yes"].map(str::to_owned).to_vec(),
             control_from: Vec::new(),
+            credential: None,
         };
         let hub = HttpHub::new(&config).unwrap();
         let e = hub.token(true).await.unwrap_err();
@@ -439,6 +472,7 @@ mod tests {
             url: "http://127.0.0.1:9".into(),
             token_command: vec!["/nonexistent/mesh-token-command".into()],
             control_from: vec![],
+            credential: None,
         })
         .unwrap();
         for (kind, op) in [
@@ -465,6 +499,7 @@ mod tests {
     #[test]
     fn only_a_refused_credential_ends_the_relay() {
         assert!(answer(401, br#"{"code": "mesh.unauthorized"}"#).unwrap_err().ends_relay());
+        assert!(answer(401, br#"{"code": "machine.revoked"}"#).unwrap_err().ends_relay());
         assert!(answer(403, b"").unwrap_err().ends_relay());
         // A duplicate name or another bad heartbeat is tried again, not the end of the relay.
         assert!(!answer(400, br#"{"code": "mesh.bad_request"}"#).unwrap_err().ends_relay());

@@ -7,6 +7,7 @@
 pub mod beads;
 pub mod chats;
 pub mod cli_agent;
+pub mod cloud_join;
 #[cfg(unix)]
 pub mod codex_auth_broker;
 pub mod command;
@@ -26,9 +27,12 @@ pub mod host_approvals;
 pub mod host_budget;
 pub mod host_candidates;
 pub mod host_enroll;
+pub mod host_join_doctor;
 pub mod host_peering;
 pub mod host_steps;
 pub mod hosts;
+pub mod join_input;
+pub(crate) mod machine_consent;
 pub mod mesh_control;
 pub mod mesh_node_key;
 pub mod orchestrate;

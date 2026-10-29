@@ -2020,34 +2020,30 @@ def compare(variant, before, after):
             detail = (f"{len(a)} records, as seeded" if ok and isinstance(a, list)
                       else f"seeded {json.dumps(seeded_value)[:160]} -> {json.dumps(a)[:160]}")
         elif item.endswith(".scrollback.history_sha") and a in HISTORY_BY_SHA and b in HISTORY_BY_SHA:
-            # Every row's text as before, in order; rows only after them (a respawned shell's
-            # marker line and prompt push the old screen's top rows into the history). A history
-            # replay draws each row with its own line break, so a line soft-wrapped at an older
-            # width comes back wrapped at that width (re-wrapped rows: same text, other breaks).
+            # Every row exactly as before, in order; rows only after them (a respawned shell's
+            # marker line and prompt push the old screen's top rows into the history). Soft
+            # wraps must survive the replay too: a line wrapped at an older width re-flows at
+            # the new one, so the same text with other row breaks fails ("re-wrapped").
             rows_b, rows_a = HISTORY_BY_SHA[b], HISTORY_BY_SHA[a]
-            text_b, text_a = "".join(rows_b), "".join(rows_a)
-            ok = bool(rows_b) and text_a.startswith(text_b)
+            ok = bool(rows_b) and rows_a[:len(rows_b)] == rows_b
             if a == b:
                 detail = json.dumps(a)
             elif ok:
-                same = rows_a[:len(rows_b)] == rows_b
-                kept = next((i for i in range(1, len(rows_a) + 1) if "".join(rows_a[:i]).startswith(text_b)
-                             and len("".join(rows_a[:i])) >= len(text_b)), len(rows_a))
-                rewrapped = sum(1 for x, y in zip(rows_b, rows_a) if x != y)
-                detail = (f"{json.dumps(b)} -> {json.dumps(a)}: text kept"
-                          + ("" if same else f", {rewrapped} rows re-wrapped")
-                          + f", {len(rows_a) - kept} rows after the old ones {json.dumps(rows_a[kept:])[:80]}")
+                detail = (f"{json.dumps(b)} -> {json.dumps(a)}: rows kept, {len(rows_a) - len(rows_b)} rows"
+                          f" after them {json.dumps(rows_a[len(rows_b):])[:80]}")
             else:
-                at = next((i for i, (x, y) in enumerate(zip(text_b, text_a)) if x != y), min(len(text_b), len(text_a)))
-                detail = f"{json.dumps(b)} -> {json.dumps(a)}: the text changed at {json.dumps(text_b[at:at + 40])} -> {json.dumps(text_a[at:at + 40])}"
+                row = next((i for i, (x, y) in enumerate(zip(rows_b, rows_a)) if x != y), min(len(rows_b), len(rows_a)))
+                text_b, text_a = "".join(rows_b), "".join(rows_a)
+                rewrapped = bool(rows_b) and text_a.startswith(text_b)
+                detail = (f"{json.dumps(b)} -> {json.dumps(a)}: row {row} "
+                          f"{json.dumps(rows_b[row] if row < len(rows_b) else None)[:50]} -> "
+                          f"{json.dumps(rows_a[row] if row < len(rows_a) else None)[:50]}"
+                          + (f" (re-wrapped: same text, {sum(1 for x, y in zip(rows_b, rows_a) if x != y)}"
+                             " rows with other breaks)" if rewrapped else " (the text changed)"))
         elif item.endswith(".scrollback.history_rows") and isinstance(a, int) and isinstance(b, int):
-            # A view re-attaching may add a prompt line, never drop rows; re-wrapped rows (see
-            # history_sha) may be fewer with the same text.
-            sha_b, sha_a = (d.get(item.replace(".history_rows", ".history_sha")) for d in (before, after))
-            rewrapped = sha_b in HISTORY_BY_SHA and sha_a in HISTORY_BY_SHA and bool(HISTORY_BY_SHA[sha_b]) \
-                and "".join(HISTORY_BY_SHA[sha_a]).startswith("".join(HISTORY_BY_SHA[sha_b]))
-            ok = a >= b or rewrapped
-            detail = f"{b} -> {a}" + (" (re-wrapped, text kept)" if a < b and rewrapped else "")
+            # A view re-attaching may add a prompt line, never drop rows (see history_sha).
+            ok = a >= b
+            detail = f"{b} -> {a}"
         else:
             ok = a == b
             detail = json.dumps(a)[:100] if ok else f"{json.dumps(b)[:100]} -> {json.dumps(a)[:100]}"

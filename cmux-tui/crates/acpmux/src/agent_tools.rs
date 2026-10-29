@@ -494,7 +494,11 @@ pub fn remove_mcp_config(home: &Path, session_id: &str) {
 }
 
 pub fn resolve(inputs: &Inputs) -> AgentTools {
-    resolve_with_cua_helper(inputs, cua_helper::installed)
+    let mut tools = resolve_with_cua_helper(inputs, cua_helper::installed);
+    if crate::cli::cloud_join::require_joined_consent("control").is_err() {
+        tools.servers.retain(|server| server.name != "cmux-cua");
+    }
+    tools
 }
 
 fn resolve_with_cua_helper(

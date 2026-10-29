@@ -299,6 +299,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped("_acpmux/chat_settings", Request),
         untyped("_acpmux/chat_settled", Request),
         untyped("_acpmux/chat_transcript", Request),
+        untyped("_acpmux/chat_fork", Request),
         untyped("_acpmux/chat_changed", Notification),
         untyped("_acpmux/chats_lagged", Notification),
         // Moving a chat to another daemon (`transfer_out.rs`).
@@ -370,6 +371,9 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_PAIR_REVOKE, Request),
         untyped(method::MUX_PAIR_ISSUE, Request),
         untyped(method::MUX_PAIR_SET, Request),
+        untyped(method::MUX_MACHINE_CONSENT_SET, Request),
+        untyped(method::MUX_MACHINE_CONSENT_GET, Request),
+        untyped(method::MUX_MACHINE_CONSENT_REFUSED, Request),
         untyped(method::MUX_PAIR_REDEEM, Request),
         // Notifications.
         notification::<events::SessionEvent>(method::MUX_EVENT),

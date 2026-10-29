@@ -551,16 +551,13 @@ newlines')"#
     #[test]
     #[cfg(unix)]
     fn pasted_ssh_command_preserves_every_argument_and_prompt_file_byte() {
-        use std::os::unix::fs::PermissionsExt;
         let dir = std::env::temp_dir().join(format!("acpmux-hint-{}", uuid::Uuid::now_v7()));
         std::fs::create_dir(&dir).unwrap();
         for (name, script) in [
             ("ssh", "#!/bin/sh\n[ \"$1\" = -- ] || exit 9\nshift 2\nexec /bin/sh -c \"$1\"\n"),
             ("acpmux", "#!/bin/sh\nprintf '%s\\0' \"$@\"\ncat\n"),
         ] {
-            let path = dir.join(name);
-            std::fs::write(&path, script).unwrap();
-            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700)).unwrap();
+            crate::test_exec::write_executable(dir.join(name), script);
         }
         let prompt = "'quoted' \"double\" $HOME $(exit 99) `exit 98`\nsecond line";
         let file = format!(
