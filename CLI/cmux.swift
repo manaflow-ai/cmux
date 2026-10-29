@@ -31940,6 +31940,9 @@ struct CMUXCLI {
             didSendFeedTelemetry = true
             do {
                 let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
+                // Before naming's call, which can run a minute: a prompt the user sends
+                // meanwhile must not be taken for this turn's.
+                let difficultyTurnStart = claudeDifficultyTurnStart(parsedInput: parsedInput, mappedSession: mappedSession)
                 guard let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
                     preferred: mappedSession?.workspaceId,
                     fallback: workspaceArg,
@@ -31973,6 +31976,7 @@ struct CMUXCLI {
                 runClaudeDifficultyAssessmentHook(
                     parsedInput: parsedInput,
                     mappedSession: mappedSession,
+                    turnStart: difficultyTurnStart,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
                     sessionStore: sessionStore,

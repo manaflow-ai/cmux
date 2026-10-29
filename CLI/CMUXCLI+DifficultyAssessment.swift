@@ -111,24 +111,18 @@ enum DifficultyAssessmentEngine {
         return (messages[userIndex].text, reply.text)
     }
 
-    /// The excerpt with the reply Claude Code passed to the `Stop` hook, and
-    /// the prompt it answered.
+    /// The excerpt with the reply Claude Code passed to the `Stop` hook: the
+    /// turn's prompt, the last user message in `messages`, and `reply`.
     ///
-    /// The transcript may be read a minute after the turn ended (auto-naming's
-    /// call runs first), when the reply is on disk and the user may have sent
-    /// the next prompt. So when an assistant message with the reply's text is
-    /// on disk, the prompt is the last user message before it. Otherwise the
-    /// reply is not written yet, no later prompt can exist, and the prompt is
-    /// the last user message.
+    /// `messages` is the transcript as the hook read it when it started, before
+    /// auto-naming's call, which can take a minute. Claude Code writes the reply
+    /// only after the hook starts, so no later prompt can be in that read, and
+    /// an earlier reply with the same text cannot move the prompt.
     static func excerpt(
         from messages: [AutoNamingTranscriptMessage],
         stopReply reply: String
     ) -> (user: String, assistant: String)? {
-        let replyText = reply.trimmingCharacters(in: .whitespacesAndNewlines)
-        let end = messages.lastIndex {
-            $0.role == "assistant" && $0.text.trimmingCharacters(in: .whitespacesAndNewlines) == replyText
-        } ?? messages.endIndex
-        guard let user = messages[..<end].last(where: { $0.role == "user" }) else { return nil }
+        guard let user = messages.last(where: { $0.role == "user" }) else { return nil }
         return (user.text, reply)
     }
 

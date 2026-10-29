@@ -1,14 +1,51 @@
 import CMUXAgentLaunch
 import Foundation
 
+/// What the difficulty pass takes from the turn when the `Stop` hook starts,
+/// before auto-naming's call, which can run a minute.
+struct ClaudeDifficultyTurnStart {
+    /// The reply the `Stop` input carries; `nil` when it carries none, and the
+    /// pass then waits for the reply in the transcript.
+    var stopReply: String?
+    /// With a `stopReply`: this turn's prompt and that reply, from the
+    /// transcript as it was when the hook started; `nil` when it held no user
+    /// message. A prompt the user sends during naming's call is not in it.
+    var stopInputExcerpt: (user: String, assistant: String)?
+}
+
 extension CMUXCLI {
+    /// Reads what the difficulty pass needs from the turn before auto-naming
+    /// runs. The transcript is read only when the `Stop` input carries the
+    /// reply; the polling path reads it later, as before.
+    func claudeDifficultyTurnStart(
+        parsedInput: ClaudeHookParsedInput,
+        mappedSession: ClaudeHookSessionRecord?
+    ) -> ClaudeDifficultyTurnStart {
+        // The raw input: the parsed `object` cuts `last_assistant_message` to 240 characters.
+        guard let reply = DifficultyAssessmentEngine.stopReply(fromHookInput: parsedInput.rawObject) else {
+            return ClaudeDifficultyTurnStart()
+        }
+        guard let transcriptPath = parsedInput.transcriptPath ?? mappedSession?.transcriptPath,
+              let lines = readRecentTextFileLines(path: transcriptPath, maxBytes: 512 * 1024) else {
+            return ClaudeDifficultyTurnStart(stopReply: reply)
+        }
+        let messages = AutoNamingEngine().extractMessages(fromTranscriptLines: lines)
+        return ClaudeDifficultyTurnStart(
+            stopReply: reply,
+            stopInputExcerpt: DifficultyAssessmentEngine.excerpt(from: messages, stopReply: reply)
+        )
+    }
+
     /// Drives one automatic task-difficulty pass for a Claude session at turn
     /// end. Independent of auto-naming: it probes the app on its own, never
     /// throws, and every failure path is silent so it cannot affect the hook's
-    /// exit status or the naming pass that runs before it.
+    /// exit status or the naming pass that runs before it. `turnStart` is what
+    /// ``claudeDifficultyTurnStart(parsedInput:mappedSession:)`` read before
+    /// that pass.
     func runClaudeDifficultyAssessmentHook(
         parsedInput: ClaudeHookParsedInput,
         mappedSession: ClaudeHookSessionRecord?,
+        turnStart: ClaudeDifficultyTurnStart,
         workspaceId: String,
         surfaceId: String,
         sessionStore: ClaudeHookSessionStore,
@@ -51,13 +88,16 @@ extension CMUXCLI {
             return
         }
 
-        // The raw input: the parsed `object` cuts `last_assistant_message` to 240 characters.
-        guard let transcriptPath = parsedInput.transcriptPath ?? mappedSession?.transcriptPath,
-              let excerpt = claudeDifficultyTurnExcerpt(
-                  transcriptPath: transcriptPath,
-                  stopReply: DifficultyAssessmentEngine.stopReply(fromHookInput: parsedInput.rawObject),
-                  telemetry: telemetry
-              ) else { return }
+        let excerpt: (user: String, assistant: String)
+        if turnStart.stopReply != nil {
+            guard let fromStart = turnStart.stopInputExcerpt else { return }
+            excerpt = fromStart
+        } else {
+            guard let transcriptPath = parsedInput.transcriptPath ?? mappedSession?.transcriptPath,
+                  let fromTranscript = claudeDifficultyTurnExcerpt(transcriptPath: transcriptPath, telemetry: telemetry)
+            else { return }
+            excerpt = fromTranscript
+        }
 
         // Not the hook session store: `SessionEnd` removes that record on every
         // Claude restart, including the one a rating causes.
@@ -115,18 +155,16 @@ extension CMUXCLI {
         telemetry.breadcrumb("claude-hook.difficulty.applied")
     }
 
-    /// This turn's last user message and its reply, or `nil` when there is
-    /// nothing to rate.
+    /// This turn's last user message and its reply when the `Stop` input
+    /// carries no reply, or `nil` when there is nothing to rate.
     ///
-    /// The reply is the one the `Stop` input carries. Without it, the reply is
-    /// read from the transcript, which Claude Code writes just after this async
-    /// hook starts: the transcript is read again every 200 ms, for at most
-    /// 5 seconds, until an assistant message follows the last user message. A
-    /// reply that never comes skips the turn, so a prompt is never rated with
-    /// an earlier turn's reply.
+    /// The reply is read from the transcript, which Claude Code writes just
+    /// after this async hook starts: the transcript is read again every 200 ms,
+    /// for at most 5 seconds, until an assistant message follows the last user
+    /// message. A reply that never comes skips the turn, so a prompt is never
+    /// rated with an earlier turn's reply.
     private func claudeDifficultyTurnExcerpt(
         transcriptPath: String,
-        stopReply: String?,
         telemetry: CLISocketSentryTelemetry
     ) -> (user: String, assistant: String)? {
         let deadline = Date().addingTimeInterval(DifficultyAssessmentConfig.replyWait)
@@ -134,9 +172,6 @@ extension CMUXCLI {
             // `extractMessages` drops blank messages, so an excerpt is never blank.
             guard let lines = readRecentTextFileLines(path: transcriptPath, maxBytes: 512 * 1024) else { return nil }
             let messages = AutoNamingEngine().extractMessages(fromTranscriptLines: lines)
-            if let stopReply {
-                return DifficultyAssessmentEngine.excerpt(from: messages, stopReply: stopReply)
-            }
             guard messages.contains(where: { $0.role == "user" }) else { return nil }
             if let excerpt = DifficultyAssessmentEngine.excerpt(from: messages) { return excerpt }
             let remaining = deadline.timeIntervalSinceNow
