@@ -3245,7 +3245,9 @@
       "nextGithubFix": "Uruchom gh auth login w terminalu maszyny i skonfiguruj tam swoją tożsamość Git. setup-github wymaga tożsamości Git na Macu; podczas sprawdzania zwróciło ten błąd bez podania przyczyny.",
       "nextExecFix": "exec służy do krótkich poleceń i zatrzymuje się po 25 sekundach. Do kompilacji, agentów i długo działających serwerów używaj terminala na maszynie.",
       "nextSupport": "Zbierz dane diagnostyczne",
-      "nextSupportBody": "Uruchom diagnostics i dołącz komunikat błędu oraz opis wykonywanej czynności do zgłoszenia problemu. Przejrzyj wynik przed udostępnieniem go publicznie; usuń dane konta, adresy maszyn i wszelkie inne prywatne informacje."
+      "nextSupportBody": "Uruchom diagnostics i dołącz komunikat błędu oraz opis wykonywanej czynności do zgłoszenia problemu. Przejrzyj wynik przed udostępnieniem go publicznie; usuń dane konta, adresy maszyn i wszelkie inne prywatne informacje.",
+      "legacyTitle": "Starsze wydania: bezpieczeństwo i typowe problemy",
+      "legacyIntro": "Poniższe wskazówki zachowano dla starszych wydań cmux. Przykłady cmux vm i cmux auth nie są poleceniami NEXT. Informacje o odmowach wynikających z obrazu maszyny w NEXT i dostępnych obejściach znajdziesz w sekcji powyżej."
     },
     "ui": {
       "onThisPage": "Na tej stronie",

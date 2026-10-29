@@ -3245,7 +3245,9 @@
       "nextGithubFix": "在机器终端中运行 gh auth login，并在那里配置 Git 身份信息。setup-github 需要 Mac 上已有 Git 身份信息；验证期间它返回了此失败，但未说明原因。",
       "nextExecFix": "exec 适用于短命令，会在 25 秒后停止。构建、智能体和长时间运行的服务器请使用机器上的终端。",
       "nextSupport": "收集诊断信息",
-      "nextSupportBody": "运行 diagnostics，报告问题时附上错误消息和尝试执行的操作。公开分享前请检查输出，移除账户详情、机器地址和其他私人信息。"
+      "nextSupportBody": "运行 diagnostics，报告问题时附上错误消息和尝试执行的操作。公开分享前请检查输出，移除账户详情、机器地址和其他私人信息。",
+      "legacyTitle": "早期版本：安全与常见问题",
+      "legacyIntro": "以下指南保留供早期 cmux 版本使用。其中的 cmux vm 和 cmux auth 示例不是 NEXT 命令。有关 NEXT 机器镜像拒绝操作的情况及替代方案，请参阅上方章节。"
     },
     "ui": {
       "onThisPage": "本页内容",

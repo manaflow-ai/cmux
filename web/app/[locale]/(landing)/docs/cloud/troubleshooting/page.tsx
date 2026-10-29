@@ -25,7 +25,10 @@ export default async function CloudTroubleshootingPage({
   return (
     <>
       <DocsSchema namespace="docs.cloudTroubleshooting" path="/docs/cloud/troubleshooting" />
-      <DocsHeading level={1} id="title">{t("nextTitle")}</DocsHeading>
+      <DocsHeading level={1} id="title">{t("title")}</DocsHeading>
+      <p>{t("intro")}</p>
+
+      <DocsHeading level={2} id="next-image">{t("nextTitle")}</DocsHeading>
       <p>{t("nextIntro")}</p>
       <table>
         <thead><tr><th>{t("nextSymptom")}</th><th>{t("nextFix")}</th></tr></thead>
@@ -49,8 +52,55 @@ cmux cloud machine-link --target 'machine:<id>' --port 3000
 cmux cloud pause-machine --target 'machine:<id>'
 cmux cloud resume-machine --target 'machine:<id>'`}</CodeBlock>
 
+      <DocsHeading level={2} id="earlier-releases">{t("legacyTitle")}</DocsHeading>
+      <p>{t("legacyIntro")}</p>
+      <DocsHeading level={3} id="security-model">{t("securityTitle")}</DocsHeading>
+      <ul>
+        <li>{t("secNoPorts")}</li>
+        <li>{t("secSignOut")}</li>
+        <li>{t("secNoTokens")}</li>
+        <li>{t("secSecrets")}</li>
+        <li>{t("secTransfers")}</li>
+        <li>{t("secOneUser")}</li>
+        <li>{t("secDiagnostics")}</li>
+        <li>{t("secAdmins")}</li>
+      </ul>
+
+      <DocsHeading level={3} id="common-problems">{t("errorsTitle")}</DocsHeading>
+      <table>
+        <thead>
+          <tr>
+            <th>{t("symptomColumn")}</th>
+            <th>{t("fixColumn")}</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>{t("errNotSeen")}</td><td>{t("fixNotSeen")}</td></tr>
+          <tr><td>{t("errUnavailable")}</td><td>{t("fixUnavailable")}</td></tr>
+          <tr><td>{t("errSignIn")}</td><td>{t("fixSignIn")}</td></tr>
+          <tr><td>{t("errPlan")}</td><td>{t("fixPlan")}</td></tr>
+          <tr><td>{t("errSize")}</td><td>{t("fixSize")}</td></tr>
+          <tr><td>{t("errLimit")}</td><td>{t("fixLimit")}</td></tr>
+          <tr><td>{t("errPool")}</td><td>{t("fixPool")}</td></tr>
+          <tr><td>{t("errLocked")}</td><td>{t("fixLocked")}</td></tr>
+          <tr><td>{t("errAgentMissing")}</td><td>{t("fixAgentMissing")}</td></tr>
+          <tr><td>{t("errExecTimeout")}</td><td>{t("fixExecTimeout")}</td></tr>
+          <tr><td>{t("errSlowFirst")}</td><td>{t("fixSlowFirst")}</td></tr>
+          <tr><td>{t("errSnapshot")}</td><td>{t("fixSnapshot")}</td></tr>
+          <tr><td>{t("errSsh")}</td><td>{t("fixSsh")}</td></tr>
+          <tr><td>{t("errPushLarge")}</td><td>{t("fixPushLarge")}</td></tr>
+          <tr><td>{t("errGitMissing")}</td><td>{t("fixGitMissing")}</td></tr>
+          <tr><td>{t("errDisconnected")}</td><td>{t("fixDisconnected")}</td></tr>
+          <tr><td>{t("errDomain")}</td><td>{t("fixDomain")}</td></tr>
+          <tr><td>{t("errViewer")}</td><td>{t("fixViewer")}</td></tr>
+          <tr><td>{t("errTransferDisabled")}</td><td>{t("fixTransferDisabled")}</td></tr>
+        </tbody>
+      </table>
+
+
       <DocsHeading level={2} id="get-help">{t("nextSupport")}</DocsHeading>
       <p>{t("nextSupportBody")}</p>
+      <p>{t("supportDesc")}</p>
       <CodeBlock lang="bash">{`cmux cloud diagnostics`}</CodeBlock>
     </>
   );

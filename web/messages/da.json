@@ -3242,7 +3242,9 @@
       "nextGithubFix": "Kør gh auth login i maskinens terminal, og konfigurér din Git-identitet der. setup-github kræver en Git-identitet på Mac’en; under kontrollen returnerede den denne fejl uden en begrundelse.",
       "nextExecFix": "exec er til korte kommandoer og stopper efter 25 sekunder. Brug en terminal på maskinen til builds, agenter og servere, der kører i længere tid.",
       "nextSupport": "Indsaml diagnostik",
-      "nextSupportBody": "Kør diagnostics, og medtag fejlmeddelelsen og det, du forsøgte at gøre, når du rapporterer et problem. Gennemgå outputtet, før du deler det offentligt; fjern kontooplysninger, maskinadresser og andre private oplysninger."
+      "nextSupportBody": "Kør diagnostics, og medtag fejlmeddelelsen og det, du forsøgte at gøre, når du rapporterer et problem. Gennemgå outputtet, før du deler det offentligt; fjern kontooplysninger, maskinadresser og andre private oplysninger.",
+      "legacyTitle": "Tidligere versioner: sikkerhed og almindelige problemer",
+      "legacyIntro": "Følgende vejledning er bevaret til tidligere cmux-versioner. Dens eksempler med cmux vm og cmux auth er ikke NEXT-kommandoer. Brug afsnittet ovenfor til handlinger, der afvises af NEXT-maskinimages, og mulige løsninger."
     },
     "ui": {
       "onThisPage": "På denne side",

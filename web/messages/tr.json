@@ -3243,7 +3243,9 @@
       "nextGithubFix": "Makinenin terminalinde gh auth login çalıştırın ve Git kimliğinizi orada yapılandırın. setup-github, Mac’te bir Git kimliği gerektirir; doğrulama sırasında bu hatayı neden belirtmeden döndürdü.",
       "nextExecFix": "exec kısa komutlar içindir ve 25 saniye sonra durur. Derlemeler, ajanlar ve uzun süre çalışan sunucular için makinedeki bir terminali kullanın.",
       "nextSupport": "Tanı bilgilerini toplayın",
-      "nextSupportBody": "diagnostics çalıştırın ve bir sorun bildirirken hata mesajını ve ne yapmaya çalıştığınızı ekleyin. Çıktıyı herkese açık olarak paylaşmadan önce inceleyin; hesap ayrıntılarını, makine adreslerini ve diğer özel bilgileri kaldırın."
+      "nextSupportBody": "diagnostics çalıştırın ve bir sorun bildirirken hata mesajını ve ne yapmaya çalıştığınızı ekleyin. Çıktıyı herkese açık olarak paylaşmadan önce inceleyin; hesap ayrıntılarını, makine adreslerini ve diğer özel bilgileri kaldırın.",
+      "legacyTitle": "Önceki sürümler: güvenlik ve yaygın sorunlar",
+      "legacyIntro": "Aşağıdaki bilgiler önceki cmux sürümleri için korunmuştur. Buradaki cmux vm ve cmux auth örnekleri NEXT komutları değildir. NEXT makine imajından kaynaklanan retler ve geçici çözümler için yukarıdaki bölümü kullanın."
     },
     "ui": {
       "onThisPage": "Bu sayfada",

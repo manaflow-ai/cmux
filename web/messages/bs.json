@@ -3245,7 +3245,9 @@
       "nextGithubFix": "Pokrenite gh auth login u terminalu mašine i tamo podesite svoj Git identitet. setup-github zahtijeva Git identitet na Macu; tokom provjere vratio je ovu grešku bez razloga.",
       "nextExecFix": "exec je namijenjen kratkim komandama i zaustavlja se nakon 25 sekundi. Za izgradnje, agente i dugotrajne servere koristite terminal na mašini.",
       "nextSupport": "Prikupite dijagnostiku",
-      "nextSupportBody": "Pokrenite diagnostics i pri prijavi problema uključite poruku greške i opis onoga što ste pokušavali uraditi. Pregledajte izlaz prije javnog dijeljenja; uklonite podatke računa, adrese mašina i sve druge privatne informacije."
+      "nextSupportBody": "Pokrenite diagnostics i pri prijavi problema uključite poruku greške i opis onoga što ste pokušavali uraditi. Pregledajte izlaz prije javnog dijeljenja; uklonite podatke računa, adrese mašina i sve druge privatne informacije.",
+      "legacyTitle": "Ranija izdanja: sigurnost i uobičajeni problemi",
+      "legacyIntro": "Sljedeće smjernice zadržane su za ranija izdanja cmux-a. Njihovi primjeri cmux vm i cmux auth nisu NEXT komande. Za odbijanja zbog slike mašine u NEXT-u i zaobilazna rješenja koristite odjeljak iznad."
     },
     "ui": {
       "onThisPage": "Na ovoj stranici",
