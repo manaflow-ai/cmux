@@ -177,8 +177,10 @@ extension AppServices {
         chromiumRuntime.source.appEvents = appEvents // the app's resign-active ends a page's pointer lock
         // Restored pages start Chromium by their origin, the visible one after the first frame.
         let launchOrder = features.isEnabled(.cefLaunchOrigin) ? launchStartup : nil
+        // The page host in every renderer, so cmux pages open no DevTools session (p13-webui-013).
+        let pageHostScripts = features.isEnabled(.chromiumPageRendererPaths) ? FirstPartyPageSchemes.hostScripts : []
         return ChromiumEngineSlot(stores: browserStores, waitDeadlines: mainWork.wakeUps, source: chromiumRuntime.source, launch: launchOrder,
-                                  make: { [signInCallbacks, contextMenus, inputTap, crashKeys, launchStartup, launchOrder, pointerFrames = dragFrameInput,
+                                  make: { [signInCallbacks, contextMenus, inputTap, crashKeys, launchStartup, launchOrder, pointerFrames = dragFrameInput, pageHostScripts,
                                            chromiumFeatures = features.enabledChromiumFeatures,
                                            disabledChromiumFeatures = features.disabledChromiumFeatures, layerHosting = features.isEnabled(.cefLayerHosting),
                                            attachedPages = features.isEnabled(.cefAttachedPages), resizeFence = features.isEnabled(.cefResizeFence),
@@ -193,7 +195,7 @@ extension AppServices {
                                                        launchMarks: launchMarks, pumpInput: pumpInput, pointerFrames: pointerFrames,
                                                        chromiumFeatures: chromiumFeatures, disabledChromiumFeatures: disabledChromiumFeatures,
                                                        prefetchWork: prefetchWork,
-                                                       launch: launchOrder).usingLayerHostingByDefault(layerHosting).usingAttachedPages(attachedPages)
+                                                       launch: launchOrder, pageHostScripts: pageHostScripts).usingLayerHostingByDefault(layerHosting).usingAttachedPages(attachedPages)
                                           .hostingEveryPage(everyPage).votingMemoryPressure(of: memoryCoordinator).mergingEvents(on: mergeWork)
                                           .followingVisibilityForRendererHangs(hangFollowsVisibility)
                                           .slicingPumpToFrames(of: pumpFrames).cappingSharedRendererMemory(rendererCaps).usingResizeFence(resizeFence)
