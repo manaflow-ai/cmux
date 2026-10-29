@@ -1160,7 +1160,7 @@ mod state_file_tests;
 
 #[cfg(target_os = "linux")]
 fn cgroup_is_in_sessions_scope(contents: &str) -> bool {
-    contents.lines().filter_map(|line| line.split_once("::").map(|(_, path)| path)).any(|path| {
+    contents.lines().filter_map(|line| line.splitn(3, ':').nth(2)).any(|path| {
         path.split('/').any(|component| component == crate::session_scope::SESSIONS_SLICE)
     })
 }
@@ -1357,7 +1357,7 @@ mod scope_tests {
         assert!(!cgroup_is_in_sessions_scope(
             "0::/user.slice/acpmuxsessions.slice.backup/run-a.scope\n"
         ));
-        assert!(!cgroup_is_in_sessions_scope(
+        assert!(cgroup_is_in_sessions_scope(
             "1:name=systemd:/user.slice/acpmuxsessions.slice/run-a.scope\n"
         ));
     }
