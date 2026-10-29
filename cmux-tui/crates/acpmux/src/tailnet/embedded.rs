@@ -779,9 +779,6 @@ impl Controller {
 
     fn request_logout(&self) {
         let mut inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
-        if inner.closed {
-            return;
-        }
         let next = match &inner.state {
             LifecycleState::Running(node) => Some(Some(Arc::clone(node))),
             LifecycleState::Retiring { node, phase: RetirementPhase::Waiting } => {
@@ -1523,6 +1520,39 @@ mod tests {
                 assert!(!path.exists(), "{name}: logout must not create a state directory");
             }
         }
+    }
+
+    #[tokio::test]
+    async fn logout_during_shutdown_close_reports_remote_signout_unconfirmed() {
+        let temporary = tempfile::tempdir().unwrap();
+        let config = NodeConfig::new(temporary.path(), "shutdown-logout");
+        let node = tokio::task::spawn_blocking(move || Arc::new(Node::new(&config).unwrap()))
+            .await
+            .unwrap();
+        let controller = Controller::new(temporary.path(), "shutdown-logout");
+        {
+            let mut inner = controller.inner.lock().unwrap();
+            inner.state = LifecycleState::Running(Arc::clone(&node));
+            inner.snapshot.state = "running";
+        }
+        let (closing, release) = block_close(&controller);
+        let shutdown_controller = controller.clone();
+        let shutdown = tokio::spawn(async move { shutdown_controller.shutdown().await });
+        closing.await.expect("shutdown reached node close");
+        // Model the request arriving while shutdown owns the close: record the
+        // intent synchronously before allowing the blocked close to finish.
+        controller.request_logout();
+        assert!(matches!(
+            &controller.inner.lock().unwrap().state,
+            LifecycleState::Retiring { node: Some(_), phase: RetirementPhase::ClosingForLogout }
+        ));
+        let logout_controller = controller.clone();
+        let logout = tokio::spawn(async move { logout_controller.logout().await });
+        release.send(()).unwrap();
+        shutdown.await.unwrap().expect("shutdown completes");
+        let result = logout.await.unwrap();
+        assert_eq!(result.unwrap_err(), late_logout_error());
+        release_node(node);
     }
 
     #[test]
