@@ -142,6 +142,19 @@ impl Hub {
                 return Err(RpcError::invalid_params(e));
             }
         };
+        // The reply says the edit holds: its record is on disk first, so a daemon that dies
+        // right after the reply (a crash, SIGKILL) restores the queue with it. The log is
+        // written in the background (`store/log_writer.rs`), as an agent host's entry is
+        // acknowledged only once its record is written (`WriteTicket`).
+        let logged = crate::agent::WriteTicket::new(
+            session.seq.load(Ordering::SeqCst),
+            self.store.progress(&session.id),
+        );
+        if !logged.written().await {
+            return Err(RpcError::internal(
+                "the queue change could not be saved to the chat's log",
+            ));
+        }
         reply.set("ok", ok);
         Ok(reply)
     }
