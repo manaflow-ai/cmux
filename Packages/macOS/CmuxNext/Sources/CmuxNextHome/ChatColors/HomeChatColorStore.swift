@@ -68,3 +68,11 @@ public final class HomeChatColorStore {
                          receivedText: hexes["receivedText"].flatMap(HomeColor.init(hex:)))
     }
 }
+
+extension HomeBubbleColors {
+    /// `sent=#RRGGBB …` for the roles set (debug and CLI replies).
+    public var hexSummary: String {
+        [("sent", sent), ("sentText", sentText), ("received", received), ("receivedText", receivedText)]
+            .compactMap { role, color in color.map { "\(role)=\($0.hex)" } }.joined(separator: " ")
+    }
+}

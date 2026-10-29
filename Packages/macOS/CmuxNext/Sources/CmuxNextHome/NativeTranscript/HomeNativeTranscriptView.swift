@@ -101,6 +101,11 @@ public final class HomeNativeTranscriptView: NSView {
     /// This chat's chosen bubble colours over the default for every chat (Chat Colors…,
     /// `home.bubbleColors.*`); empty keeps the bubble style's colours.
     public var bubbleColors = HomeBubbleColors() { didSet { if bubbleColors != oldValue { applyTheme() } } }
+    /// The chats' own colours (Chat Colors…): set, the view follows this conversation's, live, over the
+    /// default for every chat (`home.bubbleColors.*`, ``bubbleColors``). Nil keeps ``bubbleColors`` as set.
+    public var chatColors: HomeChatColorStore? { didSet { if chatColors !== oldValue { followChatColors() } } }
+    /// The conversation this view shows (the key of its ``chatColors``).
+    public let conversationID: ConversationID
     /// The first-run panel's open-a-terminal or start-an-agent row was
     /// picked (the host runs the matching registry action).
     public var onFirstRunAction: (HomeFirstRunAction) -> Void = { _ in }
@@ -141,6 +146,7 @@ public final class HomeNativeTranscriptView: NSView {
         self.me = me
         // Debug Settings > Home > Rich tables, before the transcript maps its first messages.
         MessagesLabHomeView.richTables = HomeTunables.richTables.value
+        conversationID = conversation
         transcript = MessagesLabHomeView(store: store, conversation: conversation, me: me, wake: HomeDemandWake(), diagrams: diagrams)
         // The running indicator's look (Debug Settings > Home), read at each of its ticks.
         transcript.turnProgressStyle = { HomeTunables.turnProgress.value.style }
@@ -378,6 +384,17 @@ public final class HomeNativeTranscriptView: NSView {
             bubbleStyle = DesignSettings.shared.homeChiefBubblesThemed ? .theme : .iMessage
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in self?.followBubbleStyle() }
+        }
+    }
+
+    /// Chat Colors…: this conversation's colours over the default for every chat, live.
+    private func followChatColors() {
+        guard let store = chatColors else { return }
+        let id = conversationID.rawValue
+        withObservationTracking {
+            bubbleColors = store.colors(for: id).over(HomeChatColorStore.colors(fromHexes: DesignSettings.shared.homeBubbleColors))
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in self?.followChatColors() }
         }
     }
 
