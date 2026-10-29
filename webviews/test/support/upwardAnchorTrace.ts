@@ -10,6 +10,8 @@ export type UpwardAnchorFrame = {
   drift: number | null;
   wheelGeometryPixels: number;
   rowBoxGap: number;
+  topEdgeGap: number;
+  bottomEdgeGap: number;
   rowBoxIds: string[];
 };
 
@@ -31,6 +33,7 @@ export async function traceUpwardAnchors({
       const box = row.getBoundingClientRect();
       return {
         index: Number(row.getAttribute("aria-posinset")) - 1,
+        count: Number(row.getAttribute("aria-setsize")),
         id: row.dataset.rowId!,
         y: box.top - view.top,
         bottom: box.bottom - view.top,
@@ -38,7 +41,7 @@ export async function traceUpwardAnchors({
       };
     });
     const visible = mounted.filter((row) => row.height > 0 && row.bottom > 0 && row.y < view.height);
-    return { mounted: new Map(mounted.map((row) => [row.id, row])), visible };
+    return { mounted: new Map(mounted.map((row) => [row.id, row])), visible, viewHeight: view.height };
   };
   const snapshotGeometry = (phase: string) => {
     const row = scroller.querySelector<HTMLElement>(`[data-row-id="${previous.visible[0]?.id}"]`);
@@ -97,6 +100,12 @@ export async function traceUpwardAnchors({
         // frames share; a missing anchor is evidence too, never a zero-drift sample.
         const anchor = previous.visible.find((row) => current.mounted.has(row.id));
         const top = current.visible[0];
+        const bottom = current.visible.at(-1);
+        // Only a transcript's true first/last row may leave intentional space at its ends.
+        // Else row boxes must cover both viewport edges as well as every adjacent pair.
+        const topEdgeGap = top ? (top.index > 0 ? Math.max(0, top.y) : 0) : current.viewHeight;
+        const bottomEdgeGap =
+          bottom && bottom.index < bottom.count - 1 ? Math.max(0, current.viewHeight - bottom.bottom) : 0;
         const rowBoxGaps = current.visible.flatMap((row, index, rows) => {
           const previous = rows[index - 1];
           if (!previous) return [];
@@ -116,6 +125,8 @@ export async function traceUpwardAnchors({
           anchorId: anchor?.id ?? null,
           drift,
           rowBoxGap: Math.max(0, ...rowBoxGaps.map((each) => each.gap)),
+          topEdgeGap,
+          bottomEdgeGap,
           rowBoxIds: rowBoxGaps.flatMap((each) => [each.previous, each.next]),
         });
         previous = current;
@@ -170,6 +181,8 @@ export async function traceUpwardAnchors({
     blankFrames: samples.filter((sample) => sample.topRowId === null).length,
     blankBandFrames: samples.filter((sample) => sample.rowBoxGap > 8).length,
     maxRowBoxGap: Math.max(0, ...samples.map((sample) => sample.rowBoxGap)),
+    blankEdgeFrames: samples.filter((sample) => Math.max(sample.topEdgeGap, sample.bottomEdgeGap) > 8).length,
+    maxViewportEdgeGap: Math.max(0, ...samples.flatMap((sample) => [sample.topEdgeGap, sample.bottomEdgeGap])),
     cancelledWheels,
     wheelPixels: samples.reduce((sum, sample) => sum + sample.wheelPixels, 0),
     maxImmediateReadbackError: Math.max(
