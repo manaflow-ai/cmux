@@ -88,6 +88,8 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/archive": (["sessionId", "archived"], []),
         "_acpmux/markUnread": (["sessionId"], []),
         "_acpmux/harness/health": (["refresh", "rescan"], []),
+        // `sessionId` (the pane's chat) or `target` (`{harness, host?, routeId?}`), and `refresh`.
+        "_acpmux/session/auth": (["sessionId", "target", "refresh"], []),
         "_acpmux/forum/rules": ([], []),
         "_acpmux/side": (["sessionId", "chat"], []),
         // `model`: the side session's model when the page names one; acpmux picks a fast one otherwise.

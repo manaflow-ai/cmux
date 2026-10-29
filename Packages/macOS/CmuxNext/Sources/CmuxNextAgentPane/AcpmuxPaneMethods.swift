@@ -132,6 +132,13 @@ nonisolated enum AcpmuxPaneMethods {
         // MCP servers off or on again for that chat only; acpmux restarts its Claude Code and
         // resumes it (now, after the running turn, or at its next start).
         "_acpmux/set_tools",
+        // The composer's and New Tab's sign-in preflight (direct.ts sessionAuth, sessionAuth.ts;
+        // acpmux server/session_auth.rs, #26643): what acpmux knows of the selected chat's sign-in,
+        // or of a New Tab target's (`{harness, host?, routeId?}`, names of acpmux's own harness,
+        // peer and route; never a command). A named chat must be the pane's
+        // (``optionallySessionScoped``). `refresh` probes the route and runs the harness's configured
+        // sign-in check, as `_acpmux/harness/health {refresh}` does; acpmux never reads the keychain for it.
+        "_acpmux/session/auth",
     ]
 
     /// Notifications (no `id`).
@@ -242,9 +249,10 @@ nonisolated enum AcpmuxPaneMethods {
     /// the pane just started); a dismissed one names none. `_acpmux/side` always names its chat.
     public static let optionalScopedSessionParams: [String: Set<String>] = ["_acpmux/offer_respond": ["childSessionId"]]
 
-    /// The folder trust question may name its chat (`sessionId`, so acpmux asks the chat's peer):
-    /// a named session must be in the pane's scope (``sessionScoped``'s rule); none is fine.
-    public static let optionallySessionScoped: Set<String> = ["acp.trust.get", "acp.trust.set"]
+    /// The folder trust question may name its chat (`sessionId`, so acpmux asks the chat's peer),
+    /// and the sign-in preflight names the selected chat (a New Tab target names none): a named
+    /// session must be in the pane's scope (``sessionScoped``'s rule); none is fine.
+    public static let optionallySessionScoped: Set<String> = ["acp.trust.get", "acp.trust.set", "_acpmux/session/auth"]
 
     /// The methods that copy a session's content into a new session the pane then controls: a
     /// fork, and the handoff steps (prepare captures the source and makes the target, draft edits
