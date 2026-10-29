@@ -4093,6 +4093,8 @@ jobs:
         env:
           ENABLED: ${{ vars.CI_SIGN_OWNED }}
           ROUTE_TOKEN: ${{ steps.route-token.outputs.token || steps.route-token-repo.outputs.token }}
+          # actions: read, to count the signing jobs already holding an owned Mac (at most one at once).
+          SNAPSHOT_TOKEN: ${{ github.token }}
           OWNED_LABELS: ${{ format('{0} {1}', vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, vars.CI_SIDE_LANE_RUNNER) }}
         run: python3 .publish-tooling/scripts/ci/signing_runner.py owned
 

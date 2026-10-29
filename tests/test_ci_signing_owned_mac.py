@@ -312,9 +312,14 @@ class SigningOwnedMacTests(unittest.TestCase):
         ]
         labels, why = signing_runner.drained_runner(runners, [SIDE])
         self.assertEqual(json.loads(labels), [SIDE, "glaeda-runner-cmux13-glaeda-3"], why)
+        # glaeda parks most of a mini's runners offline; an offline runner GitHub calls idle runs nothing.
         runners.append(runner("cmux13-glaeda-5", ["glaeda-gui-std-xcode-26.6"], status="offline"))
+        labels, why = signing_runner.drained_runner(runners, [SIDE])
+        self.assertEqual(json.loads(labels), [SIDE, "glaeda-runner-cmux13-glaeda-3"],
+                         f"a parked offline slot must not keep its mini: {why}")
+        runners[-1]["busy"] = True
         self.assertEqual(signing_runner.drained_runner(runners, [SIDE])[0], "",
-                         "an offline runner may still run a job: its mini is not offered")
+                         "an offline runner GitHub still calls busy may run a job: its mini is not offered")
         runners.pop()
         runners[3]["busy"] = True  # the mini's dedicated builder is building: that mini is not drained either
         self.assertEqual(signing_runner.drained_runner(runners, [SIDE]), (
@@ -332,26 +337,90 @@ class SigningOwnedMacTests(unittest.TestCase):
         env = {"ENABLED": "1", "ROUTE_TOKEN": "t", "GITHUB_REPOSITORY": "manaflow-ai/cmux", "OWNED_LABELS": SIDE,
                "GITHUB_RUN_ATTEMPT": "1"}
         read = lambda token, repo: runners  # noqa: E731
-        self.assertTrue(signing_runner.owned_pick(env, read)[0])
+        held: list[dict] = []  # signing jobs now running on an owned Mac, as the jobs API lists them
+
+        run_status = ["in_progress"]
+
+        def jobs(path: str) -> dict:
+            if "/runs?" in path:
+                return {"workflow_runs": [{"id": 7}] if "nightly.yml" in path and f"status={run_status[0]}&" in path
+                        else []}
+            return {"jobs": held}
+
+        self.assertTrue(signing_runner.owned_pick(env, read, jobs)[0])
         for change in ({"ENABLED": ""}, {"ENABLED": "0"}, {"GITHUB_RUN_ATTEMPT": "2"}, {"ROUTE_TOKEN": ""}):
             with self.subTest(change):
-                self.assertEqual(signing_runner.owned_pick({**env, **change}, read)[0], "")
+                self.assertEqual(signing_runner.owned_pick({**env, **change}, read, jobs)[0], "")
+        self.assertEqual(signing_runner.owned_pick(env, read)[0], "", "no actions: read token: no owned Mac")
 
         def broken(token: str, repo: str) -> list:
             raise RuntimeError("403")
 
-        self.assertEqual(signing_runner.owned_pick(env, broken)[0], "")
+        self.assertEqual(signing_runner.owned_pick(env, broken, jobs)[0], "")
+
+        def unreadable(path: str) -> dict:
+            raise RuntimeError("403")
+
+        self.assertEqual(signing_runner.owned_pick(env, read, unreadable)[0], "", "an uncounted cap fails closed")
+        # At most one mini is held for signing: a signing job already pinned to an owned runner leaves none.
+        held.append({"name": "sign-nightly-identity-legacy", "status": "in_progress",
+                     "labels": [SIDE, "glaeda-runner-cmux13-glaeda-3"]})
+        owned, why = signing_runner.owned_pick(env, read, jobs)
+        self.assertEqual(owned, "", why)
+        self.assertIn("already hold an owned Mac", why)
+        for status in ("queued", "waiting", "pending", "requested"):  # every unfinished run status is read
+            with self.subTest(run_status=status):
+                run_status[0] = status
+                self.assertEqual(signing_runner.owned_pick(env, read, jobs)[0], "")
+        run_status[0] = "in_progress"
+
+        def truncated(path: str) -> dict:
+            if "/runs?" in path:
+                return {"total_count": 101, "workflow_runs": [{"id": 7}]}
+            return {"jobs": []}
+
+        self.assertEqual(signing_runner.owned_pick(env, read, truncated)[0], "", "a listing past one page fails closed")
+
+        def many_jobs(path: str) -> dict:
+            return jobs(path) if "/runs?" in path else {"total_count": 150, "jobs": []}
+
+        self.assertEqual(signing_runner.owned_pick(env, read, many_jobs)[0], "", "so does a job list past one page")
+        order: list[str] = []
+        signing_runner.owned_pick(env, lambda t, r: order.append("runners") or runners,
+                                  lambda path: order.append("jobs") or jobs(path))
+        self.assertEqual(order[0], "runners", "the runners are read before the signing jobs are counted")
+        held[0]["labels"] = ["blacksmith-6vcpu-macos-26"]  # on Blacksmith: it holds no mini
+        self.assertTrue(signing_runner.owned_pick(env, read, jobs)[0])
+        held[0].update({"name": "verify-signed-nightly", "labels": [SIDE, "glaeda-runner-cmux13-glaeda-3"]})
+        self.assertTrue(signing_runner.owned_pick(env, read, jobs)[0], "only a signing job counts")
+        held[0].update({"name": "build-sign-notarize-nightly (arm64)", "status": "completed"})
+        self.assertTrue(signing_runner.owned_pick(env, read, jobs)[0], "a finished one holds nothing")
+        held[0]["status"] = "queued"
+        self.assertEqual(signing_runner.owned_pick(env, read, jobs)[0], "", "a matrix leg counts by its job id")
+        held.clear()
         with tempfile.TemporaryDirectory() as tmp:
             output = Path(tmp) / "out"
-            self.assertEqual(signing_runner.main({**env, "GITHUB_OUTPUT": os.fspath(output)}, ["owned"], read), 0)
+            self.assertEqual(signing_runner.main({**env, "GITHUB_OUTPUT": os.fspath(output)}, ["owned"], read,
+                                                 jobs), 0)
             self.assertEqual(output.read_text(), f'owned=["{SIDE}","glaeda-runner-cmux12-glaeda"]\n')
             output.unlink()
             self.assertEqual(signing_runner.main({**env, "GITHUB_OUTPUT": os.fspath(output), "ENABLED": "0"}, [],
-                                                 read, lambda t, r: None), 0)
+                                                 read, jobs, lambda t, r: None), 0)
             values = dict(line.split("=", 1) for line in output.read_text().splitlines())
             self.assertEqual(values["owned"], "")
             self.assertTrue(values["runner"].startswith("blacksmith-"))
             self.assertTrue(values["alternate"].startswith("blacksmith-"))
+
+
+    def test_the_cap_counts_every_signing_job_glaeda_holds_the_mini_for(self) -> None:
+        """signing_runner.SIGNING_JOBS names the jobs by display name; they must be this file's SIGNING_JOBS."""
+        import yaml  # noqa: PLC0415
+        named = set()
+        for workflow, job_id in SIGNING_JOBS:
+            job = yaml.safe_load((ROOT / ".github" / "workflows" / workflow).read_text())["jobs"][job_id]
+            named.add((workflow, str(job.get("name") or job_id)))
+        self.assertEqual(named, {(workflow, name) for workflow, names in signing_runner.SIGNING_JOBS.items()
+                                 for name in names})
 
 
 class ClaimScriptTests(unittest.TestCase):

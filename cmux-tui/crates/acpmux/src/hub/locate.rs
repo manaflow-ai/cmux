@@ -150,20 +150,27 @@ fn by_link<'a>(summaries: &'a [Value], link: &AgentLink, own: &str) -> Vec<&'a V
     found
 }
 
-/// The sessions `key` names, by the first rule that finds any: an id (acpmux's, qualified or
-/// the harness's) or whole name; a bead id the session carries (`beads.rs`); `HOST/NAME` on
-/// that host (this machine's name included); a bare name on any host.
+/// The sessions `key` names: ids take precedence over names. A bare name includes every
+/// host, so a local chat cannot hide a peer's chat with the same name from control callers.
+/// Qualified names select their host; bead ids still find the sessions that carry them.
 fn by_key<'a>(summaries: &'a [Value], key: &str, own: &str) -> Vec<&'a Value> {
     let exact: Vec<&Value> = summaries
         .iter()
         .filter(|s| {
-            ["sessionId", "qualifiedSessionId", "agentSessionId", "name"]
+            ["sessionId", "qualifiedSessionId", "agentSessionId"]
                 .iter()
                 .any(|f| s[*f].as_str() == Some(key))
         })
         .collect();
     if !exact.is_empty() {
         return exact;
+    }
+    let named: Vec<&Value> = summaries
+        .iter()
+        .filter(|s| s["name"].as_str() == Some(key) || bare_name(s) == key)
+        .collect();
+    if !named.is_empty() {
+        return named;
     }
     if crate::beads::is_bead_id(key) {
         let carry = by_bead(summaries, key);
@@ -172,13 +179,26 @@ fn by_key<'a>(summaries: &'a [Value], key: &str, own: &str) -> Vec<&'a Value> {
         }
     }
     if let Some((host, rest)) = key.split_once('/') {
-        return summaries
+        let on_host: Vec<&Value> =
+            summaries.iter().filter(|s| host_of(s, own).eq_ignore_ascii_case(host)).collect();
+        let exact: Vec<&Value> = on_host
             .iter()
-            .filter(|s| host_of(s, own).eq_ignore_ascii_case(host))
+            .copied()
             .filter(|s| bare_name(s) == rest || s["sessionId"].as_str() == Some(rest))
             .collect();
+        if !exact.is_empty() {
+            return exact;
+        }
+        return on_host.into_iter().filter(|s| key_prefix(s, rest)).collect();
     }
-    summaries.iter().filter(|s| bare_name(s) == key).collect()
+    summaries.iter().filter(|s| key_prefix(s, key)).collect()
+}
+
+/// Keep the CLI's unique id/name prefixes, collecting all candidates before a control
+/// caller chooses one. A prefix never wins over an exact id or name.
+fn key_prefix(summary: &Value, key: &str) -> bool {
+    summary["sessionId"].as_str().is_some_and(|id| id.starts_with(key))
+        || bare_name(summary).starts_with(key)
 }
 
 /// The sessions that carry bead `id` (`beads.rs`).
@@ -307,7 +327,7 @@ mod tests {
         let rows = rows();
         assert_eq!(ids(&by_key(&rows, "hb/m2", "big-red")), ["m2"]);
         assert_eq!(ids(&by_key(&rows, "a2", "big-red")), ["m2"]);
-        assert_eq!(ids(&by_key(&rows, "review", "big-red")), ["m1"]);
+        assert_eq!(ids(&by_key(&rows, "review", "big-red")), ["m1", "m3"]);
         assert_eq!(ids(&by_key(&rows, "big-red/review", "big-red")), ["m1"]);
         assert_eq!(ids(&by_key(&rows, "builder", "big-red")), ["m2"]);
         assert!(by_key(&rows, "nobody", "big-red").is_empty());

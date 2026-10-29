@@ -74,11 +74,29 @@ try:
 except BlockingIOError:
     # The holder is whoever has the file open now (a push refresh writes no pid), never the pid text a
     # finished install left in it: on 2026-10-28 that named pid 85305, gone for hours, while a stuck refresh held it.
-    try:
-        found = subprocess.run(["/usr/sbin/lsof", "-t", "--", lock_path], capture_output=True, text=True,
-                               stdin=subprocess.DEVNULL, timeout=10).stdout.split()
-    except (OSError, subprocess.SubprocessError):
-        found = []
+    found = []
+    if os.path.isdir("/proc/self/fd"):  # Linux: no lsof on CI runners
+        real = os.path.realpath(lock_path)
+        for entry in os.listdir("/proc"):
+            if entry.isdigit():
+                try:
+                    fds = os.listdir(f"/proc/{entry}/fd")
+                except OSError:
+                    continue
+                for fd in fds:
+                    try:
+                        if os.readlink(f"/proc/{entry}/fd/{fd}") == real:
+                            found.append(entry)
+                            break
+                    except OSError:
+                        pass
+    else:
+        try:
+            found = subprocess.run(["lsof", "-t", "--", lock_path], capture_output=True, text=True,
+                                   stdin=subprocess.DEVNULL, timeout=10,
+                                   env={**os.environ, "PATH": "/usr/sbin:/usr/bin:/bin"}).stdout.split()
+        except (OSError, subprocess.SubprocessError):
+            found = []
     pids = [p for p in found if p != str(os.getpid())]
     holder = ", ".join(pids) or "unknown"
     try:
