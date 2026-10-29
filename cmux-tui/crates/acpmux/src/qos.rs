@@ -1,5 +1,5 @@
 //! How much CPU and disk each acpmux process may take from the person at the
-//! screen: one declared policy ([`POLICY`]), applied where each process starts.
+//! screen: one declared policy ([`tier`]), applied where each process starts.
 //!
 //! Leo (2026-10-29): "well somehow at "100% cpu" usage claude code desktop
 //! still seems fast / how does that work? how can cmux next also do that?
@@ -45,7 +45,7 @@ pub enum Tier {
     Background,
 }
 
-/// What a process is, for [`POLICY`].
+/// What a process is, for [`tier`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Role {
     Daemon,
@@ -54,17 +54,14 @@ pub enum Role {
     Housekeeping,
 }
 
-/// The one policy: the tier of each role.
-pub const POLICY: &[(Role, Tier)] = &[
-    (Role::Daemon, Tier::Serving),
-    (Role::AgentHost, Tier::Agent),
-    (Role::BackgroundTaskRunner, Tier::Agent),
-    (Role::Housekeeping, Tier::Background),
-];
-
-/// The tier [`POLICY`] gives `role`.
-pub fn tier(role: Role) -> Tier {
-    POLICY.iter().find(|(r, _)| *r == role).map(|(_, t)| *t).expect("every role has a tier")
+/// The one policy: the tier of each role. Exhaustive, so a new role cannot
+/// start without one.
+pub const fn tier(role: Role) -> Tier {
+    match role {
+        Role::Daemon => Tier::Serving,
+        Role::AgentHost | Role::BackgroundTaskRunner => Tier::Agent,
+        Role::Housekeeping => Tier::Background,
+    }
 }
 
 /// Turns the whole policy off when set to `off`.
@@ -268,14 +265,6 @@ mod imp {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn every_role_has_one_tier() {
-        for role in [Role::Daemon, Role::AgentHost, Role::BackgroundTaskRunner, Role::Housekeeping]
-        {
-            assert_eq!(POLICY.iter().filter(|(r, _)| *r == role).count(), 1, "{role:?}");
-        }
-    }
 
     #[test]
     fn the_daemon_keeps_its_cpu_and_agents_yield() {
