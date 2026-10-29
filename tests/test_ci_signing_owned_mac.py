@@ -504,6 +504,8 @@ class SigningOwnedMacTests(unittest.TestCase):
         run_status = ["in_progress"]
 
         def jobs(path: str) -> dict:
+            if not path.endswith("&page=1"):
+                return {}  # every listing here fits one page
             if "/runs?" in path:
                 return {"workflow_runs": [{"id": 7}] if "nightly.yml" in path and f"status={run_status[0]}&" in path
                         else []}
@@ -537,7 +539,7 @@ class SigningOwnedMacTests(unittest.TestCase):
         run_status[0] = "queued"  # no job of a queued run has started, so none carries a pin: never read
         self.assertTrue(signing_runner.owned_pick(env, read, jobs)[0])
         reads: list[str] = []
-        signing_runner.owned_signing_jobs(lambda path: reads.append(path) or {"workflow_runs": [], "jobs": []})
+        signing_runner.owned_signing_jobs(lambda path: reads.append(path) or {})
         self.assertFalse([path for path in reads if "status=queued" in path],
                          "over 100 queued runs failed every pick closed (runs 40897459413, 40905688542)")
         run_status[0] = "in_progress"
@@ -559,24 +561,43 @@ class SigningOwnedMacTests(unittest.TestCase):
         self.assertEqual(signing_runner.owned_pick(env, read, flaky)[0], "", "persistent 5xx fails closed")
         held[:] = kept
 
-        def lagging(path: str) -> dict:  # total_count ahead of a short page: the page is the whole list
+        def lagging(path: str) -> dict:  # total_count ahead of what is listed: the pages are what counts
+            if not path.endswith("&page=1"):
+                return {}
             if "/runs?" in path:
                 return {"total_count": 101, "workflow_runs": [{"id": 7}]}
             return {"total_count": 3, "jobs": []}
 
-        self.assertTrue(signing_runner.owned_pick(env, read, lagging)[0], "a short page is never a truncated one")
+        self.assertTrue(signing_runner.owned_pick(env, read, lagging)[0], "total_count is never trusted")
+        pinned = {"name": "sign-nightly-identity-legacy", "status": "in_progress",
+                  "labels": [SIDE, "glaeda-runner-cmux13-glaeda-3"]}
 
-        def truncated(path: str) -> dict:
+        def short_then_runs(path: str) -> dict:  # a short first page of runs, the held one on page 2
+            if "/runs?" in path and "nightly.yml" in path and "status=in_progress" in path:
+                return {"workflow_runs": [{"id": 7}] if path.endswith("&page=1") else
+                        [{"id": 8}] if path.endswith("&page=2") else []}
             if "/runs?" in path:
-                return {"total_count": 101, "workflow_runs": [{"id": n} for n in range(100)]}
-            return {"jobs": []}
+                return {}
+            return {"jobs": [pinned] if "/runs/8/" in path and path.endswith("&page=1") else []}
 
-        self.assertEqual(signing_runner.owned_pick(env, read, truncated)[0], "", "a listing past one page fails closed")
+        self.assertEqual(signing_runner.owned_pick(env, read, short_then_runs)[0], "",
+                         "a held job on a later page of runs is counted, however short page 1 is")
 
-        def many_jobs(path: str) -> dict:
-            return jobs(path) if "/runs?" in path else {"total_count": 150, "jobs": [{"name": "x"}] * 100}
+        def short_then_jobs(path: str) -> dict:  # a short first page of jobs, the held one on page 2
+            if "/runs?" in path:
+                return {"workflow_runs": [{"id": 7}]} if ("nightly.yml" in path and "status=in_progress" in path
+                                                           and path.endswith("&page=1")) else {}
+            return {"jobs": [{"name": "decide", "status": "completed"}] if path.endswith("&page=1") else
+                    [pinned] if path.endswith("&page=2") else []}
 
-        self.assertEqual(signing_runner.owned_pick(env, read, many_jobs)[0], "", "so does a job list past one page")
+        self.assertEqual(signing_runner.owned_pick(env, read, short_then_jobs)[0], "",
+                         "so is one on a later page of a run's jobs")
+
+        def endless(path: str) -> dict:
+            return {"workflow_runs": [{"id": 7}]} if "/runs?" in path else {"jobs": []}
+
+        self.assertEqual(signing_runner.owned_pick(env, read, endless)[0], "",
+                         f"a listing past {signing_runner.MAX_PAGES} pages fails closed")
         order: list[str] = []
         signing_runner.owned_pick(env, lambda t, r: order.append("runners") or runners,
                                   lambda path: order.append("jobs") or jobs(path))
