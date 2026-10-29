@@ -1836,6 +1836,23 @@ pre.cv-math-source {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* The rows' verb column (ToolVerb.tsx), as the Codex app lines its tool rows up (Leo 2026-10-29:
+   "having stuff aligned is nice"): each verb ("Ran", "Read", "Edited") is a box as wide as the
+   widest verb of its turn's rows, so every subject starts at one x. The widest is never measured:
+   the turn's verbs (`--cv-tool-verbs`, a verb a line) lie under each verb in a hidden, zero-height
+   line box that only gives it its width. No transition: a new, wider verb moves the subjects at once. */
+.cv-tool__verb {
+  display: inline-flex;
+  flex-direction: column;
+}
+.cv-tool__verb::after {
+  content: var(--cv-tool-verbs, "");
+  height: 0;
+  overflow: hidden;
+  visibility: hidden;
+  white-space: pre;
+  pointer-events: none;
+}
 /* A short interim note folded into a run of calls (turns.ts mergeShortNotes): the agent's words in
    the run's quiet color, wrapped on the rows' 20px lines. */
 .cv-tool-note {
@@ -2532,6 +2549,14 @@ a.cv-sha:focus-visible {
   color: var(--cv-text-muted);
   font-size: var(--text-detail);
   letter-spacing: var(--text-detail--letter-spacing);
+}
+/* A tool output box that scrolls at a fixed height (an MCP call's request and response, a Markdown
+   result) fades its bottom edge out while more lies under it (moreBelow.ts), over the same height a
+   cut preview's bottom fades (below), never a hard cut mid-line; scrolled to the end, the edge is
+   hard again. No transition. */
+:is(.cv-mcp-call__body, .cv-tool-output__markdown)[data-more-below] {
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - var(--cv-output-fade, 28px)), transparent);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - var(--cv-output-fade, 28px)), transparent);
 }
 /* Wrap lines (and the hover-actions experiment's Copy) in its corner, on hover or focus. */
 .cv-tool-output__actions {
