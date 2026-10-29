@@ -9,11 +9,11 @@ public struct ComposerFileCopy: Sendable {
     public let inlineData: Data?
     public static let inlineBytes = 256 << 10
 
-    public init(source: URL, inlineLimit: Int = Self.inlineBytes) throws {
+    public init(source: URL, name: String? = nil, inlineLimit: Int = Self.inlineBytes) throws {
         let folder = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-paste-" + UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        let destination = folder.appendingPathComponent(source.lastPathComponent)
+        let destination = folder.appendingPathComponent((name ?? source.lastPathComponent).replacingOccurrences(of: "/", with: "-"))
         do {
             try FileManager.default.copyItem(at: source, to: destination)
             let handle = try FileHandle(forReadingFrom: destination)

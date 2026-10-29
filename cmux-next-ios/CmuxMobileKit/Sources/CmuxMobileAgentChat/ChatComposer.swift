@@ -137,8 +137,10 @@ struct ChatComposer: View {
             let providers = board.itemProviders
             Task {
                 let pasted = await ComposerPastedFiles.load(providers)
-                attachments += pasted.files.map {
-                    AgentAttachment(kind: $0.type.conforms(to: .image) && $0.data.flatMap { UIImage(data: $0) } != nil ? .image : .file, name: $0.name, data: $0.data, fileURL: $0.fileURL, byteCount: $0.byteCount)
+                attachments += pasted.files.map { file in
+                    let image = file.type.conforms(to: .image) ? file.data.flatMap { UIImage(data: $0) } : nil
+                    return AgentAttachment(kind: image == nil ? .file : .image, name: file.name,
+                                           data: file.data, fileURL: file.fileURL, byteCount: file.byteCount)
                 }
                 if let name = pasted.unreadable.first { store.clientError = "Couldn't read \(name)." }
             }
