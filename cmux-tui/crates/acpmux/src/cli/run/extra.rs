@@ -4,6 +4,7 @@ use super::*;
 
 pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> Result<()> {
     match cmd {
+        Command::Session(control) => crate::cli::mesh_control::run(control, json_out).await,
         Command::Retention(args) => {
             let client = connect(true).await?;
             let archive = args.archive.map(std::path::absolute).transpose()?;
@@ -740,7 +741,6 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
         | Command::Stdio { .. }
         | Command::CliAgent { .. }
         | Command::UniichatAgent { .. }
-        | Command::Session(_)
         | Command::Daemon(_)
         | Command::Harness(_) => {
             unreachable!()

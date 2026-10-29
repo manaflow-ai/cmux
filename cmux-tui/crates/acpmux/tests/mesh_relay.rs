@@ -711,7 +711,7 @@ async fn mesh_control_resume_releases_held_queue_by_id_and_name() {
                 .unwrap();
         }
         let receiver = Hub::new(config.clone(), Box::new(store));
-        assert!(receiver.resolve(&id).unwrap().queue()[0].held);
+        assert!(receiver.resolve(&id).unwrap().queue_paused());
         let mut resume =
             message(if by_name { "resume-name" } else { "resume-id" }, "", Kind::Control);
         resume.op = Some("resume".into());
@@ -724,7 +724,7 @@ async fn mesh_control_resume_releases_held_queue_by_id_and_name() {
         let hook = MeshControlHook::new(control_allowlist(), None);
         let ack = hook.control(&receiver, &resume).await.unwrap();
         assert_eq!(ack.state, AckState::Delivered, "{ack:?}");
-        assert!(receiver.resolve(&id).unwrap().queue().iter().all(|q| !q.held));
+        assert!(!receiver.resolve(&id).unwrap().queue_paused());
         receiver.shutdown_all().await;
     }
 }

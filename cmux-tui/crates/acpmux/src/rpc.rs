@@ -284,6 +284,8 @@ pub mod method {
     /// `acpmux send --no-wait`: queue a prompt for this daemon to deliver (`hub/outbox.rs`).
     pub const MUX_SEND_QUEUE: &str = "_acpmux/send_queue";
     pub const MUX_SEND_STATUS: &str = "_acpmux/send_status";
+    /// Local socket: enqueue or read a mesh lifecycle control receipt.
+    pub const MUX_MESH_CONTROL: &str = "_acpmux/mesh_control";
     /// Resume agent message pairs the runaway guard paused (`hub/agent_pairs.rs`).
     pub const MUX_AGENT_PAIR_RESUME: &str = "_acpmux/agent_pair_resume";
     /// Retry a chat's failed last turn now (`hub/auto_resume/retry_turn.rs`).

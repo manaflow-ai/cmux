@@ -433,6 +433,35 @@ mod tests {
         assert!(e.to_string().contains("too much"), "{e}");
     }
 
+    #[tokio::test]
+    async fn invalid_control_operations_are_refused_before_token_or_http() {
+        let hub = HttpHub::new(&MeshRelayConfig {
+            url: "http://127.0.0.1:9".into(),
+            token_command: vec!["/nonexistent/mesh-token-command".into()],
+            control_from: vec![],
+        })
+        .unwrap();
+        for (kind, op) in [
+            (crate::mesh::Kind::Control, None),
+            (crate::mesh::Kind::Control, Some("pause")),
+            (crate::mesh::Kind::Prompt, Some("start")),
+        ] {
+            let message = OutMessage {
+                to: Default::default(),
+                from: Default::default(),
+                kind,
+                op: op.map(str::to_owned),
+                body: String::new(),
+                mode: crate::mesh::Mode::Now,
+                idempotency_key: "control-invalid".into(),
+            };
+            let expected = message.validate().unwrap_err();
+            let error = hub.send(&message).await.unwrap_err();
+            assert!(error.refused);
+            assert_eq!(error.message, expected);
+        }
+    }
+
     #[test]
     fn only_a_refused_credential_ends_the_relay() {
         assert!(answer(401, br#"{"code": "mesh.unauthorized"}"#).unwrap_err().ends_relay());

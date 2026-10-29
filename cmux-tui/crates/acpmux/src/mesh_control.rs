@@ -4,9 +4,9 @@
 //! owns control payloads only; the relay client owns HTTP, authentication, inbox leasing,
 //! receipts and acknowledgements. A successful enqueue is not successful execution.
 //!
-//! No receiver is installed here. An inbox sender's `user` and team membership are not
-//! owner proof or a peer-origin grant. Dispatch must wait for a verified caller capability
-//! from the shared client and run through the target daemon's existing authorization.
+//! The receiver in `server/mesh_relay.rs` admits only hub-stamped daemon ids explicitly
+//! allowed by the target owner's `meshRelay.controlFrom`, then uses existing peer rules.
+//! Claimed user, host, name and session fields never confer authority.
 
 use serde::Serialize;
 use serde_json::{Map, Value};

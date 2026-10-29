@@ -194,6 +194,29 @@ keeps the owning peer and session ID even if another host has a copy of that ses
 The target daemon decides which start policy and controls the caller may use; a peer link
 does not grant app-only permissions.
 
+With the mesh relay configured, lifecycle commands can reach hosts without a peer link:
+
+```sh
+acpmux session start review --host worker -m codex --policy ask --cwd /workspace
+acpmux session resume worker/review --mesh
+acpmux session stop SESSION_ID --mesh --id
+acpmux session receipt MESSAGE_ID
+```
+
+These commands print a queued receipt; only a `delivered` receipt means the target finished
+the operation. `receipt` reads once. Reuse the printed `--idempotency-key` after an uncertain
+enqueue. Mesh names must match uniquely; UUIDs are treated as stable session IDs, and `--id`
+selects any other exact ID. Stop preserves the stored session; resume releases held prompts.
+The local daemon sends through its configured relay client and keeps its token out of the CLI.
+Remote connections cannot borrow this daemon's identity to enqueue controls.
+
+Control reception is off unless the target machine's owner adds a hub-stamped sender daemon
+ID to `meshRelay.controlFrom` in its own `config.json`, for example
+`[{"daemonId":"inst_example","ops":["start","resume","stop"]}]`. Omitting `ops` allows those
+three operations; an empty list allows none. Claimed names, hosts and session IDs confer no
+authority. An allowed sender still follows the target daemon's existing peer and start-policy
+rules, including app-only permission checks.
+
 ## Orchestrating agents from scripts
 
 Every command takes `--json` before it for machine output; errors then go to stderr as one

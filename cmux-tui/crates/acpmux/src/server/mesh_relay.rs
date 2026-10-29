@@ -401,6 +401,7 @@ pub struct MeshControlHook {
     // A delivery lease can end before a start does. Retain its execution until its actual
     // outcome, independently of the 50 s ack wait; dropping this hook aborts all such tasks.
     tasks: StdMutex<tokio::task::JoinSet<()>>,
+    slots: Arc<tokio::sync::Semaphore>,
 }
 
 impl MeshControlHook {
@@ -409,6 +410,7 @@ impl MeshControlHook {
             allowed,
             ledger: ControlLedger::open(path),
             tasks: StdMutex::new(Default::default()),
+            slots: Arc::new(tokio::sync::Semaphore::new(RelayOptions::default().max_in_flight)),
         }
     }
 }
@@ -432,18 +434,23 @@ impl ControlHook for MeshControlHook {
             if !crate::mesh::is_message_id(&message.message_id) {
                 return None;
             }
-            let claim = self.ledger.claim(sender.unwrap_or_default(), message);
+            let permit = self.slots.clone().try_acquire_owned().ok();
+            let claim = self.ledger.claim(sender.unwrap_or_default(), message, permit.is_some());
             let receiver = match claim {
                 Claim::Done(ack) => return Some(ack),
                 Claim::Unknown => return None,
                 Claim::Conflict => return Some(Ack::refused("mesh.control_id_conflict")),
-                Claim::Waiting(receiver) => receiver,
+                Claim::Waiting(receiver) => {
+                    drop(permit);
+                    receiver
+                }
                 Claim::New { key, receiver } => {
-                    let (hub, message, ledger) =
-                        (hub.clone(), message.clone(), self.ledger.clone());
+                    let (hub, message) = (hub.clone(), message.clone());
+                    let execution = self.ledger.execution(key);
                     let mut tasks = self.tasks.lock_or_recover();
                     while tasks.try_join_next().is_some() {}
                     tasks.spawn(async move {
+                        let _permit = permit;
                         let shutdown = hub.shutdown.notified();
                         tokio::pin!(shutdown);
                         shutdown.as_mut().enable();
@@ -455,7 +462,7 @@ impl ControlHook for MeshControlHook {
                             () = &mut shutdown => None,
                         };
                         if let Some(ack) = outcome {
-                            ledger.finish(&key, clip(ack));
+                            execution.finish(clip(ack));
                         }
                     });
                     receiver
@@ -767,7 +774,7 @@ mod tests {
         let mut message = from("", "");
         message.kind = Kind::Control;
         message.op = Some("start".into());
-        let Claim::New { key, receiver } = ledger.claim("sender", &message) else {
+        let Claim::New { key, receiver } = ledger.claim("sender", &message, true) else {
             panic!("a new operation must be admitted");
         };
         let (tx, mut requests) = mpsc::channel(1);
@@ -794,7 +801,7 @@ mod tests {
             }
         });
         assert!(wait_control_result(receiver, Duration::from_secs(50)).await.is_none());
-        let Claim::Waiting(receiver) = ledger.claim("sender", &message) else {
+        let Claim::Waiting(receiver) = ledger.claim("sender", &message, true) else {
             panic!("redelivery must join the running operation");
         };
         let ack = wait_control_result(receiver, Duration::from_secs(50)).await.unwrap();
@@ -802,7 +809,7 @@ mod tests {
         assert_eq!(ack.detail.as_deref(), Some("stable-id"));
         target.await.unwrap();
         worker.await.unwrap();
-        assert!(matches!(ledger.claim("sender", &message), Claim::Done(_)));
+        assert!(matches!(ledger.claim("sender", &message, true), Claim::Done(_)));
     }
 
     #[tokio::test]

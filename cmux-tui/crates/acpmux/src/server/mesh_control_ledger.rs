@@ -66,7 +66,7 @@ impl ControlLedger {
 
     /// `sender` was authorized by the caller before this lookup. Bind both identity and payload
     /// so neither a different daemon nor a changed operation can replay another result.
-    pub(super) fn claim(&self, sender: &str, message: &InMessage) -> Claim {
+    pub(super) fn claim(&self, sender: &str, message: &InMessage, can_start: bool) -> Claim {
         let key =
             crate::sha256::sha256_hex(json!([sender, message.message_id]).to_string().as_bytes());
         let digest = crate::sha256::sha256_hex(
@@ -91,6 +91,9 @@ impl ControlLedger {
                 Claim::Unknown
             };
         }
+        if !can_start {
+            return Claim::Unknown;
+        }
         let now = crate::store::now_ms();
         state.records.retain(|_, record| {
             record.ack.is_none() || now.saturating_sub(record.started_at) <= RETENTION_MS
@@ -106,6 +109,12 @@ impl ControlLedger {
         let (sender, receiver) = watch::channel(None);
         state.live.insert(key.clone(), sender);
         Claim::New { key, receiver }
+    }
+
+    /// An execution owns its live waiters. Cancellation, shutdown or a lost response drops
+    /// this guard, ending live waits while leaving the durable pending fence untouched.
+    pub(super) fn execution(&self, key: String) -> Execution {
+        Execution { ledger: self.clone(), key }
     }
 
     /// Persist before publishing a terminal outcome. On disk errors even this process retains
@@ -152,10 +161,28 @@ impl ControlLedger {
         })();
         if saved.is_err() {
             state.failed = true;
+            state.live.clear();
             // Do not log the path, payload, or sender of a failed control.
             tracing::error!("mesh control ledger write failed; controls remain unacknowledged");
         }
         saved.is_ok()
+    }
+}
+
+pub(super) struct Execution {
+    ledger: ControlLedger,
+    key: String,
+}
+
+impl Execution {
+    pub(super) fn finish(&self, ack: Ack) {
+        self.ledger.finish(&self.key, ack);
+    }
+}
+
+impl Drop for Execution {
+    fn drop(&mut self) {
+        self.ledger.state.lock().unwrap_or_else(|e| e.into_inner()).live.remove(&self.key);
     }
 }
 
@@ -185,15 +212,17 @@ mod tests {
         let path = dir.path().join("ledger.json");
         let ledger = ControlLedger::open(Some(path.clone()));
         let message = message();
-        let Claim::New { key, .. } = ledger.claim("sender", &message) else { panic!("new claim") };
-        assert!(matches!(ledger.claim("sender", &message), Claim::Waiting(_)));
+        let Claim::New { key, .. } = ledger.claim("sender", &message, true) else {
+            panic!("new claim")
+        };
+        assert!(matches!(ledger.claim("sender", &message, true), Claim::Waiting(_)));
         let restarted = ControlLedger::open(Some(path.clone()));
-        assert!(matches!(restarted.claim("sender", &message), Claim::Unknown));
+        assert!(matches!(restarted.claim("sender", &message, true), Claim::Unknown));
         let ack = Ack::delivered("message-1", Some("stable-session-id".into()));
         ledger.finish(&key, ack.clone());
         let restarted = ControlLedger::open(Some(path));
         assert!(
-            matches!(restarted.claim("sender", &message), Claim::Done(replayed) if replayed == ack)
+            matches!(restarted.claim("sender", &message, true), Claim::Done(replayed) if replayed == ack)
         );
     }
 
@@ -201,11 +230,13 @@ mod tests {
     fn replay_is_bound_to_sender_and_payload() {
         let ledger = ControlLedger::open(None);
         let mut message = message();
-        let Claim::New { key, .. } = ledger.claim("sender", &message) else { panic!("new claim") };
+        let Claim::New { key, .. } = ledger.claim("sender", &message, true) else {
+            panic!("new claim")
+        };
         ledger.finish(&key, Ack::delivered("message-1", None));
-        assert!(matches!(ledger.claim("other", &message), Claim::New { .. }));
+        assert!(matches!(ledger.claim("other", &message, true), Claim::New { .. }));
         message.op = Some("stop".into());
-        assert!(matches!(ledger.claim("sender", &message), Claim::Conflict));
+        assert!(matches!(ledger.claim("sender", &message, true), Claim::Conflict));
     }
 
     #[test]
@@ -214,12 +245,35 @@ mod tests {
         let path = dir.path().join("ledger.json");
         std::fs::write(&path, b"not json").unwrap();
         assert!(matches!(
-            ControlLedger::open(Some(path.clone())).claim("sender", &message()),
+            ControlLedger::open(Some(path.clone())).claim("sender", &message(), true),
             Claim::Unknown
         ));
         let unwritable = ControlLedger::open(Some(path.join("inside-a-file.json")));
-        assert!(matches!(unwritable.claim("sender", &message()), Claim::Unknown));
-        assert!(matches!(unwritable.claim("sender", &message()), Claim::Unknown));
+        assert!(matches!(unwritable.claim("sender", &message(), true), Claim::Unknown));
+        assert!(matches!(unwritable.claim("sender", &message(), true), Claim::Unknown));
+    }
+
+    #[test]
+    fn indeterminate_execution_ends_waiters_but_retains_its_fence() {
+        let ledger = ControlLedger::open(None);
+        let Claim::New { key, receiver } = ledger.claim("sender", &message(), true) else {
+            panic!("new claim")
+        };
+        let execution = ledger.execution(key);
+        drop(execution);
+        assert!(receiver.has_changed().is_err(), "no operation remains to answer these waiters");
+        assert!(matches!(ledger.claim("sender", &message(), true), Claim::Unknown));
+    }
+
+    #[test]
+    fn capacity_does_not_fence_new_messages_or_block_replay() {
+        let ledger = ControlLedger::open(None);
+        assert!(matches!(ledger.claim("sender", &message(), false), Claim::Unknown));
+        let Claim::New { key, .. } = ledger.claim("sender", &message(), true) else {
+            panic!("no pending fence should be written when execution had no capacity")
+        };
+        ledger.finish(&key, Ack::delivered("message-1", None));
+        assert!(matches!(ledger.claim("sender", &message(), false), Claim::Done(_)));
     }
 
     #[test]
@@ -227,14 +281,14 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("ledger.json");
         let mut ledger = ControlLedger::open(Some(path.clone()));
-        let Claim::New { key, receiver } = ledger.claim("sender", &message()) else {
+        let Claim::New { key, receiver } = ledger.claim("sender", &message(), true) else {
             panic!("new claim")
         };
         ledger.path = Some(path.join("inside-a-file.json"));
         ledger.finish(&key, Ack::delivered("message-1", None));
         assert!(receiver.borrow().is_none());
         assert!(matches!(
-            ControlLedger::open(Some(path)).claim("sender", &message()),
+            ControlLedger::open(Some(path)).claim("sender", &message(), true),
             Claim::Unknown
         ));
     }
