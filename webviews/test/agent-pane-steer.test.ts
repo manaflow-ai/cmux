@@ -201,6 +201,14 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
         params: { sessionId: SESSION, seq: ++seq, at: Date.now(), dir: "mux", kind, msg },
       }),
     );
+  const recordInbound = (kind: string, msg: Record<string, unknown>) =>
+    socket?.send(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        method: "_acpmux/event",
+        params: { sessionId: SESSION, seq: ++seq, at: Date.now(), dir: "in", kind, msg },
+      }),
+    );
 
   let notes = 0;
   /// Returns once the page has drawn a record sent now, so it has handled and drawn everything
@@ -402,11 +410,43 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
 
     test("acpmux's end of a turn whose agent ignored Stop says so", async () => {
       const page = await openChat();
+      recordInbound("compaction", {
+        method: "session/update",
+        params: { update: { sessionUpdate: "compaction", state: "running" } },
+      });
+      await page.locator('.cv-compaction[data-state="running"]').waitFor();
+      await page.locator(".acpmux-composer-prompt").click();
+      await page.keyboard.type("withdraw this queued prompt");
+      await page.keyboard.press("Enter");
+      await page.locator(".acpmux-queued", { hasText: "withdraw this queued prompt" }).waitFor();
+      const queuedPromptId = prompts.at(-1)?._meta?.acpmux?.promptId;
+      expect(typeof queuedPromptId).toBe("string");
+      record("queue_removed", { promptId: queuedPromptId, _meta: { acpmux: { withdrawn: true } } });
+      await expect(page.locator(`.acpmux-queued[data-prompt-id="${queuedPromptId}"]`)).toHaveCount(0);
       await page.getByRole("button", { name: "Stop" }).click();
       await until(() => cancels.length > 0, "Stop's session/cancel");
       record("turn_end", { stopReason: "cancelled", turnId: "turn-1" });
       record("turn_result", { status: "cancelled", stopReason: "cancelled", turnId: "turn-1", cancelForced: true });
       await page.getByText("The agent didn't answer Stop, so cmux ended its turn.").waitFor({ timeout: 5_000 });
+      await expect(page.getByRole("button", { name: "Continue", exact: true })).toHaveCount(1);
+      // The cancelled compaction can report its boundary after a new explicit prompt. It must not
+      // revive the old row; a fresh running update still gets its own row.
+      record("user_message", { text: "next prompt", promptId: "p-next", turnId: "turn-2" });
+      record("turn_started", { promptId: "p-next", turnId: "turn-2" });
+      recordInbound("compaction", {
+        method: "session/update",
+        params: { update: { sessionUpdate: "compaction", state: "completed" } },
+      });
+      await expect(page.locator('.cv-compaction[data-state="completed"]')).toHaveCount(0);
+      recordInbound("compaction", {
+        method: "session/update",
+        params: { update: { sessionUpdate: "compaction", state: "running" } },
+      });
+      recordInbound("compaction", {
+        method: "session/update",
+        params: { update: { sessionUpdate: "compaction", state: "completed" } },
+      });
+      await expect(page.locator('.cv-compaction[data-state="completed"]')).toHaveCount(1);
       await page.close();
     });
 
