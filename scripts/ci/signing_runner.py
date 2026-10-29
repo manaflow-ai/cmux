@@ -64,6 +64,8 @@ SIGNING_JOBS = {
 # At most this many minis are held for signing at once (the coordinator's cap, 2026-10-29): a drained mini is taken
 # whole, so each one held is a mini's worth of PR and nightly work sent elsewhere.
 MAX_OWNED_SIGNING = 1
+# The run statuses that are not finished (GitHub's `status` filter for workflow runs).
+ACTIVE_RUN_STATUSES = ("in_progress", "queued", "waiting", "pending", "requested")
 
 
 def member(name: str) -> str:
@@ -121,15 +123,20 @@ def owned_signing_jobs(read: Callable[[str], Any]) -> int:
     """How many signing jobs (SIGNING_JOBS) are queued or running on an owned Mac now: pinned by a
     `glaeda-runner-<name>` label, which only the owned pick adds to a signing job's runs-on. `read` GETs a path
     under the repository (actions: read). Raises on any read it cannot make, so the caller offers no owned Mac."""
-    count = 0
+    count, seen = 0, set()
     for workflow, names in SIGNING_JOBS.items():
-        for status in ("in_progress", "queued"):
+        # Every run status GitHub has that is not finished: a run waiting on an environment, or pending a
+        # concurrency slot, can still hold a signing job that already carries its pin.
+        for status in ACTIVE_RUN_STATUSES:
             runs = read(f"/actions/workflows/{workflow}/runs?status={status}&per_page=50").get("workflow_runs") or []
             for run in runs:
+                if run["id"] in seen:
+                    continue
+                seen.add(run["id"])
                 jobs = read(f"/actions/runs/{run['id']}/jobs?filter=latest&per_page=100").get("jobs") or []
                 for job in jobs:
                     name = str(job.get("name") or "").split(" (", 1)[0]
-                    if (name in names and job.get("status") in ("queued", "in_progress", "waiting", "pending")
+                    if (name in names and job.get("status") in ("queued", "in_progress", "waiting", "pending", "requested")
                             and any(str(label).startswith(pool.RUNNER_LABEL_PREFIX) for label in job.get("labels") or [])):
                         count += 1
     return count

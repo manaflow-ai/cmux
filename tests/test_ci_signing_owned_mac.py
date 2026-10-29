@@ -339,9 +339,12 @@ class SigningOwnedMacTests(unittest.TestCase):
         read = lambda token, repo: runners  # noqa: E731
         held: list[dict] = []  # signing jobs now running on an owned Mac, as the jobs API lists them
 
+        run_status = ["in_progress"]
+
         def jobs(path: str) -> dict:
             if "/runs?" in path:
-                return {"workflow_runs": [{"id": 7}] if "nightly.yml" in path and "in_progress" in path else []}
+                return {"workflow_runs": [{"id": 7}] if "nightly.yml" in path and f"status={run_status[0]}&" in path
+                        else []}
             return {"jobs": held}
 
         self.assertTrue(signing_runner.owned_pick(env, read, jobs)[0])
@@ -365,6 +368,11 @@ class SigningOwnedMacTests(unittest.TestCase):
         owned, why = signing_runner.owned_pick(env, read, jobs)
         self.assertEqual(owned, "", why)
         self.assertIn("already hold an owned Mac", why)
+        for status in ("queued", "waiting", "pending", "requested"):  # every unfinished run status is read
+            with self.subTest(run_status=status):
+                run_status[0] = status
+                self.assertEqual(signing_runner.owned_pick(env, read, jobs)[0], "")
+        run_status[0] = "in_progress"
         held[0]["labels"] = ["blacksmith-6vcpu-macos-26"]  # on Blacksmith: it holds no mini
         self.assertTrue(signing_runner.owned_pick(env, read, jobs)[0])
         held[0].update({"name": "verify-signed-nightly", "labels": [SIDE, "glaeda-runner-cmux13-glaeda-3"]})
