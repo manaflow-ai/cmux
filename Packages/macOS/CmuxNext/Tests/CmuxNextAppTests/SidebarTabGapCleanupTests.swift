@@ -11,7 +11,9 @@ import Testing
 
 /// A one-tab workspace released in its own sidebar slot makes no document change, but must end
 /// the gap preview. Exercise the app's drag session and real window; no display is a failure.
-@MainActor @Suite(.serialized, .closesItsWindows)
+@MainActor @Suite(.serialized, .closesItsWindows,
+                 .enabled(if: !NSScreen.screens.isEmpty || ProcessInfo.processInfo.environment["CMUX_TEST_REQUIRE_GUI"] == "1",
+                          "the drag tests need a display"))
 struct SidebarTabGapCleanupTests {
     @Test(arguments: [true, false])
     func releasingTheOnlyTabClearsTheSidebarGap(release: Bool) async throws {
