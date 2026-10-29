@@ -272,6 +272,14 @@ await requireBrowserLane("pr-dock-inline-layout.test.ts", () => {
                 ? "collapsed"
                 : "full";
           expect(await page.locator(".acpmux-pr-comparison").getAttribute("data-mode")).toBe(mode);
+          const stack = page.locator(".acpmux-dock > .acpmux-pr-comparison");
+          expect(
+            await stack.evaluate((node) => ({
+              minHeight: getComputedStyle(node).minHeight,
+              overflowY: getComputedStyle(node).overflowY,
+              overscroll: getComputedStyle(node).overscrollBehavior,
+            })),
+          ).toEqual({ minHeight: "34px", overflowY: "auto", overscroll: "contain" });
           if (variant !== "compact-count")
             expect(await page.locator(".acpmux-pr-comparison__bar:visible").count()).toBeGreaterThan(0);
         }

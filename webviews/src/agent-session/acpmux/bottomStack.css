@@ -151,6 +151,7 @@
    keeps, so the composer card stays in view. */
 .acpmux-dock > .acpmux-composer > .acpmux-composer-queue,
 .acpmux-dock > .acpmux-pr-dock,
+.acpmux-dock > .acpmux-pr-comparison,
 .acpmux-dock > .acpmux-running-tray,
 .acpmux-dock > .acpmux-asks-stack {
   flex: 0 1 auto;
