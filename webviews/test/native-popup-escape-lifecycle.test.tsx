@@ -87,7 +87,8 @@ test.each(["shown", "rejected"] as const)(
     });
     expect(answer).toBeDefined();
     expect(owner).not.toBeNull();
-    const expected = { popupId: "hook-menu", revision: 1, owner: owner! };
+    const mountedOwner = owner!;
+    const expected = { popupId: "hook-menu", revision: 1, owner: mountedOwner };
     const semantics = new Map<Element, SurfaceSemantics>();
     const observe = (state: NativePresentation["state"]) => {
       semantics.set(menu, {
@@ -110,6 +111,7 @@ test.each(["shown", "rejected"] as const)(
     await act(async () => answer!({ shown: outcome === "shown" }));
     expect(shell.hasAttribute("data-escaped")).toBe(outcome === "shown");
     if (outcome === "rejected") expect(owner).toBeNull();
+    else expect(owner).toBe(mountedOwner);
     expect(observe(outcome)).toEqual([]);
     expect(menu.isConnected).toBe(true);
   },
