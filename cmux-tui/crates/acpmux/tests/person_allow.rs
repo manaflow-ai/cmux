@@ -84,11 +84,13 @@ impl Rpc {
     async fn line(&mut self) -> Value {
         let Ok(line) = tokio::time::timeout(Duration::from_secs(30), self.lines.next_line()).await
         else {
-            // Name the wait: the last request sent and what came unasked meanwhile.
-            let methods: Vec<_> = self.notes.iter().map(|n| n["method"].clone()).collect();
+            // Name the wait: the last request sent and every line read past
+            // meanwhile (a reply that came while waiting for a notification,
+            // such as a failed prompt's error, is among them).
+            let held: Vec<String> =
+                self.notes.iter().map(|n| n.to_string().chars().take(400).collect()).collect();
             panic!(
-                "the daemon sent nothing for 30 s; last request id {}, notifications held: \
-                 {methods:?}",
+                "the daemon sent nothing for 30 s; last request id {}, lines read past: {held:#?}",
                 self.next
             );
         };
