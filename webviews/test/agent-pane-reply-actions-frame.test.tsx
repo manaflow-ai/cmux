@@ -61,6 +61,10 @@ afterAll(() => {
 const reply = { id: "a1", version: 1, at: 1_000, kind: "assistant", text: "I gave the team access to the helper." };
 const prompt = { id: "u1", version: 1, at: 0, kind: "user", text: "Give the team access." };
 const steer = { id: "s1", version: 1, at: 2_000, kind: "user", text: "Also tell Lawrence.", steer: "landed" };
+// The page passes the same callbacks and set on every render. A fresh one redraws every frame
+// whatever its memo says, and would hide a frame that misses the change.
+const onToggleActivity = () => {};
+const expanded = new Set<string>();
 
 test("a drawn reply gains its row when a steer follows it, in a paged transcript too", async () => {
   for (const canLoadOlder of [false, true]) {
@@ -70,8 +74,8 @@ test("a drawn reply gains its row when a steer follows it, in a paged transcript
         root.render(
           <VirtualTranscript
             rows={rows as never}
-            onToggleActivity={() => {}}
-            expanded={new Set()}
+            onToggleActivity={onToggleActivity}
+            expanded={expanded}
             {...(canLoadOlder ? { canLoadOlder: true, onLoadOlder: async () => {} } : {})}
           />,
         ),
