@@ -30,6 +30,8 @@ mod capability_cache;
 mod chief;
 mod chief_target;
 #[cfg(unix)]
+mod cloud_client_session;
+#[cfg(unix)]
 mod cloud_machines;
 #[cfg(unix)]
 mod cloud_secret;
@@ -406,6 +408,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| sandbox_run::run_if_requested(args))
         .or_else(|| vm::run_if_requested(args))
         .or_else(|| cloud_secret::run_if_requested(args))
+        .or_else(|| cloud_client_session::run_if_requested(args))
         .or_else(|| apps_run::run_if_requested(args))
         .or_else(|| script::run_if_requested(args))
         .or_else(|| setup::run_if_requested(args))
@@ -1181,6 +1184,10 @@ CLI actions (the live action catalog is authoritative):
   open-desktop              apply-machine-config
   deliver-secrets           start-session
 
+Client sessions (a scoped token for one of your machines, no app needed):
+  cmux cloud client-session create --target machine:VM_ID [--ttl SECONDS] [--token-file PATH]
+  cmux cloud client-session exec --target machine:VM_ID -- COMMAND...
+
 Run `cmux action list --category cloud --json` for the current catalog and
 `cmux action describe <action> --json` for an action's arguments.
 ";
@@ -1217,6 +1224,10 @@ CLI アクション（現在の一覧はアクションカタログを参照）:
   machine-link              enroll-machine
   open-desktop              apply-machine-config
   deliver-secrets           start-session
+
+クライアントセッション（自分のマシン 1 台だけに使える短期トークン、アプリ不要）:
+  cmux cloud client-session create --target machine:VM_ID [--ttl SECONDS] [--token-file PATH]
+  cmux cloud client-session exec --target machine:VM_ID -- COMMAND...
 
 現在のカタログは `cmux action list --category cloud --json`、引数は
 `cmux action describe <action> --json` で確認できます。

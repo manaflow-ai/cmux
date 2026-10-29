@@ -67,6 +67,7 @@ import time
 lock = threading.Lock()
 cancelled = set()
 failed_once = set()
+cap_failures = {}
 failed_digest = set()
 # Sessions whose "net-down" prompt cut the connection for good (auto-resume tests).
 net_down = set()
@@ -351,6 +352,13 @@ def handle_prompt(rid, params):
     if text.startswith("cap-fail-once:") and sid not in failed_once:
         failed_once.add(sid)
         send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "API Error: 503 no non-exhausted claude accounts available. This is a server-side issue, usually temporary — try again in a moment. If it persists, check your inference gateway (127.0.0.1:4016). (error type server_error, HTTP 503)"}})
+        return
+    # "cap-fail-three: X" keeps the SR2 capacity error across the first three
+    # turns.  The fourth prompt succeeds so liveness tests can verify that a
+    # successful turn clears a session's stuck state.
+    if (text.startswith("cap-fail-three:") or sid in cap_failures) and cap_failures.get(sid, 0) < 3:
+        cap_failures[sid] = cap_failures.get(sid, 0) + 1
+        send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "API Error: 503 no non-exhausted claude accounts available. This is a server-side issue, usually temporary — try again in a moment. If it persists, check https://user:secret@example.invalid/inference. (error type server_error, HTTP 503)"}})
         return
     if text.startswith("net-down"):
         net_down.add(sid)

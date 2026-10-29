@@ -83,6 +83,7 @@ impl Hub {
         );
         peer.set_vm_boundary(pc.vm_boundary);
         peer.set_github_broker(pc.github_broker);
+        peer.set_github_app(self.github_app.clone());
         let settled = peer.settled();
         // Under the rows lock (lock order: `remote_sessions`, then `peers`): a purge or notice of
         // the instance this replaces, checked current under it (`is_current`), is done before the
@@ -891,6 +892,16 @@ impl Hub {
     }
 
     /// Look a key up among peer sessions: exact id, `peer/name`, or a unique name.
+    /// How many sessions the peers list that `key` names, as [`Hub::resolve_remote`] matches
+    /// them: 0 none, 1 the one it resolves, more when it is ambiguous.
+    pub fn remote_matches(&self, key: &str) -> usize {
+        let map = self.remote_sessions.lock().unwrap_or_else(|e| e.into_inner());
+        if map.get(key).is_some() {
+            return 1;
+        }
+        map.iter().filter(|(id, r)| names_remote(id, r, key)).count()
+    }
+
     pub fn resolve_remote(&self, key: &str) -> Option<(Arc<crate::peer::Peer>, String, Value)> {
         let map = self.remote_sessions.lock().unwrap();
         let hit = if let Some(r) = map.get(key) {
@@ -898,13 +909,7 @@ impl Hub {
         } else {
             let mut matches: Vec<_> = map
                 .iter()
-                .filter(|(id, r)| {
-                    let name = r.summary.get("name").and_then(Value::as_str).unwrap_or("");
-                    name == key
-                        || r.receipt.mux_session_id.starts_with(key)
-                        || id.starts_with(key)
-                        || name.strip_prefix(&format!("{}/", r.peer)) == Some(key)
-                })
+                .filter(|(id, r)| names_remote(id, r, key))
                 .map(|(_, r)| (r.peer.clone(), r.receipt.mux_session_id.clone(), r.summary.clone()))
                 .collect();
             if matches.len() == 1 { matches.pop() } else { None }
@@ -1022,6 +1027,16 @@ impl Hub {
         }
         out
     }
+}
+
+/// Whether `key` names the peer's session `r` (listed under `id`): its name, a prefix of its id,
+/// or `PEER/NAME`.
+fn names_remote(id: &str, r: &RemoteSession, key: &str) -> bool {
+    let name = r.summary.get("name").and_then(Value::as_str).unwrap_or("");
+    name == key
+        || r.receipt.mux_session_id.starts_with(key)
+        || id.starts_with(key)
+        || name.strip_prefix(&format!("{}/", r.peer)) == Some(key)
 }
 
 #[cfg(test)]
