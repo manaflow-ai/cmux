@@ -54,6 +54,10 @@ pub fn main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
     if args.first().is_some_and(|a| a == crate::bg_run::RUN_ARG) {
         return crate::bg_run::main();
     }
+    // Claude Code's PreToolUse hook for background shells (`bg_hook.rs`).
+    if args.first().is_some_and(|a| a == crate::bg_hook::HOOK_ARG) {
+        return crate::bg_hook::main(args.get(1).map(std::path::PathBuf::from));
+    }
     #[cfg(target_os = "linux")]
     if args.first().is_some_and(|a| a == "__remote-sandbox-canary-unix") {
         return crate::linux_sandbox::keeper::canary_unix(args.get(1..).unwrap_or_default())

@@ -338,6 +338,9 @@ pub struct PromptOptions {
     /// Another agent's name when it sent the prompt with no provenance: the session a
     /// connection proved it runs in, or `_meta.acpmux.fromAgent` (`digest.rs`).
     pub agent: Option<String>,
+    /// `_meta.acpmux.class` (`prompt_class.rs`): what another agent's message asks of this chat.
+    /// Kept only on another agent's message, where none means `result`.
+    pub class: Option<crate::prompt_class::PromptClass>,
     /// An automatic continuation (`auto_resume.rs`): runs only while the chat still ends on
     /// this turn, checked again once it holds the turn lock, else refused unrecorded.
     pub after_turn: Option<String>,

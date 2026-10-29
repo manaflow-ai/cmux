@@ -218,7 +218,11 @@ impl Hub {
         // The agent messages that go in with this one (`digest.rs`) answer with its answer, or
         // wait again when it failed.
         let joined = super::digest::DigestTurn::default();
-        let result = self.run_prompt_joined(session, blocks, client, steer, opts, &joined).await;
+        // On the heap: a prompt's whole turn is a large future, and a caller that awaits it in
+        // place (a test, `steer_queued`'s steer that falls back to a turn) would hold it on its
+        // stack; debug builds overflowed a 2 MB test thread with it.
+        let result =
+            Box::pin(self.run_prompt_joined(session, blocks, client, steer, opts, &joined)).await;
         // `finish_turn` put them back already when the turn itself failed, and a turn that never
         // reached its agent put them back unheld (`fail_unstarted_turn`); this is any other way.
         if result.is_err() {
@@ -286,6 +290,8 @@ impl Hub {
         }
         // Who sent it, as the queue knows its prompts' senders (`digest.rs`).
         let agent = super::digest::agent_sender(opts.provenance.as_ref(), opts.agent.as_deref());
+        // What it asks of this chat: another agent's only, `result` when it named none.
+        let class = crate::prompt_class::of_message(opts.class, agent.is_some());
         if steer_now {
             let turn_id = running.map(|t| t.turn_id).unwrap_or_default();
             let opts = PromptOptions { prompt_id: Some(prompt_id), on_accepted: None, ..opts };
@@ -308,6 +314,7 @@ impl Hub {
             interrupt_turn: opts.interrupt_turn.as_deref(),
             provenance: opts.provenance.as_ref(),
             agent: agent.as_deref(),
+            class,
             supersede: supersede.as_deref(),
             full_access_device: opts.full_access_device.as_deref(),
             replaced: &replaced,
