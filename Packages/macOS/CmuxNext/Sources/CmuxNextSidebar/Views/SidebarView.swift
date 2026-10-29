@@ -120,7 +120,7 @@ public final class SidebarView: NSView {
         super.init(frame: .zero)
         buildHierarchy()
         newButton.setAccessibilityIdentifier("cmux.sidebar.newWorkspace")
-        newWorkspaceOptionsButton.setAccessibilityLabel("New Workspace Options")
+        newWorkspaceOptionsButton.setAccessibilityLabel(Strings.newWorkspaceOptions)
         newWorkspaceOptionsButton.setAccessibilityIdentifier("cmux.sidebar.newWorkspace.options")
         list.reload(animated: false)
         observe()
@@ -312,7 +312,13 @@ public final class SidebarView: NSView {
         newWorkspaceOptionsButton.frame = NSRect(x: newButton.frame.minX - Metrics.space1 - button,
                                                   y: newButton.frame.minY, width: button, height: button)
         let x = headerHasWindowControls ? max(Metrics.trafficLightInset, titlebarLeadingReserve) : titlebarLeadingReserve
-        let titlebarButtonsMinX = layoutPriorityButton(before: newWorkspaceOptionsButton.frame)
+        // The chevron is the optional extra (the +'s right-click menu holds the same chooser): on a
+        // sidebar too narrow for it and the Priority button beside the +, it hides before either one
+        // reaches the leading reserve (the toolbar band sits above it there and takes the clicks).
+        let optionsMinX = newWorkspaceOptionsButton.frame.minX - (priorityButton.isHidden ? 0 : Metrics.space1 + button)
+        newWorkspaceOptionsButton.isHidden = optionsMinX < x
+        let titlebarButtonsMinX = layoutPriorityButton(before: newWorkspaceOptionsButton.isHidden ? newButton.frame
+                                                                                                 : newWorkspaceOptionsButton.frame)
         if let accessory = titlebarAccessory {
             let size = accessory.fittingSize
             let width = max(0, min(size.width, titlebarButtonsMinX - Metrics.space2 - x))

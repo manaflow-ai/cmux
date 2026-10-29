@@ -153,4 +153,25 @@ import Testing
         #expect(!sidebar.isChromeRevealed && sidebar.appliedChromeReveal?.newButton == hidden)
         #expect(!sidebar.newButton.hover.state.pressed)
     }
+    /// A narrow sidebar never puts the chevron (or, pushed by it, the Priority button) into the titlebar's leading
+    /// reserve, where the toolbar band above the sidebar takes the clicks: the chevron hides first, and the +'s
+    /// right-click menu still opens the chooser.
+    @Test func theSidebarChevronHidesBeforeItReachesTheLeadingReserve() {
+        _ = NSApplication.shared
+        let sidebar = SidebarView(model: SidebarModel(), design: DesignSettings())
+        sidebar.frame = NSRect(x: 0, y: 0, width: 280, height: 480)
+        sidebar.layoutSubtreeIfNeeded()
+        #expect(!sidebar.newWorkspaceOptionsButton.isHidden, "a roomy sidebar shows the chevron")
+        let leftmost = { ([sidebar.newButton, sidebar.newWorkspaceOptionsButton, sidebar.priorityButton] as [NSView])
+            .filter { !$0.isHidden }.map(\.frame.minX).min() ?? .infinity }
+        let roomy = leftmost()
+        // Room for exactly what sat beside the + before the chevron existed, and not one point more.
+        sidebar.titlebarLeadingReserve = roomy + Metrics.space1 + SidebarStyle.toolbarButtonSize
+        sidebar.layoutSubtreeIfNeeded()
+        #expect(sidebar.newWorkspaceOptionsButton.isHidden, "the chevron gives way on a narrow sidebar")
+        #expect(leftmost() >= sidebar.titlebarLeadingReserve, "no titlebar control enters the reserve")
+        sidebar.titlebarLeadingReserve = 0
+        sidebar.layoutSubtreeIfNeeded()
+        #expect(!sidebar.newWorkspaceOptionsButton.isHidden, "the chevron comes back with the room")
+    }
 }
