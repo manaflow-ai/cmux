@@ -25,10 +25,17 @@
 //!   range), output offsets are contiguous after every cut, and no output
 //!   arrives for a generation the viewer has no READY of;
 //! - the viewer's screen (its last READY restored, plus the output after its
-//!   cut) equals the daemon's screen (`snapshot_digest_input` of both READYs);
+//!   cut) equals the daemon's: the same viewport text and cursor as the
+//!   daemon's terminal, and every visible row, blank rows too, cell by cell
+//!   with its style, the same as the daemon's READY restored and rendered.
+//!   (GHOSTSNP PAGE records are not compared: the daemon's first screen page
+//!   also holds the history rows above it, which a viewer that restored no
+//!   history does not have; a failure names the first differing record.)
 //! - a marker line written before a burst is still in the daemon's text after
-//!   it, and every line the child printed during the burst reached each viewer
-//!   that was attached through it with only local READYs, in order, once.
+//!   it (skipped when the burst at the widest grid may fill the scrollback
+//!   limit), and every line the child printed during the burst reached each
+//!   viewer that was attached through it with only local READYs, in order,
+//!   once.
 //!
 //! Run: `cargo test -p cmux-tui-core --lib resize_fuzz -- --nocapture`.
 //! `CMUX_RESIZE_FUZZ_SEEDS` (default 3) cases from `CMUX_RESIZE_FUZZ_SEED`
@@ -51,11 +58,6 @@ const LIVE_RESIZE_CAPABILITY: &str = "live-resize-v1";
 const LIVE_SETTLE: Duration = Duration::from_secs(2);
 /// The case terminal's scrollback limit (bytes of page memory).
 const SCROLLBACK: usize = 64 << 20;
-/// Settled checks whose screens matched but whose idle `digest` input
-/// differed (PAGE capacity hints only).
-static HINT_ONLY_DIGEST_MISMATCHES: std::sync::atomic::AtomicU64 =
-    std::sync::atomic::AtomicU64::new(0);
-
 fn env_u64(name: &str, default: u64) -> u64 {
     std::env::var(name)
         .ok()
@@ -371,15 +373,27 @@ struct Host {
     ready: Vec<u8>,
     text: String,
     cursor: Option<(u16, u16)>,
+    /// Every visible row, blank ones too, cell by cell with its style: the
+    /// daemon's READY restored into a scratch terminal and rendered (a render
+    /// of the daemon's own terminal would take its renderer's dirty rows).
+    rows: Vec<Vec<ghostty_vt::Cell>>,
 }
 
-/// The records of a READY a screen comparison reads: SCREEN, PAGE and
-/// CONTINUATION, with the SCREEN history extent (payload bytes 4..12; the
-/// viewer restored no history) and, when `hints` is false, the PAGE capacity
-/// hints (payload bytes 8..20: style, hyperlink, grapheme and string
-/// capacities, which depend on the page's history, not on what it shows)
-/// set to zero.
-fn screen_records(snapshot: &[u8], hints: bool) -> Vec<(u16, Vec<u8>)> {
+/// Every visible row of `terminal`, blank ones too, with each cell's text,
+/// width and style, as a renderer draws them.
+fn visible_rows(
+    terminal: &mut ghostty_vt::Terminal,
+) -> ghostty_vt::Result<Vec<Vec<ghostty_vt::Cell>>> {
+    let mut render = RenderState::new()?;
+    render.update(terminal)?;
+    Ok(render.build_frame()?.styled_rows().to_vec())
+}
+
+/// The SCREEN, PAGE and CONTINUATION records of a READY (for a failure
+/// report), with the SCREEN history extent (payload bytes 4..12; the viewer
+/// restored no history) and the PAGE capacity hints (payload bytes 8..20,
+/// which depend on the page's history, not on what it shows) set to zero.
+fn screen_records(snapshot: &[u8]) -> Vec<(u16, Vec<u8>)> {
     use ghostty_vt::snapshot_tag::{CONTINUATION, PAGE, SCREEN};
     ghostty_vt::snapshot_records(snapshot)
         .filter(|record| matches!(record.tag, SCREEN | PAGE | CONTINUATION))
@@ -388,7 +402,7 @@ fn screen_records(snapshot: &[u8], hints: bool) -> Vec<(u16, Vec<u8>)> {
             if record.tag == SCREEN && payload.len() >= 12 {
                 payload[4..12].fill(0);
             }
-            if record.tag == PAGE && !hints && payload.len() >= 20 {
+            if record.tag == PAGE && payload.len() >= 20 {
                 payload[8..20].fill(0);
             }
             (record.tag, payload)
@@ -398,7 +412,7 @@ fn screen_records(snapshot: &[u8], hints: bool) -> Vec<(u16, Vec<u8>)> {
 
 /// Where two READYs differ: the first differing record and byte.
 fn record_diff(viewer: &[u8], host: &[u8]) -> String {
-    let (viewer, host) = (screen_records(viewer, false), screen_records(host, false));
+    let (viewer, host) = (screen_records(viewer), screen_records(host));
     if viewer == host {
         return "equal".into();
     }
@@ -663,15 +677,21 @@ impl Case {
     /// hold (output is parsed and published under that lock).
     fn host(&self) -> Host {
         let surface = self.surface.clone();
-        self.surface
+        let mut host = self
+            .surface
             .try_with_terminal(|term| Host {
                 grid: (term.cols(), term.rows()),
                 position: surface.snapshot_stream_position().unwrap_or_default(),
                 ready: term.encode_snapshot(ghostty_vt::SnapshotPhase::Ready).unwrap_or_default(),
                 text: term.viewport_text().unwrap_or_default(),
                 cursor: term.cursor_position(),
+                rows: Vec::new(),
             })
-            .unwrap()
+            .unwrap();
+        host.rows = ghostty_vt::Terminal::from_ready_snapshot(&host.ready, SCROLLBACK)
+            .and_then(|mut restored| visible_rows(&mut restored))
+            .unwrap_or_default();
+        host
     }
 
     /// Asks the child for `lines` numbered lines; returns the burst's tag and
@@ -786,9 +806,8 @@ impl Case {
             }
             std::thread::sleep(Duration::from_millis(3));
         }
-        let host_digest = ghostty_vt::snapshot_digest_input(&host.ready);
         for index in 0..self.viewers.len() {
-            if let Some(error) = self.viewer_divergence(index, expected, &host, &host_digest) {
+            if let Some(error) = self.viewer_divergence(index, expected, &host) {
                 let name = self.viewers[index].name.clone();
                 self.fail(&format!("{why}: viewer {name}: {error}"));
             }
@@ -803,13 +822,7 @@ impl Case {
     }
 
     /// How the settled view `index` differs from the daemon, if it does.
-    fn viewer_divergence(
-        &self,
-        index: usize,
-        expected: (u16, u16),
-        host: &Host,
-        host_digest: &[u8],
-    ) -> Option<String> {
+    fn viewer_divergence(&self, index: usize, expected: (u16, u16), host: &Host) -> Option<String> {
         let viewer = &self.viewers[index];
         let Some(ready) = &viewer.ready else { return Some("no READY".into()) };
         if ready.grid != expected {
@@ -847,21 +860,19 @@ impl Case {
         let text = screen.viewport_text().unwrap_or_default();
         let cursor = screen.cursor_position();
         let encoded = screen.encode_snapshot(ghostty_vt::SnapshotPhase::Ready).unwrap_or_default();
-        if text == host.text
-            && cursor == host.cursor
-            && screen_records(&encoded, false) == screen_records(&host.ready, false)
-        {
-            if ghostty_vt::snapshot_digest_input(&encoded) != host_digest {
-                // The same screen, but the idle `digest` would differ: only
-                // the PAGE capacity hints do (counted, reported at the end).
-                HINT_ONLY_DIGEST_MISMATCHES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            }
+        let rows = match visible_rows(&mut screen) {
+            Ok(rows) => rows,
+            Err(error) => return Some(format!("its screen does not render: {error:?}")),
+        };
+        if text == host.text && cursor == host.cursor && rows == host.rows {
             return None;
         }
+        let first_row = rows.iter().zip(&host.rows).position(|(a, b)| a != b);
         let after = &viewer.after_cut;
         Some(format!(
             "its screen (READY g{} o{} {:?}{}, then {} bytes) differs from the daemon's at g{} o{}: \
-             text {}, cursor {:?} vs the daemon's {:?}, records {}\n  daemon screen: {:?}\n  \
+             text {}, cursor {:?} vs the daemon's {:?}, {} rows vs the daemon's {}, first differing \
+             row {first_row:?}, records {}\n  daemon screen: {:?}\n  \
              viewer screen: {text:?}\n  bytes after the cut (last 300): {:?}",
             ready.generation,
             ready.offset,
@@ -873,6 +884,8 @@ impl Case {
             if text == host.text { "equal" } else { "DIFFERS" },
             cursor,
             host.cursor,
+            rows.len(),
+            host.rows.len(),
             record_diff(&encoded, &host.ready),
             host.text,
             String::from_utf8_lossy(&after[after.len().saturating_sub(300)..])
@@ -1146,11 +1159,7 @@ fn run_case(seed: u64, steps: usize) {
     }
     case.mux.shutdown();
     let _ = std::fs::remove_dir_all(&case.dir);
-    eprintln!(
-        "resize fuzz seed=0x{seed:x}: {steps} steps passed; settled screens equal but idle digest \
-         input different (PAGE capacity hints only): {} so far",
-        HINT_ONLY_DIGEST_MISMATCHES.load(std::sync::atomic::Ordering::Relaxed)
-    );
+    eprintln!("resize fuzz seed=0x{seed:x}: {steps} steps passed");
 }
 
 #[test]
