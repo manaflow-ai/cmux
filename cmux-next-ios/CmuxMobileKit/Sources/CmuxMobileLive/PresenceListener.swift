@@ -1,6 +1,17 @@
 import Foundation
 import OSLog
 
+@MainActor
+protocol PresenceSocket: AnyObject {
+    func resume()
+    func receive() async throws -> URLSessionWebSocketTask.Message
+    func sendPing(pongReceiveHandler: @escaping @Sendable (Error?) -> Void)
+    func cancel(with closeCode: URLSessionWebSocketTask.CloseCode, reason: Data?)
+    var state: URLSessionTask.State { get }
+}
+
+extension URLSessionWebSocketTask: PresenceSocket {}
+
 private let log = Logger(subsystem: "dev.cmux.mobile", category: "presence")
 
 /// Holds the team's signaling WebSocket for Mac presence (`hello` then
@@ -15,21 +26,35 @@ public final class PresenceListener {
         case connected(Bool)
     }
 
-    private let api: LiveAPI
-    private let teamID: String
-    private let deviceID: String
+    private let signalRequest: @MainActor () async throws -> URLRequest
+    private let fetchMacs: @MainActor () async throws -> [LiveAPI.Mac]
+    private let makeSocket: @MainActor (URLRequest) -> any PresenceSocket
     private let clock: any Clock<Duration>
     private let onUpdate: @MainActor (Update) -> Void
     private var task: Task<Void, Never>?
-    private var socket: URLSessionWebSocketTask?
+    private var socket: (any PresenceSocket)?
     /// Poll interval while the socket is down.
     static let pollInterval: Duration = .seconds(20)
+    static let pingInterval: Duration = .seconds(15)
+    static let pingTimeout: Duration = .seconds(5)
+    static let helloTimeout: Duration = .seconds(10)
 
-    public init(api: LiveAPI, teamID: String, deviceID: String, clock: any Clock<Duration> = ContinuousClock(),
+    public convenience init(api: LiveAPI, teamID: String, deviceID: String, clock: any Clock<Duration> = ContinuousClock(),
                 onUpdate: @escaping @MainActor (Update) -> Void) {
-        self.api = api
-        self.teamID = teamID
-        self.deviceID = deviceID
+        self.init(clock: clock,
+                  signalRequest: { try await api.signalRequest(teamID: teamID, deviceID: deviceID) },
+                  fetchMacs: { try await api.macs(teamID: teamID) },
+                  makeSocket: { URLSession.shared.webSocketTask(with: $0) }, onUpdate: onUpdate)
+    }
+
+    init(clock: any Clock<Duration>,
+         signalRequest: @escaping @MainActor () async throws -> URLRequest,
+         fetchMacs: @escaping @MainActor () async throws -> [LiveAPI.Mac],
+         makeSocket: @escaping @MainActor (URLRequest) -> any PresenceSocket,
+         onUpdate: @escaping @MainActor (Update) -> Void) {
+        self.signalRequest = signalRequest
+        self.fetchMacs = fetchMacs
+        self.makeSocket = makeSocket
         self.clock = clock
         self.onUpdate = onUpdate
     }
@@ -57,8 +82,8 @@ public final class PresenceListener {
         var failures = 0
         while !Task.isCancelled {
             do {
-                let request = try await api.signalRequest(teamID: teamID, deviceID: deviceID)
-                let socket = URLSession.shared.webSocketTask(with: request)
+                let request = try await signalRequest()
+                let socket = makeSocket(request)
                 self.socket = socket
                 socket.resume()
                 var sawHello = false
@@ -93,7 +118,7 @@ public final class PresenceListener {
             onUpdate(.connected(false))
             failures += 1
             // Keep the list fresh over HTTP while the socket is down.
-            if let macs = try? await api.macs(teamID: teamID) { onUpdate(.snapshot(macs)) }
+            if let macs = try? await fetchMacs() { onUpdate(.snapshot(macs)) }
             let delay: Duration = failures < 4 ? .seconds(1 << failures) : Self.pollInterval
             do { try await clock.sleep(for: delay) } catch { return }
         }
