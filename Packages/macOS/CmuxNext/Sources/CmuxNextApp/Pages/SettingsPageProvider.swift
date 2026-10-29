@@ -172,7 +172,7 @@ final class SettingsPageProvider: PageProvider {
             // must also be the HID system's, or the person confirms with Touch ID or the
             // password (``personTurnsOn(_:_:_:)``).
             if on { try await personTurnsOn(.fullAccess, id, context) } else { turnedOff(.fullAccess, id) }
-            return try await Self.host(setDeviceFullAccess, "devices")(id, on).map { ["error": .string($0)] } ?? .object([:])
+            return try await widenedWrite(.fullAccess, id, on, Self.host(setDeviceFullAccess, "devices")).map { ["error": .string($0)] } ?? .object([:])
         case "cmux.settings.devices.join_consent":
             guard let surface = params["surface"]?.stringValue, JoinConsentSurface(rawValue: surface) != nil,
                   let on = params["on"]?.boolValue else {
@@ -203,7 +203,7 @@ final class SettingsPageProvider: PageProvider {
             // the machine keep the sandbox always, which only narrows, so it needs no gesture. The
             // click must also be the HID system's, or the person confirms (``personTurnsOn(_:_:_:)``).
             if on { try await personTurnsOn(.vmHost, id, context) } else { turnedOff(.vmHost, id) }
-            return try await Self.host(setMachineVmHost, "machines")(id, on).map { ["error": .string($0)] } ?? .object([:])
+            return try await widenedWrite(.vmHost, id, on, Self.host(setMachineVmHost, "machines")).map { ["error": .string($0)] } ?? .object([:])
         case "cmux.settings.accounts.state": return try Self.host(accountsState, "accounts")()
         case "cmux.settings.accounts.run": return try await Self.host(accountsRun, "accounts")(params)
         case "cmux.settings.agents.state": return try Self.host(agents, "agents").pageState
