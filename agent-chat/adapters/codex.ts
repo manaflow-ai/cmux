@@ -656,7 +656,11 @@ export function mergeCodexModels(binaryModels: ModelInfo[], remote = agentModelC
       contextWindow: model.contextWindow ?? reported?.contextWindow,
       efforts,
       defaultEffort,
-      serviceTiers: model.serviceTiers ?? reported?.serviceTiers ?? [],
+      // The bundled model catalog marks Codex models that support fast mode
+      // with `fast: true`. Older app-server model/list responses do not carry
+      // service tiers, so preserve that capability as the OpenAI priority
+      // tier instead of silently hiding the fast-mode toggle.
+      serviceTiers: model.serviceTiers ?? (model.fast ? [{ id: "priority", name: "Fast" }] : reported?.serviceTiers ?? []),
       defaultServiceTier: model.defaultServiceTier !== undefined ? model.defaultServiceTier : reported?.defaultServiceTier ?? null,
       isDefault: model.id === remote.defaultModel,
     };

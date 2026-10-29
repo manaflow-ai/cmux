@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { normalizeRunSpec, runSpecDigest } from "./spec";
+import { normalizeRunSpec, runSpecDigest } from "../services/runs/spec";
 
 const digest = "sha256:" + "a".repeat(64);
 

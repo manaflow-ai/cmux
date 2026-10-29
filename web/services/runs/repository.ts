@@ -38,6 +38,7 @@ export async function createRunRecord(input: {
       recipe: input.spec.recipe.id,
       provider: "cloud-vm",
       desiredAttempts: input.spec.variants.length,
+      maxConcurrent: input.spec.resources.maxConcurrent,
       status: "queued",
     }).returning();
     if (!run) throw new Error("run insert returned no row");
