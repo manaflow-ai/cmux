@@ -15,12 +15,16 @@ pub(super) struct CreationGuard {
     hub: Arc<Hub>,
     session: Arc<Session>,
     created_stops: u64,
+    /// The inline `/btw` request's transcript owner, read when the guard is made: the request
+    /// may end (and drop its mark) before the spawned purge runs.
+    inline: Option<super::InlineBtwOwner>,
     armed: bool,
 }
 
 impl CreationGuard {
     pub(super) fn new(hub: Arc<Hub>, session: Arc<Session>, created_stops: u64) -> Self {
-        Self { hub, session, created_stops, armed: true }
+        let inline = hub.inline_btw_owner(&session);
+        Self { hub, session, created_stops, inline, armed: true }
     }
 
     pub(super) fn disarm(mut self) {
@@ -36,8 +40,9 @@ impl Drop for CreationGuard {
         let hub = self.hub.clone();
         let session = self.session.clone();
         let created_stops = self.created_stops;
+        let inline = self.inline.take();
         tokio::spawn(async move {
-            hub.discard_failed_creation(&session, created_stops).await;
+            hub.discard_failed_creation_owned(&session, created_stops, inline).await;
         });
     }
 }
@@ -546,6 +551,27 @@ impl Hub {
     /// request's, and its agent keeps running. The spawn lock, which every reopen holds
     /// (`ensure_child`), is held from the read to the end of the purge (`kill` never takes it).
     pub(super) async fn discard_failed_creation(&self, session: &Arc<Session>, created_stops: u64) {
+        let inline = self.inline_btw_owner(session);
+        self.discard_failed_creation_owned(session, created_stops, inline).await;
+    }
+
+    /// The inline `/btw` request's mark on this session (`btw.rs` `InlineOwned`), if any.
+    pub(super) fn inline_btw_owner(&self, session: &Session) -> Option<super::InlineBtwOwner> {
+        self.inline_btw
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(&session.meta().name)
+            .cloned()
+    }
+
+    /// `discard_failed_creation` with the inline owner already read: an inline /btw's
+    /// session takes its harness transcript with it.
+    pub(super) async fn discard_failed_creation_owned(
+        &self,
+        session: &Arc<Session>,
+        created_stops: u64,
+        inline: Option<super::InlineBtwOwner>,
+    ) {
         if session.purged.load(Ordering::SeqCst) {
             return;
         }
@@ -554,12 +580,6 @@ impl Hub {
             && session.status() != SessionStatus::Closed;
         if !reopened_since {
             // An inline /btw's session takes its harness transcript with it (`btw.rs`).
-            let inline = self
-                .inline_btw
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .get(&session.meta().name)
-                .cloned();
             match inline {
                 Some((family, env)) => Box::pin(self.btw_cleanup(session, &family, &env)).await,
                 None => {

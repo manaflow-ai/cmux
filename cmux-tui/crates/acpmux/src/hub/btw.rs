@@ -1065,6 +1065,49 @@ mod tests {
         let _ = std::fs::remove_dir_all(root);
     }
 
+    /// A creation cancelled at its deadline is purged by its CreationGuard on a spawned task,
+    /// which can run after the request (and its mark) is gone: the guard keeps the owner it
+    /// read when it was made, so the transcript still goes.
+    #[tokio::test]
+    async fn a_creation_guard_cleans_the_inline_transcript_after_the_request_ended() {
+        let root = std::env::temp_dir().join(format!("acpmux-btw-guard-{}", uuid::Uuid::now_v7()));
+        let projects = root.join("projects").join("p");
+        std::fs::create_dir_all(&projects).unwrap();
+        let mut cfg = Config::default();
+        cfg.harnesses.insert(
+            "claude-iso".into(),
+            claude_profile(&[("CLAUDE_CONFIG_DIR", &root.to_string_lossy())]),
+        );
+        let hub = Hub::new(cfg, Box::new(crate::store::MemoryStore::default()));
+        let env = std::collections::BTreeMap::from([(
+            "CLAUDE_CONFIG_DIR".to_owned(),
+            root.to_string_lossy().into_owned(),
+        )]);
+        let mut meta = side_meta("claude-iso", &root);
+        meta.id = "id-guarded".into();
+        meta.name = "chat-btw-2".into();
+        meta.agent_session_id = Some("guarded-transcript".into());
+        let transcript = projects.join("guarded-transcript.jsonl");
+        std::fs::write(&transcript, "guarded").unwrap();
+        let session = hub.make_session(meta);
+        hub.sessions.lock().unwrap().insert(session.id.clone(), session.clone());
+        let owned = InlineOwned::new(&hub, "chat-btw-2", "claude", &env);
+        let guard = super::super::lifecycle::CreationGuard::new(hub.clone(), session.clone(), 0);
+        // The request ends first (its deadline passed), then the cancelled creation drops.
+        drop(owned);
+        drop(guard);
+        for _ in 0..200 {
+            if !transcript.exists() && hub.resolve(&session.id).is_err() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        assert!(hub.resolve(&session.id).is_err(), "the guard discards the session");
+        assert!(!transcript.exists(), "and its transcript, though the request's mark is gone");
+        hub.shutdown_all().await;
+        let _ = std::fs::remove_dir_all(root);
+    }
+
     /// A family default's store (here `${cwd}`-relative) is where cleanup looks,
     /// and the temporary transcript in it is removed.
     #[tokio::test]
