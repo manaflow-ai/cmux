@@ -1510,6 +1510,17 @@ Each file is in exactly one task. Section 8 lists the planned cut (FG300-FG346),
   reveal.
 - Acceptance: every start has a class; signposts show none of the deferred starts before reveal.
 - Test phase: fleet bench_launch.py cold and warm, 5 runs each.
+- As built (`CmuxNextLaunch/LaunchStart.swift`): p08-startup-017/029/031 already post the Feed card,
+  `Updater.start`, the device hub, the cmux-tui notices and the platform follows, each with its
+  priority. Every other start of the launch turn is a `LaunchStart` case: first-frame ones run in a
+  `launch.startup_task` signpost with `priority=launchTurn`; bookmark sync (Chromium's models and the
+  imports' migration), closed-history retention and the Chromium hint wait for startup complete with
+  feature `launchStartDeferral`. The updater's settings follow stays first-frame: `Updater.start`
+  needs the person's schedule and ring, and the sidebar's What's New and tip switches follow it. A
+  Mac Screen tab or Settings > Devices posts `DeviceHub.startNeeded` right after the first frame.
+  The startup tip since posts `Settings.start`, `HangReports.start`, `ConfigActions.start`, `Themes.start`
+  (critical), `MouseSideButtons.start`, `KeybindingsFile.start` and Ghostty's config watch, and folds the
+  daemon's prompts into `Daemon.start`: those have their class as the post's priority and no `LaunchStart` case.
 
 **p06-scheduler-050: Idle adopters.**
 - Files: `CmuxNextBrowser/CEF/CEFSpareWindow.swift`, `CmuxNextChromiumWarmup/ChromiumWarmup.swift`,
