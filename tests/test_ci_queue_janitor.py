@@ -3876,6 +3876,19 @@ class ReviewNineTests(unittest.TestCase):
         self.assertNotIn([str(b["id"]), "force-cancel"], fake.posts())
         self.assertIn("not moved", results[b["id"]])
 
+    def test_pool_variable_client_rejects_every_other_endpoint_and_mutation(self):
+        client = janitor.RunnerPoolVariables("variable-token", "manaflow-ai/cmux")
+        path = "/repos/manaflow-ai/cmux/actions/variables/RUNNER_POOLS"
+        with mock.patch.object(client, "_request_retrying", return_value={"value": "fresh"}) as request:
+            self.assertEqual(client.request("GET", path), {"value": "fresh"})
+            for method, other, body in (("POST", path, None), ("DELETE", path, None),
+                                        ("GET", "/repos/manaflow-ai/cmux/actions/runs/1", None),
+                                        ("GET", path, {"value": "changed"})):
+                with self.assertRaises(ValueError):
+                    client.request(method, other, body)
+            request.assert_called_once_with("GET", path, None, app_only=False)
+        self.assertEqual(client.fallback_token, "")
+
     def test_fresh_runner_pool_read_uses_the_required_variable_and_validator(self):
         fake = FakeGitHub({})
         expected = object()
