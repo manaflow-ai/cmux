@@ -8021,7 +8021,7 @@ jobs:
           # Invite-wave flags for cmux-tui testers (tui-tester-rollout #10): the reviewed
           # release-notes/next/flags.json, signed with the same content-signing key.
           if [ -f release-notes/next/flags.json ]; then
-            python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d.get("version")==1 and isinstance(d.get("default",{}),dict) and isinstance(d.get("cohorts",{}),dict)' release-notes/next/flags.json
+            python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); assert type(d.get("version")) is int and d["version"]==1 and isinstance(d.get("default"),dict) and isinstance(d.get("cohorts"),dict) and all(isinstance(v,dict) and isinstance(v.get("DisabledFeatures",[]),list) for v in [d["default"], *d["cohorts"].values()])' release-notes/next/flags.json
             cp release-notes/next/flags.json notes/flags.json
             signed+=(notes/flags.json)
           fi
