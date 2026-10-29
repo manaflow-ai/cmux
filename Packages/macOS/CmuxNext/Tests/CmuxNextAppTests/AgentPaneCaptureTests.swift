@@ -29,8 +29,9 @@ struct AgentPaneCaptureTests {
         var requests: [AgentPaneUploadStageRequest] = []
         var sessions: [String?] = []
         var received = Data()
+        var captureFile: URL?
 
-        init(stages: Bool = true, session: String? = "s1", finishValue: [String: Any]? = nil) {
+        init(stages: Bool = true, session: String? = "s1", finishValue: [String: Any]? = nil, refusing: String? = nil) {
             model = AgentPaneModel(host: NoHost(), sessionId: session)
             guard stages else { return }
             model.onUploadStage = { [weak self] in
@@ -39,21 +40,28 @@ struct AgentPaneCaptureTests {
                     self.requests.append(request)
                     self.sessions.append(asked)
                     switch request {
-                    case .begin(_, let size, _, _): return AgentPaneReply.success(["token": "t", "size": size, "chunkSize": 512 * 1024])
+                    case .begin(_, let size, _, _):
+                        if refusing == "begin" { return AgentPaneReply.failure(code: "upload_refused", message: "Refused") }
+                        return AgentPaneReply.success(["token": "t", "size": size, "chunkSize": 512 * 1024])
                     case .chunk(_, _, let data):
+                        if refusing == "chunk" { return AgentPaneReply.failure(code: "upload_failed", message: "Failed") }
                         self.received.append(data)
                         return AgentPaneReply.success(["offset": self.received.count])
-                    case .finish: return AgentPaneReply.success(finishValue ?? ["path": AgentPaneCaptureTests.saved])
+                    case .finish:
+                        if refusing == "finish" { return AgentPaneReply.failure(code: "upload_failed", message: "Failed") }
+                        return AgentPaneReply.success(finishValue ?? ["path": AgentPaneCaptureTests.saved])
                     case .cancel: return AgentPaneReply.success()
                     }
                 }
             }
         }
 
-        func capture(_ bytes: Data, gesture: Bool = true) async -> [String: Any] {
+        func capture(_ bytes: Data, gesture: Bool = true, picked: Bool = true) async -> [String: Any] {
             if gesture { model.transport.gestures.record(click: true) }
             return await AgentPaneCapture.reply(to: "screen", in: model, taken: AgentPaneCaptureTests.taken) { _, file in
-                bytes.isEmpty || (try? bytes.write(to: file)) != nil
+                await MainActor.run { self.captureFile = file }
+                let written = bytes.isEmpty || (try? bytes.write(to: file)) != nil
+                return picked && written
             }
         }
     }
@@ -133,9 +141,41 @@ struct AgentPaneCaptureTests {
         ]
         for uploads in invalid {
             let rig = Rig(finishValue: ["uploads": uploads])
-            let answer = try #require(Self.value(await rig.capture(Self.png)))
-            #expect(answer["original"] == nil)
+            let reply = await rig.capture(Self.png)
+            #expect(Self.errorCode(reply) == "capture_failed")
+            let file = try #require(rig.captureFile)
+            defer { try? FileManager.default.removeItem(at: file) }
+            #expect(try Data(contentsOf: file) == Self.png)
             #expect(rig.requests.last == .cancel(token: "t"))
+        }
+    }
+
+    @Test func aFailedOriginalStageReportsFailureAndKeepsRecoverableBytes() async throws {
+        for refusing in ["begin", "chunk", "finish"] {
+            let rig = Rig(refusing: refusing)
+            let reply = await rig.capture(Self.png)
+            let file = try #require(rig.captureFile)
+            defer { try? FileManager.default.removeItem(at: file) }
+            #expect(Self.errorCode(reply) == "capture_failed")
+            let error = try #require(reply["error"] as? [String: Any])
+            #expect((error["details"] as? [String: Any])?["originalPath"] as? String == file.path)
+            #expect((error["userMessage"] as? String)?.contains(file.path) == true)
+            #expect(try Data(contentsOf: file) == Self.png)
+            #expect(rig.requests.contains(.cancel(token: "t")) == (refusing != "begin"))
+        }
+    }
+
+    @Test func successfulAndCancelledCapturesRemoveTheirTemporaryFiles() async throws {
+        for picked in [true, false] {
+            let rig = Rig()
+            let reply = await rig.capture(Self.png, picked: picked)
+            #expect(reply["ok"] as? Bool == true)
+            let file = try #require(rig.captureFile)
+            #expect(!FileManager.default.fileExists(atPath: file.path))
+            if !picked {
+                #expect(Self.value(reply)?["cancelled"] as? Bool == true)
+                #expect(rig.requests.isEmpty)
+            }
         }
     }
 
