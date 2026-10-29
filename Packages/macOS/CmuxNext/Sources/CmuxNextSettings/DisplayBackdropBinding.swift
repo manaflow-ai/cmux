@@ -60,7 +60,7 @@ public final class DisplayBackdropBinding {
             let path = String(raw.dropFirst(BackdropSelectionSetting.folderPrefix.count))
             shuffle = path.hasPrefix("/") ? BackdropShuffle(source: .folder(path), rotation: rotation) : nil
         } else { shuffle = nil }
-        if let shuffle { return shuffle.turn(at: now(), calendar: calendar) }
+        if let shuffle { return shuffle.turn(at: now(), calendar: calendar()) }
         return (BackdropSelection(id: raw), nil)
     }
 }
