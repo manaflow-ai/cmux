@@ -1735,6 +1735,10 @@ path = "tests/test_ci_signing_keychain_is_deleted_before_bundle_code.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_signing_owned_mac.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cmux_next_dev_daily_dispatch.py"
 lane = "linux-guard"
 
