@@ -354,6 +354,48 @@ import Testing
         #expect(woken.queuedURL == typed)
     }
 
+    /// An incognito tab with no daemon record woke in the profile the cache looks up for its key, which falls back to
+    /// the default profile when no incognito workspace owns the key: the private tab's page then ran in the normal
+    /// profile (history, cookies). A released tab wakes in its own profile; when that off-the-record profile has
+    /// ended, it does not wake in another one.
+    @Test func aReleasedIncognitoTabWakesOnlyInItsOwnProfile() async throws {
+        let rig = PageBrowserTabDiscardTests.Rig(path: .pressure)
+        defer { rig.close() }
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("cn-machine-incognito-\(UUID().uuidString.prefix(8))")
+        rig.services.machines.add(CloudMoveTests.machine(rig.services, cli: URL(fileURLWithPath: "/usr/bin/false"), root: root))
+        let offTheRecord = rig.services.browserStores.offTheRecord
+        let record = MachineBrowserRecord(machine: "vm-move", initialURL: URL(string: "https://example.com/private"))
+
+        func releasedTab(_ profile: BrowserProfileID) async throws -> String {
+            let key = "incognito-\(UUID().uuidString.prefix(8))"
+            let page = try #require(MachineBrowserPages(cache: rig.services.cache).page(key: key, url: record.url, profile: profile))
+            #expect(page.profileID == profile)
+            #expect(rig.services.cache.browserProfile?(key) == .default, "the lookup no longer falls back to the default profile")
+            rig.services.cache.install(page, for: key)
+            rig.services.cache.present(key, by: rig.pane, presence: .visible)
+            rig.hide(key)
+            try await rig.until("the hidden incognito tab was released") { rig.isHibernated(key) }
+            return key
+        }
+
+        let live = offTheRecord.begin()
+        let key = try await releasedTab(live)
+        rig.services.cache.present(key, by: rig.pane, presence: .visible)
+        try await rig.until("the incognito tab woke") { !rig.isHibernated(key) }
+        let woken = try #require(rig.services.cache.browsers[key]?.tab, "the wake made no page")
+        #expect(woken.profileID == live, "the incognito tab woke in profile \(woken.profileID), not its own")
+
+        let ended = offTheRecord.begin()
+        let gone = try await releasedTab(ended)
+        offTheRecord.end(ended)
+        rig.services.cache.present(gone, by: rig.pane, presence: .visible)
+        await rig.nextRunLoopTurn()
+        await rig.nextRunLoopTurn()
+        let after = try #require(rig.services.cache.browsers[gone]?.tab)
+        #expect(after is HibernatedBrowserTab || after.profileID == ended,
+                "a tab whose incognito session ended woke in profile \(after.profileID)")
+    }
+
     @Test func aMachinesBrowserThatFailsToStartDropsTheLastFrame() throws {
         let page = Self.machinePage()
         page.phase = .starting("m1")
