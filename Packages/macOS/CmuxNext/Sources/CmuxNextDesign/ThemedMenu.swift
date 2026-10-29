@@ -26,8 +26,19 @@ extension NSMenu {
     }
 
     /// Rows added since the menu was themed (a search's results while it is open) are native
-    /// rows already; nothing to do.
-    public func themeAddedRows() {}
+    /// rows already; their icons go in the grid's box as the first rows' did, so filtering never
+    /// changes an icon's size. Rows already fitted are left as they are.
+    public func themeAddedRows() {
+        fitRowIcons()
+    }
+
+    /// Every native row's image, its submenus' too, in the grid's icon box.
+    private func fitRowIcons() {
+        for item in items where !item.isSeparatorItem && item.view == nil {
+            if let image = item.image { item.image = image.fittedToMenuIconBox() }
+            item.submenu?.fitRowIcons()
+        }
+    }
 
     /// Runs `body` once the row chosen in this menu has run. AppKit runs a chosen row before
     /// `popUp` returns, so code that follows `popUp` and settles the menu's outcome (a page menu

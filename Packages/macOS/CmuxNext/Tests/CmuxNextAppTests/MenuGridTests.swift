@@ -146,6 +146,29 @@ struct MenuGridTests {
         #expect(row.image === fitted, "theming again keeps the fitted icon")
     }
 
+    /// Rows a menu adds while open (a search's results, `themeAddedRows()`) get the same box as
+    /// the rows it opened with, so filtering never changes an icon's size.
+    @Test func rowsAddedWhileOpenFitTheGridsBoxToo() {
+        _ = NSApplication.shared
+        let box = NSSize(width: MenuMetrics.iconSize, height: MenuMetrics.iconSize)
+        let menu = NSMenu()
+        let first = menu.addItem(withTitle: "First", action: nil, keyEquivalent: "")
+        first.image = NSImage(size: NSSize(width: 18, height: 18))
+        menu.themeRows(in: ThemeScope(level: .room))
+        let fitted = first.image
+        let added = menu.addItem(withTitle: "Result", action: nil, keyEquivalent: "")
+        added.image = NSImage(size: NSSize(width: 20, height: 16))
+        let more = NSMenuItem(title: "More", action: nil, keyEquivalent: "")
+        more.submenu = NSMenu()
+        let nested = more.submenu!.addItem(withTitle: "Nested", action: nil, keyEquivalent: "")
+        nested.image = NSImage(size: NSSize(width: 9, height: 22))
+        menu.addItem(more)
+        menu.themeAddedRows()
+        #expect(added.image?.size == box)
+        #expect(nested.image?.size == box)
+        #expect(first.image === fitted, "a row already fitted is left as it is")
+    }
+
     /// The grid's own sense: a menu's columns read left to right inside its highlight.
     @Test func theGridReadsLeftToRight() {
         #expect(MenuMetrics.highlightInset < MenuMetrics.stateX && MenuMetrics.stateX < MenuMetrics.stateIconX)
