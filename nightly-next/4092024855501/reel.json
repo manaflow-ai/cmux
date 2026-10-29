@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "build": "4092024855501",
+  "notes": "notes/4092024855501.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 27445,
+      "title": "iOS DEBUG: take a Mac's pairing code from CMUX_MOBILE_PAIR_URL at launch (pair-e2e rig)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27398,
+      "title": "Computer Use helper: answer machine/consent and re-check consent at execution",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26521,
+      "title": "fix(next): choose model and effort together in picker rows",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
