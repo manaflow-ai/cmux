@@ -299,6 +299,7 @@ export function devboxBubblewrapUrl(dockerfile = readDevboxDockerfile()): string
   return url;
 }
 
+/** Verify the upstream archive before extracting or compiling its contents. */
 export function devboxBubblewrapSha256(dockerfile = readDevboxDockerfile()): string {
   const sha = /^ARG CMUX_IMAGE_BUBBLEWRAP_SHA256=([0-9a-f]{64})$/m.exec(dockerfile)?.[1];
   if (!sha) throw new Error("devbox Dockerfile is missing a 64-hex ARG CMUX_IMAGE_BUBBLEWRAP_SHA256");
