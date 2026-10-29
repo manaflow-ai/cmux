@@ -18,6 +18,14 @@ skipped, the run passes, and the Devices screen is the "before"; on a ref with i
 The token is never printed: `t=` is redacted in every log line and file. Ends the Mac app it started (its own PID) and the
 tag's daemons (tag_teardown.py), and removes the app's state and its Keychain items.
 
+The app runs under the rig's own file keychain (RigKeychain): a new keychain first in the user's search
+list and the default for the run, deleted after it, with the list and default put back as they were.
+A fleet GUI Mac's console account may have no login keychain at all (steps 59c5f9eb, c9c9b027,
+e2b11b0c, 2026-10-28/29): the app's first file-keychain write (the iPhone host identity, SecItemAdd)
+then asks SecurityAgent to create one (`system.keychain.create.loginkc`, a dialog nobody answers),
+hostd never starts and the page stays "preparing". No item of the account's own keychains is read,
+changed or deleted.
+
 Why the dev Cloud and not loopback: the gate the code must not weaken is the account check, and
 that check lives on the Cloud path (the Worker stamps the verified sender's `fromUserId` on every
 signal, and hostd refuses a dial whose `fromUserId` is not the Mac's owner); a loopback seam would
@@ -25,7 +33,7 @@ have to fake that stamp, so it would test around the very check this proves. The
 in-source DEBUG dev credential of the dev Stack project (the one verify/e2e/mac.py uses), not a
 production or personal account and not a secret.
 """
-import argparse, glob, hashlib, json, os, plistlib, pwd, re, shutil, socket, subprocess, sys, threading, time
+import argparse, glob, hashlib, json, os, plistlib, pwd, re, secrets, shutil, socket, subprocess, sys, threading, time
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "../.."))
 sys.path.insert(0, os.path.join(ROOT, "scripts/cmux-next"))
@@ -210,7 +218,9 @@ def main():
     teardown = TagTeardown(a.mac_app)
     teardown.install()
     streams, app, paired, url = [], None, None, None
+    keychain = RigKeychain(a.mac_app)
     try:
+        note(f"- Keychain: {keychain.start()}")
         os.makedirs(rig, mode=0o700, exist_ok=True)
         with open(config, "w") as f:
             json.dump({"mobile": {"allowIPhoneConnections": True}}, f)
@@ -390,6 +400,7 @@ def forget_tag(app):
                 os.unlink(path)
             except OSError:
                 pass
+    RigKeychain(app).end()  # the run's own keychain (its items with it), the user's list and default back
     forget_keychain(bundle)
 
 
@@ -400,9 +411,83 @@ def forget_keychain(bundle):
     the bundle id is this tag's own. Every item of a service goes (one per account)."""
     for service in (f"{bundle}.auth", f"{bundle}.iphone-host.identity", f"{bundle}.device-hub"):
         for _ in range(32):  # bounded: delete-generic-password removes one item per call
-            if subprocess.run(["/usr/bin/security", "delete-generic-password", "-s", service],
-                              capture_output=True).returncode != 0:
+            try:
+                if subprocess.run(["/usr/bin/security", "delete-generic-password", "-s", service],
+                                  capture_output=True, stdin=subprocess.DEVNULL, timeout=30).returncode != 0:
+                    break
+            except (OSError, subprocess.TimeoutExpired):
                 break
+
+
+class RigKeychain:
+    """The run's own file keychain, so no Keychain call of the app reaches the account's keychains or asks
+    to create a login keychain (see the module doc). start() records the user domain's search list and
+    default keychain in a 0600 state file next to the tagged app (before changing anything), creates
+    `rig.keychain-db` there with a random password (in argv only, never in a file or log; the keychain is
+    unlocked with no lock timeout and deleted at the end), puts it first in the search list and makes it
+    the default. end() is idempotent and runs from the rig's finally and from forget_tag (the sim
+    script's EXIT, for a run cut short): the list and the default go back as recorded (a default that
+    was unset is unset again), then the keychain file is deleted. Every call is bounded."""
+
+    def __init__(self, app):
+        _, tag, _ = step_tag(app)
+        self.dir = os.path.join(os.path.dirname(os.path.abspath(app)), f"pair-rig-keychain-{tag}")
+        self.path = os.path.join(self.dir, "rig.keychain-db")
+        self.state = os.path.join(self.dir, "state.json")
+
+    @staticmethod
+    def _security(*argv):
+        try:
+            r = subprocess.run(["/usr/bin/security", *argv], capture_output=True, text=True, errors="replace",
+                               stdin=subprocess.DEVNULL, timeout=30)
+            return r.returncode, r.stdout
+        except (OSError, subprocess.TimeoutExpired) as error:
+            return -1, f"{error}"
+
+    @classmethod
+    def _paths(cls, *argv):
+        code, out = cls._security(*argv)
+        return code, [line.strip().strip('"') for line in out.splitlines() if line.strip().strip('"')]
+
+    def start(self):
+        code, search = self._paths("list-keychains", "-d", "user")
+        if code != 0:
+            raise SystemExit(f"security list-keychains failed ({code}); the rig's keychain is not set up")
+        code, default = self._paths("default-keychain", "-d", "user")
+        default = default[0] if code == 0 and default else None
+        os.makedirs(self.dir, mode=0o700, exist_ok=True)
+        if os.path.exists(self.state):  # a run of this tag already holds it: never record its keychain as the user's
+            raise SystemExit(f"{self.state} exists: the rig's keychain of this tag is already set up")
+        with os.fdopen(os.open(self.state, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "w") as f:
+            json.dump({"search": search, "default": default}, f)
+        password = secrets.token_urlsafe(24)
+        for argv in (("create-keychain", "-p", password, self.path), ("set-keychain-settings", self.path),
+                     ("unlock-keychain", "-p", password, self.path),
+                     ("list-keychains", "-d", "user", "-s", self.path, *search),
+                     ("default-keychain", "-d", "user", "-s", self.path)):
+            code, _ = self._security(*argv)
+            if code != 0:  # names the subcommand only: argv holds the password
+                raise SystemExit(f"security {argv[0]} failed ({code}); the rig's keychain is not set up")
+        return (f"the rig's own (first of {len(search) + 1} in the search list, the default; the account's "
+                f"default was {'unset' if default is None else 'set'})")
+
+    def end(self):
+        try:
+            with open(self.state) as f:
+                saved = json.load(f)
+        except (OSError, ValueError):
+            saved = None
+        if saved is not None:
+            _, now = self._paths("list-keychains", "-d", "user")
+            # The recorded list, plus any keychain added to it during the run (not the rig's).
+            keep = saved["search"] + [k for k in now if k not in saved["search"] and k != self.path]
+            self._security("list-keychains", "-d", "user", "-s", *keep)
+            _, now_default = self._paths("default-keychain", "-d", "user")
+            if not now_default or now_default[0] == self.path:  # changed by someone else during the run: theirs
+                self._security("default-keychain", "-d", "user", "-s", *([saved["default"]] if saved["default"] else []))
+        if os.path.exists(self.path):
+            self._security("delete-keychain", self.path)
+        shutil.rmtree(self.dir, ignore_errors=True)
 
 
 def run_bounded(argv, timeout):
