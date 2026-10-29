@@ -3201,7 +3201,7 @@ describe("VM REST auth", () => {
     }));
   });
 
-  test("the shell-only base image the CLI sends for `vm new --base` is manifest-listed", async () => {
+  test("a historical image id the CLI sends is migrated to the current CUA image", async () => {
     process.env.VERCEL = "1";
     process.env.VERCEL_ENV = "preview";
     process.env.CMUX_VM_DEFAULT_PROVIDER = "freestyle";
@@ -3225,7 +3225,8 @@ describe("VM REST auth", () => {
     expect(response.status).toBe(200);
     expect(createVm).toHaveBeenCalledWith(expect.objectContaining({
       provider: "freestyle",
-      image: "sh-fb3dcf7b47894114889b10186626af5b",
+      image: MANIFEST_BASE_DEFAULT.imageId,
+      imageVersion: MANIFEST_BASE_DEFAULT.version,
     }));
   });
 });

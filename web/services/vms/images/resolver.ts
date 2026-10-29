@@ -249,7 +249,9 @@ export function inferVmProviderForImage(requestedImage: string | undefined): Pro
  * selects or overrides one. Resolution order:
  *  1. an explicit `requestedImage` (must be in the manifest unless unmanifested
  *     images are allowed, which they are outside deployed runtimes or with
- *     CMUX_VM_ALLOW_UNMANIFESTED_IMAGES=1);
+ *     CMUX_VM_ALLOW_UNMANIFESTED_IMAGES=1). Historical manifest entries are
+ *     compatibility aliases for the current default of their kind and size;
+ *     restricted entries remain explicitly pinned;
  *  2. the manifest entry flagged `defaultForKind` for the requested kind
  *     (`VM_IMAGE_DEFAULT_KIND`, desktop, when the client did not ask for a
  *     kind) at the plan's size: the smallest sized default with at least
@@ -275,7 +277,7 @@ export function resolveVmImage(
 
   const requested = requestedImage?.trim();
   if (requested) {
-    return resolveRequested(provider, requested, env, kind, options.callerUserId);
+    return resolveRequested(provider, requested, env, kind, options.callerUserId, options.memoryMb);
   }
 
   const effectiveKind = kind ?? VM_IMAGE_DEFAULT_KIND;
@@ -301,6 +303,7 @@ function resolveRequested(
   env: VmRuntimeEnv,
   kind: VmImageKind | undefined,
   callerUserId: string | undefined,
+  memoryMb: number | undefined,
 ): VmImageSelection {
   const entry = findVmImageManifestEntry(provider, image, kind);
   // Any entry naming this image counts: one image is often listed once per
@@ -334,6 +337,24 @@ function resolveRequested(
         reason: `${image} is a ${selection.kind} image, not a ${kind} image`,
       });
     }
+    // Historical images stay in the manifest so existing VM rows can still be
+    // understood, but a new create that names one should boot the currently
+    // promoted image instead. Restricted entries are the exception: an
+    // allowlisted caller explicitly asking for one must continue to get that
+    // test image rather than being silently redirected. With no current
+    // default to migrate to, refuse rather than boot the superseded image.
+    if (!restricted && entry.defaultForKind !== true) {
+      const migrated = resolveLegacyImageToDefault(provider, entry, selection.kind, memoryMb);
+      if (migrated) return migrated;
+      throw new VmImageConfigError({
+        provider,
+        image,
+        kind,
+        source: "request",
+        allowedImages: listVmImageIds(provider),
+        reason: `${image} is a superseded ${selection.kind} image and no current ${selection.kind} default fits${memoryMb === undefined ? "" : ` ${memoryMb} MiB`}`,
+      });
+    }
     return selection;
   }
 
@@ -356,6 +377,25 @@ function resolveRequested(
     allowedImages: listVmImageIds(provider),
     reason: `${image} is not listed in the Cloud VM image manifest`,
   });
+}
+
+/**
+ * Resolve a historical manifest entry to the current default for its kind.
+ * Sized legacy entries preserve their recorded shape; size-less entries use
+ * the request's plan size (or the smallest default when it is absent).
+ */
+function resolveLegacyImageToDefault(
+  provider: ProviderId,
+  entry: VmImageManifestEntry,
+  kind: VmImageKind,
+  memoryMb: number | undefined,
+): VmImageSelection | null {
+  const legacySize = entry.size;
+  const replacement = legacySize
+    ? listVmImageKindDefaults(provider, kind).find((candidate) => candidate.size?.name === legacySize.name) ??
+      findVmImageKindDefault(provider, kind, legacySize.memoryMb)
+    : findVmImageKindDefault(provider, kind, memoryMb);
+  return replacement ? selectionFromEntry(replacement) : null;
 }
 
 export type VmImageConfigErrorReport = {

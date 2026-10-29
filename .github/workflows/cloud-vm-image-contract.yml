@@ -13,6 +13,8 @@ on:
       - web/scripts/build-devbox-freestyle.ts
       - web/scripts/verify-devbox-image.ts
       - web/scripts/devbox-agent-launch.*
+      - web/scripts/devbox-cua-smoke.*
+      - web/tests/devbox-cua-smoke.test.ts
       - web/tests/devbox-agent-launch-test.py
       - web/scripts/devbox-codex-hook-trust.py
       - web/tests/devbox-codex-hook-trust-test.py
@@ -34,6 +36,8 @@ on:
       - web/scripts/build-devbox-freestyle.ts
       - web/scripts/verify-devbox-image.ts
       - web/scripts/devbox-agent-launch.*
+      - web/scripts/devbox-cua-smoke.*
+      - web/tests/devbox-cua-smoke.test.ts
       - web/tests/devbox-agent-launch-test.py
       - web/scripts/devbox-codex-hook-trust.py
       - web/tests/devbox-codex-hook-trust-test.py
@@ -55,6 +59,16 @@ on:
         required: false
         default: ""
         type: string
+      verify_image:
+        description: "Verify an existing snapshot only (no bake, manifest, or pointer changes)"
+        required: false
+        default: ""
+        type: string
+      bake_result:
+        description: "Adopt an existing bake receipt JSON, then verify and derive sizes (requires PROMOTE)"
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: read
@@ -63,8 +77,8 @@ concurrency:
   # A live provider bake must finish even if a normal contract run starts on
   # the same ref. Ordinary contract runs keep the existing cancel-on-new-push
   # behavior; explicit promotions use a separate non-canceling lane.
-  group: cloud-vm-image-contract-${{ inputs.promote == true && 'promote' || github.ref }}
-  cancel-in-progress: ${{ inputs.promote != true }}
+  group: cloud-vm-image-contract-${{ inputs.promote == true && 'promote' || inputs.verify_image != '' && format('verify-{0}', inputs.verify_image) || github.ref }}
+  cancel-in-progress: ${{ inputs.promote != true && inputs.verify_image == '' }}
 
 jobs:
   contract:
@@ -90,10 +104,10 @@ jobs:
         run: bun run devbox:manifest:check
 
       - name: Test image contracts
-        run: bun test tests/vm-image-manifest.test.ts tests/vm-image-sizes.test.ts tests/vm-devbox-image.test.ts
+        run: bun test tests/vm-image-manifest.test.ts tests/vm-image-sizes.test.ts tests/vm-devbox-image.test.ts tests/devbox-cua-smoke.test.ts
 
   promote:
-    if: github.repository == 'manaflow-ai/cmux' && github.ref_type == 'branch' && inputs.promote == true && inputs.confirm == 'PROMOTE'
+    if: github.repository == 'manaflow-ai/cmux' && github.ref_type == 'branch' && ((inputs.promote == true && inputs.confirm == 'PROMOTE') || inputs.verify_image != '')
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 180
     environment: cloud-vm-image-checks
@@ -105,6 +119,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
+          filter: blob:none
           persist-credentials: false
 
       - name: Setup Bun
@@ -131,10 +146,27 @@ jobs:
           CMUX_BAKE_ALLOW_BRANCH: "1"
           FREESTYLE_API_KEY: ${{ secrets.FREESTYLE_API_KEY }}
           PROMOTION_OUT: ${{ runner.temp }}/devbox-promotion.json
+          CMUX_DEVBOX_CUA_PROOF_DIR: ${{ runner.temp }}/devbox-cua-proof
           SLUG: cmux-devbox-${{ github.run_id }}
+          VERIFY_IMAGE: ${{ inputs.verify_image }}
+          BAKE_RESULT: ${{ inputs.bake_result }}
+          PROMOTE: ${{ inputs.promote }}
         run: |
           set -euo pipefail
-          bun run devbox:promote -- freestyle \
+          if [ -n "$VERIFY_IMAGE" ]; then
+            if [ "$PROMOTE" = "true" ] || [ -n "$BAKE_RESULT" ]; then
+              echo "::error::verify_image verifies an existing snapshot only; dispatch it without promote or bake_result"
+              exit 1
+            fi
+            bun run devbox:verify -- freestyle "$VERIFY_IMAGE" --expect-kind desktop
+            exit 0
+          fi
+          adopt=()
+          if [ -n "$BAKE_RESULT" ]; then
+            printf '%s\n' "$BAKE_RESULT" > "$RUNNER_TEMP/devbox-bake.json"
+            adopt=(--bake-result "$RUNNER_TEMP/devbox-bake.json")
+          fi
+          bun run devbox:promote -- freestyle "${adopt[@]}" \
             --slug "$SLUG" \
             --pointer-slug none \
             --out "$PROMOTION_OUT"
@@ -142,7 +174,7 @@ jobs:
           cp services/vms/images/manifest.json "$RUNNER_TEMP/devbox-manifest.json"
 
       - name: Summarize the staged promotion
-        if: success()
+        if: success() && inputs.verify_image == ''
         env:
           PROMOTION_OUT: ${{ runner.temp }}/devbox-promotion.json
         run: |
@@ -158,7 +190,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload manifest and promotion receipt
-        if: success()
+        if: success() && inputs.verify_image == ''
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: devbox-promotion-${{ github.run_id }}
@@ -167,3 +199,12 @@ jobs:
           path: |
             ${{ runner.temp }}/devbox-manifest.json
             ${{ runner.temp }}/devbox-promotion.json
+
+      - name: Upload computer-use evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: devbox-cua-proof-${{ github.run_id }}
+          if-no-files-found: ignore
+          retention-days: 14
+          path: ${{ runner.temp }}/devbox-cua-proof

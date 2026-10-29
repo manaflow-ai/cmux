@@ -115,6 +115,11 @@ mkdir -m 700 -p "$ROOT/state"
 rpc() {
   "$BIN" remote rpc "$ROUTE" --state-dir "$ROOT/state" --lanes single --connect-timeout-seconds 45 --reconnect-attempts 1 --request "$1"
 }
+# One request, killed when the budget runs out: the poll below must end at its
+# deadline even when a single connection hangs.
+rpc_within() {
+  timeout --kill-after=2 "$1" "$BIN" remote rpc "$ROUTE" --state-dir "$ROOT/state" --lanes single --connect-timeout-seconds "$1" --reconnect-attempts 1 --request "$2"
+}
 cleanup() {
   if [ -n "$CONNECT_PID" ]; then
     kill "$CONNECT_PID" 2>/dev/null || true
@@ -167,9 +172,23 @@ SPAWN_REQUEST="$(jq -nc --arg workspace "$WORKSPACE_ID" --arg marker "$MARKER" '
 SPAWN="$(rpc "$SPAWN_REQUEST")"
 PROCESS_ID="$(echo "$SPAWN" | jq -r '.process // .result.Ok.process')"
 test -n "$PROCESS_ID" && test "$PROCESS_ID" != "null"
-sleep 2
 SNAPSHOT_REQUEST="$(jq -nc --arg process "$PROCESS_ID" '{type:"snapshot-process-terminal",process:$process}')"
-FIRST="$(rpc "$SNAPSHOT_REQUEST")"
+# Poll until the login shell has printed, rather than sampling once after a
+# fixed delay: on a snapshot whose blocks are not yet cached on the host, the
+# first \`bash -l\` can take several seconds just reading its files from disk.
+# Bounded by elapsed time, not attempts, so slow RPCs cannot stretch it past
+# the callers' exec timeouts; it waits for the whole line the identity check
+# below reads, not just its first characters.
+FIRST=""
+DEADLINE=$((SECONDS + 30))
+while :; do
+  REMAINING=$((DEADLINE - SECONDS))
+  [ "$REMAINING" -ge 1 ] || REMAINING=1
+  FIRST="$(rpc_within "$REMAINING" "$SNAPSHOT_REQUEST")"
+  if echo "$FIRST" | jq -e --arg who "$MARKER:${identity}" 'tostring | contains($who)' >/dev/null; then break; fi
+  [ "$SECONDS" -lt "$DEADLINE" ] || break
+  sleep 0.5
+done
 echo "$FIRST" | jq -e --arg marker "$MARKER" 'tostring | contains($marker)' >/dev/null
 # The whole point of the daemon layout: a pane it opens is a shell of the work
 # user on a machine named cmux, which is what the prompt shows a person.

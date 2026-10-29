@@ -10,7 +10,7 @@
  *
  * Usage:
  *   FREESTYLE_API_KEY=... bun scripts/derive-devbox-sizes.ts <master-snapshot-id> <slug-prefix>
- *       [--sizes sm,md,lg,lgx,xl,2xl] [--out <json>] [--replace-slug]
+ *       [--sizes sm,md,lg,lgx,xl,2xl] [--out <json>] [--replace-slug] [--verify-cua]
  *
  * Prints one line per size and a final JSON `{ sizes: { <name>: { imageId, slug, size } } }`
  * (also written to --out). Every derived VM is booted once more from its own
@@ -24,6 +24,7 @@
  */
 import { Freestyle, type FirewallSpec } from "freestyle";
 import { writeFileSync } from "node:fs";
+import path from "node:path";
 import {
   VM_IMAGE_SIZE_NAMES,
   isVmImageSizeName,
@@ -34,6 +35,7 @@ import {
 import { CMUX_TUI_SESSION, cmuxTuiRunCommand } from "../services/vms/drivers/cmuxTuiDaemon";
 import { DEVBOX_HOSTNAME } from "../services/vms/images/identity";
 import { argValue, cmuxTuiWebsocketSmokeCommand, devboxParkDaemonCommand, devboxPrepareTemplateTerminalCommand, devboxSettleBeforeSnapshotCommand, devboxSnapshotClockCommand, devboxWaitForDaemonCommand, hasFlag } from "./devbox-image-common";
+import { devboxCuaSmokeCommand, saveCuaProof } from "./devbox-cua-smoke";
 
 const apiKey = process.env.FREESTYLE_API_KEY;
 const stackToken = process.env.FREESTYLE_STACK_ACCESS_TOKEN;
@@ -48,7 +50,7 @@ const fs = (() => {
 const master = process.argv[2];
 const slugPrefix = process.argv[3];
 if (!master || master.startsWith("--") || !slugPrefix || slugPrefix.startsWith("--")) {
-  throw new Error("usage: bun scripts/derive-devbox-sizes.ts <master-snapshot-id> <slug-prefix> [--sizes sm,md,lg,lgx,xl,2xl] [--out <json>] [--replace-slug]");
+  throw new Error("usage: bun scripts/derive-devbox-sizes.ts <master-snapshot-id> <slug-prefix> [--sizes sm,md,lg,lgx,xl,2xl] [--out <json>] [--replace-slug] [--verify-cua]");
 }
 const requested = (argValue("--sizes") ?? VM_IMAGE_SIZE_NAMES.join(",")).split(",").map((s) => s.trim()).filter(Boolean);
 for (const name of requested) {
@@ -62,6 +64,7 @@ if (!/^[a-z0-9](?:[a-z0-9-]{0,57}[a-z0-9])?$/.test(slugPrefix) || slugPrefix.inc
 }
 const sizes = requested as VmImageSizeName[];
 const replaceSlug = hasFlag("--replace-slug");
+const verifyCua = hasFlag("--verify-cua");
 
 const FIREWALL: FirewallSpec = { rules: [{ action: "allow", source: {}, destination: { public: true } }] };
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -227,6 +230,20 @@ async function deriveSize(name: VmImageSizeName): Promise<void> {
         const websocket = await sh(check.vm, cmuxTuiWebsocketSmokeCommand(), 300_000);
         if (websocket.code !== 0) throw new Error(`${name}: WebSocket smoke failed after snapshot boot: ${websocket.out.slice(-1000)}`);
       }
+      if (verifyCua) {
+        const guestDirectory = `/tmp/cmux-cua-image-proof-${name}`;
+        const smoke = await sh(check.vm, devboxCuaSmokeCommand(guestDirectory), 300_000);
+        console.log(`[computer-use:${name}] exit=${smoke.code}\n${smoke.out}`);
+        const proofDirectory = process.env.CMUX_DEVBOX_CUA_PROOF_DIR;
+        await saveCuaProof({
+          files: check.vm.fs,
+          guestDirectory,
+          destination: proofDirectory ? path.join(proofDirectory, name) : undefined,
+          output: smoke.out,
+          passed: smoke.code === 0 && smoke.out.includes("CUA_SMOKE_PASS "),
+          label: name,
+        });
+      }
     } finally {
       await check.vm.delete().catch(() => {});
     }
@@ -267,7 +284,7 @@ if (failure !== undefined) {
 }
 console.log(`derived ${sizes.length} sizes in ${((Date.now() - t0All) / 1000).toFixed(0)}s (concurrency ${concurrency})`);
 
-const out = { master, sizes: result };
+const out = { master, cuaVerified: verifyCua, sizes: result };
 console.log(JSON.stringify(out, null, 2));
 const outPath = argValue("--out");
 if (outPath) writeFileSync(outPath, `${JSON.stringify(out, null, 2)}\n`);
