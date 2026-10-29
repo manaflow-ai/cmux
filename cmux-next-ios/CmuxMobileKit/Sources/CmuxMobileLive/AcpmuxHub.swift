@@ -859,37 +859,61 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         // records missed while the link was down). Records after the reply are live.
         beginHistory()
         if firstAttach { emit(.earlierHistory(earlier)) }
-        for record in page { apply(record: record) }
+        // The reply's session state is as of its `lastSeq` (read with it, before its page),
+        // and a catch-up may read records written after it: a turn that ended in a later page
+        // must not show as running again. The state goes in at that seq, among the records.
+        let boundary = Self.stateSeq(result)
+        var stateApplied = false
+        for record in page {
+            if !stateApplied, Int(record["seq"]?.numberValue ?? 0) > boundary {
+                applyState(result, hub: hub, page: page)
+                stateApplied = true
+            }
+            apply(record: record)
+        }
+        if !stateApplied { applyState(result, hub: hub, page: page) }
+        endHistory()
+        return true
+    }
+
+    /// The seq an attach reply's session state is as of: its `lastSeq` (an acpmux that does
+    /// not send it: after the whole catch-up, as before).
+    static func stateSeq(_ result: JSONValue) -> Int {
+        if let seq = result["lastSeq"]?.numberValue { return Int(seq) }
+        return .max
+    }
+
+    /// An attach reply's session state, in the catch-up at its own seq (`stateSeq`): what
+    /// the catch-up applies after it is the records in `page` and `held` newer than `lastSeq`.
+    private func applyState(_ result: JSONValue, hub: AcpmuxHub, page: [JSONValue]) {
         // This connection's Full-access setting, before the modes it widens.
         emit(.fullAccess(hub.fullAccess))
-        // The session's models, modes and options as acpmux keeps them now (D4: a running
-        // chat had no model menu, as they only came with later updates). After the page:
-        // a pick (set_model, set_mode, set_config_option) writes no record, so an older
-        // update in the page must not win over the state now.
+        // The session's models, modes and options as acpmux kept them then (D4: a running
+        // chat had no model menu, as they only came with later updates). After the records
+        // before it: a pick (set_model, set_mode, set_config_option) writes no record, so an
+        // older update must not win over the state.
         if let detail = result["session"] {
             for event in Self.sessionState(detail) {
                 if case .modelsAvailable(let models, _) = event { knownModels = models }
                 emit(event)
             }
         }
-        // Permissions still open (records may be older than the page). Before the held
-        // records, so a decision among them lands after its request; an ask whose own
-        // request is held comes with it instead, in order (on the turn it belongs to).
-        // An ask whose record comes later still (it raced the reply) is sent again with
-        // that record, and the chat moves it to its turn (`AgentChatStore`).
-        // Only held records that will be applied (newer than the page) count.
-        let heldAsks = Set(held.compactMap { record -> String? in
+        // Permissions still open (records may be older than the page). Before the records
+        // after the state, so a decision among them lands after its request; an ask whose own
+        // request comes after the state (later in the catch-up, or held) comes with it
+        // instead, in order (on the turn it belongs to). An ask whose record comes later
+        // still (it raced the reply) is sent again with that record, and the chat moves it to
+        // its turn (`AgentChatStore`).
+        let laterAsks = Set((page + held).compactMap { record -> String? in
             let seq = Int(record["seq"]?.numberValue ?? 0)
             guard seq == 0 || seq > lastSeq, record["kind"]?.stringValue == "permission_request" else { return nil }
             return record["msg"]?["permissionId"]?.stringValue
         })
         for entry in result["session"]?["pending"]?.arrayValue ?? [] {
-            if let id = entry["permissionId"]?.stringValue, !heldAsks.contains(id), let request = entry["request"],
+            if let id = entry["permissionId"]?.stringValue, !laterAsks.contains(id), let request = entry["request"],
                let event = records.permission(id, request: request) { emitPermission(event, listedOnly: true) }
         }
         emit(.status(summary.status))
-        endHistory()
-        return true
     }
 
     /// The session's models (from attach), for the menu after a pick.
