@@ -53,6 +53,8 @@ pub struct Session {
     pub(super) turn: StdMutex<Option<TurnInfo>>,
     pub(super) queued: AtomicU64,
     pub(super) queue: StdMutex<Vec<QueuedPrompt>>,
+    /// Durable team notices, indexed once per session; receiving one never queues a turn.
+    pub(super) team_information: StdMutex<Option<super::team_information::State>>,
     /// Fired when the queue's head may have changed (a prompt left the queue,
     /// a turn ended): queued prompts wait on it for their turn (`queue.rs`).
     pub(super) queue_moved: Notify,
@@ -148,6 +150,11 @@ pub struct Session {
     /// Claude Code reported that its active turn is compacting. This is kept
     /// on the session as hosted agents have their translator in the host.
     pub(super) compacting: AtomicBool,
+    /// A compacting Stop fences untagged compaction metadata for this live
+    /// session instance. Hosted updates can overtake the
+    /// delayed cancel notification, so the controller must drop their
+    /// boundary and summary records as well as the local translator.
+    pub(super) compaction_metadata_fenced: AtomicBool,
     /// Status writes under way: each sets the status, then logs it (`Hub::write_status`). Log
     /// retention leaves a chat alone while one is (`retention.rs` `untouched`).
     pub(super) status_writes: AtomicU64,
@@ -230,6 +237,28 @@ pub struct Session {
 }
 
 impl Session {
+    /// Fence untagged compaction metadata for this live session. Claude's
+    /// boundary and summary lines carry no turn id, so a forced Stop keeps
+    /// them out of the controller log until this session is replaced.
+    pub(super) fn fence_compaction_metadata(&self) {
+        self.compaction_metadata_fenced.store(true, Ordering::SeqCst);
+    }
+
+    /// Terminal compaction metadata is untagged; message-derived usage stays valid.
+    pub(super) fn fences_compaction_update(&self, update: &Value) -> bool {
+        if !self.compaction_metadata_fenced.load(Ordering::SeqCst) {
+            return false;
+        }
+        match update.get("sessionUpdate").and_then(Value::as_str) {
+            Some("compaction") => update.get("state").and_then(Value::as_str) != Some("running"),
+            Some("compaction_summary") => true,
+            Some("usage_update") => {
+                update.pointer("/_meta/acpmux/compactionDerived") == Some(&Value::Bool(true))
+            }
+            _ => false,
+        }
+    }
+
     /// Lifts the replay hold of the agent of this generation (`Session::replaying`).
     pub(super) fn end_replay(&self, agent: u64) {
         self.replaying.lock().unwrap_or_else(|e| e.into_inner()).retain(|g| *g != agent);

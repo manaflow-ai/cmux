@@ -159,6 +159,9 @@ pub struct Done {}
 #[serde(rename_all = "camelCase")]
 #[schemars(deny_unknown_fields)]
 pub struct WatchParams {
+    /// Include tool inventories explicitly; default census rows omit them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub with_tools: Option<bool>,
     /// Default true: every session's changes arrive as
     /// `_acpmux/session_changed`.
     pub enabled: Option<bool>,

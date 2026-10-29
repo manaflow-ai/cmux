@@ -3,7 +3,7 @@ import type { ComposerAttachment } from "../attachments";
 import { useT } from "../i18n";
 import type { AcpmuxRow, QueueEdit } from "../model";
 import { Close } from "./icons";
-import { MessageCopy } from "./MessageActions";
+import { MessageCopy, MessageFooterRow, ROW_ICON } from "./MessageActions";
 import { TurnActionsContext } from "./turnActions";
 
 /// Under a steer the agent has not read yet: a quiet clock (it reads a steer when its current
@@ -38,8 +38,8 @@ export function PendingSteer({
   if (!promptId) return null;
   const busy = sending;
   return (
-    <>
-      <div className="cv-user__pending">
+    <div className="cv-user__pending">
+      <MessageFooterRow>
         {promptId && (
           <button
             type="button"
@@ -65,7 +65,7 @@ export function PendingSteer({
         {promptId && unsteer && (
           <button
             type="button"
-            className="cv-user__take-back"
+            className="cv-user__take-back cv-iconbtn cv-iconbtn--compact"
             aria-label={t("composer.queueEditMessage")}
             title={t("composer.queueEditMessage")}
             disabled={busy}
@@ -76,12 +76,12 @@ export function PendingSteer({
                 .finally(() => setSending(false));
             }}
           >
-            <Close size={13} />
+            <Close size={ROW_ICON} />
           </button>
         )}
-      </div>
-      {row.text?.trim() && <MessageCopy text={row.text} />}
-    </>
+        {row.text?.trim() && <MessageCopy text={row.text} />}
+      </MessageFooterRow>
+    </div>
   );
 }
 

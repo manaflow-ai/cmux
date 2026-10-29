@@ -81,6 +81,12 @@ impl Hub {
             pc.peer_token.clone(),
             self.peer_notices.clone(),
         );
+        if let Some(transport) = &self.wireguard
+            && let Some(configured) = &pc.wireguard
+            && let Some(address) = transport.route_for(name, configured)
+        {
+            peer.set_wireguard(transport.clone(), address);
+        }
         peer.set_vm_boundary(pc.vm_boundary);
         peer.set_github_broker(pc.github_broker);
         peer.set_github_app(self.github_app.clone());
@@ -166,6 +172,7 @@ impl Hub {
             let github_broker =
                 github_broker.unwrap_or_else(|| same.is_some_and(|old| old.github_broker));
             let pc = crate::config::PeerConfig {
+                wireguard: same.and_then(|old| old.wireguard.clone()),
                 url: url.to_owned(),
                 token,
                 peer_token,
@@ -473,6 +480,21 @@ impl Hub {
         summary
     }
 
+    /// Census notices intentionally omit tools. Keep an already captured inventory in the
+    /// remote cache so `_acpmux/wait` and other per-session reads do not lose it on a change.
+    fn retain_summary_tools(mut summary: Value, previous: Option<&Value>) -> Value {
+        if summary.get("tools").is_none()
+            && let Some(previous) = previous
+        {
+            for key in ["tools", "toolsMutable"] {
+                if let Some(value) = previous.get(key) {
+                    summary[key] = value.clone();
+                }
+            }
+        }
+        summary
+    }
+
     /// Tell watching clients that a peer session appeared, changed or left.
     fn announce_remote(&self, peer: &str, summary: Value, kind: &str) {
         let Some(id) = summary.get("sessionId").and_then(Value::as_str).map(str::to_owned) else {
@@ -501,7 +523,10 @@ impl Hub {
             let Some(current) = self.peer(&peer).filter(|p| p.generation == generation) else {
                 continue;
             };
-            let settles = matches!(notice, PeerNotice::Connected | PeerNotice::Disconnected(_));
+            let settles = matches!(
+                notice,
+                PeerNotice::Connected | PeerNotice::Disconnected(_) | PeerNotice::Restarting
+            );
             self.apply_peer_notice(&peer, generation, notice);
             if settles {
                 current.mark_settled();
@@ -526,6 +551,18 @@ impl Hub {
         {
             match notice {
                 PeerNotice::Connected => tracing::info!(peer = %peer, "peer ready"),
+                PeerNotice::Restarting => {
+                    // A planned restart never enters the disconnect/flap-grace path. Keep
+                    // every row unchanged, but retire the old link's purge tombstones.
+                    let _rows = self.remote_sessions.lock().unwrap();
+                    if !self.is_current(&peer, generation) {
+                        return;
+                    }
+                    self.with_tombstones(&peer, generation, |t| t.link_ended());
+                    drop(_rows);
+                    self.peer_snapshots.flush(Some(&peer));
+                    tracing::info!(peer = %peer, "peer restarting");
+                }
                 PeerNotice::Disconnected(e) => {
                     let link = self.peer(&peer).map(|p| p.link()).unwrap_or_default();
                     // One line per drop, not per failed attempt while it is down.
@@ -577,6 +614,8 @@ impl Hub {
                                 continue;
                             }
                             let id = receipt.qualified_id();
+                            let previous = old.get(&id);
+                            let summary = Self::retain_summary_tools(summary, previous);
                             if old.remove(&id).as_ref() != Some(&summary) {
                                 changed.push(summary.clone());
                             }
@@ -643,7 +682,7 @@ impl Hub {
                         });
                         return;
                     }
-                    let summary = Self::remote_summary(&peer, session);
+                    let mut summary = Self::remote_summary(&peer, session);
                     let Some(receipt) = session_receipt(&summary) else { return };
                     let id = receipt.qualified_id();
                     {
@@ -656,6 +695,9 @@ impl Hub {
                             .iter()
                             .find(|(_, r)| r.peer == peer && r.receipt.mux_session_id == mux_id)
                             .map(|(key, _)| key.clone());
+                        let previous =
+                            old_id.as_ref().and_then(|key| map.get(key).map(|r| r.summary.clone()));
+                        summary = Self::retain_summary_tools(summary, previous.as_ref());
                         if let Some(old_id) = old_id {
                             map.take(&old_id);
                         }
@@ -677,7 +719,7 @@ impl Hub {
                             msg: Value::Null,
                             host_seq: None,
                         }),
-                        remote: Some(RemoteRef { peer: peer.clone(), summary }),
+                        remote: Some(RemoteRef { peer: peer.clone(), summary: summary.clone() }),
                     });
                 }
                 // A prompt this daemon forwarded was taken (`outbox.rs` `PeerAccepts`).
@@ -986,11 +1028,20 @@ impl Hub {
     }
 
     /// Each summary once, local before remote, without retaining the JSON trees.
-    pub(super) fn visit_session_summaries(&self, mut visit: impl FnMut(Value)) {
+    pub(super) fn visit_session_summaries(&self, with_tools: bool, mut visit: impl FnMut(Value)) {
         for session in self.sessions() {
-            visit(self.session_summary(&session));
+            visit(if with_tools {
+                self.session_summary(&session)
+            } else {
+                self.session_list_summary(&session)
+            });
         }
-        self.visit_remote_rows(|_| true, visit);
+        self.visit_remote_rows(
+            |_| true,
+            |row| {
+                visit(if with_tools { row } else { super::views::without_summary_tools(row) });
+            },
+        );
     }
 
     /// Every session, local and remote, newest first.
@@ -1056,6 +1107,7 @@ mod tests {
         let hub = Hub::new(cfg, store);
         let url = "ws://127.0.0.1:9/m";
         let lent = |url: &str| PeerConfig {
+            wireguard: None,
             url: url.into(),
             token: None,
             peer_token: None,
@@ -1174,6 +1226,19 @@ mod tests {
         assert_eq!(summary["sessionReceipt"]["generation"], 23);
     }
 
+    #[test]
+    fn compact_remote_change_keeps_the_cached_tool_inventory() {
+        let previous = json!({
+            "sessionId": "mux-1",
+            "tools": [{"id": "mcp:github"}],
+            "toolsMutable": true,
+        });
+        let compact = json!({"sessionId": "mux-1", "status": "running"});
+        let retained = Hub::retain_summary_tools(compact, Some(&previous));
+        assert_eq!(retained["tools"], previous["tools"]);
+        assert_eq!(retained["toolsMutable"], true);
+    }
+
     /// hq#2509: a peer from before the lane's step and title sends a lane without them;
     /// this daemon decides the lane again so the peer's lanes show a masked step.
     #[test]
@@ -1208,7 +1273,7 @@ mod tests {
         hub.apply_peer_notice("builder", peer.generation, crate::peer::PeerNotice::Sessions(rows));
         let expected = hub.all_session_summaries();
         let mut actual = Vec::new();
-        hub.visit_session_summaries(|row| {
+        hub.visit_session_summaries(true, |row| {
             // A writer can remove rows during serialization without changing this snapshot.
             let mut rows = hub.remote_sessions.try_lock().expect("visitor must not hold row lock");
             let captured: Vec<_> = rows.iter().map(|(id, row)| (id.clone(), row.clone())).collect();
@@ -1253,7 +1318,7 @@ mod tests {
         let ids: Vec<String> = ["x", "y", "solo", "none", "x"].map(str::to_owned).to_vec();
         let all = hub.all_session_summaries();
         let mut streamed = Vec::new();
-        hub.visit_session_summaries(|row| streamed.push(row));
+        hub.visit_session_summaries(true, |row| streamed.push(row));
         super::super::session_pages::sort_session_summaries(&mut streamed);
         assert_eq!(streamed, all, "local and normalized remote summaries agree");
         let some = hub.session_summaries_of(&ids);
@@ -1266,5 +1331,43 @@ mod tests {
         assert_eq!(some["y"]["peer"], "other", "the newer of two peer rows");
         assert!(some["solo"].get("peer").is_none(), "{:?}", some["solo"]);
         assert_eq!(some.len(), 3, "{some:?}");
+    }
+}
+
+#[cfg(test)]
+mod restart_notice_tests {
+    use super::*;
+    use crate::peer::{Peer, PeerNotice};
+
+    #[tokio::test(start_paused = true)]
+    async fn restart_settles_without_stale_rows_or_delayed_flap_notices() {
+        let mut config = Config::default();
+        config.store.mode = crate::config::StoreMode::Memory;
+        let store =
+            crate::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap();
+        let hub = Hub::new(config, store);
+        let peer = Peer::new("remote", "ws://127.0.0.1:1", None, None, hub.peer_notices.clone());
+        hub.peers.lock().unwrap().insert(peer.name.clone(), peer.clone());
+        let rows = vec![
+            json!({"sessionId":"live", "name":"live", "status":"ready"}),
+            json!({"sessionId":"done", "name":"done", "status":"closed"}),
+        ];
+        hub.apply_peer_notice(&peer.name, peer.generation, PeerNotice::Sessions(rows.clone()));
+        let before = hub.remote_sessions();
+        assert_eq!(before.len(), 2);
+        let mut events = hub.events.subscribe();
+        let mut settled = peer.settled();
+        hub.peer_notices
+            .send((peer.name.clone(), peer.generation, PeerNotice::Restarting))
+            .await
+            .unwrap();
+        settled.changed().await.unwrap();
+        tokio::time::advance(std::time::Duration::from_secs(11)).await;
+        tokio::task::yield_now().await;
+        assert_eq!(hub.remote_sessions(), before);
+        assert!(events.try_recv().is_err(), "restart never schedules a flap deadline");
+        hub.apply_peer_notice(&peer.name, peer.generation, PeerNotice::Sessions(rows));
+        hub.apply_peer_notice(&peer.name, peer.generation, PeerNotice::Connected);
+        assert!(events.try_recv().is_err(), "unchanged reconnect rows do not flap");
     }
 }
