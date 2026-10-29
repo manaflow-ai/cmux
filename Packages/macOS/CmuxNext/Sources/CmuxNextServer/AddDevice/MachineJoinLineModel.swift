@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 public import Observation
 
 /// Add Device's "Any machine: one line" way (Labs `labs.machineJoin`): mint a single-use line, show

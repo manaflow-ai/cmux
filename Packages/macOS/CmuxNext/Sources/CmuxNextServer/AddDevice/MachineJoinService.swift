@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// One minted join line (`cmux machine add --json --no-wait`): the line to paste on the new machine,
 /// the non-secret id its joined row will carry, and when it stops working. The token itself is only
