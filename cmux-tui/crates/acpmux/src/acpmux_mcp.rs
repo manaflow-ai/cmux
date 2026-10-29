@@ -32,7 +32,11 @@ const STATUS_WAIT: Duration = Duration::from_secs(5);
 const MAX_LAST: u64 = 20;
 
 fn tools() -> Value {
-    json!([
+    tools_with_artifacts(crate::artifacts_tools::enabled())
+}
+
+fn tools_with_artifacts(enabled: bool) -> Value {
+    let mut tools = json!([
         {
             "name": "send",
             "description": "Message another agent session: a lane, a coordinator, or a chat on a peer (host/name). Use it instead of running `acpmux send` in a shell. It goes through this daemon's outbox, like `acpmux send --no-wait`: it returns within seconds with the message's promptId and delivery id, and a slow target or a peer that is down is retried; it does not wait for a reply (read one later with last). The receiver's chat shows the message as yours. By default it steers: an agent in the middle of a turn reads it at its next tool step; steer: false queues it behind that turn.",
@@ -77,7 +81,11 @@ fn tools() -> Value {
                 "required": ["name"]
             }
         }
-    ])
+    ]);
+    if enabled {
+        tools.as_array_mut().expect("tool list").extend(crate::artifacts_tools::definitions());
+    }
+    tools
 }
 
 /// Runs the server on stdin and stdout.
@@ -110,6 +118,9 @@ pub(crate) async fn call(daemon: &Arc<Client>, params: &Value) -> Value {
         return error_result("arguments must be an object".to_owned());
     }
     match params["name"].as_str().unwrap_or_default() {
+        "artifact_save" | "artifact_list" | "memory_search" => {
+            crate::artifacts_tools::call(params["name"].as_str().unwrap_or_default(), &args).await
+        }
         "send" => send(daemon, &args).await,
         "ls" => ls(daemon, &args).await,
         "last" => {

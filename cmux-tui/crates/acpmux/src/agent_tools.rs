@@ -559,7 +559,8 @@ fn resolve_with_cua_helper(
             env: vec![],
         });
         // send, ls, last and info (`acpmux_mcp.rs`): messages another session as this one,
-        // instead of `acpmux send` in a shell.
+        // instead of `acpmux send` in a shell. This same server lists the artifact
+        // tools only after config.artifacts_sync.enabled is explicitly enabled.
         servers.push(McpServer {
             name: crate::acpmux_mcp::SERVER_NAME.into(),
             command: acpmux.exe.clone(),

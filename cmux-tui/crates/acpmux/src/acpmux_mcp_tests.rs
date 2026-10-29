@@ -56,7 +56,7 @@ fn text(result: &Value) -> String {
 
 #[test]
 fn the_tools_say_they_message_other_sessions_instead_of_the_shell() {
-    let tools = tools();
+    let tools = tools_with_artifacts(false);
     let names: Vec<&str> =
         tools.as_array().unwrap().iter().filter_map(|t| t["name"].as_str()).collect();
     assert_eq!(names, ["send", "ls", "last", "info"]);
@@ -151,4 +151,19 @@ async fn an_unknown_session_or_a_missing_argument_is_an_error_the_agent_reads() 
     assert_eq!(text(&r), "to and text are required", "{r}");
     let r = call(&client, &tool("nope", json!({}))).await;
     assert_eq!(text(&r), "unknown tool: nope", "{r}");
+}
+
+#[test]
+fn artifact_tools_are_only_advertised_after_opt_in() {
+    let enabled = tools_with_artifacts(true);
+    for name in ["artifact_save", "artifact_list", "memory_search"] {
+        assert!(enabled.as_array().unwrap().iter().any(|tool| tool["name"] == name));
+        assert!(
+            !tools_with_artifacts(false)
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|tool| tool["name"] == name)
+        );
+    }
 }
