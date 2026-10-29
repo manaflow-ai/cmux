@@ -10,6 +10,7 @@
 
 use std::collections::HashSet;
 
+use cmux_json::JsonSet as _;
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde_json::{Value, json};
 
@@ -49,13 +50,13 @@ fn public_tab(tab: &Value, evicted: &HashSet<String>) -> Value {
         "pinned": tab["pinned"].as_bool().unwrap_or(false),
     });
     if let Some(page) = tab["conversation"]["page"].as_str() {
-        public["page"] = json!(page);
+        public.set("page", json!(page));
     }
     if reopens_empty(tab) {
-        public["empty"] = json!(true);
+        public.set("empty", json!(true));
     }
     if tab["terminal_id"].as_str().is_some_and(|id| evicted.contains(id)) {
-        public["scrollback_not_kept"] = json!(true);
+        public.set("scrollback_not_kept", json!(true));
     }
     public
 }
@@ -145,12 +146,14 @@ fn public_item_in(record: &Value, evicted: &HashSet<String>) -> Value {
         .into_iter()
         .find_map(|field| record.get(field).filter(|group| group.is_object()));
     if let Some(group) = ungrouped {
-        item["workspace_id"] = group["workspace_id"].clone();
+        item.set("workspace_id", group["workspace_id"].clone());
     }
     // A deleted personal workspace group names the group it forms again.
     if let Some(group) = record.get("group").filter(|group| group.is_object()) {
-        item["group"] =
-            crate::workspace_registry::personal_mutations::group_archive::public_group(group);
+        item.set(
+            "group",
+            crate::workspace_registry::personal_mutations::group_archive::public_group(group),
+        );
     }
     item
 }
@@ -354,8 +357,8 @@ pub(crate) fn keep_members(
     members: Vec<Value>,
 ) -> anyhow::Result<Value> {
     let kind = super::closed_history_store::group_kind(&members);
-    record["kind"] = json!(kind);
-    record["members"] = Value::Array(members);
+    record.set("kind", json!(kind));
+    record.set("members", Value::Array(members));
     transaction.execute(
         "UPDATE closed_groups SET kind = ?2, record_json = ?3 WHERE closed_id = ?1",
         params![closed_id, kind, serde_json::to_string(&record)?],
