@@ -489,3 +489,11 @@
   flex: none;
   display: block;
 }
+
+/* Received-message previews identify their sender instead of posing as the person's prompt. */
+.acpmux-minimap__sender {
+  display: flex;
+  align-items: center;
+  gap: var(--cmux-space-1);
+  color: var(--agent-muted);
+}

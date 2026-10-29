@@ -13,6 +13,7 @@ import { createPortal } from "react-dom";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { forwardWheel } from "../wheelPassThrough";
+import { Bot } from "../conversation/icons";
 import { BookmarkIcon } from "./BookmarkIcon";
 import type { MinimapTurnMetadata, ReplyBlock } from "./model";
 
@@ -82,6 +83,7 @@ export const PreviewCard = React.forwardRef<
     scroller?: HTMLElement | null;
     /// The prompt's line; a reply's card has none.
     prompt?: string;
+    sender?: string;
     reply: readonly ReplyBlock[];
     metadata?: MinimapTurnMetadata;
     /// The rail's unshifted left edge, for the same pane-edge clamp in both CSS translations.
@@ -99,6 +101,7 @@ export const PreviewCard = React.forwardRef<
     y,
     scroller,
     prompt,
+    sender,
     reply,
     metadata,
     railLeft = 0,
@@ -200,6 +203,15 @@ export const PreviewCard = React.forwardRef<
       onFocus={onFocus}
       onBlur={onBlur}
     >
+      {sender !== undefined && (
+        <div
+          className="acpmux-minimap__sender"
+          aria-label={t("message.label", { from: sender, to: t("message.self") })}
+        >
+          <Bot size={12} />
+          <span>{sender}</span>
+        </div>
+      )}
       {prompt !== undefined && (
         <div className="acpmux-minimap__title">
           <span className="acpmux-minimap__prompt">{prompt}</span>

@@ -1,6 +1,6 @@
 // The thread minimap's model: one tick per user message at the transcript's left edge
 // (the Codex desktop app's prompt rail). Pure functions, so geometry and previews need no DOM.
-import type { AcpmuxRow } from "../model";
+import { WAITING_MESSAGES, type AcpmuxRow } from "../model";
 import { opensTurn } from "../turnStart";
 import { MOTION_MS } from "../../../motion/scale.generated";
 
@@ -19,6 +19,12 @@ export type MinimapTurn = {
   /// The user row's index in the transcript rows (and in the layout's tops).
   index: number;
   id: string;
+  /// A folded message keeps its own identity; navigation lands on its visible containing row.
+  targetId?: string;
+  /// Offset in that stable fold, so a streamed reply resumes at its last message in O(1).
+  member?: number;
+  /// Received messages remain distinct from the person's prompts in labels and previews.
+  sender?: string;
   /// The turn's stable key (turnKey): session id and the prompt's promptId, else its row id, since
   /// every session numbers its rows `user-<seq>` and a row's `at` is not stable across snapshots.
   /// Bookmarks use the row id's seq instead (bookmarks.ts), which acpmux checks against its log.
@@ -298,7 +304,7 @@ function cardState(prompt: AcpmuxRow, row: AcpmuxRow, before?: CardState): CardS
 
 /// What a turn's tick on the rail shows: its prompt, by key. A tick changes only when its prompt
 /// does, not when the reply it previews streams on.
-export type MinimapTick = Pick<MinimapTurn, "key" | "id" | "prompt">;
+export type MinimapTick = Pick<MinimapTurn, "key" | "id" | "prompt" | "sender">;
 
 /// The turns of `rows`, the ticks they draw, and the rows they were read from.
 export type MinimapTurns = {
@@ -362,12 +368,19 @@ export function minimapTurns(
   const tail: MinimapTurn[] = [];
   let user: AcpmuxRow | undefined;
   let userIndex = 0;
+  let targetId: string | undefined;
+  let member: number | undefined;
   let reply: AcpmuxRow | undefined;
   let details: CardState | undefined;
   const close = () => {
     if (!user) return;
     const kept = turnsByPrompt.get(user);
-    const same = kept && kept.sessionId === sessionId && kept.turn.index === userIndex;
+    const same =
+      kept &&
+      kept.sessionId === sessionId &&
+      kept.turn.index === userIndex &&
+      kept.turn.targetId === targetId &&
+      kept.turn.member === member;
     const nextMetadata = details?.metadata;
     const sameReply =
       same &&
@@ -382,6 +395,8 @@ export function minimapTurns(
       const turn: MinimapTurn = {
         index: userIndex,
         id: user.id,
+        ...(targetId !== undefined ? { targetId, member } : {}),
+        ...(user.incoming?.kind === "message" ? { sender: user.incoming.message.name } : {}),
         key: turnKey(sessionId, user),
         // Keep explicit prompt line breaks for the hover card; its CSS clamps the title without
         // changing what the person wrote. Spaces are normalized by white-space: pre-line there.
@@ -395,12 +410,29 @@ export function minimapTurns(
     user = undefined;
     reply = undefined;
     details = undefined;
+    targetId = undefined;
+    member = undefined;
   };
   const start = keep < (reuse?.turns.length ?? 0) ? reuse!.turns[keep]!.index : 0;
   for (let index = reuse && keep > 0 ? start : 0; index < rows.length; index += 1) {
     const row = rows[index]!;
     // A steer goes on with its turn (turnStart.ts): it starts no minimap turn.
-    if (opensTurn(row)) {
+    if (row.kind === WAITING_MESSAGES && row.waiting?.delivery === "chat") {
+      // Unpack only the changed suffix. A token after an unchanged fold starts at its last member,
+      // not at the first message or at the start of the chat. Grouping changes already invalidate
+      // this parent row through RowsChange; no flattened copy or per-token history scan is needed.
+      const firstMember = reuse && keep > 0 && index === start ? (reuse.turns[keep]!.member ?? 0) : 0;
+      for (let at = firstMember; at < row.waiting.rows.length; at += 1) {
+        const message = row.waiting.rows[at]!;
+        if (!opensTurn(message)) continue;
+        close();
+        user = message;
+        userIndex = index;
+        targetId = row.id;
+        member = at;
+        details = cardState(message, message);
+      }
+    } else if (opensTurn(row)) {
       close();
       user = row;
       userIndex = index;
@@ -424,7 +456,12 @@ export function minimapTurns(
     if (old?.[keep + at] !== turn) sameTurns = false;
     const tick = oldTicks?.[keep + at];
     // A tick keeps its key (its turn's, or that and its row: ticksOf) while its turn does.
-    if ((tick?.key !== turn.key && tick?.key !== repeatKey(turn)) || tick.prompt !== turn.prompt || tick.id !== turn.id)
+    if (
+      (tick?.key !== turn.key && tick?.key !== repeatKey(turn)) ||
+      tick.prompt !== turn.prompt ||
+      tick.id !== turn.id ||
+      tick.sender !== turn.sender
+    )
       sameTicks = false;
   }
   // Changed turns go into the spare list, never into `old`: it holds `old`'s turns up to where the
@@ -509,9 +546,9 @@ function ticksOf(turns: readonly MinimapTurn[], previous: readonly MinimapTick[]
       taken.add(key);
     }
     const tick = previous[index];
-    return tick && tick.key === key && tick.prompt === turn.prompt && tick.id === turn.id
+    return tick && tick.key === key && tick.prompt === turn.prompt && tick.id === turn.id && tick.sender === turn.sender
       ? tick
-      : { key, id: turn.id, prompt: turn.prompt };
+      : { key, id: turn.id, prompt: turn.prompt, ...(turn.sender !== undefined ? { sender: turn.sender } : {}) };
   });
 }
 
