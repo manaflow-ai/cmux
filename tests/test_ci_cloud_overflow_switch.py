@@ -714,8 +714,10 @@ class WorkflowTests(unittest.TestCase):
         self.assertNotIn("ubuntu-24.04", runs_on)
         self.assertNotIn("ubuntu-latest", runs_on)
         self.assertNotIn("github-hosted-required", runs_on)
-        # Blacksmith macOS: never a size the probes ask for, so it never queues behind them.
-        self.assertEqual(runs_on, "blacksmith-6vcpu-macos-26")
+        # Blacksmith macOS (or CI_CONTROL_RUNNER when set): never a size the probes ask for, so it never
+        # queues behind them.
+        self.assertEqual(runs_on, "${{ vars.CI_CONTROL_RUNNER || 'blacksmith-6vcpu-macos-26' }}")
+        self.assertNotIn("ubuntu", runs_on)
         names = set(switch.SWITCHED_VARIABLES) | {switch.RECORD_VARIABLE, switch.OVERRIDES_VARIABLE,
                                                   "CMUX_CI_XCODE_APP_PR"}
         for name in names:
@@ -723,6 +725,13 @@ class WorkflowTests(unittest.TestCase):
                       or f"            {name}=${{{{ vars.{name} }}}}\n" in self.text)
             self.assertTrue(passed, name)
         self.assertIn("force-cancel", self.text)
+
+    def test_one_fixed_group_so_two_watches_never_write_at_once(self) -> None:
+        # The switch's variable writes and record delete are separate calls; a group keyed by anything a
+        # run can change (a variable, an input) would let two watches interleave them.
+        group = re.search(r"(?m)^concurrency:\n  group: (.*)$", self.text).group(1)
+        self.assertEqual(group, "ci-cloud-overflow-probe")
+        self.assertIn("  cancel-in-progress: false\n", self.text)
 
     def test_watch_uses_existing_route_app_credentials(self) -> None:
         self.assertIn("vars.GLAEDA_ROUTE_APP_ID", self.text)

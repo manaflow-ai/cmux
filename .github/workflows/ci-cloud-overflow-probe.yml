@@ -47,6 +47,12 @@ on:
 permissions: {}
 
 # One probe at a time: a second waits instead of racing the first one's writes.
+# The group is fixed on purpose: the switch's variable writes and record delete
+# are separate calls, so two watches must never run at once. A run whose probe
+# never starts cannot hold it for long: the watch runs on a pool the probe does
+# not test (below), decides within CI_CLOUD_PROBE_MINUTES, and force-cancels its
+# own run. On 2026-10-28 the watch sat queued on Blacksmith Linux beside its
+# probe instead, so the group stayed held for an hour.
 concurrency:
   group: ci-cloud-overflow-probe
   cancel-in-progress: false
@@ -81,8 +87,9 @@ jobs:
     # every later scheduled run was evicted with no jobs and nothing decided.
     # The probes ask for the Blacksmith Linux sizes, so the watch sits on
     # Blacksmith macOS: it never queues behind its own probes and can put
-    # overflow back however the Linux sizes fare.
-    runs-on: blacksmith-6vcpu-macos-26
+    # overflow back however the Linux sizes fare. CI_CONTROL_RUNNER, when set,
+    # moves it (an owned Mac label, for one).
+    runs-on: ${{ vars.CI_CONTROL_RUNNER || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 25
     permissions:
       actions: write
