@@ -88,9 +88,6 @@ public final class WebUIHost {
     /// updates): it asks the page before it reloads it (``WebBundleSafePoint``). Set before the first open.
     package weak var bundleSafePoint: (any WebBundleSafePoint)?
     #if DEBUG || CMUX_BENCH_HOOKS
-    /// Yields when a page's oracle reading may have changed (the `webviews` facet's wait): a page
-    /// ``observeOracleState(of:)`` hooked posted ``PageRouter/oracleStateChangedOp`` or its document loaded.
-    public let oracleChanges = PageOracleChangeFeed()
     /// The engine page closes of this host's pages (`debug.webui` `retire`): a close in ``close(_:)``'s turn
     /// is the Cmd-W cost the retirer removes.
     public private(set) var engineCloses = WebUICensus.EngineCloses()
@@ -160,7 +157,6 @@ public final class WebUIHost {
         if let scriptFrames { view.deliverOnFrames(scriptFrames) }
         opened.add(view)
         #if DEBUG || CMUX_BENCH_HOOKS
-        observeOracleState(of: view)
         view.censusState.engineClosed = { [weak self] in self?.noteEngineClose() }
         #endif
         return view

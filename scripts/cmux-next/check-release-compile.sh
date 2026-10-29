@@ -38,14 +38,6 @@
 #   path owns it and keeps it. CI uses a worker/workspace/toolchain-specific
 #   Release path on owned runners; the binary-module guard and the one-time
 #   stale-module recovery keep it correct as in check-cmux-scheme-compile.sh.
-#
-# PGO (plans/cmux-next/chrome-parity/p08-startup.md, section F, task 052): pgo/release-env.sh, which the
-# Nightly's Release build shares (scripts/ci/run-with-helper-prebuild.py), reads the switch and task 110's
-# companions from Resources/build/cmux-next.pgo.conf (CMUX_NEXT_PGO_USE and CMUX_PGO_COMPANIONS in the
-# environment override it for one build). With the switch on it fetches the profile that
-# Resources/build/cmux-next.profdata.sha256 pins (pgo/fetch-profdata.sh, by sha256) and exports its path as
-# CMUX_PGO_PROFDATA; Package.swift then gives only the CmuxNext Swift targets `-profile-use=<path>` in
-# Release. Without the switch, or when no profile matches the pin, the build is the plain Release and says why.
 set -euo pipefail
 
 # xcodebuild compiles the app: fleet or GitHub runner only.
@@ -125,12 +117,7 @@ if [[ -z "${DEVELOPER_DIR:-}" ]]; then
   export DEVELOPER_DIR="$xcode_app/Contents/Developer"
 fi
 
-# Only pgo/release-env.sh sets the variables Package.swift reads, so an ambient value never reaches the build.
-# shellcheck source=scripts/cmux-next/pgo/release-env.sh
-source "$repo_root/scripts/cmux-next/pgo/release-env.sh"
-cmux_pgo_release_env || exit $?
-
-echo "check-release-compile: $(xcodebuild -version | tr '\n' ' ')(ARCHS=$archs$bench_label$CMUX_PGO_LABEL)"
+echo "check-release-compile: $(xcodebuild -version | tr '\n' ' ')(ARCHS=$archs$bench_label)"
 cd "$repo_root/Packages/macOS/CmuxNext"
 build() {
   build_attempt=$((build_attempt + 1))
@@ -144,7 +131,6 @@ build() {
     ARCHS="$archs" ONLY_ACTIVE_ARCH=NO \
     COMPILER_INDEX_STORE_ENABLE=NO CODE_SIGNING_ALLOWED=NO \
     OTHER_SWIFT_FLAGS="$swift_other_flags" \
-    "${CMUX_PGO_BUILD_SETTINGS[@]+"${CMUX_PGO_BUILD_SETTINGS[@]}"}" \
     -showBuildTimingSummary build 2>&1 | tee "$log"
   return "${PIPESTATUS[0]}"
 }

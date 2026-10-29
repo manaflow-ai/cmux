@@ -501,6 +501,21 @@ pub(crate) fn public_terminal_snapshot(
     if running && let Some(since) = surface.and_then(crate::Surface::terminal_prompt_since) {
         extra.insert("prompt".into(), crate::terminal_activity::prompt_json(since));
     }
+    // The stricter fact a close trusts without asking: the terminal's own
+    // shell holds the foreground at that prompt, with no input since it.
+    if running && let Some(since) = surface.and_then(crate::Surface::terminal_shell_idle_since) {
+        extra.insert("shell_idle".into(), crate::terminal_activity::shell_idle_json(since));
+    }
+    // What that fact was decided from: the last foreground check after the
+    // last prompt mark (a test or a client reads the decision, not a timing).
+    if running
+        && let Some((own, leader)) = surface.and_then(crate::Surface::terminal_foreground_check)
+    {
+        extra.insert(
+            "foreground_check".into(),
+            crate::terminal_activity::foreground_check_json(own, leader),
+        );
+    }
     if running && let Some(at) = surface.and_then(crate::Surface::terminal_last_output) {
         extra.insert("last_output".into(), crate::terminal_activity::last_output_json(at));
     }
@@ -540,7 +555,7 @@ pub(crate) fn public_session_snapshot_with_journal_head(
 
 /// [`public_session_snapshot_with_journal_head`] plus `visit`'s value, read
 /// from the same `State` in the same projection lock, so all three are one
-/// cut (`oracle-state` reads its runtime counts this way).
+/// cut.
 pub(crate) fn public_session_snapshot_at_cut<R>(
     mux: &Mux,
     visit: impl FnOnce(&crate::model::State) -> R,

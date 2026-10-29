@@ -82,8 +82,6 @@ pub(super) struct Route {
 /// Every module's routes. An exact name belongs to one route and two
 /// prefixes never overlap (`connection_frame_routes_names_are_disjoint`).
 pub(super) const MODULE_ROUTES: &[&[Route]] = &[
-    #[cfg(any(debug_assertions, feature = "oracle"))]
-    super::oracle_state_command::ROUTES,
     #[cfg(any(debug_assertions, feature = "bench"))]
     super::debug_crash_inject::ROUTES,
     super::loopback_forward::ROUTES,

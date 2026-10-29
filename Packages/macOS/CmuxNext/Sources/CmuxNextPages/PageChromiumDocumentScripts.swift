@@ -1,3 +1,5 @@
+import CmuxNextDesign
+import CmuxNextErrorJournal
 public import WebKit
 
 /// The WebKit user scripts of a page, made into Chromium new-document scripts, plus the script that
@@ -27,6 +29,21 @@ public nonisolated struct PageChromiumDocumentScripts: Sendable, Equatable {
             ($0.source, $0.injectionTime == .atDocumentEnd, $0.isForMainFrameOnly)
         })
     }
+
+    /// The scripts every page view installs with the same source (input readiness, the theme
+    /// bootstrap, paint probe, console capture, links and drops). On renderer paths every
+    /// `cmux-page:` main frame runs them at document start
+    /// (``ChromiumPageHostBridge/rendererScript(handlers:documentScripts:channelEvent:)``).
+    @MainActor public static let shared: [String] = [
+        (source: PageInputReadiness.script, atDocumentEnd: false, mainFrameOnly: true),
+        (source: WebTheme.bootstrapScript, atDocumentEnd: false, mainFrameOnly: true),
+        (source: PagePaintProbe.script, atDocumentEnd: true, mainFrameOnly: true),
+        (source: ConsoleErrorCapture.script, atDocumentEnd: false, mainFrameOnly: true),
+    ].map(PageChromiumDocumentScripts.chromiumSource)
+        + [PageChromiumDocumentScripts.navigationScript, PageChromiumDocumentScripts.hostDropScript]
+
+    /// ``sources`` without the ``shared`` ones: what only this view has (its theme, `data-*` attributes).
+    @MainActor public var perView: [String] { sources.filter { !Self.shared.contains($0) } }
 
     /// Chromium runs a new-document script in every frame, before the document parses: a main-frame
     /// script returns in subframes, and a document-end script waits for `DOMContentLoaded`.

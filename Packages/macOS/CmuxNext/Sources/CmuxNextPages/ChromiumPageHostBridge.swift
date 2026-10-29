@@ -16,12 +16,22 @@ import os
 ///   event with the caller's execution context, and the bridge asks that context for
 ///   `location.href` and `window === window.top` once per post.
 ///
+/// On the fork's renderer paths (``PageChromiumPage/usesRendererPaths``, feature
+/// `chromiumPageRendererPaths`) the page opens no DevTools session at all, as Chrome binds WebUI in a
+/// WebUI renderer: every renderer runs the page script and the scripts every page view shares at
+/// document start (``rendererScript(handlers:documentScripts:channelEvent:)``), posts come on the page
+/// channel, a view's own scripts and handlers go in at each commit (``rebind()``), and scripts and
+/// replies run through ``PageChromiumPage/evaluate(_:)``. A DevTools agent would keep Chromium from
+/// sharing the page's renderer.
+///
 /// The page script (``pageScript(handlers:channelEvent:)``) installs the WebKit-shaped API
 /// (`window.webkit.messageHandlers.cmuxPage.postMessage(envelope)` resolving to the reply), so the
 /// page does not know which engine shows it. The posts of one task leave together at its microtask
 /// checkpoint, as one call: a burst of calls is one message, and none waits for a frame.
 /// The handlers of the page's messages start in post order (``start(_:)``), and calls then run
-/// side by side. ``PageHostTrust`` checks each message as for WebKit. A reply goes back into the
+/// side by side. ``PageHostTrust`` checks each message as for WebKit; with a ``PageDescriptor`` the
+/// bridge itself refuses a message from a frame that is not one of the page's own documents, on
+/// either transport, and a refused call still settles with a failure. A reply goes back into the
 /// sender's context (binding), or into the main frame with the sending document's id, so a reply
 /// to a document that has gone resolves nothing in the next one (page channel).
 ///
@@ -39,6 +49,8 @@ public final class ChromiumPageHostBridge: PageHostPushing {
     nonisolated public static let bindingName = "__cmuxPageHost"
     /// The page function a reply calls.
     nonisolated public static let resolveName = "__cmuxPageHostResolve"
+    /// The page function that adds handler names to a document (``rebind()`` on renderer paths).
+    nonisolated public static let addHandlersName = "__cmuxPageHostAddHandlers"
     /// The page script function a page registers its envelope receiver with, on the push channel.
     nonisolated public static let listenName = "__cmuxPageHostListen"
     /// Longest message accepted (page calls are small; large data goes through replies and pushes).
@@ -69,6 +81,13 @@ public final class ChromiumPageHostBridge: PageHostPushing {
 
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "page-host.chromium")
     private weak var page: (any PageChromiumPage)?
+    /// The page whose own documents may talk to the host; nil leaves the check to the handler.
+    private let descriptor: PageDescriptor?
+    /// The page is on the fork's renderer paths (``PageChromiumPage/usesRendererPaths``): no DevTools call.
+    private let rendererPaths: Bool
+    /// The page view's own document scripts on renderer paths (its theme and `data-*` attributes),
+    /// run at each commit (``rebind()``): the renderer-wide scripts cannot carry one view's values.
+    private var documentScripts: [String] = []
     /// Handler names without a reply (the paint probe): their messages go to ``onMessage``.
     private let fireAndForget: [String]
     private var handler: PageHostHandler?
@@ -119,14 +138,39 @@ public final class ChromiumPageHostBridge: PageHostPushing {
 
     /// - Parameters:
     ///   - page: The Chromium page.
+    ///   - descriptor: The page it shows: a message from a frame that is not one of its own documents
+    ///     is refused here (``PageHostTrust``). Nil leaves the check to the handler.
     ///   - fireAndForget: Extra `window.webkit.messageHandlers` names whose messages need no reply.
-    public init(page: any PageChromiumPage, fireAndForget: [String] = []) {
+    public init(page: any PageChromiumPage, descriptor: PageDescriptor? = nil, fireAndForget: [String] = []) {
         self.page = page
+        self.descriptor = descriptor
         self.fireAndForget = fireAndForget
+        rendererPaths = page.usesRendererPaths
+    }
+
+    /// Sets the page up before its first document loads. On renderer paths nothing goes to the page
+    /// (its renderer has the page script and the shared document scripts) and `documentScripts` run
+    /// at each commit (``rebind()``); before them, the DevTools calls of
+    /// ``setupCalls(handlers:documentScripts:channelEvent:)``.
+    ///
+    /// - Parameter documentScripts: The page's own document-start scripts, in order; on renderer
+    ///   paths only the ones the renderer does not have (``PageChromiumDocumentScripts/perView``).
+    /// - Throws: What a DevTools setup call threw (``PageChromiumStartError/browserEnded`` when the
+    ///   browser ended), or ``ChromiumPageHostBridgeError/pageGone``.
+    public func setUp(documentScripts: [String]) async throws {
+        guard let page else { throw ChromiumPageHostBridgeError.pageGone }
+        guard !rendererPaths else {
+            self.documentScripts = documentScripts
+            return
+        }
+        for (method, params) in Self.setupCalls(handlers: fireAndForget, documentScripts: documentScripts,
+                                                channelEvent: page.pageHostEvent) {
+            _ = try await page.devTools(method, params: params)
+        }
     }
 
     /// The DevTools calls that set the page up, in order: run them before the first document loads
-    /// (``ChromiumPageSetup``), then again for every committed document (``rebind()``). The page
+    /// (``setUp(documentScripts:)``), then again for every committed document (``rebind()``). The page
     /// script and the document scripts go in one new-document script, each in its own block as
     /// ``batch(_:)`` runs scripts, so the setup is four round trips however many scripts the page has.
     ///
@@ -152,10 +196,18 @@ public final class ChromiumPageHostBridge: PageHostPushing {
         self.handler = handler
     }
 
-    /// A new document committed: the binding goes in again (a no-op where it is still there), and
-    /// envelope runs still queued for the old document are dropped (the router dropped them too).
+    /// A new document committed: envelope runs still queued for the old document are dropped (the
+    /// router dropped them too). On renderer paths the view's own handlers and document scripts go
+    /// first in the script queue; on DevTools the binding goes in again (a no-op where it is there).
     public func rebind() {
         outgoing.removeAll(where: \.isEnvelopes)
+        guard !rendererPaths else {
+            let names = fireAndForget.map(ChromiumPageHostWire.jsonString).joined(separator: ", ")
+            let first = ["globalThis.\(Self.addHandlersName)?.([\(names)]);"] + documentScripts
+            outgoing.insert(contentsOf: first.map(Outgoing.script), at: 0)
+            startDrain()
+            return
+        }
         guard let page else { return }
         // task-owner: one idempotent call on a page that may already be gone
         // main-hop-allow: devTools is the page's main-actor async DevTools call (its IPC runs in Chromium); the task only sends it, and nobody reads its answer
@@ -211,6 +263,10 @@ public final class ChromiumPageHostBridge: PageHostPushing {
             return
         }
         outgoing.append(item)
+        startDrain()
+    }
+
+    private func startDrain() {
         guard !draining else { return }
         draining = true
         // task-owner: the bridge's script FIFO; it ends when the queue is empty or the page is gone
@@ -232,8 +288,12 @@ public final class ChromiumPageHostBridge: PageHostPushing {
             }
             // Every script queued so far goes in one round trip (a streaming reply queued one push
             // per frame); scripts queued while it runs go in the next.
-            let batch = takeBatch()
-            _ = try? await page.devTools("Runtime.evaluate", params: ["expression": Self.batch(batch), "silent": true])
+            let expression = Self.batch(takeBatch())
+            if rendererPaths {
+                _ = try? await page.evaluate(expression)
+            } else {
+                _ = try? await page.devTools("Runtime.evaluate", params: ["expression": expression, "silent": true])
+            }
         }
     }
 
@@ -251,7 +311,7 @@ public final class ChromiumPageHostBridge: PageHostPushing {
         return batch
     }
 
-    /// The most script bytes sent in one `Runtime.evaluate`.
+    /// The most script bytes sent in one evaluation.
     nonisolated static let maximumBatchBytes = 2 << 20
 
     /// One expression that runs `scripts` in order, each in its own block, so that one that throws
@@ -323,6 +383,10 @@ public final class ChromiumPageHostBridge: PageHostPushing {
         }
         for message in messages {
             let request = PageHostMessage(frameURL: sender?.url, isMainFrame: sender?.isTop ?? false, body: message.body)
+            if let descriptor, !PageHostTrust.isTrusted(request, page: descriptor) {
+                refuse(message, page: descriptor, context: context)
+                continue
+            }
             if message.name != PageHostTrust.handlerName {
                 guard fireAndForget.contains(message.name), request.isMainFrame else { continue }
                 noteReached()
@@ -380,9 +444,33 @@ public final class ChromiumPageHostBridge: PageHostPushing {
         answered += 1
     }
 
+    /// The failure a call from a frame that is not the page's own gets.
+    static let refusedReply: [String: Any] = ["ok": false, "error": ["code": "native.untrusted_frame", "userMessage": "Refused"]]
+
+    /// Drops a message from a frame that is not one of `page`'s documents; a call still settles,
+    /// with ``refusedReply``, in the frame that asked (its document token picks the document).
+    private func refuse(_ message: ChromiumPageHostWire.Message, page descriptor: PageDescriptor, context: Int?) {
+        logger.error("page \(descriptor.id, privacy: .public) host message from another frame refused")
+        guard message.name == PageHostTrust.handlerName, let seq = message.seq, let page else { return }
+        let expression = ChromiumPageHostWire.resolveExpression(seq: seq, reply: Self.refusedReply, document: message.doc)
+        if let context {
+            // task-owner: one refusal reply into the context that asked; the page may already be gone
+            // main-hop-allow: devTools is the page's main-actor async DevTools call (its IPC runs in Chromium); the task only sends it
+            Task { _ = try? await page.devTools("Runtime.evaluate", params: ["expression": expression, "contextId": context, "silent": true]) }
+        } else {
+            evaluate(expression)
+        }
+    }
+
     private func noteReached() {
         guard !reachedHost else { return }
         reachedHost = true
         onFirstMessage?()
     }
+}
+
+/// Why ``ChromiumPageHostBridge/setUp(documentScripts:)`` failed before any DevTools call.
+public nonisolated enum ChromiumPageHostBridgeError: Error, Equatable {
+    /// The page closed first.
+    case pageGone
 }

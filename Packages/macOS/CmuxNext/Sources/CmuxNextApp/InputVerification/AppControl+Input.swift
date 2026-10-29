@@ -49,15 +49,9 @@ extension AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugTabDrag.report(services: services))
             },
-            // Each refactor-switch site's count of the arm it ran, `SwitchHits.Report` encoded as is; `reset` zeroes after the read.
-            .mainActor("debug.oracle.switch_hits") { [weak services] call in
-                guard let services else { return .value(.null) }
-                return .value(Self.encode(services.switchHits.report(reset: call.params["reset"]?.boolValue == true)))
-            },
         ])
-        // The refactor oracle's `debug.oracle.*` over the app's one facet list (AppServices+OracleHost), the
-        // router's topology and the app's turn recorder.
-        if let router = service?.router { router.register(services.oracleControlMethods(snapshots: router.snapshots)) }
+        // `debug.oracle.snapshot` over the app's one facet list (AppServices+OracleHost): the overlays facet.
+        service?.router.register(services.oracleControlMethods())
         #endif
     }
 

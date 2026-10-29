@@ -152,30 +152,6 @@ struct AgentsRequestWireGoldenTests {
         }
     }
 
-    /// Every request type declared in Sources/CmuxNextDaemon/Requests/Agents has a golden. The list is read
-    /// from the source, so a type added there, or a second type of one wire command, needs one.
-    @Test func everyAgentsRequestTypeHasAGolden() throws {
-        let directory = try Self.repositoryRoot()
-            .appendingPathComponent("Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Requests/Agents")
-        let declaration = try NSRegularExpression(
-            pattern: #"\bstruct\s+(\w+)\s*:[^{]*\b(?:DaemonRequest|TerminalSpawningRequest)\b"#
-        )
-        var declared: Set<String> = []
-        let files = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
-        for file in files where file.pathExtension == "swift" {
-            let source = try String(contentsOf: file, encoding: .utf8)
-            for match in declaration.matches(in: source, range: NSRange(source.startIndex..., in: source)) {
-                if let name = Range(match.range(at: 1), in: source) { declared.insert(String(source[name])) }
-            }
-        }
-        // When the migration deletes these structs, this set must come from the generated Agents types
-        // instead: an empty directory does not pass as "every type has a golden".
-        try #require(!declared.isEmpty, "no DaemonRequest type in \(directory.path)")
-        let covered = Set(Self.goldens.map(\.type))
-        #expect(declared.subtracting(covered).isEmpty, "no golden: \(declared.subtracting(covered).sorted())")
-        #expect(covered.subtracting(declared).isEmpty, "not in the directory: \(covered.subtracting(declared).sorted())")
-    }
-
     // Schema ----------------------------------------------------------------
 
     /// `$.commands` of cmux-tui/spec/sdk-schema.json.

@@ -34,7 +34,7 @@ import IOSurface
 /// Ghostty's hide waiting for the frames in flight (`setVisible(false)`, at most 100 ms), a timing assumption. The
 /// principled end is a content mark: Ghostty stamps the mark the lane set after the parse into the frame whose cell
 /// update copied that state (under the terminal lock) and reports it with the frame it presents; the hold ends when
-/// the presented mark >= the target. That needs ghostty-next's renderer-owned frames (cp/p03-rendering-080, the
+/// the presented mark >= the target. That needs ghostty-next's renderer-owned frames (the
 /// `presented_cb` frame id, `GHOSTTY_RENDERER_FRAMES`) on its main, a content mark API added there, and a GhosttyNextKit
 /// release and pin bump; the frame id alone is taken at encode, after the cell copy, so it does not order a frame
 /// against the parse.

@@ -127,7 +127,6 @@
     "CmuxNextSignposts": {"layer": "core"},
     "CmuxNextSignpostsC": {"layer": "core", "note": "C: os_signpost macros for the key and stall signposts, no heap allocation (p09-observability 007); libSystem only"},
     "CmuxNextSharedRegionC": {"layer": "core", "note": "C: shm_open for the Chromium host control channel's sealed payload regions (p01-process 020); libSystem only"},
-    "CmuxNextProfileRuntimeC": {"layer": "core", "note": "C header: the compiler-rt profile runtime's write, reset and file name for ProfileFlush (p08-startup 103); only the profile build calls them"},
     "CmuxNextTrace": {"layer": "core", "note": "TraceRuntime, Release trace rings, crash keys, HangWatch slots (p09-observability); depends on Compat and swift-atomics only"},
     "CmuxNextMetrics": {"layer": "core", "note": "field histograms (HistogramID, Metrics.record; p09-observability); depends on Compat and Trace only"},
     "CmuxNextFeatures": {"layer": "core", "note": "base::FeatureList: feature declarations and the immutable resolved snapshot (p12-perf-process 3.9)"},

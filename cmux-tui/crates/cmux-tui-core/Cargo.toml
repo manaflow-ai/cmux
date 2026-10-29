@@ -12,11 +12,6 @@ workspace = true
 
 [features]
 default = []
-# Correctness-oracle items (oracle-state, the virtual clock, seeded ids): code
-# behind cfg(any(debug_assertions, feature = "oracle")), so debug and test builds
-# have it and release builds never do. Off by default; the oracle builds
-# `--profile oracle --features oracle` (p15-oracle task 201).
-oracle = []
 # Decoder entry points for the cmux-tui/fuzz targets (`fuzz_entry`): only the
 # fuzz workspace (cmux-tui/fuzz/Cargo.toml) turns it on.
 fuzz = []
