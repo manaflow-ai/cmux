@@ -84,7 +84,7 @@ impl MessageNoticeBook {
     /// A fresh count for this connection's own reopen of the chat; one raw id is one owner's chat
     /// on a connection (`view::subscribe_remote`), so the other owner's count ends.
     pub(super) fn reopen(&mut self, owner: Option<&str>, id: &str) {
-        self.chats.retain(|(o, i), _| i != id);
+        self.chats.retain(|(_, i), _| i != id);
         self.chats.insert((owner.map(str::to_owned), id.to_owned()), MessageNotices::default());
     }
 
