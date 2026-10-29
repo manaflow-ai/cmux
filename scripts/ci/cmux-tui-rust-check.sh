@@ -178,6 +178,11 @@ first_rc=0
 step_rows=()
 no_fail_fast=(--no-fail-fast)
 [[ "$fail_fast" != 1 ]] || no_fail_fast=()
+# The same for the workspace clippy: --keep-going lints every crate after a red
+# one, so one run lists every error (2026-10-29: four fleet rounds each showed
+# only the next crate's errors).
+keep_going=(--keep-going)
+[[ "$fail_fast" != 1 ]] || keep_going=()
 step() { # NAME CMD...: runs CMD, records pass/fail/skipped and seconds
   local name="$1" t0 rc=0
   shift
@@ -828,7 +833,7 @@ fi
 if [[ "$mode" == clippy || "$mode" == all ]] && [[ "$shard_i" == 1 ]]; then
   # The frozen holder fixture (cmux-holder-v3) is an old shipped holder, never edited: no new
   # lint may fail it (its own [lints] allow everything; `-D warnings` here would override them).
-  step clippy cargo clippy --workspace --exclude cmux-holder-v3 --all-targets --locked -- -D warnings
+  step clippy cargo clippy --workspace --exclude cmux-holder-v3 --all-targets --locked ${keep_going[@]+"${keep_going[@]}"} -- -D warnings
 fi
 if [[ "$mode" == test || "$mode" == all ]]; then
   step "base-red list" load_base_red
