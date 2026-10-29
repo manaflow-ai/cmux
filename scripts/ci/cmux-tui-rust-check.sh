@@ -44,9 +44,11 @@
 # -p cmux-api-compat --bin api-compat-check`): a protocol change that can break an older
 # or newer peer needs a compat rule, and spec/api-compat.surface.json must be current.
 # api-compat-write: the same with --write (it refuses while a break lacks a rule), which
-# rewrites cmux-tui/spec/api-compat.surface.json in the step's checkout and prints its diff
-# stat; fetch the file with --artifact cmux-tui/spec/api-compat.surface.json, copy it over
-# yours and commit it there (an unchanged file means the snapshot was current). Neither
+# rewrites the snapshot cmux-tui/spec/api-compat.surface.json and, where the crate has the
+# wire ledger, cmux-tui/spec/api-compat.wire.json. The step packs every api-compat file
+# --write may write into .build/artifacts/api-compat-spec.tar (never empty) and prints the
+# diff stat; fetch it with --artifact, run `tar -xf FILE` at your checkout root and commit
+# what changed there. Neither
 # takes a TEST_FILTER or checks out ghostty-next (cmux-api-compat's Cargo.lock closure has
 # no Ghostty crate: tests/test_zig_free_step_lockfiles.py), and neither commits or pushes.
 set -euo pipefail
@@ -838,23 +840,32 @@ if [[ "$mode" == vm-cli ]]; then
   step "vm-cli artifact" copy_vm_cli
   finish
 fi
-# What --write changed in the one file it writes (the file itself is the step's artifact).
-api_compat_changed() {
-  local stat
-  stat="$(git -C "$root" --no-pager diff --no-color --no-ext-diff --stat -- cmux-tui/spec/api-compat.surface.json)" || return 1
+# The files --write may write: the shape snapshot, and the wire ledger where the crate has one.
+api_compat_files=(cmux-tui/spec/api-compat.surface.json cmux-tui/spec/api-compat.wire.json)
+# Packs those files (the ones present) into the step's artifact and says what --write changed.
+api_compat_pack() {
+  local files=() f stat
+  for f in "${api_compat_files[@]}"; do [[ ! -f "$root/$f" ]] || files+=("$f"); done
+  [[ "${#files[@]}" -gt 0 ]] || { echo "error: no api-compat spec file to return" >&2; return 1; }
+  mkdir -p "$root/.build/artifacts"
+  tar -C "$root" -cf "$root/.build/artifacts/api-compat-spec.tar" "${files[@]}" || return 1
+  stat="$(git -C "$root" --no-pager diff --no-color --no-ext-diff --stat -- "${files[@]}")" || return 1
   if [[ -n "$stat" ]]; then
-    echo "api-compat-write: cmux-tui/spec/api-compat.surface.json changed: $stat"
+    echo "api-compat-write: changed: $stat"
   else
-    echo "api-compat-write: cmux-tui/spec/api-compat.surface.json unchanged (the snapshot was current)"
+    echo "api-compat-write: ${files[*]} unchanged (already current)"
   fi
+  echo "api-compat-write: .build/artifacts/api-compat-spec.tar holds ${files[*]}; run tar -xf on it at your checkout root"
 }
 if [[ "$mode" == api-compat ]]; then
   step "api-compat check" cargo run --locked -p cmux-api-compat --bin api-compat-check
   finish
 fi
 if [[ "$mode" == api-compat-write ]]; then
+  # A warm slot keeps .build: never hand back an older step's files.
+  rm -f "$root/.build/artifacts/api-compat-spec.tar"
   step "api-compat write" cargo run --locked -p cmux-api-compat --bin api-compat-check -- --write
-  [[ "$first_rc" -ne 0 ]] || step "api-compat changed" api_compat_changed
+  [[ "$first_rc" -ne 0 ]] || step "api-compat pack" api_compat_pack
   finish
 fi
 if [[ "$mode" == fmt || "$mode" == all ]] && [[ "$shard_i" == 1 ]]; then
