@@ -346,7 +346,7 @@ mod tests {
         hub.clear_fired(&old, "later-turn");
         assert_eq!(hub.session_summary(&imported)["retryDeciding"], true);
         hub.clear_fired(&imported, "later-turn");
-        assert_eq!(hub.session_summary(&imported)["retryDeciding"], false);
+        assert!(hub.session_summary(&imported)["retryDeciding"].is_null());
         std::fs::remove_dir_all(dir).unwrap();
     }
 
