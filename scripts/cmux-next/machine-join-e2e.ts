@@ -227,7 +227,7 @@ export async function runE2E(
   let wake: () => void = () => undefined
   const woken = new Promise<void>((resolve) => (wake = resolve))
   const waitAtMost = <T>(work: Promise<T>, ms: number) =>
-    Promise.race([work.then(() => undefined, () => undefined), deps.sleep(ms), woken])
+    Promise.race([work.then(() => undefined, () => undefined), woken, ...(cancelled ? [] : [deps.sleep(ms)])])
   const left = () => cancelBy - reserve - deps.now()
   const budget = () => (cancelled ? Math.max(250, Math.min(3_000, left())) : 20_000)
   const call = async (url: string, init: { method: string; headers?: Record<string, string>; body?: unknown }) => {
