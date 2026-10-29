@@ -21,6 +21,18 @@ fn settings_separator_keeps_literal_confirm_with_daemon() {
 }
 
 #[cfg(unix)]
+#[test]
+fn settings_crud_help_stays_on_the_app_help_scope() {
+    for args in [
+        strings(&["settings", "get", "--help"]),
+        strings(&["config", "set", "custom.label", "value", "--help"]),
+    ] {
+        assert!(has_help_option(&args));
+        assert!(!daemon_settings_scope(&args));
+    }
+}
+
+#[cfg(unix)]
 mod remote_cli_docs {
     use super::*;
     use std::collections::HashSet;

@@ -498,14 +498,14 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
 #[cfg(unix)]
 fn run_app_scope(args: &[String]) -> Option<i32> {
     let (global, command_args) = parse_globals(args).ok()?;
+    if has_help_option(&command_args) || command_args.first().is_some_and(|word| word == "help") {
+        return extra_help::print(&command_args);
+    }
     // Settings CRUD belongs to the daemon's v2 owner. Keep the app parser for
     // local-only helpers (`list`, `schema`, `validate`) until those have daemon
     // equivalents on this surface.
     if daemon_settings_scope(&command_args) {
         return None;
-    }
-    if has_help_option(&command_args) || command_args.first().is_some_and(|word| word == "help") {
-        return extra_help::print(&command_args);
     }
     match app::parse(&command_args) {
         Ok(Some(_)) if global.all_sessions => Some(app::failure(
@@ -531,6 +531,11 @@ fn run_app_scope(args: &[String]) -> Option<i32> {
 
 #[cfg(unix)]
 fn daemon_settings_scope(command_args: &[String]) -> bool {
+    // Help belongs to the app's documented settings scope even when it is
+    // attached to a daemon-owned CRUD verb.
+    if has_help_option(command_args) || command_args.first().is_some_and(|word| word == "help") {
+        return false;
+    }
     if !matches!(command_args.first().map(String::as_str), Some("settings" | "config")) {
         return false;
     }
