@@ -180,6 +180,8 @@ class Sandbox:
             "GITHUB_REPOSITORY": "manaflow-ai/cmux",
             "R2_ENDPOINT": "https://r2.invalid",
             "FAKE_SLEEP_LOG": str(self.root / "sleep.log"),
+            # Each run is its own job, as on a runner: a fresh RUNNER_TEMP.
+            "RUNNER_TEMP": tempfile.mkdtemp(prefix="runner-temp-", dir=self.root),
             **env,
         }
         return subprocess.run(["bash", "-e", "-c", script], cwd=self.repo, env=full, text=True, capture_output=True)
@@ -322,6 +324,49 @@ class RebuildOfAPublishedCommit(unittest.TestCase):
         result = self.box.run(script, KEY_V2=key, LEGACY_KEY="")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertTrue((self.box.r2 / "cmux-tui" / "tree" / key / "completion.json").is_file())
+
+    def test_this_runs_own_published_bytes_are_not_read_back(self) -> None:
+        """The usual push: this run published the commit, so its downloaded
+        build has the bytes the commit manifest names. Those companions are
+        taken from the build (a read of them would fail here); a companion
+        whose bytes differ is still read from R2."""
+        names = subprocess.check_output(
+            ["python3", str(ROOT / "scripts/ci/publish-cmux-tui-tree.py"), "--list-companions"], text=True
+        ).split()
+        commit = self.box.r2 / "cmux-tui" / self.box.sha
+        commit.mkdir(parents=True)
+        tree = self.box.repo / "assets" / "tree"
+        tree.mkdir(parents=True)
+        for n in names:
+            (commit / n).write_text(f"{n} build 1\n")
+            (tree / n).write_text(f"{n} build 1\n")
+        # One companion of this run's build differs from the published one.
+        differs = names[-1]
+        (tree / differs).write_text(f"{differs} build 2\n")
+        (commit / "manifest.json").write_text(json.dumps({
+            "commit": self.box.sha,
+            "attestationUrl": "https://github.com/manaflow-ai/cmux/actions/runs/2",
+            "binaries": {n: sha256(commit / n) for n in names},
+        }))
+        script = step_script("publish-tree", "Publish the complete tree with the trusted helper")
+        key = "a" * 40
+        result = self.box.run(script, KEY_V2=key, LEGACY_KEY="",
+                              FAKE_DOWNLOAD_FAIL=f"cmux-tui/{self.box.sha}/{names[0]}=1")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn(f"Took cmux-tui/{self.box.sha}/{names[0]} from this run's build", result.stdout)
+        self.assertNotIn(f"Took cmux-tui/{self.box.sha}/{differs} ", result.stdout)
+        published = self.box.r2 / "cmux-tui" / "tree" / key
+        for n in names:
+            self.assertEqual((published / n).read_bytes(), (commit / n).read_bytes(), n)
+        # The differing companion is read from R2: a failed read of it fails the step.
+        shutil.rmtree(published)
+        # The step leaves the published bytes in assets/tree; a new job starts
+        # from its own download again.
+        (tree / differs).write_text(f"{differs} build 2\n")
+        failed = self.box.run(script, KEY_V2=key, LEGACY_KEY="",
+                              FAKE_DOWNLOAD_FAIL=f"cmux-tui/{self.box.sha}/{differs}=1")
+        self.assertNotEqual(failed.returncode, 0, failed.stdout + failed.stderr)
+        self.assertFalse(published.exists())
 
     def publish_tree_with_acpmux(self) -> tuple[subprocess.CompletedProcess[str], Path, Path, list[str]]:
         """The commit's earlier publication attests acpmux for the four Unix targets."""

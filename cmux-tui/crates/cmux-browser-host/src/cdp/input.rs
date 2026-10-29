@@ -4,6 +4,7 @@
 use super::driver::Inner;
 use super::keys::{implied_text, modifier_bits, mouse_button, virtual_key_code};
 use crate::protocol::{DriverError, required_str, timeout_of};
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use std::time::{Duration, Instant};
 
@@ -43,28 +44,32 @@ impl Inner {
         let mut event = json!({"x": x, "y": y, "modifiers": modifiers, "buttons": buttons});
         match kind {
             "move" => {
-                event["type"] = json!("mouseMoved");
-                event["button"] = json!(pressed_button(buttons));
+                event.set("type", json!("mouseMoved"));
+                event.set("button", json!(pressed_button(buttons)));
             }
             "down" => {
-                event["type"] = json!("mousePressed");
-                event["button"] = json!(button);
-                event["clickCount"] = json!(click_count);
+                event.set("type", json!("mousePressed"));
+                event.set("button", json!(button));
+                event.set("clickCount", json!(click_count));
             }
             "up" => {
-                event["type"] = json!("mouseReleased");
-                event["button"] = json!(button);
-                event["clickCount"] = json!(click_count);
+                event.set("type", json!("mouseReleased"));
+                event.set("button", json!(button));
+                event.set("clickCount", json!(click_count));
             }
             "wheel" => {
-                event["type"] = json!("mouseWheel");
-                event["button"] = json!("none");
+                event.set("type", json!("mouseWheel"));
+                event.set("button", json!("none"));
                 // Deltas are view points too under the emulation scale.
                 let scale = self.input_scale();
-                event["deltaX"] =
-                    json!(params.get("deltaX").and_then(Value::as_f64).unwrap_or(0.0) * scale);
-                event["deltaY"] =
-                    json!(params.get("deltaY").and_then(Value::as_f64).unwrap_or(0.0) * scale);
+                event.set(
+                    "deltaX",
+                    json!(params.get("deltaX").and_then(Value::as_f64).unwrap_or(0.0) * scale),
+                );
+                event.set(
+                    "deltaY",
+                    json!(params.get("deltaY").and_then(Value::as_f64).unwrap_or(0.0) * scale),
+                );
             }
             other => return Err(DriverError::invalid(format!("Unknown mouse event {other}"))),
         }
@@ -174,18 +179,22 @@ impl Inner {
                     .or_else(|| implied_text(key, modifiers));
                 match text {
                     Some(text) => {
-                        event["type"] = json!("keyDown");
-                        event["text"] = json!(text);
-                        event["unmodifiedText"] = json!(text);
+                        event.set("type", json!("keyDown"));
+                        event.set("text", json!(text));
+                        event.set("unmodifiedText", json!(text));
                     }
-                    None => event["type"] = json!("rawKeyDown"),
+                    None => {
+                        event.set("type", json!("rawKeyDown"));
+                    }
                 }
                 let commands = editing_commands(code, modifiers);
                 if !commands.is_empty() {
-                    event["commands"] = json!(commands);
+                    event.set("commands", json!(commands));
                 }
             }
-            "up" => event["type"] = json!("keyUp"),
+            "up" => {
+                event.set("type", json!("keyUp"));
+            }
             other => return Err(DriverError::invalid(format!("Unknown key event {other}"))),
         }
         self.send_until(&session, "Input.dispatchKeyEvent", event, deadline)?;
