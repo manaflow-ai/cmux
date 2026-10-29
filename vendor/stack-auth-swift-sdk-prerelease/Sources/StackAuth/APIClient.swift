@@ -148,14 +148,19 @@ actor APIClient {
     /// chosen once, so many clients that signed in together do not refresh
     /// in the same second.
     let refreshLeadMillis: Int
-    /// Monotonic time (``refreshClock``) before which a rate-limited or
-    /// rejected refresh exchange must not be retried.
+    /// Monotonic time (``refreshClock``) before which a rate-limited refresh
+    /// exchange must not be retried.
     private var refreshRateLimitedUntil: UInt64?
     /// Consecutive rate-limited refresh exchanges, for exponential backoff.
     private var refreshRateLimitStreak = 0
     /// Consecutive refresh exchanges refused for a reason other than the
     /// refresh token; drives the same cooldown as a 429.
     private var refreshRejectedStreak = 0
+    /// Whether a rejected request is in its cancellation-aware cooldown.
+    private var refreshRejectedCooldownActive = false
+    private var refreshRejectedCooldownID: UUID?
+    private var refreshRejectedCooldownTask: Task<Void, Never>?
+    private var refreshCooldownEpoch: UInt64 = 0
     
     private static let sdkVersion = "1.0.0"
     
@@ -373,6 +378,62 @@ actor APIClient {
     
     // MARK: - Token Refresh
 
+    /// Distinguishes a dead refresh token from a request the client can fix.
+    private enum RefreshRejection: Equatable {
+        case sessionEnded
+        case requestRejected(code: String?)
+
+        private static let sessionEndingKnownErrors: Set<String> = [
+            "REFRESH_TOKEN_ERROR",
+            "REFRESH_TOKEN_NOT_FOUND_OR_EXPIRED",
+            "PROVIDER_REJECTED",
+        ]
+
+        static func classify(
+            statusCode: Int,
+            knownErrorCode: String?,
+            body: Data
+        ) -> Self? {
+            guard statusCode == 400 || statusCode == 401 else { return nil }
+            if let knownErrorCode = nonEmpty(knownErrorCode) {
+                return sessionEndingKnownErrors.contains(knownErrorCode.uppercased())
+                    ? .sessionEnded
+                    : .requestRejected(code: knownErrorCode)
+            }
+            // An empty rejection names nothing the client could fix, so the
+            // token is dead. A body that is not JSON (a captive portal or proxy
+            // page) did not come from Stack and must not end the session.
+            // Check the raw bytes: a page in another encoding is not UTF-8
+            // but is still not empty.
+            guard body.contains(where: { !asciiWhitespace.contains($0) }) else {
+                return .sessionEnded
+            }
+            guard let json = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any] else {
+                return .requestRejected(code: nil)
+            }
+            if let code = nonEmpty(json["code"] as? String) {
+                return sessionEndingKnownErrors.contains(code.uppercased())
+                    ? .sessionEnded
+                    : .requestRejected(code: code)
+            }
+            if let oauthError = nonEmpty(json["error"] as? String) {
+                return oauthError == "invalid_grant"
+                    ? .sessionEnded
+                    : .requestRejected(code: oauthError)
+            }
+            return .sessionEnded
+        }
+
+        private static let asciiWhitespace: Set<UInt8> = [0x09, 0x0A, 0x0D, 0x20]
+
+        private static func nonEmpty(_ value: String?) -> String? {
+            guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else {
+                return nil
+            }
+            return value
+        }
+    }
+
     /// Classified outcome of a refresh-token exchange.
     ///
     /// The distinction is load-bearing: only ``definitivelyRejected`` means the
@@ -384,9 +445,9 @@ actor APIClient {
     enum RefreshOutcome {
         /// The server minted a new access token.
         case success(accessToken: String)
-        /// The server rejected the refresh token itself (HTTP 400/401 naming the
-        /// token, e.g. `REFRESH_TOKEN_NOT_FOUND_OR_EXPIRED` or `invalid_grant`;
-        /// see ``RefreshRejection``). The refresh token will never work again;
+        /// The server rejected the refresh token itself: HTTP 400/401 naming the
+        /// token (`REFRESH_TOKEN_NOT_FOUND_OR_EXPIRED`, `invalid_grant`) or
+        /// naming no error at all. The refresh token will never work again;
         /// clearing is correct.
         case definitivelyRejected
         /// The refresh could not be completed for a reason that is not the token's
@@ -397,7 +458,8 @@ actor APIClient {
         case rateLimited(retryAfterSeconds: TimeInterval?, bodyKind: StackAuthRateLimitObservation.BodyKind)
         /// The server answered 400/401 for a reason other than the refresh token
         /// (a rejected publishable key or OAuth client, a malformed request, or
-        /// a non-Stack page; see ``RefreshRejection``). Tokens are preserved,
+        /// a non-Stack page; see the private refresh rejection classifier.
+        /// Tokens are preserved,
         /// and no new exchange starts until a backoff passes, because the same
         /// request would be refused again.
         case requestRejected(code: String?)
@@ -480,10 +542,17 @@ actor APIClient {
     /// honors `Retry-After` (capped at 10 minutes); without it the delay is
     /// exponential from 5 seconds to 5 minutes, with jitter.
     private func refreshRespectingRateLimit(refreshToken: String) async -> RefreshOutcome {
+        if refreshRejectedCooldownActive {
+            return .transientFailure
+        }
         if let until = refreshRateLimitedUntil, refreshClock.now() < until {
             return .transientFailure
         }
+        let epoch = refreshCooldownEpoch
         let outcome = await refresh(refreshToken: refreshToken)
+        guard epoch == refreshCooldownEpoch else {
+            return .transientFailure
+        }
         switch outcome {
         case .rateLimited(let retryAfter, let bodyKind):
             refreshRateLimitStreak += 1
@@ -503,7 +572,7 @@ actor APIClient {
         case .requestRejected:
             refreshRejectedStreak += 1
             let delaySeconds = Self.rateLimitDelaySeconds(retryAfterSeconds: nil, streak: refreshRejectedStreak)
-            refreshRateLimitedUntil = refreshClock.now() &+ UInt64(delaySeconds * 1_000_000_000)
+            startRejectedRefreshCooldown(delaySeconds: delaySeconds)
             return outcome
         case .success, .definitivelyRejected:
             if case .success = outcome, refreshRateLimitStreak > 0 {
@@ -512,10 +581,52 @@ actor APIClient {
             refreshRateLimitStreak = 0
             refreshRejectedStreak = 0
             refreshRateLimitedUntil = nil
+            clearRejectedRefreshCooldown()
             return outcome
         case .transientFailure:
             return outcome
         }
+    }
+
+    /// Starts a one-shot, cancellation-aware cooldown for a rejected request.
+    private func startRejectedRefreshCooldown(delaySeconds: TimeInterval) {
+        refreshRejectedCooldownTask?.cancel()
+        let id = UUID()
+        refreshRejectedCooldownID = id
+        refreshRejectedCooldownActive = true
+        let deadline = refreshClock.now() &+ UInt64(delaySeconds * 1_000_000_000)
+        let clock = refreshClock
+        refreshRejectedCooldownTask = Task { [weak self] in
+            do {
+                try await clock.sleepUntil(deadline)
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
+            await self?.finishRejectedRefreshCooldown(id: id)
+        }
+    }
+
+    private func finishRejectedRefreshCooldown(id: UUID) {
+        guard refreshRejectedCooldownID == id else { return }
+        refreshRejectedCooldownID = nil
+        refreshRejectedCooldownActive = false
+        refreshRejectedCooldownTask = nil
+    }
+
+    private func clearRejectedRefreshCooldown() {
+        refreshRejectedCooldownTask?.cancel()
+        refreshRejectedCooldownTask = nil
+        refreshRejectedCooldownID = nil
+        refreshRejectedCooldownActive = false
+    }
+
+    private func resetRefreshCooldownState() {
+        refreshCooldownEpoch &+= 1
+        refreshRateLimitedUntil = nil
+        refreshRateLimitStreak = 0
+        refreshRejectedStreak = 0
+        clearRejectedRefreshCooldown()
     }
 
     /// Backoff for a rate-limited refresh exchange, in seconds.
@@ -531,22 +642,32 @@ actor APIClient {
     // MARK: - Token Management
     
     func setTokens(accessToken: String?, refreshToken: String?) async {
+        let previousRefreshToken = await tokenStore.getStoredRefreshToken()
         await tokenStore.setTokens(accessToken: accessToken, refreshToken: refreshToken)
+        if previousRefreshToken != refreshToken {
+            resetRefreshCooldownState()
+        }
         await refreshCoordinator.tokensDidChange(store: tokenStore, refreshToken: refreshToken)
     }
     
     func setTokens(accessToken: String?, refreshToken: String?, tokenStoreOverride: any TokenStoreProtocol) async {
+        let previousRefreshToken = await tokenStoreOverride.getStoredRefreshToken()
         await tokenStoreOverride.setTokens(accessToken: accessToken, refreshToken: refreshToken)
+        if previousRefreshToken != refreshToken {
+            resetRefreshCooldownState()
+        }
         await refreshCoordinator.tokensDidChange(store: tokenStoreOverride, refreshToken: refreshToken)
     }
     
     func clearTokens() async {
         await tokenStore.clearTokens()
+        resetRefreshCooldownState()
         await refreshCoordinator.tokensDidChange(store: tokenStore, refreshToken: nil)
     }
 
     func clearTokens(tokenStoreOverride: any TokenStoreProtocol) async {
         await tokenStoreOverride.clearTokens()
+        resetRefreshCooldownState()
         await refreshCoordinator.tokensDidChange(store: tokenStoreOverride, refreshToken: nil)
     }
 
@@ -559,9 +680,13 @@ actor APIClient {
             newRefreshToken: nil,
             newAccessToken: nil
         )
+        let remainingRefreshToken = await tokenStore.getStoredRefreshToken()
         await refreshCoordinator.tokensDidChange(
-            store: tokenStore, refreshToken: await tokenStore.getStoredRefreshToken()
+            store: tokenStore, refreshToken: remainingRefreshToken
         )
+        if remainingRefreshToken == nil {
+            resetRefreshCooldownState()
+        }
     }
 
     /// Gets tokens, refreshing if needed. See spec for algorithm.
