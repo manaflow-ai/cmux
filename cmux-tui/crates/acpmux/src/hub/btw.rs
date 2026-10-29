@@ -107,6 +107,17 @@ async fn with_inline_creation(
             result.map_err(|e| RpcError::internal(e.to_string())).and_then(|result| result)
         }
         Err(_) => {
+            // Capture the exact published session before aborting. Its
+            // CreationGuard may purge the registry as soon as the task drops.
+            let targets: Vec<_> = hub
+                .sessions()
+                .into_iter()
+                .filter(|candidate| {
+                    let meta = candidate.meta();
+                    meta.name == target_name
+                        && meta.parent_id.as_deref() == target_parent.as_deref()
+                })
+                .collect();
             task.abort();
             if let Ok(Ok(side)) = task.await {
                 hub.btw_cleanup(&side, &family, &harness_env).await;
@@ -114,14 +125,6 @@ async fn with_inline_creation(
                 // `fork` publishes its Session before startup awaits can create a
                 // harness transcript. Find only this request's session by its
                 // unique name and parent; never sweep the shared transcript root.
-                let targets: Vec<_> = hub
-                    .sessions()
-                    .into_iter()
-                    .filter(|candidate| {
-                        let meta = candidate.meta();
-                        meta.name == target_name && meta.parent_id == target_parent
-                    })
-                    .collect();
                 for side in targets {
                     hub.btw_cleanup(&side, &family, &harness_env).await;
                 }
