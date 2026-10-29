@@ -147,7 +147,9 @@ function nearestCaretAtPoint(
   view: GutterGeometry["view"],
 ): CaretHit | undefined {
   const walker = doc.createTreeWalker(thread, 4);
-  let best: { distance: number; above: boolean; edge: number; x: number; y: number } | undefined;
+  let best:
+    | { distance: number; boundary: "above" | "below" | "inside"; edge: number; node: Node; x: number; y: number }
+    | undefined;
   for (let node = walker.nextNode(); node; node = walker.nextNode()) {
     if (!selectableTextNode(node)) continue;
     if (!rowOf(node)) continue;
@@ -170,19 +172,28 @@ function nearestCaretAtPoint(
         !best ||
         distance < best.distance - 0.01 ||
         (Math.abs(distance - best.distance) <= 0.01 &&
-          ((above && !best.above) || (above === best.above && edge < best.edge)))
+          ((above && best.boundary !== "above") ||
+            (!above && !below && best.boundary === "below") ||
+            (above === (best.boundary === "above") && edge < best.edge)))
       ) {
         best = {
           distance,
-          above,
+          boundary: above ? "above" : below ? "below" : "inside",
           edge,
+          node,
           x: lineX,
           y: Math.min(Math.max(rect.top + rect.height / 2, view.top + 1), view.bottom - 1),
         };
       }
     }
   }
-  const caret = best ? caretAt(doc, best.x, best.y) : undefined;
+  const caret = best
+    ? best.boundary === "above"
+      ? { node: best.node, offset: best.node.textContent?.length ?? 0 }
+      : best.boundary === "below"
+        ? { node: best.node, offset: 0 }
+        : caretAt(doc, best.x, best.y)
+    : undefined;
   const row = caret && thread.contains(caret.node) ? rowOf(caret.node) : undefined;
   return caret && row ? { caret, row } : undefined;
 }
