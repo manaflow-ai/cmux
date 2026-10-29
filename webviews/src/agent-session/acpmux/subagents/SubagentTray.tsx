@@ -52,6 +52,7 @@ import { entranceAllowed } from "../../shared/pageReveal";
 import { formatDuration } from "../conversation/turns";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
+import { rowIconSize } from "../icons/iconSize";
 import { arrivalKey, type BackgroundCommand, commandLabel, sendLabel } from "../inspector/processes";
 import { StopButton as ProcessStopButton } from "../inspector/TasksSection";
 import { STATUS_LABEL, type SubagentStatus, subagentStatus, subagentStatusLabel } from "../summary/SubagentStatusList";
@@ -68,6 +69,8 @@ import type { SubagentTrayPlacement } from "./subagentTrayPlacement";
 
 /// Lines the tray shows under its header without a click.
 export const TRAY_OPEN_MAX = 3;
+
+const ROW_ICON = rowIconSize(12);
 
 const itemKey = (item: TrayItem): string =>
   item.kind === "command" ? `command:${arrivalKey(item.command)}` : `${item.kind}:${item.id}`;
@@ -260,7 +263,7 @@ export const SubagentTray = memo(function SubagentTray({
         className="acpmux-summary-text"
         text={showFinished ? t("summary.showFewer") : t("summary.viewAll", { n: finished.length })}
       />
-      <Icon name={showFinished ? "disclosure.expanded" : "disclosure.collapsed"} size={12} />
+      <Icon name={showFinished ? "disclosure.expanded" : "disclosure.collapsed"} size={ROW_ICON} row />
     </button>
   );
   return (
@@ -285,11 +288,11 @@ export const SubagentTray = memo(function SubagentTray({
             <Icon name="agent.session" size={14} />
           </span>
           <Tick className="acpmux-summary-text acpmux-running-tray__title" text={title} />
-          <span className="acpmux-summary-meta acpmux-running-tray__time" aria-hidden={starts.length === 0}>
+<span className="acpmux-summary-meta acpmux-running-tray__time" aria-hidden={starts.length === 0}>
             {starts.length > 0 ? formatDuration(Math.max(0, now - Math.min(...starts))) : undefined}
           </span>
           <span className="acpmux-running-tray__status">
-            <Icon name={open ? "disclosure.expanded" : "disclosure.collapsed"} size={12} />
+            <Icon name={open ? "disclosure.expanded" : "disclosure.collapsed"} size={ROW_ICON} row />
           </span>
           <span className="acpmux-running-tray__stop-slot" aria-hidden="true" />
         </button>

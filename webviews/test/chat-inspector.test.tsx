@@ -10,7 +10,6 @@
 // takes a column), hides a section with nothing in it, and shows five pull
 // requests under Changes and five running subagents, each then Show more (Claude Code desktop's).
 import { readFileSync } from "node:fs";
-import { accessibleName, resolveTarget } from "../src/gallery/play";
 
 import { afterEach, beforeEach, expect, setSystemTime, spyOn, test } from "bun:test";
 import { act, useState, type ReactNode } from "react";
@@ -37,10 +36,6 @@ import {
   resetInspectorState,
   setInspectorSection,
 } from "../src/agent-session/acpmux/inspector/inspectorState";
-import { SubagentSummaryCard } from "../src/agent-session/acpmux/inspector/SubagentSummaryCard";
-import { translate } from "../src/agent-session/acpmux/i18n";
-import type { SubsessionRow } from "../src/agent-session/acpmux/subagents/subsessions";
-import type { WorkflowSummary } from "../src/agent-session/acpmux/summary/workflow";
 import { sessionEntry } from "../src/agent-session/acpmux/sessionList";
 import {
   spawnedSessions,
@@ -863,22 +858,21 @@ test("200 streamed tokens do not render the completed avatar preview again", asy
   };
   try {
     await paint(0);
-    // The compact agent summary previews four avatars in addition to the detailed ended preview.
-    expect(avatarRenders).toHaveBeenCalledTimes(8);
+    expect(avatarRenders).toHaveBeenCalledTimes(4);
     const initialHashes = toneHashes.mock.calls.length;
     for (let token = 1; token <= 200; token++) await paint(token);
     expect(container.querySelector("p")?.textContent?.trim().split(" ")).toHaveLength(200);
-    expect(avatarRenders).toHaveBeenCalledTimes(8);
+    expect(avatarRenders).toHaveBeenCalledTimes(4);
     expect(toneHashes).toHaveBeenCalledTimes(initialHashes);
     expect(endedRow(container)?.textContent).toBe("31 done");
 
     // A new ended agent changes the preview; real changes must not be frozen by memoization.
     await paint(201, [...completed, subagent(31, "completed")]);
-    expect(avatarRenders).toHaveBeenCalledTimes(12);
+    expect(avatarRenders).toHaveBeenCalledTimes(8);
     expect(endedRow(container)?.textContent).toBe("32 done");
     // The same identity can receive corrected state/harness metadata after its first snapshot.
     await paint(202, [...completed, { ...subagent(31, "failed"), harness: "codex" }]);
-    expect(avatarRenders).toHaveBeenCalledTimes(16);
+    expect(avatarRenders).toHaveBeenCalledTimes(12);
     expect(endedRow(container)?.querySelector(".cv-subagent-avatar")?.getAttribute("data-state")).toBe("failed");
   } finally {
     avatarRenders.mockRestore();
@@ -1054,138 +1048,15 @@ test("a Cloud VM chat's children, as its machine's daemon lists them with the ch
   const opened: string[] = [];
   await act(async () => {
     root = createRoot(container);
-    root.render(
-      <ChatInspector
-        sessions={children}
-        summary={{ sessionId: "vm-root", subsessionLimits: { maxRunning: 4 } }}
-        subsessions={[{ sessionId: "vm-sub", name: "Run the e2e suite", state: "working", depth: 0 }]}
-        onOpenSession={(id) => opened.push(id)}
-      />,
-    );
+    root.render(<ChatInspector sessions={children} onOpenSession={(id) => opened.push(id)} />);
   });
   const subagents = section(container, "subagents")!;
   expect(meta(subagents)).toBe("1 running · 1 done");
-  expect(compactButton(container).textContent).toContain("1 running · 1 done");
-  expect(subagents.querySelector(".acpmux-subagent-limit__text")?.textContent).toContain("Running 1 / 4 max");
   await click(endedRow(subagents)!);
   expect(lines(subagents)).toEqual([
-    ["Run the e2e suite", "Working"],
+    ["Run the e2e suite", "Running"],
     ["Draft the release notes", "Done"],
   ]);
   await click(subagents.querySelector<HTMLButtonElement>("button.acpmux-agent-line__button")!);
   expect(opened).toEqual(["vm-sub"]);
-});
-
-const compactWorkflow: WorkflowSummary = {
-  id: "workflow-summary",
-  title: "Review workflow",
-  state: "running",
-  phases: [{ id: "review", name: "Review phase", state: "running", agentIds: ["worker"] }],
-  agents: [{ id: "worker", name: "Worker", state: "running" }],
-};
-const compactButton = (container: HTMLElement) =>
-  container.querySelector<HTMLButtonElement>(".acpmux-chat-inspector-agent-summary")!;
-
-test("compact counts combine sources with slot waits queued and failed retries running", async () => {
-  const container = installDom(true);
-  const subsessions: SubsessionRow[] = [
-    { sessionId: "slot", name: "Slot queue", state: "working", slot: true, depth: 0 },
-    { sessionId: "retry", name: "Retry", state: "failed", retry: { attempt: 1, of: 4 }, depth: 0 },
-    { sessionId: "ended", name: "Ended", state: "done", depth: 0 },
-  ];
-  await act(async () => {
-    root = createRoot(container);
-    root.render(
-      <SubagentSummaryCard
-        agents={[subagent(0, "running"), subagent(1, "failed"), subagent(2, "completed")]}
-        waiting={new Set()}
-        sessions={[{ sessionId: "started", title: "Started", state: "idle" }]}
-        subsessions={subsessions}
-        workflows={[compactWorkflow]}
-        onOpen={noop}
-      />,
-    );
-  });
-  expect(compactButton(container).querySelector(".acpmux-chat-inspector-agent-summary__counts")?.textContent).toBe(
-    [
-      translate("summary.subagents.running", { n: 3 }),
-      translate("workflow.queued", { n: 1 }),
-      translate("summary.subagents.done", { n: 3 }),
-      translate("summary.subagents.failed", { n: 1 }),
-    ].join(" · "),
-  );
-  expect(compactButton(container).textContent).toContain("Review workflow · Review phase");
-  await act(async () => {
-    root!.render(<ChatInspector subsessions={subsessions} />);
-  });
-  expect(meta(section(container, "subagents"))).toBe(
-    [
-      translate("summary.subagents.waiting", { n: 1 }),
-      translate("summary.subagents.running", { n: 1 }),
-      translate("summary.subagents.done", { n: 1 }),
-    ].join(" · "),
-  );
-});
-
-test("the compact Inspector card reveals the matching existing detail and leaves no empty group", async () => {
-  const container = installDom(true);
-  const opened: string[] = [];
-  const onSection = (id: string, open: boolean) => {
-    if (open) opened.push(id);
-  };
-  await act(async () => {
-    root = createRoot(container);
-    root.render(
-      <ChatInspector agents={[subagent(0, "running")]} workflows={[compactWorkflow]} onSection={onSection} />,
-    );
-  });
-  await click(compactButton(container));
-  expect(opened).toContain("subagents");
-  opened.length = 0;
-  await act(async () => root!.render(<ChatInspector workflows={[compactWorkflow]} onSection={onSection} />));
-  await click(compactButton(container));
-  expect(opened).toContain("tasks");
-  await act(async () => root!.render(<ChatInspector />));
-  expect(compactButton(container)).toBeNull();
-  expect(container.querySelector('[data-group="running"]')).toBeNull();
-});
-
-test("a forty-agent compact card keeps four avatars and the full count", async () => {
-  const container = installDom(true);
-  await act(async () => {
-    root = createRoot(container);
-    root.render(
-      <SubagentSummaryCard
-        agents={Array.from({ length: 40 }, (_, i) => subagent(i, "completed"))}
-        waiting={new Set()}
-        sessions={[]}
-        onOpen={noop}
-      />,
-    );
-  });
-  expect(compactButton(container).querySelectorAll(".acpmux-summary-avatar")).toHaveLength(4);
-  expect(compactButton(container).textContent).toContain(translate("summary.subagents.done", { n: 40 }));
-});
-
-test("the ended-row gallery target stays distinct from the agent summary and opens its list", async () => {
-  const container = installDom(true);
-  const agents = [...Array.from({ length: 40 }, (_, index) => subagent(index, "completed")), subagent(40, "failed")];
-  await act(async () => {
-    root = createRoot(container);
-    root.render(<ChatInspector agents={agents} onOpenSubagent={noop} />);
-  });
-  const target = { role: "button", name: /40 done · 1 failed/ };
-  const matches = [...container.querySelectorAll("button")].filter((button) =>
-    target.name.test(accessibleName(button)),
-  );
-  expect(matches).toHaveLength(1);
-  const ended = endedRow(section(container, "subagents")!)!;
-  expect(resolveTarget(container, target)).toBe(ended);
-  expect(accessibleName(ended)).toBe("40 done · 1 failed");
-  expect(container.querySelector(".acpmux-chat-inspector-subagents__list")).toBeNull();
-  const selected = resolveTarget(container, target);
-  if (!(selected instanceof dom!.window.HTMLElement)) throw new Error("The ended row was not found");
-  await click(selected);
-  expect(ended.getAttribute("aria-expanded")).toBe("true");
-  expect(lines(container.querySelector(".acpmux-chat-inspector-subagents__list")!)).toHaveLength(41);
 });
