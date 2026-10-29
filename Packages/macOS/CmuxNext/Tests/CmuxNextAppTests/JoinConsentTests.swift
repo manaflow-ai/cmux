@@ -925,7 +925,7 @@ import Testing
         }
         defer { watching.cancel() }
         /// Lets earlier events land, then does `change` and waits for an element after it.
-        let step = { (what: String, change: () throws -> Void) async throws in
+        func step(_ what: String, _ change: () throws -> Void) async throws {
             try await Task.sleep(for: .milliseconds(300))
             let seen = changes.values.count
             try change()
