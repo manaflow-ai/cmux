@@ -204,9 +204,11 @@ const SCRIPT_FADE_INS: Record<string, { count: number; why: string }> = {
 /// `{ opacity: [0, ...] }`), as their lines.
 function scriptFadeIns(source: string): number[] {
   const lineAt = (index: number) => source.slice(0, index).split("\n").length;
-  return [...source.matchAll(/\.animate\(\s*(\[\s*\{\s*opacity:\s*["']?0(\.0+)?["']?\s*[,}]|\{\s*opacity:\s*\[\s*["']?0(\.0+)?["']?\s*,)/g)].map(
-    (match) => lineAt(match.index),
-  );
+  return [
+    ...source.matchAll(
+      /\.animate\(\s*(\[\s*\{\s*opacity:\s*["']?0(\.0+)?["']?\s*[,}]|\{\s*opacity:\s*\[\s*["']?0(\.0+)?["']?\s*,)/g,
+    ),
+  ].map((match) => lineAt(match.index));
 }
 
 describe("popovers and menus open in one frame", () => {
@@ -295,7 +297,9 @@ describe("popovers and menus open in one frame", () => {
       const count = scriptFadeIns(readFileSync(file, "utf8")).length;
       if (count) found[path.relative(WEBVIEWS, file)] = count;
     }
-    expect(found).toEqual(Object.fromEntries(Object.entries(SCRIPT_FADE_INS).map(([file, { count }]) => [file, count])));
+    expect(found).toEqual(
+      Object.fromEntries(Object.entries(SCRIPT_FADE_INS).map(([file, { count }]) => [file, count])),
+    );
   });
 
   test("every exempt palette is still drawn by a stylesheet", () => {
