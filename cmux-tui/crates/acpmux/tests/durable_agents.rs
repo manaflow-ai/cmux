@@ -1797,7 +1797,7 @@ async fn answered_session_settings_survive_a_crash_before_the_session_record_is_
     rpc.call("_acpmux/set_policy", json!({"sessionId": session, "policy": "deny-all"})).await;
     rpc.call(
         "_acpmux/set_rules",
-        json!({"sessionId": session, "rules": {"autoApprove": ["execute"]}}),
+        json!({"sessionId": session, "rules": {"autoDeny": ["execute"]}}),
     )
     .await;
     for kind in ["renamed", "tags", "policy", "rules"] {
@@ -1816,7 +1816,7 @@ async fn answered_session_settings_survive_a_crash_before_the_session_record_is_
     assert_eq!(s["enforcement"]["policy"], "deny-all", "an answered policy was lost: {attached:#}");
     assert_eq!(
         s["rulesJson"],
-        json!({"autoApprove": ["execute"]}),
+        json!({"autoDeny": ["execute"]}),
         "answered rules were lost: {attached:#}"
     );
 }
