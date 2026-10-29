@@ -938,7 +938,8 @@ pub fn place_in_personal_group(daemon: &Path, key: &str, name: &str) -> Result<(
     place_in_personal_group_from(daemon, key, name, &home_dir())
 }
 
-/// ``place_in_personal_group`` with the settings read from home folder `home`.
+/// [`place_in_personal_group`] with `workspaces.newPlacement` read from home folder `home`: under
+/// `top` (the default) the workspace goes first in its group, else last.
 pub fn place_in_personal_group_from(
     daemon: &Path,
     key: &str,
@@ -978,6 +979,11 @@ pub fn place_in_personal_group_from(
     let mut params = here();
     params["workspace"] = json!(workspace);
     params["group"] = json!(group);
+    // Lawrence 2026-10-28: a new workspace made in a group goes to the top of that group under
+    // `top` (the default), as Cmd-N in a group does; without an index the daemon put it last.
+    if let Some(index) = new_group_index(home) {
+        params["index"] = json!(index);
+    }
     resource_call(
         daemon,
         "workspace.place",

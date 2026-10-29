@@ -76,6 +76,28 @@ import Testing
         #expect(placed.group == ["c", "d", "e"])
     }
 
+    /// The group's own + (and a double-click in its empty part) for `g1`, with the window on `current`.
+    static func placedFromGroup(_ placement: NewWorkspacePlacement, current: String?) throws -> [String] {
+        var sections = sections()
+        let slot = NewWorkspaceDefaultSlot(placement: placement, current: current).slot(inGroup: g1, members: ["c", "d", "e"])
+        let position = try #require(slot.position(moving: ["n"], section: .machine(.local), in: sections))
+        #expect(SidebarEdits.apply(.reorder([WorkspaceID("n")], to: position), to: &sections))
+        for case let .group(group) in sections[0].nodes { return group.workspaces.map(\.id.rawValue) }
+        return []
+    }
+
+    @Test func theGroupsPlusPutsTheNewWorkspaceAtItsTopByDefault() throws {
+        for current in ["a", "d", nil] {
+            #expect(try Self.placedFromGroup(.top, current: current) == ["n", "c", "d", "e"], "from \(current ?? "none")")
+        }
+    }
+
+    @Test func theGroupsPlusFollowsAfterCurrentAndBottom() throws {
+        #expect(try Self.placedFromGroup(.afterCurrent, current: "d") == ["c", "d", "n", "e"])
+        #expect(try Self.placedFromGroup(.afterCurrent, current: "a") == ["n", "c", "d", "e"])
+        #expect(try Self.placedFromGroup(.bottom, current: "d") == ["c", "d", "e", "n"])
+    }
+
     @Test func bottomFromAGroupMemberIsTheGroupsLastSlot() throws {
         let placed = try Self.placed(.bottom, from: "c")
         #expect(placed.group == ["c", "d", "e", "n"])
