@@ -49,7 +49,6 @@ import { memo, useId, useRef, useState } from "react";
 import { experimentArm } from "../../../experiments/experiment";
 import { foldMotion, useFold } from "../conversation/fold";
 import { entranceAllowed } from "../../shared/pageReveal";
-import { Spinner } from "../conversation/icons";
 import { formatDuration } from "../conversation/turns";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
@@ -283,7 +282,7 @@ export const SubagentTray = memo(function SubagentTray({
           onClick={() => setOpened(!open)}
         >
           <span className="acpmux-lineage__icon" data-state={runs ? "running" : "done"}>
-            {runs ? <Spinner size={14} loading /> : <Icon name="agent.session" size={14} />}
+            <Icon name="agent.session" size={14} />
           </span>
           <Tick className="acpmux-summary-text acpmux-running-tray__title" text={title} />
           {starts.length > 0 && (
