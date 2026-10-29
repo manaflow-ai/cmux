@@ -1,4 +1,3 @@
-package import AppKit
 import CmuxNextDesign
 public import SwiftUI
 
@@ -17,10 +16,6 @@ public struct TaskManagerView: View {
         self.table = table
     }
 
-    /// The page as an AppKit view (its `NSHostingView`), for the page tab's gate, which is AppKit.
-    package static func hostingView(model: TaskManagerModel, table: TaskManagerTableState) -> NSView {
-        NSHostingView(rootView: TaskManagerView(model: model, table: table))
-    }
 
     public var body: some View {
         VStack(spacing: 0) {

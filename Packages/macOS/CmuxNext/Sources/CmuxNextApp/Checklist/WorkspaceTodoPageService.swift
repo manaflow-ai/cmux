@@ -50,7 +50,7 @@ final class WorkspaceTodoPageService: InternalPageProvider {
         let restored = pending.removeValue(forKey: key)
         if let model = models[key] {
             if let requested { model.workspaceID = requested }
-            return VisibilityGatedHostingView(owner: "WorkspaceTodoPage", hosting: NSHostingView(rootView: WorkspaceTodoPageView(model: model)))
+            return VisibilityGatedHostingView(owner: "WorkspaceTodoPage") { WorkspaceTodoPageView(model: model) }
         }
         let id = requested ?? restored ?? opens.running ?? window?.state.workspaceID ?? ""
         let model = WorkspaceTodoPageModel(
@@ -58,7 +58,7 @@ final class WorkspaceTodoPageService: InternalPageProvider {
             workspace: { [weak self] in self?.services?.workspace(id: $0) },
             perform: { [weak self] id, invocation in _ = self?.services?.registry.perform(id, invocation: invocation) })
         models[key] = model
-        return VisibilityGatedHostingView(owner: "WorkspaceTodoPage", hosting: NSHostingView(rootView: WorkspaceTodoPageView(model: model)))
+        return VisibilityGatedHostingView(owner: "WorkspaceTodoPage") { WorkspaceTodoPageView(model: model) }
     }
 
     func tabClosed(_ key: String) {
