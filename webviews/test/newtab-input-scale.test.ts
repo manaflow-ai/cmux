@@ -45,7 +45,7 @@ await requireBrowserLane("newtab-input-scale.test.ts", async () => {
         glyphFontSize: number;
         fieldPad: number;
         glyphTop: number;
-        plusTop: number;
+        plusCenter: number;
         lineHeight: number;
         inputHeight: number;
         fieldHeight: number;
@@ -83,7 +83,7 @@ await requireBrowserLane("newtab-input-scale.test.ts", async () => {
               glyphFontSize: px(glyphStyle.fontSize),
               fieldPad: px(fieldStyle.paddingTop),
               glyphTop: glyphRect.top - inputRect.top,
-              plusTop: plusRect.top - inputRect.top,
+              plusCenter: (plusRect.top + plusRect.bottom) / 2 - inputRect.top,
               lineHeight: px(fieldStyle.lineHeight),
               inputHeight: inputRect.height,
               fieldHeight: fieldRect.height,
@@ -97,7 +97,7 @@ await requireBrowserLane("newtab-input-scale.test.ts", async () => {
       for (const result of results) {
         expect(result.glyphTop).toBeCloseTo(result.fieldPad, 1);
         expect(result.glyphFontSize).toBeCloseTo(result.fontSize, 1);
-        expect(result.plusTop).toBeCloseTo(result.fieldPad, 1);
+        expect(result.plusCenter).toBeCloseTo(result.fieldPad + result.lineHeight / 2, 1);
         expect(result.plusBottom).toBeLessThanOrEqual(result.inputBottom + 0.5);
         expect(result.fieldHeight).toBeGreaterThanOrEqual(result.lineHeight + 2 * result.fieldPad - 1);
       }

@@ -351,6 +351,9 @@
    leading control; the model/mic/send row remains under the field. */
 .nt-input .nt-split-plus {
   flex: none;
+  display: flex;
+  align-items: center;
+  height: var(--text-content--line-height);
   margin-top: var(--nt-input-pad-block);
 }
 /* The dictation mic beside Send (DictationMic), both in the bar's end group. */
