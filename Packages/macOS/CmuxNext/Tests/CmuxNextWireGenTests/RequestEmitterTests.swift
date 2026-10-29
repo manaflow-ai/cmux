@@ -222,6 +222,20 @@ private func json(_ text: String) throws -> SchemaJSON {
         #expect(SwiftNaming.typeName("3d-view") == "_3dView")
     }
 
+    /// A stream-scoped command whose handler reads `stream` declares it (detach-attached-view):
+    /// the declared member is the envelope's stream, emitted once, the way the envelope sends it.
+    @Test func aDeclaredStreamOfAStreamScopedCommandIsTheEnvelopesStream() throws {
+        let uint16 = #"{"kind": "scalar", "name": "uint16"}"#
+        let document = try json(
+            #"{"families": {}, "types": {}, "commands": {"detach-view": {"clients": ["macos"], "stream_scoped": true, "#
+                + #""request": {"kind": "object", "fields": {"stream": {"type": \#(uint16), "presence": "optional", "#
+                + #""nullable": true, "default": null, "constraints": ["The view's stream."]}}}, "#
+                + #""result": {"kind": "object", "fields": {}, "additional_properties": false}}}}"#
+        )
+        let command = try #require(try RequestSchema(document: document).commands.first)
+        #expect(command.fields == [RequestSchema.streamField])
+    }
+
     // Refusals ----------------------------------------------------------------
 
     private static func refused(_ command: String, types: String = "{}") throws -> String {
