@@ -301,7 +301,8 @@ def make_plan(repo: Path, files: list[str], guard_executed: bool, exists=None) -
 def check_pieces(repo: Path, package: ScriptPackage, script: str, read=None) -> list[str]:
     read = read or (lambda rel: (repo / rel).read_text(encoding="utf-8"))
     scripts = json.loads(read(f"{package.directory}/package.json")).get("scripts", {})
-    body = scripts.get(script)
+    # webviews' `check` runs its `check:pieces` chain through run-check-pieces.py; the pieces are the list.
+    body = scripts.get(f"{script}:pieces") or scripts.get(script)
     if not body:
         return []
     return [piece.strip() for piece in body.split("&&") if piece.strip()]

@@ -33,6 +33,20 @@ the exact head, treats ordinary pending and base-red findings as non-blocking,
 and still holds a required compile, risk, fast-gates or freeze verdict. Do not
 use `gh-merge-green` as a second gate for a feat-cmux-next PR.
 
+When the helper's merged-tree web check runs, local dependency installation and
+`vp check` require an explicit allow verdict from the shared fleet host policy,
+`leo-workspace/tools/host_policy.py heavy-local-ok --json`. The helper finds the
+workspace at `$HOME/Projects/leo-workspace`, then `$HOME/src/leo-workspace`;
+`LEO_WORKSPACE` selects a different workspace root. The policy reads the fleet
+registry; the merge helper carries no host list. A no-build or unknown host
+(including a missing policy helper) skips only this heavy local web check and
+prints the exact merged tree, base and head as **not checked**. Run any needed
+web validation through `cmux-ci test` on a supported remote worker. Only exit 0
+with a well-formed allow response permits heavy local work. Every other result,
+including a crash, usage error or malformed response, skips the heavy local
+check with a named warning rather than adding a merge gate. GitHub checks, freezes, merge
+conflict detection and the scoped Swift check retain their existing behavior.
+
 `ci-status` is an aggregate verdict, not a useful build step. On the feature
 line it waits on 11 legacy jobs even though its own verdict job took 3 seconds
 and the sampled run took 52 seconds from creation to completion (run
