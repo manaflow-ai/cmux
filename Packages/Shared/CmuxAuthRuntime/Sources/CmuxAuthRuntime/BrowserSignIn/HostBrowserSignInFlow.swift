@@ -222,7 +222,7 @@ public final class HostBrowserSignInFlow {
             let continuation = takeActiveSessionContinuation()
             let signedIn = await completeCallback(url: url, attemptID: attemptID)
             log.log("auth.browser.session.resume reason=externalCallback attempt=\(attemptID)")
-            continuation?.resume(returning: .cancelled(reason: "external_callback"))
+            _ = continuation?.resume(returning: .cancelled(reason: "external_callback"))
             return signedIn
         }
         if let state {
@@ -755,7 +755,7 @@ public final class HostBrowserSignInFlow {
 
     /// Detach the session continuation so later session completions, attempt
     /// replacement and sign-out cannot resume it; the caller must resume it.
-    private func takeActiveSessionContinuation() -> CheckedContinuation<HostBrowserAuthSessionResult?, Never>? {
+    private func takeActiveSessionContinuation() -> OnceContinuation<HostBrowserAuthSessionResult?, OnceContinuationError>? {
         let continuation = activeSessionContinuation
         activeSessionContinuation = nil
         activeSessionContinuationAttemptID = nil

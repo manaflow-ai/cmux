@@ -42,7 +42,7 @@ final class AppOnboardingServices: OnboardingServices {
         }
         return icons ?? [:]
     }
-    }
+
     func browsersAwaitingAccess() async -> [ImportBrowser] { await folderAccess.awaiting() }
     func accessFolder(for browser: ImportBrowser) -> URL? { folderAccess.folder(browser) }
     func requestFolderAccess(for browser: ImportBrowser) async -> Bool { await folderAccess.request(browser) }

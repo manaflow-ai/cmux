@@ -1292,12 +1292,54 @@ impl Hub {
         self.stamp_permission_display(session, &mut request);
         let (tx, rx) = oneshot::channel();
         let decision_nonce = super::person::new_nonce();
-                ("in", kind) if current && e.msg.get("method").is_some() => {
-                    if let Some(id) = e.msg.get("id") {
-                        open_request_ids.insert(id.to_string());
-                        let params = e.msg.get("params").cloned();
-                        requests.push((id.clone(), kind.to_owned(), params, e.host_seq));
-                    }
+        let key =
+            super::permission_groups::AgentRequestKey::new(Some(incarnation), &agent_request_id);
+        let asked = {
+            let mut state = session.permissions.lock_or_recover();
+            let stopped = asked.as_ref().is_some_and(|(epoch, turn)| {
+                session.permission_epoch.load(Ordering::SeqCst) != *epoch
+                    || super::permissions::stale_turn(session, turn)
+            });
+            if stopped || state.cancelled_requests.remove(&key) {
+                None
+            } else {
+                // The epoch and turn it is asked under, read under the lock a Stop takes: an
+                // answer to it that is cut is asked again only while they hold (review 88 of
+                // #23322).
+                let asked = asked.unwrap_or_else(|| {
+                    let epoch = session.permission_epoch.load(Ordering::SeqCst);
+                    (epoch, session.turn().map(|t| t.turn_id))
+                });
+                state.pending.insert(
+                    permission_id.clone(),
+                    PendingPermission {
+                        // The agent's own ask, judged like a fresh one (a re-adopted AskUserQuestion).
+                        ancestor_may_answer: super::questions::ancestor_answerable(&request, true),
+                        request: request.clone(),
+                        reply: tx,
+                        decision_nonce: decision_nonce.clone(),
+                        // Settled by the task below, from a turn or none (`status_after_ask`).
+                        prev_status: SessionStatus::Waiting,
+                        agent_request: Some(agent_request_id.clone()),
+                        agent_host_incarnation: Some(incarnation.to_owned()),
+                    },
+                );
+                Some(asked)
+            }
+        };
+        // Withdrawn by the agent, or cancelled by a stop or a new turn since its previous answer.
+        let Some(asked) = asked else {
+            let outcome = json!({"outcome": "cancelled"});
+            self.append(
+                session,
+                "mux",
+                "permission_decision",
+                json!({"permissionId": permission_id, "outcome": outcome}),
+            );
+            let _ = child.respond(agent_request_id.clone(), Ok(permission_answer(outcome))).await;
+            self.finish_agent_request(session, &agent_request_id, Some(incarnation));
+            return;
+        };
         // The prompt's new nonce under this daemon run, for a relayed allow
         // (`person.rs`): clients get it as `_acpmux/permission_pending`.
         self.append(
