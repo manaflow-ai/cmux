@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { type FileMemoryStore, toLines, wake } from "../../packages/brain/src/index.ts";
 import { EVENT_PREFIX } from "./supervisor.ts";
@@ -40,11 +40,35 @@ const stamp = (now = new Date()) => now.toISOString().slice(0, 16);
 function seen(ctx: HookContext, sessionID: string): number {
   const file = join(ctx.sessionsDir, `${sessionID}.json`);
   if (!existsSync(file)) return 0;
-  return (JSON.parse(readFileSync(file, "utf8")) as { seen: number }).seen;
+  try {
+    const value: unknown = JSON.parse(readFileSync(file, "utf8"));
+    if (
+      typeof value !== "object" ||
+      value === null ||
+      Array.isArray(value) ||
+      typeof (value as { seen?: unknown }).seen !== "number" ||
+      !Number.isSafeInteger((value as { seen: number }).seen) ||
+      (value as { seen: number }).seen < 0
+    ) return 0;
+    return (value as { seen: number }).seen;
+  } catch {
+    // A hook must keep working when a prior process was interrupted while writing.
+    return 0;
+  }
 }
 
 function setSeen(ctx: HookContext, sessionID: string, value: number): void {
-  writeFileSync(join(ctx.sessionsDir, `${sessionID}.json`), JSON.stringify({ seen: value }));
+  const file = join(ctx.sessionsDir, `${sessionID}.json`);
+  // Rename is atomic within the session directory, so a concurrent hook sees either
+  // the old cursor or the complete new one, never a truncated JSON document.
+  const temp = `${file}.${process.pid}.${Date.now()}.${Math.random().toString(16).slice(2)}.tmp`;
+  writeFileSync(temp, `${JSON.stringify({ seen: value })}\n`);
+  try {
+    renameSync(temp, file);
+  } catch (error) {
+    rmSync(temp, { force: true });
+    throw error;
+  }
 }
 
 function context(event: string, text: string): HookOutput {
