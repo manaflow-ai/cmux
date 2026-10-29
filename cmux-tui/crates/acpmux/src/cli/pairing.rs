@@ -166,7 +166,10 @@ fn install_command(ticket: &str) -> String {
 /// would install and stop, and a script that does join would spend the
 /// single-use ticket before a second join.
 fn install_line(url: &str, ticket: &str) -> String {
-    format!("curl -fsSL {url} | sh && {}", join_line("\"$HOME/.cmux/bin/cmux\"", " --serve", ticket))
+    format!(
+        "curl -fsSL {url} | sh && {}",
+        join_line("\"$HOME/.cmux/bin/cmux\"", " --serve", ticket)
+    )
 }
 
 /// `cmux host join` with the ticket on stdin. `printf` is a shell builtin,
@@ -288,13 +291,14 @@ pub(crate) fn read_ticket(input: impl std::io::Read) -> Result<zeroize::Zeroizin
         None => text,
     };
     if line.contains(['\n', '\r']) {
-        return Err(AppError::usage("stdin must hold the ticket on one line and nothing else").into());
+        return Err(
+            AppError::usage("stdin must hold the ticket on one line and nothing else").into()
+        );
     }
     if line.trim().is_empty() {
-        return Err(AppError::usage(
-            "no ticket on stdin: printf '%s\\n' TICKET | cmux host join",
-        )
-        .into());
+        return Err(
+            AppError::usage("no ticket on stdin: printf '%s\\n' TICKET | cmux host join").into()
+        );
     }
     Ok(zeroize::Zeroizing::new(line.to_owned()))
 }
