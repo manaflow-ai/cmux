@@ -56,6 +56,10 @@ const item: AcpmuxActivity = {
   },
 };
 const actions: TurnActions = {
+  branches: {
+    of: new Map([["glyph-versioned-prompt", { sessions: ["version-a", "version-b", "version-c"], index: 1 }]]),
+    open: () => undefined,
+  },
   retry: () => undefined,
   retryWith: {
     models: [
@@ -107,6 +111,9 @@ function App() {
       <TurnActionsContext.Provider value={actions}>
         <div className="cv-user" data-footer-row>
           <UserBubble row={row} text={row.text!} />
+        </div>
+        <div className="cv-user" data-version-footer-row>
+          <UserBubble row={{ ...row, id: "glyph-versioned-prompt" }} text="The same footer with message versions." />
         </div>
         <div className="fixture-rhythm" data-glyph-row="tool">
           <ToolRow item={item} />

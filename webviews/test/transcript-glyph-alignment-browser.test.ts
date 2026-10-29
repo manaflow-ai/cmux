@@ -76,6 +76,11 @@ await requireBrowserLane("transcript-glyph-alignment-browser.test.ts", async () 
               return { kind, glyphs: measure(scope, ...selectors[kind]!) };
             });
             const footer = measure(document.querySelector("[data-footer-row]")!, ".cv-user__time", ".cv-iconbtn svg");
+            const versionFooter = measure(
+              document.querySelector("[data-version-footer-row]")!,
+              ".cv-user__time",
+              ".cv-iconbtn svg",
+            );
             const retry = (kind: string) =>
               getComputedStyle(document.querySelector(`[data-received-row="${kind}"] .cv-message-retry`)!).display;
             return {
@@ -99,7 +104,8 @@ await requireBrowserLane("transcript-glyph-alignment-browser.test.ts", async () 
             for (const glyph of row.glyphs) expect(glyph.delta, row.kind).toBeLessThanOrEqual(0.5);
           }
           expect(measurements.footer).toHaveLength(3);
-          for (const glyph of measurements.footer) {
+          expect(measurements.versionFooter).toHaveLength(5);
+          for (const glyph of [...measurements.footer, ...measurements.versionFooter]) {
             expect(glyph.delta, "sent footer").toBeLessThanOrEqual(0.5);
             expect(glyph.width, "footer glyph width").toBe(16);
             expect(glyph.height, "footer glyph height").toBe(16);

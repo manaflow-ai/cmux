@@ -659,6 +659,11 @@
   width: var(--cv-footer-control-slot);
   height: var(--cv-footer-control-slot);
 }
+.cv-message-footer-row .cv-iconbtn > svg {
+  flex-shrink: 0;
+  width: var(--cv-glyph-slot);
+  height: var(--cv-glyph-slot);
+}
 /* Claude's fade: in after a beat when the pointer arrives, at once from the keyboard, out quickly. */
 @media (prefers-reduced-motion: no-preference) {
   .cv-user__actions,
