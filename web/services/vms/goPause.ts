@@ -54,7 +54,9 @@ function pauseForAllowance(
     // The database may already say paused. An idempotent provider pause also
     // stops machines resumed outside the control plane.
     yield* providers.pause(vm.provider, providerVmId);
-    const recorded = yield* repo.markProviderObservedStatus({ id: vm.id, providerVmId, status: "paused" });
+    // A stated cause: it settles an idle pause claim and stamps the fence, so the idle cron never
+    // undoes this pause as a lost idle pause (services/vms/README.md, idle auto-pause).
+    const recorded = yield* repo.markProviderObservedStatus({ id: vm.id, providerVmId, status: "paused", pauseReason: "allowance" });
     if (!recorded) return yield* Effect.fail(new VmNotFoundError({ vmId: providerVmId }));
     yield* mergeMetadata({ id: vm.id, patch: { [GO_PAUSE_INTENT_KEY]: null } });
     yield* repo.recordUsageEvent({ userId: vm.userId, billingTeamId: vm.billingTeamId, billingPlanId: options.planId,
