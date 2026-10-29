@@ -68,7 +68,7 @@ import {
   TEAM_PRICING_USD,
 } from "../../../../services/billing/plans";
 import { isVaultEnabled } from "../../../../services/vault/config";
-import { isGoPlanEnabled } from "../../../../services/billing/goPlanFlag";
+import { isWebPlusPlanEnabled as isGoPlanEnabled } from "../../../../services/billing/goPlanFlag";
 
 const ENTERPRISE_CTA_URL = "/enterprise";
 const ANONYMOUS_IF_EXISTS = "anonymous-if-exists[deprecated]" as const;
@@ -332,7 +332,7 @@ function PricingContent({
 
       {showGo ? (
         <>
-          {/* Go: one small, capped Cloud VM for focused work. */}
+          {/* Plus: one saved Cloud VM with Pro sizes and no monthly hour cap. */}
           <PlanCard
             name={t("go.name")}
             price={`$${GO_PRICING_USD.month.billedAmount}`}
@@ -448,6 +448,25 @@ function PricingContent({
           <PrimaryLink href={DOWNLOAD_CONFIRMATION_HREF} size="compact">
             {t("free.cta")}
           </PrimaryLink>
+        ),
+        go: appStoreAction ? appStoreAction("compact") : isGo ? (
+          canManageBilling ? (
+            <SecondaryLink href="/api/billing/portal" size="compact">
+              {t("manageBilling")}
+            </SecondaryLink>
+          ) : (
+            <DisabledButton size="compact">{t("currentPlan")}</DisabledButton>
+          )
+        ) : (
+          <PricingCheckoutButton
+            href={withCheckoutAttribution(GO_CHECKOUT_URL, attribution)}
+            requiresSignIn={!pending && !snapshot.authenticated}
+            location="pricing_compare_header"
+            plan="go"
+            size="compact"
+          >
+            {t("go.cta")}
+          </PricingCheckoutButton>
         ),
         pro: appStoreAction ? appStoreAction("compact") : isProCurrent ? (
           <DisabledButton size="compact">{t("currentPlan")}</DisabledButton>
