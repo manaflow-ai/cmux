@@ -13,10 +13,14 @@ import Testing
 /// focused frame at once and never replays it late.
 @MainActor @Suite(.serialized)
 struct EarlyTerminalKeysTests {
-    /// One workspace with one pane and one terminal tab.
-    private static func tree() -> DaemonTree {
+    /// One workspace with one pane and one terminal tab, or (`panes: 2`) two panes side by side with a terminal each.
+    private static func tree(panes count: Int = 1) -> DaemonTree {
         let pane = PaneSnapshot(id: PaneID(rawValue: 1), tabs: [TabSnapshot(surface: SurfaceID(rawValue: 1), title: "~")])
-        let screen = ScreenSnapshot(id: ScreenID(rawValue: 1), layout: .leaf(pane.id), panes: [pane])
+        let other = PaneSnapshot(id: PaneID(rawValue: 2), tabs: [TabSnapshot(surface: SurfaceID(rawValue: 2), title: "~")])
+        let screen = count == 2
+            ? ScreenSnapshot(id: ScreenID(rawValue: 1), layout: .split(id: nil, resourceID: nil, direction: .right, ratio: 0.5,
+                                                                      a: .leaf(pane.id), b: .leaf(other.id)), panes: [pane, other])
+            : ScreenSnapshot(id: ScreenID(rawValue: 1), layout: .leaf(pane.id), panes: [pane])
         var tree = DaemonTree(registryID: "s-local", workspaces: [
             WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 1), key: WorkspaceKey(rawValue: "early-ws"), name: "early", screens: [screen]),
         ])
@@ -39,8 +43,8 @@ struct EarlyTerminalKeysTests {
         let entry: TerminalEntry
     }
 
-    /// A window showing one terminal that has the focus; `body` runs with it.
-    private static func withTerminal(_ body: (Harness) async throws -> Void) async throws {
+    /// A window showing one terminal (in its first pane, of `panes`) that has the focus; `body` runs with it.
+    private static func withTerminal(panes: Int = 1, _ body: (Harness) async throws -> Void) async throws {
         _ = NSApplication.shared
         GhosttyRuntime.startedForTests()
         let services = AppServices(environment: AppEnvironment.current([:]))
@@ -50,7 +54,7 @@ struct EarlyTerminalKeysTests {
         let identity = try JSONDecoder().decode(DaemonIdentity.self, from: Data(#"{"app":"cmux-tui","protocol":1,"session":"s-local","generation":"g1"}"#.utf8))
         store.noteHandshake(identity)
         store.connectionState = .connected(identity)
-        store.apply(snapshot: Self.tree())
+        store.apply(snapshot: Self.tree(panes: panes))
         let controller = try #require(services.windows.openWindow(workspaces: ["early-ws"], frame: CGRect(x: 200, y: 200, width: 900, height: 600)))
         defer {
             controller.teardown()
@@ -405,6 +409,43 @@ struct EarlyTerminalKeysTests {
             #expect(!next, "the key after the terminal took the keyboard back waited: \(Self.held(h))")
             #expect(coordinator.replayedCount == before + 2, "the held keys did not run into the new terminal")
             #expect(!coordinator.isHolding(in: window))
+        }
+    }
+
+    /// The focus model moves to another target while keys wait (the person focuses the other pane): the held keys go to
+    /// the target the model names now, that pane's terminal, once its view has the keyboard, in order; never into the
+    /// new terminal they were typed after, and never by a timer (principled-audit R5).
+    @Test func heldKeysGoToTheTargetTheModelMovedTo() async throws {
+        try await Self.withTerminal(panes: 2) { h in
+            let (controller, window, tab) = (h.controller, h.window, h.tab)
+            let router = h.services.keyRouter
+            let coordinator = router.creationInputCoordinator
+            let otherKey = try #require(controller.focus.state.topology.panes.map(\.id).first { $0 != h.paneKey }, "the harness has no second pane")
+            try await PasswordManagerRouteTests.until({ controller.workspaceContent?.paneController(key: otherKey)?.currentContent != nil },
+                                                      within: .seconds(10), report: { "the second pane never showed its terminal" })
+            let otherPane = try #require(controller.workspaceContent?.paneController(key: otherKey))
+            guard case .terminal(let otherEntry)? = otherPane.currentContent, let otherTab = otherPane.currentTabKey else {
+                Issue.record("the second pane shows no terminal")
+                return
+            }
+            let mount = try Self.unmount(h)
+            defer { mount() }
+            _ = try #require(coordinator.begin(in: window, generation: controller.focus.state.generation, earlyTab: tab, tab: tab))
+            for (letter, code) in [("a", UInt16(0)), ("b", UInt16(11))] {
+                #expect(router.interceptKeyDown(try Self.key(letter, keyCode: code, in: window), in: window),
+                        "a key was not held while the new terminal could not take it: \(Self.held(h))")
+            }
+            let before = coordinator.replayedCount
+
+            // The person focuses the other pane: the model's target is its terminal now, and its view takes the keyboard.
+            controller.focus.send(.focusPane(otherKey, source: .keyboard))
+            try await PasswordManagerRouteTests.until({ controller.focus.state.resolved == .terminal(pane: otherKey, tab: otherTab) },
+                                                      within: .seconds(5), report: { "focus never named the other pane: \(Self.held(h))" })
+            window.makeFirstResponder(otherEntry.session.surfaceView)
+            let next = router.interceptKeyDown(try Self.key("c", keyCode: 8, in: window), in: window)
+            #expect(coordinator.replayedCount == before + 2, "the held keys did not go to the target the model moved to: \(Self.held(h))")
+            #expect(!next, "the key after the move waited: \(Self.held(h))")
+            #expect(coordinator.heldCount(in: window) == 0, "keys still wait after the model's target took the keyboard: \(Self.held(h))")
         }
     }
 }
