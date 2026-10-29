@@ -39,6 +39,12 @@ public final class DockBadge {
 
     /// The activation policy of `app` each time it changes (`NSRunningApplication` is KVO-observable,
     /// its only change signal), until the stream's consumer stops.
+    ///
+    /// KVO keeps no reference to the object it observes, and `NSRunningApplication.current` hands out
+    /// an instance nothing else may hold: the stream holds `app` until it ends, invalidates the
+    /// observation, and only then lets `app` go. An app freed while still observed made the
+    /// observation's teardown crash on it (signal 11 in -[NSRunningApplication
+    /// removeObserver:forKeyPath:], cmux#26809).
     public static func activationPolicies(of app: NSRunningApplication = .current) -> AsyncStream<NSApplication.ActivationPolicy> {
         // Only the newest policy matters: a burst of flips settles on the last.
         AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
@@ -46,7 +52,12 @@ public final class DockBadge {
             nonisolated(unsafe) let token = app.observe(\.activationPolicy, options: [.new]) { app, _ in
                 continuation.yield(app.activationPolicy)
             }
-            continuation.onTermination = { _ in token.invalidate() }
+            // crash-allow: read by no one; held only so the observed app outlives its observation, released once after it.
+            nonisolated(unsafe) let observed = app
+            continuation.onTermination = { _ in
+                token.invalidate()
+                withExtendedLifetime(observed) {}
+            }
         }
     }
 }
