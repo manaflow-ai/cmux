@@ -1119,8 +1119,14 @@ final class LongTextStore: Sendable {
         for _ in 0..<8 { // a retry only follows another thread's register of this print; never 8 in a row
             let seen = state.withLock { $0.byPrint[print] }
             if let seen, unsafe LongTextStore.sameBytes(seen, p) {
-                state.withLock { s in if s.byPrint[print] === seen { s.byAddr[addr] = seen } }
-                return seen
+                // Taken only while still registered (a large text's scan may have replaced it meanwhile).
+                let kept = state.withLock { s -> Bool in
+                    guard s.byPrint[print] === seen else { return false }
+                    s.byAddr[addr] = seen
+                    return true
+                }
+                if kept { return seen }
+                continue
             }
             let dropped = state.withLock { s -> [LongTextLayout]? in
                 guard s.byPrint[print] === seen else { return nil }

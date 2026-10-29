@@ -798,8 +798,7 @@
 +                    // prev.count - from bytes after from inside both.
 +                    guard let qb = unsafe q.baseAddress, let pb = unsafe p.baseAddress, unsafe from <= q.count else { return false }
 +                    return unsafe memcmp(qb + from, pb + from, prev.count - from) == 0
-                 }
--                if same {
++                }
 +                // cmux: else the last block whose start the texts share byte for byte (at least one block kept).
 +                var keepAt: Int? = appended ? last : nil
 +                if keepAt == nil {
@@ -815,7 +814,8 @@
 +                        if shared { keepAt = k }
 +                        k -= 1
 +                    }
-+                }
+                 }
+-                if same {
 +                if let keep = keepAt {
                      let i = LongTextIndex.build(t, lineage: prev.lineage, prefix: prev, keep: keep)
 -                    LongTextStats.streamExtends += 1
@@ -864,7 +864,7 @@
                  LongTextCenter.scheduleReplace(lineage: lineage) {
                      self.register(i, addr: addr, print: pr, head: hd, replacing: ph)
                  }
-@@ -943,37 +1104,75 @@
+@@ -943,37 +1104,81 @@
      }
  
      private func layoutsOf(_ i: LongTextIndex) -> [LongTextLayout] {
@@ -885,8 +885,14 @@
 +        for _ in 0..<8 { // a retry only follows another thread's register of this print; never 8 in a row
 +            let seen = state.withLock { $0.byPrint[print] }
 +            if let seen, unsafe LongTextStore.sameBytes(seen, p) {
-+                state.withLock { s in if s.byPrint[print] === seen { s.byAddr[addr] = seen } }
-+                return seen
++                // Taken only while still registered (a large text's scan may have replaced it meanwhile).
++                let kept = state.withLock { s -> Bool in
++                    guard s.byPrint[print] === seen else { return false }
++                    s.byAddr[addr] = seen
++                    return true
++                }
++                if kept { return seen }
++                continue
 +            }
 +            let dropped = state.withLock { s -> [LongTextLayout]? in
 +                guard s.byPrint[print] === seen else { return nil }
@@ -960,7 +966,7 @@
  }
  
  /// Collapsed long messages (shared/LONG-MESSAGES.md, product rule): a message taller than
-@@ -982,6 +1181,11 @@
+@@ -982,6 +1187,11 @@
  /// fixed (80 lines and the band), so measurement never changes it.
  enum LongTextFold {
      static let headLines = 40, tailLines = 40
@@ -972,7 +978,7 @@
      /// 3 screens (the 1041 pt window).
      static var maxLines: Int { CrashGuard.int(3 * 1041 / Fixture.lineHeight, in: CrashGuard.countRange) }
      static var bandHeight: CGFloat { 2 * Fixture.lineHeight }
-@@ -992,15 +1196,16 @@
+@@ -992,15 +1202,16 @@
          if disabledByArgument { return false }
          return UserDefaults.standard.object(forKey: defaultsKey) as? Bool ?? true
      }
