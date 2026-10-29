@@ -46,6 +46,12 @@ final class HomeDirectory {
         self.me = me
     }
 
+    /// Reads the team and the Chiefs for the signed-in session `session` names (nil: signed out).
+    func follow(session: @escaping @MainActor @Sendable () -> String?) {
+        // task-owner: one read when Home starts
+        Task { await refresh() }
+    }
+
     /// Reads the team members and the Chiefs again; a read that fails keeps
     /// the last list (signed out, offline).
     func refresh() async {
