@@ -1073,6 +1073,26 @@ mod tests {
         assert_eq!(activity.idle_since(), None);
     }
 
+    /// Review of cp/fix-tip-continuation-prompt-idle-2, finding 1: several
+    /// Returns typed while one command runs are several lines typed ahead.
+    /// Counted as one, the prompt after the first of them reads idle while
+    /// the next waits unread.
+    #[test]
+    fn shell_idle_each_line_typed_while_a_command_runs_is_owed() {
+        let mut activity = idle_at(1_000);
+        activity.note_input(b"make\r");
+        activity.observe(ShellMark::CommandStart, 1_100);
+        activity.note_input(b"true\rsleep 600\r");
+        activity.observe(ShellMark::CommandEnd { exit_code: None }, 1_200);
+        activity.observe(ShellMark::PromptStart, 1_300);
+        assert_eq!(activity.idle_since(), None, "two lines wait");
+        activity.observe(ShellMark::CommandStart, 1_400);
+        activity.observe(ShellMark::CommandEnd { exit_code: None }, 1_500);
+        activity.observe(ShellMark::PromptStart, 1_600);
+        assert_eq!(activity.foreground_check_due(), None, "`sleep 600` still waits");
+        assert_eq!(activity.idle_since(), None);
+    }
+
     /// Review 2, finding 6: a reconnect without host state checks again.
     #[test]
     fn shell_idle_a_forgotten_check_is_not_idle_until_checked_again() {
