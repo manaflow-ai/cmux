@@ -577,6 +577,19 @@ async fn a_send_to_a_name_no_peer_has_goes_through_the_hub_and_is_delivered_with
     // A name the hub does not know is no session, as before.
     let unknown = sender.call("_acpmux/send_queue", send_queue("nobody", "prompt-0002")).await;
     assert_eq!(unknown.pointer("/error/data/reason"), Some(&json!("no_session")), "{unknown}");
+
+    // `HOST/NAME` for a host with no peer link here (a VM only another host reaches) goes to
+    // the hub with that host, which routes it by its address book.
+    let far =
+        sender.call("_acpmux/send_queue", send_queue("fs-peer-1/dep-land", "prompt-0003")).await;
+    assert!(
+        far.pointer("/result/deliveryId")
+            .and_then(Value::as_str)
+            .is_some_and(|d| d.starts_with("mesh:")),
+        "{far}"
+    );
+    let to = fake.with(|s| s.sent.last().unwrap().to.clone());
+    assert_eq!((to.host.as_deref(), to.name.as_deref()), (Some("fs-peer-1"), Some("dep-land")));
     relay.stop().await;
 }
 
