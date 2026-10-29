@@ -143,10 +143,16 @@ pub async fn status(hub: Option<String>, json_out: bool) -> Result<()> {
     let record = load()?.unwrap_or(MachineCredential { credential: String::new(), machine_id: String::new(), team_id: String::new(), name: local_name(None), hub_origin: fallback_hub, last_heartbeat: None, revoked: false, mesh_identity: String::new() });
     let mut out = json!({"credentialPresent": !record.credential.is_empty(), "machineId": record.machine_id, "teamId": record.team_id, "hubOrigin": record.hub_origin, "hubReachable": false, "lastHeartbeat": record.last_heartbeat, "revoked": record.revoked, "consent": load_consent(), "credentialStore":"file", "credentialPath":credential_path(), "credentialMode":"0600", "daemonRunning":false, "meshRelayConfigured":state_dir().join("mesh-relay.json").exists(), "build": crate::hub::BUILD, "channel":"feat-cmux-next"});
     if !record.credential.is_empty() {
-        if let Ok(res) = http_client()?.get(format!("{}/v1/mesh/sessions", record.hub_origin.trim_end_matches('/'))).bearer_auth(&record.credential).send().await {
+        if let Ok(res) = http_client()?.post(format!("{}/v1/mesh/heartbeat", record.hub_origin.trim_end_matches('/')))
+            .bearer_auth(&record.credential)
+            .json(&json!({"host": record.name, "sessions": []}))
+            .send().await {
             out["hubReachable"] = json!(res.status().is_success() || res.status().as_u16() == 401);
             if res.status().as_u16() == 401 {
                 out["revoked"] = json!(true);
+            } else if res.status().is_success() {
+                let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs();
+                out["lastHeartbeat"] = json!(now.to_string());
             }
         }
     }
