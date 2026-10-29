@@ -187,7 +187,8 @@ import Testing
                     connect(descriptor, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
                 }
             }
-            try #require(connected == 0, "connect \(path): errno \(errno)")
+            let connectErrno = errno
+            try #require(connected == 0, "connect \(path): errno \(connectErrno)")
         }
 
         deinit { close(descriptor) }

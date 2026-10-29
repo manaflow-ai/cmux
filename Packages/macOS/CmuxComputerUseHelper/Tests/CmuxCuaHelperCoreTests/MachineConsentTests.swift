@@ -335,7 +335,7 @@ import Testing
         for identifier in ["com.cmuxterm.app", "com.cmuxterm.app.nightly", "com.cmuxterm.app.nightly.cmux-next",
                            "com.cmuxterm.app.rc", "com.cmuxterm.app.debug", "com.cmuxterm.app.staging",
                            "com.cmuxterm.app.debug.next", "com.cmuxterm.app.debug.my.tag2", "com.cmuxterm.app.staging.x1"] {
-            #expect(CmuxAppIdentity.isMainApp(identifier), "\(identifier)")
+            #expect(CmuxAppCodeCheck.isMainApp(identifier), "\(identifier)")
         }
         let helpers = ["com.cmuxterm.cua", "com.cmuxterm.cua.dev", "com.cmuxterm.app.computer-use",
                        "com.cmuxterm.app.debug.cua", "com.cmuxterm.app.debug.computer-use",
@@ -345,15 +345,15 @@ import Testing
                           "com.cmuxterm.app.nightly.other", "com.cmuxterm.app.rc.x", "com.cmuxterm.app.next",
                           "com.cmuxterm.app.debugx", "xcom.cmuxterm.app", "com.cmuxterm.app ", "", "acpmux"]
         for identifier in helpers + nearMisses {
-            #expect(!CmuxAppIdentity.isMainApp(identifier), "\(identifier)")
+            #expect(!CmuxAppCodeCheck.isMainApp(identifier), "\(identifier)")
         }
-        #expect(CmuxAppIdentity.requirement == #"anchor apple generic and certificate leaf[subject.OU] = "7WLXT3NR37""#)
+        #expect(CmuxAppCodeCheck.requirement == #"anchor apple generic and certificate leaf[subject.OU] = "7WLXT3NR37""#)
     }
 
     @Test(.timeLimit(.minutes(1))) func theAdmissionReplyAdvertisesTheConsentGate() throws {
         let client = try Client(tools: UnavailableTools(reason: "test"), consent: UnavailableConsent())
-        #expect(client.admitted["capabilities"] as? [String] == [MachineConsent.gateCapability])
-        #expect(MachineConsent.gateCapability == "machine-consent-gate-v1")
+        #expect(client.admitted["capabilities"] as? [String] == [ConsentGate.capability])
+        #expect(ConsentGate.capability == "machine-consent-gate-v1")
     }
 
     // MARK: readOnlyHint parity with acpmux's bridge

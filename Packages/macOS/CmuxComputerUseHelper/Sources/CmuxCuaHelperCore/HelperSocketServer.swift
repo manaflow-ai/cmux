@@ -171,7 +171,7 @@ public final class HelperSocketServer: Sendable {
 
     /// The reply to a peer that presented the secret.
     static let admittedReply = HelperWire.line(["ok": true, "protocol": HelperWire.protocolVersion,
-                                                "capabilities": [MachineConsent.gateCapability]])
+                                                "capabilities": [ConsentGate.capability]])
 
     /// The connected peer's effective uid, from the kernel.
     static func peerUID(_ descriptor: Int32) -> uid_t? {

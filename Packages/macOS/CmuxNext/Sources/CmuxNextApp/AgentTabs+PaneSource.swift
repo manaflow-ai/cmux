@@ -56,12 +56,12 @@ import Foundation
         // Machine consent for the helper comes from this app's own daemon socket only.
         computerUse.upstream.machineConsent = {
             guard let own = resolve() else { return nil }
-            return await AcpmuxMachineConsent.current(socketPath: own.socketPath, executable: own.executable)
+            return await AcpmuxMachineConsent(socketPath: own.socketPath, executable: own.executable).current()
         }
         computerUse.upstream.consentRefused = { surface in
             guard let own = resolve() else { return }
-            await AcpmuxMachineConsent.recordRefusal(socketPath: own.socketPath, executable: own.executable,
-                                                     surface: surface)
+            await AcpmuxMachineConsent(socketPath: own.socketPath, executable: own.executable)
+                .recordRefusal(surface: surface)
         }
         let upstream = computerUse.upstream
         let host = AcpmuxHost(resolve: resolve,

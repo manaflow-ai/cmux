@@ -18,7 +18,7 @@ public protocol HostCodeChecking: Sendable {
 
 /// The cmux main apps a consent answer may come from. Helper bundles are
 /// never on it. The same list is used by legacy serve and the app.
-public enum CmuxAppIdentity {
+extension CmuxAppCodeCheck {
     public static let teamIdentifier = "7WLXT3NR37"
     public static let requirement = #"anchor apple generic and certificate leaf[subject.OU] = "7WLXT3NR37""#
 
@@ -75,18 +75,18 @@ public struct CmuxAppCodeCheck: HostCodeChecking {
         guard Self.satisfies(guest, "anchor apple generic") else {
             return .unverified("not Apple-signed (ad hoc or unsigned)")
         }
-        guard Self.satisfies(guest, CmuxAppIdentity.requirement) else { return .unverified("not signed by cmux's team") }
+        guard Self.satisfies(guest, Self.requirement) else { return .unverified("not signed by cmux's team") }
         var info: CFDictionary?
         guard SecCodeCopySigningInformation(unsafeBitCast(guest, to: SecStaticCode.self),
                                             SecCSFlags(rawValue: kSecCSSigningInformation), &info) == errSecSuccess,
               let identifier = (info as? [String: Any])?[kSecCodeInfoIdentifier as String] as? String else {
             return .unverified("cannot read the peer's signing identifier")
         }
-        guard CmuxAppIdentity.isMainApp(identifier) else {
+        guard Self.isMainApp(identifier) else {
             return .unverified("signing identifier \(identifier) is not a cmux app")
         }
         // isMainApp admits only [a-z0-9.-]; the identifier is safe to quote.
-        guard Self.satisfies(guest, "identifier \"\(identifier)\" and \(CmuxAppIdentity.requirement)") else {
+        guard Self.satisfies(guest, "identifier \"\(identifier)\" and \(Self.requirement)") else {
             return .unverified("signing identifier \(identifier) does not match the running code")
         }
         return .verified

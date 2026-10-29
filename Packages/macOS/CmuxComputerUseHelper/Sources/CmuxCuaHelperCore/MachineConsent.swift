@@ -12,11 +12,6 @@ import os
 /// helper's environment, endpoint.json or a socket request names can
 /// redirect the question. Every answer is fetched fresh, and any failure
 /// is "joined, nothing granted".
-public enum MachineConsent {
-    /// Advertised in the socket's admission reply: every tool call passes
-    /// the machine-consent gate at execution.
-    public static let gateCapability = "machine-consent-gate-v1"
-}
 
 public enum ConsentSurface: String, Sendable, CaseIterable {
     case screen
@@ -258,6 +253,10 @@ public struct ConsentRefusal: Error, Sendable, Equatable, CustomStringConvertibl
 /// authority for the state as of now, and on a refusal records it and
 /// throws, so nothing runs.
 public final class ConsentGate: Sendable {
+    /// Advertised in the socket's admission reply: every tool call passes
+    /// the machine-consent gate at execution.
+    public static let capability = "machine-consent-gate-v1"
+
     public let authority: any MachineConsentAuthority
     /// Names of tools whose `tools/list` entry is read-only (observe); every
     /// other name, including tools the inventory does not list, acts.
