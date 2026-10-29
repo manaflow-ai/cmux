@@ -358,9 +358,7 @@ test.each([
   const sent = shown[0]!;
   expect(sent.search?.value).toBe("free text");
   expect(sent.search?.submitOnReturn).toBe(true);
-  expect(sent.search?.autoHighlight).toBe(
-    scenario.policy === "always" ? "always" : scenario.policy ? "first" : "none",
-  );
+  expect(sent.search?.autoHighlight).toBe(scenario.policy === "always" ? "always" : scenario.policy ? "first" : "none");
   expect(container.querySelector('[role="option"]')).toBeNull();
   await act(async () => {
     for (const listener of listeners)
@@ -405,7 +403,14 @@ test.each(["none", "keyboard"] as const)(
     const sent = shown[0]!;
     await act(async () => {
       for (const listener of listeners)
-        listener({ type: "submit", popupId: sent.id, revision: sent.revision, id: sent.rows[0]!.id, value: "unmatched query", reason });
+        listener({
+          type: "submit",
+          popupId: sent.id,
+          revision: sent.revision,
+          id: sent.rows[0]!.id,
+          value: "unmatched query",
+          reason,
+        });
     });
     expect(submitted).toEqual([reason === "none" ? "unmatched query" : "create"]);
     expect(listeners.size).toBe(0);
@@ -421,13 +426,21 @@ test.each(["actions", "rail", "footer"] as const)(
     const options = [{ value: "dark", label: "Dark" }];
     const model = selectDescription({ options, value: "system" });
     const auxiliary = { id: "dark", label: "Details", keepOpen: true };
-    if (location === "actions") model.rows.push({ id: "details", kind: "text", label: "Details", actions: [auxiliary] });
+    if (location === "actions")
+      model.rows.push({ id: "details", kind: "text", label: "Details", actions: [auxiliary] });
     else model[location] = [{ ...auxiliary, kind: "action" }];
     await act(async () => {
       root = createRoot(container);
       root.render(
         <UiProvider container={container} popupHost={host}>
-          <Select label="Theme" value="system" options={options} onChange={(value) => changed.push(value)} closeOnPick={false} native={{ model }} />
+          <Select
+            label="Theme"
+            value="system"
+            options={options}
+            onChange={(value) => changed.push(value)}
+            closeOnPick={false}
+            native={{ model }}
+          />
         </UiProvider>,
       );
     });
@@ -1127,7 +1140,12 @@ test.each(["children", "rail", "footer", "actions"] as const)(
     expect(sentAction.keepOpen).toBe(true);
     await act(async () => {
       for (const listener of listeners)
-        listener({ type: "pick", popupId: sent.id, revision: sent.revision, id: location === "actions" ? "details" : "dark" });
+        listener({
+          type: "pick",
+          popupId: sent.id,
+          revision: sent.revision,
+          id: location === "actions" ? "details" : "dark",
+        });
     });
     expect(changed).toEqual(location === "actions" ? [] : ["dark"]);
     expect(button.getAttribute("aria-expanded")).toBe("true");

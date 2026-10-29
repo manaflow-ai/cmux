@@ -104,7 +104,22 @@ export function Combobox({
   const host = usePopupHost();
   const [field, setField] = useState<HTMLInputElement | null>(null);
   const [popup, setPopup] = useState<HTMLElement | null>(null);
+  const [value, setValue] = useState(defaultValue);
   const [nativeSessionOpen, setNativeSessionOpen] = useState(true);
+  const nativeModel = native && {
+    ...native.model,
+    ...(native.model.search
+      ? {
+          search: {
+            ...native.model.search,
+            value,
+            submitOnReturn: true,
+            autoHighlight:
+              autoHighlight === "always" ? ("always" as const) : autoHighlight ? ("first" as const) : ("none" as const),
+          },
+        }
+      : {}),
+  };
   const cancel = () => {
     if (native) setNativeSessionOpen(false);
     onCancel();
@@ -115,16 +130,22 @@ export function Combobox({
       nativeSessionOpen &&
       (inline || suggestions.length > 0) &&
       (native.anchor !== undefined || field !== null),
-    model: native?.model ?? { side: "bottom", align: "start", width: 0, rows: [] },
+    model: nativeModel ?? { side: "bottom", align: "start", width: 0, rows: [] },
     anchor: native?.anchor ?? (() => field),
     onEvent: (event) => {
       native?.onEvent?.(event);
-      const action = native && popupAction(native.model, event.id);
+      const action = nativeModel && popupAction(nativeModel, event.id);
       // Suggestions carry an explicit domain value. Auxiliary action IDs are protocol
       // identities and may spell the same word without selecting that suggestion.
       const suggestion = action?.value;
       if (event.type === "pick" && action && !action.keepOpen) setNativeSessionOpen(false);
-      const query = native?.model.search;
+      const query = nativeModel?.search;
+      if (event.type === "submit") {
+        if (!query?.submitOnReturn || query.disabled || event.value === undefined) return;
+        if (event.id !== undefined && (suggestion === undefined || !enabledSuggestions.includes(suggestion))) return;
+        submit(resolveSubmission(event.value, suggestion, event.reason === "keyboard" || event.reason === "pointer"));
+        return;
+      }
       if (
         (event.type === "search" || event.type === "change") &&
         query &&
@@ -136,8 +157,19 @@ export function Combobox({
       else if (suggestion !== undefined && suggestions.includes(suggestion) && !isItemDisabled?.(suggestion)) {
         if (event.type === "pick") {
           onSubmit(suggestion);
-        } else if (event.type === "highlight") onHighlight?.(suggestion, "pointer");
-      } else if (event.type === "highlight" && event.id === undefined) onHighlight?.(undefined, "pointer");
+        } else if (event.type === "highlight") {
+          highlightedRef.current = suggestion;
+          deliberatelyHighlighted.current = event.reason !== "none";
+          onHighlight?.(
+            suggestion,
+            event.reason === "keyboard" ? "keyboard" : event.reason === "none" ? "none" : "pointer",
+          );
+        }
+      } else if (event.type === "highlight" && event.id === undefined) {
+        highlightedRef.current = undefined;
+        deliberatelyHighlighted.current = false;
+        onHighlight?.(undefined, "none");
+      }
     },
     onDismiss: () => {
       native?.onDismiss?.();
@@ -161,7 +193,6 @@ export function Combobox({
     pick: "click",
     shell: "parent",
   });
-  const [value, setValue] = useState(defaultValue);
   // Only Return and Tab read the highlighted row, so it is a ref, not state: a highlight change
   // (every row the pointer crosses) must not re-render the whole list. Base UI marks the row
   // itself (data-highlighted).
@@ -234,6 +265,24 @@ export function Combobox({
     if (native && !popupActionByValue(native.model, next)?.keepOpen) setNativeSessionOpen(false);
     onSubmit(next);
   };
+  const resolveSubmission = (typed: string, highlighted: string | undefined, deliberate: boolean) => {
+    const completed = completionRef.current;
+    const completedKey =
+      completed?.text === typed && completed.key && enabledSuggestions.includes(completed.key)
+        ? completed.key
+        : undefined;
+    const matchingCurrent =
+      completed?.text === typed ? enabledSuggestions.find((item) => completionText?.(item) === typed) : undefined;
+    // An unmatched query must not submit an automatically highlighted pinned action.
+    const active = highlighted && enabledSuggestions.includes(highlighted) ? highlighted : undefined;
+    const selected =
+      typed.trim() && hasPinned && active && pinnedSuggestions?.includes(active) && !deliberate ? undefined : active;
+    const firstMatch =
+      !active && typed.trim() && hasPinned
+        ? enabledSuggestions.find((item) => !pinnedSuggestions?.includes(item))
+        : undefined;
+    return selected ?? completedKey ?? matchingCurrent ?? firstMatch ?? typed;
+  };
   const onKeyDown = (event: BaseUIKeyEvent) => {
     onCommand?.(event);
     if (event.defaultPrevented) return;
@@ -249,27 +298,7 @@ export function Combobox({
     if (event.key === "Enter") {
       event.preventDefault();
       event.preventBaseUIHandler?.();
-      const highlighted = highlightedRef.current;
-      const completed = completionRef.current;
-      const completedKey =
-        completed?.text === typed && completed.key && enabledSuggestions.includes(completed.key)
-          ? completed.key
-          : undefined;
-      const matchingCurrent =
-        completed?.text === typed ? enabledSuggestions.find((item) => completionText?.(item) === typed) : undefined;
-      // An unmatched query must not submit an automatically highlighted action.
-      // Explicit arrow or pointer highlight still makes that pinned action selectable.
-      const active = highlighted && enabledSuggestions.includes(highlighted) ? highlighted : undefined;
-      const selected =
-        typed.trim() && hasPinned && active && pinnedSuggestions?.includes(active) && !deliberatelyHighlighted.current
-          ? undefined
-          : active;
-      const firstMatch =
-        !active && typed.trim() && hasPinned
-          ? enabledSuggestions.find((item) => !pinnedSuggestions?.includes(item))
-          : undefined;
-      const next = selected ?? completedKey ?? matchingCurrent ?? firstMatch ?? typed;
-      submit(next);
+      submit(resolveSubmission(typed, highlightedRef.current, deliberatelyHighlighted.current));
     } else if (event.key === "Escape") {
       event.preventDefault();
       event.stopPropagation();

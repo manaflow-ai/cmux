@@ -70,11 +70,9 @@ export function Select({
                 },
                 onEvent: (event: NativePopupEvent) => {
                   const action = event.type === "pick" ? popupAction(native.model, event.id) : undefined;
-                  const picked = action
-                    ? (action.value ?? event.value ?? event.id)
-                    : event.type === "change"
-                      ? (event.value ?? event.id)
-                      : undefined;
+                  // Only option rows carry a domain value. Auxiliary identities and
+                  // unrelated control changes cannot select an option with the same text.
+                  const picked = action?.value;
                   if (picked !== undefined && options.some((option) => option.value === picked && !option.disabled))
                     onChange(picked);
                 },
