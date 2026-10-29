@@ -22,6 +22,8 @@ public final class NativePopupHost {
     public var keepsOpen: (NSEvent) -> Bool = { _ in false }
     /// The popup closed by a dismiss rule; ``hide()`` does not call it.
     public var onDismiss: (() -> Void)?
+    /// A nested popup temporarily owns the keys; ancestor panels remain open.
+    var keepsOpenOnKeyLoss: () -> Bool = { false }
     /// The control the popup opened from (screen), which it grows from and shrinks toward.
     public private(set) var anchor: CGRect = .zero
     /// Fading out after a hide: gone for the owner and for tests.
@@ -36,6 +38,7 @@ public final class NativePopupHost {
         if let keyed = panel as? NativePopupPanel {
             keyed.onLostKeys = { [weak self, weak keyed] elsewhere in
                 guard let self, let keyed else { return }
+                if keepsOpenOnKeyLoss() { return }
                 // A press on the control that toggles the popup makes its window key first; the
                 // control closes the popup itself, so that key loss is not a dismiss.
                 let press = NSApp.currentEvent.flatMap { [.leftMouseDown, .rightMouseDown, .otherMouseDown].contains($0.type) ? $0 : nil }

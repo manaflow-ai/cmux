@@ -38,6 +38,9 @@ final class DeclarativePopupHost {
         surface.samplesBehindWindow = true
         panel.adoptPopupStyle(card: surface)
         popup.onDismiss = { [weak self] in self?.dismiss(reason: "outside") }
+        // A child assigns its model before taking the keys. Preserve the ancestor through
+        // that synchronous key transfer, while outside-click and deactivation rules stay live.
+        popup.keepsOpenOnKeyLoss = { [weak self] in self?.child?.activeID != nil }
         popup.keepsOpen = { [weak self] event in self?.root.contains(event.window) == true }
         // NativePopupHost installs key-loss handling and the click/escape monitors. Keep that
         // callback intact: replacing it here would skip the host's focus restoration path.
