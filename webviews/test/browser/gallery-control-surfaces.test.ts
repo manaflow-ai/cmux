@@ -17,6 +17,11 @@ await requireBrowserLane("gallery-control-surfaces.test.ts", async () => {
   // Exact selectors only: a menu surface may paint, but that never exempts its action descendants.
   const ALLOW: { selector: string; kind: "plate" | "hover"; control?: string; reason: string }[] = [
     { selector: ".pw-row", kind: "hover", control: ".pw-row-button", reason: "fixed by #27086" },
+    {
+      selector: '.diff-pill[role="toolbar"]',
+      kind: "plate",
+      reason: "The standalone floating diff toolbar is its own glass surface, not trailing tools on a row.",
+    },
   ];
   type Finding = { kind: string; selector: string; detail: string };
 
@@ -189,7 +194,17 @@ await requireBrowserLane("gallery-control-surfaces.test.ts", async () => {
     browser = await chromium.launch();
     // Discover every entry's dependencies before parallel audits: Vite otherwise reloads
     // unrelated pages when a later entry adds an optimized dependency.
-    await warmGalleryFrame(vite, [...new Set(selected.map(({ id }) => id))], { browser, timeoutMs: 300_000 });
+    const ids = [...new Set(selected.map(({ id }) => id))];
+    await Promise.all(
+      Array.from({ length: 4 }, (_, worker) =>
+        warmGalleryFrame(
+          vite,
+          ids.filter((_, index) => index % 4 === worker),
+          { browser, timeoutMs: 300_000 },
+        ),
+      ),
+    );
+    console.log(`Warmed ${ids.length} gallery entries; auditing controls.`);
   }, 320_000);
   afterAll(async () => {
     await browser?.close();
