@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextBridge
+import CmuxNextBrowser
 import CmuxNextBrowserImport
 import CmuxNextControl
 import CmuxNextDaemon
@@ -409,6 +410,18 @@ final class AppControl {
             .async("debug.cef.devtools") { [weak services] call in
                 await DebugExtensions.devTools(call.params, services)
             }.withDeadline(.fixed(.seconds(6))),
+            .async("debug.browser_retirement") { [weak services] _ in
+                guard let services else { return .null }
+                do {
+                    let result = try await BrowserRetirementProbe(engine: services.cache.cef).run { page in
+                        let entry = BrowserEntry(tab: page)
+                        return (entry, entry.chrome)
+                    }
+                    return .object(result.mapValues(JSONValue.bool))
+                } catch {
+                    return .object(["error": .string(String(describing: error))])
+                }
+            }.withDeadline(.fixed(.seconds(30))),
             // React agent pane: synthetic transcript, fling and frame/typing
             // timing through the page's cmuxAcpmuxDebug, WebContent pid.
             .async("debug.agent_pane") { [weak services] call in
