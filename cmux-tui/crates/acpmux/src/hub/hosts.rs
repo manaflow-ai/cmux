@@ -1594,7 +1594,9 @@ impl Hub {
         // Host launches receive a complete environment snapshot. It must be
         // current when that snapshot is made, including on credential revocation.
         if !crate::login_env::machine_env_fresh_before_spawn().await {
-            return Err(RpcError::internal("machine environment changed; login env refresh failed"));
+            return Err(RpcError::internal(
+                "machine environment changed; login env refresh failed",
+            ));
         }
         let cmd = crate::agent::harness_command(
             &meta.harness,
