@@ -18,6 +18,9 @@ import { TurnActionsContext } from "./turnActions";
 /// Copy stays after them, so a waiting steer can be copied as any message can (Leo, 2026-10-29:
 /// "i feel like im frequently missing the copy/whatever buttons on these steers").
 /// A refusal keeps the controls available. Accepted delivery removes them in the same render.
+/// An X acpmux refuses (the agent took the steer already, or its harness cannot drop one) never
+/// sits there doing nothing: it gives way to "Read after this step", so the row says why the
+/// message stays (Leo, 2026-10-29: "this fucking edit message thing. It doesn't even fucking work").
 export function PendingSteer({
   row,
   send,
@@ -32,11 +35,13 @@ export function PendingSteer({
   const [sending, setSending] = useState(false);
   const waiting = row.steer === "waiting";
   const [sentNow, setSentNow] = useState(false);
+  const [kept, setKept] = useState(false);
   const promptId = row.steerPromptId;
   // The transcript virtualizes rows: a remount must not offer an accepted send again.
   if (!waiting || sentNow || (promptId && sentNowIds.has(promptId))) return children ?? null;
   if (!promptId) return null;
   const busy = sending;
+  const stays = kept || keptIds.has(promptId);
   return (
     <div className="cv-user__pending">
       <MessageFooterRow>
@@ -62,7 +67,7 @@ export function PendingSteer({
             {t("steer.sendNow")}
           </button>
         )}
-        {promptId && unsteer && (
+        {promptId && unsteer && !stays && (
           <button
             type="button"
             className="cv-user__take-back cv-iconbtn cv-iconbtn--compact"
@@ -73,12 +78,18 @@ export function PendingSteer({
               setSending(true);
               void unsteer(row)
                 .catch(() => false)
+                .then((back) => {
+                  if (back) return;
+                  keptIds.add(promptId);
+                  setKept(true);
+                })
                 .finally(() => setSending(false));
             }}
           >
             <Close size={ROW_ICON} />
           </button>
         )}
+        {stays && <span className="cv-user__kept">{t("message.readAfterStep")}</span>}
         {row.text?.trim() && <MessageCopy text={row.text} />}
       </MessageFooterRow>
     </div>
@@ -88,6 +99,8 @@ export function PendingSteer({
 /// The steers whose Send now worked, by promptId, so a row drawn again while acpmux still says the
 /// steer waits (scrolled away and back) shows no controls. One id per click, for the page's life.
 const sentNowIds = new Set<string>();
+/// The steers whose X acpmux refused, by promptId: drawn again, they say they stay instead.
+const keptIds = new Set<string>();
 
 /// Whether the chat's X takes a waiting steer back (`_acpmux/steer_withdraw`): only acpmux's Claude
 /// Code adapter does. acpmux's `backgroundsWork` marks a chat that runs it, whatever its family is
