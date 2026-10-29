@@ -503,6 +503,9 @@
   color: var(--agent-text);
   font-family: var(--cv-font);
 }
+.acpmux-shell {
+  --acpmux-artifact-push: 0px;
+}
 /* A shell sibling must leave the offered native tab row clear, including when the narrow
    preview covers the chat. Its background belongs below the row, never in its tools hole. */
 .acpmux-shell[data-tab-row] > .acpmux-artifact {
@@ -511,8 +514,8 @@
 }
 /* The header lives in the chat column while Preview is a shell sibling. Keep its tools at the
    pane edge, across the Preview column, just as the inline Summary does. */
-.acpmux-shell[data-tab-row]:has(> .acpmux-artifact) .acpmux-header[data-tab-row] {
-  width: calc(100% + var(--acpmux-artifact-width, clamp(320px, 46vw, 760px)));
+.acpmux-shell[data-tab-row]:has(> .acpmux-artifact) {
+  --acpmux-artifact-push: var(--acpmux-artifact-width, clamp(320px, 46vw, 760px));
 }
 @media (max-width: 720px) {
   .acpmux-artifact {
@@ -521,8 +524,8 @@
     z-index: var(--layer-overlay);
     box-shadow: none;
   }
-  .acpmux-shell[data-tab-row]:has(> .acpmux-artifact) .acpmux-header[data-tab-row] {
-    width: 100%;
+  .acpmux-shell[data-tab-row]:has(> .acpmux-artifact) {
+    --acpmux-artifact-push: 0px;
   }
 }
 .acpmux-artifact-bar {

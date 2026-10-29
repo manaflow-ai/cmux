@@ -51,10 +51,21 @@
   align-self: flex-start;
   margin: var(--acpmux-inspector-top, 0px) var(--acpmux-inspector-inset) 0 0;
 }
-/* The native tab strip's reserved tool area stays at the pane's trailing edge. Push always
-   narrows the conversation below it; the header keeps the room measured before that column. */
-.acpmux-shell[data-inspector-chat-placement="push"] .acpmux-header {
-  width: var(--acpmux-header-room, 100%);
+/* Every shell-side panel contributes one term to the native tab row's width. The Inspector's
+   room is measured before the artifact column by ChatInspector.tsx; subtracting the main column's
+   100% leaves the pushed Inspector width and its inset. Keeping each panel as a zero-valued shell
+   variable makes the shared rule additive as new side panels arrive. */
+.acpmux-shell {
+  --acpmux-inspector-push: 0px;
+}
+.acpmux-shell[data-inspector-chat-placement="push"] {
+  --acpmux-inspector-push: calc(var(--acpmux-header-room, 100%) - 100%);
+}
+.acpmux-shell[data-tab-row] .acpmux-header[data-tab-row] {
+  width: calc(
+    100% + var(--acpmux-summary-push, 0px) + var(--acpmux-inspector-push, 0px) +
+      var(--acpmux-artifact-push, 0px)
+  );
 }
 /* Floating: the same card over the gutter. With the side panel open beside the chat, its gutter ends at
    that panel's edge (--acpmux-inspector-side, its width), never over the document. The inset is its
