@@ -14,12 +14,17 @@
 .acpmux-header-tools .acpmux-header-tool{color:var(--agent-muted);transition:color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
 .acpmux-header-tools .acpmux-header-tool:disabled{color:var(--agent-soft)}
 .acpmux-header-tools .acpmux-header-tool:not(:disabled):hover,.acpmux-header-tools .acpmux-header-tool[data-popup-open]{color:var(--agent-text)}
-/* On: toggles use the text's ink; HeaderIcon gives the selected panel glyph accent ink, without a backdrop. */
-.acpmux-header-tools .acpmux-header-tool[aria-pressed=true]{color:var(--agent-text)}
-/* Floating chat uses the same plain glyph treatment: no plates at rest, on hover or when pressed.
-   A control reads as active through its own ink only; the group never gains a backdrop. */
+/* On: a toggle whose panel is open reads as on the way the App's toolbar toggles do (PaneToolbarView: the selection
+   fill on the button's own 24px square, never the group's) with the text's ink, and HeaderIcon's accent glyph. Leo
+   2026-10-29: "i literally meant the ui depicting it as toggled or not": ink alone matched hover under the default
+   accent, so an open panel's toggle looked off. */
+.acpmux-header-tools .acpmux-header-tool[aria-pressed=true]{color:var(--agent-text);background:var(--cmux-selection,color-mix(in srgb,var(--agent-text) 10%,transparent))}
+/* Floating chat uses the same plain glyph treatment: no plates at rest or on hover. An open panel's toggle takes the
+   selection fill on its own square, as above; the group never gains a backdrop. */
 .acpmux-floating-header .acpmux-header-tool,.acpmux-floating-bar .acpmux-header-tool{background:none;color:var(--agent-muted)}
-.acpmux-floating-header .acpmux-header-tool:not(:disabled):hover,.acpmux-floating-bar .acpmux-header-tool:not(:disabled):hover,.acpmux-floating-header .acpmux-header-tool[data-popup-open],.acpmux-floating-bar .acpmux-header-tool[data-popup-open],.acpmux-floating-header .acpmux-header-tool[aria-pressed=true],.acpmux-floating-bar .acpmux-header-tool[aria-pressed=true]{background:none;color:var(--agent-text)}
+.acpmux-floating-header .acpmux-header-tool:not(:disabled):hover,.acpmux-floating-bar .acpmux-header-tool:not(:disabled):hover,.acpmux-floating-header .acpmux-header-tool[data-popup-open],.acpmux-floating-bar .acpmux-header-tool[data-popup-open]{background:none;color:var(--agent-text)}
+/* Pressed, hovered or not: the hover rule above must not take the fill back while the pointer is on it. */
+.acpmux-floating-header .acpmux-header-tool[aria-pressed=true],.acpmux-floating-bar .acpmux-header-tool[aria-pressed=true],.acpmux-floating-header .acpmux-header-tool[aria-pressed=true]:not(:disabled):hover,.acpmux-floating-bar .acpmux-header-tool[aria-pressed=true]:not(:disabled):hover{background:var(--cmux-selection,color-mix(in srgb,var(--agent-text) 10%,transparent));color:var(--agent-text)}
 .acpmux-floating-header .acpmux-header-tool:disabled,.acpmux-floating-bar .acpmux-header-tool:disabled{background:none;color:var(--agent-soft)}
 /* Shared pane styles may give focused buttons a gradient and suppress the ring. Header tools keep
    their own control-sized focus ring, with no plate, in the embedded and floating headers. */
