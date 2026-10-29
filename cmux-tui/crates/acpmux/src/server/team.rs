@@ -183,3 +183,7 @@ fn required(params: &Value, name: &str) -> Result<String, RpcError> {
         .map(ToOwned::to_owned)
         .ok_or_else(|| RpcError::invalid_params(format!("{name} is required")))
 }
+
+#[cfg(test)]
+#[path = "team_tests.rs"]
+mod tests;

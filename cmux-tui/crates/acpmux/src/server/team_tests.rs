@@ -1,0 +1,251 @@
+//! Team RPC authorization and receipts through the actual daemon dispatcher.
+
+use super::*;
+use crate::config::{Config, StoreMode};
+use crate::mesh::{Ack, Heartbeat, HeartbeatReply, HubError, InMessage, Receipt, TeamPage};
+use futures::future::BoxFuture;
+use std::sync::Mutex;
+use std::time::Duration;
+use tokio::sync::mpsc;
+
+const OWN: &str = "team-reader";
+const OTHER: &str = "team-other";
+const OWN_MESSAGE: &str = "msg_00000000000000000000000000000001";
+const OTHER_MESSAGE: &str = "msg_00000000000000000000000000000002";
+
+fn message(id: &str, session: &str) -> InMessage {
+    serde_json::from_value(json!({
+        "messageId": id, "kind": "prompt", "body": "Status ready\nFull message body",
+        "to": {"sessionId": session, "teamAddress": "@member/coordinator"},
+        "from": {"teamAddress": "@teammate/reviewer"},
+        "startWork": "information", "state": "delivered"
+    }))
+    .unwrap()
+}
+
+fn receipt(id: &str, state: &str) -> Receipt {
+    serde_json::from_value(json!({
+        "messageId": id, "state": state,
+        "to": {"sessionId": if id == OWN_MESSAGE { OWN } else { OTHER },
+            "teamAddress": "@member/coordinator"},
+        "startWork": "information", "readAt": 123, "readBy": "hub-user",
+        "ackedAt": if state == "acked" { Some(456) } else { None::<u64> }
+    }))
+    .unwrap()
+}
+
+#[derive(Default)]
+struct FakeHub {
+    sent: Mutex<Vec<OutMessage>>,
+    browsed: Mutex<Vec<(bool, Option<String>, Option<u64>)>>,
+    reads: Mutex<Vec<String>>,
+    acknowledgements: Mutex<Vec<String>>,
+}
+
+impl MeshHub for FakeHub {
+    fn inbox(&self, _: Duration, _: usize) -> BoxFuture<'_, Result<Vec<InMessage>, HubError>> {
+        panic!("browsing must never acquire a relay lease")
+    }
+
+    fn team_messages<'a>(
+        &'a self,
+        unread: bool,
+        address: Option<&'a str>,
+        before: Option<u64>,
+    ) -> BoxFuture<'a, Result<TeamPage, HubError>> {
+        self.browsed.lock().unwrap().push((unread, address.map(str::to_owned), before));
+        Box::pin(async {
+            Ok(TeamPage {
+                messages: vec![message(OWN_MESSAGE, OWN), message(OTHER_MESSAGE, OTHER)],
+                next: None,
+            })
+        })
+    }
+
+    fn heartbeat<'a>(
+        &'a self,
+        _: &'a Heartbeat,
+    ) -> BoxFuture<'a, Result<HeartbeatReply, HubError>> {
+        panic!("these requests do not heartbeat")
+    }
+
+    fn send<'a>(&'a self, message: &'a OutMessage) -> BoxFuture<'a, Result<Receipt, HubError>> {
+        self.sent.lock().unwrap().push(message.clone());
+        Box::pin(async { Ok(receipt(OWN_MESSAGE, "queued")) })
+    }
+
+    fn receipt<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<Receipt, HubError>> {
+        Box::pin(async move { Ok(receipt(id, "delivered")) })
+    }
+
+    fn read<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<Receipt, HubError>> {
+        self.reads.lock().unwrap().push(id.to_owned());
+        Box::pin(async move { Ok(receipt(id, "read")) })
+    }
+
+    fn acknowledge<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<Receipt, HubError>> {
+        self.acknowledgements.lock().unwrap().push(id.to_owned());
+        Box::pin(async move { Ok(receipt(id, "acked")) })
+    }
+
+    fn ack<'a>(&'a self, _: &'a str, _: &'a Ack) -> BoxFuture<'a, Result<(), HubError>> {
+        panic!("recipient acknowledgement must not send a delivery ack")
+    }
+}
+
+fn setup(enabled: bool) -> (Arc<Hub>, Arc<FakeHub>) {
+    let mut config: Config = serde_json::from_value(json!({"meshRelay": {
+        "url": "https://hub.invalid", "tokenCommand": ["unused"], "teamMessaging": enabled
+    }}))
+    .unwrap();
+    config.store.mode = StoreMode::Memory;
+    let store = crate::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap();
+    for id in [OWN, OTHER] {
+        let meta = serde_json::from_value(json!({
+            "schema": crate::store::META_SCHEMA, "id": id, "name": id,
+            "harness": "fake", "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": 1,
+            "tags": {"teamAddress": {"value": "coordinator"}}
+        }))
+        .unwrap();
+        store.save(&meta).unwrap();
+    }
+    let hub = Hub::new(config, store);
+    assert!(hub.resolve(OWN).is_ok());
+    let fake = Arc::new(FakeHub::default());
+    assert!(hub.mesh.set(fake.clone()).is_ok());
+    (hub, fake)
+}
+
+struct Rpc(mpsc::Sender<String>, mpsc::Receiver<String>, i64);
+
+impl Rpc {
+    async fn connect(hub: &Arc<Hub>, origin: Origin, caller: Option<(&str, bool)>) -> Self {
+        let (input, incoming) = mpsc::channel(64);
+        let (output, outgoing) = mpsc::channel(64);
+        tokio::spawn(serve_connection_with(hub.clone(), incoming, output, origin));
+        let mut client = Self(input, outgoing, 0);
+        let mut hello = json!({"protocolVersion": 1, "clientCapabilities": {}});
+        if let Some((id, valid)) = caller {
+            hello["_meta"] = json!({"acpmux": {"callerSession": {"sessionId": id,
+                "token": if valid { crate::hub::person::caller_token(id) } else { "invalid".into() }
+            }}});
+        }
+        let result = client.call("initialize", hello).await;
+        assert!(result.get("error").is_none(), "{result}");
+        client
+    }
+
+    async fn call(&mut self, method: &str, params: Value) -> Value {
+        self.2 += 1;
+        let id = self.2;
+        self.0.send(Message::request(id, method, params).to_line()).await.unwrap();
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                let response: Value = serde_json::from_str(&self.1.recv().await.unwrap()).unwrap();
+                if response["id"] == id {
+                    return response;
+                }
+            }
+        })
+        .await
+        .unwrap()
+    }
+}
+
+#[tokio::test]
+async fn team_send_checks_labs_and_uses_proven_sender_without_start_work() {
+    let (off, fake) = setup(false);
+    let mut caller = Rpc::connect(&off, Origin::Local, Some((OWN, true))).await;
+    let refused =
+        caller.call(method::MUX_TEAM_SEND, json!({"to": "@team/reviewer", "body": "hi"})).await;
+    assert_eq!(refused["error"]["data"]["reason"], "team_messaging_disabled", "{refused}");
+    assert!(fake.sent.lock().unwrap().is_empty());
+
+    let (hub, fake) = setup(true);
+    let mut caller = Rpc::connect(&hub, Origin::Local, Some((OWN, true))).await;
+    let sent = caller
+        .call(
+            method::MUX_TEAM_SEND,
+            json!({
+                "to": "@team/reviewer", "body": "  status\n", "startWork": "allowed",
+                "from": {"teamAddress": "@owner/coordinator", "sessionId": OTHER, "user": "forged"}
+            }),
+        )
+        .await;
+    assert_eq!(sent["result"]["startWork"], "information", "{sent}");
+    let messages = fake.sent.lock().unwrap();
+    assert_eq!(messages.len(), 1);
+    let wire = serde_json::to_value(&messages[0]).unwrap();
+    assert_eq!(wire["to"], json!({"teamAddress": "@team/reviewer"}));
+    assert_eq!(wire["body"], "  status\n");
+    assert!(wire.get("startWork").is_none());
+    assert_eq!(wire["mode"], "turn-end");
+    assert_eq!(wire["from"]["sessionId"], OWN);
+    assert_eq!(wire["from"]["name"], OWN);
+    assert!(wire["from"].get("user").is_none());
+    assert_ne!(wire["from"]["teamAddress"], "@owner/coordinator");
+}
+
+#[tokio::test]
+async fn team_reader_is_scoped_to_session_and_read_ack_preserve_hub_receipts() {
+    let (hub, fake) = setup(true);
+    let mut caller = Rpc::connect(&hub, Origin::Local, Some((OWN, true))).await;
+    let inbox = caller
+        .call(
+            method::MUX_TEAM_INBOX,
+            json!({"teamAddress": "@other/coordinator", "unreadOnly": false}),
+        )
+        .await;
+    let rows = inbox["result"]["messages"].as_array().unwrap();
+    assert_eq!(rows.len(), 1, "{inbox}");
+    assert_eq!(rows[0]["messageId"], OWN_MESSAGE);
+    assert_eq!(fake.browsed.lock().unwrap()[0], (false, None, None));
+    for method in [method::MUX_TEAM_READ, method::MUX_TEAM_ACK] {
+        let refused = caller.call(method, json!({"id": OTHER_MESSAGE})).await;
+        assert_eq!(refused["error"]["data"]["reason"], "team.forbidden", "{refused}");
+    }
+    assert!(fake.reads.lock().unwrap().is_empty());
+    assert!(fake.acknowledgements.lock().unwrap().is_empty());
+    let read = caller.call(method::MUX_TEAM_READ, json!({"id": OWN_MESSAGE})).await;
+    assert_eq!(read["result"]["message"]["body"], "Status ready\nFull message body");
+    assert_eq!(read["result"]["message"]["state"], "read");
+    assert_eq!(
+        read["result"]["receipt"],
+        serde_json::to_value(receipt(OWN_MESSAGE, "read")).unwrap()
+    );
+    let acked = caller.call(method::MUX_TEAM_ACK, json!({"id": OWN_MESSAGE})).await;
+    assert_eq!(acked["result"], serde_json::to_value(receipt(OWN_MESSAGE, "acked")).unwrap());
+    assert_eq!(*fake.reads.lock().unwrap(), vec![OWN_MESSAGE.to_owned()]);
+    assert_eq!(*fake.acknowledgements.lock().unwrap(), vec![OWN_MESSAGE.to_owned()]);
+}
+
+#[tokio::test]
+async fn owner_can_browse_all_but_invalid_callers_and_remote_connections_cannot() {
+    let (hub, fake) = setup(true);
+    let mut owner = Rpc::connect(&hub, Origin::Local, None).await;
+    let listed = owner.call(method::MUX_TEAM_INBOX, json!({})).await;
+    assert_eq!(listed["result"]["messages"].as_array().unwrap().len(), 2);
+    let read = owner.call(method::MUX_TEAM_READ, json!({"id": OTHER_MESSAGE})).await;
+    assert_eq!(read["result"]["receipt"]["state"], "read", "{read}");
+    let acked = owner.call(method::MUX_TEAM_ACK, json!({"id": OTHER_MESSAGE})).await;
+    assert_eq!(acked["result"]["state"], "acked", "{acked}");
+    let browsed = fake.browsed.lock().unwrap().len();
+    for (origin, caller) in [(Origin::Local, Some((OWN, false))), (Origin::Peer, None)] {
+        let mut denied = Rpc::connect(&hub, origin, caller).await;
+        for method in [
+            method::MUX_TEAM_INBOX,
+            method::MUX_TEAM_READ,
+            method::MUX_TEAM_ACK,
+            method::MUX_TEAM_SEND,
+        ] {
+            let reply = denied
+                .call(method, json!({"id": OWN_MESSAGE, "to": "@team/reviewer", "body": "hi"}))
+                .await;
+            assert!(reply.get("error").is_some(), "{method}: {reply}");
+        }
+    }
+    assert_eq!(fake.browsed.lock().unwrap().len(), browsed);
+    assert!(fake.sent.lock().unwrap().is_empty());
+    assert_eq!(*fake.reads.lock().unwrap(), vec![OTHER_MESSAGE.to_owned()]);
+    assert_eq!(*fake.acknowledgements.lock().unwrap(), vec![OTHER_MESSAGE.to_owned()]);
+}
