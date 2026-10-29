@@ -155,10 +155,19 @@ def created(result):
     return ((result or {}).get("created") or [None])[0]
 
 
+def timed_out(result):
+    """An action.run answer that only says the app did not finish in time (a socket error is a string)."""
+    error = result.get("error") if isinstance(result, dict) else None
+    return (isinstance(error, str) and "timed out" in error) or (
+        isinstance(error, dict) and error.get("code") == "timeout"
+    )
+
+
 def again(action, **kw):
+    """The action, asked again while the app answers only that it did not finish in time."""
     for _ in range(5):
         result = run(action, **kw)
-        if not ((result or {}).get("error") or {}).get("code") == "timeout":
+        if not timed_out(result):
             return result
     return result
 
