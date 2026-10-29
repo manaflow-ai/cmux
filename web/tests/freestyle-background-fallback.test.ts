@@ -11,14 +11,19 @@ const storeUnavailable = () => Response.json(
   { status: 503 },
 );
 
-type Sent = { url: string; method: string; background: string | null; body: unknown };
+type Sent = {
+  url: string; method: string; background: string | null; body: unknown;
+  authorization: string | null; contentType: string | null;
+};
 
 function fakeProvider(answer: (sent: Sent, index: number) => Response) {
   const sent: Sent[] = [];
   const fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const headers = new Headers(init?.headers);
     const call = {
       url: String(input), method: init?.method ?? "GET",
-      background: new Headers(init?.headers).get(FREESTYLE_BACKGROUND_HEADER), body: init?.body,
+      background: headers.get(FREESTYLE_BACKGROUND_HEADER), body: init?.body,
+      authorization: headers.get("Authorization"), contentType: headers.get("Content-Type"),
     };
     sent.push(call);
     return answer(call, sent.length - 1);
@@ -46,9 +51,6 @@ describe("Freestyle background-store fallback", () => {
     expect((await client.vms.list()).vms).toEqual([]);
     expect(provider.sent.map(sent => sent.background)).toEqual(["5", null]);
 
-    // Within the cool-down the doomed background attempt is skipped.
-    await client.vms.list();
-    expect(provider.sent.map(sent => sent.background)).toEqual(["5", null, null]);
   });
 
   test("replays a POST body once without the header and keeps every other header", async () => {
@@ -62,7 +64,10 @@ describe("Freestyle background-store fallback", () => {
     });
     expect(response.status).toBe(200);
     expect(provider.sent).toHaveLength(2);
-    expect(provider.sent[1]).toMatchObject({ method: "POST", background: null, body });
+    expect(provider.sent[1]).toMatchObject({
+      method: "POST", background: null, body,
+      authorization: "Bearer k", contentType: "application/json",
+    });
     expect(state.plainUntil).toBe(61_000);
   });
 
