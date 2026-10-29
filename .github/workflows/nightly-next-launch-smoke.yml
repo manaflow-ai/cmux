@@ -170,7 +170,7 @@ jobs:
       # Anything unread or refused places nothing, and the smoke keeps the side label.
       - name: Place the smoke
         id: place
-        if: steps.route-token.outputs.token != '' && steps.in-flight.outputs.in_flight == ''
+        if: steps.route-token.outputs.token != '' && (github.event_name != 'schedule' || steps.in-flight.outputs.in_flight == '')
         continue-on-error: true
         timeout-minutes: 2
         env:

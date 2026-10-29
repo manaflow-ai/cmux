@@ -334,6 +334,8 @@ class OneLaunchSmokePerBuild(unittest.TestCase):
         self.assertEqual(jobs["pick"]["outputs"]["in_flight"], "${{ steps.in-flight.outputs.in_flight }}")
         self.assertIn("(github.event_name != 'schedule' || needs.pick.outputs.in_flight == '')", jobs["smoke"]["if"])
         self.assertEqual(jobs["smoke"]["name"], "smoke ${{ needs.pick.outputs.build }}")
+        # A smoke that does run (a dispatch, a pull request) is still placed: only a skipped tick is not.
+        self.assertIn("(github.event_name != 'schedule' || steps.in-flight.outputs.in_flight == '')", steps["place"]["if"])
 
     def test_a_second_smoke_of_a_build_cannot_start(self) -> None:
         tooling = smoke_tooling()
