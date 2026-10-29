@@ -4,14 +4,14 @@
   "title": "Random person actions (new tab, new browser tab, close, split, zoom, palette, settings, windows, workspaces): after each one, one probe key lands where the person expects",
   "why": "Lawrence 2026-10-29 (felt 1f): 'at any point in time (with some very minor exceptions?), something should always be focused, so that keyboard only operation is possible'. One case at a time misses the class; this plays random sequences and stops at the first state where nothing takes the keys or the probe goes elsewhere. The seed in the failure replays the same sequence. The invariant: plans/cmux-next/focus-invariant.md.",
   "source": "felt queue 1f",
-  "budget_seconds": 200,
+  "budget_seconds": 250,
   "steps": [
     {"do": "new_terminal", "via": "key", "as": "first"},
     {"do": "neutral_prompt"},
     {"do": "type", "text": "echo fz-${nonce}-$((6*7))", "enter": true, "mark": "typed"},
     {"do": "expect", "title": "the first terminal works", "since": "typed", "timeout": 10,
      "all": [{"daemon_line": "fz-${nonce}-42"}, {"app_text_line": "fz-${nonce}-42"}, {"frame_text": "fz-${nonce}-42"}]},
-    {"do": "focus_fuzz", "count": 30},
+    {"do": "focus_fuzz", "count": 60},
     {"do": "expect", "title": "the invariant holds at the end", "timeout": 10, "all": [{"focus_ok": {}}]}
   ],
   "finally": [{"do": "close_extra_windows"}]
