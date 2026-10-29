@@ -299,6 +299,8 @@ function PendingQuestion({
       if (!event.repeat) skip();
       return;
     }
+    // A consent has no list, so no number or arrow key may pick an option out of sight.
+    if (consent) return;
     // In Other, plain Enter submits; Shift-Enter and every other editing key stay native.
     if (inOther) {
       if (event.key !== "Enter") return;

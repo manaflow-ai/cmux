@@ -114,16 +114,6 @@ async function renderCard(question: AgentQuestion) {
   return { container, replies };
 }
 
-const row = (container: HTMLElement, label: string) =>
-  [...container.querySelectorAll<HTMLElement>(".acpmux-question-row")].find((each) =>
-    each.querySelector(".acpmux-question-label")?.textContent?.includes(label),
-  )!;
-const submit = (container: HTMLElement) => container.querySelector<HTMLButtonElement>(".acpmux-question-submit")!;
-const checked = (container: HTMLElement) =>
-  [...container.querySelectorAll(".acpmux-question-row[aria-checked=true] .acpmux-question-label")].map(
-    (each) => each.textContent,
-  );
-
 const button = (container: HTMLElement, selector: string) => container.querySelector<HTMLButtonElement>(selector)!;
 const text = (element: Element | null) => element?.textContent?.replace(/\s+/g, " ").trim();
 /// A button's label and the key drawn in it.
@@ -197,6 +187,13 @@ test("⌘↩ trusts, and Return on a focused Not now is left to the button, neve
   });
   expect(event.defaultPrevented).toBe(false);
   expect(no.replies).toEqual([]);
+});
+
+test("a consent ignores the list's number and arrow keys", async () => {
+  const { container, replies } = await renderCard(folderTrust);
+  const card = container.querySelector(".acpmux-question")!;
+  for (const key of ["1", "2", "ArrowDown", "ArrowUp"]) await press(card, key);
+  expect(replies).toEqual([]);
 });
 
 test("a two-option AskUserQuestion keeps its list, Skip and Submit, and Skip shows esc", async () => {
