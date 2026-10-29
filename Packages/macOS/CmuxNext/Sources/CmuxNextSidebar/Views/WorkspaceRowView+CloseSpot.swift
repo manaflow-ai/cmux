@@ -17,7 +17,7 @@ extension WorkspaceRowView {
             for view in [disclosureButton, closeButton, moreButton, pinButton] { view.frame = view.frame.offsetBy(dx: dx, dy: 0) }
         }
         guard spot.atEnd else { return givesWay }
-        let column = SidebarStyle.trailingColumnFrame(rowWidth: rowWidth, centerY: cy, side: control)
+        let column = SidebarStyle.rowCloseFrame(rowWidth: rowWidth, centerY: cy)
         if columnMark != nil, showClose {
             // ⋮ ⌄ ✕: the menu takes the close's place, the close the column's.
             moreButton.frame = closeButton.frame
