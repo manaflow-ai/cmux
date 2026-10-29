@@ -27,7 +27,7 @@ await requireBrowserLane("pr-dock-inline-layout.test.ts", () => {
 
   for (const layout of ["above", "beside", "below"])
     for (const width of [760, 320])
-      test(`${layout}, ${width}px: expanded chips clear Show more and the disclosure`, async () => {
+      test(`${layout}, ${width}px: expanded chips clear the opened message and the disclosure`, async () => {
         const page = await browser.newPage({ viewport: { width, height: 420 } });
         try {
           const { port } = vite.httpServer!.address() as { port: number };
@@ -40,7 +40,16 @@ await requireBrowserLane("pr-dock-inline-layout.test.ts", () => {
           // Real boxes, including the last row of the card immediately above the dock.
           const geometry = await page.evaluate(() => {
             const box = (selector: string) => document.querySelector(selector)!.getBoundingClientRect();
-            const card = box(".cv-received__show");
+            // The opened message's panel as the transcript shows it: its part inside the scroller.
+            const panel = box(".cv-received .cv-disclosure__panel");
+            const view = box(".acpmux-scroll");
+            const top = Math.max(panel.top, view.top);
+            const card = new DOMRect(
+              panel.left,
+              top,
+              panel.width,
+              Math.max(0, Math.min(panel.bottom, view.bottom) - top),
+            );
             const row = box(".acpmux-pr-dock__compact");
             const dock = box(".acpmux-pr-dock");
             const overlaps = (a: DOMRect, b: DOMRect) =>

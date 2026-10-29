@@ -1,6 +1,6 @@
 // Another agent's message waiting in the queue is no composer-queue row (Leo, 2026-10-25: "I don't
 // know why these things are queued up. It's kind of strange."): the transcript draws it at once as
-// its received card with "Read after this turn" (conversation/QueuedMessageCard.tsx), its actions in
+// its received line, "Read after this turn" said once over the first of them (conversation/QueuedMessageCard.tsx), its actions in
 // the card's ⋯ menu. The queue's rows, its fold and its "N more queued" count are the person's own
 // prompts alone (ComposerQueue.tsx).
 import { afterAll, expect, test } from "bun:test";
@@ -204,12 +204,19 @@ test("the received card says when it is read and keeps the queue row's actions i
   const calls: string[] = [];
   const entry = agent(1);
   await card(entry, calls);
-  // The message's own card: the sender's chip, its text, the quiet note; no spinner, no queue row.
-  expect(host.querySelector(".cv-received__name")?.textContent).toBe("lane-1");
-  expect(host.querySelector(".cv-received__body")?.textContent).toContain("CI is green on #24001");
-  expect(host.querySelector(".cv-received__queued")?.textContent).toBe(t("message.readAfterTurn"));
+  // The message's own line: the sender's name, its first line; the quiet note over it, as the first
+  // (here the only) message queued; no spinner, no queue row. Opened, its whole text.
+  expect(host.querySelector(".cv-received__from")?.textContent).toBe("lane-1");
+  expect(host.querySelector(".cv-received__preview")?.textContent).toContain("CI is green on #24001");
+  const head = host.querySelector(".cv-received__queued-head");
+  expect(head?.textContent).toBe(t("message.readAfterTurn"));
+  expect(head?.nextElementSibling?.classList.contains("cv-received")).toBe(true);
+  expect(host.querySelector(".cv-received__queued")).toBeNull();
   expect(host.querySelector(".acpmux-queued, .cv-spinner, [data-spinner]")).toBeNull();
-  await act(async () => host.querySelector<HTMLButtonElement>("button.cv-received__name")!.click());
+  expect(host.querySelector(".cv-received__text")).toBeNull();
+  await act(async () => host.querySelector<HTMLButtonElement>("button.cv-disclosure__toggle")!.click());
+  expect(host.querySelector(".cv-received__text")?.textContent).toContain("CI is green on #24001");
+  await act(async () => host.querySelector<HTMLButtonElement>("button.cv-disclosure__open")!.click());
   expect(calls).toEqual(["open s-1"]);
 
   await openMenu();
@@ -248,6 +255,26 @@ test("the received card says when it is read and keeps the queue row's actions i
   await act(async () => item(t("composer.queueMoveDown")).click());
   await settle();
   expect(calls.at(-1)).toBe("move a1 2");
+});
+
+test("several queued messages say Read after this turn once, over the first", async () => {
+  const rows = queuedMessageRows([agent(4), agent(5), agent(6)] as never);
+  expect(rows.map((row) => Boolean(row.queuedMessage?.lead))).toEqual([true, false, false]);
+  await show(
+    <>
+      {rows.map((row) => (
+        <QueuedMessageCard key={row.id} row={row} onOpen={() => {}} />
+      ))}
+    </>,
+  );
+  const heads = [...host.querySelectorAll(".cv-received__queued-head")];
+  expect(heads.map((head) => head.textContent)).toEqual([t("message.readAfterTurn")]);
+  expect(heads[0]!.closest("[data-queued-message]")?.getAttribute("data-queued-message")).toBe("a4");
+  expect(host.querySelectorAll(".cv-received").length).toBe(3);
+  expect(host.querySelector(".cv-received__queued")).toBeNull();
+  // The queue drains: the next one leads and says it.
+  const drained = queuedMessageRows([agent(5), agent(6)] as never);
+  expect(drained.map((row) => Boolean(row.queuedMessage?.lead))).toEqual([true, false]);
 });
 
 test("a message sent now offers no second Steer; one with images keeps them and asks no side chat", async () => {

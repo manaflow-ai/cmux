@@ -337,24 +337,26 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await ctx.click({ selector: ".cv-agentmsg__toggle" });
         await ctx.waitFor(() => ctx.document.querySelector(".cv-agentmsg__card"));
-        await ctx.click({ selector: ".cv-received__toggle" });
-        await ctx.waitFor(() => ctx.document.querySelector(".cv-received__body"));
+        await ctx.click({ selector: ".cv-received .cv-disclosure__toggle" });
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-received__text"));
       },
     },
     "folded-run": {
-      note: "Four consecutive messages fold to one quiet line naming claude-sr2; the message rows and their actions appear when opened.",
+      note: "Four consecutive messages from claude-sr2: four lines, each where it arrived (they no longer fold into one card); each line opens its whole message.",
       snapshot: foldedRun(),
     },
     "folded-run-mixed": {
-      note: "A consecutive burst from two agents folds to one count while retaining both sender names in the disclosure head.",
+      note: "A consecutive burst from two agents: one line per message, each naming its sender.",
       snapshot: foldedMixedRun(),
     },
     "folded-run-opened": {
-      note: "The folded burst opened: each received message keeps the shared compact row and its own full body.",
+      note: "The burst with every line opened: each received message's panel holds its whole body.",
       snapshot: foldedRun(),
       play: async (ctx) => {
-        await ctx.click({ selector: ".cv-waiting__toggle" });
         await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-received").length >= 4);
+        for (const toggle of ctx.document.querySelectorAll<HTMLButtonElement>(".cv-received .cv-disclosure__toggle"))
+          toggle.click();
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-received__text").length >= 4);
       },
     },
   },

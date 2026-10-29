@@ -6,8 +6,8 @@
 // disclosure line where it arrived (IncomingMessageCard.tsx on the shared DisclosureRow), never a
 // card cut short and never one card of them all at the bottom. Delivered ones sit between the
 // replies they came between, a steer the agent has not read sits in the running turn with "Read
-// after this step", and one queued behind the turn sits after it with "Read after this turn", each
-// a small tag at the line's end. The line opens the whole message under it, the line holding still.
+// after this step" as a small tag at its line's end, and one queued behind the turn sits after it
+// under one "Read after this turn" said over the first of the queued messages. The line opens the whole message under it, the line holding still.
 // The line's look: A, the sender then the message's first line muted, ships; B (Claude Code's
 // "Received a message from" wording, no preview), C (A plus how many more lines) and D (the sender
 // alone) are drawn here only, over the shipped line.
@@ -133,7 +133,7 @@ export default agentPaneEntry({
   ],
   variants: {
     "a-shipped": {
-      note: "A (ships): each message is one line where it arrived: the sender, then its first line muted, then ›. Three delivered between the replies, ios-remote's steer in the running turn (Read after this step), artifacts' after the turn (Read after this turn), each a small tag. No bottom group, nothing cut without a way to open it.",
+      note: "A (ships): each message is one line where it arrived: the sender, then its first line muted, then ›. Three delivered between the replies, ios-remote's steer in the running turn (Read after this step), artifacts' after the turn under one Read after this turn over the first queued message. No bottom group, nothing cut without a way to open it.",
       snapshot,
     },
     "a-shipped-open": {

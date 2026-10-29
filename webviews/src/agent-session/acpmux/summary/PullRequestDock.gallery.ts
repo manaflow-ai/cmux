@@ -19,7 +19,8 @@ const merge = (number: number) =>
   });
 const inspector = { "pane.tabState": { inspector: true } };
 
-// Synthetic received card: the last visible row is Show more, immediately above the dock.
+// Synthetic received message, opened: the last visible row is its panel's end, immediately above the
+// dock (the variant ids keep their old "-show-more" names).
 const report = Array.from({ length: 12 }, (_, i) => `Step ${i + 1}: check the uploader retry behavior.`).join("\n\n");
 const inline = (layout: string, note: string): AgentPaneVariant => ({
   note,
@@ -33,11 +34,26 @@ const inline = (layout: string, note: string): AgentPaneVariant => ({
     }),
   ]),
   play: async (ctx) => {
-    await ctx.waitFor(() => ctx.document.querySelector(".cv-received__show"));
+    await ctx.waitFor(() => ctx.document.querySelector(".cv-received .cv-disclosure__toggle"));
+    await ctx.click({ selector: ".cv-received .cv-disclosure__toggle" });
+    await ctx.waitFor(
+      () =>
+        ctx.document.querySelector(".cv-received__text") !== null &&
+        !ctx.document.querySelector(".cv-received")?.getAnimations({ subtree: true }).length,
+    );
     if (ctx.document.querySelector("aside.acpmux-chat-inspector"))
       await ctx.click({ selector: ".acpmux-chat-inspector-toggle" });
     await ctx.click({ selector: ".acpmux-pr-dock__disclosure" });
     await ctx.scroll({ selector: ".acpmux-scroll" }, "bottom");
+    // The opened message's fold holds its line for a moment after it plays (foldAnchor.ts), which
+    // can put the view back: scroll again until it stays at the end.
+    await ctx.waitFor(() => {
+      const scroller = ctx.document.querySelector<HTMLElement>(".acpmux-scroll");
+      if (!scroller) return false;
+      const end = scroller.scrollHeight - scroller.clientHeight;
+      if (end - scroller.scrollTop > 1) scroller.scrollTop = end;
+      return end - scroller.scrollTop <= 1;
+    });
   },
 });
 
@@ -50,7 +66,7 @@ export default agentPaneEntry({
   variants: {
     "inline-above-show-more": inline(
       "above",
-      "Selected: chips wrap above the count in the dock's own flow; the card's Show more stays clear.",
+      "Selected: chips wrap above the count in the dock's own flow; the opened message above stays clear.",
     ),
     "inline-beside-show-more": inline(
       "beside",

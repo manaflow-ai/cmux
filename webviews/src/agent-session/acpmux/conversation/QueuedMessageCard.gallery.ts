@@ -1,9 +1,9 @@
 // l10n-allow-file: gallery fixtures (sample lane messages and prompts), not shipped UI.
 // Another agent's message that waits for the running turn (Leo, 2026-10-25: "I don't know why these
 // things are queued up. It's kind of strange."): no composer-queue row. The transcript draws it at
-// once as its received card after the turn, with a quiet "Read after this turn" at the line's end
-// and its actions (Steer, Edit message, queueing, Delete) in the card's ⋯ menu
-// (QueuedMessageCard.tsx, queuedMessages.ts). The composer's queue, its fold and its count, hold the
+// once as its own received line after the turn (one line per message, never one card for several),
+// with one quiet "Read after this turn" over the first of them and its actions (Steer, Edit message,
+// queueing, Delete) in the line's ⋯ menu (QueuedMessageCard.tsx, queuedMessages.ts). The composer's queue, its fold and its count, hold the
 // person's own prompts only. A steer the agent has not read yet reads the same, "after this step".
 // The note's look: A, plain dim caption text, ships; B (a clock and "After this turn") and C (a
 // hairline "Queued" pill) are drawn here only, over the shipped note.
@@ -45,25 +45,27 @@ const ALT_ID = "queued-note-alt";
 const alternate =
   (css: string, mark: (note: HTMLElement) => void): Play =>
   async (ctx) => {
-    // The eleven wait as one card (WaitingMessagesCard.tsx): opened, each draws its note.
-    await ctx.click({ selector: ".cv-waiting__toggle" });
-    await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-received__queued").length >= LANES.length);
+    // The eleven wait as eleven lines, the note once over the first.
+    await ctx.waitFor(() => ctx.document.querySelector(".cv-received__queued-head"));
     ctx.document.getElementById(ALT_ID)?.remove();
     const style = ctx.document.createElement("style");
     style.id = ALT_ID;
     style.textContent = css;
     ctx.document.head.append(style);
-    ctx.document.querySelectorAll<HTMLElement>(".cv-received__queued").forEach(mark);
+    ctx.document.querySelectorAll<HTMLElement>(".cv-received__queued-head").forEach(mark);
   };
 const CLOCK =
   '<svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><circle cx="8" cy="8" r="5.5"/><path d="M8 5v3.2l2 1.3"/></svg>';
 /// B: a clock before a shorter "After this turn".
-const clockNote = alternate(`.cv-received__queued { display: inline-flex; align-items: center; gap: 4px; }`, (note) => {
-  note.innerHTML = `${CLOCK}<span>After this turn</span>`;
-});
+const clockNote = alternate(
+  `.cv-received__queued-head { display: inline-flex; align-items: center; gap: 4px; }`,
+  (note) => {
+    note.innerHTML = `${CLOCK}<span>After this turn</span>`;
+  },
+);
 /// C: a hairline pill that says "Queued", the rest in its tooltip.
 const pillNote = alternate(
-  `.cv-received__queued { padding: 0 6px; height: 16px; line-height: 16px; border-radius: 8px;
+  `.cv-received__queued-head { display: inline-block; padding: 0 6px; height: 16px; line-height: 16px; border-radius: 8px;
   box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) color-mix(in srgb, var(--cv-text) 30%, transparent); }`,
   (note) => {
     note.title = note.textContent ?? "";
@@ -83,22 +85,22 @@ export default agentPaneEntry({
   ],
   variants: {
     eleven: {
-      note: "Eleven agents' messages and one prompt of the person's wait for the running turn: the messages are one card after the turn with Read after this turn (WaitingMessagesCard.tsx); the composer's queue is the person's one prompt, with no fold.",
+      note: "Eleven agents' messages and one prompt of the person's wait for the running turn: the messages are eleven lines after the turn, Read after this turn once over the first; the composer's queue is the person's one prompt, with no fold.",
       snapshot: elevenAndMine,
     },
     "eleven-minimal": {
-      note: "The same in Minimal Mode: the card's one line, the note at its end.",
+      note: "The same in Minimal Mode: the same eleven lines, the note once over them.",
       display: MINIMAL,
       snapshot: elevenAndMine,
     },
     "note-clock": {
-      note: "Gallery only (B): a clock and a shorter After this turn (the card opened).",
+      note: "Gallery only (B): a clock and a shorter After this turn (over the first line).",
       display: MINIMAL,
       snapshot: elevenAndMine,
       play: clockNote,
     },
     "note-pill": {
-      note: "Gallery only (C): a hairline Queued pill, the rest in its tooltip (the card opened).",
+      note: "Gallery only (C): a hairline Queued pill, the rest in its tooltip (over the first line).",
       display: MINIMAL,
       snapshot: elevenAndMine,
       play: pillNote,
@@ -107,14 +109,14 @@ export default agentPaneEntry({
       note: "Play: a waiting message's ⋯ menu: Steer, Edit message, Turn off queueing, Delete.",
       snapshot: chat(running, { isWorking: true, queue: [queued[10]!, own] }),
       play: async (ctx) => {
-        await ctx.hover({ selector: ".cv-received__line" });
+        await ctx.hover({ selector: ".cv-received > .cv-disclosure__line" });
         await ctx.waitFor(() => ctx.document.querySelector('[data-menu="queued-message"]'));
         ctx.document.querySelector<HTMLButtonElement>('[data-menu="queued-message"]')!.click();
         await ctx.waitFor(() => ctx.document.querySelectorAll('[role="menuitem"]').length >= 4);
       },
     },
     "steer-waiting": {
-      note: "A message an agent steered into the running turn that the agent has not read yet: its received card with Read after this step; Send now is in its ⋯ menu. No spinner row.",
+      note: "A message an agent steered into the running turn that the agent has not read yet: its received line with Read after this step; Send now is in its ⋯ menu. No spinner row.",
       snapshot: chat(
         [
           ...running,

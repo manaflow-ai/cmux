@@ -1256,7 +1256,7 @@ export default agentPaneEntry({
       }),
     },
     "queued-from-agent-open": {
-      note: "Play: the waiting agent's message opened in the transcript: its glass card under its line, as Markdown.",
+      note: "Play: the waiting agent's message opened in the transcript: its whole text as Markdown in the panel under its line.",
       snapshot: chat(working, {
         isWorking: true,
         queue: [
@@ -1269,14 +1269,14 @@ export default agentPaneEntry({
         ],
       }),
       play: async (ctx) => {
-        await ctx.click({ selector: '[data-queued-message="q1"] .cv-received__toggle' });
+        await ctx.click({ selector: '[data-queued-message="q1"] .cv-disclosure__toggle' });
         await ctx.waitFor(() =>
-          ctx.document.querySelector('[data-queued-message="q1"] .cv-received__toggle[aria-expanded="true"]'),
+          ctx.document.querySelector('[data-queued-message="q1"] .cv-disclosure__toggle[aria-expanded="true"]'),
         );
       },
     },
     "queued-from-agent-lane-report": {
-      note: "Leo's lane report reference waiting behind a running turn: its received card in the transcript, sender header, rendered Markdown table and links, the long body folded to eight lines.",
+      note: "Leo's lane report reference waiting behind a running turn: its received line in the transcript; opened, the From line, rendered Markdown table and links, whole.",
       snapshot: chat(working, {
         isWorking: true,
         queue: [
