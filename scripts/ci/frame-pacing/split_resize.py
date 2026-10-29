@@ -128,12 +128,25 @@ def _cpu_delta(before: dict | None, after: dict | None, steps: int) -> dict | No
 
 
 def _sample(pid: int, seconds: int, path: Path) -> subprocess.Popen | None:
-    """`/usr/bin/sample PID SECONDS 1 -file PATH` in the background (1 ms interval); None when it cannot start."""
+    """`/usr/bin/sample PID SECONDS 1 -file PATH` in the background (1 ms interval), returned once it has attached
+    and started sampling (its "Sampling process" line: on a loaded Mac attaching takes seconds, and drags made
+    before it would not be in the profile); None when it cannot start or never attaches within 30 s."""
     try:
-        return subprocess.Popen(["/usr/bin/sample", str(pid), str(seconds), "1", "-file", str(path)],
-                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL)
+        sampler = subprocess.Popen(["/usr/bin/sample", str(pid), str(seconds), "1", "-file", str(path)],
+                                   stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, text=True)
     except OSError:
         return None
+    deadline = time.monotonic() + 30
+    assert sampler.stdout is not None
+    while time.monotonic() < deadline:
+        line = sampler.stdout.readline()
+        if not line:
+            break
+        if line.startswith("Sampling process"):
+            return sampler
+    sampler.kill()
+    sampler.wait()
+    return None
 
 
 def _divider(sample: dict) -> list | None:
@@ -157,7 +170,7 @@ def drive(driver, out: Path, strip: bool = False, page_kind: str = "probe", pid:
     `strip`: then one more drag, held open while `debug.window_snapshot` takes the window every
     12 moves (`strip-NN.png` in `out`): a frame strip of where the page is while the divider moves.
     `record`: then one more drag out and back under `debug.window_record` (JPEG frames per display
-    frame in `out/record`). `profile` (with `pid`): then two more drags while `sample` profiles the app
+    frame in `out/record`). `profile` (with `pid`): then four more drags while `sample` profiles the app
     and the renderer that spent the most during the measured drags (`out/sample-app.txt`,
     `out/sample-renderer.txt`). Snapshots, the recording and profiling perturb timing, so those drags are
     not measured."""
@@ -236,17 +249,20 @@ def drive(driver, out: Path, strip: bool = False, page_kind: str = "probe", pid:
     profiled = None
     if profile and pid:
         renderer = next((d["cpu"].get("busiest_renderer") for d in reversed(drags) if d.get("cpu")), None)
-        samplers = {"app": _sample(pid, 3, out / "sample-app.txt")}
+        samplers = {"app": _sample(pid, 6, out / "sample-app.txt")}
         if renderer:
-            samplers["renderer"] = _sample(renderer, 3, out / "sample-renderer.txt")
-        time.sleep(0.3)
-        profiled = {"renderer_pid": renderer, "out": drag(-160), "back": drag(160)}
+            samplers["renderer"] = _sample(renderer, 6, out / "sample-renderer.txt")
+        began = time.monotonic()
+        profiled = {"renderer_pid": renderer, "attached": {name: bool(sampler) for name, sampler in samplers.items()},
+                    "drags": [drag(dx) for dx in (-160, 160, -160, 160)]}
+        profiled["drag_s"] = round(time.monotonic() - began, 2)
         for sampler in samplers.values():
             if sampler:
                 try:
-                    sampler.wait(timeout=30)
+                    sampler.communicate(timeout=60)
                 except subprocess.TimeoutExpired:
                     sampler.kill()
+                    sampler.communicate()
         time.sleep(0.6)
     recorded = None
     if record:
