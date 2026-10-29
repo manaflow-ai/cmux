@@ -307,8 +307,8 @@ public final class ChiefSession {
     /// callback. Match the reply's idempotency key when that happens so the
     /// delayed callback cannot briefly resurrect a duplicate bubble.
     static func liveReplyMatches(_ live: ChiefLive, message: ConversationMessage?) -> Bool {
-        let keyParts = live.key.split(separator: "\u{0}", maxSplits: 1)
-        guard let message, let author = keyParts.first, message.senderID == String(author),
+        let keyParts = live.key.split(separator: "\u{0}", omittingEmptySubsequences: false)
+        guard keyParts.count == 3, let message, message.senderID == String(keyParts[1]),
               let clientID = message.clientMessageID,
               let runID = keyParts.last, !runID.isEmpty else { return false }
         return clientID == runID || clientID.hasSuffix(":\(runID)")

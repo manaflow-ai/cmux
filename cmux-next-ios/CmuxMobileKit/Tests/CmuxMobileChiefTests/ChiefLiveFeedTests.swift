@@ -1,3 +1,4 @@
+import CmuxConversationCore
 import Foundation
 import Testing
 @testable import CmuxMobileChief
@@ -33,12 +34,23 @@ import Testing
         continuation.finish()
     }
 
-    @Test func aReplyThatArrivesBeforeTheBatchedLiveCallbackMatchesItsRun() {
-        let live = ChiefLive(key: "agent_mux\u{0}run-7", step: "talk:0", text: "answer")
+    @Test func aReplyThatArrivesBeforeTheBatchedLiveCallbackMatchesItsRun() throws {
+        var state = ChiefLiveState(conversation: "conversation-1")
+        #expect(state.delta([
+            "conversation": "conversation-1", "author": "agent_mux", "run": "run-7",
+            "step": "talk:0", "seq": 0, "text": "answer"
+        ]) == .changed)
+        let live = try #require(state.current)
         let reply = ConversationMessage(
             id: "reply", seq: 7, clientMessageID: "agent_mux:chief-reply:run-7",
             senderID: "agent_mux", sentAt: Date(), text: "answer"
         )
         #expect(ChiefSession.liveReplyMatches(live, message: reply))
+        var otherReply = reply
+        otherReply.senderID = "agent_other"
+        #expect(!ChiefSession.liveReplyMatches(live, message: otherReply))
+        otherReply = reply
+        otherReply.clientMessageID = "agent_mux:chief-reply:run-8"
+        #expect(!ChiefSession.liveReplyMatches(live, message: otherReply))
     }
 }
