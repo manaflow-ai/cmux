@@ -18,6 +18,7 @@ import { setTabRow } from "./header/tabRow";
 import { setFloatingState } from "./floatingState";
 import { configureNativeSidebarPreviewVariant } from "./sidebarPreview";
 import { setSessionStatus } from "./sessionStatus";
+import { setComputerUsePreview } from "./computerUse/computerUsePreview";
 
 export const HOST_EVENTS = "cmux.agent.host.events";
 /// NewTabPage's FOCUS_LOCATION_EVENT, kept here so the transport does not load the new tab page.
@@ -122,6 +123,9 @@ export function applyHostEvent(event: HostEvent): void {
     case "toolCards":
       // Direct, like deviceChats: a push before the chat mounts is kept.
       return setToolCards(event.value);
+    case "computerUsePreview":
+      // Direct, like toolCards: a push before the chat mounts is kept.
+      return setComputerUsePreview(event.value);
     case "customization":
       return bridge?.applyCustomization(value);
     case "headerState":

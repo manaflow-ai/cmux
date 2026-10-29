@@ -61,17 +61,23 @@ export function useNewTabCommand(
     const accepted = actions.onCmuxCommand(command.command, command.args);
     if (typeof accepted === "string") refuse(accepted);
     else if (accepted instanceof Promise) {
+      // An accepted owned command consumes this draft immediately. Its async work must not
+      // strand staged files (or let a pending file read leak into the next prompt) while we wait.
+      clear();
       pending.current = true;
       void accepted.then(
         () => {
           pending.current = false;
-          clear();
         },
         () => {
           pending.current = false;
+          // The accepted command already cleared its draft; anchor the error to the empty field
+          // so the rejection is still visible until the next edit.
+          setRefusal({ text: "", message: t("composer.cmuxUnavailable") });
         },
       );
-    } else if (accepted !== false) clear();
+    } else if (accepted === false) refuse(t("composer.cmuxUnavailable"));
+    else clear();
     return true;
   };
   const input = (

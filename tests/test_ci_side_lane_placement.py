@@ -98,6 +98,17 @@ def placed_in(attempt: str, actor: str) -> str:
     return attempt if attempt == "1" or attempt == "2" and actor in RESCUE_BOTS else "1"
 
 
+
+# The DEV daily placement (dev-daily-place) hands cmux-scheme-compile a runs-on that may be a label list
+# ([a pool label, glaeda-runner-<name>]); the job's label copy reads that list's first label instead.
+DAILY_PICK = ("needs.dev-daily-place.outputs.runs_on != '' && fromJSON(needs.dev-daily-place.outputs.runs_on)",
+              "needs.dev-daily-place.outputs.runner_label != '' && needs.dev-daily-place.outputs.runner_label")
+
+
+def label_copy(runs_on: str) -> str:
+    """runs-on as the job's own CMUX_NEXT_RUNNER copy states it."""
+    return runs_on.replace(*DAILY_PICK)
+
 class Decide(unittest.TestCase):
     def setUp(self):
         self.assertIsNotNone(placement, "scripts/ci/side_lane_placement.py is missing")
@@ -742,7 +753,7 @@ class CmuxNextWiring(unittest.TestCase):
                     continue
                 # The job's own copy of its label (mini-only steps) agrees with runs-on.
                 if name != "release-compile":
-                    self.assertEqual(job["env"]["CMUX_NEXT_RUNNER"], job["runs-on"])
+                    self.assertEqual(job["env"]["CMUX_NEXT_RUNNER"], label_copy(job["runs-on"]))
 
     def test_trusted_attempts_use_the_live_route_until_overflow(self):
         jobs = self.workflow()["jobs"]
@@ -807,7 +818,7 @@ class CmuxNextWiring(unittest.TestCase):
                 rerun["vars"]["CI_SESSION_LABEL"] = "1"
                 self.assertEqual(evaluate(runs_on, rerun), SESSION if name in SESSION_JOBS else on(name, SIDE))
                 if name != "release-compile":
-                    self.assertEqual(jobs[name]["env"]["CMUX_NEXT_RUNNER"], runs_on)
+                    self.assertEqual(jobs[name]["env"]["CMUX_NEXT_RUNNER"], label_copy(runs_on))
 
     def test_a_bot_attempt_3_leaves_the_placement_label_for_blacksmith(self):
         # A rescue attempt 3 must drop the stale placement output and use the

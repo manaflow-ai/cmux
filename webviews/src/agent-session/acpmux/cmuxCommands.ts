@@ -5,7 +5,7 @@ import type { SlashCommand } from "./slashCommands";
 /** Commands owned by cmux and available in every harness chat. Their description is a pane string. */
 export type CmuxCommand = SlashCommand & {
   source: "cmux";
-  action: "import" | "continue" | "fork" | "btw" | "status";
+  action: "import" | "continue" | "fork" | "btw" | "side" | "status";
   descriptionKey?: NonNullable<SlashCommand["descriptionKey"]>;
 };
 
@@ -42,6 +42,13 @@ export const CMUX_COMMANDS: readonly CmuxCommand[] = [
     hint: "<question>",
     source: "cmux",
     action: "btw",
+  },
+  {
+    name: "side",
+    description: "",
+    descriptionKey: "composer.slashSide",
+    source: "cmux",
+    action: "side",
   },
   {
     name: "status",
@@ -136,6 +143,7 @@ export function cmuxCommandRefusal(
       return undefined;
     case "status":
       return state.summary ? undefined : "composer.cmuxStatusUnavailable";
+    case "side":
     case "fork":
       if (args?.trim()) return "composer.cmuxForkArgs";
       return state.forkable ? undefined : "composer.cmuxForkBusy";

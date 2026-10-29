@@ -19,7 +19,7 @@ import { QUESTION_RECORD } from "../question/record";
 import type { Translate } from "../i18n";
 import { editedPaths, isBareShellName, toolLabel } from "../toolPaths";
 import { shortCommand } from "./shortCommand";
-import { groupWaitingSteps, type WaitingSteps } from "./waitingMessages";
+import { groupAgentMessages, groupWaitingSteps, type WaitingSteps } from "./waitingMessages";
 import { tailStart } from "./ToolGroupRow";
 import { awaitsPermission, isDraftCall, isRunning, toolGroups } from "./toolGroups";
 import { acpmuxSendCall } from "./acpmuxSends";
@@ -135,6 +135,7 @@ export type TurnView = {
   lineBelow: boolean;
   working: boolean;
   sessionStatus: boolean;
+  messageBreaks: readonly number[];
   /// The steers that wait (snapshot `waitingSteers`), and where they were in the running turn, with
   /// the cards other sessions' messages among them draw as (waitingMessages.ts `groupWaitingSteps`).
   waitingSteers?: readonly string[];
@@ -146,13 +147,16 @@ export type TurnView = {
   starts: number[];
   times: TurnTimes[];
   dated: boolean[];
-  ends: number[];
+  /// Each boundary keeps its count and last row before the next prompt extends a fold.
+  ends: { count: number; row: AcpmuxRow | undefined }[];
   rows: AcpmuxRow[];
 };
 
 /// ``turnView``, building on `previous`: the turns before the one holding the first row that
 /// differs from `previous.source` (by object) keep their drawn rows, so a long chat's snapshot
 /// shapes only its last turns.
+const NO_MESSAGE_BREAKS: readonly number[] = [];
+
 export function turnViewFrom(
   rows: readonly AcpmuxRow[],
   expanded: ReadonlySet<string>,
@@ -164,6 +168,7 @@ export function turnViewFrom(
     sessionStatus = false,
     lineBelow = false,
     waitingSteers,
+    messageBreaks = NO_MESSAGE_BREAKS,
   }: {
     now?: number;
     working?: boolean;
@@ -173,6 +178,8 @@ export function turnViewFrom(
     lineBelow?: boolean;
     /// The steers the agent has not read yet (snapshot `waitingSteers`), one array while they hold.
     waitingSteers?: readonly string[];
+    /// Sorted insertion times of synthetic rows that must separate received message runs.
+    messageBreaks?: readonly number[];
   } = {},
   previous?: TurnView,
 ): TurnView {
@@ -183,6 +190,7 @@ export function turnViewFrom(
     previous.clockOffset === clockOffset &&
     previous.liveRuns === liveRuns &&
     previous.lineBelow === lineBelow &&
+    previous.messageBreaks === messageBreaks &&
     previous.working === working &&
     previous.sessionStatus === sessionStatus &&
     previous.waitingSteers === waitingSteers &&
@@ -199,6 +207,7 @@ export function turnViewFrom(
     previous.clockOffset === clockOffset &&
     previous.liveRuns === liveRuns &&
     previous.lineBelow === lineBelow &&
+    previous.messageBreaks === messageBreaks &&
     previous.starts.length
   ) {
     const shared = previous.source;
@@ -219,11 +228,13 @@ export function turnViewFrom(
   let starts: number[];
   let times: TurnTimes[];
   let dated: boolean[];
-  let ends: number[];
+  let ends: TurnView["ends"];
   if (reuse > 0) {
     lead = previous!.lead;
     index = previous!.starts[reuse]!;
-    out = previous!.rows.slice(0, previous!.ends[reuse - 1]);
+    const boundary = previous!.ends[reuse - 1];
+    out = previous!.rows.slice(0, boundary?.count);
+    if (boundary?.row && out.length) out[out.length - 1] = boundary.row;
     starts = previous!.starts.slice(0, reuse);
     times = previous!.times.slice(0, reuse);
     dated = previous!.dated.slice(0, reuse);
@@ -289,11 +300,11 @@ export function turnViewFrom(
     const runs = waiting?.runs ?? [];
     for (let index = 0, run = 0; index < shaped.length; index += 1) {
       if (run < runs.length && index === runs[run]![0]) {
-        out.push(runs[run]![2]);
+        groupAgentMessages([runs[run]![2]], out, undefined, messageBreaks);
         index = runs[run++]![1] - 1;
-      } else out.push(shaped[index]!);
+      } else groupAgentMessages([shaped[index]!], out, undefined, messageBreaks);
     }
-    ends.push(out.length);
+    ends.push({ count: out.length, row: out.at(-1) });
   }
   return {
     source: rows,
@@ -303,6 +314,7 @@ export function turnViewFrom(
     lineBelow,
     working,
     sessionStatus,
+    messageBreaks,
     ...(waitingSteers ? { waitingSteers } : {}),
     ...(waiting ? { waiting } : {}),
     lead,

@@ -24,6 +24,8 @@ test("owned commands are recognized independently of menu availability, even wit
 });
 
 test("disabled and malformed commands return reasons rather than dispatching", () => {
+  expect(refusal("/side", { forkable: false })).toBe("composer.cmuxForkBusy");
+  expect(refusal("/side question")).toBe("composer.cmuxForkArgs");
   expect(refusal("/fork", { forkable: false })).toBe("composer.cmuxForkBusy");
   expect(refusal("/continue codex", { canContinue: false })).toBe("composer.cmuxContinueBusy");
   expect(refusal("/status", { summary: false })).toBe("composer.cmuxStatusUnavailable");
@@ -35,7 +37,7 @@ test("disabled and malformed commands return reasons rather than dispatching", (
 });
 
 test("valid commands retain their actions", () => {
-  for (const text of ["/import", "/fork", "/status", "/continue", "/continue Codex", "/btw question"])
+  for (const text of ["/import", "/side", "/fork", "/status", "/continue", "/continue Codex", "/btw question"])
     expect(refusal(text)).toBeUndefined();
 });
 

@@ -95,8 +95,11 @@ async function composer(
   typed: string,
   onCmuxCommand?: (command: CmuxCommand, args?: string) => boolean | string,
   importSandboxed = false,
+  onImportFile?: (file: File) => Promise<unknown>,
+  upload?: (files: File[]) => Promise<{ paths: string[] }>,
 ) {
   const sent: Sent[] = [];
+  const sentAttachments: string[][] = [];
   let handle: ComposerHandle | null = null;
   const { createRoot } = await import("react-dom/client");
   const { Composer } = await import("../src/agent-session/acpmux/Composer");
@@ -110,6 +113,7 @@ async function composer(
         chips={Chips}
         onSend={(text, _attachments, steer) => {
           sent.push({ text, steer });
+          sentAttachments.push(_attachments.map((attachment) => attachment.name));
           return true;
         }}
         onStop={() => {}}
@@ -117,6 +121,8 @@ async function composer(
         onNewChat={() => {}}
         {...(onCmuxCommand ? { onCmuxCommand } : {})}
         {...(importSandboxed ? { importSandboxed } : {})}
+        {...(onImportFile ? { onImportFile } : {})}
+        {...(upload ? { upload } : {})}
         localName="studio"
         projectChoices={[{ cwd: "/Users/you/src/app", label: "app" }]}
       />,
@@ -124,7 +130,7 @@ async function composer(
   );
   await act(async () => handle!.restore(typed, []));
   const field = host.querySelector<HTMLElement>("[role=combobox]")!;
-  return { field, sent };
+  return { field, sent, sentAttachments, restore: (text: string) => act(async () => handle!.restore(text, [])) };
 }
 
 // Each test is its own chat, so no draft kept for one chat comes back in the next test.
@@ -212,11 +218,11 @@ test("a Sandboxed chat refuses /import before the picker and ignores a late file
   const { field, sent } = await composer(
     chat(),
     "/import",
-    (command) => {
-      if (command.name === "import") imported.push(new File(["unexpected"], "transcript.json"));
-      return true;
-    },
+    undefined,
     true,
+    async (file) => {
+      imported.push(file);
+    },
   );
   const input = host.querySelector<HTMLInputElement>('input[aria-label="/import"]')!;
   let opened = false;
@@ -234,6 +240,47 @@ test("a Sandboxed chat refuses /import before the picker and ignores a late file
   await act(async () => input.dispatchEvent(new window.Event("change", { bubbles: true })));
   expect(imported).toEqual([]);
   expect(sent).toEqual([]);
+});
+
+test("active-chat /import opens synchronously despite a pending file and consumes that read", async () => {
+  let resolve!: (result: { paths: string[] }) => void;
+  const page = await composer(
+    chat(),
+    "/import",
+    undefined,
+    false,
+    async () => {},
+    () =>
+      new Promise((done) => {
+        resolve = done;
+      }),
+  );
+  const file = new File(["contents"], "pending.txt", { type: "text/plain" });
+  const paste = new window.Event("paste", { bubbles: true, cancelable: true });
+  Object.defineProperty(paste, "clipboardData", {
+    value: { files: [file], types: ["Files"], getData: () => "" },
+  });
+  await act(async () => page.field.dispatchEvent(paste));
+  expect(host.querySelector(".acpmux-attachment-pending")).not.toBeNull();
+  let opened = false;
+  host.querySelector<HTMLInputElement>('input[aria-label="/import"]')!.click = () => {
+    opened = true;
+  };
+  await act(async () => {
+    page.field.dispatchEvent(key({ key: "Enter", keyCode: 13 }));
+    expect(opened).toBe(true);
+  });
+  expect(page.field.textContent).toBe("");
+  expect(host.querySelector(".acpmux-attachment-pending")).toBeNull();
+  expect(page.sent).toEqual([]);
+  await act(async () => resolve({ paths: ["/tmp/pending.txt"] }));
+  // Type into the field itself: restore() would replace attachments and hide a leaked pending read.
+  await act(async () => {
+    page.field.textContent = "Explain this file";
+    page.field.dispatchEvent(new window.InputEvent("input", { bubbles: true, inputType: "insertText" }));
+  });
+  await dispatch(page.field, key({ key: "Enter", keyCode: 13 }));
+  expect(page.sentAttachments).toEqual([[]]);
 });
 
 test("Return after Dictation (keyCode 229, no composition) steers the running turn, never adds a line", async () => {
