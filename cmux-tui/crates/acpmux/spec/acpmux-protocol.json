@@ -421,6 +421,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/mesh_control",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/step_now",
       "params": true,
       "result": true
@@ -546,6 +552,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/keep",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/watch_take_over",
       "params": true,
       "result": true
@@ -641,6 +653,30 @@
       "result": {
         "$ref": "#/types/MailAckResult"
       }
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/team/send",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/team/inbox",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/team/read",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/team/ack",
+      "params": true,
+      "result": true
     },
     {
       "kind": "request",
@@ -906,6 +942,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/set_turn_cap",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/person_enroll",
       "params": true,
       "result": true
@@ -1027,6 +1069,12 @@
     {
       "kind": "request",
       "name": "_acpmux/chat_transcript",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/chat_fork",
       "params": true,
       "result": true
     },
@@ -1425,6 +1473,24 @@
     {
       "kind": "request",
       "name": "_acpmux/pair_set",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/machine_consent_set",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/machine_consent_get",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/machine_consent_refused",
       "params": true,
       "result": true
     },
@@ -3139,6 +3205,31 @@
       ],
       "type": "object"
     },
+    "PromptClass": {
+      "description": "What another agent's message asks of the session it goes to.",
+      "oneOf": [
+        {
+          "const": "block",
+          "description": "The sender cannot go on until the receiver acts.",
+          "type": "string"
+        },
+        {
+          "const": "question",
+          "description": "The sender asks something and waits for the answer.",
+          "type": "string"
+        },
+        {
+          "const": "result",
+          "description": "The sender reports work it finished. A message sent with no class is one.",
+          "type": "string"
+        },
+        {
+          "const": "fyi",
+          "description": "Information to read at leisure.",
+          "type": "string"
+        }
+      ]
+    },
     "ProtocolParams": {
       "additionalProperties": false,
       "description": "`_acpmux/protocol` takes no params.",
@@ -3212,6 +3303,18 @@
           ],
           "description": "The teammate who queued it in a shared chat (`_meta.provenance` `person_message`,\n`author.rs`), null for the owner's and for an agent's message: an app shows it under their\nname and offers none of its own actions on it (only they change it, `queue.not_author`).\nKept across a restart and by their own edit."
         },
+        "class": {
+          "anyOf": [
+            {
+              "$ref": "#/types/PromptClass"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "What another agent's message asks of this chat (`_meta.acpmux.class`, `prompt_class.rs`):\n`result` when it named none; null for the person's own prompt and from a peer on an older\nacpmux."
+        },
         "client": {
           "type": "string"
         },
@@ -3251,6 +3354,7 @@
       },
       "required": [
         "author",
+        "class",
         "client",
         "fromAgent",
         "held",
@@ -4597,12 +4701,36 @@
             "null"
           ]
         },
+        "excludeStatus": {
+          "description": "`_acpmux/sessions` only: exclude these statuses before pagination.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
         "limit": {
           "description": "Page size, at least 1. Without it the reply is the whole list.",
           "format": "uint64",
           "minimum": 1,
           "type": [
             "integer",
+            "null"
+          ]
+        },
+        "localOnly": {
+          "description": "`_acpmux/sessions` only: exclude peer sessions before pagination.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "orderBy": {
+          "description": "`_acpmux/sessions` only: `sessionId` orders by immutable ID for complete scans.",
+          "type": [
+            "string",
             "null"
           ]
         },

@@ -12,6 +12,7 @@ use super::{
     Actor, MachinePublicId, PanePublicId, ScreenPublicId, SessionPublicId, TabPublicId,
     TerminalPublicId, WorkspacePublicId, WorkspaceRegistry,
 };
+use cmux_json::JsonSet as _;
 
 pub(crate) fn create_schema(tx: &Transaction<'_>) -> anyhow::Result<()> {
     tx.execute_batch(
@@ -261,13 +262,13 @@ fn normalize_receipt(intent: &AgentCLIIntent, receipt: &Value) -> anyhow::Result
     TabPublicId::parse(text(path, "tab_id")?.to_owned())?;
     TerminalPublicId::parse(text(path, "terminal_id")?.to_owned())?;
     let mut receipt = receipt.clone();
-    receipt["replayed"] = json!(true);
+    receipt.set("replayed", json!(true));
     Ok(receipt)
 }
 
 fn row_value(intent: &AgentCLIIntent, receipt: Option<Value>) -> anyhow::Result<Value> {
     let mut value = serde_json::to_value(intent)?;
-    value["receipt"] = receipt.unwrap_or(Value::Null);
+    value.set("receipt", receipt.unwrap_or(Value::Null));
     Ok(value)
 }
 

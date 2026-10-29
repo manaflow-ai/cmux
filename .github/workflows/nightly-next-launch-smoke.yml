@@ -22,7 +22,11 @@ name: nightly-next launch smoke
 #
 # Every 10 minutes it checks the feed's newest Nightly build (never a Dev-ring or
 # Canary-only one): a pass is cached per build, so a tick with no new build stops
-# in the Linux pick job. A cannot-run is cached
+# in the Linux pick job. A build another run is already smoking (its smoke queued or
+# running) is skipped too, so a build gets one smoke at a time (nightly_next_launch_smoke.py
+# in-flight). The pick places the smoke like cmux-next's Mac jobs
+# (scripts/ci/side_lane_placement.py and next_macos_cascade.py): an idle owned Mac,
+# else a free Blacksmith macOS slot, never a wait on one busy side label. A cannot-run is cached
 # for the rest of its UTC hour only, so a build the infrastructure could not
 # smoke is tried again at most an hour later. A crash is not cached, so it is
 # retried until its rollback lands. A schedule and a dispatch register only
@@ -67,10 +71,24 @@ jobs:
   pick:
     if: github.repository == 'manaflow-ai/cmux' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-32vcpu-ubuntu-2404' || 'blacksmith-16vcpu-ubuntu-2404' }}
-    timeout-minutes: 5
+    timeout-minutes: 8
+    # The routing App's read-only key for the placement, in the environment cmux-next's placement
+    # uses; a pull request's run takes none (and mints no token).
+    environment: ${{ github.event_name != 'pull_request' && 'ci-routing-agent' || '' }}
     permissions: {}
     outputs:
       build: ${{ steps.feed.outputs.build }}
+      # Another run whose smoke of this build is queued or running, else empty: a scheduled tick then
+      # starts no second smoke of it.
+      in_flight: ${{ steps.in-flight.outputs.in_flight }}
+      # The smoke's placement (side_lane_placement.py): the side route, and the Blacksmith label the
+      # cascade lists `launch-smoke` for when no idle owned Mac takes it. Empty keeps the side label.
+      runner: ${{ steps.place.outputs.runner }}
+      blacksmith_12_jobs: ${{ steps.place.outputs.blacksmith_12_jobs }}
+      blacksmith_6_jobs: ${{ steps.place.outputs.blacksmith_6_jobs }}
+      # The attempt that placed: a re-run of the smoke alone keeps attempt 1's outputs, which name a
+      # Blacksmith slot read then, so the smoke reads them only in the attempt that wrote them.
+      placed_attempt: ${{ steps.place.outcome == 'success' && format('{0}', github.run_attempt) || '' }}
       url: ${{ steps.feed.outputs.url }}
       length: ${{ steps.feed.outputs.length }}
       checked: ${{ steps.seen.outputs.cache-hit == 'true' || steps.seen-hour.outputs.cache-hit == 'true' }}
@@ -80,7 +98,7 @@ jobs:
         with:
           ref: ${{ env.TOOLING_REF }}
           persist-credentials: false
-          sparse-checkout: scripts/ci/nightly_next_launch_smoke.py
+          sparse-checkout: scripts/ci
           sparse-checkout-cone-mode: false
 
       # The newest build Nightly apps are offered (nightly_next_launch_smoke.py pick):
@@ -122,14 +140,62 @@ jobs:
           key: ${{ env.SMOKE_CACHE_PREFIX }}${{ steps.feed.outputs.build }}-cannot-run-${{ steps.hour.outputs.hour }}
           lookup-only: true
 
+      # Reads the owned runners and Blacksmith's load for the placement, and this workflow's runs.
+      # A pull request's run mints none (its placement code is its own head): it keeps the side label.
+      - name: Mint the owned-pool read token
+        id: route-token
+        if: github.event_name != 'pull_request' && vars.GLAEDA_ROUTE_APP_ID != '' && steps.seen.outputs.cache-hit != 'true' && steps.seen-hour.outputs.cache-hit != 'true'
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-administration: read
+          permission-organization-self-hosted-runners: read
+          permission-actions: read
+
+      # One smoke per build: a scheduled tick skips a build whose smoke another run has queued or
+      # running (on 2026-10-29 the ticks queued up to three smokes of one build on the side label).
+      # Read on every event so a pull request's run exercises it; only a scheduled tick acts on it.
+      - name: Skip a build another run is smoking
+        id: in-flight
+        if: steps.seen.outputs.cache-hit != 'true' && steps.seen-hour.outputs.cache-hit != 'true'
+        env:
+          BUILD: ${{ steps.feed.outputs.build }}
+          GH_TOKEN: ${{ steps.route-token.outputs.token || github.token }}
+        run: python3 scripts/ci/nightly_next_launch_smoke.py in-flight --build "$BUILD" >> "$GITHUB_OUTPUT"
+
+      # The routing order, as cmux-next's Mac jobs take it: an idle owned Mac on the side label, else a
+      # free Blacksmith macOS slot (12 vCPU, then 6), else 6 vCPU's queue while it moves, and only then
+      # the side label's queue (next_macos_cascade.py). FRESH_JOBS ranks the smoke with a feed's
+      # compiles: unread counts send it to Blacksmith 6 vCPU rather than an owned queue nobody measured.
+      # Anything unread or refused places nothing, and the smoke keeps the side label.
+      - name: Place the smoke
+        id: place
+        if: steps.route-token.outputs.token != '' && (github.event_name != 'schedule' || steps.in-flight.outputs.in_flight == '')
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          ROUTE_TOKEN: ${{ steps.route-token.outputs.token }}
+          SNAPSHOT_TOKEN: ${{ steps.route-token.outputs.token }}
+          SIDE_LABEL: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && vars.CI_SIDE_LANE_RUNNER || '' }}
+          JOBS: launch-smoke
+          CASCADE_JOBS: launch-smoke
+          CASCADE_RUNS: ' launch-smoke '
+          FRESH_JOBS: launch-smoke
+        run: python3 scripts/ci/side_lane_placement.py
+
   smoke:
     name: smoke ${{ needs.pick.outputs.build }}
     needs: pick
-    if: needs.pick.result == 'success' && needs.pick.outputs.checked != 'true'
-    # No secrets and no environment: it runs the published app. An owned Mac's
-    # side label on attempt 1 (owned_pool_rescue.SIDE_WORKFLOW_PATHS re-runs a
-    # refused job), then MACOS_RUNNER_26 or Blacksmith macOS 26. Never a GitHub-hosted Mac.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    if: needs.pick.result == 'success' && needs.pick.outputs.checked != 'true' && (github.event_name != 'schedule' || needs.pick.outputs.in_flight == '')
+    # No secrets and no environment: it runs the published app. The pick's placement:
+    # the Blacksmith label the cascade lists `launch-smoke` for, else on attempt 1 an
+    # owned Mac's side route (an idle one when the placement found it;
+    # owned_pool_rescue.SIDE_WORKFLOW_PATHS re-runs a refused job), then
+    # MACOS_RUNNER_26 or Blacksmith macOS 26. Never a GitHub-hosted Mac.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || needs.pick.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.pick.outputs.blacksmith_12_jobs, ' launch-smoke ') && 'blacksmith-12vcpu-macos-26' || needs.pick.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.pick.outputs.blacksmith_6_jobs, ' launch-smoke ') && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && github.run_attempt == 1 && (needs.pick.outputs.runner || vars.CI_SIDE_LANE_RUNNER) || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 20
     permissions:
       contents: read
