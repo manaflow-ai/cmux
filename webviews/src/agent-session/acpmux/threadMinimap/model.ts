@@ -19,6 +19,9 @@ export type MinimapTurn = {
   /// The user row's index in the transcript rows (and in the layout's tops).
   index: number;
   id: string;
+  /// The drawn row the turn lands on, when it is not the prompt's own: the card that folds received
+  /// messages (conversation/waitingMessages.ts groupAgentMessages).
+  rowId?: string;
   /// The turn's stable key (turnKey): session id and the prompt's promptId, else its row id, since
   /// every session numbers its rows `user-<seq>` and a row's `at` is not stable across snapshots.
   /// Bookmarks use the row id's seq instead (bookmarks.ts), which acpmux checks against its log.
@@ -318,6 +321,8 @@ const agreed = new WeakMap<readonly MinimapTurn[], { list: readonly MinimapTurn[
 /// rows before `from` in `rows` are the rows of `base`.
 export type RowsChange = { base: readonly AcpmuxRow[]; rows: readonly AcpmuxRow[]; from: number };
 
+const NO_ROWS: readonly AcpmuxRow[] = [];
+
 /// The transcript's turns. A turn that ends before the first row that differs from
 /// `previous.rows` (by object) is kept, and `turns` stays `previous.turns` when every turn is.
 /// `ticks` stays `previous.ticks` while the prompts are the same, so a token streaming into a reply
@@ -357,17 +362,22 @@ export function minimapTurns(
       else high = middle;
     }
     keep = Math.max(0, Math.min(reuse.turns.length - 1, low - 1));
+    // A fold's messages are turns at the fold's one row: the row is read again whole, so none of
+    // them is kept on its own.
+    while (keep > 0 && reuse.turns[keep - 1]!.index === reuse.turns[keep]!.index) keep -= 1;
   }
   // The turns read again, from `keep` on. The ones before are `reuse.turns`' own, never copied.
   const tail: MinimapTurn[] = [];
   let user: AcpmuxRow | undefined;
   let userIndex = 0;
+  let userRow: string | undefined;
   let reply: AcpmuxRow | undefined;
   let details: CardState | undefined;
   const close = () => {
     if (!user) return;
     const kept = turnsByPrompt.get(user);
-    const same = kept && kept.sessionId === sessionId && kept.turn.index === userIndex;
+    const same =
+      kept && kept.sessionId === sessionId && kept.turn.index === userIndex && kept.turn.rowId === userRow;
     const nextMetadata = details?.metadata;
     const sameReply =
       same &&
@@ -382,6 +392,7 @@ export function minimapTurns(
       const turn: MinimapTurn = {
         index: userIndex,
         id: user.id,
+        ...(userRow ? { rowId: userRow } : {}),
         key: turnKey(sessionId, user),
         // Keep explicit prompt line breaks for the hover card; its CSS clamps the title without
         // changing what the person wrote. Spaces are normalized by white-space: pre-line there.
@@ -399,13 +410,23 @@ export function minimapTurns(
   const start = keep < (reuse?.turns.length ?? 0) ? reuse!.turns[keep]!.index : 0;
   for (let index = reuse && keep > 0 ? start : 0; index < rows.length; index += 1) {
     const row = rows[index]!;
+    // Received messages in a row draw as one card (conversation/waitingMessages.ts
+    // groupAgentMessages), and each of them still opens its turn, as it did before they folded:
+    // a chat of agents' messages keeps its rail (Leo, 2026-10-28: "also i dont see the left
+    // scroll rail at all anymore?"). Their ticks all land on the card.
     // A steer goes on with its turn (turnStart.ts): it starts no minimap turn.
-    if (opensTurn(row)) {
+    const fold = row.waiting?.delivery === "chat" ? row.waiting.rows : undefined;
+    let opened = false;
+    for (const prompt of fold ?? (opensTurn(row) ? [row] : NO_ROWS)) {
+      if (!opensTurn(prompt)) continue;
       close();
-      user = row;
+      user = prompt;
       userIndex = index;
-      details = cardState(row, row);
-    } else if (user) {
+      userRow = fold ? row.id : undefined;
+      details = cardState(prompt, prompt);
+      opened = true;
+    }
+    if (!opened && user) {
       if (!reply && row.kind === "assistant" && row.text) {
         reply = row;
         details = cardState(user, row, details);

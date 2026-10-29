@@ -334,7 +334,7 @@ export function ThreadMinimap({
     if (!node || !turn) return undefined;
     const target = () =>
       Math.min(turnScrollTop(turn, live.current.tops), Math.max(0, live.current.total - node.clientHeight));
-    const row = mountedRow(node, turn.id);
+    const row = mountedRow(node, turn.rowId ?? turn.id);
     const to = target();
     // The layout's tops are estimates for rows never drawn, so a long jump can land off its mark
     // once the rows it reaches mount and measure (297 px off for 50 turns up). Where it lands is then
@@ -347,7 +347,7 @@ export function ThreadMinimap({
       settleScroll(
         node,
         () => {
-          const box = mountedRow(node, turn.id)?.getBoundingClientRect();
+          const box = mountedRow(node, turn.rowId ?? turn.id)?.getBoundingClientRect();
           // Not drawn yet, or no layout to measure (a hidden pane).
           if (!box || box.height === 0) return undefined;
           return box.top - node.getBoundingClientRect().top - LANDING_OFFSET;
@@ -364,7 +364,7 @@ export function ThreadMinimap({
       if (row) highlightBubble(bubbleOf(row));
       // An unmounted row mounts once the transcript draws its new place.
       else
-        requestAnimationFrame(() => requestAnimationFrame(() => highlightBubble(bubbleOf(mountedRow(node, turn.id)))));
+        requestAnimationFrame(() => requestAnimationFrame(() => highlightBubble(bubbleOf(mountedRow(node, turn.rowId ?? turn.id)))));
     }
     return to;
   });
