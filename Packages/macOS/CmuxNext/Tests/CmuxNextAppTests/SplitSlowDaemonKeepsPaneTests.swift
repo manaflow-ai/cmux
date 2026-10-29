@@ -13,7 +13,8 @@ import Testing
 /// reply is not a refusal: the same request again replays what the daemon committed.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
 struct SplitSlowDaemonKeepsPaneTests {
-    @Test func cmdDKeepsItsPaneWhenTheDaemonAnswersAfterTheDeadline() async throws {
+    @Test(arguments: ["splitRight", "splitDown", "newColumn", "newColumnLeft", "newRow"])
+    func terminalCreationKeepsItsPaneWhenTheDaemonAnswersAfterTheDeadline(action: String) async throws {
         try await PasswordManagerRouteTests.withApp { services, _ in
             let content = try #require(services.windows.active?.workspaceContent)
             let daemon = services.daemon
@@ -22,7 +23,7 @@ struct SplitSlowDaemonKeepsPaneTests {
             var invocation = ActionInvocation(origin: .user)
             invocation.opensTerminal = true
             try await keepsPane(services, content, past: DaemonConnection.defaultSpawnTimeout) {
-                _ = services.registry.perform("splitRight", invocation: invocation)
+                _ = services.registry.perform(ActionID(rawValue: action), invocation: invocation)
             }
         }
     }
