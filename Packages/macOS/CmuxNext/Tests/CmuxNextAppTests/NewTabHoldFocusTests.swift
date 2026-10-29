@@ -178,4 +178,28 @@ struct NewTabHoldFocusTests {
             #expect(ran.contains("toggleSidebar"), "Cmd-B waited behind the keys held for the page: \(input.log)")
         }
     }
+
+    /// The person moves the focus to another pane after Cmd-T, before typing (review finding 2): the keys they type are
+    /// for that pane, not for the page. Before, the hold judged the move on the focus state before the move was reduced
+    /// (the person's intent is seen before its reduction), so it kept stamping the keys for the page they left.
+    @Test func aFocusMoveBeforeAnyKeyEndsThePagesHold() async throws {
+        try await Self.withUnreadyPage { h in
+            let (services, controller, window, focused, other) = (h.services, h.controller, h.window, h.focused, h.other)
+            let router = services.keyRouter
+            let input = router.newTabInputCoordinator
+            controller.focus.send(.focusPane(other.paneKey, source: .programmatic))
+            try await PasswordManagerRouteTests.until({ controller.focus.state.pane == other.paneKey }, within: .seconds(5),
+                                                      report: { "the focus model never named the page's pane" })
+            _ = try #require(input.begin(for: other))
+            input.didShow(in: window)
+
+            // The person moves to the other pane by keyboard, then types.
+            controller.focus.send(.focusPane(focused.paneKey, source: .keyboard))
+            let captured = router.inputQueues.existing(for: window.windowNumber)?.counts.captured ?? 0
+            _ = router.interceptKeyDown(try Self.key("h", keyCode: 4, in: window), in: window)
+            #expect((router.inputQueues.existing(for: window.windowNumber)?.counts.captured ?? 0) == captured,
+                    "a key typed after the person moved to another pane was held for the page: \(input.log)")
+            #expect(!input.isHolding(in: window), "the page's hold outlived the person's move: \(input.log)")
+        }
+    }
 }
