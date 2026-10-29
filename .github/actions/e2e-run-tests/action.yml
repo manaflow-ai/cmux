@@ -109,6 +109,8 @@ runs:
     - name: Create virtual display
       if: ${{ inputs.target == 'cmuxUITests' && inputs.filter != 'DisplayResolutionRegressionUITests' }}
       shell: bash
+      env:
+        CMUX_DISPLAY_TEST_FILTER: ${{ inputs.filter }}
       run: |
         set -euo pipefail
         echo "=== Display before ==="
@@ -121,7 +123,14 @@ runs:
         VDISPLAY_LOG="$RUNNER_TEMP/cmux-virtual-display.log"
         rm -f "$VDISPLAY_READY" "$VDISPLAY_ID_PATH" "$VDISPLAY_LOG"
 
+        VDISPLAY_MODES=1920x1080
+        VDISPLAY_HIDPI=0
+        if [[ "$CMUX_DISPLAY_TEST_FILTER" == TerminalCmdClickUITests* ]]; then
+          VDISPLAY_MODES=3840x2160
+          VDISPLAY_HIDPI=1
+        fi
         /tmp/create-virtual-display \
+          --modes "$VDISPLAY_MODES" --hidpi "$VDISPLAY_HIDPI" \
           --ready-path "$VDISPLAY_READY" \
           --display-id-path "$VDISPLAY_ID_PATH" \
           >"$VDISPLAY_LOG" 2>&1 &

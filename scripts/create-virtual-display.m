@@ -226,7 +226,7 @@ int main(int argc, const char *argv[]) {
 
         // Apply settings with display mode
         CGVirtualDisplaySettings *settings = [[CGVirtualDisplaySettings alloc] init];
-        settings.hiDPI = 0;
+        settings.hiDPI = [argumentValue(arguments, @"--hidpi") isEqualToString:@"1"] ? 1 : 0;
         settings.modes = modes;
 
         BOOL ok = [display applySettings:settings];

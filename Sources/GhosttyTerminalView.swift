@@ -9062,6 +9062,23 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         )
     }
 
+    /// The grid in this view's points. `cellSize` and `ghostty_surface_size`
+    /// are backing pixels, so they cannot map a mouse location to a cell.
+    func pointerGridGeometry() -> TerminalPointerGridGeometry? {
+        guard let surface else { return nil }
+        var metrics = ghostty_surface_grid_metrics_s()
+        guard ghostty_surface_grid_metrics(surface, &metrics) else { return nil }
+        return TerminalPointerGridGeometry(
+            columns: Int(metrics.columns),
+            rows: Int(metrics.rows),
+            cellWidth: CGFloat(metrics.cell_width),
+            cellHeight: CGFloat(metrics.cell_height),
+            paddingLeft: CGFloat(metrics.padding_left),
+            paddingTop: CGFloat(metrics.padding_top),
+            viewHeight: bounds.height
+        )
+    }
+
     private func visibleWordPathSnapshot(at point: NSPoint, panel: TerminalPanel) -> (line: String, column: Int)? {
         guard let surface else { return nil }
         let size = ghostty_surface_size(surface)
@@ -10915,12 +10932,19 @@ final class GhosttySurfaceScrollView: NSView {
         surfaceView.terminalSurface?.id
     }
 
-    var debugCellSize: CGSize {
-        surfaceView.cellSize
+    var debugPointerGridGeometry: TerminalPointerGridGeometry? {
+        surfaceView.pointerGridGeometry()
     }
 
     private func debugPointInSurface(_ point: NSPoint) -> NSPoint {
         surfaceView.convert(point, from: self)
+    }
+
+    /// Maps a top-origin point in the surface view to a top-origin point in
+    /// this view, the space the UI-test harness clicks in.
+    func debugTopOriginPointFromSurface(x: CGFloat, yFromTop: CGFloat) -> (x: CGFloat, yFromTop: CGFloat) {
+        let point = convert(NSPoint(x: x, y: surfaceView.bounds.height - yFromTop), from: surfaceView)
+        return (x: point.x, yFromTop: bounds.height - point.y)
     }
 
     func debugSimulateSelection(from startPoint: NSPoint, to endPoint: NSPoint) -> Bool {

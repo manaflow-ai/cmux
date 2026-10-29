@@ -14,6 +14,7 @@ final class TerminalCmdClickUITests: XCTestCase {
         case osc8
         case plainURL = "url"
         case githubReference = "reference"
+        case numberedRows = "numbered_rows"
     }
 
     private struct SetupData {
@@ -113,6 +114,55 @@ final class TerminalCmdClickUITests: XCTestCase {
             "A backgrounded app can still have windows; readiness requires runningForeground."
         )
         XCTAssertTrue(Self.isReadyForInteraction(.runningForeground))
+    }
+
+    func testNativeCmdClickBareFilenameOpensClickedRow() throws {
+        let fileName = "row190.txt"
+        let app = launchApp(
+            displayMode: .raw,
+            lineFormat: .numberedRows,
+            fileName: fileName,
+            extraFileNames: (1...200).map { String(format: "row%03d.txt", $0) },
+            captureOpenPaths: true,
+            captureHoverDiagnostics: false
+        )
+        defer { app.terminate() }
+
+        let setup = try waitForReadySetup()
+        try XCTSkipIf(
+            try XCTUnwrap(setup.payload["windowBackingScaleFactor"] as? Double) != 2,
+            "Run this Retina regression with the branch's E2E workflow to provision its 2x display"
+        )
+        let terminalFrame = try XCTUnwrap(setup.payload["terminalFrameInWindow"] as? [String: Double])
+        let windowFrame = try XCTUnwrap(setup.payload["windowFrame"] as? [String: Double])
+        let hit = try XCTUnwrap(setup.payload["tokenHitPointInTerminal"] as? [String: Double])
+        let metrics = try XCTUnwrap(setup.payload["tokenCellMetrics"] as? [String: Any])
+        let rows = try XCTUnwrap(metrics["rows"] as? Int)
+        let cellHeight = try XCTUnwrap(metrics["cellHeight"] as? Double)
+        let terminalHeight = try XCTUnwrap(terminalFrame["height"])
+
+        // Independently compare the grid to the AppKit view bounds. Otherwise
+        // pixel-sized harness points and pixel-sized hit testing cancel out
+        // on Retina, and a test can pass while clicking a different screen row.
+        XCTAssertLessThanOrEqual(cellHeight * Double(rows), terminalHeight + cellHeight)
+        XCTAssertGreaterThan(try XCTUnwrap(metrics["matchedRowFromTop"] as? Int), 5)
+
+        let x = try XCTUnwrap(terminalFrame["x"]) + XCTUnwrap(hit["x"])
+        let y = try XCTUnwrap(windowFrame["height"]) - XCTUnwrap(terminalFrame["y"])
+            - terminalHeight + XCTUnwrap(hit["y"])
+        let point = app.windows.firstMatch.coordinate(withNormalizedOffset: .zero)
+            .withOffset(CGVector(dx: x, dy: y))
+        XCUIElement.perform(withKeyModifiers: [.command]) { point.click() }
+
+        XCTAssertEqual(
+            waitForCapturedOpenPaths(timeout: 5),
+            [setup.expectedPath],
+            "Every visible row names an existing file; the native click must open row190.txt. setup=\(setup.payload)"
+        )
+        let screenshot = XCTAttachment(screenshot: app.windows.firstMatch.screenshot())
+        screenshot.name = "Native bare-filename Command-click"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
     }
 
     func testCmdClickEscapedPathWithSpacesOpensResolvedFile() throws {

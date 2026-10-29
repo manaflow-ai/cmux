@@ -2992,6 +2992,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             resolvedLineFormat = "url"
         case "reference":
             resolvedLineFormat = "reference"
+        case "numbered_rows":
+            resolvedLineFormat = "numbered_rows"
         default:
             resolvedLineFormat = "grid"
         }
@@ -3012,6 +3014,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // hermetic while exercising the same Ghostty mouse-reporting gate.
         let mouseReportingCommand = mouseReportingEnabled ? "printf '\\033[?1000h'; " : ""
         switch resolvedLineFormat {
+        case "numbered_rows":
+            displayToken = resolvedFileName
+            let directory = singleQuotedShellLiteral(fixtureDirectory)
+            shellCommand = "cd '\(directory)'\rclear\r\(mouseReportingCommand)for i in $(seq 1 200); do printf 'row%03d.txt\\n' \"$i\"; done\r"
         case "osc8":
             displayToken = resolvedFileName
             let escapedDisplayToken = singleQuotedShellLiteral(displayToken)
@@ -3145,20 +3151,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         func tokenPoints(in terminalPanel: TerminalPanel, visibleText: String) -> [String: Any]? {
-            guard let surface = terminalPanel.surface.surface else { return nil }
             let bounds = terminalPanel.hostedView.bounds
             guard bounds.width > 0, bounds.height > 0 else { return nil }
 
-            let size = ghostty_surface_size(surface)
-            let rows = max(Int(size.rows), 1)
-            let cols = max(Int(size.columns), 1)
-            let debugCellSize = terminalPanel.hostedView.debugCellSize
-            let cellWidth = debugCellSize.width > 0 ? debugCellSize.width : CGFloat(size.cell_width_px)
-            let cellHeight = debugCellSize.height > 0 ? debugCellSize.height : CGFloat(size.cell_height_px)
-            guard cellWidth > 0, cellHeight > 0 else { return nil }
-
-            let xInset = max(0, (bounds.width - (CGFloat(cols) * cellWidth)) / 2)
-            let yInset = max(0, (bounds.height - (CGFloat(rows) * cellHeight)) / 2)
+            // Points, not the backing-pixel cell size: the click goes through
+            // the same point-to-cell mapping a real mouse event does.
+            guard let geometry = terminalPanel.hostedView.debugPointerGridGeometry else { return nil }
+            let rows = geometry.rows
+            let cols = geometry.columns
+            let cellWidth = geometry.cellWidth
+            let cellHeight = geometry.cellHeight
+            let xInset = geometry.paddingLeft
+            let yInset = geometry.paddingTop
             let pointClampX: (CGFloat) -> CGFloat = { x in
                 min(bounds.width - 4, max(4, x))
             }
@@ -3219,9 +3223,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 ]
             }
 
-            let yFromTop = pointClampY(yInset + (CGFloat(matchedRowFromTop) * cellHeight) + (cellHeight / 2))
-            let startX = pointClampX(xInset + (CGFloat(matchedColumnStart) * cellWidth) + (cellWidth / 2))
-            let endX = pointClampX(xInset + (CGFloat(matchedColumnEnd) * cellWidth) + (cellWidth / 2))
+            // The grid is measured in the surface view, which sits inside a
+            // scroll view; the harness clicks in hosted-view coordinates.
+            let startCenter = geometry.cellCenterFromTop(row: matchedRowFromTop, column: matchedColumnStart)
+            let endCenter = geometry.cellCenterFromTop(row: matchedRowFromTop, column: matchedColumnEnd)
+            let hostedStart = terminalPanel.hostedView.debugTopOriginPointFromSurface(
+                x: startCenter.x,
+                yFromTop: startCenter.yFromTop
+            )
+            let hostedEnd = terminalPanel.hostedView.debugTopOriginPointFromSurface(
+                x: endCenter.x,
+                yFromTop: endCenter.yFromTop
+            )
+            let yFromTop = pointClampY(hostedStart.yFromTop)
+            let startX = pointClampX(hostedStart.x)
+            let endX = pointClampX(hostedEnd.x)
             let hitX = pointClampX(startX + min(cellWidth * 2, max(0, endX - startX)))
             return [
                 "tokenHitPointInTerminal": pointPayload(x: hitX, yFromTop: yFromTop),
@@ -3283,6 +3299,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             if let window {
                 payload["windowFrame"] = rectPayload(window.frame)
                 payload["windowVisible"] = window.isVisible ? "1" : "0"
+                payload["windowBackingScaleFactor"] = window.backingScaleFactor
             }
             if let setupError {
                 payload["setupError"] = setupError
@@ -3663,7 +3680,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 lineLimit: 200
             ) ?? ""
             let renderedTokenCount = max(0, visibleText.components(separatedBy: displayToken).count - 1)
-            let hasRenderedToken = renderedTokenCount >= 6
+            let hasRenderedToken = resolvedLineFormat == "numbered_rows"
+                ? renderedTokenCount >= 1 && visibleText.contains("row200.txt")
+                : renderedTokenCount >= 6
             if hasRenderedToken,
                (tokenPointPayload?["tokenLayoutMatch"] as? String) != "1" {
                 tokenPointPayload = tokenPoints(in: terminalPanel, visibleText: visibleText)
