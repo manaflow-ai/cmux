@@ -751,7 +751,7 @@ async fn mesh_controls_start_and_stop_through_shared_sender_and_replay_success()
         let restarted = MeshControlHook::new(control_allowlist(), Some(path.clone()));
         assert_eq!(restarted.control(&hub, &duplicate).await.unwrap(), first);
         // Give the fake hub the address-book row explicitly, avoiding a timer race.
-        fake.heartbeat(&Heartbeat { host: "worker".into(), sessions: hub.mesh_rows() })
+        fake.heartbeat(&Heartbeat { host: "worker".into(), sessions: hub.mesh_rows().await })
             .await
             .unwrap();
         let to = if by_name {
