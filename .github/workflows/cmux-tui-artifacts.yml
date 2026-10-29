@@ -2774,6 +2774,9 @@ jobs:
           # binaries, and the next call must start from this run's again.
           rm -rf assets/run
           cp -R assets/tree assets/run
+          # fetch's read-once copies of write-once commit objects (below), for
+          # this job only; a shell without RUNNER_TEMP gets its own directory.
+          r2_read="${RUNNER_TEMP:-$(mktemp -d)}/r2-read"
           # Publishes the tree under KEY, which must be this checkout's key
           # of that version (CMUX-TUI-TREE-KEY-V2: v2, then v1 until B2).
           publish_tree() {
@@ -2800,7 +2803,7 @@ jobs:
             # below reads the same commit's companions the v2 pass just read
             # (2.5 min of the 5 in run 40804446248). Tree objects are not kept.
             if [[ "$object" =~ ^cmux-tui(-windows)?/[0-9a-f]{40}/[^/]+$ ]]; then
-              local kept="$RUNNER_TEMP/r2-read/$object"
+              local kept="$r2_read/$object"
               if [[ ! -f "$kept" ]]; then
                 mkdir -p "${kept%/*}"
                 CMUX_R2_DOWNLOAD_ATTEMPT_SECONDS=120 python3 scripts/ci/upload-r2-object.py --endpoint-url "$R2_ENDPOINT" \
