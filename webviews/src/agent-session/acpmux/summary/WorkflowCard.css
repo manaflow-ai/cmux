@@ -1,6 +1,8 @@
-/* A Claude workflow's card in the transcript (WorkflowCard.tsx): a hairline box with three fixed
+/* A Claude workflow's card in the transcript (WorkflowCard.tsx): a hairline box with fixed
    lines, so its height never changes as it runs. */
 .acpmux-workflow-card {
+  --acpmux-workflow-bar-height: 4px;
+  --acpmux-workflow-detail-height: 18px;
   /* Its own height wherever it sits (a flex column would stretch it). */
   flex: none;
   align-self: flex-start;
@@ -56,15 +58,56 @@
   line-height: 18px;
   letter-spacing: var(--text-detail--letter-spacing);
 }
-/* One line of dots: a run of many agents is cut at the card's edge, never a second line. */
-.acpmux-workflow-card .acpmux-workflow-card__dots {
-  flex-wrap: nowrap;
+.acpmux-workflow-card__latest,
+.acpmux-workflow-card__focus {
+  min-width: 0;
+  height: var(--acpmux-workflow-detail-height);
   overflow: hidden;
-  /* One dot tall: a run of many is cut at the edge, never a second line. */
-  max-height: var(--acpmux-workflow-dot);
-  padding: 0;
-  margin-top: 2px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+  line-height: 18px;
 }
-.acpmux-workflow-card .acpmux-workflow-card__dots > .acpmux-workflow-dot {
-  flex: none;
+.acpmux-workflow-card__focus {
+  display: flex;
+  gap: 8px;
+}
+.acpmux-workflow-card__progress {
+  display: block;
+  height: var(--acpmux-workflow-bar-height);
+  overflow: hidden;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--agent-muted) 18%, transparent);
+}
+.acpmux-workflow-card__progress > span {
+  display: block;
+  width: 100%;
+  height: 100%;
+  transform-origin: left center;
+  border-radius: inherit;
+  background: var(--agent-accent);
+  transition: transform var(--acpmux-motion-hover, 80ms) var(--acpmux-motion-ease, ease-out);
+}
+.acpmux-workflow-card__phases {
+  display: flex;
+  gap: 4px;
+  min-width: 0;
+  overflow: hidden;
+}
+.acpmux-workflow-card__phases > span {
+  flex: 1 1 0;
+  min-width: 14px;
+  height: var(--acpmux-workflow-bar-height);
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--agent-muted) 24%, transparent);
+}
+.acpmux-workflow-card__phases > span[data-state="completed"] {
+  background: var(--agent-muted);
+}
+.acpmux-workflow-card__phases > span[data-state="running"] {
+  background: var(--agent-accent);
+}
+.acpmux-workflow-card__phases > span[data-state="failed"] {
+  background: var(--agent-status-failure);
 }

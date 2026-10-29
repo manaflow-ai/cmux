@@ -97,14 +97,16 @@ final class AppRunMarker {
 
     /// Reads the previous run's marker in `directory`, then marks this run
     /// live and installs the fatal signal handlers.
-    init(directory root: URL, now: Date = Date()) {
+    /// - Parameter build: This build's version and commit, kept so a crash report of this run
+    ///   names the build that crashed, not the one running when it is sent.
+    init(directory root: URL, now: Date = Date(), build: (version: String?, commit: String?) = (nil, nil)) {
         self.directory = root
         file = RunMarkerFile(url: root.appending(path: "run.json"), signalURL: root.appending(path: "run.signal"))
         let previous = Self.readPrevious(marker: root.appending(path: "run.json"), signal: root.appending(path: "run.signal"),
                                          exception: root.appending(path: "run.exception"))
         recovery = LaunchRecovery.decide(previous: previous)
         marker = PreviousRun(pid: getpid(), launched: now, recovery: LaunchRecovery.watchesForLoop(previous: previous),
-                             survived: false, signal: nil)
+                             survived: false, signal: nil, version: build.version, commit: build.commit)
         start()
     }
 
@@ -158,6 +160,13 @@ final class AppRunMarker {
         QuitSignal.reclaim()
     }
 
+    /// Stores what the run is doing (`CrashContextRecorder`) for the next launch's crash report.
+    func record(context: CrashContext) {
+        guard marker.context != context else { return }
+        marker.context = context
+        writeMarker()
+    }
+
     private func markSurvived() {
         marker.survived = true
         marker.startedPages = nil
@@ -206,7 +215,7 @@ final class AppRunMarker {
         file.close()
     }
 
-    /// Encodes the marker (about 120 bytes) and hands it to the background
+    /// Encodes the marker (about 120 bytes, up to about 2 KB with a `CrashContext`) and hands it to the background
     /// writer.
     private func writeMarker() {
         let encoder = JSONEncoder()

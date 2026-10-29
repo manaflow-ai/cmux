@@ -90,6 +90,8 @@ jobs:
           workspaces: cmux-tui -> target
           shared-key: cmux-tui-macos
           cache-all-crates: true
+          # rust-cache deletes ~/.cargo/bin otherwise (tests/test_ci_rust_cache_keeps_runner_bin.py).
+          cache-bin: false
 
       - name: cargo test the macOS-only daemon tests
         working-directory: cmux-tui

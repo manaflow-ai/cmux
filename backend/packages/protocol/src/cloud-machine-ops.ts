@@ -1,6 +1,7 @@
 import { Schema } from "effect"
 import { def, mutationErrors } from "./op-def.ts"
 import { HostId, Revision, TeamId, UserId } from "./schemas.ts"
+import { isPattern } from "./json-checks.ts"
 
 /**
  * cmux-next Cloud machines (plans/cmux-next/cloud-client-contract.md 1.2, 1.3 and 1.7;
@@ -11,9 +12,9 @@ import { HostId, Revision, TeamId, UserId } from "./schemas.ts"
  * The shared vectors are backend/catalog/cloud-vectors.json.
  */
 
-export const MachineId = Schema.String.check(Schema.isPattern(/^vm_[a-z0-9]{20}$/)).annotate({ identifier: "MachineId", description: "A Cloud machine." })
-export const SnapshotId = Schema.String.check(Schema.isPattern(/^snap_[a-z0-9]{20}$/)).annotate({ identifier: "SnapshotId", description: "A Cloud machine snapshot." })
-const PlanId = Schema.String.check(Schema.isPattern(/^[a-z0-9][a-z0-9_-]{0,63}$/))
+export const MachineId = Schema.String.check(isPattern(/^vm_[a-z0-9]{20}$/)).annotate({ identifier: "MachineId", description: "A Cloud machine." })
+export const SnapshotId = Schema.String.check(isPattern(/^snap_[a-z0-9]{20}$/)).annotate({ identifier: "SnapshotId", description: "A Cloud machine snapshot." })
+const PlanId = Schema.String.check(isPattern(/^[a-z0-9][a-z0-9_-]{0,63}$/))
 const ImageId = Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(128))
 export const MachineName = Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(80))
 const Millis = Schema.Int
@@ -289,7 +290,7 @@ export const CloudBillingCheckout = cloudMutation(
   "cloud.billing.checkout",
   "money",
   Schema.Struct({ plan: PlanId }),
-  Schema.Struct({ url: Schema.String.check(Schema.isPattern(/^https:\/\//)) }),
+  Schema.Struct({ url: Schema.String.check(isPattern(/^https:\/\//)) }),
   [],
   "Start a plan checkout: an https URL the client opens in the browser. No card data enters cmux.",
   "cloud billing checkout",
