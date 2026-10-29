@@ -603,6 +603,7 @@ impl Hub {
             interrupt_turn: None,
             provenance: None,
             agent: None,
+            class: None,
             after_turn: None,
             supersede: None,
             display_parts: None,
