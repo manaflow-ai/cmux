@@ -11,6 +11,10 @@ import CmuxNextDesign
 // button reveals them, and they stay in the accessibility tree.
 extension WindowRootView {
     func setUpTitlebarReveal() {
+        // The mode first: `add` sets each button's alpha from it at once. A fade run
+        // before this view joins a window never applies, so the buttons stayed at 0
+        // with the sidebar open until it was hidden and shown again.
+        applyTitlebarButtonsMode()
         titlebarReveal.add(toolbarBand.sidebarToggle)
         titlebarReveal.add(toolbarBand.backButton)
         titlebarReveal.add(toolbarBand.forwardButton)
@@ -31,7 +35,6 @@ extension WindowRootView {
                 sidebarHoverHold = nil
             }
         }
-        applyTitlebarButtonsMode()
     }
 
     /// Whether the buttons hide at rest. With the sidebar open they always
