@@ -63,6 +63,8 @@ async fn fork_before_first_and_later_prompt_preserves_native_history_and_source(
             if codex { codex_setup(&root).await } else { claude_setup(&root, &[]).await };
         let id = source(&hub, &mut c).await;
         if codex {
+            hold_person_key(&hub);
+            c.become_person().await;
             c.request(method::SESSION_SET_MODE, json!({"sessionId": id, "modeId": "strict"}))
                 .await
                 .unwrap();
@@ -124,7 +126,14 @@ async fn fork_before_retry_after_lost_reply_and_restart_reuses_configured_child(
     let id = source(&seed, &mut c).await;
     let (cfg, hub) = snapshot(&seed, &id, &root.join("store"), |meta, _| {
         meta.tools.off = vec!["Bash".into()];
-        meta.model_request = Some("test-model".into());
+        // Keep the spawn request coherent with the model the source actually recorded.
+        meta.model_request = meta
+            .config_options
+            .as_ref()
+            .and_then(Value::as_array)
+            .and_then(|options| options.iter().find(|option| option["id"] == "model"))
+            .and_then(|model| model["currentValue"].as_str())
+            .map(str::to_owned);
         meta.session_env.insert("FORK_PARENT_ONLY".into(), "parent".into());
         meta.title = Some("parent title".into());
     })
@@ -155,7 +164,19 @@ async fn fork_before_retry_after_lost_reply_and_restart_reuses_configured_child(
     assert_eq!(child.permission_policy, parent.permission_policy);
     assert_eq!(child.policy_source, parent.policy_source);
     assert_eq!(child.modes, parent.modes);
-    assert_eq!(child.config_options, parent.config_options);
+    let selections = |options: &Option<Value>| -> BTreeMap<String, Value> {
+        options
+            .as_ref()
+            .and_then(Value::as_array)
+            .unwrap()
+            .iter()
+            .map(|option| {
+                (option["id"].as_str().unwrap().to_owned(), option["currentValue"].clone())
+            })
+            .collect()
+    };
+    // Catalog labels/options can be refreshed by the new native process; every selection stays.
+    assert_eq!(selections(&child.config_options), selections(&parent.config_options));
     assert!(!child.session_env.contains_key("FORK_PARENT_ONLY"));
     assert!(child.title.is_none());
     assert!(child.previous_agent_session_ids.is_empty());
@@ -250,6 +271,22 @@ async fn fork_before_refuses_invalid_unknown_ambiguous_steered_and_unreconstruct
         let mut altered_client = connect(&altered).await;
         refusal(&mut altered_client, FORK_OP, boundary(&id, "first", variant), reason).await;
         assert_eq!(altered.sessions().len(), 1);
+        if matches!(variant, "adopted" | "imported") {
+            // A normal fork must not erase the evidence of externally supplied history.
+            let fork = altered_client
+                .request(method::SESSION_FORK, json!({"sessionId": id}))
+                .await
+                .unwrap();
+            let fid = fork["sessionId"].as_str().unwrap();
+            refusal(
+                &mut altered_client,
+                FORK_OP,
+                boundary(fid, "first", "inherited-external"),
+                "fork.unreconstructable",
+            )
+            .await;
+            assert_eq!(altered.sessions().len(), 2);
+        }
         altered.shutdown_all().await;
     }
     // URI-backed resource_link and recorded file text are reconstructable without old bytes.
@@ -353,11 +390,25 @@ async fn fork_before_refuses_a_truncated_or_unfinished_native_prefix() {
             }
         };
         let original = hub.events(&id, 0, 10_000).unwrap();
-        for (request, prompt_id, kept) in [
+        let mut corruptions = vec![
             ("truncated", "third", records[..second].iter().collect::<Vec<_>>()),
             ("start-only", "third", records[..=second].iter().collect::<Vec<_>>()),
             ("unfinished", "second", records.iter().filter(|record| !complete(record)).collect()),
-        ] {
+        ];
+        if !codex {
+            let first_answer = records.iter().position(complete).unwrap();
+            corruptions.push((
+                "missing-earlier-answer",
+                "third",
+                records
+                    .iter()
+                    .enumerate()
+                    .filter(|(index, _)| *index != first_answer)
+                    .map(|(_, record)| record)
+                    .collect(),
+            ));
+        }
+        for (request, prompt_id, kept) in corruptions {
             let text = kept
                 .into_iter()
                 .map(|record| serde_json::to_string(record).unwrap())
@@ -368,7 +419,17 @@ async fn fork_before_refuses_a_truncated_or_unfinished_native_prefix() {
             refusal(&mut c, FORK_OP, boundary(&id, prompt_id, request), "fork.unreconstructable")
                 .await;
             assert_eq!(hub.sessions().len(), 1, "a corrupt native prefix creates no child");
-            assert_eq!(hub.events(&id, 0, 10_000).unwrap(), original);
+            let after = hub.events(&id, 0, 10_000).unwrap();
+            assert_eq!(&after[..original.len()], original.as_slice());
+            // detach_child's exit notification can arrive after it returns. Only that
+            // lifecycle tail is allowed; no conversation record or fork_child may be added.
+            assert!(
+                after[original.len()..]
+                    .iter()
+                    .all(|event| matches!(event.kind.as_str(), "stopped" | "exited" | "status")),
+                "unexpected source events: {:?}",
+                &after[original.len()..]
+            );
             assert_eq!(std::fs::read_to_string(&file).unwrap(), text);
         }
         hub.shutdown_all().await;
