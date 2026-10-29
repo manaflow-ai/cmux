@@ -44,6 +44,31 @@ import CmuxNextServer
         #expect(daemon.granted.isEmpty && daemon.refused.isEmpty)
     }
 
+    /// Round 16 P1: a grant still queued on the line when its deadline closes the line. The line's queue is
+    /// held across the timeout, so the grant's ticket is still current when the queue gets to it; the model
+    /// has its failure, and the person revokes on another connection. Then the queue runs: the timed-out
+    /// grant never reaches acpmux, and the revoke stands.
+    @Test func aGrantThatTimedOutIsNeverSentEvenAfterALaterRevoke() async throws {
+        let socket = Self.socketPath()
+        let daemon = try FakeAcpmux(socket: socket, key: AcpmuxPersonKey.spawnKey(for: socket), connections: 2)
+        defer { daemon.stop() }
+        let environment = try Self.environment(socket)
+        let first = try #require(await AcpmuxPersonLine.open(environment, deadline: .seconds(2)))
+        #expect(first.isPerson)
+        let held = DispatchSemaphore(value: 0)
+        first.line.enqueue { held.wait() }
+        let gate = JoinConsentGrantGate()
+        // Queued behind the held queue; the deadline closes the line and answers nil.
+        #expect(await JoinConsentPersonLine(first).set(.screen, granted: true, ticket: gate.ticket()) == nil)
+        let second = try #require(await Self.open(socket))
+        #expect(await second.set(.screen, granted: false, ticket: nil) == JoinConsentRecord(screen: false, control: false))
+        second.close()
+        held.signal()
+        daemon.waitForConnections()
+        #expect(daemon.consent["screen"] == "none", "the timed-out grant never re-granted after the revoke")
+        #expect(daemon.sets == ["screen false"], "acpmux saw the revoke alone")
+    }
+
     @Test func aSetWithoutTheProveStepIsRefused() async throws {
         // This app holds no person key for the daemon: no proof exists, so none is sent.
         let socket = Self.socketPath()
@@ -76,33 +101,44 @@ import CmuxNextServer
 
     /// The app's line to the fake: its peer check passes since the fake runs in this test process.
     private static func open(_ socket: String) async throws -> JoinConsentPersonLine? {
+        guard let line = await AcpmuxPersonLine.open(try environment(socket)) else { return nil }
+        return JoinConsentPersonLine(line)
+    }
+
+    private static func environment(_ socket: String) throws -> AcpmuxEnvironment {
         var buffer = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN))
         try #require(proc_pidpath(getpid(), &buffer, UInt32(buffer.count)) > 0)
         let executable = URL(fileURLWithPath: String(cString: buffer)).resolvingSymlinksInPath()
         let home = URL(fileURLWithPath: (socket as NSString).deletingLastPathComponent, isDirectory: true)
-        let environment = AcpmuxEnvironment(executable: executable, home: home, socketPath: socket, daemonArguments: [], childEnvironment: [:])
-        guard let line = await AcpmuxPersonLine.open(environment) else { return nil }
-        return JoinConsentPersonLine(line)
+        return AcpmuxEnvironment(executable: executable, home: home, socketPath: socket, daemonArguments: [], childEnvironment: [:])
     }
 
-    /// One acpmux connection on a unix socket, served on its own thread with blocking reads (each bounded).
-    /// It announces `machine-consent-v1` and a challenge, takes a proof made with `key` over
-    /// `acpmux-person-v1 0 unix 0 nonce 0 connection`, and sets consent only for a proven connection.
+    /// acpmux on a unix socket: `connections` connections (one by default), each served on its own thread
+    /// with blocking reads (each bounded), over one consent record. It announces `machine-consent-v1` and a
+    /// challenge, takes a proof made with `key` over `acpmux-person-v1 0 unix 0 nonce 0 connection`, and
+    /// sets consent only for a proven connection.
     nonisolated final class FakeAcpmux: @unchecked Sendable { // crash-allow: the logs are read and written under `lock`
         private let lock = NSLock()
         private let listener: Int32
         private let directory: String
         private let key: String
-        private var log: (methods: [String], granted: [String], refused: [String], connections: Int) = ([], [], [], 0)
+        private let expected: Int
+        private var log: (methods: [String], granted: [String], refused: [String], sets: [String], connections: Int) = ([], [], [], [], 0)
+        private var record = ["screen": "none", "control": "none"]
         private let done = DispatchSemaphore(value: 0)
+        private let served = DispatchGroup()
 
         var methods: [String] { lock.withLock { log.methods } }
         var granted: [String] { lock.withLock { log.granted } }
         var refused: [String] { lock.withLock { log.refused } }
         var connections: Int { lock.withLock { log.connections } }
+        /// Each set acpmux took, in order (`surface granted`).
+        var sets: [String] { lock.withLock { log.sets } }
+        var consent: [String: String] { lock.withLock { record } }
 
-        init(socket: String, key: String) throws {
+        init(socket: String, key: String, connections: Int = 1) throws {
             self.key = key
+            expected = connections
             directory = (socket as NSString).deletingLastPathComponent
             try FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)
             let fd = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
@@ -131,18 +167,36 @@ import CmuxNextServer
             try? FileManager.default.removeItem(atPath: directory)
         }
 
-        /// Serves the one connection the test makes; gives up after 10 s without one.
+        /// Waits until every connection the test makes has closed (bounded, as each read is).
+        func waitForConnections() {
+            _ = done.wait(timeout: .now() + 12)
+            done.signal()
+        }
+
+        /// Accepts the connections the test makes, each served on its own thread; gives up after 10 s
+        /// without the next one. Done once every one closed.
         private func serve() {
-            var waiting = pollfd(fd: listener, events: Int16(POLLIN), revents: 0)
-            guard poll(&waiting, 1, 10_000) == 1 else { return }
-            let fd = accept(listener, nil, nil)
-            guard fd >= 0 else { return }
+            for _ in 0..<expected {
+                var waiting = pollfd(fd: listener, events: Int16(POLLIN), revents: 0)
+                guard poll(&waiting, 1, 10_000) == 1 else { break }
+                let fd = accept(listener, nil, nil)
+                guard fd >= 0 else { break }
+                served.enter()
+                Thread.detachNewThread { [self] in
+                    serve(fd)
+                    served.leave()
+                }
+            }
+            served.wait()
+        }
+
+        /// One connection: its own proof, the shared record.
+        private func serve(_ fd: Int32) {
             defer { close(fd) }
             var timeout = timeval(tv_sec: 10, tv_usec: 0)
             setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
             lock.withLock { log.connections += 1 }
             var person = false
-            var record = ["screen": "none", "control": "none"]
             var buffer = Data()
             var chunk = [UInt8](repeating: 0, count: 4096)
             while true {
@@ -167,16 +221,20 @@ import CmuxNextServer
                         reply["result"] = ["person": person]
                     case "_acpmux/machine_consent_set":
                         let surface = params["surface"] as? String ?? ""
-                        if person, let granted = params["granted"] as? Bool, record[surface] != nil {
-                            record[surface] = granted ? "granted" : "none"
-                            lock.withLock { log.granted.append(surface) }
-                            reply["result"] = ["consent": record]
+                        if person, let granted = params["granted"] as? Bool, consent[surface] != nil {
+                            let now = lock.withLock {
+                                record[surface] = granted ? "granted" : "none"
+                                log.granted.append(surface)
+                                log.sets.append("\(surface) \(granted)")
+                                return record
+                            }
+                            reply["result"] = ["consent": now]
                         } else {
                             lock.withLock { log.refused.append(surface) }
                             reply["error"] = ["code": -32001, "message": "permission.person_required"] as [String: Any]
                         }
                     case "_acpmux/machine_consent_get":
-                        reply["result"] = ["consent": record, "lastRefusal": NSNull()] as [String: Any]
+                        reply["result"] = ["consent": consent, "lastRefusal": NSNull()] as [String: Any]
                     default:
                         reply["error"] = ["code": -32601, "message": "method not found"] as [String: Any]
                     }

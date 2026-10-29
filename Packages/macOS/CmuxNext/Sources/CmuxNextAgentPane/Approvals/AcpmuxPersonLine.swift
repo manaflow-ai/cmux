@@ -9,7 +9,8 @@ import Foundation
 /// every request still waiting then answers nil.
 @MainActor
 public final class AcpmuxPersonLine {
-    private let line: AcpmuxCheckedLine
+    /// The connection itself (internal: tests hold its queue).
+    let line: AcpmuxCheckedLine
     private let timer = DemandTimer(owner: "acpmux.person-line")
     private var nextID = 10
     private var waiters: [Int: CheckedContinuation<ResultBox?, Never>] = [:]
