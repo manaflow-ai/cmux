@@ -427,6 +427,72 @@ fn first_machine(server: &mut FakeServer) -> Machine {
     first
 }
 
+
+/// A restore must visit every keyset page before declaring its source complete. A single
+/// 500-session response used to silently omit the last chat while its records were intact.
+#[test]
+fn restores_501_trajectories_from_two_pages_without_losing_the_last_session() {
+    struct ImportNames(Vec<String>);
+    impl Importer for ImportNames {
+        fn ready(&self) -> bool { true }
+        fn import(&mut self, bundle: &Path, meta: &Value) -> Result<(), String> {
+            assert!(bundle.join("session.json").exists());
+            self.0.push(meta["id"].as_str().unwrap().to_owned());
+            Ok(())
+        }
+    }
+
+    let source = Machine::new();
+    let mut server = FakeServer::at("source");
+    let store = server.stores.entry("source".to_owned()).or_default();
+    for i in 0..501 {
+        let id = format!("chat-{i:03}");
+        store.insert(id.clone(), Kept {
+            generation: CREATED,
+            meta: meta(&id, 1, CREATED, &source.layout.home),
+            lines: vec![line(1)],
+            ..Kept::default()
+        });
+    }
+
+    let restored = Machine::new();
+    server.as_machine("replacement", Some("source"));
+    let mut mirror = restored.mirror();
+    assert_eq!(mirror.prime(&mut server).unwrap(), 501);
+    assert_eq!(mirror.pending(), 501);
+    let parent_pages: Vec<_> = server.calls.iter()
+        .filter(|(action, body)| action == "list" && body["from"] == "parent")
+        .collect();
+    assert_eq!(parent_pages.len(), 2);
+    assert_eq!(parent_pages[0].1["after_session"], Value::Null);
+    assert_eq!(parent_pages[1].1["after_session"], "chat-499");
+
+    let mut importer = ImportNames(Vec::new());
+    assert_eq!(mirror.restore(&mut server, &mut importer), 501);
+    assert_eq!(mirror.pending(), 0);
+    assert_eq!(importer.0.len(), 501);
+    assert!(importer.0.contains(&"chat-500".to_owned()));
+}
+
+/// A server that silently truncates a full list can no longer make restore appear complete.
+#[test]
+fn legacy_500_session_reply_without_cursor_fails_closed() {
+    struct LegacyList;
+    impl Api for LegacyList {
+        fn call(&mut self, action: &str, _: &Value) -> Answer {
+            assert_eq!(action, "list");
+            let sessions: Vec<_> = (0..500).map(|i| json!({
+                "session": format!("chat-{i:03}"), "generation": CREATED,
+                "last_seq": 1, "meta": { "id": format!("chat-{i:03}") }, "native": [],
+            })).collect();
+            ok(json!({ "sessions": sessions }))
+        }
+    }
+    let restored = Machine::new();
+    let failure = restored.mirror().prime(&mut LegacyList).unwrap_err();
+    assert!(matches!(failure, Pass::Failed(s) if s.contains("truncated")));
+}
+
 #[test]
 fn a_replacement_machine_restores_the_chat_and_the_chat_continues() {
     let mut server = FakeServer::at("m1");
