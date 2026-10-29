@@ -6,7 +6,7 @@
 //   session, then asks the app to open it beside the chat (`chat.sideChat`). It is not a prompt:
 //   nothing is queued or cancelled, the composer clears, and the chat's turn keeps streaming.
 // - When acpmux refuses, the question stays in the composer and the reason shows above it.
-// - With the gate off, `/btw` is not a cmux command (today's behavior): no side session starts.
+// - With the gate off, `/btw` keeps its draft and shows a refusal; it never becomes a prompt.
 // - A side session's composer says "Reply in this session…".
 // - The palette's Side Question (`sideQuestion`) focuses the composer with `/btw ` in it.
 //
@@ -299,8 +299,9 @@ await requireBrowserLane("agent-pane-btw-side-session.test.ts", async () => {
     test("with Side sessions off, /btw starts no side session", async () => {
       const page = await openChat(MAIN, false);
       await type(page, `/btw ${QUESTION}`);
-      // Sent as a plain prompt; a /btw call would have come before it.
-      await until(() => prompts.length > 0, "the prompt");
+      await page.locator(".acpmux-attachment-note").filter({ hasText: "Side questions are disabled" }).waitFor();
+      expect(await composerText(page)).toBe(`/btw ${QUESTION}`);
+      expect(prompts).toEqual([]);
       expect(btws).toEqual([]);
       expect(await sideChats(page)).toEqual([]);
       await page.close();
@@ -338,8 +339,12 @@ await requireBrowserLane("agent-pane-btw-side-session.test.ts", async () => {
         "Reply in this session…",
       );
       await type(page, "/btw another question");
-      // Sent as a plain prompt; a /btw call would have come before it.
-      await until(() => prompts.length > 0, "the prompt");
+      await page
+        .locator(".acpmux-attachment-note")
+        .filter({ hasText: "This command requires an active chat" })
+        .waitFor();
+      expect(await composerText(page)).toBe("/btw another question");
+      expect(prompts).toEqual([]);
       expect(btws).toEqual([]);
       expect(await sideChats(page)).toEqual([]);
       await page.close();

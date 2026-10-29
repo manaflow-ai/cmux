@@ -27,20 +27,26 @@ export function useNewTabCommand(
   const [fileError, setFileError] = useState<string>();
   const importInput = useRef<HTMLInputElement>(null);
   const pending = useRef(false);
-  const intercept = (prompt: string, harness?: string, attachmentCount = 0): boolean => {
+  const currentText = useRef(text);
+  currentText.current = text;
+  const intercept = (prompt: string, harness?: string, attachmentCount = 0, ownedOnly = false): boolean => {
     const command = composerCommand(prompt, harness, attachmentCount);
     if (!command) return false;
     const refuse = (message: string) => setRefusal({ text, message });
     if (command.kind === "cliOnly") {
+      if (ownedOnly) return false;
       refuse(t(command.key, { command: command.name }));
       return true;
     }
     if (pending.current) return true;
-    const clear = () => {
+    const consumeAttachments = () => {
       // Consume only this dispatch's chips. A later paste survives an asynchronous command.
       const went = new Set(intake.attachments.map((attachment) => attachment.id));
       intake.setAttachments((current) => current.filter((attachment) => !went.has(attachment.id)));
       for (const attachment of intake.pending) intake.cancel(attachment.id);
+    };
+    const clear = () => {
+      consumeAttachments();
       setText((current) => (current === text ? "" : current));
       setRefusal(undefined);
     };
@@ -61,19 +67,18 @@ export function useNewTabCommand(
     const accepted = actions.onCmuxCommand(command.command, command.args);
     if (typeof accepted === "string") refuse(accepted);
     else if (accepted instanceof Promise) {
-      // An accepted owned command consumes this draft immediately. Its async work must not
-      // strand staged files (or let a pending file read leak into the next prompt) while we wait.
-      clear();
+      // Consume files immediately, but retain the question until the host accepts it.
+      consumeAttachments();
+      setRefusal(undefined);
       pending.current = true;
       void accepted.then(
         () => {
           pending.current = false;
+          setText((current) => (current === text ? "" : current));
         },
         () => {
           pending.current = false;
-          // The accepted command already cleared its draft; anchor the error to the empty field
-          // so the rejection is still visible until the next edit.
-          setRefusal({ text: "", message: t("composer.cmuxUnavailable") });
+          setRefusal({ text: currentText.current, message: t("composer.cmuxUnavailable") });
         },
       );
     } else if (accepted === false) refuse(t("composer.cmuxUnavailable"));

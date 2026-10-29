@@ -8,6 +8,7 @@ import type { Root } from "react-dom/client";
 import { noChat } from "../src/gallery/fixtures/acpmux";
 import { parseImportedSession } from "../src/agent-session/acpmux/importSession";
 import type { ComposerAttachment } from "../src/agent-session/acpmux/attachments";
+import type { NewTabCommandActions } from "../src/agent-session/acpmux/newtab/useNewTabCommand";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -242,6 +243,7 @@ async function commandPage(
   onImportFile?: (file: File) => Promise<void>,
   importError?: string,
   sandboxed = false,
+  onCmuxCommand?: NewTabCommandActions["onCmuxCommand"],
 ) {
   const { createRoot } = await import("react-dom/client");
   const { NewTabPage } = await import("../src/agent-session/acpmux/NewTabPage");
@@ -258,7 +260,7 @@ async function commandPage(
       : { importSandboxed: sandboxed }),
     onOpenSession: noop,
     onShowAll: noop,
-    onCmuxCommand: () => "Fork is unavailable for this chat right now",
+    onCmuxCommand: onCmuxCommand ?? (() => "Fork is unavailable for this chat right now"),
   };
   root = createRoot(host);
   const renderPage = () =>
@@ -327,6 +329,56 @@ async function commandPage(
 }
 
 for (const template of ["screen", "classic"] as const) {
+  for (const outcome of ["resolve", "reject", "edited"] as const) {
+    test(`${template}: an async owned command preserves its text until ${outcome}`, async () => {
+      let settle!: () => void;
+      const accepted = new Promise<void>((resolve, reject) => {
+        settle = outcome === "reject" ? () => reject(new Error("refused")) : resolve;
+      });
+      const page = await commandPage(
+        template,
+        async () => {},
+        undefined,
+        false,
+        () => accepted,
+      );
+      await page.paste();
+      await page.edit("/btw question");
+      await page.send();
+      expect(page.field.value).toBe("/btw question");
+      expect(host.querySelector(".acpmux-attachment-image")).toBeNull();
+      if (outcome === "edited") await page.edit("A later edit");
+      await act(async () => settle());
+      expect(page.field.value).toBe(
+        outcome === "edited" ? "A later edit" : outcome === "reject" ? "/btw question" : "",
+      );
+      if (outcome === "reject") expect(host.querySelector(".acpmux-attachment-note")).not.toBeNull();
+      expect(page.prompts).toEqual([]);
+    });
+  }
+
+  test(`${template}: a terminal-only spelling waits for its pending image and sends as a prompt`, async () => {
+    const page = await commandPage(template, async () => {});
+    const file = new File([PNG], "pending.png", { type: "image/png" });
+    const bytes = await file.arrayBuffer();
+    let resolve!: (bytes: ArrayBuffer) => void;
+    Object.defineProperty(file, "arrayBuffer", {
+      value: () =>
+        new Promise<ArrayBuffer>((done) => {
+          resolve = done;
+        }),
+    });
+    await page.paste(file, true);
+    await page.edit("/login");
+    await page.send();
+    expect(page.prompts).toEqual([]);
+    expect(host.querySelector(".acpmux-attachment-note")).toBeNull();
+    await act(async () => resolve(bytes));
+    expect(page.prompts).toHaveLength(1);
+    expect(page.prompts[0]!.text).toBe("/login");
+    expect(page.prompts[0]!.attachments.map((attachment) => attachment.name)).toEqual(["pending.png"]);
+  });
+
   for (const accepted of [true, false]) {
     test(`${template}: pending attachment does not delay /import and is cancelled only when accepted=${accepted}`, async () => {
       const page = await commandPage(template, accepted ? async () => {} : undefined);

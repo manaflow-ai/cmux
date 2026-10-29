@@ -257,7 +257,7 @@ type Props = {
   /// editing command (`pane.edit`). Without it those items are disabled.
   onEdit?(command: ComposerEditCommand): void;
   /// Handles a cmux-owned slash command after the user submits it. False keeps the prompt; a
-  /// promise keeps it until it settles, clearing it only when it resolves.
+  /// promise keeps the text until it resolves; accepted commands consume their attachments immediately.
   onCmuxCommand?(command: CmuxCommand, args?: string): CmuxCommandResult;
   /// The empty prompt's text in place of the usual one (a side session's "Reply in this session…").
   placeholder?: string;
@@ -984,10 +984,6 @@ export function Composer({
     const draftText = unwrapped();
     const prompt = (field.current?.agentText(draftText) ?? draftText).trim();
     const command = composerCommand(prompt, snapshot.summary?.harness, attachments.length);
-    if (command?.kind === "cliOnly") {
-      setAttachError(t(command.key, { command: command.name }));
-      return false;
-    }
     const owned = command?.kind === "cmux" ? command.command : undefined;
     if (owned) {
       if (owned.name === "import") {
@@ -1014,6 +1010,7 @@ export function Composer({
           return false;
         }
         if (accepted instanceof Promise) {
+          const written = field.current?.value() ?? "";
           // Accepted commands consume staged files before their async work starts. A pending read
           // must not leak into the next prompt while the command waits.
           for (const item of pending) cancel(item.id);
@@ -1021,12 +1018,12 @@ export function Composer({
           setAttachments((current) => current.filter((attachment) => !went.has(attachment.id)));
           setAttachError(undefined);
           plusDraft.current = undefined;
-          edit("", 0);
-          sentAt.current = Date.now();
           sending.current = true;
           accepted.then(
             () => {
               sending.current = false;
+              if (field.current?.value() === written) edit("", 0);
+              sentAt.current = Date.now();
             },
             () => {
               sending.current = false;
@@ -1049,6 +1046,10 @@ export function Composer({
     }
     // A file pasted or dropped a moment ago is still being read: the prompt waits for its chip.
     if (holdForAttachments(() => submitNow.current(force, steer))) return false;
+    if (command?.kind === "cliOnly") {
+      setAttachError(t(command.key, { command: command.name }));
+      return false;
+    }
     if (!prompt && attachments.length === 0) {
       plusDraft.current = undefined;
       return false;

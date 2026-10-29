@@ -13,7 +13,7 @@ import type { Root } from "react-dom/client";
 import { noChat, user } from "../src/gallery/fixtures/acpmux";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
 import type { ComposerHandle } from "../src/agent-session/acpmux/Composer";
-import { cmuxCommandRefusal, type CmuxCommand } from "../src/agent-session/acpmux/cmuxCommands";
+import { cmuxCommandRefusal, type CmuxCommand, type CmuxCommandResult } from "../src/agent-session/acpmux/cmuxCommands";
 import { translate } from "../src/agent-session/acpmux/i18n";
 
 const scope = globalThis as Record<string, unknown>;
@@ -139,7 +139,7 @@ const PNG = Uint8Array.from([
 async function composer(
   snapshot: AcpmuxSnapshot,
   typed: string,
-  onCmuxCommand?: (command: CmuxCommand, args?: string) => boolean | string,
+  onCmuxCommand?: (command: CmuxCommand, args?: string) => CmuxCommandResult,
   importSandboxed = false,
   onImportFile?: (file: File) => void | Promise<void>,
   upload?: (files: File[]) => Promise<{ paths: string[] }>,
@@ -372,6 +372,62 @@ test("an attachment-only Return waits for a pending image and sends it when read
   expect(page.sent).toEqual([{ text: "", steer: false }]);
   expect(page.sentAttachments).toEqual([["pending.png"]]);
 });
+
+test("a terminal-only spelling waits for its pending image and sends as an attachment prompt", async () => {
+  const page = await composer(chat(), "/login");
+  const file = new File([PNG], "pending.png", { type: "image/png" });
+  const bytes = await file.arrayBuffer();
+  let resolve!: (bytes: ArrayBuffer) => void;
+  Object.defineProperty(file, "arrayBuffer", {
+    value: () =>
+      new Promise<ArrayBuffer>((done) => {
+        resolve = done;
+      }),
+  });
+  const paste = new window.Event("paste", { bubbles: true, cancelable: true });
+  Object.defineProperty(paste, "clipboardData", {
+    value: { files: [file], types: ["Files"], getData: () => "" },
+  });
+  await act(async () => page.field.dispatchEvent(paste));
+  expect(host.querySelector(".acpmux-attachment-pending")).not.toBeNull();
+  await dispatch(page.field, key({ key: "Enter", keyCode: 13 }));
+  expect(page.sent).toEqual([]);
+  expect(host.querySelector(".acpmux-attachment-note")).toBeNull();
+  await act(async () => resolve(bytes));
+  expect(page.sent).toEqual([{ text: "/login", steer: false }]);
+  expect(page.sentAttachments).toEqual([["pending.png"]]);
+});
+
+for (const outcome of ["resolve", "reject", "edited"] as const) {
+  test(`an asynchronous owned command consumes files but preserves its draft until ${outcome}`, async () => {
+    let settle!: () => void;
+    const accepted = new Promise<void>((resolve, reject) => {
+      settle = outcome === "reject" ? () => reject(new Error("refused")) : resolve;
+    });
+    const page = await composer(chat(), "/btw question", () => accepted);
+    const paste = new window.Event("paste", { bubbles: true, cancelable: true });
+    Object.defineProperty(paste, "clipboardData", {
+      value: { files: [new File([PNG], "staged.png", { type: "image/png" })], types: ["Files"], getData: () => "" },
+    });
+    await act(async () => page.field.dispatchEvent(paste));
+    expect(host.querySelector(".acpmux-attachment-image")).not.toBeNull();
+    await dispatch(page.field, key({ key: "Enter", keyCode: 13 }));
+    expect(page.field.textContent).toBe("/btw question");
+    expect(host.querySelector(".acpmux-attachment-image")).toBeNull();
+    if (outcome === "edited") {
+      await act(async () => {
+        page.field.textContent = "A later edit";
+        page.field.dispatchEvent(new window.InputEvent("input", { bubbles: true, inputType: "insertText" }));
+      });
+    }
+    await act(async () => settle());
+    expect(page.field.textContent).toBe(
+      outcome === "edited" ? "A later edit" : outcome === "reject" ? "/btw question" : "",
+    );
+    if (outcome === "reject") expect(host.querySelector(".acpmux-attachment-note")).not.toBeNull();
+    expect(page.sent).toEqual([]);
+  });
+}
 
 test("Return after Dictation (keyCode 229, no composition) steers the running turn, never adds a line", async () => {
   const { field, sent } = await composer(working(), "What is Spotlight?");
