@@ -4,12 +4,13 @@ import { AcpmuxDirectClient, type AcpmuxHostConfig } from "../src/agent-session/
 
 // The fake daemon creates a session from the real client's session/new and returns that
 // session through attach. Assert the selected chat's state, not the seed or catalog schema.
-async function start(seed: Partial<AcpmuxHostConfig>, options: { failStarts?: number; holdPeerStart?: boolean } = {}) {
+async function start(seed: Partial<AcpmuxHostConfig>, options: { failStarts?: number; trustStarts?: number; holdPeerStart?: boolean } = {}) {
   let socket: any;
   let session: any;
   let snapshot: any;
   let starts = 0;
   let failures = options.failStarts ?? 0;
+  let trustFailures = options.trustStarts ?? 0;
   const created: any[] = [];
   const trustRequests: { method: string; params: any }[] = [];
   let releasePeer = () => {};
@@ -38,6 +39,16 @@ async function start(seed: Partial<AcpmuxHostConfig>, options: { failStarts?: nu
           await peerGate;
         }
         starts++;
+        if (trustFailures > 0) {
+          trustFailures--;
+          return {
+            __error: {
+              code: -32602,
+              message: "Trust this folder first",
+              data: { reason: "trust.pending", cwd: params.cwd },
+            },
+          };
+        }
         if (failures > 0) {
           failures--;
           return { __error: { code: -32001, message: "fixture start failed" } };
@@ -306,6 +317,22 @@ test("a failed sessionless peer start drops its trust route", async () => {
     expect(run.trustRequests).toEqual([
       { method: "acp.trust.get", params: { cwd: "/local/project" } },
       { method: "acp.trust.set", params: { cwd: "/local/project", level: "unknown" } },
+    ]);
+  } finally {
+    run.client.close();
+  }
+});
+
+test("a local trust refusal does not fall back to the seeded peer", async () => {
+  const run = await start({ cwd: "/local/project", peer: "B" }, { trustStarts: 1 });
+  try {
+    await expect(run.client.create("fake", "/local/project", undefined)).rejects.toThrow("Trust this folder first");
+    expect(run.client.trustPeer).toBeUndefined();
+    await run.client.trustGet("/local/project");
+    await run.client.trustSet("/local/project", "trusted");
+    expect(run.trustRequests).toEqual([
+      { method: "acp.trust.get", params: { cwd: "/local/project" } },
+      { method: "acp.trust.set", params: { cwd: "/local/project", level: "trusted" } },
     ]);
   } finally {
     run.client.close();

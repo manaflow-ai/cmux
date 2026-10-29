@@ -2686,7 +2686,7 @@ export class AcpmuxDirectClient {
   private pendingPeerTrust?: { peer?: string; generation: number };
   /// A sessionless trust refusal owns its question after the failed request has finished.
   /// It never replaces a displayed session's route and ends on selection, leave or another start.
-  private refusedPeerTrust?: { peer: string; generation: number };
+  private refusedPeerTrust?: { peer?: string; generation: number };
   private get newChatTrustRoute(): { peer?: string; generation: number } | undefined {
     const route = this.pendingPeerTrust ?? this.refusedPeerTrust;
     return route?.generation === this.selectionGeneration ? route : undefined;
@@ -6246,7 +6246,7 @@ export class AcpmuxDirectClient {
         this.pendingPeerTrust = undefined;
         // Keep only a trust question for the sessionless page. Any other failed start gives
         // the displayed chat back its own authority; no old request can clear a newer route.
-        if (pending.peer && !this.selectedSessionId && !this.closed && trustRefusal(error))
+        if (!this.selectedSessionId && !this.closed && trustRefusal(error))
           this.refusedPeerTrust = { peer: pending.peer, generation: pending.generation };
         this.emit();
       },
