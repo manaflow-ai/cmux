@@ -143,7 +143,10 @@ function sources(dir: string, test: (file: string) => boolean): string[] {
 const stylesheets = (dir: string) => sources(dir, (file) => file.endsWith(".css"));
 /// Component and script sources, without tests, galleries and prototypes.
 const scripts = (dir: string) =>
-  sources(dir, (file) => /\.tsx?$/.test(file) && !/\.(test|gallery)\.tsx?$/.test(file) && !file.includes("/prototypes/"));
+  sources(
+    dir,
+    (file) => /\.tsx?$/.test(file) && !/\.(test|gallery)\.tsx?$/.test(file) && !file.includes("/prototypes/"),
+  );
 
 /// A JSX element that is a menu or listbox, by role or by a popup-named class, and asks for a
 /// `data-enter` entrance (ui/popupSurface.css), as `line why`.
@@ -152,8 +155,11 @@ function scriptEntrances(source: string): string[] {
   const lineAt = (index: number) => source.slice(0, index).split("\n").length;
   for (const tag of source.matchAll(/<[A-Za-z][\w.]*\b[^<>]*?\bdata-enter\b[^<>]*>/g)) {
     const role = /\brole=["'{]+(menu|listbox)\b/.exec(tag[0]);
-    const named = new RegExp(`\\bclassName=["'{\`][^"'}\`]*\\b[\\w-]+-(${POPUP_SUFFIXES.join("|")})(?![\\w-])`).exec(tag[0]);
-    if (role || named) found.push(`${lineAt(tag.index)} a ${role ? `role=${role[1]}` : "popup-named"} element enters with data-enter`);
+    const named = new RegExp(`\\bclassName=["'{\`][^"'}\`]*\\b[\\w-]+-(${POPUP_SUFFIXES.join("|")})(?![\\w-])`).exec(
+      tag[0],
+    );
+    if (role || named)
+      found.push(`${lineAt(tag.index)} a ${role ? `role=${role[1]}` : "popup-named"} element enters with data-enter`);
   }
   return found;
 }
@@ -239,7 +245,9 @@ describe("popovers and menus open in one frame", () => {
   });
 
   test("every exempt palette is still drawn by a stylesheet", () => {
-    const css = stylesheets(path.join(WEBVIEWS, "src")).map((file) => readFileSync(file, "utf8")).join("\n");
+    const css = stylesheets(path.join(WEBVIEWS, "src"))
+      .map((file) => readFileSync(file, "utf8"))
+      .join("\n");
     expect(PALETTES.filter((name) => !new RegExp(`\\.${name}(?![\\w-])`).test(css))).toEqual([]);
   });
 
