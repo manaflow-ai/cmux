@@ -318,8 +318,11 @@ public final class HomeSidebarView: NSView {
     /// only when what lies over it changed. `HomeSidebarSplitView` calls it on every layout.
     func updateWindowControlsAvoidance() {
         guard list.headerView.homeWindowControls(band: HomeSidebarHeaderLayout.band) != windowControls else { return }
-        // The header's layout also places the list under it (its height may change).
+        // The header's layout also places the list under it (its height may change). Laid out
+        // now, not at the next display pass: an occluded window gets none until it shows, and
+        // the next frame on screen would still have the search field under the lights.
         list.headerView.needsLayout = true
+        list.headerView.layoutSubtreeIfNeeded()
     }
 
     private func layoutHeader(_ bounds: CGRect) -> CGFloat {

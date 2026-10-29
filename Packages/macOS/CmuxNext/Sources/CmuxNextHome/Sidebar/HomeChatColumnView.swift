@@ -45,7 +45,9 @@ final class HomeChatColumnView: NSView {
 
     /// Relays out only when the traffic lights over the column changed (the page moved in its window).
     func updateWindowControlsAvoidance() {
-        if homeWindowControls(band: HomeSidebarHeaderLayout.band) != windowControls { needsLayout = true }
+        guard homeWindowControls(band: HomeSidebarHeaderLayout.band) != windowControls else { return }
+        needsLayout = true
+        layoutSubtreeIfNeeded()
     }
 
     override func layout() {
