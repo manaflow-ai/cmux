@@ -230,7 +230,9 @@ fn commit(
         let Some(w) = saved.watches.get_mut(&old.id) else { return };
         if !w.active || w.cursors.get(key) != old.cursors.get(key) { return; }
         if !resolved && key.split_once('/').is_some_and(|(p, _)| next.offline.contains(p) && w.offline.contains(p)) { return; }
-        w.cursors.insert(key.into(), next.cursors[key].clone());
+        if let Some(cursor) = next.cursors.get(key) {
+            w.cursors.insert(key.into(), cursor.clone());
+        }
         if let Some((peer, _)) = key.split_once('/') {
             if next.offline.contains(peer) { w.offline.insert(peer.into()); }
             else { w.offline.remove(peer); }

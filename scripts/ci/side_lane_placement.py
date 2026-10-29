@@ -19,9 +19,16 @@ side label on a wider class (compatible_labels(): a light job runs on a std
 mini, never the reverse), whichever has the most idle, then online, runners
 live (side_route()), so a starved light pool spills onto idle std side
 runners. When no online runner carries a compatible side label, jobs use the
-owned pool label so the minis can accept them. When a
-side label is online but busy, jobs remain on it and the rescue supplies the
-measured overflow boundary after the mini queue drains.
+owned pool label so the minis can accept them. When a side label is online but
+busy, the cascade's jobs (next_macos_cascade.CASCADE_JOBS) take a free Blacksmith
+slot, else Blacksmith 6 vCPU's queue while it moves and is short
+(next_macos_cascade.overflow()): the routing order's last resort, so none waits
+on a saturated side label that nothing moves it off (cmux#26723's fast tier,
+2026-10-29). Only with Blacksmith stalled or backed up too do they stay queued
+on the side label, and not even then while the side label is the longer queue:
+its oldest job has waited longer than 6 vCPU's, or one host alone serves it
+(route_wait(), next_macos_cascade.dead_end(); cmux#26723's fast tier again at
+08:24Z, behind 96 jobs whose oldest had waited 443 minutes).
 
 Anything uncertain decides nothing and keeps the owned label watched by the
 rescue: an attempt after 1, a SIDE_LABEL that is not a glaeda-side-* label (a
@@ -98,6 +105,7 @@ from __future__ import annotations
 
 import datetime as dt
 import importlib.util
+import math
 import os
 import sys
 from pathlib import Path
@@ -181,6 +189,31 @@ def side_route(label: str, runners: Sequence[Mapping[str, Any]] | None, want: in
     return best
 
 
+def route_wait(route: str, runners: Sequence[Mapping[str, Any]] | None, seen: Any) -> float | None:
+    """How long `route` has started nothing, in minutes, when no idle runner carries it; None otherwise.
+
+    math.inf when every online runner carrying it sits on one host: a single-host reservation, which the
+    rulebook never lets a job wait on with no fallback ("No job waits on one reserved machine: every
+    reservation (a label one host serves) has a fallback within minutes"). Otherwise the pool snapshot's
+    oldest queued wait on it (next_macos_cascade.Seen.owned), 0 with no queue there. None while an idle
+    runner carries it, or with the runners unread: nothing then is known to be stuck. The cascade sends the
+    jobs to Blacksmith 6 vCPU when this queue is the longer one (next_macos_cascade.dead_end()).
+    """
+    if runners is None or not route:
+        return None
+    carriers = [runner for runner in runners
+                if runner.get("status") == "online" and pool.carries_office_pool_label(runner, route)]
+    if any(not runner.get("busy") for runner in carriers):
+        return None
+    hosts = {pool.runner_member(str(runner.get("name") or "")) or str(runner.get("name") or "")
+             for runner in carriers}
+    if len(hosts) <= 1:
+        return math.inf
+    if seen is None:
+        return None
+    return float(getattr(seen, "owned", {}).get(route, 0.0))
+
+
 def route_label(label: str, runners: Sequence[Mapping[str, Any]] | None, want: int = 0) -> str:
     """side_route(), else the owned pool label while no compatible side runner is online."""
     if runners is None:
@@ -228,7 +261,7 @@ def role_room(candidate: str, runners: Sequence[Mapping[str, Any]], seen: Any = 
               waiting: Mapping[str, int] | None = None) -> bool:
     """Whether a GUI or session job queued on `candidate` now gets a runner about as soon as anywhere else.
 
-    Room is an idle online runner carrying it, or a queue (the janitor snapshot's, `seen.owned`) shorter
+    Room is an idle online runner carrying it, or a queue (the janitor snapshot's, `seen.owned_queued`) shorter
     than its online runners: each queued job has a machine within one job length. A deeper queue keeps
     the label only while Blacksmith 6 vCPU's queue per slot is at least as deep (`waiting`, with
     next_macos_cascade.CAPACITY), so the job joins the shorter of the two queues. With no snapshot the
@@ -239,7 +272,7 @@ def role_room(candidate: str, runners: Sequence[Mapping[str, Any]], seen: Any = 
         return False
     if idle:
         return True
-    queues = getattr(seen, "owned", None)
+    queues = getattr(seen, "owned_queued", None)
     if queues is None:
         return True
     queued = int(queues.get(candidate, 0))
@@ -569,7 +602,9 @@ def rerun_main(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | No
                          f"gui_overflow={GUI_OVERFLOW}\n"
                          f"watch={'false' if fallback and not owned else 'true'}\n")
     live, waiting, seen = cascade.read(env, pool, now=dt.datetime.now(dt.timezone.utc))
-    placed = cascade.place(env, owned, live, waiting, seen)
+    # Runners read: the jobs past `owned` have no idle mini, so the cascade's overflow may take them.
+    placed = cascade.place(env, owned, live, waiting, seen, saturated=runners is not None,
+                           route_wait=route_wait(label, runners, seen))
     print(f"macOS cascade: {placed.why}")
     cascade.write(placed, env)
     return 0
@@ -619,7 +654,7 @@ def main(env: Mapping[str, str] = os.environ) -> int:
     gui_overflow = GUI_OVERFLOW if live_gui and not gui_route else ""
     if live_gui and not gui_route:
         # Its own name: `owned` is the jobs the idle minis took, which cascade.place() reads below.
-        role_queues = getattr(seen, "owned", None) or {}
+        role_queues = getattr(seen, "owned_queued", None) or {}
         why += (f"; `{live_gui}` has no room ({role_queues.get(live_gui, 0)} queued, "
                 f"{_role_online(live_gui, runners or [])[0]} online, none idle), so the GUI jobs take `{GUI_OVERFLOW}`")
     if route and route != label:
@@ -683,7 +718,12 @@ def main(env: Mapping[str, str] = os.environ) -> int:
         # is free. Treat it as unavailable so the Release compile overflows to
         # Blacksmith instead of queueing indefinitely on the promotion mini.
         promotion_busy = True
-    placed = cascade.place(env, owned, live, waiting, seen, promote_busy=promotion_busy)
+    # Runners read live: the jobs no idle mini took never stay on the side label while Blacksmith 6 vCPU
+    # is a live last resort (next_macos_cascade.overflow()).
+    # The jobs Blacksmith does not take wait on `route`: when its queue is the longer one (it started nothing
+    # for longer than 6 vCPU's oldest job has waited, or one host alone serves it), they take 6 vCPU.
+    placed = cascade.place(env, owned, live, waiting, seen, promote_busy=promotion_busy,
+                           saturated=runners is not None, route_wait=route_wait(route, runners, seen))
     print(f"macOS cascade: {placed.why}")
     cascade.write(placed, env)
     return 0

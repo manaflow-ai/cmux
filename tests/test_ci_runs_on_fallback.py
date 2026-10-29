@@ -26,6 +26,7 @@ This guard covers every workflow:
 from __future__ import annotations
 
 import json
+import importlib.util
 import re
 import unittest
 from pathlib import Path
@@ -360,6 +361,106 @@ def role_label_problems(path: str, text: str, rescued: set[str]) -> list[str]:
         if f"needs.{placement}.outputs.gui_overflow" not in text:
             found.append(f"reads needs.{placement}'s gui route without its gui_overflow")
     return found
+# Side-workflow Mac jobs placed through cmux-next's cascade (scripts/ci/side_lane_placement.py and
+# next_macos_cascade.py): (workflow, job) -> (the placing job, the key the placement lists the job under).
+# Such a job takes an idle owned Mac, else a free Blacksmith macOS slot, and never waits on one busy side
+# label: on 2026-10-29 the NEXT post-publish launch smoke waited 45 minutes to 2 hours on
+# glaeda-side-std-xcode-26.6 (build 4086860262501 published 12:18Z, smoked from 13:14Z).
+CASCADE_PLACED = {("nightly-next-launch-smoke.yml", "smoke"): ("pick", "launch-smoke")}
+
+
+def cascade_placed_failures(name: str, job_id: str, jobs: dict, placer: str, key: str) -> list[str]:
+    """Why `job_id`'s runs-on can wait on the side label without reading its placement's Blacksmith slot."""
+    failures = []
+    runs_on = runs_on_text(jobs[job_id])
+    place = next((step for step in jobs[placer].get("steps") or []
+                  if "side_lane_placement.py" in str(step.get("run") or "")), None)
+    if place is None:
+        return [f"{name} {placer}: no side_lane_placement.py step"]
+    env = place.get("env") or {}
+    for variable in ("JOBS", "CASCADE_RUNS", "CASCADE_JOBS"):
+        if key not in str(env.get(variable) or "").split():
+            failures.append(f"{name} {placer}: {variable} does not list {key}")
+    side = runs_on.find("CI_SIDE_LANE_RUNNER")
+    for output, label in (("blacksmith_12_jobs", "blacksmith-12vcpu-macos-26"), ("blacksmith_6_jobs", "blacksmith-6vcpu-macos-26")):
+        if f"${{{{ steps.{place.get('id')}.outputs.{output} }}}}" != str((jobs[placer].get("outputs") or {}).get(output)):
+            failures.append(f"{name} {placer}: output {output} is not the placement's")
+        read = (f"needs.{placer}.outputs.placed_attempt == format('{{0}}', github.run_attempt) && "
+                f"contains(needs.{placer}.outputs.{output}, ' {key} ') && '{label}'")
+        at = runs_on.find(read)
+        if at < 0 or (side >= 0 and at > side):
+            failures.append(f"{name} {job_id}: runs-on does not take `{label}` for {key} ahead of the side label")
+    # A re-run of the job alone keeps the placing job's outputs from the attempt before: a slot read then.
+    if "github.run_attempt" not in str((jobs[placer].get("outputs") or {}).get("placed_attempt") or ""):
+        failures.append(f"{name} {placer}: no placed_attempt output for the attempt that placed")
+    expressions = EXPRESSION.findall(runs_on)
+    if not expressions or not unconditional(split_top(unwrap(expressions[0]), "||")[-1]):
+        failures.append(f"{name} {job_id}: runs-on does not end in a label literal")
+    return failures
+
+
+def smoke_tooling():
+    path = ROOT / "scripts" / "ci" / "nightly_next_launch_smoke.py"
+    spec = importlib.util.spec_from_file_location("_runs_on_fallback_launch_smoke", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+class CascadePlacedSideJobs(unittest.TestCase):
+    def test_a_placed_side_job_takes_the_cascade_before_the_side_label(self) -> None:
+        failures = []
+        for (name, job_id), (placer, key) in CASCADE_PLACED.items():
+            failures += cascade_placed_failures(name, job_id, load(WORKFLOWS / name)["jobs"], placer, key)
+        self.assertEqual(failures, [], "a placed side job reads its Blacksmith slot before the side label")
+
+    def test_the_rule_catches_a_job_left_on_the_side_label(self) -> None:
+        jobs = load(WORKFLOWS / "nightly-next-launch-smoke.yml")["jobs"]
+        pinned = {**jobs, "smoke": {**jobs["smoke"], "runs-on": "${{ github.run_attempt == 1 && "
+                                                             "vars.CI_SIDE_LANE_RUNNER || 'blacksmith-6vcpu-macos-26' }}"}}
+        self.assertTrue(cascade_placed_failures("x.yml", "smoke", pinned, "pick", "launch-smoke"))
+        unplaced = {**jobs, "pick": {**jobs["pick"], "steps": [s for s in jobs["pick"]["steps"]
+                                                               if "side_lane_placement.py" not in str(s.get("run"))]}}
+        self.assertTrue(cascade_placed_failures("x.yml", "smoke", unplaced, "pick", "launch-smoke"))
+
+    def test_the_cascade_takes_a_side_workflows_own_job(self) -> None:
+        path = ROOT / "scripts" / "ci" / "next_macos_cascade.py"
+        spec = importlib.util.spec_from_file_location("_runs_on_fallback_next_macos_cascade", path)
+        module = importlib.util.module_from_spec(spec)
+        import sys
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+        env = {"JOBS": "launch-smoke", "CASCADE_RUNS": " launch-smoke ", "CASCADE_JOBS": "launch-smoke"}
+        self.assertEqual(module.candidates(env, ()), ["launch-smoke"])
+        self.assertEqual(module.candidates({**env, "CASCADE_JOBS": ""}, ()), [])
+
+
+class OneLaunchSmokePerBuild(unittest.TestCase):
+    """The post-publish launch smoke's ticks never queue a second smoke of a build (up to three per build
+    on 2026-10-29, each holding a side-label slot): a scheduled tick skips a build whose smoke another run
+    has queued or running."""
+
+    def test_a_scheduled_tick_skips_a_build_another_run_is_smoking(self) -> None:
+        jobs = load(WORKFLOWS / "nightly-next-launch-smoke.yml")["jobs"]
+        steps = {step.get("id"): step for step in jobs["pick"]["steps"]}
+        self.assertIn("nightly_next_launch_smoke.py in-flight", steps["in-flight"]["run"])
+        self.assertEqual(jobs["pick"]["outputs"]["in_flight"], "${{ steps.in-flight.outputs.in_flight }}")
+        self.assertIn("(github.event_name != 'schedule' || needs.pick.outputs.in_flight == '')", jobs["smoke"]["if"])
+        self.assertEqual(jobs["smoke"]["name"], "smoke ${{ needs.pick.outputs.build }}")
+        # A smoke that does run (a dispatch, a pull request) is still placed: only a skipped tick is not.
+        self.assertIn("(github.event_name != 'schedule' || steps.in-flight.outputs.in_flight == '')", steps["place"]["if"])
+
+    def test_a_second_smoke_of_a_build_cannot_start(self) -> None:
+        tooling = smoke_tooling()
+        runs = [{"id": 4, "status": "in_progress", "event": "pull_request"},
+                {"id": 2, "status": "queued", "event": "schedule"}, {"id": 1, "status": "completed", "event": "schedule"}]
+        jobs = {2: [{"name": tooling.smoke_job(200), "status": "queued", "conclusion": None}],
+                1: [{"name": tooling.smoke_job(100), "status": "completed", "conclusion": "success"}],
+                4: [{"name": tooling.smoke_job(500), "status": "queued", "conclusion": None}]}
+        self.assertEqual(tooling.in_flight(runs, jobs.__getitem__, 200, own_run=3), 2)
+        self.assertEqual(tooling.in_flight(runs, jobs.__getitem__, 500, own_run=3), 4)  # a pull request's smoke too
+        self.assertIsNone(tooling.in_flight(runs, jobs.__getitem__, 100, own_run=3))
+        self.assertIsNone(tooling.in_flight(runs, jobs.__getitem__, 300, own_run=3))
 
 
 class RunsOnFallbackTests(unittest.TestCase):

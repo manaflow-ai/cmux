@@ -655,7 +655,8 @@ impl PersonGate {
             spent.pop_front();
         }
         let fresh = nonces.iter().enumerate().all(|(i, nonce)| {
-            !nonces[..i].contains(nonce) && !spent.iter().any(|(n, _)| n == nonce)
+            !nonces.get(..i).unwrap_or_default().contains(nonce)
+                && !spent.iter().any(|(n, _)| n == nonce)
         });
         if nonces.is_empty() || !fresh {
             return false;
