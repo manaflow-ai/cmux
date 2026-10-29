@@ -826,6 +826,11 @@ impl Hub {
         *self.harness_homes.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = homes;
     }
 
+    /// How many outbox deliveries are not settled yet (`outbox.rs`).
+    pub fn outbox_unsettled(&self) -> usize {
+        self.outbox.unsettled()
+    }
+
     pub fn subscribe(&self) -> broadcast::Receiver<HubEvent> {
         self.events.subscribe()
     }

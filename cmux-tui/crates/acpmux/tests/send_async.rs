@@ -160,11 +160,17 @@ impl C {
 
 /// B, with a session `name` whose turn runs until cancelled (a lane at work), and A peered to it.
 async fn busy_peer(tag: &str, name: &str) -> (Arc<Hub>, Arc<Hub>, String) {
+    busy_peer_on(tag, name, true).await
+}
+
+/// [`busy_peer`]; without `peer_token`, A's link carries the dashboard token alone (served as Web).
+async fn busy_peer_on(tag: &str, name: &str, peer_token: bool) -> (Arc<Hub>, Arc<Hub>, String) {
     let b = hub();
     let home = std::env::temp_dir().join(format!("send-async-{tag}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&home);
     let auth = PeerAuth::create(&home).unwrap();
-    let peer_token = std::fs::read_to_string(acpmux::server::peer_auth::token_path(&home)).unwrap();
+    let peer_token_text =
+        std::fs::read_to_string(acpmux::server::peer_auth::token_path(&home)).unwrap();
     let l = bind_ws("127.0.0.1:0").await.unwrap();
     let port = l.local_addr().unwrap().port();
     tokio::spawn(serve_ws_with(
@@ -196,7 +202,8 @@ async fn busy_peer(tag: &str, name: &str) -> (Arc<Hub>, Arc<Hub>, String) {
         tokio::time::sleep(Duration::from_secs(60)).await;
     });
     let a = hub();
-    a.add_peer("b", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), Some(peer_token), true)
+    let peer_token = peer_token.then_some(peer_token_text);
+    a.add_peer("b", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), peer_token, true)
         .await
         .unwrap();
     (a, b, id)
@@ -814,4 +821,39 @@ async fn a_filtered_event_stream_hears_no_message_notice() {
             }
         }
     }
+}
+
+/// Over a link added with the dashboard token alone, the receiver takes no sender identity, so
+/// it records no message: the sender records none either, and keeps no intent waiting on one.
+#[tokio::test]
+async fn a_send_over_a_dashboard_token_link_keeps_no_message_intent() {
+    let (a, b, id) = busy_peer_on("dashboard-send", "lane", false).await;
+    // A Web-served chat must ask, in a mode the asking table lists (`remote_guard.rs`).
+    b.config.write().await.web_asking_modes.insert("fake".into(), vec!["normal".into()]);
+    b.set_policy(&b.resolve(&id).unwrap(), PermissionPolicy::Ask).await;
+    let mut person = C::new(a.clone()).await;
+    let sender = person
+        .call(
+            method::SESSION_NEW,
+            json!({"cwd": std::env::temp_dir(), "mcpServers": [],
+                   "_meta": {"acpmux": {"name": "dashboard-sender"}}}),
+        )
+        .await
+        .unwrap()["sessionId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let mut from = C::as_session(a.clone(), &sender).await;
+    for prompt_id in ["p-dash", "p-dash-later"] {
+        from.send(method::SESSION_PROMPT, prompt("b/lane", "over the dashboard link", prompt_id))
+            .await;
+        from.notified(method::MUX_PROMPT_ACCEPTED, Duration::from_secs(20), |p| {
+            p["promptId"] == prompt_id
+        })
+        .await
+        .expect("the receiver accepted the prompt");
+    }
+    assert!(C::new(b).await.message_events(&id).await.is_empty());
+    assert!(person.message_events(&sender).await.is_empty());
+    assert_eq!(a.outbox_unsettled(), 0, "an intent waits on a message the receiver never records");
 }

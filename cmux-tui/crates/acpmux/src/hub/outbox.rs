@@ -222,6 +222,12 @@ impl Outbox {
         self.running.lock().unwrap_or_else(|e| e.into_inner()).remove(id);
     }
 
+    /// How many deliveries are not settled yet (a projection intent waiting on its receiver's
+    /// journal counts).
+    pub fn unsettled(&self) -> usize {
+        self.book().deliveries.values().filter(|d| !d.settled()).count()
+    }
+
     pub fn get(&self, id: &str) -> Option<Delivery> {
         self.book().deliveries.get(id).cloned()
     }

@@ -330,7 +330,14 @@ async fn forward_inner(
             .then(|| p.pointer("/_meta/acpmux/promptId").and_then(Value::as_str))
             .flatten()
             .map(str::to_owned);
-        let sender_message = if m == method::SESSION_PROMPT && !conn.is_person() {
+        // Only a link the peer serves as a peer daemon carries the sender's identity there
+        // (`requests.rs` takes `messageSender` from a Peer connection alone): over a link added
+        // with the dashboard token, the receiver records no message, so the sender records none
+        // and waits on none either.
+        let sender_message = if m == method::SESSION_PROMPT
+            && !conn.is_person()
+            && peer.served_as().as_deref() == Some("peer")
+        {
             conn.caller().map(|sender_session| {
                 let sender =
                     p.pointer("/_meta/acpmux/messageSender").cloned().unwrap_or_else(|| {
