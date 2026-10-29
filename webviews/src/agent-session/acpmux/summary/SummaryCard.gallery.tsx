@@ -4,15 +4,17 @@
 // ones as compact status cards), chats the agent started under Subagents with their state,
 // and the header's counts. An empty chat's card draws one quiet line and Attach files or folders,
 // not a "None" under every title.
-import type { ComponentProps } from "react";
+import type { ComponentProps, CSSProperties } from "react";
 import { componentEntry } from "../../../gallery/format";
 import { minutesAgo } from "../../../gallery/clock";
 import { GALLERY_NOW } from "../../../gallery/clock";
-import { activity, CWD, tool, user } from "../../../gallery/fixtures/acpmux";
+import { activity, CWD, row, tool, user } from "../../../gallery/fixtures/acpmux";
 import type { StartedSession } from "../started/startedSessions";
 import type { SummaryCardControl } from "./cardState";
 import type { InspectorProcess } from "../inspector/processes";
 import { SummaryCard } from "./SummaryCard";
+import { ArtifactPanel } from "../conversation/ArtifactPanel";
+import { SummaryButton } from "./SummaryButton";
 import type { WorkflowActions } from "./WorkflowSummary";
 import type { WorkflowSummary } from "./workflow";
 import { createWorkflowAdapter } from "./foldWorkflows";
@@ -21,7 +23,7 @@ import { realWorkflowFixture } from "../realWorkflowFixture";
 type Props = Pick<
   ComponentProps<typeof SummaryCard>,
   "rows" | "background" | "sessions" | "onAttach" | "workflow" | "workflowActions"
->;
+> & { tabRowHeight?: number; preview?: boolean; inspectorPush?: boolean };
 
 const none = () => undefined;
 /// The inline column, shown and open.
@@ -36,17 +38,71 @@ const card: SummaryCardControl = {
   fold: none,
 };
 
-function GallerySummaryCard(props: Props) {
+function GallerySummaryCard({ tabRowHeight, preview, inspectorPush, ...props }: Props) {
   return (
-    <div className="acpmux-shell" style={{ justifyContent: "flex-end", height: "100%" }}>
-      <div className="acpmux-main" data-summary="inline" style={{ display: "flex", justifyContent: "flex-end" }}>
+    <div
+      className="acpmux-shell"
+      data-tab-row={tabRowHeight ? "" : undefined}
+      data-inspector-chat-placement={inspectorPush ? "push" : undefined}
+      style={
+        {
+          height: "100%",
+          "--acpmux-tab-row-height": `${tabRowHeight ?? 0}px`,
+          ...(inspectorPush
+            ? {
+                "--acpmux-inspector-top": tabRowHeight ? `${tabRowHeight}px` : "28px",
+                // ChatInspector.tsx writes this as a measured shell px value. The fixture is 1000px
+                // wide, with Preview's 46vw artifact resolving to 460px at that width.
+                "--acpmux-header-room": preview ? "540px" : "1000px",
+              }
+            : {}),
+        } as CSSProperties
+      }
+    >
+      <div className="acpmux-main" data-summary="inline">
+        {tabRowHeight !== undefined && (
+          <div className="acpmux-stage">
+            <header className="acpmux-header" data-tab-row={tabRowHeight ? "" : undefined}>
+              <div />
+              <div className="acpmux-header-tools">
+                <SummaryButton card={card} />
+              </div>
+            </header>
+          </div>
+        )}
+      </div>
+      {inspectorPush && (
+        <aside
+          className="ui-glass ui-glass-floats acpmux-chat-inspector"
+          data-placement="push"
+          data-presence="shown"
+          aria-label="Session Info"
+          style={
+            {
+              width: "220px",
+              "--acpmux-inspector-top": tabRowHeight ? `${tabRowHeight}px` : "28px",
+            } as CSSProperties
+          }
+        >
+          <div className="acpmux-chat-inspector__head">Session Info</div>
+          <div className="acpmux-chat-inspector__body">
+            <div className="acpmux-chat-inspector-section">Pushed Session Info</div>
+          </div>
+        </aside>
+      )}
+      {preview ? (
+        <ArtifactPanel
+          artifact={{ kind: "markdown", lang: "markdown", code: "# Preview\nA document beside the chat." }}
+          onClose={none}
+        />
+      ) : inspectorPush ? null : (
         <SummaryCard
           card={card}
           subagents={{ views: undefined, current: undefined, asks: new Set(), onOpen: none }}
           onOpenOutput={none}
           {...props}
         />
-      </div>
+      )}
     </div>
   );
 }
@@ -140,6 +196,63 @@ export default componentEntry<Props>({
   covers: ["agent-session/acpmux/summary/SummaryTasks.tsx", "agent-session/acpmux/inspector/ChildSessionRows.tsx"],
   load: async () => GallerySummaryCard,
   variants: {
+    "preview-tab-row": {
+      note: "The Preview sibling obeys the same native tab-row clearance, both beside the chat and covering a narrow pane.",
+      props: { tabRowHeight: 32, preview: true, rows: [] },
+    },
+    "preview-pushed-inspector-tab-row": {
+      note: "Preview and a pushed Session Info card share the pane; the native tools span both side-panel terms.",
+      props: { tabRowHeight: 32, preview: true, inspectorPush: true, rows: [] },
+    },
+    "inspector-pushed-tab-row": {
+      note: "A pushed Session Info card keeps the native tools at the pane edge.",
+      props: { tabRowHeight: 32, inspectorPush: true, rows: [] },
+    },
+    "inspector-pushed-no-tab-row": {
+      note: "A pushed Session Info card keeps ordinary header tools in place when no native row is active.",
+      props: { tabRowHeight: 0, inspectorPush: true, rows: [] },
+    },
+    "shared-tab-row": {
+      note: "The inline Summary column beside the chat, under a 32px native tab row. Two commands and a failed subagent keep long counts visible with a right ellipsis, outside the native header holes.",
+      props: {
+        tabRowHeight: 32,
+        rows: [
+          ...rows,
+          row("subagents", 1, {
+            subagents: [
+              {
+                id: "failed-review",
+                name: "Review",
+                task: "Review",
+                parent: null,
+                state: "failed",
+                startedAt: minutesAgo(2),
+                endedAt: minutesAgo(1),
+              },
+              {
+                id: "stopped-review",
+                name: "Stopped check",
+                task: "Stopped check",
+                parent: null,
+                state: "cancelled",
+                startedAt: minutesAgo(2),
+                endedAt: minutesAgo(1),
+              },
+              {
+                id: "done-review",
+                name: "Checks",
+                task: "Checks",
+                parent: null,
+                state: "completed",
+                startedAt: minutesAgo(2),
+                endedAt: minutesAgo(1),
+              },
+            ],
+          }),
+        ],
+        background: background(processes.slice(0, 2)),
+      },
+    },
     "background-work": {
       note: "Three commands running, newest first with their time and Stop; three finished as compact status cards. Five started chats under Subagents: waiting, running, failed, done.",
       props: { rows, background: background(processes), sessions: { list: sessions, onOpen: none } },

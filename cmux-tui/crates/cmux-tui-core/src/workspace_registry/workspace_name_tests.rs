@@ -193,3 +193,44 @@ fn workspace_name_source_store_refuses_a_rename_older_than_storage() {
     drop(registry);
     fs::remove_dir_all(root).unwrap();
 }
+
+#[test]
+fn workspace_name_source_default_named_user_rows_heal_to_auto() {
+    let root = temp_root("workspace-name-default-heal");
+    {
+        let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
+        commit(&mut registry, "create", renamed("workspace-201", NameSource::User, 0));
+    }
+    let registry = WorkspaceRegistry::open(&root, "session").unwrap();
+    let workspace = registry.snapshot().unwrap().workspaces[0].clone();
+    assert_eq!(workspace.name_source, NameSource::Auto);
+    assert_eq!(workspace.name_revision, 0);
+    drop(registry);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn workspace_name_source_chosen_or_renamed_names_stay_user() {
+    for (name, revision) in [("Fix Login", 0), ("workspace-7", 1), ("workspace-7b", 0)] {
+        let root = temp_root("workspace-name-default-keep");
+        {
+            let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
+            commit(&mut registry, "create", renamed(name, NameSource::User, revision));
+        }
+        let registry = WorkspaceRegistry::open(&root, "session").unwrap();
+        let workspace = registry.snapshot().unwrap().workspaces[0].clone();
+        assert_eq!(workspace.name_source, NameSource::User, "{name} r{revision}");
+        drop(registry);
+        fs::remove_dir_all(root).unwrap();
+    }
+}
+
+#[test]
+fn requested_default_workspace_name_is_auto() {
+    use crate::resource_name::NameSource as S;
+    assert_eq!(S::for_requested_workspace_name(None), S::Auto);
+    assert_eq!(S::for_requested_workspace_name(Some("workspace-12")), S::Auto);
+    assert_eq!(S::for_requested_workspace_name(Some("workspace-")), S::User);
+    assert_eq!(S::for_requested_workspace_name(Some("workspace-1x")), S::User);
+    assert_eq!(S::for_requested_workspace_name(Some("vim notes")), S::User);
+}

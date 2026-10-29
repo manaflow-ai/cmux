@@ -71,6 +71,8 @@ extension WorkspaceContentController {
             drop(tabID, on: target)
         case .newColumn(let after, _):
             newColumn(after: after, options: SpawnOptions(cwd: panes[after]?.selectedTab?.cwd, workspace: workspace.key))
+        case .newColumnLeft(let pane, _):
+            newColumn(after: pane, left: true, options: SpawnOptions(cwd: panes[pane]?.selectedTab?.cwd, workspace: workspace.key))
         case .split(let pane, let axis):
             guard let handle = handles.panes[pane], let model = daemon.store.pane(handle) else { return }
             let cwd = panes[pane]?.selectedTab?.cwd
@@ -98,13 +100,15 @@ extension WorkspaceContentController {
     /// as Cmd-D's split): a provisional pane in a provisional column at the planned width, with the
     /// width changes it brings, laid out and mounted before the key's frame; the daemon's pane
     /// takes it over under the same public id. Otherwise it waits for the reply.
-    func newColumn(after: LayoutPaneID, options: SpawnOptions) {
+    func newColumn(after: LayoutPaneID, left: Bool = false, options: SpawnOptions) {
         guard let handle = handles.panes[after] else { return }
         let request = layoutModel.prepareNewColumn(nextTo: after)
-        let command = NewColumnCommand(pane: handle, width: request.width, options: options)
+        let command = NewColumnCommand(pane: handle, width: request.width, left: left, options: options)
+        // The action refuses New Column Left first (ColumnHandlers); a script's intent stops here.
+        guard command.isSupported(on: daemon) else { return }
         guard command.isOptimistic(on: daemon) else {
             spawnPane("new-pane-right", then: { [layoutModel] in layoutModel.commitNewColumnResize(request) }) { connection in
-                try await connection.newColumn(rightOf: handle, width: request.width, options: options)
+                try await connection.newColumn(beside: handle, left: left, width: request.width, options: options)
             }
             return
         }
@@ -119,7 +123,7 @@ extension WorkspaceContentController {
                 treeWidth = change.width
             }
         }
-        let provisional = ProvisionalPane(columnWidth: request.width, widths: widths, treeWidth: treeWidth)
+        let provisional = ProvisionalPane(columnWidth: request.width, widths: widths, treeWidth: treeWidth, left: left)
         createInKeysTurn("newColumn", provisional: provisional, then: { [layoutModel] in layoutModel.commitNewColumnResize(request) }) {
             command.intendNow(on: self.daemon, provisional: provisional)
         }

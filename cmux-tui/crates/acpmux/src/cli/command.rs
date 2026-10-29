@@ -30,6 +30,13 @@ pub enum Command {
         #[arg(long)]
         codex: PathBuf,
     },
+    /// `gh` for an agent on a machine the person added: the GitHub broker's actions, run by the
+    /// Mac that lends this machine its login (`cli/gh_shim.rs`).
+    #[command(hide = true, disable_help_flag = true)]
+    Gh {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
     /// Send a local brief to another harness on a peer (or the least-loaded
     /// allowed host with `--host auto`) and record its identity.
     Dispatch(DispatchArgs),
@@ -227,6 +234,8 @@ pub enum Command {
         #[arg(long, value_name = "FILE")]
         attach: Vec<PathBuf>,
     },
+    /// Team-scoped durable messages. Requires Labs `meshRelay.teamMessaging`.
+    Inbox(InboxArgs),
     /// Append a report to a human basket without waking any agent session.
     /// The target must be `reports:<person>`; the sender is the attached local
     /// ACP session (or `--from` when the daemon can bind that session).
@@ -245,6 +254,9 @@ pub enum Command {
     /// List sessions on every host.
     #[command(alias = "list", alias = "list-sessions")]
     Ls {
+        /// Include tool inventories in JSON rows (otherwise read `session info SESSION`).
+        #[arg(long)]
+        with_tools: bool,
         /// Only sessions in this state: running, ready, idle, closed, waiting.
         #[arg(long)]
         status: Option<String>,
@@ -254,6 +266,15 @@ pub enum Command {
         /// Only sessions carrying this tag (key or key=value).
         #[arg(long)]
         tag: Option<String>,
+        /// Return at most N sessions, newest first.
+        #[arg(long, value_name = "N", value_parser = clap::value_parser!(u64).range(1..))]
+        limit: Option<u64>,
+        /// Select comma-separated fields from each session record.
+        #[arg(long, value_name = "FIELD[,FIELD…]")]
+        fields: Option<String>,
+        /// Only sessions updated within this duration (for example `24h` or `30m`).
+        #[arg(long, value_name = "DURATION")]
+        since: Option<String>,
     },
     /// Open the TUI on a session, or on the session list.
     #[command(alias = "a")]
@@ -501,6 +522,9 @@ pub enum Command {
         /// Accepted for callers of older builds; hosted agents keep running anyway.
         #[arg(long, hide = true, conflicts_with = "end_agents")]
         keep_agents: bool,
+        /// Signal service restart to clients while stopping for an external updater.
+        #[arg(long, conflicts_with = "end_agents")]
+        restart: bool,
         /// End every agent process too, hosted agents and their hosts included.
         #[arg(long)]
         end_agents: bool,
@@ -723,6 +747,10 @@ pub enum SecretCmd {
 
 #[derive(Subcommand)]
 pub enum SessionCmd {
+    /// Queue a new session on a mesh host; prints a receipt, not completed execution.
+    Start(crate::cli::mesh_control::StartArgs),
+    /// Read one mesh lifecycle receipt without waiting.
+    Receipt { message_id: String },
     /// Show session details.
     Info { session: String },
     /// Cancel the running turn.
@@ -731,6 +759,8 @@ pub enum SessionCmd {
     #[command(alias = "kill")]
     Stop {
         session: String,
+        #[command(flatten)]
+        mesh: crate::cli::mesh_control::RouteArgs,
         /// Also delete the log.
         #[arg(long)]
         purge: bool,
@@ -744,7 +774,11 @@ pub enum SessionCmd {
     Rename { session: String, new_name: String },
     /// Run the queued prompts a failed turn held. An agent or a script may resume a
     /// queue; only answering a permission or a question needs the cmux app.
-    Resume { session: String },
+    Resume {
+        session: String,
+        #[command(flatten)]
+        mesh: crate::cli::mesh_control::RouteArgs,
+    },
     /// Fork a session into a new one that shares the history so far.
     Fork {
         session: String,
@@ -757,7 +791,13 @@ pub enum SessionCmd {
         force_admit: bool,
     },
     /// Change mode, model, a config option, or the permission policy: key=value.
-    Set { session: String, assignment: String },
+    Set {
+        session: String,
+        assignment: Option<String>,
+        /// Claim a team-scoped address (for example `coordinator`).
+        #[arg(long, conflicts_with = "assignment")]
+        team_address: Option<String>,
+    },
     /// Answer a pending permission request. The daemon accepts an allow
     /// only from the cmux app (approve it on the Mac app); a deny option
     /// works from here.
@@ -848,6 +888,25 @@ pub enum SessionCmd {
     },
 }
 
+#[derive(Args)]
+pub struct InboxArgs {
+    /// Continue browsing from the previous JSON response's `next` cursor.
+    #[arg(long)]
+    pub before: Option<u64>,
+    #[command(subcommand)]
+    pub command: Option<InboxCmd>,
+}
+
+#[derive(Subcommand)]
+pub enum InboxCmd {
+    /// List team messages currently held by the hub.
+    List,
+    /// Read one message by id (the message remains acknowledged only when `ack` is used).
+    Read { id: String },
+    /// Acknowledge one team message.
+    Ack { id: String },
+}
+
 #[derive(Subcommand)]
 pub enum DaemonCmd {
     /// Run the daemon in the foreground.
@@ -913,6 +972,9 @@ pub enum DaemonCmd {
         /// the agents; hosted agents keep running anyway.
         #[arg(long, hide = true, conflicts_with = "end_agents")]
         keep_agents: bool,
+        /// Signal service restart to clients while stopping for an external updater.
+        #[arg(long, conflicts_with = "end_agents")]
+        restart: bool,
         /// End every agent process too, hosted agents and their hosts included.
         #[arg(long)]
         end_agents: bool,
@@ -1058,14 +1120,25 @@ pub fn flatten(c: Command) -> Command {
         Command::Session(sc) => match sc {
             SessionCmd::Info { session } => Command::Info { session },
             SessionCmd::Cancel { session } => Command::Cancel { session },
-            SessionCmd::Stop { session, purge } => Command::Kill { session, purge },
+            SessionCmd::Stop { session, purge, mesh } if !mesh.mesh => {
+                Command::Kill { session, purge }
+            }
             SessionCmd::Restart { session } => Command::RestartAgent { session },
             SessionCmd::Rename { session, new_name } => Command::Rename { session, new_name },
-            SessionCmd::Resume { session } => Command::ResumeQueue { session },
+            SessionCmd::Resume { session, mesh } if !mesh.mesh => Command::ResumeQueue { session },
+            control @ (SessionCmd::Start(_)
+            | SessionCmd::Receipt { .. }
+            | SessionCmd::Stop { .. }
+            | SessionCmd::Resume { .. }) => Command::Session(control),
             SessionCmd::Fork { session, name, cwd, force_admit } => {
                 Command::Fork { session, name, cwd, force_admit }
             }
-            SessionCmd::Set { session, assignment } => Command::Set { session, assignment },
+            SessionCmd::Set { session, assignment, team_address } => Command::Set {
+                session,
+                assignment: assignment
+                    .or_else(|| team_address.map(|address| format!("team-address={address}")))
+                    .unwrap_or_default(),
+            },
             SessionCmd::Allow { session, option } => Command::Allow { session, option },
             SessionCmd::Deny { session } => Command::Deny { session },
             SessionCmd::Answer { session, answer } => Command::Answer { session, answer },
@@ -1112,8 +1185,8 @@ pub fn flatten(c: Command) -> Command {
             DaemonCmd::Start { person_key_fd, show_token } => {
                 Command::DaemonStart { person_key_fd, show_token }
             }
-            DaemonCmd::Shutdown { keep_agents, end_agents } => {
-                Command::Shutdown { keep_agents, end_agents }
+            DaemonCmd::Shutdown { keep_agents, end_agents, restart } => {
+                Command::Shutdown { keep_agents, end_agents, restart }
             }
             DaemonCmd::Restart => Command::DaemonRestart,
             DaemonCmd::Config { show_token } => Command::Config { show_token },

@@ -872,6 +872,8 @@ export type SessionDetail = {
    * the tree from these links at any depth.
    */
   startedBy?: (string | null);
+  /** Effective liveness: `stuck` after three classified harness failures, else `status`. */
+  state?: string;
   stateSeq: number;
   /**
    * `idle`, `ready`, `running`, `waiting`, `disconnected` or `closed`;
@@ -880,6 +882,11 @@ export type SessionDetail = {
   status: string;
   /** The agent takes a prompt mid-turn. */
   steering: boolean;
+  /** Last classified error, redacted and bounded. Omitted for peers. */
+  stuckError?: (string | null);
+  stuckReason?: (StuckReason | null);
+  /** Unix milliseconds when the third failure established stuck. Omitted for peers. */
+  stuckSince?: (number | null);
   /** Tags that have not expired. */
   tags: Record<string, string>;
   title?: (string | null);
@@ -889,10 +896,10 @@ export type SessionDetail = {
    * may omit this field.
    */
   titleSource?: (string | null);
-  /** The chat's tools (`hub/tools.rs`). */
-  tools: ToolSummary[];
-  /** `_acpmux/set_tools` can change them. */
-  toolsMutable: boolean;
+  /** The chat's tools (`hub/tools.rs`), present on per-session reads and attachments. */
+  tools?: (ToolSummary[] | null);
+  /** `_acpmux/set_tools` can change them; omitted from census rows. */
+  toolsMutable?: (boolean | null);
   turn?: (TurnSummary | null);
   turnCount: number;
   unread: boolean;
@@ -1064,6 +1071,8 @@ export type SessionSummary = {
    * the tree from these links at any depth.
    */
   startedBy?: (string | null);
+  /** Effective liveness: `stuck` after three classified harness failures, else `status`. */
+  state?: string;
   stateSeq: number;
   /**
    * `idle`, `ready`, `running`, `waiting`, `disconnected` or `closed`;
@@ -1072,6 +1081,11 @@ export type SessionSummary = {
   status: string;
   /** The agent takes a prompt mid-turn. */
   steering: boolean;
+  /** Last classified error, redacted and bounded. Omitted for peers. */
+  stuckError?: (string | null);
+  stuckReason?: (StuckReason | null);
+  /** Unix milliseconds when the third failure established stuck. Omitted for peers. */
+  stuckSince?: (number | null);
   /** Tags that have not expired. */
   tags: Record<string, string>;
   title?: (string | null);
@@ -1081,10 +1095,10 @@ export type SessionSummary = {
    * may omit this field.
    */
   titleSource?: (string | null);
-  /** The chat's tools (`hub/tools.rs`). */
-  tools: ToolSummary[];
-  /** `_acpmux/set_tools` can change them. */
-  toolsMutable: boolean;
+  /** The chat's tools (`hub/tools.rs`), present on per-session reads and attachments. */
+  tools?: (ToolSummary[] | null);
+  /** `_acpmux/set_tools` can change them; omitted from census rows. */
+  toolsMutable?: (boolean | null);
   turn?: (TurnSummary | null);
   turnCount: number;
   unread: boolean;
@@ -1122,6 +1136,8 @@ export interface SessionsParams {
    * (`running`, `ready`, `idle`, `waiting`, `closed`). Empty is no filter.
    */
   status?: (string | null);
+  /** Include tool inventories explicitly; default census rows omit them. */
+  withTools?: (boolean | null);
 }
 
 export type SessionsResult = {
@@ -1133,6 +1149,8 @@ export type SessionsResult = {
   /** Local and peer sessions, newest first, then by `sessionId`. */
   sessions: SessionSummary[];
 } & Record<string, unknown>;
+
+export type StuckReason = "harness_unavailable" | "capacity" | "auth" | "spawn_failed";
 
 /** One row of a chat's tool list (`store::ToolRow`). */
 export type ToolSummary = {
@@ -1200,4 +1218,6 @@ export interface WatchParams {
    */
   enabled?: (boolean | null);
   limit?: (number | null);
+  /** Include tool inventories explicitly; default census rows omit them. */
+  withTools?: (boolean | null);
 }
