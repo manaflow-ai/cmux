@@ -304,13 +304,6 @@ extension HomeStore {
         if error is CancellationError { return .indeterminate }
         return .invalid("attachment_upload_failed")
     }
-}
-
-/// What one upload child of `uploadMissing` hands back: a named struct, not a
-/// tuple (swiftlang/swift#92698, cx-21wc5).
-private struct AttachmentUploadOutcome: Sendable {
-    let hash: String
-    let result: Result<AttachmentRef, Error>
 
     // MARK: Send chains
 
@@ -364,4 +357,11 @@ private struct AttachmentUploadOutcome: Sendable {
         if case .sendMessage(let conversation, _, _, _) = entry.intent.op { bumpTranscript(conversation) }
         if isOnline { resumeUpload(head) } else { uploads[head]?.waitingForReconnect = true }
     }
+}
+
+/// What one upload child of `uploadMissing` hands back: a named struct, not a
+/// tuple (swiftlang/swift#92698, cx-21wc5).
+private struct AttachmentUploadOutcome: Sendable {
+    let hash: String
+    let result: Result<AttachmentRef, Error>
 }
