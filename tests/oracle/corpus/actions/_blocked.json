@@ -1,5 +1,0 @@
-{
-  "$comment": "Blocked action cases of the actions suite, written whole by scripts/cmux-next/oracle/gen_actions.py; oracle.py does not run `_` files. Each moves to its own case file when its reason goes (a gap fixture lands and every-action-gaps.json drops the gap). From the export catalog there is no case to write: coverage.json lists every action blocked. Do not edit: regenerate.",
-  "generator": "scripts/cmux-next/oracle/gen_actions.py",
-  "cases": {}
-}

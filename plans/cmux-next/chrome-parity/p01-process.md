@@ -154,7 +154,7 @@ cmux app (UI only: layout, input routing, drawing, view state)
 8. Risk tiers: `risk:high` with a `Review (<reviewer>): SHIP at <sha>` receipt for 002 (shell parenting), 087 (updater), 088 (signing and notarization), 133/134/211 (sandbox policy), 150 (adoption socket), 233 (provider credential). User-visible high-tier behavior stays behind `browserHost.helper` or `browserHost.survivesAppCrash` or `CMUX_TUI_VT_WORKERS`.
 9. User-facing strings go through the cmux-localization audit (tasks 061-064, 072, 082, 084, 228, 229).
 10. Generated Swift uses instance-surface types (namespace lint). `ChromiumHostInputRing.write`, the event batch drain, the ring reader and the vt-pool dispatch carry `// perf-hot:` markers with rows in `scripts/cmux-next/perf-hot-benches.json`.
-11. One live lease per shared CEFS file (task 180). Agents do not edit a CEFS file without its lease.
+11. One live lease per shared CEFS file (task 180). Removed unproven in deletion wave 1 (2026-10-29, prove-or-remove row p01-15): no lease check remains.
 12. Branches are landed with `scripts/merge-main.sh`-style merges, never a rebase over others' work.
 13. In the 72 h, host mode and VT worker processes default on in **DEV only**. NIGHTLY needs task 104.
 14. Do not hand-edit generated files (SDK bindings from D3, settings schema); regenerate.
@@ -199,7 +199,7 @@ Each hit is one line item of the named tasks. After task 011, Q1-Q4 come from th
 - **Q3 Swift call sites (175 in 49 files)**: `rg -n '\bshim\??\.[a-zA-Z]+\(' APP --glob '!**/CEFShimLibrary.swift'`, filtered by `--swift-sites` (async, mint, view, local, result-read). Tasks 021-028; leases from task 180.
 - **Q3b result reads**: `gen-chromium-host-wire.py --check-return-use`. Tasks 011, 021-027.
 - **Q4 callbacks and function pointers**: `rg -n 'typedef .*\(\*cmux_shim_[a-z_]+_fn\)|\(\*[a-z_]+\)\(' SHIMH`. Tasks 014b, 030-034.
-- **Q5 remote_cocoa parity**: `--check-view-parity --list-unmapped`. Tasks 040-055, 059, 220, 221, 230, 234.
+- **Q5 remote_cocoa parity**: `--check-view-parity --list-unmapped`. Tasks 040-055, 059, 220, 221, 230, 234. The check, the parity JSON and the vendored mojoms were removed unproven in deletion wave 1 (2026-10-29, prove-or-remove row p01-16).
 - **Q6 native UI rows**: `chromium-host-bench.py --native-ui --list-failing`. Tasks 060-070, 228, 228c, 229.
 - **Q7 per-object daemon threads**: `rg -n 'name\(format!\("[^"]*\{(id|terminal_id|surface_id|stream_id|name|worker_index)\}' cmux-tui/crates --glob '!**/tests/**'` (31 sites) plus `process-model-census.py --threads --by-name`. Tasks 120, 121, 205, 206.
 - **Q7b per-connection and per-attach threads**: `rg -n 'name\("mux-(conn|line-out|events-out|attach-out|render-attach-out|attach-notifications|resource-[a-z-]+|snapshot-attach-out)"' CORE`. Tasks 125, 203, 204.

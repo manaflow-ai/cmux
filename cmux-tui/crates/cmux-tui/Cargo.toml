@@ -21,10 +21,6 @@ iroh-transport = ["cmux-remote/iroh-transport"]
 # a loaded DLL is not scanned that way. Without this feature cmux-tui.exe is
 # the whole program on every platform (dev builds, tests).
 windows-thin-exe = []
-# Correctness-oracle items, here and in cmux-tui-core: code behind
-# cfg(any(debug_assertions, feature = "oracle")). Off by default; release
-# builds never have it. The oracle builds `--profile oracle --features oracle`.
-oracle = ["cmux-tui-core/oracle"]
 # Crash injectors for the fleet's crash matrix, here and in cmux-tui-core and
 # acpmux (the daemon's `debug-panic`, acpmux's `_acpmux/debug_panic` in the
 # `cmux acp` multicall): code behind cfg(any(debug_assertions, feature = "bench")).
@@ -78,8 +74,6 @@ cmux-process.workspace = true
 cmux-threads = { workspace = true, features = ["tokio"] }
 # `cmux settings list|schema|validate`: the settings schema and owner state.
 cmux-config.workspace = true
-# `__oracle-api-compat` (debug and oracle builds): one translation per oracle case.
-cmux-api-compat.workspace = true
 # The daemon's feature snapshot (feature_flags::daemon_features) and the
 # table feature_flags::features filters the signed document's Features to.
 cmux-features = { workspace = true, features = ["sources"] }

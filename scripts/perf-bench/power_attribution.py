@@ -26,9 +26,7 @@ Mac's, so it compares two browsers measured the same way on one host, not one br
 the instance is already each process's `billed`.
 
 FrameClients: the wakeup ledger's `frame` entries (FrameScheduler records each client's frame under its owner)
-that grew in the window, and each FrameScheduler's frames per second (debug.wakeups); and the frame sources no
-FrameScheduler sees, the infinite Core Animation loops and playing video layers at each end (debug.layers
-`frame_sources`).
+that grew in the window, and each FrameScheduler's frames per second (debug.wakeups).
 
 Every reader goes through `Reader`, so the pure parts and PowerWindow test anywhere.
 `python3 -I power_attribution.py rusage PID` prints one process's procs.Usage as JSON (the root read).
@@ -458,15 +456,12 @@ def power_over(entries: list[dict], reference: list[dict] | None, floor: float =
     return sorted(out, key=lambda row: -row["mw"])
 
 
-def frame_clients(before: dict, after: dict, elapsed: float, sources: tuple | None = None) -> dict:
+def frame_clients(before: dict, after: dict, elapsed: float) -> dict:
     """What can tick in an idle window, from reads at its two ends.
 
     FrameScheduler clients (debug.wakeups `before`/`after`): every ledger owner with reason `frame` that grew,
     per second; each FrameScheduler that made frames, with its active clients; the clients active at the two
-    ends. Frame sources no FrameScheduler sees (`sources`: debug.layers `frame_sources` at the two ends):
-    infinite Core Animation loops (NightSky, Motion's spinners) and playing video layers (BackdropVideoView),
-    per owner view with their count at each end (None `sources`: not asked, no rows). A source asked for but not
-    read is named in `not_covered`."""
+    ends. What was not read is named in `not_covered`."""
     counts = {e.get("owner"): e.get("count", 0) for e in (before.get("ledger") or []) if e.get("reason") == "frame"}
     ticked = []
     for entry in after.get("ledger") or []:
@@ -487,16 +482,6 @@ def frame_clients(before: dict, after: dict, elapsed: float, sources: tuple | No
     not_covered = []
     if not before.get("ledger") and not after.get("ledger"):
         not_covered.append("FrameScheduler clients: the build has no debug.wakeups ledger")
-    start, end = sources or (None, None)
-    asked = (("looping_animations", "infinite Core Animation loops"), ("playing_videos", "playing video layers"))
-    for key, what in asked if sources is not None else ():
-        if not isinstance((start or {}).get(key), dict) or not isinstance((end or {}).get(key), dict):
-            out[key] = None
-            not_covered.append(f"{what}: the build's debug.layers has no frame_sources")
-            continue
-        names = sorted(set(start[key]) | set(end[key]))
-        rows = [{"owner": owner, "start": start[key].get(owner, 0), "end": end[key].get(owner, 0)} for owner in names]
-        out[key] = sorted(rows, key=lambda row: (-row["end"], row["owner"]))
     out["not_covered"] = not_covered
     return out
 

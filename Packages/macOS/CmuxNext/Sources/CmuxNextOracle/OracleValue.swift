@@ -1,6 +1,5 @@
 #if DEBUG || CMUX_BENCH_HOOKS
-/// One facet value of an oracle snapshot: JSON, because the facet's contract is its object in
-/// schemas/oracle/snapshot-v1.schema.json. The App converts it to the control socket's JSON once,
+/// One facet value of an oracle snapshot, as JSON. The App converts it to the control socket's JSON once,
 /// at the method's answer. Private text never goes in: a provider records it only as `sha256:<hex>`.
 public enum OracleValue: Sendable, Hashable {
     case null

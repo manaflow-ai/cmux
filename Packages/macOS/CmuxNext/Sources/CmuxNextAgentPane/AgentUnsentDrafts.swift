@@ -48,9 +48,6 @@ public final class AgentUnsentDrafts {
     /// Whether tab `key` holds a new chat's typed text (its close earns an undo toast).
     public func hasDraft(_ key: String) -> Bool { drafts[key] != nil }
 
-    /// Tab `key`'s kept text; nil when it holds none.
-    public func draft(for key: String) -> String? { drafts[key] }
-
     /// Keeps `text` as tab `key`'s draft; blank text forgets it.
     public func set(_ text: String, for key: String) {
         let keep = !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && text.count <= Self.maximumCharacters

@@ -63,7 +63,7 @@ nonisolated final class TerminalOutputLane: Sendable {
         }
     }
 
-    private let backlog = Mutex(Backlog(), rank: .terminalOutputLaneBacklog)
+    private let backlog = Mutex(Backlog())
     /// The surface's key-to-echo stage: each parsed output chunk may be a waiting key's echo. Nil
     /// while the app tracks no input latency.
     let echoStage: TerminalEchoStage?

@@ -48,7 +48,7 @@ public struct ControlSnapshot: Sendable {
 
 extension ControlSnapshot {
     /// The `snapshot.get` result before the caller's location (`caller`, `beside`): the topology at the daemon
-    /// sequence it reflects, with the publish counters. The oracle's topology facet answers the same members.
+    /// sequence it reflects, with the publish counters.
     var snapshotGetMembers: [String: JSONValue] {
         [
             "sequence": JSONValue.number(Double(topology.daemonSequence)),
@@ -101,7 +101,7 @@ public final class ControlSnapshotStore: Sendable {
     private let stale = Atomic<Bool>(false)
     /// How a snapshot is built for a reader (the App's publisher).
     private struct Refreshers: Sendable {
-        /// Builds and publishes in the calling main-actor turn (``freshNow()``).
+        /// Builds and publishes in the calling main-actor turn.
         var now: (@MainActor @Sendable () -> Void)?
         /// Called on the reader's thread when a reader starts waiting (``snapshot(where:deadline:)``), outside the
         /// store's lock: the App raises its pending publish to the reader's class.
@@ -125,7 +125,7 @@ public final class ControlSnapshotStore: Sendable {
     /// Sets how a snapshot is built for a reader.
     ///
     /// - Parameters:
-    ///   - refresh: Builds in the calling main-actor turn (``freshNow()``, and ``fresh(deadline:)`` without
+    ///   - refresh: Builds in the calling main-actor turn (``fresh(deadline:)`` without
     ///     `waiterAdded`).
     ///   - waiterAdded: Called on the reader's thread each time a reader starts waiting for a newer snapshot,
     ///     outside the store's lock. The App raises its pending publish to the reader's class there, so a change
@@ -147,14 +147,6 @@ public final class ControlSnapshotStore: Sendable {
         }
         // Only a rebuilt publish clears the mark, under the lock the waiter's check runs in.
         return await snapshot(where: { [self] _ in !isStale }, deadline: deadline) ?? current
-    }
-
-    /// ``fresh(deadline:)`` in this main-actor turn: the snapshot of the model that the turn's other main-actor
-    /// reads see (the oracle's topology facet beside its other main-actor facets).
-    @MainActor
-    public func freshNow() -> ControlSnapshot {
-        if isStale, let refresh = refreshers.withLock({ $0.now }) { refresh() }
-        return current
     }
 
     /// True while a reader waits for a newer snapshot; the publisher then raises its
