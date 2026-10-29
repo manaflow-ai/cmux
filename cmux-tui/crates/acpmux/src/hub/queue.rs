@@ -624,7 +624,8 @@ impl Hub {
             let Some(from) = queue.iter().position(|q| q.prompt_id == prompt_id) else {
                 return Ok(false);
             };
-            crate::author::may_change(editor, queue[from].sender())?;
+            let Some(item) = queue.get(from) else { return Ok(false) };
+            crate::author::may_change(editor, item.sender())?;
             // Only the last prompt sent now: one sent before it is a queued prompt again.
             queue.iter_mut().for_each(|q| q.sent_now = false);
             let mut q = queue.remove(from);
@@ -709,7 +710,8 @@ impl Hub {
             let Some(i) = queue.iter().position(|q| q.prompt_id == prompt_id) else {
                 return Ok(false);
             };
-            crate::author::may_change(editor, queue[i].sender())?;
+            let Some(item) = queue.get(i) else { return Ok(false) };
+            crate::author::may_change(editor, item.sender())?;
             // Pin the identity before it leaves the queue: its runner may settle it meanwhile.
             let ledger = session.prompts.lock().unwrap_or_else(|e| e.into_inner());
             session.queued.fetch_sub(1, Ordering::SeqCst);

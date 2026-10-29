@@ -29,6 +29,7 @@ pub mod bg_run;
 pub mod byo_endpoint;
 pub mod capabilities;
 pub mod catalog;
+pub mod chat_fork;
 pub mod chats;
 pub mod claude_auth;
 pub mod claude_stdio;
@@ -121,12 +122,15 @@ pub mod subrouter_session;
 pub mod subsession_mcp;
 pub mod subsession_worktree;
 pub mod tailnet;
+#[cfg(test)]
+mod test_exec;
 pub mod transcript;
 pub mod trust;
 pub mod trust_auto;
 pub mod tui;
 pub mod user_settings;
 pub mod web_modes;
+pub mod wireguard;
 pub mod worktree_sessions;
 
 pub mod model_catalog;

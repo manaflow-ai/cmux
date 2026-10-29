@@ -1072,7 +1072,7 @@ pub async fn serve_ws_until(
     }
     // Close admission before clients see 1012, so their immediate retry cannot reconnect to
     // this dying listener. Already accepted upgrades also see the latched shutdown signal.
-    drop(listener);
+    ws_shutdown::close_admission(listener);
     shutdown.close_clients();
     if tokio::time::timeout(ws_shutdown::DRAIN_BUDGET, async {
         while connections.join_next().await.is_some() {}

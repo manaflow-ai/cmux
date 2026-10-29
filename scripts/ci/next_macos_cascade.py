@@ -487,13 +487,19 @@ def skipped(env: Mapping[str, str]) -> str:
     return ""
 
 
+def cascade_jobs(env: Mapping[str, str]) -> tuple[str, ...]:
+    """CASCADE_JOBS plus the env's CASCADE_JOBS: another side workflow's own Mac jobs (the post-publish
+    launch smoke's `launch-smoke`) take the same cascade without joining cmux-next's list."""
+    return (*CASCADE_JOBS, *(job for job in (env.get("CASCADE_JOBS") or "").split() if job not in CASCADE_JOBS))
+
+
 def candidates(env: Mapping[str, str], owned: Sequence[str], promote_busy: bool = False) -> list[str]:
     """The cascade jobs that run here and no idle mini takes, in the order they take Blacksmith slots."""
     runs = set((env.get("CASCADE_RUNS") or "").split())
     # idle_placement() hands the idle minis to the first JOBS, running or not, and
     # every side job takes the side label whatever owned_jobs says: so the idle
     # minis count against the jobs that run here, in order, before Blacksmith.
-    running = [job for job in (env.get("JOBS") or "").split() if job in CASCADE_JOBS and job in runs]
+    running = [job for job in (env.get("JOBS") or "").split() if job in cascade_jobs(env) and job in runs]
     promoted = [job for job in running if job in PROMOTE_JOBS] if (env.get("PROMOTE_LABEL") or "").strip() else []
     side = [job for job in running if job not in promoted]
     # FIRST_JOBS (a feat-cmux-next push's Release compile, which gates the nightly-next request) take the
@@ -622,7 +628,7 @@ def unread_fresh_jobs(env: Mapping[str, str], owned: Sequence[str]) -> tuple[str
     """The FRESH_JOBS that run here and that no idle mini took (`owned` counts against the run's other jobs
     first, as in place()), at most MAX_PER_RUN."""
     runs = set((env.get("CASCADE_RUNS") or "").split())
-    running = [job for job in (env.get("JOBS") or "").split() if job in CASCADE_JOBS and job in runs]
+    running = [job for job in (env.get("JOBS") or "").split() if job in cascade_jobs(env) and job in runs]
     fresh = [job for job in running if job in set((env.get("FRESH_JOBS") or "").split())]
     others = len(running) - len(fresh)
     return tuple(fresh[max(0, len(owned) - others):][:MAX_PER_RUN])
