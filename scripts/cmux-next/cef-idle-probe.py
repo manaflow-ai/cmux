@@ -12,7 +12,7 @@ with a DevTools port, lets it settle, then with no input:
      posting location, BeginFrames, BeginMainFrames, and the TracingStartedInBrowser frame list (renderer pid
      to URL).
   4. CEF-IDLE-POSTED {"process","pid","thread","location","per_s"} for every posting location, highest per_s first
-     (Q8, p14-energy-041); `--queue` keeps the ones at or above QUEUE_MIN_PER_S, the Q8 work list. Then
+     (Q8); `--queue` keeps the ones at or above QUEUE_MIN_PER_S, the Q8 work list. Then
      CEF-IDLE-POSTED-PUMP sets the browser main thread's task rate beside the cmux pump counters.
 Writes OUT/cef-idle.json and prints CEF-IDLE lines.
 
