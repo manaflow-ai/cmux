@@ -70,6 +70,9 @@ pub struct HostState {
     /// that turn's end still belongs to it.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub last_answers: Vec<String>,
+    /// The (conversation, run) of those answers, for reports of a late spawn.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_run: Option<(String, String)>,
     /// E22: what a turn stopped for a newer message answered: the next turn
     /// answers it too.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -124,6 +127,9 @@ pub struct HostState {
     /// cleared when its note is logged.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub resumes: Vec<Resume>,
+    /// Completed report projections whose owner append was interrupted.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pending_reports: Vec<PendingReport>,
     /// The view up to and including the last turn's marked block, by size
     /// and hash (`optchat_core::mark_piece`): saved with that turn's
     /// messages, so the first turn after a restart still marks within the
@@ -154,6 +160,13 @@ pub struct HostState {
     /// first. At most [`WAKES_KEPT`].
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub wakes: Vec<Wake>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct PendingReport {
+    pub conversation: String,
+    pub run: Value,
+    pub steps: Vec<Value>,
 }
 
 /// How many pending wakes `HostState::wakes` keeps.
@@ -259,6 +272,9 @@ pub struct SpawnRecord {
     /// The turn that spawned it (its reply key), for the trace.
     #[serde(default)]
     pub turn: Option<String>,
+    /// The originating conversation; reports must not follow the Chief into another chat.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub conversation: Option<String>,
     /// E22: the messages that turn answered; each turn its reports cause
     /// answers them too, and says while a subagent of it still works.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -428,10 +444,15 @@ pub struct SubRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub permission: Option<PendingPermission>,
     /// The user messages the turn that last told it answered (`tell` during
-    /// a turn): its next report answers them, and goes into their thread.
-    /// Empty: the spawn's own (`SpawnRecord::answers`).
+    /// a turn): its report answers them, and goes into their thread. This is
+    /// retained after Home projection consumes the report so reply/send on
+    /// the report line still targets the assignment's thread.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub answers: Vec<String>,
+    /// The (conversation, run) assigning the current work, captured at spawn or tell.
+    /// Cleared when its report is consumed. None means no known Home projection route.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub report_run: Option<(String, String)>,
     /// When its session last changed (ms since the epoch): stuck detection.
     #[serde(default, skip_serializing_if = "is_zero_u64")]
     pub active_ms: u64,
@@ -693,6 +714,7 @@ impl HostState {
                 {
                     sub.status = SubStatus::Reported;
                     sub.report = None;
+                    sub.report_run = None;
                     sub.stopped = false;
                     sub.floor = *floor;
                 }

@@ -34,6 +34,7 @@ use serde_json::{Value, json};
 
 use super::agent_message_release::expire_held;
 use super::agent_message_store::{not_found, snapshot};
+use cmux_json::JsonSet as _;
 
 /// What acpmux answered a withdraw of one delivered message.
 #[cfg_attr(not(unix), allow(dead_code))]
@@ -199,7 +200,7 @@ pub(crate) fn unsend(
         .map(|(recipient, outcome, error)| {
             let mut entry = json!({"recipient": recipient, "outcome": outcome.wire()});
             if let Some(error) = error {
-                entry["error"] = error.clone();
+                entry.set("error", error.clone());
             }
             entry
         })
