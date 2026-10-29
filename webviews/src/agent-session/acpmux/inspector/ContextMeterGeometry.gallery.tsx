@@ -17,9 +17,9 @@ const BREAKDOWN = {
   maxTokens: 100,
 };
 
-function ContextMeterGeometry() {
+function ContextMeterGeometry({ width = 260 }: { width?: number }) {
   const stage: CSSProperties = {
-    width: 260,
+    width,
     minHeight: 120,
     padding: 8,
     borderRadius: 8,
@@ -44,7 +44,11 @@ export default componentEntry({
   variants: {
     "five-equal-categories": {
       note: "Worst-case geometry: five equal 19% used categories and a 5% free track in a 260px panel.",
-      props: {},
+      props: { width: 260 },
+    },
+    "five-equal-categories-wide": {
+      note: "Worst-case geometry at a wider 400px panel: five equal 19% used categories and a 5% free track.",
+      props: { width: 400 },
     },
   },
 });

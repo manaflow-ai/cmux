@@ -36,10 +36,34 @@ await requireBrowserLane("context-meter-geometry.test.ts", async () => {
     const shots = process.env.CMUX_CONTEXT_METER_SHOTS;
     const captureOnly = process.env.CMUX_CONTEXT_METER_CAPTURE_ONLY === "1";
     const cases = [
-      { name: "light-narrow", theme: "Apple System Colors Light", viewport: { width: 900, height: 760 } },
-      { name: "light-wide", theme: "Apple System Colors Light", viewport: { width: 1600, height: 940 } },
-      { name: "dark-narrow", theme: "Apple System Colors", viewport: { width: 900, height: 760 } },
-      { name: "dark-wide", theme: "Apple System Colors", viewport: { width: 1600, height: 940 } },
+      {
+        name: "light-narrow",
+        theme: "Apple System Colors Light",
+        viewport: { width: 900, height: 760 },
+        variant: "five-equal-categories",
+        frameWidth: 280,
+      },
+      {
+        name: "light-wide",
+        theme: "Apple System Colors Light",
+        viewport: { width: 1600, height: 940 },
+        variant: "five-equal-categories-wide",
+        frameWidth: 420,
+      },
+      {
+        name: "dark-narrow",
+        theme: "Apple System Colors",
+        viewport: { width: 900, height: 760 },
+        variant: "five-equal-categories",
+        frameWidth: 280,
+      },
+      {
+        name: "dark-wide",
+        theme: "Apple System Colors",
+        viewport: { width: 1600, height: 940 },
+        variant: "five-equal-categories-wide",
+        frameWidth: 420,
+      },
     ];
     try {
       const port = (vite!.httpServer!.address() as { port: number }).port;
@@ -47,9 +71,9 @@ await requireBrowserLane("context-meter-geometry.test.ts", async () => {
         await page.setViewportSize(item.viewport);
         await page.goto(
           `http://127.0.0.1:${port}${galleryFrame("agent-pane.context-meter-geometry", {
-            variant: "five-equal-categories",
+            variant: item.variant,
             frame: "component",
-            width: 280,
+            width: item.frameWidth,
             height: 180,
             theme: item.theme,
           })}`,
