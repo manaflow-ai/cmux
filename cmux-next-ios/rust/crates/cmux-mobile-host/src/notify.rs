@@ -589,14 +589,28 @@ async fn watch_once(
         };
         let Ok(value) = serde_json::from_str::<Value>(&text) else { continue };
         let (queries, events) = waiting.receive(&value, classifier)?;
-        for query in queries {
-            sink.send(Message::Text(query.to_string().into())).await.map_err(|e| e.to_string())?;
-        }
-        for event in events {
-            reporter.send(event);
-        }
+        report_and_query(&mut sink, queries, events, |event| reporter.send(event)).await?;
     }
     Err("acpmux closed".into())
+}
+
+pub(super) async fn report_and_query<S>(
+    sink: &mut S,
+    queries: Vec<Value>,
+    events: Vec<NotifyEvent>,
+    mut report: impl FnMut(NotifyEvent),
+) -> Result<(), String>
+where
+    S: futures_util::Sink<Message> + Unpin,
+    S::Error: std::fmt::Display,
+{
+    for query in queries {
+        sink.send(Message::Text(query.to_string().into())).await.map_err(|e| e.to_string())?;
+    }
+    for event in events {
+        report(event);
+    }
+    Ok(())
 }
 
 #[cfg(test)]

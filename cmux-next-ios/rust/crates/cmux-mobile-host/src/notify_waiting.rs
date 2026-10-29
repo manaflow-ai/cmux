@@ -361,4 +361,46 @@ mod tests {
         assert!(waiting.next_deadline().is_none());
         assert!(waiting.requests.is_empty());
     }
+
+    #[tokio::test]
+    async fn recovered_push_survives_failure_to_send_the_next_lookup() {
+        let mut waiting = Waiting::default();
+        let mut classifier = Classifier::default();
+        let first = session("waiting", 10);
+        let mut second = first.clone();
+        second["sessionId"] = json!("s2");
+        let snapshot = json!({"id":2,"result":{"sessions":[first,second]}});
+        let (queries, _) = receive(&mut waiting, &snapshot, &mut classifier);
+        let (next_queries, pushes) =
+            receive(&mut waiting, &reply(&queries[0], pending("p1")), &mut classifier);
+        assert_eq!(next_queries.len(), 1);
+        assert_eq!(next_queries[0]["params"]["sessionId"], "s2");
+        assert_eq!(pushes.len(), 1);
+
+        let mut reported = Vec::new();
+        let mut sink = Box::pin(futures_util::sink::unfold(
+            (),
+            |(), _message: tokio_tungstenite::tungstenite::Message| {
+                std::future::ready(Err::<(), _>("lookup send failed"))
+            },
+        ));
+        let result =
+            crate::notify::report_and_query(&mut sink, next_queries, pushes, |event| reported.push(event))
+                .await;
+        assert_eq!(result, Err("lookup send failed".into()));
+        assert_eq!(reported.len(), 1, "a failed next query must not discard an already-seen push");
+        assert_eq!(reported[0].permission_id.as_deref(), Some("p1"));
+
+        // The watch reconnects, but the classifier survives and will not offer
+        // p1 again. Its only chance to reach the reporter was before the failed send.
+        let mut reconnected = Waiting::default();
+        let (queries, _) = receive(&mut reconnected, &snapshot, &mut classifier);
+        let (next, duplicate) =
+            receive(&mut reconnected, &reply(&queries[0], pending("p1")), &mut classifier);
+        assert!(duplicate.is_empty());
+        let (_, recovered_second) =
+            receive(&mut reconnected, &reply(&next[0], pending("p2")), &mut classifier);
+        assert_eq!(recovered_second.len(), 1);
+        assert_eq!(recovered_second[0].permission_id.as_deref(), Some("p2"));
+    }
 }
