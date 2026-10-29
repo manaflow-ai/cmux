@@ -437,6 +437,11 @@ mod tests {
         assert_eq!(agent_sender(Some(&message), None).as_deref(), Some("lane-a"));
         let sub = json!({"kind": "subsession_message", "from": "s1", "to": "s2"});
         assert_eq!(agent_sender(Some(&sub), None).as_deref(), Some("s1"));
+        // Another session's message and a lane's task result card name the session they are from.
+        let session = crate::prompt_provenance::session_message("s1", "lane-a", "s2");
+        assert_eq!(agent_sender(Some(&session), None).as_deref(), Some("lane-a"));
+        let card = crate::prompt_provenance::task_result("s1", "lane-b", "s2", "t-1", "done");
+        assert_eq!(agent_sender(Some(&card), None).as_deref(), Some("lane-b"));
         assert_eq!(agent_sender(None, Some("coord-deputy")).as_deref(), Some("coord-deputy"));
         assert_eq!(agent_sender(None, None), None, "a plain prompt is the person's");
         let resume = json!({"kind": "auto_resume", "promptId": "p", "attempt": 1, "turnId": "t"});
