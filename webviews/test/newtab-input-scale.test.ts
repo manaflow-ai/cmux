@@ -61,6 +61,10 @@ await requireBrowserLane("newtab-input-scale.test.ts", async () => {
           })}`,
         );
         await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
+        // Cards has no idle prefix; enter shell mode through the real editor before measuring it.
+        await page.locator(".nt-field").click();
+        await page.keyboard.type("!pwd");
+        await page.locator(".nt-shell-glyph").waitFor();
         results.push(
           await page.locator(".nt-input").evaluate((row, name) => {
             const field = row.querySelector<HTMLElement>(".nt-field")!;
