@@ -107,6 +107,34 @@ import Testing
         #expect(picture.width == hidden.pictureWidth, "the picture is not the pane's own size")
     }
 
+    // DIAGNOSTIC ONLY (never lands): which stage loses the remote tab's last frame.
+    @Test func zzDiagRemoteSnapshot() async throws {
+        let rig = try HiddenPageHibernationTests.Rig()
+        defer { rig.close() }
+        rig.hibernation.discardsStreamedPages = true
+        let original = rig.hibernation.capture
+        rig.hibernation.capture = { tab in
+            let started = ContinuousClock.now
+            let image = await original(tab)
+            print("DIAG capture tab=\(type(of: tab)) image=\(image.map { "\($0.width)x\($0.height)" } ?? "nil") took=\(ContinuousClock.now - started)"
+                  + " keeps=\(rig.hibernation.snapshots.keeps(tab.id.rawValue)) count=\(rig.hibernation.snapshots.count)")
+            if let image {
+                let packed = HibernationSnapshots.compressed(image, quality: 0.8, allocator: rig.services.cache.imageCaches.pictureAllocator)
+                print("DIAG compress packed=\(packed != nil) reopened=\(packed?.image() != nil) opaque=\(HibernationSnapshots.isOpaque(image))"
+                      + " alpha=\(image.alphaInfo.rawValue) bpc=\(image.bitsPerComponent) space=\(image.colorSpace?.name.map { $0 as String } ?? "nil")")
+            }
+            return image
+        }
+        let address = try #require(URL(string: "cmux://remote-browser?address=127.0.0.1:9"))
+        let hidden = try await Self.showThenHide(in: rig, wakeRecord: address)
+        defer { hidden.pump.cancel() }
+        try await rig.until("the tab was discarded") { rig.isHibernated(hidden.key) || rig.exemption(hidden.key) != nil }
+        print("DIAG after hibernated=\(rig.isHibernated(hidden.key)) count=\(rig.hibernation.snapshots.count)"
+              + " image=\(rig.hibernation.snapshots.image(for: hidden.key) != nil) snapshotImage=\(rig.hibernation.snapshotImage(hidden.key) != nil)")
+        try await rig.until("the stream's tab, pane and decoder went") { hidden.tab == nil && hidden.pane == nil }
+        print("DIAG later count=\(rig.hibernation.snapshots.count) image=\(rig.hibernation.snapshots.image(for: hidden.key) != nil)")
+    }
+
     @Test func withTheFeatureOffARemoteTabIsNotDiscarded() async throws {
         let rig = try HiddenPageHibernationTests.Rig()
         defer { rig.close() }
