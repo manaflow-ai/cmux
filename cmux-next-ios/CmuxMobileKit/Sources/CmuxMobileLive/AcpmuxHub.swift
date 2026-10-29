@@ -688,6 +688,8 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     func linkDown() {
         // An attach still waiting on the old connection ends without touching this chat.
         generation += 1
+        attachTask?.cancel()
+        attachTask = nil
         retryTask?.cancel()
         retryTask = nil
         failures = 0
@@ -724,6 +726,11 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     private var failures = 0
     /// The next attach after a failed one (`scheduleRetry`).
     private var retryTask: Task<Void, Never>?
+    /// The attach running (`linkUp`), cancelled when the link drops.
+    private var attachTask: Task<Void, Never>?
+    /// The longest one catch-up request may take: a link that stops answering without
+    /// closing fails the page, and the attach tries again (`scheduleRetry`).
+    static let pageTimeout: Duration = .seconds(30)
 
     func linkUp() {
         guard !attaching, let hub, hub.isReady else { return }
@@ -732,7 +739,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         attaching = true
         generation += 1
         let generation = generation
-        Task { await attach(hub, generation) }
+        attachTask = Task { [weak self] in await self?.attach(hub, generation) }
     }
 
     /// How long a failed attach waits before the next try: 250 ms, doubling, at most 15 s.
@@ -761,6 +768,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
             guard generation == self.generation else { return }
             guard caughtUp else {
                 attaching = false
+                attachTask = nil
                 // Live records held meanwhile are newer than the gap: applying them would move
                 // `lastSeq` past it for good. The retry reads to the log's end, them included.
                 held = []
@@ -774,6 +782,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
             break
         }
         attaching = false
+        attachTask = nil
         failures = 0
         attached = true
         let pending = held
@@ -791,6 +800,12 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         var page: [JSONValue] = []
         var earlier = false
         var failure: (any Error)?
+        // Each request is bounded, and none is sent once this attach is stale (the link
+        // dropped, or another attach started): the hub's next connection is not its own.
+        func read(_ method: String, _ params: [String: JSONValue]) async throws -> JSONValue {
+            guard generation == self.generation, !Task.isCancelled else { throw CancellationError() }
+            return try await hub.request(method, .object(params), timeout: Self.pageTimeout)
+        }
         do {
             var params: [String: JSONValue] = [
                 "sessionId": .string(sessionID),
@@ -799,7 +814,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                 "eventStream": .bool(true),
             ]
             if !firstAttach { params["afterSeq"] = .number(Double(after)) }
-            result = try await hub.request("_acpmux/attach", .object(params))
+            result = try await read("_acpmux/attach", params)
             page = result["events"]?.arrayValue ?? []
             // A reattach (the link came back, or the Mac said this connection lagged) asks for
             // what came after the last record applied, oldest first and one page at a time: page
@@ -809,10 +824,10 @@ public final class AcpmuxSessionSource: AgentSessionSource {
             if !firstAttach {
                 var more = result["hasMore"] == .bool(true)
                 while more, let newest = page.last?["seq"]?.numberValue {
-                    let next = try await hub.request("_acpmux/events", .object([
+                    let next = try await read("_acpmux/events", [
                         "sessionId": .string(sessionID), "afterSeq": .number(newest),
                         "limit": .number(Double(Self.pageSize)), "kinds": Self.chatKinds,
-                    ]))
+                    ])
                     let events = next["events"]?.arrayValue ?? []
                     page += events
                     more = !events.isEmpty && next["hasMore"] == .bool(true)
@@ -822,10 +837,10 @@ public final class AcpmuxSessionSource: AgentSessionSource {
             earlier = firstAttach && result["hasMore"] == .bool(true)
             if earlier {
                 while page.count < Self.maxHistory, let oldest = page.first?["seq"]?.numberValue {
-                    let older = try await hub.request("_acpmux/events", .object([
+                    let older = try await read("_acpmux/events", [
                         "sessionId": .string(sessionID), "beforeSeq": .number(oldest),
                         "limit": .number(Double(Self.pageSize)), "kinds": Self.chatKinds,
-                    ]))
+                    ])
                     let events = older["events"]?.arrayValue ?? []
                     page = events + page
                     earlier = !events.isEmpty && older["hasMore"] == .bool(true)
