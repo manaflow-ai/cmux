@@ -107,7 +107,9 @@ async fn to_session_fork(hub: &Hub, params: &Value) -> Result<Value, RpcError> {
                 mux.insert(key.into(), value.clone());
             }
         }
-        out.set("_meta", json!({"acpmux": mux}));
+        if !mux.is_empty() {
+            out.set("_meta", json!({"acpmux": mux}));
+        }
         return Ok(out);
     }
     let through = params
