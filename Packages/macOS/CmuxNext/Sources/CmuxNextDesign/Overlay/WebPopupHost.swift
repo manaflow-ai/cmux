@@ -23,6 +23,8 @@ public final class WebPopupHost {
     /// What the page sends: its rows, the highlighted one, the anchor (CSS px in the page's
     /// viewport), the side it prefers and the menu's width (CSS px).
     public struct Model: Equatable, Sendable {
+        /// The generated native-first model; nil only for an unmigrated overflow consumer.
+        public var declaration: NativePopupModel?
         public var items: [Item]
         public var highlighted: String?
         public var anchor: CGRect
@@ -39,6 +41,20 @@ public final class WebPopupHost {
         /// anchor:{left,top,right,bottom}, side:"bottom"|"top", align:"start"|"end", width,
         /// kind?:"menu"|"tooltip", instant?:true}`.
         public init?(_ params: [String: Any]) {
+            if params["schemaVersion"] != nil {
+                guard let declaration = NativePopupModel.decode(params) else { return nil }
+                self.declaration = declaration
+                items = []
+                highlighted = nil
+                anchor = .zero
+                side = .below
+                trailing = false
+                width = declaration.width
+                tooltip = false
+                instant = true
+                return
+            }
+            declaration = nil
             guard let rows = params["items"] as? [[String: Any]], let anchor = params["anchor"] as? [String: Any],
                   let left = Self.number(anchor["left"]), let top = Self.number(anchor["top"]),
                   let right = Self.number(anchor["right"]), let bottom = Self.number(anchor["bottom"]) else { return nil }
@@ -71,6 +87,7 @@ public final class WebPopupHost {
     private var popup: NativePopupHost?
     private var panel: WebPopupPanel? { popup?.panel as? WebPopupPanel }
     private var model: Model?
+    private var declarationHost: DeclarativePopupHost?
 
     public init(webView: NSView, zoom: @escaping () -> CGFloat, send: @escaping ([String: Any]) -> Void) {
         self.webView = webView
@@ -79,11 +96,23 @@ public final class WebPopupHost {
     }
 
     /// The frame the menu is showing at (screen), for tests and `debug.window_list`.
-    public var shownFrame: CGRect? { popup?.isShown == true && model != nil ? popup?.cardFrame : nil }
+    public var shownFrame: CGRect? {
+        declarationHost?.shownFrame ?? (popup?.isShown == true && model != nil ? popup?.cardFrame : nil)
+    }
 
     /// Shows the page's menu on the screen; the reply names the side it took and its frame.
     @discardableResult
     public func show(_ model: Model) -> [String: Any] {
+        if let declaration = model.declaration {
+            guard let webView else { return ["shown": false] }
+            self.model = nil
+            popup?.hide()
+            let host = declarationHost ?? DeclarativePopupHost(webView: webView, zoom: zoom, send: send)
+            declarationHost = host
+            return host.show(declaration)
+        }
+        // An old overflow effect cannot displace an active declarative native popup.
+        guard declarationHost?.activeID == nil else { return ["shown": false] }
         guard let webView, let window = webView.window, window.isVisible else { return ["shown": false] }
         self.model = model
         let popup = self.popup ?? makePopup()
@@ -126,6 +155,10 @@ public final class WebPopupHost {
 
     /// New rows or a new highlight (the page's arrows, its filter); the place stays.
     public func update(_ model: Model) {
+        if let declaration = model.declaration {
+            declarationHost?.update(declaration)
+            return
+        }
         // A menu closing here stays closed: the page may still post an update for it.
         guard self.model != nil, panel?.isVisible == true else { return }
         if model.items != self.model?.items || model.anchor != self.model?.anchor { show(model); return }
@@ -134,6 +167,7 @@ public final class WebPopupHost {
     }
 
     public func hide() {
+        declarationHost?.hide()
         model = nil
         panel?.isClosing = true
         popup?.hide()
@@ -147,9 +181,20 @@ public final class WebPopupHost {
 
     /// Ends the menu from this side (its tab hid or closed): the page closes its own as well.
     public func dismiss() {
+        declarationHost?.dismiss(reason: "owner-hidden")
         guard model != nil else { return }
         send(["type": "dismiss"])
         hide()
+    }
+
+    /// Wire hide is owner-bound; a stale page effect cannot hide a newer popup.
+    public func hideRequest(_ params: [String: Any]) {
+        if params["schemaVersion"] != nil {
+            guard let id = params["id"] as? String, let revision = params["revision"] as? Int else { return }
+            declarationHost?.hide(id: id, revision: revision)
+        } else if declarationHost?.activeID == nil {
+            hide()
+        }
     }
 }
 
@@ -176,6 +221,7 @@ public final class WebPopupPanel: ContentChildPanel {
         SystemScrollers.follow(scroll)
         scroll.documentView = rows
         let surface = Glass.makeOverlayPanel(content: scroll, cornerRadius: PopupStyle.standard.cornerRadius)
+        surface.samplesBehindWindow = true
         // The one popup shadow (POLISH: subtle shadows, one elevation), like the page's own menus;
         // the window's shadow was the system's, heavier.
         adoptPopupStyle(card: surface)
