@@ -180,8 +180,14 @@ pub(crate) struct ShellActivity {
     line_since_prompt: bool,
     /// A `C` or `D` came since the last `A`: the next `A` is a new prompt.
     command_since_prompt: bool,
-    /// The shell sent a `C` or `D`: it marks its new prompts with one, so an
-    /// `A` without one is a redraw. Set for good once seen. A host's state
+    /// A `C` came while no line was owed a prompt: the shell ran a line the
+    /// daemon did not count (an accept key it cannot read, a key binding), so
+    /// the prompt after that command answers no counted line.
+    uncounted_command: bool,
+    /// The shell sent a `C` or `D`, or a primary `A` with a `redraw=` option
+    /// (Ghostty's integrations, which print `D` before every new prompt but
+    /// the first and never before a redraw): it marks its new prompts with
+    /// one, so an `A` without one is a redraw. Set for good once seen. A host's state
     /// does not carry it: a reconnect keeps this daemon's
     /// ([`Self::keep_output_of`]); a terminal created from a host's state has
     /// seen no mark (a fresh host) or reads not idle for good (one adopted
@@ -241,6 +247,9 @@ impl ShellActivity {
             ShellMark::CommandStart => {
                 self.busy_since_ms.get_or_insert(now_ms);
                 self.prompt_since_ms = None;
+                if self.owed_prompts == 0 {
+                    self.uncounted_command = true;
+                }
                 self.line_since_prompt = true;
                 self.command_since_prompt = true;
                 self.sends_command_marks = true;
@@ -253,12 +262,15 @@ impl ShellActivity {
                 self.sends_command_marks = true;
                 false
             }
-            ShellMark::PromptStart => {
+            ShellMark::PromptStart | ShellMark::RedrawablePromptStart => {
+                if mark == ShellMark::RedrawablePromptStart {
+                    self.sends_command_marks = true;
+                }
                 self.settle_command_input();
                 self.end();
                 self.prompt_since_ms.get_or_insert(now_ms);
                 let new_prompt = if self.sends_command_marks {
-                    self.command_since_prompt
+                    self.command_since_prompt && !self.uncounted_command
                 } else {
                     self.line_since_prompt
                 };
@@ -269,6 +281,7 @@ impl ShellActivity {
                 }
                 self.line_since_prompt = false;
                 self.command_since_prompt = false;
+                self.uncounted_command = false;
                 // Input written before this `A` was parsed but after the
                 // shell printed it may wait unread for the line editor: a
                 // line still owed (typed ahead) or a partial one.
@@ -368,10 +381,24 @@ impl ShellActivity {
                         self.unsubmitted = true;
                     }
                 }
+                // Ctrl-O at the prompt accepts the line in bash
+                // (operate-and-get-next) and zsh (accept-line-and-down-history):
+                // a line. Counted where it does not accept, it only keeps the
+                // shell not idle (fails safe). To a running program it is a byte.
+                0x0f if !self.in_paste && !running => {
+                    self.note_line_at_prompt();
+                }
                 _ => self.unsubmitted = true,
             }
             at += 1;
         }
+    }
+
+    /// A line submitted at the prompt: owed a prompt.
+    fn note_line_at_prompt(&mut self) {
+        self.owed_prompts = self.owed_prompts.saturating_add(1);
+        self.line_since_prompt = true;
+        self.unsubmitted = false;
     }
 
     fn end(&mut self) {
@@ -575,6 +602,7 @@ impl ShellActivity {
         self.in_paste = false;
         self.line_since_prompt = false;
         self.command_since_prompt = false;
+        self.uncounted_command = false;
         self.shell_foreground = None;
         self.foreground_leader = None;
         self.epoch = self.epoch.wrapping_add(1);
@@ -594,6 +622,7 @@ impl ShellActivity {
         self.line_since_prompt = previous.line_since_prompt;
         self.command_since_prompt = previous.command_since_prompt;
         self.sends_command_marks = previous.sends_command_marks;
+        self.uncounted_command = previous.uncounted_command;
         self.unsubmitted = previous.unsubmitted;
         self.in_paste = previous.in_paste;
         self.unseen_input = previous.unseen_input;

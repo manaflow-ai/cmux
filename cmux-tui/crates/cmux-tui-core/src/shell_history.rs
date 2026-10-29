@@ -44,6 +44,11 @@ pub(crate) const MAX_INPUT_ROWS: u32 = 32;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ShellMark {
     PromptStart,
+    /// A primary `A` with a `redraw=` option (Ghostty's bash, zsh and fish
+    /// integrations): the shell prints it again when it redraws the same
+    /// prompt (`redraw=1`, `redraw=last`), and marks a new prompt with a `D`
+    /// first (`terminal_activity`).
+    RedrawablePromptStart,
     /// `A` with `k=s` or `k=c`: a secondary prompt, either a later line of a
     /// multi-line primary prompt (kitty marks them so) or a continuation
     /// prompt (PS2). It starts no prompt and ends no command
@@ -74,6 +79,12 @@ impl ShellMark {
                 match kind {
                     Some(b"s" | b"c") => Self::SecondaryPromptStart,
                     Some(b"r") => Self::RightPromptStart,
+                    _ if data
+                        .split(|byte| *byte == b';')
+                        .any(|field| field.starts_with(b"redraw=")) =>
+                    {
+                        Self::RedrawablePromptStart
+                    }
                     _ => Self::PromptStart,
                 }
             }
@@ -136,7 +147,7 @@ impl CommandTracker {
         match mark {
             // A prompt without D (shells that skip it on ^C): the command
             // ended, exit status unknown.
-            ShellMark::PromptStart => self.finish(None, now_ms),
+            ShellMark::PromptStart | ShellMark::RedrawablePromptStart => self.finish(None, now_ms),
             ShellMark::SecondaryPromptStart
             | ShellMark::RightPromptStart
             | ShellMark::InputStart => None,
@@ -216,7 +227,11 @@ mod shell_mark_tests {
     #[test]
     fn shell_idle_a_secondary_prompt_mark_is_not_a_prompt_start() {
         assert_eq!(ShellMark::parse(b"A"), Some(ShellMark::PromptStart));
-        assert_eq!(ShellMark::parse(b"A;redraw=1;cl=line"), Some(ShellMark::PromptStart));
+        assert_eq!(ShellMark::parse(b"A;redraw=1;cl=line"), Some(ShellMark::RedrawablePromptStart));
+        assert_eq!(
+            ShellMark::parse(b"A;redraw=last;cl=line;aid=42"),
+            Some(ShellMark::RedrawablePromptStart)
+        );
         assert_eq!(ShellMark::parse(b"A;k=i"), Some(ShellMark::PromptStart));
         assert_eq!(ShellMark::parse(b"A;k=s"), Some(ShellMark::SecondaryPromptStart));
         assert_eq!(ShellMark::parse(b"A;aid=7;k=c"), Some(ShellMark::SecondaryPromptStart));
