@@ -46,12 +46,18 @@ pub struct SubOpts {
     pub remote: bool,
 }
 
-/// Which `_acpmux/message` notices one chat's `session/load` replay and its live stream sent a
-/// connection, so each goes once: the live stream from its first record on (`live_from`, in seq
-/// order), the replay up to its last (`replayed`).
+/// Which of one chat's `_acpmux/message` records a connection has heard, so each reaches it once.
+/// A record comes live, in seq order (`live`), or from this connection's own `session/load`
+/// replay (`replay`), which starts a fresh `MessageNotices`: a reopen hears the history again,
+/// but not a record the live stream sent during that replay. A peer's chat replays over the one
+/// link every viewer here shares: those records come to every viewer as live ones, so a viewer
+/// that heard them already hears them no more; the one that asked starts fresh too
+/// (`peer_forward.rs`).
 #[derive(Default)]
 pub(super) struct MessageNotices {
-    replayed: u64,
+    /// The highest seq heard.
+    heard: u64,
+    /// The first seq the live stream sent since this replay began.
     live_from: Option<u64>,
 }
 
@@ -61,15 +67,20 @@ impl MessageNotices {
         if self.live_from.is_some_and(|from| seq >= from) {
             return false;
         }
-        self.replayed = self.replayed.max(seq);
+        self.heard = self.heard.max(seq);
         true
     }
 
-    /// The live notice of record `seq`: sent unless the replay sent it.
+    /// The live notice of record `seq`: sent unless this connection heard it. A record of no
+    /// known seq (0) is always sent.
     pub(super) fn live(&mut self, seq: u64) -> bool {
-        if seq <= self.replayed {
+        if seq == 0 {
+            return true;
+        }
+        if seq <= self.heard {
             return false;
         }
+        self.heard = seq;
         self.live_from.get_or_insert(seq);
         true
     }
@@ -1628,13 +1639,10 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
         // asked for, this notice too.
         let message = rec.dir == "mux" && rec.kind == "_acpmux/message";
         let heard = !sub.event_stream || sub.filter.matches(rec);
-        let repeat = message
-            && heard
-            && conn
-                .message_notices
-                .lock_or_recover()
-                .get_mut(&ev.session_id)
-                .is_some_and(|n| !n.live(rec.seq));
+        let repeat = message && heard && {
+            let mut notices = conn.message_notices.lock_or_recover();
+            !notices.entry(ev.session_id.clone()).or_default().live(rec.seq)
+        };
         if repeat {
             // Sent by the replay.
         } else if sub.event_stream {
@@ -2131,6 +2139,14 @@ mod message_notice_tests {
     /// A replay racing the live stream sends each message notice once, whichever sends first.
     #[test]
     fn a_message_notice_goes_once_across_replay_and_live() {
+        // A record heard once is not heard again live (another viewer's reopen of a peer's chat
+        // replays it over the shared link); a record of no known seq always goes.
+        let mut n = MessageNotices::default();
+        assert!(n.live(2));
+        assert!(!n.live(1));
+        assert!(!n.live(2));
+        assert!(n.live(0));
+        assert!(n.live(0));
         // The live stream sent seq 5 while the replay was at 3: the replay stops at 5.
         let mut n = MessageNotices::default();
         assert!(n.live(5));

@@ -217,6 +217,30 @@ async fn reopen_replays_messages(with_peer_token: bool) {
         assert!(outgoing[0]["sender"].get("host").is_none(), "sender host leaked: {outgoing:#?}");
     }
 
+    // Another viewer's reopen replays over the link both share: a viewer that heard the
+    // message hears it no more. A later message is the marker: anything repeated would come
+    // before it.
+    let mut other = Client::new(&local);
+    let heard = other.replay_messages("session/load", &format!("remote/{receiver}")).await;
+    assert_eq!(heard, incoming);
+    assert_eq!(
+        client.replay_messages("session/load", &format!("remote/{receiver}")).await,
+        incoming
+    );
+    sender_agent.prompt(&receiver, "the marker").await;
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    loop {
+        let line = tokio::time::timeout_at(deadline, other.rx.recv())
+            .await
+            .expect("the marker reached the other viewer")
+            .expect("connection closed");
+        let note: Value = serde_json::from_str(&line).unwrap();
+        if note["method"] == "_acpmux/message" && note["params"]["sessionId"] == receiver {
+            assert_eq!(note["params"]["text"], "the marker", "a repeated notice: {note}");
+            break;
+        }
+    }
+
     // Reopening each mirrored chat replays the same projections.
     assert_eq!(
         client.replay_messages("session/resume", &format!("remote/{receiver}")).await,

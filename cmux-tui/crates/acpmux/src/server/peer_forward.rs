@@ -263,6 +263,14 @@ async fn forward_inner(
         }
         super::remote_guard::mark_forwarded(conn.origin, conn.auth, params, &mut p);
         bound_page(m, params, &mut p);
+        // This connection's own reopen hears the chat's messages again; the replay comes over
+        // the link every viewer here shares (`MessageNotices`).
+        if matches!(m, method::SESSION_LOAD | method::SESSION_RESUME) {
+            conn.message_notices
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .insert(id.clone(), super::MessageNotices::default());
+        }
         // A peer's handles are this connection's own here (`media_forward.rs`).
         if matches!(m, method::MUX_MEDIA_OPEN | method::MUX_MEDIA_RANGE) {
             return super::media_forward::forward(&conn.remote_media, &peer, &id, m, p)
