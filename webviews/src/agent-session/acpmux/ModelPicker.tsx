@@ -1,3 +1,4 @@
+import { authChipText, authText, canSessionLogin } from "./sessionAuth";
 import {
   useCallback,
   useContext,
@@ -1084,6 +1085,8 @@ export function ModelPicker(props: ModelPickerProps) {
   const chipShort = rowChip?.short && rowChip.short !== chipName ? rowChip.short : undefined;
   const chipFamily = rowChip?.family && rowChip.family !== (chipShort ?? chipName) ? rowChip.family : undefined;
   const chipTitle = rowChip?.title ?? chipLabel;
+  const sessionAuthText = authText(props.sessionAuth, t);
+  const sessionAuthChip = authChipText(props.sessionAuth, t);
   const enableProfile = (entry: HarnessChoice) => {
     if (entry.folder?.state !== "needs-enable" || entry.ids.includes(harness ?? "")) return false;
     onHarnessEnable?.(entry.folder.folder, entry.id);
@@ -1116,6 +1119,11 @@ export function ModelPicker(props: ModelPickerProps) {
   const chipFace = (
     <>
       <AgentMark agent={chipHarness} size={15} />
+      {sessionAuthChip && (
+        <span className="acpmux-model-detail" aria-label={sessionAuthText}>
+          {sessionAuthChip}
+        </span>
+      )}
       <span
         className="acpmux-model-name"
         {...(chipShort
@@ -1169,10 +1177,19 @@ export function ModelPicker(props: ModelPickerProps) {
               "data-menu": modelText,
               label: modelText,
               /* tooltip-allow: the chip drops the vendor its mark draws; the title keeps the full name */
-              title: [chipLabel, usage, updateText].filter(Boolean).join(" · "),
+              title: [chipLabel, sessionAuthText, usage, updateText].filter(Boolean).join(" · "),
             }}
             menu={{
               ...quick,
+              ...(props.sessionAuth
+                ? {
+                    auth: {
+                      verdict: props.sessionAuth,
+                      onLogin: props.onSessionLogin,
+                      onRefresh: props.onSessionAuthRefresh,
+                    },
+                  }
+                : {}),
               ...(update && updateText ? { update: { text: updateText, run: update.update } } : {}),
               // This harness's top models, the running one among them; a signed-out harness lists none.
               models:
@@ -1234,7 +1251,7 @@ export function ModelPicker(props: ModelPickerProps) {
             data-menu={modelText}
             aria-label={modelText}
             /* tooltip-allow: the chip drops the vendor its mark draws; the title keeps the full name */
-            title={[chipLabel, usage, updateText].filter(Boolean).join(" · ")}
+            title={[chipLabel, sessionAuthText, usage, updateText].filter(Boolean).join(" · ")}
             aria-haspopup="dialog"
             aria-expanded={open}
             aria-controls={open ? menuId : undefined}
@@ -1353,6 +1370,21 @@ export function ModelPicker(props: ModelPickerProps) {
             </ScrollArea>
           )}
           <div className="acpmux-mp-content flex min-w-0 flex-1 flex-col">
+            {sessionAuthText && (
+              <output className="acpmux-mp-auth flex flex-none items-center gap-2 border-b-[0.5px] border-edge px-3 py-2 text-detail text-muted">
+                <span className="min-w-0 flex-1">{sessionAuthText}</span>
+                {canSessionLogin(props.sessionAuth) && props.onSessionLogin && (
+                  <button type="button" className="acpmux-mp-auth-action" onClick={() => props.onSessionLogin?.()}>
+                    {t("harness.logIn")}
+                  </button>
+                )}
+                {props.onSessionAuthRefresh && (
+                  <button type="button" className="acpmux-mp-auth-action" onClick={props.onSessionAuthRefresh}>
+                    {t("harnesses.checkAgain")}
+                  </button>
+                )}
+              </output>
+            )}
             <div className="acpmux-mp-search flex h-[var(--ui-row-height,28px)] flex-none items-center gap-2 border-b-[0.5px] border-edge px-2 text-muted focus-within:text-fg">
               <SearchIcon size={15} />
               <PickerComboboxInput

@@ -4,6 +4,13 @@
 // the level's short form whole ("Med"), never a cut one ("M…" at 300 px, cg-ui-coord 2026-10-15). A
 // wide one names it in full.
 //
+// These panes draw the button in the quiet row under the box, which takes no composer-width step
+// (#24151, composerRowFit.ts paneWidth): it keeps the full name while the row's measured room holds
+// it. At 400 px the model, its effort and "Bypass permissions" can fill these rows to within about
+// 20 px of their room, so which form shows depends on the fonts (CI and huge-blue differ there).
+// That width checks the form the row's fit chose (`data-fit-effort`), whole; 760 px (full) and
+// 300 px (short) are well clear of the boundary.
+//
 // The gallery's real panes in Chromium: `agent-pane.new-tab` (`reasoning-chip`) and
 // `agent-pane.composer` (`new-chat-reasoning`), and a New Tab whose agent reported its levels
 // (`agent-pane.narrow` `new-tab`, "Medium Fast"), at 760, 400 and 300 px.
@@ -98,21 +105,38 @@ await requireBrowserLane("reasoning-chip-steps.test.ts", async () => {
     return { labels, cut };
   }
 
-  const held: Record<number, string> = { 760: "Medium", 400: "Med", 300: "Med" };
+  /** Each width's label; at 400 px, [full, short]: the row's own fit picks (above). */
+  const held: Record<number, string | [string, string]> = { 760: "Medium", 400: ["Medium", "Med"], 300: "Med" };
   // Its level is one option named "Medium Fast": the short form is its first word's.
-  const reported: Record<number, string> = { 760: "Medium Fast", 400: "Med", 300: "Med" };
-  const cases: [string, string, string, Record<number, string>][] = [
+  const reported: Record<number, string | [string, string]> = {
+    760: "Medium Fast",
+    400: ["Medium Fast", "Med"],
+    300: "Med",
+  };
+  const title = (label: string | [string, string]) =>
+    typeof label === "string" ? `"${label}"` : `"${label[0]}" or "${label[1]}", as the row fits`;
+  const cases: [string, string, string, Record<number, string | [string, string]>][] = [
     ["New Tab", "agent-pane.new-tab", "reasoning-chip", held],
     ["new chat", "agent-pane.composer", "new-chat-reasoning", held],
     ["New Tab, reported", "agent-pane.narrow", "new-tab", reported],
   ];
   for (const [where, entry, variant, expected] of cases)
     for (const width of [760, 400, 300])
-      test(`${where} at ${width} px: the model button's effort reads "${expected[width]}" whole`, async () => {
+      test(`${where} at ${width} px: the model button's effort reads ${title(expected[width]!)} whole`, async () => {
         const page = await open(entry, variant, width);
         const chip = await page.evaluate(effortChip);
         expect(chip.cut, "no label cut").toEqual([]);
-        expect(chip.labels, "the level's whole name").toEqual([expected[width]!]);
+        const label = expected[width]!;
+        if (typeof label === "string") expect(chip.labels, "the level's whole name").toEqual([label]);
+        else {
+          // The short form only where the row's fit took the effort's step, the full one otherwise.
+          const short = await page.evaluate(
+            () =>
+              document.querySelector(".acpmux-chips")?.closest<HTMLElement>(".acpmux-composer-bar")?.dataset
+                .fitEffort === "short",
+          );
+          expect(chip.labels, "the form the row's fit chose, whole").toEqual([short ? label[1] : label[0]]);
+        }
         // One model control: no separate Reasoning chip beside it.
         expect(await page.locator(".acpmux-chips .acpmux-effort").count()).toBe(0);
         await page.close();

@@ -11,13 +11,14 @@
    backdrop and rim are owned by .ui-glass. Keep the composer's edge/elevation aliases so focus,
    borders-none and Reduce Transparency preserve the existing card contract. */
 .nt-box{flex:none;display:flex;flex-direction:column;box-sizing:border-box;border-radius:20px;position:relative;--acpmux-card-ring:inset 0 0 0 var(--cmux-hairline,.5px) var(--acpmux-composer-edge);--glass-edge:var(--acpmux-composer-edge);--glass-elevation:var(--acpmux-composer-shadow,var(--elevation-1))}
-.nt-input{display:flex;align-items:flex-start;gap:10px;min-height:52px;padding:0 18px}
+.nt-input{--nt-input-pad-block:var(--text-content);display:flex;align-items:flex-start;gap:10px;gap:var(--ds-space-2,8px);min-height:52px;min-height:calc(1lh + 2 * var(--nt-input-pad-block));padding:0 18px}
 :root[data-borders=none] .nt-box{--acpmux-card-ring:inset 0 0 0 var(--cmux-hairline,.5px) transparent}
 /* The field wraps a long draft and grows with it (field-sizing; NewTabScreen fits it only in an engine
    without field-sizing) up to eight lines,
    the chat composer's cap (markdownField.css), and never past 40% of the pane; then it scrolls.
-   The row follows the content line height, with 16px above and below. Nothing cuts the draft. */
-.nt-field{flex:1;min-width:0;display:block;box-sizing:border-box;field-sizing:content;min-height:calc(1lh + 32px);max-height:min(calc(8lh + 32px),40vh);margin:0;border:0;outline:0;padding:16px 0;resize:none;overflow-x:hidden;overflow-y:auto;white-space:pre-wrap;overflow-wrap:break-word;background:none;color:var(--agent-text);caret-color:var(--cmux-caret, var(--agent-text));font:inherit;font-size:var(--text-content);line-height:var(--text-content--line-height)}
+   The row follows the content line height, with one content-size unit above and below. Nothing cuts
+   the draft. */
+.nt-field{flex:1;min-width:0;display:block;box-sizing:border-box;field-sizing:content;min-height:calc(1lh + 2 * var(--nt-input-pad-block));max-height:min(calc(8lh + 2 * var(--nt-input-pad-block)),40vh);margin:0;border:0;outline:0;padding:var(--nt-input-pad-block) 0;resize:none;overflow-x:hidden;overflow-y:auto;white-space:pre-wrap;overflow-wrap:break-word;background:none;color:var(--agent-text);caret-color:var(--cmux-caret, var(--agent-text));font:inherit;font-size:var(--text-content);line-height:var(--text-content--line-height)}
 /* The hint stays one line (the empty field keeps its one-line row); only the draft wraps. */
 .nt-field::placeholder{color:var(--acpmux-composer-placeholder);opacity:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .nt-hint{flex:none;color:var(--acpmux-composer-dim);font-size:12px;white-space:nowrap}
@@ -76,12 +77,12 @@
 .nt-input-glyph {
   position: absolute;
   inset-inline-start: 0;
-  top: 16px;
+  top: var(--nt-input-pad-block);
   width: 1ch;
   height: var(--text-content--line-height);
   display: flex;
   align-items: center;
-  font: 600 16px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  font: 600 var(--text-content)/1 ui-monospace, SFMono-Regular, Menlo, monospace;
   pointer-events: none;
 }
 .nt-shell-glyph {
@@ -174,7 +175,7 @@
    type. The theme's own tones only; no accent color. */
 .nt-prompt-glyph {
   /* Keep the prompt prefix on the same monospace metrics as the reserved shell slot. */
-  font: 600 16px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  font: 600 var(--text-content)/1 ui-monospace, SFMono-Regular, Menlo, monospace;
   color: var(--agent-soft);
 }
 .nt-screen[data-template="console"] .nt-box {
@@ -350,7 +351,10 @@
    leading control; the model/mic/send row remains under the field. */
 .nt-input .nt-split-plus {
   flex: none;
-  margin-top: 12px;
+  display: flex;
+  align-items: center;
+  height: var(--text-content--line-height);
+  margin-top: var(--nt-input-pad-block);
 }
 /* The dictation mic beside Send (DictationMic), both in the bar's end group. */
 .nt-pickers .acpmux-mic {

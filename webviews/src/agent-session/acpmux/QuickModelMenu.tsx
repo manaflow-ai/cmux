@@ -1,6 +1,8 @@
+import { authText, canSessionLogin, type SessionAuth } from "./sessionAuth";
 import React, { Fragment, useContext, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { AgentMark, hasAgentMark } from "../shared/AgentMark";
 import type { ChatAccountList, ChatAccounts } from "./chatAccounts";
+import { isModelRouterKind } from "./routerKinds";
 import { SearchIcon, type Choice } from "./ComposerPickers";
 import { isDefaultChoice } from "./defaultChoice";
 import { EffortTrack } from "./EffortTrack";
@@ -41,6 +43,10 @@ export type QuickMenu = {
   };
   /// The chat's accounts (acpmux routes); absent for a chat with no session yet or off this Mac.
   account?: { sessionId: string; accounts: ChatAccounts };
+  /// Provider presentation alternatives for the gallery; the compact submenu is the default.
+  routeLayout?: "submenu" | "inline" | "grouped";
+  /// Auth for the selected session/route only, as acpmux last verified it.
+  auth?: { verdict: SessionAuth; onLogin?(): void; onRefresh?(): void };
   /// Fast mode: the menu's last checkbox row, its one place. Absent where the running model has
   /// none; the model button owns it for every harness.
   fast?: { checked: boolean; onChange(on: boolean): void };
@@ -138,7 +144,7 @@ const runsOffers = (model: Pick<QuickModel, "id" | "offers">, current: string | 
   !!model.offers?.some((offer) => offer.id === current);
 
 /// What the composer hands the model picker for its compact menu; the picker adds the models.
-export type QuickMenuExtras = Pick<QuickMenu, "effort" | "account" | "fast" | "searchField" | "providers">;
+export type QuickMenuExtras = Pick<QuickMenu, "effort" | "account" | "auth" | "fast" | "searchField" | "providers">;
 
 /// The compact model menu keeps numbered rows, Effort and Account flyouts, and Fast mode.
 /// Its search field filters models in place using the full picker's matching.
@@ -171,7 +177,7 @@ export function QuickModelMenu({
   // of the chip. This is only a side decision: the surface still fits its visible content.
   const { open: sideOpen, setOpen: setSideOpen, side } = useOpenSide(trigger, newTab ? "bottom" : "top", 320);
   if (sideOpen !== open) setSideOpen(open);
-  const { models, current, effort, account, fast } = menu;
+  const { models, current, effort, account, auth, fast } = menu;
   const levels = effort?.levels.filter((choice) => !isDefaultChoice(choice)) ?? [];
   const level = levels.find((choice) => choice.id === effort?.current);
   const accounts = useAccountList(open, account);
@@ -306,6 +312,18 @@ export function QuickModelMenu({
     : accounts.list
       ? (activeAccount?.name ?? t("picker.harnessLogin"))
       : undefined;
+  const routeRows = account && (
+    <AccountRows
+      list={accounts.list}
+      failed={accounts.failed}
+      switchFailed={accounts.switchFailed}
+      grouped={menu.routeLayout === "grouped"}
+      onPick={(routeId) => {
+        onOpenChange(false);
+        accounts.pick(routeId);
+      }}
+    />
+  );
   const keyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (event.metaKey || event.ctrlKey || event.altKey || event.nativeEvent.isComposing || event.keyCode === 229)
       return;
@@ -641,23 +659,38 @@ export function QuickModelMenu({
           <span className="ui-submenu-chevron" aria-hidden="true" />
         </MenuItem>
       )}
-      {!query && onChatTab && account && (
-        <Submenu
-          className="acpmux-quick-item acpmux-quick-sub"
-          popupClassName="acpmux-quick-menu"
-          label={<QuickRowLabel label={t("picker.account")} value={accountValue} />}
-        >
-          <AccountRows
-            list={accounts.list}
-            failed={accounts.failed}
-            switchFailed={accounts.switchFailed}
-            onPick={(routeId) => {
-              onOpenChange(false);
-              accounts.pick(routeId);
-            }}
-          />
-        </Submenu>
+      {!query && auth && authText(auth.verdict, t) && (
+        <>
+          <MenuSeparator />
+          <MenuItem disabled className="acpmux-quick-item acpmux-quick-note">
+            <span className="acpmux-menu-label">{authText(auth.verdict, t)}</span>
+          </MenuItem>
+          {canSessionLogin(auth.verdict) && auth.onLogin && (
+            <MenuItem className="acpmux-quick-item" onSelect={() => auth.onLogin?.()}>
+              <span className="acpmux-menu-label">{t("harness.logIn")}</span>
+            </MenuItem>
+          )}
+          {auth.onRefresh && (
+            <MenuItem className="acpmux-quick-item" onSelect={() => auth.onRefresh?.()}>
+              <span className="acpmux-menu-label">{t("harnesses.checkAgain")}</span>
+            </MenuItem>
+          )}
+        </>
       )}
+      {!query &&
+        onChatTab &&
+        account &&
+        (menu.routeLayout === "inline" ? (
+          <MenuGroup label={t("picker.provider")}>{routeRows}</MenuGroup>
+        ) : (
+          <Submenu
+            className="acpmux-quick-item acpmux-quick-sub"
+            popupClassName="acpmux-quick-menu"
+            label={<QuickRowLabel label={t("picker.provider")} value={accountValue} />}
+          >
+            {routeRows}
+          </Submenu>
+        ))}
       {!query && onChatTab && fast && (
         <>
           <MenuSeparator />
@@ -826,11 +859,13 @@ function AccountRows({
   failed,
   switchFailed,
   onPick,
+  grouped = false,
 }: {
   list?: ChatAccountList;
   failed: boolean;
   switchFailed: boolean;
   onPick(routeId: string | null): void;
+  grouped?: boolean;
 }) {
   const t = useT();
   const refused = switchFailed && (
@@ -847,11 +882,22 @@ function AccountRows({
     );
   // "" is the harness login: the chat follows its default binding, or none.
   const value = list.active ?? "";
-  // The session-scoped list has already removed other harness families. Proxies and routers are
-  // transports, not more logins; keep the current binding so the checked row remains truthful.
+  // The session-scoped list has already removed other harness families. Cmux is a provider
+  // choice here, never a harness tab. Preserve the current binding even for older route kinds.
   const choices = list.accounts.filter(
-    (choice) => choice.kind === "direct-subscription" || choice.kind === "direct-api-key" || choice.id === list.active,
+    (choice) =>
+      choice.kind === "direct-subscription" ||
+      choice.kind === "direct-api-key" ||
+      isModelRouterKind(choice.kind) ||
+      choice.id === list.active,
   );
+  const choiceRows = (rows: typeof choices) =>
+    rows.map((choice) => (
+      <MenuRadioItem key={choice.id} value={choice.id} closeOnClick className="acpmux-quick-item">
+        <span className="acpmux-menu-label">{choice.name}</span>
+      </MenuRadioItem>
+    ));
+  const routers = choices.filter((choice) => isModelRouterKind(choice.kind));
   return (
     <>
       {refused}
@@ -865,11 +911,14 @@ function AccountRows({
         >
           <span className="acpmux-menu-label">{t("picker.harnessLogin")}</span>
         </MenuRadioItem>
-        {choices.map((choice) => (
-          <MenuRadioItem key={choice.id} value={choice.id} closeOnClick className="acpmux-quick-item">
-            <span className="acpmux-menu-label">{choice.name}</span>
-          </MenuRadioItem>
-        ))}
+        {grouped ? (
+          <>
+            {choiceRows(choices.filter((choice) => !isModelRouterKind(choice.kind)))}
+            {routers.length > 0 && <MenuGroup label={t("picker.provider")}>{choiceRows(routers)}</MenuGroup>}
+          </>
+        ) : (
+          choiceRows(choices)
+        )}
       </MenuRadioGroup>
       {choices.length === 0 && (
         <MenuItem disabled className="acpmux-quick-item acpmux-quick-note">
