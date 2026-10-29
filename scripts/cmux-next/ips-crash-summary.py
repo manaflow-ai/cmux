@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Names the crashed thread of the test helper's crash reports from one run.
 
-Usage: ips-crash-summary.py REPORTS_DIRS OUT_DIR SINCE_EPOCH [WAIT_SECONDS]
+Usage: ips-crash-summary.py REPORTS_DIRS OUT_DIR SINCE_EPOCH [WAIT_SECONDS [PIDS]]
 
 Reads the macOS crash reports (.ips) in REPORTS_DIRS written at or after
 SINCE_EPOCH by a Swift test process (swiftpm-testing-helper, xctest or a
@@ -24,6 +24,12 @@ skipped as older than the run or as another process's. "No crash report from
 this run" and "I looked in the wrong directory" are different facts, and the
 caller cannot tell them apart from silence -- which is what made that signal 6
 undiagnosable.
+
+PIDS is a comma-separated list of the run's own pids (the `swift test` process
+and the test helpers it saw). When given, a report counts only if its `pid` or
+`parentPid` is one of them. A name and a time are not an identity: on a shared
+CI Mac another job's swiftpm-testing-helper or PackageTests crash in the same
+minutes matches both, and was read as this run's (or copied up beside it).
 """
 
 import json
@@ -36,7 +42,18 @@ PROCESSES = ("swiftpm-testing-helper", "xctest")
 FRAMES = 8
 
 
-def reports(directory, since):
+def owner(path):
+    """The report's pid and parent pid, from its body (or its header)."""
+    try:
+        with open(path, encoding="utf-8", errors="replace") as handle:
+            header = json.loads(handle.readline() or "{}")
+            body = json.loads(handle.read() or "{}")
+    except (OSError, ValueError):
+        return set()
+    return {str(part.get(key)) for part in (body, header) for key in ("pid", "parentPid") if part.get(key) is not None}
+
+
+def reports(directory, since, pids):
     """The matching reports in `directory`, and a count of what it passed over."""
     try:
         names = sorted(os.listdir(directory))
@@ -52,10 +69,13 @@ def reports(directory, since):
         if os.path.getmtime(path) < since:
             stale += 1
             continue
-        if name.startswith(PROCESSES) or "PackageTests" in name:
-            found.append(path)
-        else:
+        if not (name.startswith(PROCESSES) or "PackageTests" in name):
             other += 1
+        elif pids and not owner(path) & pids:
+            # Same name, another job's process: a shared mini runs many.
+            other += 1
+        else:
+            found.append(path)
     if found:
         return found, None
     return found, f"{directory}: {len(found)} matched, {stale} older than this run, {other} another process"
@@ -87,18 +107,19 @@ def summary(path):
 
 
 def main(argv):
-    if len(argv) not in (4, 5):
+    if len(argv) not in (4, 5, 6):
         print(__doc__, file=sys.stderr)
         return 2
     directories = [part for part in argv[1].split(":") if part]
     out, since = argv[2], float(argv[3])
-    deadline = time.time() + (float(argv[4]) if len(argv) == 5 else 20.0)
+    deadline = time.time() + (float(argv[4]) if len(argv) >= 5 else 20.0)
+    pids = {part for part in argv[5].split(",") if part} if len(argv) == 6 else set()
 
     def look():
         found = []
         missed = []
         for directory in directories:
-            here, why = reports(directory, since)
+            here, why = reports(directory, since, pids)
             found.extend(here)
             if why:
                 missed.append(why)

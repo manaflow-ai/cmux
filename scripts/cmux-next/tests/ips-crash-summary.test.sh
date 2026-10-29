@@ -19,12 +19,15 @@ SCRIPT="$ROOT/scripts/cmux-next/ips-crash-summary.py"
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
 fail() { printf '%s\n' "$@" >&2; exit 1; }
 
-# report DIR NAME SYMBOL: a crash report whose crashed thread tops out at SYMBOL.
+# report DIR NAME SYMBOL [PID PARENT]: a crash report whose crashed thread
+# tops out at SYMBOL, written by process PID (default 4242) whose parent is
+# PARENT (default 4241).
 report() {
   mkdir -p "$1"
   {
     printf '{"app_name":"swiftpm-testing-helper","timestamp":"2026-10-26 13:50:22.00 +0000"}\n'
-    printf '{"exception":{"type":"EXC_CRASH","signal":"SIGABRT"},'
+    printf '{"pid":%s,"parentPid":%s,' "${4:-4242}" "${5:-4241}"
+    printf '"exception":{"type":"EXC_CRASH","signal":"SIGABRT"},'
     printf '"threads":[{"triggered":true,"frames":[{"symbol":"%s"},{"symbol":"HoverCardPanel.deinit"}]}],' "$3"
     printf '"usedImages":[{"name":"CmuxNextPackageTests"}]}\n'
   } > "$1/$2"
@@ -118,5 +121,31 @@ chosen=$(
   printf '%s' "$SWIFT_BACKTRACE"
 )
 [[ "$chosen" == "enable=no" ]] || fail "the harness overrode an explicit SWIFT_BACKTRACE: $chosen"
+
+# 8. Another job's helper, same name and the same minutes, in the FIRST
+#    directory, and this run's in the second: only this run's is named or
+#    copied. A shared CI mini runs other jobs' swiftpm-testing-helper as the same
+#    user, and a name and a time matched theirs as ours. This run's helper is
+#    known by its parent, the `swift test` pid the harness passes.
+foreign="$TMP/foreign-system"; ours="$TMP/ours-home"; out8="$TMP/out8"
+report "$foreign" "swiftpm-testing-helper-2026-10-26-135020.ips" "anotherJobsCrash" 5001 5000
+report "$ours" "swiftpm-testing-helper-2026-10-26-135022.ips" "thisRunsCrash" 7001 7000
+got=$(python3 -I "$SCRIPT" "$foreign:$ours" "$out8" "$since" 0 "7000")
+[[ "$got" == *thisRunsCrash* ]] || fail "this run's report was not found" "got: $got"
+[[ "$got" != *anotherJobsCrash* ]] || fail "named another job's crash report as this run's" "got: $got"
+[[ ! -e "$out8/swiftpm-testing-helper-2026-10-26-135020.ips" ]] \
+  || fail "copied another job's crash report up with this run's"
+# Known by its own pid too (a helper the watcher saw), not only by its parent.
+got=$(python3 -I "$SCRIPT" "$foreign:$ours" "$out8" "$since" 0 "1,7001")
+[[ "$got" == *thisRunsCrash* && "$got" != *anotherJobsCrash* ]] \
+  || fail "did not tell this run's helper by its own pid" "got: $got"
+# Only the foreign one: counted as another process, never reported.
+got=$(python3 -I "$SCRIPT" "$foreign" "$out8" "$since" 0 "7000")
+[[ "$got" != *anotherJobsCrash* ]] || fail "reported another job's crash report" "got: $got"
+[[ "$got" == *"1 another process"* ]] || fail "did not count another job's report" "got: $got"
+# And the harness passes the run's pids, or none of this applies.
+grep -q '"\$started_at" "\${CMUX_NEXT_CRASH_WAIT_SECONDS:-20}" "\$run_pids"' \
+  "$ROOT/scripts/cmux-next/swift-test-with-hang-sampler.sh" \
+  || fail "swift-test-with-hang-sampler.sh does not pass the run's pids"
 
 echo "ips-crash-summary.test.sh: ok"
