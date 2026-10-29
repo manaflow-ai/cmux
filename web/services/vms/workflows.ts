@@ -218,6 +218,8 @@ export type VmEntry = {
   readonly provider: ProviderId;
   readonly image: string;
   readonly imageVersion: string | null;
+  /** Recorded copy method for fork children; absent on ordinary/legacy rows. */
+  readonly forkMethod?: PersistedVmForkMethod;
   readonly status: CloudVmStatus;
   readonly createdAt: number;
   /** The row's `updated_at` (epoch ms): the freshness clock for `vms` sync publication. */
@@ -6713,6 +6715,7 @@ function vmEntryFromRow(row: CloudVmRow): VmEntry {
     throw new Error(`VM row has no provider VM id: ${row.id}`);
   }
   const metadata = row.providerMetadata ?? {};
+  const forkMethod = readVmForkMethod(metadata);
   const addressIpv4 = metadata["networkIpv4"];
   const addressIpv6 = metadata["networkIpv6"];
   return {
@@ -6720,6 +6723,7 @@ function vmEntryFromRow(row: CloudVmRow): VmEntry {
     provider: row.provider,
     image: row.imageId,
     imageVersion: row.imageVersion,
+    ...(forkMethod === "unknown" ? {} : { forkMethod }),
     status: row.status,
     createdAt: row.createdAt.getTime(),
     updatedAt: row.updatedAt.getTime(),
