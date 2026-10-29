@@ -402,6 +402,17 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         }
         None => args,
     };
+    // `machine list --cloud-token-file F`: the flags are for its joined rows, not the daemon.
+    #[cfg(unix)]
+    let list_args;
+    #[cfg(unix)]
+    let args = match machine_join::take_list_auth(args) {
+        Some(rest) => {
+            list_args = rest;
+            list_args.as_slice()
+        }
+        None => args,
+    };
     #[cfg(unix)]
     if let Some(code) = mcp::run_if_requested(args)
         .or_else(|| agents::run_if_requested(args))

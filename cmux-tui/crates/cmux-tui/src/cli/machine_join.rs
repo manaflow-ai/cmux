@@ -472,10 +472,13 @@ impl Platform {
                     tokio::time::sleep(every.min(left)).await;
                 }
             };
+            // A list read still running at the expiry does not hold the wait past it.
+            let left = Duration::from_millis(deadline_ms.saturating_sub(now_ms()));
             tokio::select! {
                 biased;
                 () = interrupt => Ok(WaitEnd::Interrupted),
                 end = poll => end,
+                () = tokio::time::sleep(left) => Ok(WaitEnd::Expired),
             }
         })
     }
@@ -998,12 +1001,71 @@ fn confirm(question: &str) -> bool {
     matches!(answer.trim().to_ascii_lowercase().as_str(), "y" | "yes")
 }
 
-/// The joined machines as `machine list` rows, with the credential from the
-/// environment. `None` when none is set (nothing to list, and no note).
-fn rows_from_env() -> Option<Result<Vec<Value>, String>> {
+/// The platform flags `cmux machine list` takes for its joined rows, taken
+/// out of its words before the daemon's grammar reads them.
+static LIST_AUTH: std::sync::OnceLock<Auth> = std::sync::OnceLock::new();
+
+/// `args` without the platform flags when they are `machine list`'s
+/// (`--platform`, `--cloud-token-file`, `--cloud-token-stdin`), which are
+/// kept for its joined rows; `None` when there are none to take.
+pub(super) fn take_list_auth(args: &[String]) -> Option<Vec<String>> {
+    let (_, command_args) = super::parse_globals(args).ok()?;
+    if command_args.first().map(String::as_str) != Some("machine")
+        || command_args.get(1).map(String::as_str) != Some("list")
+    {
+        return None;
+    }
+    let (auth, kept) = split_auth(args);
+    if kept.len() == args.len() {
+        return None;
+    }
+    let _ = LIST_AUTH.set(auth);
+    Some(kept)
+}
+
+/// The platform flags in `args` (before any `--`), and the other words.
+pub(super) fn split_auth(args: &[String]) -> (Auth, Vec<String>) {
+    let mut auth = Auth::default();
+    let mut kept = Vec::new();
+    let mut words = args.iter();
+    while let Some(word) = words.next() {
+        if word == "--" {
+            kept.push(word.clone());
+            kept.extend(words.by_ref().cloned());
+            break;
+        }
+        let (flag, inline) = match word.split_once('=') {
+            Some((flag, value)) => (flag, Some(value.to_owned())),
+            None => (word.as_str(), None),
+        };
+        match flag {
+            "--cloud-token-stdin" if inline.is_none() => auth.token_stdin = true,
+            "--platform" | "--cloud-token-file" => {
+                let Some(value) = inline.or_else(|| words.next().cloned()) else {
+                    kept.push(word.clone());
+                    continue;
+                };
+                if flag == "--platform" {
+                    auth.platform = Some(value);
+                } else {
+                    auth.token_file = Some(value.into());
+                }
+            }
+            _ => kept.push(word.clone()),
+        }
+    }
+    (auth, kept)
+}
+
+/// The joined machines as `machine list` rows, signed in with `auth` (or the
+/// environment). `None` when no credential is given (nothing to list, and no note).
+fn rows_with(auth: &Auth) -> Option<Result<Vec<Value>, String>> {
     let env = |key: &str| std::env::var(key).ok();
-    let credential = env(TOKEN_ENV).map(|c| c.trim().to_owned()).filter(|c| !c.is_empty())?;
-    let rows = platform_origin(None, &env).and_then(|origin| {
+    let credential = match read_credential(auth, &env, &mut std::io::stdin().lock()) {
+        Ok(credential) => credential?,
+        Err(message) => return Some(Err(message)),
+    };
+    let rows = platform_origin(auth.platform.as_deref(), &env).and_then(|origin| {
         let platform = Platform::new(origin, credential, LIST_TIMEOUT).map_err(|f| f.message)?;
         let entries = platform.credentials().map_err(|e| e.failure("the machine list").message)?;
         let now = now_ms();
@@ -1012,16 +1074,21 @@ fn rows_from_env() -> Option<Result<Vec<Value>, String>> {
     Some(rows)
 }
 
-/// `cmux device list`'s joined rows.
-pub(crate) fn rows_for_devices() -> Option<Result<Vec<Value>, String>> {
-    rows_from_env()
+/// `cmux device list`'s joined rows, with its `--platform` and `--cloud-token-file`.
+pub(crate) fn rows_for_devices(
+    platform: Option<String>,
+    token_file: Option<PathBuf>,
+) -> Option<Result<Vec<Value>, String>> {
+    rows_with(&Auth { platform, token_file, token_stdin: false })
 }
 
 /// The daemon's `machine.list` result with the joined machines added. Fails
 /// open: a platform that cannot be read leaves the list as it was, with a
 /// note on stderr.
 pub(super) fn merge(global: &GlobalArgs, result: Value) -> Value {
-    let Some(rows) = rows_from_env() else { return result };
+    let Some(rows) = rows_with(LIST_AUTH.get().unwrap_or(&Auth::default())) else {
+        return result;
+    };
     let (merged, note) = merge_rows(result, rows);
     if let Some(reason) = note
         && global.output != OutputMode::Quiet

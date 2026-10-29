@@ -22,7 +22,7 @@ use crate::remote_host::{audit, config as host_config, self_exe};
 use model::{Device, Listing, Role, Sources, State};
 use network::{Choice, TailscaleNetwork, WeftNetwork};
 
-const USAGE: &str = "usage: cmux device list [--json] [--network auto|tailscale|weft]
+const USAGE: &str = "usage: cmux device list [--json] [--network auto|tailscale|weft] [--platform URL] [--cloud-token-file PATH]
        cmux device add HOST --yes [--name NAME] [--json]
        cmux device invite [--role client|read-only] [--ttl 15m] [--label TEXT] [--json]
        cmux device remove ID|NAME|ADDRESS [--yes] [--json]
@@ -148,6 +148,8 @@ impl Flags {
 /// surface, run too when this is `cmux-tui` (the app runs its bundled `cmux-tui device …`).
 fn cmux() -> anyhow::Result<Command> {
     let mut command = Command::new(self_exe()?);
+    // A join token never reaches a child (`cmux machine add`'s line sets it only for `sh`).
+    command.env_remove("CMUX_JOIN");
     #[cfg(unix)]
     std::os::unix::process::CommandExt::arg0(&mut command, "cmux");
     Ok(command)
@@ -170,7 +172,7 @@ fn run_json(args: &[&str]) -> anyhow::Result<Value> {
 
 /// Reads every store. A store that does not answer (no acpmux daemon, no
 /// remote-hosting file) adds nothing and a note, never a failure.
-fn read_sources(notes: &mut Vec<String>) -> Sources {
+fn read_sources(flags: &Flags, notes: &mut Vec<String>) -> Sources {
     let mut read = |args: &[&str], what: &str| match run_json(args) {
         Ok(v) => v,
         Err(e) => {
@@ -192,7 +194,10 @@ fn read_sources(notes: &mut Vec<String>) -> Sources {
     };
     // The team's joined machines, when a cmux credential is set (cmux machine add).
     #[cfg(unix)]
-    let joined = match crate::cli::joined_machine_rows() {
+    let joined = match crate::cli::joined_machine_rows(
+        flags.value("platform").map(str::to_owned),
+        flags.value("cloud-token-file").map(PathBuf::from),
+    ) {
         Some(Ok(rows)) => Value::Array(rows),
         Some(Err(e)) => {
             notes.push(format!("joined machines: {e}"));
@@ -224,12 +229,12 @@ fn choice(flags: &Flags) -> anyhow::Result<Choice> {
 fn current(flags: &Flags, notes: &mut Vec<String>) -> anyhow::Result<Listing> {
     let net =
         network::pick(choice(flags)?, Box::new(WeftNetwork), || Box::new(TailscaleNetwork::read()));
-    let sources = read_sources(notes);
+    let sources = read_sources(flags, notes);
     Ok(model::merge(&sources, net.status(), &net.nodes()))
 }
 
 fn list(args: &[String]) -> anyhow::Result<()> {
-    let flags = Flags::parse(args, &["network"], &["json"])?;
+    let flags = Flags::parse(args, &["network", "platform", "cloud-token-file"], &["json"])?;
     let mut notes = Vec::new();
     let listing = current(&flags, &mut notes)?;
     if flags.has("json") {
@@ -434,7 +439,7 @@ fn confirm(question: &str) -> anyhow::Result<bool> {
 }
 
 fn remove(args: &[String]) -> anyhow::Result<()> {
-    let flags = Flags::parse(args, &["network"], &["json", "yes"])?;
+    let flags = Flags::parse(args, &["network", "platform", "cloud-token-file"], &["json", "yes"])?;
     let [key] = flags.positional.as_slice() else {
         return Err(usage("needs exactly one device: its id, name or address (cmux device list)"));
     };
@@ -465,7 +470,16 @@ fn remove(args: &[String]) -> anyhow::Result<()> {
     let mut done = Vec::new();
     let mut failed = Vec::new();
     for step in &steps {
-        let args: Vec<&str> = step.args.iter().map(String::as_str).collect();
+        let mut args: Vec<&str> = step.args.iter().map(String::as_str).collect();
+        // A joined machine's revoke signs in as this remove did.
+        if args.first() == Some(&"machine") {
+            for key in ["platform", "cloud-token-file"] {
+                if let Some(value) = flags.value(key) {
+                    args.push(if key == "platform" { "--platform" } else { "--cloud-token-file" });
+                    args.push(value);
+                }
+            }
+        }
         let out = cmux()?.args(&args).stdin(Stdio::null()).output();
         match out {
             Ok(o) if o.status.success() => done.push(step.what.clone()),
