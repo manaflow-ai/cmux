@@ -1,6 +1,6 @@
 // Test instrumentation, not a production fallback or a whole-app migration verdict. A caller
 // must exercise its consumers and adapt the generated popup protocol into these observations.
-// In particular, a native acknowledgement does not excuse retained DOM used to scrape rows.
+// Strict migration checks and observations of the existing escape adapter have separate policies.
 
 export interface PopupIdentity {
   popupId: string;
@@ -11,22 +11,30 @@ export interface PopupIdentity {
 
 export interface NativePresentation extends PopupIdentity {
   host: "WebPopupHost" | "WebContextMenu";
-  state: "shown" | "rejected" | "dismissed";
+  /** `pending` is the harness's captured in-flight request, not a successful host receipt. */
+  state: "pending" | "shown" | "rejected" | "dismissed";
 }
 
 export type SurfaceSemantics =
   | { kind: "persistent" }
   | { kind: "modal" }
+  | { kind: "escape-mirror"; shell: Element; expected: PopupIdentity; presentation: NativePresentation | null }
   | { kind: "native-content"; expected: PopupIdentity; presentation: NativePresentation | null };
 
 export interface PopupGuardOptions {
   /** Only gallery/unit harnesses may explicitly select the DOM adapter. Never infer it from
    * a missing bridge, a failed RPC, a hostname, CSS classes or document data attributes. */
   adapter: "native" | { kind: "test-dom"; reason: string };
+  /** Legacy useEscapingPopup retains keyboard/accessibility DOM and restores it on rejection.
+   * Native-only is the default and remains the oracle for migrated declarative consumers. */
+  lifecycle?: "native-only" | "escape-compatible";
   /** Exact roots, supplied by the exercised surface's harness. Descendants are still scanned. */
   semantics?: ReadonlyMap<Element, SurfaceSemantics>;
   /** Custom portals whose roots do not carry accessible popup semantics yet. */
   portalRoots?: ReadonlySet<Element>;
+  /** Roots captured by the harness when their owners call attachShadow({mode:"closed"}).
+   * Only roots whose hosts are inside the inspected scope are traversed. */
+  shadowRoots?: ReadonlySet<ShadowRoot>;
   /** Required presentations after each open. A rejected or missing host is a failure even
    * when the page draws nothing. An empty list alone is never migration evidence. */
   presentations?: readonly { expected: PopupIdentity; actual: NativePresentation | null }[];
@@ -73,18 +81,43 @@ function parent(element: Element): Element | null {
   return element.parentElement ?? ("host" in root ? (root as ShadowRoot).host : null);
 }
 
-function elementsIn(root: Document | Element | ShadowRoot): Element[] {
+function elementsIn(root: Document | Element | ShadowRoot, supplied: ReadonlySet<ShadowRoot> = new Set()): Element[] {
   const result: Element[] = [];
-  if (root.nodeType === 1) result.push(root as Element);
-  // Open shadow roots are separate query scopes. Closed roots need an instrumented owner
-  // or a browser-side probe; the final matrix must account for them explicitly.
-  const rootShadow = root.nodeType === 1 ? (root as Element).shadowRoot : null;
-  if (rootShadow) result.push(...elementsIn(rootShadow));
-  for (const element of root.querySelectorAll("*")) {
+  const byHost = new Map([...supplied].map((shadow) => [shadow.host, shadow]));
+  const visited = new Set<Document | Element | ShadowRoot>();
+  const visitElement = (element: Element) => {
+    if (visited.has(element)) return;
+    visited.add(element);
     result.push(element);
-    if (element.shadowRoot) result.push(...elementsIn(element.shadowRoot));
-  }
+    const shadow = element.shadowRoot ?? byHost.get(element);
+    if (shadow) visitScope(shadow);
+  };
+  const visitScope = (scope: Document | Element | ShadowRoot) => {
+    if (scope.nodeType === 1) visitElement(scope as Element);
+    else {
+      if (visited.has(scope)) return;
+      visited.add(scope);
+    }
+    for (const element of scope.querySelectorAll("*")) visitElement(element);
+  };
+  visitScope(root);
   return result;
+}
+
+function escapeMirrorProblem(element: Element, declaration: Extract<SurfaceSemantics, { kind: "escape-mirror" }>): string | null {
+  const { shell, expected, presentation } = declaration;
+  if (!presentation) return "missing escape presentation observation";
+  if (presentation.host !== "WebPopupHost" || !currentPopupEvent(presentation, expected, presentation.owner))
+    return "stale escape identity, revision, mounted owner or host";
+  if (shell !== element && !shell.contains(element)) return "escape shell does not contain its declared mirror";
+  const style = shell.ownerDocument.defaultView?.getComputedStyle(shell);
+  const escaped = shell.hasAttribute("data-escaped") && style?.opacity === "0" && style.pointerEvents === "none";
+  if (presentation.state === "pending" || presentation.state === "shown")
+    return escaped ? null : "pending/shown escape mirror is not invisible and pointer-disabled";
+  if (presentation.state === "rejected")
+    return !shell.hasAttribute("data-escaped") && style?.opacity !== "0" && style?.pointerEvents !== "none"
+      ? null : "rejected escape presentation did not restore the page surface";
+  return "dismissed escape presentation retains popup DOM";
 }
 
 function platformModal(element: Element): boolean {
@@ -96,7 +129,8 @@ function platformModal(element: Element): boolean {
 }
 
 /** Reports mounted popup DOM, including invisible row-scraping replicas. Visibility is not
- * an exemption: production menu content should be a model, never a hidden DOM renderer.
+ * an exemption in native-only mode. The explicit escape-compatible policy accepts only the
+ * existing adapter's identity-bound invisible mirrors and rejected/restored page surfaces.
  * Unknown custom surfaces are candidates when out of flow and controlled, portaled or raised.
  * This intentionally needs typed classifications for persistent panels and modal dialogs. */
 export function inspectNativePopups(
@@ -112,7 +146,15 @@ export function inspectNativePopups(
     const detail = nativePresentationProblem(expected, actual);
     if (detail) violations.push({ kind: "native-presentation", detail: `${expected.popupId}: ${detail}` });
   }
-  const elements = elementsIn(root);
+  const elements = elementsIn(root, options.shadowRoots);
+  const compatibleShells = new Set<Element>();
+  if (options.lifecycle === "escape-compatible") {
+    for (const element of elements) {
+      const declaration = options.semantics?.get(element);
+      if (declaration?.kind === "escape-mirror" && !escapeMirrorProblem(element, declaration))
+        compatibleShells.add(declaration.shell);
+    }
+  }
   const controlled = new Set<Element>();
   for (const trigger of elements) {
     if (trigger.getAttribute("aria-expanded") !== "true") continue;
@@ -125,8 +167,14 @@ export function inspectNativePopups(
   const isModal = options.isModal ?? platformModal;
   const candidates = new Set<Element>();
   for (const element of elements) {
+    if (compatibleShells.has(element)) continue;
     const declaration = options.semantics?.get(element);
     if (declaration?.kind === "persistent") continue;
+    if (declaration?.kind === "escape-mirror" && options.lifecycle === "escape-compatible") {
+      const detail = escapeMirrorProblem(element, declaration);
+      if (!detail) continue;
+      violations.push({ kind: "native-presentation", element, detail });
+    }
     if (declaration?.kind === "native-content") {
       const detail = nativePresentationProblem(declaration.expected, declaration.presentation);
       if (detail) violations.push({ kind: "native-presentation", element, detail });
