@@ -131,27 +131,37 @@ private final class NativePopupDiscreteSliderCell: NSSliderCell {
     var recommendedIndex: Int?
 
     override func drawBar(inside rect: NSRect, flipped: Bool) {
+        if let view = controlView { view.performWithTheme { drawTrack(rect) } }
+        else { drawTrack(rect) }
+    }
+
+    private func drawTrack(_ rect: NSRect) {
         let track = NSRect(x: rect.minX, y: rect.midY - 1.5, width: rect.width, height: 3)
-        NSColor.secondaryLabelColor.withAlphaComponent(0.2).setFill()
+        Palette.textSecondary.withAlphaComponent(0.2).setFill()
         NSBezierPath(roundedRect: track, xRadius: 1.5, yRadius: 1.5).fill()
         let fraction = CGFloat((doubleValue - minValue) / max(1, maxValue - minValue))
-        NSColor.controlAccentColor.withAlphaComponent(isEnabled ? (minimal ? 0.35 : 0.8) : 0.2).setFill()
+        Palette.accentFill.withAlphaComponent(isEnabled ? (minimal ? 0.35 : 0.8) : 0.2).setFill()
         NSBezierPath(roundedRect: NSRect(x: track.minX, y: track.minY, width: track.width * fraction, height: track.height), xRadius: 1.5, yRadius: 1.5).fill()
         for index in 0..<stopCount {
             let x = track.minX + track.width * CGFloat(index) / CGFloat(max(1, stopCount - 1))
-            NSColor.secondaryLabelColor.setFill()
+            Palette.textSecondary.setFill()
             NSBezierPath(ovalIn: NSRect(x: x - 1.5, y: track.midY - 1.5, width: 3, height: 3)).fill()
             if index == recommendedIndex {
-                NSColor.secondaryLabelColor.setStroke()
+                Palette.textSecondary.setStroke()
                 NSBezierPath(ovalIn: NSRect(x: x - 3, y: track.midY - 3, width: 6, height: 6)).stroke()
             }
         }
     }
 
     override func drawKnob(_ knobRect: NSRect) {
+        if let view = controlView { view.performWithTheme { drawThumb(knobRect) } }
+        else { drawThumb(knobRect) }
+    }
+
+    private func drawThumb(_ knobRect: NSRect) {
         let diameter: CGFloat = minimal ? 8 : 12
         let knob = NSRect(x: knobRect.midX - diameter / 2, y: knobRect.midY - diameter / 2, width: diameter, height: diameter)
-        (isEnabled ? NSColor.labelColor : NSColor.tertiaryLabelColor).setFill()
+        (isEnabled ? Palette.textPrimary : Palette.textTertiary).setFill()
         NSBezierPath(ovalIn: knob).fill()
     }
 }
