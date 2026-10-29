@@ -45,7 +45,14 @@ impl Hub {
             })
             .collect();
         rows.sort_by(|a, b| a.0.cmp(&b.0).then(b.1.cmp(&a.1)));
-        rows.into_iter().take(MAX_HEARTBEAT_SESSIONS).map(|(_, _, row)| row).collect()
+        // The hub refuses a heartbeat that lists one name twice: a name several sessions here
+        // share is listed once, for the one that works most (a send naming it lands there).
+        let mut seen = std::collections::HashSet::new();
+        rows.into_iter()
+            .map(|(_, _, row)| row)
+            .filter(|row| seen.insert(row.name.clone()))
+            .take(MAX_HEARTBEAT_SESSIONS)
+            .collect()
     }
 
     /// Whether a relayed message is for this daemon: refused when it names another host, or a

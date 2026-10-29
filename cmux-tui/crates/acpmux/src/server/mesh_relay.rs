@@ -190,6 +190,9 @@ fn after_failure(backoff: &mut Backoff, e: &HubError) -> Duration {
     backoff.next_wait().max(e.retry_after.unwrap_or_default())
 }
 
+/// The least time between heartbeats: the hub takes fewer than 30 a minute.
+const HEARTBEAT_FLOOR: Duration = Duration::from_millis(2500);
+
 /// The wait after a heartbeat the hub took: a third of its TTL, at most `heartbeat_every`.
 fn heartbeat_wait(options: &RelayOptions, ttl_seconds: u64) -> Duration {
     let third = Duration::from_millis(ttl_seconds.saturating_mul(1000) / 3);
@@ -245,7 +248,7 @@ async fn heartbeats(
                     }
                     heartbeat_wait(&options, reply.ttl_seconds)
                 }
-                Err(e) if e.refused => {
+                Err(e) if e.ends_relay() => {
                     tracing::error!(
                         "mesh relay: the hub refused this daemon's heartbeat ({e}); the relay is off until the daemon restarts"
                     );
@@ -262,7 +265,7 @@ async fn heartbeats(
             () = ended(&mut stop, &hub) => break,
         };
         tokio::select! {
-            () = tokio::time::sleep(wait.max(options.min_poll_gap)) => {}
+            () = tokio::time::sleep(wait.max(HEARTBEAT_FLOOR.max(options.min_poll_gap))) => {}
             () = ended(&mut stop, &hub) => break,
         }
     }
@@ -337,7 +340,7 @@ async fn inbox(
                 }
                 options.min_poll_gap.saturating_sub(started.elapsed())
             }
-            Err(e) if e.refused => {
+            Err(e) if e.ends_relay() => {
                 tracing::error!(
                     "mesh relay: the hub refused this daemon's inbox ({e}); the relay is off until the daemon restarts"
                 );

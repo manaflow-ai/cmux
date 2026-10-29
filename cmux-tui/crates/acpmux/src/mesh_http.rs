@@ -228,6 +228,7 @@ fn answer(status: u16, bytes: &[u8]) -> Result<Value, HubError> {
         format!("the hub answered {status} {}", code.as_deref().unwrap_or("")).trim().to_owned(),
     );
     error.refused = !(status == 408 || status == 429 || status >= 500);
+    error.status = Some(status);
     error.retry_after =
         body.get("retryAfterSeconds").and_then(Value::as_u64).map(Duration::from_secs);
     error.code = code;
@@ -333,6 +334,17 @@ mod tests {
         let hub = HttpHub::new(&config).unwrap();
         let e = hub.token(true).await.unwrap_err();
         assert!(e.to_string().contains("too much"), "{e}");
+    }
+
+    #[test]
+    fn only_a_refused_credential_ends_the_relay() {
+        assert!(answer(401, br#"{"code": "mesh.unauthorized"}"#).unwrap_err().ends_relay());
+        assert!(answer(403, b"").unwrap_err().ends_relay());
+        // A duplicate name or another bad heartbeat is tried again, not the end of the relay.
+        assert!(!answer(400, br#"{"code": "mesh.bad_request"}"#).unwrap_err().ends_relay());
+        assert!(!answer(409, b"").unwrap_err().ends_relay());
+        assert!(!answer(429, b"").unwrap_err().ends_relay());
+        assert!(HubError::refused("no token command").ends_relay());
     }
 
     #[test]

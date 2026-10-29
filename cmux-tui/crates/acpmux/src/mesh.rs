@@ -165,16 +165,25 @@ pub struct HubError {
     pub code: Option<String>,
     /// How long a rate-limited caller waits (429 `retryAfterSeconds`).
     pub retry_after: Option<Duration>,
+    /// The HTTP status the hub answered, when it answered one.
+    pub status: Option<u16>,
 }
 
 impl HubError {
+    /// Whether no retry can help this daemon's loops: a refused credential (401, 403: a Cloud VM
+    /// token, a token without a team) or a refusal from no answer at all (no token command).
+    /// Any other refusal (a request the hub took issue with) is tried again with backoff.
+    pub fn ends_relay(&self) -> bool {
+        self.refused && self.status.is_none_or(|s| s == 401 || s == 403)
+    }
+
     pub fn unavailable(message: impl Into<String>) -> Self {
         Self { refused: false, ..Self::refused(message) }
     }
 
     pub fn refused(message: impl Into<String>) -> Self {
         let message = message.into();
-        Self { message, refused: true, code: None, retry_after: None }
+        Self { message, refused: true, code: None, retry_after: None, status: None }
     }
 }
 

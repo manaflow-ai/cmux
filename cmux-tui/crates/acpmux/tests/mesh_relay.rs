@@ -440,12 +440,17 @@ async fn a_failing_or_impatient_hub_is_never_called_in_a_busy_loop() {
 #[tokio::test]
 async fn the_heartbeat_lists_the_sessions_here_and_a_stop_empties_them() {
     let hub = hub();
-    let session = Client::local(&hub).new_session("dep-fleet").await;
+    let mut local = Client::local(&hub);
+    let session = local.new_session("dep-fleet").await;
+    // A second session of the same name: the hub refuses a heartbeat listing a name twice.
+    let params = json!({"cwd": std::env::temp_dir(), "mcpServers": [],
+                        "_meta": {"acpmux": {"harness": "fake", "name": "dep-fleet"}}});
+    let twin = local.call("session/new", params).await;
     let fake = Arc::new(FakeHub::default());
     let relay = MeshRelay::start(&hub, fake.clone(), Arc::new(RefuseControl), quick());
     fake.until("a heartbeat", |s| !s.heartbeats.is_empty()).await;
     let rows = fake.with(|s| s.heartbeats[0].sessions.clone());
-    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(rows.len(), 1, "a name is listed once: {rows:?} ({twin})");
     assert_eq!((rows[0].name.as_str(), rows[0].session_id.as_str()), ("dep-fleet", &*session));
     assert_eq!(rows[0].harness, "fake");
     relay.stop().await;
