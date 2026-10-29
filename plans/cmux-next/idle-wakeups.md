@@ -218,9 +218,10 @@ a CI gate, and no CI job runs it (Lawrence 2026-10-23).
 - Kinds: every process of the tree has a kind (`kinds`: app, daemon, holder, terminal-host, acpmux, agent-harness,
   the `cef-*` Chromium processes, the `webkit-*` processes, crashpad, crash-watcher, cua-helper and the others in
   the file). A process with no kind fails `--gate`.
-- Sessions: light-webkit, light, light-hidden, minimized, occluded, home, tabs-static, stress-static, stress,
-  energy-saver, energy-saver-auto, signed-in, signed-in-display-sleep, app-quit, external-churn, agent-idle,
-  agent-working-visible, busy-hidden and chrome-static.
+- Sessions: light-webkit, light, light-hidden, minimized, tabs-static, stress-static, stress, energy-saver,
+  energy-saver-auto, agent-idle, agent-working-visible, busy-hidden and chrome-static. The occluded, home,
+  signed-in, signed-in-display-sleep, app-quit and external-churn sessions (p14-energy-102) were removed in
+  deletion wave 1 (unproven, prove-or-remove).
 - `--gate` refuses a Debug build and a run whose Energy Saver state (`debug.energy` at the two ends of the window)
   is not the state that the session asks for. A run whose thermal state reached serious or critical is marked
   `thermal_marked` (IDLE-BUDGET-THERMAL) and is not comparable. The gate does not refuse it.
