@@ -157,7 +157,7 @@ fn status_of(receipt: &Receipt, target: &str) -> Value {
         "attempts": receipt.attempt,
         "error": error,
         "accepted": accepted,
-        "resolvedTo": receipt.resolved_to,
+        "resolution": receipt.resolution,
         "startWork": receipt.start_work,
         "createdAt": receipt.created_at,
         "updatedAt": updated.max(receipt.created_at),

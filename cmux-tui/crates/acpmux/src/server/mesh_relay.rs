@@ -445,7 +445,7 @@ pub async fn deliver(
     // Team messages are information by default. Record them in the target
     // session's event stream and acknowledge delivery without starting a
     // model turn; a later inbox read/ack records the durable user action.
-    if message.to.team_address.is_some() && !message.start_work {
+    if message.to.team_address.is_some() && !start_work_allowed(message) {
         hub.append(
             &session,
             "in",
@@ -495,6 +495,14 @@ pub async fn deliver(
     }
 }
 
+fn start_work_allowed(message: &InMessage) -> bool {
+    match message.start_work.as_ref() {
+        Some(Value::Bool(value)) => *value,
+        Some(Value::String(value)) => value.eq_ignore_ascii_case("allowed"),
+        _ => false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -510,8 +518,8 @@ mod tests {
             attempt: 1,
             kind: Kind::Prompt,
             op: None,
-            start_work: false,
-            state: "queued".into(),
+            start_work: Some(json!(false)),
+            state: Some("queued".into()),
         }
     }
 

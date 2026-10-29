@@ -139,11 +139,13 @@ pub struct InMessage {
     pub attempt: u32,
     /// The hub's policy decision. Information messages are delivered at a
     /// turn boundary; only `true` may start an idle agent.
-    #[serde(default, rename = "startWork")]
-    pub start_work: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub start_work: Option<Value>,
     /// Durable hub state (`queued`, `delivered`, `read`, or `acked`).
-    #[serde(default)]
-    pub state: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub state: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subject: Option<String>,
 }
 
 /// A message to post.
@@ -182,10 +184,10 @@ pub struct Receipt {
     pub acked_at: Option<u64>,
     /// The hub's resolved destination for a team address.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub resolved_to: Option<Target>,
+    pub resolution: Option<Value>,
     /// Whether the hub permits this message to start work on an idle agent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub start_work: Option<bool>,
+    pub start_work: Option<Value>,
 }
 
 /// How a delivery settled.
