@@ -58,8 +58,10 @@ fn every_schema_row_declares_matching_surface_operations() {
             assert_eq!(row.raw["surfaces"][surface]["offered"], true, "{} {surface}", row.key);
             let expected_aliases = if surface == "cli" { RESET_ALIASES } else { &[] };
             assert_eq!(aliases(&row.raw, surface), expected_aliases, "{} {surface} aliases", row.key);
-            assert!(strings(&row.raw, surface, "app_operations").is_empty(), "{} {surface} native app methods", row.key);
-            assert!(strings(&row.raw, surface, "app_aliases").is_empty(), "{} {surface} native app aliases", row.key);
+            if surface == "cli" {
+                assert!(strings(&row.raw, surface, "app_operations").is_empty(), "{} {surface} native app methods", row.key);
+                assert!(strings(&row.raw, surface, "app_aliases").is_empty(), "{} {surface} native app aliases", row.key);
+            }
         }
         assert_eq!(aliases(&row.raw, "socket"), &[] as &[&str], "{} socket aliases are daemon-only", row.key);
         assert_eq!(strings(&row.raw, "socket", "app_operations"), ["settings.get", "settings.set", "settings.reset"], "{} app socket methods", row.key);
