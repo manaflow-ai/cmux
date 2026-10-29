@@ -2933,7 +2933,10 @@ function nativeForkOperation(providers: VmProviderGatewayShape, provider: Provid
   return providers.fork;
 }
 
-/** Fork a source VM after validating its captured or measured reservation. */
+/** Fork a source VM after validating its captured or measured reservation.
+ * The method receipt describes what actually happened. Cached retries lack a
+ * saved method, so report unknown instead of confusing null snapshot with a
+ * native fork. */
 export function forkVm(input: {
   readonly userId: string;
   readonly billingCustomerType: BillingCustomerType;
@@ -2965,7 +2968,7 @@ export function forkVm(input: {
         return yield* Effect.fail(new VmCreateInProgressError({ idempotencyKey: input.idempotencyKey ?? "" }));
       }
       const existingWithReservation = yield* ensureExistingMachineReservation(repo, providers, existingRetry, existingRetry.providerVmId);
-      return { snapshot: null, fork: vmEntryFromRow(existingWithReservation) };
+      return { snapshot: null, fork: vmEntryFromRow(existingWithReservation), forkMethod: "unknown" as const };
     }
     yield* requireGoMetadataShape(input.billingPlanId, source.providerMetadata);
     yield* requireForkMemoryPlan(source, providers, input.providerVmId, input.billingPlanId);
@@ -3070,7 +3073,7 @@ export function forkVm(input: {
         // allocation remains subject to the source-shape and pool checks
         // above.
         const existingWithReservation = yield* ensureExistingMachineReservation(repo, providers, existing, existing.providerVmId);
-        return { snapshot: null, fork: vmEntryFromRow(existingWithReservation) };
+        return { snapshot: null, fork: vmEntryFromRow(existingWithReservation), forkMethod: "unknown" as const };
       }
 
       const creditReservation = yield* reserveCreateCredit(billing, repo, {
@@ -3190,7 +3193,7 @@ export function forkVm(input: {
           idempotencyKeySet: !!input.idempotencyKey,
         },
       }).pipe(Effect.catchAll(() => Effect.void));
-      return { snapshot: null, fork };
+      return { snapshot: null, fork, forkMethod: "native-live" as const };
     }
 
     const snapshot = yield* snapshotVm({
@@ -3242,7 +3245,7 @@ export function forkVm(input: {
       },
     }).pipe(Effect.catchAll(() => Effect.void));
     yield* afterResponseOrNow(forkedEvent, input.deferAfterResponse);
-    return { snapshot, fork };
+    return { snapshot, fork, forkMethod: "snapshot-create" as const };
   });
 }
 
