@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
+import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import * as Effect from "effect/Effect";
@@ -91,9 +92,8 @@ describe("idle decision", () => {
     expect(runCron(() => hookAgent, 6 * 60).pausedAfterMinutes).toBeNull();
   });
 
-  test("an attached client, a foreground command, an ssh login or a forwarded-port connection keeps it awake", () => {
+  test("a foreground command, an ssh login or a forwarded-port connection keeps it awake", () => {
     const cases: Array<[VmIdleProbe, string]> = [
-      [idleProbe({ daemon: { attachedClients: 1, liveAgents: 0, lastUserInputAt: null, lastAgentActionAt: null } }), "active:attached_clients"],
       [idleProbe({ busyTerminals: 1 }), "active:busy_terminals"],
       [idleProbe({ sshSessions: 1 }), "active:ssh_sessions"],
       [idleProbe({ inboundConnections: 2 }), "active:inbound_connections"],
@@ -102,6 +102,19 @@ describe("idle decision", () => {
       expect(runCron(() => probe, 6 * 60).pausedAfterMinutes).toBeNull();
       expect(decideVmIdlePause({ providerVmId: VM, minutes: 30, probe, previous: null, now: T0 })).toEqual({ pause: false, reason, observation: null });
     }
+  });
+
+  test("an attached app with nobody typing pauses after the timeout; typing into it keeps it awake", () => {
+    // The Mac app stays attached for days (it re-attaches after every daemon restart), so
+    // attachment is not activity: a person's input through it is.
+    const attached = (lastUserInputAt: number | null) =>
+      idleProbe({ daemon: { attachedClients: 2, liveAgents: 0, lastUserInputAt, lastAgentActionAt: null } });
+    expect(runCron(() => attached(null), 120).pausedAfterMinutes).toBe(30);
+    expect(decideVmIdlePause({ providerVmId: VM, minutes: 30, probe: attached(null), previous: null, now: T0 }).reason).toBe("idle");
+    // Typing every minute through the attached app: never idle for 30 minutes.
+    expect(runCron((now) => attached(now - MIN), 6 * 60).pausedAfterMinutes).toBeNull();
+    // The person stops typing at minute 40: paused 30 minutes later, at the next probe.
+    expect(runCron((now) => attached(Math.min(now, T0 + 40 * MIN)), 6 * 60).pausedAfterMinutes).toBe(70);
   });
 
   test("activity in the middle of the stretch starts it over", () => {
@@ -207,7 +220,9 @@ function fakeProc(files: Record<string, string>): string {
   const root = mkdtempSync(path.join(tmpdir(), "cmux-idle-proc-"));
   for (const [rel, text] of Object.entries(files)) {
     mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
-    writeFileSync(path.join(root, rel), text);
+    // A process's open file is a symlink like /proc/<pid>/fd/7 -> socket:[4242].
+    if (/\/fd\/\d+$/.test(rel)) symlinkSync(text, path.join(root, rel));
+    else writeFileSync(path.join(root, rel), text);
   }
   return root;
 }
@@ -218,7 +233,8 @@ const TTYS0 = (4 << 8) | 64;
 const stat = (pid: number, comm: string, pgrp: number, sid: number, tty: number, tpgid: number) =>
   `${pid} (${comm}) S 1 ${pgrp} ${sid} ${tty} ${tpgid} 4194560 0 0 0 0 0 0 0 0 20 0 1 0 0 0 0\n`;
 const TCP_HEADER = "  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode\n";
-const tcpRow = (local: string, remote: string, state: string) => `   0: ${local} ${remote} ${state} 00000000:00000000 00:00000000 00000000  1000        0 1 1\n`;
+const tcpRow = (local: string, remote: string, state: string, inode = 1) =>
+  `   0: ${local} ${remote} ${state} 00000000:00000000 00:00000000 00000000  1000        0 ${inode} 1\n`;
 // 10.192.0.5 little-endian, ports 1337 (0539), 3000 (0BB8), 22 (0016).
 const VPC = "0500C00A";
 
@@ -233,6 +249,7 @@ async function runProbeScript(files: Record<string, string>, acpmux: string): Pr
       CMUX_IDLE_ACPMUX: path.join(root, "acpmux.json"),
       CMUX_IDLE_DAEMON_SOCKET_FILE: path.join(root, "daemon-socket"),
       CMUX_IDLE_PRIVATE_ADDRESSES: "10.192.0.5,fd00:7::5",
+      CMUX_IDLE_DAEMON_PORT: "1337",
     },
     timeout: 30_000,
   });
@@ -265,6 +282,9 @@ describe("idle probe guest script", () => {
         + tcpRow(`${VPC}:0BB8`, "0900C00A:D431", "01")
         // The machine's own outbound connection (local port not listening): not counted.
         + tcpRow(`${VPC}:9C40`, "08080808:01BB", "01")
+        // The app's link to the daemon (ws://[vpc]:1337): the daemon reports its
+        // input itself, and an attached app with nobody typing is not activity.
+        + tcpRow(`${VPC}:0539`, "0900C00A:D432", "01")
         // A loopback connection to the daemon port: not on the private address, not counted.
         + tcpRow(`0100007F:0539`, "0100007F:D000", "01"),
       "net/tcp6": TCP_HEADER,
@@ -283,6 +303,72 @@ describe("idle probe guest script", () => {
       inbound_connections: 1,
       cpu_busy_ms: null,
     });
+  });
+
+  test("with no daemon-socket file (images baked before it), the daemon is found at its session socket", async () => {
+    const root = fakeProc({ "net/tcp": TCP_HEADER, "net/tcp6": TCP_HEADER });
+    const dir = path.join(root, "tmp", "cmux-tui-1000");
+    mkdirSync(dir, { recursive: true });
+    const socketPath = path.join(dir, "cloud.sock");
+    const server = createServer((conn) => {
+      conn.once("data", (line) => {
+        expect(String(line)).toContain('"subscribe-activity"');
+        conn.end(JSON.stringify({ id: 1, ok: true, data: { activity: { attached_clients: 1, live_agents: 0, last_user_input_at_ms: 1_700_000_000_000, last_agent_action_at_ms: null } } }) + "\n");
+      });
+    });
+    await new Promise<void>((resolve) => server.listen(socketPath, resolve));
+    try {
+      writeFileSync(path.join(root, "acpmux.json"), "NONE");
+      const result = await runChild("python3", ["-I", "-c", VM_IDLE_PROBE_SCRIPT], {
+        env: {
+          PATH: process.env.PATH ?? "/usr/bin:/bin",
+          CMUX_IDLE_PROC_ROOT: root,
+          CMUX_IDLE_ACPMUX: path.join(root, "acpmux.json"),
+          CMUX_IDLE_DAEMON_SOCKET_FILE: path.join(root, "no-daemon-socket-file"),
+          CMUX_IDLE_DAEMON_UID: "1000",
+          CMUX_IDLE_DAEMON_SOCKET_ROOTS: `${path.join(root, "run-user-1000")}:${path.join(root, "tmp")}`,
+        },
+        timeout: 30_000,
+      });
+      expect(result.status).toBe(0);
+      expect(JSON.parse(result.stdout.trim().split("\n").at(-1) ?? "{}").daemon).toEqual({
+        attached_clients: 1, live_agents: 0, last_user_input_at_ms: 1_700_000_000_000, last_agent_action_at_ms: null,
+      });
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
+  test("the probe command passes the daemon user's uid for the session socket", () => {
+    expect(vmIdleProbeCommand(["10.192.0.5"])).toContain(`CMUX_IDLE_DAEMON_UID="$(id -u "$CMUX_TUI_USER")"`);
+    expect(vmIdleProbeCommand(["10.192.0.5"])).toContain("CMUX_IDLE_DAEMON_PORT=1337");
+  });
+
+  test("the probe runs python isolated: as root, nothing on the machine's path or environment is imported", () => {
+    expect(vmIdleProbeCommand(["10.192.0.5"])).toContain("python3 -I -");
+  });
+
+  test("a port the app forwards through the daemon link is in use while the daemon holds a stream to it", async () => {
+    // 127.0.0.1:3000 (a dev server) listening; the daemon (pid 500) holds the client end of a stream to it,
+    // opened for the app's loopback-forward-v1 over its link on :1337.
+    const LO = "0100007F";
+    const forwarded = {
+      "500/stat": stat(500, "cmux-tui", 500, 500, 0, -1),
+      "500/fd/7": "socket:[4242]",
+      "600/stat": stat(600, "node", 600, 600, 0, -1),
+      "600/fd/9": "socket:[4243]",
+      "net/tcp": TCP_HEADER
+        + tcpRow(`${LO}:0BB8`, "00000000:0000", "0A")
+        + tcpRow(`00000000:0539`, "00000000:0000", "0A")
+        + tcpRow(`${VPC}:0539`, "0900C00A:D432", "01", 77)
+        + tcpRow(`${LO}:D500`, `${LO}:0BB8`, "01", 4242)
+        + tcpRow(`${LO}:0BB8`, `${LO}:D500`, "01", 4243),
+      "net/tcp6": TCP_HEADER,
+    };
+    expect((await runProbeScript(forwarded, "NONE")).inbound_connections).toBe(1);
+    // The same loopback stream held by another process (not the daemon) is the machine talking to itself.
+    const local = { ...forwarded, "500/fd/7": "socket:[1]", "600/fd/8": "socket:[4242]" };
+    expect((await runProbeScript(local, "NONE")).inbound_connections).toBe(0);
   });
 
   test("an idle machine reads all zeros; a stopped acpmux is none; an unreadable one is unknown", async () => {
@@ -310,9 +396,9 @@ describe("idle probe guest script", () => {
         // ssh through the link arrives on loopback: counted because it is sshd.
         + tcpRow(`0100007F:0016`, "0100007F:E000", "01"),
       "net/tcp6": TCP_HEADER
-        + tcpRow(`00000000000000000000000000000000:0539`, "00000000000000000000000000000000:0000", "0A")
-        + tcpRow(`${local6}:0539`, `${remote6}:C000`, "01")
-        + tcpRow(`${mapped}:0539`, "0000000000000000FFFF00000900C00A:C001", "01"),
+        + tcpRow(`00000000000000000000000000000000:0BB8`, "00000000000000000000000000000000:0000", "0A")
+        + tcpRow(`${local6}:0BB8`, `${remote6}:C000`, "01")
+        + tcpRow(`${mapped}:0BB8`, "0000000000000000FFFF00000900C00A:C001", "01"),
     }, "NONE");
     expect(out.inbound_connections).toBe(3);
   });
