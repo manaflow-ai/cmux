@@ -7,7 +7,7 @@ import Foundation
 /// with no session answers through the idle stand-in, which says it is not
 /// connected.
 @MainActor
-public final class MultiMacWorkspaceBackend: WorkspaceCreationBackend, WorkspaceArrangementBackend, NotificationClearing, WorkspaceGroupBackend {
+public final class MultiMacWorkspaceBackend: WorkspaceCreationBackend, WorkspaceArrangementBackend, NotificationClearing, WorkspaceGroupBackend, AgentChatsBackend {
     private weak var coordinator: LiveCoordinator?
 
     public init(coordinator: LiveCoordinator) {
@@ -63,6 +63,9 @@ public final class MultiMacWorkspaceBackend: WorkspaceCreationBackend, Workspace
     }
     public func duplicateTab(_ tab: WorkspaceTab, in workspace: Workspace) async throws -> WorkspaceTab {
         try await backend(workspace.macID).duplicateTab(tab, in: workspace)
+    }
+    public func openLink(_ url: URL, besides tab: WorkspaceTab, in workspace: Workspace) async throws -> WorkspaceTab {
+        try await backend(workspace.macID).openLink(url, besides: tab, in: workspace)
     }
     public func moveTab(_ tab: WorkspaceTab, to target: WorkspaceTab, in workspace: Workspace) async throws {
         try await backend(workspace.macID).moveTab(tab, to: target, in: workspace)
@@ -130,6 +133,9 @@ public final class MultiMacWorkspaceBackend: WorkspaceCreationBackend, Workspace
         try await backend(workspace.macID).setIcon(workspace, icon)
     }
     public func clearName(_ workspace: Workspace) async throws { try await backend(workspace.macID).clearName(workspace) }
+    public func place(_ workspace: Workspace, next anchor: Workspace, after: Bool) async throws {
+        try await backend(workspace.macID).place(workspace, next: anchor, after: after)
+    }
 
     // MARK: NotificationClearing
 
@@ -137,6 +143,28 @@ public final class MultiMacWorkspaceBackend: WorkspaceCreationBackend, Workspace
     public func clearAllNotifications(on macID: String) async throws {
         try await backend(macID).clearAllNotifications(on: macID)
         coordinator?.session(macID: macID)?.terminalFeed.cleared()
+    }
+    public func markAllNotificationsRead(on macID: String) async throws -> Int {
+        try await backend(macID).markAllNotificationsRead(on: macID)
+    }
+
+    // MARK: AgentChatsBackend
+
+    public func canListAgentChats(on macID: String) -> Bool { on(macID)?.canListAgentChats(on: macID) ?? false }
+    public func agentChats(on macID: String, cursor: String?) async throws -> AgentChatPage {
+        try await backend(macID).agentChats(on: macID, cursor: cursor)
+    }
+    public func openAgentChat(_ chat: AgentChatListing, in workspace: Workspace) async throws -> WorkspaceTab {
+        try await backend(workspace.macID).openAgentChat(chat, in: workspace)
+    }
+    public func openAgentChatInNewWorkspace(_ chat: AgentChatListing, on macID: String) async throws -> Workspace {
+        try await backend(macID).openAgentChatInNewWorkspace(chat, on: macID)
+    }
+    public func setAgentChatArchived(_ chat: AgentChatListing, archived: Bool, on macID: String) async throws -> AgentChatListing {
+        try await backend(macID).setAgentChatArchived(chat, archived: archived, on: macID)
+    }
+    public func openChatFolderInTerminal(_ tab: WorkspaceTab, in workspace: Workspace) async throws -> WorkspaceTab {
+        try await backend(workspace.macID).openChatFolderInTerminal(tab, in: workspace)
     }
 
     // MARK: WorkspaceGroupBackend

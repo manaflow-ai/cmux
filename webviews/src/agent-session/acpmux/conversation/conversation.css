@@ -60,6 +60,15 @@
      after the run before the next reply. Gallery-only attributes compare this against the prior
      roomier rhythm without adding a product setting. */
   --cv-tool-row-height: 22px;
+  /* Every transcript status/control starts from one centered glyph slot. The Session Info rows use
+     the same slot from styles.css so a tool, Worked for, Received and peer row share one center line.
+     MessageActions.tsx uses the same shared footer slots. */
+  --cv-glyph-slot: var(--acpmux-glyph-slot, 16px);
+  --cv-glyph-line: var(--acpmux-glyph-line, 20px);
+  --cv-disclosure-slot: var(--acpmux-disclosure-slot, 16px);
+  --cv-footer-control-slot: var(--cv-meta-row, 24px);
+  --cv-footer-chevron-slot: var(--cv-footer-control-slot);
+  --cv-footer-gap: 0px;
   --cv-tool-run-bottom-gap: 4px;
   /* A message's hover row fades as Claude Code desktop's (--cds-message-actions-reveal-*): in after
      100ms over 120ms, out at once (Claude's 60ms is off the motion scale: its quick 80ms), both on
@@ -107,25 +116,11 @@
   flex-direction: column;
   align-items: flex-end;
 }
-/* Waiting controls belong beside their bubble. Delivered prompts keep their usual footer. */
+/* Waiting controls use the same footer slot as a delivered prompt. The bubble and its footer stay
+   right-aligned together, so accepting Send now changes only the footer contents, never the bubble's
+   horizontal position (Leo, 2026-10-28). */
 .cv-user__body {
   display: contents;
-}
-.cv-user__body:has(.cv-user__pending) {
-  display: flex;
-  align-items: center;
-  gap: var(--ds-space-2, 8px);
-  max-width: 100%;
-  min-width: 0;
-}
-.cv-user__body:has(.cv-user__pending) > .cv-user__bubble {
-  min-width: 0;
-  max-width: 100%;
-}
-.cv-user__body:has(.cv-user__pending) > .cv-user__actions {
-  flex: none;
-  margin-top: 0;
-  padding-right: 0;
 }
 /* A prompt's bubble: a small radius, and text inset evenly, 12px from each side (8px of padding
    plus the line's half-leading above and below). model.ts measures it. Its look is the glass rule
@@ -639,21 +634,53 @@
   padding-right: 2px;
   opacity: 0;
 }
+/* One footer rail for sent, received and answer rows. The timestamp and every control share the
+   same center line and equally sized control slots. */
+.cv-message-footer-row {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--cv-footer-gap);
+  min-height: var(--cv-meta-row);
+  white-space: nowrap;
+}
+.cv-message-footer-row.cv-turn-footer-row {
+  gap: 8px;
+}
+.cv-message-footer-row > :is(.cv-user__time, .cv-turn-time) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: var(--cv-footer-control-slot);
+  padding-block: 0;
+  line-height: normal;
+}
+.cv-message-footer-row .cv-iconbtn {
+  width: var(--cv-footer-control-slot);
+  height: var(--cv-footer-control-slot);
+}
+.cv-message-footer-row .cv-iconbtn > svg {
+  flex-shrink: 0;
+  width: var(--cv-glyph-slot);
+  height: var(--cv-glyph-slot);
+}
 /* Claude's fade: in after a beat when the pointer arrives, at once from the keyboard, out quickly. */
 @media (prefers-reduced-motion: no-preference) {
   .cv-user__actions,
   .cv-received-actions,
+  .cv-reply-actions,
   .acpmux-turnSummary .cv-turn-actions {
     transition: opacity var(--cv-actions-out) var(--cv-actions-ease);
   }
   .cv-user:hover .cv-user__actions,
   .cv-received:hover .cv-received-actions,
+  .acpmux-assistant:hover .cv-reply-actions,
   .acpmux-turnSummary[data-turn-revealed] .cv-turn-actions,
   .acpmux-turnSummary:hover .cv-turn-actions {
     transition: opacity var(--cv-actions-in) var(--cv-actions-ease) var(--cv-actions-in-delay);
   }
   .cv-user__actions:focus-within,
   .cv-received-actions:focus-within,
+  .cv-reply-actions:focus-within,
   .acpmux-turnSummary:focus-visible .cv-turn-actions,
   .acpmux-turnSummary .cv-turn-actions:focus-within {
     transition: opacity var(--cv-actions-in) var(--cv-actions-ease);
@@ -1511,9 +1538,9 @@ pre.cv-math-source {
   box-sizing: border-box;
   width: 100%;
   height: var(--cv-worked-height, 27px);
-  padding-top: var(--cv-worked-pad-top, 2.5px);
+  padding-top: 0;
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: var(--cv-worked-gap, 2px);
   font-family: var(--cv-font);
   font-size: var(--cv-font-size);
@@ -1540,7 +1567,7 @@ pre.cv-math-source {
   background: var(--cv-rule);
 }
 .cv-worked__chevron {
-  margin-top: 3px;
+  margin-top: 0;
   margin-left: 2px;
 }
 /* The running line's counts (WorkingFor.tsx), after its label on the same 20px line. They keep
@@ -1608,7 +1635,9 @@ pre.cv-math-source {
   flex: none;
   display: inline-flex;
   align-items: center;
-  height: 20px;
+  justify-content: center;
+  width: var(--cv-glyph-slot);
+  height: var(--cv-glyph-line);
   margin-inline-end: 6px;
   color: var(--cv-text-muted);
 }
@@ -1728,7 +1757,7 @@ pre.cv-math-source {
   all: unset;
   box-sizing: border-box;
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  grid-template-columns: var(--cv-glyph-slot) minmax(0, 1fr) auto var(--cv-disclosure-slot);
   align-items: center;
   gap: 8px;
   width: 100%;
@@ -1792,8 +1821,12 @@ pre.cv-math-source {
 }
 .cv-tool__icon {
   grid-column: 1;
-  display: flex;
+  display: inline-flex;
   flex: none;
+  align-items: center;
+  justify-content: center;
+  width: var(--cv-glyph-slot);
+  height: var(--cv-glyph-line);
   margin-right: -1.5px;
 }
 .cv-tool__text {
@@ -1816,6 +1849,11 @@ pre.cv-math-source {
 /* Quiet and always there. On hover a row adds only a finished call's check and time (above). */
 .cv-tool__chevron {
   grid-column: 4;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  width: var(--cv-disclosure-slot);
+  height: var(--cv-disclosure-slot);
   justify-self: end;
   margin-left: 0;
   color: var(--cv-text-dim);
@@ -1833,7 +1871,7 @@ pre.cv-math-source {
 /* The folded label uses the same row height as tools; full thought text keeps its padding. */
 .cv-thought.is-toggle {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  grid-template-columns: auto minmax(0, 1fr) auto var(--cv-disclosure-slot);
   align-items: center;
   padding-block: 0;
 }
@@ -2019,6 +2057,14 @@ pre.cv-math-source {
   box-shadow: inset 0 0 0 1px var(--cv-card-ring);
 }
 
+/* Native audio controls have an intrinsic width; fit them inside a narrow tool row. */
+.cv-tool-images .cv-media.is-audio {
+  min-width: 0;
+}
+.cv-tool-images .cv-media.is-audio audio {
+  max-width: 100%;
+}
+
 .cv-tool-images .cv-media.is-video video {
   max-width: min(100%, 360px);
   max-height: 220px;
@@ -2177,6 +2223,9 @@ pre.cv-math-source {
 .cv-tool > .cv-command__meta {
   grid-column: 3;
   margin-left: 0;
+  min-width: var(--cv-glyph-slot);
+  min-height: var(--cv-glyph-line);
+  justify-content: center;
 }
 .cv-tool:is(:hover, :focus-visible) :is(.cv-command__ok, .cv-command__time) {
   opacity: 1;
@@ -2307,7 +2356,8 @@ pre.cv-math-source {
   flex: none;
   align-items: center;
   justify-content: center;
-  width: 16px;
+  width: var(--cv-glyph-slot);
+  height: var(--cv-glyph-line);
   margin-right: -1.5px;
 }
 .cv-received__name,
@@ -2736,6 +2786,20 @@ a.cv-sha:focus-visible {
   padding: 0;
   margin-left: -3px;
 }
+.cv-message-footer-row .cv-iconbtn.cv-turn-retry-menu {
+  width: var(--cv-footer-chevron-slot);
+  min-width: var(--cv-footer-chevron-slot);
+  margin-left: 0;
+}
+/* Recovery actions are the one footer content allowed to wrap on narrow panes. The shared rail
+   stays centered for glyph controls without clipping sign-in or credential-transfer copy. */
+.cv-message-footer-row .cv-turn-auth-action {
+  min-width: 0;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-align: start;
+}
 .cv-iconbtn:hover {
   color: var(--cv-text);
   background: color-mix(in srgb, var(--cv-fg) 6%, transparent);
@@ -2776,6 +2840,18 @@ a.cv-sha:focus-visible {
 .acpmux-turnSummary .cv-turn-actions:focus-within,
 .acpmux-turnSummary .cv-turn-actions--failed,
 .acpmux-turnSummary .cv-turn-actions--resumable {
+  opacity: 1;
+}
+/* A reply's own row (MessageActions.tsx ReplyActions: a steer, another agent's message or a tool
+   row follows the reply): the footer's line under it at the meta gap, its space kept, shown while
+   the reader points at the reply or a button in it has keyboard focus. */
+.cv-reply-actions {
+  margin-top: var(--cv-meta-gap);
+  opacity: 0;
+}
+.acpmux-assistant:hover .cv-reply-actions,
+.acpmux-assistant:focus-visible .cv-reply-actions,
+.cv-reply-actions:focus-within {
   opacity: 1;
 }
 .cv-turn-summary,

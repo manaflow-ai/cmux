@@ -1,4 +1,6 @@
 import AppKit
+import CmuxNextDaemon
+import CmuxNextHistory
 import CmuxNextActions
 import CmuxNextAgentPane
 @testable import CmuxNextApp
@@ -8,7 +10,8 @@ import Testing
 /// Fork Conversation (Cmd-Shift-P's "Fork Conversation…" step, the right-click menus, its
 /// shortcut, `cmux agent fork-conversation-*`). The fork matrix found the palette's Fork hidden in
 /// every agent chat (it required a focused terminal), no New Window destination, and a Codex
-/// terminal refused as "Claude only" although `codex fork` exists.
+/// terminal refused as "Claude only" although `codex fork` exists; on Oct 29, every
+/// hook-reported terminal refused (its id is `agent_session_id`) and Muse refused outright.
 @MainActor @Suite(.serialized)
 struct ForkConversationTests {
     static let destinations: [(ActionID, AgentForkDestination)] = [
@@ -53,19 +56,47 @@ struct ForkConversationTests {
         #expect(descriptor.defaultShortcut != nil)
     }
 
-    /// A terminal agent forks by its own CLI: Claude Code and Codex. Others say so.
-    @Test(arguments: [
-        ("claude", "s-1", "claude --resume s-1 --fork-session"),
-        ("Claude_Code", "s-1", "claude --resume s-1 --fork-session"),
-        ("codex", "019a-77", "codex fork 019a-77"),
-    ])
-    func aTerminalAgentForksByItsCLI(agent: String, session: String, command: String) {
-        #expect(AgentHandlers.forkCommand(agent: agent, session: session) == command)
+    /// A terminal agent as cmux-tui reports it from its hooks: the harness's own session id in
+    /// `agent_session_id`, `session` only a label (cmux-tui `list-agents`).
+    static func hooked(_ agent: String?, id: String?, label: String? = "Claude Code") -> AgentStatus {
+        AgentStatus(surface: 1, state: .idle, source: "hook", session: label, agent: agent, agentSessionID: id)
     }
 
-    @Test func aTerminalAgentWithoutAForkCommandOrAPlainSessionIsRefused() {
-        #expect(AgentHandlers.forkCommand(agent: "opencode", session: "x") == nil)
-        #expect(AgentHandlers.forkCommand(agent: "codex", session: "a; rm -rf ~") == nil)
-        #expect(AgentHandlers.forkCommand(agent: "claude", session: "") == nil)
+    /// A terminal agent whose own CLI forks: Claude Code, Codex, Grok. The fork matrix of Oct 29
+    /// found every hook-reported terminal refused ("no agent session"): the fork read `session`.
+    @Test(arguments: [
+        ("claude", "4b6c20a4-1d7d-411c-ae1a-b1f27e82b482", "claude --resume 4b6c20a4-1d7d-411c-ae1a-b1f27e82b482 --fork-session"),
+        ("Claude_Code", "s-1", "claude --resume s-1 --fork-session"),
+        ("codex", "01a14344-2fe7-7e33-8f68-5e342115469c", "codex fork 01a14344-2fe7-7e33-8f68-5e342115469c"),
+        ("grok", "g-7", "grok --resume g-7 --fork-session"),
+    ])
+    func aHookedTerminalAgentForksByItsCLI(agent: String, id: String, command: String) {
+        #expect(AgentHandlers.terminalFork(Self.hooked(agent, id: id)) == .command(command))
+    }
+
+    /// A direct report (no hook) still names its session in `session`.
+    @Test func aDirectlyReportedSessionStillForks() {
+        let status = AgentStatus(surface: 1, state: .idle, source: "socket", session: "019a-77", agent: "codex")
+        #expect(AgentHandlers.terminalFork(status) == .command("codex fork 019a-77"))
+    }
+
+    /// Muse's CLI has no fork (`muse resume` only): acpmux forks it through its ACP agent's own
+    /// `session/fork`, and the new terminal resumes the fork.
+    @Test(arguments: ["muse", "opencode", "gemini"])
+    func aTerminalAgentWithoutACLIForkForksThroughACP(agent: String) {
+        #expect(AgentHandlers.terminalFork(Self.hooked(agent, id: "01a1802b-9ee5")) == .acp(harness: agent, session: "01a1802b-9ee5"))
+    }
+
+    @Test func theForkOfAnACPForkedAgentResumesInTheNewTerminal() {
+        #expect(TerminalAgentFork.resumeLine(harness: "muse", session: "00000000-0000-7a49-a7fd-5019018f65db")
+            == "muse resume 00000000-0000-7a49-a7fd-5019018f65db")
+    }
+
+    @Test func aTerminalWithoutASessionOrAPlainIdOrAKnownAgentIsRefused() {
+        #expect(AgentHandlers.terminalFork(nil) == .noSession)
+        #expect(AgentHandlers.terminalFork(Self.hooked("codex", id: nil, label: nil)) == .noSession)
+        #expect(AgentHandlers.terminalFork(Self.hooked("codex", id: "cmux-hook-sequence:4", label: nil)) == .noSession)
+        #expect(AgentHandlers.terminalFork(Self.hooked("codex", id: "a; rm -rf ~")) == .noSession)
+        #expect(AgentHandlers.terminalFork(Self.hooked("kiro", id: "x")) == .unsupported)
     }
 }
