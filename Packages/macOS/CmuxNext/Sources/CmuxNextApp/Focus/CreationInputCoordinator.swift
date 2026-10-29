@@ -401,7 +401,16 @@ final class CreationInputCoordinator {
         }
     }
 
-    /// `force`: the hold ends now (its limit, focus left the content), whatever it waited for.
+    /// `force`: the hold stops waiting now (its bound, focus left the content, a close key) for the model facts it waits
+    /// for (the focus it asked for, a new workspace to show). Where the keys go is never forced:
+    ///
+    /// Invariant (principled-audit R3, R5): a held key runs only into the window's focus target as the model names it,
+    /// and only when that target can take keys (``responderTakesKeys(_:window:)``). No timer decides where keys go. A
+    /// bound that passes while the model's target cannot take keys leaves them waiting for it, in order, and asks the
+    /// input invariant monitor to check W1 (the first responder matches the model's target: key window => a first
+    /// responder that takes keys). The model moves only by the person, a close or a failed creation, and the keys then
+    /// go to its new target.
+    ///
     /// A pending creation whose early view got the keyboard takes the held keys now: the hold stays (later keys go
     /// straight to that view through ``capture(_:in:)``) until the creation resolves.
     private func flush(in window: NSWindow, force: Bool = false) {
@@ -425,7 +434,11 @@ final class CreationInputCoordinator {
             if let expectation = focus.expectation, buffer.awaits(expectation.generation) { return }
             // A new workspace's keys wait for the window to show it (its terminal then has the keyboard, below).
             if let workspace = buffer.awaitedWorkspace, workspace != shown { return }
-            guard Self.responderTakesKeys(controller, window: window) else { return }
+        }
+        guard Self.responderTakesKeys(controller, window: window) else {
+            // The model's target cannot take keys after a forced end: the W1 check (DEBUG) reports it if it lasts.
+            if force { router.services?.input.monitor?.noteChange() }
+            return
         }
         buffers[window.windowNumber] = nil
         // A forced end (its limit, focus left the content) drops the keys of a new workspace the window does not show.
