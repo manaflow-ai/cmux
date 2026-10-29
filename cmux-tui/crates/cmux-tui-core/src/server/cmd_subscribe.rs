@@ -241,6 +241,19 @@ pub(super) fn subscribe_command(
                 {
                     continue;
                 }
+                // Who views a Cloud conversation only to a connection that
+                // asked for it (`cloud-conversation-presence-v1`).
+                MuxEvent::CloudConversation(event)
+                    if matches!(
+                        event.as_ref(),
+                        crate::cloud_conversations::CloudEvent::Presence { .. }
+                    ) && !event_mux.control_clients.supports_capability(
+                        client,
+                        super::cloud_conversations::CLOUD_PRESENCE_CAPABILITY,
+                    ) =>
+                {
+                    continue;
+                }
                 MuxEvent::PairingRequested(challenge) => json!({
                     "event": "pairing-requested",
                     "request": challenge.id,

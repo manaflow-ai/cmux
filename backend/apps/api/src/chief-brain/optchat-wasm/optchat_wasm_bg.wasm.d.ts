@@ -3,8 +3,10 @@
 export const memory: WebAssembly.Memory;
 export const __wbg_optchat_free: (a: number, b: number) => void;
 export const finishLine: (a: number, b: number, c: number, d: number) => [number, number];
+export const ledgerApply: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
 export const optchat_append: (a: number) => [number, number, number];
 export const optchat_appendIn: (a: number, b: any) => [number, number, number];
+export const optchat_callPure: (a: number, b: any, c: number, d: number, e: number, f: number, g: number, h: number) => [number, number, number, number];
 export const optchat_checkpoint: (a: number) => [number, number];
 export const optchat_compactRequest: (a: number, b: any, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number) => [number, number, number, number];
 export const optchat_complete: (a: number, b: number, c: number, d: number, e: number) => [number, number];
@@ -25,7 +27,9 @@ export const optchat_turnInput: (a: number, b: any, c: number, d: number, e: num
 export const optchat_view: (a: number) => [number, number];
 export const optchat_viewSize: (a: number) => number;
 export const optchat_zoom: (a: number, b: any, c: number, d: number) => [number, number, number, number];
+export const renderSystem: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
 export const sizeCheck: (a: number, b: number, c: number) => [number, number, number, number];
+export const toolSpecs: (a: number, b: number, c: number, d: number) => [number, number, number, number];
 export const __wbindgen_malloc: (a: number, b: number) => number;
 export const __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
 export const __wbindgen_exn_store: (a: number) => void;

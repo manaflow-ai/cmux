@@ -1,3 +1,4 @@
+import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextDaemon
 import Foundation
@@ -16,6 +17,13 @@ extension WindowManager {
     /// workspace created in it.
     func switchProfile(_ profile: ProfileID, in state: WindowState) {
         guard profile != state.profileID else { return }
+        // An incognito space lives in its incognito window (spaces-overhaul-DESIGN.md rule 2): switching another
+        // window to it shows that window instead, and an incognito space's window never shows a normal space.
+        if incognitoSpaces[state.id] != nil { return services.registry.refuse(RefusalStrings.incognitoMismatch) }
+        if let owner = incognitoSpaces.first(where: { $0.value == profile })?.key {
+            if ActionRunScope.viewChangeAllowed(), let controller = controller(for: owner) { bringToFront(controller) }
+            return
+        }
         let machines = services.machines
         let members = registry.members(of: state.id)
         var visible = WindowProfiles.visible(members, profile: profile, machines: machines)

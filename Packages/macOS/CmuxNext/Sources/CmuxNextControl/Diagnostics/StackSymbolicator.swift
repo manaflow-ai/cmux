@@ -54,6 +54,25 @@ public struct StackSymbolicator: Sendable {
         }
     }
 
+    /// The function at `imageOffset` in the running executable, for a frame another process
+    /// recorded (the previous run's macOS crash report): nil unless `uuid` is this executable's
+    /// `LC_UUID` (the same build), or when no name is found. Call off the main thread.
+    ///
+    /// - Parameters:
+    ///   - uuid: The frame's image UUID as the report wrote it (any case).
+    ///   - imageOffset: The frame's offset from the image header.
+    ///   - returnAddress: The frame is a return address (every frame but the crashed one).
+    /// - Returns: The demangled function and the offset into it.
+    public func executableFunction(uuid: String, imageOffset: UInt, returnAddress: Bool) -> (symbol: String, offset: UInt)? {
+        guard let header = _dyld_get_image_header(0), let own = AppSymbolMap.uuid(of: header),
+              own.uuidString.caseInsensitiveCompare(uuid) == .orderedSame else { return nil }
+        let base = UInt(bitPattern: header)
+        let found = frame(index: returnAddress ? 1 : 0, address: base &+ imageOffset, executable: UnsafeRawPointer(header),
+                          functionStarts: { FunctionStarts.read(header: UnsafeRawPointer($0)) })
+        guard let symbol = found.symbol else { return nil }
+        return (symbol, found.offset)
+    }
+
     /// One address's frame (``frames(for:)``): the app's own map first, else `dladdr` checked
     /// against the image's function starts.
     private func frame(index: Int, address: UInt, executable: UnsafeRawPointer?,

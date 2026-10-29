@@ -25,6 +25,23 @@ import Testing
         #expect(HomeChiefSettingsPopover.toggleTarget(key: nil, ordered: [hidden, shown]) === shown)
     }
 
+    /// With no key window, a visible child window in front (Chromium's page window, an overlay
+    /// panel) stands for the window it belongs to. AppKit lists a child window before its parent
+    /// when the app is not active, so a toggle run from the CLI with cmux in the background (every
+    /// capture slot) reached the page window, no Home answered, and the popover never opened.
+    @Test func withoutAKeyWindowAChildInFrontStandsForItsWindow() {
+        let (home, page) = (Self.window(), Self.window())
+        home.orderFrontRegardless()
+        home.addChildWindow(page, ordered: .above)
+        defer {
+            home.removeChildWindow(page)
+            page.orderOut(nil)
+            home.orderOut(nil)
+        }
+        #expect(page.isVisible)
+        #expect(HomeChiefSettingsPopover.toggleTarget(key: nil, ordered: [page, home]) === home)
+    }
+
     /// The open popover is a child panel with the keys: it stands for its window, so a second
     /// toggle reaches the Home that opened it and closes it.
     @Test func aChildPanelWithTheKeysStandsForItsWindow() {

@@ -9,7 +9,7 @@ import { useState } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useSettingsState, useStore } from "../context";
 import { channelsQuery } from "../sectionQueries";
-import type { ChannelBuild, ChannelSwitch, ChannelTrack, ChannelsState } from "../ops";
+import type { ChannelBuild, ChannelMachines, ChannelSwitch, ChannelTrack, ChannelsState } from "../ops";
 
 function BuildRow({ build, labels }: { build: ChannelBuild; labels: ChannelsState["labels"] }) {
   return (
@@ -138,6 +138,61 @@ function SwitchRow({ way }: { way: ChannelSwitch }) {
   );
 }
 
+/** The row of other machines: one line each, and an Update button on a line the app can update
+ * (a machine too old to update in place). The click's result comes back as the row's push. */
+function MachinesRow({ machines }: { machines: ChannelMachines }) {
+  const store = useStore();
+  const [busy, setBusy] = useState<string | null>(null);
+  const [failure, setFailure] = useState<string | null>(null);
+  const update = (id: string) => {
+    setBusy(id);
+    setFailure(null);
+    void store.channelsUpdateMachine(id).then((why) => {
+      setBusy(null);
+      setFailure(why);
+    });
+  };
+  return (
+    <div className="rows" data-channel-machines="">
+      <div className="row">
+        <div className="row-main">
+          <div className="row-label">
+            <div className="row-title">{machines.title}</div>
+            {failure && <div className="row-error">{failure}</div>}
+          </div>
+        </div>
+      </div>
+      {machines.lines.map((line, index) => {
+        const id = machines.updates?.[index] ?? null;
+        return (
+          <div key={line} className="row">
+            <div className="row-main">
+              <div className="row-label">
+                <div className="row-help selectable" data-channel-machine="">
+                  {line}
+                </div>
+              </div>
+              {id && machines.updateLabel && (
+                <div className="row-control">
+                  <button
+                    type="button"
+                    className="button"
+                    data-channel-update-machine={id}
+                    disabled={busy !== null}
+                    onClick={() => update(id)}
+                  >
+                    {machines.updateLabel}
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export function ChannelsCard() {
   const store = useStore();
   // The row's value moves before the host has the write, so the card marks it, not a re-read.
@@ -151,6 +206,23 @@ export function ChannelsCard() {
     <section className="group" data-card="channels">
       <h3 className="group-title">{state.title}</h3>
       <div className="row-help">{state.installed}</div>
+      {/* The app's acpmux daemon: its build, and whether it is up to date or restarting. */}
+      {state.daemon && (
+        <div className="rows" data-channel-daemon="">
+          <div className="row">
+            <div className="row-main">
+              <div className="row-label">
+                <div className="row-title">{state.daemon.title}</div>
+              </div>
+              <div className="row-control">
+                <span className="row-help selectable">{state.daemon.value}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Other machines that cannot update in place or whose update failed: one row, never a toast each. */}
+      {state.machines && state.machines.lines.length > 0 && <MachinesRow machines={state.machines} />}
       {/* Only the picked channel's way back: a read for an earlier pick never offers its button. */}
       {state.switch && (shown === undefined || state.switch.ring === shown) && (
         <SwitchRow key={`${state.switch.ring}:${state.switch.build}`} way={state.switch} />

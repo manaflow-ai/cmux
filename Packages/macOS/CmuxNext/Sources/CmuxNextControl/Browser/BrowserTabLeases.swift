@@ -14,6 +14,8 @@ actor BrowserTabLeases {
 
     private var leases: [String: Lease] = [:]
     private var opened: [String: String] = [:]
+    /// The tab each agent's work shows in Home's right column (one per agent).
+    private var homeMirrors: [String: String] = [:]
     private let ttl: Duration
     private let now: @Sendable () -> ContinuousClock.Instant
 
@@ -58,6 +60,13 @@ actor BrowserTabLeases {
     func holder(of tab: String) -> String? {
         guard let lease = leases[tab], lease.expires > now() else { return nil }
         return lease.agent
+    }
+
+    /// Records `tab` as `agent`'s Home mirror (``BrowserPageService/mirrorIntoHome(_:for:call:mirrors:leases:)``);
+    /// returns the tab it mirrored before, if any.
+    func noteHomeMirror(_ tab: String, for agent: String) -> String? {
+        defer { homeMirrors[agent] = tab }
+        return homeMirrors[agent]
     }
 
     /// Drops every lease `agent` holds and forgets its tab; returns the tabs it held.

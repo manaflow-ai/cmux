@@ -77,7 +77,7 @@ extension ActionRegistry {
                 if let last = items.last, !last.isSeparatorItem { items.append(.separator()) }
             case .action(let id):
                 let invocation = ActionInvocation(target: target, arguments: arguments)
-                guard let descriptor = descriptor(for: id), ActionFeature.turnedOff(descriptor, in: disabledFeatures) == nil, Self.isAvailable(descriptor, in: context),
+                guard let descriptor = descriptor(for: id), isAvailable(descriptor.id, in: context),
                       !ActionTargetVisibility.isHidden(id, invocation: invocation, in: self), let item = makeMenuItem(for: id) else { continue }
                 item.representedObject = ActionMenuPayload(id: descriptor.id, target: target, arguments: arguments, implied: implied)
                 item.image = Self.menuIcon(descriptor.symbol)
@@ -105,7 +105,7 @@ extension ActionRegistry {
                 item.submenu = submenu
                 items.append(item)
             case .choices(let id):
-                guard let descriptor = descriptor(for: id), ActionFeature.turnedOff(descriptor, in: disabledFeatures) == nil, Self.isAvailable(descriptor, in: context),
+                guard let descriptor = descriptor(for: id), isAvailable(descriptor.id, in: context),
                       let item = makeChoicesItem(for: descriptor, target: target, in: context)
                 else { continue }
                 item.image = Self.menuIcon(descriptor.symbol)
