@@ -28,8 +28,12 @@ umask 077
 # 1. The token: the env form first, then `sh -s -- TOKEN`. Taken into a
 # plain shell variable and dropped from the environment and the positional
 # parameters before anything else runs, so no child sees it.
-t="${CMUX_JOIN:-}"
-unset CMUX_JOIN
+# `t` is unset first: a `t` the caller exported would keep its export
+# attribute through the assignment and hand the token to every child.
+j="${CMUX_JOIN:-}"
+unset CMUX_JOIN t
+t="$j"
+unset j
 if [ -z "$t" ] && [ "$#" -gt 0 ]; then
   t="$1"
 fi

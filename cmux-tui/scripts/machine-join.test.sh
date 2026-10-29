@@ -229,6 +229,16 @@ suite() {
   check "replace passes --replace" grep -q -- "--replace" "$d/log/joins"
   check "replace: token on stdin" token_on_stdin_once
 
+  # A caller that exported `t` (or `j`) must not get the token exported.
+  new_case exported-t
+  run_join env t=caller-value j=caller-value
+  check "exported t: exit 0 (got $rc): $(cat "$d/out")" rc_is 0
+  check "exported t: no env leak: $(cat "$d/log/env-leak" 2>/dev/null)" no_env_leak
+  check "exported t: token on stdin" token_on_stdin_once
+  new_case exported-t-arg
+  run_join arg t=caller-value
+  check "exported t, arg form: no env leak" no_env_leak
+
   new_case arg-form
   run_join arg
   check "exit 0 (got $rc): $(cat "$d/out")" rc_is 0
