@@ -1,13 +1,11 @@
 import Foundation
 
-/// Append-only JSONL persistence for `WorkstreamItem`. One item per line,
-/// unbounded on disk. The in-memory ring buffer on `WorkstreamStore` is
-/// the only cap on working set size; this layer exists for restart
-/// recovery and long-term audit.
+/// JSONL persistence for `WorkstreamItem`. One item per line. Startup reads
+/// remain bounded even if an older build left an oversized append-only log.
 ///
 /// Writes are serialized through an actor so the store can fire them off
-/// without awaiting disk IO; reads happen on the caller's executor since
-/// load runs once per process at launch.
+/// without awaiting disk IO. Reads and decoding run on this actor, away
+/// from the main-actor store.
 public actor WorkstreamPersistence {
     public struct Page: Sendable, Equatable {
         public let items: [WorkstreamItem]
@@ -25,13 +23,43 @@ public actor WorkstreamPersistence {
         }
     }
 
-    private let fileURL: URL
+    let fileURL: URL
+    let revisionFile: WorkstreamRevisionFile
     private let encoder: JSONEncoder
-    private let decoder: JSONDecoder
+    let decoder: JSONDecoder
+    let fileManager: FileManager
     private var handle: FileHandle?
+    private var clearTask: Task<Void, Error>?
+    private let journalLock: WorkstreamJournalFileLock
+    let uptimeNanoseconds: @Sendable () -> UInt64
 
-    public init(fileURL: URL) {
+    /// A malformed append-only row must not turn startup into an unbounded
+    /// JSON decode. Larger rows are treated as corrupt history by bounded
+    /// readers and remain available for later forensic inspection.
+    static let maximumPersistedRowBytes = 8 * 1024 * 1024
+    /// A backward scan never buffers more than this many bytes from an
+    /// oversized row. If no newline is found, the returned progress cursor
+    /// advances another bounded chunk and the next page continues the walk.
+    static let maximumOversizedRowScanBytes = maximumPersistedRowBytes * 2
+    /// Leave one representable value for the startup bump after restoring a
+    /// persisted high-water mark.
+    static let maximumRevision = UInt64(Int.max - 1)
+
+    /// Creates a journal owner with a monotonic clock for read deadlines.
+    /// - Parameters:
+    ///   - fileURL: The journal to read and append.
+    ///   - uptimeNanoseconds: Monotonic uptime used to budget recovery work.
+    ///   - fileManager: Filesystem adapter used for journal metadata and removal.
+    public init(
+        fileURL: URL,
+        uptimeNanoseconds: @escaping @Sendable () -> UInt64 = { DispatchTime.now().uptimeNanoseconds },
+        fileManager: FileManager = .default
+    ) {
+        self.uptimeNanoseconds = uptimeNanoseconds
+        self.fileManager = fileManager
         self.fileURL = fileURL
+        self.revisionFile = WorkstreamRevisionFile(url: fileURL.appendingPathExtension("revision"), fileManager: fileManager)
+        self.journalLock = WorkstreamJournalFileLock(fileURL: fileURL, fileManager: fileManager)
         let enc = JSONEncoder()
         enc.dateEncodingStrategy = .iso8601
         self.encoder = enc
@@ -50,11 +78,17 @@ public actor WorkstreamPersistence {
 
     /// Appends a single item as a JSON line. Creates the file and parent
     /// directory lazily on first write.
-    public func append(_ item: WorkstreamItem) throws {
+    public func append(_ item: WorkstreamItem) async throws {
+        // Clearing must save its floor before deleting the journal. Do not let
+        // an append land in that journal while the sidecar write is suspended.
+        while let clearTask { _ = await clearTask.result }
+        let lease = try await journalLock.acquire()
+        defer { lease.release() }
         let data = try encoder.encode(item.redactedForPersistence())
         var line = data
         line.append(0x0A) // "\n"
         let fh = try handleForWriting()
+        try repairTornTrailingRow(in: fh)
         try fh.seekToEnd()
         try fh.write(contentsOf: line)
     }
@@ -65,129 +99,239 @@ public actor WorkstreamPersistence {
         try loadPage(endingBefore: nil, limit: limit).items
     }
 
-    /// Loads the newest durable version of each event. Mutations are written
-    /// as additional JSONL rows, so startup must collapse those rows before
-    /// publishing state or an old status could overwrite a reply/resolution.
+    /// Loads the newest durable versions found in a bounded recovery tail.
+    /// Mutations are written as additional JSONL rows, so startup collapses
+    /// duplicate IDs in that tail before publishing state. Very old rows
+    /// beyond the recovery bound are available through ``loadPage``.
     public func loadLatest(limit: Int) throws -> [WorkstreamItem] {
-        guard limit > 0,
-              FileManager.default.fileExists(atPath: fileURL.path) else {
-            return []
-        }
-        let data = try Data(contentsOf: fileURL)
-        var latestByID: [UUID: (sequence: Int, item: WorkstreamItem)] = [:]
-        for (sequence, line) in data.split(separator: 0x0A).enumerated() {
-            guard let item = try? decoder.decode(WorkstreamItem.self, from: Data(line)) else {
-                continue
-            }
-            latestByID[item.id] = (sequence, item)
-        }
-        return latestByID.values
-            .sorted { $0.sequence < $1.sequence }
-            .map(\.item)
-            .suffix(limit)
-            .map { $0 }
+        try loadBoundedLatest(limit: limit).items
     }
 
-    /// Returns a durable generation for the append-only log. The mobile Feed
-    /// uses this as its cache validator, so a Mac restart cannot reset the
-    /// revision below the phone's last-known snapshot and hide a reply or
-    /// resolution behind a stale `feed.changed` event.
-    public func loadRevision() throws -> Int {
-        guard FileManager.default.fileExists(atPath: fileURL.path) else { return 0 }
-        let data = try Data(contentsOf: fileURL)
-        var revision = 0
-        for line in data.split(separator: 0x0A) {
-            guard (try? decoder.decode(WorkstreamItem.self, from: Data(line))) != nil else {
-                continue
-            }
-            revision += 1
+    private func loadBoundedLatest(
+        limit: Int,
+        deadlineNanoseconds: UInt64? = nil
+    ) throws -> WorkstreamBoundedLatestResult {
+        guard limit > 0, fileManager.fileExists(atPath: fileURL.path) else {
+            return WorkstreamBoundedLatestResult(items: [], exceededBudget: false, startOffset: nil)
         }
-        return revision
+        let tail = try readTail(limit: limit, deadlineNanoseconds: deadlineNanoseconds)
+        var latestByID: [UUID: (sequence: Int, item: WorkstreamItem, offset: UInt64)] = [:]
+        var oldestExaminedOffset: UInt64?
+        for (sequence, line) in tail.lines.enumerated().reversed() {
+            if let deadlineNanoseconds,
+               uptimeNanoseconds() >= deadlineNanoseconds {
+                // Every line from the oldest examined one to the window end
+                // is either kept, an older version of a kept item, or
+                // unreadable; everything before it stays reachable by
+                // paging. With nothing examined yet, page from the window
+                // end so the unexamined rows are read again.
+                let cursor = latestByID.values.map(\.offset).min()
+                    ?? oldestExaminedOffset
+                    ?? tail.endOffset
+                return WorkstreamBoundedLatestResult(
+                    items: latestByID.values.sorted { $0.sequence < $1.sequence }.map(\.item),
+                    exceededBudget: true,
+                    startOffset: cursor > 0 ? cursor : nil
+                )
+            }
+            oldestExaminedOffset = line.offset
+            guard line.data.count <= Self.maximumPersistedRowBytes,
+                  let item = try? decoder.decode(WorkstreamItem.self, from: line.data) else { continue }
+            if latestByID[item.id] == nil { latestByID[item.id] = (sequence, item, line.offset) }
+            if latestByID.count >= limit { break }
+        }
+        return WorkstreamBoundedLatestResult(
+            items: latestByID.values.sorted { $0.sequence < $1.sequence }.map(\.item),
+            exceededBudget: tail.exceededBudget,
+            startOffset: latestByID.isEmpty
+                ? emptyTailCursor(tail)
+                : (latestByID.values.map(\.offset).min() ?? tail.startOffset)
+        )
     }
 
-    /// Loads up to `limit` items ending before `endOffset`. Order in the
-    /// returned array is oldest-first. `startOffset` can be passed back
-    /// as `endOffset` to page older history without depending on line
-    /// counts, which keeps the cursor stable while new rows are appended.
-    public func loadPage(
-        endingBefore endOffset: UInt64? = nil,
-        limit: Int
-    ) throws -> Page {
+    /// The paging cursor for a startup tail that yielded no item. The window
+    /// start can sit inside a row, and paging from there would decode only
+    /// that row's head; the first complete line lets the next page read the
+    /// cut row whole.
+    private func emptyTailCursor(_ tail: WorkstreamJournalTail) -> UInt64? {
+        let cursor = tail.lines.first?.offset ?? tail.startOffset
+        return cursor > 0 ? cursor : nil
+    }
+
+    /// Loads a bounded startup tail without decoding the complete append-only
+    /// log. The revision is the maximum of the file-byte generation and the
+    /// durable high-water sidecar, so non-writing transitions remain monotonic
+    /// across restart.
+    func loadStartupSnapshot(
+        limit: Int,
+        budgetNanoseconds: UInt64? = nil,
+        hardBudgetNanoseconds: UInt64? = nil
+    ) throws -> WorkstreamStartupSnapshot {
+        let started = uptimeNanoseconds()
         guard limit > 0 else {
-            return Page(items: [], hasMoreBefore: false, startOffset: nil)
+            let empty = Page(items: [], hasMoreBefore: false, startOffset: nil)
+            let fileExists = fileManager.fileExists(atPath: fileURL.path)
+            let fileBytes = (try? fileSize()) ?? 0
+            let revision = (try? loadRevision()) ?? Int(min(fileBytes, Self.maximumRevision))
+            return WorkstreamStartupSnapshot(
+                items: [],
+                revision: revision,
+                page: empty,
+                diagnostics: WorkstreamStartupDiagnostics(
+                    elapsedNanoseconds: uptimeNanoseconds() - started,
+                    fileBytes: fileBytes,
+                    exceededBudget: false,
+                    missingFile: !fileExists
+                )
+            )
         }
-        guard FileManager.default.fileExists(atPath: fileURL.path) else {
-            return Page(items: [], hasMoreBefore: false, startOffset: nil)
+        guard fileManager.fileExists(atPath: fileURL.path) else {
+            let empty = Page(items: [], hasMoreBefore: false, startOffset: nil)
+            let revision = (try? loadRevision()) ?? 0
+            return WorkstreamStartupSnapshot(
+                items: [],
+                revision: revision,
+                page: empty,
+                diagnostics: WorkstreamStartupDiagnostics(
+                    elapsedNanoseconds: uptimeNanoseconds() - started,
+                    fileBytes: 0,
+                    exceededBudget: false,
+                    missingFile: true
+                )
+            )
         }
-        let fh = try FileHandle(forReadingFrom: fileURL)
-        defer { try? fh.close() }
-        let fileSize = try fh.seekToEnd()
-        let pageEnd = min(endOffset ?? fileSize, fileSize)
-        guard fileSize > 0, pageEnd > 0 else {
-            return Page(items: [], hasMoreBefore: false, startOffset: nil)
+        let size = try fileSize()
+        let deadline = hardBudgetNanoseconds.map { budget in
+            let (deadline, overflow) = started.addingReportingOverflow(budget)
+            return overflow ? UInt64.max : deadline
         }
-
-        let chunkSize = 64 * 1024
-        var offset = pageEnd
-        var tail = Data()
-        var lineRanges: [(range: Range<Int>, startOffset: UInt64)] = []
-        while offset > 0 {
-            let readSize = min(chunkSize, Int(offset))
-            offset -= UInt64(readSize)
-            try fh.seek(toOffset: offset)
-            guard let chunk = try fh.read(upToCount: readSize), !chunk.isEmpty else {
-                break
+        let latest = try loadBoundedLatest(
+            limit: limit,
+            deadlineNanoseconds: deadline
+        )
+        if latest.exceededBudget || deadline.map({ uptimeNanoseconds() >= $0 }) == true {
+            let elapsed = uptimeNanoseconds() - started
+            return WorkstreamStartupSnapshot(
+                items: latest.items,
+                revision: try loadRevision(),
+                page: Page(
+                    items: latest.items,
+                    hasMoreBefore: (latest.startOffset ?? 0) > 0,
+                    startOffset: latest.startOffset
+                ),
+                diagnostics: WorkstreamStartupDiagnostics(
+                    elapsedNanoseconds: elapsed,
+                    fileBytes: size,
+                    exceededBudget: true,
+                    missingFile: false
+                )
+            )
+        }
+        // The items come from the bounded tail, so the cursor must as well.
+        // A separate paging pass could reach further back than these items
+        // and leave the rows in between unreachable.
+        var items = latest.items
+        var page = Page(
+            items: latest.items,
+            hasMoreBefore: (latest.startOffset ?? 0) > 0,
+            startOffset: latest.startOffset
+        )
+        var fallbackExceededBudget = false
+        if items.isEmpty, page.hasMoreBefore {
+            do {
+                let fromEnd = try loadPage(
+                    endingBefore: size, limit: limit,
+                    oversizedRowRecoveryDepth: 0, deadlineNanoseconds: deadline
+                )
+                if !fromEnd.items.isEmpty {
+                    items = fromEnd.latestItems
+                    page = Page(items: items, hasMoreBefore: fromEnd.hasMoreBefore, startOffset: fromEnd.startOffset)
+                }
+            } catch WorkstreamReadDeadline.exceeded {
+                // Aborted fallback publishes nothing from that pass. Restart
+                // paging at the original EOF so every unexamined row remains
+                // reachable, including a row cut by the last read window.
+                items = []
+                page = Page(items: [], hasMoreBefore: size > 0, startOffset: size)
+                fallbackExceededBudget = true
             }
-            tail.insert(contentsOf: chunk, at: 0)
-            lineRanges = Self.lineRanges(in: tail, baseOffset: offset)
-            if lineRanges.count > limit {
-                break
-            }
         }
-
-        if lineRanges.isEmpty {
-            lineRanges = Self.lineRanges(in: tail, baseOffset: offset)
-        }
-        let selectedRanges = lineRanges.suffix(limit)
-        var out: [WorkstreamItem] = []
-        out.reserveCapacity(selectedRanges.count)
-        for lineRange in selectedRanges {
-            let slice = tail.subdata(in: lineRange.range)
-            if let item = try? decoder.decode(WorkstreamItem.self, from: slice) {
-                out.append(item)
-            }
-            // Malformed lines are dropped silently; the audit log is
-            // append-only and we don't want a corrupt row to block startup.
-        }
-        let startOffset = selectedRanges.first?.startOffset
-        return Page(
-            items: out,
-            hasMoreBefore: (startOffset ?? 0) > 0,
-            startOffset: startOffset
+        let revision = try loadRevision()
+        let elapsed = uptimeNanoseconds() - started
+        return WorkstreamStartupSnapshot(
+            items: items,
+            revision: revision,
+            page: page,
+            diagnostics: WorkstreamStartupDiagnostics(
+                elapsedNanoseconds: elapsed,
+                fileBytes: size,
+                exceededBudget: fallbackExceededBudget || (budgetNanoseconds.map { elapsed >= $0 } ?? false),
+                missingFile: false
+            )
         )
     }
 
     /// Truncates the JSONL file. Used by `cmux feed clear`.
-    public func clear() throws {
+    public func clear() async throws {
+        if let clearTask {
+            try await clearTask.value
+            return
+        }
+        let task = Task {
+            defer { clearTask = nil }
+            try await clearJournal()
+        }
+        clearTask = task
+        try await task.value
+    }
+
+    private func clearJournal() async throws {
+        let lease = try await journalLock.acquire()
+        defer { lease.release() }
+        // The byte count is part of the legacy revision fallback. Snapshot it
+        // into the durable sidecar before deleting the log, otherwise a clear
+        // after a byte-heavy run could make the next process advertise a
+        // generation lower than a subscribed phone has already observed.
+        let revisionFloor = try loadRevision()
+        try await recordRevision(revisionFloor)
         if let fh = handle {
             try fh.close()
         }
         handle = nil
         do {
-            try FileManager.default.removeItem(at: fileURL)
+            try fileManager.removeItem(at: fileURL)
         } catch {
             let nsError = error as NSError
             if nsError.domain == NSCocoaErrorDomain,
                nsError.code == NSFileNoSuchFileError {
-                return
+                // The revision sidecar is intentionally preserved below.
+            } else {
+                throw error
             }
-            throw error
         }
+        // Keep the revision sidecar. Clearing visible history must not let a
+        // subscribed phone observe a lower generation after the next launch.
+    }
+
+    func fileSize() throws -> UInt64 {
+        guard fileManager.fileExists(atPath: fileURL.path) else { return 0 }
+        let size = try fileManager.attributesOfItem(atPath: fileURL.path)[.size] as? NSNumber
+        return size?.uint64Value ?? 0
     }
 
     private func handleForWriting() throws -> FileHandle {
-        if let handle { return handle }
-        let fm = FileManager.default
+        if let handle {
+            var pathMetadata = stat()
+            var handleMetadata = stat()
+            let pathIsCurrent = stat(fileURL.path, &pathMetadata) == 0
+                && fstat(handle.fileDescriptor, &handleMetadata) == 0
+                && pathMetadata.st_dev == handleMetadata.st_dev
+                && pathMetadata.st_ino == handleMetadata.st_ino
+            if pathIsCurrent { return handle }
+            try handle.close()
+            self.handle = nil
+        }
+        let fm = fileManager
         try fm.createDirectory(
             at: fileURL.deletingLastPathComponent(),
             withIntermediateDirectories: true
@@ -195,40 +339,30 @@ public actor WorkstreamPersistence {
         if !fm.fileExists(atPath: fileURL.path) {
             fm.createFile(atPath: fileURL.path, contents: nil)
         }
-        let fh = try FileHandle(forWritingTo: fileURL)
+        // Read access is required to detect and truncate a crash-torn final
+        // row before the next append.
+        let fh = try FileHandle(forUpdating: fileURL)
         handle = fh
         return fh
     }
 
-    private static func lineRanges(
-        in data: Data,
-        baseOffset: UInt64
-    ) -> [(range: Range<Int>, startOffset: UInt64)] {
-        var ranges: [(range: Range<Int>, startOffset: UInt64)] = []
-        ranges.reserveCapacity(128)
-        var lineStart = 0
-        for (idx, byte) in data.enumerated() {
-            guard byte == 0x0A else { continue }
-            if lineStart < idx {
-                ranges.append(
-                    (
-                        range: lineStart..<idx,
-                        startOffset: baseOffset + UInt64(lineStart)
-                    )
-                )
-            }
-            lineStart = idx + 1
-        }
-        if lineStart < data.count {
-            ranges.append(
-                (
-                    range: lineStart..<data.count,
-                    startOffset: baseOffset + UInt64(lineStart)
-                )
-            )
-        }
-        return ranges
+    /// A crash can leave the final JSONL row without its newline. Appending
+    /// directly would concatenate the next object onto that invalid row and
+    /// make the new event invisible to bounded readers. Repair only the
+    /// trailing incomplete row. Preserve the bytes for forensic recovery and
+    /// insert a separator so the next valid JSON object remains readable.
+    private func repairTornTrailingRow(in fh: FileHandle) throws {
+        let end = try fh.seekToEnd()
+        guard end > 0 else { return }
+        try fh.seek(toOffset: end - 1)
+        guard let lastByte = try fh.read(upToCount: 1)?.first,
+              lastByte != 0x0A else { return }
+
+        try fh.seekToEnd()
+        try fh.write(contentsOf: Data([0x0A]))
     }
+
+
 }
 
 private extension WorkstreamItem {

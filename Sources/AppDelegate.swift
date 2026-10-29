@@ -1765,26 +1765,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         claimAuthCallbackURLSchemes()
         StartupBreadcrumbLog.append("appDelegate.didFinish.authSchemes.claimed")
 
-        // Install the Feed (workstream) store. Separate from the transport
-        // wiring: the store is a plain singleton here, and the socket
-        // `feed.*` V2 verbs in `TerminalController` push into it directly
-        // via `FeedCoordinator`.
-        FeedCoordinator.shared.install(
-            store: WorkstreamStore(
-                transport: NullWorkstreamTransport(),
-                persistence: WorkstreamPersistence(fileURL: WorkstreamPersistence.defaultFileURL()),
-                workstreamIDNormalizer: { rawValue, source in
-                    FeedWorkstreamIdentifier.canonicalizedRawValue(
-                        agentID: source,
-                        rawValue: rawValue
-                    )
-                },
-                titleProvider: Self.feedWorkstreamTitle(for:)
-            )
-        )
-        StartupBreadcrumbLog.append("appDelegate.didFinish.feedStore.installed")
+        installFeedStore()
         Task { @MainActor in
             await FeedCoordinator.shared.store?.start()
+            FeedCoordinator.shared.reconcileRestoredPendingItems()
 #if DEBUG
             feedSidebarUITestCoordinator.startIfNeeded()
 #endif
@@ -2241,7 +2225,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             || mirrorsOwingDetach > 0
         let hasLocalTerminalSurfaces = hasLocalTerminalSurfacesForQuit
         guard hasOwnedRuntimeCleanup || hasLocalTerminalSurfaces
-            || CloudNotificationSyncHub.shared.persistenceStore.hasPendingWrites else { return false }
+            || CloudNotificationSyncHub.shared.persistenceStore.hasPendingWrites
+            || FeedCoordinator.shared.store?.hasPendingPersistenceWrites == true else { return false }
         if !isAwaitingTerminateCleanup {
             isAwaitingTerminateCleanup = true
             terminateCleanupPhase = .ownedRuntimeCleanup
@@ -2316,6 +2301,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 }
                 guard !Task.isCancelled else { return }
                 await CloudNotificationSyncHub.shared.persistenceStore.drain()
+                await FeedCoordinator.shared.flushPersistenceForTermination()
                 self.terminationWatchdog.arm()
                 self.replyToTerminateOnce(true)
             }

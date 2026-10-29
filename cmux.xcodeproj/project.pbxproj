@@ -287,6 +287,7 @@
 		DCDC3000000000000000E001 /* AppDelegate+DockShortcutRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCDC3000000000000000E002 /* AppDelegate+DockShortcutRouting.swift */; };
 		DCDC1000000000000000C000 /* AppDelegate+DockSurfaceMove.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCDC1000000000000000C001 /* AppDelegate+DockSurfaceMove.swift */; };
 		E3309A01 /* AppDelegate+EqualizeSplitsShortcut.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3309A02 /* AppDelegate+EqualizeSplitsShortcut.swift */; };
+		8A1BA19CC61EF438766ADA56 /* AppDelegate+FeedStartup.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73836E0E25761F3D67F41F8B /* AppDelegate+FeedStartup.swift */; };
 		A5F100000000000000000013 /* AppDelegate+FocusedNotificationSeam.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5F100000000000000000014 /* AppDelegate+FocusedNotificationSeam.swift */; };
 		C4160A040000000000000001 /* AppDelegate+FocusHistoryContextMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4160A040000000000000002 /* AppDelegate+FocusHistoryContextMenu.swift */; };
 		3865A0063865A0063865A006 /* AppDelegate+GlobalSearch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3865B0063865B0063865B006 /* AppDelegate+GlobalSearch.swift */; };
@@ -750,6 +751,7 @@
 		C51600000000000000000001 /* CLIExecInheritedSignalStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C51600000000000000000002 /* CLIExecInheritedSignalStateTests.swift */; };
 		F24547000000000000000002 /* CLIExplicitSurfaceRoutingTests+NewDisplay.swift in Sources */ = {isa = PBXBuildFile; fileRef = F24547000000000000000001 /* CLIExplicitSurfaceRoutingTests+NewDisplay.swift */; };
 		C1175700000000000000002E /* CLIExplicitSurfaceRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11757000000000000000015 /* CLIExplicitSurfaceRoutingTests.swift */; };
+		9056CCCC24093D5BE6CAF544 /* CLIFeedClearTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0C4D7444684C8DF5CA757C0 /* CLIFeedClearTests.swift */; };
 		C46790000000000000000001 /* CLIForwardingLaunchArgumentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C46790000000000000000002 /* CLIForwardingLaunchArgumentTests.swift */; };
 		C46790000000000000000003 /* CLIForwardingLaunchRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = C46790000000000000000004 /* CLIForwardingLaunchRouter.swift */; };
 		A5D41207A1B2C3D4E5F60718 /* CLIGenericHookPersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5D41208A1B2C3D4E5F60718 /* CLIGenericHookPersistenceTests.swift */; };
@@ -1371,6 +1373,7 @@
 		B9000035A1B2C3D4E5F60719 /* CMUXCLI+DocsSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000031A1B2C3D4E5F60719 /* CMUXCLI+DocsSettings.swift */; };
 		B9000064A1B2C3D4E5F60719 /* CMUXCLI+Events.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000065A1B2C3D4E5F60719 /* CMUXCLI+Events.swift */; };
 		B9000046A1B2C3D4E5F60719 /* CMUXCLI+ExecutableResolution.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000047A1B2C3D4E5F60719 /* CMUXCLI+ExecutableResolution.swift */; };
+		B161529ECD923BE154A4BBC4 /* CMUXCLI+FeedClear.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5AD5AF537E2F1E799F73D599 /* CMUXCLI+FeedClear.swift */; };
 		112950000000000000000008 /* CMUXCLI+Fork.swift in Sources */ = {isa = PBXBuildFile; fileRef = 112950000000000000000007 /* CMUXCLI+Fork.swift */; };
 		11295000000000000000000A /* CMUXCLI+ForkExecution.swift in Sources */ = {isa = PBXBuildFile; fileRef = 112950000000000000000009 /* CMUXCLI+ForkExecution.swift */; };
 		A13385000000000000000002 /* CMUXCLI+Glaeda.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13385000000000000000001 /* CMUXCLI+Glaeda.swift */; };
@@ -2152,6 +2155,7 @@
 		8672D0018672D0018672D001 /* FeedCoordinator+DeliveryTarget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8672D0028672D0028672D002 /* FeedCoordinator+DeliveryTarget.swift */; };
 		B7F100090000000000000001 /* FeedCoordinator+NotificationDelivery.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7F100090000000000000002 /* FeedCoordinator+NotificationDelivery.swift */; };
 		25AD1E9B29A2E96636895FDC /* FeedCoordinator+SemanticNotifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C54381EB5D369AD95F4A8E6 /* FeedCoordinator+SemanticNotifications.swift */; };
+		864616B0D2E08EFF159AAF09 /* FeedCoordinator+Startup.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D1EF6EA481FAD10897E04A5 /* FeedCoordinator+Startup.swift */; };
 		FEED0000000000000000F002 /* FeedCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEED0000000000000000F001 /* FeedCoordinator.swift */; };
 		8672E0048672E0048672E004 /* FeedCoordinatorIngressTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8672E0038672E0038672E003 /* FeedCoordinatorIngressTests.swift */; };
 		FEEDC0DEC0DEC0DEC0DE0001 /* FeedCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEEDC0DEC0DEC0DEC0DE0002 /* FeedCoordinatorTests.swift */; };
@@ -5149,6 +5153,7 @@
 		DCDC3000000000000000E002 /* AppDelegate+DockShortcutRouting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+DockShortcutRouting.swift"; sourceTree = "<group>"; };
 		DCDC1000000000000000C001 /* AppDelegate+DockSurfaceMove.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+DockSurfaceMove.swift"; sourceTree = "<group>"; };
 		E3309A02 /* AppDelegate+EqualizeSplitsShortcut.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+EqualizeSplitsShortcut.swift"; sourceTree = "<group>"; };
+		73836E0E25761F3D67F41F8B /* AppDelegate+FeedStartup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+FeedStartup.swift"; sourceTree = "<group>"; };
 		A5F100000000000000000014 /* AppDelegate+FocusedNotificationSeam.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+FocusedNotificationSeam.swift"; sourceTree = "<group>"; };
 		C4160A040000000000000002 /* AppDelegate+FocusHistoryContextMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+FocusHistoryContextMenu.swift"; sourceTree = "<group>"; };
 		3865B0063865B0063865B006 /* AppDelegate+GlobalSearch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Search/AppDelegate+GlobalSearch.swift"; sourceTree = "<group>"; };
@@ -5595,6 +5600,7 @@
 		C51600000000000000000002 /* CLIExecInheritedSignalStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIExecInheritedSignalStateTests.swift; sourceTree = "<group>"; };
 		F24547000000000000000001 /* CLIExplicitSurfaceRoutingTests+NewDisplay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CLIExplicitSurfaceRoutingTests+NewDisplay.swift"; sourceTree = "<group>"; };
 		C11757000000000000000015 /* CLIExplicitSurfaceRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIExplicitSurfaceRoutingTests.swift; sourceTree = "<group>"; };
+		F0C4D7444684C8DF5CA757C0 /* CLIFeedClearTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIFeedClearTests.swift; sourceTree = "<group>"; };
 		C46790000000000000000002 /* CLIForwardingLaunchArgumentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIForwardingLaunchArgumentTests.swift; sourceTree = "<group>"; };
 		C46790000000000000000004 /* CLIForwardingLaunchRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/CLIForwardingLaunchRouter.swift; sourceTree = "<group>"; };
 		A5D41208A1B2C3D4E5F60718 /* CLIGenericHookPersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIGenericHookPersistenceTests.swift; sourceTree = "<group>"; };
@@ -6181,6 +6187,7 @@
 		B9000031A1B2C3D4E5F60719 /* CMUXCLI+DocsSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+DocsSettings.swift"; sourceTree = "<group>"; };
 		B9000065A1B2C3D4E5F60719 /* CMUXCLI+Events.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+Events.swift"; sourceTree = "<group>"; };
 		B9000047A1B2C3D4E5F60719 /* CMUXCLI+ExecutableResolution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+ExecutableResolution.swift"; sourceTree = "<group>"; };
+		5AD5AF537E2F1E799F73D599 /* CMUXCLI+FeedClear.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+FeedClear.swift"; sourceTree = "<group>"; };
 		112950000000000000000007 /* CMUXCLI+Fork.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+Fork.swift"; sourceTree = "<group>"; };
 		112950000000000000000009 /* CMUXCLI+ForkExecution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+ForkExecution.swift"; sourceTree = "<group>"; };
 		A13385000000000000000001 /* CMUXCLI+Glaeda.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+Glaeda.swift"; sourceTree = "<group>"; };
@@ -6839,6 +6846,7 @@
 		8672D0028672D0028672D002 /* FeedCoordinator+DeliveryTarget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FeedCoordinator+DeliveryTarget.swift"; sourceTree = "<group>"; };
 		B7F100090000000000000002 /* FeedCoordinator+NotificationDelivery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FeedCoordinator+NotificationDelivery.swift"; sourceTree = "<group>"; };
 		3C54381EB5D369AD95F4A8E6 /* FeedCoordinator+SemanticNotifications.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FeedCoordinator+SemanticNotifications.swift"; sourceTree = "<group>"; };
+		0D1EF6EA481FAD10897E04A5 /* FeedCoordinator+Startup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FeedCoordinator+Startup.swift"; sourceTree = "<group>"; };
 		FEED0000000000000000F001 /* FeedCoordinator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FeedCoordinator.swift; sourceTree = "<group>"; };
 		8672E0038672E0038672E003 /* FeedCoordinatorIngressTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedCoordinatorIngressTests.swift; sourceTree = "<group>"; };
 		FEEDC0DEC0DEC0DEC0DE0002 /* FeedCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedCoordinatorTests.swift; sourceTree = "<group>"; };
@@ -9682,6 +9690,7 @@
 				BDFFD7A7DDFCA73EF207C81D /* CLIVMReadyPollIntervalTests.swift */,
 				DBC11F0A54FF4AC781CB4EE2 /* CLIChiefDispatchPlanTests.swift */,
 				3E18C2CC11FD283EAA50B7D6 /* CLIJumpToLastPromptTests.swift */,
+				F0C4D7444684C8DF5CA757C0 /* CLIFeedClearTests.swift */,
 			);
 			path = cmuxCLITests;
 			sourceTree = "<group>";
@@ -12646,6 +12655,7 @@
 				F1C6800D38EC5F238A2994FC /* DockSplitStore+ChiefPane.swift */,
 				7947118FF892144AE54C82D2 /* ChiefPaneDragPayload.swift */,
 				0D10F73113F55349CE0E475D /* ChiefHomeConversationRows.swift */,
+				73836E0E25761F3D67F41F8B /* AppDelegate+FeedStartup.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -12932,6 +12942,7 @@
 				0A373D54DD824A79BFEB0840 /* CMUXCLI+ChiefDispatch.swift */,
 				2C636D86CB494560BBF6953B /* ChiefDispatchPlan.swift */,
 				C0023A973E2D4196E338ED78 /* CMUXCLI+ClaudeHookPaneDirectory.swift */,
+				5AD5AF537E2F1E799F73D599 /* CMUXCLI+FeedClear.swift */,
 			);
 			path = CLI;
 			sourceTree = "<group>";
@@ -14313,6 +14324,7 @@
 				FEED0000000000000000F00A /* FeedPreviewWindowController.swift */,
 				FEED0000000000000000F00C /* FeedButtonStyleDebugWindowController.swift */,
 				FEED0000000000000000F00E /* FeedTextEditorDebugWindowController.swift */,
+				0D1EF6EA481FAD10897E04A5 /* FeedCoordinator+Startup.swift */,
 			);
 			name = Feed;
 			path = Feed;
@@ -15082,6 +15094,7 @@
 				C11218000000000000000055 /* CLIError.swift in Sources */,
 				F24547000000000000000002 /* CLIExplicitSurfaceRoutingTests+NewDisplay.swift in Sources */,
 				C1175700000000000000002E /* CLIExplicitSurfaceRoutingTests.swift in Sources */,
+				9056CCCC24093D5BE6CAF544 /* CLIFeedClearTests.swift in Sources */,
 				C1175700000000000000002F /* CLIHookNoResponseTests.swift in Sources */,
 				C11757000000000000000044 /* CLIHookProcessRunner.swift in Sources */,
 				A0287B36A19978CEEA088C63 /* CLIJumpToLastPromptTests.swift in Sources */,
@@ -15331,6 +15344,7 @@
 				DCDC3000000000000000E001 /* AppDelegate+DockShortcutRouting.swift in Sources */,
 				DCDC1000000000000000C000 /* AppDelegate+DockSurfaceMove.swift in Sources */,
 				E3309A01 /* AppDelegate+EqualizeSplitsShortcut.swift in Sources */,
+				8A1BA19CC61EF438766ADA56 /* AppDelegate+FeedStartup.swift in Sources */,
 				A5F100000000000000000013 /* AppDelegate+FocusedNotificationSeam.swift in Sources */,
 				C4160A040000000000000001 /* AppDelegate+FocusHistoryContextMenu.swift in Sources */,
 				3865A0063865A0063865A006 /* AppDelegate+GlobalSearch.swift in Sources */,
@@ -16158,6 +16172,7 @@
 				8672D0018672D0018672D001 /* FeedCoordinator+DeliveryTarget.swift in Sources */,
 				B7F100090000000000000001 /* FeedCoordinator+NotificationDelivery.swift in Sources */,
 				25AD1E9B29A2E96636895FDC /* FeedCoordinator+SemanticNotifications.swift in Sources */,
+				864616B0D2E08EFF159AAF09 /* FeedCoordinator+Startup.swift in Sources */,
 				FEED0000000000000000F002 /* FeedCoordinator.swift in Sources */,
 				8672E00C8672E00C8672E00C /* FeedIngressDeliveryImportance.swift in Sources */,
 				8672E00A8672E00A8672E00A /* FeedIngressDeliveryKey.swift in Sources */,
@@ -18019,6 +18034,7 @@
 				B9000035A1B2C3D4E5F60719 /* CMUXCLI+DocsSettings.swift in Sources */,
 				B9000064A1B2C3D4E5F60719 /* CMUXCLI+Events.swift in Sources */,
 				B9000046A1B2C3D4E5F60719 /* CMUXCLI+ExecutableResolution.swift in Sources */,
+				B161529ECD923BE154A4BBC4 /* CMUXCLI+FeedClear.swift in Sources */,
 				112950000000000000000008 /* CMUXCLI+Fork.swift in Sources */,
 				11295000000000000000000A /* CMUXCLI+ForkExecution.swift in Sources */,
 				A13385000000000000000002 /* CMUXCLI+Glaeda.swift in Sources */,

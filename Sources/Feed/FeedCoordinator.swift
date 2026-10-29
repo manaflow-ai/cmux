@@ -87,20 +87,6 @@ final class FeedCoordinator: @unchecked Sendable {
 
     private init() {}
 
-    /// Preserves the historical mobile Feed revision namespace. The Agent Feed
-    /// now contains workstream rows only, but the low notification lane keeps
-    /// a newly upgraded Mac from sending a revision lower than one cached by
-    /// an older phone. Notification changes do not emit `feed.changed`.
-    static func combinedMobileFeedRevision(
-        workstream: Int,
-        notifications: Int
-    ) -> Int {
-        guard notifications > 0 else { return max(0, workstream) }
-        let high = UInt64(max(0, workstream)) & 0xFFFF_FFFF
-        let low = UInt64(max(0, notifications)) & 0xFFFF_FFFF
-        return Int(truncatingIfNeeded: (high << 32) | low)
-    }
-
     /// Must be called once at app launch to install the store.
     @MainActor
     func install(
@@ -122,11 +108,7 @@ final class FeedCoordinator: @unchecked Sendable {
             MobileHostService.emitEvent(
                 topic: "feed.changed",
                 payload: [
-                    "revision": Self.combinedMobileFeedRevision(
-                        workstream: revision,
-                        notifications: TerminalNotificationStore.shared
-                            .notificationFeedHistory.revision
-                    )
+                    "revision": WorkstreamFeedRevision(workstream: revision).value
                 ]
             )
         }
@@ -134,6 +116,14 @@ final class FeedCoordinator: @unchecked Sendable {
         // Catch any pending items that were restored from disk whose
         // agent is already gone. After this, live tracking is
         // kqueue-driven — no polling.
+        reconcilePendingItems()
+    }
+
+    /// Applies the same expiry and process-watcher reconciliation to both the
+    /// initial installation and the asynchronous restored snapshot.
+    @MainActor
+    func reconcilePendingItems() {
+        guard let store else { return }
         store.expireAbandonedItems()
         for ppid in store.pending.compactMap(\.ppid) {
             armPidWatcher(ppid: ppid)
