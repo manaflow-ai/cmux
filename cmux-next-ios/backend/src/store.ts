@@ -1,111 +1,9 @@
 import { and, eq, inArray, isNull, sql } from "drizzle-orm"
 import type { Env } from "./env.ts"
 import { devices, pushTokens, teamPrefs } from "./schema.ts"
+import { hasIcon, NO_PREFS, PUSH_KINDS, type Device, type PushKind, type Prefs, type PushRegistration, type Store } from "./store-types.ts"
 
-export type DeviceKind = "mac" | "phone"
-
-export interface Device {
-  deviceId: string
-  /** The owner key: the bare Stack sub for the primary project, `<projectId>:<sub>` otherwise (src/index.ts ownerKey). */
-  ownerUserId: string
-  teamId: string
-  kind: DeviceKind
-  name: string
-  wgPublicKey: string | null
-  /** A Mac's machine id; null when it sent none (phones, older hosts). */
-  machineId: string | null
-  createdAt: string
-  updatedAt: string
-  lastSeenAt: string | null
-}
-
-export interface DeviceInput {
-  deviceId: string
-  ownerUserId: string
-  teamId: string
-  kind: DeviceKind
-  name: string
-  wgPublicKey: string | null
-  /** Undefined keeps the stored machine id (a host that predates it, or a phone). */
-  machineId?: string
-}
-
-export interface Prefs {
-  color: string | null
-  emoji: string | null
-  /** Draw the icon with no background. Only with an icon (a non-empty `emoji`); `color` stays the fallback. */
-  transparent: boolean
-}
-
-const NO_PREFS: Prefs = { color: null, emoji: null, transparent: false }
-
-/** True when `emoji` is an icon the user picked (not automatic `null` or none `""`). */
-export const hasIcon = (emoji: string | null): boolean => typeof emoji === "string" && emoji.length > 0
-
-/**
- * The prefs after a PUT. A PUT that sets `color` without `transparent` (every build that predates it) picks a
- * filled badge. A team without an icon is never transparent, so it always keeps a color.
- */
-export function mergePrefs(cur: Prefs, patch: Partial<Prefs>): Prefs {
-  const color = patch.color !== undefined ? patch.color : cur.color
-  const emoji = patch.emoji !== undefined ? patch.emoji : cur.emoji
-  const transparent = patch.transparent ?? (patch.color !== undefined ? false : cur.transparent)
-  return { color, emoji, transparent: transparent && hasIcon(emoji) }
-}
-
-export type PushEnvironment = "sandbox" | "production"
-export const PUSH_KINDS = ["question", "permission", "completed", "failed", "chief", "terminal"] as const
-export type PushKind = (typeof PUSH_KINDS)[number]
-
-export interface PushRegistration {
-  deviceId: string
-  ownerUserId: string
-  token: string
-  environment: PushEnvironment
-  topic: string
-  kinds: Array<PushKind>
-  /** Mac device ids this phone wants no push from. */
-  mutedMacs: Array<string>
-  /** Show previews: false hides content in the banner. */
-  previews: boolean
-  updatedAt: string
-}
-
-export interface Store {
-  getDevice(deviceId: string): Promise<Device | undefined>
-  /** Insert or update; "not_owner" when the id already belongs to another user (nothing changes). */
-  upsertDevice(d: DeviceInput): Promise<{ device: Device; previousTeamId: string | null } | "not_owner">
-  /**
-   * Gives `machineId` to those of `deviceIds` that are Macs of `ownerUserId` with no machine id yet (other builds
-   * on the registering Mac, PROTOCOL.md "Devices"). A Mac's own report always wins. Returns every one of
-   * `deviceIds` that has this machine id now (claimed now or earlier), so a hub that missed an earlier claim
-   * catches up.
-   */
-  claimSiblings(ownerUserId: string, machineId: string, deviceIds: ReadonlyArray<string>): Promise<Array<string>>
-  /** Every Mac one owner registered, in any team or personal space (`ownerUserId` is the owner key). */
-  listOwnerMacs(ownerUserId: string): Promise<Array<Device>>
-  /** Every device (Mac or phone) of one owner, with whether it has a push token. */
-  listOwnerDevices(ownerUserId: string): Promise<Array<Device & { push: boolean }>>
-  /** Deletes a device and its push token; "not_owner" when another user owns it (nothing changes). */
-  deleteDevice(deviceId: string, ownerUserId: string): Promise<Device | "not_owner" | undefined>
-  /** Deletes every device, push token and pref of one owner; returns the deleted devices. */
-  deleteOwner(ownerUserId: string): Promise<Array<Device>>
-  setPush(p: Omit<PushRegistration, "updatedAt">): Promise<PushRegistration>
-  deletePush(deviceId: string): Promise<void>
-  /** Push registrations of the owner's phones. */
-  listOwnerPush(ownerUserId: string): Promise<Array<PushRegistration>>
-  /** Forget tokens APNs reported as gone. */
-  dropPushTokens(tokens: ReadonlyArray<string>): Promise<void>
-  getPrefs(userId: string, teamId: string): Promise<Prefs>
-  /** Only the given fields change; `undefined` keeps the stored value. */
-  putPrefs(userId: string, teamId: string, patch: Partial<Prefs>): Promise<Prefs>
-  /**
-   * Every team id the database knows (devices and team prefs), with the Stack project of its rows: null for the
-   * primary project (bare owner keys), else the project id (`<projectId>:<sub>` keys). Names the old team hubs.
-   */
-  listTeamScopes(): Promise<Array<{ project: string | null; teamId: string; deviceIds: Array<string> }>>
-  close(): Promise<void>
-}
+export * from "./store-types.ts"
 
 const iso = (d: Date | null) => (d ? d.toISOString() : null)
 const row = (r: typeof devices.$inferSelect): Device => ({
@@ -352,8 +250,28 @@ export const memoryStore = (): Store => ({
   close: async () => {}
 })
 
+/** PlanetScale MySQL cmux-next-vitess through Hyperdrive (tables `mobile_*`); one connection per request. */
+export const vitessStore = async (hyperdrive: Hyperdrive): Promise<Store> => {
+  // Loaded lazily, like pg: only the deployed Worker needs the driver.
+  const [{ createConnection }, { mysqlStore }] = await Promise.all([import("mysql2/promise"), import("./store-mysql.ts")])
+  const conn = await createConnection({
+    host: hyperdrive.host,
+    port: hyperdrive.port,
+    user: hyperdrive.user,
+    password: hyperdrive.password,
+    database: hyperdrive.database,
+    // Workers forbid eval; Hyperdrive terminates TLS to PlanetScale itself.
+    disableEval: true,
+    timezone: "Z",
+    dateStrings: true,
+    connectTimeout: 10_000
+  })
+  return mysqlStore(conn)
+}
+
 export const openStore = (env: Env): Promise<Store> => {
-  if (env.HYPERDRIVE) return pgStore(env.HYPERDRIVE)
+  // cmux-next-vitess (vitess-migration-DESIGN.md 2.3). pgStore stays only for a read of the old Postgres.
+  if (env.PS_MYSQL) return vitessStore(env.PS_MYSQL)
   // Tests, and `wrangler dev` of the local (top-level) config: rows live in the isolate's memory.
   if (env.ENVIRONMENT === "test" || env.ENVIRONMENT === "local") return Promise.resolve(memoryStore())
   throw new Error("no database binding")

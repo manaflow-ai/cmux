@@ -20,10 +20,11 @@ fn ends_turn(answer: &Value) -> bool {
 
 /// The agent's `session/prompt` for a prompt of turn `turn_id` (its own, or
 /// a `steer` into it): the agent's answer, or the answer of a steer that
-/// ended this turn first. `on_sent` runs once the prompt is written to the child, before its
-/// answer is awaited: the first-message title path uses this gap so a harness title update can
+/// ended this turn first. With `confirm_written`, `on_sent` requires the harness writer
+/// receipt; otherwise it runs when the transport accepts the prompt. Before its answer is awaited, the first-message title path uses this gap so a harness title update can
 /// win without waiting for the whole turn, and a family message lets go of its gate there
 /// (`full_access_bound.rs` `family_gate`).
+#[allow(clippy::too_many_arguments)]
 pub(super) async fn agent_prompt_hook<F: FnOnce()>(
     session: &Session,
     child: &ChildAgent,
@@ -31,9 +32,24 @@ pub(super) async fn agent_prompt_hook<F: FnOnce()>(
     turn_id: &str,
     steer: bool,
     fence: Option<&crate::agent::Fence>,
+    confirm_written: bool,
     on_sent: F,
 ) -> Result<Value, RpcError> {
     let mut ended = session.steer_end.subscribe();
+    // Before transport handoff, an ordinary completion belongs only to prompts the old
+    // turn actually received. An unsent steer must take the existing no-turn fallback.
+    // Once delivery begins it may already have reached a translator, so do not retry it.
+    let delivery_started = std::sync::atomic::AtomicBool::new(false);
+    let settled = |answer: Value| {
+        if steer
+            && !delivery_started.load(std::sync::atomic::Ordering::SeqCst)
+            && answer["stopReason"] != "cancelled"
+        {
+            Err(RpcError::invalid_params(crate::claude_stdio::STEER_NO_TURN))
+        } else {
+            Ok(answer)
+        }
+    };
     // A turn acpmux ended already (a Stop the agent never answered, `cancel.rs`) gets no prompt.
     if !steer
         && let Some((turn, answer)) = ended.borrow_and_update().clone()
@@ -41,7 +57,29 @@ pub(super) async fn agent_prompt_hook<F: FnOnce()>(
     {
         return Ok(answer);
     }
-    let request = child.request_with_hook(method::SESSION_PROMPT, params, fence, on_sent);
+    // A session-wide cancel has no turn id. Keep the next prompt behind the current prompt's
+    // handoff so a delayed Stop cannot overtake it (or be overtaken by it) at the child writer.
+    // The guard is released by `on_sent`, once `write_fenced` has handed the frame to the child;
+    // it is also dropped if the request is cut before it is written.
+    let request = async {
+        let input_handoff = session.input_handoff.clone().lock_owned().await;
+        // The turn can settle while this prompt waits behind a Stop's handoff.
+        if let Some((turn, answer)) = session.steer_end.borrow().clone()
+            && turn == turn_id
+        {
+            return settled(answer);
+        }
+        delivery_started.store(true, std::sync::atomic::Ordering::SeqCst);
+        let callback = move || {
+            drop(input_handoff);
+            on_sent();
+        };
+        if confirm_written {
+            child.request_with_confirmed_hook(method::SESSION_PROMPT, params, fence, callback).await
+        } else {
+            child.request_with_hook(method::SESSION_PROMPT, params, fence, callback).await
+        }
+    };
     tokio::pin!(request);
     loop {
         tokio::select! {
@@ -62,7 +100,7 @@ pub(super) async fn agent_prompt_hook<F: FnOnce()>(
                 if let Some((turn, answer)) = by_steer
                     && turn == turn_id
                 {
-                    return Ok(answer);
+                    return settled(answer);
                 }
             }
         }
@@ -131,13 +169,27 @@ impl Hub {
         if step_now {
             params["_meta"]["steerNow"] = json!(true);
         }
+        // Another session's plain message goes in with the other agents' messages waiting for
+        // this step, as one message (claude_stdio `steer_batch.rs`). One read now goes alone at
+        // once, and so do a family message (its gate holds until it is written), a slash command
+        // (only a line's first words run one) and one with uploaded files.
+        let sender = super::digest::agent_sender(opts.provenance.as_ref(), opts.agent.as_deref());
+        if let Some(from) = sender
+            && !step_now
+            && !super::subsession_guard::is_family_prompt(opts.provenance.as_ref())
+            && super::forum::slash_command(&blocks).is_none()
+            && !crate::prompt_uploads::any(&blocks)
+        {
+            params["_meta"]["batch"] = json!({"from": from});
+        }
         // Counted in the turn before the agent can read it (`lane_reports.rs`).
         let count = self.lane_steer_in(session, opts.provenance.as_ref());
         let fence = family_gate.map(|hold| self.hold_until_written(session, hold));
         // A fence no writer took is cut (review 86 of #23322).
         let _unsent = crate::agent::CutOnDrop(fence.as_ref());
         let answer =
-            agent_prompt_hook(session, &child, params, turn_id, true, fence.as_ref(), || {}).await;
+            agent_prompt_hook(session, &child, params, turn_id, true, fence.as_ref(), false, || {})
+                .await;
         session
             .steer_now
             .lock()
@@ -202,3 +254,7 @@ mod tests {
         assert!(!steer_entered_turn(&err(crate::claude_stdio::STEER_WITHDRAWN)));
     }
 }
+
+#[cfg(test)]
+#[path = "steer_end_race_tests.rs"]
+mod race_tests;

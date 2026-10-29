@@ -68,7 +68,9 @@ import { useChangesStatuses, useStableUrls, withHeader } from "./changesStatus";
 import { ConnectorsSection } from "./ConnectorsSection";
 import { ContextSection } from "./ContextSection";
 import { EnvironmentSection, type ProjectRowLook } from "./EnvironmentSection";
+import { InspectorGroup } from "./InspectorGroup";
 import { InspectorSection } from "./InspectorSection";
+import { SourcesSection } from "./SourcesSection";
 import { SUBAGENT_HEADER, SubagentBanner, SubagentTitle } from "./SubagentScopeHeader";
 import { subagentProcesses, subagentSummary, withChatEnds, type SubagentScope } from "./subagentScope";
 import {
@@ -76,6 +78,7 @@ import {
   INSPECTOR_WIDTH,
   setInspectorOpen,
   setInspectorSection,
+  setInspectorSourcesAll,
   setInspectorWidth,
   useInspectorOpen,
   useInspectorState,
@@ -88,10 +91,11 @@ import { ServersSection } from "./ServersSection";
 import { SubagentLimitStepper } from "./SubagentLimitStepper";
 import { SubagentsSection, subagentCounts } from "./SubagentsSection";
 import { TasksSection } from "./TasksSection";
-import { WorkflowTasks } from "./WorkflowTasks";
-import type { WorkflowSummary } from "../summary/workflow";
+import { WorkflowTasks, type WorkflowAgentRowVariant } from "./WorkflowTasks";
+import type { WorkflowAgent, WorkflowSummary } from "../summary/workflow";
 import type { Subagent } from "../subagents/subagentFold";
 import { subagentProgress } from "../subagents/subagentProgress";
+import { useUnderInspector } from "./underInspector";
 import "./inspector.css";
 
 type Summary = NonNullable<AcpmuxSnapshot["summary"]>;
@@ -283,6 +287,7 @@ export function useChatInspector({
   repository,
   shell,
   onOpenOutput,
+  onOpenSourceFile,
   onOpenUrl,
   onOpenImage,
   onOpenDocument,
@@ -298,6 +303,7 @@ export function useChatInspector({
   subagent,
   covered = false,
   onUncover,
+  onBeforeOpen,
   beside,
   wide = false,
   onReconnectMcp,
@@ -309,6 +315,8 @@ export function useChatInspector({
   /// Closes that view: opening the Inspector (its toggle, the palette, a running line's count)
   /// brings the chat back first.
   onUncover?: () => void;
+  /// Clears a competing full-height view before any Inspector entry point opens it.
+  onBeforeOpen?: () => void;
   /// The side panel beside the chat, changing as it opens or closes (App.tsx `artifact.opened`):
   /// the panel measures the chat's room without it.
   beside?: unknown;
@@ -323,6 +331,7 @@ export function useChatInspector({
   shell?: HTMLElement | null;
   /// Opens a file's diff (App.tsx openOutput: beside the chat, else in place).
   onOpenOutput?: (path: string) => void;
+  onOpenSourceFile?: (path: string) => unknown;
   /// Opens a web address in the browser beside the chat (a server's port, a pull request).
   onOpenUrl?: (url: string) => void;
   onOpenImage?: (src: string, alt: string) => void;
@@ -344,7 +353,11 @@ export function useChatInspector({
   /// `_acpmux/subsession/limits` (direct.ts setRunningLimit): chat `sessionId`'s running limit.
   onSetRunningLimit?: (sessionId: string, maxRunning: number | null, from?: number) => Promise<unknown>;
   /// The chat's Claude workflows (Labs, App.tsx `workflows`), in Background tasks (WorkflowTasks.tsx).
-  workflows?: { list: readonly WorkflowSummary[]; onStop?: (id: string) => Promise<unknown> };
+  workflows?: {
+    list: readonly WorkflowSummary[];
+    onStop?: (id: string) => Promise<unknown>;
+    onOpenAgent?: (agent: WorkflowAgent) => void;
+  };
   /// Opens one of the chat's folders in the Files tree beside the chat (a chat on this Mac).
   onOpenFolder?: (path: string) => void;
   /// Saves the chat's machine and folder as an environment (`environment.save`).
@@ -357,6 +370,9 @@ export function useChatInspector({
   onReconnectMcp?: (server: string) => Promise<unknown>;
 }): {
   on: boolean;
+  /// The panel shows (on, open, not stepped aside): a card under it keeps no room of its own beside
+  /// the chat (App.tsx, the computer use live preview).
+  shown?: boolean;
   button?: ReactNode;
   panel?: ReactNode;
   // The native command palette shares the header's visibility and uncover behavior.
@@ -395,11 +411,12 @@ export function useChatInspector({
   useEffect(() => {
     if (!on) return;
     return registerPicker(label, () => {
+      onBeforeOpen?.();
       uncover.current?.();
       setSuppressed(false);
       setInspectorOpen(true);
     });
-  }, [on, label]);
+  }, [on, label, onBeforeOpen]);
   // Esc closes it while the keyboard is in it or on its toggle (not in a text field there), before a
   // diff in place takes it (DiffPanel listens on the window, after the document). Anywhere else Esc
   // keeps its own meaning: with nothing focused and a turn running it is the composer's double press
@@ -428,12 +445,14 @@ export function useChatInspector({
   const toggle = () => {
     if (shown) setInspectorOpen(false);
     else {
+      onBeforeOpen?.();
       bringBack?.();
       setSuppressed(false);
       setInspectorOpen(true);
     }
   };
   const reveal = (section: InspectorSectionId) => {
+    onBeforeOpen?.();
     bringBack?.();
     setSuppressed(false);
     setInspectorSection(section, true);
@@ -448,6 +467,7 @@ export function useChatInspector({
     : undefined;
   return {
     on: true,
+    shown,
     toggle,
     reveal,
     button: <PanelToggle className="acpmux-chat-inspector-toggle" label={label} shown={shown} onToggle={toggle} />,
@@ -473,6 +493,7 @@ export function useChatInspector({
         revealed={revealed}
         onRevealed={clearRevealed}
         onStopProcess={onStopProcess}
+        onOpenSourceFile={subagent?.agent.host ? undefined : onOpenSourceFile}
         onOpenOutput={openOutput}
         onOpenUrl={onOpenUrl}
         onOpenImage={onOpenImage}
@@ -522,6 +543,7 @@ function InspectorPresence({
   onRevealed,
   onStopProcess,
   onOpenOutput,
+  onOpenSourceFile,
   onOpenUrl,
   onOpenImage,
   onOpenFolder,
@@ -557,11 +579,16 @@ function InspectorPresence({
   sessions?: { list: readonly StartedSession[]; onOpen: (sessionId: string) => void };
   onSetRunningLimit?: (sessionId: string, maxRunning: number | null, from?: number) => Promise<unknown>;
   /// The chat's Claude workflows (Labs, App.tsx `workflows`), in Background tasks (WorkflowTasks.tsx).
-  workflows?: { list: readonly WorkflowSummary[]; onStop?: (id: string) => Promise<unknown> };
+  workflows?: {
+    list: readonly WorkflowSummary[];
+    onStop?: (id: string) => Promise<unknown>;
+    onOpenAgent?: (agent: WorkflowAgent) => void;
+  };
   revealed?: { section: InspectorSectionId; at: number };
   onRevealed: () => void;
   onStopProcess?: (id: string) => Promise<unknown>;
   onOpenOutput?: (path: string) => void;
+  onOpenSourceFile?: (path: string) => unknown;
   onOpenUrl?: (url: string) => void;
   onOpenImage?: (src: string, alt: string) => void;
   onOpenFolder?: (path: string) => void;
@@ -622,9 +649,19 @@ function InspectorPresence({
       shell.dispatchEvent(new (shell.ownerDocument.defaultView?.Event ?? Event)(CHAT_LAYOUT_EVENT));
     };
   }, [shell]);
+  // A card under the panel (the computer use live preview) reads where it goes from the shell.
+  useUnderInspector(shell, drawn, push, FLOAT_MARGIN, inspectorTop);
   // A subagent's panel reads its own rows only: its replies, thoughts and tool calls.
   const rows = scope?.rows ?? snapshot.rows;
-  const made = useMemo(() => (drawn ? sessionSummary(rows, repository ?? null) : undefined), [drawn, rows, repository]);
+  const scopedAgent = scope?.agent;
+  const summary = useMemo(
+    () => (drawn && scopedAgent ? subagentSummary(snapshot.summary, scopedAgent, rows) : snapshot.summary),
+    [drawn, scopedAgent, snapshot.summary, rows],
+  );
+  const made = useMemo(
+    () => (drawn ? sessionSummary(rows, repository ?? null, summary?.cwd) : undefined),
+    [drawn, rows, repository, summary?.cwd],
+  );
   const links = useMemo(() => (drawn ? outputLinks(rows) : []), [drawn, rows]);
   const artifacts = useMemo(() => (drawn ? chatGallery(rows).length : 0), [drawn, rows]);
   const documents = useMemo(() => (drawn ? outputArtifacts(rows) : []), [drawn, rows]);
@@ -634,11 +671,6 @@ function InspectorPresence({
   const agents = useMemo(
     () => (drawn ? (scopedAgents ?? [...subagentsIn(rows, views).values()]) : []),
     [drawn, scopedAgents, rows, views],
-  );
-  const scopedAgent = scope?.agent;
-  const summary = useMemo(
-    () => (drawn && scopedAgent ? subagentSummary(snapshot.summary, scopedAgent, rows) : snapshot.summary),
-    [drawn, scopedAgent, snapshot.summary, rows],
   );
   const chatRows = snapshot.rows;
   const transcriptTasks = useMemo(
@@ -656,8 +688,9 @@ function InspectorPresence({
   );
   // Every pull request's title, state, lines and checks from the App's cache, the folder's live
   // read over it (changesStatus.ts); asked for only while Changes is unfolded.
-  const prUrls = useStableUrls(made?.pullRequests);
-  const { statuses: cached, unsettled } = useChangesStatuses(prUrls, drawn, drawn && sections.changes);
+  const changes = useMemo(() => visibleChanges(made?.pullRequests ?? [], {}), [made?.pullRequests]);
+  const prUrls = useStableUrls(changes);
+  const { statuses: cached } = useChangesStatuses(prUrls, drawn, drawn && sections.changes);
   const statuses = useMemo(() => withHeader(cached, headerStatus(pullRequest)), [cached, pullRequest]);
   // An output's diff opens beside the chat. Pushing (Settings Push always), when that split leaves too
   // little room for a readable chat beside the Inspector, it steps aside until the toggle opens it
@@ -721,7 +754,6 @@ function InspectorPresence({
         waiting={waiting}
         onOpenSubagent={subagents?.onOpen}
         statuses={statuses}
-        changesUnsettled={unsettled}
         processes={processes}
         listed={registry?.listed}
         transcriptTasks={transcriptTasks}
@@ -729,6 +761,7 @@ function InspectorPresence({
         sessions={scope ? undefined : sessions?.list}
         workflows={scope ? undefined : workflows?.list}
         onStopWorkflow={workflows?.onStop}
+        onOpenWorkflowAgent={workflows?.onOpenAgent}
         onOpenSession={sessions?.onOpen}
         onSetRunningLimit={onSetRunningLimit}
         revealed={revealed}
@@ -736,6 +769,7 @@ function InspectorPresence({
         onStopProcess={onStopProcess}
         sections={sections}
         onSection={setInspectorSection}
+        onOpenSourceFile={onOpenSourceFile}
         onOpenOutput={onOpenOutput}
         onOpenUrl={onOpenUrl}
         onOpenImage={onOpenImage}
@@ -904,13 +938,14 @@ export function ChatInspector({
   waiting = new Set(),
   onOpenSubagent,
   statuses = {},
-  changesUnsettled = false,
   processes = [],
   listed = false,
   transcriptTasks = [],
   sessions = [],
   workflows = [],
   onStopWorkflow,
+  workflowAgentRowVariant,
+  onOpenWorkflowAgent,
   onOpenSession,
   onSetRunningLimit,
   revealed,
@@ -919,6 +954,7 @@ export function ChatInspector({
   sections,
   onSection,
   onOpenOutput,
+  onOpenSourceFile,
   onOpenUrl,
   onOpenImage,
   onOpenDocument,
@@ -937,7 +973,7 @@ export function ChatInspector({
   peerKinds?: Readonly<Record<string, "ssh" | "cloud">>;
   repository?: string;
   /// What the chat produced (sessionSummary).
-  made?: Pick<SessionSummary, "outputs" | "pullRequests" | "scheduled">;
+  made?: Pick<SessionSummary, "outputs" | "pullRequests" | "scheduled"> & Partial<Pick<SessionSummary, "sources">>;
   links?: readonly OutputLink[];
   artifacts?: number;
   /// The documents the chat produced (OutputsSection `outputArtifacts`).
@@ -951,10 +987,6 @@ export function ChatInspector({
   onOpenSubagent?: (id: string) => void;
   /// What the App read of the pull requests, by URL.
   statuses?: Readonly<Record<string, InspectorPullRequestStatus>>;
-  /// A pull request the chat named has no settled answer from the App yet (none asked for while
-  /// Changes is folded, or the host still reading): Changes keeps its header, with no rows and no
-  /// count for them, so it can be opened to ask.
-  changesUnsettled?: boolean;
   /// The chat's background processes, in the order they started.
   processes?: readonly InspectorProcess[];
   /// The registry answered a listing for the chat: a transcript task it does not list no longer
@@ -971,6 +1003,10 @@ export function ChatInspector({
   /// The chat's Claude workflows (Labs): they head Background tasks, and leave Subagents.
   workflows?: readonly WorkflowSummary[];
   onStopWorkflow?: (id: string) => Promise<unknown>;
+  /// Gallery-only alternatives for the live workflow agent row.
+  workflowAgentRowVariant?: WorkflowAgentRowVariant;
+  /// Opens a workflow agent through its workflow transcript bridge.
+  onOpenWorkflowAgent?: (agent: WorkflowAgent) => void;
   /// The section a running line's count opened: scrolled into view (`at` tells one ask from the next).
   revealed?: { section: InspectorSectionId; at: number };
   /// The reveal has scrolled: the caller forgets it.
@@ -980,6 +1016,7 @@ export function ChatInspector({
   sections?: InspectorSections;
   onSection?: (id: InspectorSectionId, open: boolean) => void;
   onOpenOutput?: (path: string) => void;
+  onOpenSourceFile?: (path: string) => unknown;
   onOpenUrl?: (url: string) => void;
   onOpenImage?: (src: string, alt: string) => void;
   remoteControl?: { on: boolean; set: (on: boolean) => void };
@@ -1002,7 +1039,8 @@ export function ChatInspector({
 }) {
   const t = useT();
   const language = usePaneLanguage();
-  const stored = useInspectorState().sections;
+  const inspectorState = useInspectorState();
+  const stored = inspectorState.sections;
   const state = sections ?? stored;
   const fold = (id: InspectorSectionId) => (next: boolean) => (onSection ?? setInspectorSection)(id, next);
   const [gallery, setGallery] = useState(false);
@@ -1048,6 +1086,7 @@ export function ChatInspector({
   }, [revealed, onRevealed]);
   const scheduled = made?.scheduled ?? [];
   const pullRequests = visibleChanges(made?.pullRequests ?? [], statuses);
+  const sources = made?.sources ?? [];
   const outputs = (made?.outputs ?? []) as readonly TurnFile[];
   const mcp = summary?.mcpServers ?? [];
   const reconnect = mcp.filter((server) => server.status === "failed").length;
@@ -1136,8 +1175,7 @@ export function ChatInspector({
       <ConnectorsSection servers={mcp} onReconnect={onReconnectMcp} />
     </InspectorSection>
   );
-  const candidates = made?.pullRequests.length ?? 0;
-  const changes = (pullRequests.length > 0 || (changesUnsettled && candidates > 0)) && (
+  const changes = pullRequests.length > 0 && (
     <InspectorSection
       id="changes"
       title={t("header.changes")}
@@ -1148,6 +1186,24 @@ export function ChatInspector({
       {pullRequests.length > 0 && (
         <ChangesSection pullRequests={pullRequests} statuses={statuses} onOpenBeside={onOpenUrl} />
       )}
+    </InspectorSection>
+  );
+  const sourcesSection = sources.length > 0 && (
+    <InspectorSection
+      id="sources"
+      title={t("summary.sources")}
+      open={state.sources}
+      onOpenChange={fold("sources")}
+      meta={value(String(sources.length))}
+    >
+      <SourcesSection
+        sources={sources}
+        cwd={summary?.cwd}
+        onOpenFile={onOpenSourceFile}
+        onOpenBeside={onOpenUrl}
+        expanded={inspectorState.sourcesAll}
+        onExpandedChange={setInspectorSourcesAll}
+      />
     </InspectorSection>
   );
   const outputsShown = outputs.length + links.length + artifacts + (onOpenDocument ? documents.length : 0) > 0;
@@ -1198,7 +1254,14 @@ export function ChatInspector({
       onOpenChange={fold("tasks")}
       meta={running > 0 ? value(t("rail.running", { count: running })) : undefined}
     >
-      {workflows.length > 0 && <WorkflowTasks workflows={workflows} onStop={onStopWorkflow} />}
+      {workflows.length > 0 && (
+        <WorkflowTasks
+          workflows={workflows}
+          onStop={onStopWorkflow}
+          onOpenWorkflowAgent={onOpenWorkflowAgent}
+          agentRowVariant={workflowAgentRowVariant}
+        />
+      )}
       {servers.length > 0 && <ServersSection servers={servers} onStop={onStopProcess} onOpenUrl={onOpenUrl} />}
       {commands.length + scheduled.length > 0 && (
         <TasksSection
@@ -1216,24 +1279,14 @@ export function ChatInspector({
     <div ref={body} className="acpmux-chat-inspector__body" data-layout={layout}>
       {banner}
       {/* Where it runs. */}
-      <div className="acpmux-chat-inspector-group" data-group="about">
-        {environment}
-        {context}
-        {connectors}
-      </div>
+      <InspectorGroup group="about" sections={{ environment, context, connectors }} />
       {/* What it made. */}
-      {(changes || outputsSection) && (
-        <div className="acpmux-chat-inspector-group" data-group="made">
-          {changes}
-          {outputsSection}
-        </div>
+      {(changes || sourcesSection || outputsSection) && (
+        <InspectorGroup group="made" sections={{ changes, sources: sourcesSection, outputs: outputsSection }} />
       )}
       {/* What it runs. */}
       {(subagentsSection || tasks) && (
-        <div className="acpmux-chat-inspector-group" data-group="running">
-          {subagentsSection}
-          {tasks}
-        </div>
+        <InspectorGroup group="running" sections={{ subagents: subagentsSection, tasks }} />
       )}
       {gallery && (
         <GalleryDialog
