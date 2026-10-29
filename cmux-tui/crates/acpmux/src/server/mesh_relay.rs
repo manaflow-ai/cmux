@@ -546,6 +546,13 @@ mod tests {
     }
 
     #[test]
+    fn team_sender_names_are_explicitly_addressed() {
+        let mut message = from("", "lane");
+        message.from.team_address = Some("lawrence/coordinator".into());
+        assert_eq!(sender_name(&message), "@lawrence/coordinator");
+    }
+
+    #[test]
     fn heartbeats_come_at_a_third_of_the_ttl_at_most_every_heartbeat_every() {
         let options = RelayOptions::default();
         assert_eq!(heartbeat_wait(&options, 90), Duration::from_secs(30));

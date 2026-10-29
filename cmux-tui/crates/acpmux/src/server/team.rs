@@ -182,7 +182,7 @@ fn valid_claim(address: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::valid_address;
+    use super::{valid_address, valid_claim};
 
     #[test]
     fn team_address_requires_a_scope_and_role() {
@@ -191,5 +191,14 @@ mod tests {
         assert!(!valid_address("@team/release"));
         assert!(!valid_address("team"));
         assert!(!valid_address("team/release/extra"));
+    }
+
+    #[test]
+    fn session_claims_accept_bare_roles_and_canonical_addresses() {
+        assert!(valid_claim("coordinator"));
+        assert!(valid_claim("@lawrence/coordinator"));
+        assert!(valid_claim("team/release"));
+        assert!(!valid_claim("team/release/extra"));
+        assert!(!valid_claim(""));
     }
 }

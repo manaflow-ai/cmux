@@ -341,7 +341,6 @@ impl Hub {
         // A pushed forum rule whose key moved on while it waited tells the current one.
         let mut provenance = run.provenance.clone();
         let pushed = self.forum_refresh_push(&prompt_id, &mut blocks, &mut provenance);
-        let text = prompt_text(&blocks);
         if let Err(e) = self
             .check_dispatch(
                 session,
