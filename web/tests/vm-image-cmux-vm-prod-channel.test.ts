@@ -226,12 +226,19 @@ describe("prod-copy.ts account-check", () => {
     await expect(accountCheck(root, async (n) => (n === "cmuxnp-dev-vmimg-ci-100-1" ? ID(100) : undefined))).rejects.toThrow(/dev account's key/);
   });
 
-  test("before any production snapshot is recorded, the protected production key is trusted once it is not the dev key", async () => {
+  test("refuses a third-account key before any production snapshot is recorded", async () => {
     const { root } = fakeRoot([]);
     const asked: string[] = [];
-    expect(await accountCheck(root, async (n) => (asked.push(n), undefined))).toContain("trust-on-first-use");
+    // Another account cannot see the dev slug (404); that is not proof of production identity.
+    await expect(accountCheck(root, async (n) => (asked.push(n), undefined))).rejects.toThrow(/no trusted production snapshot/);
     expect(asked).toEqual(["cmuxnp-dev-vmimg-ci-100-1"]);
-    await expect(accountCheck(root, async (n) => (n === "cmuxnp-dev-vmimg-ci-100-1" ? ID(100) : undefined))).rejects.toThrow(/dev account's key/);
+  });
+
+  test("refuses the dev key when its recorded dev snapshot was deleted and no production anchor exists", async () => {
+    const { root } = fakeRoot([]);
+    // The dev key is valid, but the dev slug was deleted: the provider returns 404 too.
+    const devAccount = new Map([["cmuxnp-dev-vmimg-other", ID(101)]]);
+    await expect(accountCheck(root, async (name) => devAccount.get(name))).rejects.toThrow(/no trusted production snapshot/);
   });
 
   test("once production snapshots are recorded, the key must resolve one of them to its id: a third account is refused", async () => {
