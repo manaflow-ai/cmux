@@ -12,7 +12,7 @@ import Testing
 /// (`animate(.hover, in:) { view.animator()... }`, a SwiftUI-animation `NSAnimationContext` on 15 and
 /// later, a timed group on 14) is the before: its counts are printed as `motion-gate-main-work` lines
 /// for the commit and the plan. The layer path (`animate(_:in:frame:alpha:completion:)`) must write 0.
-@MainActor @Suite(.serialized) struct MotionGateMainWorkTests {
+@MainActor @Suite(.serialized, .renderHooks) struct MotionGateMainWorkTests {
     /// A layer whose geometry and opacity writes are counted.
     nonisolated final class CountingLayer: CALayer {
         var geometryWrites = 0
