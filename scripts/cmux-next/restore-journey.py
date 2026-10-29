@@ -1303,7 +1303,7 @@ def seed_w3():
     write(ws["terminal_id"], f"echo rj-w3-marker-{RUN}\n")
     cli("room", room_id, "pin", "--workspace", ws["workspace_id"])
     # The new window takes the space's workspaces no window showing the space lists: rj-w3.
-    action("space.openInNewWindow", space=room_id)
+    action("space.openInNewWindow", args={"space": room_id})
     window = wait(lambda: next((w for w in (topology() or {}).get("windows", []) if w.get("workspace") == ws["workspace_id"]), None), 20)
     if window:
         rpc("debug.window_frame", {"window": window.get("key"), "frame": FRAMES[2]})
