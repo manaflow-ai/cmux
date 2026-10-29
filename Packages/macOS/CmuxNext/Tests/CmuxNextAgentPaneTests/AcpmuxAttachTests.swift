@@ -86,9 +86,9 @@ struct AcpmuxAttachTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let host = AcpmuxHost(resolve: { environment })
 
-        await #expect(throws: AgentPaneHostError.daemonStopped) { _ = try await host.handshake(sessionId: nil) }
-        await #expect(throws: AgentPaneHostError.daemonStopped) { _ = try await host.reconnectHandshake(sessionId: "s") }
-        await #expect(throws: AgentPaneHostError.daemonStopped) { try await host.prewarm() }
+        await #expect(throws: AgentPaneHostError.attachedDaemonStopped) { _ = try await host.handshake(sessionId: nil) }
+        await #expect(throws: AgentPaneHostError.attachedDaemonStopped) { _ = try await host.reconnectHandshake(sessionId: "s") }
+        await #expect(throws: AgentPaneHostError.attachedDaemonStopped) { try await host.prewarm() }
         #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent("launched").path),
                 "an attached DEV build started a daemon in another app's home")
     }
