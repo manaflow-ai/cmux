@@ -4588,3 +4588,21 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
   background: var(--agent-control);
   box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--agent-border-strong);
 }
+/* A sent image's source app, at its thumbnail's top-right corner (composer/SourceBadge.tsx). */
+.cv-user__sourced {
+  position: relative;
+  display: block;
+  flex: none;
+}
+.cv-user__sourced > .acpmux-source-badge {
+  top: 6px;
+  right: 6px;
+}
+.cv-user__images .cv-user__sourced > .acpmux-source-badge > img {
+  width: 100%;
+  height: 100%;
+  border-radius: 0;
+  outline: none;
+  background: none;
+  object-fit: contain;
+}
