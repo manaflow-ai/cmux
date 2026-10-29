@@ -52,6 +52,8 @@ class MachineJoinE2EWorkflow(unittest.TestCase):
     def test_feat_cmux_next_only(self) -> None:
         job = load()["jobs"]["e2e"]
         self.assertEqual(job["if"], "github.ref == 'refs/heads/feat-cmux-next'")
+        # An existing environment whose branch policy admits feat-cmux-next only.
+        self.assertEqual(job["environment"], "cmux-next-vm-image-dev")
         self.assertIn("refs/heads/feat-cmux-next", steps()[0]["run"])
         self.assertIn("exit 1", steps()[0]["run"])
 
@@ -100,7 +102,7 @@ class MachineJoinE2EWorkflow(unittest.TestCase):
         remove = step("Remove the disposable user")
         self.assertTrue(remove["if"].startswith("always()"))
         self.assertIn("userdel --remove", remove["run"])
-        self.assertIn('pkill -KILL -u "$JOIN_USER"', remove["run"])
+        self.assertIn('sudo -n -u "$JOIN_USER" -- /bin/kill -KILL -1', remove["run"])
 
     def test_only_the_evidence_is_uploaded(self) -> None:
         uploads = [s for s in steps() if "upload-artifact" in s.get("uses", "")]

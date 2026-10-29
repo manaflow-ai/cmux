@@ -260,7 +260,7 @@ describe("the full run", () => {
     expect(join[0]!.stdin).toBe(`${TOKEN}\n`)
     expect(join[0]!.argv.slice(0, 5)).toEqual(["sudo", "-n", "-u", opts.user, "--"])
     expect(join[0]!.argv).toContain("-i")
-    expect(join[0]!.argv.slice(-7)).toEqual([opts.acpmux, "host", "join", "--hub", DEV_PLATFORM, "--name", opts.name])
+    expect(join[0]!.argv.slice(-8)).toEqual([opts.acpmux, "host", "join", "--hub", DEV_PLATFORM, "--name", opts.name, "--json"])
   })
 
   test("every value is masked before anything else is printed", async () => {

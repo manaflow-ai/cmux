@@ -37,6 +37,10 @@ permissions:
 jobs:
   e2e:
     if: github.ref == 'refs/heads/feat-cmux-next'
+    # A secret-reading dispatch job runs in an environment (tests/test_supplychain_security.py). This
+    # existing one is limited to feat-cmux-next by GitHub's branch policy; its own secret is never read here
+    # (tests/test_machine_join_e2e_workflow.py pins the job's two secret references).
+    environment: cmux-next-vm-image-dev
     # Blacksmith only (16 vCPU; 32 while the overflow switch's record exists): a VM that runs
     # this one job and is destroyed. Never LINUX_RUNNER, which may name a persistent host, since
     # this job adds an OS user and holds the stack secrets.
@@ -197,9 +201,10 @@ jobs:
           name: machine-join-e2e-evidence
           path: ${{ runner.temp }}/machine-join-e2e/evidence.json
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 3
 
-      # The user's processes (only that user's), the user and its home, and its socket directory.
+      # The user's processes, the user and its home, and its socket directory. `kill -1` run as the
+      # disposable user signals exactly the processes that user owns (all started by this job), nothing else.
       - name: Remove the disposable user
         if: always() && steps.user.outputs.user != ''
         env:
@@ -208,7 +213,7 @@ jobs:
           JOIN_BASE: ${{ steps.user.outputs.base }}
         run: |
           set -uo pipefail
-          sudo pkill -KILL -u "$JOIN_USER" || true
+          sudo -n -u "$JOIN_USER" -- /bin/kill -KILL -1 2>/dev/null || true
           sleep 1
           sudo userdel --remove "$JOIN_USER" 2>/dev/null || true
           sudo rm -rf -- "$JOIN_BASE" "/tmp/acpmux-$JOIN_UID"
