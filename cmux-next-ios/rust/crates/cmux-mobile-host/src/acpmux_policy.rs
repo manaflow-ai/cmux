@@ -79,6 +79,7 @@ fn asks(request: &Value) -> bool {
 pub const SESSION_CONTROL_METHODS: &[&str] = &[
     "session/prompt",
     "session/fork",
+    "acp.session.fork",
     "session/load",
     "session/resume",
     "_acpmux/queue_edit",
@@ -253,10 +254,8 @@ mod tests {
                     assert_eq!(mode_refusal(&id, Some(mode)), None, "{method}: {mode}");
                 }
                 for mode in ["agent", "agent-full-access", "bypassPermissions"] {
-                    let refused: Value = serde_json::from_str(
-                        &mode_refusal(&id, Some(mode)).expect(method),
-                    )
-                    .unwrap();
+                    let refused: Value =
+                        serde_json::from_str(&mode_refusal(&id, Some(mode)).expect(method)).unwrap();
                     assert_eq!(refused["id"], 17);
                     assert_eq!(refused["error"]["data"]["reason"], "phone.mode_not_asking");
                     let marked: Value = serde_json::from_str(&marked(&text).unwrap()).unwrap();
