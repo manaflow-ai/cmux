@@ -23,13 +23,14 @@ static void diag_fatal(int sig, siginfo_t *info, void *context) {
     char line[256];
     uint64_t tid = 0;
     pthread_threadid_np(NULL, &tid);
-    int n = snprintf(line, sizeof line, "DIAG fatal signal %d addr %p code %d thread %llu; stack:\n", sig, info ? info->si_addr : NULL,
-                     info ? info->si_code : -1, (unsigned long long)tid);
+    int n = snprintf(line, sizeof line, "DIAG fatal signal %d addr %p code %d sender pid %d (self %d) thread %llu; stack:\n", sig,
+                     info ? info->si_addr : NULL, info ? info->si_code : -1, info ? (int)info->si_pid : -1, getpid(), (unsigned long long)tid);
     write(STDERR_FILENO, line, n);
     void *frames[128];
     int count = backtrace(frames, 128);
     backtrace_symbols_fd(frames, count, STDERR_FILENO);
     signal(sig, SIG_DFL);
+    if (info != NULL && info->si_code == SI_USER) raise(sig);
 }
 
 static void diag_install(void) {
