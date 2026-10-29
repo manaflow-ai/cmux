@@ -1,0 +1,227 @@
+{
+  "version": 1,
+  "build": "4079580702901",
+  "notes": "notes/4079580702901.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 26935,
+      "title": "acpmux: an upload's resume record lets go when its sender ends, even with a forked child alive",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27113,
+      "title": "ci(signing): the owned signing pick accepts glaeda's nightly slot label, as the nightly build picker does",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27001,
+      "title": "feat: wake paused machine leases on send",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27042,
+      "title": "cmux-api: Freestyle client sessions for a caller's own Cloud machine",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24797,
+      "title": "acpmux: the Mac runs an added machine's GitHub action with its own gh login",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26498,
+      "title": "NEXT: stream cloud attachment originals from disk to the upload slot",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27094,
+      "title": "ci(overflow): never point a signing runner variable at an owned mini",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27108,
+      "title": "cmux-tui: list every offered cloud action in cloud help",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27088,
+      "title": "test(composer): cover same-press environment and folder switching",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26936,
+      "title": "ci(nightly): light nightly jobs stay on Linux while the overflow switch is on",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26944,
+      "title": "ci(signing): the nightly identity signing job may take a drained owned Mac, held whole",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27105,
+      "title": "fix(acpmux): the restart-continuation tests build their chat again",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26980,
+      "title": "Agent chat: fold consecutive received messages",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25900,
+      "title": "cmux NEXT iOS: native paste of images and files in the composers",
+      "author": "Abdulaziz Albahar",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27082,
+      "title": "fix(acpmux): authorize fork ancestor workflow transcripts",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27041,
+      "title": "ci(nightly-next): verify-final reads a pool-signed DMG once, not twice",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27030,
+      "title": "acpmux: peers recover right after a sleep; an unforced peer_reconnect leaves an open link alone",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26952,
+      "title": "backend: hourly read-only full Postgres/MySQL projection verify in the Worker (Vitess step 5)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27036,
+      "title": "cmux --help lists every scope agents can run; cmux help <scope> reaches them",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26994,
+      "title": "Test real Claude workflow replay in agent UI",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26990,
+      "title": "feat(inspector): show live workflow agent rows",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27033,
+      "title": "ci(nightly-next): an unsigned resume's title names the run it resumes",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27040,
+      "title": "acpmux: autoResumeDelaysMs sets the retry loop's attempts, not only its waits",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27039,
+      "title": "ci(nightly-next): the signer Mac sends only the unsigned DMG over the office uplink",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26903,
+      "title": "acpmux: harden tailnet retirement lifecycle",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27085,
+      "title": "fix(webviews): update the workflow card test for #27019",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26934,
+      "title": "Swift Linux packages: add CmuxChiefVoiceCore",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27020,
+      "title": "acpmux: Linux sandbox accepts nsfs mounts in mountinfo",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26939,
+      "title": "cmux-api: PlatformMachines, a service-binding entrypoint for the platform's environment setups (development only)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26970,
+      "title": "cmux-config: settings.snapshot shows a secret policy value as present only",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26993,
+      "title": "agent pane: retain sub-session agent fields",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27019,
+      "title": "feat(agent-pane): show workflow progress in transcript card",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27046,
+      "title": "acpmux: confine workflow transcript reads to the requesting chat",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26946,
+      "title": "ci: PR size warns instead of failing",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26902,
+      "title": "acpmux: add tailnet controller lifecycle foundation",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26917,
+      "title": "acpmux: the GitHub broker's fixed actions and the Mac's checked gh runner",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
