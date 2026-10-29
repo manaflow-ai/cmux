@@ -52,3 +52,17 @@ test("each switch sends one join_consent and shows the host's answer", async () 
   expect(toggle(page.container, "screen").getAttribute("aria-checked")).toBe("false");
   page.unmount();
 });
+
+test("while a consent write is in flight both switches are disabled", async () => {
+  const page = await renderPage({
+    path: "/settings/devices",
+    mock: { devicesJoin: { ...mockDevicesJoin, busy: true } },
+  });
+  await settle();
+  expect(toggle(page.container, "screen").hasAttribute("disabled")).toBe(true);
+  expect(toggle(page.container, "control").hasAttribute("disabled")).toBe(true);
+  await act(async () => toggle(page.container, "screen").click());
+  await settle();
+  expect(page.provider.log.filter((entry) => entry.op === "cmux.settings.devices.join_consent")).toEqual([]);
+  page.unmount();
+});

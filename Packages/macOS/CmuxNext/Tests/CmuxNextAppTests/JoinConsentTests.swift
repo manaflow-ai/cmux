@@ -317,13 +317,13 @@ import Testing
         hold = true
         let allow = Task { await model.answer(allow: true) }
         for _ in 0..<1000 where opened < 1 { await Task.yield() }
-        #expect(model.answering)
+        #expect(model.writing)
         #expect(await model.answer(allow: false) == nil)
         #expect(model.ask != nil, "the Deny did not close the sheet over the Allow")
         hold = false
         held.open()
         #expect(await allow.value == nil)
-        #expect(model.ask == nil && !model.answering && fake.writes == ["screen true"])
+        #expect(model.ask == nil && !model.writing && fake.writes == ["screen true"])
     }
 
     /// A ticket whose read said granted, answering after a revoke that acpmux already took, never serves.

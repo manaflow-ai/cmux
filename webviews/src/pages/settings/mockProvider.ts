@@ -83,6 +83,7 @@ export const mockDevicesJoin: DevicesJoinState = {
   joined: "Joined to Example Team as studio",
   help: "Your team's machines reach this Mac through the mesh. They cannot see or control it until you allow it here.",
   error: null,
+  busy: false,
   switches: [
     { surface: "screen", title: "Screen sharing", help: "Your team's machines can see this screen", on: false },
     {

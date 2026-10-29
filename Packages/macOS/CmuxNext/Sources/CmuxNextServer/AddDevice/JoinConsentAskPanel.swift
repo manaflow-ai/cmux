@@ -105,6 +105,8 @@ public final class JoinConsentAskView: NSView {
         let spec = CmuxDialogButton(id: allow ? "allow" : "deny", title: title, role: role)
         let view = CmuxDialogButtonView(standalone: spec, target: self, action: allow ? #selector(allowPressed) : #selector(denyPressed))
         view.setAccessibilityIdentifier(id)
+        // Both stay disabled while a write is in flight: no press lands over a grant still landing.
+        view.isEnabled = model?.writing != true
         return view
     }
 
