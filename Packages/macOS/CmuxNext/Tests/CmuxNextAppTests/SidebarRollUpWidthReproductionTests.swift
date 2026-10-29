@@ -8,8 +8,9 @@ import Testing
 /// Native geometry reproduction, not a production fix. Forty synthetic child workspaces pass
 /// through SidebarLayout's real tree aggregation before configuring the production row view.
 /// Run this suite alone: it temporarily changes shared design settings synchronously.
-/// Optional CMUX_SIDEBAR_ROLLUP_CAPTURE_DIR exports light/dark PNGs and measured geometry JSON
-/// before the expectations, so a red run still leaves evidence. No fixed expected failure.
+/// Always exports light/dark PNGs and measured geometry JSON to the package's .build/rollup-capture;
+/// CMUX_SIDEBAR_ROLLUP_CAPTURE_DIR overrides that directory. JSON is written before imaging,
+/// and captures precede expectations, so a red run leaves evidence. No fixed expected failure.
 @MainActor @Suite(.serialized) struct SidebarRollUpWidthReproductionTests {
     @Test func foldedParentRetainsTitleRoomAtMinimumSidebarWidth() throws {
         _ = NSApplication.shared
@@ -68,6 +69,14 @@ import Testing
         try #require(content.rollUp == SidebarTreeRollUp(blocked: 10, failed: 10, running: 10, unread: 10))
         try #require(layout.rows.filter { if case .workspace = $0.key { true } else { false } }.count == 1)
 
+        let package = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let out = ProcessInfo.processInfo.environment["CMUX_SIDEBAR_ROLLUP_CAPTURE_DIR"]
+            .map { URL(fileURLWithPath: $0, isDirectory: true) }
+            ?? package.appendingPathComponent(".build/rollup-capture", isDirectory: true)
+        try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
+        print("SidebarRollUpWidthReproduction capture directory: \(out.path)")
+
         for dark in [false, true] {
             let mode = dark ? "dark" : "light"
             let theme = dark ? "Soft Blue" : "Soft Blue Light"
@@ -106,21 +115,17 @@ import Testing
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
             let measured = try encoder.encode(geometry)
             print("SidebarRollUpWidthReproduction \(String(decoding: measured, as: UTF8.self))")
-            if let folder = ProcessInfo.processInfo.environment["CMUX_SIDEBAR_ROLLUP_CAPTURE_DIR"] {
-                let out = URL(fileURLWithPath: folder, isDirectory: true)
-                try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
-                window.orderFrontRegardless()
-                for child in AANestedGroupsGalleryTests.all(root) {
-                    child.layoutSubtreeIfNeeded(); child.needsDisplay = true; child.displayIfNeeded()
-                }
-                CATransaction.flush()
-                let crop = NSRect(x: 0, y: 0, width: sidebarWidth, height: row.height + 32)
-                let bitmap = try #require(root.bitmapImageRepForCachingDisplay(in: crop))
-                root.cacheDisplay(in: crop, to: bitmap)
-                let png = try #require(bitmap.representation(using: .png, properties: [:]))
-                try png.write(to: out.appendingPathComponent("rollup-\(mode).png"))
-                try measured.write(to: out.appendingPathComponent("rollup-\(mode).json"))
+            try measured.write(to: out.appendingPathComponent("rollup-\(mode).json"))
+            window.orderFrontRegardless()
+            for child in AANestedGroupsGalleryTests.all(root) {
+                child.layoutSubtreeIfNeeded(); child.needsDisplay = true; child.displayIfNeeded()
             }
+            CATransaction.flush()
+            let crop = NSRect(x: 0, y: 0, width: sidebarWidth, height: row.height + 32)
+            let bitmap = try #require(root.bitmapImageRepForCachingDisplay(in: crop))
+            root.cacheDisplay(in: crop, to: bitmap)
+            let png = try #require(bitmap.representation(using: .png, properties: [:]))
+            try png.write(to: out.appendingPathComponent("rollup-\(mode).png"))
             #expect(view.title.frame.width > 0, "\(mode): collapsed parent must retain nonzero title room")
             #expect(view.rollUp.frame.minX >= inset,
                     "\(mode): chips start at \(view.rollUp.frame.minX), before the leading content edge \(inset)")
