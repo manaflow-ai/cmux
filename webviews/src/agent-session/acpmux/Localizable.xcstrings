@@ -94160,7 +94160,138 @@
         }
       }
     },
-    "handoff.continueIn": {"comment":"Agent pane","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"تسليم إلى…"}},"bs":{"stringUnit":{"state":"translated","value":"Predaj…"}},"da":{"stringUnit":{"state":"translated","value":"Overdrag til…"}},"de":{"stringUnit":{"state":"translated","value":"Übergeben an…"}},"en":{"stringUnit":{"state":"translated","value":"Hand off to…"}},"es":{"stringUnit":{"state":"translated","value":"Transferir a…"}},"fr":{"stringUnit":{"state":"translated","value":"Transférer à…"}},"it":{"stringUnit":{"state":"translated","value":"Passa a…"}},"ja":{"stringUnit":{"state":"translated","value":"引き継ぎ先…"}},"km":{"stringUnit":{"state":"translated","value":"ប្រគល់ទៅ…"}},"ko":{"stringUnit":{"state":"translated","value":"다음으로 인계…"}},"nb":{"stringUnit":{"state":"translated","value":"Overfør til…"}},"pl":{"stringUnit":{"state":"translated","value":"Przekaż do…"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Transferir para…"}},"ru":{"stringUnit":{"state":"translated","value":"Передать…"}},"th":{"stringUnit":{"state":"translated","value":"ส่งต่องานให้…"}},"tr":{"stringUnit":{"state":"translated","value":"Şuraya devret…"}},"uk":{"stringUnit":{"state":"translated","value":"Передати…"}},"vi":{"stringUnit":{"state":"translated","value":"Bàn giao cho…"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"移交给…"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"移交給…"}}}},
+    "handoff.continueIn": {
+      "comment": "Agent pane",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تسليم إلى…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Predaj…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Overdrag til…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Übergeben an…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hand off to…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transferir a…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transférer à…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Passa a…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "引き継ぎ先…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ប្រគល់ទៅ…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다음으로 인계…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Overfør til…"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przekaż do…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transferir para…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Передать…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ส่งต่องานให้…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Şuraya devret…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Передати…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bàn giao cho…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移交给…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移交給…"
+          }
+        }
+      }
+    },
     "handoff.continueTarget": {
       "comment": "Agent pane",
       "extractionState": "manual",
