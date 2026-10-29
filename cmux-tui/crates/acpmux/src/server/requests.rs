@@ -2074,8 +2074,7 @@ async fn dispatch_request(
                 hub.end_agents_at_shutdown(keep.clone())?;
             }
             if params.get("restart").and_then(Value::as_bool) == Some(true) {
-                hub.restart_requested
-                    .store(true, std::sync::atomic::Ordering::SeqCst);
+                hub.restart_requested.store(true, std::sync::atomic::Ordering::SeqCst);
             }
             hub.stop_idle_reaper();
             hub.shutdown.notify_waiters();
