@@ -223,7 +223,9 @@ async fn a_cancelled_compaction_result_cannot_end_the_next_echoed_prompt() {
     t.inbound(&json!({"type": "system", "subtype": "status", "status": "compacting"})).await;
     t.outbound(&Message::notification(method::SESSION_CANCEL, json!({"sessionId": "acp-1"}))).await;
     let Outbound::Lines(lines) = t.outbound(&prompt(2, "continue")).await else { panic!() };
-    t.inbound(&lines[0]).await;
+    let mut echo = lines[0].clone();
+    echo["isReplay"] = json!(true);
+    t.inbound(&echo).await;
     t.inbound(&json!({"type": "system", "subtype": "compact_boundary", "compact_metadata": {"trigger": "manual"}})).await;
     t.inbound(&json!({"type": "user", "isSynthetic": true, "message": {"role": "user", "content": "old summary"}})).await;
     let old = t.inbound(&json!({"type": "result", "subtype": "success", "num_turns": 0, "duration_api_ms": 0, "result": ""})).await;
