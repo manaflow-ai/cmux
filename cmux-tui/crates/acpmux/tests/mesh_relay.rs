@@ -650,10 +650,13 @@ async fn mesh_controls_start_and_stop_through_shared_sender_and_replay_success()
     request.body = json!({"version": 1, "params": {"cwd": cwd, "mcpServers": [],
         "_meta":{"acpmux":{"harness":"fake", "name":"unreviewed", "policy":"ask"}}}})
     .to_string();
-    let ack = MeshControlHook::new(control_allowlist(), None)
-        .control(&unreviewed, &request)
-        .await
-        .unwrap();
+    let ack = MeshControlHook::new(
+        control_allowlist(),
+        Some(dir.path().join("unreviewed-controls.json")),
+    )
+    .control(&unreviewed, &request)
+    .await
+    .unwrap();
     assert_eq!(ack.state, AckState::Refused, "{ack:?}");
     assert!(
         ack.detail.as_deref().is_some_and(|detail| detail.contains(
