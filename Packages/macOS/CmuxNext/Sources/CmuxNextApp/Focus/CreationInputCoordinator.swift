@@ -17,8 +17,9 @@ import CmuxNextTerminal
 /// again through `NSApplication.sendEvent`, as typed (the key router, key equivalents and the menu included). A target
 /// that closes or fails, or that the person's newer intent moved the focus away from, drops its keys with a logged
 /// reason; they never go to another target. No timer decides where or whether a key goes, and the queue goes with its
-/// window. A held key whose run makes another target (a Cmd-D, a Ctrl-2, a pane focus key) takes the keys typed after
-/// it to that target, as the person typed them.
+/// window. Only input for the target waits: an app command (a key bound to a cmux action, a menu key equivalent, Escape)
+/// acts on the model at once (``heldKeyKind(_:in:controller:router:)``), and Escape ends the wait. A held key whose run
+/// makes another target (a key a terminal binds) takes the keys typed after it to that target, as the person typed them.
 ///
 /// Invariant (HK1, checked after every change in DEBUG and by the input invariant monitor): captured == delivered +
 /// dropped + waiting, each target's keys in typed order, never delivered to another target.
@@ -286,12 +287,15 @@ final class CreationInputCoordinator {
             claim.workspace = workspace
             _ = activeClaim(in: window) // the window may show it already (its delta came before the reply)
         }
-        guard let ticket, let window, let hold = holds[window.windowNumber],
-              let creation = hold.creations.resolve(ticket, landed: landed, workspace: workspace) else { return }
-        if !creation.landed {
-            drop([creation], .targetFailed, in: hold)
+        guard let ticket, let window else { return }
+        let hold = holds[window.windowNumber]
+        let creation = hold?.creations.resolve(ticket, landed: landed, workspace: workspace)
+        if !landed {
+            if let hold, let creation { drop([creation], .targetFailed, in: hold) }
+            // Also when the hold forgot the creation (Escape ended its wait): the failed target never stays focused.
             settleFocusAfterFailure(in: window)
         }
+        guard let hold, let creation else { return }
         // Where its focus lands, read in the reply's turn: the expectation it asked for, or the tab that expectation
         // already landed on (the topology listed it). A new workspace's lands once the window shows it.
         if creation.landed, !creation.newWorkspace, let state = router?.focus(for: window).0?.focus.currentState(),
@@ -316,11 +320,6 @@ final class CreationInputCoordinator {
         _ = controller.focus.currentState()
     }
 
-    /// Whether `event`'s binding in `controller`'s focus is a close action (Close Tab, Cmd-W).
-    static func closes(_ event: NSEvent, in window: NSWindow, controller: WindowController, router: KeyRouter) -> Bool {
-        heldKeyKind(event, in: window, controller: controller, router: router) == .close
-    }
-
     /// What a key typed while keys are held is: a close key, an app command, or input for the target it was typed for.
     enum HeldKeyKind: Equatable {
         /// A close action (Close Tab, Cmd-W): it acts now on what it closes.
@@ -331,12 +330,45 @@ final class CreationInputCoordinator {
         case input
     }
 
-    /// The kind of `event` in `controller`'s focus.
+    /// The kind of `event` in `controller`'s focus (review finding 6, lead's decision 4a). App commands are never held:
+    /// a key bound to a cmux action (Cmd-T, Cmd-D, Ctrl-Tab, Ctrl-1…9, Cmd-Q), the next key of a pending chord, a menu key
+    /// equivalent (Cmd-H, Cmd-M) and Escape act on the model at once, as Chrome runs browser shortcuts before the page.
+    /// Input for the target's view waits: text, Return, a terminal's control keys (Ctrl-C), and the Edit menu's responder
+    /// keys (Cmd-V, Cmd-C, Cmd-A, Cmd-Z), which act on the view that has the keyboard.
     static func heldKeyKind(_ event: NSEvent, in window: NSWindow, controller: WindowController?, router: KeyRouter) -> HeldKeyKind {
-        guard KeyRouter.isChord(event.modifierFlags), let controller else { return .input }
-        let context = router.keyContext(for: controller.focus.currentState(), facts: router.facts(in: window, controller: controller))
-        guard let binding = router.resolve(event, context: context) else { return .input }
-        return WindowKeyTable.isClose(binding.command) ? .close : .input
+        if event.keyCode == ChordTracker.escapeKeyCode || router.chords.isPending { return .command }
+        guard KeyRouter.isChord(event.modifierFlags) else { return .input }
+        if let controller {
+            let context = router.keyContext(for: controller.focus.currentState(), facts: router.facts(in: window, controller: controller))
+            if let binding = router.resolve(event, context: context) { return WindowKeyTable.isClose(binding.command) ? .close : .command }
+        }
+        guard event.modifierFlags.contains(.command), let item = NSApp.mainMenu.flatMap({ menuItem(for: event, in: $0) }) else { return .input }
+        return item.action.map(responderEditActions.contains) == true ? .input : .command
+    }
+
+    /// The Edit menu's responder-chain actions (MainMenu): they act on the view that has the keyboard, so their keys are
+    /// input for the target the person typed them for.
+    private static let responderEditActions: Set<Selector> = [
+        Selector(("undo:")), Selector(("redo:")), #selector(NSText.cut(_:)), #selector(NSText.copy(_:)),
+        #selector(NSText.paste(_:)), #selector(NSTextView.pasteAsPlainText(_:)), #selector(NSText.selectAll(_:)),
+    ]
+
+    /// The enabled-or-not item of `menu` (or its submenus) whose key equivalent `event` types.
+    private static func menuItem(for event: NSEvent, in menu: NSMenu) -> NSMenuItem? {
+        let flags = event.modifierFlags.intersection([.command, .option, .control, .shift])
+        let typed = (event.charactersIgnoringModifiers ?? "").lowercased()
+        for item in menu.items {
+            if let submenu = item.submenu {
+                if let found = menuItem(for: event, in: submenu) { return found }
+                continue
+            }
+            guard !item.keyEquivalent.isEmpty, item.keyEquivalent.lowercased() == typed else { continue }
+            // An uppercase key equivalent means Shift (AppKit's convention).
+            var mask = item.keyEquivalentModifierMask.intersection([.command, .option, .control, .shift])
+            if item.keyEquivalent != item.keyEquivalent.lowercased() { mask.insert(.shift) }
+            if mask == flags { return item }
+        }
+        return nil
     }
 
     /// Takes `event` while its window holds keys: it waits, stamped with the target it was typed for, unless nothing waits
@@ -353,22 +385,28 @@ final class CreationInputCoordinator {
             return droppedLastKey
         }
         droppedLastKey = false
+        let keyKind = Self.heldKeyKind(event, in: shell, controller: controller, router: router)
         // A close key (Cmd-W) never waits: it acts now on what it closes. A close of a pending creation of this window
         // drops the keys typed for it; the others keep waiting for their targets.
-        if let controller, Self.closes(event, in: shell, controller: controller, router: router) {
+        if keyKind == .close, let controller {
             if let tab = Self.creatingTab(of: controller, in: hold.creations) { drop(hold.creations.cancel(tab: tab), .targetClosed, in: hold) }
             reconcile(shell)
             return false
         }
-        // Escape while the person's new workspace has not shown is their next intent (as after the hold,
-        // ``keepsFromWindow(_:in:)``): the keys typed for that terminal drop, and the claim ends below.
-        if event.keyCode == ChordTracker.escapeKeyCode, activeClaim(in: shell) != nil {
-            drop(hold.creations.remove { $0.newWorkspace && !Self.showsMadeWorkspaceTab($0, in: controller) }, .focusMovedAway, in: hold)
-            return keepsFromWindow(event, in: shell)
-        }
         if controller != nil { reconcile(shell) }
         // A panel, popup or overlay of the window has the keyboard: the key is its. The held keys keep waiting.
         guard kind == .content || controller == nil else { return false }
+        // Escape is the person ending the wait (review finding 6): the keys typed for this hold's targets drop, the
+        // keys typed next go where the focus is, and a keyboard claim ends (``keepsFromWindow(_:in:)``). Escape itself
+        // goes on now.
+        if event.keyCode == ChordTracker.escapeKeyCode {
+            endWait(hold)
+            syncMode()
+            return keepsFromWindow(event, in: shell)
+        }
+        // Any other app command acts on the model at once; it never waits behind held input. The person's intent it
+        // runs leaves the targets the held keys were typed for (``reconcile(_:)``).
+        if keyKind == .command { return false }
         guard let current = holds[shell.windowNumber]?.current else {
             // As any key after a hold: a person's keyboard claim still keeps it from the window (the Chief's box).
             droppedLastKey = kind == .content && keepsFromWindow(event, in: shell)
@@ -532,11 +570,7 @@ final class CreationInputCoordinator {
         // 0. Another cmux window is key: the person left this one (its keys could not reach it: `dropsCrossWindowKey`).
         if NSApp.isActive, let key = NSApp.keyWindow, router.focus(for: key).0 != nil,
            !NewTabInputCoordinator.mayTakeKey(window, keyWindow: key) {
-            for target in hold.queue.targets where !target.isNewTabPage { hold.queue.drop(target, .focusMovedAway) }
-            drop(hold.creations.remove { _ in true }, .focusMovedAway, in: hold)
-            hold.shown = nil
-            hold.current = nil
-            return
+            return endWait(hold)
         }
         let state = controller.focus.currentState()
         let named = state.resolved.tab.map(WindowInputQueue.Target.init)
@@ -599,10 +633,13 @@ final class CreationInputCoordinator {
         hold.landsOn = hold.landsOn.filter { live.contains($0.key) }
     }
 
-    /// Whether `controller`'s window shows the workspace `creation` made.
-    private static func showsMadeWorkspaceTab(_ creation: CreationInputBuffer.Creation, in controller: WindowController?) -> Bool {
-        guard let workspace = creation.workspace, let controller else { return false }
-        return controller.focus.currentState().topology.workspace == workspace
+    /// The person left every target `hold` waits for (Escape, another cmux window became key): the keys typed for them
+    /// drop (focusMovedAway), and the hold waits for nothing more. A creation's later reply still settles the focus.
+    private func endWait(_ hold: WindowHold) {
+        for target in hold.queue.targets where !target.isNewTabPage { hold.queue.drop(target, .focusMovedAway) }
+        drop(hold.creations.remove { _ in true }, .focusMovedAway, in: hold)
+        hold.shown = nil
+        hold.current = nil
     }
 
     /// Whether `creation` made a new workspace that the window shows now, its terminal tab not known yet.

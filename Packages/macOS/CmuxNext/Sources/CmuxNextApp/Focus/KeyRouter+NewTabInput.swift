@@ -18,9 +18,10 @@ import CmuxNextDesign
 /// - its creation failed or its page closed before it existed,
 /// - the person moved on: another opening (its keys stay with the first page unless a held key opened it),
 ///   Escape, a click on another pane, a key window that is not the shell's.
-/// A close key (Cmd-W) acts at once and drops the keys. Any other key waits behind keys already held, so it never
-/// runs before the text typed ahead of it (nightly 2026-10-11, "cannot type at all", was the old bound's reason:
-/// Escape or a click now ends a hold whose field never comes).
+/// A close key (Cmd-W) acts at once and drops the keys. Any other app command (a key bound to a cmux action, a menu key
+/// equivalent) acts at once and never waits (review finding 6: a hold whose field never came took every key). Input for
+/// the field (Return, Tab, an arrow, Cmd-V) waits behind keys already held, so it never runs before the text typed ahead
+/// of it.
 @MainActor
 final class NewTabInputCoordinator {
     weak var router: KeyRouter?
@@ -335,14 +336,20 @@ final class NewTabInputCoordinator {
             return false
         }
         // A close key (Cmd-W) acts now on what it closes; Escape is the person leaving the page's field: the keys typed
-        // for it drop, and the key goes on.
-        if CreationInputCoordinator.closes(event, in: window, controller: controller, router: router) {
+        // for it drop, and the key goes on. Any other app command (a key bound to a cmux action, a menu key equivalent)
+        // acts at once and never waits behind held text (review finding 6).
+        switch CreationInputCoordinator.heldKeyKind(event, in: window, controller: controller, router: router) {
+        case .close:
             end(entry, .targetClosed, why: "close key")
             return false
-        }
-        if event.keyCode == ChordTracker.escapeKeyCode {
+        case .command where event.keyCode == ChordTracker.escapeKeyCode:
             end(entry, .focusMovedAway, why: "escape")
             return false
+        case .command:
+            note("pass app command", entry)
+            return false
+        case .input:
+            break
         }
         note("hold key #\(entry.buffer.count + 1)", entry)  // never characters: desync reports keep this log
         return entry.buffer.capture(event)
