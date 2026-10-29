@@ -154,9 +154,8 @@ fn daemon_limits() -> SessionLimits {
     #[cfg(not(target_os = "linux"))]
     return SessionLimits::default();
     #[cfg(target_os = "linux")]
-    crate::config::Config::load().map_or_else(|_| SessionLimits::default(), |config| {
-        session_limits_from_config(&config)
-    })
+    crate::config::Config::load()
+        .map_or_else(|_| SessionLimits::default(), |config| session_limits_from_config(&config))
 }
 
 fn session_limits_from_config(config: &crate::config::Config) -> SessionLimits {
@@ -244,7 +243,7 @@ fn properties_with_swap(
 fn without_swap(properties: &[String]) -> Vec<String> {
     properties
         .chunks_exact(2)
-        .filter(|pair| !pair[1].starts_with("MemorySwapMax="))
+        .filter(|pair| !pair.get(1).is_some_and(|p| p.starts_with("MemorySwapMax=")))
         .flat_map(|pair| pair.iter().cloned())
         .collect()
 }
