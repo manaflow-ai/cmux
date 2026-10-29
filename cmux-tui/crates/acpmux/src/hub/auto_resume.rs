@@ -192,15 +192,15 @@ enum Mark {
     Stopping(String),
 }
 
-/// Each chat's [`Mark`].
+/// The retry state of one session instance; returning imports have their own mark.
 #[derive(Default)]
 pub(crate) struct Pending {
-    marks: Mutex<HashMap<String, Mark>>,
+    mark: Mutex<Option<Mark>>,
 }
 
 impl Pending {
-    fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<String, Mark>> {
-        self.marks.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    fn lock(&self) -> std::sync::MutexGuard<'_, Option<Mark>> {
+        self.mark.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 }
 
@@ -307,11 +307,11 @@ impl Hub {
     /// Ends the chat's turn (`finish_turn`): takes it, and marks `turn_id` as ending, in one
     /// step with Stop's check, so a Stop between the turn's end and its scheduling counts.
     pub(super) fn take_turn(&self, session: &Session, turn_id: &str) -> Option<super::TurnInfo> {
-        let mut pending = self.auto_resumes.lock();
+        let mut pending = session.auto_resume.lock();
         let turn = session.turn.lock().unwrap_or_else(|e| e.into_inner()).take();
-        let stopped = matches!(pending.get(&session.id), Some(Mark::Stopped(t)) if t == turn_id);
+        let stopped = matches!(pending.as_ref(), Some(Mark::Stopped(t)) if t == turn_id);
         if turn.as_ref().is_some_and(|t| t.turn_id == turn_id) && !stopped {
-            pending.insert(session.id.clone(), Mark::Ending(turn_id.to_owned()));
+            pending.replace(Mark::Ending(turn_id.to_owned()));
         }
         turn
     }
@@ -325,8 +325,8 @@ impl Hub {
         turn_id: &str,
         cut: Option<CutTurn<'_>>,
     ) {
-        let mut pending = self.auto_resumes.lock();
-        let ending = match pending.get(&session.id) {
+        let mut pending = session.auto_resume.lock();
+        let ending = match pending.as_ref() {
             Some(Mark::Ending(t)) if t == turn_id => Some(true),
             Some(Mark::Stopped(t)) if t == turn_id => Some(false),
             _ => None,
@@ -335,7 +335,7 @@ impl Hub {
         let reason = reason.and_then(RetryReason::from_cause);
         let (Some(cut), Some(reason), Some(true)) = (cut, reason, ending) else {
             if ending.is_some() {
-                pending.remove(&session.id);
+                pending.take();
                 drop(pending);
                 // Stopped: Stop recorded it when it took the mark (`stop_auto_resume`).
                 if ending == Some(true) {
@@ -347,7 +347,7 @@ impl Hub {
         let wake = Arc::new(Notify::new());
         let mark =
             Mark::Waiting { turn: turn_id.to_owned(), retry: None, _wake: Wake(wake.clone()) };
-        pending.insert(session.id.clone(), mark);
+        pending.replace(mark);
         drop(pending);
         let (root, done) = split_attempt(cut.prompt_id);
         let (root, turn_id, error) =
@@ -424,7 +424,7 @@ impl Hub {
     /// turn held, so a held agent message's own retry waits for it (`digest.rs`).
     pub(super) fn continuation_pending(&self, session: &Session) -> bool {
         matches!(
-            self.auto_resumes.lock().get(&session.id),
+            session.auto_resume.lock().as_ref(),
             Some(Mark::Waiting { .. } | Mark::Firing(_) | Mark::Ending(_))
         )
     }
@@ -432,7 +432,7 @@ impl Hub {
     /// Stop or close: the chat's waiting continuation does not fire, and the turn running or
     /// ending now gets none, however it ends.
     pub(super) fn stop_auto_resume(&self, session: &Session) {
-        let mut pending = self.auto_resumes.lock();
+        let mut pending = session.auto_resume.lock();
         // A lazy startup may not have installed the saved retry's mark yet. Journal the
         // cancellation boundary under the same lock as recovery: only schedules before
         // this record are stopped, never a later turn after an earlier idle Stop.
@@ -441,18 +441,17 @@ impl Hub {
         if session.status() != SessionStatus::Closed {
             self.append(session, "mux", "auto_resume_stopped", json!({}));
         }
-        let settles = settled_by_stop(pending.get(&session.id));
-        let (ending, fired) = match pending.get(&session.id) {
+        let settles = settled_by_stop(pending.as_ref());
+        let (ending, fired) = match pending.as_ref() {
             Some(Mark::Ending(t)) => (Some(t.clone()), false),
             Some(Mark::Firing(t) | Mark::Stopping(t)) => (Some(t.clone()), true),
             _ => (None, false),
         };
-        let id = session.id.clone();
         match (session.turn().map(|t| t.turn_id), ending) {
-            (Some(t), _) => pending.insert(id, Mark::Stopped(t)),
-            (None, Some(t)) if fired => pending.insert(id, Mark::Stopping(t)),
-            (None, Some(t)) => pending.insert(id, Mark::Stopped(t)),
-            (None, None) => pending.remove(&id),
+            (Some(t), _) => pending.replace(Mark::Stopped(t)),
+            (None, Some(t)) if fired => pending.replace(Mark::Stopping(t)),
+            (None, Some(t)) => pending.replace(Mark::Stopped(t)),
+            (None, None) => pending.take(),
         };
         drop(pending);
         // A row may have shown this turn's retry being decided: watchers and peers hear it
@@ -466,10 +465,10 @@ impl Hub {
     /// or with `None` nothing pending.
     #[cfg(test)]
     pub(super) fn set_ending_for_test(&self, session: &Session, turn: Option<&str>) {
-        let mut pending = self.auto_resumes.lock();
+        let mut pending = session.auto_resume.lock();
         match turn {
-            Some(turn) => pending.insert(session.id.clone(), Mark::Ending(turn.to_owned())),
-            None => pending.remove(&session.id),
+            Some(turn) => pending.replace(Mark::Ending(turn.to_owned())),
+            None => pending.take(),
         };
     }
 
@@ -486,9 +485,9 @@ impl Hub {
         subagent_retry: bool,
         turn: super::TurnInfo,
     ) -> Result<(), RpcError> {
-        let mut pending = self.auto_resumes.lock();
+        let mut pending = session.auto_resume.lock();
         let continuation = matches!(
-            pending.get(&session.id),
+            pending.as_ref(),
             Some(Mark::Waiting { .. } | Mark::Firing(_) | Mark::Ending(_))
         );
         if exclusive
@@ -497,7 +496,7 @@ impl Hub {
             return Err(retry_turn::busy());
         }
         if let Some(cut) = after {
-            let mark = match pending.get(&session.id) {
+            let mark = match pending.as_ref() {
                 Some(Mark::Firing(t)) if t == cut => Some(true),
                 Some(Mark::Stopped(t)) if t == cut => Some(false),
                 // Its task clears it once it ends.
@@ -505,7 +504,7 @@ impl Hub {
                 _ => None,
             };
             if mark.is_some() {
-                pending.remove(&session.id);
+                pending.take();
             }
             if mark == Some(false) {
                 return Err(stopped());
@@ -522,7 +521,7 @@ impl Hub {
     /// Sets the wait of the chat's continuation of `cut_turn`, when it still waits: what the
     /// session row's `retry` shows.
     fn set_retry(&self, session: &Session, cut_turn: &str, wait: RetrySummary, msg: Value) -> bool {
-        match self.auto_resumes.lock().get_mut(&session.id) {
+        match session.auto_resume.lock().as_mut() {
             Some(Mark::Waiting { turn, retry, .. }) if turn == cut_turn => {
                 *retry = Some(wait);
                 // Before Stop can clear the mark and record its terminal decision: recovery
@@ -552,8 +551,8 @@ impl Hub {
         });
         let cut = failed.and_then(|t| t["turnId"].as_str());
         let snapshot = || {
-            let pending = self.auto_resumes.lock();
-            let mark = pending.get(&session.id);
+            let pending = session.auto_resume.lock();
+            let mark = pending.as_ref();
             let waiting = match mark {
                 Some(Mark::Waiting { turn, retry: Some(retry), .. }) => {
                     Some((turn.clone(), retry.clone()))
@@ -581,10 +580,10 @@ impl Hub {
     /// stays, as firing, until its turn starts. Else why it does not: `superseded` when a newer
     /// turn took its mark or the chat moved on, `stopped` when Stop or close took it.
     fn fire_pending(&self, session: &Session, cut_turn: &str) -> Result<(), &'static str> {
-        let mut pending = self.auto_resumes.lock();
-        match pending.get(&session.id) {
+        let mut pending = session.auto_resume.lock();
+        match pending.as_ref() {
             Some(Mark::Waiting { turn, .. }) if turn == cut_turn => {
-                pending.insert(session.id.clone(), Mark::Firing(cut_turn.to_owned()));
+                pending.replace(Mark::Firing(cut_turn.to_owned()));
                 Ok(())
             }
             Some(Mark::Waiting { .. } | Mark::Firing(_) | Mark::Ending(_)) => Err("superseded"),
@@ -596,19 +595,19 @@ impl Hub {
 
     /// Drops what is left of a continuation of `cut_turn` that did not start its turn.
     fn clear_fired(&self, session: &Session, cut_turn: &str) {
-        let mut pending = self.auto_resumes.lock();
-        if matches!(pending.get(&session.id), Some(Mark::Firing(t) | Mark::Stopped(t) | Mark::Stopping(t)) if t == cut_turn)
+        let mut pending = session.auto_resume.lock();
+        if matches!(pending.as_ref(), Some(Mark::Firing(t) | Mark::Stopped(t) | Mark::Stopping(t)) if t == cut_turn)
         {
-            pending.remove(&session.id);
+            pending.take();
         }
     }
 
     /// Takes the chat's waiting continuation when it still answers for `cut_turn`.
     fn take_pending(&self, session: &Session, cut_turn: &str) -> bool {
-        let mut pending = self.auto_resumes.lock();
-        let ours = matches!(pending.get(&session.id), Some(Mark::Waiting { turn, .. }) if turn == cut_turn);
+        let mut pending = session.auto_resume.lock();
+        let ours = matches!(pending.as_ref(), Some(Mark::Waiting { turn, .. }) if turn == cut_turn);
         if ours {
-            pending.remove(&session.id);
+            pending.take();
         }
         ours
     }
@@ -621,6 +620,11 @@ impl Hub {
         cut: CutTurn<'_>,
         attempt: usize,
     ) {
+        // Transfer replacement can leave this old task alive after the returning journal
+        // takes its id. It must neither fire nor record a skip in that new journal.
+        if session.replaced.load(std::sync::atomic::Ordering::SeqCst) {
+            return;
+        }
         let (root, cut_turn) = (cut.prompt_id, cut.turn_id);
         let skipped = |why: &str| json!({"promptId": root, "attempt": attempt, "turnId": cut_turn, "skipped": why});
         if let Err(why) = self.fire_pending(session, cut_turn) {

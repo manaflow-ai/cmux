@@ -48,6 +48,9 @@ pub struct Session {
     /// Claim retry recovery once per session object; imports may replace a chat with the
     /// same id and a different journal, which must get its own recovery pass.
     pub(super) auto_resume_restored: AtomicBool,
+    /// A retry task may outlive an imported replacement with the same durable id. Its mark
+    /// belongs to this instance, so its wake and cleanup cannot consume the replacement's.
+    pub(super) auto_resume: auto_resume::Pending,
     pub(super) turn_lock: Mutex<()>,
     pub(super) turn: StdMutex<Option<TurnInfo>>,
     pub(super) queued: AtomicU64,

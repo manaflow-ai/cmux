@@ -8,8 +8,8 @@ impl Hub {
         if session.auto_resume_restored.swap(true, std::sync::atomic::Ordering::SeqCst) {
             return;
         }
-        let mut pending = self.auto_resumes.lock();
-        if pending.contains_key(&session.id)
+        let mut pending = session.auto_resume.lock();
+        if pending.is_some()
             || session.status() == SessionStatus::Closed
             || session.turn().is_some()
             || session.queue().iter().any(|q| !q.held)
@@ -134,14 +134,11 @@ impl Hub {
         session.meta.lock().unwrap_or_else(|e| e.into_inner()).last_turn =
             Some(Value::Object(summary));
         let wake = Arc::new(Notify::new());
-        pending.insert(
-            session.id.clone(),
-            Mark::Waiting {
-                turn: turn_id.clone(),
-                retry: Some(retry.clone()),
-                _wake: Wake(wake.clone()),
-            },
-        );
+        pending.replace(Mark::Waiting {
+            turn: turn_id.clone(),
+            retry: Some(retry.clone()),
+            _wake: Wake(wake.clone()),
+        });
         // Startup reads logs asynchronously. Publish the restored wait only after its mark
         // is visible, and before Stop can remove it, so observers can synchronize with it.
         self.append(session, "mux", "auto_resume_restored", json!(retry));
@@ -278,6 +275,59 @@ mod tests {
                 "repeated resume_queues must recover the imported retry only once"
             );
         }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn retry_restore_old_task_cannot_consume_a_replacements_retry() {
+        let (source, incoming) = idle_chat();
+        failed_retry(&source, &incoming);
+        let dir =
+            std::env::temp_dir().join(format!("acpmux-retry-old-task-{}", uuid::Uuid::now_v7()));
+        let bundle = source.export(&incoming, &dir).unwrap();
+        let (hub, old) = idle_chat();
+        hub.config
+            .write()
+            .await
+            .harnesses
+            .insert("claude".into(), serde_json::from_value(json!({"argv": ["true"]})).unwrap());
+        failed_retry(&hub, &old);
+        hub.restore_auto_resume(&old);
+        assert!(hub.session_summary(&old)["retry"].is_object());
+        // Both copies retain the same turn and prompt ids. The old timer is still alive
+        // behind startup when transfer replacement stops it and imports the returning log.
+        *old.moving.lock().unwrap() = Some("previous-move".into());
+        old.replaced.store(true, std::sync::atomic::Ordering::SeqCst);
+        hub.kill(&old, false).await.unwrap();
+        hub.store.delete(&old.id).unwrap();
+        let imported = hub.import_into(&bundle, None, true, None, true, false).await.unwrap();
+        hub.restore_auto_resume(&imported);
+        let before = hub.session_summary(&imported)["retry"].clone();
+        assert!(before.is_object());
+        let records = hub.events(&imported.id, 0, 100).unwrap().len();
+        // Drive the old timer's wake directly, without timing or starting a harness.
+        hub.auto_resume(
+            &old,
+            CutTurn {
+                from: None,
+                prompt_id: "later-prompt",
+                turn_id: "later-turn",
+                control: Control::Local,
+                trust_gate: false,
+                error: "stream disconnected",
+            },
+            1,
+        )
+        .await;
+        assert_eq!(hub.session_summary(&imported)["retry"], before);
+        assert_eq!(hub.events(&imported.id, 0, 100).unwrap().len(), records);
+        // Off/exhaustion and cleanup paths from old tasks also own only the old mark.
+        assert!(!hub.take_pending(&old, "later-turn"));
+        assert_eq!(hub.fire_pending(&imported, "later-turn"), Ok(()));
+        hub.clear_fired(&old, "later-turn");
+        assert_eq!(hub.session_summary(&imported)["retryDeciding"], true);
+        hub.clear_fired(&imported, "later-turn");
+        assert_eq!(hub.session_summary(&imported)["retryDeciding"], false);
         std::fs::remove_dir_all(dir).unwrap();
     }
 
