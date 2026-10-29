@@ -41,6 +41,8 @@
 .ui-context-menu .ui-separator{height:.5px;margin:4px 8px;border:0;background:var(--agent-border)}
 /* appearance.borders none (data-borders on the root, applyAgentTheme): the composer, menu and tray edges draw clear in place; their fills keep them apart. */
 :root[data-borders=none] .acpmux-shell{--acpmux-composer-edge:transparent}
+/* One height policy for chat, New Tab and Cmd-I composers: a dozen readable lines, then scroll. */
+.acpmux-shell{--acpmux-composer-max-lines:12}
 .acpmux-composer{position:relative;padding:0 var(--cv-inset,max(18px,calc((100% - 760px)/2))) 16px;font-family:var(--font-ui);-webkit-font-smoothing:antialiased}
 .acpmux-composer-box{--acpmux-composer-radius:22px;position:relative;display:flex;flex-direction:column;box-sizing:border-box;border-radius:var(--acpmux-composer-radius);--acpmux-card-ring:inset 0 0 0 var(--cmux-hairline,.5px) var(--acpmux-composer-edge);box-shadow:var(--acpmux-card-ring)}
 .acpmux-composer-box button{font:inherit}
@@ -296,7 +298,8 @@
 .acpmux-file-note{display:block;padding:6px 10px 8px;color:var(--acpmux-composer-dim);font-size:13px}
 /* The project pill chooses: a button drawn as the other pills, with the project menu above the tray. */
 .acpmux-project{position:relative;display:flex;min-width:0}
-.acpmux-project-button{display:inline-flex;align-items:center;gap:5px;height:24px;max-width:220px;padding:0;border:0;border-radius:3px;background:none;color:var(--agent-muted);font:inherit;cursor:pointer;white-space:nowrap}
+.acpmux-project-button{display:inline-flex;align-items:center;gap:5px;min-width:0;height:24px;max-width:220px;padding:0;border:0;border-radius:3px;background:none;color:var(--agent-muted);font:inherit;cursor:pointer;white-space:nowrap}
+.acpmux-project-button>span:not(.acpmux-project-badge){min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .acpmux-project-button:hover,.acpmux-project-button[aria-expanded="true"]{color:var(--agent-text);background:none}
 .acpmux-project-button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}@media (prefers-reduced-motion:no-preference){.acpmux-project-button{transition:background-color var(--agent-motion-hover) var(--agent-ease-out)}}.acpmux-project-button:active{background:color-mix(in srgb,var(--agent-text) 20%,transparent)}
 .ui-popup.acpmux-project-menu{position:relative;inset:auto;width:300px;max-width:calc(100vw - 32px);max-height:none;overflow:visible;font-size:13px;--acpmux-project-menu-edge:4px}
@@ -834,8 +837,17 @@ fieldset.acpmux-question[hidden]{display:none}
 .acpmux-trust-ask[data-asking]{color:var(--agent-text);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--agent-accent) 45%,transparent)}.acpmux-trust-ask-action.acpmux-trust-ask-primary{background:color-mix(in srgb,var(--agent-accent) 14%,transparent);font-weight:500}.acpmux-trust-ask-action.acpmux-trust-ask-primary:hover{background:color-mix(in srgb,var(--agent-accent) 22%,transparent)}
 .acpmux-trust-ask[data-asking]{flex-wrap:wrap;row-gap:6px;padding-top:7px;padding-bottom:7px}.acpmux-trust-ask-body{flex:1 1 240px;min-width:0;display:flex;flex-direction:column;gap:2px}.acpmux-trust-ask-body .acpmux-trust-ask-text{white-space:normal;overflow-wrap:anywhere;font-weight:500}.acpmux-trust-ask-detail{color:var(--acpmux-composer-dim);font-size:var(--text-detail);line-height:1.35;overflow-wrap:anywhere;letter-spacing:var(--text-detail--letter-spacing)}.acpmux-trust-ask-actions{display:flex;flex-wrap:wrap;gap:4px;margin-left:auto}
 
-/* Search fields and their rows share the menu row metrics. Keep this override at the end so
-   legacy palettes that still emit the old fallback sizes resolve to the shared tokens. */
+/* The composer's + palette is a command surface: searchable, compact and immediately interactive. */
+.acpmux-palette-menu{width:min(360px,calc(100vw - 16px));max-height:min(480px,70vh);padding:0;overflow-y:auto;scroll-padding-block-start:48px}
+.acpmux-palette-menu{animation:none!important;transition:none!important}
+.acpmux-palette-menu .acpmux-menu-item>svg{flex:none;color:var(--agent-muted)}
+.acpmux-palette-search{position:sticky;top:0;z-index:var(--layer-dropdown);padding:var(--ui-popup-padding);border-bottom:.5px solid var(--agent-border);background:var(--surface-popup)}
+.acpmux-palette-search input{display:block;width:100%;height:28px;padding:0 8px;border:0;border-radius:6px;background:var(--acpmux-pill-fill);color:var(--agent-text);font:inherit;outline:none}
+.acpmux-palette-search input:focus{background:var(--acpmux-pill-hover);box-shadow:0 0 0 1px color-mix(in srgb,var(--agent-accent) 50%,transparent)}
+.acpmux-palette-empty{padding:var(--ui-row-height) var(--ui-row-padding-inline);color:var(--agent-muted);text-align:center}
+.acpmux-palette-menu .acpmux-menu-header{padding-top:8px}
+
+/* Keep search rows on the same shared menu metrics. */
 .acpmux-file-search input { height: var(--ui-row-height); padding-inline: var(--ui-row-padding-inline); }
 .acpmux-file-result { min-height: var(--ui-row-height); padding-inline: var(--ui-row-padding-inline); }
 .acpmux-project-menu .acpmux-project-search { height: var(--ui-row-height); margin-block-end: 0; padding-inline: var(--ui-row-padding-inline); box-sizing: border-box; }

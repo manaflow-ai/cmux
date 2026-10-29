@@ -46,6 +46,8 @@ public enum AgentSessionEvent: Hashable, Sendable {
     case queueUpdated(promptId: String, text: String)
     /// The waiting prompts' order (`queue_order`, Move up / Move down).
     case queueOrder([String])
+    /// The daemon retried the failed turn under a new attempt id.
+    case turnRetried(previousTurnID: String, turnID: String)
     case turnStarted(turnId: String, at: Date)
     case turnResult(turnId: String, status: AgentTurn.Status, errorText: String?, at: Date)
     /// The agent's request to its model failed and it is trying again (Claude Code's
@@ -56,8 +58,12 @@ public enum AgentSessionEvent: Hashable, Sendable {
     /// A permission request that maps to a question (AskUserQuestion, Codex user input).
     case question(AgentQuestion)
     /// `permission_decision`: the prompt was resolved (here or by another client).
-    case permissionDecision(permissionId: String, optionId: String?)
+    /// `answers`: a question's answers as the owner recorded them (harness-shaped).
+    case permissionDecision(permissionId: String, optionId: String?, answers: AgentQuestionJSON? = nil)
     case questionAnswered(questionId: String, answer: AgentQuestionAnswer)
+    /// The history a chat opened on leaves out older records (the attach's cap): its first
+    /// turn is not where the session started.
+    case earlierHistory(Bool)
     case modelsAvailable([ACPModelInfo], current: String?)
     case modesAvailable([ACPMode], current: String?)
     /// Whether this phone's Full-access setting on the Mac covers it (acpmux `initialize`
@@ -86,6 +92,7 @@ public enum AgentClientIntent: Hashable, Sendable {
     /// `promptID`: `_meta.acpmux.promptId`, which acpmux runs once; `resend`: the same prompt
     /// sent again after its reply was lost (acpmux also looks for the id in the session log).
     case prompt(text: String, attachments: [AgentAttachment], steer: Bool, promptID: String, resend: Bool)
+    case retryFailedTurn
     case cancel
     case respondPermission(permissionId: String, optionId: String?)
     case answerQuestion(questionId: String, answer: AgentQuestionAnswer)
@@ -111,12 +118,19 @@ public struct AgentAttachment: Hashable, Sendable, Identifiable {
     public var kind: Kind
     public var name: String
     public var data: Data?
+    /// A picked file too large to hold in memory: streamed from here at send.
+    public var fileURL: URL?
+    /// The file's size when its bytes are not held (`fileURL`).
+    public var byteCount: Int?
 
-    public init(id: String = UUID().uuidString, kind: Kind, name: String, data: Data? = nil) {
+    public init(id: String = UUID().uuidString, kind: Kind, name: String, data: Data? = nil,
+                fileURL: URL? = nil, byteCount: Int? = nil) {
         self.id = id
         self.kind = kind
         self.name = name
         self.data = data
+        self.fileURL = fileURL
+        self.byteCount = byteCount
     }
 
     /// The image MIME type from the data's signature (nil: not an image an
@@ -132,7 +146,7 @@ public struct AgentAttachment: Hashable, Sendable, Identifiable {
     }
 
     /// The attachment as a preview reads it (composer and sent message alike).
-    public var localFile: LocalFile { LocalFile(id: id, name: name, data: data, isImage: kind == .image) }
+    public var localFile: LocalFile { LocalFile(id: id, name: name, data: data, isImage: kind == .image, fileURL: fileURL) }
 
     /// The id prefix of an image a recorded prompt names (acpmux's `images[].id`, its bytes' hash).
     public static let recordedImagePrefix = "acpmux-image:"

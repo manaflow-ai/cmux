@@ -289,6 +289,11 @@ pub const MCP_RECONNECT: &str = "_acpmux/claude/mcp_reconnect";
 /// tools would otherwise log every one at each turn's end.
 const BREAKDOWN_ROWS: usize = 50;
 
+/// The internal ACP request for Claude Code's native, transcript-free `/btw`
+/// control request. The translator turns this into a `side_question`
+/// `control_request` on Claude's running stream-json process.
+pub const SIDE_QUESTION: &str = "_acpmux/claude/side_question";
+
 /// The refusal of a steered prompt when no turn is running (the turn ended
 /// between the hub's check and the adapter).
 pub const STEER_NO_TURN: &str = "steer: no turn is running";
@@ -464,6 +469,9 @@ pub struct Translator {
     /// The tokens the chat's context last held (its last `message_delta`; a
     /// compaction resets it).
     context_used: AtomicU64,
+    /// The cached context count came from an untagged compaction boundary rather
+    /// than a model message. The controller can fence its later result resend.
+    context_from_compaction: AtomicBool,
     /// A compaction just ended: the synthetic user line Claude writes next
     /// is its summary (`compaction_summary`).
     awaiting_summary: AtomicBool,
@@ -478,6 +486,10 @@ pub struct Translator {
     /// A cancelled compaction produced its terminal output (boundary or failure status)
     /// after a later prompt began; its following result belongs to the abandoned compaction.
     cancelled_compaction_boundary: AtomicBool,
+    /// Untagged compaction boundaries/summaries cannot be attributed after a cancelled
+    /// compaction overlaps later work. Fence them until this translator is replaced;
+    /// clearing on a new status or result would guess which compaction produced them.
+    compaction_metadata_fenced: AtomicBool,
     /// The model id the chat's main loop last ran (its `message_start`): the
     /// `modelUsage` key for its window, which a picker alias is not.
     loop_model: Mutex<String>,
@@ -535,6 +547,9 @@ enum Pending {
     Control(Setting, String),
     /// A `stop_task` (`STOP_TASK`), answered when claude takes it.
     StopTask,
+    /// Claude Code's native `side_question`, answered once its callback
+    /// returns `{response, synthetic}` (or another response payload).
+    SideQuestion,
     /// A `background_tasks` (`BACKGROUND_TASKS`), with the shells it marked
     /// `asked` and when the hub stops waiting for it (its `timeoutMs`):
     /// `end_background_asks` unmarks them when nothing moved, at that
@@ -587,10 +602,12 @@ impl Translator {
             background_shells: Mutex::new(HashMap::new()),
             context_window: AtomicU64::new(0),
             context_used: AtomicU64::new(0),
+            context_from_compaction: AtomicBool::new(false),
             awaiting_summary: AtomicBool::new(false),
             compacting: AtomicBool::new(false),
             cancelled_compaction: AtomicBool::new(false),
             cancelled_compaction_boundary: AtomicBool::new(false),
+            compaction_metadata_fenced: AtomicBool::new(false),
             loop_model: Mutex::new(String::new()),
             message_ids: Mutex::new(HashMap::new()),
             streamed_subagents: Mutex::new(HashSet::new()),
@@ -603,6 +620,13 @@ impl Translator {
     /// Whether Claude Code has reported that it is currently compacting.
     pub fn is_compacting(&self) -> bool {
         self.compacting.load(Ordering::SeqCst)
+    }
+
+    /// Called when Stop is accepted, before waiting for the cancellation writer.
+    /// Untagged compaction metadata remains fenced for this translator instance.
+    pub fn fence_compaction_metadata(&self) {
+        self.compaction_metadata_fenced.store(true, Ordering::SeqCst);
+        self.awaiting_summary.store(false, Ordering::SeqCst);
     }
 
     /// Take the lines `inbound` queued for claude's stdin.
@@ -946,7 +970,7 @@ pub(super) fn context_breakdown(usage: &Value) -> Option<Value> {
             let mut kept =
                 json!({"name": c.get("name"), "tokens": tokens(c), "kind": c.get("kind")});
             if let Some(id) = c.get("id").filter(|id| id.is_string()) {
-                kept["id"] = id.clone();
+                kept.set("id", id.clone());
             }
             kept
         })
@@ -960,7 +984,7 @@ pub(super) fn context_breakdown(usage: &Value) -> Option<Value> {
     });
     // Claude Code names its skills only when they take context.
     if let Some(skills) = usage.pointer("/skills/skillFrontmatter").filter(|s| s.is_array()) {
-        breakdown["skills"] = json!(rows(Some(skills), &["name"]));
+        breakdown.set("skills", json!(rows(Some(skills), &["name"])));
     }
     Some(breakdown)
 }
