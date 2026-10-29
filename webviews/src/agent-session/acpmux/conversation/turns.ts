@@ -447,8 +447,59 @@ function shapedTurn(
       if (final >= 0) shaped[final] = { ...shaped[final]!, lastTurn: true };
     }
   }
+  shaped = withReplyActions(shaped, live || last);
   if (!live) shapedTurns.set(user, { source, open, last, clockOffset, dated, liveRuns, rows: shaped });
   return shaped;
+}
+
+/// A running turn's status line, which the footer takes the place of when the turn ends.
+const isLiveLine = (row: AcpmuxRow) => row.kind === THINKING || row.kind === WORKING || row.kind === ACTIVITY_LINE;
+
+/// Each reply as its marked copy, one object per reply object: a running turn shaped again keeps
+/// the same row for a reply that did not change, so its height and memoized row stand.
+const repliesWithActions = new WeakMap<AcpmuxRow, AcpmuxRow>();
+
+/// Every reply in sight keeps its own action row (Copy, Pin, Read aloud and its age;
+/// MessageActions.tsx ReplyActions) unless its turn's footer is that row: the turn's answer, which
+/// the footer copies, and a reply right over a footer or over the running turn's line, which the
+/// footer takes the place of at the turn's end. So a reply followed by a steer, another agent's
+/// message, a sent message or a tool row keeps its row, as Claude desktop draws every reply (Leo,
+/// 2026-10-29: "i feel like im frequently missing the copy/whatever buttons on these steers... but
+/// claude code allows those buttons in these situations. let's have those"). In the chat's last
+/// turn (`tail`) a reply needs a row after it: a running turn's latest reply, with only the line
+/// under it, may still become its answer, and the last reply of a turn that ended with no summary
+/// keeps its place at the composer as before (rowEstimates.test.ts).
+/// Work inside an open "Worked for" (`settled`) keeps its quiet rows. One walk over the turn's own
+/// drawn rows, which shaping already makes; a finished turn's result is cached with it.
+function withReplyActions(shaped: AcpmuxRow[], tail: boolean): AcpmuxRow[] {
+  let out: AcpmuxRow[] | undefined;
+  let answer: string | undefined;
+  let after: AcpmuxRow | undefined;
+  let followed = !tail;
+  for (let at = shaped.length - 1; at >= 0; at -= 1) {
+    const row = shaped[at]!;
+    if (row.kind === "turnSummary") answer = row.answerId;
+    else if (
+      row.kind === "assistant" &&
+      followed &&
+      !row.streaming &&
+      !row.settled &&
+      row.id !== answer &&
+      after?.kind !== "turnSummary" &&
+      !(after && isLiveLine(after)) &&
+      (row.text ?? "").trim().length > 0
+    ) {
+      let marked = repliesWithActions.get(row);
+      if (!marked) {
+        marked = { ...row, replyActions: true, version: row.version + VERSION_SPAN };
+        repliesWithActions.set(row, marked);
+      }
+      (out ??= shaped.slice())[at] = marked;
+    }
+    if (!isLiveLine(row)) followed = true;
+    if (row.incoming?.kind !== "hidden") after = row;
+  }
+  return out ?? shaped;
 }
 
 const isAnswer = (row: AcpmuxRow) => row.kind === "assistant";

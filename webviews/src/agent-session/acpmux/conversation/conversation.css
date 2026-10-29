@@ -631,17 +631,20 @@
 @media (prefers-reduced-motion: no-preference) {
   .cv-user__actions,
   .cv-received-actions,
+  .cv-reply-actions,
   .acpmux-turnSummary .cv-turn-actions {
     transition: opacity var(--cv-actions-out) var(--cv-actions-ease);
   }
   .cv-user:hover .cv-user__actions,
   .cv-received:hover .cv-received-actions,
+  .acpmux-assistant:hover .cv-reply-actions,
   .acpmux-turnSummary[data-turn-revealed] .cv-turn-actions,
   .acpmux-turnSummary:hover .cv-turn-actions {
     transition: opacity var(--cv-actions-in) var(--cv-actions-ease) var(--cv-actions-in-delay);
   }
   .cv-user__actions:focus-within,
   .cv-received-actions:focus-within,
+  .cv-reply-actions:focus-within,
   .acpmux-turnSummary:focus-visible .cv-turn-actions,
   .acpmux-turnSummary .cv-turn-actions:focus-within {
     transition: opacity var(--cv-actions-in) var(--cv-actions-ease);
@@ -2764,6 +2767,18 @@ a.cv-sha:focus-visible {
 .acpmux-turnSummary .cv-turn-actions:focus-within,
 .acpmux-turnSummary .cv-turn-actions--failed,
 .acpmux-turnSummary .cv-turn-actions--resumable {
+  opacity: 1;
+}
+/* A reply's own row (MessageActions.tsx ReplyActions: a steer, another agent's message or a tool
+   row follows the reply): the footer's line under it at the meta gap, its space kept, shown while
+   the reader points at the reply or a button in it has keyboard focus. */
+.cv-reply-actions {
+  margin-top: var(--cv-meta-gap);
+  opacity: 0;
+}
+.acpmux-assistant:hover .cv-reply-actions,
+.acpmux-assistant:focus-visible .cv-reply-actions,
+.cv-reply-actions:focus-within {
   opacity: 1;
 }
 .cv-turn-summary,

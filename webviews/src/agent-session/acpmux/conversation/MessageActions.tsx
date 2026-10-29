@@ -303,3 +303,22 @@ export function ReceivedActions({ row, text }: { row: AcpmuxRow; text: string })
     </span>
   );
 }
+
+/// The row under a reply that its turn's footer does not serve (turns.ts `withReplyActions`: a
+/// steer, another agent's message, a sent message or a tool row follows it): the footer's look and
+/// buttons for this reply, Copy, Pin, Read aloud and More, then its age, as Claude desktop draws
+/// under every reply. Its line is reserved; it shows on hover or keyboard focus (conversation.css).
+export function ReplyActions({ row }: { row: AcpmuxRow }) {
+  const text = row.text ?? "";
+  return (
+    <div className="cv-turn-actions cv-reply-actions">
+      <span className="cv-turn-action-group">
+        <MessageCopy text={text} />
+        <PinButton rowId={row.id} />
+        <ReadAloudButton id={row.id} text={text} />
+        <MessageMore rowId={row.id} />
+      </span>
+      <MessageTime at={row.at} className="cv-turn-time" />
+    </div>
+  );
+}

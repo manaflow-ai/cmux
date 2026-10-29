@@ -265,6 +265,9 @@ export type AcpmuxRow = {
   retryRowId?: string;
   /// A turn footer's answer row (turns.ts), whose right-click menu the footer's More opens.
   answerId?: string;
+  /// A reply that draws its own action row under it (turns.ts `withReplyActions`): something other
+  /// than its turn's footer follows it, a steer, another agent's message or a tool row.
+  replyActions?: boolean;
   retryAttachments?: ComposerAttachment[];
   status?: string;
   error?: string;
@@ -929,7 +932,10 @@ const chromeHeight = (row: AcpmuxRow) =>
       userMetaHeight(row) +
       (row.status ? USER_STATUS_HEIGHT : 0) +
       (row.author ? AUTHOR_HEIGHT : 0)
-    : 0;
+    : // A reply's own action row (MessageActions.tsx ReplyActions): the meta gap, then its line.
+      row.replyActions
+      ? META_GAP + META_ROW
+      : 0;
 /// The bubble's share of its row and its side padding, which sits inside that share (border-box).
 const USER_BUBBLE_SHARE = 0.7;
 const USER_BUBBLE_SIDES = 24;
