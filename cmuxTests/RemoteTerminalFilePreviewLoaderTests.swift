@@ -115,6 +115,34 @@ import Testing
         #expect(await queries.count == 0)
     }
 
+    @Test func absoluteCandidateOpensBeforeQueryingALaterRelativeCandidate() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let transport = PreviewDownloadTransport(files: ["/srv/notes.md": Data("absolute".utf8)])
+        let queries = LiveDirectoryQueries()
+        let result = try await makeLoader(transport: transport, cache: root).load(
+            tokens: ["/srv/notes.md", "notes.md"], workingDirectory: "/reported",
+            liveWorkingDirectory: { await queries.answer("/live") }
+        )
+        #expect(try String(contentsOf: result, encoding: .utf8) == "absolute")
+        #expect(await transport.requests.paths == ["/srv/notes.md"])
+        #expect(await queries.count == 0)
+    }
+
+    @Test func missingAbsoluteCandidateQueriesTheDirectoryBeforeTryingARelativeCandidate() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let transport = PreviewDownloadTransport(files: ["/live/notes.md": Data("relative".utf8)])
+        let queries = LiveDirectoryQueries()
+        let result = try await makeLoader(transport: transport, cache: root).load(
+            tokens: ["/missing.md", "notes.md"], workingDirectory: "/reported",
+            liveWorkingDirectory: { await queries.answer("/live") }
+        )
+        #expect(try String(contentsOf: result, encoding: .utf8) == "relative")
+        #expect(await transport.requests.paths == ["/missing.md", "/live/notes.md"])
+        #expect(await queries.count == 1)
+    }
+
     @Test func liveDirectoryResolvesRelativeTokensWithoutAReportedDirectory() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -184,6 +212,25 @@ import Testing
         } catch is CancellationError {
         }
         #expect(await transport.requests.paths.isEmpty)
+    }
+
+    @Test func missingRemoteCandidatesProduceAnActionablePreviewError() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let transport = PreviewDownloadTransport(files: [:])
+        do {
+            _ = try await makeLoader(transport: transport, cache: root).load(
+                tokens: ["/missing.md", "notes.md"], workingDirectory: "/reported",
+                liveWorkingDirectory: { "/live" }
+            )
+            Issue.record("Missing remote files unexpectedly opened")
+        } catch {
+            #expect(error.localizedDescription == String(
+                localized: "fileExplorer.preview.genericFailure",
+                defaultValue: "The remote file could not be downloaded. Reconnect and try again."
+            ))
+        }
+        #expect(await transport.requests.paths == ["/missing.md", "/live/notes.md"])
     }
 
     private func makeLoader(transport: PreviewDownloadTransport, cache: URL) -> RemoteTerminalFilePreviewLoader {
