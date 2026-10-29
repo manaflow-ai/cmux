@@ -1152,7 +1152,7 @@ mod tests {
     /// first (1 s), so a restoring owner that dropped the stop's connection
     /// within that second was reported as gone and the stop gave up on it.
     #[test]
-    fn stop_wait_asks_again_when_a_restoring_owner_says_it_dropped_the_connection() {
+    fn blocking_cascade_stop_wait_asks_again_when_a_restoring_owner_says_it_dropped_the_connection() {
         const RESTORING_DROPS: usize = 3;
         let dir =
             std::env::temp_dir().join(format!("cmux-stop-wait-restoring-{}", std::process::id()));

@@ -125,7 +125,7 @@ fn a_terminal_notification_is_posted_and_the_reader_keeps_reading_in_panic_mode(
 /// already took the sequence; now both take the one path.
 #[cfg(unix)]
 #[test]
-fn publication_sequence_a_directory_report_with_the_terminal_pool_full_is_published_in_panic_mode()
+fn blocking_cascade_a_directory_report_with_the_terminal_pool_full_is_published_in_panic_mode()
 {
     cmux_threads::blocking::set_mode(cmux_threads::BlockingMode::Panic);
     let script = "sleep 0.5; printf '\\033]7;file://localhost/usr\\007'; sleep 0.3; \
