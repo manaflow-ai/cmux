@@ -93,4 +93,11 @@ extension UpdaterService {
             newestFetch = nil
         }
     }
+
+    /// `debug.updater {action: "newest", pulled?}`: shows the "Getting the Newest Build…" card
+    /// halfway through its download, as a stale or pulled build's replacement shows it (captures).
+    public func debugShowGettingNewest(pulled: Bool) {
+        newestFetch = pulled ? .runningPulled : .click
+        debugIndicatorPhase = .downloading(UpdateTransfer(stage: .downloading, fraction: 0.4))
+    }
 }
