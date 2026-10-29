@@ -51,7 +51,9 @@ extension WindowController {
     /// The Home page slides under or out from under the traffic lights with the sidebar without
     /// a resize of its list: the list's header re-reads them (Messages' header under the lights).
     func homePageWindowControlsChanged() {
-        (topPages.views[.home] as? TopHomePageView)?.split.windowControlsMoved()
+        // Classic Home's top page, and the docked Home (a pane's Home tab) when it is in this window.
+        let pages = [topPages.views[.home] as? TopHomePageView, HomeDockTab.view(services)?.messages]
+        for case let page? in pages where page.window === window { page.split.windowControlsMoved() }
     }
 
     /// Marks this window incognito: the badge shows in the sidebar header,
