@@ -1,6 +1,6 @@
 import { authText, canSessionLogin } from "./sessionAuth";
 import React, { useContext, useEffect, useMemo, useRef, useState } from "react";
-import type { ChatAccountList, ChatAccounts } from "./chatAccounts";
+import type { ChatAccountList } from "./chatAccounts";
 import { isModelRouterKind } from "./routerKinds";
 import { isDefaultChoice } from "./defaultChoice";
 import { useT } from "./i18n";
