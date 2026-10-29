@@ -57,7 +57,7 @@ def select(field='runs-on', **changes):
         'vars.CI_SIDE_LANE_RUNNER': 'glaeda-side-std-xcode-26.6',
         'vars.CI_SEED_TRUSTED_POOL': 'glaeda-trusted-std-xcode-26.6',
         'vars.MACOS_RUNNER_26': 'blacksmith-12vcpu-macos-26',
-        'vars.LINUX_RUNNER': 'blacksmith-4vcpu-ubuntu-2404',
+        'vars.LINUX_RUNNER': 'blacksmith-16vcpu-ubuntu-2404',
     }
     context.update(changes)
     source = DOC['jobs']['build-nightly-app'][field].removeprefix('${{').removesuffix('}}')
