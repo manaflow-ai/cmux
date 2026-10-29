@@ -370,12 +370,15 @@ public final class AgentChatStore {
     public func setConfig(_ id: String, value: String) { source.send(.setConfigOption(id: id, value: value)) }
     public func removeQueued(_ id: String) { source.send(.removeQueued(promptId: id)) }
 
-    /// The user bubble's Edit and Resend: returns the text the composer gets, or nil when
-    /// the composer gets nothing.
+    /// The user bubble's Edit and Resend: returns the text the composer gets to edit. It
+    /// sends nothing; the message goes when the person sends it from the composer. Only an
+    /// empty composer (whitespace counts as empty) takes it: a draft there is never replaced,
+    /// so this returns nil (the bubble then asks before replacing it).
     public func editAndResend(_ turn: AgentTurn, draft: String) -> String? {
-        send(prompt: turn.prompt)
-        return nil
+        guard draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        return turn.prompt
     }
+
     /// Edit queued prompt (the agent pane's wording): the new text keeps its place.
     public func editQueued(_ id: String, text: String) {
         let text = text.trimmingCharacters(in: .whitespacesAndNewlines)

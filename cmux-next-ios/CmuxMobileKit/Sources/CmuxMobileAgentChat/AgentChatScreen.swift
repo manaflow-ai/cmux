@@ -705,12 +705,14 @@ struct TurnView: View {
     let store: AgentChatStore
     let isLast: Bool
     var surface: AgentChatSurface?
+    /// Edit and Resend while the composer holds a draft: confirming replacing it.
+    @State private var confirmingReplace = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             // Replayed history (the transcript on open, a reattach's catch-up) is drawn in
             // place; only what arrives live animates in.
-            UserBubble(turn: turn, isLast: isLast) { _ = store.editAndResend(turn, draft: surface?.text ?? "") }
+            UserBubble(turn: turn, isLast: isLast) { editAndResend() }
                 .findBlock(AgentChatFind.promptKey(turn.id), surface: surface)
                 .frame(maxWidth: .infinity, alignment: .trailing)
                 .transition(.asymmetric(insertion: store.isReplayed(turn.id) ? .identity
@@ -750,6 +752,36 @@ struct TurnView: View {
                 }
             }
         }
+        // Edit and Resend while a draft is in the composer: the draft is replaced only on a
+        // choice here, and can be copied first.
+        .confirmationDialog("Replace your draft?", isPresented: $confirmingReplace, titleVisibility: .visible) {
+            Button("Copy Draft and Replace") {
+                UIPasteboard.general.string = surface?.text
+                editInComposer()
+            }
+            Button("Replace Draft", role: .destructive) { editInComposer() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Edit and Resend puts this message in the composer.")
+        }
+    }
+
+    /// Edit and Resend: the message goes into the composer to edit, and is sent from there.
+    /// A draft in the composer is never replaced without asking.
+    private func editAndResend() {
+        guard let surface else { return }
+        if let text = store.editAndResend(turn, draft: surface.text) {
+            surface.text = text
+            surface.composerFocused = true
+        } else {
+            confirmingReplace = true
+        }
+    }
+
+    private func editInComposer() {
+        guard let surface else { return }
+        surface.text = turn.prompt
+        surface.composerFocused = true
     }
 
     @ViewBuilder
