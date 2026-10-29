@@ -8,6 +8,5 @@ export const gridLength = (name: string): number => {
 };
 export const TRANSCRIPT_BLOCK_GAP = gridLength("gap-block");
 export const TRANSCRIPT_INNER_GAP = gridLength("gap-inner");
-// The dependency adds this token in its next revision (CSS uses the same migration fallback).
-export const TRANSCRIPT_TURN_GAP = grid.metrics.find((value) => value.name === "gap-turn")?.pt ?? 32;
+export const TRANSCRIPT_TURN_GAP = gridLength("gap-turn");
 export const TRANSCRIPT_COMPOSER_GAP = gridLength("gap-composer");

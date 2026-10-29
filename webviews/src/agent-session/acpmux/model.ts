@@ -836,6 +836,8 @@ export type ConversationLayout = {
   totalHeight: number;
   /// Container-owned space before each content row; hover-only footers own no space.
   gaps?: Float64Array;
+  /// Real user prompts distinguish turn boundaries after DOM-empty rows are skipped.
+  prompts?: Uint8Array;
 };
 
 /// Metrics of conversation/conversation.css (`--cv-font-size`, `--cv-line-height`, `.cv-*`): the
@@ -850,7 +852,7 @@ const USER_STATUS_HEIGHT = 20;
 /// in conversation/conversation.css): a meta row 4px under its message on a 24px line, 8px between
 /// messages, 16px between turns (the paragraph gap plus a small separator).
 const META_GAP = 0;
-const META_ROW = 24;
+const META_ROW = gridLength("transcript-action-control");
 const MESSAGE_GAP = 0;
 /// A collapsed sub-session disclosure (subagents/AgentCard.css): one 26px line plus its transcript
 /// rhythm margins. Expanded Markdown is measured by the virtual transcript after the reader opens it.
@@ -1155,12 +1157,12 @@ function fallbackRowHeight(
   // The running turn's line as its last row is the footer's height (META_ROW, conversation.css
   // `.cv-worked.is-below`) and the normal turn gap, so the end-of-turn swap keeps its place.
   if ((row.kind === WORKING || row.kind === THINKING) && row.below) return finish(META_ROW + TURN_GAP);
-  if (row.kind === WORKED || row.kind === WORKING || row.kind === THINKING) return finish(35);
+  if (row.kind === WORKED || row.kind === WORKING || row.kind === THINKING) return finish(META_ROW);
   // The activity line under a plan is the live footer. It reserves the finished footer's 24px
   // line and turn gap so swapping in `turnSummary` never changes the transcript geometry.
-  if (row.kind === ACTIVITY_LINE) return row.below ? finish(META_ROW + TURN_GAP) : finish(36);
+  if (row.kind === ACTIVITY_LINE) return finish(META_ROW);
   // The 20px date line with 8px above it.
-  if (row.kind === DATE) return finish(36);
+  if (row.kind === DATE) return finish(20);
   // The preview card mounts unloaded: one compact row, and 6px below (PreviewCard.tsx). Once the
   // reader clicks Load preview, the transcript's ResizeObserver measures the head over its frame.
   if (row.kind === PREVIEW) return finish(previewCardHeight(row.text, false));
@@ -1384,7 +1386,7 @@ function measuredRowHeight(
   const finish = (height: number) =>
     height === 0 || !lastTurn ? height : height + TURN_GAP - (row.kind === "activity" ? TOOL_RUN_BOTTOM : MESSAGE_GAP);
   // A task's result is one 26px line, however long the prompt that brought it (offer/SuggestedTasks.tsx).
-  if (row.received) return finish(26 + MESSAGE_GAP);
+  if (row.received) return finish(META_ROW);
   // A turn's footer carries its answer's text for Copy (conversation/turns.ts); it draws one line.
   if (row.kind === "turnSummary") {
     if (isOverlayFooter(row)) return 0;
@@ -1479,6 +1481,7 @@ export function layoutConversation(
   sessionId?: string,
 ): ConversationLayout {
   const gaps = new Float64Array(rows.length);
+  const prompts = new Uint8Array(rows.length);
   const tops = new Float64Array(rows.length);
   const heights = new Float64Array(rows.length);
   let start = 0;
@@ -1495,6 +1498,7 @@ export function layoutConversation(
     )
       start = drawn;
     if (previous.layout.gaps) gaps.set(previous.layout.gaps.subarray(0, start));
+    if (previous.layout.prompts) prompts.set(previous.layout.prompts.subarray(0, start));
     tops.set(previous.layout.tops.subarray(0, start));
     heights.set(previous.layout.heights.subarray(0, start));
   }
@@ -1507,6 +1511,7 @@ export function layoutConversation(
   let nextDrawn = start;
   for (let index = start; index < rows.length; index += 1) {
     const row = rows[index]!;
+    prompts[index] = prompt(row) ? 1 : 0;
     if (nextDrawn <= index) {
       nextDrawn = index + 1;
       while (nextDrawn < rows.length && drawsNothing(rows[nextDrawn]!)) nextDrawn += 1;
@@ -1542,7 +1547,7 @@ export function layoutConversation(
     heights[index] = height;
     top += height;
   }
-  return { tops, heights, gaps, totalHeight: top };
+  return { tops, heights, gaps, prompts, totalHeight: top };
 }
 
 /// Places rows again over `estimate`, taking a row's height from `heightAt` when it has one.
@@ -1562,16 +1567,24 @@ export function placeRows(
     heights.set(previous!.layout.heights.subarray(0, kept));
   }
   let top = kept > 0 ? tops[kept - 1]! + heights[kept - 1]! : 0;
+  let previousContent = kept - 1;
+  while (previousContent >= 0 && heights[previousContent] === 0) previousContent -= 1;
   for (let index = kept; index < heights.length; index += 1) {
     // A drawn 0 is a row that draws nothing (App.tsx drawnHeightOf): it takes no room.
     const known = heightAt(index);
     const height = known !== undefined && known >= 0 ? known : estimate.heights[index];
-    if (height > 0) top += estimate.gaps?.[index] ?? 0;
+    if (height > 0) {
+      if (previousContent >= 0)
+        top += estimate.prompts
+          ? estimate.prompts[index] || estimate.prompts[previousContent] ? TRANSCRIPT_TURN_GAP : TRANSCRIPT_BLOCK_GAP
+          : estimate.gaps?.[index] ?? 0;
+      previousContent = index;
+    }
     tops[index] = top;
     heights[index] = height;
     top += height;
   }
-  return { tops, heights, gaps: estimate.gaps, totalHeight: top };
+  return { tops, heights, gaps: estimate.gaps, prompts: estimate.prompts, totalHeight: top };
 }
 
 function upperBound(values: Float64Array, target: number): number {

@@ -2147,21 +2147,24 @@ pre.cv-math-source {
 
 /* An opened group's calls hang off a hairline under the group's glyph (ToolGroupRow.tsx). */
 .cv-tool-group {
-  margin-left: 7.5px;
-  padding-left: 14.5px;
-  border-left: 1px solid var(--cv-rule);
+  display: flex;
+  flex-direction: column;
+  gap: var(--grid-gap-block);
+  margin: 0;
+  padding-left: var(--grid-icon-box);
+  box-shadow: inset 1px 0 var(--cv-rule);
 }
 /* Commands, reads and searches list flush under their line, one glyph and line per call, as the
    Codex desktop app lists "Ran commands". */
 .cv-tool-group.is-flat {
   margin-left: 0;
   padding-left: 0;
-  border-left: 0;
+  box-shadow: none;
 }
 /* "+K more" lines up with the calls' text, past their glyphs. */
 .cv-tool-group.is-flat .cv-tool-group__more {
   display: flex;
-  padding-left: 22.5px;
+  padding-left: var(--grid-transcript-text-gap);
 }
 .cv-tool__counts {
   display: inline-flex;
@@ -2192,7 +2195,7 @@ pre.cv-math-source {
    gap), cut to the width; the opened call has the rest. The error tone stays on the row's word. */
 .cv-tool-error {
   margin: -3px 0 3px;
-  padding-left: 22.5px;
+  padding-left: var(--grid-transcript-text-gap);
   overflow: hidden;
   color: var(--cv-text-dim);
   font-size: var(--text-detail);
@@ -3947,7 +3950,7 @@ a.cv-sha:focus-visible {
   align-items: center;
   gap: 10px;
   min-height: 24px;
-  padding-left: 22.5px;
+  padding-left: var(--grid-transcript-text-gap);
   font-size: var(--text-detail);
   color: var(--cv-text-dim);
   letter-spacing: var(--text-detail--letter-spacing);
@@ -4223,7 +4226,7 @@ article.acpmux-turnSummary:not(:has(.cv-turn-actions--failed, .cv-turn-actions--
 .cv-user:not(:has(.cv-user__pending)) > .cv-user__actions {
   position: absolute;
   right: calc(-1 * var(--cv-action-overhang));
-  top: calc(100% + (var(--grid-gap-turn, 32px) - var(--cv-meta-row)) / 2);
+  top: calc(100% + (var(--grid-gap-turn) - var(--cv-meta-row)) / 2);
   margin: 0;
   padding: 0;
 }

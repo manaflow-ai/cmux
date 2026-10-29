@@ -115,3 +115,13 @@
 .cv-disclosure__panel > .cv-disclosure {
   margin: 0;
 }
+
+.cv-disclosure__toggle > .cv-rotor {
+  flex: none;
+  margin-inline-start: auto;
+  width: var(--grid-icon-box);
+  height: var(--grid-icon-box);
+}
+.cv-disclosure__panel > .cv-subsession__under {
+  padding-inline-start: 0;
+}
