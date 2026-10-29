@@ -197,8 +197,6 @@ public actor WorkspaceProjection {
         guard let entity = delta.entity.flatMap(Self.object) else { throw ProjectionError.needsSnapshot }
         let row = Row(value: entity, key: Self.rowKey(entity), handle: entity["id"] as? Int)
         rows[index] = row
-        metadata.removeValue(forKey: oldID)
-        metadata[row.key] = Self.metadata(for: row.value)
         rebuildSurfaceIndex()
         if delta.kind == .workspaceMoved, let target = delta.index {
             let moved = rows.remove(at: index)
