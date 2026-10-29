@@ -35,6 +35,7 @@ final class PaneToolbar {
         /// it shows. Hiding "…" for that frame gave its width to the strip, which laid out every
         /// tab again at once (10 tabs, cx-codh2).
         var behind = false
+        var nativeItems: [PaneTabRowTool] = []
     }
 
     let view = PaneToolbarView()
@@ -62,6 +63,9 @@ final class PaneToolbar {
         self.contentMenu = contentMenu
         view.moreMenu = { [weak self] in self?.moreMenu() }
         view.onPerform = { [weak self] id in self?.perform(ActionID(rawValue: id)) }
+        view.onNativeTool = { [weak pane] id, menuItemID in
+            pane?.view.agentPaneModel?.onTabRowToolInvoked?(id, menuItemID)
+        }
     }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
@@ -94,7 +98,7 @@ final class PaneToolbar {
             for await state in ObservationStream({ [weak pane] in pane.map(Self.state) }) {
                 guard let self, let state else { return }
                 if state.behind { continue }
-                update(target: state.target, kind: state.kind, zoomed: state.zoomed, pinned: state.pinned, paneKinds: state.paneKinds)
+                update(target: state.target, kind: state.kind, zoomed: state.zoomed, pinned: state.pinned, paneKinds: state.paneKinds, nativeItems: state.nativeItems)
             }
         }
     }
@@ -106,13 +110,13 @@ final class PaneToolbar {
         // The pane's own workspace, not a store scan: this runs for every pane. Whichever tab is
         // selected, so the zoom button's room does not follow the selection.
         let zoomed = pane.workspace?.workspace.screens.contains { $0.zoomedPane == pane.pane.handle } ?? false
-        guard let key = pane.stripModel.selectedID?.rawValue else { return State(zoomed: zoomed, pinned: pinned, paneKinds: paneKinds) }
+        guard let key = pane.stripModel.selectedID?.rawValue else { return State(zoomed: zoomed, pinned: pinned, paneKinds: paneKinds, nativeItems: pane.view.agentPaneModel?.tabRowTools ?? []) }
         guard let tab = pane.pane.tabs.first(where: { $0.id == key }) else {
             // A window's own page or browser tab is never in the store: no "…", not a stale bar.
             let local = key.hasPrefix(LocalPageTab.prefix) || key.hasPrefix(LocalBrowserTab.prefix)
             return State(zoomed: zoomed, pinned: pinned, paneKinds: paneKinds, behind: !local)
         }
-        return State(target: key, kind: kind(tab, isNewTabPage: resolver.isNewTabPage(tab)), zoomed: zoomed, pinned: pinned, paneKinds: paneKinds)
+            return State(target: key, kind: kind(tab, isNewTabPage: resolver.isNewTabPage(tab)), zoomed: zoomed, pinned: pinned, paneKinds: paneKinds, nativeItems: pane.view.agentPaneModel?.tabRowTools ?? [])
     }
 
     static func kind(_ tab: TabModel, isNewTabPage: Bool) -> Kind? {
@@ -141,7 +145,7 @@ final class PaneToolbar {
     /// Shows the `pinned` actions tab `target` of `kind` can run and "…" (nil kind: none); lit, with the
     /// zoom button, while the pane is zoomed.
     /// `paneKinds`: the kinds of every tab in the pane that offers "…", whichever is selected.
-    func update(target: String?, kind: Kind?, zoomed: Bool = false, pinned: [String] = [], paneKinds: Set<Kind> = []) {
+    func update(target: String?, kind: Kind?, zoomed: Bool = false, pinned: [String] = [], paneKinds: Set<Kind> = [], nativeItems: [PaneTabRowTool] = []) {
         self.target = target
         self.kind = kind
         self.zoomed = zoomed
@@ -156,8 +160,10 @@ final class PaneToolbar {
         let zoomRoom = zoomed && !pinned.contains(Self.zoom.rawValue) ? 1 : 0
         let buttons = shownButtons()
         // The new-terminal and new-browser buttons are not shown: the + and the "…" menu offer them (Lawrence 2026-10-27: too many buttons).
+        let nativeItems = ChromeTunables.nativeRowTools.value ? nativeItems : []
         view.show(buttons.compactMap(item), more: shown, lit: zoomed && shown,
-                  reserving: kinds.isEmpty ? 0 : max(reservedPins + zoomRoom, buttons.count) + 1)
+                  reserving: kinds.isEmpty ? 0 : max(reservedPins + zoomRoom, buttons.count) + 1,
+                  nativeItems: nativeItems)
     }
 
     /// The pinned actions the tab can run, in the user's order, as buttons before "…".

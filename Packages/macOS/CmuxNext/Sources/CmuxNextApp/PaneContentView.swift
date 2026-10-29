@@ -115,7 +115,7 @@ final class PaneContentView: NSView, PaneContentChrome {
         agentTagObservation = observeAgentTag(stripModel)
         themeDidChange()
         tokenObservation = Task { [weak self] in
-            for await _ in ObservationStream({ (PaneChromeMetrics.current, ChromeTunables.tabRowTools.value) }) {
+            for await _ in ObservationStream({ (PaneChromeMetrics.current, ChromeTunables.tabRowTools.value, ChromeTunables.nativeRowTools.value) }) {
                 self?.needsLayout = true
                 self?.refreshBandHeight()
             }
@@ -207,6 +207,9 @@ final class PaneContentView: NSView, PaneContentChrome {
     private var visibleContent: NSView? {
         paintHold.kept.flatMap { $0.superview === contentHost ? $0 : nil } ?? (hostsContent ? content : nil)
     }
+
+    /// The selected agent page's model, for native controls owned by the page.
+    var agentPaneModel: AgentPaneModel? { (visibleContent as? AgentPaneView)?.model }
 
     var paneFramesContent: Bool { !(visibleContent is AgentPaneView) }
 
