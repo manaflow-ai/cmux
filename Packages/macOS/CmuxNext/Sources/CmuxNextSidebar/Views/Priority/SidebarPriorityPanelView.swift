@@ -32,6 +32,9 @@ final class SidebarPriorityPanelView: NSView {
     /// Redraws the working chips' elapsed time each minute while one shows; idle otherwise.
     private let ticker = DemandTimer(owner: "sidebar-priority-minute")
     private(set) var draggingID: String?
+    /// The scroll position when the held row's drag began: scrolling while holding a row moves the
+    /// pointer through the document, so the drag adds it to the pointer's window offset.
+    private var dragScrollStart: CGFloat?
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -135,6 +138,9 @@ final class SidebarPriorityPanelView: NSView {
             y += height
         }
         document.frame = NSRect(x: 0, y: 0, width: width, height: y)
+        // The held row stays under the pointer while another chat's text updates: only a re-rank or a
+        // height change moves it, and those cancel the drag first (`show`).
+        if let held = draggingID.flatMap({ rows[$0] }) { targets.removeAll { $0.0 === held } }
         guard animated, Motion.sidebar.animatesMovement else {
             // Each row at its place, whole. Set through the animator, the frame replaces a move still in
             // flight (as `RowMotion` does), which a plain set would not stop.
@@ -194,6 +200,9 @@ final class SidebarPriorityPanelView: NSView {
         guard let from = panel.entries.firstIndex(where: { $0.id == row.entry.id }) else { return }
         let heights = panel.entries.map { SidebarPriorityRowView.height(hasPreview: $0.preview != nil) }
         let top = heights[..<from].reduce(0, +)
+        let scrollY = scroll.contentView.bounds.origin.y
+        let scrollStart = dragScrollStart ?? scrollY
+        let offset = offset + scrollY - scrollStart
         let middle = top + heights[from] / 2 + offset
         var slot = 0, y: CGFloat = 0
         for (index, height) in heights.enumerated() {
@@ -202,6 +211,7 @@ final class SidebarPriorityPanelView: NSView {
         }
         guard ended else {
             draggingID = row.entry.id
+            dragScrollStart = scrollStart
             Motion.withoutAnimation {
                 row.layer?.zPosition = 1
                 row.animator().frame.origin.y = min(max(0, top + offset), max(0, y - heights[from]))
@@ -210,6 +220,7 @@ final class SidebarPriorityPanelView: NSView {
         }
         row.layer?.zPosition = 0
         draggingID = nil
+        dragScrollStart = nil
         var order = panel.entries
         let entry = order.remove(at: from)
         order.insert(entry, at: slot)
@@ -237,6 +248,7 @@ final class SidebarPriorityPanelView: NSView {
 
     private func stopPresses() {
         for row in rows.values { row.cancelPress() }
+        dragScrollStart = nil
         guard let id = draggingID else { return }
         draggingID = nil
         rows[id]?.layer?.zPosition = 0

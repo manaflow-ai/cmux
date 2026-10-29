@@ -165,6 +165,27 @@ struct SidebarPriorityDragTests {
         #expect(harness.actions == [.open("b")], "a fresh click must work after cancellation")
     }
 
+    @Test func anotherChatsTextUpdateKeepsTheHeldRowUnderThePointer() throws {
+        let harness = Harness()
+        defer { harness.close() }
+        let row = try #require(harness.panel.rows["c"])
+        let height = row.frame.height
+        row.mouseDown(with: try harness.event(.leftMouseDown, on: "c"))
+        row.mouseDragged(with: try harness.event(.leftMouseDragged, on: "c", dy: -height))
+        let heldTop = row.frame.minY
+        #expect(harness.panel.draggingID == "c")
+
+        var entries = Self.entries
+        entries[0].title = "Progress from another chat"
+        harness.panel.show(SidebarPriorityPanel(entries: entries))
+        #expect(harness.panel.draggingID == "c", "a text update does not cancel the drag")
+        #expect(row.frame.minY == heldTop, "the held row stays under the pointer")
+
+        row.mouseDragged(with: try harness.event(.leftMouseDragged, on: "c", dy: -2.2 * height))
+        row.mouseUp(with: try harness.event(.leftMouseUp, on: "c", dy: -2.2 * height))
+        #expect(harness.actions == [.place("c", order: ["c", "a", "b"])])
+    }
+
     @Test func updatingRowContentBeforeTheDragThresholdKeepsTheClick() throws {
         let harness = Harness()
         defer { harness.close() }
