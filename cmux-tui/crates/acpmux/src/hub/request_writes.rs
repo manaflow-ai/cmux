@@ -35,10 +35,10 @@
 //! - a config file (`Hub::save_config`, `config_writer.rs`): its write syncs the file too, and a
 //!   model, effort or mode pick saves one, against the same budget. A pick answered right before a
 //!   crash can come back as the previous pick at the next start; the person picks it again.
-//! - bookkeeping a request logs beside its answer, run through [`unnoted`]: the seen and unread
-//!   marks (`seen.rs`: `_acpmux/attach`, `_acpmux/view`, `_acpmux/markUnread`) are `status`
-//!   records that tell the clients, while the mark itself lives in `session.json`. The chat
-//!   switch does not wait for a log write.
+//! - bookkeeping a request logs beside its answer, run through [`unnoted`]: the seen mark
+//!   (`seen.rs`: `_acpmux/attach` and `_acpmux/view` showing an unread chat). Those requests
+//!   answer what they read; the mark is a side effect, and the chat switch does not wait for a
+//!   log write. `_acpmux/markUnread` is the person's own change and waits for its record.
 //! - work a request hands to another task (a spawned turn past its acceptance, a supervised job,
 //!   a blocking thread): it is not the request's answer, except the prompts noted above.
 //! - the records of a session deleted while the request waits: nothing of it is kept, so it

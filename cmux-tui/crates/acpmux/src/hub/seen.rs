@@ -55,9 +55,10 @@ impl Hub {
         drop(meta);
         if was_read {
             self.save_meta(session);
-            // It tells the clients; the mark is in session.json (`request_writes.rs`: unnoted).
+            // The person's change: `_acpmux/markUnread` answers once this record is on disk
+            // (`request_writes.rs`), and a restart rebuilds the mark from it.
             let status = json!({"status": session.status().to_string(), "read": false});
-            request_writes::unnoted(|| self.append(session, "mux", "status", status));
+            self.append(session, "mux", "status", status);
         }
     }
 
