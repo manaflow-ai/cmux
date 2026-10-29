@@ -89,6 +89,17 @@ class Limits(unittest.TestCase):
                       "CmuxNextAppTests.ClassicUpgradeHugeSimulationTests"):
             self.assertIn(suite, found)
 
+    def test_the_suites_that_fail_only_in_a_shared_process_get_their_own(self) -> None:
+        # Each passes alone and fails in its shard's shared process on the base too (fleet steps 49135e36f49c
+        # and f873ee9fe21e): the heavy step's fresh process per suite is how they pass.
+        found = set(heavy.heavy_suites(TESTS))
+        for target, name in heavy.OWN_PROCESS:
+            with self.subTest(suite=f"{target}.{name}"):
+                self.assertIn((target, name), found)
+                self.assertTrue(any(re.search(rf"^(?:@[^\n]*[ \t])?(?:\w+[ \t]+)*struct[ \t]+{name}\b",
+                                              f.read_text(errors="replace"), re.M)
+                                    for f in (TESTS / target).rglob("*.swift")), "no such suite: drop it from OWN_PROCESS")
+
     def test_a_suite_with_its_own_time_limit_gets_watchdog_limits_above_it(self) -> None:
         # Its 15-minute .timeLimit: Swift Testing reports a slow test before the watchdog ends the process.
         self.assertEqual(heavy.suite_time_limit(TESTS, "CmuxNextAppTests", "ClassicUpgradeHugeSimulationTests"), 900)

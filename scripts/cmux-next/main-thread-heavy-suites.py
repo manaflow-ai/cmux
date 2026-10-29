@@ -27,6 +27,17 @@ ALWAYS = {("CmuxNextBrowserTests", "RemoteVideoPageTests"),
           ("CmuxNextAppTests", "SidebarIncrementalMatchesRebuildTests"),
           ("CmuxNextAppTests", "SidebarIncrementalMatchesRebuildGapsTests"),
           ("CmuxNextAppTests", "ClassicUpgradeHugeSimulationTests")}
+# Suites that pass in a process of their own and fail in a shard's shared process, on the base too: each fails
+# the same way at feat-cmux-next 52b04522 and at #26809's head when its shard's prefix group runs in one process
+# at width 1 (fleet steps 49135e36f49c base and f873ee9fe21e head, `--filter CmuxNextAppTests.M`, `.Sc`, `.B`).
+# BackgroundAccessoryPolicyTests fails as the first suite of its process, so the cause is the shared process
+# itself rather than a suite run before it, and the Sc process ended with 0 windows open, so it is not the window
+# pile-up either. Until each suite's isolation is fixed, the heavy step gives each one a fresh process, the way
+# they pass. Remove one from here with its isolation fix.
+OWN_PROCESS = {("CmuxNextAppTests", "MarkdownLiveShareTests"),  # aChangeOnDiskSendsReload: no `reload` in 10 s
+               ("CmuxNextAppTests", "ScriptPaneFocusTests"),  # the snapshot never names the focused pane (20 s)
+               ("CmuxNextAppTests", "BackgroundAccessoryPolicyTests")}  # the restore reopens a closed window
+ALWAYS |= OWN_PROCESS
 # The heavy step's watchdog limits for one suite's process (swift-test-with-hang-sampler.sh): the whole run, and
 # how long no test may finish. A suite that declares its own `.timeLimit(.minutes(N))` gets limits above it, so
 # Swift Testing's own limit reports a slow test first and the watchdog only ends a process that outlives it.
