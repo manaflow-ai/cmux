@@ -5,6 +5,7 @@
 
 import { getStackServerApp, isStackConfigured } from "../../app/lib/stack";
 import {
+  ACTIVE_STRIPE_PRO_STATUSES,
   FOUNDERS_PLAN_ID,
   isPaidPlanId,
   isPersonalPlanId,
@@ -33,6 +34,7 @@ export type VmBillingScope = {
 export type VmPlanSource = "stripe" | "admin-grant" | "none" | "unmatched";
 
 const productNames = new Map<string, string>();
+const PRODUCT_LOOKUP_TIMEOUT_MS = 5_000;
 
 /**
  * The labels: `cmuxPlanSource` always, and the `stripe*` keys only for a
@@ -46,8 +48,9 @@ const productNames = new Map<string, string>();
  */
 export async function vmStripeProviderTags(scope: VmBillingScope): Promise<Record<string, string>> {
   const status = await scopeBillingStatus(scope);
-  // A canceled row alone does not make Stripe the plan's source.
-  if (status?.subscriptionId && status.hasActiveSubscription) return { cmuxPlanSource: "stripe", ...(await stripeTags(status)) };
+  // Only a row that grants access names the subscription: a canceled row, or
+  // a past-due row chosen for the portal beside another active row, does not.
+  if (status?.subscriptionId && isActiveStripeStatus(status.subscriptionStatus)) return { cmuxPlanSource: "stripe", ...(await stripeTags(status)) };
   if (status?.hasFoundersEdition) {
     // A lifetime purchase has no subscription to name.
     return { cmuxPlanSource: "stripe", ...(status.customerId ? { stripeCustomerId: status.customerId } : {}) };
@@ -83,7 +86,7 @@ async function productName(product: { readonly id: string | null; readonly name:
   const cached = productNames.get(product.id);
   if (cached) return cached;
   try {
-    const { name } = await stripe().products.retrieve(product.id);
+    const { name } = await stripe().products.retrieve(product.id, {}, { timeout: PRODUCT_LOOKUP_TIMEOUT_MS, maxNetworkRetries: 0 });
     if (!name) return null;
     productNames.set(product.id, name);
     return name;
@@ -92,9 +95,15 @@ async function productName(product: { readonly id: string | null; readonly name:
   }
 }
 
+function isActiveStripeStatus(status: string | null): boolean {
+  return status !== null && (ACTIVE_STRIPE_PRO_STATUSES as readonly string[]).includes(status);
+}
+
 async function planSourceWithoutSubscription(scope: VmBillingScope): Promise<VmPlanSource> {
   if (!isPaidPlanId(scope.billingPlanId)) return "none";
-  return (await hasOperatorGrant(scope)) ? "admin-grant" : "unmatched";
+  // A failed grant lookup still records that no subscription matched.
+  const granted = await hasOperatorGrant(scope).catch(() => false);
+  return granted ? "admin-grant" : "unmatched";
 }
 
 /**
