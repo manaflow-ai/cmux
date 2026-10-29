@@ -6,6 +6,7 @@ import { agentPaneEntry, type AgentPaneVariant } from "../../gallery/format";
 import { minutesAgo } from "../../gallery/clock";
 import { assistant, CATALOG, chat, CWD, noChat, session, summary, user } from "../../gallery/fixtures/acpmux";
 import type { PlayContext } from "../../gallery/play";
+import type { MarkdownFieldElement } from "./MarkdownField";
 import type { AcpmuxSnapshot } from "./model";
 import type { SessionPullRequest } from "./sessionList";
 import { composerStatePlays } from "./composerStatePlays";
@@ -1093,6 +1094,41 @@ export default agentPaneEntry({
         ctx.find({ selector: ".acpmux-md" }).dispatchEvent(paste);
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-image img"));
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-pending .acpmux-attachment-spinner"));
+      },
+    },
+    "attachment-inline-image-and-file": {
+      note: 'Leo: "How many motherfucking times have I said, like the macOS fucking iMessage app?" A screenshot pasted after "Compare this" and a notes file pasted after "the notes in" sit in the text where they were pasted, as iMessage places them. With the strip view, both sit above the text.',
+      snapshot: chat(finished),
+      ready: { draft: "Compare this with the notes in and summarize." },
+      play: async (ctx) => {
+        const view = ctx.document.defaultView!;
+        const field = ctx.find({ selector: ".acpmux-md-field" }) as MarkdownFieldElement;
+        const handle = field.acpmuxMarkdownField!;
+        const paste = (file: File) => {
+          const event = new view.Event("paste", { bubbles: true, cancelable: true });
+          Object.defineProperty(event, "clipboardData", {
+            value: { files: [file], types: ["Files"], getData: () => "" },
+          });
+          ctx.find({ selector: ".acpmux-md" }).dispatchEvent(event);
+        };
+        const canvas = ctx.document.createElement("canvas");
+        canvas.width = 320;
+        canvas.height = 180;
+        const drawing = canvas.getContext("2d")!;
+        drawing.fillStyle = "#5783b5";
+        drawing.fillRect(0, 0, 320, 180);
+        drawing.fillStyle = "white";
+        drawing.font = "24px system-ui";
+        drawing.fillText("Before and after", 36, 96);
+        const blob = await new Promise<Blob>((resolve) => canvas.toBlob((value) => resolve(value!), "image/png"));
+        handle.setCaret("Compare this".length);
+        paste(new view.File([blob], "comparison.png", { type: "image/png" }));
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-image img"));
+        // An atom in the text is one position of the paragraph; the strip view adds none.
+        const atoms = ctx.document.querySelectorAll("[data-inline-attachment]").length;
+        handle.setCaret("Compare this with the notes in".length + atoms);
+        paste(new view.File(["# Notes\nRetry after 5 failures.\n"], "notes.md", { type: "text/markdown" }));
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-link[data-saved]"));
       },
     },
     "attachment-reorder": {
