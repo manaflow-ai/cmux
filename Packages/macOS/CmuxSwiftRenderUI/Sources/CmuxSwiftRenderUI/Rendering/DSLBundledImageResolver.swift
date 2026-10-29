@@ -5,27 +5,25 @@ import SwiftUI
 @MainActor
 struct DSLBundledImageResolver {
     private let namespaces: [String]
-    private let loadImage: (String) -> NSImage?
+    private let bundle: Bundle
 
     init(
         bundle: Bundle = .main,
-        namespaces: [String] = ["AgentIcons/"],
-        loadImage: ((String) -> NSImage?)? = nil
+        namespaces: [String] = ["AgentIcons/"]
     ) {
         self.namespaces = namespaces
-        self.loadImage = loadImage ?? { bundle.image(forResource: $0) }
-    }
-
-    /// Returns an existing asset name only within the allowed namespaces.
-    func assetName(_ name: String?) -> String? {
-        guard let name, isAllowed(name), loadImage(name) != nil else { return nil }
-        return name
+        self.bundle = bundle
     }
 
     /// Loads an allowed asset from the resolver's bundle.
     func bundledImage(_ name: String?) -> Image? {
-        guard let name, isAllowed(name), let image = loadImage(name) else { return nil }
-        return Image(nsImage: image)
+        guard let name, isAllowed(name), let image = bundle.image(forResource: name) else { return nil }
+        // Source assets can be much larger than a tab mark (Hermes is 1024 px).
+        // Give each sidebar its own point size without mutating the bundle's image.
+        let mark = NSImage(size: NSSize(width: 14, height: 14))
+        mark.addRepresentations(image.representations)
+        mark.isTemplate = image.isTemplate
+        return Image(nsImage: mark)
     }
 
     /// Resolves a bundled mark, an SF Symbol, or the empty-name placeholder.
