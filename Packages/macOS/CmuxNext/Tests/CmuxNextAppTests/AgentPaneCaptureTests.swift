@@ -30,7 +30,7 @@ struct AgentPaneCaptureTests {
         var sessions: [String?] = []
         var received = Data()
 
-        init(stages: Bool = true, session: String? = "s1") {
+        init(stages: Bool = true, session: String? = "s1", finishValue: [String: Any]? = nil) {
             model = AgentPaneModel(host: NoHost(), sessionId: session)
             guard stages else { return }
             model.onUploadStage = { [weak self] in
@@ -43,7 +43,7 @@ struct AgentPaneCaptureTests {
                     case .chunk(_, _, let data):
                         self.received.append(data)
                         return AgentPaneReply.success(["offset": self.received.count])
-                    case .finish: return AgentPaneReply.success(["path": AgentPaneCaptureTests.saved])
+                    case .finish: return AgentPaneReply.success(finishValue ?? ["path": AgentPaneCaptureTests.saved])
                     case .cancel: return AgentPaneReply.success()
                     }
                 }
@@ -88,6 +88,31 @@ struct AgentPaneCaptureTests {
         let again = await rig.capture(Self.png, gesture: false)
         #expect(Self.errorCode(again) == AgentPaneTransportError.gestureRequired.rawValue)
         #expect(rig.requests.count == 3)
+    }
+
+    /// CloudUploads finishes with uploads:[{name,path}], unlike the local stager's path field.
+    @Test func aCloudCaptureKeepsItsOriginalFromTheUploadList() async throws {
+        let rig = Rig(finishValue: ["uploads": [["name": "Screenshot.png", "path": Self.saved]]])
+        let answer = try #require(Self.value(await rig.capture(Self.png)))
+        #expect((answer["original"] as? [String: Any])?["path"] as? String == Self.saved)
+        #expect(rig.received == Self.png)
+        #expect(!rig.requests.contains(.cancel(token: "t")))
+    }
+
+    @Test func aCloudCaptureRefusesAnInvalidOrAmbiguousUploadList() async throws {
+        let invalid: [[[String: String]]] = [
+            [],
+            [["path": Self.saved], ["path": "/another/file.png"]],
+            [["path": "relative.png"]],
+            [["path": ""]],
+            [["name": "Screenshot.png"]],
+        ]
+        for uploads in invalid {
+            let rig = Rig(finishValue: ["uploads": uploads])
+            let answer = try #require(Self.value(await rig.capture(Self.png)))
+            #expect(answer["original"] == nil)
+            #expect(rig.requests.last == .cancel(token: "t"))
+        }
     }
 
     /// #26958 review: a fresh chat has no session until its first prompt, and its capture still
