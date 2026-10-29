@@ -1,0 +1,85 @@
+{
+ "id": "load-first-prompt-key",
+ "priority": "P1",
+ "title": "Under a fixed load (8 busy cores and a disk loop), key new terminal shows its first prompt: p50, p95 and max of 10 tries, no timeout, p95 within 500 ms",
+ "why": "cmux-ad 2026-10-29: Lawrence's Mac is always loaded; a new terminal with no prompt, or one over 6 s, under load is a felt bug even if it passes on an idle host (v2.2.7-opt P0 set: 3 new-terminal fails, all on loaded hosts).",
+ "source": "cmux-ad via the lead, 2026-10-29; v2.2.7-opt gate (STATUS items 222-223)",
+ "budget_seconds": 250,
+ "steps": [
+  {
+   "do": "new_terminal",
+   "name": "jr-load-${nonce}",
+   "title": "set-up, before the load: a working terminal"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "type",
+   "text": "echo before-${nonce}-$((6*7))",
+   "enter": true,
+   "mark": "before"
+  },
+  {
+   "do": "expect",
+   "title": "the set-up terminal works",
+   "since": "before",
+   "timeout": 10,
+   "all": [
+    {
+     "daemon_line": "before-${nonce}-42"
+    },
+    {
+     "app_text_line": "before-${nonce}-42"
+    }
+   ]
+  },
+  {
+   "do": "start_load",
+   "cpus": 8,
+   "io": true,
+   "title": "the fixed load starts (recorded by pid)"
+  },
+  {
+   "do": "first_prompts",
+   "action": "key_new_terminal",
+   "count": 10,
+   "timeout_s": 20
+  },
+  {
+   "do": "load_report"
+  },
+  {
+   "do": "type",
+   "text": "echo after-${nonce}-$((6*7))",
+   "enter": true,
+   "mark": "after"
+  },
+  {
+   "do": "expect",
+   "title": "under load: key new terminal showed its first prompt within 500 ms at p95, with no timeout; a terminal still runs commands",
+   "since": "after",
+   "timeout": 20,
+   "all": [
+    {
+     "first_prompt_p95": {
+      "action": "key_new_terminal",
+      "max_ms": 500
+     }
+    },
+    {
+     "daemon_line": "after-${nonce}-42"
+    },
+    {
+     "frame_text": "after-${nonce}-42"
+    }
+   ]
+  }
+ ],
+ "finally": [
+  {
+   "do": "stop_load",
+   "title": "the load stops by pid, whatever happened"
+  }
+ ]
+}
