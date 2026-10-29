@@ -57,6 +57,12 @@ JOURNEY_SECONDS = LEASE_SECONDS - SETUP_RESERVE - 40
 RESULT_FILE = re.compile(r"(?:\./)?((?:[a-z0-9][a-z0-9-]*/)?(?:result\.json|check-\d{2,3}\.png|clip/frame-\d{5}\.png"
                          r"|restore-trace\.json|diag-[a-z]+\.(?:json|png|txt)|diag-app-sample\.txt)|host\.json|summary\.json)")
 RESULT_MAX_BYTES = 64 << 20
+# The proof runs' load rule: a lease drives journeys only on a host whose 1-minute load is under LOAD_LIMIT; it
+# waits for that at most LOAD_WAIT_SECONDS per lease (reading every LOAD_POLL_SECONDS), then drives anyway and
+# the run is load-invalid. A failure on a loaded host stays a failure, with "(loaded host)" as a fact.
+LOAD_LIMIT = 4.0
+LOAD_WAIT_SECONDS = 600
+LOAD_POLL_SECONDS = 30
 RESULT_TAR_MAX_BYTES = 768 << 20
 STEP_NAMES = {name[len("step_"):] for name in dir(driver.Journey) if name.startswith("step_")}
 
@@ -248,12 +254,51 @@ def launch_facts(text):
     return facts
 
 
+def host_load(host):
+    """The host's 1-minute load average (one ssh read), or None when it cannot be read."""
+    try:
+        done = remote(host, "sysctl -n vm.loadavg", timeout=30, check=False)
+    except subprocess.TimeoutExpired:
+        return None
+    numbers = re.findall(r"\d+(?:\.\d+)?", done.stdout.decode(errors="replace"))
+    return float(numbers[0]) if done.returncode == 0 and numbers else None
+
+
+class LoadedHost(Exception):
+    """The leased host is loaded: the lease goes back while run_lease waits for the host to go quiet."""
+
+    def __init__(self, host):
+        super().__init__(host)
+        self.host = host
+
+
 def run_lease(specs, build, out, frame_interval):
-    """Plays `specs` in one slot; {id: result} (driver results, or not run with the reason)."""
+    """Plays `specs` in one slot of a quiet host; {id: result} (driver results, or not run with the reason).
+    A loaded host's lease goes back (a lease lasts at most 10 minutes) while the host is read again every
+    LOAD_POLL_SECONDS; then the same host is preferred. After LOAD_WAIT_SECONDS it drives anyway, load-invalid."""
+    gate = {"limit": LOAD_LIMIT, "reads": [], "waited_s": 0.0}
+    began = time.monotonic()
+    gate_end = began + LOAD_WAIT_SECONDS
+    prefer = None
+    while True:
+        try:
+            return play_lease(specs, build, out, frame_interval, gate, gate_end, prefer)
+        except LoadedHost as loaded:
+            prefer = loaded.host
+            while time.monotonic() < gate_end:
+                time.sleep(min(LOAD_POLL_SECONDS, gate_end - time.monotonic()))
+                load = host_load(prefer)
+                gate["reads"].append({"host": prefer, "load": load})
+                if load is not None and load < LOAD_LIMIT:
+                    break
+            gate["waited_s"] = round(time.monotonic() - began, 1)
+
+
+def play_lease(specs, build, out, frame_interval, gate, gate_end, prefer):
     ch = capture_host()
     ids = [s["id"] for s in specs]
     try:
-        acquired = run([ch, "acquire", "--slot"], timeout=330).stdout.decode().split()
+        acquired = run([ch, "acquire", "--slot"] + (["--prefer", prefer] if prefer else []), timeout=330).stdout.decode().split()
     except (RuntimeError, subprocess.TimeoutExpired) as error:
         return {i: {"status": "not run", "reason": f"no capture slot: {str(error)[-300:]}"} for i in ids}
     if not acquired:
@@ -265,6 +310,14 @@ def run_lease(specs, build, out, frame_interval):
     try:
         info = dict(kv.split("=", 1) for kv in run([ch, "slot-info", lease]).stdout.decode().split() if "=" in kv)
         host, root = info["host"], info["root"]
+        load = host_load(host)
+        gate["reads"].append({"host": host, "load": load})
+        if load is not None and load >= LOAD_LIMIT and time.monotonic() < gate_end:
+            log(f"{host} has a 1-minute load of {load:.1f} (limit {LOAD_LIMIT:g}): giving {lease} back until it is quieter")
+            raise LoadedHost(host)
+        gate.update(host=host, start=load, load_invalid=load is None or load >= LOAD_LIMIT)
+        if gate["load_invalid"]:
+            log(f"{host}: load {load} after {gate['waited_s']:.0f}s of waiting: driving anyway; the run is load-invalid")
         work = f"{root}/journeys"
         remote(host, f"mkdir -p {q(work + '/kit')} && tar x -C {q(work + '/kit')}", input=kit_tar(specs), timeout=left(120))
         # One compiled text reader per mini and source version, outside the slot (release removes the slot).
@@ -303,13 +356,13 @@ def run_lease(specs, build, out, frame_interval):
     except (RuntimeError, subprocess.TimeoutExpired, KeyError, ValueError) as error:
         log(f"lease {lease}: {error}")
         reason = f"{host or lease}: {str(error)[-400:]}"
-        return collect(out, ids, host, missing_reason=reason)
+        return collect(out, ids, host, missing_reason=reason, gate=gate)
     finally:
         released = subprocess.run([ch, "release", lease], capture_output=True, timeout=120)
         log(f"released {lease}" if released.returncode == 0 else
             f"release of {lease} exited {released.returncode} (it expires within 10 minutes)")
     return collect(out, ids, host, missing_reason=f"{host}: the driver wrote no result (driver exit {drove.returncode}: "
-                                                  f"{drove.stderr.decode(errors='replace').strip()[-300:]})")
+                                                  f"{drove.stderr.decode(errors='replace').strip()[-300:]})", gate=gate)
 
 
 def take_results(files, out, ids):
@@ -329,17 +382,29 @@ def take_results(files, out, ids):
             target.write_bytes(tar.extractfile(member).read())
 
 
-def collect(out, ids, host, missing_reason):
+def collect(out, ids, host, missing_reason, gate=None):
     results = {}
+    lease_load = {k: (gate or {}).get(k) for k in ("start", "waited_s", "reads")}
     for i in ids:
         path = out / i / "result.json"
         if path.is_file():
             result = json.loads(path.read_text())
             result["host"] = host
-            results[i] = result
         else:
-            results[i] = {"status": "not run", "reason": missing_reason, "host": host}
+            result = {"status": "not run", "reason": missing_reason, "host": host}
+        result["lease_load"], result["load_invalid"] = lease_load, bool((gate or {}).get("load_invalid"))
+        results[i] = result
     return results
+
+
+def load_facts(result):
+    """(load, load_invalid, loaded_host) of one journey's result: its own start and end load (the driver's),
+    else the lease's start load. loaded_host only for a fail: it stays a fail, the load is a fact beside it."""
+    load = result.get("load") if isinstance(result.get("load"), dict) else {}
+    load = {"start": load.get("start", (result.get("lease_load") or {}).get("start")), "end": load.get("end")}
+    loaded = any(isinstance(v, (int, float)) and v >= LOAD_LIMIT for v in load.values())
+    invalid = bool(result.get("load_invalid")) or loaded
+    return load, invalid, loaded and result.get("status") == "fail"
 
 
 # ---- clips -------------------------------------------------------------------------------
@@ -478,9 +543,14 @@ def main(argv=None):
     lines = []
     for spec in chosen:
         result = results.get(spec["id"], {"status": "not run", "reason": "no result"})
+        load, load_invalid, loaded_host = load_facts(result)
+        reason = result.get("reason", "")
+        if loaded_host:
+            reason = f"(loaded host) {reason}"
         clip = make_clip(out / spec["id"], opts.frame_interval) if (out / spec["id"]).is_dir() else None
         line = {"id": spec["id"], "priority": spec["priority"], "status": result.get("status", "not run"),
-                "reason": result.get("reason", ""), "evidence": compact(result.get("evidence")),
+                "reason": reason, "loaded_host": loaded_host, "load": load, "load_invalid": load_invalid,
+                "lease_load": result.get("lease_load"), "evidence": compact(result.get("evidence")),
                 "clip": str(clip) if clip else None, "checks": sorted(str(p) for p in (out / spec["id"]).glob("check-*.png")),
                 "build_job": build["id"], "commit": build["commit"], "tag": build["tag"], "host": result.get("host"),
                 "path": spec["_path"], "nonce": result.get("nonce"), "seconds": result.get("seconds"),
@@ -490,7 +560,7 @@ def main(argv=None):
         for line in lines:
             f.write(json.dumps(line) + "\n")
     for line in lines:
-        print(json.dumps({k: line[k] for k in ("id", "priority", "status", "reason", "clip")}))
+        print(json.dumps({k: line[k] for k in ("id", "priority", "status", "reason", "loaded_host", "load_invalid", "clip")}))
     log(f"results: {out / 'results.jsonl'}")
     statuses = {line["status"] for line in lines}
     return 1 if "fail" in statuses else 75 if "not run" in statuses else 0

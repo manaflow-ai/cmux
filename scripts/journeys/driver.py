@@ -83,6 +83,14 @@ NEW_TERMINAL_KEY = {"key": "`", "modifiers": ["control"]}
 LAUNCH_ENV = re.compile(r"^(CMUX_[A-Z0-9_]*|HOME|TMPDIR)$")
 
 
+def load_now():
+    """This host's 1-minute load average (the driver runs on the capture mini), or None."""
+    try:
+        return round(os.getloadavg()[0], 2)
+    except OSError:
+        return None
+
+
 def now():
     return time.monotonic()
 
@@ -1405,6 +1413,7 @@ class Journey:
 
     def run(self):
         started, wall = now(), time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        load_start = load_now()
         frames = Frames(self.app, self.out / "frames", self.frame_interval)
         frames.start()
         status, reason = "pass", ""
@@ -1467,6 +1476,7 @@ class Journey:
         clip = self.clip_frames()
         result = {"id": self.id, "priority": self.spec.get("priority"), "title": self.spec.get("title"),
                   "status": status, "reason": reason, "started_at": wall, "seconds": round(now() - started, 2),
+                  "load": {"start": load_start, "end": load_now()},
                   "nonce": self.nonce, "terminal": self.term, "pane": self.pane, "host_pid": self.host_pid,
                   "frames": frames.count, "clip_frames": clip, "steps": self.steps, "evidence": self.evidence}
         (self.out / "result.json").write_text(json.dumps(result, indent=1, default=str) + "\n")
