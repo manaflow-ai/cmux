@@ -688,6 +688,7 @@
 }
 .cv-user:hover .cv-user__actions,
 .cv-user__actions:focus-within,
+.cv-user__actions:has([aria-haspopup="menu"][aria-expanded="true"]),
 .cv-user__actions--versions {
   opacity: 1;
 }
@@ -707,7 +708,8 @@
   opacity: 0;
 }
 .cv-received:hover .cv-received-actions,
-.cv-received-actions:focus-within {
+.cv-received-actions:focus-within,
+.cv-received-actions:has([aria-haspopup="menu"][aria-expanded="true"]) {
   opacity: 1;
 }
 /* Retry sends a prompt again: under every prompt (Leo's spec, as Claude's), at the end of another
@@ -4094,8 +4096,9 @@ article.acpmux-row:empty {
   white-space: nowrap;
   letter-spacing: var(--text-caption--letter-spacing);
 }
-/* Another agent's message the agent has not read yet (QueuedMessageCard.tsx): a steer's one small
-   quiet tag at the line's end ("Read after this step"), always shown, still. No spinner, no dot, no motion. */
+/* Another agent's message the agent has not read yet (QueuedMessageCard.tsx): a steer's quiet tag
+   at the line's end ("Read after this step"), revealed on hover, focus or its action menu opening.
+   No spinner, no dot, no motion. */
 .cv-received__queued {
   flex: none;
   padding: 0 calc(var(--ds-space-1) + 2px);
@@ -4107,6 +4110,14 @@ article.acpmux-row:empty {
   line-height: 18px;
   white-space: nowrap;
   letter-spacing: var(--text-caption--letter-spacing);
+}
+.cv-received .cv-received__queued {
+  opacity: 0;
+}
+.cv-received:hover .cv-received__queued,
+.cv-received:focus-within .cv-received__queued,
+.cv-received:has(.cv-received-actions [aria-haspopup="menu"][aria-expanded="true"]) .cv-received__queued {
+  opacity: 1;
 }
 /* The running turn's line while the chat waits on the person (waitingOn.ts): full text color, so it
    reads as a call to act, not the muted "Thinking" it replaces. It holds still: no mark, no clock. */
