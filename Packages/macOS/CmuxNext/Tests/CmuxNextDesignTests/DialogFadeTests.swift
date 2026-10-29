@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextDesign
+import CmuxNextWakeups
 import Testing
 
 /// POLISH (no flash): a window dialog and its scrim appeared in one frame, so the whole window
@@ -54,37 +55,40 @@ import Testing
         #expect(seen.allSatisfy { $0 == 0 }, "the panel attached with the dialog showing: \(seen)")
     }
 
-    /// Alert polish (debug.dialog_strip): ordering the overlay panel in showed its window surface at
-    /// once, still holding the last dialog it drew at full opacity, for a frame before the new
-    /// dialog's fade (2 opens in 10 when the panel attached fresh, none while it stayed attached).
-    /// A freshly attached panel is transparent until it has drawn, then shows; one already attached
-    /// stays as it is, and a window on no screen shows it at once.
-    @Test(.enabled("needs an awake display and animations on") { await GUIAnimationTestSupport.animatesHere() })
-    func aFreshlyAttachedPanelShowsOnlyAfterItDrew() async throws {
+    /// Alert polish (debug.dialog_strip): a panel ordered out the turn its last dialog left kept that
+    /// dialog's drawn surface, and the next attach showed it for a frame before its own content drew
+    /// (2 opens in 10 when the panel attached fresh, none while it stayed attached). The panel stays
+    /// until the frame that draws it empty has committed, then leaves; an overlay presented in
+    /// between keeps it (no detach), and it shows at once on every attach (never hidden).
+    @Test func thePanelLeavesOnlyAfterItsEmptyFrameAndAReattachCancelsTheDetach() async throws {
         let window = NSWindow(contentRect: NSRect(x: 200, y: 400, width: 400, height: 300), styleMask: [.titled],
                               backing: .buffered, defer: false)
-        window.orderFrontRegardless()
         defer { window.orderOut(nil) }
-        try #require(window.screen != nil)
         let host = WindowOverlayHost.host(for: window)
-        let options = OverlayOptions(kind: .dialog, isModal: true, dimsContent: true, passesThroughClicks: false)
-        let first = host.present(NSView(frame: NSRect(x: 0, y: 0, width: 160, height: 90)), options: options)
-        defer { first.dismiss() }
-        #expect(host.panel.alphaValue == 0, "the panel showed its old surface as it ordered in")
-        #expect(await GUIAnimationTestSupport.settle { host.panel.alphaValue == 1 }, "the panel never showed")
-        let second = host.present(NSView(frame: NSRect(x: 0, y: 0, width: 120, height: 60)), options: options)
-        defer { second.dismiss() }
-        #expect(host.panel.alphaValue == 1, "an attached panel hid again")
+        let toast = OverlayOptions(kind: .toast, isModal: false, dimsContent: false, passesThroughClicks: true)
+        let first = host.present(NSView(frame: NSRect(x: 0, y: 0, width: 120, height: 30)), options: toast)
+        #expect(host.isPanelAttached && host.panel.alphaValue == 1)
+        first.dismiss()
+        #expect(host.isPanelAttached, "the panel left in the turn its content did, with its old surface")
+        // Presented again before that commit: the panel never leaves.
+        let second = host.present(NSView(frame: NSRect(x: 0, y: 0, width: 120, height: 30)), options: toast)
+        await Self.nextTurns()
+        #expect(host.isPanelAttached, "a pending detach took the panel from under a new overlay")
+        second.dismiss()
+        #expect(await GUIAnimationTestSupport.settle(within: 3) { !host.isPanelAttached }, "the panel never left")
+        let third = host.present(NSView(frame: NSRect(x: 0, y: 0, width: 120, height: 30)), options: toast)
+        defer { third.dismiss() }
+        #expect(host.isPanelAttached && host.panel.alphaValue == 1, "an attach hid the panel")
     }
 
-    @Test func aPanelOfAWindowOnNoScreenShowsAtOnce() throws {
-        let window = NSWindow(contentRect: NSRect(x: 200, y: 400, width: 400, height: 300), styleMask: [.titled],
-                              backing: .buffered, defer: false)
-        let host = WindowOverlayHost.host(for: window)
-        let handle = host.present(NSView(frame: NSRect(x: 0, y: 0, width: 160, height: 90)),
-                                  options: OverlayOptions(kind: .dialog, isModal: true, dimsContent: true, passesThroughClicks: false))
-        defer { handle.dismiss() }
-        #expect(host.panel.alphaValue == 1)
+    /// Waits until two main run-loop passes have committed, so any after-commit work the
+    /// dismissal or present scheduled has run (the same `AfterFrameCommit` signal the host uses).
+    private static func nextTurns() async {
+        for _ in 0..<2 {
+            await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+                AfterFrameCommit().run { done.resume() }
+            }
+        }
     }
 
     /// Alert polish (2026-10-28, debug.dialog_strip): the card only faded, flat, while the palette
