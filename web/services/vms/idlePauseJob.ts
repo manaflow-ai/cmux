@@ -140,9 +140,12 @@ function checkMachine(vm: CloudVmRow, now: () => number) {
       console.info("[VM] idle pause", JSON.stringify({ vmId: vm.id, minutes, reason: decision.reason, idleSince: decision.observation?.idleSince }));
       return "paused" as const;
     }
+    // A pause candidate that lost its row fence must keep the prior idle
+    // stretch. Writing a null observation here would bump the fence and make
+    // a recurring metadata write restart the timeout on every run.
+    if (decision.pause) return "active" as const;
     // Every checked machine records when it was checked, so the next run starts with the others.
-    const observation = decision.pause ? null : decision.observation;
-    yield* recordObservation(vm, providerVmId, observation, checkedAt, vmIdleEpochFromRow(vm));
+    yield* recordObservation(vm, providerVmId, decision.observation, checkedAt, vmIdleEpochFromRow(vm));
     // A pause skipped because the row moved: something used the machine since the candidate read.
     return decision.pause ? "active" as const : outcomeOf(decision);
   });
@@ -161,11 +164,14 @@ function claimPause(vm: CloudVmRow, providerVmId: string) {
     const repo = yield* VmRepository;
     const current = yield* repo.findUserVm({ userId: vm.userId, billingTeamId: vm.ownerTeamId, providerVmId, provider: vm.provider });
     if (!current || current.id !== vm.id || current.status !== "running" || current.providerVmId !== providerVmId) return null;
-    if (current.updatedAt.getTime() !== vm.updatedAt.getTime()) return null;
     // A person's or the allowance enforcer's pause under way: never claim over it.
     if (hasOutstandingPauseIntent(current, yield* Clock.currentTimeMillis)) return null;
     if (vmLastApiActivityFromRow(current) !== vmLastApiActivityFromRow(vm)) return null;
     if (vmIdleEpochFromRow(current) !== vmIdleEpochFromRow(vm)) return null;
+    // Address changes alter what the guest probe could observe. They are not
+    // represented by the generic row timestamp, so compare the probe inputs
+    // explicitly while allowing unrelated metadata writes through.
+    if (vmIdlePrivateAddressesFromRow(current).join("\u0000") !== vmIdlePrivateAddressesFromRow(vm).join("\u0000")) return null;
     const epoch = yield* repo.claimIdlePause!({ id: vm.id, providerVmId, epoch: vmIdleEpochFromRow(vm) });
     return epoch === null ? null : { row: current, epoch };
   });
