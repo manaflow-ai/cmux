@@ -528,3 +528,4 @@ existing colors, glass, row geometry and drag behavior.
   unread tabs keep primary ink and the existing focused fill. Disclosure, row frames, group rails, motion,
   trailing columns and defaults stay unchanged. `SidebarWorkspaceTabHierarchyTests` covers ungrouped,
   grouped and nested parents, favicon and plain tabs, every density, Minimal Mode, narrow widths and reuse.
+- 2026-10-29: the hierarchy gallery redraws production rows before applying each fixture-only variant, then redraws only the affected tab labels so the indentation-only primary-ink comparison remains faithful.

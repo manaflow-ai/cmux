@@ -52,11 +52,6 @@ final class SidebarTabRowView: SidebarRowView {
 
     override var interactiveSubviews: [NSView] { [closeButton] }
 
-    override var titleFrame: NSRect { title.frame }
-    override var titleFont: NSFont { title.font ?? SidebarStyle.tabTitleFont }
-    var debugTitleInk: NSColor? { title.textColor }
-    var debugIconFrame: NSRect { icon.frame }
-
     /// The ✕ shows or hides in `layout()`, as a workspace row's does.
     override func hoverChanged() {
         super.hoverChanged()
