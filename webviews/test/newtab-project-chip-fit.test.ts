@@ -50,35 +50,37 @@ await requireBrowserLane("newtab-project-chip-fit.test.ts", async () => {
 
   for (const theme of ["Apple System Colors Light", "Apple System Colors"])
     for (const width of [260, 360, 720])
-      test(`${theme} ${width}px: project label and chevron remain adjacent`, async () => {
-        const page = await browser!.newPage({ viewport: { width, height: 560 } });
-        const port = (vite!.httpServer!.address() as { port: number }).port;
-        await page.goto(
-          `http://127.0.0.1:${port}${galleryFrame("agent-pane.new-tab-page", { variant: "idle", theme })}`,
-        );
-        await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
-        const result = await page.locator(".acpmux-project-button").evaluate((button) => {
-          const label = button.querySelector<HTMLElement>(":scope > span:not(.acpmux-project-badge)")!;
-          const chevron = button.querySelector<HTMLElement>(":scope > .acpmux-icon:last-child")!;
-          const buttonRect = button.getBoundingClientRect();
-          const labelRect = label.getBoundingClientRect();
-          const chevronRect = chevron.getBoundingClientRect();
-          return {
-            labelText: label.textContent,
-            labelRight: labelRect.right,
-            chevronLeft: chevronRect.left,
-            buttonRight: buttonRect.right,
-            gap: chevronRect.left - labelRect.right,
-          };
+      for (const variant of ["idle", "long-project"])
+        test(`${theme} ${width}px ${variant}: project label and chevron remain adjacent`, async () => {
+          const page = await browser!.newPage({ viewport: { width, height: 560 } });
+          const port = (vite!.httpServer!.address() as { port: number }).port;
+          await page.goto(`http://127.0.0.1:${port}${galleryFrame("agent-pane.new-tab-page", { variant, theme })}`);
+          await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
+          const result = await page.locator(".acpmux-project-button").evaluate((button) => {
+            const label = button.querySelector<HTMLElement>(":scope > span:not(.acpmux-project-badge)")!;
+            const chevron = button.querySelector<HTMLElement>(":scope > .acpmux-icon:last-child")!;
+            const buttonRect = button.getBoundingClientRect();
+            const labelRect = label.getBoundingClientRect();
+            const chevronRect = chevron.getBoundingClientRect();
+            return {
+              labelText: label.textContent,
+              labelWidth: label.clientWidth,
+              labelScrollWidth: label.scrollWidth,
+              labelRight: labelRect.right,
+              chevronLeft: chevronRect.left,
+              buttonRight: buttonRect.right,
+              gap: chevronRect.left - labelRect.right,
+            };
+          });
+          expect(result.labelText).toContain("atlas-web");
+          if (variant === "long-project") expect(result.labelScrollWidth).toBeGreaterThan(result.labelWidth);
+          expect(result.labelRight).toBeLessThanOrEqual(result.chevronLeft + 0.5);
+          expect(result.chevronLeft).toBeLessThanOrEqual(result.buttonRight + 0.5);
+          expect(result.gap).toBeGreaterThanOrEqual(0);
+          expect(result.gap).toBeLessThanOrEqual(8);
+          await page.screenshot({
+            path: `/tmp/newtab-project-chip-${theme.includes("Light") ? "light" : "dark"}-${width}-${variant}.png`,
+          });
+          await page.close();
         });
-        expect(result.labelText).toContain("atlas-web");
-        expect(result.labelRight).toBeLessThanOrEqual(result.chevronLeft + 0.5);
-        expect(result.chevronLeft).toBeLessThanOrEqual(result.buttonRight + 0.5);
-        expect(result.gap).toBeGreaterThanOrEqual(0);
-        expect(result.gap).toBeLessThanOrEqual(8);
-        await page.screenshot({
-          path: `/tmp/newtab-project-chip-${theme.includes("Light") ? "light" : "dark"}-${width}.png`,
-        });
-        await page.close();
-      });
 });
