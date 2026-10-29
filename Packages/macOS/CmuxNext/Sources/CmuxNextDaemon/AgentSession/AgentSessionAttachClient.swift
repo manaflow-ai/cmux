@@ -76,6 +76,10 @@ public actor AgentSessionAttachClient {
         var keyedReason = false
         /// `agent-session-start-vm-kind-v1`.
         var vmKind = false
+        /// `agent-session-start-model-v1`.
+        var model = false
+        /// `agent-session-trust-vm-kind-v1`.
+        var trustVMKind = false
         /// `agent-session-children-v1`.
         var children = false
         /// `agent-session-presence-v1`.
@@ -118,6 +122,9 @@ public actor AgentSessionAttachClient {
     /// `agent_session.needs_keyed_start` and its facts in ``AgentSessionAttachError/details``. A
     /// daemon without `agent-session-start-keyed-reason-v1` gets no such param (it would refuse it).
     ///
+    /// An explicit `model` requires `agent-session-start-model-v1`; older daemons retain the
+    /// existing cwd/harness start when no model was requested.
+    ///
     /// `ownerLink`: set for a Cloud machine (from the app's own record of it, never the guest's).
     /// A chat starts there only while it gives the same link id before the connection and as the
     /// start is sent (the link's attach answer said the signed-in caller owns the machine, and
@@ -127,7 +134,7 @@ public actor AgentSessionAttachClient {
     /// that same connection, checked before it: if it ended meanwhile the start fails, never
     /// goes out over a new one.
     public func start(cwd: String, harness: String?, homeConfirmed: Bool = false, personKey: PersonKey? = nil,
-                      ownerLink: OwnerLink? = nil) async throws -> String {
+                      ownerLink: OwnerLink? = nil, model: String? = nil) async throws -> String {
         guard mode == .attach else {
             throw AgentSessionAttachError(code: Self.startUnsupported, message: "a read-only agent session cannot start a chat")
         }
@@ -136,14 +143,13 @@ public actor AgentSessionAttachClient {
         guard served.start else {
             throw AgentSessionAttachError(code: Self.startUnsupported, message: "the daemon does not serve agent session start")
         }
-        if let ownerLink {
-            guard let before, await ownerLink() == before else {
-                throw AgentSessionAttachError(code: "agent_session.host_unverified", message: "the Cloud API did not say this machine is yours")
-            }
+        guard model == nil || served.model else {
+            throw AgentSessionAttachError(code: Self.startUnsupported, message: "the daemon does not support choosing a start model")
         }
-        let callerOwnsVM = ownerLink != nil
+        let callerOwnsVM = try await Self.ownerAnswer(ownerLink, before: before)
         let params = Self.startParams(cwd: cwd, harness: harness, homeConfirmed: homeConfirmed, personKey: personKey,
-                                      servesKeyedReason: served.keyedReason, callerOwnsVM: callerOwnsVM, servesVMKind: served.vmKind)
+                                      servesKeyedReason: served.keyedReason, callerOwnsVM: callerOwnsVM, servesVMKind: served.vmKind,
+                                      model: model, servesModel: served.model)
         guard !transport.isClosed else {
             throw AgentSessionAttachError(code: "agent_session.closed", message: "the connection ended before the start was sent")
         }
@@ -158,9 +164,11 @@ public actor AgentSessionAttachClient {
     /// The params of ``start(cwd:harness:homeConfirmed:personKey:ownerLink:)``: a param a daemon
     /// does not advertise is never sent (its `deny_unknown_fields` would refuse the start).
     static func startParams(cwd: String, harness: String?, homeConfirmed: Bool, personKey: PersonKey?,
-                            servesKeyedReason: Bool, callerOwnsVM: Bool, servesVMKind: Bool) -> [String: any Sendable] {
+                            servesKeyedReason: Bool, callerOwnsVM: Bool, servesVMKind: Bool,
+                            model: String? = nil, servesModel: Bool = false) -> [String: any Sendable] {
         var params: [String: any Sendable] = ["cwd": cwd]
         if let harness { params["harness"] = harness }
+        if servesModel, let model, !model.isEmpty { params["model"] = model }
         if homeConfirmed { params["home_confirmed"] = true }
         if let personKey, servesKeyedReason {
             params["require_person_key"] = true
@@ -173,18 +181,39 @@ public actor AgentSessionAttachClient {
     /// `agent-session-trust` (`agent-session-trust-v1`): the trust of `cwd` on the daemon's machine
     /// (acpmux's `acp.trust.get` reply), or with `level` the person's answer recorded there
     /// (`acp.trust.set`). Only the person's own answer is ever sent (the pane's relay).
-    public func trust(cwd: String, level: String?, homeConfirmed: Bool = false) async throws -> Data {
+    ///
+    /// `ownerLink`: as for ``start(cwd:harness:homeConfirmed:personKey:ownerLink:)``, the same rule:
+    /// a Cloud machine's trust is asked or set only on the owner answer of the link the call goes
+    /// over, through any daemon, with `vm_kind: "owner"` to one with `agent-session-trust-vm-kind-v1`.
+    public func trust(cwd: String, level: String?, homeConfirmed: Bool = false, ownerLink: OwnerLink? = nil) async throws -> Data {
         guard mode == .attach else {
             throw AgentSessionAttachError(code: Self.startUnsupported, message: "a read-only agent session cannot change trust")
         }
-        _ = try await liveTransport()
+        let before = await ownerLink?()
+        let (transport, served) = try await liveConnection()
         guard served.trust else {
             throw AgentSessionAttachError(code: Self.startUnsupported, message: "the daemon does not serve agent session trust")
         }
         var params: [String: any Sendable] = ["cwd": cwd]
         if let level { params["level"] = level }
         if homeConfirmed { params["home_confirmed"] = true }
-        return try await call("agent-session-trust", params)
+        if try await Self.ownerAnswer(ownerLink, before: before), served.trustVMKind { params["vm_kind"] = "owner" }
+        // The call goes over the connection its owner answer and capabilities were checked for.
+        guard !transport.isClosed else {
+            throw AgentSessionAttachError(code: "agent_session.closed", message: "the connection ended before the trust call was sent")
+        }
+        return try await call("agent-session-trust", params, on: transport)
+    }
+
+    /// For a Cloud machine (`ownerLink` set): true when the link gives the same id now as `before`
+    /// (read before the connection), so the owner answer is the one of the link the call goes over;
+    /// refused otherwise. False for a machine that is not a Cloud one.
+    private static func ownerAnswer(_ ownerLink: OwnerLink?, before: Int?) async throws -> Bool {
+        guard let ownerLink else { return false }
+        guard let before, await ownerLink() == before else {
+            throw AgentSessionAttachError(code: "agent_session.host_unverified", message: "the Cloud API did not say this machine is yours")
+        }
+        return true
     }
 
     /// The code ``start(cwd:harness:)`` throws for a daemon without `agent-session-start-v1`.
@@ -344,6 +373,8 @@ public actor AgentSessionAttachClient {
                             trust: identity.supports(DaemonCapability.agentSessionTrust.rawValue),
                             keyedReason: identity.supports(DaemonCapability.agentSessionStartKeyedReason.rawValue),
                             vmKind: identity.supports(DaemonCapability.agentSessionStartVMKind.rawValue),
+                            model: identity.supports(DaemonCapability.agentSessionStartModel.rawValue),
+                            trustVMKind: identity.supports(DaemonCapability.agentSessionTrustVMKind.rawValue),
                             children: identity.supports(DaemonCapability.agentSessionChildren.rawValue),
                             presence: identity.supports(DaemonCapability.agentSessionPresence.rawValue))
             _ = try await DaemonConnection.perform(

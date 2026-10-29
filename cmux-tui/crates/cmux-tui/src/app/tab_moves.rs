@@ -13,7 +13,8 @@ use crate::sidebar_projection::{ProjectionBranch, ProjectionTarget};
 
 impl App {
     pub(super) fn pane_area_at(&self, x: u16, y: u16) -> Option<&PaneArea> {
-        self.pane_areas.iter().find(|a| a.rect.contains(x, y))
+        // The last drawn wins: a Floating dock's panes lie above the stage's.
+        self.pane_areas.iter().rev().find(|a| a.rect.contains(x, y))
     }
 
     pub(super) fn hit_at(&self, x: u16, y: u16) -> Option<Hit> {

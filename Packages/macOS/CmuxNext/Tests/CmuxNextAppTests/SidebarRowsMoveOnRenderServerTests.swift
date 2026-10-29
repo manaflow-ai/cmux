@@ -44,6 +44,46 @@ struct SidebarRowsMoveOnRenderServerTests {
 
     private static func sizeSprings(_ view: NSView) -> Int { springs(view, "bounds.size") }
 
+    @Test
+    func recyclingAParkedRowStopsItsListSpring() {
+        let list = SidebarListView(model: SidebarModel())
+        let view = SidebarRowView(key: .workspace(WorkspaceID("recycled")))
+        list.addSubview(view)
+        let spring = CASpringAnimation(keyPath: "position")
+        spring.isAdditive = true
+        view.layer?.add(spring, forKey: "\(SidebarDragSpring.batchKey).position.test")
+
+        #expect(Self.positionSprings(view) == 1)
+        list.recycle(view)
+        #expect(Self.positionSprings(view) == 0)
+    }
+
+    @Test
+    func anOldCloseCannotFinishTheReusedRowsNewClose() throws {
+        let list = SidebarListView(model: SidebarModel())
+        let key = SidebarRowKey.workspace(WorkspaceID("reused"))
+        let view = list.dequeue(key)
+        list.addSubview(view)
+        let oldClose = view.reuseGeneration
+        list.recycle(view)
+        let reused = list.dequeue(key)
+        try #require(reused === view)
+        // It left rowViews for a second close before the first close's completion arrived.
+        reused.closingEnd = .zero
+        list.fadingRows[ObjectIdentifier(reused)] = reused
+        let spring = CASpringAnimation(keyPath: "position")
+        spring.isAdditive = true
+        reused.layer?.add(spring, forKey: "\(SidebarDragSpring.batchKey).position.test")
+        list.finishLeaving(view, generation: oldClose)
+        #expect(!reused.isHidden)
+        #expect(Self.positionSprings(reused) == 1)
+        #expect(list.fadingRows[ObjectIdentifier(reused)] === reused)
+        list.finishLeaving(reused, generation: reused.reuseGeneration)
+        #expect(reused.isHidden && reused.closingEnd == nil)
+        #expect(Self.positionSprings(reused) == 0)
+        #expect(list.fadingRows.isEmpty)
+    }
+
     /// The rows and group lines that still carry a row move's spring.
     private static func springing(_ list: SidebarListView) -> [String] {
         list.subviews.filter { $0 is SidebarRowView || $0 is GroupLineView }.compactMap { view in
@@ -192,15 +232,43 @@ struct SidebarRowsMoveOnRenderServerTests {
     func aReloadWithoutMotionMidMoveShowsTheSlotsAtOnce() throws {
         let (model, list, _, restore) = try Self.sidebar(Self.grouped((1...8).map { "w\($0)" }))
         defer { restore() }
-        model.sections = Self.grouped(["new"] + (1...8).map { "w\($0)" })
+        // Remove a realized row while the insert starts its move: it stays as a closing subview with
+        // its render-server spring until the animated move ends.
+        model.sections = Self.grouped(["new"] + (1...7).map { "w\($0)" })
         list.reload(animated: true)
         try #require(!Self.springing(list).isEmpty, "the insert did not move on the render server")
 
-        model.sections = Self.grouped(["new"] + (1...7).map { "w\($0)" })
+        // Reintroduce that same key before the close ends. A calm reload must recycle the old leaving
+        // view first, so the replacement is at its slot with no stale close spring attached.
+        model.sections = Self.grouped(["new"] + (1...8).map { "w\($0)" })
         list.reload(animated: false)
 
         #expect(Self.springing(list).isEmpty, "still springing after a reload without motion: \(Self.springing(list))")
         #expect(Self.offSlot(list).isEmpty, "not at their slots: \(Self.offSlot(list))")
+        #expect(list.rowViews.values.allSatisfy { $0.closingEnd == nil }, "a returned row still belongs to its earlier close")
+    }
+
+    /// Reduce Motion takes RowMotion's snap branch while `reload(animated:)` still reports an animated apply.
+    /// The leaving row must be recycled before the same key is realized again in that effective snap path.
+    @Test(.enabled("needs an awake display and animations on, or every insert snaps anyway") {
+        await SidebarInsertWhileDisplayAsleepTests.animatesHere()
+    })
+    func reduceMotionReloadRecyclesAClosingRowBeforeReusingItsKey() throws {
+        let (model, list, _, restore) = try Self.sidebar(Self.grouped((1...8).map { "w\($0)" }))
+        defer { restore() }
+        model.sections = Self.grouped(["new"] + (1...7).map { "w\($0)" })
+        list.reload(animated: true)
+        try #require(!Self.springing(list).isEmpty, "the first change did not start a row move")
+
+        Motion.reduceMotionOverride = true
+        // Keep the removed workspace absent so `animate` remains true; this exercises the
+        // effective snap gate (`!Motion.sidebar.animatesMovement`) rather than its `!animate` arm.
+        model.sections = Self.grouped(["new"] + (1...7).reversed().map { "w\($0)" })
+        list.reload(animated: true)
+
+        #expect(Self.springing(list).isEmpty, "still springing after Reduce Motion snap: \(Self.springing(list))")
+        #expect(Self.offSlot(list).isEmpty, "not at slots after Reduce Motion snap: \(Self.offSlot(list))")
+        #expect(list.rowViews.values.allSatisfy { $0.closingEnd == nil }, "a returned row still belongs to its earlier close")
     }
 
     /// Reduce Motion turned on mid-move: the next change snaps, the earlier move's springs with it.

@@ -1,5 +1,6 @@
 public import CmuxNextDesign
 public import Foundation
+import CmuxNextCompat
 import os
 
 /// Produces the handshake for a pane. The App picks the live acpmux host or
@@ -9,6 +10,8 @@ public nonisolated protocol AgentPaneHostProviding: Sendable {
     /// Starts the daemon before a page is visible. Callers may treat this as
     /// best effort because the normal page handshake still reports failures.
     func prewarm() async throws
+    /// The peers listed by the same daemon the composer Environment picker reads.
+    func chatPeers() async throws -> [AgentChatPeer]
     /// The handshake for a page that lost its daemon. Starts one only after a
     /// crash, so a daemon the user stopped stays stopped.
     func reconnectHandshake(sessionId: String?) async throws -> AgentPaneHandshake
@@ -38,6 +41,8 @@ extension AgentPaneHostProviding {
     }
 
     public func prewarm() async throws {}
+
+    public func chatPeers() async throws -> [AgentChatPeer] { [] }
 
     /// Hosts without a daemon know no session folders.
     public func sessionFolder(sessionId: String) async throws -> AgentPaneSessionFolder? { nil }
@@ -149,6 +154,8 @@ public actor AcpmuxHost: AgentPaneHostProviding {
     /// `restartsUnresponsive` (the `agent.restartUnresponsiveAcpmux` toggle) is on.
     private let unresponsive: AcpmuxUnresponsiveWatch
     private let restartsUnresponsive: @Sendable () -> Bool
+    /// Sends the Computer Use endpoint to the daemon (`AcpmuxComputerUse.enroll`; a recorder in tests).
+    private let enrollComputerUse: @Sendable (AcpmuxEnvironment) async -> Void
 
     /// - Parameters:
     ///   - healReplaced: called once per daemon pid when a daemon this
@@ -172,6 +179,7 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         self.agentPairGuard = { environment?.agentPairGuard ?? true }
         self.agentPairCap = { (environment?.agentPairCap ?? 20, environment?.agentPairWindowSeconds ?? 600) }
         self.daemonReady = { _ in }
+        self.enrollComputerUse = { await AcpmuxComputerUse.enroll($0) }
         self.startsDaemons = startsDaemons
         self.healReplaced = healReplaced
         self.startOwner = startOwner
@@ -189,17 +197,50 @@ public actor AcpmuxHost: AgentPaneHostProviding {
                     (Int(AgentPaneTunables.agentPairCap.value), Int(AgentPaneTunables.agentPairWindow.value))
                 },
                 daemonReady: (@Sendable (String) async -> Void)? = nil) {
+        self.init(resolve: resolve, computerUse: computerUse, offersSessionTools: offersSessionTools,
+                  agentPairGuard: agentPairGuard, agentPairCap: agentPairCap, daemonReady: daemonReady,
+                  enrollComputerUse: { await AcpmuxComputerUse.enroll($0) })
+    }
+
+    /// `enrollComputerUse` sends the Computer Use endpoint (a recorder in tests).
+    init(resolve: @escaping @Sendable () -> AcpmuxEnvironment?,
+         computerUse: @escaping @Sendable () -> [String: String] = { [:] },
+         offersSessionTools: @escaping @Sendable () -> Bool = { AgentPaneSuggestedTasks.forNextDaemon.isOn },
+         agentPairGuard: @escaping @Sendable () -> Bool = { AgentPaneTunables.agentPairGuard.value },
+         agentPairCap: @escaping @Sendable () -> (messages: Int, windowSeconds: Int) = {
+             (Int(AgentPaneTunables.agentPairCap.value), Int(AgentPaneTunables.agentPairWindow.value))
+         },
+         daemonReady: (@Sendable (String) async -> Void)? = nil,
+         enrollComputerUse: @escaping @Sendable (AcpmuxEnvironment) async -> Void) {
         self.resolveEnvironment = resolve
         self.computerUse = computerUse
         self.offersSessionTools = offersSessionTools
         self.agentPairGuard = agentPairGuard
         self.agentPairCap = agentPairCap
         self.daemonReady = daemonReady ?? { _ in }
+        self.enrollComputerUse = enrollComputerUse
         self.startsDaemons = true
         self.healReplaced = nil
         self.startOwner = nil
         self.unresponsive = .shared
         self.restartsUnresponsive = { AgentPaneTunables.restartUnresponsiveAcpmux.value }
+    }
+
+    /// The Computer Use endpoint changed (`ComputerUseHelperDaemon.onEndpointChange`: a replaced
+    /// agent token, or the endpoint published or withdrawn): gives it to this app's running acpmux
+    /// now. acpmux reads it only at a lookup, and connected panes do not look again, so it kept a
+    /// replaced token and the helper refused every new chat until a pane reconnected. Chats already
+    /// running keep the token their computer use server started with. Only a signed daemon this
+    /// host owns and that runs: an attached daemon keeps its owner's endpoint, and an unsigned DEV
+    /// daemon took its endpoint at spawn and refuses enrollment.
+    public func computerUseChanged() async {
+        if environment == nil { environment = resolveEnvironment() }
+        guard startsDaemons, var environment, !environment.isAttached, !environment.passesPersonKeyAtSpawn else { return }
+        // A lookup in flight enrolls the endpoint it read when it started: send the current one after it.
+        for task in inFlight.values { _ = try? await task.value }
+        guard FileManager.checked.fileExists(atPath: environment.socketPath) else { return }
+        environment.computerUse = computerUse()
+        await enrollComputerUse(environment)
     }
 
     public func handshake(sessionId: String?) async throws -> AgentPaneHandshake {
@@ -219,6 +260,14 @@ public actor AcpmuxHost: AgentPaneHostProviding {
 
     public func prewarm() async throws {
         _ = try await endpoint(startsDaemon: true)
+    }
+
+    public func chatPeers() async throws -> [AgentChatPeer] {
+        // Validate the app's daemon/home just as a composer handshake does. Listing never
+        // starts another daemon; the tab store already prewarms its own host.
+        _ = try await endpoint(startsDaemon: false)
+        guard let environment else { throw AgentPaneHostError.acpmuxNotFound }
+        return try await AcpmuxStatusClient.chatPeers(socketPath: environment.socketPath)
     }
 
     public func sessionFolder(sessionId: String) async throws -> AgentPaneSessionFolder? {
@@ -294,6 +343,15 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         let endpoint = try await task.value
         await daemonReady(daemonSocket)
         return endpoint
+    }
+
+    /// Whether the enroll after a launch may hand the daemon off. Only a daemon this launch
+    /// started: a launch that lost the lock race got the winner's readiness (`lockHeld`), and the
+    /// winner is another client's daemon, which a handoff would shut down under that client and
+    /// leave this one holding a dead endpoint. Such a daemon is enrolled like the one the
+    /// exited-before-ready branch finds (`mayHandOff: false`).
+    static func mayHandOff(after launched: AcpmuxDaemonLauncher.Launched) -> Bool {
+        launched.startedHere
     }
 
     /// The pane's endpoint from `_acpmux/status` read on a connection whose server peer is the
@@ -499,14 +557,15 @@ public actor AcpmuxHost: AgentPaneHostProviding {
             throw failure(environment, .other, detail: String(describing: error))
         }
         do {
-            let endpoint = try await AcpmuxDaemonLauncher.launch(environment)
+            let launched = try await AcpmuxDaemonLauncher.launchReporting(environment)
             // A signed daemon ignores the spawn key: it takes the key by this app's signature.
             if let status = await Self.startedStatus(environment), status.serves(home: environment.home) {
-                _ = await AcpmuxPersonKey.enroll(status, environment: environment)
+                _ = await AcpmuxPersonKey.enroll(status, environment: environment,
+                                                 mayHandOff: Self.mayHandOff(after: launched))
                 await AcpmuxComputerUse.enroll(environment)
                 AcpmuxMacApprover.register(environment)
             }
-            return endpoint
+            return launched.endpoint
         } catch AcpmuxDaemonLauncher.Failure.exited {
             logger.error("acpmux launcher exited before ready log=\(environment.logPath, privacy: .public)")
             // Another client may have started the daemon first; the loser exits because the

@@ -72,7 +72,7 @@ const claudeSnapshot: AcpmuxSnapshot = {
       availableModes: [
         { id: "default", name: "Default" },
         { id: "acceptEdits", name: "Accept edits" },
-        { id: "bypassPermissions", name: "Full access" },
+        { id: "bypassPermissions", name: "Bypass permissions" },
       ],
       currentModeId: "default",
     },
@@ -255,15 +255,16 @@ function GalleryComposerPickers({ claude, accounts, managed }: Props) {
 }
 
 // The model button opens its one menu (Leo 2026-10-20): numbered models, then Effort, More models
-// and Fast mode. The full picker (the search) is its More models row.
+// and Fast mode. The full picker (the search) is its More models row; Fast is always a toggle row.
 const MODEL = { role: "button", name: "Model" } as const;
 const quickRows = '.acpmux-quick-menu [role="menuitemradio"]';
 
 const openModel: Play = async (ctx) => {
   await ctx.click(MODEL);
   await ctx.waitFor(() => ctx.document.querySelector(quickRows) !== null);
-  if (!ctx.document.querySelector(".acpmux-model .acpmux-fast"))
-    throw new Error("the model picker has no inline Fast bolt");
+  if (ctx.document.querySelector(".acpmux-fast")) throw new Error("the composer must draw no Fast bolt");
+  if (!ctx.document.querySelector(".acpmux-quick-menu .acpmux-quick-fast"))
+    throw new Error("the compact model menu has no Fast mode toggle");
   const headers = [...ctx.document.querySelectorAll<HTMLElement>(".acpmux-quick-menu .ui-menu-group-label")];
   if (headers.some((node) => node.textContent?.trim()))
     throw new Error("the compact model menu should not show a static session header");
@@ -272,7 +273,7 @@ const openModel: Play = async (ctx) => {
 const openAccounts: Play = async (ctx) => {
   await ctx.click(MODEL);
   await ctx.waitFor(() => ctx.document.querySelector(quickRows) !== null);
-  await ctx.focus({ role: "menuitem", name: /^Account/ });
+  await ctx.focus({ role: "menuitem", name: /^Provider/ });
   await ctx.press("Enter");
   await ctx.waitFor(() =>
     [...ctx.document.querySelectorAll(".acpmux-quick-menu")].some(
@@ -315,20 +316,18 @@ const modelPressDragRelease: Play = async (ctx) => {
   );
 };
 
-/// Opens the model menu's Effort submenu; resolves with its popup.
+// The current model's effort is the inline control in its own row (#26521): the menu has no
+// Effort submenu while that row carries the levels.
+const CHECKED_EFFORT = '.acpmux-quick-menu .acpmux-quick-effort-segment[aria-checked="true"]';
+
+/// Opens the model menu; resolves with the current model's inline effort control.
 async function openEffortMenu(ctx: Parameters<Play>[0]): Promise<HTMLElement> {
   await ctx.click(MODEL);
-  await ctx.waitFor(() => ctx.document.querySelector(quickRows) !== null);
-  // A submenu row opens on hover or from the keyboard: Base UI's submenu trigger ignores a mouse
-  // press while it opens on hover. Enter on the focused row opens it, as a keyboard user does.
-  await ctx.focus({ role: "menuitem", name: /^Effort/ });
-  await ctx.press("Enter");
   let levels: HTMLElement | undefined;
   await ctx.waitFor(() => {
-    // The submenu is the quick menu with no submenu rows of its own.
-    levels = [...ctx.document.querySelectorAll<HTMLElement>(".acpmux-quick-menu")].find(
-      (menu) => !menu.querySelector(".acpmux-quick-sub") && menu.querySelector('[role="menuitemradio"]') !== null,
-    );
+    levels =
+      ctx.document.querySelector<HTMLElement>(CHECKED_EFFORT)?.closest<HTMLElement>(".acpmux-quick-efforts") ??
+      undefined;
     return levels;
   });
   return levels!;
@@ -342,17 +341,25 @@ const openEffort: Play = async (ctx) => {
 const effortFocus: Play = async (ctx) => {
   const trigger = ctx.find(MODEL);
   const levels = await openEffortMenu(ctx);
-  await ctx.waitFor(() => levels.contains(ctx.document.activeElement));
+  const checked = levels.querySelector<HTMLElement>('[aria-checked="true"]')!;
+  await ctx.focus({ selector: CHECKED_EFFORT });
+  await ctx.waitFor(() => ctx.document.activeElement === checked);
   await ctx.press("ArrowDown");
-  await ctx.waitFor(() => levels.querySelector('[role="menuitemradio"][data-highlighted]') !== null);
-  await ctx.press("Escape");
+  await ctx.waitFor(() => {
+    const highlighted = ctx.document.querySelector(".acpmux-quick-menu [data-highlighted]");
+    return highlighted !== null && highlighted !== checked;
+  });
   await ctx.press("Escape");
   await ctx.waitFor(() => !ctx.document.querySelector('[role="menu"]') && ctx.document.activeElement === trigger);
 };
 
 const effortPick: Play = async (ctx) => {
-  await openEffortMenu(ctx);
-  await ctx.click({ role: "menuitemradio", name: /^High/ });
+  const levels = await openEffortMenu(ctx);
+  const high = [...levels.querySelectorAll<HTMLElement>(".acpmux-quick-effort-segment")].find(
+    (segment) => segment.textContent?.trim() === "High",
+  );
+  if (!high) throw new Error("the current model's effort control offers no High");
+  await ctx.click({ selector: `.acpmux-quick-menu [aria-label="${high.getAttribute("aria-label")}"]` });
   await ctx.waitFor(() => !ctx.document.querySelector('[role="menu"]'));
   await ctx.waitFor(
     () =>
@@ -361,11 +368,13 @@ const effortPick: Play = async (ctx) => {
 };
 
 const fastMode: Play = async (ctx) => {
-  const fast = { selector: ".acpmux-model .acpmux-fast" } as const;
+  const fast = { selector: ".acpmux-quick-menu .acpmux-quick-fast" } as const;
+  await ctx.click(MODEL);
   await ctx.waitFor(() => ctx.document.querySelector(fast.selector) !== null);
-  if (ctx.find(fast).getAttribute("aria-pressed") !== "false") throw new Error("Fast mode must start off");
+  if (ctx.document.querySelector(".acpmux-fast")) throw new Error("the composer must draw no Fast bolt");
+  if (ctx.find(fast).getAttribute("aria-checked") !== "false") throw new Error("Fast mode must start off");
   await ctx.click(fast);
-  await ctx.waitFor(() => ctx.document.querySelector(fast.selector)?.getAttribute("aria-pressed") === "true");
+  await ctx.waitFor(() => ctx.document.querySelector(fast.selector)?.getAttribute("aria-checked") === "true");
 };
 
 const morePicker: Play = async (ctx) => {
@@ -470,7 +479,7 @@ export default componentEntry<Props>({
       props: {},
     },
     "model-menu": {
-      note: "The model button opens its one menu: this harness's models, numbered, then Effort and More models; the free Fast bolt stays beside the model name.",
+      note: "The model button opens its one menu: this harness's models, numbered, then Effort, More models and the Fast mode toggle.",
       props: {},
       play: openModel,
     },
@@ -490,18 +499,18 @@ export default componentEntry<Props>({
       play: modelPressDragRelease,
     },
     "effort-menu": {
-      note: "The model menu's Effort row opens the levels beside it, the current one checked; there is no separate effort chip.",
+      note: "The current model's row carries its effort levels inline, the current one checked; there is no Effort submenu or separate effort chip.",
       props: {},
       play: openEffort,
     },
     "effort-focus": {
-      note: "Arrow navigation moves the highlighted effort; Escape twice closes both menus and restores focus to Model.",
+      note: "From the current effort, arrow navigation moves the highlight; Escape closes the menu and restores focus to Model.",
       props: {},
       play: effortFocus,
     },
     // The id predates the one button; its point stays: a pick of High lands and the button names it.
     "effort-press-drag-release": {
-      note: "Picking High in the Effort submenu closes the menu, and the model button then reads High after the model.",
+      note: "Picking High in the current model's inline effort closes the menu, and the model button then reads High after the model.",
       props: {},
       play: effortPick,
     },
@@ -517,12 +526,12 @@ export default componentEntry<Props>({
       play: openAccounts,
     },
     "claude-effort-up": {
-      note: "Opened from the composer at the window's foot, the Effort submenu grows up from its row, Medium checked (Leo 2026-10-21: it opened downward).",
+      note: "Opened from the composer at the window's foot, the menu grows up with the current model's inline effort, Medium checked (Leo 2026-10-21: the Effort submenu opened downward; #26521 folds it into the row).",
       props: { claude: true },
       play: openEffort,
     },
     "fast-mode": {
-      note: "The free Fast mode is the bolt beside the model name: a click turns it on while the model picker remains adjacent.",
+      note: "Fast mode is the model picker’s toggle row: a click turns it on without adding a separate composer control; every non-off tier stays checked.",
       props: {},
       play: fastMode,
     },

@@ -19,6 +19,11 @@ pub struct Session {
     /// Held while a child is spawned and initialized, so concurrent
     /// requests for a stopped session start one agent, not several.
     pub(super) spawn_lock: Mutex<()>,
+    /// Held shared by a request that reaches the harness outside a turn (a start, a mode
+    /// change); the idle pass takes it exclusively while it lists and ends the harness.
+    pub(super) harness_use: tokio::sync::RwLock<()>,
+    /// The hub clock's time of the last log of why the idle harness stays up (`idle_census.rs`).
+    pub(super) idle_refusal_logged: AtomicU64,
     pub(super) seq: AtomicU64,
     /// Held from sequence allocation until the record is stored and sent,
     /// so the log and fan-out always see sequences in order.
@@ -41,9 +46,15 @@ pub struct Session {
     pub(super) log_load: StdMutex<bool>,
     pub(super) log_loaded: AtomicBool,
     pub(super) turn_lock: Mutex<()>,
+    /// Serializes the handoff of a turn's prompt and a session-wide cancel. A compacting Stop
+    /// settles the logical turn before its cancel reaches the harness; keeping this lock until
+    /// that cancel is handed to the child prevents the next turn's prompt from overtaking it.
+    pub(super) input_handoff: std::sync::Arc<Mutex<()>>,
     pub(super) turn: StdMutex<Option<TurnInfo>>,
     pub(super) queued: AtomicU64,
     pub(super) queue: StdMutex<Vec<QueuedPrompt>>,
+    /// Durable team notices, indexed once per session; receiving one never queues a turn.
+    pub(super) team_information: StdMutex<Option<super::team_information::State>>,
     /// Fired when the queue's head may have changed (a prompt left the queue,
     /// a turn ended): queued prompts wait on it for their turn (`queue.rs`).
     pub(super) queue_moved: Notify,
@@ -129,6 +140,21 @@ pub struct Session {
     /// How many times its turn was stopped (`cancel.rs`): a prompt whose model-sized copies were
     /// made meanwhile is not written (`turns.rs`).
     pub(super) cancels: AtomicU64,
+    /// The turn id whose forced cancellation was already published. A second
+    /// Stop for the same turn must not publish another forced answer.
+    pub(super) cancel_forced_turn: StdMutex<Option<String>>,
+    /// The forced `turn_result` already written for a turn, if any. This is
+    /// separate from `cancel_forced_turn`: several prompt waiters can observe
+    /// the same forced answer, but only one may append the result.
+    pub(super) cancel_forced_result_turn: StdMutex<Option<String>>,
+    /// Claude Code reported that its active turn is compacting. This is kept
+    /// on the session as hosted agents have their translator in the host.
+    pub(super) compacting: AtomicBool,
+    /// A compacting Stop fences untagged compaction metadata for this live
+    /// session instance. Hosted updates can overtake the
+    /// delayed cancel notification, so the controller must drop their
+    /// boundary and summary records as well as the local translator.
+    pub(super) compaction_metadata_fenced: AtomicBool,
     /// Status writes under way: each sets the status, then logs it (`Hub::write_status`). Log
     /// retention leaves a chat alone while one is (`retention.rs` `untouched`).
     pub(super) status_writes: AtomicU64,
@@ -179,6 +205,16 @@ pub struct Session {
     /// The hub clock's time (`Hub::clock_now`) of the last record or
     /// attach change; the idle harness exit counts from it (`idle.rs`).
     pub(super) last_active: AtomicU64,
+    /// The hub clock's time (`Hub::clock_now`) at which the idle exit hibernated its harness
+    /// (`idle.rs`), or 0: the next start of its agent is a wake, logged with its cause and how
+    /// long it took.
+    pub(super) hibernated_at: AtomicU64,
+    /// What asked for the agent the next wake starts (`idle.rs` `wake_cause`): `typing`, `prompt`,
+    /// else a request that needs the agent.
+    pub(super) wake_cause: StdMutex<Option<&'static str>>,
+    /// The agent's own requests (a file read, a terminal, a permission) whose task has not
+    /// ended: the idle exit waits for none of them, it keeps the agent (`idle.rs`).
+    pub(super) agent_requests: std::sync::atomic::AtomicUsize,
     /// Web control ended: the mode left the asking table (`web_control.rs`).
     pub(super) web_control_ended: AtomicBool,
     /// The remote floor's per-session marks (`remote_floor.rs`).
@@ -201,6 +237,28 @@ pub struct Session {
 }
 
 impl Session {
+    /// Fence untagged compaction metadata for this live session. Claude's
+    /// boundary and summary lines carry no turn id, so a forced Stop keeps
+    /// them out of the controller log until this session is replaced.
+    pub(super) fn fence_compaction_metadata(&self) {
+        self.compaction_metadata_fenced.store(true, Ordering::SeqCst);
+    }
+
+    /// Terminal compaction metadata is untagged; message-derived usage stays valid.
+    pub(super) fn fences_compaction_update(&self, update: &Value) -> bool {
+        if !self.compaction_metadata_fenced.load(Ordering::SeqCst) {
+            return false;
+        }
+        match update.get("sessionUpdate").and_then(Value::as_str) {
+            Some("compaction") => update.get("state").and_then(Value::as_str) != Some("running"),
+            Some("compaction_summary") => true,
+            Some("usage_update") => {
+                update.pointer("/_meta/acpmux/compactionDerived") == Some(&Value::Bool(true))
+            }
+            _ => false,
+        }
+    }
+
     /// Lifts the replay hold of the agent of this generation (`Session::replaying`).
     pub(super) fn end_replay(&self, agent: u64) {
         self.replaying.lock().unwrap_or_else(|e| e.into_inner()).retain(|g| *g != agent);

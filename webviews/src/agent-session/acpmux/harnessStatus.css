@@ -11,7 +11,7 @@
 
 .acpmux-harness-status__head {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: flex-end;
   gap: 12px;
 }
@@ -35,8 +35,10 @@
 }
 
 .acpmux-harness-status__close {
+  box-sizing: border-box;
   width: 24px;
   height: 24px;
+  min-height: 24px;
   padding: 0;
   border: 0;
   border-radius: 6px;
@@ -44,8 +46,11 @@
   color: var(--agent-muted);
   font: inherit;
   font-size: var(--text-body);
-  line-height: 20px;
+  line-height: 24px;
   letter-spacing: var(--text-body--letter-spacing);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .acpmux-harness-status__close:hover,
@@ -55,7 +60,11 @@
 }
 
 .acpmux-harness-status__copy-all {
+  box-sizing: border-box;
   display: grid;
+  align-items: center;
+  justify-items: center;
+  height: 24px;
   min-height: 24px;
   padding: 0;
   border: 0;
@@ -64,6 +73,7 @@
   color: var(--agent-muted);
   font: inherit;
   font-size: var(--text-caption);
+  line-height: 24px;
   letter-spacing: var(--text-caption--letter-spacing);
 }
 

@@ -43,6 +43,7 @@ export const CMUX_TUI_STATE_MAX_BYTES = 8 * 1024 * 1024 * 1024;
 export const DEVBOX_TEMPLATE_FILES = [
   "Dockerfile",
   "agent-config.sh",
+  "claude-onboarding.py",
   "agent-auth.sh",
   "cmux-claude",
   "cmux-codex",
@@ -526,6 +527,17 @@ export type DevboxSourceRecord = {
 
 export function devboxTemplateFile(name: string): string {
   return readFileSync(path.join(devboxDir, name), "utf8");
+}
+
+/** Reset the bake's temporary owner record and prove team shells drop caller credentials. */
+export function devboxTeamKindDefaultCommand(
+  kindFile = "/etc/cmux/vm-kind",
+  checkHome = "/tmp/team-kind-check",
+  agentConfig = "/etc/cmux/agent-config.sh",
+): string {
+  const kind = shellQuote(kindFile);
+  const home = shellQuote(checkHome);
+  return `echo team > ${kind} && chmod 0644 ${kind} && rm -rf ${home} && env HOME=${home} OPENAI_BASE_URL=https://example.invalid/v1 OPENAI_API_KEY=cmux-team-kind-check bash -c ${shellQuote(`. ${shellQuote(agentConfig)}`)} && ! grep -rqs -e cmux-team-kind-check -e example.invalid ${home} && rm -rf ${home} && echo team-kind-keeps-no-caller-env`;
 }
 
 export function devboxDesktopFile(name: string): string {
@@ -1581,18 +1593,36 @@ export function manifestEntryEpoch(entry: Pick<DevboxManifestEntry, "epoch" | "n
  * wait), again with the cmux-machine-health install (the bake steps and
  * the boot script's HOUSEKEEPING_TIMERS), and again with cmux-vm-kind-sync's
  * write-only-a-fetched-kind lock and the boot's clone-reset fallback, so
- * `current` is their digest.
+ * `current` is their digest. The entries live in
+ * services/vms/images/awaiting-rebake.json.
  */
-export const DEVBOX_AWAITING_REBAKE = [
-  {
-    layers: "desktop",
-    schema: 2,
-    baked: "28fce1e49495",
-    current: "08eaadaaff2d2bae9b06f0ab85925fcbbfc8b35eea8da89088b58ea92842b0ee",
-  },
-] as const;
+export type DevboxAwaitingRebake = {
+  readonly layers: DevboxImageKind;
+  readonly schema: number;
+  /** First 12 hex of the digest the current defaults recorded. */
+  readonly baked: string;
+  /** This checkout's digest of those layers at `schema`. */
+  readonly current: string;
+};
 
-export type DevboxAwaitingRebake = (typeof DEVBOX_AWAITING_REBAKE)[number];
+/**
+ * Data, not code, so the rebake workflow (cloud-devbox-image-rebake.yml,
+ * `devbox-rebake.ts settle`) can drop the entries its promotion satisfied.
+ */
+export const devboxAwaitingRebakePath = path.join(webRoot, "services/vms/images/awaiting-rebake.json");
+
+export function readDevboxAwaitingRebake(file = devboxAwaitingRebakePath): DevboxAwaitingRebake[] {
+  const rows = JSON.parse(readFileSync(file, "utf8")) as DevboxAwaitingRebake[];
+  if (!Array.isArray(rows)) throw new Error(`${file}: expected a JSON array`);
+  for (const row of rows) {
+    if ((row.layers !== "desktop" && row.layers !== "base") || typeof row.schema !== "number" || !/^[0-9a-f]{12}$/.test(row.baked) || !/^[0-9a-f]{64}$/.test(row.current)) {
+      throw new Error(`${file}: malformed entry ${JSON.stringify(row)}`);
+    }
+  }
+  return rows;
+}
+
+export const DEVBOX_AWAITING_REBAKE: readonly DevboxAwaitingRebake[] = readDevboxAwaitingRebake();
 
 /** Whether a devboxSourceDriftProblems message is the drift `pending` excuses. */
 export function isAwaitingRebake(problem: string, pending: DevboxAwaitingRebake): boolean {

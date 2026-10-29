@@ -14,4 +14,15 @@ public protocol RemoteLocalhostMachines: AnyObject {
     func machineBadge(_ machineID: String) -> String?
     /// Workspace `id`'s personal-state address: the session that owns it and its key.
     func personalAddress(ofWorkspace id: String) -> (session: String, key: String)?
+    /// The private IPv4 address of Cloud machine `machineID` on its Cloud network, which the app
+    /// reaches over its own WireGuard tunnel; nil for any other machine.
+    func cloudTunnelAddress(machine machineID: String) -> String?
+    /// The badge name of Cloud machine `machineID`, matched without case (Open Desktop's URL
+    /// carries the id lowercased); nil for an unknown machine.
+    func cloudMachineBadge(machine machineID: String) -> String?
+}
+
+extension RemoteLocalhostMachines {
+    public func cloudTunnelAddress(machine machineID: String) -> String? { nil }
+    public func cloudMachineBadge(machine machineID: String) -> String? { machineBadge(machineID) }
 }
