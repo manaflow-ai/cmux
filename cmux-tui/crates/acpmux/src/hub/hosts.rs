@@ -32,6 +32,9 @@ pub(super) struct OpenWork {
     /// The last turn ended naming the turn it carried into (`turn_result` `carriedTo`), which
     /// never logged its start: the restart came in between.
     carry_next: Option<(String, Value)>,
+    /// A Web steer raised the turn the open one carried into, before the open one's end was
+    /// logged (`turn_control` for another turn): that turn is a Web turn (`carried_turn.rs`).
+    next_raised: bool,
     /// When that turn started and when its model last showed a sign of work
     /// (`tap.rs` `logged_from_the_model`; 0 for none), Unix ms: the
     /// recovered turn keeps its age and its stalled count (`stalled_turn.rs`).
@@ -837,6 +840,7 @@ impl Hub {
                     // A new harness runs no carried turn of the old one's.
                     work.carry_next = None;
                     work.turn_carried = false;
+                    work.next_raised = false;
                     work.last_host_seq = 0;
                     host_seq_at = None;
                     work.doing = Default::default();
@@ -864,6 +868,7 @@ impl Hub {
                     work.turn_at = e.at;
                     work.turn_carried = e.msg.get("carried").is_some_and(|c| !c.is_null());
                     work.carry_next = None;
+                    work.next_raised = false;
                     work.heard_at = 0;
                     work.open_tools.clear();
                     work.prompt_request = None;
@@ -872,10 +877,15 @@ impl Hub {
                     work.doing = Default::default();
                 }
                 ("mux", "turn_control") => {
-                    if let Some(t) = work.turn.as_mut()
-                        && e.msg.get("turnId").and_then(Value::as_str) == Some(t.1.as_str())
-                    {
-                        t.5 = Control::from_recorded(e.msg.get("control").and_then(Value::as_str));
+                    if let Some(t) = work.turn.as_mut() {
+                        if e.msg.get("turnId").and_then(Value::as_str) == Some(t.1.as_str()) {
+                            t.5 = Control::from_recorded(
+                                e.msg.get("control").and_then(Value::as_str),
+                            );
+                        } else {
+                            // The turn it carried into, put in place before its end was logged.
+                            work.next_raised = true;
+                        }
                     }
                     // A Web steer into a carried turn not started yet (`carried_turn.rs`).
                     if let Some((_, next)) = work.carry_next.as_mut()
@@ -894,6 +904,7 @@ impl Hub {
                     });
                     work.turn = None;
                     work.turn_carried = false;
+                    work.next_raised = false;
                     work.compacting = false;
                     // No turn, no turn state: an ended turn's records are not read
                     // (`open_work_reads`), so none of them may outlive it here.
@@ -1098,13 +1109,14 @@ impl Hub {
             if work.turn_at > 0 {
                 turn.started_at = work.turn_at;
             }
-            self.recover_carried(session, child, turn, None);
+            self.recover_carried(session, child, turn, None, false);
         } else if work.turn.is_none()
             && let Some((from, record)) = &work.carry_next
             && let Some(next) = super::carried_turn::NextTurn::from_record(record)
         {
-            let super::carried_turn::NextTurn { carried, next, .. } = next;
-            self.recover_carried(session, child, next, Some((from.clone(), carried)));
+            let super::carried_turn::NextTurn { carried, next, continues } = next;
+            let begin = Some((from.clone(), carried));
+            self.recover_carried(session, child, next, begin, continues.trust_gate);
         } else if let Some((turn_seq, turn_id, prompt_id, prompt, client, control)) =
             work.turn.clone()
         {
@@ -1168,6 +1180,7 @@ impl Hub {
                         }
                     }
                     let hub = self.clone();
+                    let next_raised = work.next_raised;
                     let s = session.clone();
                     let c = child.clone();
                     tokio::spawn(async move {
@@ -1182,7 +1195,12 @@ impl Hub {
                         };
                         // Its agent ended it and runs on with steers it read after: the next turn
                         // starts as this one ends (`carried_turn.rs`).
-                        let carried = hub.next_carried(&s, &turn_id, &result);
+                        let mut carried = hub.next_carried(&s, &turn_id, &result);
+                        // A Web steer raised the turn it carried into before the restart.
+                        let raised = next_raised && carried.is_some();
+                        if let Some(c) = carried.as_mut().filter(|_| next_raised) {
+                            c.next.control = Control::Web;
+                        }
                         let next = carried.as_deref();
                         let _ = hub
                             .finish_turn(&s, &c, result, &prompt_id, &turn_id, turn_seq, None, next)
@@ -1192,6 +1210,9 @@ impl Hub {
                         if let Some(carried) = &carried {
                             // Its task takes the turn lock once this one lets it go.
                             hub.start_carried(&s, &c, &turn_id, carried, None);
+                            if raised {
+                                hub.recovered_floor(&s, Control::Web);
+                            }
                             drop(guard);
                             return;
                         }

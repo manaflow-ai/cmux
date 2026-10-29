@@ -79,6 +79,11 @@ impl Hub {
         // no host replay, so carry their terminal control state into this decision too: a Web
         // continuation must not cross a remote-floor cancellation or stale ended control.
         let mut started = false;
+        // A carried turn's input is the steers it carried (`carried_turn.rs`), logged in the
+        // turns before it: the steers since the last turn that was not carried, by prompt id.
+        let mut steered: std::collections::HashMap<String, (Option<String>, Vec<Value>)> =
+            Default::default();
+        let mut carried_ids: Vec<String> = Vec::new();
         let mut control_ended = false;
         let mut floor_cancelled = false;
         let kinds = [
@@ -98,6 +103,16 @@ impl Hub {
                     prompt_id = field("promptId");
                     control = field("control");
                     gate = e.msg.get("trustGate").and_then(Value::as_bool);
+                    let ids = e.msg.pointer("/carried/promptIds").and_then(Value::as_array);
+                    carried_ids = ids
+                        .into_iter()
+                        .flatten()
+                        .filter_map(Value::as_str)
+                        .map(str::to_owned)
+                        .collect();
+                }
+                "turn_started" if e.msg.get("carried").is_none_or(Value::is_null) => {
+                    steered.clear();
                 }
                 "turn_control" if is_turn => {
                     raised_to_web |= field("control").as_deref() == Some("web")
@@ -105,6 +120,15 @@ impl Hub {
                 "remote_control_ended" if started => control_ended = true,
                 "remote_control_restored" if started => control_ended = false,
                 "remote_floor_cancel" if started && is_turn => floor_cancelled = true,
+                "user_message"
+                    if !started && e.msg.get("steer").and_then(Value::as_bool) == Some(true) =>
+                {
+                    if let Some(id) = field("promptId") {
+                        let named = e.msg.get("images").and_then(Value::as_array);
+                        let text = field("text").filter(|t| !t.trim().is_empty());
+                        steered.insert(id, (text, named.cloned().unwrap_or_default()));
+                    }
+                }
                 "user_message" if is_turn => {
                     let named = e.msg.get("images").and_then(Value::as_array);
                     let shown = named.map_or(0, Vec::len);
@@ -118,6 +142,22 @@ impl Hub {
             }
             true
         });
+        // The carried steers come first: they started the turn.
+        let mut carried_prompts = Vec::new();
+        let mut carried_images = Vec::new();
+        for id in &carried_ids {
+            if let Some((text, named)) = steered.remove(id) {
+                let shown = named.len();
+                carried_images.extend(named);
+                carried_prompts.extend(text.or_else(|| {
+                    (shown > 0).then(|| format!("({shown} image(s), attached again below)"))
+                }));
+            }
+        }
+        carried_prompts.append(&mut prompts);
+        let prompts = carried_prompts;
+        carried_images.append(&mut images);
+        let images = carried_images;
         let prompt_id = prompt_id.filter(|p| !p.is_empty())?;
         let (root, done) = split_attempt(&prompt_id);
         let attempt = done + 1;
@@ -273,6 +313,32 @@ mod tests {
         let (id, gave_up) = chain(Some(vec![]), 0).await;
         assert_eq!(id, None);
         assert!(gave_up.is_empty(), "{gave_up:?}");
+    }
+
+    /// A carried turn (`carried_turn.rs`) the restart cut: its continuation quotes the steers it
+    /// carried, logged in the turn before it, and attaches their images; not an older turn's.
+    #[tokio::test]
+    async fn a_carried_turns_continuation_quotes_the_steers_it_carried() {
+        let (root, hub, session) = cut_turn(Some(vec![10_000]), 0);
+        let image = json!({"mimeType": "image/png", "data": "aGk="});
+        let steer = json!({"turnId": "t1", "promptId": "p-late", "text": "late ask", "steer": true, "images": [image]});
+        hub.append(&session, "mux", "user_message", steer);
+        let other =
+            json!({"turnId": "t1", "promptId": "p-read", "text": "read in t1", "steer": true});
+        hub.append(&session, "mux", "user_message", other);
+        let started = json!({"turnId": "t2", "promptId": "p-late", "trustGate": true, "carried": {"fromTurnId": "t1", "promptIds": ["p-late"]}});
+        hub.append(&session, "mux", "turn_started", started);
+        let id = hub.log_restart_continuation(&session, "t2");
+        assert_eq!(id, Some(format!("p-late{SUFFIX}1")));
+        let events = hub.events("c1", 0, 10_000).unwrap();
+        let queued = events.iter().rfind(|e| e.kind == "queued").expect("queued").msg.clone();
+        let text = queued["text"].as_str().unwrap();
+        assert!(text.contains("late ask"), "{text}");
+        assert!(!text.contains("read in t1") && !text.contains("do the thing"), "{text}");
+        assert_eq!(queued["images"], json!([image]), "{queued}");
+        assert_eq!(queued["trustGate"], true, "{queued}");
+        hub.shutdown_all().await;
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]

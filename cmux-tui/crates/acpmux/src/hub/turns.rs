@@ -901,11 +901,15 @@ impl Hub {
         let detached =
             self.take_turn(session, turn_id, in_place).is_none_or(|t| t.turn_id != turn_id);
         // Named in this turn's `turn_result`, so a restart before it starts still runs it.
-        let carried_to = next.filter(|_| !detached).map(|n| {
-            let live = session.turn().filter(|t| t.turn_id == n.next.turn_id);
-            n.record(live.map_or(n.next.control, |t| t.control))
-        });
-        let carries_on = carried_to.is_some();
+        let carried_next = next.filter(|_| !detached);
+        let carries_on = carried_next.is_some();
+        // Read as the turn result is written: a Web steer may raise the next turn meanwhile.
+        let carried_to = || {
+            carried_next.map(|n| {
+                let live = session.turn().filter(|t| t.turn_id == n.next.turn_id);
+                n.record(live.map_or(n.next.control, |t| t.control))
+            })
+        };
         session.queue_moved.notify_waiters();
         // Debug builds only: `ACPMUX_TEST_FINISH_HOLD_MS` holds a turn's end once its turn is
         // taken, as a slow end does (`tests/durable_agents.rs`). Bounded; release builds have no
@@ -1023,8 +1027,8 @@ impl Hub {
                         o.insert("cancelForced".into(), Value::Bool(true));
                     }
                     o.extend(super::turn_usage::turn_usage(session, v));
-                    if let Some(to) = &carried_to {
-                        o.insert("carriedTo".into(), to.clone());
+                    if let Some(to) = carried_to() {
+                        o.insert("carriedTo".into(), to);
                     }
                 }
                 self.write_turn_result(session, msg, git);
@@ -1052,8 +1056,8 @@ impl Hub {
                         o.extend(info.clone());
                     }
                     o.extend(crate::recovery::fields(e));
-                    if let Some(to) = &carried_to {
-                        o.insert("carriedTo".into(), to.clone());
+                    if let Some(to) = carried_to() {
+                        o.insert("carriedTo".into(), to);
                     }
                     // Ended by acpmux, not the agent (`stalled_turn.rs`).
                     if let Some(data) = e.data.as_ref().filter(|d| d["detail"] == "stalled") {

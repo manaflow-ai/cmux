@@ -317,3 +317,29 @@ async fn a_carried_turn_a_connection_error_cut_off_goes_on_by_itself() {
     let resumed = turns_now[2]["promptId"].as_str().unwrap_or_default();
     assert!(resumed.starts_with("p-late~resume"), "{:#?}", turns_now[2]);
 }
+
+/// A prompt that found the chat idle and waited for the turn lock, while the turn before it
+/// carried on: it queues behind the carried turn, never replaces it (`queue.rs`).
+#[tokio::test]
+async fn a_prompt_waiting_for_the_lock_queues_behind_a_carried_turn() {
+    let (hub, mut c, id) = claude_hub().await;
+    let gates = Gates::new();
+    let turn = c.send(method::SESSION_PROMPT, prompt(&id, "p-turn", &gates.text(), false)).await;
+    c.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "gated turn 1").await;
+    let (_a, _steer) = steer_in(&hub, &id, "p-late", "LATE-1").await;
+    gates.open(1, "end");
+    let (answer, _) = c.response(turn).await;
+    assert_eq!(answer.unwrap()["stopReason"], "end_turn");
+    let turns = started(&hub, &id, 2).await;
+    let mut b = connect(&hub).await;
+    let next = b.send(method::SESSION_PROMPT, prompt(&id, "p-next", "after", false)).await;
+    let accepted = b.wait_for(method::MUX_PROMPT_ACCEPTED, |p| p["promptId"] == "p-next").await;
+    assert_eq!(accepted["queued"], true, "{accepted}");
+    let now = info(&mut c, &id).await["turn"].clone();
+    assert_eq!(now["turnId"], turns[1]["turnId"], "the carried turn was replaced: {now}");
+    gates.open(2, "read");
+    let (ran, _) = b.response(next).await;
+    assert!(ran.is_ok(), "{ran:?}");
+    let ended = records(&hub, &id, "turn_result");
+    assert_eq!(ended[1]["turnId"], turns[1]["turnId"], "{ended:#?}");
+}

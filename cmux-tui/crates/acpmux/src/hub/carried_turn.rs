@@ -108,6 +108,7 @@ impl NextTurn {
             "prompt": t.prompt_preview,
             "client": t.client,
             "control": control.as_str(),
+            "trustGate": self.continues.trust_gate,
             "seq": self.carried.seq,
             "promptIds": self.carried.prompt_ids,
         })
@@ -128,7 +129,8 @@ impl NextTurn {
             (text("client").unwrap_or_default(), text("prompt").unwrap_or_default());
         let next =
             TurnInfo::prompted(&client, &prompt, &text("turnId")?, &text("promptId")?, control);
-        Some(Self { carried, next, continues: Continues::default() })
+        let trust_gate = record.get("trustGate").and_then(Value::as_bool).unwrap_or(false);
+        Some(Self { carried, next, continues: Continues { from: None, trust_gate } })
     }
 }
 
@@ -142,10 +144,9 @@ impl Hub {
         result: &Result<Value, RpcError>,
     ) -> Option<Box<NextTurn>> {
         let carried = carried(result)?;
+        // Also while the daemon stops: the turn's end names the next one, which the next daemon
+        // runs on (`recover_carried`).
         let running = session.turn().filter(|t| t.turn_id == turn_id)?;
-        if self.shutting_down() {
-            return None;
-        }
         let (next, continues) = self.carried_turn(session, Some(&running), &carried);
         Some(Box::new(NextTurn { carried, next, continues }))
     }
@@ -216,7 +217,12 @@ impl Hub {
         let Some(mut turn) = session.turn().filter(|t| t.turn_id == next.next.turn_id) else {
             return;
         };
-        turn.turn_seq = self.begin_carried(session, from, &turn, &next.carried);
+        turn.turn_seq =
+            self.begin_carried(session, from, &turn, &next.carried, next.continues.trust_gate);
+        // The daemon stops: the next one runs it on from the log (`recover_carried`).
+        if self.shutting_down() {
+            return;
+        }
         let (hub, session, child) = (self.clone(), session.clone(), child.clone());
         let continues = Some(next.continues.clone());
         tokio::spawn(Box::pin(async move {
@@ -235,6 +241,7 @@ impl Hub {
         child: &Arc<ChildAgent>,
         mut turn: TurnInfo,
         begin: Option<(String, Carried)>,
+        trust_gate: bool,
     ) {
         {
             let mut running = session.turn.lock().unwrap_or_else(|e| e.into_inner());
@@ -249,18 +256,9 @@ impl Hub {
             now.carries.push_back((carried.seq, turn.turn_id.clone()));
             now.successors.push_back((from.clone(), turn.turn_id.clone()));
             drop(now);
-            turn.turn_seq = self.begin_carried(session, from, &turn, carried);
+            turn.turn_seq = self.begin_carried(session, from, &turn, carried, trust_gate);
         }
-        // As a recovered turn (`hosts.rs` `recover_work`): a Web turn in an agent the sandbox
-        // did not start, or in a mode only a machine's Full-access setting allows, does not go on.
-        let control = turn.control;
-        session.floor.last_turn_web.store(control == Control::Web, Ordering::SeqCst);
-        if control == Control::Web && session.floor.unsandboxed.load(Ordering::SeqCst) {
-            self.remote_floor_cancel(session, "remote.unsandboxed_agent");
-        }
-        if self.full_access_hold(&session.meta(), control, None).is_err() {
-            self.remote_floor_cancel(session, "remote.full_access_ended");
-        }
+        self.recovered_floor(session, turn.control);
         self.set_status(session, SessionStatus::Running);
         let (hub, session, child) = (self.clone(), session.clone(), child.clone());
         // A recovered turn is not continued (`auto_resume.rs`).
@@ -269,8 +267,27 @@ impl Hub {
         ));
     }
 
+    /// As a recovered turn (`hosts.rs` `recover_work`): a Web turn in an agent the sandbox did
+    /// not start, or in a mode only a machine's Full-access setting allows, does not go on.
+    pub(super) fn recovered_floor(&self, session: &Session, control: Control) {
+        session.floor.last_turn_web.store(control == Control::Web, Ordering::SeqCst);
+        if control == Control::Web && session.floor.unsandboxed.load(Ordering::SeqCst) {
+            self.remote_floor_cancel(session, "remote.unsandboxed_agent");
+        }
+        if self.full_access_hold(&session.meta(), control, None).is_err() {
+            self.remote_floor_cancel(session, "remote.full_access_ended");
+        }
+    }
+
     /// The carried turn's start: counted, and logged as `turn_started` after `from`'s end.
-    fn begin_carried(&self, session: &Session, from: &str, turn: &TurnInfo, c: &Carried) -> u64 {
+    fn begin_carried(
+        &self,
+        session: &Session,
+        from: &str,
+        turn: &TurnInfo,
+        c: &Carried,
+        trust_gate: bool,
+    ) -> u64 {
         {
             let mut m = session.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             m.turn_count += 1;
@@ -285,7 +302,7 @@ impl Hub {
             "promptId": turn.prompt_id,
             "turnId": turn.turn_id,
             "control": turn.control.as_str(),
-            "trustGate": false,
+            "trustGate": trust_gate,
             "carried": {"fromTurnId": from, "promptIds": c.prompt_ids},
         });
         let seq = self.append(session, "mux", "turn_started", msg).seq;
@@ -376,14 +393,19 @@ impl Hub {
             self.schedule_auto_resume(&session, turn_id, cut);
             let Some(next) = next else { break };
             let NextTurn { carried, next: next_turn, continues: next_continues } = *next;
+            let gate = next_continues.trust_gate;
             continues = Some(next_continues);
             // As it is now (`start_carried`).
             let Some(mut next_turn) = session.turn().filter(|t| t.turn_id == next_turn.turn_id)
             else {
                 break;
             };
-            next_turn.turn_seq = self.begin_carried(&session, turn_id, &next_turn, &carried);
+            next_turn.turn_seq = self.begin_carried(&session, turn_id, &next_turn, &carried, gate);
             turn = next_turn;
+            // The daemon stops: the next one runs this turn on from the log (`recover_carried`).
+            if self.shutting_down() {
+                break;
+            }
         }
         // A route switch asked during these turns moves the chat now (`route_switch.rs`).
         if session.route_switch.load(Ordering::SeqCst) {

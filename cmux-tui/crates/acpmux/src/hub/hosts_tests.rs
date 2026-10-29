@@ -277,7 +277,7 @@ async fn adoption_finds_a_carried_turn_whose_prompt_had_not_gone_out() {
     let carried = json!({"seq": 7, "promptIds": ["p-late"]});
     let answer = json!({"stopReason": "end_turn", "_meta": {"claude": {"carried": carried}}});
     log.push("in", "response", json!({"jsonrpc": "2.0", "id": 1, "result": answer}), true);
-    let to = json!({"turnId": "t2", "promptId": "p-late", "prompt": "late", "client": "cli", "control": "local", "seq": 7, "promptIds": ["p-late"]});
+    let to = json!({"turnId": "t2", "promptId": "p-late", "prompt": "late", "client": "cli", "control": "local", "trustGate": true, "seq": 7, "promptIds": ["p-late"]});
     log.push(
         "mux",
         "turn_result",
@@ -295,6 +295,7 @@ async fn adoption_finds_a_carried_turn_whose_prompt_had_not_gone_out() {
     let next = super::super::carried_turn::NextTurn::from_record(&record).unwrap();
     assert_eq!((next.next.turn_id.as_str(), next.next.prompt_id.as_str()), ("t2", "p-late"));
     assert_eq!(next.next.control, Control::Web, "raised before its start");
+    assert!(next.continues.trust_gate, "its trust gate");
     assert_eq!((next.carried.seq, next.carried.prompt_ids.clone()), (7, vec!["p-late".to_owned()]));
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&root);
@@ -321,6 +322,23 @@ async fn adoption_finds_a_carried_turn_whose_prompt_had_not_gone_out() {
     let work = hub.open_work(&session, "inc");
     assert_eq!(work.prompt_request, Some(json!(4)));
     assert_eq!(work.steers, vec![(json!(3), None)], "its steers stay steers");
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// A Web steer raised the turn the open turn carried into before the open turn's end was logged:
+/// adoption knows the carried turn is a Web turn (`next_raised`).
+#[tokio::test]
+async fn adoption_knows_a_carried_turn_raised_before_its_turn_before_ended() {
+    let mut log = Log { records: Vec::new(), host_seq: 0 };
+    log.push("mux", "host_started", json!({"incarnation": "inc"}), false);
+    log.turn(1, 1);
+    log.push("mux", "turn_control", json!({"turnId": "t-next", "control": "web"}), false);
+    let (hub, root) = hub_with(1, &log).await;
+    let session = hub.resolve("chat0").unwrap();
+    let work = hub.open_work(&session, "inc");
+    assert_eq!(work.turn.as_ref().map(|t| t.1.as_str()), Some("t1"));
+    assert!(work.next_raised, "the carried turn's raise was not kept");
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&root);
 }
