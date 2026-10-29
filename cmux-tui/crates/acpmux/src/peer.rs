@@ -957,6 +957,9 @@ impl Peer {
                 BackoffWait::Stopped => break,
             }
         }
+        // Stopping during backoff (or before the loop starts) also retires
+        // accepted callers retained by the previous link. No reconnect owns them now.
+        self.fail_link_requests(&mut out_rx).await;
     }
 
     /// Waits out one backoff delay. A wait that this
