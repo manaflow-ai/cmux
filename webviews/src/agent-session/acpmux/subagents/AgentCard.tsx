@@ -132,7 +132,13 @@ export function AgentCard({
   return (
     <div className="cv-agent-card" data-state={state}>
       {onOpen ? (
-        <button type="button" className="cv-agent-card__head" onClick={onOpen}>
+        // Its name and state name the button; what a click does (Open chat, Show output) is its title.
+        <button
+          type="button"
+          className="cv-agent-card__head"
+          title={openLabel ?? t("subagents.open", { name })}
+          onClick={onOpen}
+        >
           {head}
         </button>
       ) : (
