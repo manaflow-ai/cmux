@@ -31,6 +31,8 @@ public final class HomeSidebarSplitView: NSSplitView, NSSplitViewDelegate {
         didSet { if composing != oldValue { updateChatCompose() } }
     }
     private let list: HomeSidebarView
+    /// The accent band on the divider while it is dragged (`DividerGlowBand`).
+    let glow = DividerGlowBand()
     /// Debug Settings (`HomeTunables.loneConversationRail`); tests give their own store.
     var tunables = TunableStore.shared {
         didSet { followLoneConversationTunable() }
@@ -49,6 +51,10 @@ public final class HomeSidebarSplitView: NSSplitView, NSSplitViewDelegate {
         addArrangedSubview(chatColumn)
         setHoldingPriority(.defaultHigh, forSubviewAt: 0)
         delegate = self
+        wantsLayer = true
+        // Above both columns' layers, so the band shows over the list's and the chat's edges.
+        glow.layer.zPosition = 1
+        layer?.addSublayer(glow.layer)
         setAccessibilityIdentifier("cmux.home.split")
         sidebar.onContentChange = { [weak self] in self?.needsLayout = true }
         followLoneConversationTunable()
@@ -104,6 +110,21 @@ public final class HomeSidebarSplitView: NSSplitView, NSSplitViewDelegate {
             // see-through chat (live-qa 2026-10-21: at 320 pt after a clamp to 164).
             super.layout()
         }
+        placeGlow()
+    }
+
+    private func placeGlow() {
+        glow.place(along: dividerRect, vertical: true)
+    }
+
+    override public func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        glow.applyTheme(self)
+    }
+
+    override public func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        glow.applyTheme(self)
     }
 
     override public func mouseDown(with event: NSEvent) {
@@ -112,6 +133,11 @@ public final class HomeSidebarSplitView: NSSplitView, NSSplitViewDelegate {
             resetWidth()
             return
         }
+        // NSSplitView tracks the drag inside `mouseDown` and returns on the release: the band is
+        // lit for exactly that span, so nothing is left to turn it off.
+        let onDivider = !list.isHidden && dividerRect.insetBy(dx: -Self.grab, dy: 0).contains(point)
+        if onDivider { glow.set(.dragging) }
+        defer { if onDivider { glow.set(.rest) } }
         super.mouseDown(with: event)
     }
 
@@ -221,6 +247,7 @@ public final class HomeSidebarSplitView: NSSplitView, NSSplitViewDelegate {
     public func splitViewDidResizeSubviews(_ notification: Notification) {
         // Every width change (a drag too, which runs no layout pass) moves compose to or from the chat.
         updateChatCompose()
+        placeGlow()
         // Only the user's drag is kept (AppKit names the divider it moved).
         guard placed, !placing, notification.userInfo?["NSSplitViewDividerIndex"] != nil else { return }
         widths.save(sidebarWidth, window: windowKey())

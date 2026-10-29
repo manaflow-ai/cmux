@@ -23,12 +23,15 @@ final class RightSidebarResizeHandle: NSView {
     private var hover: PointerHover?
     private var startX: CGFloat = 0
     private let line = CALayer()
+    /// The accent band on the edge while hovered or dragged (`DividerGlowBand`).
+    let glow = DividerGlowBand()
 
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
         line.opacity = 0
         layer?.addSublayer(line)
+        layer?.addSublayer(glow.layer)
         setAccessibilityElement(true)
         setAccessibilityRole(.splitter)
         setAccessibilityLabel(RightSidebarStrings.resize)
@@ -55,6 +58,9 @@ final class RightSidebarResizeHandle: NSView {
         let x = edge == .minX ? 0 : bounds.width - width
         line.frame = CGRect(x: x, y: 0, width: width, height: bounds.height)
         CATransaction.commit()
+        // The band's core sits just inside the edge, so the strip's own bounds hold it.
+        let core = DividerGlowBand.coreThickness
+        glow.place(along: CGRect(x: edge == .minX ? 0 : bounds.width - core, y: 0, width: core, height: bounds.height), vertical: true)
     }
 
     override func viewDidMoveToWindow() {
@@ -75,10 +81,12 @@ final class RightSidebarResizeHandle: NSView {
 
     private func applyLineTheme() {
         performWithTheme { line.backgroundColor = Palette.separator.cgColor }
+        glow.applyTheme(self)
         needsLayout = true
     }
 
     private func updateLine() {
+        glow.set(isDragging ? .dragging : isHovered ? .hovered : .rest)
         let target: Float = isHovered || isDragging ? 1 : 0
         guard line.opacity != target else { return }
         Motion.sidebar.set(line, "opacity", to: target, fade: .hover)

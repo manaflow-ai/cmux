@@ -51,6 +51,8 @@ final class DividerHandleView: NSView {
     var onPointerChange: (() -> Void)?
 
     private let line = CALayer()
+    /// The accent band over the line while hovered or dragged (`DividerGlowBand`).
+    let glow = DividerGlowBand()
     private(set) var isHovered = false { didSet { if isHovered != oldValue { applyColors() } } }
     private var isDragging = false { didSet { applyColors() } }
     private var trackingArea: NSTrackingArea?
@@ -64,6 +66,7 @@ final class DividerHandleView: NSView {
         super.init(frame: .zero)
         wantsLayer = true
         layer?.addSublayer(line)
+        layer?.addSublayer(glow.layer)
         setAccessibilityElement(true)
         setAccessibilityRole(.splitter)
         switch kind {
@@ -104,6 +107,7 @@ final class DividerHandleView: NSView {
         CATransaction.setDisableActions(true)
         line.frame = lineFrame
         CATransaction.commit()
+        glow.place(along: lineFrame, vertical: axis == .horizontal)
     }
 
     /// A column edge sits in a gap and draws only while hovered or dragged.
@@ -163,7 +167,8 @@ final class DividerHandleView: NSView {
     /// must show above Chromium pages (an occlusion hole), unlike the rest
     /// of the hit area.
     var lineFrameInSuperview: CGRect {
-        convert(lineFrame, to: superview)
+        // A lit band reaches past the line: the page must leave its halo uncovered too.
+        convert(glow.isLit ? lineFrame.union(glow.extent) : lineFrame, to: superview)
     }
 
     private var lineFrame: CGRect {
@@ -181,6 +186,7 @@ final class DividerHandleView: NSView {
     /// a transparent line at rest and only draw while hovered or dragged; the
     /// overlay must not reserve a Chromium occlusion hole for that clear state.
     var isLineVisible: Bool {
+        if glow.isLit { return true }
         // Use the presentation color while the hover fade is running. The
         // page must remain covered until the last visible native pixel fades.
         guard let color = (line.presentation() ?? line).backgroundColor else { return false }
@@ -270,6 +276,8 @@ final class DividerHandleView: NSView {
     }
 
     private func applyColors() {
+        glow.applyTheme(self)
+        glow.set(!showsActiveLine ? .rest : isDragging ? .dragging : isHovered ? .hovered : .rest)
         let isEdge = isEdgeHandle
         performWithTheme {
             let active = (isHovered || isDragging) && showsActiveLine
