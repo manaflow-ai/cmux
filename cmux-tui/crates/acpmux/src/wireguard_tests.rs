@@ -2,7 +2,6 @@ use super::*;
 use crate::config::{Config, PeerConfig, StoreMode};
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio_tungstenite::tungstenite::{Message as Frame, client::IntoClientRequest};
 
@@ -234,50 +233,88 @@ fn peer_uses_the_shared_mesh_before_its_unreachable_fallback() {
     });
 }
 
+async fn measure_websocket<S>(
+    stream: S,
+    payload: &[u8],
+) -> (tokio_tungstenite::WebSocketStream<S>, f64)
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
+{
+    let mut request = "ws://localhost:4100/".into_client_request().unwrap();
+    request.headers_mut().insert("authorization", format!("Bearer {TOKEN}").parse().unwrap());
+    request
+        .headers_mut()
+        .insert(crate::server::peer_auth::HEADER, "benchmark-peer-token".parse().unwrap());
+    let (mut ws, _) = tokio_tungstenite::client_async_with_config(
+        request,
+        stream,
+        Some(crate::server::ws_config()),
+    )
+    .await
+    .unwrap();
+    let started = std::time::Instant::now();
+    ws.send(Frame::Binary(payload.to_vec().into())).await.unwrap();
+    let echoed = tokio::time::timeout(BOUND, ws.next()).await.unwrap().unwrap().unwrap();
+    assert_eq!(echoed.into_data().as_ref(), payload, "ordered bytes changed in transit");
+    let rate = (payload.len() * 2) as f64 / (1024.0 * 1024.0) / started.elapsed().as_secs_f64();
+    (ws, rate)
+}
+
 #[test]
 fn loopback_throughput_and_shutdown() {
     runtime().block_on(async {
         let target = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let (a, b, _homes) = pair(target.local_addr().unwrap(), false).await;
+        let target_address = target.local_addr().unwrap();
+        let (a, b, _homes) = pair(target_address, false).await;
+        // Both paths use the same token-authenticated WebSocket echo fixture,
+        // payload, limits and runner. Only the stream beneath WS changes.
         let echo = tokio::spawn(async move {
-            let (stream, _) = target.accept().await.unwrap();
-            let (mut read, mut write) = stream.into_split();
-            tokio::io::copy(&mut read, &mut write).await.unwrap();
+            let mut connections = JoinSet::new();
+            for _ in 0..2 {
+                let (stream, _) = target.accept().await.unwrap();
+                connections.spawn(async move {
+                    let callback = |request: &tokio_tungstenite::tungstenite::handshake::server::Request,
+                        response: tokio_tungstenite::tungstenite::handshake::server::Response| {
+                        let listener = request.headers().get("authorization").and_then(|v| v.to_str().ok())
+                            .and_then(cmux_local_auth::bearer_token);
+                        let peer = request.headers().get(crate::server::peer_auth::HEADER).and_then(|v| v.to_str().ok());
+                        if cmux_local_auth::check_token(listener, TOKEN).is_ok()
+                            && peer.is_some_and(|p| cmux_local_auth::tokens_match(p, "benchmark-peer-token")) {
+                            Ok(response)
+                        } else {
+                            Err(tokio_tungstenite::tungstenite::http::Response::builder().status(401)
+                                .body(Some("credential refused".into())).unwrap())
+                        }
+                    };
+                    let mut ws = tokio_tungstenite::accept_hdr_async_with_config(stream, callback,
+                        Some(crate::server::ws_config())).await.unwrap();
+                    while let Some(Ok(frame)) = ws.next().await {
+                        if frame.is_close() { break; }
+                        if ws.send(frame).await.is_err() { break; }
+                    }
+                });
+            }
+            while connections.join_next().await.is_some() {}
         });
-        let start = std::time::Instant::now();
-        let mut stream =
-            tokio::time::timeout(BOUND, a.connect(a.route("b").unwrap())).await.unwrap().unwrap();
-        let handshake_ms = start.elapsed().as_secs_f64() * 1000.0;
         let payload: Vec<u8> = (0..8 * 1024 * 1024).map(|i| (i % 251) as u8).collect();
-        let start = std::time::Instant::now();
-        let (mut read, mut write) = tokio::io::split(&mut stream);
-        tokio::time::timeout(BOUND, async {
-            let sent = async {
-                write.write_all(&payload).await.unwrap();
-            };
-            let received = async {
-                let mut received = vec![0; payload.len()];
-                read.read_exact(&mut received).await.unwrap();
-                assert!(received == payload, "ordered bytes changed in transit");
-            };
-            tokio::join!(sent, received);
-        })
-        .await
-        .unwrap();
-        println!(
-            "WIREGUARD_PERF handshake_ms={handshake_ms:.3} roundtrip_mib_s={:.3} bytes={}",
-            16.0 / start.elapsed().as_secs_f64(),
-            payload.len()
-        );
+        let started = std::time::Instant::now();
+        let direct = TcpStream::connect(target_address).await.unwrap();
+        direct.set_nodelay(true).unwrap();
+        let before_handshake_ms = started.elapsed().as_secs_f64() * 1000.0;
+        let (mut direct, before_rate) = measure_websocket(direct, &payload).await;
+        direct.close(None).await.unwrap();
+        let started = std::time::Instant::now();
+        let stream = tokio::time::timeout(BOUND, a.connect(a.route("b").unwrap())).await.unwrap().unwrap();
+        let after_handshake_ms = started.elapsed().as_secs_f64() * 1000.0;
+        let (mut tunneled, after_rate) = measure_websocket(stream, &payload).await;
+        println!("WIREGUARD_PERF before_tcp_ms={before_handshake_ms:.3} after_wg_tcp_ms={after_handshake_ms:.3} before_authenticated_ws_mib_s={before_rate:.3} after_authenticated_ws_mib_s={after_rate:.3} bytes={}", payload.len());
         let local = a.local_addr();
         a.shutdown().await;
         assert!(UdpSocket::bind(local).await.is_ok(), "shutdown must release UDP");
-        let closed = tokio::time::timeout(BOUND, stream.read_u8())
-            .await
+        let closed = tokio::time::timeout(BOUND, tunneled.next()).await
             .expect("shutdown must resolve a pending stream read");
-        assert!(closed.is_err(), "shutdown must end the stream");
+        assert!(!matches!(closed, Some(Ok(frame)) if !frame.is_close()), "shutdown must end the stream");
         b.shutdown().await;
-        echo.abort();
-        let _ = echo.await;
+        tokio::time::timeout(BOUND, echo).await.unwrap().unwrap();
     });
 }
