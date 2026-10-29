@@ -72,7 +72,8 @@ final class JoinConsentPersonLine: JoinConsentLine {
 
     func set(_ surface: JoinConsentSurface, granted: Bool, ticket: JoinConsentGrantTicket?) async -> JoinConsentRecord? {
         // SECURITY: a grant's ticket is checked on the line's queue, under the gate's lock, as it writes.
-        let gate: (@Sendable (() -> Void) -> Bool)? = ticket.map { ticket in { bytes in ticket.write(bytes) } }
+        var gate: (@Sendable (() -> Void) -> Bool)?
+        if let ticket { gate = { @Sendable bytes in ticket.write(bytes) } }
         return (await line.call("_acpmux/machine_consent_set", ["surface": surface.rawValue, "granted": granted], through: gate))
             .flatMap(JoinConsentRecord.parse)
     }
