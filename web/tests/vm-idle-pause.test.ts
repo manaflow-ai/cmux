@@ -388,6 +388,35 @@ describe("idle probe guest script", () => {
       .toEqual({ busy_sessions: 0, last_updated_at_ms: null });
   });
 
+  test("durably queued acpmux work prevents an idle verdict before its next turn starts", async () => {
+    for (const marker of [
+      { queued: 1 },
+      { queuePaused: true },
+      { waitsForSlot: true },
+      { moving: true },
+      { waitingOn: "question" },
+    ]) {
+      const out = await runProbeScript({ "net/tcp": TCP_HEADER, "net/tcp6": TCP_HEADER }, JSON.stringify({
+        sessions: [{ name: "queued", status: "ready", turn: null, queued: 0, pendingPermissions: 0, ...marker }],
+      }));
+      expect({ marker, acpmux: out.acpmux }).toEqual({
+        marker, acpmux: { busy_sessions: 1, last_updated_at_ms: null },
+      });
+      expect(parseVmIdleProbe(JSON.stringify(out))?.acpmux?.busySessions).toBe(1);
+    }
+    const idle = await runProbeScript({ "net/tcp": TCP_HEADER }, JSON.stringify({
+      sessions: [{ name: "ready", status: "ready", turn: null, queued: 0 }],
+    }));
+    expect(idle.acpmux).toEqual({ busy_sessions: 0, last_updated_at_ms: null });
+  });
+
+  test("an invalid acpmux queue count cannot look idle", async () => {
+    const out = await runProbeScript({ "net/tcp": TCP_HEADER }, JSON.stringify({
+      sessions: [{ name: "broken", status: "ready", turn: null, queued: "1" }],
+    }));
+    expect(out.acpmux).toBeNull();
+  });
+
   test("counts an IPv6 connection to the private address, a v4-mapped one, and any connection into sshd", async () => {
     // fd00:7::5 in /proc/net/tcp6 word order; a remote fd00:7::9.
     const local6 = "070000FD000000000000000005000000";
