@@ -147,6 +147,21 @@ pub struct Session {
     /// separate from `cancel_forced_turn`: several prompt waiters can observe
     /// the same forced answer, but only one may append the result.
     pub(super) cancel_forced_result_turn: StdMutex<Option<String>>,
+    /// The turn a Stop is stopping and has not ended yet (`cancel.rs`): the row reads
+    /// `stopping` until it ends, never ended while its agent still works on it.
+    pub(super) stopping: StdMutex<Option<String>>,
+    /// The turn whose agent acpmux ended because it went on working after Stop (`cancel.rs`):
+    /// that turn's prompt, failing as its process ends, answers as the forced cancel.
+    pub(super) stop_restart: StdMutex<Option<String>>,
+    /// The generation of the agent a Stop ended that way: what it still had in flight is
+    /// not the next turn's (`permissions.rs` inbound loop). 0: none.
+    pub(super) stopped_agent: AtomicU64,
+    /// Start the agent again, on the same conversation, as the turn a Stop ended that way ends
+    /// (`turns.rs`), before the next turn can start.
+    pub(super) stop_respawn: AtomicBool,
+    /// A person's Stop holds other agents' queued messages until the person's next turn
+    /// completes or the queue is resumed (`cancel.rs` `hold_agent_messages`).
+    pub(super) stop_holds_agents: AtomicBool,
     /// Claude Code reported that its active turn is compacting. This is kept
     /// on the session as hosted agents have their translator in the host.
     pub(super) compacting: AtomicBool,

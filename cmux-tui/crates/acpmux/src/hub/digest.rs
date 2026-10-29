@@ -188,6 +188,8 @@ impl Hub {
 
     /// After a completed turn: the agent messages a failed turn held run again, in place.
     pub(super) fn release_held_agent_messages(&self, session: &Arc<Session>) {
+        // A completed turn ends a person's Stop's hold too (`cancel.rs`).
+        session.stop_holds_agents.store(false, Ordering::SeqCst);
         let ids: Vec<String> = session
             .queue()
             .iter()

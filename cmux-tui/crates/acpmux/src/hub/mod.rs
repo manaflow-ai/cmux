@@ -1078,6 +1078,11 @@ impl Hub {
             cancels: AtomicU64::new(0),
             cancel_forced_turn: StdMutex::new(None),
             cancel_forced_result_turn: StdMutex::new(None),
+            stopping: StdMutex::new(None),
+            stop_restart: StdMutex::new(None),
+            stopped_agent: AtomicU64::new(0),
+            stop_respawn: AtomicBool::new(false),
+            stop_holds_agents: AtomicBool::new(false),
             compacting: AtomicBool::new(false),
             compaction_metadata_fenced: AtomicBool::new(false),
             status_writes: AtomicU64::new(0),
@@ -1282,6 +1287,8 @@ impl Hub {
                 | "turn_result"
                 | "turn_end"
                 | "turn_error"
+                | "stopping"
+                | "unstuck"
                 | work_below::RECORD_KIND
                 | "queued"
                 | "dequeued"

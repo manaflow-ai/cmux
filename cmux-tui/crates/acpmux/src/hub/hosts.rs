@@ -1138,6 +1138,9 @@ impl Hub {
                         if s.route_switch.swap(false, Ordering::SeqCst) {
                             hub.detach_child(&s).await;
                         }
+                        // A Stop ended its agent (`cancel.rs`): for the same reason the next
+                        // prompt starts it again, on the same conversation.
+                        s.stop_respawn.store(false, Ordering::SeqCst);
                         drop(guard);
                     });
                 }

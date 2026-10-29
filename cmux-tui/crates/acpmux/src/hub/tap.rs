@@ -28,6 +28,11 @@ const MODEL_UPDATES: [&str; 8] = [
     "subagent_progress",
 ];
 
+/// The `session/update` kinds that show the model at work now, never only an error it ends a
+/// turn with: a tool call it starts, a thought, a plan. A chat marked stuck
+/// (`session_liveness.rs`) whose agent sends one is not stuck (`Hub::unstick_on_work`).
+const WORK_UPDATES: [&str; 3] = ["tool_call", "agent_thought_chunk", "plan"];
+
 /// The raw harness lines only a responding model produces, which often come long before any
 /// update a client shows: Claude's stream (its first event is the model's answer starting), its
 /// messages, its thinking (redacted thinking sends no thought), a running tool's heartbeat (a
@@ -72,7 +77,30 @@ pub(super) fn logged_from_the_model(e: &crate::store::EventRecord) -> bool {
             || (e.msg.get("id").is_some() && e.msg.get("method").is_some()))
 }
 
+/// Whether an agent's message is one of [`WORK_UPDATES`].
+fn shows_work(msg: &Message) -> bool {
+    matches!(msg, Message::Notification { method, params: Some(p) }
+        if method == crate::rpc::method::SESSION_UPDATE
+            && p.pointer("/update/sessionUpdate")
+                .and_then(Value::as_str)
+                .is_some_and(|kind| WORK_UPDATES.contains(&kind)))
+}
+
 impl Hub {
+    /// A chat marked stuck whose agent works again (`shows_work`) is not stuck: its failures are
+    /// forgotten at once, not at its next completed turn (2026-10-29: a coordinator read
+    /// `stuck` while it made tool call after tool call). Logged `unstuck`, so watchers re-read it.
+    pub(super) fn unstick_on_work(&self, session: &Session) {
+        let reason = {
+            let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+            let Some((reason, ..)) = m.harness_failures.stuck() else { return };
+            m.harness_failures = crate::session_liveness::HarnessFailures::after(m.last_seq);
+            reason
+        };
+        self.save_meta(session);
+        self.append(session, "mux", "unstuck", json!({"stuckReason": reason}));
+    }
+
     /// Make sure a live child process exists for the session. Spawns, runs
     /// `initialize`, and either creates or loads the agent session.
     /// The tap that logs one session's wire traffic (and the agent host
@@ -92,6 +120,10 @@ impl Hub {
                 tap_hub.heard_now(&tap_session);
                 tap_session.last_model_at.store(crate::store::now_ms(), Ordering::Relaxed);
                 tap_hub.heard_after_silence(&tap_session);
+                // Not a history replay (`session/load`): the agent works now.
+                if !tap_session.loading.load(Ordering::SeqCst) && shows_work(msg) {
+                    tap_hub.unstick_on_work(&tap_session);
+                }
             }
             if matches!(dir, Direction::In)
                 && let Message::Notification { method, params: Some(p) } = msg

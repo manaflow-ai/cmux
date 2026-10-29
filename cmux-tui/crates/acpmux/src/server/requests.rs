@@ -153,7 +153,13 @@ pub(super) async fn handle_notification(
             }
             if let Ok(key) = session_key(&params) {
                 if let Ok(s) = hub.resolve(key) {
-                    if let Err(e) = hub.cancel(&s).await {
+                    // The person's Stop holds the agents' messages behind it (`hub/cancel.rs`).
+                    let stopped = if conn.is_person() {
+                        hub.person_stop(&s).await
+                    } else {
+                        hub.cancel(&s).await
+                    };
+                    if let Err(e) = stopped {
                         tracing::debug!(conn = %conn.id, "cancel: {e}");
                     }
                 } else if let Some((peer, id, _)) = hub.resolve_remote(key) {
@@ -1335,7 +1341,9 @@ async fn dispatch_request(
         // the agent that never answers.
         method::SESSION_CANCEL => {
             let s = hub.resolve(session_key(&params)?)?;
-            if let Err(e) = hub.cancel(&s).await {
+            let stopped =
+                if conn.is_person() { hub.person_stop(&s).await } else { hub.cancel(&s).await };
+            if let Err(e) = stopped {
                 tracing::debug!(conn = %conn.id, "cancel: {e}");
             }
             Ok(json!({}))

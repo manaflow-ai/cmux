@@ -876,6 +876,20 @@ impl Hub {
             _ => None,
         };
         self.schedule_auto_resume(session, &turn_id, cut);
+        // The agent a Stop ended starts again on the same conversation now, while this turn's
+        // lock is still held: the next queued turn finds it running (`cancel.rs`).
+        if session.stop_respawn.swap(false, Ordering::SeqCst)
+            && session.status() != SessionStatus::Closed
+        {
+            match self.child_for(session).await {
+                Ok(_) => {
+                    self.append(session, "mux", "stop_restarted", json!({"turnId": turn_id}));
+                }
+                Err(e) => {
+                    tracing::warn!(session = %session.id, "the agent a Stop ended did not start again: {}", e.message);
+                }
+            }
+        }
         // The chat's route changed during the turn: move it before the next
         // one starts (route_switch.rs). A restart that fails leaves the
         // harness stopped; the next prompt's spawn reports why.
@@ -905,6 +919,13 @@ impl Hub {
         let turn = session.meta().turn_count;
         // A model switch (`detach_child`) ended this turn already: its failure is not the queue's.
         let detached = self.take_turn(session, turn_id).is_none_or(|t| t.turn_id != turn_id);
+        // The turn a Stop was stopping has ended (`cancel.rs`): it no longer reads `stopping`.
+        take_if_turn(&session.stopping, turn_id);
+        // A Stop ended the process of an agent that worked on through it (`cancel.rs`): the
+        // prompt that failed as that process ended answers as the forced cancel.
+        if take_if_turn(&session.stop_restart, turn_id) && result.is_err() {
+            result = Ok(super::cancel::forced_answer(true));
+        }
         session.queue_moved.notify_waiters();
         // Debug builds only: `ACPMUX_TEST_FINISH_HOLD_MS` holds a turn's end once its turn is
         // taken, as a slow end does (`tests/durable_agents.rs`). Bounded; release builds have no
@@ -1628,5 +1649,16 @@ impl Hub {
         if session.status() != SessionStatus::Closed {
             self.set_status(session, SessionStatus::Idle);
         }
+    }
+}
+
+/// Clears `slot` when it names `turn_id`; whether it did.
+fn take_if_turn(slot: &StdMutex<Option<String>>, turn_id: &str) -> bool {
+    let mut slot = slot.lock().unwrap_or_else(|e| e.into_inner());
+    if slot.as_deref() == Some(turn_id) {
+        *slot = None;
+        true
+    } else {
+        false
     }
 }

@@ -320,6 +320,10 @@ impl Hub {
         let (retry, retry_deciding) = self.retry_row(session, m.last_turn.as_ref());
         let stuck =
             (m.status != SessionStatus::Closed).then(|| m.harness_failures.stuck()).flatten();
+        let stopping = turn.as_ref().is_some_and(|t| {
+            session.stopping.lock().unwrap_or_else(|e| e.into_inner()).as_deref()
+                == Some(t.turn_id.as_str())
+        });
         let summary = SessionSummary {
             session_id: m.id.clone(),
             name: m.name.clone(),
@@ -327,7 +331,14 @@ impl Hub {
             family: m.family.clone(),
             cwd: m.cwd.to_string_lossy().into_owned(),
             status: m.status.to_string(),
-            state: if stuck.is_some() { "stuck".to_owned() } else { m.status.to_string() },
+            // A Stop's turn that has not ended yet (`cancel.rs`): never read as running on.
+            state: if stopping {
+                "stopping".to_owned()
+            } else if stuck.is_some() {
+                "stuck".to_owned()
+            } else {
+                m.status.to_string()
+            },
             stuck_reason: stuck.map(|s| s.0),
             stuck_since: stuck.map(|s| s.1),
             stuck_error: stuck.map(|s| s.2.to_owned()),

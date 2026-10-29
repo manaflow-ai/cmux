@@ -192,12 +192,15 @@ impl Hub {
                 let turn_id = uuid::Uuid::now_v7().to_string();
                 // Another agent's message never overtakes the ones a failed turn held: they run
                 // again and it waits behind them, to go in with them (`digest.rs`).
-                if p.agent.is_some() {
+                // While a person's Stop holds them (`cancel.rs`), it waits with them, held.
+                let stop_held =
+                    p.agent.is_some() && session.stop_holds_agents.load(Ordering::SeqCst);
+                if p.agent.is_some() && !stop_held {
                     self.release_held_agent_messages(session);
                 }
                 // Prompts a failed turn holds (`pause_queue`) do not hold up a new one.
                 let held = session.queue().iter().filter(|q| q.held).count() as u64;
-                let waiting = session.turn().is_some() || session.queued() > held;
+                let waiting = stop_held || session.turn().is_some() || session.queued() > held;
                 // It never queues: busy when the queue's own test says it would wait. The turn
                 // lock is tried below, and the queue read again under it.
                 if p.no_queue && waiting {
@@ -352,7 +355,7 @@ impl Hub {
 
     /// Stops the turn `turn_id` if it still runs: a bare cancel stops whatever turn runs now,
     /// which may already be the next one.
-    pub(super) async fn cancel_turn(&self, session: &Arc<Session>, turn_id: &str) {
+    pub(super) async fn cancel_turn(self: &Arc<Self>, session: &Arc<Session>, turn_id: &str) {
         if session.turn().is_some_and(|t| t.turn_id == turn_id)
             && let Err(e) = self.cancel(session).await
         {
@@ -362,7 +365,7 @@ impl Hub {
 
     /// Stops only the targeted turn and preserves the prompt that requested its replacement.
     pub(super) async fn cancel_turn_for_replacement(
-        &self,
+        self: &Arc<Self>,
         session: &Arc<Session>,
         turn_id: &str,
         prompt_id: &str,
@@ -396,7 +399,11 @@ impl Hub {
         // Ahead of the prompts a failed turn holds: a prompt sent after the failure runs first.
         // The person's prompt goes ahead of every agent message waiting too (`digest.rs`), behind
         // the person's own and a prompt sent now.
+        // Another agent's message while a person's Stop holds them waits held, behind them
+        // (`cancel.rs` `hold_agent_messages`).
+        let stop_held = p.agent.is_some() && session.stop_holds_agents.load(Ordering::SeqCst);
         let at = match p.agent {
+            Some(_) if stop_held => None,
             Some(_) => queue.iter().position(|q| q.held),
             None => queue.iter().position(|q| q.held || (q.run.agent.is_some() && !q.sent_now)),
         };
@@ -424,7 +431,7 @@ impl Hub {
                 restored: false,
                 resume: false,
                 steer: false,
-                held: false,
+                held: stop_held,
                 sent_now: false,
                 joined: joined.clone(),
                 requeued: false,
@@ -480,6 +487,14 @@ impl Hub {
                 "mux",
                 "queue_order",
                 json!({"promptId": p.prompt_id, "order": order}),
+            );
+        }
+        if stop_held {
+            self.append(
+                session,
+                "mux",
+                "queue_paused",
+                json!({"held": [p.prompt_id], "reason": "stop"}),
             );
         }
         (withdraw, joined)
@@ -589,6 +604,8 @@ impl Hub {
 
     /// Runs the prompts a failed turn held (`_acpmux/queue_edit` `resume`). False when none was.
     pub(super) fn resume_queue(&self, session: &Arc<Session>) -> bool {
+        // A person's Stop's hold ends with it (`cancel.rs`).
+        session.stop_holds_agents.store(false, Ordering::SeqCst);
         let mut resumed = false;
         for q in session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner).iter_mut()
         {
@@ -604,6 +621,8 @@ impl Hub {
     /// Runs only the held prompts named in `ids` (the ones one failed turn held, `auto_resume.rs`).
     /// False when none of them was held.
     pub(super) fn resume_held(&self, session: &Arc<Session>, ids: &[String]) -> bool {
+        // Held agent messages going in end a person's Stop's hold (`cancel.rs`).
+        session.stop_holds_agents.store(false, Ordering::SeqCst);
         let mut resumed = false;
         for q in session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner).iter_mut()
         {

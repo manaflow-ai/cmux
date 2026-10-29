@@ -4008,7 +4008,7 @@
         },
         "state": {
           "default": "",
-          "description": "Effective liveness: `stuck` after three classified harness failures, else `status`.",
+          "description": "Effective liveness: `stopping` while a Stop waits for its turn to end, `stuck` after three classified harness failures, else `status`.",
           "type": "string"
         },
         "stateSeq": {
@@ -4522,7 +4522,7 @@
         },
         "state": {
           "default": "",
-          "description": "Effective liveness: `stuck` after three classified harness failures, else `status`.",
+          "description": "Effective liveness: `stopping` while a Stop waits for its turn to end, `stuck` after three classified harness failures, else `status`.",
           "type": "string"
         },
         "stateSeq": {

@@ -24,7 +24,7 @@ pub struct SessionSummary {
     /// `idle`, `ready`, `running`, `waiting`, `disconnected` or `closed`;
     /// a peer's session also `unreachable`.
     pub status: String,
-    /// Effective liveness: `stuck` after three classified harness failures, else `status`.
+    /// Effective liveness: `stopping` while a Stop waits for its turn to end, `stuck` after three classified harness failures, else `status`.
     #[serde(default)]
     #[schemars(default)]
     pub state: String,

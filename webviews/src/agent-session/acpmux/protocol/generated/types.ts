@@ -881,7 +881,7 @@ export type SessionDetail = {
    * the tree from these links at any depth.
    */
   startedBy?: (string | null);
-  /** Effective liveness: `stuck` after three classified harness failures, else `status`. */
+  /** Effective liveness: `stopping` while a Stop waits for its turn to end, `stuck` after three classified harness failures, else `status`. */
   state?: string;
   stateSeq: number;
   /**
@@ -1080,7 +1080,7 @@ export type SessionSummary = {
    * the tree from these links at any depth.
    */
   startedBy?: (string | null);
-  /** Effective liveness: `stuck` after three classified harness failures, else `status`. */
+  /** Effective liveness: `stopping` while a Stop waits for its turn to end, `stuck` after three classified harness failures, else `status`. */
   state?: string;
   stateSeq: number;
   /**
