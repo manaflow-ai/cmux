@@ -1259,26 +1259,6 @@ pre.cv-math-source {
 .acpmux-row:focus:not(:focus-visible) {
   outline: none;
 }
-/* Scoped to the row so it outranks .cv-iconbtn's `all: unset`, which comes later in this file and
-   otherwise put the button back in the flow, shown at rest. */
-.acpmux-row .acpmux-row__copy {
-  position: absolute;
-  z-index: var(--layer-raised);
-  top: 0;
-  right: 0;
-  opacity: 0;
-}
-/* Not on hover: a prompt has Copy under its bubble and an answer in its turn's footer, so a hover
-   showed two or three Copy buttons per turn. Keyboard focus and a selected range still show it. */
-.acpmux-row:focus-within .acpmux-row__copy,
-.acpmux-row[data-transcript-selected="true"] .acpmux-row__copy {
-  opacity: 1;
-}
-@media (prefers-reduced-motion: no-preference) {
-  .acpmux-row .acpmux-row__copy {
-    transition: opacity 120ms ease-out;
-  }
-}
 .acpmux-permission {
   padding-left: var(--cv-inset);
   padding-right: var(--cv-inset);
@@ -1786,20 +1766,6 @@ pre.cv-math-source {
   margin-left: 0;
   color: var(--cv-text-dim);
 }
-/* A transcript row's Copy is an absolute sibling of its tool button. Reserve one
-   action slot before the chevron so the hover actions read duration, Copy, expand
-   at every width; the Shell card has its own in-flow actions and is unaffected. */
-.acpmux-row[data-floating-copy="true"] > .cv-tools > .cv-tool,
-.acpmux-row[data-floating-copy="true"] > .cv-tools > .cv-tool-run > .cv-tool {
-  padding-right: 8px;
-}
-.acpmux-row[data-floating-copy="true"] > .cv-tools > .cv-tool > .cv-tool__chevron,
-.acpmux-row[data-floating-copy="true"] > .cv-tools > .cv-tool-run > .cv-tool > .cv-tool__chevron {
-  margin-inline-start: 0;
-}
-.acpmux-row[data-floating-copy="true"] > .acpmux-row__copy {
-  right: 24px;
-}
 /* A thought in full (while it streams, or with a Debug choice that folds only long ones): a muted
    "Thinking" (or "Thought for 12s" once done) on its own line, then its text under the opened
    fold's left rule, so the label and the first words never read as one sentence (Leo 2026-10-21:
@@ -2272,15 +2238,12 @@ pre.cv-math-source {
   letter-spacing: var(--cv-tracking, 0.045px);
   -webkit-font-smoothing: antialiased;
 }
-/* Clear of the row's Copy button (28 px at its top right, which takes the pointer even while
-   hidden), so a long name ends in an ellipsis before it instead of under it. */
 .cv-received__line {
   display: flex;
   align-items: center;
   gap: 8px;
   min-width: 0;
   height: 26px;
-  padding-right: 28px;
   color: var(--cv-text-dim);
   white-space: nowrap;
   user-select: none;
@@ -2489,11 +2452,16 @@ a.cv-sha:focus-visible {
 /* The card's box holds the fill and ring, so the output's fades (below) cut the text, not them. */
 .cv-tool-output__box {
   position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   border-radius: 12px;
   background: var(--cv-card-fill);
   box-shadow: inset 0 0 0 1px var(--cv-card-ring);
 }
 .cv-tool-output__box > .cv-tool-output {
+  grid-column: 1;
+  grid-row: 1;
+  min-width: 0;
   margin: 0;
   max-height: none;
   overflow: auto hidden;
@@ -2509,6 +2477,7 @@ a.cv-sha:focus-visible {
 /* A result whose text is Markdown (toolResult.ts) reads as a reply does, a little smaller, and
    scrolls past the height a plain output stops at. */
 .cv-tool-output__markdown {
+  display: block;
   max-height: 320px;
   overflow: auto;
   padding: 6px 12px;
@@ -2518,10 +2487,10 @@ a.cv-sha:focus-visible {
 }
 /* Wrap lines (and the hover-actions experiment's Copy) in its corner, on hover or focus. */
 .cv-tool-output__actions {
-  position: absolute;
-  z-index: var(--layer-raised);
-  top: 4px;
-  right: 6px;
+  grid-column: 2;
+  grid-row: 1;
+  align-self: start;
+  margin: 4px 6px 0 0;
   display: flex;
   gap: 2px;
   border-radius: 7px;
