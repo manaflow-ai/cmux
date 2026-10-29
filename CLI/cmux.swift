@@ -2962,12 +2962,6 @@ final class ClaudeHookSessionStore {
     }
 }
 
-private let agentHookWrapperProcessNames: Set<String> = [
-    "sh",
-    "bash",
-    "zsh",
-    "env"
-]
 
 private let suppressSubagentNotificationsDefaultsKey = "suppressSubagentNotifications"
 private let suppressSubagentNotificationsEnvironmentKey = "CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS"
@@ -35134,72 +35128,6 @@ struct CMUXCLI {
     /// first so it silently succeeds even when cmux is not installed
     /// (e.g. user opened codex in a non-cmux terminal).
 
-    // MARK: - Agent PID inference
-
-    func agentPIDFromHookEnvironment(agentName: String, env: [String: String]) -> Int? {
-        let envKey = Self.agentHookPIDEnvironmentVariable(agentName: agentName)
-        guard let raw = env[envKey]?.trimmingCharacters(in: .whitespacesAndNewlines),
-              let pid = Int(raw),
-              pid > 0 else {
-            return nil
-        }
-        return pid
-    }
-
-    func inferredAgentPID() -> Int? {
-        var candidate = getppid()
-        var remainingWrapperSkips = 8
-
-        while candidate > 1, remainingWrapperSkips > 0 {
-            guard let processName = processName(for: candidate) else { break }
-            if !agentHookWrapperProcessNames.contains(processName) {
-                break
-            }
-            let next = parentPID(of: candidate)
-            guard next > 1, next != candidate else { break }
-            candidate = next
-            remainingWrapperSkips -= 1
-        }
-
-        return candidate > 1 ? Int(candidate) : nil
-    }
-
-    /// On Kiro CLI V3 the hook shell's parent is not the `kiro-cli` process the user started.
-    /// Restore trusts only `kiro-cli` as Kiro, and its argv is the user's launch command, so
-    /// resolve the hook's agent pid to the `kiro-cli` process this hook runs under, if any.
-    func kiroCLIAncestorPID() -> Int? {
-        kiroCLIPID(above: getppid()).map(Int.init)
-    }
-
-    /// True when the hook runs under a `kiro-cli chat --no-interactive` run, or under a `kiro-cli`
-    /// started from inside another one. Neither should take the pane's agent messages.
-    func kiroHookIsHeadlessOrNested() -> Bool {
-        guard let kiroCLI = kiroCLIPID(above: getppid()) else { return false }
-        if processArguments(for: kiroCLI)?.contains("--no-interactive") == true { return true }
-        let parent = parentPID(of: kiroCLI)
-        return parent > 1 && kiroCLIPID(above: parent) != nil
-    }
-
-    /// Matches the kernel's process name (`proc_name`), which argv cannot change, and never spawns
-    /// `/bin/ps`.
-    private func kiroCLIPID(above start: pid_t) -> pid_t? {
-        var candidate = start
-        for _ in 0..<8 {
-            // `proc_name` is a useful fast filter, but it is derived from the
-            // process name and can be changed by a launcher. Accept Kiro only
-            // when the kernel-reported executable path agrees as well.
-            if libprocProcessName(for: candidate) == "kiro-cli",
-               let executablePath = libprocExecutablePath(for: candidate),
-               URL(fileURLWithPath: executablePath).lastPathComponent.lowercased() == "kiro-cli" {
-                return candidate
-            }
-            let next = parentPID(of: candidate)
-            guard next > 1, next != candidate else { return nil }
-            candidate = next
-        }
-        return nil
-    }
-
     func claudeAgentPID(from env: [String: String]) -> Int? {
         guard let raw = env["CMUX_CLAUDE_PID"]?
             .trimmingCharacters(in: .whitespacesAndNewlines),
@@ -35359,7 +35287,7 @@ struct CMUXCLI {
         return Int64(info.kp_eproc.e_tdev)
     }
 
-    private func parentPID(of pid: pid_t) -> pid_t {
+    func parentPID(of pid: pid_t) -> pid_t {
         var info = kinfo_proc()
         var size = MemoryLayout<kinfo_proc>.size
         var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, pid]
@@ -35369,7 +35297,7 @@ struct CMUXCLI {
         return info.kp_eproc.e_ppid
     }
 
-    private func processName(for pid: pid_t) -> String? {
+    func processName(for pid: pid_t) -> String? {
         let process = Process()
         let stdout = Pipe()
         process.executableURL = URL(fileURLWithPath: "/bin/ps")
@@ -35394,25 +35322,7 @@ struct CMUXCLI {
         return URL(fileURLWithPath: output).lastPathComponent.lowercased()
     }
 
-    /// `/bin/ps` is setuid root, and sandboxes that deny setuid binaries make it fail to start.
-    /// `proc_name` still answers there, which keeps the agent visible to its own hooks.
-    private func libprocProcessName(for pid: pid_t) -> String? {
-        var name = [CChar](repeating: 0, count: 2 * Int(MAXCOMLEN) + 1)
-        guard proc_name(pid, &name, UInt32(name.count)) > 0 else { return nil }
-        return String(cString: name).lowercased()
-    }
-
-    /// Returns the executable path reported by the kernel for a live process.
-    /// This is the identity check used when a Kiro hook walks its ancestry;
-    /// argv[0] is caller-controlled and is never used for that decision.
-    private func libprocExecutablePath(for pid: pid_t) -> String? {
-        var path = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN))
-        guard proc_pidpath(pid, &path, UInt32(path.count)) > 0 else { return nil }
-        let value = String(cString: path).trimmingCharacters(in: .whitespacesAndNewlines)
-        return value.isEmpty ? nil : value
-    }
-
-    private func processArguments(for pid: pid_t) -> [String]? {
+    func processArguments(for pid: pid_t) -> [String]? {
         var argMax: Int32 = 0
         var argMaxSize = MemoryLayout<Int32>.size
         var argMaxMib: [Int32] = [CTL_KERN, KERN_ARGMAX]
@@ -45826,195 +45736,6 @@ export default {
             return
         }
         try uninstallAgentHooks(def)
-    }
-
-    private static var kiroGlobalRequiresKiroMessage: String {
-        String(
-            localized: "cli.hooks.error.globalRequiresKiro",
-            defaultValue: "--global is only supported for Kiro. Usage: cmux hooks setup kiro --global"
-        )
-    }
-
-    private static var kiroBothInstallsNote: String {
-        String(
-            localized: "cli.hooks.kiro.global.bothInstalledNote",
-            defaultValue: "Note: the cmux agent config and the Kiro CLI V3 global hooks are both installed. Kiro CLI V3 merges hooks from every scope, so a `--agent cmux` session on V3 can report each session start, prompt and stop twice. On V3, start Kiro without `--agent cmux`, or remove the global file with `cmux hooks uninstall kiro --global`."
-        )
-    }
-
-    private static var kiroGlobalHelpSummary: String {
-        String(
-            localized: "cli.hooks.kiro.global.postInstallNote",
-            defaultValue: "These global hooks are for Kiro CLI V3 only (`kiro-cli --v3`) and run for every agent. Kiro CLI 2.x and earlier ignore this file; use the default install (`cmux hooks setup kiro`) and `--agent cmux` there. Feed permission approvals still need `--agent cmux`."
-        )
-    }
-
-    /// Whether the `cmux` Kiro agent config carries cmux's lifecycle hooks.
-    /// Kiro CLI V3 merges agent-scope and global hooks, so with both present
-    /// a V3 `--agent cmux` session can report each lifecycle event twice.
-    private static func kiroAgentConfigHasCmuxLifecycleHooks(_ def: AgentHookDef) -> Bool {
-        let filePath = URL(fileURLWithPath: def.resolvedConfigDir(), isDirectory: true)
-            .appendingPathComponent(def.configFile, isDirectory: false)
-            .path
-        guard let data = FileManager.default.contents(atPath: filePath),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let hooks = json["hooks"] as? [String: Any] else {
-            return false
-        }
-        return def.events.contains { event in
-            (hooks[event.agentEvent] as? [[String: Any]])?.contains {
-                isCmuxOwnedHookCommand($0["command"] as? String ?? "", for: def)
-            } == true
-        }
-    }
-
-    private static func kiroGlobalHooksInstalled(_ def: AgentHookDef) -> Bool {
-        guard let data = FileManager.default.contents(atPath: kiroGlobalHooksFilePath(for: def)),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let entries = json["hooks"] as? [[String: Any]] else {
-            return false
-        }
-        return entries.contains(where: isCmuxOwnedKiroGlobalHookEntry)
-    }
-
-    /// `cmux hooks setup kiro --global`: writes cmux's lifecycle hooks to the
-    /// Kiro CLI V3 global hooks file so they run for every agent. Entries cmux
-    /// did not write are kept; a same-named file cmux did not write is refused.
-    private func installKiroGlobalHooks(_ def: AgentHookDef) throws {
-        try Self.validateHookInstallDispatch(for: def)
-        let fm = FileManager.default
-        let hooksDir = Self.kiroGlobalHooksDirectory(for: def)
-        let filePath = Self.kiroGlobalHooksFilePath(for: def)
-        let skipConfirm = ProcessInfo.processInfo.arguments.contains("--yes")
-            || ProcessInfo.processInfo.arguments.contains("-y")
-
-        var isDirectory: ObjCBool = false
-        if fm.fileExists(atPath: hooksDir, isDirectory: &isDirectory), !isDirectory.boolValue {
-            throw CLIError(message: String.localizedStringWithFormat(
-                String(
-                    localized: "cli.hooks.error.configDirectoryIsFile",
-                    defaultValue: "cmux could not create the hooks directory: a file exists at %@. Remove or rename the conflicting file, then run `cmux hooks setup` again."
-                ),
-                hooksDir
-            ))
-        }
-
-        var document: [String: Any] = [:]
-        var foreignEntries: [[String: Any]] = []
-        let oldData = fm.contents(atPath: filePath)
-        if let oldData {
-            guard let json = try? JSONSerialization.jsonObject(with: oldData) as? [String: Any] else {
-                throw CLIError(message: String.localizedStringWithFormat(String(localized: "cli.hooks.kiro.global.invalidJSON", defaultValue: "%@ exists but is not valid JSON. Fix or remove it before installing hooks."), filePath))
-            }
-            // Adopt only a file that already holds cmux's entries, so a
-            // same-named file someone else wrote is never rewritten.
-            guard let entries = json["hooks"] as? [[String: Any]],
-                  entries.contains(where: Self.isCmuxOwnedKiroGlobalHookEntry) else {
-                throw CLIError(message: String.localizedStringWithFormat(String(localized: "cli.hooks.kiro.global.notOwned", defaultValue: "%@ exists and was not written by cmux. Rename it, then run `cmux hooks setup kiro --global` again."), filePath))
-            }
-            foreignEntries = entries.filter { !Self.isCmuxOwnedKiroGlobalHookEntry($0) }
-            document = json
-        }
-        document["version"] = "v1"
-        document["hooks"] = Self.kiroGlobalHookEntries(for: def) + foreignEntries
-
-        let newData = try JSONSerialization.data(
-            withJSONObject: document,
-            options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
-        )
-        let newString = String(data: newData, encoding: .utf8) ?? "{}"
-        let oldString: String = {
-            if let oldData,
-               let json = try? JSONSerialization.jsonObject(with: oldData),
-               let pretty = try? JSONSerialization.data(
-                   withJSONObject: json, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
-               ),
-               let string = String(data: pretty, encoding: .utf8) {
-                return string
-            }
-            return ""
-        }()
-
-        if oldString == newString {
-            print(String.localizedStringWithFormat(String(localized: "cli.hooks.kiro.global.alreadyUpToDate", defaultValue: "%@ global hooks already up to date at %@"), def.displayName, filePath))
-        } else {
-            if !skipConfirm {
-                print(
-                    String(
-                        localized: "cli.hooks.kiro.global.confirmSummary",
-                        defaultValue: "cmux will update Kiro's global hooks and preserve hooks it did not install."
-                    )
-                )
-                print(String(localized: "cli.hooks.kiro.global.confirmProceed", defaultValue: "\nProceed? [y/N] "), terminator: "")
-                guard readLine()?.lowercased().hasPrefix("y") == true else {
-                    print(String(localized: "cli.hooks.kiro.global.aborted", defaultValue: "Aborted."))
-                    return
-                }
-                // The file can change while the user is reading the prompt.
-                // Do not overwrite another process's update or bypass the
-                // ownership check that produced the preview.
-                guard fm.contents(atPath: filePath) == oldData else {
-                    print(
-                        String(
-                            localized: "cli.hooks.kiro.global.changedDuringConfirmation",
-                            defaultValue: "The Kiro global hooks file changed while cmux was waiting. No changes were made; run the command again."
-                        )
-                    )
-                    return
-                }
-            }
-            try fm.createDirectory(atPath: hooksDir, withIntermediateDirectories: true)
-            try newData.write(to: URL(fileURLWithPath: filePath), options: .atomic)
-            print(String.localizedStringWithFormat(String(localized: "cli.hooks.kiro.global.installed", defaultValue: "%@ global hooks installed at %@"), def.displayName, filePath))
-        }
-
-        print(String(
-            localized: "cli.hooks.kiro.global.postInstallNote",
-            defaultValue: "These global hooks are for Kiro CLI V3 only (`kiro-cli --v3`) and run for every agent. Kiro CLI 2.x and earlier ignore this file; use the default install (`cmux hooks setup kiro`) and `--agent cmux` there. Feed permission approvals still need `--agent cmux`."
-        ))
-        if Self.kiroAgentConfigHasCmuxLifecycleHooks(def) {
-            print(Self.kiroBothInstallsNote)
-        }
-    }
-
-    /// `cmux hooks uninstall kiro --global`: removes cmux's entries from the
-    /// global hooks file, deleting the file only when nothing else is left.
-    private func uninstallKiroGlobalHooks(_ def: AgentHookDef) throws {
-        let fm = FileManager.default
-        let filePath = Self.kiroGlobalHooksFilePath(for: def)
-        guard let data = fm.contents(atPath: filePath) else {
-            print(String.localizedStringWithFormat(String(localized: "cli.hooks.kiro.global.noneFound", defaultValue: "No %@ found at %@"), Self.kiroGlobalHooksFileName, filePath))
-            return
-        }
-        guard var json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            throw CLIError(message: String.localizedStringWithFormat(String(localized: "cli.hooks.kiro.global.uninstallInvalidJSON", defaultValue: "%@ is not valid JSON. cmux left it unchanged."), filePath))
-        }
-        guard let entries = json["hooks"] as? [[String: Any]] else {
-            print(String.localizedStringWithFormat(String(localized: "cli.hooks.kiro.global.noCmuxHooks", defaultValue: "No cmux hooks found in %@; left it unchanged"), filePath))
-            return
-        }
-        let remaining = entries.filter { !Self.isCmuxOwnedKiroGlobalHookEntry($0) }
-        let removed = entries.filter {
-            Self.isCmuxOwnedKiroGlobalHookEntry($0)
-                && $0["name"] as? String != Self.kiroGlobalOwnershipEntryName
-        }.count
-        guard removed > 0 else {
-            print(String.localizedStringWithFormat(String(localized: "cli.hooks.kiro.global.noCmuxHooks", defaultValue: "No cmux hooks found in %@; left it unchanged"), filePath))
-            return
-        }
-        let otherKeys = Set(json.keys).subtracting(["version", "hooks"])
-        if remaining.isEmpty, otherKeys.isEmpty {
-            try fm.removeItem(atPath: filePath)
-            print(String.localizedStringWithFormat(String(localized: "cli.hooks.kiro.global.removedAndDeleted", defaultValue: "Removed cmux hooks and deleted %@"), filePath))
-            return
-        }
-        json["hooks"] = remaining + [Self.kiroGlobalOwnershipEntry]
-        let newData = try JSONSerialization.data(
-            withJSONObject: json,
-            options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
-        )
-        try newData.write(to: URL(fileURLWithPath: filePath), options: .atomic)
-        print(String.localizedStringWithFormat(String(localized: "cli.hooks.kiro.global.removed", defaultValue: "Removed cmux hooks from %@"), filePath))
     }
 
     private func runHooksSocketCommand(
