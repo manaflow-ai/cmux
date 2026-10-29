@@ -253,7 +253,9 @@ fn finished_scan_child() {
     } else {
         Arc::new(FinishedMemo::load(memo_path))
     };
-    inventory::scan_with_memo(&common_dir, &[], memo).unwrap();
+    inventory::scan_with_memo(&common_dir, &[], Arc::clone(&memo)).unwrap();
+    // Match pass::run, which flushes the final partial batch before returning.
+    memo.flush();
     std::fs::write(result_path, started.elapsed().as_nanos().to_string()).unwrap();
 }
 
