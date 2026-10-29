@@ -32,7 +32,7 @@ Paths below are relative to `Packages/macOS/CmuxNext/Sources/` unless they start
 | `CmuxNextInputCoreTestSupport` | test support | `FakeInputTap` |
 
 The frame-aligned parts live in `CmuxNextWakeups` beside the frame clock: `FrameInputCoalescer`,
-`PointerFrameConsumer`, `SessionInputPending`, `PresentationClock` and the `MainJobGate` diagnostics. AppServices
+`PointerFrameConsumer`, `SessionInputPending`, `PresentationClock` and the input-turn hop recorder. AppServices
 builds every object once and passes it by `init` (P1). New input code does not go into `CmuxNextApp` beyond wiring
 lines. Core and service packages never import `CmuxNextInput`; they subscribe through `InputObserving`
 (`scripts/cmux-next/arch_rules/layer_gate.py` refuses an upward edge).
@@ -62,18 +62,17 @@ files (28 at the base), 0 `nextEvent(matching:)` loops (3 at the base). Tasks 01
 |---|---|
 | `MainWorkClass` puts `.input` first, then the input-response pass, then frame work (`CmuxNextWakeups/MainWorkClass.swift`, [main-thread-budget.md](main-thread-budget.md) section 1). | `content/browser/scheduler/browser_task_queues.h`, `QueueType::kUserInput` above kUserBlocking, kDefault, kUserVisible and kBestEffort. |
 | `MainFrameBudget` makes every budgeted class yield while `SessionInputPending` (`CmuxNextWakeups/SessionInputPending.swift`) says a key, a button, a scroll begin or a drag is on its way. The check is one window-server query in the common case. A stale event stops counting after `staleAfter`. | `third_party/blink/renderer/platform/scheduler/main_thread/main_thread_scheduler_impl.cc`: kDiscreteInputResponse defers non-user-blocking queues until the frame that shows the response. |
-| Target (tasks 021, 076, not landed): the main job gate classifies a Swift main-actor job by its declared origin, not by its `TaskPriority` (a `Task` made on main inherits user-interactive). Jobs from the input dispatch and from the classed post API pass. Other jobs wait in a strict FIFO while input is pending, and drain after the input's frame commit (`CmuxNextWakeups/AfterFrameCommit.swift`), at most one refresh later. A nested run loop (a menu, a modal, a drag session) releases the FIFO. | Blink defers task queues; it does not reorder them. |
+| No reorder of main-actor jobs: the main job gate (tasks 021, 076) and the priority-ordered executor hook (p06-scheduler-202) were deleted in sequence-manager S6 ([sequence-manager-DESIGN.md](sequence-manager-DESIGN.md) 2.7). Unposted main-actor jobs (await resumes, framework tasks) stay FIFO on the main queue; the app's own hops become posted tasks with a class (S4, S5). The one main-executor hook is the census's record-only `MainJobRing`. | Blink defers task queues; it does not reorder them. |
 | The in-process Chromium pump waits while input for anything but a Chromium page is pending, at most one refresh, and runs one pass at once after input to a Chromium page (`CmuxNextBrowser/CEF/CEFPumpInputPolicy.swift`, feature `cefPumpInputPolicy`). | Chromium's browser-side input pipeline (`InputRouterImpl`, `MouseWheelEventQueue` acks) runs inside `CefDoMessageLoopWork` on main, so a page's input needs the pump. |
 
 How work is posted to main (classes, owners, no `DispatchQueue.main.async`) is P15 and
 [main-thread-budget.md](main-thread-budget.md), not this page.
 
-State: the input-turn hop recorder is landed (task 022: `CmuxNextWakeups/MainJobGate+Diagnostics.swift`,
+State: the input-turn hop recorder is landed (task 022: `CmuxNextWakeups/InputTurnHopRecorder.swift`,
 `CmuxNextControl/Diagnostics/InputTurnHops.swift`, `debug.input hops`, `scripts/cmux-next/input-turn-hops.py`).
-The gate's hook (`swift_task_enqueueMainExecutor_hook`, record-only, task 021) and its holding mode (behind
-`debug.mainJobGate`, task 076) are not landed. The hook is the risky part: no cmux code uses this runtime hook
-yet, and a Swift or OS change can break it. It lands record-only first, with a launch smoke on macOS 14 and 15,
-and with the hook simply not installed as the fallback.
+The gate (tasks 021, 076, feature `mainJobGate`, setting `debug.mainJobGate`) was deleted in sequence-manager S6.
+The unposted main jobs that ran between an input's arrival and its dispatch are measured by the main-job census's
+input window (`CMUX_NEXT_MAIN_JOB_CENSUS=input`, `debug.main_jobs.input`), by enqueue site.
 
 ### I3 Continuous input once per frame
 

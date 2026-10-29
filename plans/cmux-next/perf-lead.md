@@ -572,7 +572,7 @@ coalescer call; hits on comment lines are not code and are not counted.
 | DC5 | coalescing during DC4 and a 1000 Hz drag | not run | <= 2 deliveries per frame | not measured | not measured | open |
 | DC8 | `CMUX_BENCH=1` UNIT(KeyRouterBench), Release | not run | printable key p99 <= 20 us, 0 allocations | not measured | not measured | open |
 | DC9 | typing-frame-bench terminal lanes, taskinfo | not run | <= 2 handoffs, p99 <= 0.3 ms | not measured | not measured | open |
-| DC10 | main-thread job gate after DC2 | not run | held jobs > 0, 0 deferred over 1 frame | gate not on the branch | gate not on the branch (task 021) | blocked on 021 |
+| DC10 | main-thread job gate after DC2 | - | - | - | - | dropped: the gate was deleted in sequence-manager S6 (cmux-ad Q5); the census input window replaces it as a measurement |
 | DC11 | UNIT(InputResamplerTests, PredictiveEchoTests, IntentPrewarmTests), drag ghost | not run | ghost p95 <= 2 pt at 120 Hz | not measured | not measured | open |
 | DC12 | field data after 10 min STRESS, Nightly config | not run | buckets sum, PrivacyLeakScanner passes | not measured | not measured | open |
 | DC13 | Chromium helper input (browserHost.helper on) | not run | key to page paint p95 <= in process + 1 ms | not measured | not measured | open |
@@ -587,11 +587,8 @@ Old and new benches on the base: not compared yet. `typing-frame-bench.py` and `
 `hid_input.py` (the HID poster and the probe parser), so the comparison is the same terminal key row from both
 benches on one base app, light, in one GUI session.
 
-os-matrix 14/15 launch and typing smoke for the MainJobGate hook: not run. The hook (task 021) is not on
-perf/chrome-parity, so the smoke has nothing to check yet.
-
-Release default of `debug.mainJobGate`: stays off. The gate and its setting are not on the branch (task 021), and DC2
-has no A/B. Turn it on in Release only after a DC2 A/B on the fleet shows a win and no regression.
+The MainJobGate, its feature `mainJobGate` and setting `debug.mainJobGate` were deleted in sequence-manager S6 (cmux-ad
+Q5: off everywhere, it reordered by origin). No os-matrix smoke or Release default remains to decide.
 
 To fill the runtime rows, run each command on the head and on a scratch ref of the head that takes
 `Packages/macOS/CmuxNext` and `cmux-tui` from `772cdfc45ac` and keeps the head's `scripts/` (split-spring.sh times an
