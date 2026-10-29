@@ -680,6 +680,23 @@ export default componentEntry<Props>({
         repository: undefined,
       },
     },
+    "stable-actions-idle": {
+      note: "Session Info actions before their labels change, with Context and Connectors open.",
+      props: { ...full, sections: { ...DEFAULT_SECTIONS, context: true, connectors: true } },
+    },
+    "stable-actions-changed": {
+      note: "The same actions after Save becomes Saved and Reconnect becomes Reconnecting. Their widths stay fixed to the widest translated label.",
+      props: {
+        ...full,
+        sections: { ...DEFAULT_SECTIONS, context: true, connectors: true },
+        onSaveEnvironment: () => undefined,
+        onReconnectMcp: () => new Promise(() => undefined),
+      },
+      play: async (ctx) => {
+        await ctx.click({ selector: '[data-section="environment"] button.acpmux-chat-inspector-link' });
+        await ctx.click({ selector: '[data-section="connectors"] button.acpmux-chat-inspector-link' });
+      },
+    },
     "context-connectors-open": {
       note: "Context and Connectors open: the percent used with the tokens, the bar, used and free space with their shares; each MCP server with its status.",
       props: { ...full, sections: { ...DEFAULT_SECTIONS, context: true, connectors: true } },
