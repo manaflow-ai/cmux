@@ -180,6 +180,9 @@ impl Hub {
                 return Err(e);
             }
         };
+        // Imported on a blocking thread, where the request's scope is not seen: the request
+        // waits for the imported records here (`request_writes.rs`).
+        super::request_writes::note_log(&meta.id, last);
         session.seq.store(last, Ordering::SeqCst);
         session.meta.lock_or_recover().last_seq = last;
         if live {
@@ -254,7 +257,6 @@ impl Hub {
                 }
                 last = last.max(rec.seq);
                 self.store.append(id, &rec)?;
-                super::request_writes::note_log(id, rec.seq);
             }
         }
         Ok(last)
