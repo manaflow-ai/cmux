@@ -7,6 +7,7 @@ import { OwnerDO, type ReadResult } from "./owner-do.ts"
 import { addUserSpend, BILLABLE_GRACE_MS, ensureUserTables, expireUserReservations, nextUserWake, recordCostMicros, reserveUser, settleCall, userSpentMicros, type UserReserve } from "./usage-user.ts"
 import type { IncludedMode } from "./billing-catalog.ts"
 import { creditAdd, creditBalance, creditCustomer, creditNoticeOnce, creditRelease, creditReserve, creditSettle, ensureCreditTables, expireCreditHolds, nextCreditWake, setCreditCustomer, type CreditBalance, type CreditReserve } from "./usage-credits.ts"
+import { autoReloadDecision, chargeSavedCard, endRun, failAutoReload, monthReloaded, readAutoReload, startRun, writeAutoReload, type AutoReloadSettings } from "./credits-autoreload.ts"
 import { MIRROR_DEADLINE_MS, mirrorCredits, mirrorDue, mirrorFailed } from "./credits-mirror.ts"
 import { currentBillable, ensureBillingTables, markBillable, previousPush, pushState, recordPush, lastSeenSeats, setTeamMode, teamModeAt, teamModeHistory, type BillableInfo, type ModeChange, type PushInfo } from "./usage-billing-store.ts"
 
@@ -217,7 +218,67 @@ export class UsageMeterDO extends OwnerDO<UsageState> {
     this.bind(entity)
     const r = creditSettle(this.ctx.storage, id, priceMicros, costMicros, chief, conversation, Date.now())
     this.scheduleMirror()
+    // Auto-reload (credits-autoreload.ts): a charge that drops the balance below the threshold reloads.
+    if (r.charged) this.ctx.waitUntil(this.autoReload(entity))
     return r
+  }
+
+  /** The reload running now, if any (tests await it with autoReloadIdle). */
+  private reloading: Promise<void> | null = null
+
+  /** Credits auto-reload settings with this month's reloads. Never binds. */
+  async autoReloadGet(entity: string): Promise<(AutoReloadSettings & { last_error: string | null; last_error_at: number | null; month_reloaded_micros: number }) | null> {
+    if (!this.isBound(entity)) return null
+    const s = readAutoReload(this.ctx.storage.sql)
+    return s ? { ...s, month_reloaded_micros: monthReloaded(this.ctx.storage.sql, Date.now()).micros } : null
+  }
+
+  /** Saves the settings; turning it on below the threshold reloads at once (awaited, so the answer shows it). */
+  async autoReloadSet(entity: string, settings: AutoReloadSettings, by: string): Promise<void> {
+    this.bind(entity)
+    writeAutoReload(this.ctx.storage.sql, settings, by, Date.now())
+    await this.autoReload(entity)
+  }
+
+  /** Resolves when no reload is running (tests). */
+  async autoReloadIdle(): Promise<void> {
+    while (this.reloading) await this.reloading
+  }
+
+  /** One reload when the decision says so; a refused charge turns auto-reload off with its reason. */
+  private autoReload(entity: string): Promise<void> {
+    if (this.reloading) return this.reloading
+    const sql = this.ctx.storage.sql
+    const settings = readAutoReload(sql)
+    if (!settings?.enabled) return Promise.resolve()
+    const now = Date.now()
+    const month = monthReloaded(sql, now)
+    const available = creditBalance(sql, now, 1).available_micros
+    const micros = autoReloadDecision(settings, available, month.micros, month.inFlight)
+    if (micros === null) return Promise.resolve()
+    const customer = creditCustomer(sql, "test")
+    if (!customer) {
+      failAutoReload(sql, "no saved card", now)
+      return Promise.resolve()
+    }
+    const runKey = `${entity}:${new Date(now).toISOString().slice(0, 7)}:${month.count + 1}`
+    startRun(sql, runKey, micros, now)
+    this.reloading = (async () => {
+      const r = await chargeSavedCard(this.env, entity, customer, micros, runKey)
+      if (r.ok) {
+        endRun(sql, runKey, "succeeded", r.intent)
+        creditAdd(this.ctx.storage, `autoreload:${r.intent}`, "topup", micros, "auto-reload", null, Date.now())
+        this.scheduleMirror()
+        console.log(JSON.stringify({ msg: "credits.autoreload", team: entity, usd: micros / 1_000_000, intent: r.intent }))
+      } else {
+        endRun(sql, runKey, "failed", null)
+        failAutoReload(sql, r.reason, Date.now())
+        console.warn(JSON.stringify({ msg: "credits.autoreload_failed", team: entity, reason: r.reason.slice(0, 200) }))
+      }
+    })().finally(() => {
+      this.reloading = null
+    })
+    return this.reloading
   }
 
   /** Prepaid credits: the call never reached a provider. */

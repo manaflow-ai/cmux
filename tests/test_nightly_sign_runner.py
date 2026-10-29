@@ -40,9 +40,8 @@ SIGNING_JOBS = {
     "verify-nightly-identity-legacy": "needs.legacy-identity-target.outputs.sign_runner",
     # Signs the Sparkle deltas (the release environment), after the feed is published.
     "generate-nightly-deltas": "needs.pick-nightly-sign-runner.outputs.runner",
-    # The release-pool path's Mac jobs: the DMG image and Apple's checks, no secrets.
+    # The release-pool path's one Mac job: Apple's checks and the DMG image, no secrets.
     "signer-dmg-image": "needs.pick-nightly-sign-runner.outputs.runner",
-    "signer-verify": "needs.pick-nightly-sign-runner.outputs.runner",
 }
 # Each picker's re-run label, the other Blacksmith macOS 26 size.
 ALTERNATES = {
@@ -183,7 +182,10 @@ class Workflow(unittest.TestCase):
                 self.assertEqual(jobs[job]["outputs"][alternate], "${{ steps.sign-runner.outputs.alternate }}")
                 # legacy-identity-target takes release-next only for the release App credentials of its
                 # gh calls (tests/test_gh_app_token.py); that environment has no reviewers, so nothing waits.
-                self.assertEqual(jobs[job].get("environment"), "release-next" if job == "legacy-identity-target" else None)
+                # pick-nightly-sign-runner mints the routing token, so it reads GLAEDA_ROUTE_APP_KEY in
+                # ci-routing-agent, as pick-nightly-build-runner does (tests/test_supplychain_security.py).
+                expected = {"legacy-identity-target": "release-next", "pick-nightly-sign-runner": "ci-routing-agent"}
+                self.assertEqual(jobs[job].get("environment"), expected.get(job))
         self.assertEqual(jobs["pick-nightly-sign-runner"]["permissions"], {"actions": "read", "contents": "read"})
         # A failed pick never blocks signing: the jobs fall back to the variable.
         self.assertTrue(jobs["pick-nightly-sign-runner"]["continue-on-error"])
@@ -197,21 +199,47 @@ class OwnedVerify(unittest.TestCase):
     (Leo, 2026-10-24); the signing jobs, which hold the keys, stay on Blacksmith.
     """
 
-    OWNED_JOBS = ("verify-signed-nightly", "verify-final-dmg-nightly", "signer-dmg-image", "signer-verify")
+    OWNED_JOBS = ("verify-signed-nightly", "verify-final-dmg-nightly", "signer-dmg-image")
+    # The cmux NIGHTLY-identity verify, also secret-free, keeps its own picker's Blacksmith labels after
+    # the owned pick: on 2026-10-28 it queued 20+ min on blacksmith-6vcpu-macos-26 while 12 vCPU was stalled.
+    LEGACY_OWNED_JOBS = ("verify-nightly-identity-legacy",)
     OWNED = "needs.pick-nightly-sign-runner.outputs.owned"
 
-    def test_verify_jobs_read_the_owned_pick_on_attempt_one_only(self) -> None:
+    def test_verify_jobs_read_the_owned_pick_only_for_the_attempt_it_was_made_for(self) -> None:
+        # Dispatch run 40594111618 (2026-10-27) reached signing on attempt 3, where signer-dmg-image waited
+        # 51 min on blacksmith-6vcpu-macos-26: the pick ran only on attempt 1 of a push.
         jobs = WORKFLOW["jobs"]
         for name in self.OWNED_JOBS:
             with self.subTest(job=name):
                 job = jobs[name]
                 self.assertNotIn("environment", job)
                 self.assertNotIn("secrets.", yaml.safe_dump(job))
-                self.assertIn(f"|| github.run_attempt == 1 && {self.OWNED} || github.run_attempt > 1 && "
+                self.assertIn(f"|| needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && {self.OWNED} "
+                              "|| github.run_attempt > 1 && "
                               "needs.pick-nightly-sign-runner.outputs.alternate || needs.pick-nightly-sign-runner.outputs.runner "
                               "|| vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26'", str(job["runs-on"]))
                 xcode = job["env"]["CMUX_CI_XCODE_APP"]
-                self.assertIn(f"github.run_attempt == 1 && {self.OWNED} != '' && vars.CMUX_CI_XCODE_APP_PR", xcode)
+                self.assertIn(f"needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && {self.OWNED} != '' "
+                              "&& vars.CMUX_CI_XCODE_APP_PR", xcode)
+                self.assertIn("|| vars.CMUX_CI_XCODE_APP_MACOS_26", xcode)
+
+    def test_the_legacy_verify_reads_the_owned_pick_then_its_own_labels(self) -> None:
+        jobs = WORKFLOW["jobs"]
+        for name in self.LEGACY_OWNED_JOBS:
+            with self.subTest(job=name):
+                job = jobs[name]
+                self.assertNotIn("environment", job)
+                self.assertNotIn("secrets.", yaml.safe_dump(job))
+                self.assertIn("pick-nightly-sign-runner", job["needs"])
+                # A skipped or failed pick must not skip the verify.
+                self.assertTrue(job["if"].startswith("!cancelled()"))
+                self.assertIn(f"|| needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && {self.OWNED} "
+                              "|| github.run_attempt > 1 && needs.legacy-identity-target.outputs.sign_alternate "
+                              "|| needs.legacy-identity-target.outputs.sign_runner "
+                              "|| vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26'", str(job["runs-on"]))
+                xcode = job["env"]["CMUX_CI_XCODE_APP"]
+                self.assertIn(f"needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && {self.OWNED} != '' "
+                              "&& vars.CMUX_CI_XCODE_APP_PR", xcode)
                 self.assertIn("|| vars.CMUX_CI_XCODE_APP_MACOS_26", xcode)
 
     def test_no_job_that_holds_a_secret_reads_the_owned_pick(self) -> None:
@@ -219,24 +247,35 @@ class OwnedVerify(unittest.TestCase):
             if self.OWNED not in str(job.get("runs-on", "")):
                 continue
             with self.subTest(job=name):
-                self.assertIn(name, self.OWNED_JOBS)
+                self.assertIn(name, self.OWNED_JOBS + self.LEGACY_OWNED_JOBS)
                 self.assertFalse(job.get("environment"))
                 self.assertNotIn("secrets.", yaml.safe_dump(job))
 
     def test_the_owned_pick_is_bounded_and_never_blocks(self) -> None:
         job = WORKFLOW["jobs"]["pick-nightly-sign-runner"]
-        self.assertEqual(job["outputs"]["owned"], "${{ steps.owned.outputs.owned }}")
-        self.assertNotIn("environment", job)
+        # Outside attempt 1 of a push the pick stands only with the sweeper's marker uploaded.
+        self.assertEqual(job["outputs"]["owned"],
+                         "${{ (github.event_name == 'push' && github.run_attempt == 1 || "
+                         "steps.upload-marker.outcome == 'success') && steps.owned.outputs.owned || '' }}")
+        self.assertEqual(job["outputs"]["attempt"], "${{ github.run_attempt }}")
+        # The routing environment only scopes the routing App key; it has no reviewers, so nothing waits.
+        self.assertEqual(job.get("environment"), "ci-routing-agent")
         step = next(s for s in job["steps"] if s.get("id") == "owned")
         self.assertTrue(step["continue-on-error"])
-        self.assertIn("github.run_attempt == 1", step["if"])
+        self.assertNotIn("github.run_attempt == 1", step["if"])
         self.assertIn("vars.CI_PR_POOL_OWNED == '1'", step["if"])
-        # Only where ci-owned-pool-rescue watches: a stuck owned job elsewhere would never fall back.
+        # Only where ci-owned-pool-rescue watches (nightly-next push and dispatch): a stuck owned job elsewhere
+        # would never fall back.
         for name in ("route-token", "owned"):
             guard = next(s for s in job["steps"] if s.get("id") == name)["if"]
             with self.subTest(step=name):
-                self.assertIn("github.event_name == 'push' && github.ref_name == 'nightly-next'", guard)
-                self.assertNotIn("||", guard)
+                self.assertIn("(github.event_name == 'push' || github.event_name == 'workflow_dispatch') "
+                              "&& github.ref_name == 'nightly-next'", guard)
+                self.assertEqual(guard.count("||"), 1)
+        marker = next(s for s in job["steps"] if s.get("id") == "marker")
+        self.assertIn("github.event_name != 'push' || github.run_attempt != 1", marker["if"])
+        upload = next(s for s in job["steps"] if s.get("id") == "upload-marker")
+        self.assertEqual(upload["with"]["name"], "owned-pool-watch")
         # The build picker's owned rule (nightly_build_runner.py verify), over the labels it offers the build,
         # not the pull request pool picker: run 40515681971's verify got blacksmith-6vcpu-macos-15 from that one
         # while owned side runners sat idle.

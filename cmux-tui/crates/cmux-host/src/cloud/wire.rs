@@ -11,10 +11,12 @@ pub const BIND_FILE: &str = "/var/lib/cmux/bind.json";
 /// Written by a successful bind, before `bind.json` is removed (0600).
 pub const BOUND_FILE: &str = "/var/lib/cmux/bound.json";
 /// This VM's kind for processes that cannot read /var/lib/cmux (0700 root):
-/// `owner` (a machine bind) or `team` (a team enroll), root-owned, 0644.
-/// The session daemon reads it to refuse remote agent starts on team VMs
-/// (`agent-session-start`, cmux-tui/src/agent_start_host.rs). A team record
-/// is never replaced by an owner one.
+/// `owner` or `team`, root-owned, 0644. Informational: it records the kind
+/// cmux assigned, and acpmux does not trust it for any decision (#26227).
+/// The Cloud backend writes it at create, the devbox's cmux-vm-kind-sync
+/// writes the kind it fetched, and a team enroll records `team`. The owner
+/// write here ([`super::client::record_owner_kind`]) never replaces an
+/// existing record.
 pub const VM_KIND_FILE: &str = "/etc/cmux/vm-kind";
 pub const STATE_DIR: &str = "/var/lib/cmux";
 pub const INSTALL_KEY_FILE: &str = "/var/lib/cmux/install/key.json";

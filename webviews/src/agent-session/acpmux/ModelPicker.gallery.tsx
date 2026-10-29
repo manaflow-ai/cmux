@@ -110,8 +110,13 @@ const manyHarnesses: ModelPickerProps["catalog"] = [
   ].map(([id, name]) => ({ id: id!, name: name!, models: [{ id: `${id}-default`, name: "Default" }] })),
 ];
 
-/// The open picker stays at most MODEL_PICKER_MAX_HEIGHT (480px) on a tall stage, and its content
+/// The open picker stays within the available anchor room on a tall stage, and its content
 /// scrolls inside it (the harness rail) instead of stretching the menu.
+const openPicker: Play = async (ctx) => {
+  await ctx.click({ role: "button", name: "Model" });
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-mp") !== null);
+};
+
 const cappedHeight: Play = async (ctx) => {
   await ctx.click({ role: "button", name: "Model" });
   await ctx.waitFor(() => {
@@ -121,7 +126,7 @@ const cappedHeight: Play = async (ctx) => {
     const scrolls = [menu, ...menu.querySelectorAll<HTMLElement>("*")].some(
       (node) => node.scrollHeight > node.clientHeight + 100,
     );
-    return height > 300 && height <= 481 && scrolls;
+    return height > 300 && height <= Number.parseFloat(menu.style.maxHeight) + 1 && scrolls;
   });
 };
 
@@ -143,12 +148,12 @@ const numericSearch: Play = async (ctx) => {
 };
 
 /// The compact model menu, the one menu every composer's model button opens (Leo 2026-10-20):
-/// numbered top models, then Effort, More models and Account beside their rows, then Fast mode.
+/// numbered top models, then Effort, More models and Provider beside their rows, then Fast mode.
 const accounts: ChatAccounts = {
   list: async () => ({
     accounts: [
-      { id: "max", name: "Claude Max", kind: "subscription" },
-      { id: "api", name: "Anthropic API key", kind: "api-key" },
+      { id: "max", name: "Claude Max", kind: "direct-subscription" },
+      { id: "api", name: "Anthropic API key", kind: "direct-api-key" },
       { id: "subrouter", name: "subrouter", kind: "subrouter" },
     ],
     active: "max",
@@ -193,6 +198,30 @@ const startedFork: ModelPickerProps = {
   ],
   harnessFixed: true,
   fork: { to: () => undefined, ready: true },
+};
+
+/// A short New Tab/chat pane with 48 installed accounts: the menu must cap to its window and
+/// let the Provider list scroll to its last row without an empty spacer.
+const manyProfiles: ModelPickerProps = {
+  ...quick,
+  catalog: startedFork.catalog,
+  quick: {
+    ...quick.quick,
+    account: {
+      sessionId: "gallery-many-accounts",
+      accounts: {
+        list: async () => ({
+          accounts: Array.from({ length: 48 }, (_, index) => ({
+            id: "claude-account-" + (index + 1),
+            name: "Claude account " + (index + 1),
+            kind: "direct-subscription" as const,
+          })),
+          active: "claude-account-1",
+        }),
+        set: async () => undefined,
+      },
+    },
+  },
 };
 
 const openQuick: Play = async (ctx) => {
@@ -241,6 +270,88 @@ const openCodeChat: ModelPickerProps = {
   harnessFixed: true,
 };
 
+/// Harness menus have no fixed count. These fixture lists are supplied by the harness; an old
+/// running or recent model stays under More models rather than changing its menu.
+const relevantFew: ModelPickerProps = {
+  ...base,
+  catalog: [
+    {
+      id: "small-harness",
+      name: "Small harness",
+      top: ["swift", "careful"],
+      models: [
+        { id: "swift", name: "Swift" },
+        { id: "careful", name: "Careful" },
+        { id: "legacy", name: "Legacy" },
+      ],
+    },
+  ],
+  harness: "small-harness",
+  model: "swift",
+  label: "Swift",
+  quick: {},
+};
+const relevantMany: ModelPickerProps = {
+  ...base,
+  catalog: [
+    {
+      id: "many-models",
+      name: "Many models",
+      top: ["model-0", "model-1", "model-2", "model-3", "model-4", "model-5"],
+      models: [
+        "Fast",
+        "Balanced",
+        "Reasoning",
+        "Vision",
+        "Small",
+        "Code",
+        "Older fast",
+        "Older balanced",
+        "Legacy",
+      ].map((name, index) => ({ id: `model-${index}`, name })),
+    },
+  ],
+  harness: "many-models",
+  model: "model-7",
+  label: "Older balanced",
+  quick: {},
+  recents: [{ harness: "many-models", model: "model-8" }],
+};
+
+// Actual live-probe menu order observed 2026-10-27. This account's Codex menu still offers
+// older releases: preserve the harness's picker rather than inventing models the account lacks.
+const reportedMenu = (id: string, name: string, entries: [string, string][]): ModelPickerProps => ({
+  ...base,
+  harness: id,
+  model: entries[0]![0],
+  label: entries[0]![1],
+  quick: {},
+  catalog: [
+    {
+      id,
+      name,
+      top: entries.map(([model]) => model),
+      models: [...entries.map(([model, label]) => ({ id: model, name: label })), { id: "legacy", name: "Legacy" }],
+    },
+  ],
+});
+const reportedClaude = reportedMenu("claude", "Claude Code", [
+  ["opus", "Opus 5.5"],
+  ["fable", "Fable 5.1"],
+  ["sonnet", "Sonnet 5.5"],
+  ["haiku", "Haiku 5.5"],
+]);
+const reportedCodex = reportedMenu("codex", "Codex", [
+  ["gpt-6.1-sol", "GPT-6.1-Sol"],
+  ["gpt-6-astra", "GPT-6-Astra"],
+  ["gpt-6-sol", "GPT-6-Sol"],
+  ["gpt-6-luna", "GPT-6-Luna"],
+  ["gpt-5.6-sol", "GPT-5.6-Sol"],
+  ["gpt-5.6-terra", "GPT-5.6-Terra"],
+  ["gpt-5.6-luna", "GPT-5.6-Luna"],
+  ["gpt-5.5", "GPT-5.5"],
+]);
+
 /// The search field's versions (Lawrence 2026-10-22: "spacing + needs search"): `always` ships.
 const searchLook = (props: ModelPickerProps, searchField: "always" | "typed" | "long"): ModelPickerProps => ({
   ...props,
@@ -264,8 +375,8 @@ export default componentEntry<GalleryProps>({
   title: "Model picker",
   area: "Agent pane",
   pane: true,
-  height: 390,
-  widths: { narrow: 200, normal: 420, wide: 760 },
+  height: 560,
+  widths: { narrow: 360, normal: 560, wide: 760 },
   anchors: [{ selector: ".acpmux-model" }],
   covers: [
     "agent-session/acpmux/ModelPicker.tsx#ModelPicker",
@@ -345,18 +456,40 @@ export default componentEntry<GalleryProps>({
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-quick-fork") !== null);
       },
     },
-    // Its Account row: the harness's own accounts (profiles), then the chat's routes.
+    // Its Provider row contains signed-in routes, separate from named launch harnesses.
     "started-chat-accounts": {
       props: startedFork,
       play: async (ctx) => {
         await openQuick(ctx);
-        await ctx.click({ role: "menuitem", name: /^Account/ });
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-quick-profile") !== null);
+        // Keyboard activation is stable on a started chat even when the pointer-hover timer races
+        // the async account list. Keep checking the real signed-in routes, not just a popup count.
+        await ctx.focus({ role: "menuitem", name: /^Provider/ });
+        await ctx.press("Enter");
+        await ctx.waitFor(() =>
+          Array.from(ctx.document.querySelectorAll("[role=menuitemradio]")).some(
+            (row) => row.textContent === "Anthropic API key",
+          ),
+        );
       },
     },
     // Three captures keep the menu comparison concrete: default Effort submenu, opt-in slider, and
     // the harness-only rail with no machine/session initials.
     "quick-menu": { props: quick, play: openQuick },
+    "relevant-few": { props: relevantFew, play: openQuick },
+    "relevant-many": { props: relevantMany, play: openQuick },
+    "reported-claude-menu": { props: reportedClaude, play: openQuick },
+    "reported-codex-menu": { props: reportedCodex, play: openQuick },
+    // A short window with many accounts (Lawrence: "model picker too tall"): the Provider submenu
+    // remains inside the window and scrolls to the final row.
+    "quick-menu-many-profiles": {
+      props: { ...manyProfiles, update },
+      height: 360,
+      play: async (ctx) => {
+        await openQuick(ctx);
+        await ctx.hover({ role: "menuitem", name: /^Provider/ });
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-quick-menu").length > 1);
+      },
+    },
     // An agent CLI update on offer: a quiet footer below the model choices, out of the numbered list.
     "quick-update-offer": { props: { ...quick, update }, play: openQuick },
     // The same footer on a started chat's menu, which has no rail.
@@ -372,16 +505,16 @@ export default componentEntry<GalleryProps>({
       play: openQuick,
     },
     "quick-menu-slider": { props: quickSlider, play: openQuickSlider },
-    // A new chat on a Mac with a second Claude account: one Claude tab, its accounts under Account.
+    // A new chat with a named alternate launch harness and separate account routes.
     "quick-menu-accounts": {
       props: { ...quick, catalog: startedFork.catalog, onHarness: () => undefined },
       play: async (ctx) => {
         await openQuick(ctx);
-        await ctx.click({ role: "menuitem", name: /^Account/ });
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-quick-profile") !== null);
+        await ctx.hover({ role: "menuitem", name: /^Provider/ });
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-quick-menu").length > 1);
       },
     },
-    // The rail's Codex tab: Codex's models in place; Effort and Account stay with the chat's harness.
+    // The rail's Codex tab: Codex's models in place; Effort and Provider stay with the chat's harness.
     "quick-menu-rail": {
       props: quick,
       play: async (ctx) => {
@@ -436,7 +569,7 @@ export default componentEntry<GalleryProps>({
       play: openQuick,
     },
     "quick-search-long-short-list": {
-      note: "Search version C: a four-model list gets none, so the same menu changes shape by harness.",
+      note: "Search version C: a short model list gets none, so the same menu changes shape by harness.",
       props: searchLook({ ...quick, catalog, harnessFixed: true }, "long"),
       play: openQuick,
     },
@@ -448,6 +581,23 @@ export default componentEntry<GalleryProps>({
         await openModels(ctx);
         await ctx.click({ selector: ".acpmux-mp-older" });
       },
+    },
+    // Narrow horizontal strip variants: the harness families keep even gaps and whole-item
+    // snapping at both ends for the small, medium and crowded catalogs Leo asked to compare.
+    "strip-3-harnesses": {
+      note: "Horizontal strip, 3 harness families: all items fit without a scroll.",
+      props: { ...base, catalog: manyHarnesses.slice(0, 3) },
+      play: openPicker,
+    },
+    "strip-8-harnesses": {
+      note: "Horizontal strip, 8 harness families: whole-item snapping with an edge fade.",
+      props: { ...base, catalog: manyHarnesses.slice(0, 8) },
+      play: openPicker,
+    },
+    "strip-15-harnesses": {
+      note: "Horizontal strip, 15 harness families: whole-item snapping with an edge fade.",
+      props: { ...base, catalog: manyHarnesses.slice(0, 15) },
+      play: openPicker,
     },
     // Many installed agents on a tall stage: the menu is capped and the harness rail scrolls.
     "many-harnesses": {

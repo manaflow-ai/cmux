@@ -101,6 +101,7 @@ final class AppControl {
         let errors = ErrorJournalService.make(environment: services.environment)
         errors.start()
         errorJournal = errors
+        services.errorJournal = errors
         service.router.register(ErrorJournalControl(journal: errors.journal, sources: errors.sources).methods)
         service.router.register([
             // CPU and memory per tab and workspace, two samples `interval_ms` apart.
@@ -542,6 +543,11 @@ final class AppControl {
             .mainActor("debug.daemon_update") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugSidebarNestedFixture.daemonUpdate(call.params, services: services))
+            },
+            // Captures of a Cloud machine's menu: a fixture header and `cloudWorkspace`, with no machine, sign-in or network.
+            .mainActor("debug.cloud_machine_fixture") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(DebugCloudMachineFixture.show(call.params, services: services))
             },
             .mainActor("debug.sidebar_group_drag") { [weak services] call in
                 guard let services else { return .value(.null) }
