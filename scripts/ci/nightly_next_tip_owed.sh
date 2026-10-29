@@ -28,10 +28,13 @@ if [[ "$head" != "$tip" ]]; then
   exit 1
 fi
 
-# Each page's workflow_runs must be an array of runs whose fields have their JSON types; anything
-# else is a jq error and reads as unreadable.
+# Every Actions object is read through scripts/ci/nightly_next_shapes.jq (typed_run, typed_job,
+# page_of): gh fetches the raw JSON and jq checks each field's type before anything reads it.
+shapes_dir="$(cd "$(dirname "$0")" && pwd)"
+shape() { jq -L "$shapes_dir" -rc "include \"nightly_next_shapes\"; $1"; }
 runs="$(gh api --paginate "repos/$repo/actions/workflows/nightly.yml/runs?branch=nightly-next&head_sha=$tip&per_page=100" \
-  --jq 'if (.workflow_runs | type) == "array" then .workflow_runs[] else error("not a list") end | if (.id | type) == "number" and (.event | type) == "string" and (.status | type) == "string" and (.run_attempt | type) == "number" and ((.conclusion | type) == "string" or .conclusion == null) then . else error("a run of an unexpected shape") end | select(.event == "push" or .event == "workflow_dispatch") | "\(.id) \(.status) \(.conclusion // "-") \(.run_attempt)"' | sort -rn)" \
+  | shape 'page_of("workflow_runs") | typed_run | select(.event == "push" or .event == "workflow_dispatch") | "\(.id) \(.status) \(.conclusion // "-") \(.run_attempt)"' \
+  | sort -rn)" \
   || { echo "the tip's runs could not be read"; exit 2; }
 if grep -Evq '^[0-9]+ [a-z_]+ [a-z_-]+ [0-9]+$' <<<"$runs"; then
   echo "the tip's runs came back in an unexpected shape"

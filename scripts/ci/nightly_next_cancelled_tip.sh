@@ -46,12 +46,13 @@ fi
 
 # The tip's nightly.yml runs on nightly-next (push or dispatch), newest first: id, status,
 # conclusion, attempt.
-# A run, only when every field this reads has its JSON type (a null renders as the word "null",
-# which no pattern on the text can tell apart); anything else is a jq error, and nothing is sent.
-typed_run='if (.workflow_runs | type) == "array" then .workflow_runs[] else error("not a list") end | if (.id | type) == "number" and (.event | type) == "string" and (.status | type) == "string" and (.run_attempt | type) == "number" and ((.conclusion | type) == "string" or .conclusion == null) then . else error("a run of an unexpected shape") end'
+# Every Actions object is read through scripts/ci/nightly_next_shapes.jq (typed_run, typed_job,
+# page_of): gh fetches the raw JSON and jq checks each field's type before anything reads it.
+shapes_dir="$(cd "$(dirname "$0")" && pwd)"
+shape() { jq -L "$shapes_dir" -rc "include \"nightly_next_shapes\"; $1"; }
 tip_runs() {
   gh api --paginate "repos/$repo/actions/workflows/nightly.yml/runs?branch=nightly-next&head_sha=$tip&per_page=100" \
-    --jq "$typed_run"' | select(.event == "push" or .event == "workflow_dispatch") | "\(.id) \(.status) \(.conclusion // "-") \(.run_attempt)"' \
+    | shape 'page_of("workflow_runs") | typed_run | select(.event == "push" or .event == "workflow_dispatch") | "\(.id) \(.status) \(.conclusion // "-") \(.run_attempt)"' \
     | sort -rn
 }
 if ! runs="$(set -o pipefail; tip_runs)"; then

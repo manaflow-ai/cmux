@@ -130,8 +130,15 @@ sys.exit(3)
 
 
 def is_settle_read(call: str) -> bool:
-    """The read after a cancel: the run's status, conclusion and attempt."""
-    return call.startswith("api repos/o/r/actions/runs/7 --jq") and "conclusion" in call
+    """A read of run 7 itself (no --jq: the script checks its shape with jq)."""
+    return call == "api repos/o/r/actions/runs/7"
+
+
+def settle_reads(calls: list[str]) -> list[str]:
+    """The settle wait's reads: run 7's own reads after its cancel was sent."""
+    if "api -X POST repos/o/r/actions/runs/7/cancel" not in calls:
+        return []
+    return [call for call in calls[calls.index("api -X POST repos/o/r/actions/runs/7/cancel"):] if is_settle_read(call)]
 
 
 def ago(minutes: float) -> str:
@@ -140,13 +147,14 @@ def ago(minutes: float) -> str:
 
 def job(name: str, minutes: float, label: str = "blacksmith-4vcpu-ubuntu-2404", status: str = "queued",
         runner: str | None = None) -> dict:
-    return {"name": name, "status": status, "runner_name": runner, "labels": [label], "created_at": ago(minutes)}
+    return {"id": abs(hash(name)) % 10**9, "name": name, "status": status, "conclusion": None,
+            "runner_name": runner, "labels": [label], "created_at": ago(minutes)}
 
 
 def run(run_id: int, status: str = "queued", event: str = "push", sha: str = TIP, attempt: int = 1,
         title: str = "") -> dict:
-    return {"id": run_id, "status": status, "event": event, "head_sha": sha, "run_attempt": attempt,
-            "display_title": title}
+    return {"id": run_id, "status": status, "conclusion": None, "event": event, "head_sha": sha,
+            "run_attempt": attempt, "display_title": title}
 
 
 STUCK_DECIDE = job("decide", 34)
@@ -257,6 +265,40 @@ class StuckRun(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(self.writes(calls), [], case)
 
+    def test_the_shared_schema_checks_every_field_it_names(self):
+        # scripts/ci/nightly_next_shapes.jq: each field any script reads, by its JSON type. One case
+        # per field and wrong type, run straight through jq.
+        lib = ROOT / "scripts" / "ci"
+        good_job = job("decide", 34)
+        good_run = run(7)
+        bad = {
+            "typed_job": [("id", None), ("id", "7"), ("name", None), ("name", 3), ("status", None),
+                          ("conclusion", {}), ("conclusion", 3), ("runner_name", {}), ("runner_name", []),
+                          ("runner_name", 3), ("labels", None), ("labels", {}), ("labels", [3]), ("labels", []),
+                          ("created_at", None), ("created_at", "yesterday")],
+            "typed_run": [("id", None), ("id", "7"), ("event", None), ("event", 3), ("status", None),
+                          ("conclusion", {}), ("run_attempt", None), ("run_attempt", "1"), ("head_sha", None),
+                          ("head_sha", "abc"), ("display_title", {})],
+        }
+
+        def check(name, value):
+            return subprocess.run(["jq", "-L", str(lib), "-c", f'include "nightly_next_shapes"; {name}'],
+                                  input=json.dumps(value), capture_output=True, text=True).returncode
+
+        self.assertEqual(check("typed_job", good_job), 0)
+        self.assertEqual(check("typed_job", dict(good_job, status="completed", labels=[])), 0, "a skipped job")
+        self.assertEqual(check("typed_run", good_run), 0)
+        for name, cases in bad.items():
+            good = good_job if name == "typed_job" else good_run
+            for field, value in cases:
+                with self.subTest(name=name, field=field, value=value):
+                    self.assertNotEqual(check(name, dict(good, **{field: value})), 0)
+                    missing = {k: v for k, v in good.items() if k != field}
+                    if field not in ("conclusion", "runner_name", "display_title"):
+                        self.assertNotEqual(check(name, missing), 0, f"{field} missing")
+        self.assertNotEqual(check('page_of("jobs")', {"jobs": {"a": good_job}}), 0)
+        self.assertNotEqual(check('page_of("jobs")', {"jobs": None}), 0)
+
     def test_an_unexpected_shape_cancels_nothing(self):
         # Valid JSON of the wrong shape is unread, not "nothing there": pending deployments that are
         # null or an object, a job with no labels, null labels, empty labels or no status, and a run
@@ -271,6 +313,13 @@ class StuckRun(unittest.TestCase):
             "a non-string label": ({7: [dict(stuck, labels=[3])]}, {}),
             "no status": ({7: [{k: v for k, v in stuck.items() if k != "status"}]}, {}),
             "no created_at": ({7: [{k: v for k, v in stuck.items() if k != "created_at"}]}, {}),
+            "a runner_name object on a finished job": ({7: [stuck, dict(job("probe", 34, status="completed"),
+                                                                       runner_name={})]}, {}),
+            "a runner_name list": ({7: [dict(stuck, runner_name=[])]}, {}),
+            "no name": ({7: [{k: v for k, v in stuck.items() if k != "name"}]}, {}),
+            "a null name": ({7: [dict(stuck, name=None)]}, {}),
+            "no id": ({7: [{k: v for k, v in stuck.items() if k != "id"}]}, {}),
+            "a conclusion object": ({7: [dict(stuck, conclusion={})]}, {}),
             "no jobs": ({7: []}, {}),
         }
         for case, (jobs, env) in cases.items():
@@ -322,7 +371,7 @@ class StuckRun(unittest.TestCase):
         self.assertEqual(self.writes(calls), ["api -X POST repos/o/r/actions/runs/7/cancel",
                                               "api -X POST repos/o/r/actions/runs/7/force-cancel"])
         # Bounded: FORCE_AFTER + 1 reads after each cancel, then the next tick.
-        self.assertEqual(sum(is_settle_read(call) for call in calls), 6)
+        self.assertEqual(len(settle_reads(calls)), 6)
         self.assertIn("the next tick checks again", result.stdout)
 
     def test_an_unreadable_status_after_the_cancel_never_force_cancels(self):
@@ -332,7 +381,7 @@ class StuckRun(unittest.TestCase):
                                         FORCE_AFTER="1", UNREADABLE_AFTER_CANCEL="1")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.writes(calls), ["api -X POST repos/o/r/actions/runs/7/cancel"])
-        self.assertEqual(sum(is_settle_read(call) for call in calls), 1)
+        self.assertEqual(len(settle_reads(calls)), 1)
         self.assertNotIn("api -X POST repos/o/r/actions/runs/7/force-cancel", self.writes(calls))
         self.assertIn("has not been seen finished", result.stdout)
 
@@ -342,7 +391,7 @@ class StuckRun(unittest.TestCase):
                                         FORCE_AFTER="1")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.writes(calls), ["api -X POST repos/o/r/actions/runs/7/cancel"])
-        self.assertEqual(sum(is_settle_read(call) for call in calls), 1)
+        self.assertEqual(len(settle_reads(calls)), 1)
 
     def test_a_run_that_finished_on_its_own_before_the_cancel_gets_nothing_more(self):
         # Between the last stuck read and the cancel, the run succeeded, failed, or a new attempt
@@ -391,7 +440,7 @@ class StuckRun(unittest.TestCase):
         self.assertTrue(is_settle_read(calls[force - 1]), calls)
         result, calls = self.run_script({7: [STUCK_DECIDE]}, next_runs=[run(7)], CANCEL_FAIL="1")
         self.assertEqual(self.writes(calls), ["api -X POST repos/o/r/actions/runs/7/cancel"])
-        self.assertFalse(any(is_settle_read(call) for call in calls), calls)
+        self.assertEqual(settle_reads(calls), [], calls)
         self.assertIn("the cancel was refused", result.stdout)
 
     def test_a_dispatch_and_older_commits_and_promotions_are_cancelled_and_never_re_run_here(self):
@@ -446,7 +495,8 @@ class StuckRun(unittest.TestCase):
         steps = yaml.safe_load(TICK.read_text())["jobs"]["request"]["steps"]
         tooling = next(step for step in steps if step.get("with", {}).get("path") == ".tick-tooling")
         sparse = tooling["with"]["sparse-checkout"].split()
-        for name in ("nightly_next_stuck_run.sh", "nightly_next_cancelled_tip.sh", "nightly_next_rerun.sh"):
+        for name in ("nightly_next_stuck_run.sh", "nightly_next_cancelled_tip.sh", "nightly_next_rerun.sh",
+                     "nightly_next_tip_owed.sh", "nightly_next_shapes.jq"):
             self.assertIn(f"scripts/ci/{name}", sparse)
         names = [step.get("name") for step in steps]
         check = steps[names.index("Cancel a nightly-next run stuck without a runner")]

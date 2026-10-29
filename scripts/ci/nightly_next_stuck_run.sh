@@ -73,18 +73,17 @@ trap 'rm -rf "$scratch"' EXIT
 # Unfinished runs (id, event, head sha, attempt): every nightly-next run (push or dispatch), and
 # main's promotion dispatches. Only `queued` and `in_progress` runs can be stuck on a label; each
 # listing is read whole, page by page.
+# Every Actions object is read through scripts/ci/nightly_next_shapes.jq (typed_run, typed_job,
+# page_of): gh fetches the raw JSON and jq checks each field's type before anything reads it.
+shapes_dir="$(cd "$(dirname "$0")" && pwd)"
+shape() { jq -L "$shapes_dir" -rc "include \"nightly_next_shapes\"; $1"; }
 promote='select((.display_title // "") | startswith("Promote nightly-next to"))'
-# A run's line, built only from fields of the right JSON type: jq would render a null as the word
-# "null", which a pattern on the text cannot tell from a real value. Any other shape is a jq error,
-# which fails the listing and cancels nothing.
-each_run='if (.workflow_runs | type) == "array" then .workflow_runs[] else error("not a list") end'
-typed_run='if (.id | type) == "number" and (.event | type) == "string" and (.head_sha | type) == "string" and (.run_attempt | type) == "number" and (.status | type) == "string" then . else error("a run of an unexpected shape") end'
 : >"$scratch/runs"
 for status in queued in_progress; do
   if ! gh api --paginate "repos/$repo/actions/workflows/nightly.yml/runs?branch=nightly-next&status=$status&per_page=100" \
-         --jq "$each_run | $typed_run | \"\\(.id) \\(.event) \\(.head_sha) \\(.run_attempt)\"" >>"$scratch/runs" \
+         | shape 'page_of("workflow_runs") | typed_run | "\(.id) \(.event) \(.head_sha) \(.run_attempt)"' >>"$scratch/runs" \
      || ! gh api --paginate "repos/$repo/actions/workflows/nightly.yml/runs?branch=main&event=workflow_dispatch&status=$status&per_page=100" \
-         --jq "$each_run | $typed_run | $promote | \"\\(.id) promote \\(.head_sha) \\(.run_attempt)\"" >>"$scratch/runs"; then
+         | shape "page_of(\"workflow_runs\") | typed_run | $promote | \"\\(.id) promote \\(.head_sha) \\(.run_attempt)\"" >>"$scratch/runs"; then
     warn "the unfinished nightly runs could not be listed; no run is cancelled this tick"
     exit 0
   fi
@@ -100,18 +99,11 @@ if [[ ! -s "$scratch/runs" ]]; then
   exit 0
 fi
 
-# The first stuck job of a run's latest attempt (name<TAB>labels<TAB>minutes), or nothing. Fail-closed
-# on shape: a job without a string status, a labels array of strings (non-empty on a queued job, which
-# is judged by it) or a created_at timestamp makes
-# jq fail (error), and the caller then leaves the run alone; a job is never judged on a field it lacks.
+# The first stuck job of a run's latest attempt (name<TAB>labels<TAB>minutes), or nothing. Its input
+# is the typed jobs (typed_job); a run with no job at all is unread, not "nothing stuck".
 stuck_filter='
-  def checked: if (type == "object") and (.status | type) == "string"
-                   and ((.labels | type) == "array") and all(.labels[]; type == "string")
-                   and (.status != "queued" or (.labels | length) > 0)
-                   and ((.created_at | type) == "string")
-               then . else error("a job of an unexpected shape") end;
   def unserved: .status == "queued" and ((.runner_name // "") == "");
-  [.[] | checked] as $jobs
+  . as $jobs
   | if ($jobs | length) == 0 then error("no jobs") else . end
   | [$jobs[] | select(unserved and (.labels | any(startswith("glaeda-")) | not))
      | . + {waited: (($now - (.created_at | fromdateiso8601)) / 60 | floor)}
@@ -123,7 +115,7 @@ stuck_filter='
 # is not; fails when any read fails (the caller then leaves the run alone).
 stuck() {
   local state deployments
-  state="$(gh api "repos/$repo/actions/runs/$1" --jq "$typed_run | \"\\(.status) \\(.run_attempt)\"")" || return 1
+  state="$(gh api "repos/$repo/actions/runs/$1" | shape 'typed_run | "\(.status) \(.run_attempt)"')" || return 1
   [[ "$state" =~ ^[a-z_]+\ [0-9]+$ ]] || return 1
   case "${state% *}" in queued | in_progress) ;; *) return 0 ;; esac
   # Pending deployments must come back as an array: null, an object or anything else is unread.
@@ -132,21 +124,18 @@ stuck() {
   [[ "$deployments" =~ ^[0-9]+$ ]] || return 1
   [[ "$deployments" == 0 ]] || return 0
   gh api --paginate "repos/$repo/actions/runs/$1/jobs?filter=latest&per_page=100" \
-    --jq 'if (.jobs | type) == "array" then .jobs[] else error("not a list") end' >"$scratch/jobs" || return 1
+    | shape 'page_of("jobs") | typed_job' >"$scratch/jobs" || return 1
   local job
   job="$(jq -rs --argjson now "$(date -u +%s)" --argjson minutes "$stuck_minutes" "$stuck_filter" "$scratch/jobs")" || return 1
   [[ -z "$job" ]] || printf '%s\t%s\n' "${state#* }" "$job"
 }
-
-# A run's "status conclusion attempt", or a jq error when a field has an unexpected type.
-settle_filter='if (.status | type) == "string" and (.run_attempt | type) == "number" and ((.conclusion | type) == "string" or .conclusion == null) then "\(.status) \(.conclusion // "-") \(.run_attempt)" else error("a run of an unexpected shape") end'
 
 # settled ID ATTEMPT: 0 when the run has finished cancelled on ATTEMPT, 1 when it has not finished,
 # 2 when it cannot be read, 3 when it finished some other way (it succeeded or failed before the
 # cancel reached it, or a new attempt started): then nothing is re-run or dispatched for it.
 settled() {
   local now
-  now="$(gh api "repos/$repo/actions/runs/$1" --jq "$settle_filter")" || return 2
+  now="$(gh api "repos/$repo/actions/runs/$1" | shape 'typed_run | "\(.status) \(.conclusion // "-") \(.run_attempt)"')" || return 2
   [[ "$now" =~ ^[a-z_]+\ [a-z_-]+\ [0-9]+$ ]] || return 2
   case "$now" in
     "completed cancelled $2") return 0 ;;

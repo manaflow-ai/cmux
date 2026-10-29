@@ -102,6 +102,7 @@ jobs:
             scripts/ci/nightly_next_feed_watch.py
             scripts/ci/nightly_next_rerun.sh
             scripts/ci/nightly_next_rolling.py
+            scripts/ci/nightly_next_shapes.jq
             scripts/ci/nightly_next_stuck_run.sh
             scripts/ci/nightly_next_tip_owed.sh
             scripts/ci/nightly_repick.py

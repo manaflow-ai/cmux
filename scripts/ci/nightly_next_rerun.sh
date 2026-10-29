@@ -32,16 +32,18 @@ attempt="${3:?}"
 head_sha="${4:?}"
 what="${5:-run $id}"
 
-# Jobs of that attempt that ended with no runner: name<TAB>labels. Each page's jobs must be an array
-# of jobs with a string name and conclusion-or-null and a list of string labels; anything else is a jq
-# error. Every read below is fail-closed: a read that fails or comes back malformed sends no write at
-# all (not even the re-run of failed jobs), and the tip stays owed, so the next tick tries again.
-jobs_filter='if (.jobs | type) == "array" then .jobs[] else error("not a list") end | if (.name | type) == "string" and (.id | type) == "number" and (.status | type) == "string" and ((.conclusion | type) == "string" or .conclusion == null) and (.labels | type) == "array" and all(.labels[]; type == "string") then . else error("a job of an unexpected shape") end'
+# Every Actions object is read through scripts/ci/nightly_next_shapes.jq (typed_run, typed_job,
+# page_of): gh fetches the raw JSON and jq checks each field's type before anything reads it.
+shapes_dir="$(cd "$(dirname "$0")" && pwd)"
+shape() { jq -L "$shapes_dir" -rc "include \"nightly_next_shapes\"; $1"; }
+# Jobs of that attempt that ended with no runner: name<TAB>labels. Every read below is fail-closed:
+# a read that fails or comes back in an unexpected shape (typed_job) sends no write at all (not even
+# the re-run of failed jobs), and the tip stays owed, so the next tick tries again.
 unserved_filter='select((.conclusion == "cancelled" or .conclusion == "failure") and ((.runner_name // "") == "")) | "\(.name)\t\(.labels | join(","))"'
 scratch="$(mktemp -d)"
 trap 'rm -rf "$scratch"' EXIT
 held() { echo "$what: $*; nothing re-run this tick, the next tick tries again"; exit 0; }
-gh api --paginate "repos/$repo/actions/runs/$id/attempts/$attempt/jobs?per_page=100" --jq "$jobs_filter" >"$scratch/jobs" \
+gh api --paginate "repos/$repo/actions/runs/$id/attempts/$attempt/jobs?per_page=100" | shape 'page_of("jobs") | typed_job' >"$scratch/jobs" \
   || held "attempt $attempt's jobs could not be read"
 [[ -s "$scratch/jobs" ]] || held "attempt $attempt has no jobs to read"
 unserved="$(jq -r "$unserved_filter" "$scratch/jobs")" || held "attempt $attempt's jobs could not be parsed"

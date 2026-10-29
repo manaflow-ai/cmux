@@ -70,7 +70,8 @@ def runs_json(text):
             continue
         rid, status, conclusion, attempt = line.split()
         runs.append({"id": token(rid), "status": token(status), "conclusion": token(conclusion),
-                     "run_attempt": token(attempt), "event": "push", "head_sha": "@TIP@"})
+                     "run_attempt": token(attempt), "event": "push", "head_sha": "@TIP@",
+                     "display_title": "Nightly"})
     return runs
 
 
@@ -125,11 +126,12 @@ def page(*jobs: dict) -> str:
 
 def unserved(name="build-nightly-app", label="blacksmith-6vcpu-macos-26", conclusion="cancelled"):
     return {"id": 7, "name": name, "status": "completed", "conclusion": conclusion, "runner_name": None,
-            "labels": [label], "started_at": "2026-10-27T10:01:00Z"}
+            "labels": [label], "created_at": "2026-10-27T10:00:40Z", "started_at": "2026-10-27T10:01:00Z"}
 
 
 PICKER = {"id": 901, "name": "pick-nightly-build-runner", "status": "completed", "conclusion": "success",
-          "runner_name": "gh", "labels": ["ubuntu-latest"], "started_at": "2026-10-27T10:00:30Z"}
+          "runner_name": "gh", "labels": ["ubuntu-latest"], "created_at": "2026-10-27T10:00:20Z",
+          "started_at": "2026-10-27T10:00:30Z"}
 
 
 # A runs-on that takes the picker's label, as nightly.yml's build jobs do.
@@ -236,6 +238,8 @@ class CancelledTip(unittest.TestCase):
             "jobs not a list": dict(JOBS=json.dumps({"jobs": {"a": job}})),
             "a job without labels": dict(JOBS=page(PICKER, {k: v for k, v in job.items() if k != "labels"})),
             "a job with null conclusion type wrong": dict(JOBS=page(PICKER, dict(job, conclusion=3))),
+            "a runner_name object": dict(JOBS=page(PICKER, dict(job, runner_name={}))),
+            "a runner_name list": dict(JOBS=page(PICKER, dict(job, runner_name=[]))),
             "no jobs": dict(JOBS=page()),
             "nightly.yml unreadable": dict(JOBS=page(PICKER, job)),
             "nightly.yml not YAML": dict(JOBS=page(PICKER, job), WORKFLOW=": : ["),
