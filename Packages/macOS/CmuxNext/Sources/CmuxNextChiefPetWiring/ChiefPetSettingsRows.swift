@@ -283,6 +283,24 @@ public final class ChiefPetSettingsRows: NSObject {
         return copy
     }
 
+    /// The character's picture fit in a `side`-point square, its aspect kept, read from its PNG only
+    /// when the square is drawn. These rows are built with Home, at launch, so a picture read when
+    /// the grid was built put ten file reads (`NSImage.size`) on the main thread of every launch
+    /// before the control socket was up; on a busy disk each waited seconds in getattrlist and the
+    /// launch missed the nightly canary's 45 s wait for the socket. Nothing touches the file until
+    /// the popover shows the grid.
+    static func lazyThumbnail(of mascot: ChiefPetMascot, side: CGFloat) -> NSImage {
+        NSImage(size: NSSize(width: side, height: side), flipped: false) { rect in
+            guard let picture = mascot.image else { return false }
+            let natural = picture.size
+            let scale = min(rect.width / max(natural.width, 1), rect.height / max(natural.height, 1))
+            let drawn = NSSize(width: (natural.width * scale).rounded(), height: (natural.height * scale).rounded())
+            picture.draw(in: NSRect(x: rect.midX - drawn.width / 2, y: rect.midY - drawn.height / 2,
+                                    width: drawn.width, height: drawn.height))
+            return true
+        }
+    }
+
     @objc func toggled() {
         write(HomeChiefPetSetting.configPath, .bool(toggle.state == .on))
     }

@@ -45,6 +45,17 @@ def is_setup(step: dict) -> bool:
     return "uses" in step
 
 
+
+# The DEV daily placement (dev-daily-place) hands cmux-scheme-compile a runs-on that may be a label list
+# ([a pool label, glaeda-runner-<name>]); the job's label copy reads that list's first label instead.
+DAILY_PICK = ("needs.dev-daily-place.outputs.runs_on != '' && fromJSON(needs.dev-daily-place.outputs.runs_on)",
+              "needs.dev-daily-place.outputs.runner_label != '' && needs.dev-daily-place.outputs.runner_label")
+
+
+def label_copy(runs_on: str) -> str:
+    """runs-on as the job's own CMUX_NEXT_RUNNER copy states it."""
+    return runs_on.replace(*DAILY_PICK)
+
 class ChecksJobStructure(unittest.TestCase):
     def split(self) -> tuple[list[dict], list[dict], dict]:
         all_steps = steps()
@@ -775,7 +786,7 @@ class PathRoutingStructure(unittest.TestCase):
             expression = job["runs-on"]
             if "CMUX_NEXT_RUNNER" in job.get("env", {}):
                 with self.subTest(job=name, field="CMUX_NEXT_RUNNER"):
-                    self.assertEqual(job["env"]["CMUX_NEXT_RUNNER"], expression)
+                    self.assertEqual(job["env"]["CMUX_NEXT_RUNNER"], label_copy(expression))
             for event in ("pull_request", "workflow_dispatch"):
                 for attempt, actor, expected in (
                     (1, "github-actions[bot]", "stale-owned-label"),
@@ -793,10 +804,15 @@ class PathRoutingStructure(unittest.TestCase):
                         "needs.macos-placement.outputs.runner": "stale-owned-label",
                         "needs.macos-placement.outputs.session_runner": "stale-owned-label",
                         "needs.macos-placement.outputs.gui_runner": "stale-owned-label",
+                        "needs.macos-placement.outputs.placed_attempt": "1",
                         "needs.macos-placement.outputs.retry_runner": "blacksmith-6vcpu-macos-26",
                     }
+                    # GUI/session routes need a fresh reading on human reruns too. Discover the role
+                    # consumer from the expression, so this also covers a newly added job.
+                    routed_role = "needs.macos-placement.outputs.gui_runner" in expression
+                    wanted = "blacksmith-6vcpu-macos-26" if attempt > 1 and routed_role else expected
                     with self.subTest(job=name, event=event, attempt=attempt, actor=actor):
-                        self.assertEqual(evaluate(expression, context), expected)
+                        self.assertEqual(evaluate(expression, context), wanted)
         # 7242a82b4a8 (#24763): the rescue re-admits a queued run, a free owned Mac first, then Blacksmith.
         self.assertIn("The rescue re-admits a queued run after the\n# five-minute queue alarm: placement first uses a free owned GUI/session Mac,\n# then the workflow's Blacksmith macOS route.", text)
         self.assertIn("Bot attempt 2 and later drop the stale placement output\n# and re-admits it through the same fast-checks/owned-Mac/Blacksmith order", text)
@@ -2127,21 +2143,28 @@ class ReservedLaneLabels(unittest.TestCase):
 
 # A free owned GUI/session Mac that macos-placement found (7242a82b4a8, #24763: the queue rescue's re-run takes it
 # before any other route after the fork's hosted label).
-FREE_ROLE_CLAUSE = "needs.macos-placement.outputs.free_session_runner || needs.macos-placement.outputs.free_gui_runner || "
+PLACED_THIS_ATTEMPT = "needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && "
+FREE_ROLE_CLAUSE = (PLACED_THIS_ATTEMPT + "needs.macos-placement.outputs.free_session_runner || "
+                    + PLACED_THIS_ATTEMPT + "needs.macos-placement.outputs.free_gui_runner || ")
 SESSION_LANE_CLAUSE = (
-    "vars.CI_SESSION_LANE_RUNNER != '' && vars.CI_PR_POOL_OWNED == '1' && "
+    "vars.CI_SESSION_LANE_RUNNER != '' && vars.CI_PR_POOL_OWNED == '1' && needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && "
+    "needs.macos-placement.outputs.session_lane_runner != '' && "
     "(github.run_attempt == 1 || !contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor)) && vars.CI_SESSION_LANE_RUNNER || "
 )
 # Generated files' runs-on before CI_SESSION_LANE_RUNNER: with the variable unset it must route exactly so.
 GENERATED_FILES_RUNNER_WITHOUT_SESSION_LANE = (
     "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || " + FAST_TIER_FORK_CLAUSE + FREE_ROLE_CLAUSE
-    + "(github.run_attempt == 1 || !contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor)) "
+    + "needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) "
+    "&& (github.run_attempt == 1 || !contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor)) "
     "&& (needs.macos-placement.outputs.session_runner || needs.macos-placement.outputs.gui_runner) || "
     "github.repository_owner != 'manaflow-ai' && 'macos-26' || (" + FAST_TIER_FORK_CLAUSE
     + "(needs.macos-placement.outputs.runner != '' && 'blacksmith-6vcpu-macos-26') || "
+    "needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && "
+    "needs.macos-placement.outputs.gui_overflow != '' && needs.macos-placement.outputs.gui_overflow || "
     "vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('[\"pull_request\",\"push\",\"workflow_dispatch\"]'), github.event_name) "
-    "&& (github.run_attempt <= 3 || !contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor)) "
+    "&& github.run_attempt == 1 "
     "&& (vars.CI_SESSION_LABEL == '1' && 'glaeda-session-std-xcode-26.6' || 'glaeda-gui-std-xcode-26.6') "
+    "|| github.run_attempt != 1 && 'blacksmith-6vcpu-macos-26' "
     "|| vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}"
 )
 

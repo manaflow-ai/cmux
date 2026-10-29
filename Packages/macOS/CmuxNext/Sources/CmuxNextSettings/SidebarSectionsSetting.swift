@@ -205,7 +205,7 @@ public nonisolated enum SidebarSectionsSetting {
             SettingDescriptor(controlsOnHoverPath, section: .appearance, group: group,
                               title: SettingsText.keyed("settings.sidebar.controlsOnHover", "Show Sidebar Controls Only on Hover"),
                               help: SettingsText.keyed("settings.sidebar.controlsOnHover.help",
-                                                       "The sidebar's New Workspace button, spaces, profile button and Search button show only while the pointer is over the sidebar. Off, they always show."),
+                                                       "The sidebar's New Workspace button, spaces, profile button and Search button, and the sidebar button, Back and Forward above it, show only while the pointer is over the sidebar. Off, they always show."),
                               kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.controlsOnHover),
                               keywords: ["sidebar", "minimal", "hover", "hide", "show", "controls", "buttons", "search", "profile", "spaces", "footer", "clean"]),
         ]

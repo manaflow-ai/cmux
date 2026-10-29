@@ -3698,6 +3698,7 @@
       "chordsCallout": "Settings can edit shortcuts directly. Use cmux.json when you want an exact tmux-style prefix binding, keep shortcuts in dotfiles, or unbind an action with null, an empty string, \"none\", \"clear\", \"unbound\", or \"disabled\".",
       "chordsRuleSingle": "Use a plain string for a one-step shortcut.",
       "chordsRuleArray": "Use a two-item array for a chord. The first item is the prefix stroke, the second is the key that follows it.",
+      "chordsRuleAny": "Use '{'\"any\": [...]'}' to give one action several keys, for example '{'\"any\": [\"ctrl+tab\", \"cmd+]\"]'}'. Each item is a single shortcut or a chord, every one runs the action, and the first item is the one menus and the command palette show.",
       "chordsRuleSyntax": "Each item uses the same syntax as regular bindings, for example cmd+b, ctrl+b, shift+/, or ctrl+1.",
       "presetsTitle": "Base keymap presets",
       "presetsIntro": "If you are coming from another terminal, choose a base keymap from the Command Palette's Base Keymap… action. You can also run `cmux settings base-keymap --keymap iterm2` (or use cmux, terminal, or tmux).",
