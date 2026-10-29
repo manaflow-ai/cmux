@@ -56,6 +56,80 @@ export function groupWaitingTurn(tail: readonly AcpmuxRow[], last?: readonly Acp
   return card === before ? last! : [card];
 }
 
+/// Each unchanged prefix/message pair keeps its fold. Weak keys let discarded transcript
+/// rows and their folds go away; a changed message object builds a new fold under the same id.
+const messageFolds = new WeakMap<AcpmuxRow, WeakMap<AcpmuxRow, AcpmuxRow>>();
+
+const chatMessage = (row: AcpmuxRow) =>
+  row.kind === "user" && row.incoming?.kind === "message" && row.steer !== "waiting";
+
+/// Shell blocks are inserted after turn shaping. Their sorted times still break message runs
+/// here so folding cannot move a message across a block that will be placed between them.
+function crossesMessageBreak(from: number, to: number, breaks: readonly number[]): boolean {
+  let low = 0;
+  let high = breaks.length;
+  while (low < high) {
+    const middle = (low + high) >>> 1;
+    if ((breaks[middle] ?? Infinity) < from) low = middle + 1;
+    else high = middle;
+  }
+  return low < breaks.length && (breaks[low] ?? Infinity) < to;
+}
+
+/// Append newly shaped rows to the turn builder's output, folding adjacent received messages.
+/// The builder already copies its unchanged prefix once; this consumes only the rebuilt suffix,
+/// never scans that prefix or copies it again. A streaming assistant/status row is one visit,
+/// regardless of its object identity or the number of historical folds.
+/// `out` is the builder's fresh array, never a previously published snapshot.
+export function groupAgentMessages(
+  rows: Iterable<AcpmuxRow>,
+  out: AcpmuxRow[] = [],
+  visit?: (row: AcpmuxRow) => void,
+  breaks: readonly number[] = [],
+): AcpmuxRow[] {
+  for (const row of rows) {
+    visit?.(row);
+    const before = out.at(-1);
+    const prefix =
+      before?.kind === WAITING_MESSAGES && before.waiting?.delivery === "chat"
+        ? before.waiting.rows
+        : before && chatMessage(before)
+          ? [before]
+          : undefined;
+    const first = prefix?.[0];
+    if (
+      before &&
+      prefix &&
+      first &&
+      chatMessage(row) &&
+      !crossesMessageBreak(prefix.at(-1)?.at ?? before.at, row.at, breaks)
+    ) {
+      let pairs = messageFolds.get(before);
+      if (!pairs) messageFolds.set(before, (pairs = new WeakMap()));
+      let fold = pairs.get(row);
+      if (!fold) {
+        const members = [...prefix, row];
+        fold = {
+          id: `messages-${first.id}`,
+          version: ++version,
+          at: first.at,
+          kind: WAITING_MESSAGES,
+          text: members
+            .map((member) => (member.incoming?.kind === "message" ? member.incoming.message.text : ""))
+            .join("\n\n"),
+          untyped: true,
+          joined: members.map((member) => member.id),
+          waiting: { delivery: "chat", rows: members },
+          ...(row.lastTurn ? { lastTurn: true } : {}),
+        };
+        pairs.set(row, fold);
+      }
+      out[out.length - 1] = fold;
+    } else out.push(row);
+  }
+  return out;
+}
+
 /// Where the steers that wait were in the running turn's drawn rows last time, and the cards their
 /// runs drew as (`groupWaitingSteps`).
 export type WaitingSteps = {

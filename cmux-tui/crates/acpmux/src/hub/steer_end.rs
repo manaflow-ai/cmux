@@ -34,6 +34,20 @@ pub(super) async fn agent_prompt_hook<F: FnOnce()>(
     on_sent: F,
 ) -> Result<Value, RpcError> {
     let mut ended = session.steer_end.subscribe();
+    // Before transport handoff, an ordinary completion belongs only to prompts the old
+    // turn actually received. An unsent steer must take the existing no-turn fallback.
+    // Once delivery begins it may already have reached a translator, so do not retry it.
+    let delivery_started = std::sync::atomic::AtomicBool::new(false);
+    let settled = |answer: Value| {
+        if steer
+            && !delivery_started.load(std::sync::atomic::Ordering::SeqCst)
+            && answer["stopReason"] != "cancelled"
+        {
+            Err(RpcError::invalid_params(crate::claude_stdio::STEER_NO_TURN))
+        } else {
+            Ok(answer)
+        }
+    };
     // A turn acpmux ended already (a Stop the agent never answered, `cancel.rs`) gets no prompt.
     if !steer
         && let Some((turn, answer)) = ended.borrow_and_update().clone()
@@ -41,7 +55,26 @@ pub(super) async fn agent_prompt_hook<F: FnOnce()>(
     {
         return Ok(answer);
     }
-    let request = child.request_with_hook(method::SESSION_PROMPT, params, fence, on_sent);
+    // A session-wide cancel has no turn id. Keep the next prompt behind the current prompt's
+    // handoff so a delayed Stop cannot overtake it (or be overtaken by it) at the child writer.
+    // The guard is released by `on_sent`, once `write_fenced` has handed the frame to the child;
+    // it is also dropped if the request is cut before it is written.
+    let request = async {
+        let input_handoff = session.input_handoff.clone().lock_owned().await;
+        // The turn can settle while this prompt waits behind a Stop's handoff.
+        if let Some((turn, answer)) = session.steer_end.borrow().clone()
+            && turn == turn_id
+        {
+            return settled(answer);
+        }
+        delivery_started.store(true, std::sync::atomic::Ordering::SeqCst);
+        child
+            .request_with_hook(method::SESSION_PROMPT, params, fence, move || {
+                drop(input_handoff);
+                on_sent();
+            })
+            .await
+    };
     tokio::pin!(request);
     loop {
         tokio::select! {
@@ -62,7 +95,7 @@ pub(super) async fn agent_prompt_hook<F: FnOnce()>(
                 if let Some((turn, answer)) = by_steer
                     && turn == turn_id
                 {
-                    return Ok(answer);
+                    return settled(answer);
                 }
             }
         }
@@ -215,3 +248,7 @@ mod tests {
         assert!(!steer_entered_turn(&err(crate::claude_stdio::STEER_WITHDRAWN)));
     }
 }
+
+#[cfg(test)]
+#[path = "steer_end_race_tests.rs"]
+mod race_tests;
