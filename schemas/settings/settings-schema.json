@@ -3705,7 +3705,7 @@
         "cmux-browser",
         "cmux-next"
       ],
-      "default" : 0.5,
+      "default" : 0.6666666666666666,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.columns",
@@ -6285,7 +6285,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "matchCurrent",
+      "default" : "fixed",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.columns",
