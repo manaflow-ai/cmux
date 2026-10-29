@@ -509,9 +509,10 @@ async fn mesh_control_dispatches_through_peer_requests_and_refuses_unknown_sessi
         body: r#"{"version":1}"#.into(),
         ..message("control-resume-1", "", Kind::Control)
     };
-    let hook = MeshControlHook {
-        allowed: vec![MeshControlFrom { daemon_id: "inst_a".into(), ops: vec![] }],
-    };
+    let hook = MeshControlHook::new(
+        vec![MeshControlFrom { daemon_id: "inst_a".into(), ops: vec![] }],
+        None,
+    );
     let ack = hook.control(&hub, &message).await.expect("control is acknowledged");
     assert_eq!(ack.state, AckState::Refused);
     assert!(ack.detail.as_deref().is_some_and(|detail| detail.contains("no session")), "{ack:?}");
@@ -520,9 +521,10 @@ async fn mesh_control_dispatches_through_peer_requests_and_refuses_unknown_sessi
 #[tokio::test]
 async fn mesh_control_requires_owner_allowlist_and_stamped_daemon_id() {
     let hub = hub();
-    let allowed = MeshControlHook {
-        allowed: vec![MeshControlFrom { daemon_id: "inst_a".into(), ops: vec!["resume".into()] }],
-    };
+    let allowed = MeshControlHook::new(
+        vec![MeshControlFrom { daemon_id: "inst_a".into(), ops: vec!["resume".into()] }],
+        None,
+    );
     let base = |op: &str, sender: Option<&str>| InMessage {
         message_id: format!("control-{op}"),
         kind: Kind::Control,
@@ -547,9 +549,37 @@ async fn mesh_control_requires_owner_allowlist_and_stamped_daemon_id() {
         assert_eq!(ack.state, AckState::Refused);
         assert_eq!(ack.detail.as_deref(), Some("mesh.control_not_allowed"));
     }
-    let default = MeshControlHook { allowed: vec![] };
+    let default = MeshControlHook::new(vec![], None);
     let ack = default.control(&hub, &base("resume", Some("inst_a"))).await.unwrap();
     assert_eq!(ack.detail.as_deref(), Some("mesh.control_not_allowed"));
+}
+
+#[tokio::test]
+async fn mesh_control_rejects_peer_routing_and_replays_a_persisted_ack() {
+    let hub = hub();
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("mesh-controls.json");
+    let hook = MeshControlHook::new(
+        vec![MeshControlFrom { daemon_id: "inst_a".into(), ops: vec![] }],
+        Some(path.clone()),
+    );
+    let mut routed = message("control-routed", "", Kind::Control);
+    routed.body =
+        r#"{"version":1,"params":{"cwd":"/tmp","_meta":{"acpmux":{"peer":"other"}}}}"#.into();
+    let ack = hook.control(&hub, &routed).await.unwrap();
+    assert_eq!(ack.state, AckState::Refused);
+    assert!(ack.detail.as_deref().is_some_and(|d| d.contains("cannot forward")));
+
+    let mut duplicate = message("control-persisted", "", Kind::Control);
+    duplicate.op = Some("resume".into());
+    duplicate.to = Target { session_id: Some("missing-session".into()), ..Target::default() };
+    let first = hook.control(&hub, &duplicate).await.unwrap();
+    let restarted = MeshControlHook::new(
+        vec![MeshControlFrom { daemon_id: "inst_a".into(), ops: vec![] }],
+        Some(path),
+    );
+    let replayed = restarted.control(&hub, &duplicate).await.unwrap();
+    assert_eq!(replayed, first);
 }
 
 #[tokio::test]

@@ -32,7 +32,8 @@ use crate::mesh::{
     Ack, AckState, Backoff, ControlHook, Heartbeat, HubError, InMessage, Kind, MeshHub, Mode,
 };
 use crate::mesh_http::MeshControlFrom;
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
+use std::path::PathBuf;
 use std::sync::Weak;
 use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, watch};
@@ -183,7 +184,8 @@ pub async fn start_configured(hub: &Arc<Hub>) -> Option<MeshRelay> {
     // The origin only (no user, password or query is accepted in the URL).
     let shown = config.shown();
     tracing::info!("mesh relay: on, through {shown}");
-    let control = Arc::new(MeshControlHook { allowed: config.control_from });
+    let ledger = hub.store.handoff_dir().map(|dir| dir.join("mesh-controls.json"));
+    let control = Arc::new(MeshControlHook::new(config.control_from, ledger));
     Some(MeshRelay::start(hub, client, control, RelayOptions::default()))
 }
 
@@ -392,6 +394,55 @@ pub struct MeshControlHook {
     /// Owner-configured grants. The hub's sender claims are not authority; only its stamped
     /// daemon id may match one of these entries.
     pub allowed: Vec<MeshControlFrom>,
+    ledger: ControlLedger,
+}
+
+impl MeshControlHook {
+    pub fn new(allowed: Vec<MeshControlFrom>, path: Option<PathBuf>) -> Self {
+        Self { allowed, ledger: ControlLedger::open(path) }
+    }
+}
+
+/// Durable message-id results prevent a lost ack from repeating a lifecycle side effect after
+/// the hub leases the same control again, including after a daemon restart.
+#[derive(Clone)]
+struct ControlLedger {
+    path: Option<PathBuf>,
+    rows: Arc<StdMutex<BTreeMap<String, Ack>>>,
+}
+
+impl ControlLedger {
+    fn open(path: Option<PathBuf>) -> Self {
+        let rows = path
+            .as_ref()
+            .and_then(|file| std::fs::read(file).ok())
+            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+            .unwrap_or_default();
+        Self { path, rows: Arc::new(StdMutex::new(rows)) }
+    }
+
+    fn get(&self, id: &str) -> Option<Ack> {
+        self.rows.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned()
+    }
+
+    fn record(&self, id: &str, ack: &Ack) {
+        let mut rows = self.rows.lock().unwrap_or_else(|e| e.into_inner());
+        rows.insert(id.to_owned(), ack.clone());
+        // Keep the ledger bounded while retaining the newest message ids. The hub expires
+        // messages after seven days, so stale entries cannot be needed indefinitely.
+        while rows.len() > 4096 {
+            let Some(oldest) = rows.keys().next().cloned() else { break };
+            rows.remove(&oldest);
+        }
+        let Some(path) = &self.path else { return };
+        let Some(parent) = path.parent() else { return };
+        if std::fs::create_dir_all(parent).is_err() {
+            return;
+        }
+        let Ok(bytes) = serde_json::to_vec(&*rows) else { return };
+        let tmp = path.with_extension("json.tmp");
+        let _ = std::fs::write(&tmp, bytes).and_then(|_| std::fs::rename(tmp, path));
+    }
 }
 
 impl ControlHook for MeshControlHook {
@@ -400,7 +451,16 @@ impl ControlHook for MeshControlHook {
         hub: &'a Arc<Hub>,
         message: &'a InMessage,
     ) -> futures::future::BoxFuture<'a, Option<Ack>> {
-        Box::pin(async move { run_control(hub, &self.allowed, message).await })
+        Box::pin(async move {
+            if let Some(ack) = self.ledger.get(&message.message_id) {
+                return Some(ack);
+            }
+            let ack = run_control(hub, &self.allowed, message).await;
+            if let Some(ack) = &ack {
+                self.ledger.record(&message.message_id, ack);
+            }
+            ack
+        })
     }
 }
 
@@ -430,7 +490,14 @@ async fn run_control(
             let Some(params) = body.get("params").filter(|value| value.is_object()) else {
                 return Some(Ack::refused("start control body has no params object"));
             };
-            params.clone()
+            let params = params.clone();
+            if params.get("host").is_some()
+                || params.pointer("/_meta/acpmux/peer").is_some()
+                || params.pointer("/_meta/acpmux/host").is_some()
+            {
+                return Some(Ack::refused("mesh control start cannot forward to another daemon"));
+            }
+            params
         }
         "resume" | "stop" => serde_json::json!({}),
         _ => return Some(Ack::refused(format!("unsupported control operation {op:?}"))),
