@@ -965,6 +965,60 @@ describe("overlapping probes", () => {
   });
 });
 
+describe("writes that land while the provider pauses", () => {
+  // The provider pause takes seconds. A person's exec, a switch to Off, or a
+  // person's own pause can land in between; the cron's pause record is fenced
+  // on the epoch it claimed, so it loses and the cron undoes or keeps what the
+  // newer write meant. No budget plan, so the resume needs no billing read.
+  const overdue = () => machineRow({
+    billingPlanId: null,
+    providerMetadata: { networkIpv4: "10.192.0.5", cmuxIdleObservation: { providerVmId: VM, idleSince: T0 - 31 * MIN, observedAt: T0 - 5 * MIN, cpuBusyMs: CPU0 } },
+  });
+  const runWith = async (duringPause: (repo: VmRepositoryShape) => void) => {
+    const rows = [overdue()];
+    const fakes = cronFakes(rows, () => ({ exitCode: 0, stdout: probeLine() }), { duringPause });
+    const summary = await Effect.runPromise(enforceVmIdlePause({ now: () => T0 }).pipe(Effect.provide(fakes.layer)));
+    return { rows, summary, ...fakes };
+  };
+
+  test("an exec during the pause: no idle pause is recorded and the machine is resumed", async () => {
+    const { rows, summary, recorded } = await runWith((repo) => Effect.runSync(repo.recordVmApiActivity!({ id: "row-1", providerVmId: VM, at: T0 })));
+    expect(summary).toMatchObject({ checked: 1, paused: 0, aborted: 1, errors: 0 });
+    expect(recorded.paused).toEqual([VM]);
+    expect(recorded.statuses.filter((s) => s.status === "paused")).toEqual([]);
+    expect(recorded.events).not.toContainEqual({ source: "idle", automated: true });
+    expect(recorded.resumed).toEqual([VM]);
+    expect(rows[0].status).toBe("running");
+    expect(rows[0].providerMetadata.cmuxPauseReason).toBeUndefined();
+  });
+
+  test("Off chosen during the pause: no idle pause is recorded and the machine is resumed", async () => {
+    const { rows, summary, recorded } = await runWith((repo) => Effect.runSync(repo.setIdlePauseMinutes!({ id: "row-1", minutes: 0 })));
+    expect(summary).toMatchObject({ checked: 1, paused: 0, aborted: 1, errors: 0 });
+    expect(recorded.statuses.filter((s) => s.status === "paused")).toEqual([]);
+    expect(recorded.resumed).toEqual([VM]);
+    expect(rows[0].status).toBe("running");
+    expect(rows[0].providerMetadata.cmuxIdlePauseMinutes).toBe(0);
+  });
+
+  test("a person's pause that recorded first is kept as theirs, not resumed", async () => {
+    const { rows, summary, recorded } = await runWith((repo) => Effect.runSync(repo.markProviderObservedStatus({ id: "row-1", providerVmId: VM, status: "paused", pauseReason: "user" })));
+    expect(summary).toMatchObject({ checked: 1, paused: 0, aborted: 1, errors: 0 });
+    expect(recorded.statuses).toEqual([{ id: "row-1", status: "paused", pauseReason: "user" }]);
+    expect(recorded.resumed).toEqual([]);
+    expect(rows[0].status).toBe("paused");
+    expect(rows[0].providerMetadata.cmuxPauseReason).toBe("user");
+  });
+
+  test("nothing lands: the pause records as before", async () => {
+    const { rows, summary, recorded } = await runWith(() => {});
+    expect(summary).toMatchObject({ checked: 1, paused: 1, aborted: 0, errors: 0 });
+    expect(recorded.statuses).toEqual([{ id: "row-1", status: "paused", pauseReason: "idle" }]);
+    expect(recorded.resumed).toEqual([]);
+    expect(rows[0].status).toBe("paused");
+  });
+});
+
 const dbEnabled = process.env.CMUX_DB_TEST === "1";
 const dbTest = dbEnabled ? test : test.skip;
 
