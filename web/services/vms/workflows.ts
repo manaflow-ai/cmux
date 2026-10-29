@@ -2459,9 +2459,7 @@ function pauseRow(vm: CloudVmRow, requestedProviderVmId: string, reason: VmPause
       return yield* Effect.fail(new VmNotFoundError({ vmId: input.providerVmId }));
     }
     if (vm.status === "paused") {
-      // A person's Pause on a row the status reconciler already marked paused is still their
-      // decision: record it, so an idle pause the cron is undoing yields to it.
-      if (reason === "user") yield* repo.markProviderObservedStatus({ id: vm.id, providerVmId, status: "paused", pauseReason: "user" });
+      yield* recordPausedDecision(repo, vm, providerVmId, reason);
       return { id: providerVmId, status: "paused" } satisfies VmPauseResumeResult;
     }
     const pause = providers.pause;
@@ -2539,6 +2537,16 @@ function pauseRow(vm: CloudVmRow, requestedProviderVmId: string, reason: VmPause
     }).pipe(Effect.catchAll(() => Effect.void));
     return { id: providerVmId, status: "paused" } satisfies VmPauseResumeResult;
   });
+}
+
+/**
+ * A person's Pause on a row the status reconciler already marked paused is
+ * still their decision: record it (reason user, stamped with its fence), so an
+ * idle pause the cron is undoing yields to it. The cron never pauses a paused row.
+ */
+function recordPausedDecision(repo: VmRepositoryShape, vm: CloudVmRow, providerVmId: string, reason: VmPauseReason) {
+  if (reason !== "user") return Effect.void;
+  return repo.markProviderObservedStatus({ id: vm.id, providerVmId, status: "paused", pauseReason: "user" }).pipe(Effect.asVoid);
 }
 
 function pausedUsageMetadata(observed: string | null, reason: VmPauseReason): Record<string, string | boolean> {
