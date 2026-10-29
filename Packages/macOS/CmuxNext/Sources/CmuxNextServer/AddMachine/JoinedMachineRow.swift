@@ -1,5 +1,4 @@
-public import AppKit
-public import SwiftUI
+import AppKit
 import CmuxNextDesign
 import CmuxNextIcons
 
@@ -19,108 +18,234 @@ public nonisolated enum JoinedMachineAction: String, CaseIterable, Sendable {
     }
 }
 
-/// A joined machine's row in the Machines section: its name with the last Check's mark, its state
-/// and who made its line, and a "…" button that shows on hover. The hover fill covers the button
-/// alone, never the row; the button stays shown and lit while its menu is open. The menu opens on
-/// the click (an `NSMenu`, no fade-in); its rows are the registry's (`menu`).
-struct JoinedMachineRowView: View {
-    let row: MachineSectionRow
-    let machine: JoinedMachine
-    let busy: Bool
-    let failed: JoinedMachineChange?
-    /// Whether this row's menu is open (its button stays shown and lit).
-    let menuOpen: Bool
-    /// Marks this row's menu open (true) or closed (false) where the section keeps it.
-    let menuShown: @MainActor (_ id: String, _ open: Bool) -> Void
-    /// New Workspace on a row the app also connects to (`workspace.newOnMachine`).
-    let newWorkspace: @MainActor (String) -> Void
-    /// The "…" button's menu, made when it opens (nil: no menu, as in a picture with no app).
-    let menu: @MainActor () -> NSMenu?
+/// A joined machine's row in the Machines section (AppKit; the SwiftUI section embeds it): its name
+/// with the last Check's mark, its state and who made its line, and the app's more button
+/// (`OverflowButton`) that shows on hover. The button's hover fill covers the button alone, never
+/// the row, and it stays shown and lit while its menu is open. The menu opens on the press with no
+/// fade-in; its rows are the action registry's (`Actions.menu`). It takes a value snapshot and an
+/// action bundle, never a store.
+final class JoinedMachineRowView: NSView {
+    /// What the row shows.
+    struct Snapshot: Equatable {
+        var id: String
+        var name: String
+        var caption: String
+        /// The last Revoke or Rotate failed: the caption is the failure, in the danger color.
+        var failed: Bool
+        var health: HostHealth?
+        var healthHelp: String?
+        /// A Revoke or Rotate runs: a spinner in place of the more button.
+        var busy: Bool
+        /// The menu is shown open (the capture fixture's; a real open menu lights the button itself).
+        var menuOpen: Bool
+        /// The app also connects to it, so New Workspace can open one there.
+        var isLinked: Bool
+        var isConnected: Bool
 
-    @State private var rowHovered = false
-    @State private var buttonHovered = false
-
-    var body: some View {
-        HStack(alignment: .center, spacing: Metrics.panelInset) {
-            Icon(.machineRemote, size: Metrics.iconSize)
-                .foregroundStyle(.secondary)
-            VStack(alignment: .leading, spacing: 1) {
-                HStack(spacing: Metrics.space2) {
-                    Text(verbatim: row.name).font(Font(Typography.body)).lineLimit(1)
-                    MachineHealthDot(health: row.health)
-                }
-                Text(verbatim: JoinedMachineStrings.caption(machine, failed: failed))
-                    .font(Font(Typography.caption))
-                    .foregroundStyle(failed == nil ? Color.secondary : Color(nsColor: Palette.danger))
-                    .lineLimit(1)
-            }
-            .themedHelp(row.healthHelp ?? "")
-            .accessibilityElement(children: .combine)
-            .accessibilityLabel(Text(verbatim: [machine.name, JoinedMachineStrings.caption(machine, failed: failed), row.healthHelp ?? ""]
-                .filter { !$0.isEmpty }.joined(separator: ", ")))
-            Spacer(minLength: Metrics.panelInset)
-            if busy {
-                ThemedSpinner(size: 16)
-            } else {
-                menuButton
-                    .opacity(rowHovered || menuOpen ? 1 : 0)
-            }
-            // Workspaces need a link to the machine; one reached through the mesh alone has none.
-            if row.isLinked {
-                Button { newWorkspace(row.id) } label: { Image(systemName: "plus") }
-                    .buttonStyle(.borderless)
-                    .disabled(!row.isConnected)
-                    .accessibilityLabel(Text(AddMachineStrings.newWorkspace))
-            } else {
-                Button {} label: { Image(systemName: "plus") }
-                    .buttonStyle(.borderless)
-                    .disabled(true)
-                    .themedHelp(JoinedMachineStrings.noWorkspace)
-                    .accessibilityLabel(Text(AddMachineStrings.newWorkspace))
-            }
+        init(row: MachineSectionRow, machine: JoinedMachine, busy: Bool, failed: JoinedMachineChange?, menuOpen: Bool) {
+            id = machine.id
+            name = row.name
+            caption = JoinedMachineStrings.caption(machine, failed: failed)
+            self.failed = failed != nil
+            health = row.health
+            healthHelp = row.healthHelp
+            self.busy = busy
+            self.menuOpen = menuOpen
+            isLinked = row.isLinked
+            isConnected = row.isConnected
         }
-        .padding(.vertical, 2).padding(.horizontal, Metrics.panelInset)
-        .contentShape(Rectangle())
-        .onHover { rowHovered = $0 }
     }
 
-    private var menuButton: some View {
-        Button {
-            showMenu()
-        } label: {
-            Image(systemName: "ellipsis")
-                .frame(width: JoinedMachineMetrics.buttonSize, height: JoinedMachineMetrics.buttonSize)
-                .background(
-                    RoundedRectangle(cornerRadius: JoinedMachineMetrics.buttonRadius)
-                        .fill(Color(nsColor: Palette.hoverFill))
-                        .opacity(buttonHovered || menuOpen ? 1 : 0))
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .foregroundStyle(menuOpen ? .primary : .secondary)
-        .onHover { buttonHovered = $0 }
-        .accessibilityLabel(Text(JoinedMachineStrings.more(machine.name)))
-        .accessibilityIdentifier("cmux.machines.joined.more.\(machine.id)")
+    /// What the row's controls do.
+    struct Actions {
+        /// New Workspace on the machine (`workspace.newOnMachine`).
+        var newWorkspace: @MainActor () -> Void = {}
+        /// The more button's menu, made when it opens (nil: no menu).
+        var menu: @MainActor () -> NSMenu? = { nil }
     }
 
-    /// Opens the menu under the pointer, lit until it closes. `popUp` returns when the menu
-    /// closes; the state change lands first, so the lit button is drawn under the open menu.
-    private func showMenu() {
-        guard let menu = menu() else { return }
-        let id = machine.id, menuShown = menuShown
-        menuShown(id, true)
-        let point = NSEvent.mouseLocation
-        // task-owner: one menu per click; ends when the menu closes.
-        Task { @MainActor in
-            menu.popUp(positioning: nil, at: point, in: nil)
-            menuShown(id, false)
+    private let icon = NSImageView()
+    private let name = NSTextField(labelWithString: "")
+    private let healthMark = NSImageView()
+    private let caption = NSTextField(labelWithString: "")
+    private let text = NSView()
+    let more = OverflowButton(label: "")
+    let spinner = StatusIndicatorView.spinner()
+    let add = NSButton(title: "", target: nil, action: nil)
+    private(set) var snapshot: Snapshot?
+    private var actions = Actions()
+    private var hovered = false
+    private var tracking: NSTrackingArea?
+    private var heldOpen = false
+
+    init() {
+        super.init(frame: NSRect(x: 0, y: 0, width: 240, height: JoinedMachineMetrics.rowHeight))
+        icon.image = NSImage.icon(.machineRemote, size: Metrics.iconSize)
+        name.font = Typography.body
+        name.lineBreakMode = .byTruncatingTail
+        caption.font = Typography.caption
+        caption.lineBreakMode = .byTruncatingTail
+        for label in [name, caption] { label.cell?.truncatesLastVisibleLine = true }
+        add.isBordered = false
+        add.image = NSImage.icon(.actionAdd, size: Metrics.smallIconSize)
+        add.imagePosition = .imageOnly
+        add.target = self
+        add.action = #selector(newWorkspace)
+        add.setAccessibilityLabel(AddMachineStrings.newWorkspace)
+        more.pressMenu = { [weak self] in self?.actions.menu() }
+        // A menu's tracking swallows the exit: read the pointer again once it closes.
+        let present = more.presentMenu
+        more.presentMenu = { [weak self] menu, button in
+            present(menu, button)
+            self?.followPointer()
+        }
+        spinner.spin(true)
+        text.setAccessibilityElement(true)
+        text.setAccessibilityRole(.staticText)
+        for view in [icon, name, healthMark, caption, more, spinner, add] as [NSView] {
+            view.translatesAutoresizingMaskIntoConstraints = true
+        }
+        ([name, healthMark, caption] as [NSView]).forEach(text.addSubview)
+        ([icon, text, more, spinner, add] as [NSView]).forEach(addSubview)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    override var intrinsicContentSize: NSSize { NSSize(width: NSView.noIntrinsicMetric, height: JoinedMachineMetrics.rowHeight) }
+
+    /// Shows `snapshot` and wires `actions`.
+    func update(_ snapshot: Snapshot, _ actions: Actions) {
+        self.actions = actions
+        guard snapshot != self.snapshot else { return }
+        self.snapshot = snapshot
+        name.stringValue = snapshot.name
+        caption.stringValue = snapshot.caption
+        more.label = JoinedMachineStrings.more(snapshot.name)
+        more.setAccessibilityIdentifier("cmux.machines.joined.more.\(snapshot.id)")
+        text.themedToolTip = snapshot.healthHelp
+        text.setAccessibilityLabel([snapshot.name, snapshot.caption, snapshot.healthHelp ?? ""].filter { !$0.isEmpty }.joined(separator: ", "))
+        // Workspaces need a link to the machine; one reached through the mesh alone has none.
+        add.isEnabled = snapshot.isLinked && snapshot.isConnected
+        add.themedToolTip = snapshot.isLinked ? nil : JoinedMachineStrings.noWorkspace
+        // The fixture's open menu lights the button as a press does; a real press lights it itself.
+        if snapshot.menuOpen != heldOpen {
+            heldOpen = snapshot.menuOpen
+            more.hover.state.pressed = heldOpen
+        }
+        applyColors()
+        reveal()
+        needsLayout = true
+    }
+
+    override func layout() {
+        super.layout()
+        let b = bounds, inset = Metrics.panelInset, side = JoinedMachineMetrics.buttonSide
+        let iconSide = Metrics.iconSize
+        icon.frame = NSRect(x: inset, y: (b.height - iconSide) / 2, width: iconSide, height: iconSide)
+        var x = b.width - inset - side
+        add.frame = NSRect(x: x, y: (b.height - side) / 2, width: side, height: side)
+        x -= side + Metrics.space1
+        more.frame = NSRect(x: x, y: (b.height - side) / 2, width: side, height: side)
+        let spin = JoinedMachineMetrics.spinnerSize
+        spinner.frame = NSRect(x: x + (side - spin) / 2, y: (b.height - spin) / 2, width: spin, height: spin)
+        let textX = icon.frame.maxX + inset
+        text.frame = NSRect(x: textX, y: 0, width: max(0, x - inset - textX), height: b.height)
+        let nameHeight = ceil(name.intrinsicContentSize.height), captionHeight = ceil(caption.intrinsicContentSize.height)
+        let top = (b.height + nameHeight + captionHeight + 1) / 2
+        let dot = snapshot?.health == nil ? 0 : JoinedMachineMetrics.healthSize
+        let nameWidth = min(ceil(name.intrinsicContentSize.width), max(0, text.frame.width - (dot > 0 ? dot + Metrics.space2 : 0)))
+        name.frame = NSRect(x: 0, y: top - nameHeight, width: nameWidth, height: nameHeight)
+        healthMark.frame = NSRect(x: name.frame.maxX + Metrics.space2, y: name.frame.midY - dot / 2, width: dot, height: dot)
+        caption.frame = NSRect(x: 0, y: name.frame.minY - 1 - captionHeight, width: text.frame.width, height: captionHeight)
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let tracking { removeTrackingArea(tracking) }
+        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self, userInfo: nil)
+        addTrackingArea(area)
+        tracking = area
+    }
+
+    override func mouseEntered(with event: NSEvent) { setHovered(true) }
+    override func mouseExited(with event: NSEvent) { setHovered(false) }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        applyColors()
+    }
+
+    @objc private func newWorkspace() { actions.newWorkspace() }
+
+    private func setHovered(_ on: Bool) {
+        guard on != hovered else { return }
+        hovered = on
+        reveal()
+    }
+
+    /// The pointer's place now (after a menu closed).
+    private func followPointer() {
+        guard let window else { return setHovered(false) }
+        setHovered(bounds.contains(convert(window.mouseLocationOutsideOfEventStream, from: nil)))
+    }
+
+    /// The more button shows on hover and while its menu is open; a running change shows the spinner.
+    private func reveal() {
+        let busy = snapshot?.busy ?? false
+        spinner.isHidden = !busy
+        more.isHidden = busy
+        more.alphaValue = hovered || heldOpen ? 1 : 0
+    }
+
+    private func applyColors() {
+        performWithTheme {
+            icon.contentTintColor = Palette.textSecondary
+            name.textColor = Palette.textPrimary
+            caption.textColor = snapshot?.failed == true ? Palette.danger : Palette.textSecondary
+            add.contentTintColor = Palette.textSecondary
+            healthMark.image = JoinedMachineHealthMark.image(snapshot?.health)
+            healthMark.contentTintColor = Palette.success
         }
     }
 }
 
-nonisolated enum JoinedMachineMetrics {
-    static let buttonSize: CGFloat = 20
-    static let buttonRadius: CGFloat = 5
+/// The last Check's mark beside a joined machine's name, as the section's other rows draw it: a
+/// check in the success color, or a dot in the attention or danger color.
+@MainActor
+enum JoinedMachineHealthMark {
+    static func image(_ health: HostHealth?) -> NSImage? {
+        let side = JoinedMachineMetrics.healthSize
+        switch health {
+        // A template: the image view tints it in the success color.
+        case .ok: return NSImage.icon(.statusComplete, size: side)
+        case .warning: return dot(Palette.attention, side: side)
+        case .failing: return dot(Palette.danger, side: side)
+        case nil: return nil
+        }
+    }
+
+    private static func dot(_ color: NSColor, side: CGFloat) -> NSImage {
+        let dot = AddMachineMetrics.dotSize
+        return NSImage(size: NSSize(width: side, height: side), flipped: false) { rect in
+            color.setFill()
+            NSBezierPath(ovalIn: NSRect(x: rect.midX - dot / 2, y: rect.midY - dot / 2, width: dot, height: dot)).fill()
+            return true
+        }
+    }
+}
+
+@MainActor
+enum JoinedMachineMetrics {
+    /// The more and New Workspace buttons' square: the sidebar controls' hit target.
+    static var buttonSide: CGFloat { Metrics.iconSize + Metrics.space2 }
+    static let spinnerSize: CGFloat = 14
+    static var healthSize: CGFloat { AddMachineMetrics.dotSize * 2 }
+    /// A name line, a caption line and 2 pt above and below, as the section's other rows.
+    static var rowHeight: CGFloat {
+        let lines = NSLayoutManager()
+        return ceil(lines.defaultLineHeight(for: Typography.body)) + ceil(lines.defaultLineHeight(for: Typography.caption)) + 1 + 4
+    }
 }
 
 /// What the App shows around a joined machine's actions: Revoke's question, and why an action

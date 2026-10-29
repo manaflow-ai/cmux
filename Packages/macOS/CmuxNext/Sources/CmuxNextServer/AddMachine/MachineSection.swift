@@ -103,14 +103,13 @@ public struct MachineSectionListView: View {
         let rows = model.rows
         // The store is read here, above the ForEach; each row gets values and closures only.
         let openMenu = joinedStore?.openMenu, busy = joinedStore?.busy ?? [], failed = joinedStore?.failed ?? [:]
-        let joinedStore = joinedStore
         VStack(alignment: .leading, spacing: 2) {
             ForEach(rows) { row in
                 if let joined = row.joined {
-                    JoinedMachineRowView(row: row, machine: joined, busy: busy.contains(joined.id),
-                                         failed: failed[joined.id], menuOpen: openMenu == joined.id,
-                                         menuShown: { id, open in joinedStore?.menuShown(id, open) }, newWorkspace: newWorkspace,
-                                         menu: { joinedMenu(joined, row) })
+                    JoinedMachineRowHost(
+                        snapshot: .init(row: row, machine: joined, busy: busy.contains(joined.id), failed: failed[joined.id],
+                                        menuOpen: openMenu == joined.id),
+                        actions: .init(newWorkspace: { newWorkspace(row.id) }, menu: { joinedMenu(joined, row) }))
                 } else {
                 HStack(alignment: .center, spacing: Metrics.panelInset) {
                     Icon(row.isLocal ? .machineLocal : .machineRemote, size: Metrics.iconSize)
@@ -154,6 +153,21 @@ public struct MachineSectionListView: View {
 
 /// The last check of a machine as a small mark after its name: a check when every step passed, a
 /// dot in the warning or danger color otherwise, nothing before a check ran.
+/// A joined machine's AppKit row (`JoinedMachineRowView`) in this list, until the section's rows are
+/// all AppKit (plans/cmux-next/no-swiftui-DESIGN.md: Machines section, AppKit rows).
+struct JoinedMachineRowHost: NSViewRepresentable {
+    let snapshot: JoinedMachineRowView.Snapshot
+    let actions: JoinedMachineRowView.Actions
+
+    func makeNSView(context: Context) -> JoinedMachineRowView { JoinedMachineRowView() }
+
+    func updateNSView(_ view: JoinedMachineRowView, context: Context) { view.update(snapshot, actions) }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: JoinedMachineRowView, context: Context) -> CGSize? {
+        CGSize(width: proposal.width ?? nsView.frame.width, height: JoinedMachineMetrics.rowHeight)
+    }
+}
+
 struct MachineHealthDot: View {
     let health: HostHealth?
 

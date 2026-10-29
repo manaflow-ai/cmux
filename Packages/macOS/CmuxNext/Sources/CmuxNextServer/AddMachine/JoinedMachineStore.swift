@@ -18,13 +18,8 @@ public final class JoinedMachineStore {
     public private(set) var busy: Set<String> = []
     /// The last Revoke or Rotate that failed, by machine id, until the next read.
     public private(set) var failed: [String: Change] = [:]
-    /// The machine whose "…" menu is open: its button stays shown and lit until the menu closes.
+    /// The machine whose more menu shows as open (the capture fixture's): its button shows lit.
     public var openMenu: String?
-
-    /// Marks `id`'s menu open, or closed when it is still the open one (another may have opened since).
-    public func menuShown(_ id: String, _ open: Bool) {
-        if open { openMenu = id } else if openMenu == id { openMenu = nil }
-    }
 
     /// The calls, nil while Labs `labs.machineJoin` is off (the store then lists nothing).
     @ObservationIgnored private let service: () -> MachineJoinService?

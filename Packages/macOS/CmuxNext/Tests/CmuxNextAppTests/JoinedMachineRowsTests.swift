@@ -4,7 +4,6 @@ import CmuxNextActions
 import CmuxNextRemote
 @testable import CmuxNextServer
 import Foundation
-import SwiftUI
 import Testing
 
 /// The Machines section's joined machines (Labs `labs.machineJoin`): rows from `cmux machine list`
@@ -356,22 +355,75 @@ import Testing
         #expect(store.machines.isEmpty, "the slower read does not bring back rows")
     }
 
-    /// The row and its menu as a picture: `Packages/macOS/CmuxNext/.build/machines-joined-rows.png`.
-    @Test func theSectionWithJoinedRowsRenders() async throws {
+    /// A mouse event for the row's handlers (they read nothing from it).
+    static var click: NSEvent {
+        NSEvent.mouseEvent(with: .leftMouseDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0,
+                           context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!
+    }
+
+    /// A joined row's AppKit view on `machine`, laid out at the sidebar's width.
+    static func rowView(_ machine: JoinedMachine, busy: Bool = false, failed: JoinedMachineChange? = nil, menuOpen: Bool = false,
+                        actions: JoinedMachineRowView.Actions = .init()) -> JoinedMachineRowView {
+        let row = MachineSectionRow.joined(machine, health: nil)
+        let view = JoinedMachineRowView()
+        view.frame = NSRect(x: 0, y: 0, width: 300, height: JoinedMachineMetrics.rowHeight)
+        view.update(.init(row: row, machine: machine, busy: busy, failed: failed, menuOpen: menuOpen), actions)
+        view.layoutSubtreeIfNeeded()
+        return view
+    }
+
+    @Test func theRowShowsItsMoreButtonOnlyOnHoverOrWhileItsMenuIsOpen() {
+        let machine = Fake.machine("m_1", "lane-vm-3")
+        let idle = Self.rowView(machine)
+        #expect(idle.more.alphaValue == 0, "the more button waits for the pointer")
+        #expect(idle.spinner.isHidden)
+        idle.mouseEntered(with: Self.click)
+        #expect(idle.more.alphaValue == 1)
+        idle.mouseExited(with: Self.click)
+        #expect(idle.more.alphaValue == 0)
+        let open = Self.rowView(machine, menuOpen: true)
+        #expect(open.more.alphaValue == 1 && open.more.hover.state.pressed, "an open menu keeps it shown and lit")
+        let busy = Self.rowView(machine, busy: true)
+        #expect(!busy.spinner.isHidden && busy.more.isHidden, "a running change shows the spinner in its place")
+    }
+
+    @Test func theMoreButtonOpensTheActionsMenu() {
+        var made = 0
+        let menu = NSMenu()
+        let view = Self.rowView(Fake.machine("m_1", "lane-vm-3"), actions: .init(menu: { made += 1; return menu }))
+        var shown: [NSMenu] = []
+        view.more.presentMenu = { menu, _ in shown.append(menu) }
+        menu.addItem(withTitle: "Check", action: nil, keyEquivalent: "")
+        view.more.mouseDown(with: Self.click)
+        #expect(made == 1)
+        #expect(shown.map(ObjectIdentifier.init) == [ObjectIdentifier(menu)], "the registry's menu, made on the press")
+    }
+
+    @Test func newWorkspaceNeedsALinkToTheMachine() {
+        var opened = 0
+        let meshOnly = Self.rowView(Fake.machine("m_1", "lane-vm-3"), actions: .init(newWorkspace: { opened += 1 }))
+        #expect(!meshOnly.add.isEnabled, "a machine reached through the mesh alone has no link for a workspace")
+        #expect(meshOnly.add.themedToolTip == JoinedMachineStrings.noWorkspace)
+        let failed = Self.rowView(Fake.machine("m_1", "lane-vm-3"), failed: .rotate)
+        #expect(failed.snapshot?.caption == JoinedMachineStrings.caption(Fake.machine("m_1", "lane-vm-3"), failed: .rotate))
+        #expect(failed.snapshot?.failed == true)
+        #expect(opened == 0)
+    }
+
+    /// The rows as a picture: `Packages/macOS/CmuxNext/.build/machines-joined-rows.png`.
+    @Test func theJoinedRowsRender() throws {
         _ = NSApplication.shared
-        let fake = Fake()
-        fake.rows = [Fake.machine("m_1", "lane-vm-3"), Fake.machine("m_2", "gpu-west", state: .offline),
-                     Fake.machine("m_3", "old-box", state: .revoked)]
-        let store = fake.store()
-        await store.refresh()
-        let model = MachineSectionModel()
-        let health = MachineHealthStore()
-        model.update([MachineSectionRow(id: "local", name: "This Mac", isConnected: true, isLocal: true)]
-            + store.machines.map { MachineSectionRow.joined($0, health: health.reports[JoinedMachine.healthID($0.id)]) })
-        let view = NSHostingView(rootView: MachineSectionListView(model: model, newWorkspace: { _ in }, addMachine: {}, joinedStore: store))
-        view.frame = NSRect(x: 0, y: 0, width: 300, height: 260)
-        let image = try AddMachineShotsTests.render(view)
-        #expect(image.size.height >= 120)
+        let rows = [Self.rowView(Fake.machine("m_1", "lane-vm-3"), menuOpen: true),
+                    Self.rowView(Fake.machine("m_2", "gpu-west", state: .offline)),
+                    Self.rowView(Fake.machine("m_3", "old-box", state: .revoked)),
+                    Self.rowView(Fake.machine("m_4", "build-box"), busy: true)]
+        let stack = NSStackView(views: rows)
+        stack.orientation = .vertical
+        stack.spacing = 2
+        stack.frame = NSRect(x: 0, y: 0, width: 300, height: CGFloat(rows.count) * (JoinedMachineMetrics.rowHeight + 2))
+        stack.layoutSubtreeIfNeeded()
+        let image = try AddMachineShotsTests.render(stack)
+        #expect(image.size.height >= 4 * JoinedMachineMetrics.rowHeight)
         let out = AddServerShotsTests.packageRoot.appending(path: ".build/machines-joined-rows.png")
         try FileManager.default.createDirectory(at: out.deletingLastPathComponent(), withIntermediateDirectories: true)
         try AddServerShotsTests.png(AddServerShotsTests.contactSheet([("joined rows", image)])).write(to: out)
