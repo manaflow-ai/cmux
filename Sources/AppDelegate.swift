@@ -3017,7 +3017,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         case "numbered_rows":
             displayToken = resolvedFileName
             let directory = singleQuotedShellLiteral(fixtureDirectory)
-            shellCommand = "cd '\(directory)'\rclear\r\(mouseReportingCommand)for i in $(seq 1 200); do printf 'row%03d.txt\\n' \"$i\"; done\r"
+            shellCommand = "cd '\(directory)'\rclear\r\(mouseReportingCommand)for i in $(seq 1 200); do printf 'row%03d.txt\\n' \"$i\"; done; printf 'CMUX_ROW_GRID_READY'; read -r cmux_row_grid_wait\r"
         case "osc8":
             displayToken = resolvedFileName
             let escapedDisplayToken = singleQuotedShellLiteral(displayToken)
@@ -3316,7 +3316,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         func resizeWindowIfNeeded(_ window: NSWindow) {
-            let screenFrame = window.screen?.visibleFrame ?? NSScreen.main?.visibleFrame
+            let retinaScreen = resolvedLineFormat == "numbered_rows"
+                ? NSScreen.screens.max(by: { $0.backingScaleFactor < $1.backingScaleFactor })
+                : nil
+            let screenFrame = retinaScreen?.visibleFrame ?? window.screen?.visibleFrame ?? NSScreen.main?.visibleFrame
             guard let screenFrame else { return }
             let targetSize = NSSize(
                 width: min(960, screenFrame.width - 80),
@@ -3680,8 +3683,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 lineLimit: 200
             ) ?? ""
             let renderedTokenCount = max(0, visibleText.components(separatedBy: displayToken).count - 1)
+            let numberedRowsComplete = visibleText.split(separator: "\n").contains {
+                $0.trimmingCharacters(in: .whitespacesAndNewlines) == "CMUX_ROW_GRID_READY"
+            }
             let hasRenderedToken = resolvedLineFormat == "numbered_rows"
-                ? renderedTokenCount >= 1 && visibleText.contains("row200.txt")
+                ? renderedTokenCount >= 1 && numberedRowsComplete
                 : renderedTokenCount >= 6
             if hasRenderedToken,
                (tokenPointPayload?["tokenLayoutMatch"] as? String) != "1" {

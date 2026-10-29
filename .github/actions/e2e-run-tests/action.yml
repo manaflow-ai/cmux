@@ -110,7 +110,7 @@ runs:
       if: ${{ inputs.target == 'cmuxUITests' && inputs.filter != 'DisplayResolutionRegressionUITests' }}
       shell: bash
       env:
-        CMUX_DISPLAY_TEST_FILTER: ${{ inputs.filter }}
+        CMUX_DISPLAY_TEST_FILTER: ${{ inputs.selectors }}
       run: |
         set -euo pipefail
         echo "=== Display before ==="
@@ -125,7 +125,7 @@ runs:
 
         VDISPLAY_MODES=1920x1080
         VDISPLAY_HIDPI=0
-        if [[ "$CMUX_DISPLAY_TEST_FILTER" == TerminalCmdClickUITests* ]]; then
+        if [[ "$CMUX_DISPLAY_TEST_FILTER" == *TerminalCmdClickUITests* ]]; then
           VDISPLAY_MODES=3840x2160
           VDISPLAY_HIDPI=1
         fi
