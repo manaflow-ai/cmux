@@ -108,7 +108,7 @@ test("three adjacent starts render as one collapsed group row", () => {
     />,
   );
   expect((html.match(/class="cv-disclosure"/g) ?? []).length).toBe(1);
-  expect(html).toContain("3 sessions: msg-fold, picker-polish, cloud-demo");
+  expect(html).toContain("Started 3 sub-sessions: msg-fold, picker-polish, cloud-demo");
 });
 
 test("collapsed groups follow child sessions after their start calls finish", async () => {
@@ -393,4 +393,21 @@ test("Find uses Raw for fenced code in a shadow root and Markdown while plain co
   expect(range?.startContainer.parentElement?.closest("[data-find-fallback]")).not.toBeNull();
   const highlights = (scope.CSS as { highlights: Map<string, { ranges: Range[] }> }).highlights;
   expect(highlights.get("acpmux-find")!.ranges).toHaveLength(0);
+});
+
+test("group labels translate the complete sentence and choose the count's plural form", async () => {
+  const container = installDom();
+  root = createRoot(container);
+  for (const [language, names, expected] of [
+    ["en", ["tests"], "Started 1 sub-session: tests"],
+    ["en", ["tests", "docs", "lint"], "Started 3 sub-sessions: tests, docs, lint"],
+    ["de", ["tests", "docs", "lint"], "3 Untersitzungen gestartet: tests, docs, lint"],
+    ["ja", ["tests", "docs", "lint"], "3 件のサブセッションを開始: tests, docs, lint"],
+  ] as const) {
+    await act(async () => {
+      setPaneLanguage(language);
+      root!.render(<SubsessionCallCard group={names.map((name) => ({ call: start(name), tool: tool(name) }))} />);
+    });
+    expect(container.querySelector(".cv-disclosure__label")?.textContent).toBe(expected);
+  }
 });

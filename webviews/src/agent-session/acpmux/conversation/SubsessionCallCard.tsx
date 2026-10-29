@@ -91,9 +91,7 @@ function StartedGroup({ entries }: { entries: readonly StartedGroupEntry[] }) {
       disclosureKey={`subsession-group:${entries[0]?.tool.id}`}
       findItems={findItems}
       icon={<Icon name="agent.session" size={16} />}
-      label={t("subsession.started", {
-        name: `${t("turn.working.sessions", { n: entries.length })}: ${names.join(", ")}`,
-      })}
+      label={t("subsession.startedGroup", { n: entries.length, names: names.join(", ") })}
       status={
         status ? (
           <>

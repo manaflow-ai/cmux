@@ -111,6 +111,6 @@ test("grouped starts stay visible before an ordinary tool in a folded run", () =
   expect(groups[0]?.type).toBe("subsessionGroup");
   expect(runStretches(row(items), groups)[0]).toMatchObject({ fold: false, groups: [groups[0]] });
   const html = renderToStaticMarkup(<ToolRows row={row(items)} />);
-  expect(html).toContain("3 sessions: tests, docs, lint");
+  expect(html).toContain("Started 3 sub-sessions: tests, docs, lint");
   expect(html).toContain('class="cv-disclosure__line"');
 });
