@@ -89,6 +89,8 @@ import Testing
                 let surface = try #require(surfaces[name] as? [String: Any], Comment(rawValue: "\(descriptor.id): \(name)"))
                 #expect(surface["operations"] as? [String] == expected.operations, Comment(rawValue: "\(descriptor.id): \(name)"))
                 #expect(surface["aliases"] as? [String] == expected.aliases, Comment(rawValue: "\(descriptor.id): \(name)"))
+                #expect(surface["app_operations"] as? [String] == expected.appOperations, Comment(rawValue: "\(descriptor.id): \(name)"))
+                #expect(surface["app_aliases"] as? [String] == expected.appAliases, Comment(rawValue: "\(descriptor.id): \(name)"))
                 #expect(surface["offered"] as? Bool == expected.offered, Comment(rawValue: "\(descriptor.id): \(name)"))
             }
             let palette = try #require(surfaces["palette"] as? [String: Any], Comment(rawValue: "\(descriptor.id): palette"))

@@ -33,6 +33,15 @@ fn aliases<'a>(row: &'a Value, surface: &str) -> Vec<&'a str> {
         .collect()
 }
 
+fn strings<'a>(row: &'a Value, surface: &str, field: &str) -> Vec<&'a str> {
+    row["surfaces"][surface][field]
+        .as_array()
+        .unwrap_or_else(|| panic!("{} has no {surface}.{field}", row["key"]))
+        .iter()
+        .map(|value| value.as_str().expect("surface entry is a string"))
+        .collect()
+}
+
 #[test]
 fn every_schema_row_declares_matching_surface_operations() {
     let schema = Schema::embedded();
@@ -49,7 +58,12 @@ fn every_schema_row_declares_matching_surface_operations() {
             assert_eq!(row.raw["surfaces"][surface]["offered"], true, "{} {surface}", row.key);
             let expected_aliases = if surface == "cli" { RESET_ALIASES } else { &[] };
             assert_eq!(aliases(&row.raw, surface), expected_aliases, "{} {surface} aliases", row.key);
+            assert!(strings(&row.raw, surface, "app_operations").is_empty(), "{} {surface} native app methods", row.key);
+            assert!(strings(&row.raw, surface, "app_aliases").is_empty(), "{} {surface} native app aliases", row.key);
         }
+        assert_eq!(aliases(&row.raw, "socket"), &[] as &[&str], "{} socket aliases are daemon-only", row.key);
+        assert_eq!(strings(&row.raw, "socket", "app_operations"), ["settings.get", "settings.set", "settings.reset"], "{} app socket methods", row.key);
+        assert_eq!(strings(&row.raw, "socket", "app_aliases"), RESET_ALIASES, "{} app socket aliases", row.key);
         let palette = &row.raw["surfaces"]["palette"];
         let palette_operations = operations(&row.raw, "palette");
         let palette_offered = palette["offered"].as_bool().unwrap_or(false);

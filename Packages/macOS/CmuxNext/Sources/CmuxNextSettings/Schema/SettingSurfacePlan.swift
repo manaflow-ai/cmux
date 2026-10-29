@@ -8,15 +8,22 @@ import Foundation
 public nonisolated struct SettingSurfaceAvailability: Sendable, Hashable {
     public let operations: [String]
     public let aliases: [String]
+    /// Methods exposed by the native app control socket alongside the daemon
+    /// resource operation surface. Empty on other surfaces.
+    public let appOperations: [String]
+    public let appAliases: [String]
     public let row: String?
     public let editor: String?
     public let offered: Bool
     public let reason: String?
 
-    public init(operations: [String], aliases: [String] = [], row: String? = nil, editor: String? = nil,
+    public init(operations: [String], aliases: [String] = [], appOperations: [String] = [], appAliases: [String] = [],
+                row: String? = nil, editor: String? = nil,
                 offered: Bool? = nil, reason: String? = nil) {
         self.operations = operations
         self.aliases = aliases
+        self.appOperations = appOperations
+        self.appAliases = appAliases
         self.row = row
         self.editor = editor
         self.offered = offered ?? !operations.isEmpty
@@ -28,6 +35,8 @@ public nonisolated struct SettingSurfaceAvailability: Sendable, Hashable {
             "offered": offered,
             "operations": operations,
             "aliases": aliases,
+            "app_operations": appOperations,
+            "app_aliases": appAliases,
             "row": row.map { $0 as Any } ?? NSNull(),
             "editor": editor.map { $0 as Any } ?? NSNull(),
             "reason": reason.map { $0 as Any } ?? NSNull(),
@@ -88,7 +97,11 @@ extension SettingDescriptor {
                 aliases: agentSettable ? SettingSurfacePlan.resetAliases : [],
                 reason: agentSettable ? nil : "agent_settable_false"
             ),
-            socket: SettingSurfaceAvailability(operations: SettingSurfacePlan.cliOperations)
+            socket: SettingSurfaceAvailability(
+                operations: SettingSurfacePlan.cliOperations,
+                appOperations: ["settings.get", "settings.set", "settings.reset"],
+                appAliases: SettingSurfacePlan.resetAliases
+            )
         )
     }
 }
