@@ -118,9 +118,12 @@ describe("forkVm provider capability", () => {
       providerMetadata: metadata, createdAt: now, updatedAt: now,
     };
     const child = { ...source, id: "child-row", providerVmId: "vm-child" };
+    let recordedMethod: "snapshot-create" | undefined;
     const repo = {
       findUserVm: () => Effect.succeed(source),
-      findCreateByIdempotencyKey: () => Effect.succeed(child),
+      findCreateByIdempotencyKey: () => Effect.succeed({ ...child, providerMetadata: {
+        ...metadata, ...(recordedMethod ? { cmuxForkMethod: recordedMethod } : {}),
+      } }),
     } as unknown as VmRepositoryShape;
     const provider = {
       fork: () => { throw new Error("idempotent retry must not fork"); },
@@ -131,14 +134,19 @@ describe("forkVm provider capability", () => {
       Layer.succeed(VmProviderGateway, provider),
       Layer.succeed(VmBillingGateway, noOpVmBillingGateway()),
     );
-    const result = await Effect.runPromise(forkVm({
+    const replay = () => Effect.runPromise(forkVm({
       userId: source.userId, billingCustomerType: "team", billingTeamId: source.billingTeamId,
       teamIds: [source.billingTeamId], billingPlanId: "pro", maxActiveVms: 5,
       providerVmId: source.providerVmId, idempotencyKey: "same-request",
     }).pipe(Effect.provide(layer)));
-    expect(result.snapshot).toBeNull();
-    expect(result.fork.providerVmId).toBe("vm-child");
-    expect(result.forkMethod).toBe("unknown");
+    const legacy = await replay();
+    expect(legacy.snapshot).toBeNull();
+    expect(legacy.fork.providerVmId).toBe("vm-child");
+    expect(legacy.forkMethod).toBe("unknown");
+    recordedMethod = "snapshot-create";
+    const newReceipt = await replay();
+    expect(newReceipt.snapshot).toBeNull();
+    expect(newReceipt.forkMethod).toBe("snapshot-create");
   });
 
 });
