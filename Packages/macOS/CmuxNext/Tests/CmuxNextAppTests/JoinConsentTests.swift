@@ -856,4 +856,42 @@ import Testing
         }
         #expect(sets.values == ["screen false", "screen true"])
     }
+
+    /// The machine consent folder comes from the user's password entry, never HOME or ACPMUX_HOME; its
+    /// watch yields when the folder is made at the first join, when a file is made, and when one is
+    /// rewritten in place.
+    @Test func theMachineConsentWatchFollowsTheUsersFolderAndItsFiles() async throws {
+        let entry = try #require(getpwuid(geteuid()))
+        let home = String(cString: try #require(entry.pointee.pw_dir))
+        #expect(MachineConsentChanges.folder?.path == home + "/.acpmux/machine-consent")
+        let root = FileManager.default.temporaryDirectory.appending(path: "cn-machine-consent-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let folder = root.appending(path: "machine-consent")
+        let changes = Recorder()
+        let watching = Task {
+            for await _ in MachineConsentChanges(folder: folder).events() { changes.values.append("change") }
+        }
+        defer { watching.cancel() }
+        let settle = { (count: Int) async in
+            let deadline = ContinuousClock.now + .seconds(10)
+            while changes.values.count < count, ContinuousClock.now < deadline { try? await Task.sleep(for: .milliseconds(20)) }
+        }
+        try await Task.sleep(for: .milliseconds(200))
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        await settle(1)
+        #expect(changes.values.count >= 1, "the folder made at the first join")
+        let file = folder.appending(path: "consent.json")
+        try Data("{}".utf8).write(to: file)
+        await settle(2)
+        #expect(changes.values.count >= 2, "a file made")
+        try await Task.sleep(for: .milliseconds(200))
+        let seen = changes.values.count
+        let handle = try FileHandle(forWritingTo: file)
+        try handle.seekToEnd()
+        try handle.write(contentsOf: Data(" ".utf8))
+        try handle.close()
+        await settle(seen + 1)
+        #expect(changes.values.count > seen, "a file rewritten in place")
+    }
 }

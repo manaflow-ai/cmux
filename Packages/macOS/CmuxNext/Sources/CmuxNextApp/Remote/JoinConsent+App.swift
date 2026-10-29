@@ -93,13 +93,14 @@ extension JoinConsentModel {
     }
 
     /// Follows the Labs switch (a change drops what was read at once and reads again; turning it on stops
-    /// a Mac Screen session until a read allows it) and, while it is on, acpmux's home folder, where a
-    /// join, a consent change or a refusal lands: each burst of changes there is one read. Event-driven,
-    /// never a poll. A change is taken at once, never behind a read still running. Everything ends with
-    /// the model (``JoinConsentModel/following``), and the folder watch also when the switch turns off.
-    func follow(_ services: AppServices, settings: SettingsController) {
+    /// a Mac Screen session until a read allows it) and, while it is on, acpmux's machine consent folder
+    /// (``MachineConsentChanges``), where a join, a consent change or a refusal lands: each burst of
+    /// changes there is one `machine_consent_get`, never a read of the files. Event-driven, never a poll.
+    /// A change is taken at once, never behind a read still running. Everything ends with the model
+    /// (``JoinConsentModel/following``), and the folder watch also when the switch turns off.
+    func follow(settings: SettingsController) {
         // task-owner: the model's `following`, cancelled with it; one read per Labs change or folder burst
-        following = Task { [weak self, weak services, weak settings] in
+        following = Task { [weak self, weak settings] in
             var watch: Task<Void, Never>?
             var reading: Task<Void, Never>?
             defer {
@@ -118,9 +119,9 @@ extension JoinConsentModel {
                     reading = Task { [weak self] in await self?.refresh() }
                 }
                 last = on
-                guard on, let services, let home = QuitAgents.environment(services)?.home else { continue }
+                guard on, let folder = MachineConsentChanges.folder else { continue }
                 watch = Task { [weak self] in
-                    for await _ in FolderChanges(folders: [home]).events() {
+                    for await _ in MachineConsentChanges(folder: folder).events() {
                         guard let self, !Task.isCancelled else { return }
                         await refresh()
                     }
@@ -151,5 +152,59 @@ extension JoinConsentModel {
         #else
         false
         #endif
+    }
+}
+
+/// acpmux's machine consent, one per OS user and shared by every app build:
+/// `<the user's home>/.acpmux/machine-consent/{enrolled.json,consent.json,refusal.json}`. A change there
+/// (the folder made at the first join, a file made, replaced, rewritten or removed) is one element, so the
+/// app asks acpmux again (`machine_consent_get`); the files are never read for a decision. Event-driven:
+/// the folder through ``FolderChanges`` (through a parent until it exists) and each file through its own
+/// vnode watch, armed again after each folder change. Ends when the consumer stops iterating.
+nonisolated struct MachineConsentChanges: Sendable {
+    static let files = ["enrolled.json", "consent.json", "refusal.json"]
+
+    /// The folder, from the user's own password entry (`getpwuid(geteuid())`), never `HOME` or
+    /// `ACPMUX_HOME`, which a launch can set to anything.
+    static var folder: URL? {
+        guard let entry = getpwuid(geteuid()), let home = entry.pointee.pw_dir else { return nil }
+        return URL(fileURLWithPath: String(cString: home), isDirectory: true)
+            .appending(path: ".acpmux/machine-consent", directoryHint: .isDirectory)
+    }
+
+    let folder: URL
+
+    func events() -> AsyncStream<Void> {
+        let (stream, continuation) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        let folder = folder
+        // task-owner: the stream's watch loop; cancelled when the consumer stops iterating
+        let loop = Task.detached(priority: .utility) {
+            var watches = Self.watchFiles(in: folder, continuation)
+            // wakeup-allow: each pass waits for one file-system event in the consent folder, never polls
+            for await _ in FolderChanges(folders: [folder]).events() {
+                watches.forEach { $0.cancel() }
+                watches = Self.watchFiles(in: folder, continuation)
+                continuation.yield()
+            }
+            watches.forEach { $0.cancel() }
+            continuation.finish()
+        }
+        continuation.onTermination = { _ in loop.cancel() }
+        return stream
+    }
+
+    /// A watch on each consent file that exists now: a write in place, a replace or a removal yields.
+    private static func watchFiles(in folder: URL, _ continuation: AsyncStream<Void>.Continuation) -> [any DispatchSourceFileSystemObject] {
+        files.compactMap { name in
+            let fd = open(folder.appending(path: name).path, O_EVTONLY)
+            guard fd >= 0 else { return nil }
+            // DispatchSource for file watching: no Foundation async equivalent (idle-wakeups.md).
+            let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: fd, eventMask: [.write, .extend, .rename, .delete, .attrib],
+                                                                   queue: .global(qos: .utility))
+            source.setEventHandler { continuation.yield() }
+            source.setCancelHandler { close(fd) }
+            source.resume()
+            return source
+        }
     }
 }
