@@ -511,10 +511,12 @@ await requireBrowserLane("agent-pane-btw-side-session.test.ts", async () => {
 
     test("the palette's sideQuestion focuses the composer with /btw", async () => {
       const page = await openChat(MAIN, true);
-      await page.evaluate(() =>
-        (
-          window as unknown as { cmuxAcpmuxBridge: { command(name: string, sessionId?: string): void } }
-        ).cmuxAcpmuxBridge.command("sideQuestion", MAIN),
+      await page.evaluate(
+        (session) =>
+          (
+            window as unknown as { cmuxAcpmuxBridge: { command(name: string, sessionId?: string): void } }
+          ).cmuxAcpmuxBridge.command("sideQuestion", session),
+        MAIN,
       );
       await page.waitForFunction(
         () => document.querySelector(".acpmux-composer-prompt .ProseMirror")?.textContent === "/btw ",
@@ -529,10 +531,12 @@ await requireBrowserLane("agent-pane-btw-side-session.test.ts", async () => {
 
     test("with Side sessions off, the palette's sideQuestion leaves the composer empty", async () => {
       const page = await openChat(MAIN, false);
-      await page.evaluate(() =>
-        (
-          window as unknown as { cmuxAcpmuxBridge: { command(name: string, sessionId?: string): void } }
-        ).cmuxAcpmuxBridge.command("sideQuestion", MAIN),
+      await page.evaluate(
+        (session) =>
+          (
+            window as unknown as { cmuxAcpmuxBridge: { command(name: string, sessionId?: string): void } }
+          ).cmuxAcpmuxBridge.command("sideQuestion", session),
+        MAIN,
       );
       await settled();
       expect(await composerText(page)).toBe("");
