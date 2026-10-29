@@ -220,7 +220,7 @@ async fn a_side_session_of_a_harness_that_cannot_fork_reads_the_chat_and_never_w
 
 #[tokio::test]
 async fn inline_btw_emulation_answers_once_and_discards_its_read_only_session() {
-    let (hub, mut c) = asking_setup(&[("FAKE_PICKER", "1")]).await;
+    let (hub, mut c) = asking_setup(&[("FAKE_PICKER", "1"), ("FAKE_PICKER_MODES", "1")]).await;
     let id = new_chat(&mut c).await;
     c.request(method::SESSION_PROMPT, prompt(&id, "main stays unchanged")).await.unwrap();
     let before = prompts(&hub, &id);
@@ -229,7 +229,9 @@ async fn inline_btw_emulation_answers_once_and_discards_its_read_only_session() 
         .request(BTW, json!({"sessionId": id, "question": "answer inline", "inline": true}))
         .await
         .unwrap();
-    assert_eq!(inline["text"], "echo: answer inline");
+    let text = inline["text"].as_str().unwrap();
+    assert!(text.starts_with("echo: answer inline<cmux-btw-context>"), "{text}");
+    assert!(text.contains("User: main stays unchanged"), "the fallback reads the main context");
     assert_eq!(prompts(&hub, &id), before, "inline emulation never prompts the main chat");
     assert_eq!(hub.sessions().len(), 1, "the one-shot side session is cleaned up");
     hub.shutdown_all().await;
