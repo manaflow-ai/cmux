@@ -12,12 +12,10 @@
  *     bake, an unknown flag, and an entry that already records names.production. No provider access.
  *   bun scripts/cmux-vm-image/prod-copy.ts account-check
  *     Checks the key (FREESTYLE_API_KEY or FREESTYLE_API_KEY_FILE) is the production account's. Refuses the
- *     dev account's key: it resolves the dev channel's snapshot name to its recorded id. Once a production
- *     snapshot is recorded (channels/production.json, or names.production in dev.json history), the key must
- *     also resolve one of them to its recorded id, so a third account's key is refused too. The first
- *     production copy has no such record: after refusing the dev account's key, the protected production
- *     environment is the trust-on-first-use boundary. Its first production snapshot is then recorded as
- *     names.production on the dev history entry, giving later runs an account anchor. Read-only GETs.
+ *     dev account's key when it resolves the dev channel's snapshot name to its recorded id. The key
+ *     must also resolve a trusted production snapshot recorded in channels/production.json or
+ *     names.production in dev.json history. With no such record, it refuses: a missing dev slug
+ *     does not prove production identity. Read-only GETs; no automatic account bootstrap.
  */
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
@@ -113,10 +111,9 @@ export function productionAnchors(root: string): Pointer[] {
 }
 
 /**
- * Throws unless `resolve` (one account's view of snapshot names) is the production account's: it must not resolve
- * the dev channel's snapshot to its recorded id, and, once production snapshots are recorded, must resolve one
- * of them. Before the first production snapshot, the protected environment provides the trust-on-first-use
- * boundary; the first production snapshot becomes the recorded anchor for every later run.
+ * Throws unless `resolve` (one account's view of snapshot names) resolves a trusted production
+ * snapshot to its recorded id, and does not resolve the dev snapshot to its recorded id.
+ * An absent production anchor fails closed, even when the dev snapshot no longer resolves.
  */
 export async function accountCheck(root: string, resolve: (name: string) => Promise<string | undefined>): Promise<string> {
   const dev = readDev(root);
@@ -126,7 +123,7 @@ export async function accountCheck(root: string, resolve: (name: string) => Prom
   }
   const anchors = productionAnchors(root);
   if (!anchors.length) {
-    return "account check passed: the dev account's key was refused; trust-on-first-use accepts the protected production environment's key, whose first production snapshot will be recorded";
+    throw new Error("no trusted production snapshot is recorded; refusing an unidentified account; bootstrap requires an independently verified production snapshot in channel data");
   }
   for (const a of anchors) if ((await resolve(a.snapshot)) === a.snapshot_id) return `account check passed: not the dev account, and ${a.snapshot} resolves to the recorded ${a.snapshot_id}`;
   throw new Error(`the Freestyle key resolves none of the ${anchors.length} known production snapshots (${anchors.map((a) => a.snapshot).join(", ")}) to its id: it is not the production account's key; refusing`);

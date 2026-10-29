@@ -513,10 +513,13 @@ needs the team-owned production Stack test profile, `CMUX_UITEST_STACK_EMAIL` an
 `CMUX_UITEST_STACK_PASSWORD`; these are separate from Leo's Freestyle key and must not be
 copied from the staging cloud-capture account.
 
-The first production run refuses the dev Freestyle key, then trusts the key supplied through this
-protected environment. Its production snapshot is recorded in the channel data. Later runs must
-resolve that recorded production snapshot with the same account, so a third account is refused.
-There is no `FREESTYLE_PROD_ANCHOR` environment variable to maintain.
+Every production run must resolve a trusted production snapshot from the repository's channel
+records to its recorded id. A missing production record fails closed: a key that cannot resolve
+the dev snapshot might belong to a third account, or to the dev account after that snapshot was
+deleted. There is no automatic trust-on-first-use bootstrap and no `FREESTYLE_PROD_ANCHOR`
+environment variable. Before the first copy, the team must independently verify a production
+snapshot and record its name and id in the production channel data through review. Until that
+prerequisite and the team-owned Stack test profile are available, production stays off.
 
 ## Local database development
 

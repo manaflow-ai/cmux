@@ -203,8 +203,8 @@ describe("cloud-vm-image-bake.yml mode prod-copy", () => {
     const planned = await runStep("Plan the production copy", PROD_COPY, dir, "sh-test", { key: "s3cr3t-key", bunOut: "FLAGS --prod-copy --agent-tools --team-vm\\nVAR TEAM_VM_SNAPSHOT\\n" });
     expect(planned.result.status).toBe(0);
     expect(planned.argv).toEqual([`scripts/cmux-vm-image/prod-copy.ts plan --dev-snapshot ${PROD_COPY.dev_snapshot}`, "scripts/cmux-vm-image/prod-copy.ts account-check"]);
-    // The first production run uses the protected environment as its trust boundary; the key only
-    // reaches bun as a 0600 file, never in bun's environment.
+    // The account check uses trusted channel records; the key only reaches bun as a 0600 file,
+    // never in bun's environment.
     expect(planned.env).not.toHaveProperty("FREESTYLE_PROD_ANCHOR");
     expect(readFileSync(path.join(dir, "bun.env"), "utf8")).toBe("key-in-env=0 file-mode=600\n");
     const outputs = readFileSync(path.join(dir, "github-output"), "utf8");
