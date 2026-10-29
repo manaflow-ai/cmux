@@ -16,7 +16,7 @@ import Testing
 
     @Test func aDraftIsWrittenWithTheOwnerStateAndEmptyTextClearsIt() throws {
         let cache = Self.cache()
-        let view = HomeClientViewCache(cache: cache, writeDelay: .zero, clock: ContinuousClock())
+        let view = HomeClientViewCache(cache: cache, writeDelay: .zero, clock: HomeSleepClock())
         var owner = HomeCacheSnapshot()
         owner.drafts = [Self.austin: "owner snapshots never carry drafts"]
         view.ownerSnapshot = { owner }
@@ -29,7 +29,7 @@ import Testing
 
     @Test func writesCoalesceUntilAFlush() throws {
         let cache = Self.cache()
-        let view = HomeClientViewCache(cache: cache, writeDelay: .seconds(3_600), clock: ContinuousClock())
+        let view = HomeClientViewCache(cache: cache, writeDelay: .seconds(3_600), clock: HomeSleepClock())
         let anchor = HomeScrollAnchor(message: MessageID("msg_1"), offset: 12)
         view.setScrollAnchor(anchor, for: Self.austin)
         #expect(cache.load() == nil, "still in the batch")
@@ -39,7 +39,7 @@ import Testing
 
     @Test func aRestoreTakesTheClientStateWithoutWriting() {
         let cache = Self.cache()
-        let view = HomeClientViewCache(cache: cache, writeDelay: .zero, clock: ContinuousClock())
+        let view = HomeClientViewCache(cache: cache, writeDelay: .zero, clock: HomeSleepClock())
         var snapshot = HomeCacheSnapshot()
         snapshot.drafts = [Self.austin: "restored"]
         var ran = false

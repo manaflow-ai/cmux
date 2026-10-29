@@ -17,6 +17,8 @@ import Testing
             socketPath: "/tmp/cmux-test.sock",
             chiefHomePath: "/tmp/chief-home",
             workspacesSummary: "workspace:1 api (selected)\nworkspace:2 web",
+            currentWorkspaceRef: "workspace:1",
+            currentSurfaceRef: "surface:9",
             date: Date(timeIntervalSince1970: 1_792_000_000),
             timeZone: TimeZone(identifier: "UTC") ?? .current
         )
@@ -45,6 +47,44 @@ import Testing
         #expect(prompt.contains("- You run on: Claude Code, model claude-opus-5-5"))
         #expect(prompt.contains("- Chief home: /tmp/chief-home"))
         #expect(prompt.contains("workspace:2 web"))
+        #expect(prompt.contains("# Current Chief target"))
+        #expect(prompt.contains("This turn was sent from Chief in workspace `workspace:1`."))
+        #expect(prompt.contains("Chief surface: surface:9"))
+        #expect(prompt.contains("--workspace workspace:1 --url <url> --focus false"))
+        #expect(prompt.contains("verify with\n`cmux tree --all --json`"))
+    }
+
+    @Test func aMissingCommandIsNotReadAsSignedOut() {
+        let prompt = ChiefSystemPrompt(context: context()).build()
+        #expect(prompt.contains("`command not found`"))
+        #expect(prompt.contains("login-shell `PATH`"))
+        #expect(!prompt.contains("same `PATH` as the user's terminal"))
+        #expect(prompt.contains("`command -v <tool>`"))
+        #expect(prompt.contains("`gh auth status`"))
+    }
+
+    /// The Cloud computer-use loop verified on a desktop machine: `cua-driver call`
+    /// needs its daemon and the desktop environment, a screenshot is written to a
+    /// file and pulled here to be looked at, and the user watches the desktop.
+    @Test func teachesTheCloudComputerUseLoop() {
+        let prompt = ChiefSystemPrompt(context: context()).build()
+        for step in [
+            "cmux vm open <machine>:desktop", "capabilities.desktop",
+            ". /etc/cmux/desktop-env.sh", "export HOME=/home/cmux",
+            "setsid -f cua-driver serve", "cua-driver call <tool> '<json>'",
+            "\"screenshot_out_file\"", "cmux vm pull <machine> /home/cmux/.cache/chief/screen.png",
+            "list_windows", "launch_app", "cua-driver describe <tool>",
+            "cua-driver mcp",
+        ] {
+            #expect(prompt.contains(step), "missing \(step)")
+        }
+        #expect(!prompt.contains("From a machine terminal, run `cua-driver doctor`"))
+        // Typed text often has an apostrophe; the daemon may serve a machine agent; the
+        // agent's cua-driver tool is written at its first launch, so it is not probed.
+        #expect(prompt.contains("beyond your own shell's single quotes"))
+        #expect(prompt.contains("Leave the driver's daemon running"))
+        #expect(!prompt.contains("cua-driver stop"))
+        #expect(!prompt.contains("grep -q cua-driver"))
     }
 
     @Test func emptyContextOmitsOptionalSections() {

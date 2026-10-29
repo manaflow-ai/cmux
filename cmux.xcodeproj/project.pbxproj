@@ -662,6 +662,7 @@
 		C41EFA05B756CB1C4A5A8A8F /* ChiefMemoryStrings.swift in Sources */ = {isa = PBXBuildFile; fileRef = C41EF0BE4E06934F1BCD1567 /* ChiefMemoryStrings.swift */; };
 		4C8F48379F4C3C01DF018276 /* ChiefPaneDragPayload.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7947118FF892144AE54C82D2 /* ChiefPaneDragPayload.swift */; };
 		C41EF84BB02A81F2A8B89A1F /* ChiefPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C41EFE2AEB230E955A27DB88 /* ChiefPanel.swift */; };
+		06014F5A5CFEA609FD1B3CD4 /* ChiefPanelHostView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 188BDA7DE1ED04E9D7BB1835 /* ChiefPanelHostView.swift */; };
 		19E97DB221B879A7A25AB8AC /* ChiefPanelSessionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2BA756EDFFAB6F990E00AF37 /* ChiefPanelSessionTests.swift */; };
 		C41EFE167AA92EAC06FEE606 /* ChiefPreviewText.swift in Sources */ = {isa = PBXBuildFile; fileRef = C41EF7D7932443B6545F740A /* ChiefPreviewText.swift */; };
 		C41EF3EF3FDBF271EB9D11D8 /* ChiefProfile.swift in Sources */ = {isa = PBXBuildFile; fileRef = C41EF352A435AAEC2993C5BE /* ChiefProfile.swift */; };
@@ -3874,6 +3875,7 @@
 		D13184000000000000000002 /* TabManager+AppBootstrap.swift in Sources */ = {isa = PBXBuildFile; fileRef = D13184000000000000000001 /* TabManager+AppBootstrap.swift */; };
 		7136B0017136B0017136B001 /* TabManager+BackgroundWorkspaceMountPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7136F0017136F0017136F001 /* TabManager+BackgroundWorkspaceMountPolicy.swift */; };
 		DCDC1000000000000000B015 /* TabManager+BrowserFocus.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCDC1000000000000000B016 /* TabManager+BrowserFocus.swift */; };
+		89A9C11E10E9ED8C3363DD45 /* TabManager+ChiefHomeMigration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5DD7B6D97C958A0D2C1A4DE0 /* TabManager+ChiefHomeMigration.swift */; };
 		2E0FF72B848C4AB6B0EB787F /* TabManager+CloudAgentTitle.swift in Sources */ = {isa = PBXBuildFile; fileRef = C44A6E55470245C0B3228917 /* TabManager+CloudAgentTitle.swift */; };
 		D13184000000000000000004 /* TabManager+CloudWorkspaceSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = D13184000000000000000003 /* TabManager+CloudWorkspaceSelection.swift */; };
 		D7AB00000000000000000013 /* TabManager+DetachedWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB00000000000000000014 /* TabManager+DetachedWorkspace.swift */; };
@@ -5514,6 +5516,7 @@
 		C41EF0BE4E06934F1BCD1567 /* ChiefMemoryStrings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Chief/ChiefMemoryStrings.swift; sourceTree = "<group>"; };
 		7947118FF892144AE54C82D2 /* ChiefPaneDragPayload.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Chief/ChiefPaneDragPayload.swift; sourceTree = "<group>"; };
 		C41EFE2AEB230E955A27DB88 /* ChiefPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ChiefPanel.swift; sourceTree = "<group>"; };
+		188BDA7DE1ED04E9D7BB1835 /* ChiefPanelHostView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Chief/ChiefPanelHostView.swift; sourceTree = "<group>"; };
 		2BA756EDFFAB6F990E00AF37 /* ChiefPanelSessionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChiefPanelSessionTests.swift"; sourceTree = "<group>"; };
 		C41EF7D7932443B6545F740A /* ChiefPreviewText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Chief/ChiefPreviewText.swift; sourceTree = "<group>"; };
 		C41EF352A435AAEC2993C5BE /* ChiefProfile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Chief/ChiefProfile.swift; sourceTree = "<group>"; };
@@ -8530,6 +8533,7 @@
 		D13184000000000000000001 /* TabManager+AppBootstrap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+AppBootstrap.swift"; sourceTree = "<group>"; };
 		7136F0017136F0017136F001 /* TabManager+BackgroundWorkspaceMountPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+BackgroundWorkspaceMountPolicy.swift"; sourceTree = "<group>"; };
 		DCDC1000000000000000B016 /* TabManager+BrowserFocus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+BrowserFocus.swift"; sourceTree = "<group>"; };
+		5DD7B6D97C958A0D2C1A4DE0 /* TabManager+ChiefHomeMigration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+ChiefHomeMigration.swift"; sourceTree = "<group>"; };
 		C44A6E55470245C0B3228917 /* TabManager+CloudAgentTitle.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "TabManager+CloudAgentTitle.swift"; sourceTree = "<group>"; };
 		D13184000000000000000003 /* TabManager+CloudWorkspaceSelection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+CloudWorkspaceSelection.swift"; sourceTree = "<group>"; };
 		D7AB00000000000000000014 /* TabManager+DetachedWorkspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+DetachedWorkspace.swift"; sourceTree = "<group>"; };
@@ -12646,6 +12650,8 @@
 				F1C6800D38EC5F238A2994FC /* DockSplitStore+ChiefPane.swift */,
 				7947118FF892144AE54C82D2 /* ChiefPaneDragPayload.swift */,
 				0D10F73113F55349CE0E475D /* ChiefHomeConversationRows.swift */,
+				188BDA7DE1ED04E9D7BB1835 /* ChiefPanelHostView.swift */,
+				5DD7B6D97C958A0D2C1A4DE0 /* TabManager+ChiefHomeMigration.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -15567,6 +15573,7 @@
 				C41EFA05B756CB1C4A5A8A8F /* ChiefMemoryStrings.swift in Sources */,
 				4C8F48379F4C3C01DF018276 /* ChiefPaneDragPayload.swift in Sources */,
 				C41EF84BB02A81F2A8B89A1F /* ChiefPanel.swift in Sources */,
+				06014F5A5CFEA609FD1B3CD4 /* ChiefPanelHostView.swift in Sources */,
 				C41EFE167AA92EAC06FEE606 /* ChiefPreviewText.swift in Sources */,
 				C41EF3EF3FDBF271EB9D11D8 /* ChiefProfile.swift in Sources */,
 				C41EFF2E9C093B9D9E9421E9 /* ChiefRepresentables.swift in Sources */,
@@ -17246,6 +17253,7 @@
 				D13184000000000000000002 /* TabManager+AppBootstrap.swift in Sources */,
 				7136B0017136B0017136B001 /* TabManager+BackgroundWorkspaceMountPolicy.swift in Sources */,
 				DCDC1000000000000000B015 /* TabManager+BrowserFocus.swift in Sources */,
+				89A9C11E10E9ED8C3363DD45 /* TabManager+ChiefHomeMigration.swift in Sources */,
 				2E0FF72B848C4AB6B0EB787F /* TabManager+CloudAgentTitle.swift in Sources */,
 				D13184000000000000000004 /* TabManager+CloudWorkspaceSelection.swift in Sources */,
 				D7AB00000000000000000013 /* TabManager+DetachedWorkspace.swift in Sources */,

@@ -114,7 +114,7 @@ public actor ChiefConversationOwner {
         userDisplayName: String? = nil,
         allowRules: ChiefAllowRules = ChiefAllowRules(),
         now: @escaping @Sendable () -> Date = { Date() },
-        clock: any Clock<Duration> = ContinuousClock(),
+        clock: any Clock<Duration> = HomeSleepClock(),
         context: @escaping ChiefTurnContextProvider
     ) throws {
         allowRules.load(home)
@@ -125,7 +125,7 @@ public actor ChiefConversationOwner {
     }
 
     init(home: ChiefHome, brain: any ChiefBrain, allowRules: ChiefAllowRules = ChiefAllowRules(), me: Participant, chief: Participant,
-         now: @escaping @Sendable () -> Date, clock: any Clock<Duration> = ContinuousClock(),
+         now: @escaping @Sendable () -> Date, clock: any Clock<Duration> = HomeSleepClock(),
          context: @escaping ChiefTurnContextProvider,
          loaded: ChiefLoadedConversations) {
         self.home = home

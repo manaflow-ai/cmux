@@ -27,6 +27,13 @@ final class ChiefTranscriptView: NSView {
     private let settingsPanel = ChiefSettingsPanel()
     /// Mirrors this conversation in the movable right Dock.
     private let dockButton = NSButton()
+    private let conversationsButton = NSButton()
+    var onToggleConversations: (() -> Void)? {
+        didSet { conversationsButton.isHidden = onToggleConversations == nil }
+    }
+    var showsConversations = false {
+        didSet { updateConversationsButton() }
+    }
     /// "Opus 5.5 · Medium" under the name pill, and the pill's tooltip (``ChiefSettingsBrainHint``).
     private let brainHint = ChiefSettingsBrainHint()
     /// Chief memory: reports saved notes to the owner, whose "Chief will remember … · Undo"
@@ -95,6 +102,16 @@ final class ChiefTranscriptView: NSView {
         dockButton.toolTip = ChiefStrings.openInDock
         dockButton.setAccessibilityIdentifier("ChiefOpenInDock")
         addSubview(dockButton)
+        conversationsButton.image = NSImage(systemSymbolName: "sidebar.left", accessibilityDescription: nil)
+        conversationsButton.imagePosition = .imageOnly
+        conversationsButton.bezelStyle = .texturedRounded
+        conversationsButton.isBordered = false
+        conversationsButton.target = self
+        conversationsButton.action = #selector(toggleConversations)
+        conversationsButton.isHidden = true
+        conversationsButton.setAccessibilityIdentifier("ChiefToggleConversations")
+        updateConversationsButton()
+        addSubview(conversationsButton)
         addSubview(firstRun)
         firstRun.isHidden = true
         noticeLabel.isHidden = true
@@ -518,6 +535,18 @@ final class ChiefTranscriptView: NSView {
         )
     }
 
+    @objc private func toggleConversations() {
+        onToggleConversations?()
+    }
+
+    private func updateConversationsButton() {
+        conversationsButton.toolTip = ChiefStrings.conversationsList
+        conversationsButton.setAccessibilityLabel(ChiefStrings.conversationsList)
+        conversationsButton.setAccessibilityValue(
+            showsConversations ? ChiefStrings.conversationsExpanded : ChiefStrings.conversationsCollapsed
+        )
+    }
+
     // MARK: Settings panel
 
     /// The name pill: the settings panel slides in from the right while the
@@ -593,6 +622,7 @@ final class ChiefTranscriptView: NSView {
 
     override func layout() {
         super.layout()
+        conversationsButton.frame = CGRect(x: 12, y: 12, width: 28, height: 28)
         dockButton.frame = CGRect(x: max(8, bounds.maxX - 42), y: 12, width: 28, height: 28)
         if let transcript {
             let place = transcriptFrame(open: settingsOpen)

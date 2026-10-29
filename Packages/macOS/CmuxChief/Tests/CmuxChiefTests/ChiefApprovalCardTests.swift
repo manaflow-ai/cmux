@@ -219,6 +219,23 @@ import Testing
         #expect(rules.allows(["cmux", "tree", "--all"]))
     }
 
+    /// The rules may have read another home in the meantime (a reused rules object, or
+    /// tests); a rule the card allowed is saved to the answering owner's home.
+    @Test func aRuleIsSavedToTheHomeThatAllowedIt() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("chief-rules-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let mine = ChiefHome(root: root.appendingPathComponent("mine"))
+        let other = ChiefHome(root: root.appendingPathComponent("other"))
+        let rules = ChiefAllowRules()
+        rules.load(mine)
+        rules.load(other)
+        let added = try rules.add(rule: ["acme-deploy", "ship"], in: mine)
+        #expect(added == ["acme-deploy", "ship"])
+        let saved = mine.stateDirectory.appendingPathComponent("allow-rules.json")
+        #expect(FileManager.default.fileExists(atPath: saved.path))
+        #expect(!FileManager.default.fileExists(atPath: other.stateDirectory.appendingPathComponent("allow-rules.json").path))
+    }
+
     @Test func changingHomesDoesNotCarryAlwaysAllowRulesAcrossHomes() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("chief-rules-homes-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: root) }

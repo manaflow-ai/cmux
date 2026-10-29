@@ -1,0 +1,120 @@
+{
+  "paths": [
+    "Sources/Chief/*",
+    "Sources/*Chief*",
+    "Sources/Panels/PanelContentView.swift",
+    "Sources/Sidebar/SidebarChiefHomeRow.swift",
+    "Sources/SidebarWorkspaceRenderItem.swift"
+  ],
+  "launch": {
+    "env": {
+      "CMUX_CHIEF_BRAIN": "scripted"
+    },
+    "args": [
+      "-chiefEnabled",
+      "YES",
+      "-chief.home.showsConversations",
+      "YES"
+    ]
+  },
+  "steps": [
+    {
+      "socket": "workspace.create",
+      "params": {
+        "title": "Pane layout check",
+        "focus": true
+      },
+      "save": "local"
+    },
+    {
+      "socket": "workspace.create",
+      "params": {
+        "title": "Another workspace below Home",
+        "focus": false
+      }
+    },
+    {
+      "expect": "SidebarChiefHomeRow"
+    },
+    {
+      "click": "SidebarChiefHomeRow"
+    },
+    {
+      "shot": "simple-home-button"
+    },
+    {
+      "tree": "simple-home-button"
+    },
+    {
+      "expect": "ChiefToggleConversations"
+    },
+    {
+      "expect": "ChiefNewConversation"
+    },
+    {
+      "shot": "chief-pane-list-visible"
+    },
+    {
+      "tree": "chief-pane-list-visible"
+    },
+    {
+      "click": "ChiefToggleConversations"
+    },
+    {
+      "expect": "ChiefNewConversation",
+      "exists": false
+    },
+    {
+      "shot": "chief-pane-list-hidden"
+    },
+    {
+      "click": "ChiefToggleConversations"
+    },
+    {
+      "expect": "ChiefNewConversation"
+    },
+    {
+      "click": "ChiefNewConversation"
+    },
+    {
+      "expect": "ChiefToggleConversations"
+    },
+    {
+      "shot": "chief-new-conversation"
+    },
+    {
+      "tree": "chief-new-conversation"
+    },
+    {
+      "socket": "workspace.select",
+      "params": {
+        "workspace_id": "${local.workspace_id}"
+      }
+    },
+    {
+      "shot": "workspace-sidebar-restored"
+    },
+    {
+      "click": "SidebarChiefHomeRow"
+    },
+    {
+      "expect": "ChiefToggleConversations"
+    },
+    {
+      "shot": "chief-pane-returned"
+    },
+    {
+      "socket": "surface.split",
+      "params": {
+        "direction": "right",
+        "type": "terminal"
+      }
+    },
+    {
+      "shot": "chief-beside-terminal"
+    },
+    {
+      "tree": "chief-beside-terminal"
+    }
+  ]
+}

@@ -11,6 +11,7 @@ import Foundation
 /// asks to realize a row.
 @MainActor
 enum SidebarWorkspaceRenderItem {
+    case home(workspaceId: UUID)
     case groupHeader(groupId: UUID, anchorWorkspaceId: UUID)
     case workspace(workspaceId: UUID)
 
@@ -18,7 +19,7 @@ enum SidebarWorkspaceRenderItem {
         switch self {
         case .groupHeader(let groupId, _):
             return .group(groupId)
-        case .workspace(let workspaceId):
+        case .home(let workspaceId), .workspace(let workspaceId):
             return .workspace(workspaceId)
         }
     }
@@ -27,7 +28,7 @@ enum SidebarWorkspaceRenderItem {
         switch self {
         case .groupHeader(_, let anchorWorkspaceId):
             return anchorWorkspaceId
-        case .workspace(let workspaceId):
+        case .home(let workspaceId), .workspace(let workspaceId):
             return workspaceId
         }
     }
@@ -48,6 +49,12 @@ enum SidebarWorkspaceRenderItem {
         var collapsedByGroupId: [UUID: Bool] = [:]
         var skipChildrenUntilNextGroup = false
         for tab in tabs {
+            if tab.isChiefHome {
+                items.append(.home(workspaceId: tab.id))
+                lastEmittedGroupId = nil
+                skipChildrenUntilNextGroup = false
+                continue
+            }
             // Render and row configuration must agree on whether this tab is
             // actually grouped. A stale group id (or a group whose live anchor
             // disappeared) is a root row, even if it sits between members of a
@@ -84,15 +91,17 @@ enum SidebarWorkspaceRenderItem {
         // model's group order within each pin tier. Empty unpinned groups are
         // placed after live rows; they are uncommon (normal close paths remove
         // them) but remain renderable until an explicit mutation removes them.
-        let ordered = orderedGroups
-            ?? groupsById.values.sorted { $0.id.uuidString < $1.id.uuidString }
+        let ordered = (orderedGroups
+            ?? groupsById.values.sorted { $0.id.uuidString < $1.id.uuidString })
+            .filter { $0.externalID != ChiefHomeNavigation.homeGroupExternalID }
         let memberGroupIds = Set(effectiveMembershipByWorkspaceId.values.compactMap { $0 })
         let tabsById = Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0) })
         // Only durable empty groups belong in the header-only projection. A
         // nonempty group whose anchor went stale is intentionally absent from
         // the render tree; treating it as empty would create a ghost header.
         let emptyGroups = ordered.filter {
-            $0.isEmpty && !memberGroupIds.contains($0.id)
+            $0.isEmpty && $0.externalID != ChiefHomeNavigation.homeGroupExternalID
+                && !memberGroupIds.contains($0.id)
         }
         guard !emptyGroups.isEmpty else { return items }
 
@@ -146,6 +155,8 @@ enum SidebarWorkspaceRenderItem {
         if !trailingPinned.isEmpty {
             let firstUnpinnedIndex = rendered.firstIndex { item in
                 switch item {
+                case .home:
+                    return false
                 case .groupHeader(let groupId, _):
                     return groupsById[groupId]?.isPinned == false
                 case .workspace(let workspaceId):
@@ -218,7 +229,10 @@ enum SidebarWorkspaceRenderItem {
         groupsById: [UUID: WorkspaceGroup]
     ) -> [UUID: UUID?] {
         let liveWorkspaceIds = Set(tabs.map(\.id))
-        let renderableGroupIds = Set(groupsById.values.compactMap { group in
+        let renderableGroupIds = Set(groupsById.values.compactMap { group -> UUID? in
+            // Home is a button, never a collapsible group. Legacy customized
+            // children stay visible as ordinary workspace rows.
+            guard group.externalID != ChiefHomeNavigation.homeGroupExternalID else { return nil }
             if group.isEmpty { return group.id }
             guard let liveAnchorId = group.liveAnchorWorkspaceId,
                   liveWorkspaceIds.contains(liveAnchorId) else {

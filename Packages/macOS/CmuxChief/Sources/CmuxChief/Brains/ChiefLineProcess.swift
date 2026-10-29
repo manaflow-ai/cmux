@@ -303,7 +303,7 @@ enum ChiefExecutableResolver {
         var directories = path.split(separator: ":").map(String.init)
         // A GUI app's PATH is minimal; also try the usual install places.
         let home = files.homeDirectoryForCurrentUser.path
-        directories += ["\(home)/.local/bin", "/opt/homebrew/bin", "/usr/local/bin", "\(home)/.npm-global/bin"]
+        directories += ChiefSearchPath(home: home).fallbackDirectories
         for directory in directories where !directory.isEmpty {
             let candidate = URL(fileURLWithPath: directory, isDirectory: true).appendingPathComponent(name)
             if files.isExecutableFile(atPath: candidate.path) { return candidate }
