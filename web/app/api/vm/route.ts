@@ -86,13 +86,13 @@ import { annotateVmRequestBilling } from "../../../services/vms/requestContext";
 import {
   createVm,
   listUserVms,
+  countSavedUserVms,
 } from "../../../services/vms/workflows";
 import { recordSpanError, setSpanAttributes } from "../../../services/telemetry";
 import {
   measureVmAsync,
   VmTimingRecorder,
 } from "../../../services/vms/timings";
-import { getGoVmUsage, GO_SAVED_VM_LIMIT } from "../../../services/vms/goUsage";
 import { getPlanBudgetUsage, isBudgetPlanId, type PlanBudgetUsage } from "../../../services/vms/planUsage";
 import { publishVmOps, vmSyncReplaceOp } from "../../../services/vms/presencePublisher";
 
@@ -123,6 +123,11 @@ function createResourceFields(resourceReservation: { readonly vcpus: number; rea
     resources: resourceReservation,
     resourceReservation,
   };
+}
+
+/** The quota uses account scope for Plus and the shared billing scope for other plans. */
+function savedMachineListCount(userId: string, billingTeamId: string | null, entitlements: VmEntitlements | null) {
+  return countSavedUserVms(userId, entitlements?.planId === "go" ? undefined : billingTeamId || userId);
 }
 
 export async function GET(request: Request): Promise<Response> {
@@ -247,10 +252,18 @@ export async function GET(request: Request): Promise<Response> {
         ...(entry.resourceReservation ? { resourceReservation: entry.resourceReservation } : {}),
       }));
       const activeEntries = entries.filter((vm) => vm.status === "running" || vm.status === "provisioning");
+      // Count allocations before a provider ID exists as well as visible machines.
+      // Plus is account-wide; other plans share the create admission billing scope.
+      const counted = await runVmRoute(savedMachineListCount(user.id, billingTeamId, listEntitlements), { request });
+      if (!counted.ok) return counted.response;
+      const savedVmCount = counted.value;
       const limits = listEntitlements
         ? {
           maxActiveVms: listEntitlements.maxActiveVms,
-          activeVmCount: activeEntries.length,
+          // Legacy wire key: the quota counts saved machines, including paused ones.
+          activeVmCount: savedVmCount,
+          savedVmCount,
+          savedVmLimit: listEntitlements.maxActiveVms,
           // The plan's shared pool (null when the plan has none) and what the
           // active machines draw from it. Paused machines do not count.
           poolVcpus: listEntitlements.resourcePool?.vcpus ?? null,
@@ -259,13 +272,6 @@ export async function GET(request: Request): Promise<Response> {
           usedMemoryMb: activeEntries.reduce((sum, entry) => sum + poolShare(entry).memoryMb, 0),
           planId: listEntitlements.planId,
           freeAccessWindowDays,
-          ...(listEntitlements.planId === "go" ? {
-            vmHoursIncluded: 40,
-            vmHoursUsed: await getGoVmUsage(user.id)
-              .then((usage) => usage ? Math.round(usage.usedSeconds / 360) / 10 : null)
-              .catch(() => null),
-            savedVmLimit: GO_SAVED_VM_LIMIT,
-          } : {}),
           // Pro and Max monthly allowance; absent when none applies.
           ...(isBudgetPlanId(listEntitlements.planId)
             ? await getPlanBudgetUsage(user.id).then(planBudgetLimits).catch(() => ({}))
@@ -967,7 +973,7 @@ function createErrorResponders(entitlements: {
         limit: error.limit,
         activeMachines: error.activeMachines,
         planId: entitlements.planId,
-        retryAction: "Run `cmux vm ls`, then delete an active VM with `cmux vm rm <id>` before creating another, or upgrade your plan.",
+        retryAction: "Run `cmux vm ls`, then delete a VM with `cmux vm rm <id>` before creating another, or upgrade your plan.",
       }),
     VmCreateCreditsInsufficientError: (error) => {
       const billsUser = entitlements.billingCustomerType === "user";
