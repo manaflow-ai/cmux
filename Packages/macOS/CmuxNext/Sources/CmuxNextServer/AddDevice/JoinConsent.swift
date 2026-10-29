@@ -441,14 +441,16 @@ public final class JoinConsentModel {
 
     /// Mac Screen asks before it serves a session: the app owns it, so acpmux's gate never sees it. The
     /// ticket takes the next generation and reads; it serves only when that read is still the newest when
-    /// it answers, allows it, and no write is in flight. A refusal on a Mac read as joined shows the sheet.
+    /// it answers, allows it, and no write is in flight. A refusal on a Mac read as joined shows the sheet:
+    /// read from acpmux's record that got through, or from the join status on an acpmux without the consent
+    /// capability (which has granted nothing). A record that failed to read refuses without the sheet.
     public func allowsMacScreen(control: Bool, requester: String) async -> Bool {
         guard services.enabled() else { return true }
         guard !writing else { return false }
         let (reading, current) = await read()
         guard current, !writing else { return false }
         if Self.permits(reading, control: control) { return true }
-        if reading.supported != nil, Self.joined(reading) {
+        if reading.supported == false || reading.consent != nil, Self.joined(reading) {
             refused(JoinConsentRefusal(requester: requester, surface: reading.consent?.screen == true ? .control : .screen))
         }
         return false

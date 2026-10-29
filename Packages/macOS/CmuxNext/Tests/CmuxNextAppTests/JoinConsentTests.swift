@@ -312,6 +312,23 @@ import Testing
         #expect(!model.permitsMacScreen(control: false))
     }
 
+    /// Round 15: acpmux announces the consent capability and its join status says joined, but the record
+    /// fails to read: the request is refused without the sheet (and the one-time sheet is still to come).
+    /// Once the record reads, the refusal shows it. An acpmux without the capability shows it from the join
+    /// status (``aDaemonWithoutConsentSupportGrantsNothingAndMacScreenIsRefusedWithTheSheet()``).
+    @Test func anUnreadRecordRefusesWithoutTheSheet() async {
+        let fake = Fake()
+        fake.readFails = true
+        let model = JoinConsentModel(services: fake.services())
+        let shown = Recorder()
+        model.present = { shown.values.append("\($0)") }
+        #expect(!(await model.allowsMacScreen(control: false, requester: "Studio")))
+        #expect(model.ask == nil && shown.values.isEmpty && !fake.askShown)
+        fake.readFails = false
+        #expect(!(await model.allowsMacScreen(control: false, requester: "Studio")))
+        #expect(model.ask == JoinConsentRefusal(requester: "Studio", surface: .screen) && shown.values == ["true"])
+    }
+
     /// A Deny pressed while an Allow is still writing does nothing: the Allow ends as it ends, and the
     /// sheet never closes over a grant still landing.
     @Test func aDenyWhileAnAllowWritesChangesNothing() async {
