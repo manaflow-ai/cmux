@@ -29,7 +29,7 @@ use crate::hub::{Hub, Session};
 use crate::store::{EventRecord, RecordHead};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
-use std::collections::HashSet;
+use std::collections::{HashSet, VecDeque};
 use std::sync::Arc;
 
 /// Longest quote of one cut prompt or steer, in characters.
@@ -49,6 +49,9 @@ struct OmittedTools {
     // Overflow IDs beyond the bounded digest set. Keep only a count: retaining their
     // identities would make restart recovery's memory use proportional to journal size.
     unknown: usize,
+    // Terminal IDs are retained briefly so replayed terminal updates are idempotent
+    // without making recovery memory proportional to the journal.
+    retired: VecDeque<[u8; 32]>,
 }
 
 impl OmittedTools {
@@ -59,11 +62,22 @@ impl OmittedTools {
         self.ids.contains(id)
     }
     fn remove(&mut self, id: &[u8; 32]) {
-        if !self.ids.remove(id) && self.unknown > 0 {
+        if self.ids.remove(id) {
+            self.retire(*id);
+        } else if self.retired.contains(id) {
+            return;
+        } else if self.unknown > 0 {
             // Overflow calls are folded in journal order. Their terminal update is
             // the only identity we need to settle the bounded count.
             self.unknown -= 1;
+            self.retire(*id);
         }
+    }
+    fn retire(&mut self, id: [u8; 32]) {
+        if self.retired.len() == MAX_OMITTED_TOOL_IDS {
+            self.retired.pop_front();
+        }
+        self.retired.push_back(id);
     }
     fn insert(&mut self, id: [u8; 32]) {
         if self.ids.len() < MAX_OMITTED_TOOL_IDS {
@@ -274,6 +288,7 @@ fn note_unfinished_tool(
                 enrich_tool(existing, update);
             }
         }
+        _ if update.get("sessionUpdate").and_then(Value::as_str) != Some("tool_call") => {}
         _ => {
             if let Some(existing) = open.iter_mut().find(|tool| tool.id_digest == id_digest) {
                 enrich_tool(existing, update);
