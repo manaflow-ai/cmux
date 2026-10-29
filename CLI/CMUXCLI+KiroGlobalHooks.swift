@@ -266,7 +266,6 @@ extension CMUXCLI {
     /// `cmux hooks uninstall kiro --global`: removes cmux's entries from the
     /// global hooks file, deleting the file only when nothing else is left.
     func uninstallKiroGlobalHooks(_ def: AgentHookDef) throws {
-        let fm = FileManager.default
         let filePath = Self.kiroGlobalHooksFilePath(for: def)
         guard let data = try kiroGlobalHooksData(atPath: filePath) else {
             print(String.localizedStringWithFormat(String(localized: "cli.hooks.kiro.global.noneFound", defaultValue: "No %@ found at %@", bundle: CLIExecutableLocator.enclosingAppBundle() ?? .main), Self.kiroGlobalHooksFileName, filePath))
