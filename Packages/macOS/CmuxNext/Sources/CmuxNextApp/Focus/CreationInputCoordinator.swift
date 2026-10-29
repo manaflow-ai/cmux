@@ -49,6 +49,8 @@ final class CreationInputCoordinator {
     private var replaying = false
     /// Held keys run again since launch (tests: a key must never be run into a view it was not typed for).
     private(set) var replayedCount = 0
+    /// The last held keys run again: the target each was typed for and its key code, oldest first (tests, `debug.focus`).
+    private(set) var lastReplays: [(target: String, keyCode: UInt16)] = []
 
     init(router: KeyRouter) { self.router = router }
 
@@ -524,6 +526,7 @@ final class CreationInputCoordinator {
         let before = (current: hold.current?.target, generation: controller?.focus.currentState().generation ?? 0)
         replaying = true
         replayedCount += 1
+        lastReplays = Array((lastReplays + [(target.id, event.keyCode)]).suffix(16))
         // The one replay path of held keys (as the New Tab hold's): the key router, then the window's key equivalents and
         // the menu for a chord, then the window that takesKeys found has the target's view as first responder (its own
         // Chromium page window when that is key). Never `NSApplication.sendEvent`, which routes by the key window.

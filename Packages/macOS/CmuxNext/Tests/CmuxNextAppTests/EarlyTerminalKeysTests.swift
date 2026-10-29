@@ -581,6 +581,50 @@ struct EarlyTerminalKeysTests {
         }
     }
 
+    /// Text typed for a new terminal, then the person's next app command (Cmd-D) moves the focus to another pane before
+    /// that terminal is ready ("ls", Cmd-D). The text still goes to the terminal it was typed for, in order, once that
+    /// terminal is ready: every wait now ends with its owned operation, so a key can no longer run minutes later, and
+    /// dropping it lost text in a common fast case (lead, 2026-10-29, replacing "drop on focusMovedAway"). Text typed
+    /// after the Cmd-D goes to where the focus is now. Chrome: input queued for a renderer goes to that renderer.
+    @Test func textTypedBeforeTheNextCommandGoesToItsTargetWhenReady() async throws {
+        try await Self.withTerminal(panes: 2) { h in
+            let (controller, window, tab) = (h.controller, h.window, h.tab)
+            let router = h.services.keyRouter
+            let coordinator = router.creationInputCoordinator
+            let otherKey = try #require(controller.focus.state.topology.panes.map(\.id).first { $0 != h.paneKey }, "the harness has no second pane")
+            try await PasswordManagerRouteTests.until({ controller.workspaceContent?.paneController(key: otherKey)?.currentContent != nil },
+                                                      within: .seconds(10), report: { "the second pane never showed its terminal" })
+            let otherPane = try #require(controller.workspaceContent?.paneController(key: otherKey))
+            guard case .terminal(let otherEntry)? = otherPane.currentContent, let otherTab = otherPane.currentTabKey else {
+                Issue.record("the second pane shows no terminal")
+                return
+            }
+            let mount = try Self.unmount(h)
+            _ = try #require(coordinator.begin(in: window, generation: controller.focus.state.generation, earlyTab: tab, tab: tab))
+            for (letter, code) in [("l", UInt16(37)), ("s", UInt16(1))] {
+                #expect(router.interceptKeyDown(try Self.key(letter, keyCode: code, in: window), in: window), "a key was not held: \(Self.held(h))")
+            }
+            let before = coordinator.replayedCount
+
+            // The person's next command moves the focus to the other pane (as Cmd-D's new pane would).
+            coordinator.personActed(in: window, event: nil)
+            controller.focus.send(.focusPane(otherKey, source: .keyboard))
+            try await PasswordManagerRouteTests.until({ controller.focus.state.resolved == .terminal(pane: otherKey, tab: otherTab) },
+                                                      within: .seconds(5), report: { "focus never named the other pane: \(Self.held(h))" })
+            window.makeFirstResponder(otherEntry.session.surfaceView)
+            #expect(coordinator.heldCount(in: window) == 2, "the text typed for the new terminal did not keep waiting for it: \(Self.held(h))")
+
+            // The new terminal becomes ready: the text goes to it, in order, though the focus is elsewhere.
+            mount()
+            coordinator.reconcile(window)
+            #expect(coordinator.replayedCount == before + 2, "the text typed for the new terminal never reached it: \(Self.held(h))")
+            #expect(coordinator.lastReplays.suffix(2).map(\.target) == [tab, tab], "the text went to another target: \(coordinator.lastReplays)")
+            #expect(coordinator.lastReplays.suffix(2).map(\.keyCode) == [37, 1], "the text was not in typed order: \(coordinator.lastReplays)")
+            #expect(coordinator.heldKeyProblems().isEmpty, "HK1: \(coordinator.heldKeyProblems())")
+            #expect(window.firstResponder === otherEntry.session.surfaceView, "delivering the text took the keyboard from the pane the person is in")
+        }
+    }
+
     /// R3 at a failed creation: the daemon refused the new terminal and its pane is gone from the tree. In the same turn
     /// the model names a defined target (the other pane's terminal), never the gone one, so nothing waits for a view
     /// that cannot come. The keys typed for the failed terminal drop (reason targetFailed): they never go to another
