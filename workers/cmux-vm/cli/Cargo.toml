@@ -24,13 +24,17 @@ syn = { version = "=3.0.6", features = ["full"] }
 bytes = "1"
 futures = "0.3"
 regress = "0.12"
-reqwest = { version = "0.13", features = ["json", "query", "stream"] }
+# No TLS backend by default: cmux-vm-client's default-tls feature picks reqwest's, and the
+# cmux CLI, which links this crate in process, uses its own rustls (ring) instead.
+reqwest = { version = "0.13", default-features = false, features = ["json", "query", "stream", "charset", "http2", "system-proxy"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
 # CLI.
 clap = { version = "4.6", features = ["derive", "env"] }
-tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "time"] }
+base64 = "0.22"
+security-framework = "3"
 
 # Tests.
 wiremock = "0.6.5"

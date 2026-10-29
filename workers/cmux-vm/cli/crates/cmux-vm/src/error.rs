@@ -67,6 +67,16 @@ impl CliError {
         self.code
     }
 
+    /// What went wrong, for a message that wraps it.
+    pub fn message(&self) -> &str {
+        &self.message
+    }
+
+    /// The HTTP status, for an API error.
+    pub fn status(&self) -> Option<u16> {
+        self.status
+    }
+
     /// Keep the original intent key visible after a resize error, including a partial provider failure.
     pub fn with_retry_key(mut self, key: &str) -> Self {
         self.message = format!(

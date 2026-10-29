@@ -12,6 +12,12 @@ rust-version.workspace = true
 [lib]
 doctest = false
 
+[features]
+default = ["default-tls"]
+# reqwest's own TLS (rustls with aws-lc). Off when a host binary brings its own rustls
+# provider (the cmux CLI).
+default-tls = ["reqwest/default-tls"]
+
 [dependencies]
 bytes.workspace = true
 futures.workspace = true

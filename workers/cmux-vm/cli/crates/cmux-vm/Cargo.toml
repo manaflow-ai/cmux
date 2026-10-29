@@ -11,13 +11,21 @@ rust-version.workspace = true
 name = "cmux-vm"
 path = "src/main.rs"
 
+[features]
+default = ["default-tls"]
+default-tls = ["cmux-vm-client/default-tls"]
+
 [dependencies]
 clap.workspace = true
-cmux-vm-client = { path = "../cmux-vm-client" }
+base64.workspace = true
+cmux-vm-client = { path = "../cmux-vm-client", default-features = false }
 futures.workspace = true
 serde.workspace = true
 serde_json = { workspace = true, features = ["preserve_order"] }
 tokio.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+security-framework.workspace = true
 
 [dev-dependencies]
 wiremock.workspace = true

@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use serde::Deserialize;
 
 use crate::error::CliError;
+use crate::token::StoredToken;
 
 pub struct Settings {
     pub api_key: String,
@@ -26,13 +27,62 @@ struct ConfigFile {
 }
 
 impl Settings {
-    pub fn resolve(
+    /// The settings, with the stored agent token (token.rs) as the credential when there is no `CMUX_VM_API_KEY` and no explicit
+    /// config file (`--config`, `CMUX_VM_CONFIG`): it comes before the default
+    /// config file, so a token minted for agents is what `cmux vm run` uses. An
+    /// expired token is skipped with a warning. Its base URL and team fill in
+    /// only what the flags and environment leave unset.
+    pub fn resolve_with_token(
         base_url_flag: Option<&str>,
         team_flag: Option<&str>,
         config_flag: Option<&Path>,
         env: &dyn Fn(&str) -> Option<String>,
+        stored: Option<&StoredToken>,
+        now_unix: i64,
     ) -> Result<Self, CliError> {
         let env = |name: &str| env(name).filter(|v| !v.is_empty());
+        let explicit_config = config_flag.is_some() || env("CMUX_VM_CONFIG").is_some();
+        if let Some(token) = stored
+            && env("CMUX_VM_API_KEY").is_none()
+            && !explicit_config
+        {
+            if token.seconds_left(now_unix).is_none_or(|left| left > 0) {
+                let base_url = base_url_flag
+                    .map(str::to_owned)
+                    .or_else(|| env("CMUX_VM_BASE_URL"))
+                    .or_else(|| token.base_url.clone())
+                    .unwrap_or_else(|| cmux_vm_client::DEFAULT_BASE_URL.to_owned());
+                let team_id = team_flag
+                    .map(str::to_owned)
+                    .or_else(|| env("CMUX_VM_TEAM_ID"))
+                    .or_else(|| token.team_id.clone());
+                return Ok(Self {
+                    api_key: token.key.clone(),
+                    base_url,
+                    team_id,
+                    warnings: Vec::new(),
+                });
+            }
+            let mut settings = Self::resolve_with_token(
+                base_url_flag,
+                team_flag,
+                config_flag,
+                &env,
+                None,
+                now_unix,
+            )
+            .map_err(|_| {
+                CliError::unauthenticated(format!(
+                    "the stored VM token {} expired at {}: run `cmux vm token create`",
+                    token.key_id, token.expires_at
+                ))
+            })?;
+            settings.warnings.push(format!(
+                "the stored VM token {} expired at {}; using the config file instead",
+                token.key_id, token.expires_at
+            ));
+            return Ok(settings);
+        }
         let mut warnings = Vec::new();
         let file = match load_config(config_flag, &env) {
             Ok(file) => file,
@@ -53,7 +103,7 @@ impl Settings {
 
         let api_key = env("CMUX_VM_API_KEY").or(file.api_key).ok_or_else(|| {
             CliError::unauthenticated(
-                "no API key: set CMUX_VM_API_KEY or \"apiKey\" in the config file",
+                "no API key: run `cmux vm token create` (in cmux, signed in), or set CMUX_VM_API_KEY or \"apiKey\" in the config file",
             )
         })?;
         let base_url = base_url_flag
@@ -127,7 +177,55 @@ mod tests {
             "HOME" => Some("/nonexistent-cmux-vm-home".to_owned()),
             _ => None,
         };
-        let settings = Settings::resolve(None, None, None, &env).expect("resolve");
+        let settings =
+            Settings::resolve_with_token(None, None, None, &env, None, 0).expect("resolve");
         assert_eq!(settings.base_url, "https://vm.cmux.dev");
+    }
+
+    fn token(expires_at: &str) -> crate::token::StoredToken {
+        crate::token::StoredToken {
+            key: "cmuxvm_sk_stored".to_owned(),
+            key_id: "vmk_x".to_owned(),
+            expires_at: expires_at.to_owned(),
+            team_id: Some("team_stored".to_owned()),
+            base_url: None,
+            scopes: vec![],
+            max_vms: None,
+            max_usd_per_hour: None,
+        }
+    }
+
+    #[test]
+    fn a_stored_token_is_the_credential_when_nothing_else_is_named() {
+        let env = |name: &str| (name == "HOME").then(|| "/nonexistent-cmux-vm-home".to_owned());
+        let stored = token("2026-10-29T08:00:00Z");
+        let settings = Settings::resolve_with_token(None, None, None, &env, Some(&stored), 0)
+            .expect("resolve");
+        assert_eq!(settings.api_key, "cmuxvm_sk_stored");
+        assert_eq!(settings.team_id.as_deref(), Some("team_stored"));
+    }
+
+    #[test]
+    fn the_environment_key_wins_over_a_stored_token() {
+        let env = |name: &str| match name {
+            "CMUX_VM_API_KEY" => Some("cmuxvm_sk_env".to_owned()),
+            "HOME" => Some("/nonexistent-cmux-vm-home".to_owned()),
+            _ => None,
+        };
+        let stored = token("2026-10-29T08:00:00Z");
+        let settings = Settings::resolve_with_token(None, None, None, &env, Some(&stored), 0)
+            .expect("resolve");
+        assert_eq!(settings.api_key, "cmuxvm_sk_env");
+    }
+
+    #[test]
+    fn an_expired_token_is_refused_by_name() {
+        let env = |name: &str| (name == "HOME").then(|| "/nonexistent-cmux-vm-home".to_owned());
+        let stored = token("1970-01-01T00:01:00Z");
+        let Err(error) = Settings::resolve_with_token(None, None, None, &env, Some(&stored), 120)
+        else {
+            panic!("an expired token resolved");
+        };
+        assert_eq!(error.exit_code(), crate::exit::UNAUTHENTICATED);
     }
 }

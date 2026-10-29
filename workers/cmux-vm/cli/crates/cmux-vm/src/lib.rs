@@ -14,6 +14,8 @@ mod creation_history;
 mod error;
 mod output;
 mod prompt;
+mod run;
+pub mod token;
 
 pub use prompt::{NoPrompt, Prompt, StdinPrompt};
 
@@ -35,6 +37,8 @@ Configuration:
   CMUX_VM_BASE_URL   API base URL (or --base-url, or \"baseUrl\"); default https://vm.cmux.dev
   CMUX_VM_TEAM_ID    team for session tokens (or --team, or \"teamId\")
   CMUX_VM_CONFIG     config file; default $XDG_CONFIG_HOME/cmux/vm.json or ~/.config/cmux/vm.json
+  Without CMUX_VM_API_KEY or --config, the token `token create` stored is used
+  (login Keychain on macOS, else ~/.config/cmux/vm-token.json)
 
 Exit codes:
   0  success
@@ -85,6 +89,11 @@ enum Command {
     /// Inspect or reconcile an original VM creation without allocating another VM
     #[command(subcommand)]
     Creation(CreationCommand),
+    /// Run one command on a fresh VM, deleted when it ends (paused with --keep)
+    Run(run::RunArgs),
+    /// Mint, show or revoke the stored VM-only agent token
+    #[command(subcommand)]
+    Token(token::TokenCommand),
     /// Create a VM
     Create(CreateArgs),
     /// Grow an existing VM to at least the requested resources
@@ -524,7 +533,7 @@ where
     };
     let json = cli.json;
     match execute(cli, env, prompt, stdout, stderr).await {
-        Ok(()) => exit::OK,
+        Ok(code) => code,
         Err(error) => {
             error.report(json, stderr);
             error.exit_code()
@@ -562,7 +571,7 @@ async fn execute(
     prompt: &mut dyn Prompt,
     stdout: &mut dyn Write,
     stderr: &mut dyn Write,
-) -> Result<(), CliError> {
+) -> Result<i32, CliError> {
     if matches!(
         &cli.command,
         Command::Device(DeviceCommand::RedeemServerCode(_))
@@ -587,13 +596,33 @@ async fn execute(
             prompt,
             output::Printer::new(cli.json, stdout),
         )
-        .await;
+        .await
+        .map(|()| exit::OK);
     }
-    let settings = Settings::resolve(
+    // The stored token: read for every verb but `token create` (an agent key
+    // cannot mint another) and `token status|revoke` (which act on it).
+    let stored = match &cli.command {
+        Command::Token(token::TokenCommand::Create(_)) => None,
+        Command::Token(command) => {
+            let token = token::load(env)
+                .map_err(CliError::unexpected)?
+                .ok_or_else(|| {
+                    CliError::unauthenticated("no stored VM token: run `cmux vm token create`")
+                })?;
+            return token_command(command, token, &cli, env, stdout).await;
+        }
+        _ => token::load(env).unwrap_or_else(|warning| {
+            error::report_warning(&warning, cli.json, stderr);
+            None
+        }),
+    };
+    let settings = Settings::resolve_with_token(
         cli.base_url.as_deref(),
         cli.team.as_deref(),
         cli.config.as_deref(),
         env,
+        stored.as_ref(),
+        token::now_unix(),
     )?;
     for warning in &settings.warnings {
         error::report_warning(warning, cli.json, stderr);
@@ -605,8 +634,81 @@ async fn execute(
         concat!("cmux-vm/", env!("CARGO_PKG_VERSION")),
     )
     .map_err(|e| CliError::usage(e.to_string()))?;
-    let out = output::Printer::new(cli.json, stdout);
-    dispatch(&client, cli.command, prompt, out).await
+    match cli.command {
+        Command::Run(args) => run::run(&client, args, stdout, stderr).await,
+        Command::Token(token::TokenCommand::Create(args)) => {
+            let base = (settings.base_url != cmux_vm_client::DEFAULT_BASE_URL)
+                .then(|| settings.base_url.clone());
+            token::create(
+                &client,
+                &args,
+                settings.team_id.clone(),
+                base,
+                env,
+                cli.json,
+                stdout,
+            )
+            .await
+            .map(|()| exit::OK)
+        }
+        command => {
+            let out = output::Printer::new(cli.json, stdout);
+            dispatch(&client, command, prompt, out)
+                .await
+                .map(|()| exit::OK)
+        }
+    }
+}
+
+/// `token status` and `token revoke`, on the stored token.
+async fn token_command(
+    command: &token::TokenCommand,
+    stored: token::StoredToken,
+    cli: &Cli,
+    env: &dyn Fn(&str) -> Option<String>,
+    stdout: &mut dyn Write,
+) -> Result<i32, CliError> {
+    match command {
+        token::TokenCommand::Status => {
+            let left = stored.seconds_left(token::now_unix());
+            token::report(
+                &stored,
+                if left.is_some_and(|left| left <= 0) {
+                    "expired"
+                } else {
+                    "is"
+                },
+                cli.json,
+                stdout,
+            )?;
+            Ok(if left.is_some_and(|left| left <= 0) {
+                exit::UNAUTHENTICATED
+            } else {
+                exit::OK
+            })
+        }
+        token::TokenCommand::Revoke => {
+            let base_url = cli
+                .base_url
+                .clone()
+                .or_else(|| env("CMUX_VM_BASE_URL"))
+                .or_else(|| stored.base_url.clone())
+                .unwrap_or_else(|| cmux_vm_client::DEFAULT_BASE_URL.to_owned());
+            let client = cmux_vm_client::authenticated_raw_client(
+                &base_url,
+                &stored.key,
+                stored.team_id.as_deref(),
+                concat!("cmux-vm/", env!("CARGO_PKG_VERSION")),
+            )
+            .map_err(|e| CliError::usage(e.to_string()))?;
+            token::revoke(&client, &stored, env, stdout)
+                .await
+                .map(|()| exit::OK)
+        }
+        token::TokenCommand::Create(_) => {
+            unreachable!("token create mints with the resolved credential")
+        }
+    }
 }
 
 async fn dispatch(
@@ -960,6 +1062,9 @@ async fn dispatch(
             out.revoked(id.as_str())
         }
         Command::ApiKey(command) => api_key(client, command, prompt, out).await,
+        Command::Run(_) | Command::Token(_) => {
+            Err(CliError::usage("this verb needs the API credential"))
+        }
         Command::File(FileCommand::Stat(args)) => {
             let id = args
                 .vm_id

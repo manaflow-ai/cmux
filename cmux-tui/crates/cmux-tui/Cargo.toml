@@ -53,8 +53,10 @@ path = "src/bin/cmux-tui-host.rs"
 cmux-json.workspace = true
 ghostty-vt.workspace = true
 cmux-tui-core.workspace = true
-# `cmux vm`: the cmux-vm child starts through the daemon-safe spawn.
 cmux-process.workspace = true
+# `cmux vm`: the cmux VM API CLI (workers/cmux-vm/cli), linked in process so the
+# bundle needs no cmux-vm binary. Its TLS rides this crate's rustls (ring).
+cmux-vm = { path = "../../../workers/cmux-vm/cli/crates/cmux-vm", default-features = false }
 cmux-api-compat.workspace = true
 # `cmux settings list|schema|validate`: the settings schema and owner state.
 cmux-config.workspace = true
