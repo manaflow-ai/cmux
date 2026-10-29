@@ -2932,21 +2932,31 @@ class OpenHeadStarted(Aborted):
     """A job of an open-head run the failover meant to move started before the cancel went out."""
 
 
-def mac_route(job: Mapping[str, Any]) -> str | None:
-    """The macOS label a job asked for: an owned or lane label (job_pool()), else a Blacksmith macOS label."""
-    owned = job_pool(job)
-    if owned:
-        return owned
-    return next((str(label) for label in job.get("labels") or () if BLACKSMITH_MACOS_LABEL.fullmatch(str(label))),
-                None)
+# The placement jobs a run must finish before its Mac jobs exist (path routing, the macOS placement, the head
+# preflight, ci.yml's picker). They run on Linux in seconds and a full re-run repeats them, so they are the only
+# finished jobs an open-head failover allows (unstarted_failover()); any other job that ran keeps OPEN_HEAD_RULE.
+PLACEMENT_JOBS = frozenset({
+    PICKER_JOB, E2E_PICKER_JOB, "cmux-next path routing", "cmux-next macOS placement",
+    "cmux-next push head preflight", "cmux NEXT DEV landing placement", "cmux NEXT DEV compile placement",
+})
 
 
-def mac_job_taken(job: Mapping[str, Any]) -> bool:
-    """A job a re-run would lose: one running now, or a macOS job (owned or Blacksmith) a runner took, whatever
-    its attempt. A Linux gate or placement job that finished is not: the full re-run runs it again in seconds."""
+def job_started(job: Mapping[str, Any]) -> bool:
+    """A job a cancel or a full re-run would lose: one running, or one a runner took (any label, any attempt it was
+    carried from), except a finished placement job (PLACEMENT_JOBS). A job GitHub skipped never ran."""
     if job.get("status") == "in_progress":
         return True
-    return bool(job.get("runner_name")) and bool(mac_route(job))
+    if job.get("status") == "completed" and job.get("conclusion") == "skipped":
+        return False
+    if not job.get("runner_name") and job.get("status") != "completed":
+        return False
+    return not (job.get("status") == "completed" and job.get("conclusion") == "success"
+                and str(job.get("name") or "") in PLACEMENT_JOBS)
+
+
+def job_key(job: Mapping[str, Any]) -> Any:
+    """A job's key in a watcher's first_seen map: its id, else its name."""
+    return job.get("id") if job.get("id") is not None else str(job.get("name") or "")
 
 
 def started_nothing(pools: Mapping[str, Any], label: str) -> bool:
@@ -2961,17 +2971,29 @@ def started_nothing(pools: Mapping[str, Any], label: str) -> bool:
         return False
 
 
+def mac_route(job: Mapping[str, Any]) -> str | None:
+    """The macOS label a job asked for: an owned or lane label (job_pool()), else a Blacksmith macOS label."""
+    owned = job_pool(job)
+    if owned:
+        return owned
+    return next((str(label) for label in job.get("labels") or () if BLACKSMITH_MACOS_LABEL.fullmatch(str(label))),
+                None)
+
+
 def unstarted_failover(api: GitHub, target: Target, *, now: Callable[[], dt.datetime],
-                       sleep: Callable[[float], None], log: Callable[[str], None]) -> str:
+                       sleep: Callable[[float], None], log: Callable[[str], None],
+                       first_seen: Mapping[Any, dt.datetime] | None = None) -> str:
     """Why an unfinished run at its open head may be cancelled and re-run in full, or "" when OPEN_HEAD_RULE keeps
     it (see the module docstring). All of these must hold:
 
     - the run is a pull request's and no nightly, DEV or promote build (nightly, the feed workflows, a dispatch);
-    - no job of it was taken by a runner on macOS and none runs (mac_job_taken()), so a cancel kills nothing and
-      a full re-run discards no finished macOS result;
+    - no job of it has started (job_started()): every job is queued or waiting, but for its finished placement
+      jobs, so a cancel kills nothing and a full re-run discards no result. A job listing that may be cut short
+      (MAX_JOB_PAGES full pages) proves nothing;
     - a job has waited UNSTARTED_STALL_SECONDS or more for a runner on a label that started nothing: the janitor's
-      fresh snapshot shows nothing running there (started_nothing()). A job that has waited less is looked at
-      again once it has waited that long (one bounded sleep), not given up on.
+      fresh snapshot shows nothing running there (started_nothing()). A job's wait starts at the later of its
+      created_at and when a watch first saw it queued (`first_seen`, the watcher's; else this look's). A job that
+      has waited less is looked at again once it has waited that long (one bounded sleep), not given up on.
     """
     if not target.pr_number or target.nightly or target.main or target.e2e or target.push_branch \
             or target.path in FEED_TIMEOUT_PATHS:
@@ -2979,6 +3001,7 @@ def unstarted_failover(api: GitHub, target: Target, *, now: Callable[[], dt.date
     reader = getattr(api, "pool_snapshot", None)
     if reader is None:
         return ""
+    seen: dict[Any, dt.datetime] = dict(first_seen or {})
     for look in (1, 2):
         try:
             snapshot = reader(now())
@@ -2991,17 +3014,27 @@ def unstarted_failover(api: GitHub, target: Target, *, now: Callable[[], dt.date
         if not isinstance(pools, Mapping) or not pools:
             return ""
         jobs = read(lambda: api.jobs(target.run_id, target.attempt), sleep, log)
-        if any(mac_job_taken(job) for job in jobs):
+        if len(jobs) >= MAX_JOB_PAGES * 100:
+            log(f"run {target.run_id} lists {len(jobs)} jobs, maybe more; the open head keeps the run")
+            return ""
+        if any(job_started(job) for job in jobs):
             return ""
         at = now()
         waiting = [(job, str(mac_route(job))) for job in jobs if waiting_for_runner(job) and mac_route(job)]
+        for job, _ in waiting:
+            if parse_time(job.get("created_at")) is None:
+                # No created_at to date it: this look is the earliest proof it was queued.
+                seen.setdefault(job_key(job), at)
         dead = [(job, label) for job, label in waiting if started_nothing(pools, label)]
         if not dead:
             return ""
-        job, label = max(dead, key=lambda pair: queued_seconds(pair[0], at))
-        waited = queued_seconds(job, at)
+
+        def wait(job: Mapping[str, Any]) -> float:
+            return queued_seconds(job, at, seen.get(job_key(job)))
+        job, label = max(dead, key=lambda pair: wait(pair[0]))
+        waited = wait(job)
         if waited >= UNSTARTED_STALL_SECONDS:
-            return (f"no job of attempt {target.attempt} was taken by a runner, and {job.get('name') or job.get('id')} "
+            return (f"no job of attempt {target.attempt} has started, and {job.get('name') or job.get('id')} "
                     f"has waited {int(waited // 60)} min on `{label}`, which runs nothing")
         if look == 2:
             return ""
@@ -3011,13 +3044,21 @@ def unstarted_failover(api: GitHub, target: Target, *, now: Callable[[], dt.date
 
 def open_head_guard(api: GitHub, target: Target, sleep: Callable[[float], None], log: Callable[[str], None],
                     before_cancel: Callable[[], None] | None) -> Callable[[], None]:
-    """rescue()'s before_cancel for an open-head failover: right before the cancel (and every re-send of it), the
-    jobs are read again, and one a runner took since drops the cancel (OpenHeadStarted)."""
+    """rescue()'s before_cancel for an open-head failover, right before the cancel and every re-send of it: the run
+    must still be this attempt and unfinished (a cancel hits the run's current attempt, which another watch's re-run
+    may have started), and no job of it may have started since (job_started()). Else the cancel is dropped
+    (OpenHeadStarted)."""
     def check() -> None:
         if before_cancel is not None:
             before_cancel()
         jobs = read(lambda: api.jobs(target.run_id, target.attempt), sleep, log)
-        taken = sorted(str(job.get("name") or job.get("id")) for job in jobs if mac_job_taken(job))
+        run = read(lambda: api.run(target.run_id), sleep, log) or {}
+        attempt = int(run.get("run_attempt") or 0)
+        if attempt != target.attempt:
+            raise OpenHeadStarted(f"the run is at attempt {attempt}, not {target.attempt}")
+        if run.get("status") == "completed":
+            raise OpenHeadStarted("the run has finished")
+        taken = sorted(str(job.get("name") or job.get("id")) for job in jobs if job_started(job))
         if taken:
             raise OpenHeadStarted(f"{', '.join(taken)} started before the cancel")
     return check
@@ -3039,8 +3080,12 @@ def started_nightly_work(api: GitHub, target: Target, sleep: Callable[[float], N
 def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep: Callable[[float], None],
            log: Callable[[str], None], failed_only: bool = False,
            deadline: dt.datetime | None = None, refused: bool | None = None, refusal: bool = False,
-           before_cancel: Callable[[], None] | None = None) -> str:
+           before_cancel: Callable[[], None] | None = None,
+           first_seen: Mapping[Any, dt.datetime] | None = None) -> str:
     """Cancel and re-run, unless the pull request has moved on. Returns what happened.
+
+    `first_seen` (the watcher's: job id -> when it first saw the job queued) dates a job's wait for the open-head
+    failover (unstarted_failover()) when GitHub's job record has no created_at.
 
     `before_cancel` runs right before the cancel is sent and before every re-send of it (GitHub.cancel()), and
     raises to leave the run alone (rescue_stalled_signing()).
@@ -3094,7 +3139,7 @@ def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep
         # pull_moved() just read the pull request open at this head. Run 40398277457 (PR #25446)
         # attempt 1 was cancelled here and re-run in-process; nothing automatic cancels such a run now,
         # except the stall-aware failover where nothing is lost (unstarted_failover()).
-        failover = unstarted_failover(api, target, now=now, sleep=sleep, log=log)
+        failover = unstarted_failover(api, target, now=now, sleep=sleep, log=log, first_seen=first_seen)
         if not failover:
             return f"not rescued: PR #{target.pr_number} is open at the run's head; {OPEN_HEAD_RULE}"
         log(f"{OPEN_HEAD_FAILOVER}: {failover}; cancelling run {target.run_id} to re-run every job at its head")
@@ -3149,7 +3194,10 @@ def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep
                                   keep_main=keep_main)
     except Exception:
         # An error ends this rescue for good (gave_up()); the run's attempt is as GitHub has it, not a stopped job's.
-        settled_here(api, target, log)
+        # An open-head failover's cancel is a pull request's run at its head: leave CANCEL_SENT unsettled, so a
+        # successor finishes the re-run (rerun_intended()) instead of leaving the run cancelled.
+        if not failover:
+            settled_here(api, target, log)
         raise
     # Not on a KeyboardInterrupt or SystemExit (GitHub cancelling the rescue job, its timeout): that job stopped here,
     # and CANCEL_SENT alone tells its successor so.
@@ -3474,7 +3522,7 @@ def follow(client: GitHub, target: Target, *, seconds: int, queue_rounds: str | 
     # The stall-aware failover (unstarted_failover()) moves even a refusals-only attempt: its label runs nothing, so
     # the attempt is not waiting its turn in a queue, and a re-run places it again with the routes checked afresh.
     failover_now = bool(target.refusals_only and outcome == "rescue" and target.pr_number
-                        and unstarted_failover(client, target, now=clock, sleep=sleep, log=log))
+                        and unstarted_failover(client, target, now=clock, sleep=sleep, log=log, first_seen=seen))
     if target.refusals_only and outcome == "rescue" and not failover_now:
         # A refusals-only cmux-next attempt deliberately stays on its owned
         # label while it waits for the hook to refuse the job. A queue alarm
@@ -3538,7 +3586,7 @@ def follow(client: GitHub, target: Target, *, seconds: int, queue_rounds: str | 
         result = rescue(client, target, now=clock, sleep=rescue_sleep, log=log, failed_only=failed_only,
                         deadline=rescue_deadline,
                         refused=(outcome == "refused") if target.e2e or target.side else None,
-                        refusal=outcome == "refused")
+                        refusal=outcome == "refused", first_seen=seen)
         log(result)
         if result.startswith(NIGHTLY_BUSY):
             # A sibling started after the look: watch on, as before, until nothing else runs or the watch ends.

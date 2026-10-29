@@ -849,13 +849,17 @@ def pool_load_snapshot(
             # A lane label (session, fast, dev, nightly) is no owned pool to the pickers, but its own queue: the
             # placements and the rescue read whether it runs anything (run 40887257098's daemon test waited
             # 3 h 20 min on glaeda-session-std-xcode-26.6 with no runner online, unseen here).
-            lane = lane_label(job) if not is_macos_job(job) else None
-            if not is_macos_job(job) and not lane:
+            lane = lane_label(job)
+            macos = is_macos_job(job)
+            if not macos and not lane:
                 continue
             status = job.get("status")
             if status not in POOL_QUEUED_JOB_STATUSES and status not in RUNNING_JOB_STATUSES:
                 continue
-            for pool in ((lane,) if lane else (*counted_pools(runner_pool(job)), *capabilities(job))):
+            # A lane job counts on its lane label whatever else it asked for (`macOS`, `self-hosted`), and on its
+            # macOS pool as before.
+            counted = (*counted_pools(runner_pool(job)), *capabilities(job)) if macos else ()
+            for pool in dict.fromkeys(((lane,) if lane else ()) + counted):
                 entry = pools.setdefault(pool, {"queued": 0, "running": 0, "reserved_queued": 0,
                                                 "oldest_queued_minutes": 0})
                 if status in RUNNING_JOB_STATUSES:

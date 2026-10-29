@@ -5650,7 +5650,10 @@ class OpenHeadUnstartedFailover(unittest.TestCase):
         """Run 40887257098's shape: Linux gates done, the daemon test queued on the session label."""
         done = job("cmux-next macOS placement", status="completed", labels=["blacksmith-4vcpu-ubuntu-2404"],
                    runner="bs-linux")
-        return [done, job("cmux-next daemon tests", labels=[SESSION], created=-240)]
+        done["conclusion"] = "success"
+        skipped = job("cmux-next Swift canary", status="completed", labels=[SESSION])
+        skipped["conclusion"] = "skipped"
+        return [done, skipped, job("cmux-next daemon tests", labels=[SESSION], created=-240)]
 
     def run_rescue(self, api, clock, target, failed_only=True):
         lines = []
@@ -5690,7 +5693,14 @@ class OpenHeadUnstartedFailover(unittest.TestCase):
         def linux_running(seconds):
             return [*self.gates(seconds), job("cmux-next checks", labels=["blacksmith-16vcpu-ubuntu-2404"],
                                               status="in_progress", runner="bs")]
-        for jobs in (running, carried, linux_running):
+
+        def linux_finished(seconds):
+            # A finished Linux job that is no placement (a check, a build) is a result a full re-run would discard.
+            done = job("cmux-next fast tier (cargo)", labels=["blacksmith-32vcpu-ubuntu-2404"], status="completed",
+                       runner="bs")
+            done["conclusion"] = "success"
+            return [*self.gates(seconds), done]
+        for jobs in (running, carried, linux_running, linux_finished):
             with self.subTest(jobs=jobs.__name__):
                 clock, api, target = self.world(jobs)
                 result, _ = self.run_rescue(api, clock, target)
@@ -5718,6 +5728,62 @@ class OpenHeadUnstartedFailover(unittest.TestCase):
         result, _ = self.run_rescue(api, clock, target)
         assert_left_at_open_head(self, api, result, number=26999)
         self.assertIn("started before the cancel", result)
+
+    def test_a_cancel_never_hits_a_newer_attempt(self):
+        # Review of #27521: another watch re-ran the run between the look and the cancel; the cancel would hit
+        # the newer attempt's jobs.
+        clock, api, target = self.world(self.gates)
+        reads = {"n": 0}
+        real_run = api.run
+
+        def run(run_id):
+            reads["n"] += 1
+            found = real_run(run_id)
+            if reads["n"] >= 2:  # rescue()'s own read first, then the guard's
+                found = {**found, "run_attempt": 2}
+            return found
+        api.run = run
+        result, _ = self.run_rescue(api, clock, target)
+        self.assertNotIn("cancel", api.calls)
+        self.assertIn("attempt 2, not 1", result)
+
+    def test_a_job_without_created_at_is_dated_by_when_a_watch_saw_it(self):
+        def undated(seconds):
+            queued = job("cmux-next daemon tests", labels=[SESSION])
+            queued.pop("created_at")
+            queued["id"] = 77
+            return [queued]
+        clock, api, target = self.world(undated)
+        result = rescue.unstarted_failover(api, target, now=clock.now, sleep=clock.sleep, log=lambda _: None,
+                                           first_seen={77: START - dt.timedelta(minutes=5)})
+        self.assertIn("has waited 5 min", result)
+        self.assertEqual(clock.seconds, 0, "no sleep: the watcher saw it queued 5 minutes ago")
+        clock, api, target = self.world(undated)
+        result = rescue.unstarted_failover(api, target, now=clock.now, sleep=clock.sleep, log=lambda _: None)
+        self.assertTrue(result, "unseen before: this look dates it, and the second look finds it past the floor")
+        self.assertEqual(clock.seconds, rescue.UNSTARTED_STALL_SECONDS)
+
+    def test_a_listing_that_may_be_cut_short_proves_nothing(self):
+        def many(seconds):
+            return [job(f"shard {index}", labels=[SESSION], created=-240)
+                    for index in range(rescue.MAX_JOB_PAGES * 100)]
+        clock, api, target = self.world(many)
+        self.assertEqual(rescue.unstarted_failover(api, target, now=clock.now, sleep=clock.sleep,
+                                                   log=lambda _: None), "")
+
+    def test_a_failed_rerun_leaves_the_cancel_for_a_successor(self):
+        clock, api, target = self.world(self.gates)
+
+        def broken(run_id, next_attempt):
+            raise rescue.urllib.error.URLError("rerun refused")
+        api.rerun = broken
+        lines = []
+        with self.assertRaises(Exception):
+            rescue.rescue(api, target, now=clock.now, sleep=clock.sleep, log=lines.append, failed_only=True)
+        self.assertIn("cancel", api.calls)
+        self.assertTrue(any(line.startswith(rescue.CANCEL_SENT) for line in lines), lines)
+        self.assertFalse(any(line.startswith(rescue.CANCEL_SETTLED) for line in lines), lines)
+        self.assertNotIn((RUN_ID, 1), rescue.SETTLED_HERE)
 
     def test_nightly_dev_and_dispatch_targets_never_fail_over(self):
         for extra in ({"path": DEV_DAILY}, {"path": rescue.NIGHTLY_WORKFLOW_PATH, "nightly": True},
@@ -5750,6 +5816,12 @@ class OpenHeadUnstartedFailover(unittest.TestCase):
         self.assertEqual(snapshot["pools"][SESSION]["running"], 0)
         self.assertEqual(snapshot["pools"][SESSION]["oldest_queued_minutes"], 10)
         self.assertEqual(snapshot["running"], {}, "lane jobs add no owned runner to the warm map")
+        # Review of #27521: a running lane job that also asked for `macOS` still counts on its lane.
+        busy = job("cmux-next daemon tests", labels=["self-hosted", "macOS", SESSION], status="in_progress",
+                   created=0, runner="mini-10")
+        snapshot = janitor.pool_load_snapshot([run], {9: [queued, busy]}, now=now)
+        self.assertEqual(snapshot["pools"][SESSION]["running"], 1)
+        self.assertEqual(snapshot["pools"][SESSION]["queued"], 1)
 
 
 class Budget(unittest.TestCase):
