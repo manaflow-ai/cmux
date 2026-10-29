@@ -48,14 +48,15 @@ struct PasswordManagerRouteTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let launcher = DaemonLauncher(
             configuration: .init(binary: binary, session: "cn-pwroute-\(UUID().uuidString.prefix(8).lowercased())",
-                                 stateDirectory: root.appendingPathComponent("state")),
+                                 stateDirectory: root.appendingPathComponent("state"), exitWithProcess: ProcessInfo.processInfo.processIdentifier),
             environment: { ["HOME": home, "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "SHELL": "/bin/sh", "TERM": "xterm-256color"] })
+        let owner = AppTestDaemonOwner(launcher)
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]), agentPaneEnvironment: agentPaneEnvironment)
         AppActions.bind(services)
         services.windows.ordersWindowsIn = false
         services.daemon.start {
-            DaemonConnection(configuration: DaemonConnection.Configuration(terminalEnvironment: nil), endpointProvider: launcher.endpointProvider)
+            DaemonConnection(configuration: DaemonConnection.Configuration(terminalEnvironment: nil), endpointProvider: owner.endpointProvider)
         }
         services.windows.restoreWhenLoaded()
         // Registered before restore can suspend or fail, including before the test body starts.
@@ -77,13 +78,7 @@ struct PasswordManagerRouteTests {
             try await until({ !services.windows.registry.isLaunching }, within: .seconds(30))
             result = .success(try await body(services, try #require(services.daemon.connection)))
         } catch { result = .failure(error) }
-        // Stop the app's connection first: on the daemon's EOF it would start a
-        // fresh daemon that outlives the test. The shutdown uses its own socket.
-        if let connection = services.daemon.connection {
-            services.daemon.shutdownConnection()
-            await connection.close()
-            _ = try? await connection.shutdownDaemon(endTerminals: true)
-        }
+        await owner.stop(services)
         try result.get()
     }
 }

@@ -23,8 +23,9 @@ struct FreshLaunchSidebarTests {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("cn-fresh-\(UUID().uuidString.prefix(8))")
         let session = "cn-fresh-\(UUID().uuidString.prefix(8).lowercased())"
         let launcher = DaemonLauncher(
-            configuration: .init(binary: binary, session: session, stateDirectory: root.appendingPathComponent("state")),
+            configuration: .init(binary: binary, session: session, stateDirectory: root.appendingPathComponent("state"), exitWithProcess: ProcessInfo.processInfo.processIdentifier),
             environment: { ["HOME": NSHomeDirectory(), "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "SHELL": "/bin/sh", "TERM": "xterm-256color"] })
+        let owner = AppTestDaemonOwner(launcher)
         _ = NSApplication.shared
         let reveal = LaunchReveal(deadline: .seconds(60))
         let services = AppServices(environment: AppEnvironment.current([:]), launchReveal: reveal)
@@ -35,7 +36,7 @@ struct FreshLaunchSidebarTests {
         let presented = Presented()
         services.windows.onPresent = { _ in presented.sidebarShown.append(reveal.isReady(.sidebar)) }
         services.daemon.start {
-            DaemonConnection(configuration: DaemonConnection.Configuration(terminalEnvironment: nil), endpointProvider: launcher.endpointProvider)
+            DaemonConnection(configuration: DaemonConnection.Configuration(terminalEnvironment: nil), endpointProvider: owner.endpointProvider)
         }
         services.windows.restoreWhenLoaded()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -44,12 +45,12 @@ struct FreshLaunchSidebarTests {
             try? await Task.sleep(for: .milliseconds(20))
         }
 
-        if let connection = services.daemon.connection, let identity = services.daemon.identity {
-            _ = try? await connection.request(ShutdownDaemonRequest(pid: identity.pid, generation: identity.generation, endTerminals: true),
-                                              timeout: .seconds(10))
-        }
-        services.daemon.shutdownConnection()
+        await owner.stop(services)
         for controller in services.windows.controllers { controller.window?.close() }
+        for key in Array(services.cache.browsers.keys) { services.cache.release(key) }
+        let panels = NSApp.windows.filter { services.palette.owns($0) }
+        services.palette.hide()
+        for panel in panels { panel.close() }
 
         #expect(presented.sidebarShown.first == true, "the launch window opened with its sidebar held clear: glass alone")
     }
