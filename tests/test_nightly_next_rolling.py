@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import datetime as dt
 import importlib.util
+import json
 from pathlib import Path
 import subprocess
 import sys
@@ -32,13 +33,27 @@ def at(minutes_ago: float) -> str:
     return (NOW - dt.timedelta(minutes=minutes_ago)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+LIVE = json.loads((Path(__file__).resolve().parent / "fixtures/nightly_next_live_run_jobs.json").read_text(encoding="utf-8"))
+
+
 def run(run_id: int, minutes_ago: float, status: str = "in_progress", **extra) -> dict:
-    return {"id": run_id, "status": status, "created_at": at(minutes_ago),
-            "html_url": f"https://github.com/o/r/actions/runs/{run_id}", **extra}
+    """The recorded runs API payload of a nightly-next run, re-timed."""
+    stamp = at(minutes_ago)
+    return {**LIVE["run"], "id": run_id, "status": status, "conclusion": None, "created_at": stamp,
+            "run_started_at": stamp, "html_url": f"https://github.com/o/r/actions/runs/{run_id}", **extra}
 
 
-def job(name: str, status: str, minutes_ago: float = 1.0, runner: str = "") -> dict:
-    return {"name": name, "status": status, "created_at": at(minutes_ago), "runner_name": runner or None}
+def job(name: str, status: str, minutes_ago: float = 1.0, runner: str = "", drop: tuple[str, ...] = ()) -> dict:
+    """A recorded jobs API payload (tests/fixtures/nightly_next_live_run_jobs.json), re-timed: a queued
+    job with no runner has runner_name "" and runner_id 0, as GitHub sends it."""
+    base = LIVE["jobs"]["queued_deltas" if not runner else "mac_build_done"]
+    stamp = at(minutes_ago)
+    out = {**base, "name": name, "status": status, "created_at": stamp, "started_at": stamp,
+           "conclusion": "success" if status == "completed" else None,
+           "runner_name": runner or "", "runner_id": 1 if runner else 0}
+    for field in drop:
+        out.pop(field, None)
+    return out
 
 
 BUILDING = [job("decide", "completed", 12, "r"), job("build-nightly-app", "in_progress", 11, "mac")]
@@ -82,6 +97,14 @@ class RollingRuleTests(unittest.TestCase):
         stuck = {5: [job("decide", "completed", 30, "r"), job("build-nightly-app", "queued", 25)]}
         go, _ = decide(head_runs=[run(5, 31)], jobs=stuck, waited_minutes=5)
         self.assertTrue(go)
+
+    def test_a_queued_job_without_times_is_aged_from_its_run(self):
+        """The jobs API may omit a queued job's times; a missing time is never zero age."""
+        bare = {13: [job("decide", "queued", drop=("created_at", "started_at"))]}
+        go, _ = decide(head_runs=[run(13, 30, status="queued")], jobs=bare, waited_minutes=5)
+        self.assertTrue(go, "a 30-minute-old run whose job has no time is not building")
+        go, _ = decide(head_runs=[run(13, 3, status="queued")], jobs=bare, waited_minutes=5)
+        self.assertFalse(go, "a 3-minute-old one still is")
 
     def test_a_job_queued_briefly_still_counts_as_building(self):
         fresh = {6: [job("decide", "completed", 3, "r"), job("build-nightly-app", "queued", 2)]}

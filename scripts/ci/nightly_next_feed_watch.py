@@ -351,34 +351,44 @@ UNSTARTED_MINUTES = 10.0
 PUBLISH_JOB = "publish-nightly"
 
 
+def queued_minutes(job: dict, run: dict, now: dt.datetime) -> float:
+    """How long a queued job has waited, from the first timestamp the API gave: the job's
+    created_at, its started_at (a queued job's equals created_at), then the run's run_started_at
+    and created_at, which the runs API always supplies. With none of them the job counts as
+    waiting forever: a missing time never reads as zero, so it never keeps a stuck run active."""
+    for source, field in ((job, "created_at"), (job, "started_at"), (run, "run_started_at"), (run, "created_at")):
+        value = source.get(field)
+        if not value:
+            continue
+        try:
+            return (now - parse_time(value)).total_seconds() / 60
+        except (TypeError, ValueError):
+            continue
+    return float("inf")
+
+
 def run_is_building(run: dict, jobs: list[dict], now: dt.datetime,
                     unstarted_minutes: float = UNSTARTED_MINUTES) -> bool:
     """Whether an active run is still on its way to the feed.
 
     False for a completed run, a run whose publication job has finished, and a
     run with nothing running whose queued jobs have all waited
-    `unstarted_minutes` or more without a runner (a label that starts nothing).
-    A job `waiting` on an environment is gated, not stuck, so it keeps the run.
+    `unstarted_minutes` or more without a runner (a label that starts nothing;
+    `queued_minutes`). A job `waiting` on an environment is gated, not stuck,
+    so it keeps the run.
     """
     if run.get("status") == "completed":
         return False
     if any(job.get("name") == PUBLISH_JOB and job.get("status") == "completed" for job in jobs):
         return False
-
-    def waited(job_or_run: dict) -> float:
-        try:
-            return (now - parse_time(job_or_run.get("created_at") or "")).total_seconds() / 60
-        except (TypeError, ValueError):
-            return 0.0
-
     if not jobs:
         # No job yet (a run pending on its concurrency group, or just created).
-        return waited(run) < unstarted_minutes
+        return queued_minutes({}, run, now) < unstarted_minutes
     if any(job.get("status") in ("in_progress", "waiting") for job in jobs):
         return True
     unserved = [job for job in jobs if job.get("status") in ("queued", "pending", "requested")
                 and not job.get("runner_name")]
-    return not unserved or any(waited(job) < unstarted_minutes for job in unserved)
+    return not unserved or any(queued_minutes(job, run, now) < unstarted_minutes for job in unserved)
 
 
 def started(gh: "GitHub", run: dict, now: dt.datetime) -> bool:
