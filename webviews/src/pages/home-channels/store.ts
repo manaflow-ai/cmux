@@ -500,9 +500,10 @@ export class HomeChannelsStore {
   /** Pages older history (at most LINK_PAGES) until the timeline has FILL_TOP_LEVEL messages
    * to show or the conversation's start is in. */
   private async fillTimeline(id: string, generation: number): Promise<void> {
+    const life = this.life;
     for (let page = 0; page < LINK_PAGES; page += 1) {
       const { selected, messages, hasOlder } = this.snapshot;
-      if (generation !== this.generation || selected !== id || !hasOlder) return;
+      if (generation !== this.generation || life !== this.life || selected !== id || !hasOlder) return;
       if (messages.filter((m) => !threadOf(m)).length >= FILL_TOP_LEVEL) return;
       const before = messages[0]?.seq;
       await this.loadOlder();
@@ -516,15 +517,17 @@ export class HomeChannelsStore {
     if (!this.client || !selected || !hasOlder || loadingOlder) return;
     const before = messages[0]?.seq ?? 1;
     const generation = this.generation;
+    const life = this.life;
     this.set({ loadingOlder: true });
     try {
+      if (this.life !== life) return;
       const older = await this.client.call<HomeHistory>(HomeOps.history, {
         conversation: selected,
         beforeSeq: before,
         limit: PAGE,
       });
       // A reload since (a reconnect) may have moved the window: this page goes before the old one.
-      if (this.snapshot.selected !== selected || this.generation !== generation) return;
+      if (this.snapshot.selected !== selected || this.generation !== generation || this.life !== life) return;
       if ((this.snapshot.messages[0]?.seq ?? 1) !== before) return;
       const merged = mergeMessages(this.snapshot.messages, older.messages, this.snapshot.messages.length + PAGE);
       this.set({
