@@ -402,7 +402,7 @@ extension TerminalAttachmentStreamTests {
         // Reserve outside #require: the macro wraps its argument in a closure, which cannot call a mutating method.
         let reserved = table.reserve()
         let handle = try #require(reserved)
-        let bound = table.bind(handle, { _ in })
+        let bound = table.bind(handle, AttachStreamSink(dispatch: .control) { _ in })
         #expect(bound)
         table.announce(handle)
         #expect(table.isAnnounced(handle))
