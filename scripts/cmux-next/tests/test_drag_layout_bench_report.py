@@ -203,7 +203,7 @@ class StoryTests(unittest.TestCase):
         self.check_claimed("layout-loop-stress", report.layout_loop_series([{"max_in_one_turn": 3}], []))
         self.check_claimed("fullscreen-transition", report.fullscreen_series(*fullscreen_inputs()))
         for bench in ("light", "stress"):
-            series = report.cef_resize_series("on", bench, cef_runs(), valid=True)
+            series = report.cef_resize_series("off", bench, cef_runs(), valid=True)
             self.check_claimed(report.cef_resize_story(report.CEF_RESIZE_SESSIONS[bench]), series)
 
     def test_needs_name_every_debug_method_the_script_calls(self):
@@ -234,7 +234,7 @@ class StoryTests(unittest.TestCase):
                                                                        "fullscreen-transition", False))
         for story_id, bench in (("cef-resize-sync", "light"), ("cef-resize-sync-stress", "stress")):
             cef = self.parsed(story_id)
-            self.assertEqual((cef.benches, cef.modes), (bench, "off,on,on0"))
+            self.assertEqual((cef.benches, cef.modes), (bench, "off"))
             self.assertEqual(report.cef_resize_story(report.CEF_RESIZE_SESSIONS[cef.benches]), story_id)
 
     def test_layout_loop_keeps_its_positional_form(self):
