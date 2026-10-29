@@ -509,15 +509,27 @@ async fn a_daemon_error_named_connection_closed_never_replays() {
     }
 }
 
-#[tokio::test]
-async fn replacement_attach_and_reply_reads_share_the_prompt_deadline() {
-    for phase in ["attach", "reply"] {
-        for quiet in [false, true] {
-            let (out, _, elapsed) = restart_wire_case(phase, quiet).await;
-            assert_eq!(out.status.code(), Some(3), "{phase}: {}", text(&out));
-            assert!(elapsed < Duration::from_millis(1800), "{phase} escaped deadline: {elapsed:?}");
-        }
+async fn assert_recovery_deadline(phase: &'static str) {
+    for quiet in [false, true] {
+        let (out, _, elapsed) = restart_wire_case(phase, quiet).await;
+        assert_eq!(out.status.code(), Some(3), "{phase}: {}", text(&out));
+        assert!(elapsed < Duration::from_millis(1800), "{phase} escaped deadline: {elapsed:?}");
     }
+}
+
+#[tokio::test]
+async fn replacement_attach_shares_the_prompt_deadline() {
+    assert_recovery_deadline("attach").await;
+}
+
+#[tokio::test]
+async fn replacement_reply_reads_share_the_prompt_deadline() {
+    assert_recovery_deadline("reply").await;
+}
+
+#[tokio::test]
+async fn replacement_reply_paging_shares_the_prompt_deadline() {
+    assert_recovery_deadline("paging").await;
 }
 
 async fn restart_wire_case(phase: &'static str, quiet: bool) -> (Output, usize, Duration) {
@@ -547,8 +559,8 @@ async fn restart_wire_case(phase: &'static str, quiet: bool) -> (Output, usize, 
                     let method = msg["method"].as_str().unwrap();
                     if generation > 1
                         && ((phase == "attach" && method == "_acpmux/attach")
-                            || (phase == "reply"
-                                && matches!(method, "_acpmux/events" | "_acpmux/history")))
+                            || (phase == "reply" && method == "_acpmux/attach" && msg["params"]["limit"].as_u64().unwrap_or(0) > 0)
+                            || (phase == "paging" && method == "_acpmux/events"))
                     {
                         // Bounded so an unfixed CLI eventually exits and the red run finishes.
                         tokio::time::sleep(Duration::from_secs(3)).await;
@@ -558,6 +570,9 @@ async fn restart_wire_case(phase: &'static str, quiet: bool) -> (Output, usize, 
                         "initialize" => json!({}),
                         "_acpmux/info" => {
                             json!({"sessionId":"lane", "status":"ready", "turnCount":1})
+                        }
+                        "_acpmux/attach" if phase == "paging" && msg["params"]["limit"].as_u64().unwrap_or(0) > 0 => {
+                            json!({"events":[{"seq":100,"kind":"transcript","msg":{}}], "hasMore":true})
                         }
                         "_acpmux/attach" | "_acpmux/events" | "_acpmux/history" => {
                             json!({"events":[], "hasMore":false})
