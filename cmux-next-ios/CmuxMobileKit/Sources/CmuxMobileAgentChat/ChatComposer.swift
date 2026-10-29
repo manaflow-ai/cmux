@@ -549,10 +549,13 @@ struct ChatComposer: View {
 
 /// Messages waiting for the current turn to end, above the composer or the
 /// permission bar (so a queued message stays visible when the bar takes the
-/// composer's place). The X takes a message back into the composer.
+/// composer's place). The X takes a message back into an empty composer; with a
+/// draft there it asks first, and never replaces the draft.
 struct QueuedPromptsView: View {
     let store: AgentChatStore
     @Binding var text: String
+    /// The X on a message while the composer holds a draft: which one to confirm removing.
+    @State private var confirmingRemoval: QueuedPrompt?
     /// Edit queued prompt: which one, and its text while editing.
     @State private var editing: QueuedPrompt?
     @State private var editText = ""
@@ -596,6 +599,20 @@ struct QueuedPromptsView: View {
             Button("Save") { store.editQueued(item.id, text: editText) }
                 .disabled(editText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         }
+        // The X while a draft is in the composer: the draft stays, so the message is not
+        // put back there; it is removed only on a choice here, and can be copied first.
+        .confirmationDialog("Remove queued message?",
+                            isPresented: Binding(get: { confirmingRemoval != nil }, set: { if !$0 { confirmingRemoval = nil } }),
+                            titleVisibility: .visible, presenting: confirmingRemoval) { item in
+            Button("Copy and Remove") {
+                UIPasteboard.general.string = item.text
+                store.removeQueued(item.id)
+            }
+            Button("Remove", role: .destructive) { store.removeQueued(item.id) }
+            Button("Cancel", role: .cancel) {}
+        } message: { _ in
+            Text("Your draft stays in the composer.")
+        }
     }
 
     private func row(_ item: QueuedPrompt) -> some View {
@@ -605,7 +622,11 @@ struct QueuedPromptsView: View {
                     Text(item.text).font(.subheadline).lineLimit(1)
                     Spacer()
                     Button {
-                        if let restored = store.takeBackQueued(item.id, draft: text) { text = restored }
+                        if let restored = store.takeBackQueued(item.id, draft: text) {
+                            text = restored
+                        } else if store.queue.contains(where: { $0.id == item.id }) {
+                            confirmingRemoval = item
+                        }
                     } label: {
                         Image(systemName: "xmark").font(.footnote.weight(.semibold))
                             .frame(width: 44, height: 44)

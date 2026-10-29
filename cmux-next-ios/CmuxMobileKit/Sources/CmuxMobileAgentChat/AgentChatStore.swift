@@ -355,9 +355,12 @@ public final class AgentChatStore {
     public func removeQueued(_ id: String) { source.send(.removeQueued(promptId: id)) }
 
     /// The queued row's X: takes the prompt back into the composer, returning the text the
-    /// composer gets.
+    /// composer gets. Only an empty composer (whitespace counts as empty) takes it: a draft
+    /// there is never replaced, so the prompt stays queued and this returns nil (the row then
+    /// asks before removing it).
     public func takeBackQueued(_ id: String, draft: String) -> String? {
         guard let item = queue.first(where: { $0.id == id }) else { return nil }
+        guard draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
         removeQueued(id)
         return item.text
     }
