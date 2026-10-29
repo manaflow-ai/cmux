@@ -22,6 +22,7 @@ public final class NativePopupHost {
     public var keepsOpen: (NSEvent) -> Bool = { _ in false }
     /// The popup closed by a dismiss rule; ``hide()`` does not call it.
     public var onDismiss: (() -> Void)?
+    private(set) var dismissalReason = "outside"
     /// A nested popup temporarily owns the keys; ancestor panels remain open.
     var keepsOpenOnKeyLoss: () -> Bool = { false }
     /// The control the popup opened from (screen), which it grows from and shrinks toward.
@@ -120,8 +121,9 @@ public final class NativePopupHost {
     }
 
     /// Closes the popup by a dismiss rule: ``hide()``, then ``onDismiss``.
-    public func dismiss() {
+    public func dismiss(reason: String = "outside") {
         guard isShown else { return unwatch() }
+        dismissalReason = reason
         hide()
         onDismiss?()
     }
@@ -150,7 +152,7 @@ public final class NativePopupHost {
             // The input method owns Escape while cancelling marked text. Closing the popup
             // here would discard the composition before the editor sees the key.
             if let editor = self.panel.firstResponder as? NSTextView, editor.hasMarkedText() { return event }
-            self.dismiss()
+            self.dismiss(reason: "escape")
             return nil
         }
         monitors = [clicks, escape].compactMap { $0 }

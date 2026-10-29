@@ -20,7 +20,7 @@ export interface NativePopupOptions {
   model: NativePopupDescription;
   anchor: () => AnchorBox | null;
   onEvent(event: NativePopupEvent): void;
-  onDismiss(): void;
+  onDismiss(reason?: string): void;
 }
 
 /** Native owns focus, keyboard, rendering and dismiss; callbacks only update domain state. */
@@ -38,7 +38,7 @@ export function useNativePopup(options: NativePopupOptions): { available: boolea
     const revisionAtMount = revision;
     const stop = transport.listen((event) => {
       if (event.popupId !== id || event.revision !== revision.current) return;
-      if (event.type === "dismiss") latest.current.onDismiss();
+      if (event.type === "dismiss") latest.current.onDismiss(event.reason);
       else latest.current.onEvent(event);
     });
     return () => {

@@ -38,7 +38,11 @@ final class DeclarativePopupHost {
         surface = Glass.makeOverlayPanel(content: scroll, cornerRadius: PopupStyle.standard.cornerRadius)
         surface.samplesBehindWindow = true
         panel.adoptPopupStyle(card: surface)
-        popup.onDismiss = { [weak self] in self?.dismiss(reason: "outside") }
+        popup.onDismiss = { [weak self] in
+            guard let self else { return }
+            if popup.dismissalReason == "escape" { dismiss(reason: "escape") }
+            else { root.dismiss(reason: popup.dismissalReason) }
+        }
         // A child assigns its model before taking the keys. Preserve the ancestor through
         // that synchronous key transfer, while outside-click and deactivation rules stay live.
         popup.keepsOpenOnKeyLoss = { [weak self] in self?.child?.activeID != nil }
@@ -103,7 +107,10 @@ final class DeclarativePopupHost {
     func update(_ next: NativePopupModel) {
         guard let current = model, current.id == next.id, next.revision > current.revision, popup.isShown else { return }
         _ = show(next, screenAnchor: parent == nil ? nil : shownAnchor, in: shownParent)
-        if let child, let childRowID, let row = Self.enabledRows((next.rail ?? []) + next.rows + (next.footer ?? [])).first(where: { $0.id == childRowID && $0.kind == .submenu }), let rows = row.children, !rows.isEmpty {
+        let enabled = Self.enabledRows((next.rail ?? []) + next.rows + (next.footer ?? []))
+        if let child, let childRowID,
+           let row = enabled.first(where: { $0.id == childRowID && $0.kind == .submenu }),
+           let rows = row.children, !rows.isEmpty {
             var submenu = next
             submenu.rows = rows
             submenu.rail = nil
