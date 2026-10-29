@@ -202,6 +202,8 @@ while True:
         answer = {"code": 0, "record": {"bytes": os.path.getsize(request["dest"]), "seconds": 0.1, "wait_seconds": 0}}
     elif mode == "miss":
         answer = {"code": 3, "record": {"reason": "not in the bucket"}}
+    elif mode == "old":
+        answer = {"code": 1, "record": {"tool": "glaeda-lan-fetch", "error": "bad request"}}
     else:
         answer = {"code": 1, "record": {"error": "host down"}}
     conn.sendall((json.dumps(answer) + "\n").encode()); conn.close()
@@ -232,6 +234,15 @@ grep -q '"verb": "cache"' "$WORK/lan-log" && grep -q "\"file\": \"$lan_object\""
 echo down > "$WORK/lan-src/mode"; rm -rf "$WORK/dst"
 out="$(PATH="$lan_shim:$PATH" output_of restore "$WORK/dst" lan-one)"
 [[ "$out" == *"cache-hit=true"* && "$(cat "$WORK/dst/f.txt")" == lan ]] || fail "a down LAN host must fall back to the bucket, got: $out"
+# A broker without the cache verb (an older glaeda) falls through to the bucket and warns, once per job.
+echo old > "$WORK/lan-src/mode"; rm -rf "$WORK/dst"; warn_tmp="$(mktemp -d "$WORK/rt.XXXXXX")"
+out="$(RUNNER_TEMP="$warn_tmp" PATH="$lan_shim:$PATH" output_of restore "$WORK/dst" lan-one)"
+[[ "$out" == *"cache-hit=true"* && "$(cat "$WORK/dst/f.txt")" == lan ]] || fail "an old broker must fall back to the bucket, got: $out"
+grep -q '^::warning title=LAN cache unused::' "$WORK/log" || fail "an old broker must warn, log: $(cat "$WORK/log")"
+rm -rf "$WORK/dst"
+out="$(RUNNER_TEMP="$warn_tmp" PATH="$lan_shim:$PATH" output_of restore "$WORK/dst" lan-one)"
+[[ "$out" == *"cache-hit=true"* ]] || fail "a second old-broker restore must still hit the bucket, got: $out"
+grep -q '::warning' "$WORK/log" && fail "the old-broker warning must show once per job, log: $(cat "$WORK/log")"
 echo miss > "$WORK/lan-src/mode"; rm -rf "$WORK/dst"
 out="$(PATH="$lan_shim:$PATH" output_of restore "$WORK/dst" lan-one)"
 [[ "$out" == "cache-hit=false" ]] || fail "the LAN host's miss is the bucket's miss, got: $out"

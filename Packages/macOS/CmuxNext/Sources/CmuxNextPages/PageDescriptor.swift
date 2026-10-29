@@ -171,7 +171,7 @@ public extension PageDescriptor {
                   // Machines > Add Device… opens the one Add Device card (add-device-DESIGN.md).
                   "device.add",
                   // Agents > Computer Use card (ComputerUseSetup).
-                  "palette.computerUse.setup", "palette.computerUse.accessibility", "palette.computerUse.screenRecording",
+                  "palette.computerUse.setup", "palette.computerUse.accessibility", "palette.computerUse.screenRecording", "palette.computerUse.restart",
                   // Settings › Import's cards (CmuxNextImportCards): a card's button, and Import from Browser.
                   "import.card", "importFromBrowser"])
             .union(settingsSectionActions),

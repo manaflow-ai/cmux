@@ -278,7 +278,14 @@ export type IPhoneHostState = {
 };
 
 /** `ComputerUseSetup.Phase` in the app. */
-export type ComputerUsePhase = "disabled_by_policy" | "off" | "unavailable" | "starting" | "ready" | "version_mismatch";
+export type ComputerUsePhase =
+  | "disabled_by_policy"
+  | "off"
+  | "unavailable"
+  | "starting"
+  | "failed"
+  | "ready"
+  | "version_mismatch";
 
 /** A web update the app keeps: its commit and when that commit landed (unix seconds). */
 export type WebUpdateVersion = { commit: string; committed_at: number };
@@ -525,6 +532,34 @@ export type HarnessesRun = {
   /** With `refresh`: the daemon checks every harness again (after an update). */
   recheck?: boolean;
 };
+
+/** Settings > Accounts > Cloud Environments (`cmux.settings.environments.state`,
+ * plans/cmux-next/cloud-environments-DESIGN.md): the team's environments on the cmux-next Cloud path.
+ * `status` is CloudDO's; the page localizes it. `error` texts come from the host. */
+export type CloudEnvironmentStatus = "unbuilt" | "building" | "ready" | "stale" | "failed";
+export type CloudEnvironmentRow = {
+  id: string;
+  name: string;
+  repo: string | null;
+  setup_script: string;
+  status: CloudEnvironmentStatus | string;
+  /** The last failed build's message and its log tail; null otherwise. */
+  error: string | null;
+  log_tail: string | null;
+};
+export type CloudEnvironmentsState = {
+  /** False on the classic Cloud path or while signed out: the card explains instead of listing. */
+  available: boolean;
+  loading: boolean;
+  environments: CloudEnvironmentRow[];
+  error: string | null;
+};
+/** One Cloud Environments gesture: Refresh, Save (create, or edit with `id`), Build, Delete. */
+export type CloudEnvironmentsRun =
+  | { action: "refresh" }
+  | { action: "save"; id?: string; name: string; repo?: string; setup_script?: string }
+  | { action: "build"; id: string }
+  | { action: "delete"; id: string };
 
 /** Settings > Devices (`cmux.settings.devices.state`): this Mac and the person's other devices on
  * the device hub, Mac Screen access to this Mac, relays and the access history. The host sends
@@ -832,6 +867,10 @@ export type SettingsOps = {
   "cmux.settings.harnesses.state": [Record<string, never>, HarnessesState];
   /** Native: one Harnesses gesture (a terminal tab for sign-in, or a refresh). */
   "cmux.settings.harnesses.run": [HarnessesRun, unknown];
+  /** Native: Settings > Accounts > Cloud Environments (CloudDO through the Cloud app server). */
+  "cmux.settings.environments.state": [Record<string, never>, CloudEnvironmentsState];
+  /** Native: one Cloud Environments gesture; Build and Delete ask natively first; a failure answers `error`. */
+  "cmux.settings.environments.run": [CloudEnvironmentsRun, { error?: string | null }];
   /** Native: Settings > Devices; rejects with `cmux.page.unavailable` when the host has no device hub. */
   "cmux.settings.devices.state": [Record<string, never>, DevicesState];
   /** Native: one Devices gesture; a failure answers its localized text in `error`. */
@@ -991,6 +1030,7 @@ export const settingsPageActions = [
   "browserProfile.clearBrowsingData",
   "reloadConfiguration",
   "palette.computerUse.setup",
+  "palette.computerUse.restart",
   "palette.computerUse.accessibility",
   "palette.computerUse.screenRecording",
   "import.card",

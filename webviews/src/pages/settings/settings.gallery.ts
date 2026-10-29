@@ -790,6 +790,17 @@ Object.assign(variants, {
     steps: [wait('[data-card="computer-use"]'), focusComputerUse],
     note: "Computer Use off: both grants Unknown, the card says to turn it on.",
   }),
+  "computer-use-failed": variant("agents", {
+    host: { ...host, computer_use: { phase: "failed", accessibility: null, screen_recording: null, helper: null } },
+    steps: [
+      wait('[data-card="computer-use"]'),
+      {
+        selector: '[data-card="computer-use"] [data-action="palette.computerUse.restart"]',
+        action: "focus",
+      },
+    ],
+    note: "The helper did not respond. Restart Helper is the only action.",
+  }),
   "computer-use-granted": variant("agents", {
     host: {
       ...host,

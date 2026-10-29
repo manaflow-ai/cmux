@@ -1,0 +1,11 @@
+{
+  "name": "@cmux/voice-room",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "bun src/server.ts",
+    "share": "bun src/server.ts --share",
+    "test": "bun test"
+  }
+}
