@@ -128,6 +128,51 @@ final class WatchReply: @unchecked Sendable {
         }
     }
 
+    @Test(arguments: ["initialize", "_acpmux/watch"])
+    func unansweredHandshakeTimesOutAndCanRetry(method: String) async throws {
+        let link = MockMacLink { _, data in
+            guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let called = object["method"] as? String else { return [] }
+            if called == method { return [] }
+            let id = object["id"].map { "\($0)" } ?? "null"
+            return [Data(#"{"jsonrpc":"2.0","id":\#(id),"result":{}}"#.utf8)]
+        }
+        let hub = AcpmuxHub()
+        await hub.bind(try await link.openChannel(service: "acpmux", args: [:]), requestTimeout: .milliseconds(20))
+        #expect(!hub.isReady)
+        #expect(hub.lastError?.contains(method) == true)
+        await hub.bind(try await Self.mac(WatchReply(Self.idle)).openChannel(service: "acpmux", args: [:]))
+        #expect(hub.isReady)
+        #expect(hub.lastError == nil)
+        await hub.bind(nil)
+    }
+
+    @Test(arguments: ["initialize", "_acpmux/watch"])
+    func cancellingUnansweredHandshakeReleasesTheRequest(method: String) async throws {
+        let (requests, sent) = AsyncStream<Void>.makeStream()
+        let link = MockMacLink { _, data in
+            guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let called = object["method"] as? String else { return [] }
+            if called == method {
+                sent.yield(())
+                return []
+            }
+            let id = object["id"].map { "\($0)" } ?? "null"
+            return [Data(#"{"jsonrpc":"2.0","id":\#(id),"result":{}}"#.utf8)]
+        }
+        let hub = AcpmuxHub()
+        let channel = try await link.openChannel(service: "acpmux", args: [:])
+        let task = Task { @MainActor in await hub.bind(channel, requestTimeout: .seconds(60)) }
+        for await _ in requests { break }
+        let start = ContinuousClock.now
+        task.cancel()
+        await task.value
+        sent.finish()
+        #expect(start.duration(to: .now) < .seconds(2))
+        #expect(!hub.isReady)
+        #expect(hub.lastError != nil)
+    }
+
     @Test func answersWithNoMacAreNotAppliedLocally() throws {
         let request = ACPPermissionRequest(id: "p", toolCall: .init(id: "c", title: "rm", kind: .execute),
                                            options: [ACPPermissionOption(id: "allow", name: "Allow", kind: .allowOnce)])

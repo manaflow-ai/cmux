@@ -41,6 +41,7 @@ public actor AcpmuxConnection {
     }
 
     public func request(_ method: String, _ params: JSONValue = .object([:])) async throws -> JSONValue {
+        try Task.checkCancellation()
         if let terminalError { throw terminalError }
         start()
         let id = nextID
@@ -48,11 +49,19 @@ public actor AcpmuxConnection {
         let message: JSONValue = .object(["jsonrpc": .string("2.0"), "id": .number(Double(id)), "method": .string(method), "params": params])
         let data = try JSONEncoder().encode(message)
         rpcLog.debug("-> \(id) \(method, privacy: .public) \(data.count) bytes")
-        return try await withCheckedThrowingContinuation { continuation in
-            pending[id] = continuation
-            Task {
-                do { try await channel.send(data) } catch { self.fail(id, error) }
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                guard !Task.isCancelled else {
+                    continuation.resume(throwing: CancellationError())
+                    return
+                }
+                pending[id] = continuation
+                Task {
+                    do { try await channel.send(data) } catch { self.fail(id, error) }
+                }
             }
+        } onCancel: {
+            Task { await self.fail(id, CancellationError()) }
         }
     }
 

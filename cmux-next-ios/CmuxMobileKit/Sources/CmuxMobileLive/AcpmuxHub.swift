@@ -89,7 +89,7 @@ public final class AcpmuxHub {
     public init() {}
 
     /// Binds a new `acpmux` channel (nil unbinds after a link drop).
-    public func bind(_ channel: (any LinkChannel)?) async {
+    public func bind(_ channel: (any LinkChannel)?, requestTimeout: Duration = .seconds(20)) async {
         pumpTask?.cancel()
         if let old = connection { Task { await old.close() } }
         connection = nil
@@ -111,7 +111,7 @@ public final class AcpmuxHub {
             self.connection = nil
             self.isReady = false
             self.fullAccess = false
-            self.lastError = "acpmux channel closed"
+            self.lastError = self.lastError ?? "acpmux channel closed"
             for entry in self.sources.values { entry.source?.linkDown() }
         }
         do {
@@ -119,10 +119,10 @@ public final class AcpmuxHub {
                 "protocolVersion": .number(1),
                 "clientInfo": .object(["name": .string("cmux-ios"), "version": .string("1")]),
                 "clientCapabilities": .object([:]),
-            ]))
+            ]), timeout: requestTimeout)
             personInstance = initialized["_meta"]?["acpmux"]?["personInstance"]?.stringValue
             fullAccess = initialized["_meta"]?["acpmux"]?["fullAccess"] == .bool(true)
-            let watched = try await connection.request("_acpmux/watch", .object(["enabled": .bool(true)]))
+            let watched = try await connection.request("_acpmux/watch", .object(["enabled": .bool(true)]), timeout: requestTimeout)
             guard !(await connection.isClosed), self.connection === connection else { return }
             var next: [String: AcpmuxSession] = [:]
             for value in watched["sessions"]?.arrayValue ?? [] {
@@ -137,10 +137,15 @@ public final class AcpmuxHub {
             log.info("acpmux ready, \(next.count, privacy: .public) sessions")
             for entry in sources.values { entry.source?.linkUp() }
             onWatchEvent?(.sessionsLoaded(Array(next.values)))
-            await seedPending(connection)
+            await seedPending(connection, requestTimeout: requestTimeout)
+            try Task.checkCancellation()
         } catch {
             guard self.connection === connection else { return }
+            self.connection = nil
+            isReady = false
+            fullAccess = false
             lastError = LinkController.reason(error)
+            await connection.close()
             log.error("acpmux bind failed: \(String(describing: error), privacy: .public)")
         }
     }
@@ -148,14 +153,15 @@ public final class AcpmuxHub {
     /// Asks that were already open before this connection watched: acpmux
     /// notifies `permission_pending` only for new ones, so read each waiting
     /// session's permission records and report those with no decision.
-    private func seedPending(_ connection: AcpmuxConnection) async {
+    private func seedPending(_ connection: AcpmuxConnection, requestTimeout: Duration) async {
         for session in sessions.values where session.pendingPermissions > 0 {
+            guard !Task.isCancelled, self.connection === connection else { return }
             guard let page = try? await connection.request("_acpmux/events", .object([
                 "sessionId": .string(session.id),
                 "beforeSeq": .number(Double(session.lastSeq + 1)),
                 "limit": .number(200),
                 "kinds": .array([.string("permission_request"), .string("permission_decision")]),
-            ])) else { continue }
+            ]), timeout: requestTimeout) else { continue }
             let records = page["events"]?.arrayValue ?? []
             let decided = Set(records.compactMap { record -> String? in
                 record["kind"]?.stringValue == "permission_decision" ? record["msg"]?["permissionId"]?.stringValue : nil
