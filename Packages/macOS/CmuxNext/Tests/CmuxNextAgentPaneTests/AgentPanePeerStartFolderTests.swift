@@ -29,6 +29,15 @@ struct AgentPanePeerStartFolderTests {
         ((try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any])?["params"] as? [String: Any]
     }
 
+    static func trust(id: Int = 9, cwd: Any, peer: String? = "devbox", level: String? = nil) throws -> String {
+        var params: [String: Any] = ["cwd": cwd]
+        if let peer { params["peer"] = peer }
+        if let level { params["level"] = level }
+        let method = level == nil ? "acp.trust.get" : "acp.trust.set"
+        let frame: [String: Any] = ["jsonrpc": "2.0", "id": id, "method": method, "params": params]
+        return String(decoding: try JSONSerialization.data(withJSONObject: frame, options: [.withoutEscapingSlashes]), as: UTF8.self)
+    }
+
     /// A folder on this Mac, removed by the caller.
     static func macFolder(_ name: String) throws -> String {
         let folder = FileManager.default.temporaryDirectory.resolvingSymlinksInPath()
@@ -109,6 +118,62 @@ struct AgentPanePeerStartFolderTests {
             return
         }
         #expect(nested.error == .pathInvalid)
+    }
+
+    @Test func peerTrustChecksOnlyShapeAndLocalTrustStillCanonicalizes() throws {
+        let scope = AcpmuxPathPolicy.Scope(roots: [])
+        let peer = try Self.trust(cwd: Self.peerOnly)
+        guard case .success(let checked) = AcpmuxPathPolicy.checkNow(peer, scope: scope) else {
+            Issue.record("a valid peer trust folder was refused")
+            return
+        }
+        #expect(Self.params(checked.text)?["cwd"] as? String == Self.peerOnly)
+        #expect(Self.params(checked.text)?["peer"] as? String == "devbox")
+
+        for cwd in ["", "relative/project", "~/project", "/a\u{0}b",
+                    "/" + String(repeating: "x", count: AcpmuxPathPolicy.peerFolderMaxBytes)] {
+            guard case .failure(let refusal) = AcpmuxPathPolicy.checkNow(try Self.trust(cwd: cwd), scope: scope) else {
+                Issue.record("malformed peer trust cwd passed: \(cwd.prefix(30))")
+                continue
+            }
+            #expect(refusal.error == .pathInvalid)
+        }
+
+        let localFolder = try Self.macFolder("trust-local")
+        defer { try? FileManager.default.removeItem(atPath: localFolder) }
+        guard case .success(let local) = AcpmuxPathPolicy.checkNow(try Self.trust(cwd: localFolder, peer: nil),
+                                                                    scope: AcpmuxPathPolicy.Scope(roots: [localFolder])) else {
+            Issue.record("a local trust folder was refused")
+            return
+        }
+        #expect(Self.params(local.text)?["cwd"] as? String == localFolder)
+    }
+
+    @Test(.timeLimit(.minutes(1))) func trustingAPeerFolderStillNeedsAFreshGesture() async throws {
+        let server = AcpmuxStandInServer()
+        try await server.start()
+        defer { server.stop() }
+        let transport = AgentPaneTransport()
+        let id = try await transport.open(AcpmuxConnection(url: server.url, dashboardToken: "t", localAppToken: nil))
+        defer { transport.close(connection: id) }
+        #expect(await transport.send(connection: id, frames: [#"{"jsonrpc":"2.0","id":0,"method":"initialize","params":{}}"#]) == nil)
+        let refusal = await transport.send(connection: id, frames: [try Self.trust(cwd: Self.peerOnly, level: "trusted")])
+        #expect(refusal == .gestureRequired, "peer trust set bypassed the fresh gesture rule")
+        #expect(server.peers.first?.frames.contains { $0.contains("acp.trust.set") } != true,
+                "a refused peer trust set reached acpmux")
+
+        // The person's fresh Trust click forwards exactly the peer path and owner, without
+        // turning that remote folder into a root of this Mac's pane.
+        transport.gestures.record(click: true)
+        #expect(await transport.send(connection: id, frames: [try Self.trust(id: 10, cwd: Self.peerOnly, level: "trusted")]) == nil)
+        let forwarded = try #require(server.peers.first?.frames.last(where: { $0.contains("acp.trust.set") }))
+        let params = try #require(Self.params(forwarded))
+        #expect(params["cwd"] as? String == Self.peerOnly)
+        #expect(params["peer"] as? String == "devbox")
+        #expect(transport.addedRoots.isEmpty, "a peer Trust click added a local root")
+
+        // One gesture authorizes one Trust answer; a retry needs another click.
+        #expect(await transport.send(connection: id, frames: [try Self.trust(id: 11, cwd: Self.peerOnly, level: "trusted")]) == .gestureRequired)
     }
 
     @Test(.timeLimit(.minutes(1))) func theStartReachesAcpmuxWithThePeersFolder() async throws {

@@ -530,6 +530,21 @@ export function useFolderTrustAsk(
     /// Back to unknown: acpmux forgets its record where the answer was made (the repository, a
     /// parent folder, or the folder) and each agent's own level answers.
     undo: () => void save("unknown", ask?.via ?? (scope?.cwd === cwd ? scope?.via : undefined)),
+    /// The pending peer's own session/new succeeded. Retire only this visit's refusal and
+    /// refresh its answer from that peer; success never grants local trust by folder path.
+    started: useCallback(() => {
+      if (!mounted.current || !sameAuthority() || !sameVisit()) return;
+      const refused = refusedTrust.current.get(sessionId);
+      refusedTrust.current.delete(sessionId);
+      resend.current.delete(sessionId);
+      askFromRefusal.current = undefined;
+      for (const folder of [refused?.cwd, cwd])
+        if (folder) answers.current.set(folder, (answers.current.get(folder) ?? 0) + 1);
+      lastRead.current = undefined;
+      setAsk(undefined);
+      setReading(Boolean(cwd));
+      setReads((count) => count + 1);
+    }, [sessionId, cwd, sameAuthority, sameVisit]),
     /// Takes a refusal from acpmux: for its folder trust it reads the folder it named again (the
     /// question shows), keeps `again` to send after Trust, and is true; any other refusal is false.
     refused: useCallback(

@@ -104,8 +104,10 @@ nonisolated extension AcpmuxPaneMethods {
         // `id`: the chat's tool row (`mcp:<server>`); `enabled`: on or off for this chat.
         "_acpmux/set_tools": (["sessionId", "id", "enabled"], []),
         "acp.session.fork": (["sessionId", "throughSeq"], []),
-        "acp.trust.get": (["cwd", "sessionId"], []),
-        "acp.trust.set": (["cwd", "level", "sessionId"], []),
+        // `peer` names the machine that owns `cwd`; its folder is checked for shape only and
+        // never canonicalized against this Mac's filesystem (the owning daemon checks it).
+        "acp.trust.get": (["cwd", "sessionId", "peer"], []),
+        "acp.trust.set": (["cwd", "level", "sessionId", "peer"], []),
         // Never `sha256`: only the relay adds it, after the native sheet's Enable.
         "_acpmux/harness_enable": (["folder", "id"], []),
         // They meet the gesture rule and the sheet; their mode field is their purpose.

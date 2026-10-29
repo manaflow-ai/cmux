@@ -1198,6 +1198,153 @@ async fn an_app_trust_answer_for_a_peers_folder_is_checked_and_recorded_by_the_p
     let _ = std::fs::remove_dir_all(&root);
 }
 
+/// A pending peer chat has no session to route by yet. Its folder trust must be read and
+/// answered on that peer, without changing the local daemon's record for the same path.
+#[tokio::test]
+async fn explicit_peer_trust_is_sessionless_and_keeps_each_machines_record_separate() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = std::fs::canonicalize(temp.path()).unwrap();
+    let local_folder = root.join("local-project");
+    let peer_folder = root.join("peer-project");
+    for path in [&local_folder, &peer_folder] {
+        std::fs::create_dir_all(path).unwrap();
+    }
+    let paths = |name: &str| acpmux::trust::Paths {
+        claude_json: root.join(name).join("claude.json"),
+        codex_config: root.join(name).join("config.toml"),
+        record: root.join(name).join("trust.json"),
+        agent_home: None,
+        cmux_worktrees: None,
+    };
+    let a = hub(config(PermissionPolicy::Ask)).await;
+    let mut cfg = config(PermissionPolicy::Ask);
+    cfg.web_roots = vec![peer_folder.to_string_lossy().into_owned()];
+    let b = hub(cfg).await;
+    a.set_trust_gate(Some(paths("a")));
+    b.set_trust_gate(Some(paths("b")));
+    let (port, peer_token) = listen_with_peer_token(b.clone(), "sessionless-trust").await;
+    let (relay, from_b) = recording_relay(port).await;
+    a.add_peer("b", &format!("ws://127.0.0.1:{relay}"), Some("tok".into()), Some(peer_token), true)
+        .await
+        .unwrap();
+    assert!(a.sessions().is_empty());
+    assert!(b.sessions().is_empty());
+    let connect = |origin| {
+        let (tx, input) = mpsc::channel(64);
+        let (output, rx) = mpsc::channel(4096);
+        tokio::spawn(acpmux::server::serve_connection_with(a.clone(), input, output, origin));
+        C { tx, rx, next: 0 }
+    };
+    let mut app = connect(acpmux::server::Origin::LocalApp);
+    let mut web = connect(acpmux::server::Origin::Web);
+    let mut forwarded_web = connect(acpmux::server::Origin::Peer);
+
+    let read = app
+        .call(method::ACP_TRUST_GET, json!({"peer": "b", "cwd": peer_folder}))
+        .await
+        .unwrap();
+    assert_eq!(read["peer"], "b", "{read}");
+    assert_eq!(read["level"], "unknown", "{read}");
+    // A missing destination path reaches B, and is rejected there without recording anything.
+    let missing = peer_folder.join("missing");
+    let error = app
+        .call(method::ACP_TRUST_SET, json!({"peer": "b", "cwd": missing, "level": "trusted"}))
+        .await
+        .unwrap_err();
+    assert!(error.starts_with("cwd is refused"), "{error}");
+    assert!(String::from_utf8_lossy(&from_b.lock().unwrap()).contains("cwd is refused"));
+    assert!(!paths("a").record.exists());
+    assert!(!paths("b").record.exists());
+
+    // Browser provenance cannot be upgraded by a peer selector or a forged app marker.
+    for caller in [&mut web, &mut forwarded_web] {
+        let reply = caller
+            .raw(
+                method::ACP_TRUST_SET,
+                json!({"peer": "b", "cwd": peer_folder, "level": "trusted",
+                       "_meta": {"acpmux": {"via": "web"}}}),
+            )
+            .await;
+        assert_eq!(reply["error"]["data"]["reason"], "trust.remote", "{reply}");
+    }
+    let forged = web
+        .raw(
+            method::ACP_TRUST_SET,
+            json!({"peer": "b", "cwd": peer_folder, "level": "trusted",
+                   "_meta": {"acpmux": {"via": "app"}}}),
+        )
+        .await;
+    assert_eq!(forged["error"]["data"]["reason"], "trust.remote", "{forged}");
+    assert!(!paths("b").record.exists());
+
+    // The destination also enforces its own roots, not the forwarding daemon's folders.
+    let outside = app
+        .call(method::ACP_TRUST_SET, json!({"peer": "b", "cwd": local_folder, "level": "trusted"}))
+        .await;
+    assert!(outside.is_err(), "{outside:?}");
+    let spelling = peer_folder.join("..").join("peer-project");
+    let set = app
+        .call(method::ACP_TRUST_SET, json!({"peer": "b", "cwd": spelling, "level": "trusted"}))
+        .await
+        .unwrap();
+    assert_eq!(set["peer"], "b", "{set}");
+    assert_eq!(set["cwd"], json!(peer_folder), "{set}");
+    assert_eq!(set["level"], "trusted", "{set}");
+    let remote = app
+        .call(method::ACP_TRUST_GET, json!({"peer": "b", "cwd": peer_folder}))
+        .await
+        .unwrap();
+    assert_eq!(remote["level"], "trusted", "{remote}");
+    let local = app.call(method::ACP_TRUST_GET, json!({"cwd": peer_folder})).await.unwrap();
+    assert_eq!(local["level"], "unknown", "peer trust leaked onto this machine: {local}");
+    assert!(!paths("a").record.exists());
+
+    // Omitting peer retains the local route, including for a different project folder.
+    app.call(method::ACP_TRUST_SET, json!({"cwd": local_folder, "level": "trusted"}))
+        .await
+        .unwrap();
+    let local = app.call(method::ACP_TRUST_GET, json!({"cwd": local_folder})).await.unwrap();
+    assert_eq!(local["level"], "trusted", "{local}");
+    let remote = app
+        .call(method::ACP_TRUST_GET, json!({"peer": "b", "cwd": local_folder}))
+        .await
+        .unwrap();
+    assert_eq!(remote["level"], "unknown", "local trust leaked onto the peer: {remote}");
+    assert!(a.sessions().is_empty(), "trust must not manufacture a routing session");
+    assert!(b.sessions().is_empty());
+}
+
+#[tokio::test]
+async fn explicit_peer_trust_rejects_unknown_invalid_or_ambiguous_selectors_without_local_fallback() {
+    let temp = tempfile::tempdir().unwrap();
+    let folder = std::fs::canonicalize(temp.path()).unwrap();
+    let record = folder.join("trust.json");
+    let a = hub(config(PermissionPolicy::Ask)).await;
+    a.set_trust_gate(Some(acpmux::trust::Paths {
+        claude_json: folder.join("claude.json"),
+        codex_config: folder.join("config.toml"),
+        record: record.clone(),
+        agent_home: None,
+        cmux_worktrees: None,
+    }));
+    let mut local = client(a.clone()).await;
+    for method in [method::ACP_TRUST_GET, method::ACP_TRUST_SET] {
+        for selector in [json!("absent-peer"), json!(""), json!(null), json!(17)] {
+            let reply = local
+                .raw(method, json!({"peer": selector, "cwd": folder, "level": "trusted"}))
+                .await;
+            assert!(reply.get("error").is_some(), "{reply}");
+        }
+        for key in ["sessionId", "session", "name"] {
+            let mut params = json!({"peer": "absent-peer", "cwd": folder, "level": "trusted"});
+            params[key] = json!("other-session");
+            let reply = local.raw(method, params).await;
+            assert_eq!(reply["error"]["code"], -32602, "{reply}");
+        }
+    }
+    assert!(!record.exists(), "a rejected destination wrote local trust");
+}
+
 /// A connection that never proves the person key: what an agent, the CLI or
 /// a relay reaches.
 async fn plain(h: Arc<Hub>) -> C {
