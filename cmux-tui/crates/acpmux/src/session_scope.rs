@@ -921,4 +921,117 @@ mod tests {
         assert!(sets[1].ends_with("MemorySwapMax=infinity"));
         assert!(sets[2].ends_with("MemorySwapMax=1048576"));
     }
+
+    fn limits(tasks: Option<u64>, sessions: Option<u64>) -> SessionLimits {
+        SessionLimits { tasks_max: tasks, sessions_tasks_max: sessions, ..SessionLimits::default() }
+    }
+
+    fn slice_tasks(wanted: &[(&'static str, String)]) -> Option<String> {
+        wanted.iter().find(|(key, _)| *key == "TasksMax").map(|(_, value)| value.clone())
+    }
+
+    #[test]
+    fn typed_config_task_caps_win_over_env() {
+        let profile = BTreeMap::from([
+            ("ACPMUX_SESSION_TASKS_MAX".to_owned(), "1000".to_owned()),
+            ("ACPMUX_SESSIONS_TASKS_MAX".to_owned(), "20000".to_owned()),
+        ]);
+        let config = limits(Some(2048), Some(50_000));
+        assert_eq!(scope_tasks_max(&profile, config), Some(2048));
+        let props = properties(&knob_reader(&profile, config), 0);
+        assert!(joined(&props).contains("-p TasksMax=2048 "), "{props:?}");
+        let wanted = sessions_slice_wanted(&profile, config, 64 * GIB, 0, Some(514_402));
+        assert_eq!(slice_tasks(&wanted).as_deref(), Some("50000"));
+    }
+
+    #[test]
+    fn env_task_caps_win_over_the_computed_default() {
+        let profile = BTreeMap::from([
+            ("ACPMUX_SESSION_TASKS_MAX".to_owned(), "1000".to_owned()),
+            ("ACPMUX_SESSIONS_TASKS_MAX".to_owned(), "20000".to_owned()),
+        ]);
+        let none = SessionLimits::default();
+        assert_eq!(scope_tasks_max(&profile, none), Some(1000));
+        let wanted = sessions_slice_wanted(&profile, none, 64 * GIB, 0, Some(514_402));
+        assert_eq!(slice_tasks(&wanted).as_deref(), Some("20000"));
+        // Nothing set: the computed defaults.
+        let empty = BTreeMap::new();
+        assert_eq!(scope_tasks_max(&empty, none), Some(SESSION_TASKS_MAX));
+        let wanted = sessions_slice_wanted(&empty, none, 64 * GIB, 0, Some(514_402));
+        assert_eq!(slice_tasks(&wanted).as_deref(), Some("128600"));
+    }
+
+    #[test]
+    fn the_slice_task_default_scales_with_threads_max_between_a_floor_and_a_ceiling() {
+        // A 64 GiB, 32-core fleet host: threads-max 514402, a quarter of it.
+        assert_eq!(sessions_tasks_default(Some(514_402)), 128_600);
+        // A small machine: never below the old fixed cap.
+        assert_eq!(sessions_tasks_default(Some(30_000)), 16_384);
+        assert_eq!(sessions_tasks_default(Some(65_536)), 16_384);
+        assert_eq!(sessions_tasks_default(Some(0)), 16_384);
+        // A very large machine: at most 262144.
+        assert_eq!(sessions_tasks_default(Some(4_194_304)), 262_144);
+        assert_eq!(sessions_tasks_default(Some(u64::MAX)), 262_144);
+        // threads-max unreadable: the old fixed cap.
+        assert_eq!(sessions_tasks_default(None), 16_384);
+        assert_eq!(parse_threads_max("514402\n"), Some(514_402));
+        assert_eq!(parse_threads_max("lots"), None);
+        assert_eq!(parse_threads_max(""), None);
+        let pair = |k: &'static str, v: &str| (k, v.to_owned());
+        let got = slice_settings_with_swap(&from(&[]), 0, 0, sessions_tasks_default(Some(514_402)));
+        assert_eq!(got, [pair("TasksMax", "128600")]);
+        // A junk env value takes the computed default, not 16384.
+        let junk = from(&[("ACPMUX_SESSIONS_TASKS_MAX", "lots")]);
+        let got = slice_settings_with_swap(&junk, 0, 0, sessions_tasks_default(Some(514_402)));
+        assert_eq!(got, [pair("TasksMax", "128600")]);
+    }
+
+    #[test]
+    fn zero_and_infinity_still_turn_a_task_cap_off() {
+        let empty = BTreeMap::new();
+        // Typed config 0: no cap, written as `infinity`.
+        let off = limits(Some(0), Some(0));
+        assert_eq!(scope_tasks_max(&empty, off), None);
+        let props = properties(&knob_reader(&empty, off), 0);
+        assert!(joined(&props).contains("-p TasksMax=infinity "), "{props:?}");
+        let wanted = sessions_slice_wanted(&empty, off, 0, 0, Some(514_402));
+        assert_eq!(slice_tasks(&wanted).as_deref(), Some("infinity"));
+        // The env's 0 and `infinity` as before.
+        for value in ["0", "infinity"] {
+            let env = BTreeMap::from([("ACPMUX_SESSIONS_TASKS_MAX".to_owned(), value.to_owned())]);
+            let wanted = sessions_slice_wanted(&env, SessionLimits::default(), 0, 0, Some(514_402));
+            assert_eq!(slice_tasks(&wanted).as_deref(), Some("infinity"), "{value}");
+        }
+        let env = BTreeMap::from([("ACPMUX_SESSION_TASKS_MAX".to_owned(), "0".to_owned())]);
+        assert_eq!(scope_tasks_max(&env, SessionLimits::default()), None);
+        // A typed cap beats an env that turns it off, and the other way round.
+        let env = BTreeMap::from([("ACPMUX_SESSIONS_TASKS_MAX".to_owned(), "0".to_owned())]);
+        let wanted = sessions_slice_wanted(&env, limits(None, Some(40_000)), 0, 0, None);
+        assert_eq!(slice_tasks(&wanted).as_deref(), Some("40000"));
+        let env = BTreeMap::from([("ACPMUX_SESSIONS_TASKS_MAX".to_owned(), "40000".to_owned())]);
+        let wanted = sessions_slice_wanted(&env, limits(None, Some(0)), 0, 0, None);
+        assert_eq!(slice_tasks(&wanted).as_deref(), Some("infinity"));
+    }
+
+    #[test]
+    fn the_slice_and_every_scope_read_the_task_caps_from_one_source() {
+        // Two profiles that disagree in their env: with the typed config set,
+        // both ask the shared slice for the same cap, so neither rewrites it.
+        let a = BTreeMap::from([("ACPMUX_SESSIONS_TASKS_MAX".to_owned(), "20000".to_owned())]);
+        let b = BTreeMap::from([("ACPMUX_SESSIONS_TASKS_MAX".to_owned(), "30000".to_owned())]);
+        let config = limits(Some(3000), Some(100_000));
+        let wa = sessions_slice_wanted(&a, config, 64 * GIB, 0, Some(514_402));
+        let wb = sessions_slice_wanted(&b, config, 64 * GIB, 0, Some(514_402));
+        assert_eq!(wa, wb);
+        assert!(slice_changes("TasksMax=100000\n", &[("TasksMax", slice_tasks(&wb).unwrap())])
+            .is_empty());
+        // The host scope (no profile env yet) and a session scope agree.
+        assert_eq!(scope_tasks_max(&BTreeMap::new(), config), Some(3000));
+        assert_eq!(scope_tasks_max(&a, config), Some(3000));
+        // The CLI's typed setting reaches both.
+        let mut cfg = crate::config::Config::default();
+        cfg.set_session_resource("session.tasks_max", "3000").unwrap();
+        cfg.set_session_resource("session.sessions_tasks_max", "100000").unwrap();
+        assert_eq!(session_limits_from_config(&cfg), config);
+    }
 }
