@@ -164,15 +164,16 @@ def run_engine(engine):
 
     # 4. A script, not a click (first: a click before it would leave Chromium's user activation on).
     before = len(opens())
-    check(run(engine, f"location.href = {json.dumps(MAIL)}; true", gesture=False), f"{engine}: the script runs")
+    # Page eval runs as an agent gesture and leaves Chromium transient activation.
+    # A fresh document runs its own onload script before any agent evaluation.
+    rpc("browser.page.navigate", {"tab": TAB, "url": url.replace("index.html", "script-mail")})
     got = settled_opens(before)
     check(got == [] and not asked(), f"{engine}: a script's mailto: navigation opens nothing ({got})")
 
     # Classic's browser fallback returns by HTTP redirect, without a gesture.
     # Record the app open so fixture tokens never reach a real sign-in attempt.
     before = len(opens())
-    check(run(engine, f"location.href = {json.dumps(CALLBACK)}; true", gesture=False),
-          f"{engine}: the scripted sign-in return runs")
+    rpc("browser.page.navigate", {"tab": TAB, "url": url.replace("index.html", "script-callback")})
     scripted_prompt = wait_for(asked, f"{engine}: a scripted sign-in return asks before opening its app", 10)
     rpc("debug.window_snapshot", {"kind": "main", "path": os.path.join(opts.out, f"{engine}-scripted-return.png")})
     if scripted_prompt:
@@ -181,8 +182,7 @@ def run_engine(engine):
         check(len(opens()) == before and not asked(), f"{engine}: cancelling delivers no callback")
 
     before = len(opens())
-    check(run(engine, "location.href = new URL('/redirect', location.href).href; true", gesture=False),
-          f"{engine}: the sign-in redirect starts without a gesture")
+    rpc("browser.page.navigate", {"tab": TAB, "url": url.replace("index.html", "redirect")})
     redirect_prompt = wait_for(asked, f"{engine}: an HTTP sign-in redirect asks before opening its app", 10)
     rpc("debug.window_snapshot", {"kind": "main", "path": os.path.join(opts.out, f"{engine}-http-return.png")})
     if redirect_prompt:
@@ -241,7 +241,16 @@ def serve():
 
     class Handler(http.server.SimpleHTTPRequestHandler):
         def do_GET(self):
-            if self.path == "/redirect":
+            if self.path in ("/script-mail", "/script-callback"):
+                target = MAIL if self.path == "/script-mail" else CALLBACK
+                body = (PAGE + "<script>addEventListener('load', () => { location.href = "
+                        + json.dumps(target) + "; });</script>").encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+            elif self.path == "/redirect":
                 self.send_response(302)
                 self.send_header("Location", CALLBACK)
                 self.end_headers()
