@@ -116,7 +116,8 @@ pub(super) fn dup_descriptor(fd: std::os::fd::RawFd) -> std::io::Result<std::os:
 /// gained or lost focus while the program asked for them (fish's line editor
 /// does), not input anyone typed.
 fn only_focus_reports(bytes: &[u8]) -> bool {
-    bytes.len() % 3 == 0 && bytes.chunks(3).all(|report| report == b"\x1b[I" || report == b"\x1b[O")
+    bytes.len().is_multiple_of(3)
+        && bytes.chunks(3).all(|report| report == b"\x1b[I" || report == b"\x1b[O")
 }
 
 /// The error of an input write to a browser surface.

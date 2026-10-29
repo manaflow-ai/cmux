@@ -212,7 +212,7 @@ pub(crate) struct ShellActivity {
     /// the publication that marks it published), so its end must go out too.
     idle_exposed: bool,
     /// Counts marks and inputs, so a foreground check that raced one of them
-    /// is dropped ([`Self::record_foreground`]).
+    /// is dropped ([`Self::record_foreground_check`]).
     epoch: u64,
     /// Input may reach the PTY without this daemon seeing it: a renderer
     /// grant (its holder writes Input and Paste frames to the terminal host
@@ -462,7 +462,7 @@ impl ShellActivity {
         self.idle_went_out()
     }
 
-    /// The epoch to hand [`Self::record_foreground`] when the shell sits at a
+    /// The epoch to hand [`Self::record_foreground_check`] when the shell sits at a
     /// prompt with no input since and its foreground was not checked since
     /// the last mark; `None` when no check would change the facts.
     pub(crate) fn foreground_check_due(&self) -> Option<u64> {
@@ -484,9 +484,8 @@ impl ShellActivity {
         self.foreground_check_due().or_else(|| self.idle_since().map(|_| self.epoch))
     }
 
-    /// Records a foreground check started at `epoch`
-    /// ([`Self::foreground_check_due`]): `holds` is whether the terminal's
-    /// own shell held the foreground. A mark or input since then drops it.
+    /// [`Self::record_foreground_check`] with no leader: the tests' form (the
+    /// daemon always passes the leader its check saw).
     #[cfg(test)]
     pub(crate) fn record_foreground(&mut self, epoch: u64, holds: bool) {
         self.record_foreground_check(epoch, holds, None);
