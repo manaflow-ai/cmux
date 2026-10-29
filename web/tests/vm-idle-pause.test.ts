@@ -1407,7 +1407,7 @@ describe("idle pause SQL", () => {
     const meta = async () => {
       const [row] = await sql<{ metadata: Record<string, unknown>; status: string }[]>`
         select provider_metadata as metadata, status from cloud_vms where id = ${intentId}`;
-      return { ...row.metadata, status: row.status };
+      return { ...row.metadata, status: row.status } as Record<string, unknown>;
     };
     expect(await run(repo.claimIdlePause!({ id: intentId, providerVmId: vmId, epoch: 0 }))).toBe(1);
     expect(await meta()).toMatchObject({ cmuxIdleEpoch: 1, cmuxIdlePauseClaim: 1 });
@@ -1477,7 +1477,7 @@ describe("unreadable activity sources", () => {
     const vanished = await runProbeScript({ ...base, "300/environ": "" }, "NONE");
     expect({ busy: vanished.busy_terminals, ssh: vanished.ssh_sessions }).toEqual({ busy: 0, ssh: 0 });
     // A stat that cannot be read (here a directory), or that does not parse.
-    for (const broken of [{ "300/stat/x": "" }, { "300/stat": "garbage" }]) {
+    for (const broken of [{ "300/stat/x": "" }, { "300/stat": "garbage" }] as Record<string, string>[]) {
       const out = await runProbeScript({ ...base, ...broken }, "NONE");
       expect({ broken, busy: out.busy_terminals, ssh: out.ssh_sessions }).toEqual({ broken, busy: null, ssh: null });
     }
