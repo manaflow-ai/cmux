@@ -84,14 +84,7 @@ struct FeedRowContent: Equatable, Identifiable {
 
     init(item: FeedItem, place: FeedPlace?, threadCount: Int = 1) {
         id = item.id
-        let detailLine = Self.detail(item)
-        let title = item.title.trimmingCharacters(in: .whitespacesAndNewlines)
-        // A title that only names its poster ("GitHub", "Agent") says nothing: the detail leads.
-        let generic = title.isEmpty || title == item.poster.label || title == item.poster.harness
-        headline = generic && !detailLine.text.isEmpty ? detailLine.text : title
-        // A detail the headline already says ("Asked: Which branch…" over "Which branch…") is left out.
-        detail = generic || title.localizedCaseInsensitiveContains(detailLine.text) ? "" : detailLine.text
-        detailIsCode = !generic && detailLine.isCode
+        (headline, detail, detailIsCode) = Self.lines(item)
         who = Self.who(item, place: place)
         self.place = Self.where(item, place: place, who: who)
         status = FeedStrings.closed(item) ?? ""
@@ -105,6 +98,19 @@ struct FeedRowContent: Equatable, Identifiable {
         isLocal = item.home.isLocal
         count = item.count
         self.threadCount = threadCount
+    }
+
+    /// What happened and its one line of detail, from the item alone (no place): the list sizes
+    /// its rows from this without building their values.
+    nonisolated static func lines(_ item: FeedItem) -> (headline: String, detail: String, isCode: Bool) {
+        let detailLine = detail(item)
+        let title = item.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        // A title that only names its poster ("GitHub", "Agent") says nothing: the detail leads.
+        let generic = title.isEmpty || title == item.poster.label || title == item.poster.harness
+        let headline = generic && !detailLine.text.isEmpty ? detailLine.text : title
+        // A detail the headline already says ("Asked: Which branch…" over "Which branch…") is left out.
+        let shown = generic || detailLine.text.isEmpty || title.localizedCaseInsensitiveContains(detailLine.text) ? "" : detailLine.text
+        return (headline, shown, !generic && detailLine.isCode)
     }
 
     /// "Claude Code, api-server › Fix login redirect: Finished: updated FeedModel.swift. Ran swift test. 3m, Today 14:05".

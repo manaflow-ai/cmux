@@ -14,6 +14,12 @@ public nonisolated struct FeedListSections: Sendable, Equatable {
         rest = FeedOrder.sortedNewest(rest)
     }
 
+    /// Sections already in order (the model's ledger keeps them so).
+    public init(requests: [FeedItem], rest: [FeedItem]) {
+        self.requests = requests
+        self.rest = rest
+    }
+
     public var isEmpty: Bool { requests.isEmpty && rest.isEmpty }
 }
 
@@ -27,7 +33,16 @@ public nonisolated struct FeedInboxGroups: Sendable, Equatable {
     public var earlier: [FeedInboxEntry] = []
 
     public init(items: [FeedItem], now: Date, calendar: Calendar = .current) {
-        let sections = FeedListSections(items: items, now: now)
+        self.init(ordered: FeedListSections(items: items, now: now), now: now, calendar: calendar)
+    }
+
+    /// Groups list sections already in order, keeping what `filter` keeps (one pass, no sort).
+    init(sections: FeedListSections, filter: FeedInboxFilter, now: Date, calendar: Calendar = .current) {
+        self.init(ordered: FeedListSections(requests: filter.items(from: sections.requests), rest: filter.items(from: sections.rest)),
+                  now: now, calendar: calendar)
+    }
+
+    private init(ordered sections: FeedListSections, now: Date, calendar: Calendar) {
         needsYou = sections.requests.map { FeedInboxEntry(head: $0, members: [$0]) }
         var todayItems: [FeedItem] = []
         var earlierItems: [FeedItem] = []

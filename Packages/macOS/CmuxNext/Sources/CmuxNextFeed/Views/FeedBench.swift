@@ -1,5 +1,6 @@
 #if DEBUG
 import AppKit
+import CmuxNextCompat
 import CmuxNextWakeups
 import Foundation
 
@@ -145,7 +146,7 @@ final class FeedBench {
         guard let data = try? JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted]) else { return }
         let output = settings.output
         // task-owner: one report write off the main thread; it ends when the file is written
-        Task.detached(priority: .utility) { try? data.write(to: output, options: .atomic) }
+        Task.detached(priority: .utility) { try? data.blockingWrite(to: output, options: .atomic) }
     }
 
     /// A varied, believable event: finished turns, failures, approvals, CI, questions and terminal

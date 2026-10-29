@@ -7,23 +7,38 @@ import CmuxNextDesign
 /// first, with unread dots.
 struct FeedListView: View {
     let model: FeedModel
-    @Environment(\.feedColors) private var colors
 
     var body: some View {
-        VStack(spacing: 0) {
-            FeedHeader(model: model)
-            if model.summary.listIsEmpty {
-                FeedEmptyState(text: FeedStrings.empty)
-            } else {
-                FeedRowsHost(model: model, mode: .list)
-            }
-        }
+        // AppKit from here down (FeedListPane): this body reads nothing from the model, so no owner
+        // event re-evaluates SwiftUI.
+        FeedListPaneHost(model: model)
     }
 }
 
-/// Puts the AppKit ``FeedRowsView`` in the SwiftUI panel with the panel's colors. An open
+/// Puts the AppKit ``FeedListPane`` in the SwiftUI panel with the panel's colors. An open
 /// request keeps its SwiftUI card (inline answer controls) until those controls are AppKit; the
-/// event rows, which are nearly all of the list, are AppKit (plans/cmux-next/no-swiftui-DESIGN.md).
+/// bar and the event rows are AppKit (plans/cmux-next/no-swiftui-DESIGN.md).
+struct FeedListPaneHost: NSViewRepresentable {
+    let model: FeedModel
+    @Environment(\.feedColors) private var colors
+
+    func makeNSView(context: Context) -> FeedListPane {
+        let pane = FeedListPane(model: model)
+        update(pane)
+        return pane
+    }
+
+    func updateNSView(_ pane: FeedListPane, context: Context) {
+        update(pane)
+    }
+
+    private func update(_ pane: FeedListPane) {
+        FeedRowsHost.installCards(on: pane.rows, model: model, colors: colors)
+        pane.apply(colors.basket)
+    }
+}
+
+/// Puts the AppKit ``FeedRowsView`` in the SwiftUI Inbox page with the page's colors.
 struct FeedRowsHost: NSViewRepresentable {
     let model: FeedModel
     let mode: FeedRowsView.Mode
@@ -41,56 +56,27 @@ struct FeedRowsHost: NSViewRepresentable {
     }
 
     private func update(_ view: FeedRowsView) {
-        let colors = colors, model = model
-        if mode == .list {
-            view.requestCard = { [weak view] item, last in
-                let card = AnyView(VStack(spacing: 0) {
-                    FeedRequestCard(item: item, model: model)
-                    FeedHairline().padding(.horizontal, 14)
-                }
-                .environment(\.feedColors, colors).tint(colors.primary))
-                if let hosting = last as? FeedCardHost {
-                    hosting.rootView = card
-                    return hosting
-                }
-                let hosting = FeedCardHost(rootView: card)
-                hosting.onResize = { [weak view] in view?.cardResized(item.id) }
-                return hosting
-            }
-        }
+        if mode == .list { Self.installCards(on: view, model: model, colors: colors) }
         view.filter = filter
         view.apply(colors.basket)
     }
-}
 
-/// Title, badge count, and Mark All Read.
-struct FeedHeader: View {
-    let model: FeedModel
-    @Environment(\.feedColors) private var colors
-
-    var body: some View {
-        let counts = model.summary.counts
-        HStack(spacing: 8) {
-            Text(FeedStrings.title).font(.system(size: 13, weight: .semibold)).foregroundStyle(colors.primary)
-            if counts.badge > 0 {
-                Text(verbatim: "\(counts.badge)")
-                    .font(.system(size: 10.5, weight: .semibold)).monospacedDigit()
-                    .foregroundStyle(colors.secondary)
-                    .padding(.horizontal, 6).frame(height: 16)
-                    .background(Capsule().fill(colors.hover))
+    /// Open requests' cards: the SwiftUI request card, hosted once per request and updated in place.
+    static func installCards(on view: FeedRowsView, model: FeedModel, colors: FeedColors) {
+        view.requestCard = { [weak view] item, last in
+            let card = AnyView(VStack(spacing: 0) {
+                FeedRequestCard(item: item, model: model)
+                FeedHairline().padding(.horizontal, 14)
             }
-            Spacer()
-            Button { model.markAllRead() } label: {
-                Icon(.actionConfirm, size: 13)
+            .environment(\.feedColors, colors).tint(colors.primary))
+            if let hosting = last as? FeedCardHost {
+                hosting.rootView = card
+                return hosting
             }
-            .buttonStyle(.plain)
-            .foregroundStyle(colors.secondary)
-            .themedHelp(FeedStrings.markAllRead)
-            .accessibilityLabel(FeedStrings.markAllRead).accessibilityIdentifier("cmux.feed.markAllRead")
-            .disabled(counts.unreadNotices == 0)
+            let hosting = FeedCardHost(rootView: card)
+            hosting.onResize = { [weak view] in view?.cardResized(item.id) }
+            return hosting
         }
-        .padding(.horizontal, 14)
-        .frame(height: 38)
     }
 }
 
@@ -107,7 +93,7 @@ struct FeedRequestCard: View {
                 FeedGlyph(item: item).alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 4 }
                 VStack(alignment: .leading, spacing: 2) {
                     Text(item.title)
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(.system(size: TypeScale.body, weight: .semibold))
                         .foregroundStyle(colors.primary)
                         .lineLimit(2)
                     PosterLine(item: item, now: model.now)

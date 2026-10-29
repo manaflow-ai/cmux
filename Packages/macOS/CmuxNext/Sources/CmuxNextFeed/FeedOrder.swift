@@ -38,5 +38,10 @@ public nonisolated struct FeedCounts: Sendable, Equatable {
         unreadNotices = active.filter { !$0.isRequest && $0.isUnread }.count
     }
 
+    public init(openRequests: Int, unreadNotices: Int) {
+        self.openRequests = openRequests
+        self.unreadNotices = unreadNotices
+    }
+
     public var badge: Int { openRequests + unreadNotices }
 }

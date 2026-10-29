@@ -11,8 +11,9 @@ struct FeedInboxView: View {
     @State private var filter = FeedInboxFilter()
 
     var body: some View {
-        let items = filter.items(from: model.visibleItems)
+        // The model's ordered sections, filtered and grouped once per change (no sort).
         let groups = model.inboxGroups(filter)
+        let items = groups.all.flatMap(\.members)
         let shown = filter.selectedItem(model.selection, groups: groups)
         HStack(spacing: 0) {
             VStack(spacing: 0) {

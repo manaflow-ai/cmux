@@ -11,20 +11,22 @@ public import Observation
 public final class FeedModel {
     public private(set) var connection: FeedConnection = .connecting
     /// Owner-confirmed items by id (never written by intents).
-    public private(set) var confirmed: [String: FeedItem] = [:] {
-        didSet { mirrorVersion &+= 1 }
-    }
+    public private(set) var confirmed: [String: FeedItem] = [:]
     /// Quiet local agent reports, read from the ACPMUX reports mailbox.
     /// Reports are intentionally separate from owner-confirmed feed items.
     public private(set) var reports: [FeedReport] = []
     /// Pending intents in send order.
-    public private(set) var pending: [FeedIntent] = [] {
-        didSet { mirrorVersion &+= 1 }
-    }
-    /// Counts changes of the mirror and the intents: the derived lists below are computed once per
-    /// change, not once per reader (the panel's header, the list and its host each read them).
-    @ObservationIgnored private var mirrorVersion = 0
-    @ObservationIgnored private var memo = FeedModelMemo()
+    public private(set) var pending: [FeedIntent] = []
+    /// The feed as shown, kept up to date per change (``FeedLedger``): every read below is served
+    /// from it, and the list hears each change as row edits (``observeList(_:)``).
+    @ObservationIgnored private(set) var ledger = FeedLedger()
+    /// Bumps once per change of anything shown: a reader that needs more than the row edits
+    /// (the Inbox groups) observes this.
+    public private(set) var version = 0
+    @ObservationIgnored private var listeners: [Int: @MainActor (FeedRowChanges) -> Void] = [:]
+    @ObservationIgnored private var nextListener = 0
+    @ObservationIgnored private var inboxMemo: (version: Int, now: Date, filter: FeedInboxFilter, groups: FeedInboxGroups)?
+    @ObservationIgnored private var visibleMemo: (version: Int, items: [FeedItem])?
     /// The last refusal, for the panel's notice; cleared on the next send.
     public private(set) var lastReject: FeedReject?
     public private(set) var revision: UInt64 = 0
@@ -91,49 +93,62 @@ public final class FeedModel {
 
     /// Mirror + pending intents, newest first.
     public var visibleItems: [FeedItem] {
-        // Read both, so an observer of this property hears them change.
-        let (confirmed, pending) = (confirmed, pending)
-        if let items = memo.visible, memo.visibleVersion == mirrorVersion { return items }
-        var items = confirmed
-        for intent in pending {
-            intent.apply(to: &items, user: user, device: device)
-        }
-        let sorted = FeedOrder.sortedNewest(items.values)
-        memo = FeedModelMemo(visible: sorted, visibleVersion: mirrorVersion)
-        return sorted
+        let version = version
+        if let memo = visibleMemo, memo.version == version { return memo.items }
+        let items = ledger.timeline.ids.compactMap { ledger.visible[$0] }
+        visibleMemo = (version, items)
+        return items
     }
 
     public func item(_ id: String) -> FeedItem? {
-        guard var items = confirmed[id].map({ [id: $0] }) else { return nil }
-        for intent in pending where intent.items?.contains(id) ?? true {
-            intent.apply(to: &items, user: user, device: device)
-        }
-        return items[id]
+        ledger.visible[id]
     }
 
+    /// The panel list's rows, in order (open requests, then the rest).
+    public var listCount: Int { ledger.list.count }
+
+    /// The item on list row `row`.
+    public func listItem(at row: Int) -> FeedItem? {
+        let ids = ledger.list.ids
+        return ids.indices.contains(row) ? ledger.visible[ids[row]] : nil
+    }
+
+    /// The row of `id` in the panel list.
+    public func listRow(of id: String) -> Int? { ledger.list.position(of: id) }
+
+    /// Changes each time the item's visible value or its pending state changes.
+    public func stamp(of id: String) -> Int { ledger.stamps[id] ?? 0 }
+
     public var listSections: FeedListSections {
-        let items = visibleItems, now = now
-        if let sections = memo.sections, memo.sectionsNow == now { return sections }
-        let sections = FeedListSections(items: items, now: now)
-        (memo.sections, memo.sectionsNow) = (sections, now)
-        return sections
+        _ = version
+        let ids = ledger.list.ids, requests = ledger.openRequests
+        return FeedListSections(requests: ids.prefix(requests).compactMap { ledger.visible[$0] },
+                                rest: ids.dropFirst(requests).compactMap { ledger.visible[$0] })
     }
 
     public var counts: FeedCounts {
-        let items = visibleItems, now = now
-        if let counts = memo.counts, memo.countsNow == now { return counts }
-        let counts = FeedCounts(items: items, now: now)
-        (memo.counts, memo.countsNow) = (counts, now)
-        return counts
+        _ = version
+        return ledger.counts
     }
 
-    /// The Inbox groups of the items `filter` keeps.
+    /// The Inbox groups of the items `filter` keeps, from the list's order (no sorting).
     func inboxGroups(_ filter: FeedInboxFilter) -> FeedInboxGroups {
-        let items = visibleItems, now = now
-        if let groups = memo.groups, let key = memo.groupsKey, key.0 == filter, key.1 == now { return groups }
-        let groups = FeedInboxGroups(items: filter.items(from: items), now: now)
-        (memo.groups, memo.groupsKey) = (groups, (filter, now))
+        let version = version, now = now
+        if let memo = inboxMemo, memo.version == version, memo.now == now, memo.filter == filter { return memo.groups }
+        let groups = FeedInboxGroups(sections: listSections, filter: filter, now: now)
+        inboxMemo = (version, now, filter, groups)
         return groups
+    }
+
+    /// Calls `body` with the panel list's row edits after each commit, until the subscription
+    /// ends (``FeedListSubscription/cancel()`` or its release). An empty edit means only `now`
+    /// moved (relative times). A subscriber reads the rows it
+    /// has not seen yet with ``listCount`` and ``listItem(at:)`` when it starts.
+    public func observeList(_ body: @escaping @MainActor (FeedRowChanges) -> Void) -> FeedListSubscription {
+        nextListener += 1
+        let key = nextListener
+        listeners[key] = body
+        return FeedListSubscription { [weak self] in self?.listeners[key] = nil }
     }
 
     /// An intent on this item still waits for the owner.
@@ -155,7 +170,7 @@ public final class FeedModel {
         let intent = FeedIntent(kind: kind, at: now)
         pending.append(intent)
         source.send(intent)
-        summarize()
+        commit(touched: intent.items.map(Set.init) ?? Set(ledger.visible.keys), forcing: true)
         return intent
     }
 
@@ -210,7 +225,7 @@ public final class FeedModel {
     }
 
     public func markAllRead() {
-        guard visibleItems.contains(where: \.isUnread) else { return }
+        guard ledger.unread > 0 else { return }
         send(.markAllRead(before: clock()))
     }
 
@@ -246,6 +261,8 @@ public final class FeedModel {
 
     func handle(_ event: FeedSourceEvent) {
         now = clock()
+        var touched = Set<String>()
+        var forced = false
         switch event {
         case let .connection(state):
             connection = state
@@ -253,27 +270,58 @@ public final class FeedModel {
             revision = snapshot.revision
             user = snapshot.user
             device = snapshot.device
+            touched = Set(confirmed.keys)
             confirmed = Dictionary(snapshot.items.map { ($0.id, $0) }) { _, last in last }
+            touched.formUnion(confirmed.keys)
             connection = .connected
         case let .event(event):
             revision = max(revision, event.revision)
             switch event.change {
-            case let .items(items): items.forEach(adopt)
-            case let .remove(ids): ids.forEach { confirmed[$0] = nil }
+            case let .items(items):
+                items.forEach(adopt)
+                touched.formUnion(items.map(\.id))
+            case let .remove(ids):
+                ids.forEach { confirmed[$0] = nil }
+                touched.formUnion(ids)
             }
-            if let tx = event.tx { pending.removeAll { $0.key == tx } }
+            if let tx = event.tx { touched.formUnion(settle { $0.key == tx }) }
+            forced = event.tx != nil
         case let .settled(key, reject):
-            pending.removeAll { $0.key == key }
+            touched.formUnion(settle { $0.key == key })
+            forced = true
             if let reject {
-                if let item = reject.closedItem { adopt(item) }
+                if let item = reject.closedItem {
+                    adopt(item)
+                    touched.insert(item.id)
+                }
                 lastReject = reject
             }
         }
-        summarize()
+        commit(touched: touched, forcing: forced)
     }
 
-    private func summarize() {
-        let next = FeedSummary(counts: counts, listIsEmpty: listSections.isEmpty)
+    /// Ends the intents `matches` names; returns the items they touched.
+    private func settle(_ matches: (FeedIntent) -> Bool) -> Set<String> {
+        var touched = Set<String>()
+        for intent in pending where matches(intent) {
+            touched.formUnion(intent.items ?? Array(ledger.visible.keys))
+        }
+        pending.removeAll(where: matches)
+        return touched
+    }
+
+    /// Recomputes the touched items (and snoozes that ended by `now`), then tells the list and
+    /// the chrome. `forcing`: an intent on them started or settled, so their rows redraw (pending
+    /// dimming) even when their value did not change.
+    private func commit(touched: Set<String>, forcing: Bool) {
+        let ids = touched.union(ledger.woken(at: now))
+        let (changes, changed) = ledger.update(ids, confirmed: confirmed, pending: pending, user: user, device: device,
+                                               now: now, forced: forcing ? touched : [])
+        // Every commit reaches the list: no row edits still means `now` moved (relative times).
+        for listener in listeners.values { listener(changes) }
+        guard changed else { return }
+        version &+= 1
+        let next = FeedSummary(counts: ledger.counts, listIsEmpty: ledger.list.count == 0, hasUnread: ledger.unread > 0)
         if next != summary { summary = next }
     }
 
@@ -284,20 +332,31 @@ public final class FeedModel {
     }
 }
 
-/// ``FeedModel``'s derived lists for one mirror version (a new version starts an empty memo).
-struct FeedModelMemo {
-    var visible: [FeedItem]?
-    var visibleVersion = -1
-    var sections: FeedListSections?
-    var sectionsNow: Date?
-    var counts: FeedCounts?
-    var countsNow: Date?
-    var groups: FeedInboxGroups?
-    var groupsKey: (FeedInboxFilter, Date)?
+/// The panel chrome's view of the feed: the badge counts, whether the list has anything, and
+/// whether anything is unread. Set only when it changes.
+public nonisolated struct FeedSummary: Sendable, Equatable {
+    public var counts = FeedCounts(openRequests: 0, unreadNotices: 0)
+    public var listIsEmpty = true
+    public var hasUnread = false
 }
 
-/// The panel chrome's view of the feed: the badge counts and whether the list has anything.
-public nonisolated struct FeedSummary: Sendable, Equatable {
-    public var counts = FeedCounts(items: [], now: .distantPast)
-    public var listIsEmpty = true
+/// A ``FeedModel/observeList(_:)`` registration; ends on ``cancel()`` or when released.
+@MainActor
+public final class FeedListSubscription {
+    private var end: (@MainActor () -> Void)?
+
+    init(end: @escaping @MainActor () -> Void) {
+        self.end = end
+    }
+
+    public func cancel() {
+        end?()
+        end = nil
+    }
+
+    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    nonisolated deinit {
+        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
+        MainActor.assumeIsolated { end?() }
+    }
 }

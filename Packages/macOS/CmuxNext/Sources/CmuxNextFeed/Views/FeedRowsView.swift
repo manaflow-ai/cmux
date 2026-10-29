@@ -29,14 +29,19 @@ enum FeedRowEntry: Equatable {
 }
 
 /// The Feed list (panel and Inbox column) as one AppKit table (plans/cmux-next/no-swiftui-DESIGN.md
-/// rule 1; the SwiftUI LazyVStack it replaces rebuilt every row on every owner event, because each
-/// row read the observable model and `now`).
+/// rule 1).
 ///
-/// It reads the model in one `withObservationTracking` scope and re-arms after each change while
-/// in a window, so a burst of events in one turn is one render. A render builds value rows
-/// (``FeedRowContent``), reloads only the rows whose values changed, and inserts or removes rows
-/// without moving the row under the reader. Rows have two fixed heights, so scrolling measures no
-/// text. Open requests keep their inline controls in a card the host makes (`requestCard`).
+/// - `list` (the panel): the rows are the model's list, in the model's order (``FeedLedger``). The
+///   view never sorts, rebuilds or diffs it: it subscribes to the model's row edits
+///   (``FeedModel/observeList(_:)``) and applies each one as table inserts, removes and in-place
+///   updates, keeping the row under the reader where it is. A row's value (``FeedRowContent``) is
+///   built when the row is shown, and kept until the item's stamp changes.
+/// - `inbox` (the wide page's column): one row per item or collapsed thread, under group titles.
+///   Thread collapsing makes one row stand for several items, so this mode rebuilds its rows from
+///   the model's ordered sections on each change (one pass, no sort) and diffs them.
+///
+/// Rows have two fixed heights, so scrolling measures no text. Open requests keep their inline
+/// controls in a card the host makes (`requestCard`).
 final class FeedRowsView: NSView, NSTableViewDataSource, NSTableViewDelegate {
     enum Mode: Equatable {
         case list
@@ -49,26 +54,27 @@ final class FeedRowsView: NSView, NSTableViewDataSource, NSTableViewDelegate {
     var requestCard: ((FeedItem, NSView?) -> NSView)?
     /// The Inbox filter (client view state owned by the host).
     var filter = FeedInboxFilter() {
-        didSet { if filter != oldValue { render() } }
+        didSet { if filter != oldValue, mode == .inbox { renderInbox() } }
     }
 
-    private(set) var entries: [FeedRowEntry] = []
     let table = FeedTableView()
     let scroll = NSScrollView()
     private var colors = ReportsBasketColors()
+    private var subscription: FeedListSubscription?
     private var armed = false
+    /// The Inbox column's rows (the panel list reads the model's).
+    private var entries: [FeedRowEntry] = []
     private var cards: [String: NSView] = [:]
     private let times = FeedRelativeTime.Formatter()
-    /// Each item's last row, by id, while the item is unchanged.
-    private var contents: [String: (item: FeedItem, content: FeedRowContent, placed: Bool)] = [:]
+    /// Each shown item's row value, kept while its stamp is unchanged.
+    private var contents: [String: (stamp: Int, content: FeedRowContent, placed: Bool)] = [:]
     private var cardHeights: [String: (width: CGFloat, height: CGFloat)] = [:]
-    /// Renders done, and rows reloaded by the last one (the bench and the tests read them).
+    /// Edits applied, rows they touched, and row values built (the bench and the tests read them).
     private(set) var renderCount = 0
     private(set) var lastReloaded: IndexSet = [] {
         didSet { reloadedTotal += lastReloaded.count }
     }
     private(set) var reloadedTotal = 0
-    /// Row values built (``FeedRowContent``): one per changed item, never one per row per render.
     private(set) var contentBuilds = 0
 
     static let rowHeight: CGFloat = 66
@@ -105,81 +111,211 @@ final class FeedRowsView: NSView, NSTableViewDataSource, NSTableViewDelegate {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
+    /// In a window the view follows the model; out of one it follows nothing, and coming back
+    /// reloads once from the model's current rows.
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        guard window != nil else { return }
-        if armed { render() } else { observe() }
+        switch mode {
+        case .list:
+            guard window != nil else {
+                subscription?.cancel()
+                subscription = nil
+                return
+            }
+            guard subscription == nil else { return }
+            subscription = model.observeList { [weak self] changes in
+                guard let self else { return }
+                if changes.isEmpty { self.refreshVisible() } else { self.apply(changes) }
+            }
+            table.reloadData()
+            refreshVisible()
+        case .inbox:
+            guard window != nil else { return }
+            if armed { renderInbox() } else { observeInbox() }
+        }
     }
 
-    /// Reads the model in a tracked scope and draws it; the next change re-arms only in a window.
-    private func observe() {
+    /// The ids of the rows, top to bottom (tests).
+    var rowIDs: [String] {
+        (0..<rowCount).compactMap { entry(at: $0)?.id }
+    }
+
+    private var rowCount: Int { mode == .list ? model.listCount : entries.count }
+
+    /// The line on `row`: the model's list item (list), or the Inbox's built row.
+    func entry(at row: Int) -> FeedRowEntry? {
+        switch mode {
+        case .inbox:
+            return entries.indices.contains(row) ? entries[row] : nil
+        case .list:
+            guard let item = model.listItem(at: row) else { return nil }
+            let pending = model.isPending(item.id)
+            if item.isOpenRequest, requestCard != nil { return .request(item, pending: pending) }
+            return .row(content(item, pending: pending))
+        }
+    }
+
+    // MARK: - Row values
+
+    /// The item's row value, built once per stamp. A place not resolved yet (the store still
+    /// loading) is tried again when the row is shown again (`refreshVisible`).
+    private func content(_ item: FeedItem, threadCount: Int = 1, pending: Bool, selected: Bool = false) -> FeedRowContent {
+        let stamp = model.stamp(of: item.id)
+        var content: FeedRowContent
+        if let cached = contents[item.id], cached.stamp == stamp, cached.placed || model.place?(item) == nil {
+            content = cached.content
+        } else {
+            let place = model.place?(item)
+            content = FeedRowContent(item: item, place: place)
+            contentBuilds += 1
+            contents[item.id] = (stamp, content, place != nil || model.place == nil)
+        }
+        content.threadCount = threadCount
+        content.isPending = pending
+        content.isSelected = selected
+        return content
+    }
+
+    /// Drops values of items the model no longer has, once the cache outgrows the rows.
+    private func pruneContents() {
+        guard contents.count > rowCount + 200 else { return }
+        contents = contents.filter { model.item($0.key) != nil }
+    }
+
+    // MARK: - The panel list: the model's row edits
+
+    /// Applies one commit's row edits. `removed` are rows before it, `inserted` and `updated` rows
+    /// after it; the row under the reader stays where it is.
+    private func apply(_ changes: FeedRowChanges) {
+        renderCount += 1
+        let anchor = listAnchor(changes)
+        if !changes.removed.isEmpty || !changes.inserted.isEmpty {
+            table.beginUpdates()
+            if !changes.removed.isEmpty { table.removeRows(at: changes.removed, withAnimation: []) }
+            if !changes.inserted.isEmpty { table.insertRows(at: changes.inserted, withAnimation: []) }
+            table.endUpdates()
+        }
+        lastReloaded = changes.updated.union(changes.inserted)
+        for row in changes.updated { update(row: row) }
+        if !changes.updated.isEmpty { table.noteHeightOfRows(withIndexesChanged: changes.updated) }
+        pruneCards()
+        pruneContents()
+        restore(anchor)
+        refreshVisible()
+    }
+
+    /// The row under the reader before these edits, by its item after them, and its offset from
+    /// the top. The old row maps through the edits (``FeedRowChanges/newRow(forOld:)``); a removed
+    /// row anchors on the next row that stayed.
+    private func listAnchor(_ changes: FeedRowChanges) -> (id: String, offset: CGFloat)? {
+        let clip = scroll.contentView.bounds
+        guard clip.minY > 1 else { return nil }
+        let old = table.row(at: NSPoint(x: 1, y: clip.minY + 1))
+        guard old >= 0 else { return nil }
+        let offset = table.rect(ofRow: old).minY - clip.minY
+        let oldCount = table.numberOfRows
+        for candidate in old..<max(old + 1, oldCount) {
+            if let row = changes.newRow(forOld: candidate), let item = model.listItem(at: row) {
+                return (item.id, offset)
+            }
+        }
+        return nil
+    }
+
+    /// Cards of items that are no longer open requests in the list.
+    private func pruneCards() {
+        for id in cards.keys where model.item(id)?.isOpenRequest != true || model.listRow(of: id) == nil {
+            cards[id] = nil
+            cardHeights[id] = nil
+        }
+    }
+
+    /// The Inbox's row under the reader, by its line, and its offset from the top: read from the
+    /// rows as built before this render (`entries` still holds them).
+    private func readingAnchor() -> (id: String, offset: CGFloat)? {
+        let clip = scroll.contentView.bounds
+        guard clip.minY > 1 else { return nil }
+        let row = table.row(at: NSPoint(x: 1, y: clip.minY + 1))
+        guard entries.indices.contains(row) else { return nil }
+        return (entries[row].id, table.rect(ofRow: row).minY - clip.minY)
+    }
+
+    private func restore(_ anchor: (id: String, offset: CGFloat)?) {
+        guard let anchor, let row = row(of: anchor.id) else { return }
+        let y = table.rect(ofRow: row).minY - anchor.offset
+        scroll.contentView.scroll(to: NSPoint(x: 0, y: max(0, y)))
+        scroll.reflectScrolledClipView(scroll.contentView)
+    }
+
+    /// The row of a line id (``FeedRowEntry/id``).
+    private func row(of id: String) -> Int? {
+        switch mode {
+        case .list: model.listRow(of: id.hasPrefix("request:") ? String(id.dropFirst("request:".count)) : id)
+        case .inbox: entries.firstIndex { $0.id == id }
+        }
+    }
+
+    /// The visible rows' relative times against the model's `now`, and their places not resolved
+    /// when their values were built. O(visible rows).
+    private func refreshVisible() {
+        let now = model.now
+        let visible = table.rows(in: scroll.contentView.bounds)
+        for row in visible.location..<(visible.location + visible.length) {
+            guard let rowView = table.rowView(atRow: row, makeIfNecessary: false),
+                  let cell = rowView.view(atColumn: 0) as? FeedRowCell else { continue }
+            if mode == .list, let id = cell.content?.id, contents[id]?.placed == false,
+               model.item(id).flatMap({ model.place?($0) }) != nil {
+                update(row: row)
+            } else {
+                cell.showTime(now: now, times: times)
+            }
+        }
+    }
+
+    // MARK: - The Inbox column: rows rebuilt from the ordered sections
+
+    private func observeInbox() {
         guard window != nil else { return }
         armed = true
-        withObservationTracking { render() } onChange: { [weak self] in
+        withObservationTracking {
+            _ = model.version
+            _ = model.selection
+            renderInbox()
+        } onChange: { [weak self] in
             // task-owner: re-arms one observation; it ends at once when the view left its window or is gone
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 self.armed = false
-                self.observe()
+                self.observeInbox()
             }
         }
     }
 
-    // MARK: - Rows
-
-    /// The list's lines from the model, as values.
-    func makeEntries() -> [FeedRowEntry] {
-        let place = model.place
-        var seen = Set<String>()
-        defer { if contents.count > seen.count { contents = contents.filter { seen.contains($0.key) } } }
-        // An unchanged item keeps its row: a render builds values only for the items that changed,
-        // and never formats a time (visible cells draw theirs). A place not resolved yet (the
-        // store still loading) is tried again for the visible rows only (`resolveVisiblePlaces`).
-        func content(_ item: FeedItem, threadCount: Int = 1, pending: Bool, selected: Bool = false) -> FeedRowContent {
-            seen.insert(item.id)
-            var content: FeedRowContent
-            if let cached = contents[item.id], cached.item == item {
-                content = cached.content
-            } else {
-                let resolved = place?(item)
-                content = FeedRowContent(item: item, place: resolved)
-                contentBuilds += 1
-                contents[item.id] = (item, content, resolved != nil || place == nil)
+    /// The Inbox's rows from the model: group titles, then one row per item or thread.
+    func makeInboxEntries() -> [FeedRowEntry] {
+        let groups = model.inboxGroups(filter)
+        let shown = filter.selectedItem(model.selection, groups: groups)?.id
+        var entries: [FeedRowEntry] = []
+        for (key, title, group) in [("needs", FeedStrings.needsYou, groups.needsYou), ("today", FeedStrings.today, groups.today),
+                                    ("earlier", FeedStrings.earlier, groups.earlier)] where !group.isEmpty {
+            entries.append(.header(id: key, title: title, count: group.count))
+            for entry in group {
+                entries.append(.row(content(entry.head, threadCount: entry.members.count,
+                                            pending: entry.members.contains { model.isPending($0.id) },
+                                            selected: entry.members.contains { $0.id == shown })))
             }
-            content.threadCount = threadCount
-            content.isPending = pending
-            content.isSelected = selected
-            return content
         }
-        switch mode {
-        case .list:
-            let sections = model.listSections
-            let requests: [FeedRowEntry] = sections.requests.map { item in
-                requestCard == nil ? .row(content(item, pending: model.isPending(item.id))) : .request(item, pending: model.isPending(item.id))
-            }
-            return requests + sections.rest.map { .row(content($0, pending: model.isPending($0.id))) }
-        case .inbox:
-            let groups = model.inboxGroups(filter)
-            let shown = filter.selectedItem(model.selection, groups: groups)?.id
-            var entries: [FeedRowEntry] = []
-            for (key, title, group) in [("needs", FeedStrings.needsYou, groups.needsYou), ("today", FeedStrings.today, groups.today),
-                                        ("earlier", FeedStrings.earlier, groups.earlier)] where !group.isEmpty {
-                entries.append(.header(id: key, title: title, count: group.count))
-                for entry in group {
-                    entries.append(.row(content(entry.head, threadCount: entry.members.count,
-                                                pending: entry.members.contains { model.isPending($0.id) },
-                                                selected: entry.members.contains { $0.id == shown })))
-                }
-            }
-            return entries
-        }
+        return entries
     }
 
-    /// Draws the model: reloads changed rows, and inserts or removes rows keeping the reader's row.
-    func render() {
-        let next = resolveVisiblePlaces(makeEntries())
+    /// Draws the Inbox: reloads changed rows, and inserts or removes rows keeping the reader's row.
+    func renderInbox() {
+        let next = makeInboxEntries()
         renderCount += 1
-        defer { refreshVisibleTimes() }
+        defer {
+            pruneContents()
+            refreshVisible()
+        }
         let old = entries
         if old.map(\.id) == next.map(\.id) {
             var changed = IndexSet()
@@ -192,9 +328,8 @@ final class FeedRowsView: NSView, NSTableViewDataSource, NSTableViewDelegate {
             return
         }
         let anchor = readingAnchor()
-        let difference = next.map(\.id).difference(from: old.map(\.id))
         var removed = IndexSet(), inserted = IndexSet()
-        for change in difference {
+        for change in next.map(\.id).difference(from: old.map(\.id)) {
             switch change {
             case let .remove(offset, _, _): removed.insert(offset)
             case let .insert(offset, _, _): inserted.insert(offset)
@@ -205,7 +340,6 @@ final class FeedRowsView: NSView, NSTableViewDataSource, NSTableViewDelegate {
         if !removed.isEmpty { table.removeRows(at: removed, withAnimation: []) }
         if !inserted.isEmpty { table.insertRows(at: inserted, withAnimation: []) }
         table.endUpdates()
-        // Rows that stayed but changed their values.
         let oldByID = Dictionary(old.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         var changed = IndexSet()
         for (index, entry) in next.enumerated() where !inserted.contains(index) {
@@ -214,73 +348,30 @@ final class FeedRowsView: NSView, NSTableViewDataSource, NSTableViewDelegate {
         lastReloaded = changed.union(inserted)
         for index in changed { update(row: index) }
         if !changed.isEmpty { table.noteHeightOfRows(withIndexesChanged: changed) }
-        let live = Set(next.compactMap { if case let .request(item, _) = $0 { item.id } else { nil } })
-        for id in cards.keys where !live.contains(id) {
-            cards[id] = nil
-            cardHeights[id] = nil
-        }
         restore(anchor)
     }
 
-    /// The rows on screen whose place did not resolve when their value was built: one more try
-    /// each render, so a name appears once the store has the tab. O(visible rows).
-    private func resolveVisiblePlaces(_ entries: [FeedRowEntry]) -> [FeedRowEntry] {
-        guard let place = model.place, !entries.isEmpty else { return entries }
-        var entries = entries
-        let visible = table.rows(in: scroll.contentView.bounds)
-        let range = max(0, visible.location)..<min(entries.count, visible.location + visible.length + 1)
-        for index in range {
-            guard case var .row(content) = entries[index], let cached = contents[content.id], !cached.placed,
-                  let resolved = place(cached.item) else { continue }
-            let fresh = FeedRowContent(item: cached.item, place: resolved)
-            contents[content.id] = (cached.item, fresh, true)
-            (content.headline, content.detail, content.who, content.place) = (fresh.headline, fresh.detail, fresh.who, fresh.place)
-            entries[index] = .row(content)
-        }
-        return entries
-    }
-
-    /// The visible cells' relative times against the model's `now` (the only per-render cell work
-    /// when nothing else changed).
-    private func refreshVisibleTimes() {
-        let now = model.now
-        table.enumerateAvailableRowViews { rowView, _ in
-            (rowView.view(atColumn: 0) as? FeedRowCell)?.showTime(now: now, times: times)
-        }
-    }
+    // MARK: - Rows in place
 
     /// Redraws one row in place (its cell, or its card), without making a new cell.
     private func update(row index: Int) {
-        guard entries.indices.contains(index) else { return }
-        let entry = entries[index]
+        // An off-screen row builds nothing: it is built when it scrolls in. Only its card's measured
+        // height is forgotten (cards are measured even off screen).
+        guard let view = table.view(atColumn: 0, row: index, makeIfNecessary: false) else {
+            if mode == .list, let item = model.listItem(at: index) { cardHeights[item.id] = nil }
+            return
+        }
+        guard let entry = entry(at: index) else { return }
         if case let .request(item, _) = entry {
             cardHeights[item.id] = nil
-            let card = requestCard?(item, cards[item.id])
-            cards[item.id] = card
+            cards[item.id] = requestCard?(item, cards[item.id])
         }
-        guard let view = table.view(atColumn: 0, row: index, makeIfNecessary: false) else { return }
         if let cell = view as? FeedRowCell, case let .row(content) = entry {
             cell.show(content, colors: colors, now: model.now, times: times)
         } else {
             table.reloadData(forRowIndexes: IndexSet(integer: index), columnIndexes: IndexSet(integer: 0))
         }
         (table.rowView(atRow: index, makeIfNecessary: false) as? FeedTableRowView)?.show(entry, colors: colors)
-    }
-
-    /// The row under the reader and its offset from the top, unless the list is at its top.
-    private func readingAnchor() -> (id: String, offset: CGFloat)? {
-        let clip = scroll.contentView.bounds
-        guard clip.minY > 1 else { return nil }
-        let row = table.row(at: NSPoint(x: 1, y: clip.minY + 1))
-        guard entries.indices.contains(row) else { return nil }
-        return (entries[row].id, table.rect(ofRow: row).minY - clip.minY)
-    }
-
-    private func restore(_ anchor: (id: String, offset: CGFloat)?) {
-        guard let anchor, let row = entries.firstIndex(where: { $0.id == anchor.id }) else { return }
-        let y = table.rect(ofRow: row).minY - anchor.offset
-        scroll.contentView.scroll(to: NSPoint(x: 0, y: max(0, y)))
-        scroll.reflectScrolledClipView(scroll.contentView)
     }
 
     private func height(_ entry: FeedRowEntry) -> CGFloat {
@@ -315,13 +406,12 @@ final class FeedRowsView: NSView, NSTableViewDataSource, NSTableViewDelegate {
 
     private var measuredWidth: CGFloat = 0
 
-    /// Re-measures every request card's row (a width change, or a card whose content resized).
+    /// Re-measures request cards' rows (a width change, or one card whose content resized).
     private func noteCardHeights(_ id: String? = nil) {
         var rows = IndexSet()
-        for (index, entry) in entries.enumerated() {
-            guard case let .request(item, _) = entry, id == nil || item.id == id else { continue }
-            cardHeights[item.id] = nil
-            rows.insert(index)
+        for (cardID, _) in cards where id == nil || cardID == id {
+            cardHeights[cardID] = nil
+            if let row = row(of: "request:\(cardID)") { rows.insert(row) }
         }
         if !rows.isEmpty { table.noteHeightOfRows(withIndexesChanged: rows) }
     }
@@ -355,16 +445,16 @@ final class FeedRowsView: NSView, NSTableViewDataSource, NSTableViewDelegate {
         guard colors != self.colors else { return }
         self.colors = colors
         // A card's SwiftUI colors are baked into its root view: rebuild each live card's root.
-        for entry in entries {
-            if case let .request(item, _) = entry, let card = cards[item.id] { cards[item.id] = requestCard?(item, card) }
+        for (id, card) in cards {
+            if let item = model.item(id) { cards[id] = requestCard?(item, card) }
         }
         table.enumerateAvailableRowViews { rowView, row in
-            guard entries.indices.contains(row) else { return }
-            (rowView as? FeedTableRowView)?.show(entries[row], colors: colors)
-            if let cell = rowView.view(atColumn: 0) as? FeedRowCell, case let .row(content) = entries[row] {
+            guard let entry = entry(at: row) else { return }
+            (rowView as? FeedTableRowView)?.show(entry, colors: colors)
+            if let cell = rowView.view(atColumn: 0) as? FeedRowCell, case let .row(content) = entry {
                 cell.show(content, colors: colors, now: model.now, times: times)
             }
-            if let header = rowView.view(atColumn: 0) as? FeedHeaderCell, case let .header(_, title, count) = entries[row] {
+            if let header = rowView.view(atColumn: 0) as? FeedHeaderCell, case let .header(_, title, count) = entry {
                 header.show(title: title, count: count, colors: colors)
             }
         }
@@ -372,23 +462,29 @@ final class FeedRowsView: NSView, NSTableViewDataSource, NSTableViewDelegate {
 
     // MARK: - NSTableViewDataSource, NSTableViewDelegate
 
-    func numberOfRows(in tableView: NSTableView) -> Int { entries.count }
+    func numberOfRows(in tableView: NSTableView) -> Int { rowCount }
 
+    /// A list row's height from its item alone: sizing every row (as the table does on a reload)
+    /// builds no row values.
     func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
-        entries.indices.contains(row) ? height(entries[row]) : Self.rowHeight
+        if mode == .list, let item = model.listItem(at: row), !(item.isOpenRequest && requestCard != nil) {
+            return FeedRowContent.lines(item).detail.isEmpty ? Self.shortRowHeight : Self.rowHeight
+        }
+        return entry(at: row).map(height) ?? Self.rowHeight
     }
 
     func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
         let view = tableView.makeView(withIdentifier: FeedTableRowView.identifier, owner: nil) as? FeedTableRowView ?? FeedTableRowView()
         view.identifier = FeedTableRowView.identifier
         view.onClick = { [weak self] entry, count in self?.clicked(entry, clickCount: count) }
-        if entries.indices.contains(row) { view.show(entries[row], colors: colors) }
+        if let entry = entry(at: row) { view.show(entry, colors: colors) }
         return view
     }
 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
-        guard entries.indices.contains(row) else { return nil }
-        switch entries[row] {
+        switch entry(at: row) {
+        case nil:
+            return nil
         case let .header(_, title, count):
             let cell = tableView.makeView(withIdentifier: FeedHeaderCell.identifier, owner: nil) as? FeedHeaderCell ?? FeedHeaderCell()
             cell.show(title: title, count: count, colors: colors)
@@ -403,227 +499,6 @@ final class FeedRowsView: NSView, NSTableViewDataSource, NSTableViewDelegate {
             cards[item.id] = card
             return card
         }
-    }
-}
-
-/// The table, with no focus ring and no type select (the list is read, not edited).
-final class FeedTableView: NSTableView {
-    override var focusRingType: NSFocusRingType {
-        get { .none }
-        set {}
-    }
-}
-
-/// A row's ground: hover and selection fills, and the click that selects (twice: opens) its item.
-final class FeedTableRowView: NSTableRowView {
-    static let identifier = NSUserInterfaceItemIdentifier("cmux.feed.rowView")
-    var onClick: ((FeedRowEntry, Int) -> Void)?
-    private var entry: FeedRowEntry?
-    private var colors = ReportsBasketColors()
-    private var hovering = false {
-        didSet { if hovering != oldValue { needsDisplay = true } }
-    }
-
-    func show(_ entry: FeedRowEntry, colors: ReportsBasketColors) {
-        let redraw = entry != self.entry || colors != self.colors
-        self.entry = entry
-        self.colors = colors
-        if case let .row(content) = entry {
-            setAccessibilityLabel(content.accessibilityLabel)
-            setAccessibilityIdentifier("cmux.feed.row")
-            toolTip = nil
-        } else {
-            setAccessibilityLabel(nil)
-        }
-        if redraw { needsDisplay = true }
-    }
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        for area in trackingAreas { removeTrackingArea(area) }
-        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect], owner: self))
-    }
-
-    override func mouseEntered(with event: NSEvent) { hovering = true }
-    override func mouseExited(with event: NSEvent) { hovering = false }
-
-    override func prepareForReuse() {
-        super.prepareForReuse()
-        hovering = false
-    }
-
-    override func mouseDown(with event: NSEvent) {
-        guard let entry, case .row = entry else { return super.mouseDown(with: event) }
-        onClick?(entry, event.clickCount)
-    }
-
-    override func drawBackground(in dirtyRect: NSRect) {
-        guard case let .row(content) = entry else { return }
-        let fill: NSColor? = content.isSelected ? colors.selection : (hovering ? colors.hover : nil)
-        guard let fill else { return }
-        fill.setFill()
-        NSBezierPath(roundedRect: bounds.insetBy(dx: 5, dy: 1), xRadius: 7, yRadius: 7).fill()
-    }
-}
-
-/// "Needs you 3": an Inbox section title.
-final class FeedHeaderCell: NSTableCellView {
-    static let identifier = NSUserInterfaceItemIdentifier("cmux.feed.header")
-    private let title = FeedRowCell.label(size: TypeScale.caption, weight: TypeScale.emphasis)
-    private let count = FeedRowCell.label(size: TypeScale.caption)
-
-    init() {
-        super.init(frame: .zero)
-        identifier = Self.identifier
-        addSubview(title)
-        addSubview(count)
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
-
-    func show(title text: String, count value: Int, colors: ReportsBasketColors) {
-        title.stringValue = text
-        count.stringValue = "\(value)"
-        title.textColor = colors.secondary
-        count.textColor = colors.tertiary
-        needsLayout = true
-    }
-
-    override func layout() {
-        super.layout()
-        let width = ceil(title.intrinsicContentSize.width)
-        let y = bounds.height - TypeScale.captionLineHeight - 6
-        title.frame = NSRect(x: 17, y: y, width: min(width, bounds.width - 60), height: TypeScale.captionLineHeight)
-        count.frame = NSRect(x: title.frame.maxX + 6, y: y, width: 40, height: TypeScale.captionLineHeight)
-    }
-
-    override var isFlipped: Bool { false }
-}
-
-/// One event: what happened and when on the first line, one line of detail, then who and where.
-///
-///     ● ⌘ Finished: updated FeedModel.swift and 3 tests                 3m
-///         Ran swift test --filter FeedModelTests: 42 passed.
-///         Claude Code · api-server › Fix login redirect · ×2
-///
-/// Frames are set by hand from the fixed type scale, so a row that scrolls in measures nothing.
-final class FeedRowCell: NSTableCellView {
-    static let identifier = NSUserInterfaceItemIdentifier("cmux.feed.cell")
-    private(set) var content: FeedRowContent?
-    let headline = FeedRowCell.label(size: TypeScale.body)
-    let time = FeedRowCell.label(size: TypeScale.caption)
-    let detail = FeedRowCell.label(size: TypeScale.detail)
-    let meta = FeedRowCell.label(size: TypeScale.caption)
-    private let glyph = NSImageView()
-    private let dot = NSView()
-    private let local = NSImageView()
-    private var icon: IconName?
-
-    init() {
-        super.init(frame: .zero)
-        identifier = Self.identifier
-        dot.wantsLayer = true
-        dot.layer?.cornerRadius = 3
-        glyph.imageScaling = .scaleProportionallyDown
-        local.image = NSImage.icon(.machineLocal, size: .iconRowSize(forLabelPointSize: TypeScale.caption))
-        local.image?.isTemplate = true
-        time.alignment = .right
-        for view in [dot, glyph, headline, time, detail, meta, local] { addSubview(view) }
-        setAccessibilityElement(false)
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
-
-    static func label(size: CGFloat, weight: NSFont.Weight = TypeScale.regular) -> NSTextField {
-        let label = NSTextField(labelWithString: "")
-        label.font = .systemFont(ofSize: size, weight: weight)
-        label.lineBreakMode = .byTruncatingTail
-        label.maximumNumberOfLines = 1
-        label.cell?.truncatesLastVisibleLine = true
-        label.isSelectable = false
-        label.setAccessibilityElement(false)
-        return label
-    }
-
-    func show(_ content: FeedRowContent, colors: ReportsBasketColors, now: Date, times: FeedRelativeTime.Formatter) {
-        self.content = content
-        headline.stringValue = content.headline
-        headline.font = .systemFont(ofSize: TypeScale.body, weight: content.isUnread ? TypeScale.emphasis : TypeScale.regular)
-        headline.textColor = content.isUnread || content.isOpenRequest ? colors.primary : colors.secondary
-        headline.toolTip = content.headline
-        time.stringValue = times.string(content.createdAt, now: now)
-        time.toolTip = content.whenFull
-        time.textColor = colors.tertiary
-        detail.stringValue = content.detail
-        detail.font = content.detailIsCode
-            ? .monospacedSystemFont(ofSize: TypeScale.detail, weight: TypeScale.regular)
-            : .systemFont(ofSize: TypeScale.detail, weight: TypeScale.regular)
-        detail.textColor = colors.secondary
-        detail.isHidden = content.detail.isEmpty
-        var line = content.meta
-        if content.count > 1 { line += line.isEmpty ? "×\(content.count)" : " · ×\(content.count)" }
-        if content.threadCount > 1 {
-            let thread = FeedStrings.threadCount(content.threadCount)
-            line += line.isEmpty ? thread : " · \(thread)"
-        }
-        meta.stringValue = line
-        meta.textColor = colors.tertiary
-        local.isHidden = !content.isLocal
-        local.contentTintColor = colors.tertiary
-        local.toolTip = FeedStrings.thisMac
-        if icon != content.icon {
-            icon = content.icon
-            glyph.image = NSImage.icon(content.icon, size: .iconRowSize(forLabelPointSize: TypeScale.body))
-            glyph.image?.isTemplate = true
-        }
-        glyph.contentTintColor = content.isUrgent ? colors.attention
-            : content.isOpenRequest ? colors.primary : content.isDimmed ? colors.tertiary : colors.secondary
-        dot.layer?.backgroundColor = (content.isUnread ? colors.primary : .clear).cgColor
-        alphaValue = content.isPending ? 0.55 : 1
-        needsLayout = true
-    }
-
-    /// The relative time against `now`; redrawn only when its text changed.
-    func showTime(now: Date, times: FeedRelativeTime.Formatter) {
-        guard let content else { return }
-        let text = times.string(content.createdAt, now: now)
-        if time.stringValue != text {
-            time.stringValue = text
-            needsLayout = true
-        }
-    }
-
-    override var isFlipped: Bool { true }
-
-    /// Clicks go to the row (its labels take none), which selects or opens the item.
-    override func hitTest(_ point: NSPoint) -> NSView? {
-        frame.contains(point) ? self : nil
-    }
-
-    override func layout() {
-        super.layout()
-        let left: CGFloat = 40, right: CGFloat = 14, top: CGFloat = 7
-        let width = bounds.width - left - right
-        // Measured from the text: a one-line truncating label's intrinsic width follows its frame.
-        let timeText = time.stringValue as NSString
-        let timeWidth = min(ceil(timeText.size(withAttributes: [.font: time.font ?? NSFont.systemFont(ofSize: TypeScale.caption)]).width) + 4, 64)
-        dot.frame = NSRect(x: 9, y: top + (TypeScale.bodyLineHeight - 6) / 2, width: 6, height: 6)
-        let side = CGFloat.iconRowSize(forLabelPointSize: TypeScale.body)
-        glyph.frame = NSRect(x: 19, y: top + (TypeScale.bodyLineHeight - side) / 2, width: side, height: side)
-        headline.frame = NSRect(x: left, y: top, width: max(0, width - timeWidth - 6), height: TypeScale.bodyLineHeight)
-        time.frame = NSRect(x: bounds.width - right - timeWidth, y: top + 2, width: timeWidth, height: TypeScale.captionLineHeight)
-        var y = top + TypeScale.bodyLineHeight + 2
-        if !detail.isHidden {
-            detail.frame = NSRect(x: left, y: y, width: width, height: TypeScale.detailLineHeight)
-            y += TypeScale.detailLineHeight + 2
-        }
-        let localSide: CGFloat = local.isHidden ? 0 : CGFloat.iconRowSize(forLabelPointSize: TypeScale.caption)
-        meta.frame = NSRect(x: left, y: y, width: max(0, width - localSide - 4), height: TypeScale.captionLineHeight)
-        let metaText = meta.stringValue as NSString
-        let metaWidth = min(ceil(metaText.size(withAttributes: [.font: meta.font ?? NSFont.systemFont(ofSize: TypeScale.caption)]).width), meta.frame.width)
-        local.frame = NSRect(x: left + metaWidth + 4, y: y + (TypeScale.captionLineHeight - localSide) / 2, width: localSide, height: localSide)
     }
 }
 

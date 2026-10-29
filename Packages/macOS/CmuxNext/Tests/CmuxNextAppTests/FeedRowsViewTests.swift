@@ -114,6 +114,18 @@ import Testing
         #expect(view.contentBuilds - builds <= 1, "one event built \(view.contentBuilds - builds) row values")
     }
 
+    /// A change to every item (Mark All Read on 1,500 items: its send, echo and settle) builds the
+    /// values of the rows on screen only.
+    @Test func markAllReadBuildsOnlyTheRowsOnScreen() async throws {
+        let (view, model, _, window) = shown(count: 1_500)
+        defer { window.close() }
+        let builds = view.contentBuilds
+        model.markAllRead()
+        await until { model.pending.isEmpty }
+        #expect(model.summary.hasUnread == false)
+        #expect(view.contentBuilds - builds <= 3 * 40, "Mark All Read built \(view.contentBuilds - builds) row values")
+    }
+
     /// The model hands the list each change as row edits: a new event is one insert at the top, an
     /// agent repeating its notice is one row redrawn where it is, reading an item is one row
     /// redrawn, and an archived item is one removal; nothing else moves.
@@ -121,7 +133,8 @@ import Testing
         let (_, model, source, window) = shown(count: 1_500)
         defer { window.close() }
         var edits: [FeedRowChanges] = []
-        let subscription = model.observeList { edits.append($0) }
+        // An empty edit says only that `now` moved (the list redraws its times).
+        let subscription = model.observeList { if !$0.isEmpty { edits.append($0) } }
         defer { subscription.cancel() }
 
         source.post(item(5_000, ago: 0))
