@@ -241,7 +241,8 @@ private nonisolated struct JoinConsentPage: Encodable {
 }
 
 /// Text of the join consent (Resources/AddDevice.xcstrings).
-public nonisolated enum JoinConsentStrings {
+public nonisolated struct JoinConsentStrings {
+    public nonisolated init() {}
     private static func s(_ key: StaticString, _ value: String.LocalizationValue) -> String {
         String(localized: key, defaultValue: value, table: "AddDevice", bundle: .module)
     }
