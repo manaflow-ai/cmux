@@ -668,11 +668,10 @@ a machine whose agent is mid-turn and quiet). The server pauses idle machines in
   run finds the provider running under a paused row and repairs the row to running through a
   fenced write, which settles the claim. Every recovery that leaves the machine running (that
   repair, a compensation that finds it already running, a refused pause the next run clears)
-  first gives a Go machine back the runtime budget the idle pause zeroed, as the re-pause race
-  does. That is best effort: a failed usage read or budget write is logged and the recovery
-  still finishes, and the compensating resume takes no plan gate. Only a used-up Go allowance
-  keeps the machine paused, recorded as the idle pause. A person's Pause landing during the
-  repair wins the row, and the running machine is paused again. A person's Pause on a row already marked paused still records their decision.
+  first clears the zero runtime cap the idle pause put on a Plus (go) machine, as the re-pause
+  race does. That is best effort: a failed write is logged and the recovery still finishes, and
+  the compensating resume takes no plan gate. A person's Pause landing during the repair wins
+  the row, and the running machine is paused again. A person's Pause on a row already marked paused still records their decision.
 - Every pause, resume or other status write drops the stored idle observation, so a resumed
   machine starts a new stretch and gets the whole timeout again.
 - The timeout is per machine (`PUT /api/vm/:id/idle-pause`; `idlePauseMinutes` in the list and

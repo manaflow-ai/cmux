@@ -1,4 +1,4 @@
-import { afterAll, afterEach, beforeAll, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
@@ -40,21 +40,6 @@ import { runChild } from "./helpers/run-child";
 // against fake repository and provider layers, the guest probe script runs for
 // real against a fake /proc, and the SQL runs against Postgres when
 // CMUX_DB_TEST=1.
-
-// A Go machine's allowance, for the runtime budget tests. Null reads the real module, so every
-// other test (and any file sharing this process) is unchanged.
-/** Null reads the real module; "fail" makes the usage read throw. */
-let goRemainingSecondsForTest: number | "fail" | null = null;
-const realGoUsage = await import("../services/vms/goUsage");
-const realGetGoVmUsage = realGoUsage.getGoVmUsage;
-mock.module("../services/vms/goUsage", () => ({
-  ...realGoUsage,
-  getGoVmUsage: (...args: Parameters<typeof realGetGoVmUsage>) => goRemainingSecondsForTest === null
-    ? realGetGoVmUsage(...args)
-    : goRemainingSecondsForTest === "fail"
-    ? Promise.reject(new Error("go usage: unavailable"))
-    : Promise.resolve({ periodStart: new Date(T0), periodEnd: new Date(T0), usedSeconds: 0, remainingSeconds: goRemainingSecondsForTest, savedVms: 0 }),
-}));
 
 const MIN = 60_000;
 const T0 = Date.parse("2026-10-21T12:00:00Z");
@@ -528,7 +513,7 @@ function cronFakes(
     readonly afterResume?: FakeHook;
     /** Runs right after a compensating resume's fence claim succeeds. */
     readonly afterResumeClaim?: FakeHook;
-    /** Every non-zero runtime budget write fails (the pause's own zero still lands). */
+    /** Every runtime cap write but the pause's own zero fails. */
     readonly budgetFails?: boolean;
     /** "accepted": the provider pauses, then the call errors (a lost answer); "refused": it errors without pausing. */
     readonly pauseFails?: "accepted" | "refused";
@@ -1413,12 +1398,9 @@ describe("the pause's other races", () => {
 });
 
 describe("a Go machine's runtime budget after an idle pause recovery", () => {
-  // The idle pause zeroes a Go machine's provider runtime budget before pausing. Freestyle keeps an
-  // exhausted limit and disables automatic restart, so any recovery that leaves the machine running
-  // gives the remaining allowance back before it settles the claim.
-  afterEach(() => {
-    goRemainingSecondsForTest = null;
-  });
+  // The idle pause caps a Plus (go) machine's provider runtime at zero before pausing. Freestyle keeps an
+  // exhausted limit and disables automatic restart, and Plus has no hour cap, so any recovery that leaves
+  // the machine running clears the cap (null) before it settles the claim.
   const goRow = (overrides: Partial<CloudVmRow> = {}) => machineRow({
     billingPlanId: "go",
     providerMetadata: { networkIpv4: "10.192.0.5", cmuxIdleObservation: { providerVmId: VM, idleSince: T0 - 31 * MIN, observedAt: T0 - 5 * MIN, cpuBusyMs: CPU0 } },
@@ -1426,14 +1408,13 @@ describe("a Go machine's runtime budget after an idle pause recovery", () => {
   });
   type Options = NonNullable<Parameters<typeof cronFakes>[2]>;
   const setup = (options: Options, row: CloudVmRow = goRow()) => {
-    goRemainingSecondsForTest = 3_600;
     const rows = [row];
     const fakes = cronFakes(rows, () => ({ exitCode: 0, stdout: probeLine() }), options);
     const runAt = (now: number) => Effect.runPromise(enforceVmIdlePause({ now: () => now }).pipe(Effect.provide(fakes.layer)));
     return { rows, runAt, ...fakes };
   };
   const restoredBefore = (log: readonly string[], write: string) => {
-    const restored = log.lastIndexOf("budget:3600");
+    const restored = log.lastIndexOf("budget:null");
     return restored >= 0 && restored < log.lastIndexOf(write);
   };
 
@@ -1442,7 +1423,7 @@ describe("a Go machine's runtime budget after an idle pause recovery", () => {
       duringPause: (repo) => Effect.runSync(repo.recordVmApiActivity!({ id: "row-1", providerVmId: VM, at: T0 })),
     });
     expect(await runAt(T0)).toMatchObject({ paused: 0, aborted: 1 });
-    expect(recorded.log).toEqual(["budget:0", "budget:3600", "resume", "status:running"]);
+    expect(recorded.log).toEqual(["budget:0", "budget:null", "resume", "status:running"]);
     expect(rows[0].status).toBe("running");
   });
 
@@ -1456,7 +1437,7 @@ describe("a Go machine's runtime budget after an idle pause recovery", () => {
     });
     expect(await runAt(T0)).toMatchObject({ paused: 0, aborted: 1 });
     expect(recorded.resumed).toEqual([]);
-    expect(recorded.budgets).toEqual([0, 3_600]);
+    expect(recorded.budgets).toEqual([0, null]);
     expect(restoredBefore(recorded.log, "status:running")).toBe(true);
     expect(rows[0].status).toBe("running");
   });
@@ -1468,7 +1449,7 @@ describe("a Go machine's runtime budget after an idle pause recovery", () => {
     expect(rows[0].providerMetadata.cmuxIdlePauseClaim).toBeDefined();
     await runAt(T0 + 5 * MIN);
     expect(rows[0].providerMetadata.cmuxIdlePauseClaim).toBeUndefined();
-    expect(recorded.budgets).toEqual([0, 3_600]);
+    expect(recorded.budgets).toEqual([0, null]);
     expect(restoredBefore(recorded.log, "observation")).toBe(true);
   });
 
@@ -1479,7 +1460,7 @@ describe("a Go machine's runtime budget after an idle pause recovery", () => {
     expect(rows[0].status).toBe("running");
     expect(rows[0].providerMetadata.cmuxIdlePauseClaim).toBeUndefined();
     expect(recorded.resumed).toEqual([]);
-    expect(recorded.budgets).toEqual([3_600]);
+    expect(recorded.budgets).toEqual([null]);
     expect(restoredBefore(recorded.log, "status:running")).toBe(true);
   });
 
@@ -1487,30 +1468,11 @@ describe("a Go machine's runtime budget after an idle pause recovery", () => {
     duringPause: (repo) => Effect.runSync(repo.recordVmApiActivity!({ id: "row-1", providerVmId: VM, at: T0 })),
   };
 
-  test("the Go usage read fails: the compensation still resumes and settles, and logs it", async () => {
-    const { rows, runAt, recorded } = setup(activityDuringPause);
-    goRemainingSecondsForTest = "fail";
-    expect(await runAt(T0)).toMatchObject({ paused: 0, aborted: 1, errors: 0 });
-    expect(recorded.resumed).toEqual([VM]);
-    expect(rows[0].status).toBe("running");
-    expect(rows[0].providerMetadata.cmuxIdlePauseClaim).toBeUndefined();
-  });
-
-  test("the budget write fails: the compensation still resumes and settles, and logs it", async () => {
+  test("the cap write fails: the compensation still resumes and settles, and logs it", async () => {
     const { rows, runAt, recorded } = setup({ ...activityDuringPause, budgetFails: true });
     expect(await runAt(T0)).toMatchObject({ paused: 0, aborted: 1, errors: 0 });
     expect(recorded.resumed).toEqual([VM]);
     expect(rows[0].status).toBe("running");
-    expect(rows[0].providerMetadata.cmuxIdlePauseClaim).toBeUndefined();
-  });
-
-  test("the allowance is used up: the compensation keeps the machine paused and settles the claim", async () => {
-    const { rows, runAt, recorded, providerState } = setup(activityDuringPause);
-    goRemainingSecondsForTest = 0;
-    expect(await runAt(T0)).toMatchObject({ paused: 0, aborted: 1, errors: 0 });
-    expect(recorded.resumed).toEqual([]);
-    expect(providerState.get(VM)).toBe("paused");
-    expect(rows[0].status).toBe("paused");
     expect(rows[0].providerMetadata.cmuxIdlePauseClaim).toBeUndefined();
   });
 });
