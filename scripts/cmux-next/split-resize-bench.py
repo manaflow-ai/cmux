@@ -51,7 +51,8 @@ parser.add_argument("--drag-hz", default="120")
 parser.add_argument("--cpu-load", type=int, default=0)
 # --cpu-load-class=background runs the busy processes under `taskpolicy -b` (background QoS: what cmux could give the
 # agents, daemons and builds it starts), to see whether the page keeps up when the load yields to it.
-parser.add_argument("--cpu-load-class", choices=("default", "background"), default="default")
+# utility: `taskpolicy -c utility` (a lower CPU class with no disk throttle, unlike background).
+parser.add_argument("--cpu-load-class", choices=("default", "utility", "background"), default="default")
 # --profile: two more drags per launch under `sample` (app and busiest renderer); the heaviest stacks go in the report.
 parser.add_argument("--profile", action="store_true")
 opts, _ = parser.parse_known_args()
@@ -151,6 +152,8 @@ def measure(variant: str | None, folder: Path, page: str = "probe", hz: float = 
 busy = [sys.executable, "-c", "while True: pass"]
 if opts.cpu_load_class == "background":
     busy = ["/usr/sbin/taskpolicy", "-b"] + busy
+elif opts.cpu_load_class == "utility":
+    busy = ["/usr/sbin/taskpolicy", "-c", "utility"] + busy
 load = [subprocess.Popen(busy, stdin=subprocess.DEVNULL) for _ in range(max(0, opts.cpu_load))]
 try:
     reports = [measure(variant, out / ((variant or "default") + ("" if page == "probe" else f"-{page}")
