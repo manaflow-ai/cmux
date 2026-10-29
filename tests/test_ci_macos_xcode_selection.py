@@ -160,7 +160,7 @@ def steps(job: str) -> list[tuple[str, str]]:
     """(name, text) for each step of a job."""
     lines = job.splitlines()
     try:
-        start = next(i for i, line in enumerate(lines) if re.match(r"^    steps:\s*$", line))
+        start = next(i for i, line in enumerate(lines) if re.match(r"^    steps:(?:\s+&[\w-]+)?\s*$", line))
     except StopIteration:
         return []
     found = []
@@ -196,7 +196,15 @@ def check_workflow(name: str, text: str) -> list[str]:
     # A path such as scripts/build-x.sh keeps its name even when a job shares it.
     job_ids = [job_id for job_id in workflow_jobs if "-" in job_id]
     job_id_token = re.compile(r"(?<![\w/-])(" + "|".join(map(re.escape, job_ids)) + r")(?![\w-])") if job_ids else None
+    # A job whose steps are a YAML alias (`steps: *name`, a same-run twin) runs the anchored job's steps.
+    anchored = {m.group(1): job for job in workflow_jobs.values()
+                for m in [re.search(r"^    steps:\s+&([\w-]+)\s*$", job, re.M)] if m}
     for job_id, job in workflow_jobs.items():
+        alias = re.search(r"^    steps:\s+\*([\w-]+)\s*$", job, re.M)
+        if alias and alias.group(1) in anchored:
+            body = anchored[alias.group(1)]
+            after = body.index("\n", re.search(r"^    steps:", body, re.M).start()) + 1
+            job = job[:alias.start()] + "    steps:\n" + body[after:]
         key = (name, job_id)
         if not is_macos(job) or key in EXEMPT:
             continue
