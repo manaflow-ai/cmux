@@ -133,7 +133,7 @@ impl Hub {
         let turn_id = turn_id?;
         // A user_message is written before turn_started. A crash in that interval leaves a
         // prompt that has not run and must remain eligible for recovery/resend.
-        if !started {
+        if !started && ended.is_none() {
             return None;
         }
         let status = ended
