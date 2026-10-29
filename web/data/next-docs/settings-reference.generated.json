@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 517,
+  "count": 518,
   "sections": [
     {
       "id": "general",
@@ -649,6 +649,14 @@
             "tab",
             "split"
           ]
+        },
+        {
+          "key": "layout.pagesHandleCommandScroll",
+          "title": "Web Pages Get Command + Scroll First",
+          "help": "A web page that uses Command + Scroll itself, such as Figma or Excalidraw zooming, keeps it. Over any other page, Command + Scroll moves columns. Off, Command + Scroll always moves columns.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Columns"
         },
         {
           "key": "layout.rows",
@@ -1363,7 +1371,7 @@
         {
           "key": "window.titlebarButtons",
           "title": "Titlebar Buttons",
-          "help": "On Hover hides Back and Forward until the pointer is over the top row. The sidebar button always shows.",
+          "help": "With the sidebar hidden, On Hover hides the sidebar button, Back and Forward until the pointer is over the top row. With the sidebar open, they always show.",
           "kind": "choice",
           "default": "hover",
           "group": "Window",
@@ -3021,7 +3029,7 @@
         {
           "key": "sidebar.controlsOnHover",
           "title": "Show Sidebar Controls Only on Hover",
-          "help": "The sidebar's New Workspace button, spaces, profile button and Search button show only while the pointer is over the sidebar. Off, they always show.",
+          "help": "The sidebar's New Workspace button, spaces, profile button and Search button, and the sidebar button, Back and Forward above it, show only while the pointer is over the sidebar. Off, they always show.",
           "kind": "toggle",
           "default": false,
           "group": "Sidebar"
@@ -3080,7 +3088,7 @@
           "title": "Hover Card Delay",
           "help": "How long the pointer rests on a workspace or a tab before its card opens. While a card shows, the next one opens at once.",
           "kind": "number",
-          "default": 250,
+          "default": 1300,
           "group": "Sidebar",
           "range": {
             "min": 0,
@@ -3101,7 +3109,7 @@
           "title": "Group Card Delay",
           "help": "How long the pointer rests on a group before its summary card opens.",
           "kind": "number",
-          "default": 600,
+          "default": 1500,
           "group": "Sidebar",
           "range": {
             "min": 0,

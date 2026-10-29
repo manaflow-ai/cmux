@@ -313,13 +313,13 @@ final class HomeScene {
             }
         }
         if case .typing = r.spec.kind, !r.ghost, motion.loops {
-            if !row.hasTypingSpinner { row.startTypingSpinner(begin: r.insertedAt == typingInsertedAt ? typingBegin : now) }
-        } else if row.hasTypingSpinner {
-            row.stopTypingSpinner()
+            if !row.hasTypingDots { row.startTypingDots(begin: r.insertedAt == typingInsertedAt ? typingBegin : now) }
+        } else if row.hasTypingDots {
+            row.stopTypingDots()
         }
     }
 
-    /// When the current typing row was inserted (its spinner starts after the pop).
+    /// When the current typing row was inserted (its dots start after the pop).
     var typingInsertedAt: Double = -1
 
     var firstVisibleRow: Int {

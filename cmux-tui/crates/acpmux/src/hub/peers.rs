@@ -83,6 +83,7 @@ impl Hub {
         );
         peer.set_vm_boundary(pc.vm_boundary);
         peer.set_github_broker(pc.github_broker);
+        peer.set_github_app(self.github_app.clone());
         let settled = peer.settled();
         // Under the rows lock (lock order: `remote_sessions`, then `peers`): a purge or notice of
         // the instance this replaces, checked current under it (`is_current`), is done before the
@@ -656,7 +657,7 @@ impl Hub {
                             .find(|(_, r)| r.peer == peer && r.receipt.mux_session_id == mux_id)
                             .map(|(key, _)| key.clone());
                         if let Some(old_id) = old_id {
-                            map.remove(&old_id);
+                            map.take(&old_id);
                         }
                         map.insert(
                             id.clone(),
@@ -891,6 +892,16 @@ impl Hub {
     }
 
     /// Look a key up among peer sessions: exact id, `peer/name`, or a unique name.
+    /// How many sessions the peers list that `key` names, as [`Hub::resolve_remote`] matches
+    /// them: 0 none, 1 the one it resolves, more when it is ambiguous.
+    pub fn remote_matches(&self, key: &str) -> usize {
+        let map = self.remote_sessions.lock().unwrap_or_else(|e| e.into_inner());
+        if map.get(key).is_some() {
+            return 1;
+        }
+        map.iter().filter(|(id, r)| names_remote(id, r, key)).count()
+    }
+
     pub fn resolve_remote(&self, key: &str) -> Option<(Arc<crate::peer::Peer>, String, Value)> {
         let map = self.remote_sessions.lock().unwrap();
         let hit = if let Some(r) = map.get(key) {
@@ -898,13 +909,7 @@ impl Hub {
         } else {
             let mut matches: Vec<_> = map
                 .iter()
-                .filter(|(id, r)| {
-                    let name = r.summary.get("name").and_then(Value::as_str).unwrap_or("");
-                    name == key
-                        || r.receipt.mux_session_id.starts_with(key)
-                        || id.starts_with(key)
-                        || name.strip_prefix(&format!("{}/", r.peer)) == Some(key)
-                })
+                .filter(|(id, r)| names_remote(id, r, key))
                 .map(|(_, r)| (r.peer.clone(), r.receipt.mux_session_id.clone(), r.summary.clone()))
                 .collect();
             if matches.len() == 1 { matches.pop() } else { None }
@@ -932,7 +937,7 @@ impl Hub {
             .find(|(_, r)| r.peer == peer && r.receipt.mux_session_id == mux)
             .filter(|(_, r)| created(r) == generation)
             .map(|(key, _)| key.clone());
-        let removed = key.and_then(|key| map.remove(&key));
+        let removed = key.and_then(|key| map.take(&key));
         // Its event snapshot goes with it (`peer_snapshot.rs`), before the lock does. A purge that
         // names no generation and found no such row removes no copy of another.
         if generation.is_some() || removed.is_some() {
@@ -948,6 +953,13 @@ impl Hub {
 
     /// [`Self::remote_sessions`] of the rows `keep` takes, cloning no other.
     fn remote_rows(&self, keep: impl Fn(&Value) -> bool) -> Vec<Value> {
+        let mut rows = Vec::new();
+        self.visit_remote_rows(keep, |row| rows.push(row));
+        rows
+    }
+
+    /// Capture immutable row handles under the lock, then normalize and visit outside it.
+    fn visit_remote_rows(&self, keep: impl Fn(&Value) -> bool, mut visit: impl FnMut(Value)) {
         let states: HashMap<String, &'static str> = self
             .peers
             .lock()
@@ -955,18 +967,30 @@ impl Hub {
             .values()
             .map(|p| (p.name.clone(), p.state().as_str()))
             .collect();
-        let map = self.remote_sessions.lock().unwrap_or_else(|e| e.into_inner());
-        map.values()
+        let rows: Vec<_> = self
+            .remote_sessions
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .values()
             .filter(|r| keep(&r.summary))
-            .map(|r| {
-                let mut summary = r.summary.clone();
-                summary["stale"] = Value::Bool(summary["stale"] == true);
-                if let Some(state) = states.get(&r.peer) {
-                    summary["peerState"] = Value::String((*state).to_owned());
-                }
-                summary
-            })
-            .collect()
+            .cloned()
+            .collect();
+        for r in rows {
+            let mut summary = r.summary.clone();
+            summary["stale"] = Value::Bool(summary["stale"] == true);
+            if let Some(state) = states.get(&r.peer) {
+                summary["peerState"] = Value::String((*state).to_owned());
+            }
+            visit(summary);
+        }
+    }
+
+    /// Each summary once, local before remote, without retaining the JSON trees.
+    pub(super) fn visit_session_summaries(&self, mut visit: impl FnMut(Value)) {
+        for session in self.sessions() {
+            visit(self.session_summary(&session));
+        }
+        self.visit_remote_rows(|_| true, visit);
     }
 
     /// Every session, local and remote, newest first.
@@ -1003,6 +1027,16 @@ impl Hub {
         }
         out
     }
+}
+
+/// Whether `key` names the peer's session `r` (listed under `id`): its name, a prefix of its id,
+/// or `PEER/NAME`.
+fn names_remote(id: &str, r: &RemoteSession, key: &str) -> bool {
+    let name = r.summary.get("name").and_then(Value::as_str).unwrap_or("");
+    name == key
+        || r.receipt.mux_session_id.starts_with(key)
+        || id.starts_with(key)
+        || name.strip_prefix(&format!("{}/", r.peer)) == Some(key)
 }
 
 #[cfg(test)]
@@ -1161,6 +1195,38 @@ mod tests {
         assert_eq!(summary["lane"]["step"], "push [GitHub Personal Access Token]", "{summary}");
     }
 
+    #[test]
+    fn streamed_remote_rows_release_the_lock_and_keep_the_captured_versions() {
+        let hub = Hub::new(
+            crate::config::Config::default(),
+            Box::new(crate::store::MemoryStore::default()),
+        );
+        let (tx, _rx) = tokio::sync::mpsc::channel(8);
+        let peer = crate::peer::Peer::new("builder", "ws://127.0.0.1:9", None, None, tx);
+        hub.peers.lock().unwrap().insert("builder".into(), peer.clone());
+        let rows = (0..3).map(|i| json!({"sessionId": format!("r{i}"), "status": "closed", "updatedAt": i, "tools": [{"id": "kept"}]})).collect();
+        hub.apply_peer_notice("builder", peer.generation, crate::peer::PeerNotice::Sessions(rows));
+        let expected = hub.all_session_summaries();
+        let mut actual = Vec::new();
+        hub.visit_session_summaries(|row| {
+            // A writer can remove rows during serialization without changing this snapshot.
+            let mut rows = hub.remote_sessions.try_lock().expect("visitor must not hold row lock");
+            let captured: Vec<_> = rows.iter().map(|(id, row)| (id.clone(), row.clone())).collect();
+            for (id, captured) in captured {
+                let writes = rows.writes;
+                let removed = rows.take(&id).unwrap();
+                assert!(Arc::ptr_eq(&removed, &captured), "discard must not deep-clone a row");
+                assert_eq!(rows.writes, writes + 1);
+                assert!(rows.get(&id).is_none());
+            }
+            actual.push(row);
+        });
+        super::super::session_pages::sort_session_summaries(&mut actual);
+        assert_eq!(actual, expected);
+        assert_eq!(actual.len(), 3);
+        assert!(hub.remote_sessions.lock().unwrap().is_empty());
+    }
+
     /// A wait reads the row the full list puts first for each id: a peer's newer chat
     /// over a local one with the same bare id, and the newer of two peers' rows.
     #[test]
@@ -1186,6 +1252,10 @@ mod tests {
         }
         let ids: Vec<String> = ["x", "y", "solo", "none", "x"].map(str::to_owned).to_vec();
         let all = hub.all_session_summaries();
+        let mut streamed = Vec::new();
+        hub.visit_session_summaries(|row| streamed.push(row));
+        super::super::session_pages::sort_session_summaries(&mut streamed);
+        assert_eq!(streamed, all, "local and normalized remote summaries agree");
         let some = hub.session_summaries_of(&ids);
         for id in &ids {
             let first = all.iter().find(|s| s["sessionId"] == id.as_str());

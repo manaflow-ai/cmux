@@ -89,6 +89,7 @@ extension SettingsSchema {
         "layout.focusFollowsMouse",
         "layout.scrollAreas",
         "layout.scrollModifier",
+        "layout.pagesHandleCommandScroll",
         "layout.minimumPaneWidth",
         "layout.minimumPaneHeight",
         "appearance.theme",
