@@ -34,8 +34,10 @@ try {
       await cdp.send("DOM.enable");
       await cdp.send("CSS.enable");
       const { root } = await cdp.send("DOM.getDocument");
+      const hoveredNodes = [];
       for (const selector of [".cv-user", ".cv-received", ".acpmux-turnSummary"]) {
         const { nodeId } = await cdp.send("DOM.querySelector", { nodeId: root.nodeId, selector });
+        hoveredNodes.push(nodeId);
         await cdp.send("CSS.forcePseudoState", { nodeId, forcedPseudoClasses: ["hover"] });
       }
       const state = await page.evaluate(async () => {
@@ -53,7 +55,10 @@ try {
       }
       if (coarse) await page.screenshot({ path: path.join(out, `${version}-coarse.png`), animations: "allow" });
       console.log(JSON.stringify({ version, coarse, state }));
-      // Keyboard access remains available on both pointer types with no hover delay.
+      // Keyboard access is a separate interaction: clear the forced pointer state first.
+      for (const nodeId of hoveredNodes) {
+        await cdp.send("CSS.forcePseudoState", { nodeId, forcedPseudoClasses: [] });
+      }
       await page.locator(".cv-user__actions button").first().focus();
       assert.equal(await page.locator(".cv-user__actions").evaluate((el) => getComputedStyle(el).transitionDelay), "0s");
       await page.emulateMedia({ reducedMotion: "reduce" });
