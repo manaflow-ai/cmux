@@ -466,6 +466,49 @@ export function QuickModelMenu({
       }}
     />
   );
+  // A launch configuration (claude-sr, a second login) is another account of this harness, so it
+  // sits in the Account submenu under the chat's routes, never as rows of the model list
+  // (Leo 2026-10-29: "Why the fuck did you remove the fucking account switcher?").
+  const variants = !query && shown?.variants?.length ? shown.variants : undefined;
+  const variantRows = variants?.map((variant) => (
+    <MenuItem
+      key={variant.id}
+      className="acpmux-quick-item acpmux-quick-variant"
+      disabled={families?.forkReady === false}
+      closeOnClick
+      onSelect={() => {
+        if (variant.logIn) variant.logIn();
+        else families?.onLaunch?.(variant.id);
+      }}
+    >
+      <span className="acpmux-menu-label">
+        {families?.onFork ? t("picker.forkTo", { harness: variant.name }) : variant.name}
+      </span>
+    </MenuItem>
+  ));
+  const chatRoutes = !query && onChatTab && account ? routeRows : undefined;
+  const accountRows = (chatRoutes || variantRows) && (
+    <>
+      {chatRoutes}
+      {chatRoutes && variantRows && <MenuSeparator />}
+      {variantRows}
+    </>
+  );
+  const accountRow = accountRows !== undefined && accountRows !== false;
+  const effortRow =
+    !query &&
+    onChatTab &&
+    effort &&
+    levels.length > 1 &&
+    (effort.slider ||
+      !rows.some(
+        (row) =>
+          row.id === current &&
+          effortChoices(row).length > 0 &&
+          // Provider submenus and expanded provider rows bypass withEffort; keep the
+          // standalone Effort row unless the current row visibly has segments.
+          (!row.offers || providerLook === "row"),
+      ));
   const keyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (event.metaKey || event.ctrlKey || event.altKey || event.nativeEvent.isComposing || event.keyCode === 229)
       return;
@@ -734,39 +777,7 @@ export function QuickModelMenu({
           )}
         </>
       )}
-      {!query && shown?.variants && shown.variants.length > 0 && (
-        <MenuGroup label={shown.name}>
-          {shown.variants.map((variant) => (
-            <MenuItem
-              key={variant.id}
-              className="acpmux-quick-item acpmux-quick-variant"
-              disabled={families?.forkReady === false}
-              closeOnClick
-              onSelect={() => {
-                if (variant.logIn) variant.logIn();
-                else families?.onLaunch?.(variant.id);
-              }}
-            >
-              <span className="acpmux-menu-label">
-                {families?.onFork ? t("picker.forkTo", { harness: variant.name }) : variant.name}
-              </span>
-            </MenuItem>
-          ))}
-        </MenuGroup>
-      )}
-      {!query &&
-        onChatTab &&
-        effort &&
-        levels.length > 1 &&
-        (effort.slider ||
-          !rows.some(
-            (row) =>
-              row.id === current &&
-              effortChoices(row).length > 0 &&
-              // Provider submenus and expanded provider rows bypass withEffort; keep the
-              // standalone Effort row unless the current row visibly has segments.
-              (!row.offers || providerLook === "row"),
-          )) && (
+      {effortRow && (
           <>
             <MenuSeparator />
             <Submenu
@@ -800,6 +811,18 @@ export function QuickModelMenu({
             </Submenu>
           </>
         )}
+      {accountRow &&
+        (menu.routeLayout === "inline" ? (
+          <MenuGroup label={t("picker.account")}>{accountRows}</MenuGroup>
+        ) : (
+          <Submenu
+            className="acpmux-quick-item acpmux-quick-sub acpmux-quick-account"
+            popupClassName="acpmux-quick-menu acpmux-quick-submenu"
+            label={<QuickRowLabel label={t("picker.account")} value={chatRoutes ? accountValue : undefined} />}
+          >
+            {accountRows}
+          </Submenu>
+        ))}
       {!query && runningRow?.offers && providerLook === "row" && !(effort && levels.length > 1) && <MenuSeparator />}
       {!query && runningRow?.offers && providerLook === "row" && (
         <Submenu
@@ -878,20 +901,6 @@ export function QuickModelMenu({
           )}
         </>
       )}
-      {!query &&
-        onChatTab &&
-        account &&
-        (menu.routeLayout === "inline" ? (
-          <MenuGroup label={t("picker.provider")}>{routeRows}</MenuGroup>
-        ) : (
-          <Submenu
-            className="acpmux-quick-item acpmux-quick-sub"
-            popupClassName="acpmux-quick-menu acpmux-quick-submenu"
-            label={<QuickRowLabel label={t("picker.provider")} value={accountValue} />}
-          >
-            {routeRows}
-          </Submenu>
-        ))}
       {!query && onChatTab && fast && (
         <>
           <MenuSeparator />
