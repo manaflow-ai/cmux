@@ -77,11 +77,52 @@ extension HomeStore {
     /// `HomeAttachmentError` (nothing logged) for a file the owner would
     /// refuse. `threadRoot` set: the message is a reply in that thread; `parent`: the
     /// message of the thread it answers (HomeOp.sendMessage).
+    ///
+    /// Any number of attachments goes: past the owner's parts per message
+    /// (``HomeAttachmentPolicy/maxParts``) the send is several messages, in
+    /// order (``HomeAttachmentPolicy/messageGroups(_:extraParts:)``): the
+    /// first has `key` and the text, each later one its own key. Every file
+    /// is checked before any message is logged, so a refusal gives the whole
+    /// draft back; all of them are logged at once, then upload in turn.
     public func send(conversation: ConversationID, text: String, attachments: [LocalAttachment],
                      key: IdempotencyKey = .make(), threadRoot: MessageID? = nil, parent: MessageID? = nil) async throws {
-        var parts = attachments.map { MessagePart.attachment($0.ref) }
-        if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { parts.append(.text(text)) }
-        try await send(conversation: conversation, parts: parts, uploads: attachments, key: key, threadRoot: threadRoot, parent: parent)
+        let caption: [MessagePart] = text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? [] : [.text(text)]
+        let groups = HomeAttachmentPolicy.messageGroups(attachments, extraParts: caption.count)
+        guard groups.count > 1 else {
+            try await send(conversation: conversation, parts: attachments.map { .attachment($0.ref) } + caption,
+                           uploads: attachments, key: key, threadRoot: threadRoot, parent: parent)
+            return
+        }
+        guard !stopped else { throw HomeRejection.ownerUnreachable }
+        let normalized = attachments.map { attachment -> LocalAttachment in
+            var attachment = attachment
+            attachment.ref = HomeAttachmentPolicy.normalized(attachment.ref)
+            return attachment
+        }
+        for attachment in normalized {
+            try HomeAttachmentPolicy.check(mimeType: attachment.ref.mimeType, byteCount: attachment.ref.byteCount,
+                                           name: attachment.ref.name)
+        }
+        var keys: [IdempotencyKey] = []
+        var start = 0
+        for (index, group) in groups.enumerated() {
+            let files = Array(normalized[start..<start + group.count])
+            start += group.count
+            let parts = files.map { MessagePart.attachment($0.ref) } + (index == 0 ? caption : [])
+            let groupKey = index == 0 ? key : IdempotencyKey.make()
+            let op = HomeOp.sendMessage(conversation: conversation, parts: parts, threadRoot: threadRoot, parent: parent)
+            try logAttachmentSend(op, uploads: files, key: groupKey, in: conversation)
+            keys.append(groupKey)
+        }
+        guard isOnline else {
+            for queued in keys { do { try queueUploadWhileOffline(queued) } catch {} }
+            throw HomeSendState.pendingResend
+        }
+        var failure: (any Error)?
+        for queued in keys {
+            do { try await uploadAndSubmit(queued) } catch { failure = failure ?? error }
+        }
+        if let failure { throw failure }
     }
 
     /// Sends `parts` as one message, uploading `uploads` first exactly as
@@ -118,6 +159,15 @@ extension HomeStore {
             try await perform(op, key: key)
             return
         }
+        try logAttachmentSend(op, uploads: attachments, key: key, in: conversation)
+        guard isOnline else { try queueUploadWhileOffline(key) }
+        try await uploadAndSubmit(key)
+    }
+
+    /// Logs `op`, a send whose `uploads` go first, under `key`: its row shows
+    /// at once and it takes its place in the conversation's send queue.
+    private func logAttachmentSend(_ op: HomeOp, uploads attachments: [LocalAttachment], key: IdempotencyKey,
+                                   in conversation: ConversationID) throws {
         let intent = HomeIntent(key: key, op: op)
         guard log.append(intent) else { throw HomeRejection.invalid("duplicate intent") }
         log.setUploading(key, true)
@@ -129,8 +179,6 @@ extension HomeStore {
         self.uploads[key] = UploadJob(conversation: conversation, attachments: unique)
         enqueueSend(key, in: conversation)
         afterLogChange(op)
-        guard isOnline else { try queueUploadWhileOffline(key) }
-        try await uploadAndSubmit(key)
     }
 
     /// A local file holding the variant's bytes: this client's own copy when

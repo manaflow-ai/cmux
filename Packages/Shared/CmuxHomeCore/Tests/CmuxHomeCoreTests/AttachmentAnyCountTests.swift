@@ -9,6 +9,20 @@ import UniformTypeIdentifiers
 // (`HomeAttachmentPolicy.maxParts`, cmux-conversation `MAX_PARTS`) was refused as `tooManyParts`, and
 // the native composer refused the 16th file. Now the send goes as several messages, in order.
 
+@Suite struct AttachmentMessageGroupTests {
+    @Test(arguments: [0, 1, 15, 16, 17, 64, 65, 1000])
+    func anyNumberOfFilesSplitsWithinThePartLimit(count: Int) {
+        let files = Array(0..<count)
+        for extra in [0, 1] {
+            let groups = HomeAttachmentPolicy.messageGroups(files, extraParts: extra)
+            #expect(groups.flatMap { $0 } == files)
+            #expect(groups.first.map { $0.count + extra <= HomeAttachmentPolicy.maxParts } == true)
+            #expect(groups.allSatisfy { $0.count <= HomeAttachmentPolicy.maxParts })
+            #expect(groups.dropFirst().allSatisfy { !$0.isEmpty })
+        }
+    }
+}
+
 @Suite(.timeLimit(.minutes(3))) struct AttachmentAnyCountSendTests {
     let conversation = ConversationID("conv_austin")
 

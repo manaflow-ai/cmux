@@ -5,7 +5,7 @@
 // with an idempotency key; the owner's event is what shows them.
 import { isPageError, type PageClient } from "../shared/pageClient";
 import { subscribePageStreams } from "../shared/pageStreams";
-import { AttachmentService } from "./attachmentService";
+import { AttachmentService, messageGroups } from "./attachmentService";
 import { AvatarService } from "./avatars";
 import { DraftBook, type HomeDraft } from "./drafts";
 import { hashLink, mergeMessages, parseConversationLink, threadOf } from "./model";
@@ -584,8 +584,10 @@ export class HomeChannelsStore {
 
   /** Sends text to the open conversation, or in the open thread as a reply to `parent` (the root
    * or any reply: threads nest without a limit). Optimistic: the message shows at once as pending
-   * and the composer clears; the owner's event replaces it. Resolves false only when nothing was
-   * sent (no conversation, empty text). */
+   * and the composer clears; the owner's event replaces it. Any number of files goes: past the
+   * owner's parts per message they go as several messages, in order (`messageGroups`), each its
+   * own pending row and idempotency key. Resolves false only when nothing was sent (no
+   * conversation, empty text). */
   async send(
     text: string,
     thread?: string,
@@ -595,19 +597,28 @@ export class HomeChannelsStore {
     const conversation = this.snapshot.selected;
     const trimmed = text.trim();
     if (!this.client || !conversation || (!trimmed && !attachments?.length)) return false;
-    const pending: PendingSend = {
-      key: this.key("send"),
-      conversation,
-      text: trimmed,
-      createdAt: Date.now(),
-      failed: false,
-      ...(attachments?.length ? { attachments } : {}),
-      ...(thread ? { threadRoot: thread } : {}),
-      ...(parent ? { replyTo: parent } : {}),
-    };
-    this.set({ pending: [...this.snapshot.pending, pending] });
-    void this.deliver(pending);
+    const createdAt = Date.now();
+    const sends = messageGroups(trimmed, attachments ?? []).map(
+      (group): PendingSend => ({
+        key: this.key("send"),
+        conversation,
+        text: group.text,
+        createdAt,
+        failed: false,
+        ...(group.files.length ? { attachments: group.files } : {}),
+        ...(thread ? { threadRoot: thread } : {}),
+        ...(parent ? { replyTo: parent } : {}),
+      }),
+    );
+    this.set({ pending: [...this.snapshot.pending, ...sends] });
+    void this.deliverInOrder(sends);
     return true;
+  }
+
+  /** Delivers one send's messages one after another, so the owner orders them as they were sent;
+   * one that fails stays "Not sent" with Retry and the rest still go. */
+  private async deliverInOrder(sends: readonly PendingSend[]): Promise<void> {
+    for (const pending of sends) await this.deliver(pending);
   }
 
   /** Sends a failed pending message again with its own idempotency key (never twice). */
