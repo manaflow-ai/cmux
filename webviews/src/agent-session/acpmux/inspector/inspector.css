@@ -754,6 +754,7 @@ button.acpmux-chat-inspector-port:hover,
 }
 .acpmux-chat-inspector-server__line {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 6px;
   min-width: 0;
