@@ -68,7 +68,13 @@ def block(body: str, key: str, indent: int) -> str:
 
 
 def make_playwright(tree: Path, directory: str, version: str, revision: str) -> None:
-    package = tree / directory / "node_modules" / "playwright"
+    """A workspace as `bun install --frozen-lockfile` leaves it: its manifest and lockfile pin
+    Playwright to VERSION, and node_modules holds that copy and its launcher."""
+    workspace = tree / directory
+    workspace.mkdir(parents=True, exist_ok=True)
+    (workspace / "package.json").write_text(f'{{"name": "{workspace.name}", "devDependencies": {{"playwright": "{version}"}}}}\n')
+    (workspace / "bun.lock").write_text(f'{{"lockfileVersion": 1, "packages": {{"playwright": ["playwright@{version}", ""]}}}}\n')
+    package = workspace / "node_modules" / "playwright"
     package.mkdir(parents=True)
     (package / "package.json").write_text(f'{{"name": "playwright", "version": "{version}", "revision": "{revision}"}}\n')
     (package / "index.js").write_text(FAKE_PLAYWRIGHT)
@@ -106,7 +112,6 @@ class LaunchCheckTests(unittest.TestCase):
             tree = Path(root)
             make_playwright(tree, "webviews", "1.62.1", "1234")
             make_playwright(tree, "scripts/gallery-matrix", "1.62.1", "1234")
-            (tree / "scripts" / "gallery-matrix" / "package.json").write_text("{}\n")
             browsers = tree / "browsers"
             (browsers / "chromium_headless_shell-1234").mkdir(parents=True)
             result, github_env = self.run_step(tree, "playwright", browsers)
@@ -121,8 +126,6 @@ class LaunchCheckTests(unittest.TestCase):
         # main's webviews/package.json has no Playwright; `playwright` installs gallery-matrix's.
         with tempfile.TemporaryDirectory() as root:
             tree = Path(root)
-            (tree / "scripts" / "gallery-matrix").mkdir(parents=True)
-            (tree / "scripts" / "gallery-matrix" / "package.json").write_text("{}\n")
             make_playwright(tree, "scripts/gallery-matrix", "1.62.1", "1234")
             browsers = tree / "browsers"
             (browsers / "chromium_headless_shell-1234").mkdir(parents=True)
@@ -187,6 +190,16 @@ class WorkflowShapeTests(unittest.TestCase):
         self.assertGreater(at, names.index("Prepare full webview tests"))
         self.assertGreater(at, names.index("Install gallery dependencies and browsers"))
         self.assertLess(at, names.index("Run fast checks"))
+
+    def test_each_workspace_installs_playwright_frozen_to_its_lockfile_before_the_check(self) -> None:
+        # The version NODE_PATH serves is the one each workspace's bun.lock pins: every install
+        # that runs before the check is frozen to its lockfile.
+        names = step_names()
+        at = names.index(STEP)
+        for name in names[:at]:
+            for line in step(name).splitlines():
+                if re.search(r"\bbun install\b", line):
+                    self.assertIn("--frozen-lockfile", line, f"{name}: {line.strip()}")
 
     @unittest.skipUnless(shutil.which("bun"), "needs bun")
     def test_bun_resolves_an_out_of_tree_script_through_node_path(self) -> None:
