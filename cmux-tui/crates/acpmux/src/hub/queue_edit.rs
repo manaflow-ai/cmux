@@ -296,6 +296,7 @@ impl Hub {
                     crate::author::of_provenance(Some(p)).is_some_and(|id| editor == Some(Some(id)))
                 }),
                 agent: None,
+                class: None,
                 supersede: None,
                 full_access_device: same_device(q.run.full_access_device.as_deref(), device),
             });
@@ -388,6 +389,7 @@ impl Hub {
                     trust_gate: q.run.trust_gate,
                     provenance: q.run.provenance.clone(),
                     agent: q.run.agent.clone(),
+                    class: q.run.class,
                     supersede: q.run.supersede.clone(),
                     full_access_device: device,
                 };

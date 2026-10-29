@@ -992,6 +992,14 @@ async fn a_send_to_a_name_no_peer_has_goes_through_the_hub_and_is_delivered_with
     let said = keyed.pointer("/error/message").and_then(Value::as_str).unwrap_or_default();
     assert!(said.contains("--supersede") && !said.contains("no session"), "{keyed}");
     assert_eq!(fake.with(|s| s.sent.len()), posted, "a keyed send reached the hub");
+    // Nor a class but result, the default the target reads: refused, not sent as a result.
+    let mut block = send_queue("dep-land", "prompt-0005");
+    block["request"]["_meta"]["acpmux"]["class"] = json!("block");
+    let block = sender.call("_acpmux/send_queue", block).await;
+    assert_eq!(block.pointer("/error/data/reason"), Some(&json!("mesh.no_class")), "{block}");
+    let said = block.pointer("/error/message").and_then(Value::as_str).unwrap_or_default();
+    assert!(said.contains("--class") && !said.contains("no session"), "{block}");
+    assert_eq!(fake.with(|s| s.sent.len()), posted, "a classified send reached the hub");
     relay.stop().await;
 }
 

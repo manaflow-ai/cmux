@@ -247,6 +247,7 @@ impl Hub {
                     "fromAgent": q.run.agent,
                     "fromSessionId": from_session_id,
                     "fromHarness": from_harness,
+                    "class": q.run.class,
                     "author": crate::author::listed(q.run.provenance.as_ref()),
                     "surface": label(&q.prompt_id),
                 })

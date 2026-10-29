@@ -81,7 +81,7 @@
     "_acpmux/draft_set": {"params": ["sessionId", "text"], "acpmux": []},
     "_acpmux/bookmark_get": {"params": ["sessionId"], "acpmux": []},
     "_acpmux/bookmark_set": {"params": ["sessionId", "seq", "bookmarked"], "acpmux": []},
-    "_acpmux/btw": {"params": ["sessionId", "question", "model"], "acpmux": []},
+    "_acpmux/btw": {"params": ["sessionId", "question", "model", "inline"], "acpmux": []},
     "_acpmux/queue_remove": {"params": ["sessionId", "promptId"], "acpmux": []},
     "_acpmux/queue_edit": {"params": ["sessionId", "promptId", "op", "text", "images", "index"], "acpmux": []},
     "_acpmux/permission_respond": {"params": ["sessionId", "permissionId", "optionId", "answers", "annotations", "_meta"], "acpmux": []},

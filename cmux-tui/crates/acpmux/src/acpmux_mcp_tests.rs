@@ -113,6 +113,26 @@ async fn send_goes_through_the_outbox_and_names_its_delivery() {
     assert_eq!(status["promptId"], r["structuredContent"]["promptId"], "{status} {r}");
 }
 
+/// `class` (`prompt_class.rs`) goes with the message; a class that is not one of the four is
+/// this call's error, sent nowhere.
+#[tokio::test]
+async fn send_carries_its_class_and_refuses_any_other() {
+    let (_hub, client, _dir) = daemon().await;
+    session(&client, "lane-d").await;
+    let bad = json!({"to": "lane-d", "text": "x", "class": "urgent"});
+    let r = call(&client, &tool("send", bad)).await;
+    assert_eq!(r["isError"], true, "{r}");
+    assert!(text(&r).contains("class must be one of"), "{r}");
+    let block = json!({"to": "lane-d", "text": "stuck on review", "class": "block"});
+    let r = call(&client, &tool("send", block)).await;
+    assert_eq!(r["isError"], false, "{r}");
+    assert_eq!(send_class(&json!({"class": "fyi"})), Ok(Some("fyi".to_owned())));
+    assert_eq!(send_class(&json!({})), Ok(None));
+    assert!(send_class(&json!({"class": 2})).is_err());
+    let schema = &tools()[0]["inputSchema"]["properties"]["class"]["enum"];
+    assert_eq!(schema, &json!(["block", "question", "result", "fyi"]));
+}
+
 #[tokio::test]
 async fn ls_last_and_info_read_the_sessions() {
     let (_hub, client, _dir) = daemon().await;

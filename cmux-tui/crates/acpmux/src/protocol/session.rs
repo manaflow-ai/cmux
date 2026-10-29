@@ -366,6 +366,12 @@ pub struct QueuedPromptSummary {
     /// That session's harness family (`claude`, `codex`, ...), bound the same way: what an app
     /// draws the sender's icon from. Null when unknown (a mesh relay carries none yet).
     pub from_harness: Option<String>,
+    /// What another agent's message asks of this chat (`_meta.acpmux.class`, `prompt_class.rs`):
+    /// `result` when it named none; null for the person's own prompt and from a peer on an older
+    /// acpmux.
+    #[serde(default)]
+    #[schemars(default)]
+    pub class: Option<crate::prompt_class::PromptClass>,
     /// The teammate who queued it in a shared chat (`_meta.provenance` `person_message`,
     /// `author.rs`), null for the owner's and for an agent's message: an app shows it under their
     /// name and offers none of its own actions on it (only they change it, `queue.not_author`).
