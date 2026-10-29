@@ -897,16 +897,20 @@ describe("no private address", () => {
 describe("invalid private addresses", () => {
   test("invalid stored VPC addresses prevent idle pause instead of silently disabling connection checks", async () => {
     const observation = { providerVmId: VM, idleSince: T0 - 31 * MIN, observedAt: T0 - 5 * MIN };
-    const row = machineRow({ providerMetadata: {
-      networkIpv4: "10.192.0.999", networkIpv6: "fd00::ggg", cmuxIdleObservation: observation,
-    } });
-    expect(vmIdlePrivateAddressesFromRow(row)).toEqual([]);
-    const { recorded, layer } = cronFakes([row], () => ({ exitCode: 0, stdout: probeLine() }));
-    const summary = await Effect.runPromise(enforceVmIdlePause({ now: () => T0 }).pipe(Effect.provide(layer)));
-    expect(summary).toMatchObject({ checked: 1, unknown: 1, paused: 0 });
-    expect(recorded.execs).toEqual([]);
-    expect(recorded.paused).toEqual([]);
-    expect(recorded.observations).toEqual([{ id: "row-1", observation: null }]);
+    for (const providerMetadata of [
+      { networkIpv4: "10.192.0.999", networkIpv6: "fd00::ggg" },
+      { networkIpv4: "10.192.0.5", networkIpv6: "fd00::ggg" },
+      { networkIpv4: "10.192.0.5", networkIpv6: 1234 },
+    ]) {
+      const row = machineRow({ providerMetadata: { ...providerMetadata, cmuxIdleObservation: observation } });
+      expect(vmIdlePrivateAddressesFromRow(row)).toEqual([]);
+      const { recorded, layer } = cronFakes([row], () => ({ exitCode: 0, stdout: probeLine() }));
+      const summary = await Effect.runPromise(enforceVmIdlePause({ now: () => T0 }).pipe(Effect.provide(layer)));
+      expect(summary).toMatchObject({ checked: 1, unknown: 1, paused: 0 });
+      expect(recorded.execs).toEqual([]);
+      expect(recorded.paused).toEqual([]);
+      expect(recorded.observations).toEqual([{ id: "row-1", observation: null }]);
+    }
     expect(vmIdlePrivateAddressesFromRow({ providerMetadata: { networkIpv4: "10.192.0.5", networkIpv6: "fd00:7::5" } }))
       .toEqual(["10.192.0.5", "fd00:7::5"]);
   });
