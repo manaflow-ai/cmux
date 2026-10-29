@@ -240,7 +240,7 @@ fn require_any(fields: &Map<String, Value>, names: &[&str]) -> Result<(), Resour
     } else {
         Err(validation_error(
             &format!("at least one of {} is required", names.join(", ")),
-            json!({"field": names[0]}),
+            json!({"field": names.first()}),
         ))
     }
 }

@@ -8,7 +8,7 @@ import Foundation
 import Testing
 
 /// A page's popup past the window's edge gets the App's frame-aligned hover input (feature
-/// `pointerFrameHover`, p04-input-037): ``WebUIHost`` hands it to each page it opens, and the page's
+/// `pointerFrameHover`): ``WebUIHost`` hands it to each page it opens, and the page's
 /// popup host (made on the page's first popup op) passes it to the popup's rows. Without it, every
 /// row move would still send the page a `highlight` at once.
 @MainActor

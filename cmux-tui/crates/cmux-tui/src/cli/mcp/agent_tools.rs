@@ -10,6 +10,7 @@ use super::super::GlobalArgs;
 use super::super::agent_message;
 use super::super::agents::{self, AgentCommand, AgentFailure, chat};
 use super::{Backend, envelope, failure_result, success, tool_error, v2_tools};
+use crate::cli::json_fields::JsonFields;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Verb {
@@ -333,7 +334,7 @@ impl AgentTool {
                 // Stored but not handed to the chat: an error that keeps its
                 // receipt, so a retry can name the message.
                 if failed {
-                    result["isError"] = json!(true);
+                    result.insert("isError", json!(true));
                 }
                 result
             }
@@ -349,7 +350,8 @@ impl AgentTool {
         arguments: &Map<String, Value>,
     ) -> Result<(AgentCommand, Option<String>, Option<String>), String> {
         let schema = self.input_schema();
-        if let Some(name) = arguments.keys().find(|name| schema["properties"].get(*name).is_none())
+        if let Some(name) =
+            arguments.keys().find(|name| schema.field("properties").get(*name).is_none())
         {
             return Err(format!("{} has no argument {name:?}", self.name));
         }
@@ -500,7 +502,7 @@ impl Arguments<'_> {
 pub(super) fn fit_receipt(mut receipt: Value) -> Value {
     let size = serde_json::to_vec(&receipt).map(|bytes| bytes.len()).unwrap_or(usize::MAX);
     if size > super::MAX_RESULT_BYTES {
-        receipt["state"] = json!({"truncated": true, "hint": "call agents_snapshot"});
+        receipt.insert("state", json!({"truncated": true, "hint": "call agents_snapshot"}));
     }
     receipt
 }

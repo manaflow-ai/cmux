@@ -16,7 +16,6 @@
 //! `written_at_ms`) + gzip of the replay bytes.
 
 use cmux_threads::checked::fs as files;
-use cmux_threads::checked::sync as waits;
 use std::hash::{Hash, Hasher};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -30,6 +29,7 @@ use flate2::write::GzEncoder;
 use super::{OutputStore, PersistenceMode, PersistencePolicy, SNAPSHOT_HISTORY_LINES};
 use crate::Mux;
 use crate::resource::TerminalPublicId;
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 use crate::workspace_registry::terminal_respawn_store::TerminalReplay;
 
 const MAGIC: &[u8] = b"CMUXSNAP1\n";
@@ -53,15 +53,17 @@ struct WriterState {
 #[derive(Default)]
 pub(super) struct Writer {
     state: Arc<(Mutex<WriterState>, Condvar)>,
-    thread: Mutex<Option<std::thread::JoinHandle<()>>>,
+    thread: Mutex<Option<supervised::SupervisedThread<()>>>,
 }
 
 impl Writer {
     pub(super) fn start(&self, mux: Weak<Mux>) -> anyhow::Result<()> {
         let state = self.state.clone();
-        let thread = cmux_threads::spawn(
+        let thread = supervised::spawn_at(
             "mux-output-store-writer",
             crate::request_qos::UPKEEP_THREAD_QOS,
+            Fatal,
+            ShutdownBehavior::Continue,
             move || run(&mux, &state),
         )?;
         *self.thread.lock().unwrap_or_else(PoisonError::into_inner) = Some(thread);
@@ -95,8 +97,8 @@ impl Writer {
         if let Some(thread) = self.thread.lock().unwrap_or_else(PoisonError::into_inner).take() {
             // The writer can hold the last Mux handle, so the Mux may drop
             // (and stop the writer) on the writer thread itself.
-            if thread.thread().id() != std::thread::current().id() {
-                let _ = waits::join(thread);
+            if !thread.is_current() {
+                let _ = thread.join();
             }
         }
     }
@@ -278,7 +280,7 @@ fn snapshot_total_cap(policy: PersistencePolicy) -> u64 {
 
 /// Text, size, screen and history epoch: what a cursor redraw does not move.
 fn content_digest(terminal: &mut ghostty_vt::Terminal) -> Option<u64> {
-    let text = terminal.viewport_text().ok()?;
+    let text = terminal.active_text().ok()?;
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     terminal.cols().hash(&mut hasher);
     terminal.rows().hash(&mut hasher);

@@ -149,7 +149,8 @@
               "switches",
               "cli",
               "mcp",
-              "reply"
+              "reply",
+              "tui"
             ]
           }
         }
@@ -3771,6 +3772,45 @@
             },
             {"$ref": "#/definitions/notComparable"}
           ]
+        },
+        "tui": {
+          "description": "The cmux-tui frontend of a case that requires tui, attached on a PTY the driver owns: its last complete frame after the settle probe (or, at a turn checkpoint, the first frame that met the step's waitFor). The grid size, the sha256 of the frame's row text and style runs (screenSha256: the case's session name and state root written as the fixture's; a change of color alone changes it, and private text is never recorded), the cursor, and the frontend's exit code once it has exited.",
+          "x-oracle-source": {
+            "method": "tui",
+            "path": "/tui",
+            "task": "p15-oracle-234",
+            "from": "the PTY output of `cmux-tui attach`, kept as a character grid by driver_tui.py (VM: the run SHA's cmux-tui)"
+          },
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["cols", "rows", "screenSha256", "cursor", "exit"],
+          "properties": {
+            "cols": {"x-oracle-source": {"method": "tui", "path": "/tui/cols"}, "type": "integer", "minimum": 1},
+            "rows": {"x-oracle-source": {"method": "tui", "path": "/tui/rows"}, "type": "integer", "minimum": 1},
+            "screenSha256": {
+              "description": "sha256 (UTF-8) of the row text, a blank line, then the style runs: the rows' text with trailing blanks dropped and the case's names renamed, joined by newlines; then each row's runs of one canonical SGR style, `count*style` joined by `|` (style: the sorted attribute names and colors, `bold,fg=5:110`; empty for the default), rows joined by newlines",
+              "x-oracle-source": {"method": "tui", "path": "/tui/screenSha256"},
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "cursor": {
+              "description": "the cursor; a hidden cursor has no position (it stays where the last drawn cell was)",
+              "x-oracle-source": {"method": "tui", "path": "/tui/cursor"},
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["row", "col", "visible"],
+              "properties": {
+                "row": {"x-oracle-source": {"method": "tui", "path": "/tui/cursor/row"}, "type": ["integer", "null"], "minimum": 0},
+                "col": {"x-oracle-source": {"method": "tui", "path": "/tui/cursor/col"}, "type": ["integer", "null"], "minimum": 0},
+                "visible": {"x-oracle-source": {"method": "tui", "path": "/tui/cursor/visible"}, "type": "boolean"}
+              }
+            },
+            "exit": {
+              "description": "the frontend's exit code once it has exited (a detach), null while it runs",
+              "x-oracle-source": {"method": "tui", "path": "/tui/exit"},
+              "type": ["integer", "null"]
+            }
+          }
         }
       }
     }

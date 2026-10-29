@@ -4,8 +4,8 @@ import CmuxNextWakeups
 import Foundation
 import Testing
 
-/// A Mac Screen device tab sends its pointer on the windows' frames (feature `pointerFrameRemoteInput`,
-/// p04-input-035): the screen's input surface takes the app's coalescers when its view is made, so its
+/// A Mac Screen device tab sends its pointer on the windows' frames (feature `pointerFrameRemoteInput`):
+/// the screen's input surface takes the app's coalescers when its view is made, so its
 /// moves, drags and scrolls reach the host at most twice per frame; without them each goes at once.
 @MainActor
 struct MacScreenPointerFramesTests {
@@ -13,7 +13,7 @@ struct MacScreenPointerFramesTests {
 
     private func makePages() -> MacScreenPages {
         let file = FileManager.default.temporaryDirectory.appending(path: "mac-screen-\(UUID().uuidString)/mac-screen.json")
-        return MacScreenPages(store: MacScreenStore(file: file), deadlines: linklessDeadlines(), appEvents: AppEvents(center: NotificationCenter()))
+        return MacScreenPages(store: MacScreenStore(file: file, runner: BackgroundWork(label: "test.mac-screen")), deadlines: linklessDeadlines(), appEvents: AppEvents(center: NotificationCenter()))
     }
 
     @Test func aDeviceScreenTakesTheFramePointerInput() throws {

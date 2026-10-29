@@ -3,7 +3,7 @@ public import CmuxNextBrowser
 public import CmuxNextOracle
 import Foundation
 
-/// The oracle's `tabs` facet values (p15-oracle-037) read through the engine-neutral ``BrowserTab`` protocol:
+/// The oracle's `tabs` facet values read through the engine-neutral ``BrowserTab`` protocol:
 /// `engineKind` and ``BrowserTabState`` of the live page, else the daemon's tab record when no page exists for
 /// the tab. No CEF or WebKit type is read, as Chromium's TabRendererData is built from the WebContents and not
 /// the renderer (chrome/browser/ui/tabs/tab_renderer_data.cc, `TabRendererData::FromTabInModel`).

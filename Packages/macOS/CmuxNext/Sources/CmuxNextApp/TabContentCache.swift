@@ -42,7 +42,7 @@ final class TabContentCache {
             if browsers.count < oldValue.count { tabRenderers.keep(only: Set(browsers.keys)) }
         }
     }
-    /// Each Chromium tab's renderers, for the busy watchdog off the main thread (p14-energy-124): a tab
+    /// Each Chromium tab's renderers, for the busy watchdog off the main thread: a tab
     /// publishes itself at mount (`CEFTab.publishRenderers`) and leaves with its entry.
     let tabRenderers = TabRendererDirectory()
     var ledger = SurfaceLedger<String, ObjectIdentifier>(capacity: WarmSetBudget.standard.terminalCapacity)
@@ -84,6 +84,9 @@ final class TabContentCache {
     let lastFrames = TerminalLastFrames(capacity: WarmSetBudget.standard.terminalCapacity)
     /// Releases terminals whose daemon tree dropped their tab (a closed workspace).
     let goneTabs: GoneTabWatch
+    /// The terminal view whose stream rides the input lane, the last one focused, while `terminalStreamPriority`
+    /// is on; nil: every view's stream keeps the priority it opened with.
+    let streamFocus: TerminalStreamFocus?
     /// Browser pages' hover card thumbnails (R131), at most `TabPreviewFitting.cachedPixelSize`
     /// each, with the page version each shows (`pageVersion`): a page is captured again only when
     /// its version moved. A hidden page's thumbnail is the only copy (the engine cannot picture a
@@ -128,7 +131,7 @@ final class TabContentCache {
     /// Terminals made before their daemon knew its tab records, waiting to take their record's font scale
     /// (`applyFontScaleWhenKnown`), by tab; each ends when it applies or its tab is released.
     var fontScaleWaits: [String: ServiceObservation<Bool>] = [:]
-    /// Tabs whose page waits for `enginesAwait`, one posted step each (p08-startup-028).
+    /// Tabs whose page waits for `enginesAwait`, one posted step each.
     private var awaitingRead: Set<String> = [] {
         didSet { if !oldValue.isEmpty, !hasPendingPages { onPagesSettled?() } }
     }
@@ -154,7 +157,7 @@ final class TabContentCache {
     /// node that starts it when it shows: held here, as `node(for:)` holds nodes weakly.
     var launchDeferredNodes: [String: VisibilityNode] = [:]
     /// The launch read every browser tab's page waits for before an engine makes it (the browser
-    /// profiles, p08-startup-028); nil: none.
+    /// profiles); nil: none.
     var enginesAwait: LaunchReadEvent?
     /// The browser pages' pictures from the last quit, drawn over their panes at launch (feature `browserLaunchPictures`; nil while off).
     var launchPictures: BrowserLaunchPictures?
@@ -199,6 +202,8 @@ final class TabContentCache {
 
     /// The app's grid sender for every terminal it makes (``ResizeCoordinator``).
     let resizes: ResizeCoordinator
+    /// Takes the daemon's stages of each key echo of a local terminal; set by the App.
+    var terminalKeyStamps: (any TerminalKeyStampSink)?
 
     /// - Parameters:
     ///   - chromium: The Chromium engine's slot: its stores now, the engine (and the App's wiring) at its first read.
@@ -217,18 +222,21 @@ final class TabContentCache {
     ///   - webKitProcessReuse: Same-site WebKit tab processes above the renderer limit (`webKitSameSiteProcesses`);
     ///     nil, the default, gives every WebKit tab its own process.
     ///   - terminalExternalCursor: `terminalCursorLayer` is on (``terminalExternalCursor``); tests get Ghostty's cursor.
+    ///   - streamFocus: The terminals' stream ranking while `terminalStreamPriority` is on; nil, the default, ranks none.
     init(daemon: DaemonService, chromium: ChromiumEngineSlot, fileInput: any WebFileInputAnswering,
          afterFrame: @escaping (@escaping @MainActor () -> Void) -> Void = { AfterFrameCommit().run($0) },
          resizes: ResizeCoordinator = ResizeCoordinator(), terminalModifiers: TerminalModifierWatch? = nil,
          terminalPointerFrames: FrameInputCoalescers? = nil, mainWork: MainWorkScheduler, deadlines: MainDeadlineScheduler,
          appEvents: AppEvents, imageCaches: ImageCacheShares = .legacy, gpuResidency: (any TerminalGPUResidency)? = nil,
-         webKitProcessReuse: WebKitProcessReuse? = nil, terminalExternalCursor: Bool = false) {
+         webKitProcessReuse: WebKitProcessReuse? = nil, terminalExternalCursor: Bool = false,
+         streamFocus: TerminalStreamFocus? = nil) {
         self.imageCaches = imageCaches
         previews = PreviewImageCache(fullCapacityBytes: imageCaches.previewBytes, contents: .rebuildable, allocator: imageCaches.pictureAllocator)
         internalPagePictures = PreviewImageCache(fullCapacityBytes: imageCaches.internalPagePictureBytes, contents: .onlyCopy, allocator: imageCaches.pictureAllocator)
         pageThumbnails = PreviewImageCache(fullCapacityBytes: imageCaches.pageThumbnailBytes, contents: .onlyCopy, allocator: imageCaches.pictureAllocator)
         (self.daemon, self.terminalModifiers, self.chromium, self.resizes, self.mainWork) = (daemon, terminalModifiers, chromium, resizes, mainWork)
         self.terminalPointerFrames = terminalPointerFrames
+        self.streamFocus = streamFocus
         self.gpuResidency = gpuResidency
         self.terminalExternalCursor = terminalExternalCursor
         normalWarmCapacity = SubsystemBudget.forThisMac(gpuResidentAvailable: gpuResidency != nil).warmTerminalSurfaces
@@ -282,7 +290,8 @@ final class TabContentCache {
         let io = DaemonTerminalIO(target: target, resizes: resizes, visible: render, gate: gate, createIntent: create?.intentID ?? 0, creatingInput: gate.flatMap { gate in daemon.creatingInput(tab.terminalID) { gate.isResolved } },
                                   burstTrace: pageRequests.services?.burstTrace, policyBlocked: daemon.policyBlock.check,
                                   hangWatch: daemon.hangWatch, screenChanged: pageRequests.services?.terminalScreenChanged,
-                                  endpoint: { try await daemon.endpoint() })
+                                  keyStamps: daemon.isLocal ? terminalKeyStamps : nil, streamFocus: streamFocus,
+                                  connection: { try await daemon.machineConnection() })
         let session = makeSession(io: io, tab: tab, daemon: daemon); session.traceCreate(create, surface: tab.surface.rawValue)
         if let carried { session.holdCarriedFrame(carried) }
         let entry = TerminalEntry(validity: validity, session: session, io: io, themeKey: TerminalThemeKey(machine: daemon.machineID, tab: tab),
@@ -354,7 +363,7 @@ final class TabContentCache {
             return nil
         }
         if let page = appPage(for: tab, url: url) { return page }
-        let origin = launchOrigin(of: tab)  // read once: the deferral and the page made now agree (p08-startup-040)
+        let origin = launchOrigin(of: tab)  // read once: the deferral and the page made now agree
         if let page = deferredPage(tab, url: url, origin: origin) { return page }  // after crashes, or hidden at launch
         if let read = enginesAwait, !read.isSignaled { return awaitLaunchRead(read, key) }
         guard tab.browserEngine == BrowserEngineTag.cef.rawValue else { return tracked(browserTabs.historyStarts.page(tab, url: url, cache: self) ?? browser(for: key, url: url), tab) }
@@ -533,7 +542,10 @@ final class TabContentCache {
 
     /// Stand-in tab `key`'s visibility node becomes `real`'s, unless `real` has one: the content moving with it keeps it.
     func moveNode(_ key: String, to real: String) {
-        if let node = tabNodes.removeValue(forKey: key), tabNodes[real]?.node == nil { tabNodes[real] = node }
+        if let node = tabNodes.removeValue(forKey: key)?.node, tabNodes[real]?.node == nil {
+            tabNodes[real] = WeakTabNode(node: node)
+            daemon.trackVisibility(ofTab: real, node: node)  // the daemon holds a hidden tab's field events, by its real id
+        }
     }
 
     /// Swaps `tab`'s page for `page` (an adopted popup that arrived after the tab's placeholder page was created).
@@ -603,6 +615,7 @@ final class TabContentCache {
         if let node = tabNodes[key]?.node { return node }
         let node = VisibilityNode("tab:\(key)", own: .hidden, parent: unselectedTabs)
         tabNodes[key] = WeakTabNode(node: node)
+        daemon.trackVisibility(ofTab: key, node: node)  // the daemon holds a hidden tab's field events (frontend.visibility.set)
         if tabNodes.count >= tabNodesPruneAt {
             tabNodes = tabNodes.filter { $0.value.node != nil }
             tabNodesPruneAt = max(64, tabNodes.count * 2)

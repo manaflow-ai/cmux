@@ -4,7 +4,7 @@
 import Darwin
 import Testing
 
-/// The main-thread mirror cache (task p01-process-016b): read-your-writes
+/// The main-thread mirror cache: read-your-writes
 /// for an op's generated pending keys until the host's ACK, MIRROR frames
 /// applied in order with the events of their batch in one `onMessages` call,
 /// one mirror per connection, and the same rules as

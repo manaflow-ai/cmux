@@ -53,9 +53,6 @@ final class CEFHostView: NSView, PaneRenderMoveObserving {
     let pageWindowWidgets = CEFPageWindowWidgets()
     /// Takes a `cef.geometry` instant per geometry post (tests set one on their own trace runtime).
     var signposter = Signposter.cef
-    /// Where its window's page update requests arrive (`BrowserPageUpdates`): `.default` in the app,
-    /// a private center in tests.
-    let pageUpdateCenter: NotificationCenter
     /// Its pane springs with the `pageSpringResizeOnce` feature (`CEFTabContentView+SpringResize`): the gaps
     /// beside the page show the page's background.
     private(set) var isOnPageSpring = false
@@ -64,10 +61,8 @@ final class CEFHostView: NSView, PaneRenderMoveObserving {
     private(set) var isOnRenderMove = false
 
     /// - Parameters:
-    ///   - pageUpdateCenter: where its window's page update requests arrive.
     ///   - layerHosting: the page's layer hosting; tests pass one with a fake fork and their own turn.
-    init(frame: NSRect, pageUpdateCenter: NotificationCenter, layerHosting: CEFLayerHosting) {
-        self.pageUpdateCenter = pageUpdateCenter
+    init(frame: NSRect, layerHosting: CEFLayerHosting) {
         self.layerHosting = layerHosting
         super.init(frame: frame)
         wantsLayer = true
@@ -81,19 +76,9 @@ final class CEFHostView: NSView, PaneRenderMoveObserving {
         #endif
     }
 
-    /// A host view that takes its window's page update requests on `NotificationCenter.default`.
+    /// A host view with the app's layer hosting.
     override convenience init(frame: NSRect) {
-        self.init(frame: frame, pageUpdateCenter: .default, layerHosting: CEFLayerHosting())
-    }
-
-    /// A host view with its own page update center (tests) and the app's layer hosting.
-    convenience init(frame: NSRect, pageUpdateCenter: NotificationCenter) {
-        self.init(frame: frame, pageUpdateCenter: pageUpdateCenter, layerHosting: CEFLayerHosting())
-    }
-
-    /// A host view with its own layer hosting (tests) that takes page update requests on `.default`.
-    convenience init(frame: NSRect, layerHosting: CEFLayerHosting) {
-        self.init(frame: frame, pageUpdateCenter: .default, layerHosting: layerHosting)
+        self.init(frame: frame, layerHosting: CEFLayerHosting())
     }
 
     @available(*, unavailable)
@@ -232,7 +217,8 @@ final class CEFHostView: NSView, PaneRenderMoveObserving {
     /// What the fork's tracker read from host views so far (`debug.cef` `tracker`).
     static var trackerStats = CEFTrackerStats()
 
-    /// `CmuxParentViewGeometryDidChange` in the fork.
+    /// `CmuxParentViewGeometryDidChange` in the fork: its `CmuxParentViewTracker` observes it on each
+    /// host view (object: the view), the fork's only entry for moves AppKit does not report.
     static let geometryDidChange = Notification.Name("CmuxParentViewGeometryDidChange")
 }
 

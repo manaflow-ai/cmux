@@ -180,6 +180,11 @@ impl State {
         }
     }
 
+    /// The post at `i`, an index this state's maps hold.
+    fn post(&self, i: usize) -> Option<&Post> {
+        self.posts.get(i)
+    }
+
     fn delivered_to(&self, post_id: &str, session: &str) -> bool {
         self.delivered.get(post_id).is_some_and(|m| m.iter().any(|m| m.session_id == session))
     }
@@ -187,8 +192,7 @@ impl State {
     /// Whether `session` was told, or wrote, any rule of `key` before its current post.
     fn told_key(&self, key: &str, session: &str) -> bool {
         self.history.get(key).is_some_and(|h| {
-            h.iter().rev().skip(1).any(|&i| {
-                let p = &self.posts[i];
+            h.iter().rev().skip(1).filter_map(|&i| self.post(i)).any(|p| {
                 p.author.session_id() == Some(session) || self.delivered_to(&p.id, session)
             })
         })
@@ -275,12 +279,12 @@ impl Forum {
     /// The current announce of `key`, retired included.
     pub fn current(&self, key: &str) -> Option<Post> {
         let s = self.lock();
-        s.current.get(key).map(|&i| s.posts[i].clone())
+        s.current.get(key).and_then(|&i| s.post(i)).cloned()
     }
 
     pub fn get(&self, id: &str) -> Option<PostView> {
         let s = self.lock();
-        s.index.get(id).map(|&i| s.view(&s.posts[i]))
+        s.index.get(id).and_then(|&i| s.post(i)).map(|p| s.view(p))
     }
 
     /// Appends `post`, written before it counts. For an announce, `check`
@@ -293,7 +297,7 @@ impl Forum {
         check: impl FnOnce(Option<&Post>, Post) -> Post,
     ) -> Result<Post> {
         let mut s = self.lock();
-        let current = post.key.as_ref().and_then(|k| s.current.get(k)).map(|&i| &s.posts[i]);
+        let current = post.key.as_ref().and_then(|k| s.current.get(k)).and_then(|&i| s.post(i));
         let post = check(current, post);
         let record = Record::Post(post.clone());
         self.write(std::slice::from_ref(&record), true)?;
@@ -306,7 +310,11 @@ impl Forum {
         let s = self.lock();
         let mut idx: Vec<usize> = s.current.values().copied().collect();
         idx.sort_unstable();
-        idx.into_iter().map(|i| &s.posts[i]).filter(|p| !p.retired).map(|p| s.view(p)).collect()
+        idx.into_iter()
+            .filter_map(|i| s.post(i))
+            .filter(|p| !p.retired)
+            .map(|p| s.view(p))
+            .collect()
     }
 
     /// Open proposals: agents' posts that ask to replace a key's current rule.
@@ -316,7 +324,12 @@ impl Forum {
             .iter()
             .filter(|p| p.kind == Kind::Question)
             .filter(|p| {
-                let target = p.key.as_ref().and_then(|k| s.current.get(k)).map(|&i| &s.posts[i].id);
+                let target = p
+                    .key
+                    .as_ref()
+                    .and_then(|k| s.current.get(k))
+                    .and_then(|&i| s.post(i))
+                    .map(|c| &c.id);
                 target.is_some() && target == p.proposes.as_ref()
             })
             .map(|p| s.view(p))
@@ -332,7 +345,7 @@ impl Forum {
         let mut idx: Vec<usize> = s.current.values().copied().collect();
         idx.sort_unstable();
         idx.into_iter()
-            .map(|i| &s.posts[i])
+            .filter_map(|i| s.post(i))
             .filter(|p| p.author.session_id() != Some(session))
             .filter(|p| all || !s.delivered_to(&p.id, session))
             // A retired key it had been told of, also when told every rule
@@ -350,9 +363,9 @@ impl Forum {
     /// Whether `post` is still its key's current post (a retired one included).
     pub fn is_current(&self, post_id: &str) -> bool {
         let s = self.lock();
-        s.index
-            .get(post_id)
-            .is_some_and(|&i| s.posts[i].key.as_ref().is_some_and(|k| s.current.get(k) == Some(&i)))
+        s.index.get(post_id).is_some_and(|&i| {
+            s.post(i).and_then(|p| p.key.as_ref()).is_some_and(|k| s.current.get(k) == Some(&i))
+        })
     }
 
     /// Records that `session` was told `post_ids`, in one write.
@@ -378,7 +391,7 @@ impl Forum {
     pub fn ack(&self, post_id: &str, session: &str, at: u64) -> Option<Result<bool>> {
         let mut s = self.lock();
         let i = *s.index.get(post_id)?;
-        if s.posts[i].kind != Kind::Announce {
+        if s.post(i)?.kind != Kind::Announce {
             return None;
         }
         if s.acks.get(post_id).is_some_and(|m| m.iter().any(|m| m.session_id == session)) {

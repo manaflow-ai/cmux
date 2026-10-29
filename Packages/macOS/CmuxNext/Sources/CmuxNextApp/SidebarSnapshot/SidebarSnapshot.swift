@@ -181,7 +181,7 @@ nonisolated struct SidebarSnapshot: Codable, Hashable, Sendable {
 }
 
 #if DEBUG || CMUX_BENCH_HOOKS
-/// The oracle's `sidebar` facet (p15-oracle-036, schemas/oracle/snapshot-v1.schema.json `sidebar`): what the active
+/// The oracle's `sidebar` facet (schemas/oracle/snapshot-v1.schema.json `sidebar`): what the active
 /// window's sidebar shows, read like the saved snapshot above from the one store, `SidebarModel`, through public
 /// values only (sections, groups, rows, folds, pins, filter, selection), never from the list's views or row frames.
 /// Chromium's tab strip tests read the same way, from the model that owns the strip

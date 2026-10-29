@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Regression test (p12-perf-process-147): `reload.sh --config bench` added -DCMUX_BLOCKING_CHECKS, so every
+# Regression test: `reload.sh --config bench` added -DCMUX_BLOCKING_CHECKS, so every
 # latency, frame, launch, idle and memory bench paid the blocking detector's bookkeeping. bench is now
 # Release + -DCMUX_BENCH_HOOKS only; bench-checks adds -DCMUX_BLOCKING_CHECKS for the blocking-sites story.
 # Runs anywhere (Linux included): xcodebuild is a stub that records its arguments and fails.
@@ -100,6 +100,6 @@ run_reload --tag "$DOGFOOD_TAG" --build-only --derived-data "$TMP_DIR/dd" --conf
 echo "PASS: --release of a dogfood tag is bench; --config release stays Release"
 
 run_reload --tag "$TAG" --build-only --derived-data "$TMP_DIR/dd" --config bench-check
-[[ "$STATUS" -ne 0 && "$OUTPUT" == *"debug, release, bench, bench-checks or profile"* ]] \
+[[ "$STATUS" -ne 0 && "$OUTPUT" == *"debug, release, bench, bench-checks, profile, asan, tsan or ubsan"* ]] \
   || fail "an unknown config was not refused with the config list: $OUTPUT"
 echo "PASS: an unknown config is refused"

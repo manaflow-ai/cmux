@@ -2,7 +2,7 @@ import CmuxNextWakeups
 
 extension LaunchServicePosts {
     /// The service starts `AppServices.init` made in the launch turn, before the first frame
-    /// (p08-startup-031; startup-DESIGN.md section 5, S6 to S10), one post each. The initializer only
+    /// (startup-DESIGN.md section 5, S6 to S10), one post each. The initializer only
     /// builds and wires (closures, action bindings, NSApp input hooks); Chrome likewise builds its
     /// browser-wide services and posts their deferred starts (`AfterStartupTaskUtils::PostTask`,
     /// chrome/browser/after_startup_task_utils.cc).

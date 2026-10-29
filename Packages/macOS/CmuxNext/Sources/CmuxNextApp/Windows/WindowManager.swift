@@ -94,13 +94,13 @@ final class WindowManager {
     var onFirstWindow: ((WindowController) -> Void)?
     /// The restore's and the visible panes' startup refs (p08-startup task 013), passed to `restoreWhenLoaded`.
     private var launchPaneRefs: VisiblePaneRefs?
-    /// The restored windows behind the front one not built yet (`launchWindowsByOcclusion`, p08-startup-062):
+    /// The restored windows behind the front one not built yet (`launchWindowsByOcclusion`):
     /// nil when every restored window was built in the restore's turn.
     private(set) var launchWindows: LaunchWindowQueue?
     /// Each waiting window's membership before its first change since restore: its selection repair waits
     /// for its build, which has the sidebar's drawn rows (close-focus.md).
     var waitingRepairs: [String: [String]] = [:]
-    /// The launch window's saved picture as its first frame (p08-startup-059, `LaunchSnapshotWindow`); nil when the
+    /// The launch window's saved picture as its first frame (`LaunchSnapshotWindow`); nil when the
     /// launch shows none.
     var launchPicture: LaunchPicturePhase?
     /// Work that waits for the launch's session restore (``whenRestored(_:)``); nil once it ran.
@@ -212,7 +212,7 @@ final class WindowManager {
     // MARK: Restore
 
     /// Opens one window once the launch snapshot's read has ended, never waiting (from the snapshot, else in the
-    /// connecting state, outside the registry; p08-startup-074), then restores the saved
+    /// connecting state, outside the registry), then restores the saved
     /// windows once the first live snapshot arrives, the launch window
     /// becoming the frontmost. Creates a workspace only for an empty tree. `paneRefs` (the app's
     /// launch; nil in tests) are released at the end of the restore (`VisiblePaneRefs.finishRestore`).
@@ -321,7 +321,7 @@ final class WindowManager {
     }
 
     /// The restored windows behind the front one build by what shows of them, not all in the restore's
-    /// turn (`launchWindowsByOcclusion`, p08-startup-062): one that no window in front covers, on a
+    /// turn (`launchWindowsByOcclusion`): one that no window in front covers, on a
     /// connected display, in its own afterFirstFrame post; a covered or off-screen one at afterStartup.
     /// The front window (the adopted launch window, else the first open one) builds now, and so does a
     /// window saved in full screen: it enters full screen once restore finished, which moves the display
@@ -414,7 +414,7 @@ final class WindowManager {
         // Its content goes in before it is ordered in (the launch snapshot's workspace, else the connecting state), so
         // its first frame on screen draws it, never the backdrop alone; the controller's own observer would install
         // it a main-actor hop later. The launch picture's window is on screen already, its picture over it: its
-        // content is built behind the picture in slices (`LaunchSnapshotWindow`, p08-startup-060).
+        // content is built behind the picture in slices (`LaunchSnapshotWindow`).
         if premade == nil { controller.showWorkspace(requested: state.workspaceID) }
         // A window none of whose workspaces is mirrored yet stays off screen until `contentDidAppear` (never an
         // empty frame). The launch window (no workspaces) shows the connecting state at once.

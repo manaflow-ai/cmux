@@ -15,13 +15,17 @@ use std::io::{Read, Write};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError, mpsc};
 
+mod direct_relay;
 mod handshake;
 mod input_wire;
 mod lease_wire;
+mod relay_peer;
 mod tab_table;
-pub use handshake::{ProviderInfo, accept};
+use direct_relay::{DirectRelays, DirectRoute};
+pub use handshake::{Opening, ProviderInfo, accept, read_opening, send_hello_ack};
 pub use input_wire::{AUTOMATION_INPUT, tee_inputs};
 use lease_wire::{Leases, apply_lease, user_lease_op};
+pub use relay_peer::{RelayPeerRefused, verify_relay_peer};
 pub use tab_table::BROWSER_PAGE;
 use tab_table::TabTable;
 
@@ -53,6 +57,8 @@ pub struct ProviderDriver {
     pub(crate) downloads: Arc<crate::provider_downloads::ProviderDownloads>,
     /// Tabs agent sessions kept (`tab.keep`): deliverables later sessions list.
     pub(crate) kept_tabs: Mutex<std::collections::BTreeSet<String>>,
+    /// CEF tabs relayed straight to the app's Chromium Host.
+    direct: Arc<DirectRelays>,
 }
 
 pub(crate) type CefTabs = Arc<Mutex<HashMap<String, Arc<crate::provider_source::CefTab>>>>;
@@ -72,6 +78,16 @@ impl CdpWire for RelayWire {
         let frame = Frame::Cdp { target_id: self.target_id.clone(), message: message.to_owned() };
         write_frame(&mut *self.writer.lock().unwrap_or_else(PoisonError::into_inner), &frame)
             .map_err(|error| std::io::Error::other(error.to_string()))
+    }
+}
+
+/// Sends a CEF tab's CDP messages on its direct route (the Chromium Host's
+/// relay link, or the app when the route fell back to it).
+struct DirectWire(Arc<DirectRoute>);
+
+impl CdpWire for DirectWire {
+    fn send(&self, message: &str) -> std::io::Result<()> {
+        self.0.send(message)
     }
 }
 
@@ -115,129 +131,159 @@ impl ProviderDriver {
         let (thread_writer, thread_leases) = (writer.clone(), leases.clone());
         let (thread_relays, thread_subscribers, thread_cef_tabs) =
             (relays.clone(), subscribers.clone(), cef_tabs.clone());
-        std::thread::Builder::new().name("cmux-browser-host-provider".into()).spawn(move || {
-            let reason = loop {
-                match read_frame(&mut reader) {
-                    Ok(Some(Frame::Event { name, payload })) => {
-                        if name == "download.finished" {
-                            thread_downloads.record(&payload);
-                        }
-                        thread_tabs
-                            .lock()
-                            .unwrap_or_else(PoisonError::into_inner)
-                            .apply_event(&name, &payload);
-                        // A re-announce carries the tab's emulation scale (cx-mogig).
-                        if name == "tab.announced"
-                            && let Some(target_id) = payload.get("targetId").and_then(Value::as_str)
-                        {
-                            let scale =
-                                payload.get("inputScale").and_then(Value::as_f64).unwrap_or(1.0);
-                            // Set under the cef_tabs lock: a driver being created reads the
-                            // table under it too, so neither overwrites the newer scale.
-                            let tabs =
-                                thread_cef_tabs.lock().unwrap_or_else(PoisonError::into_inner);
-                            if let Some(tab) = tabs.get(target_id) {
-                                tab.driver.set_input_scale(scale);
-                                tab.driver.set_touch_emulation(
-                                    payload.get("touch").and_then(Value::as_bool).unwrap_or(false),
-                                );
+        let direct = DirectRelays::new(writer.clone(), relays.clone(), cef_tabs.clone());
+        let thread_direct = direct.clone();
+        // supervise-allow: this provider link's reader, ending with the link; a panic closes the link as a read error does: waiters get the error, relays close and on_close runs.
+        cmux_threads::spawn(
+            "cmux-browser-host-provider",
+            cmux_threads::ThreadQos::UserInitiated,
+            move || {
+                let reason = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    loop {
+                        match read_frame(&mut reader) {
+                            Ok(Some(Frame::Event { name, payload })) => {
+                                // The app's answer to `cdp.prepare`: for the relay alone.
+                                if thread_direct.app_event(&name, &payload) {
+                                    continue;
+                                }
+                                if name == "download.finished" {
+                                    thread_downloads.record(&payload);
+                                }
+                                thread_tabs
+                                    .lock()
+                                    .unwrap_or_else(PoisonError::into_inner)
+                                    .apply_event(&name, &payload);
+                                // A re-announce carries the tab's emulation scale (cx-mogig).
+                                if name == "tab.announced"
+                                    && let Some(target_id) =
+                                        payload.get("targetId").and_then(Value::as_str)
+                                {
+                                    let scale = payload
+                                        .get("inputScale")
+                                        .and_then(Value::as_f64)
+                                        .unwrap_or(1.0);
+                                    // Set under the cef_tabs lock: a driver being created reads the
+                                    // table under it too, so neither overwrites the newer scale.
+                                    let tabs = thread_cef_tabs
+                                        .lock()
+                                        .unwrap_or_else(PoisonError::into_inner);
+                                    if let Some(tab) = tabs.get(target_id) {
+                                        tab.driver.set_input_scale(scale);
+                                        tab.driver.set_touch_emulation(
+                                            payload
+                                                .get("touch")
+                                                .and_then(Value::as_bool)
+                                                .unwrap_or(false),
+                                        );
+                                    }
+                                }
+                                // The tab went away, or the app replaced its Chromium
+                                // browser (`tab.relay.closed`): its relay and driver go;
+                                // the next call attaches again.
+                                if matches!(name.as_str(), "tab.gone" | "tab.relay.closed")
+                                    && let Some(target_id) =
+                                        payload.get("targetId").and_then(Value::as_str)
+                                {
+                                    let relay = thread_relays
+                                        .lock()
+                                        .unwrap_or_else(PoisonError::into_inner)
+                                        .remove(target_id);
+                                    if let Some(relay) = relay {
+                                        thread_direct.closed(target_id, &relay, "the tab closed");
+                                        relay.close("the tab closed");
+                                    }
+                                    thread_cef_tabs
+                                        .lock()
+                                        .unwrap_or_else(PoisonError::into_inner)
+                                        .remove(target_id);
+                                }
+                                // A gone tab takes its automation lease with it.
+                                if name == "tab.gone"
+                                    && let Some(target_id) =
+                                        payload.get("targetId").and_then(Value::as_str)
+                                {
+                                    let op = crate::lease::LeaseOp::TargetGone {
+                                        target: target_id.to_owned(),
+                                    };
+                                    let caller = crate::lease::LeaseCaller::default();
+                                    let _ =
+                                        apply_lease(&thread_leases, &thread_writer, &op, &caller);
+                                }
+                                let event = DriverEvent { name, payload };
+                                let sinks: Vec<EventSink> = thread_subscribers
+                                    .lock()
+                                    .unwrap_or_else(PoisonError::into_inner)
+                                    .iter()
+                                    .map(|(_, sink)| sink.clone())
+                                    .collect();
+                                for sink in sinks {
+                                    sink(event.clone());
+                                }
+                                events(event);
                             }
-                        }
-                        // The tab went away, or the app replaced its Chromium
-                        // browser (`tab.relay.closed`): its relay and driver go;
-                        // the next call attaches again.
-                        if matches!(name.as_str(), "tab.gone" | "tab.relay.closed")
-                            && let Some(target_id) = payload.get("targetId").and_then(Value::as_str)
-                        {
-                            let relay = thread_relays
-                                .lock()
-                                .unwrap_or_else(PoisonError::into_inner)
-                                .remove(target_id);
-                            if let Some(relay) = relay {
-                                relay.close("the tab closed");
+                            // A person used a tab: its driving lease pauses.
+                            Ok(Some(Frame::UserInput { target_id })) => {
+                                let op = crate::lease::LeaseOp::UserInput { target: target_id };
+                                let caller = crate::lease::LeaseCaller::default();
+                                let _ = apply_lease(&thread_leases, &thread_writer, &op, &caller);
                             }
-                            thread_cef_tabs
-                                .lock()
-                                .unwrap_or_else(PoisonError::into_inner)
-                                .remove(target_id);
-                        }
-                        // A gone tab takes its automation lease with it.
-                        if name == "tab.gone"
-                            && let Some(target_id) = payload.get("targetId").and_then(Value::as_str)
-                        {
-                            let op =
-                                crate::lease::LeaseOp::TargetGone { target: target_id.to_owned() };
-                            let caller = crate::lease::LeaseCaller::default();
-                            let _ = apply_lease(&thread_leases, &thread_writer, &op, &caller);
-                        }
-                        let event = DriverEvent { name, payload };
-                        let sinks: Vec<EventSink> = thread_subscribers
-                            .lock()
-                            .unwrap_or_else(PoisonError::into_inner)
-                            .iter()
-                            .map(|(_, sink)| sink.clone())
-                            .collect();
-                        for sink in sinks {
-                            sink(event.clone());
-                        }
-                        events(event);
-                    }
-                    // A person used a tab: its driving lease pauses.
-                    Ok(Some(Frame::UserInput { target_id })) => {
-                        let op = crate::lease::LeaseOp::UserInput { target: target_id };
-                        let caller = crate::lease::LeaseCaller::default();
-                        let _ = apply_lease(&thread_leases, &thread_writer, &op, &caller);
-                    }
-                    Ok(Some(Frame::LeaseUser { op, target_id, actor })) => {
-                        if let Some(op) = user_lease_op(&op, target_id, actor) {
-                            let caller = crate::lease::LeaseCaller {
-                                origin: "user".into(),
-                                ..crate::lease::LeaseCaller::default()
-                            };
-                            let _ = apply_lease(&thread_leases, &thread_writer, &op, &caller);
+                            Ok(Some(Frame::LeaseUser { op, target_id, actor })) => {
+                                if let Some(op) = user_lease_op(&op, target_id, actor) {
+                                    let caller = crate::lease::LeaseCaller {
+                                        origin: "user".into(),
+                                        ..crate::lease::LeaseCaller::default()
+                                    };
+                                    let _ =
+                                        apply_lease(&thread_leases, &thread_writer, &op, &caller);
+                                }
+                            }
+                            Ok(Some(Frame::Cdp { target_id, message })) => {
+                                let relay = thread_relays
+                                    .lock()
+                                    .unwrap_or_else(PoisonError::into_inner)
+                                    .get(&target_id)
+                                    .cloned();
+                                if let Some(relay) = relay {
+                                    relay.receive(&message);
+                                }
+                            }
+                            // An app that still reports extension access per tab:
+                            // informational only, no gate (#24413).
+                            Ok(Some(Frame::TabAccess { .. })) => {}
+                            Ok(Some(frame @ Frame::Result { .. })) => {
+                                if let Some((id, result)) = frame.into_call_result()
+                                    && let Some(waiter) = thread_waiters
+                                        .lock()
+                                        .unwrap_or_else(PoisonError::into_inner)
+                                        .remove(&id)
+                                {
+                                    let _ = waiter.try_send(result);
+                                }
+                            }
+                            Ok(Some(_)) => {}
+                            Ok(None) => break "the cmux app disconnected".to_owned(),
+                            Err(error) => break format!("provider connection failed: {error}"),
                         }
                     }
-                    Ok(Some(Frame::Cdp { target_id, message })) => {
-                        let relay = thread_relays
-                            .lock()
-                            .unwrap_or_else(PoisonError::into_inner)
-                            .get(&target_id)
-                            .cloned();
-                        if let Some(relay) = relay {
-                            relay.receive(&message);
-                        }
-                    }
-                    // An app that still reports extension access per tab:
-                    // informational only, no gate (#24413).
-                    Ok(Some(Frame::TabAccess { .. })) => {}
-                    Ok(Some(frame @ Frame::Result { .. })) => {
-                        if let Some((id, result)) = frame.into_call_result()
-                            && let Some(waiter) = thread_waiters
-                                .lock()
-                                .unwrap_or_else(PoisonError::into_inner)
-                                .remove(&id)
-                        {
-                            let _ = waiter.try_send(result);
-                        }
-                    }
-                    Ok(Some(_)) => {}
-                    Ok(None) => break "the cmux app disconnected".to_owned(),
-                    Err(error) => break format!("provider connection failed: {error}"),
+                }))
+                .unwrap_or_else(|_| "the provider link reader failed".to_owned());
+                *thread_closed.lock().unwrap_or_else(PoisonError::into_inner) =
+                    Some(reason.clone());
+                let relays: Vec<_> =
+                    thread_relays.lock().unwrap_or_else(PoisonError::into_inner).drain().collect();
+                for (_, relay) in relays {
+                    relay.close(&reason);
                 }
-            };
-            *thread_closed.lock().unwrap_or_else(PoisonError::into_inner) = Some(reason.clone());
-            let relays: Vec<_> =
-                thread_relays.lock().unwrap_or_else(PoisonError::into_inner).drain().collect();
-            for (_, relay) in relays {
-                relay.close(&reason);
-            }
-            thread_cef_tabs.lock().unwrap_or_else(PoisonError::into_inner).clear();
-            for (_, waiter) in thread_waiters.lock().unwrap_or_else(PoisonError::into_inner).drain()
-            {
-                let _ = waiter.try_send(Err(DriverError::closed(reason.clone())));
-            }
-            on_close();
-        })?;
+                thread_direct.provider_closed(&reason);
+                thread_cef_tabs.lock().unwrap_or_else(PoisonError::into_inner).clear();
+                for (_, waiter) in
+                    thread_waiters.lock().unwrap_or_else(PoisonError::into_inner).drain()
+                {
+                    let _ = waiter.try_send(Err(DriverError::closed(reason.clone())));
+                }
+                on_close();
+            },
+        )?;
         Ok(Arc::new(ProviderDriver {
             writer,
             waiters,
@@ -253,6 +299,7 @@ impl ProviderDriver {
             downloads,
             kept_tabs: Mutex::default(),
             leases,
+            direct,
         }))
     }
 
@@ -294,8 +341,11 @@ impl ProviderDriver {
         self.table().refusal(method, target_id)
     }
 
-    /// Opens the CDP relay of a CEF tab: a page-rooted connection whose
-    /// messages travel as `cdp` frames, after `cdp.attach`.
+    /// Opens the CDP relay of a CEF tab: a page-rooted connection. With the
+    /// app's Chromium Host linked (`relay.hello`), the app only makes the
+    /// page agent-ready (`cdp.prepare`) and the messages go on that link
+    /// (`direct_relay`); otherwise they travel as `cdp` frames through the
+    /// app, after `cdp.attach`.
     pub fn open_relay(
         &self,
         target_id: &str,
@@ -304,10 +354,19 @@ impl ProviderDriver {
         if let Some(reason) = self.closed_reason() {
             return Err(DriverError::closed(reason));
         }
-        let conn = CdpConnection::page_rooted(
-            Box::new(RelayWire { writer: self.writer.clone(), target_id: target_id.to_owned() }),
-            alias,
-        );
+        let target = target_id.to_owned();
+        let (conn, frame) = if self.direct.linked() {
+            let (route, first_id) = self.direct.open(target_id);
+            let conn =
+                CdpConnection::page_rooted_from(Box::new(DirectWire(route)), alias, first_id);
+            (conn, Frame::CdpPrepare { target_id: target })
+        } else {
+            let wire = RelayWire { writer: self.writer.clone(), target_id: target.clone() };
+            (
+                CdpConnection::page_rooted(Box::new(wire), alias),
+                Frame::CdpAttach { target_id: target },
+            )
+        };
         let previous = self
             .relays
             .lock()
@@ -316,16 +375,43 @@ impl ProviderDriver {
         if let Some(previous) = previous {
             previous.close("the relay was reopened");
         }
-        let frame = Frame::CdpAttach { target_id: target_id.to_owned() };
         write_frame(&mut *self.writer.lock().unwrap_or_else(PoisonError::into_inner), &frame)
             .map_err(|e| DriverError::closed(format!("provider write failed: {e}")))?;
         Ok(conn)
+    }
+
+    /// The app's Chromium Host opened its relay link (`relay.hello`, which
+    /// the caller checked): CEF relays opened from now on go over it. `link`
+    /// is the id the app gave that Chromium Host, which its answers to
+    /// `cdp.prepare` name; `shutdown` ends the link's socket.
+    pub fn attach_relay_link(
+        &self,
+        reader: impl Read + Send + 'static,
+        writer: impl Write + Send + 'static,
+        link: String,
+        shutdown: Box<dyn Fn() + Send + Sync>,
+    ) -> std::io::Result<()> {
+        if let Some(reason) = self.closed_reason() {
+            return Err(std::io::Error::other(reason));
+        }
+        self.direct.attach_link(reader, writer, link, shutdown)
+    }
+
+    /// Answers the app's `hello` on this driver's own writer, so no frame of
+    /// the driver can go before the ack or into its bytes. The caller sends
+    /// it before any agent can reach the driver (`server::accept_provider`).
+    pub fn send_hello_ack(&self, agent_bundle: &str) -> Result<(), DriverError> {
+        send_hello_ack(
+            &mut *self.writer.lock().unwrap_or_else(PoisonError::into_inner),
+            agent_bundle,
+        )
     }
 
     /// Closes a CEF tab's relay and tells the app (`cdp.detach`).
     pub fn close_relay(&self, target_id: &str) {
         let relay = self.relays.lock().unwrap_or_else(PoisonError::into_inner).remove(target_id);
         if let Some(relay) = relay {
+            self.direct.closed(target_id, &relay, "the relay was closed");
             relay.close("the relay was closed");
             let frame = Frame::CdpDetach { target_id: target_id.to_owned() };
             let _ = write_frame(

@@ -44,7 +44,7 @@ import Testing
         #expect(account.avatar.initial == "L", "the initial stays the fallback")
     }
 
-    /// p07-memory-056: the cache keeps one picture (its `memory: fixed` proof). Another account's
+    /// The cache keeps one picture (its `memory: fixed` proof). Another account's
     /// picture replaces the last one, a late decode of the last one is dropped, and switching back
     /// loads it again.
     @Test func onlyTheNewestAccountPictureIsKept() async throws {

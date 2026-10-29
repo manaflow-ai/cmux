@@ -3,7 +3,7 @@ import AppKit
 import CmuxNextPages
 import Testing
 
-/// Which pages the `webviews` facet asks and where it places them (p15-oracle-215): a page is placed by the nearest
+/// Which pages the `webviews` facet asks and where it places them: a page is placed by the nearest
 /// superview the place map knows (a page or agent tab's view); a page in no tab but in a window has no place; a page
 /// in no tab and no window, and any page inside the New Tab spare, is left out. Run:
 /// `swift test --filter OraclePagePlacementTests`.

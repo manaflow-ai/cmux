@@ -1,5 +1,5 @@
 #if DEBUG || CMUX_BENCH_HOOKS
-/// The oracle's `terminals` facet (p15-oracle-044, schemas/oracle/snapshot-v1.schema.json `terminals`): every local
+/// The oracle's `terminals` facet (schemas/oracle/snapshot-v1.schema.json `terminals`): every local
 /// terminal with its view's attach state, the PTY grid, the shell title and cwd the daemon reports, the exit code of
 /// an ended one, and a hash of the last 24 rows of the screen its daemon holds. The host gives the screen as the
 /// daemon's VT state (`read-screen`), never a Ghostty surface: two builds that hold the same terminal give the same

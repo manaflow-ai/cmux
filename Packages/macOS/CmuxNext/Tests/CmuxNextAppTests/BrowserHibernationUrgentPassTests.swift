@@ -11,7 +11,7 @@ import Foundation
 import Testing
 
 /// The critical memory event's one urgent pass over browser tabs, agent chats and cmux pages
-/// (p13-webui-092, feature `memoryUrgentDiscardRanking`), driven as the app drives it: the coordinator's
+/// (feature `memoryUrgentDiscardRanking`), driven as the app drives it: the coordinator's
 /// critical level, then its release slice. Exactly one page goes, the longest hidden unprotected one of
 /// any kind, through its own owner only (a tab's discard probe, the page lifecycle's discard, the chat
 /// owner's release); the browser's paced pass waits one critical pace interval, and a hide in between

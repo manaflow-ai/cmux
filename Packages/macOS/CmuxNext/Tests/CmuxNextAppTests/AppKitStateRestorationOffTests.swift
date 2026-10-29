@@ -1,12 +1,13 @@
 import AppKit
 @testable import CmuxNextApp
 import CmuxNextDesign
+import CmuxNextFiles
 @testable import CmuxNextFilesUI
 import CmuxNextWakeups
 import Foundation
 import Testing
 
-/// p08-startup-087: cmux restores its windows itself (window registry and daemon), so AppKit state restoration is
+/// cmux restores its windows itself (window registry and daemon), so AppKit state restoration is
 /// off: every titled window cmux makes is `isRestorable = false`, so AppKit encodes none of them into Saved
 /// Application State and restores none at launch.
 @MainActor struct AppKitStateRestorationOffTests {
@@ -32,7 +33,8 @@ import Testing
     @Test func aFileInfoWindowIsNotRestorable() {
         _ = NSApplication.shared
         let info = FileInfoWindow(url: FileManager.default.temporaryDirectory, icons: FileIconProvider(queries: nil),
-                                  mainWork: MainWorkScheduler(budget: MainFrameBudget())) {}
+                                  mainWork: MainWorkScheduler(budget: MainFrameBudget()),
+                                  reader: FileInfoReader(work: BackgroundWork(label: "test.file-info"))) {}
         defer { info.panel.close() }
         #expect(!info.panel.isRestorable)
     }

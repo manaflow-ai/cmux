@@ -1,5 +1,5 @@
+public import CmuxNextWakeups
 public import Foundation
-import CmuxNextWakeups
 import os
 
 /// One composer's dictation: permissions, the engine, the transcript and
@@ -8,8 +8,15 @@ import os
 ///
 /// Idle cost is nothing: the engine, its audio tap and the level stream
 /// exist only between a start and the end of that session, and the stop
-/// deadline is one ``DemandTimer`` shot. The microphone is released as soon
+/// deadline is one `MainDeadline` shot. The microphone is released as soon
 /// as a stop or cancel reaches the engine.
+///
+/// The engine's streams are read off main, and each event lands on the
+/// session as one posted task on the app's `MainWorkScheduler` (Chrome's
+/// PostTaskAndReplyWithResult, base/task/thread_pool.h): the words and the
+/// session's end are `userBlocking` (the rest of the person's dictation), the
+/// level meter `visible`. One class keeps the words, a failure and the end in
+/// the order the engine sent them.
 @MainActor
 public final class DictationSession {
     /// The page shows one message for several failures; the log keeps the
@@ -28,7 +35,9 @@ public final class DictationSession {
     private let makeTranscriber: @MainActor (DictationAudioLevelMeter) -> any SpeechTranscribing
     private let locale: @MainActor () -> Locale
     private let stopDeadline: Duration
-    private let deadline: DemandTimer
+    private let deadline: MainDeadline
+    /// Where the engine's events land.
+    private let work: MainWorkScheduler
 
     /// Bumped by every start and cancel; work from an older session drops
     /// its results.
@@ -44,25 +53,35 @@ public final class DictationSession {
     /// This session's audio, when ``recordsAudio`` was on at its start.
     private var recording: DictationAudioRecording?
 
+    /// A started engine: its event stream and the meter its audio tap feeds.
+    private struct Opened: Sendable {
+        let stream: AsyncThrowingStream<DictationTranscriptionEvent, any Error>
+        let meter: DictationAudioLevelMeter
+    }
+
     /// - Parameters:
+    ///   - deadlines: The app's one deadline scheduler (`AppServices.mainDeadlines`): the stop deadline is placed
+    ///     on it, and the engine's events land on its `MainWorkScheduler`.
     ///   - makeTranscriber: A fresh single-session engine fed by the meter.
     ///   - locale: The language, read at each start.
     ///   - stopDeadline: How long a stop may flush before the session ends
     ///     with what it has.
     public init(
+        deadlines: MainDeadlineScheduler,
         authorizer: any DictationAuthorizing = SystemDictationAuthorizer(),
         makeTranscriber: @escaping @MainActor (DictationAudioLevelMeter) -> any SpeechTranscribing = { meter in
             OnDeviceDictationTranscriber(levelMeter: meter)
         },
         locale: @escaping @MainActor () -> Locale = { Locale.current },
-        stopDeadline: Duration = .seconds(3),
-        clock: any Clock<Duration> = ContinuousClock()
+        stopDeadline: Duration = .seconds(3)
     ) {
         self.authorizer = authorizer
         self.makeTranscriber = makeTranscriber
         self.locale = locale
         self.stopDeadline = stopDeadline
-        deadline = DemandTimer(owner: "dictation.stop", clock: clock)
+        work = deadlines.work
+        // userBlocking: the person waits for their stop to end the session with what was heard.
+        deadline = MainDeadline(owner: "dictation.stop", workClass: .userBlocking, scheduler: deadlines)
     }
 
     /// Starts listening, or stops when a session runs (the mic button).
@@ -81,8 +100,22 @@ public final class DictationSession {
         level = 0
         recording = recordsAudio ? DictationAudioRecording() : nil
         set(.starting)
+        let work = self.work
         // task-owner: stored in listening; cancel() and the next start supersede it by generation
-        listening = Task { [weak self] in await self?.listen(session) }
+        listening = Task { @concurrent [weak self] in
+            guard let opened = await self?.open(session) else { return }
+            do {
+                for try await event in opened.stream {
+                    work.postFromAnyThread(.userBlocking, owner: "dictation.heard") { [weak self] in self?.heard(event, session) }
+                }
+            } catch {
+                let failure = DictationSession.failure(from: error)
+                work.postFromAnyThread(.userBlocking, owner: "dictation.failed") { [weak self] in self?.fail(session, failure) }
+                return
+            }
+            opened.meter.finish()
+            work.postFromAnyThread(.userBlocking, owner: "dictation.ended") { [weak self] in self?.finish(session) }
+        }
     }
 
     /// Stops listening and keeps the text. The engine flushes its last
@@ -95,7 +128,7 @@ public final class DictationSession {
         case .listening:
             set(.finalizing)
             let session = generation
-            deadline.scheduleOnMain(after: stopDeadline) { [weak self] in
+            deadline.schedule(after: stopDeadline) { [weak self] in
                 self?.finish(session)
             }
             finishEngine()
@@ -125,14 +158,16 @@ public final class DictationSession {
         transcriber != nil || listening != nil || levels != nil || recording != nil || deadline.isScheduled
     }
 
-    private func listen(_ session: Int) async {
+    /// The session's steps on main up to listening: the permission, the engine and its stream, the level meter.
+    /// Nil when the session ended here (denied, failed, or cancelled meanwhile).
+    private func open(_ session: Int) async -> Opened? {
         guard await authorizeMicrophone(), session == generation else {
             if session == generation {
                 listening = nil
                 recording = nil
                 set(.denied(.microphone))
             }
-            return
+            return nil
         }
         let meter = DictationAudioLevelMeter(recording: recording)
         let engine = makeTranscriber(meter)
@@ -141,38 +176,44 @@ public final class DictationSession {
         do {
             stream = try await engine.transcribe(locale: locale())
         } catch {
-            guard session == generation else { return }
-            fail(session, error)
-            return
+            fail(session, Self.failure(from: error))
+            return nil
         }
         guard session == generation, phase == .starting else {
             // Cancelled while starting: the engine may have opened the
             // microphone after the cancel reached it.
             await engine.finishTranscribing()
-            return
+            return nil
         }
         set(.listening)
+        startLevels(meter, session)
+        return Opened(stream: stream, meter: meter)
+    }
+
+    /// Reads the meter's levels off main; each lands as one visible task (the meter on screen).
+    private func startLevels(_ meter: DictationAudioLevelMeter, _ session: Int) {
+        let work = self.work
         // task-owner: stored in levels; ends with the meter or the session
-        levels = Task { [weak self] in
+        levels = Task { @concurrent [weak self] in
             for await level in meter.levels {
-                guard let self, session == self.generation else { return }
-                self.level = level
-                if self.phase == .listening { self.emit() }
+                guard self != nil else { return }
+                work.postFromAnyThread(.visible, owner: "dictation.level") { [weak self] in self?.heard(level: level, session) }
             }
         }
-        do {
-            for try await event in stream {
-                guard session == generation else { return }
-                if let delta = transcript.apply(event) { committed += delta }
-                emit()
-            }
-        } catch {
-            guard session == generation else { return }
-            fail(session, error)
-            return
-        }
-        meter.finish()
-        finish(session)
+    }
+
+    /// One engine event of `session`.
+    private func heard(_ event: DictationTranscriptionEvent, _ session: Int) {
+        guard session == generation else { return }
+        if let delta = transcript.apply(event) { committed += delta }
+        emit()
+    }
+
+    /// One meter level of `session`.
+    private func heard(level: Float, _ session: Int) {
+        guard session == generation else { return }
+        self.level = level
+        if phase == .listening { emit() }
     }
 
     /// The stream ended or the stop deadline passed: keep what was heard.
@@ -195,7 +236,9 @@ public final class DictationSession {
         onUpdate?(DictationUpdate(phase: .idle, text: committed, audio: audio, audioOmitted: omitted))
     }
 
-    private func fail(_ session: Int, _ error: any Error) {
+    /// The engine of `session` failed: keep the words heard so far.
+    private func fail(_ session: Int, _ failure: DictationFailure) {
+        guard session == generation else { return }
         generation += 1
         deadline.cancel()
         listening = nil
@@ -205,13 +248,17 @@ public final class DictationSession {
         recording = nil
         // Keep the words on screen when it fails mid-phrase.
         if let delta = transcript.commitTrailingVolatileText() { committed += delta }
-        let failure = error as? DictationFailure ?? .transcriptionFailed(String(describing: error))
         Self.logger.error("dictation failed: \(String(describing: failure), privacy: .public)")
         switch failure {
         case .microphoneAccessDenied: set(.denied(.microphone), text: committed)
         case .speechRecognitionAccessDenied: set(.denied(.speechRecognition), text: committed)
         default: set(.failed(failure), text: committed)
         }
+    }
+
+    /// The engine's error as the session's failure.
+    private nonisolated static func failure(from error: any Error) -> DictationFailure {
+        error as? DictationFailure ?? .transcriptionFailed(String(describing: error))
     }
 
     private func authorizeMicrophone() async -> Bool {
@@ -223,11 +270,11 @@ public final class DictationSession {
     }
 
     /// Stops the engine without waiting: it releases the microphone and
-    /// flushes into the stream the run loop is reading.
+    /// flushes into the stream the listening task is reading.
     private func finishEngine() {
         guard let engine = transcriber else { return }
-        // task-owner: one-shot teardown; the engine's finish is idempotent and bounded
-        Task { await engine.finishTranscribing() }
+        // task-owner: one-shot teardown; the engine's finish is idempotent and bounded, and runs off main
+        Task { @concurrent in await engine.finishTranscribing() }
     }
 
     private func endLevels() {

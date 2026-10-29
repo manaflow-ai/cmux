@@ -448,7 +448,7 @@ Every hit of a queue is one task with the named template. Each queue is regenera
 - Q2 launch calls. `awk '/func applicationDidFinishLaunching/,/^    func applicationShouldTerminate/' .../AppDelegate.swift | grep -o -E '[A-Za-z.?]+\.(start|follow|wire|load|install|prewarm|register[A-Za-z]*|activate|attach|keepCurrent|startCloud|startChromiumRuntime|observe[A-Za-z]*|warmWhenIdle|bindRegistryActions|startDaemonSync|watchScope|writeManagedStatus|applyManagedFeaturesNow)\(' | sort -u`
   = 81 today. After 014: `python3 scripts/cmux-next/startup-lint.py` (104) over `CmuxNextApp/Startup/*.swift`
   and `AppServices.init`. Tasks 025-031, 077, 079, 095, 097, 101.
-- Q3 ad hoc deferral. `git grep -n -E 'firstFrame\.whenOpen|launchSettle\.whenSettled|IdleOnce\.schedule|LaunchImageHold\.shared\.whenClear|firstFrame\.armBackstop|launchSettle\.settled\(within|warmWhenIdle\(after:' -- Packages/macOS/CmuxNext/Sources`
+- Q3 ad hoc deferral. `git grep -n -E 'firstFrame\.whenOpen|launchSettle\.whenSettled|IdleOnce(\(\))?\.schedule|(LaunchImageHold\.shared|imageHold)\.whenClear|firstFrame\.armBackstop|launchSettle\.settled\(within|warmWhenIdle\(after:' -- Packages/macOS/CmuxNext/Sources`
   = 11 today; `git grep -n -E 'DemandTimer\(owner: "(ChromiumWarmup|LaunchSettle|FirstFrameGate|LaunchImageHold)'` = 6 timers. Tasks 016, 018. Target 0.
 - Q5 runtime blocking (a `--config bench-checks` app). `startup-queue.py blocking --runs 5 --temperature warm|cold` and
   `blocking-probe.sh --until-mark startup_complete` (with the 084 kinds). Template 038.

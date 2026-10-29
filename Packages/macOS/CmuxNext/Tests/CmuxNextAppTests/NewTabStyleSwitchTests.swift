@@ -5,6 +5,7 @@ import CmuxNextDesign
 import CmuxNextSettings
 import Foundation
 import Testing
+import CmuxNextWakeups
 
 /// The New Tab page chooses its style again (Leo 2026-10-13): a style picked on the page
 /// (`newTab.setTemplate`) is saved as `tabs.newTabTemplate`, so every later New Tab shows it.
@@ -33,7 +34,7 @@ struct NewTabStyleSwitchTests {
     @Test func aStylePickedOnThePageIsSavedForEveryNewTab() async throws {
         let (settings, directory) = try await Self.settings()
         defer { try? FileManager.default.removeItem(at: directory) }
-        let model = AgentPaneModel(host: NoHost(), allowsTabConversion: true)
+        let model = AgentPaneModel(runner: BackgroundWork(label: "test.agent-pane"), host: NoHost(), allowsTabConversion: true)
         // The app saves in a Task (NewTabPage.handler); the test keeps each one and awaits it, so
         // the snapshot is read after the write and its reload, not after a guessed number of yields
         // (the reload reads the file on a detached task, which yields on this actor do not wait for).

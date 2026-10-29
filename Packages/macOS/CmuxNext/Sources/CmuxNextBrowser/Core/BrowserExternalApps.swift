@@ -1,6 +1,6 @@
 public import Foundation
 import AppKit
-import CmuxNextCompat
+import CmuxNextCompatAppKit
 public import CmuxNextWakeups
 
 /// A page's links to other apps (mailto:, tel:, an app's own scheme), from a

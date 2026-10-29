@@ -41,7 +41,7 @@ if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
 
 import crash_walks  # noqa: E402 - sibling: plans, cases, ddmin
-import driver_daemon  # noqa: E402 - the daemon driver's case runner (p15-oracle-023)
+import driver_daemon  # noqa: E402 - the daemon driver's case runner
 from crash_walks import (  # noqa: E402
     ABORT,
     HOST_ABORT,

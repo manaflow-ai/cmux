@@ -7,10 +7,12 @@ import argparse
 import contextlib
 import importlib.util
 import io
+import json
 import os
 import re
 import signal
 import subprocess
+import tempfile
 import unittest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -48,10 +50,13 @@ class FakeApp:
     `open_delay` s after the key (`cold_delay` when its renderer is new); Cmd-W closes it. `freeze_after` None is
     `browser.freezeHiddenTabs` "off" (pages stay hidden and still discard on time). `engine_close` is when a Cmd-W
     ends Settings' engine page, stamped in `debug.webui` `retire`: "deferred" at the retirer's deadline (0.5 s
-    later), "in_turn" in the key's turn; None is a build with no `retire`."""
+    later), "in_turn" in the key's turn; None is a build with no `retire`. `preload` is the New Tab preload's census
+    row fields (none without it); `live` the `live_ms` values Cmd-T into it reports."""
 
     def __init__(self, clock, census=True, windows=1, tabs=("terminal",), cef=None, leak=False, fork_api=29, keep=(),
-                 verbs="ok", other_pane=(), open_delay=0.012, cold_delay=0.09, freeze_after=10, engine_close=None):
+                 verbs="ok", other_pane=(), open_delay=0.012, cold_delay=0.09, freeze_after=10, engine_close=None,
+                 preload=None, live=None):
+        self.preload, self.live = preload, iter(live * 50) if live else None
         self.clock, self.has_census, self.leak, self.keep = clock, census, leak, set(keep)
         self.windows, self.tabs, self.other_pane = windows, list(tabs), list(other_pane)
         self.verbs, self.open_delay, self.cold_delay = verbs, open_delay, cold_delay
@@ -152,8 +157,8 @@ class FakeApp:
             if params["action"] == "state":
                 return {"spares": [{"ready": True}]}
             if params["action"] == "bench_open":
-                return {"key_ms": 1.5, "visible_ms": next(self.visible), "frames": {"first_tick_ms": 8.3},
-                        "opening": {"spare": True}}
+                return {"key_ms": 1.5, "visible_ms": next(self.visible), "frames": {"first_tick_ms": 8.3, "refresh_ms": 8.333},
+                        "opening": {"spare": True}, **({"live_ms": next(self.live)} if self.live else {})}
             return {"key_ms": 0.8}
         if method == "debug.agent_pane":
             pane = params.get("pane", "p1")
@@ -200,7 +205,8 @@ class FakeApp:
                               "keep_reasons": ["audio"] if p in self.keep else [],
                               "renderer_pid": None if page["state"] == "discarded" else page["pid"],
                               "hidden_deliveries": page["deliveries"], "hidden_pushes": 0, "devtools": False}
-                             for p, page in self.pages.items()],
+                             for p, page in self.pages.items()]
+                    + ([{"row": "spare", "spare_kind": "preload", "renderer_pid": 700, **self.preload}] if self.preload else []),
                     **({"retire": {"engine_closes": len(self.engine_close_uptimes),
                                    "engine_close_uptimes": self.engine_close_uptimes[-32:]}} if self.engine_close else {})}
         if method == "debug.wakeups":
@@ -218,10 +224,12 @@ class FakeApp:
 
 class FakeInstance:
     """procs.Instance: the counters a mode is handed (kinds as procs.window returns them), its command lines and, for
-    a per-pid window, `per_pid` ({pid: wakeups/s}, as procs.window's `pids` rows)."""
+    a per-pid window, `per_pid` ({pid: wakeups/s}, as procs.window's `pids` rows) or `pids` (window number -> those
+    rows, spike 090)."""
 
-    def __init__(self, clock, kinds=None, mb=200.0, commands=(), per_pid=None):
+    def __init__(self, clock, kinds=None, mb=200.0, commands=(), per_pid=None, pids=None):
         self.clock, self.kinds, self.mb = clock, kinds or {}, mb
+        self.pid_rows = pids  # spike 090: window number -> procs.window's `pids` rows (wins over per_pid)
         self.commands = dict(enumerate(commands, start=900))
         self.per_pid = per_pid or {}
         self.windows = []
@@ -236,7 +244,9 @@ class FakeInstance:
         self.windows.append(seconds)
         (during or self.clock.sleep)(seconds)
         result = {"kinds": self.kinds, "seconds": seconds}
-        if per_pid:
+        if per_pid and self.pid_rows is not None:
+            result["pids"] = self.pid_rows(len(self.windows))
+        elif per_pid:
             result["pids"] = [{"pid": pid, "kind": "renderer", "wakeups_per_s": rate} for pid, rate in self.per_pid.items()]
         return result
 
@@ -244,7 +254,7 @@ class FakeInstance:
 def options(**overrides):
     values = dict(engine="chromium", session="light", settle=60, measure=60, hide_settle=10, discard_settle=300,
                   open_timeout=20, priority_wait=1.0, runs=4, cold_runs=2, chat_turns=0, kills=4, every_page_hidden=False,
-                  page_code_cache=False, mode="pages10", enable_feature=[], push_hz=10)
+                  page_code_cache=False, mode="pages10", enable_feature=[], push_hz=10, park=None)
     values.update(overrides)
     return argparse.Namespace(**values)
 
@@ -816,7 +826,7 @@ class PushTests(unittest.TestCase):
 
     def test_the_on_arm_counts_data_deliveries_and_no_scripts(self):
         clock = FakeClock()
-        app = PushApp(clock, form="data", fork_api=39)
+        app = PushApp(clock, form="data", fork_api=webui.PUSH_FORK_API)
         _, got = self.run_push(app, clock, features=("pagePushChannel",))
         pings = sum(1 for method, params in app.calls if method == "debug.page" and params.get("action") == "ping")
         self.assertEqual(pings, 2 * 10 * 10)  # 2 s at 10 Hz to ten pages
@@ -828,14 +838,14 @@ class PushTests(unittest.TestCase):
 
     def test_the_off_arm_scores_no_script_bound(self):
         clock = FakeClock()
-        _, got = self.run_push(PushApp(clock, form="script", fork_api=39), clock)
+        _, got = self.run_push(PushApp(clock, form="script", fork_api=webui.PUSH_FORK_API), clock)
         self.assertEqual(got["push.script_deliveries.off"]["status"], "info")
         self.assertGreater(got["push.script_deliveries.off"]["value"], 0)
         self.assertEqual(got["push.data_deliveries.off"]["value"], 0)
 
     def test_renderer_cpu_is_per_thousand_deliveries_of_page_renderers_only(self):
         clock = FakeClock()
-        app = PushApp(clock, form="data", fork_api=39)
+        app = PushApp(clock, form="data", fork_api=webui.PUSH_FORK_API)
         instance = FakeInstance(clock)
         renderer_pids = []
 
@@ -859,7 +869,7 @@ class PushTests(unittest.TestCase):
 
     def test_a_census_without_counts_leaves_the_delivery_rows_unscored(self):
         clock = FakeClock()
-        _, got = self.run_push(PushApp(clock, counts=False, form="data", fork_api=39), clock, features=("pagePushChannel",))
+        _, got = self.run_push(PushApp(clock, counts=False, form="data", fork_api=webui.PUSH_FORK_API), clock, features=("pagePushChannel",))
         self.assertEqual(got["push.script_deliveries.on"]["status"], "unscored")
 
     def test_the_run_turns_page_freezing_off(self):
@@ -935,7 +945,7 @@ class CrashPressurePriorityTests(unittest.TestCase):
         self.assertEqual(got["discards_in_importance_order"]["status"], "unscored")
         self.assertIn("browser", app.tabs)  # the ranked pass has a browser tab and a chat to rank
         self.assertIn("conversation", app.tabs)
-        # The pressure goes through the memory coordinator's override (p13-webui-047), cleared at the end.
+        # The pressure goes through the memory coordinator's override, cleared at the end.
         levels = [params["level"] for method, params in app.calls if method == "debug.hibernation.pressure"]
         self.assertEqual(levels, ["critical", "none"])
         self.assertIsNone(app.override)
@@ -982,6 +992,156 @@ class CrashPressurePriorityTests(unittest.TestCase):
         clock = FakeClock()
         got = rows(bench(FakeApp(clock), clock, alive=False).run("home"))
         self.assertEqual(got["app_alive_at_end"]["status"], "missed")
+
+
+def park_report(park, engine, session="light", live=(10, 12, 14, 16), wakeups=(0.0, 0.5, 0.2), asked=True, job_sha="abc"):
+    """A park run's report as main writes it, built through the bench against the fake app."""
+    clock = FakeClock()
+    preload = {"state": "frozen"} if park == "frozen" else {"state": "hidden", "engine_visible": False}
+    if not asked:
+        preload = {"state": "hidden", "engine_visible": True}
+    app = FakeApp(clock, preload=preload, live=list(live))
+    instance = FakeInstance(clock, pids=lambda n: [{"pid": 700, "wakeups_per_s": wakeups[n % len(wakeups)]}])
+    report = bench(app, clock, instance, engine=engine, session="light", park=park, measure=3).run("park")
+    report.update(session=session, host="cmux15", sha=job_sha * 14)
+    return report
+
+
+class ParkTests(unittest.TestCase):
+    def test_park_state_reads_frozen_rendered_and_visible(self):
+        self.assertEqual(webui.park_state({"state": "frozen"}), "frozen")
+        self.assertEqual(webui.park_state({"state": "hidden", "engine_visible": False}), "rendered")
+        self.assertEqual(webui.park_state({"state": "hidden", "engine_visible": True}), "visible")  # the base's spare
+        self.assertIsNone(webui.park_state({"state": "hidden"}))
+        rows_ = webui.Census.from_report({"pages": [{"page": "cmux.newtab", "state": "hidden", "spare": "new_tab",
+                                                     "engine_visible": False, "renderer_pids": [7]}]})
+        self.assertEqual(webui.park_state(rows_[0]), "rendered")
+
+    def test_park_measures_wakeups_and_opens_of_the_variant_asked(self):
+        clock = FakeClock()
+        app = FakeApp(clock, preload={"state": "frozen"}, live=[20.0, 24.0, 30.0, 26.0])
+        instance = FakeInstance(clock, pids=lambda n: [{"pid": 700, "wakeups_per_s": 0.5}, {"pid": 1, "wakeups_per_s": 9}])
+        report = bench(app, clock, instance, park="frozen", measure=5).run("park")
+        got = rows(report)
+        self.assertEqual(report["park"], "frozen")
+        self.assertEqual(got["park.state_as_asked"]["status"], "met")
+        self.assertEqual(got["park.renderer_wakeups_per_s"]["value"]["n"], 5)  # one sample per 1 s window
+        self.assertEqual(got["park.renderer_wakeups_per_s"]["value"]["p50"], 0.5)  # the preload's pid only
+        self.assertEqual(instance.windows, [1] * 5)
+        self.assertEqual(got["park.live_frame_ms"]["value"]["max"], 30.0)
+        self.assertEqual(got["park.live_frame_ms"]["target"], ["p95", "<=", 50])
+        self.assertEqual(got["park.cover_frame_ms"]["value"]["n"], 4)
+        self.assertEqual(got["park.refresh_hz"]["value"], 120.0)
+        self.assertEqual(got["park.refresh_hz"]["status"], "met")
+        self.assertEqual(sum(1 for method, params in app.calls if method == "debug.new_tab" and params["action"] == "bench_open"), 4)
+
+    def test_a_build_that_parks_otherwise_is_unscored_not_measured(self):
+        clock = FakeClock()
+        app = FakeApp(clock, preload={"state": "hidden", "engine_visible": True})
+        instance = FakeInstance(clock, pids=lambda n: [{"pid": 700, "wakeups_per_s": 0.0}])
+        got = rows(bench(app, clock, instance, park="rendered").run("park"))
+        self.assertEqual(got["park.state_as_asked"]["status"], "unscored")
+        self.assertIn("parked as visible, not rendered", got["park.state_as_asked"]["note"])
+        for name in webui.Bench.PARK_ROWS:
+            self.assertEqual(got[name]["status"], "unscored", name)
+        self.assertEqual(instance.windows, [])
+        self.assertFalse(any(m == "debug.new_tab" and p.get("action") == "bench_open" for m, p in app.calls))
+
+    def test_without_census_park_is_unscored(self):
+        clock = FakeClock()
+        got = rows(bench(FakeApp(clock, census=False), clock, park="frozen").run("park"))
+        self.assertEqual(got["park.state_as_asked"]["note"], "no debug.webui in this build")
+
+    def test_a_window_whose_process_was_not_read_is_missed(self):
+        clock = FakeClock()
+        app = FakeApp(clock, preload={"state": "frozen"}, live=[20.0])
+        instance = FakeInstance(clock, pids=lambda n: [{"pid": 700, "wakeups_per_s": 0.1}] if n % 2 else [])
+        got = rows(bench(app, clock, instance, park="frozen", measure=4).run("park"))
+        self.assertEqual(got["park.renderer_wakeups_per_s"]["value"]["missed"], 2)
+
+    def test_no_live_frame_signal_is_unscored(self):
+        clock = FakeClock()
+        app = FakeApp(clock, preload={"state": "frozen"})
+        instance = FakeInstance(clock, pids=lambda n: [{"pid": 700, "wakeups_per_s": 0.1}])
+        got = rows(bench(app, clock, instance, park="frozen", measure=1).run("park"))
+        self.assertEqual(got["park.live_frame_ms"]["status"], "unscored")
+        self.assertIn("no live_ms", got["park.live_frame_ms"]["note"])
+
+    def test_open_scores_the_new_tab_live_frame_when_the_app_reports_it(self):
+        clock = FakeClock()
+        got = rows(bench(FakeApp(clock, live=[30.0, 60.0]), clock).run("open"))
+        self.assertEqual(got["new_tab.live_ms"]["value"]["max"], 60.0)
+        self.assertEqual(got["new_tab.live_ms"]["status"], "missed")
+
+    def test_home_checks_the_park_state_asked(self):
+        clock = FakeClock()
+        got = rows(bench(FakeApp(clock, preload={"state": "hidden", "engine_visible": False}), clock, park="rendered").run("home"))
+        self.assertEqual(got["preload_rendered"]["value"], 1)
+        clock = FakeClock()
+        got = rows(bench(FakeApp(clock, preload={"state": "hidden", "engine_visible": True}), clock).run("home"))
+        self.assertEqual(got["preload_frozen"]["value"], 0)
+
+    def test_park_needs_a_variant(self):
+        with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
+            webui.parse(["park", "--app", "x"])
+        self.assertEqual(webui.parse(["park", "--app", "x", "--park", "rendered"]).park, "rendered")
+
+
+class ParkDecisionTests(unittest.TestCase):
+    def reports(self, frozen_live, rendered_live, frozen_wakeups, rendered_wakeups, sessions=("light",)):
+        return [park_report(park, engine, session, live=live, wakeups=wakeups)
+                for session in sessions for engine in ("chromium", "webkit")
+                for park, live, wakeups in (("frozen", frozen_live, frozen_wakeups), ("rendered", rendered_live, rendered_wakeups))]
+
+    def test_frozen_wins_within_a_frame_with_fewer_wakeups(self):
+        decision = webui.park_decision(self.reports((18, 20, 22, 24), (16, 18, 20, 22), (0.0,), (2.0,)))
+        self.assertEqual(decision["park"], "frozen")
+        self.assertEqual(decision["targets"], {"light": 25.0})  # p95 23.7 ms rounded up to 3 frames at 120 Hz
+
+    def test_rendered_wins_when_frozen_costs_more_than_a_frame(self):
+        decision = webui.park_decision(self.reports((30, 34, 38, 40), (10, 12, 14, 16), (0.0,), (2.0,)))
+        self.assertEqual(decision["park"], "rendered")
+        self.assertIn("1 frame", decision["why"])
+        self.assertEqual(decision["targets"], {"light": 16.7})
+
+    def test_rendered_wins_when_frozen_saves_no_wakeups(self):
+        decision = webui.park_decision(self.reports((10, 12), (10, 12), (0.0,), (0.0,)))
+        self.assertEqual(decision["park"], "rendered")  # Chrome's design unless frozen earns it
+
+    def test_the_target_never_passes_the_ceiling(self):
+        decision = webui.park_decision(self.reports((70, 80), (60, 90), (0.0,), (1.0,), sessions=("light", "stress")))
+        self.assertEqual(decision["park"], "rendered")
+        self.assertEqual(decision["targets"], {"light": 50, "stress": 50})
+
+    def test_missing_variants_decide_nothing(self):
+        reports = [park_report("frozen", "chromium"), park_report("rendered", "chromium"),
+                   park_report("rendered", "webkit", asked=False)]
+        decision = webui.park_decision(reports)
+        self.assertIsNone(decision["park"])
+        self.assertIn("frozen webkit light", decision["why"])
+        self.assertIn("rendered webkit light", decision["why"])
+
+    def test_table_rows_name_sha_host_and_job(self):
+        lines = webui.park_table([("4711", park_report("frozen", "chromium")),
+                                  ("4712", park_report("rendered", "webkit", asked=False))])
+        self.assertTrue(lines[0].startswith("| Park | Engine | Session | Key to cover (ms) p50 / p95 / p99 / max"))
+        self.assertIn("| frozen | chromium | light | 6.75 / 8.775 / 8.955 / 9 | 13 / 15.7 / 15.94 / 16 | ", lines[2])
+        self.assertIn("| abcabcabcabc | cmux15 | 4711 |", lines[2])
+        self.assertIn("not measured: the preload is parked as visible", lines[3])
+
+    def test_park_table_runs_without_an_app(self):
+        with tempfile.TemporaryDirectory() as folder:
+            args = []
+            for index, report in enumerate(self.reports((18, 20), (16, 18), (0.0,), (2.0,))):
+                path = os.path.join(folder, f"{index}.json")
+                with open(path, "w") as handle:
+                    json.dump(report, handle)
+                args += ["--run", str(100 + index), path]
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                self.assertEqual(webui.main(["park-table", *args]), 0)
+        self.assertIn("Decision: frozen", out.getvalue())
+        self.assertIn("D4 key to live frame: light <= 25 ms p95", out.getvalue())
 
 
 class ThinDriverTests(unittest.TestCase):

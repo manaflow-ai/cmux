@@ -1,4 +1,4 @@
-/// How a terminal session predicts its echo (`terminal.predictiveEcho`, p04-input-046). The App's
+/// How a terminal session predicts its echo (`terminal.predictiveEcho`). The App's
 /// session delegate gives the ``Mode`` (``TerminalSessionDelegate/terminalSessionPredictiveEcho(_:)``);
 /// none, the setting's `off`, makes no prediction engine at all.
 public nonisolated struct TerminalPredictiveEcho: Equatable, Sendable {

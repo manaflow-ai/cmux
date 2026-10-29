@@ -9,10 +9,11 @@ import CmuxNextMemory
 @testable import CmuxNextPages
 @testable import CmuxNextSidebar
 import CmuxNextWakeups
+import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 
-/// Overlay and made-ahead pages (`ContentKind.overlayPage`, feature `memoryOverlayPagesOnFirstUse`, p07-memory-086):
+/// Overlay and made-ahead pages (`ContentKind.overlayPage`, feature `memoryOverlayPagesOnFirstUse`):
 /// none is made before its first open, and the App's one overlay page planner (``OverlayPageDiscards`` over the
 /// ``ContentDiscardScheduler`` every kind goes through) lets a closed one go after its release time as the Memory
 /// Saver mode scales it, or on the urgent pace from warning pressure on; the next open makes it again. Time and
@@ -146,7 +147,7 @@ struct OverlayPageReleaseTests {
     @Test func theIconPickerMakesNoPageAtLaunchAndLetsItGoFiveMinutesAfterItsClose() async throws {
         let rig = MainDeadlineRig()
         let retirer = PageRetirer(deadlines: rig.deadlines)
-        let host = WebUIHost(chromium: nil, openPanel: nil, memory: ManualMemoryLevelRegistry(), retirer: retirer)
+        let host = WebUIHost(chromium: nil, openPanel: nil, memory: ManualMemoryLevelRegistry(), deadlines: .testing(), retirer: retirer)
         let planner = OverlayPagePlannerRig()
         let picker = IconPickerService(services: nil, webUI: host, mainWork: MainWorkScheduler(budget: MainFrameBudget()), release: planner.terms())
 

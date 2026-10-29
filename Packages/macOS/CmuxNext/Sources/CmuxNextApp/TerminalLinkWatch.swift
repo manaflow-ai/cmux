@@ -15,7 +15,7 @@ extension TerminalCursorDefault {
 /// (tab `terminal_state`, a labeled stall), or the terminal or the daemon connection came
 /// back (a new `connectionEpoch`, even one missed between hops), which re-attaches a disconnected view. Tells the
 /// store the folder the shell reported to the view (OSC 7). One
-/// `ServiceObservation` (p06-scheduler-303): a burst of changes is one read
+/// `ServiceObservation`: a burst of changes is one read
 /// and one `changed()` in a scheduled task, and it follows while the
 /// terminal is hidden too (a process exit and the folder are not view work).
 /// Nothing polls.

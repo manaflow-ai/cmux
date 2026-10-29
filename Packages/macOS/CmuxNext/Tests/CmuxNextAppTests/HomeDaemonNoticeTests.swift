@@ -59,8 +59,8 @@ struct HomeDaemonNoticeTests {
 
     // MARK: Fixtures
 
-    /// A Home in a window whose visibility reads visible: a Home that is not shown reads nothing
-    /// (p06-scheduler-308), so its notice follows the owner only on screen.
+    /// A Home in a window whose visibility reads visible: a Home that is not shown reads nothing,
+    /// so its notice follows the owner only on screen.
     static func home() -> (AppServices, HomeHostView, NSWindow) {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))

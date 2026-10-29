@@ -3,10 +3,10 @@ import CmuxNextInputCore
 import Foundation
 import Testing
 
-/// Input latency in the opt-in report (p04-input-010): `input_latency[]` rows whose bucket counts
+/// Input latency in the opt-in report: `input_latency[]` rows whose bucket counts
 /// add up to `count`, labelled by display, Chrome's scroll jank histograms under their names,
 /// numbers and enum case names only, nothing when no input was counted, and nothing in schema 2;
-/// and `interaction_latency`, cmux's INP (p04-input-097).
+/// and `interaction_latency`, cmux's INP.
 /// Run: `swift test --filter InputLatencyReportTests`.
 struct InputLatencyReportTests {
     private static let ms: UInt64 = 1_000_000

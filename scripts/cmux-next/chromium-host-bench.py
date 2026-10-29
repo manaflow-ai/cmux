@@ -4,8 +4,9 @@
 Launches one tagged Debug cmux-next app with `browserHost.helper` and `browserResize.layerHostingEveryPage` (the
 bench-only feature `cefLayerHostingEveryPage`'s local override: every page window hosts from fork API 26, without the
 Track A calls the shipping feature `cefLayerHosting` needs) on, and measures the same probe page twice. Chromium tabs
-stay in cmux (`browserHost.tabs` off) except with `--modes profiles`, `--modes tcc` and `--kill-host`, which need them
-in the host: profiles and tcc run in a launch without the in-process rows (inproc, --baseline, --stress), and
+stay in cmux (`browserHost.tabs` off) except with `--modes profiles`, `--modes tcc`, `--modes agentcdp` and
+`--kill-host`, which need them in the host: profiles, tcc and agentcdp run in a launch without the in-process rows
+(inproc, --baseline, --stress), and
 --kill-host runs instead of the modes; an in-process row of a launch whose tabs run in the host says not_run (its
 numbers would be the host's):
 
@@ -64,6 +65,16 @@ Per mode:
            (kOpGeometryStats through `debug.chromium_host.measure {op: geometry}`) give the page placements per
            display frame (pass: <= 1, none unplaced; geometry_row, task p01-process-053).
   failure  helper: when the host page never shows, the host's Chromium log tail and its crash reports.
+  route    (`--modes route`, task p01-process-042) host mode's input ring with ack pacing (feature
+           chromiumHostInputRing, a host-mode Chromium tab whose page view takes its input): the
+           `debug.chromium_host` `input_route` counters while the probe tab gets
+           scroll_pacing  a trackpad gesture (began, 60 changed, ended) then its momentum (began, 30 changed,
+                          ended), one tick per 4 ms: pass when the page's pacer never had more than 1 wheel in
+                          flight, the first wheel tick of the gesture left cmux within 0.5 ms of its event
+                          (`first_wheel_send_us` p50/p95/max) and the page scrolled during the momentum ticks.
+           key            --count keys into the focused field: pass when the field got every key, none was left
+                          unwritten, and no move or wheel was in flight more than once (keys never wait).
+           A build whose tabs are not in host mode (no input route) fails the mode with the reason.
   baseline (--baseline, task p01-process-005; plans/cmux-next/chrome-parity/p01-process.md) adds the numbers the
            process-model program is measured against, and prints them as perf-lead.md section 5 rows
            (chromium_host_baseline.py, `baseline-rows.md` in --out):
@@ -108,6 +119,13 @@ Per mode:
            `debug.cef`'s `page_drag` counts one more DragTarget drop and at least one DRAG_OPERATION answer (the
            page view, not the DevTools relay, took it). In process, or with a fork API below 31 (p01-process-178,
            where the relay takes the drops), the row says not_measurable with the reason instead of passing.
+  agentcdp `--modes agentcdp` (task p01-process-233), feature chromiumHostAgentRelay on: an agent session of the app's
+           browser host sends --agent-rate CDP messages a second to a hidden Chromium tab in the Chromium Host for
+           --agent-seconds while the bench types into the terminal in front of it; the app's main-thread tasks per
+           `browser-host.cdp*` owner (pass: 0 per message) and terminal key-to-frame (pass: p99 <= 16.7 ms)
+           (chromium_host_agent_cdp.py; run the bench under trace.py's wrap mode for the turns' timeline). With
+           --kill-app, last (it kills cmux): SIGKILL to cmux with the agent's tab open, cmux launched again, and the
+           agent drives the same page (performance.timeOrigin unchanged; needs browserHost.survivesAppCrash, task 150).
   display  `--modes display` (task 221): a Chromium tab of the app's backend in the Chromium Host follows the cmux
            window's display: rAF/s against the display's refresh rate and devicePixelRatio against its scale, then,
            with a second display (cmux20-bench has an external one), frames until both are the new display's after
@@ -159,7 +177,18 @@ and the app's child processes show no window, then the chooser rows (chromium_ho
 p01-process-228): color, device chooser, screen share, external protocol, Web Share (skipped until p01-process-228c), video
 and document picture-in-picture, with feature chromiumHostChoosers on, then the fullscreen and lock rows
 (chromium_host_native_ui_locks.py, p01-process-229): HTML fullscreen, pointer lock and keyboard lock held by cmux
-(`debug.cef` `host_locks`) and each ended by Escape, with feature chromiumHostLocks on.
+(`debug.cef` `host_locks`) and each ended by Escape, with feature chromiumHostLocks on. The page rows share one probe
+tab; each row gets a `host_windows` block from the host's lines in the app log written while it ran
+(chromium_host_windows.py, p01-process-068): the Chromium widgets the fork blocked (BLOCKED_WIDGET, by Views class and
+by the cmux UI whose kind of request it was) and the host windows its backstop took off screen (UNEXPECTED_WINDOW). A
+row fails with any unexpected window, or a blocked widget with no logged dismissal (refused or close-failed: it still
+shows, whatever its owner); `host_windows` in the report is the same count over the whole run.
+--list-failing then prints one `FAILING native_ui.<row>: <reason>` line per failing row (`FAILING none` when none).
+
+--renderer-hang runs instead the renderer hang row (chromium_host_renderer_hang.py, p01-process-072) with feature
+chromiumHangFollowsVisibility on: a `while(true){}` page's Page unresponsive prompt shows in that tab only, after
+kHungRendererDelay (15 s), never as the host's banner; hidden behind another tab it goes and stays away past the
+delay; shown again it comes back a full delay after the show; Exit page ends that renderer.
 
 --kill-host runs instead the host kill rows (chromium_host_kill.py, p01-process-082): one `--signals` signal per row
 (default KILL; TRAP,SEGV,ABRT,KILL for the done check) to the supervisor's Chromium Host under a Chromium tab
@@ -177,6 +206,10 @@ one when it is focused (`hidden_ms`).
 --find runs instead the find rows (chromium_host_find.py, p01-process-048): Cmd-F, a typed query, Cmd-G, Cmd-Shift-G
 and Escape through cmux's find pill on a Chromium page in the host (`debug.cef` backend `host`), the pill's match
 count and active match (the oracle's overlays.findBar) and the page scrolled to the active match.
+
+--helper-kill runs instead the helper-kill rows (chromium_host_helper_kill.py, p01-process-225): on a Chromium page in
+the host, the tab's renderer pids are the host's children, and a SIGKILL to the host's network service, GPU process
+and the tab's renderer each makes one `debug.crashes` record with its pid, type and signal (the host's HELPER_EXIT).
 
 --hang MS runs instead the busy banner row (chromium_host_hang.py, p01-process-084): with chromiumHostHangBanner on,
 the host stopped MS ms with a key waiting shows "Chromium is busy" at 2000 +/- 100 ms (`debug.cef` host_hang), no
@@ -203,10 +236,12 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from bench_launch import BenchApp, LaunchError, RecordError, build_config, build_sha, tag_of  # noqa: E402
 import browser_engine_bench_report as results  # noqa: E402
+import chromium_host_agent_cdp  # noqa: E402
 import chromium_host_baseline  # noqa: E402
 import chromium_host_crash_records  # noqa: E402
 import chromium_host_display  # noqa: E402
 import chromium_host_find  # noqa: E402
+import chromium_host_helper_kill  # noqa: E402
 import chromium_host_hang  # noqa: E402
 import chromium_host_kill  # noqa: E402
 import chromium_host_native_ui  # noqa: E402
@@ -214,7 +249,9 @@ import chromium_host_native_ui_choosers  # noqa: E402
 import chromium_host_native_ui_dialogs  # noqa: E402
 import chromium_host_native_ui_locks  # noqa: E402
 import chromium_host_profiles  # noqa: E402
+import chromium_host_renderer_hang  # noqa: E402
 import chromium_host_restore  # noqa: E402
+import chromium_host_windows  # noqa: E402
 
 # Every --native-ui row, in the order they run.
 NATIVE_UI_ROWS = (chromium_host_native_ui.ROWS + chromium_host_native_ui_dialogs.ROWS
@@ -240,7 +277,19 @@ def parse(argv=None):
     parser.add_argument("--native-ui", nargs="?", const="", default=None, metavar="ROWS",
                         help="only the native UI rows (chromium_host_native_ui.py): all, or the comma-separated ROWS "
                              f"({', '.join(NATIVE_UI_ROWS)})")
+    parser.add_argument("--list-failing", action="store_true",
+                        help="with --native-ui: print one FAILING line per failing row at the end")
     parser.add_argument("--find", action="store_true", help="only the find rows (chromium_host_find.py)")
+    parser.add_argument("--agent-rate", type=int, default=chromium_host_agent_cdp.RATE,
+                        help="agentcdp: CDP messages a second (commands and replies)")
+    parser.add_argument("--agent-seconds", type=float, default=chromium_host_agent_cdp.SECONDS,
+                        help="agentcdp: how long the burst runs")
+    parser.add_argument("--kill-app", action="store_true",
+                        help="agentcdp: last, SIGKILL cmux with the agent's tab open and launch it again (it ends cmux)")
+    parser.add_argument("--helper-kill", action="store_true",
+                        help="only the helper-kill rows (chromium_host_helper_kill.py): GPU, renderer, utility")
+    parser.add_argument("--renderer-hang", action="store_true",
+                        help="only the renderer hang row (chromium_host_renderer_hang.py, about 90 s)")
     parser.add_argument("--hang", type=int, metavar="MS",
                         help="only the busy banner row (chromium_host_hang.py, p01-process-084): the host stopped MS ms")
     parser.add_argument("--kill-host", action="store_true",
@@ -260,10 +309,16 @@ def parse(argv=None):
     parser.add_argument("--build-config", choices=["bench", "bench-checks", "release", "debug"],
                         help="result-v1 build config of a bench-hooks bundle that does not stamp it (BenchApp.record)")
     args = parser.parse_args(argv)
-    if sum([args.native_ui is not None, args.find, args.kill_host, args.hang is not None]) > 1:
-        parser.error("--native-ui, --find, --kill-host and --hang each run instead of the modes: pick one")
+    if args.kill_app and "agentcdp" not in args.modes.split(","):
+        parser.error("--kill-app needs --modes agentcdp (it kills cmux with the agent's tab open)")
+    if sum([args.native_ui is not None, args.find, args.helper_kill, args.kill_host, args.renderer_hang,
+            args.hang is not None]) > 1:
+        parser.error("--native-ui, --find, --helper-kill, --kill-host, --renderer-hang and --hang each run instead of "
+                     "the modes: pick one")
     if args.hang is not None and args.hang < chromium_host_hang.BUSY_AFTER_MS + chromium_host_hang.TOLERANCE_MS:
         parser.error(f"--hang must hold the host past the banner's {chromium_host_hang.BUSY_AFTER_MS} ms")
+    if args.list_failing and args.native_ui is None:
+        parser.error("--list-failing lists the --native-ui rows: pass --native-ui")
     if args.restore and not args.kill_host:
         parser.error("--restore is a --kill-host row: add --kill-host")
     host_tab_modes = [mode for mode in HOST_TAB_MODES if mode in args.modes.split(",")]
@@ -433,8 +488,9 @@ TUNABLES = {"version": 1, "values": {"browserHost.helper": True, "browserResize.
 
 
 # The modes whose rows need every Chromium tab in the host: profiles (task 080) and tcc (task 089: the host's own
-# privacy requests and keychain reads come only from a host-backed tab).
-HOST_TAB_MODES = ("profiles", "tcc")
+# privacy requests and keychain reads come only from a host-backed tab) and agentcdp (the
+# Chromium Host relays the agent's CDP only for a tab it runs).
+HOST_TAB_MODES = ("profiles", "tcc", "agentcdp")
 
 
 def launch_tunables(modes, kill_host=False):
@@ -716,6 +772,20 @@ def bundled_cli(*args, timeout=90):
         return run.returncode, {"error": run.stdout.strip()[:400]}
 
 
+def process_rows():
+    """Every process as (pid, ppid, command) (`ps`), or [] when ps does not answer."""
+    try:
+        listing = subprocess.run(["/bin/ps", "-axo", "pid=,ppid=,command="], capture_output=True, text=True, timeout=10).stdout
+    except subprocess.TimeoutExpired:
+        return []
+    rows = []
+    for line in listing.splitlines():
+        parts = line.split(None, 2)
+        if len(parts) == 3 and parts[0].isdigit() and parts[1].isdigit():
+            rows.append((int(parts[0]), int(parts[1]), parts[2]))
+    return rows
+
+
 def defaults_snapshot(domain):
     """cmux's defaults domain as {key: value repr} (`defaults export`), or None."""
     import plistlib
@@ -845,6 +915,11 @@ def main():
         find_page = os.path.join(opts.out, "find.html")
         open(find_page, "w").write(chromium_host_find.PAGE)
         url = pathlib.Path(find_page).as_uri()
+    if "agentcdp" in opts.modes.split(","):
+        env["CMUX_ENABLE_FEATURES"] = ",".join(filter(None, [env.get("CMUX_ENABLE_FEATURES"), "chromiumHostAgentRelay"]))
+        env["CMUX_NEXT_TYPING_PROBE"] = os.path.join(opts.out, "typing.csv")
+    if opts.renderer_hang:
+        env["CMUX_ENABLE_FEATURES"] = ",".join(filter(None, [env.get("CMUX_ENABLE_FEATURES"), chromium_host_renderer_hang.FEATURES]))
     if opts.kill_host and opts.restore:
         env["CMUX_ENABLE_FEATURES"] = ",".join(filter(None, [env.get("CMUX_ENABLE_FEATURES"), chromium_host_restore.FEATURES]))
     if "dragin" in opts.modes.split(","):
@@ -881,38 +956,22 @@ def main():
         RESULT["cef"] = {"fork_api": (cef.get("windows") or {}).get("fork_api"), "unavailable": cef.get("unavailable"),
                          "fallback": cef.get("fallback")}
         DEFAULTS["launch"] = defaults_snapshot(app_bundle_id())
-        modes = [] if opts.native_ui or opts.find or opts.kill_host or opts.hang is not None else opts.modes.split(",")
+        modes = ([] if opts.native_ui or opts.find or opts.helper_kill or opts.kill_host or opts.renderer_hang
+                 or opts.hang is not None
+                 else opts.modes.split(","))
         if opts.native_ui:
-            RESULT["modes"]["native_ui"], ok = chromium_host_native_ui.run(
-                rpc, wait, lambda script: page_eval(rpc, script, None), url,
-                rows_to_run=[row for row in opts.native_ui if row in chromium_host_native_ui.ROWS], front=front_pid,
-                app_pid=app.process.pid if app.process else None, right_click=page_right_click(rpc),
+            RESULT["modes"]["native_ui"], ok = native_ui_rows(
+                rpc, url, pathlib.Path(chooser_page).as_uri(), app.process.pid if app.process else None,
                 permission_url=permission_url,
-                host_windows=(lambda: child_windows_on_screen(app.process.pid)) if app.process else None)
-            dialog_rows = [row for row in opts.native_ui if row in chromium_host_native_ui_dialogs.ROWS]
-            if dialog_rows:
-                dialogs, dialogs_ok = chromium_host_native_ui_dialogs.run(
-                    rpc, wait, lambda script: page_eval(rpc, script, None), opts.out, chromium_host_pid, front_pid,
-                    on_screen_windows, rows_to_run=dialog_rows)
-                RESULT["modes"]["native_ui"].update(dialogs)
-                ok = ok and dialogs_ok
-            chooser_rows = [row for row in opts.native_ui if row in chromium_host_native_ui_choosers.ROWS]
-            if chooser_rows:
-                chosen, choosers_ok = chromium_host_native_ui_choosers.run(
-                    rpc, wait, lambda script: page_eval(rpc, script, None), pathlib.Path(chooser_page).as_uri(),
-                    chromium_host_pid, front_pid, on_screen_windows, rows_to_run=chooser_rows)
-                RESULT["modes"]["native_ui"].update(chosen)
-                ok = ok and choosers_ok
-            lock_rows = [row for row in opts.native_ui if row in chromium_host_native_ui_locks.ROWS]
-            if lock_rows:
-                locks, locks_ok = chromium_host_native_ui_locks.run(
-                    rpc, wait, lambda script: page_eval(rpc, script, None), opts.out,
-                    lambda: chromium_host_native_ui_dialogs.host_ui_clear(chromium_host_pid, front_pid, on_screen_windows),
-                    rows_to_run=lock_rows)
-                RESULT["modes"]["native_ui"].update(locks)
-                ok = ok and locks_ok
+                child_windows=(lambda: child_windows_on_screen(app.process.pid)) if app.process else None)
         if opts.find:
             RESULT["modes"]["find"], ok = chromium_host_find.run(rpc, wait, lambda script: page_eval(rpc, script, None), url)
+        if opts.helper_kill:
+            RESULT["modes"]["helper_kill"], ok = chromium_host_helper_kill.run(
+                rpc, wait, process_rows, chromium_host_pid, os.kill, url)
+        if opts.renderer_hang:
+            RESULT["modes"]["renderer_hang"], ok = chromium_host_renderer_hang.run(
+                rpc, wait, lambda script: page_eval(rpc, script, None), opts.out, chromium_host_pid, front_pid, on_screen_windows)
         if opts.hang is not None:
             RESULT["modes"]["hang"], ok = chromium_host_hang.run(
                 rpc, wait, lambda script: page_eval(rpc, script, None), url, chromium_host_pid,
@@ -936,6 +995,8 @@ def main():
             ok = run_tcc(rpc, app.process.pid if app.process else None, tcc_keychain, tcc_seed) and ok
         if "helper" in modes:
             ok = run_helper(rpc, url, inproc_tab) and ok
+        if "route" in modes:
+            ok = run_route(rpc, url) and ok
         if opts.baseline and inproc_tab:
             # After the helper rows: the 9 extra tabs would otherwise be in its pump share.
             RESULT.setdefault("sessions", {}).setdefault("light", {})["tabs10"] = tabs10_wakes(rpc, url)
@@ -968,6 +1029,16 @@ def main():
             RESULT["modes"]["display"], ran = chromium_host_display.run(
                 rpc, wait, lambda script: page_eval(rpc, script, None), pathlib.Path(display_probe).as_uri(), time.sleep)
             ok = ran and ok
+        agent_url = None
+        if "agentcdp" in modes:
+            agent_probe = os.path.join(opts.out, "agent-cdp.html")
+            open(agent_probe, "w").write(chromium_host_agent_cdp.PAGE)
+            agent_url = pathlib.Path(agent_probe).as_uri()
+            RESULT["modes"]["agentcdp"], ran = chromium_host_agent_cdp.run(
+                rpc, wait, lambda script: page_eval(rpc, script, None), agent_url, lambda script, timeout:
+                AgentRun(app, script, timeout), lambda seconds: type_terminal(rpc, seconds), typed_key_ms,
+                rate=opts.agent_rate, seconds=opts.agent_seconds)
+            ok = ran and ok
         if "profiles" in modes:
             RESULT["modes"]["profiles"], ran = chromium_host_profiles.run(
                 rpc, wait, lambda script, tab: page_eval(rpc, script, tab), url, bundled_cli, chromium_host_pids,
@@ -985,6 +1056,14 @@ def main():
                 before_heavy, RESULT["baseline"]["census_heavy"])
         if "helper" in modes and RESULT["modes"].get("helper", {}).get("kill"):
             ok = run_lifetime(app, url) and ok
+        if opts.kill_app and agent_url:
+            # Last: it kills cmux.
+            row, ran = chromium_host_agent_cdp.kill_app(
+                app.process.pid if app.process else None, chromium_host_pid(), lambda: app.launch(validate_host=False),
+                lambda script, timeout: AgentRun(app, script, timeout), agent_url, lambda pid: not pid_gone(pid),
+                time.sleep)
+            RESULT["modes"]["agentcdp"]["kill_app"] = row
+            ok = ran and ok
     except LaunchError as error:
         RESULT["error"] = error.reason
         ok = False
@@ -1003,9 +1082,133 @@ def main():
                     with open(path, "w") as out:
                         json.dump(RESULT, out, indent=2)
                 print("CHROMIUM-HOST-BENCH " + json.dumps(RESULT), flush=True)
+                if opts.list_failing:
+                    print_failing(RESULT)
             finally:
                 app.stop()
     return 0 if ok else 1
+
+
+class AgentRun:
+    """One `cmux-browser-host eval` of the agentcdp session against `app`'s own browser host (bench_renderer_sharing's
+    CLI helpers), started now; `result()` waits for it: (exit code, stdout, stderr)."""
+
+    def __init__(self, app, script, timeout):
+        import bench_renderer_sharing as sharing
+        self.timeout, self.process, self.error = timeout, None, None
+        bundle = os.path.realpath(opts.app)
+        socket = wait(lambda: sharing.host_socket(sharing.bm.process_table(), bundle), 60, 0.5)
+        if socket is None:
+            self.error = f"no browser host of {bundle} runs"
+            return
+        cli = os.path.join(bundle, "Contents/Resources/bin/cmux-browser-host")
+        self.process = subprocess.Popen(
+            [cli, "eval", "--session", chromium_host_agent_cdp.SESSION, "--engine", "cef", script, "--socket", socket],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=sharing.host_cli_env(socket, app.socket))
+
+    def result(self):
+        if self.process is None:
+            return 1, "", self.error
+        try:
+            out, err = self.process.communicate(timeout=self.timeout)
+        except subprocess.TimeoutExpired:
+            self.process.kill()
+            out, err = self.process.communicate()
+            return 124, out, (err or "") + " (timed out)"
+        return self.process.returncode, out, err
+
+
+def type_terminal(rpc, seconds):
+    """Keys into the focused terminal, one every KEY_INTERVAL_S for `seconds` (the typing probe records each)."""
+    keys = "abcdefghijklmnopqrstuvwxyz"
+    end, index = time.monotonic() + seconds, 0
+    while time.monotonic() < end:
+        sent = time.monotonic()
+        rpc("debug.key", {"key": keys[index % len(keys)], "timestamp": time.clock_gettime(time.CLOCK_UPTIME_RAW)},
+            timeout=10)
+        index += 1
+        rest = chromium_host_agent_cdp.KEY_INTERVAL_S - (time.monotonic() - sent)
+        if rest > 0:
+            time.sleep(rest)  # one key in flight at a time
+    time.sleep(0.5)  # the last echo lands
+
+
+def typed_key_ms():
+    """The typing probe's key-to-frame values (`contents_ms` of complete rows), oldest first."""
+    import csv
+    try:
+        with open(os.path.join(opts.out, "typing.csv")) as handle:
+            rows = list(csv.DictReader(handle))
+    except OSError:
+        return []
+    return [float(row["contents_ms"]) for row in rows if row.get("complete") == "1" and row.get("contents_ms")]
+
+
+def native_ui_rows(rpc, url, chooser_url, app_pid, permission_url=None, child_windows=None):
+    """The --native-ui rows (task p01-process-068): the page rows in one probe tab, then the dialog rows, then the
+    chooser rows on their probe page at `chooser_url`, then the lock rows; `permission_url` and `child_windows` are
+    chromium_host_native_ui.run's `permission_url` and `host_windows`; each row gets
+    chromium_host_windows' block of the app log lines written while it ran (a log cursor taken right after it), and
+    RESULT["host_windows"] is the block of the whole run (lines a row's last dismissal wrote after it ended are counted
+    there). Each block also holds the host's visible windows the window server lists at its end (host_on_screen): a
+    host window its backstop never saw fails the row all the same. Returns (rows, ok)."""
+    every_line = []
+    cursor = chromium_host_windows.LogCursor(APP_LOG.get("path"))
+    evaluate = lambda script: page_eval(rpc, script, None)  # noqa: E731
+
+    def on_row(_name, row):
+        lines = cursor.take()
+        every_line.extend(lines)
+        return chromium_host_windows.checked(row, lines, host_on_screen())
+
+    rows = {}
+    page_rows = [row for row in opts.native_ui if row in chromium_host_native_ui.ROWS]
+    if page_rows:
+        rows.update(chromium_host_native_ui.run(rpc, wait, evaluate, url, rows_to_run=page_rows, front=front_pid,
+                                                app_pid=app_pid, right_click=page_right_click(rpc),
+                                                permission_url=permission_url, host_windows=child_windows,
+                                                on_row=on_row)[0])
+    dialog_rows = [row for row in opts.native_ui if row in chromium_host_native_ui_dialogs.ROWS]
+    if dialog_rows:
+        rows.update(chromium_host_native_ui_dialogs.run(rpc, wait, evaluate, opts.out, chromium_host_pid, front_pid,
+                                                        on_screen_windows, rows_to_run=dialog_rows, on_row=on_row)[0])
+    chooser_rows = [row for row in opts.native_ui if row in chromium_host_native_ui_choosers.ROWS]
+    if chooser_rows:
+        rows.update(chromium_host_native_ui_choosers.run(rpc, wait, evaluate, chooser_url, chromium_host_pid, front_pid,
+                                                         on_screen_windows, rows_to_run=chooser_rows,
+                                                         on_row=on_row)[0])
+    lock_rows = [row for row in opts.native_ui if row in chromium_host_native_ui_locks.ROWS]
+    if lock_rows:
+        clear = lambda: chromium_host_native_ui_dialogs.host_ui_clear(chromium_host_pid, front_pid, on_screen_windows)  # noqa: E731
+        rows.update(chromium_host_native_ui_locks.run(rpc, wait, evaluate, opts.out, clear, rows_to_run=lock_rows,
+                                                      on_row=on_row)[0])
+    every_line += cursor.take()
+    RESULT["host_windows"] = chromium_host_windows.count(every_line, host_on_screen())
+    # A skipped row (another task's, chromium_host_native_ui_choosers.skipped) counts neither way.
+    ok = bool(rows) and RESULT["host_windows"]["ok"] and all(row.get("ok") for row in rows.values()
+                                                             if "skipped" not in row)
+    return rows, ok
+
+
+def host_on_screen():
+    """The running Chromium Host's on-screen windows with alpha above 0 (none when no host runs), or None when the
+    window list cannot be read."""
+    pid = chromium_host_pid()
+    return [] if pid is None else chromium_host_windows.visible(on_screen_windows(pid))
+
+
+def print_failing(result):
+    """--list-failing: one line per failing --native-ui row, and the whole run's host window check."""
+    failing = chromium_host_windows.failing(result["modes"].get("native_ui") or {})
+    whole = result.get("host_windows") or {}
+    if whole and not whole.get("ok"):
+        failing.append(("host_windows", chromium_host_windows.summary(whole)))
+    if result.get("error"):
+        failing.append(("launch", result["error"]))
+    for name, reason in failing:
+        print(f"FAILING native_ui.{name}: {reason}", flush=True)
+    if not failing:
+        print("FAILING none", flush=True)
 
 
 def probe_stats(title):
@@ -1140,6 +1343,94 @@ def run_inproc(rpc, url):
     row["pump_share"] = {"light": pump_share(rpc, page)}
     RESULT["modes"]["inproc"] = row
     return tab
+
+
+FIRST_WHEEL_LIMIT_US = 500  # The first wheel tick of a gesture leaves cmux in < 0.5 ms
+
+
+def route_report(rpc):
+    """`debug.chromium_host` `input_route` (host mode's input ring, p01-process-042); None without one."""
+    return (rpc("debug.chromium_host") or {}).get("input_route")
+
+
+def route_page(report):
+    """The route's page whose pacer moved most: the probe's (the bench shows one hosted page)."""
+    pages = (report or {}).get("pages") or []
+    return max(pages, key=lambda page: page.get("sent") or 0) if pages else {}
+
+
+def run_route(rpc, url):
+    """The `route` rows (p01-process-042): scroll pacing with momentum and keys through host mode's input ring."""
+    page, _, _ = open_inproc_probe(rpc, url, "route")
+    if not page:
+        RESULT["modes"]["route"] = {"error": "the probe tab did not open", "pass": False}
+        return False
+    # The hosted page view is a cmux view (no page window): window points over the focused pane's content.
+    border = focused_pane_border(rpc)
+    if not border:
+        RESULT["modes"]["route"] = {"error": "no pane geometry (debug.pane_chrome)", "pass": False}
+        return False
+    click_point = host_click_point(border)
+    before = route_report(rpc)
+    if before is None:
+        RESULT["modes"]["route"] = {"error": "no input route: the tab is not in host mode with the input ring (feature "
+                                             "chromiumHostInputRing, a host the supervisor started with a ring, p01-process-080)",
+                                    "pass": False}
+        return False
+    rows = {}
+    # A page that scrolls: the probe fills the viewport.
+    page("document.documentElement.style.height = 'auto'; document.body.style.height = '20000px'; scrollTo(0, 0); 0")
+    point = click_point("b")
+
+    def scroll(dy, **phase):
+        rpc("debug.mouse", {"action": "scroll", "dy": dy, "hover": False, **point, **phase})
+        time.sleep(0.004)  # test harness: one tick per 4 ms, a trackpad's rate
+
+    scroll(-4, phase="began")
+    for _ in range(60):
+        scroll(-8, phase="changed")
+    scroll(0, phase="ended")
+    time.sleep(0.2)  # test harness: the gesture's last ticks are dispatched
+    after_gesture = page("scrollY") or 0
+    scroll(-20, momentum="began")
+    for _ in range(30):
+        scroll(-12, momentum="changed")
+    scroll(0, momentum="ended")
+    time.sleep(0.3)  # test harness: the momentum ticks are dispatched and drawn
+    after_momentum = page("scrollY") or 0
+    report = route_report(rpc) or {}
+    paced = route_page(report)
+    first = report.get("first_wheel_send_us") or []
+    rows["scroll_pacing"] = {
+        "max_wheels_in_flight": paced.get("max_wheels_in_flight"), "coalesced": paced.get("coalesced"),
+        "sent": paced.get("sent"), "first_wheel_send_us": results.percentiles(first),
+        "scroll_after_gesture": after_gesture, "scroll_after_momentum": after_momentum,
+        "ring_dropped": report.get("ring_dropped"), "unwritten": report.get("unwritten"),
+    }
+    rows["scroll_pacing"]["pass"] = (paced.get("max_wheels_in_flight") == 1 and bool(first)
+                                     and max(first) < FIRST_WHEEL_LIMIT_US and after_gesture > 0
+                                     and after_momentum > after_gesture)
+
+    rpc("debug.mouse", click_point("t"))
+    time.sleep(0.3)  # test harness: focus lands
+    field_before = page("document.getElementById('t').value.length") or 0
+    unwritten_before = (route_report(rpc) or {}).get("unwritten") or 0
+    for _ in range(opts.count):
+        rpc("debug.key", {"key": "a"})
+        time.sleep(1 / 30)  # test harness: one key per two frames
+    field_after = wait(lambda: (lambda n: n if (n or 0) >= field_before + opts.count else None)(
+        page("document.getElementById('t').value.length")), 10) or page("document.getElementById('t').value.length") or 0
+    report = route_report(rpc) or {}
+    paced = route_page(report)
+    rows["key"] = {"keys": opts.count, "field_before": field_before, "field_after": field_after,
+                   "unwritten": (report.get("unwritten") or 0) - unwritten_before,
+                   "max_moves_in_flight": paced.get("max_moves_in_flight"),
+                   "max_wheels_in_flight": paced.get("max_wheels_in_flight")}
+    rows["key"]["pass"] = (field_after - field_before == opts.count and rows["key"]["unwritten"] == 0
+                           and (paced.get("max_moves_in_flight") or 0) <= 1)
+    rows["route"] = report
+    RESULT["modes"]["route"] = rows
+    return rows["scroll_pacing"]["pass"] and rows["key"]["pass"]
 
 
 def pump_work_ms(rpc):
@@ -1549,7 +1840,7 @@ def run_helper(rpc, url, inproc_tab):
                 "front_after_input": front_pid()}
     # 10 clicks on the page and a key after each: the frontmost app stays cmux's process the whole time, and the
     # host never becomes active nor owns the key window (its own counters, debug.chromium_host.measure input).
-    # The overlay host re-adds its panel above no page across those event cycles in host mode (p01-process-223):
+    # The overlay host re-adds its panel above no page across those event cycles in host mode:
     # debug.overlay reorders_per_event stays 0.
     rpc("debug.overlay", {"reset": True})
     fronts = []
@@ -1564,7 +1855,7 @@ def run_helper(rpc, url, inproc_tab):
     counters = rpc("debug.chromium_host.measure", {"op": "input"}) or {}
     identity["clicks"] = {"fronts": sorted(set(p for p in fronts if p is not None)), "host_frontmost": fronts.count(host_pid),
                           "activations": counters.get("activations"), "key_windows": counters.get("key_windows")}
-    # The host's page windows are detached and its own windows never ordered in (task p01-process-053): with the
+    # The host's page windows are detached and its own windows never ordered in: with the
     # page shown and after the clicks, the window server lists no window of the host on screen.
     host_windows = on_screen_windows(host_pid) if host_pid else None
     identity["host_windows_on_screen"] = {"count": None if host_windows is None else len(host_windows),

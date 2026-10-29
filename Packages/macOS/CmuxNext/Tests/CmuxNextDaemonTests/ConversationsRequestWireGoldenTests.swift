@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import CmuxNextDaemon
 
-/// The wire golden of every request in Sources/CmuxNextDaemon/Conversations (p05-ipc-041): the line each
+/// The wire golden of every request in Sources/CmuxNextDaemon/Conversations: the line each
 /// one sends today is recorded in cmux-tui/spec/fixtures/conversation-requests/lines.json and compared
 /// here as JSON (key order does not count). The migration to the generated `<Name>Request` types
 /// (CmuxNextWireGen RequestEmitter) must keep these goldens green. The daemon side reads the same file

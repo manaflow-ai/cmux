@@ -184,7 +184,7 @@ import Testing
     }
 
     /// A script closes the window it names (`action.run closeWindow target window:<id>`), not only the
-    /// active one: the oracle's reset closes each window a case opened (p15-oracle-189).
+    /// active one: the oracle's reset closes each window a case opened.
     @Test func closeWindowTakesAWindowTarget() throws {
         let action = try #require(ActionCatalog.all.first { $0.id == "closeWindow" })
         #expect(action.targets == [.window])

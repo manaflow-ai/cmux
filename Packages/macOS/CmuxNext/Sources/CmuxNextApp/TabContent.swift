@@ -41,7 +41,7 @@ enum TabContent {
     }
 
     /// Hands the content's appearance readers the app's signals and its tab's node: Reduce Motion
-    /// and display option changes reach a hidden tab once, when it shows (p06-scheduler-043).
+    /// and display option changes reach a hidden tab once, when it shows.
     @MainActor func followAppearance(_ signals: AppearanceSignals, node: VisibilityNode) {
         switch self {
         case .terminal(let entry): entry.session.view.followAppearance(signals, node: node)
@@ -52,7 +52,7 @@ enum TabContent {
     }
 
     /// Hands the content's gated SwiftUI (``VisibilityGatedHostingView``) its tab's node: it leaves the window
-    /// while the tab is hidden and comes back in the show turn (feature `visibilityGatedHosting`, p06-scheduler-214).
+    /// while the tab is hidden and comes back in the show turn (feature `visibilityGatedHosting`).
     @MainActor func followVisibility(_ node: VisibilityNode, services: AppServices) {
         guard services.features.isEnabled(.visibilityGatedHosting) else { return }
         let content: NSView? = switch self {

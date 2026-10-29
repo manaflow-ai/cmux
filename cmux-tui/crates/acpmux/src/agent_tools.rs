@@ -52,9 +52,11 @@
 //! - Kept servers (`ACPMUX_AGENT_TOOL_SERVERS`, a profile or preset env):
 //!   only the named MCP servers; the Chief's turns keep `cmux` (cx-4a5w2).
 
+use crate::no_panic::StrExt;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+use crate::no_panic::JsonExt;
 use serde_json::{Map, Value, json};
 
 use crate::subsession_mcp::DaemonTools;
@@ -376,7 +378,7 @@ pub fn settings_turn_off(env: &BTreeMap<String, String>, cwd: &Path) -> bool {
     files.iter().any(|file| {
         let Ok(bytes) = std::fs::read(file) else { return false };
         let Ok(json) = serde_json::from_slice::<Value>(&bytes) else { return false };
-        match &json["env"][TOOL_SEARCH_ENV] {
+        match json.field("env").field(TOOL_SEARCH_ENV) {
             Value::Null => false,
             Value::String(v) => !matches!(v.trim(), "true" | "1"),
             Value::Bool(on) => !on,
@@ -789,7 +791,7 @@ impl AgentTools {
                     json!({"name": s.name, "command": s.command, "args": s.args, "env": env});
                 // The secret card waits for the person, not for a timer.
                 if s.name == crate::secret_mcp::SERVER_NAME {
-                    spec["callTimeoutSecs"] = json!(3600);
+                    spec.set("callTimeoutSecs", json!(3600));
                 }
                 // A tool set the daemon serves: `cmux mcp serve` dials the daemon itself, with
                 // the relay's handshake (no process); one that reads no `socket` runs the relay.
@@ -799,9 +801,11 @@ impl AgentTools {
                     let token = env(crate::hub::person::CALLER_TOKEN_ENV);
                     let socket = env(crate::hub::person::CALLER_SOCKET_ENV);
                     if let (Some(session), Some(token), Some(socket)) = (session, token, socket) {
-                        spec[SOCKET_FIELD] = json!(socket);
-                        spec[INITIALIZE_META_FIELD] =
-                            crate::subsession_mcp::hello_meta(&s.name, session, token);
+                        spec.set(SOCKET_FIELD, json!(socket));
+                        spec.set(
+                            INITIALIZE_META_FIELD,
+                            crate::subsession_mcp::hello_meta(&s.name, session, token),
+                        );
                     }
                 }
                 spec
@@ -927,7 +931,7 @@ fn materialize(state_dir: &Path) -> anyhow::Result<PathBuf> {
         all.push(0);
     }
     let hash = crate::sha256::sha256_hex(&all);
-    let dir = state_dir.join(&hash[..16]);
+    let dir = state_dir.join(hash.head(16));
     if dir.join(".claude-plugin/plugin.json").is_file() {
         return Ok(dir);
     }

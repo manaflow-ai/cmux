@@ -136,6 +136,8 @@ public final class TerminalSession {
     private let gpuResidency: (any TerminalGPUResidency)?
     /// Passed to each surface view this session makes: the cursor on the render server (``TerminalCursorLayer``).
     private let externalCursor: Bool
+    /// Passed to each surface view this session makes: a hidden view's output parses at utility.
+    private let lowersHiddenOutput: Bool
     private let input: TerminalInputSink
     /// The lane the IO's reader feeds live output to (``TerminalIO/setOutputLane(_:)``): the events loop
     /// names it, close names none.
@@ -183,13 +185,16 @@ public final class TerminalSession {
     ///     nil keeps them resident (a GhosttyNextKit pin without the switch, or `terminalGPURelease` off).
     ///   - externalCursor: Its surfaces show the cursor on a layer of their own and blink it in the render server
     ///     (feature `terminalCursorLayer`, ``TerminalCursorLayer``); false: Ghostty draws and blinks it.
+    ///   - lowersHiddenOutput: A hidden surface's output parses at utility (feature `terminalStreamPriority`);
+    ///     false, the default, parses every surface's at user-interactive.
     public init(io: any TerminalIO, ownsGeometry: Bool = true,
                 echoStages: TerminalEchoStages = GhosttyRuntime.shared.echoStages,
                 hangWatch: (any HangWatchScoping)? = nil,
                 secureInput: TerminalSecureInput = GhosttyRuntime.shared.secureInput,
                 modifiers: TerminalModifierWatch? = nil, pointerFrames: FrameInputCoalescers? = nil,
                 mainWork: MainWorkScheduler, node: VisibilityNode? = nil, deadlines: MainDeadlineScheduler? = nil,
-                gpuResidency: (any TerminalGPUResidency)? = nil, externalCursor: Bool = false) {
+                gpuResidency: (any TerminalGPUResidency)? = nil, externalCursor: Bool = false,
+                lowersHiddenOutput: Bool = false) {
         self.io = io
         self.ownsGeometry = ownsGeometry
         self.echoStages = echoStages
@@ -199,6 +204,7 @@ public final class TerminalSession {
         self.pointerFrames = pointerFrames
         self.gpuResidency = gpuResidency
         self.externalCursor = externalCursor
+        self.lowersHiddenOutput = lowersHiddenOutput
         ioMode = io.answersTerminalQueries ? GHOSTTY_SURFACE_IO_MANUAL_MIRROR : GHOSTTY_SURFACE_IO_MANUAL
 
         // One hop from the main thread to the IO's own queue (``TerminalInputLane``), no pool task.
@@ -218,7 +224,7 @@ public final class TerminalSession {
         surfaceView = TerminalSurfaceView(io: ioMode, input: input, session: nil, echoStages: echoStages, hangWatch: hangWatch,
                                           secureInput: secureInput, modifiers: modifiers, pointerFrames: pointerFrames,
                                           mainWork: mainWork, node: node, gpuResidency: gpuResidency,
-                                          externalCursor: externalCursor)
+                                          externalCursor: externalCursor, lowersHiddenOutput: lowersHiddenOutput)
         surfaceView.bridgeObject.installLinkFilter(nil)
         surfaceView.session = self
         surfaceView.ownsGeometry = ownsGeometry
@@ -436,7 +442,7 @@ public final class TerminalSession {
         #endif
         surfaceHasContent = true
         frameHold.contentQueued()
-        TerminalTimings.contentApplied()
+        TerminalTimings.contentApplied(self)
     }
 
     /// Take over ("Sized for" chip): this view sets the grid, always with a new claim; under a
@@ -462,7 +468,7 @@ public final class TerminalSession {
         let fresh = TerminalSurfaceView(io: ioMode, input: input, session: self, echoStages: echoStages, hangWatch: hangWatch,
                                         secureInput: secureInput, modifiers: modifiers, pointerFrames: pointerFrames,
                                         mainWork: view.mainWork, node: view.node, gpuResidency: gpuResidency,
-                                        externalCursor: externalCursor)
+                                        externalCursor: externalCursor, lowersHiddenOutput: lowersHiddenOutput)
         swappedSurfaces += 1
         #if DEBUG || CMUX_BENCH_HOOKS
         if NewTerminalTrace.shared.isArmed { traceSurfaceSwapped(fresh) }
@@ -511,6 +517,7 @@ public final class TerminalSession {
     // MARK: From the surface view
 
     func surfaceDidGainFocus() {
+        io.streamFocusGained()
         input.focusGained()
     }
 

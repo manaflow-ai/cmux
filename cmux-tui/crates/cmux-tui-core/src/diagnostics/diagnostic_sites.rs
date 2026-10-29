@@ -1,4 +1,4 @@
-//! The daemon's diagnostic sites (p02-threads-233): each call site that
+//! The daemon's diagnostic sites: each call site that
 //! blocked where blocking is disallowed, each priority inversion, each
 //! request method that ran past the watchdog threshold and each holder-link
 //! frame or journal commit that ran past its hang tier, kept once per daemon

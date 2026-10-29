@@ -2,6 +2,7 @@ import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextPages
 import CmuxNextSettings
+import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 @testable import CmuxNextApp
@@ -72,7 +73,7 @@ private typealias PageJSON = CmuxNextSettings.JSONValue
             let url = folder.appending(path: kind == .markdown ? "a.md" : "a.txt")
             try Data("# A\n".utf8).write(to: url)
             let host = FileHost()
-            let provider = FilePageProvider(kind: kind, file: url, host: host, libraries: nil, images: NoImages())
+            let provider = FilePageProvider(kind: kind, file: url, host: host, libraries: nil, images: NoImages(), deadlines: .testing())
             defer { provider.close() }
             let page = HeldPage(namespace: kind.namespace + ".", provider: provider)
             try await page.subscribe(kind.op("look"))

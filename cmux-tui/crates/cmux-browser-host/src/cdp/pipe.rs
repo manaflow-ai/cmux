@@ -164,27 +164,35 @@ impl HeadlessChromium {
             CdpConnection::new(Box::new(PipeWire(Mutex::new(File::from(to_browser_write)))));
         let reader_connection = connection.clone();
         let reader = File::from(from_browser_read);
-        let reader_thread = std::thread::Builder::new()
-            .name("cmux-browser-host-cdp-pipe".into())
-            .spawn(move || {
-                let mut reader = BufReader::new(reader);
-                let mut buffer = Vec::new();
-                loop {
-                    buffer.clear();
-                    match reader.read_until(0, &mut buffer) {
-                        Ok(0) | Err(_) => break,
-                        Ok(_) => {
-                            if buffer.last() == Some(&0) {
-                                buffer.pop();
-                            }
-                            if let Ok(text) = std::str::from_utf8(&buffer) {
-                                reader_connection.receive(text);
+        // supervise-allow: this browser's CDP reader, ending with its pipe; a panic closes the connection as the pipe's end does, so its calls fail at once.
+        let reader_thread = cmux_threads::spawn(
+            "cmux-browser-host-cdp-pipe",
+            cmux_threads::ThreadQos::UserInitiated,
+            move || {
+                let read = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    let mut reader = BufReader::new(reader);
+                    let mut buffer = Vec::new();
+                    loop {
+                        buffer.clear();
+                        match reader.read_until(0, &mut buffer) {
+                            Ok(0) | Err(_) => break,
+                            Ok(_) => {
+                                if buffer.last() == Some(&0) {
+                                    buffer.pop();
+                                }
+                                if let Ok(text) = std::str::from_utf8(&buffer) {
+                                    reader_connection.receive(text);
+                                }
                             }
                         }
                     }
-                }
-                reader_connection.close("Chromium closed its CDP pipe");
-            });
+                }));
+                reader_connection.close(match read {
+                    Ok(()) => "Chromium closed its CDP pipe",
+                    Err(_) => "the CDP pipe reader failed",
+                });
+            },
+        );
         let mut child = child;
         if let Err(error) = reader_thread {
             kill_group(&child);

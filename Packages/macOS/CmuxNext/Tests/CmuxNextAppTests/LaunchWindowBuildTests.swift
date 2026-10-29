@@ -5,7 +5,7 @@ import CmuxNextWakeups
 import CmuxNextWakeupsTestSupport
 import Testing
 
-/// p08-startup-060: the launch window is built behind its picture slice by slice (tab strips, the focused pane, each
+/// The launch window is built behind its picture slice by slice (tab strips, the focused pane, each
 /// other visible pane, then live), one afterFirstFrame post each, so no main turn builds the whole window; the picture
 /// leaves region by region, each pane's part at that pane's own first meaningful content, all of it at the bound; no
 /// area ever shows neither the picture nor its drawn content (a blank region). Fake regions: a fake window and fake

@@ -37,8 +37,8 @@ enum DebugLayers {
     /// `debug.overlay`: per main window, how often the overlay host re-added its panel above a page
     /// window per main run loop turn (event cycle) since the last `{reset: true}` (`reorders`,
     /// `event_cycles`, `reorders_per_event`); the top level has the largest `reorders_per_event`. With
-    /// pages in the view tree (`page_surface: "views"`) nothing re-adds a page window, so it stays 0
-    /// (p01-process-223). `order_checks` counts the window notices that checked the order.
+    /// pages in the view tree (`page_surface: "views"`) nothing re-adds a page window, so it stays 0.
+    /// `order_checks` counts the window notices that checked the order.
     static func overlay(services: AppServices, params: [String: JSONValue] = [:]) -> JSONValue {
         let layers = services.windows.controllers.compactMap { ($0.window as? ShellWindow)?.overlayLayer }
         if params["reset"]?.boolValue == true { layers.forEach { $0.resetOverlayStats() } }
@@ -200,7 +200,7 @@ enum DebugLayers {
             "reorders": .number(Double(layer.reorderCount)),
             "order_checks": .number(Double(layer.orderCheckCount)),
             "page_surface": .string(layer.pageSurface == .views ? "views" : "child_windows"),
-            // p03-rendering-052: overlays in the window's own top layer, and whether a panel was ever made.
+            // Overlays in the window's own top layer, and whether a panel was ever made.
             "overlay_top_layer_in_window": .bool(WindowOverlayHost.existingHost(for: window)?.isTopLayerInWindow == true),
             "overlay_panel_made": .bool(WindowOverlayHost.existingHost(for: window)?.madePanel != nil),
             "child_window_violations": .array(ChildWindowPolicy.violations.map(JSONValue.string)),

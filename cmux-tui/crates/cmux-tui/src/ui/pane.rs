@@ -131,7 +131,7 @@ pub fn draw_all(app: &mut App, frame: &mut Frame) -> DrawCursors {
     // the entire vector on every frame. The copy also ends the borrow before
     // the drawing helpers mutate the app's render hit maps.
     for index in 0..app.pane_areas.len() {
-        let area = app.pane_areas[index];
+        let Some(&area) = app.pane_areas.get(index) else { break };
         let focused = panes_accept_focus && Some(area.pane) == active_pane;
         draw_box(app, frame, &area, focused);
         if area.bar.is_some() {
@@ -237,8 +237,12 @@ fn tab_scroll_for_active(
         return scroll;
     }
 
-    let mut range_width: u64 =
-        widths[scroll..=active_tab].iter().map(|width| u64::from(*width)).sum();
+    let mut range_width: u64 = widths
+        .iter()
+        .take(active_tab.saturating_add(1))
+        .skip(scroll)
+        .map(|width| u64::from(*width))
+        .sum();
     while scroll < active_tab {
         let left_arrow = if scroll > 0 { arrow_width } else { 0 };
         let available = inner_width
@@ -246,7 +250,8 @@ fn tab_scroll_for_active(
         if range_width <= u64::from(available) {
             break;
         }
-        range_width -= u64::from(widths[scroll]);
+        let Some(&width) = widths.get(scroll) else { break };
+        range_width = range_width.saturating_sub(u64::from(width));
         scroll += 1;
     }
     scroll
@@ -403,8 +408,9 @@ fn draw_tab_bar(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
         x += arrow_w;
     }
     let mut overflow = false;
-    for (i, label) in labels.iter().enumerate().skip(scroll) {
-        let w = widths[i];
+    for (i, ((label, &w), tab)) in
+        labels.iter().zip(&widths).zip(&pane.tabs).enumerate().skip(scroll)
+    {
         // Reserve room for the + button and a possible right arrow.
         if x + w + plus_w + arrow_w > max_x {
             overflow = true;
@@ -412,16 +418,14 @@ fn draw_tab_bar(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
         }
         let is_active = i == active_tab;
         let mut style = if is_active { active_style } else { base };
-        if let Some(notification) =
-            pane.tabs[i].notification.filter(|notification| notification.unread)
-        {
+        if let Some(notification) = tab.notification.filter(|notification| notification.unread) {
             style = style.fg(notification_color(&theme, notification));
         } else if let Some(color) =
-            pane.tabs[i].program_status.and_then(|status| program_status_color(&theme, status))
+            tab.program_status.and_then(|status| program_status_color(&theme, status))
         {
             style = style.fg(color);
         }
-        if tab_drag.is_some_and(|drag| pane.tabs[i].surface == drag.surface) {
+        if tab_drag.is_some_and(|drag| tab.surface == drag.surface) {
             style = style.add_modifier(Modifier::DIM);
         }
         if let Some((cap_left, cap_right)) = chip_caps {
@@ -516,10 +520,13 @@ fn draw_content(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
     let selection_offset = selection.map(|_| app.surface_scroll_offset(area.surface)).unwrap_or(0);
     let theme = app.config.theme;
 
-    let rs = app
-        .render_states
-        .entry(area.surface)
-        .or_insert_with(|| RenderState::new().expect("render state alloc"));
+    let rs = match app.render_states.entry(area.surface) {
+        std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
+        std::collections::hash_map::Entry::Vacant(entry) => match RenderState::new() {
+            Ok(state) => entry.insert(state),
+            Err(_) => return DrawCursors::default(),
+        },
+    };
     let Ok(render) = surface.render_frame(rs) else {
         return DrawCursors::default();
     };

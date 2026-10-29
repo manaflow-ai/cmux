@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 /// The per-launch provider secret. Never printed: descriptions are redacted.
@@ -6,6 +7,26 @@ public nonisolated struct ProviderSecret: Hashable, Sendable, CustomStringConver
     public init(_ value: String) { self.value = value }
     public var description: String { "ProviderSecret(<redacted>)" }
     public var debugDescription: String { description }
+
+    /// What the relay credential signs: `RELAY_CREDENTIAL_CONTEXT` in cmux-browser-host provider.rs.
+    static let relayCredentialContext = Data("cmux-chromium-host-relay-v1".utf8)
+
+    /// The credential of the Chromium Host's relay link: HMAC-SHA256 of
+    /// ``relayCredentialContext`` keyed by this secret's UTF-8 bytes, as 64 lowercase hex digits
+    /// (`ProviderSecret::relay_credential` in provider.rs). It opens a relay link and no provider, so the
+    /// app hands it, never the secret, to its Chromium Host.
+    public var relayCredential: ProviderSecret {
+        let key = SymmetricKey(data: Data(value.utf8))
+        let code = HMAC<SHA256>.authenticationCode(for: Self.relayCredentialContext, using: key)
+        let digits = Array("0123456789abcdef")
+        var hex = ""
+        hex.reserveCapacity(64)
+        for byte in code {
+            hex.append(digits[Int(byte >> 4)])
+            hex.append(digits[Int(byte & 0x0f)])
+        }
+        return ProviderSecret(hex)
+    }
 }
 
 /// A tab the app renders (`TabAnnounce` in cmux-browser-host provider.rs).

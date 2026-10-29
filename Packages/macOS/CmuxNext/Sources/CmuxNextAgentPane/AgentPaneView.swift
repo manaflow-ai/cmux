@@ -58,7 +58,7 @@ public final class AgentPaneView: NSView {
     /// The app's made-ahead open panel (Add Files, Attach); nil: no file picker (tests).
     private let openPanel: MadeAheadOpenPanel?
     /// The page view the page host opened, in whichever engine shows the chat (the app's page
-    /// lifecycle drives it, p13-webui-038): the pane reaches the page only through its engine-neutral
+    /// lifecycle drives it): the pane reaches the page only through its engine-neutral
     /// calls (``PageWebView/webKitEngine`` for the WebKit-only tools). The provider answers its calls
     /// and carries the host's pushes.
     public let page: PageWebView
@@ -161,7 +161,8 @@ public final class AgentPaneView: NSView {
         // Needs you reads the pane's own acpmux (a Chief chat's is the Chief home's), never another.
         provider.pendingAsksSocket = { [weak model] in model?.pendingAsksSocket }
         guard let page = AgentPanePageHost.makePage(root: source.directory, provider: provider, renderRate: renderRate, webUI: webUI,
-                                                    chatOpen: model.chatOpen, chromiumChat: chromiumChat, origin: model.pageOrigin)
+                                                    chatOpen: model.chatOpen, chromiumChat: chromiumChat, origin: model.pageOrigin,
+                                                    work: work)
         else { return nil }
         self.page = page
         pageEvents = provider
@@ -174,7 +175,7 @@ public final class AgentPaneView: NSView {
             }
         })
         super.init(frame: .zero)
-        // The page holds its `dictation` keep reason while a session runs (p13-webui-032).
+        // The page holds its `dictation` keep reason while a session runs.
         let keep = page.keepReasons
         dictation.onRunning = { running in keep.dictation(running) }
         pageEvents.onUiPointerReport = { [weak self] value in self?.uiPointerReport?(value) }

@@ -1,7 +1,7 @@
 public import CmuxNextActions
 public import CmuxNextWakeups
 
-/// The App's command palette, built at its first use (p08-startup-023), as Chrome makes a keyed service
+/// The App's command palette, built at its first use, as Chrome makes a keyed service
 /// at its first `GetForProfile` (components/keyed_service/core/keyed_service_factory.cc) and posts the
 /// rest of its launch work after startup (chrome/browser/after_startup_task_utils.cc).
 ///

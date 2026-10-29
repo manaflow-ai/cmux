@@ -9,7 +9,7 @@ import WebKit
 /// (plans/cmux-next/chrome-parity/p13-webui.md 3.C, "Discarded"). The view itself is the shell: it
 /// keeps the descriptor, the route and the router; only the document and its engine page go.
 struct PageDiscardShell {
-    /// The picture the page's hide kept (``PageHideState``, p13-webui-088), decoded off the main
+    /// The picture the page's hide kept (``PageHideState``), decoded off the main
     /// thread after the discard so the restore draws it in the show's turn; nil until the decode
     /// lands, or when the hide kept none. The restore draws it until the new document paints.
     var snapshot: CGImage?

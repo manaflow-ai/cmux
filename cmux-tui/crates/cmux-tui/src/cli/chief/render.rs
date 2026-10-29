@@ -105,18 +105,7 @@ pub(super) fn wrap(text: &str, width: usize) -> Vec<String> {
 }
 
 fn split_keep_spaces(line: &str) -> Vec<&str> {
-    let mut pieces = Vec::new();
-    let mut start = 0;
-    for (index, c) in line.char_indices() {
-        if c == ' ' {
-            pieces.push(&line[start..index + 1]);
-            start = index + 1;
-        }
-    }
-    if start < line.len() {
-        pieces.push(&line[start..]);
-    }
-    pieces
+    line.split_inclusive(' ').collect()
 }
 
 /// The glyph of a reaction kind: a tapback's symbol, or the emoji itself.

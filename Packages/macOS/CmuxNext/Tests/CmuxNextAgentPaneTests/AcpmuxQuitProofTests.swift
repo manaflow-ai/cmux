@@ -2,12 +2,15 @@ import Darwin
 import Foundation
 import Testing
 @testable import CmuxNextAgentPane
+import CmuxNextWakeups
 
 /// Quit Everything decides from acpmux's locks once the socket is gone or
 /// refuses. A daemon the quit census saw and that is now gone, with no agent
 /// host left, ended; a socket file nobody answers on with daemon.lock free
 /// is no daemon. Neither is a failure, on the first attempt or on a Retry.
 struct AcpmuxQuitProofTests {
+    static let work = BackgroundWork(label: "test.quit-proof")
+
     /// A short acpmux home (a socket path must fit in `sun_path`).
     private struct Home {
         let url: URL
@@ -69,44 +72,44 @@ struct AcpmuxQuitProofTests {
         try home.leaveStaleSocket()
 
         // The quit dialog's census (and the updater's once-a-second census) sees the socket file.
-        _ = await AcpmuxQuit.census(home.environment)
+        _ = await AcpmuxQuit.census(home.environment, runner: Self.work)
 
-        #expect(await AcpmuxQuit.endAgents(home.environment) == .noDaemon)
-        _ = await AcpmuxQuit.census(home.environment)
-        #expect(await AcpmuxQuit.endAgents(home.environment, waitForShutdown: true, within: .seconds(1)) == .noDaemon)
-        #expect(await AcpmuxQuit.endAgents(home.environment, waitForShutdown: true, within: .seconds(1)) == .noDaemon)
+        #expect(await AcpmuxQuit.endAgents(home.environment, runner: Self.work) == .noDaemon)
+        _ = await AcpmuxQuit.census(home.environment, runner: Self.work)
+        #expect(await AcpmuxQuit.endAgents(home.environment, runner: Self.work, waitForShutdown: true, within: .seconds(1)) == .noDaemon)
+        #expect(await AcpmuxQuit.endAgents(home.environment, runner: Self.work, waitForShutdown: true, within: .seconds(1)) == .noDaemon)
     }
 
     @Test func aDaemonThatExitedAfterTheCensusEnded() async throws {
         let home = try Home()
         defer { home.remove() }
         try home.leaveStaleSocket()
-        _ = await AcpmuxQuit.census(home.environment)
+        _ = await AcpmuxQuit.census(home.environment, runner: Self.work)
 
         // It shut down cleanly before Quit Everything: socket removed, daemon.lock free, no host.
         try FileManager.default.removeItem(atPath: home.socket)
 
-        #expect(await AcpmuxQuit.endAgents(home.environment) == .ended)
+        #expect(await AcpmuxQuit.endAgents(home.environment, runner: Self.work) == .ended)
         // The census sighting is spent: a later attempt with nothing seen is no daemon.
-        #expect(await AcpmuxQuit.endAgents(home.environment, waitForShutdown: true, within: .seconds(1)) == .noDaemon)
+        #expect(await AcpmuxQuit.endAgents(home.environment, runner: Self.work, waitForShutdown: true, within: .seconds(1)) == .noDaemon)
     }
 
     @Test func aCensusedDaemonStillHoldingItsLockIsAShutdownInProgress() async throws {
         let home = try Home()
         defer { home.remove() }
         try home.leaveStaleSocket()
-        _ = await AcpmuxQuit.census(home.environment)
+        _ = await AcpmuxQuit.census(home.environment, runner: Self.work)
         let lock = try home.holdDaemonLock()
         defer { close(lock) }
         try FileManager.default.removeItem(atPath: home.socket)
 
-        #expect(await AcpmuxQuit.endAgents(home.environment) == .shutdownInProgress(pid: nil))
+        #expect(await AcpmuxQuit.endAgents(home.environment, runner: Self.work) == .shutdownInProgress(pid: nil))
     }
 
     @Test func anUncensusedMissingSocketRemainsNoDaemon() async throws {
         let home = try Home()
         defer { home.remove() }
 
-        #expect(await AcpmuxQuit.endAgents(home.environment) == .noDaemon)
+        #expect(await AcpmuxQuit.endAgents(home.environment, runner: Self.work) == .noDaemon)
     }
 }

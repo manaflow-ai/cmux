@@ -253,7 +253,7 @@ fn resize_stream_serialization_reserves_budget_before_queueing() {
         pending_sequence: Arc::from([]),
     };
 
-    let encoded = writer.encode_attach_frame(7, &frame, AttachWireShape::default(), &stream);
+    let encoded = writer.encode_attach_frame(7, &frame, AttachWireShape::default(), None, &stream);
     let error = writer.send_encoded_backpressured(encoded, &stream).unwrap_err();
 
     assert_eq!(error.kind(), std::io::ErrorKind::WouldBlock);
@@ -284,7 +284,7 @@ fn server_stats_report_lock_writer_and_connection_metrics() {
     let identity = handle_command(
         &mux,
         mux.local_test_client(0),
-        Command::Identify { machine_metadata: false, revisions: false },
+        Command::Identify(Default::default()),
         &test_writer(),
     )
     .unwrap();
@@ -585,7 +585,7 @@ fn blocking_wait_cannot_overtake_input_queued_behind_a_clear_barrier() {
             }),
         ),
     ] {
-        state.requests.push_back(PendingSurfaceRequest {
+        state.requests.push_back(SequencedItem::Request(PendingSurfaceRequest {
             request: Request { id: Some(json!(id)), cmd },
             arrival: RequestArrival::now(),
             cause: crate::event_cause::EventCause::Program,
@@ -593,7 +593,7 @@ fn blocking_wait_cannot_overtake_input_queued_behind_a_clear_barrier() {
             retained_bytes: 0,
             _bytes_permit: admission.try_reserve_bytes(0).unwrap(),
             stream_barrier: None,
-        });
+        }));
     }
 
     assert_eq!(
@@ -627,7 +627,7 @@ fn guarded_browser_pointer_input_overtakes_an_unrelated_clear_barrier() {
         let admission = Arc::new(ServerSurfaceOperationAdmission::default());
         let mut state = ConnectionSurfaceState::default();
         state.active_clear_surfaces.insert(1);
-        state.requests.push_back(PendingSurfaceRequest {
+        state.requests.push_back(SequencedItem::Request(PendingSurfaceRequest {
             request: Request { id: Some(json!(1)), cmd },
             arrival: RequestArrival::now(),
             cause: crate::event_cause::EventCause::Program,
@@ -635,7 +635,7 @@ fn guarded_browser_pointer_input_overtakes_an_unrelated_clear_barrier() {
             retained_bytes: 0,
             _bytes_permit: admission.try_reserve_bytes(0).unwrap(),
             stream_barrier: None,
-        });
+        }));
 
         assert_eq!(
             ConnectionSurfaceScheduler::next_runnable_index(&state),

@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextDesign
 import CmuxNextPages
 import CmuxNextSettings
+import CmuxNextWakeups
 
 /// The code editor page's actions (diff-host S7; the markdown page's are PageCommandHandlers').
 /// Each sends its page command (``EditorPageCommand/forAction``) to the focused editor page; the
@@ -27,11 +28,12 @@ enum FilePageHandlers {
         // R96: a recovered draft of a local file opens as an unsaved edit (the launch notice's Open),
         // in the page of its file type (D11): a markdown file in the markdown page, others in the
         // code editor page. The page compares the file with the draft's base itself.
+        let work = services.work
         services.recoveryDrafts.restoreHandler = { [weak services] draft in
             // task-owner: one restore per launch notice Open; it ends when the tab opens
             // main-hop-allow: the person's Open on the launch notice, userBlocking (p06 rule 2): it awaits the draft read, then opens the tab on main; post has no userBlocking class (task 208)
             Task { @MainActor in
-                guard let restore = await FilePageRecovery.restore(draft), let services,
+                guard let restore = await FilePageRecovery.restore(draft, on: work), let services,
                       let pane = services.windows.active?.focusedPane else { return }
                 let pages = FilePageOpener.kind(for: restore.url) == .markdown
                     ? services.viewers.markdownPages : services.viewers.editorPages

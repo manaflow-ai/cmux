@@ -341,8 +341,19 @@ the size is raised with that number as its reason.
 
 - Old app, new daemon: no capability, today's per-view connections and JSON.
 - New app, old daemon: the daemon does not advertise the capabilities; the app uses per-view connections.
-- One release keeps the per-view path in the app behind `CMUX_NEXT_TERMINAL_STREAMS=0` (default on), then
-  slice 4 deletes it. The daemon keeps JSON/base64 output for the other clients (iOS `CmuxMobileSSH`,
+- Terminal streams are the default in Dev and Nightly: the app feature `terminalStreams` (schemas/features/features.d)
+  is on there (p05-ipc-094, feature-switch-policy.md); Release stays off until the B1 benches below pass on an
+  optimized build and Nightly has run it for 7 days (feature-switch-policy.md rule 5). It applies on local connections and, once p05-ipc-151 lands, bridged ones. For
+  one release `CMUX_DISABLE_FEATURES=terminalStreams` (or managed policy `DisabledFeatures`) keeps the per-view
+  path, then slice 4 deletes it.
+- The default stays on only while B1 holds on a fleet Mac, with host, sha, macOS and display Hz recorded with
+  the numbers: under bulk interference ping p99 < 2 ms, flood echo p95 <= the single-terminal echo p95 + 0.5 ms,
+  and a 5 MB decode stalls the main thread < 1 ms. Measure with
+  `python3 scripts/cmux-next/bench-typing.py --tag <tag> --flood 10 --stress` and
+  `python3 cmux-tui/scripts/bench-daemon-latency.py --bulk-interference`. A miss turns the Release default
+  off again, as Chrome keeps a feature's `FEATURE_ENABLED_BY_DEFAULT` only while its rollout metrics hold
+  (base/feature_list.h).
+- The daemon keeps JSON/base64 output for the other clients (iOS `CmuxMobileSSH`,
   `cmux-next-ios` CmuxMobileLive, the cmux-tui TUI, the Rust and TypeScript SDKs, chatmux-relay) until each
   negotiates frames; nothing changes for them.
 

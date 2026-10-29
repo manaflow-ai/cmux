@@ -66,8 +66,7 @@ pub fn is_http_origin(text: &str) -> bool {
 /// The RFC 3986 scheme of `text`, as `URL(string:)` finds it: a letter, then
 /// letters, digits, `+`, `-` or `.`, then `:`.
 fn scheme(text: &str) -> Option<&str> {
-    let colon = text.find(':')?;
-    let candidate = &text[..colon];
+    let (candidate, _) = text.split_once(':')?;
     let mut chars = candidate.chars();
     let first = chars.next()?;
     let valid = first.is_ascii_alphabetic()

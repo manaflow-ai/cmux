@@ -273,8 +273,10 @@ impl Turn {
                 if !self.taken && !self.went_busy {
                     return Vec::new();
                 }
-                if self.streaming.as_deref() == Some(kind) && text.starts_with(&self.streamed) {
-                    let more = text[self.streamed.len()..].to_owned();
+                if self.streaming.as_deref() == Some(kind)
+                    && let Some(more) = text.strip_prefix(self.streamed.as_str())
+                {
+                    let more = more.to_owned();
                     self.streamed = text.to_owned();
                     return if more.is_empty() { Vec::new() } else { self.out(kind, more, false) };
                 }
@@ -293,8 +295,10 @@ impl Turn {
                         } else {
                             String::new()
                         };
-                        if !was.is_empty() && text.starts_with(&was) {
-                            let more = text[was.len()..].to_owned();
+                        if let Some(more) =
+                            text.strip_prefix(was.as_str()).filter(|_| !was.is_empty())
+                        {
+                            let more = more.to_owned();
                             if more.is_empty() { Vec::new() } else { self.out(kind, more, false) }
                         } else if was.is_empty() {
                             self.out(kind, text.to_owned(), true)
@@ -485,13 +489,18 @@ async fn handle(msg: Value, ctx: &Arc<(Options, Endpoint)>, state: &Arc<Mutex<St
                 s.running.insert(sid.clone(), cancel_tx);
             }
             let (ctx, state, tx) = (ctx.clone(), state.clone(), tx.clone());
-            tokio::spawn(async move {
+            let (failed_tx, failed_id) = (tx.clone(), id.clone());
+            let prompt = async move {
                 let outcome = run_prompt(&ctx.0, &ctx.1, &sid, &blocks, cancel_rx, &tx).await;
                 state.lock().await.running.remove(&sid);
                 match outcome {
                     Ok(stop) => reply(&tx, &id, json!({"stopReason": stop})),
                     Err((code, e)) => error(&tx, &id, code, e),
                 }
+            };
+            // A panic ends this prompt with an internal error, not the agent.
+            crate::supervised::spawn_request(prompt, async move {
+                error(&failed_tx, &failed_id, -32603, "the prompt failed".to_owned());
             });
         }
         ("session/cancel", _) => {

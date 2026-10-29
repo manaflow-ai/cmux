@@ -1,5 +1,7 @@
 public import CmuxNextActions
-public import CmuxNextDesign
+public import CmuxNextAppearance
+import CmuxNextCompat
+public import CmuxNextDesignTokens
 public import CmuxNextWakeups
 import class CmuxSafeConcurrency.OnceContinuation
 import enum CmuxSafeConcurrency.OnceContinuationError
@@ -121,7 +123,7 @@ public final class SettingsController {
 
     /// Applies the launch's read as the first load, on the calling thread, with no file call and no
     /// watch, so the first window draws in the file's appearance while ``start(announcingDiagnostics:)``
-    /// waits until after the first frame (p08-startup-079; Chrome applies the profile's read
+    /// waits until after the first frame (Chrome applies the profile's read
     /// preferences before the first window and arms the file watchers later). Nothing without a
     /// launch read or after the first load.
     public func adoptLaunchRead() {
@@ -327,12 +329,12 @@ public final class SettingsController {
                           densities: valid.densities, metrics: valid.metrics)
     }
 
-    /// The managed layers and the file's text, parsed and merged: the off-main half of a load.
+    /// The managed layers and the file's text, parsed and merged: the off-main half of a load. The reads block the
+    /// config file's queue (one turn of ``CmuxConfigFile``'s executor), never a pool thread; the parse and
+    /// validation run off the main actor.
     @concurrent nonisolated static func read(_ inputs: ReadInputs) async -> Loaded {
-        let managed = inputs.reader.read()
-        let source: Result<String, any Error>
-        do { source = .success(try await inputs.file.source()) } catch { source = .failure(error) }
-        return loaded(source, managed: managed, team: inputs.team, lastGood: inputs.lastGood,
+        let read = await inputs.file.sourceAndManaged(inputs.reader)
+        return loaded(read.source, managed: read.managed, team: inputs.team, lastGood: inputs.lastGood,
                       valid: (inputs.densities, inputs.metrics), configDirectory: inputs.file.url.deletingLastPathComponent())
     }
 

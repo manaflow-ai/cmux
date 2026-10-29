@@ -5,7 +5,7 @@ import CmuxNextWakeups
 import Testing
 
 /// The production pending-input seam hears AppKit's dispatched events through the app's input tap
-/// (``InputObserving``, p04-input-012), with the same event types and scroll phases the local
+/// (``InputObserving``), with the same event types and scroll phases the local
 /// monitor it replaced reported.
 @MainActor @Suite struct WindowServerInputEventsTests {
     @Test func observesTheTapOnceForKeysButtonsMovesDragsAndScrolls() {

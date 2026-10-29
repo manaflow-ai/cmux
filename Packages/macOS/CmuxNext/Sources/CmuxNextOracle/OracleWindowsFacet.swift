@@ -1,5 +1,5 @@
 #if DEBUG || CMUX_BENCH_HOOKS
-/// The `windows` facet (p15-oracle-041, schemas/oracle/snapshot-v1.schema.json `facets.windows`): the app's
+/// The `windows` facet (schemas/oracle/snapshot-v1.schema.json `facets.windows`): the app's
 /// windows front to back, the key and main window, and each window's full-screen, miniaturized and visible
 /// state, its screen and its frame as fractions of that screen at 2 dp. Fractions, never points, so the same
 /// case gives the same value on a laptop and on a fleet mini's display.

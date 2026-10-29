@@ -37,17 +37,17 @@
   "daemon": {
    "id": 1,
    "description": "Daemon identity, liveness, configuration and machine state.",
-   "next_ordinal": 21
+   "next_ordinal": 22
   },
   "clients": {
    "id": 2,
    "description": "Connected clients and their focus.",
-   "next_ordinal": 6
+   "next_ordinal": 7
   },
   "terminal-io": {
    "id": 3,
    "description": "Terminal input, output streams, screen reads and terminal requests to the frontend.",
-   "next_ordinal": 27
+   "next_ordinal": 28
   },
   "terminals": {
    "id": 4,
@@ -2362,6 +2362,115 @@
      "nullable": false,
      "default": [],
      "since": 12
+    },
+    "startup_marks": {
+     "type": {
+      "kind": "ref",
+      "name": "DaemonStartupMarks"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12,
+     "capability": "startup-marks-v1",
+     "constraints": [
+      "The serving daemon's startup timeline: each step's first time, measured from its main; null when no daemon serves the mux. Only with identify {startup_marks: true}."
+     ]
+    }
+   },
+   "additional_properties": false
+  },
+  "DaemonStartupMarks": {
+   "kind": "object",
+   "fields": {
+    "main_start_unix_us": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false,
+     "description": "Unix microseconds (wall clock) when the daemon binary's main began: the origin of every step below."
+    },
+    "config_loaded": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "description": "Microseconds after main_start_unix_us (monotonic clock) at which this step was first reached; absent until reached. The startup configuration was read."
+    },
+    "owner_prepared": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "description": "Microseconds after main_start_unix_us (monotonic clock) at which this step was first reached; absent until reached. The owner's process setup ran."
+    },
+    "socket_bound": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "description": "Microseconds after main_start_unix_us (monotonic clock) at which this step was first reached; absent until reached. The session socket is bound and answers as a restoring owner."
+    },
+    "mux_restored": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "description": "Microseconds after main_start_unix_us (monotonic clock) at which this step was first reached; absent until reached. The registry is open and its terminals adopted."
+    },
+    "owner_event_loop": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "description": "Microseconds after main_start_unix_us (monotonic clock) at which this step was first reached; absent until reached. The local owner's event loop runs."
+    },
+    "websocket_ready": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "description": "Microseconds after main_start_unix_us (monotonic clock) at which this step was first reached; absent until reached. The WebSocket control listener step is done (bound, or none asked)."
+    },
+    "launch_snapshot_writer_started": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "description": "Microseconds after main_start_unix_us (monotonic clock) at which this step was first reached; absent until reached. The launch snapshot writer step is done."
+    },
+    "lifecycle_ready": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "description": "Microseconds after main_start_unix_us (monotonic clock) at which this step was first reached; absent until reached. Every owner the lifecycle commands need is installed."
+    },
+    "first_identify_served": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "description": "Microseconds after main_start_unix_us (monotonic clock) at which this step was first reached; absent until reached. The first identify answered once the lifecycle is ready, so it is the last step."
     }
    },
    "additional_properties": false
@@ -12942,6 +13051,26 @@
    },
    "additional_properties": false
   },
+  "BridgeHelloResult": {
+   "kind": "object",
+   "fields": {
+    "features": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "scalar",
+       "name": "string"
+      }
+     },
+     "presence": "required",
+     "nullable": false,
+     "constraints": [
+      "The features the daemon took: bridge-frames-v1 when the connection may get frames."
+     ]
+    }
+   },
+   "additional_properties": false
+  },
   "ClientHelloResult": {
    "kind": "object",
    "fields": {
@@ -13320,6 +13449,31 @@
     }
    },
    "additional_properties": false
+  },
+  "SetStreamPriorityResult": {
+   "kind": "object",
+   "fields": {
+    "stream": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint16"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "outcome": {
+     "type": {
+      "kind": "enum",
+      "values": [
+       "applied",
+       "ended"
+      ]
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
   }
  },
  "commands": {
@@ -13394,6 +13548,19 @@
       "since": 12,
       "constraints": [
        "Adds api_revision, min_api_revision, crate_version, install, update_command and bulk_frame_max to the reply. Off by default so strict older SDK decoders keep reading the reply."
+      ]
+     },
+     "startup_marks": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "startup-marks-v1",
+      "constraints": [
+       "Adds startup_marks to the reply. Off by default so strict older SDK decoders keep reading the reply."
       ]
      }
     },
@@ -21083,6 +21250,58 @@
     "sdk"
    ]
   },
+  "set-stream-priority": {
+   "authority": "frontend",
+   "since": 12,
+   "capability": "attach-streams-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "stream": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint16"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "priority": {
+      "type": {
+       "kind": "enum",
+       "values": [
+        "focused",
+        "visible",
+        "hidden"
+       ]
+      },
+      "presence": "required",
+      "nullable": false,
+      "constraints": [
+       "focused: the stream's items ride the input lane and its view drains at input priority.",
+       "visible: the bulk lane, and its view drains at utility priority.",
+       "hidden: a snapshot view gets no output; the terminal still parses it, and the view gets one READY snapshot when it shows again if anything changed meanwhile. Any other view rides the background lane at background priority."
+      ]
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "SetStreamPriorityResult"
+   },
+   "stream": null,
+   "constraints": [
+    "Sets the priority of one attach stream of this connection (stream visibility, p05-ipc-142); a stream never set keeps the bulk lane and input priority it opened with.",
+    "Idempotent: an id with no open stream answers outcome:ended and changes nothing."
+   ],
+   "method_id": 795,
+   "priority": "input",
+   "durability": "memory",
+   "clients": [
+    "macos",
+    "sdk"
+   ]
+  },
   "register-browser-provider": {
    "authority": "local-admin",
    "since": 10,
@@ -21754,6 +21973,31 @@
    ],
    "method_id": 272,
    "priority": "control",
+   "durability": "read_only",
+   "clients": [
+    "sdk"
+   ]
+  },
+  "memory-report": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": null,
+   "request": {
+    "kind": "object",
+    "fields": {},
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "opaque_json",
+    "reason": "A diagnostic report whose per-terminal rows follow libghostty-vt's memory usage struct and whose consumer rows follow the daemon's memory registry; see spec/commands.md memory-report."
+   },
+   "stream": null,
+   "constraints": [
+    "Owner-only (trusted local connection); a WebSocket or remote relay client is refused before anything is read.",
+    "Read only, never journaled; names no title, path, URL or command."
+   ],
+   "method_id": 277,
+   "priority": "background",
    "durability": "read_only",
    "clients": [
     "sdk"
@@ -36119,6 +36363,47 @@
    "method_id": 5125,
    "priority": "control",
    "durability": "read_only",
+   "clients": [
+    "sdk"
+   ]
+  },
+  "bridge-hello": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "bridge-hello-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "features": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "scalar",
+        "name": "string"
+       }
+      },
+      "presence": "required",
+      "nullable": false,
+      "constraints": [
+       "At most 16 names of at most 128 characters (bridge_hello.bad_request {field: features} otherwise). bridge-frames-v1: the bridge reads each 0xFF message by its frame header; unknown names are ignored."
+      ]
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "BridgeHelloResult"
+   },
+   "stream": null,
+   "constraints": [
+    "A byte bridge's first line only (bridge_hello.window_closed otherwise); the far client's client-hello window stays open behind it.",
+    "Local (Unix) connections only (bridge_hello.local_only).",
+    "With bridge-frames-v1, a connection whose kernel peer is of the daemon's user and has no role may be granted ipc-frames-v2 and attach-frames-v1, never terminal-output-ring-v1."
+   ],
+   "method_id": 518,
+   "priority": "control",
+   "durability": "memory",
    "clients": [
     "sdk"
    ]

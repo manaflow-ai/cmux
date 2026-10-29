@@ -53,6 +53,9 @@ public struct TerminalSurfaceDiagnostics: Sendable, Equatable {
     public var lastFrameHolds: Int = 0
     /// A held frame (a last frame, or the old surface's after a swap) is on screen now.
     public var holdingFrame: Bool = false
+    /// The last unpause and the layer's first frame after it (``TerminalShowRecord``); nil in Release
+    /// builds and before the first unpause.
+    public var showTiming: TerminalShowTiming?
 
     /// True when the surface can show terminal content right now.
     public var isPresentable: Bool {
@@ -127,7 +130,8 @@ extension TerminalSession {
                               width: rect.width / frame.width, height: rect.height / frame.height)
             },
             lastFrameHolds: lastFrameHolds,
-            holdingFrame: frameHold.isHolding
+            holdingFrame: frameHold.isHolding,
+            showTiming: surface.showTiming
         )
     }
 }
@@ -161,7 +165,7 @@ public struct TerminalRenderCounters: Sendable, Equatable {
     public var hostFreshPresents: UInt64 = 0
     public var hostLatePresents: UInt64 = 0
     /// Presents whose frame was older than one the renderer had committed to show: nothing changed
-    /// (Ghostty's frame sequence, p03-rendering-084; 0 with a pin before it).
+    /// (Ghostty's frame sequence; 0 with a pin before it).
     public var hostSupersededPresents: UInt64 = 0
 
     /// Every counter by its `debug.surfaces` name.

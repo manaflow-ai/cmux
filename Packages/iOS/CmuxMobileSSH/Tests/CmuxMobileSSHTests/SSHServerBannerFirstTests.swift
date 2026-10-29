@@ -64,30 +64,40 @@ private final class BannerFirstServer: @unchecked Sendable {
         self.listener = listener
         var address = sockaddr_in()
         address.sin_family = sa_family_t(AF_INET)
-        address.sin_addr.s_addr = inet_addr("127.0.0.1")
+        // SAFETY: inet_addr reads the NUL-terminated copy of the literal made for this call.
+        address.sin_addr.s_addr = unsafe inet_addr("127.0.0.1")
         address.sin_port = 0
         var length = socklen_t(MemoryLayout<sockaddr_in>.size)
-        let bound = withUnsafePointer(to: &address) {
-            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(listener, $0, length) }
+        // SAFETY: bind reads `length` (sizeof(sockaddr_in)) bytes from `address`, a sockaddr_in
+        // local; the sockaddr view is the socket API's cast, used only for the call.
+        let bound = unsafe withUnsafePointer(to: &address) {
+            unsafe $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { unsafe bind(listener, $0, length) }
         }
         guard bound == 0, listen(listener, 4) == 0 else { throw POSIXError(.EADDRINUSE) }
-        _ = withUnsafeMutablePointer(to: &address) {
-            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { getsockname(listener, $0, &length) }
+        // SAFETY: getsockname writes at most `length` bytes into `address` and updates `length`.
+        _ = unsafe withUnsafeMutablePointer(to: &address) {
+            unsafe $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { unsafe getsockname(listener, $0, &length) }
         }
         port = Int(UInt16(bigEndian: address.sin_port))
         let signal = sawKeyExchange
         Thread.detachNewThread {
-            let client = accept(listener, nil, nil)
+            // SAFETY: nil address and length ask accept for no peer address; nothing is written.
+            let client = unsafe accept(listener, nil, nil)
             guard client >= 0 else { return }
             defer { close(client) }
             let banner = Array("SSH-2.0-BannerFirst_1.0\r\n".utf8)
-            _ = banner.withUnsafeBytes { write(client, $0.baseAddress, $0.count) }
+            // SAFETY: write reads banner.count bytes, the count passed, from `banner`.
+            _ = unsafe write(client, banner, banner.count)
             var timeout = timeval(tv_sec: 5, tv_usec: 0)
-            setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
+            // SAFETY: setsockopt reads sizeof(timeval) bytes, the length passed, from `timeout`.
+            unsafe setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
             var received: [UInt8] = []
-            var buffer = [UInt8](repeating: 0, count: 4096)
+            let capacity = 4096
+            var buffer = [UInt8](repeating: 0, count: capacity)
             while true {
-                let count = read(client, &buffer, buffer.count)
+                // SAFETY: read writes at most `capacity` bytes, the size passed, into `buffer`,
+                // which holds that many.
+                let count = unsafe read(client, &buffer, capacity)
                 guard count > 0 else { return }
                 received += buffer[0..<count]
                 if let newline = received.firstIndex(of: 0x0A), received.count > newline + 1 {

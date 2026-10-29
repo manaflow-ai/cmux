@@ -1,5 +1,5 @@
 import AppKit
-import CmuxNextCompat
+import CmuxNextCompatAppKit
 import GhosttyNextKit
 
 // Surface-targeted Ghostty actions (`action_cb`) applied to the session

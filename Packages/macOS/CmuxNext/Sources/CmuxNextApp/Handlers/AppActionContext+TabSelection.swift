@@ -13,7 +13,7 @@ extension AppActionContext {
         if let list = invocation["tabs"]?.stringValue {
             var found: [(TabModel, PaneModel)] = []
             for id in list.split(separator: ",").map({ $0.trimmingCharacters(in: .whitespaces) }) where !id.isEmpty {
-                // view-observation-allow: one MachineTabIndex lookup (p06-scheduler-051) per listed id
+                // view-observation-allow: one MachineTabIndex lookup per listed id
                 guard let hit = services.locateTab(id) ?? notFound(RefusalStrings.noTab(id)) else { return nil }
                 found.append(hit)
             }

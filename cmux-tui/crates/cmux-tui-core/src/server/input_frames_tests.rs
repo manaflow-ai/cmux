@@ -1,4 +1,4 @@
-//! INPUT frames over a real socket pair (p05-ipc-078), on streams a real
+//! INPUT frames over a real socket pair, on streams a real
 //! `attach-surface {stream}` opened: the bytes reach the terminal in order
 //! on their stream's sequence under the connection's cause, nothing answers
 //! them and nothing parses them; an ended terminal gives one `input-failed`

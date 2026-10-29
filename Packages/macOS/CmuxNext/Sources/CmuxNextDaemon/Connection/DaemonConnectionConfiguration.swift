@@ -72,10 +72,10 @@ public struct DaemonConnectionConfiguration: Sendable {
     /// `daemon.line` scope, never its `read(2)` wait). The App's composition root sets it to its
     /// ``HangWatch``; nil (the default) watches nothing.
     public var hangWatch: (any HangWatchScoping)?
-    /// Terminal views attach as client-minted streams on this connection (`attach-streams-v1`, p05-ipc-095)
-    /// instead of a connection each: the `terminalStreams` feature, off by default. The connection echoes the
-    /// grant and, with `sizingDevice`, joins shared sizing as that device; a daemon that does not offer the
-    /// grant keeps every view on a connection of its own (``TerminalAttachment/attach(on:target:size:claimGeometry:snapshotVersion:localHistory:images:clientName:device:hangs:createIntent:inputQueue:)``).
+    /// Terminal views attach as client-minted streams on this connection (`attach-streams-v1`)
+    /// instead of a connection each: the `terminalStreams` feature, on by default in DEV and NIGHTLY.
+    /// The connection echoes the grant and, with `sizingDevice`, joins shared sizing as that device; a daemon that does not offer the
+    /// grant keeps every view on a connection of its own (``TerminalAttachment/attach(on:target:size:claimGeometry:snapshotVersion:localHistory:images:clientName:device:hangs:createIntent:inputQueue:keyStamps:)``).
     /// Only a `main` connection streams terminals.
     public var terminalStreams = false
     /// The device this connection's terminal streams are sized for (`shared-sizing-v1`): the views of one
@@ -138,7 +138,7 @@ public struct ClientHelloIdentity: Sendable {
     /// Nil: role main only (the daemon may still verify the app by its
     /// code signature).
     public var installKey: FrontendInstallKey?
-    /// The app's daemon features, sent in each hello (p12-perf-process-150); nil sends none.
+    /// The app's daemon features, sent in each hello; nil sends none.
     public var features: DaemonFeatureHello?
 
     public init(installKey: FrontendInstallKey?, features: DaemonFeatureHello? = nil) {

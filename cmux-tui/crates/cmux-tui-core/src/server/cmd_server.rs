@@ -20,6 +20,7 @@ use crate::Mux;
 use crate::MuxEvent;
 use crate::PaneId;
 use crate::mux::DaemonHandoffRequest;
+use crate::startup_marks::{StartupMark, StartupMarks};
 use crate::work_reply::{Unanswered, WorkReply};
 use cmux_threads::work::{Lane, Priority, Shutdown};
 use serde_json::Value;
@@ -79,12 +80,42 @@ pub(super) fn trace_control(
     Ok(run_live(mux, call()?)?)
 }
 
+/// `memory-report` (server/memory_report.rs): owner only, refused before
+/// anything is read.
+pub(super) fn memory_report(mux: &Arc<Mux>, client: u64) -> anyhow::Result<Value> {
+    use super::memory_report::{MemoryReportRefused, report};
+    // A local socket with a bound `cmux link` peer is remote as well.
+    if !mux.control_clients.is_unix(client) || mux.is_remote_client(client) {
+        return Err(MemoryReportRefused::NotLocal.into());
+    }
+    Ok(report(mux))
+}
+
+/// `identify`'s optional flags. Each adds fields to the reply and is off by
+/// default, so strict older SDK decoders keep reading the default reply
+/// (machine_identity_reader_tests.rs); an unknown flag is ignored, as older
+/// daemons ignore these.
+#[derive(Debug, Default, serde::Deserialize)]
+pub(super) struct IdentifyParams {
+    #[serde(default)]
+    pub(super) machine_metadata: bool,
+    /// Adds `api_revision`, `min_api_revision`, `crate_version`,
+    /// `install` and `update_command` (server/api_revision_wire.rs).
+    #[serde(default)]
+    pub(super) revisions: bool,
+    /// Adds `startup_marks`, the serving daemon's startup timeline
+    /// (`startup-marks-v1`, startup_marks.rs); `null` when no daemon serves
+    /// this mux.
+    #[serde(default)]
+    pub(super) startup_marks: bool,
+}
+
 pub(super) fn identify(
     mux: &Arc<Mux>,
     client: u64,
-    machine_metadata: bool,
-    revisions: bool,
+    params: IdentifyParams,
 ) -> anyhow::Result<Value> {
+    let IdentifyParams { machine_metadata, revisions, startup_marks } = params;
     let (registry_id, generation) = mux.registry_identity();
     let (build_id, cli_path) = super::daemon_build::identify_build_fields();
     let capabilities = identify_capabilities_for(mux, client);
@@ -137,6 +168,13 @@ pub(super) fn identify(
         identity.insert("session_resource_id", json!(mux.session_public_id));
         identity.insert("machine_platform", crate::resource_api::machine_platform());
         identity.insert("machine_capabilities", crate::resource_api::machine_capabilities());
+    }
+    // Before the timeline is read, so the first identify that asks reports
+    // itself; one served before lifecycle readiness is not counted.
+    mux.mark_startup(StartupMark::FirstIdentifyServed);
+    if startup_marks {
+        identity
+            .insert("startup_marks", mux.startup_marks().map_or(Value::Null, StartupMarks::wire));
     }
     Ok(identity)
 }

@@ -1,0 +1,11 @@
+{
+  "asset": "oracle-corpus-tla.tar.gz",
+  "arch": "any",
+  "sha256": "94dbaf046cc6695e8a687bde26e3d7185dbd25db4f8f631aee78e97707bf796e",
+  "r2_bucket": "cmux-cef",
+  "r2_key": "oracle-corpus/94dbaf046cc6695e8a687bde26e3d7185dbd25db4f8f631aee78e97707bf796e/oracle-corpus-tla.tar.gz",
+  "suite": "tla",
+  "tree_sha256": "a6a81b4c98ea74cef2498f37c600c64ab4977baa80cb034c9ced9b91833d7e72",
+  "files": "885",
+  "generator": "scripts/cmux-next/oracle/gen_tla.py --out {out}"
+}

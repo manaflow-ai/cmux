@@ -70,8 +70,11 @@ pub(crate) fn scan_zed(layout: &Layout) -> Option<SourceScan> {
             }
         }
     }
-    let entries =
-        order.into_iter().map(|path| Observation { last_used_ms: newest[&path], path }).collect();
+    // `order` and `newest` gain each path together.
+    let entries = order
+        .into_iter()
+        .filter_map(|path| Some(Observation { last_used_ms: *newest.get(&path)?, path }))
+        .collect();
     Some(SourceScan { source: "zed", entries })
 }
 

@@ -1,17 +1,15 @@
 // A page saves its state when it hides (visibilitychange), never when the host discards it: a frozen
-// page cannot answer the host (p13-webui-088).
+// page cannot answer the host.
 //
 // The page lifecycle (plans/cmux-next/chrome-parity/p13-webui.md 3.C, task 033): pages follow
 // `document.visibilityState` and the standard `freeze`/`resume` events, with no native stream. No
-// timer or animation frame starts while the page is hidden, frozen or parked, and a show or resume
-// sends nothing to the host.
+// timer or animation frame starts while the page is hidden or frozen. That a show or resume reads
+// nothing in the agent page is check-switch-fetches.py's job (scripts/cmux-next/tests).
 import { afterEach, describe, expect, test } from "bun:test";
-import { act, createElement } from "react";
-import { BridgePageClient, CLAIM_OP, type ReplyHandler } from "./pageClient";
+import { act, createElement, useState } from "react";
 import {
   PAGE_STATE_KEY,
   PAGE_STATE_MAX_BYTES,
-  PARKED_NAME,
   PageLifecycle,
   type LifecycleDocument,
   type PageStateHost,
@@ -149,9 +147,12 @@ describe("pageLifecycle hide-time save", () => {
 /** A document whose visibility the test sets and whose events it dispatches. */
 class FakeDocument implements LifecycleDocument {
   visibilityState = "visible";
+  /** Every addEventListener call, so a test sees listener churn. */
+  added = 0;
   private readonly listeners = new Map<string, Set<(event: { type: string }) => void>>();
 
   addEventListener(type: string, listener: (event: { type: string }) => void): void {
+    this.added += 1;
     const set = this.listeners.get(type) ?? new Set();
     set.add(listener);
     this.listeners.set(type, set);
@@ -274,19 +275,27 @@ describe("PageLifecycle", () => {
     expect(new PageLifecycle(undefined).state()).toBe("active");
   });
 
-  test("a parked document is hidden until its claim, even while the engine shows it", () => {
+  test("the same function observed twice is two subscriptions", () => {
     const doc = new FakeDocument();
-    const lifecycle = new PageLifecycle(doc, true);
+    const lifecycle = new PageLifecycle(doc);
     const seen: string[] = [];
-    lifecycle.observe((state) => seen.push(state));
-    expect(lifecycle.state()).toBe("hidden");
-    lifecycle.claimed();
-    expect(seen).toEqual(["active"]);
+    const listener = (state: string) => void seen.push(state);
+    const first = lifecycle.observe(listener);
+    const second = lifecycle.observe(listener);
+    first();
+    first();
+    doc.hide();
+    expect(seen).toEqual(["hidden"]);
+    second();
+    expect(doc.listenerCount()).toBe(0);
+    doc.show();
+    expect(seen).toEqual(["hidden"]);
   });
 
-  test("one lifecycle per page global, parked from the host's flag", () => {
+  test("one lifecycle per page global, read from the engine's visibility", () => {
     const doc = new FakeDocument();
-    const target: Record<string, unknown> = { document: doc, [PARKED_NAME]: true };
+    doc.hide();
+    const target: Record<string, unknown> = { document: doc };
     expect(pageLifecycleFor(target)).toBe(pageLifecycleFor(target));
     expect(pageLifecycleFor(target).state()).toBe("hidden");
   });
@@ -403,50 +412,6 @@ describe("startPageAnimationFrame", () => {
   });
 });
 
-describe("the page client and the lifecycle", () => {
-  test("hide, freeze, resume and show send nothing to the host", async () => {
-    const doc = new FakeDocument();
-    const posts: unknown[] = [];
-    const handler: ReplyHandler = {
-      postMessage: async (body) => {
-        posts.push(body);
-        const envelope = body as { t: string; id: number };
-        return envelope.t === "sub" ? { t: "ok", id: envelope.id, value: { sub: 1 } } : { t: "ok", id: envelope.id };
-      },
-    };
-    const target: Record<string, unknown> = { document: doc };
-    const client = new BridgePageClient(handler, target);
-    await client.subscribe("cmux.test.rows", () => undefined);
-    const before = posts.length;
-    const seen: string[] = [];
-    pageLifecycleFor(target).observe((state) => seen.push(state));
-    doc.freeze();
-    doc.thawAndShow();
-    expect(seen).toEqual(["hidden", "frozen", "hidden", "active"]);
-    expect(posts.length).toBe(before);
-  });
-
-  test("the claim of a parked document makes its lifecycle active", async () => {
-    const doc = new FakeDocument();
-    const posts: unknown[] = [];
-    const handler: ReplyHandler = {
-      postMessage: async (body) => {
-        posts.push(body);
-        return null;
-      },
-    };
-    const target: Record<string, unknown> = { document: doc, [PARKED_NAME]: true };
-    const client = new BridgePageClient(handler, target);
-    const timers = new FakeTimers();
-    startPageInterval(() => undefined, 1000, { lifecycle: pageLifecycleFor(target), timers });
-    expect(timers.started).toBe(0);
-    client.receive({ t: "call", id: 1, op: CLAIM_OP, params: {} });
-    await Promise.resolve();
-    expect(pageLifecycleFor(target).state()).toBe("active");
-    expect(timers.live).toBe(1);
-  });
-});
-
 describe("hooks", () => {
   const scope = globalThis as Record<string, unknown>;
   const saved = new Map<string, unknown>();
@@ -512,5 +477,26 @@ describe("hooks", () => {
     await act(async () => doc.hide());
     expect(timers.live).toBe(0);
     expect(timers.pendingFrames).toBe(0);
+  });
+
+  test("usePageLifecycle subscribes once, not on every render", async () => {
+    const doc = new FakeDocument();
+    const lifecycle = new PageLifecycle(doc);
+    let bump: (() => void) | undefined;
+    let renders = 0;
+    function Probe() {
+      const [, setCount] = useState(0);
+      bump = () => setCount((value) => value + 1);
+      renders += 1;
+      usePageLifecycle(lifecycle);
+      return null;
+    }
+    await render(createElement(Probe));
+    const added = doc.added;
+    expect(doc.listenerCount()).toBe(3);
+    for (let index = 0; index < 5; index++) await act(async () => bump?.());
+    expect(renders).toBeGreaterThanOrEqual(6);
+    expect(doc.added).toBe(added);
+    expect(doc.listenerCount()).toBe(3);
   });
 });

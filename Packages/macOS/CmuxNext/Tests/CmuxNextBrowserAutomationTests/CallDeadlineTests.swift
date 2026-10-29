@@ -3,7 +3,7 @@ import CmuxNextWakeupsTestSupport
 import Testing
 
 /// A driver call answers by its deadline even when WebKit never calls back, answers with the work
-/// when it comes first, and a late answer reaches no one (p10-stability-171: one cancellable
+/// when it comes first, and a late answer reaches no one (one cancellable
 /// OnceContinuation in place of the private resume-once box). The deadline sleeps on a
 /// `ManualClock`, so nothing waits on the wall clock.
 @MainActor @Suite(.timeLimit(.minutes(1))) struct CallDeadlineTests {

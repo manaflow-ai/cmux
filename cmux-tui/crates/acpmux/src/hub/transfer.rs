@@ -1,6 +1,8 @@
 //! Part of `Hub`; see `hub/mod.rs`.
 
 use super::*;
+use crate::no_panic::JsonExt;
+use crate::no_panic::LockExt;
 
 /// True when `id` is a single plain path component, so it can name a
 /// directory under the sessions root (no separator, `.`, `..` or root).
@@ -20,7 +22,7 @@ struct ImportReservation<'a> {
 
 impl Drop for ImportReservation<'_> {
     fn drop(&mut self) {
-        self.hub.importing.lock().unwrap().remove(&self.id);
+        self.hub.importing.lock_or_recover().remove(&self.id);
     }
 }
 
@@ -75,7 +77,7 @@ impl Hub {
                     copied.push(json!({"label": label, "path": rel, "source": src}));
                 }
             }
-            manifest["native"] = Value::Array(copied);
+            manifest.set("native", Value::Array(copied));
         }
         cmux_blocking::fs::write(
             dir.join("manifest.json"),
@@ -121,15 +123,15 @@ impl Hub {
         }
         if let Some(n) = &name {
             crate::session_name::validate(n).map_err(RpcError::invalid_params)?;
-            if self.sessions.lock().unwrap().values().any(|s| s.meta().name == *n) {
+            if self.sessions.lock_or_recover().values().any(|s| s.meta().name == *n) {
                 return Err(RpcError::invalid_params(format!("session name {n:?} is taken")));
             }
         }
         // Claim the id so a concurrent import of the same bundle fails
         // instead of writing the store and log a second time.
         let _reservation = {
-            let sessions = self.sessions.lock().unwrap();
-            let mut importing = self.importing.lock().unwrap();
+            let sessions = self.sessions.lock_or_recover();
+            let mut importing = self.importing.lock_or_recover();
             if sessions.contains_key(&meta.id) || !importing.insert(meta.id.clone()) {
                 return Err(RpcError::invalid_params(format!(
                     "session {} already exists here",
@@ -140,7 +142,7 @@ impl Hub {
         };
         if let Some(n) = name {
             meta.name = n;
-        } else if self.sessions.lock().unwrap().values().any(|s| s.meta().name == meta.name) {
+        } else if self.sessions.lock_or_recover().values().any(|s| s.meta().name == meta.name) {
             meta.name = self.unique_name(&meta.name);
         }
         if !self.config.read().await.harnesses.contains_key(&meta.harness) {
@@ -179,13 +181,13 @@ impl Hub {
             }
         };
         session.seq.store(last, Ordering::SeqCst);
-        session.meta.lock().unwrap().last_seq = last;
+        session.meta.lock_or_recover().last_seq = last;
         if live {
             self.restore_queue(&session);
             // Its log holds the source's move (`transfer_out`), not one of this daemon's.
             *session.moving.lock().unwrap_or_else(|e| e.into_inner()) = None;
         }
-        self.sessions.lock().unwrap().insert(meta.id.clone(), session.clone());
+        self.sessions.lock_or_recover().insert(meta.id.clone(), session.clone());
         self.offers.forget(&meta.id);
         self.append(
             &session,

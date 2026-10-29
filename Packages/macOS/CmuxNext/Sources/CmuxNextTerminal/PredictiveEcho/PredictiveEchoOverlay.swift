@@ -1,7 +1,7 @@
 import AppKit
 import CmuxNextCopyMode
 
-/// The cmux layer that draws a terminal's echo predictions over its Ghostty surface (p04-input-046),
+/// The cmux layer that draws a terminal's echo predictions over its Ghostty surface,
 /// as mosh's overlay does: each predicted glyph dim and underlined on the terminal background, a
 /// predicted blank (a backspace) as background only, and a bar where typing continues. Not Ghostty's
 /// preedit, which draws at the cursor and cannot show a backspace over a cell.

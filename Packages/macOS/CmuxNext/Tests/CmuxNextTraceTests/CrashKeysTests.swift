@@ -4,7 +4,7 @@ import Darwin
 import Foundation
 import Testing
 
-/// The crash-key page (p09-observability-078): fixed slots written with relaxed stores, the outer value back after
+/// The crash-key page: fixed slots written with relaxed stores, the outer value back after
 /// a scoped key, the heap page moved into its file off main, and a crashed process's page decoding at the next
 /// launch.
 @Suite struct CrashKeysTests {

@@ -3,7 +3,7 @@ import CmuxNextCompat
 @testable import CmuxNextSettings
 import Testing
 
-/// `memory.saver.<mode>` (p07-memory-065): each action applies the mode in its own turn, returns well
+/// `memory.saver.<mode>`: each action applies the mode in its own turn, returns well
 /// inside the 10 ms action budget, and the registry runs the cmux-next.json write after the turn (the
 /// default as no key); a failed write puts the previous mode back. A refusal (a managed key, settings
 /// not loaded) changes nothing, and while the `memorySaverSetting` feature is off no action runs. Each

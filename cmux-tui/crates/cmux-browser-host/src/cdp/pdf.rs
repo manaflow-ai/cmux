@@ -2,6 +2,7 @@
 //! `format`, `width`, `height`, `landscape`, `printBackground`, `margin`.
 
 use super::driver::Inner;
+use crate::panic_free::JsonFields;
 use crate::protocol::{DriverError, timeout_of};
 use serde_json::{Value, json};
 use std::time::Instant;
@@ -89,7 +90,7 @@ pub(super) fn print_args(params: &Value) -> Result<Value, DriverError> {
         ("left", "marginLeft"),
     ] {
         let value = margin.get(side).unwrap_or(&null);
-        args[key] = json!(inches(value, &format!("margin.{side}"))?.unwrap_or(0.0));
+        args.insert(key, json!(inches(value, &format!("margin.{side}"))?.unwrap_or(0.0)));
     }
     Ok(args)
 }
@@ -103,7 +104,8 @@ impl Inner {
         // the tab at a time (`capture.rs`).
         let _turn = self.capture_turn(&session.target_id, deadline)?;
         let printed = self.send_until(&session, "Page.printToPDF", args, deadline)?;
-        let data = printed["data"]
+        let data = printed
+            .field("data")
             .as_str()
             .ok_or_else(|| DriverError::invalid("Page.printToPDF returned no data"))?;
         Ok(json!({"base64": data}))

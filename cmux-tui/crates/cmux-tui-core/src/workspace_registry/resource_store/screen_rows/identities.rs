@@ -29,8 +29,8 @@ pub(in super::super) fn side_splits(screen: &RegistryScreen) -> Vec<String> {
         splits.push(column.id.to_string());
         splits.extend(column.rows.iter().map(|row| row.id.to_string()));
     }
-    if screen.viewport.has_lone_pinned_column() {
-        let id = screen.viewport.columns[0].id.to_string();
+    if let Some(column) = screen.viewport.lone_pinned_column() {
+        let id = column.id.to_string();
         if !splits.contains(&id) {
             splits.push(id);
         }

@@ -4,7 +4,7 @@ import Foundation
 import Testing
 @testable import MessagesLabHome
 
-/// p14-energy-054: the Home transcript read its window place (two layer conversions and a compare) after
+/// The Home transcript read its window place (two layer conversions and a compare) after
 /// every `NSWindow.didUpdateNotification`, once per event of the window (each key typed in the field). Now
 /// it reads the place after the window's layout pass (`MessagesLabHomeView.windowDidLayout`, which the app
 /// calls from the window's `WindowLayoutPasses`), where an ancestor's move happens: window events with no

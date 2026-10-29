@@ -133,6 +133,9 @@ pub(super) fn handle_resource_connection_message(
     writer: &MessageWriter,
     span: &mut RequestSpan<'_>,
 ) -> bool {
+    // Every v2 operation, a cancel included, runs on the connection's
+    // control sequence in arrival order, never on its reader.
+    super::debug_assert_off_reader();
     let id = request.envelope.id.clone();
     let operation = request.envelope.operation;
     if matches!(

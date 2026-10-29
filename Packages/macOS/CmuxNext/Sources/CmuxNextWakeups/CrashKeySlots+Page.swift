@@ -1,6 +1,6 @@
 import CmuxNextTrace
 
-/// The keys of the process's crash-key page (``CrashKeyPage``, p09-observability-078) that the owners these slots
+/// The keys of the process's crash-key page (``CrashKeyPage``) that the owners these slots
 /// reach set: the input tap, the window manager and the tab content cache. Each is one or two relaxed stores into
 /// the attached page (``page``), nothing before the composition root attaches one.
 extension CrashKeySlots {

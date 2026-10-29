@@ -1,4 +1,4 @@
-//! Attach streams drain on the sequenced pool (p05-ipc-079): a pump runs
+//! Attach streams drain on the sequenced pool: a pump runs
 //! nothing before its attach commits, coalesces wakes, stops at its
 //! stream's backpressure cap and resumes when the writer takes an item,
 //! and a snapshot viewer's idle digest is a delayed task of its sequence.

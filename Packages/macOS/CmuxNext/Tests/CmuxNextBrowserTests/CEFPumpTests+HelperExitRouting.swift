@@ -123,13 +123,13 @@ extension CEFPumpTests {
         #expect(Self.helperExitCounts(in: store) == [49: 1, 66: 1, 38: 1, 1: 1], "gpu crash, utility kill, extension exit 1, other crash")
     }
 
-    /// Every `BrowserCrashLog.helperExited` of the runtime (p09-observability-083), in order.
+    /// Every `BrowserCrashLog.helperExited` of the runtime, in order.
     private final class HelperExitSink {
         var exits: [BrowserHelperExit] = []
         init(_ log: BrowserCrashLog) { log.addHelperExitObserver { [unowned self] in self.exits.append($0) } }
     }
 
-    /// p09-observability-083: one helper-exit report per process: a renderer shared by two tabs and also seen by the
+    /// One helper-exit report per process: a renderer shared by two tabs and also seen by the
     /// monitor is one report, with Chromium's reason and the monitor's pid (the one in its `.ips` and minidump), joined
     /// by the renderer's client id, and with no tab, URL or title in it.
     @Test func aRendererSeenThreeWaysIsOneHelperExitReportWithItsPid() throws {

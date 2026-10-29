@@ -1,4 +1,4 @@
-//! `SetThreadQos` (p02-threads-236): the owner sends it only to a host that
+//! `SetThreadQos`: the owner sends it only to a host that
 //! advertises it, the host stores the class for its PTY reader and parser,
 //! which run at it after their next byte, a malformed one ends the
 //! connection, and records from before the field still load.

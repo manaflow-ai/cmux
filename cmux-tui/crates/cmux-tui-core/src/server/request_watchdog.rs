@@ -54,7 +54,7 @@
 //! the other kinds have only the hang tier. Each slow request and each
 //! hang of another kind also goes to the first-sighting feed, whose
 //! consumer keeps the first of each scope and method
-//! (`server-diagnostic-site`, p02-threads-233). The holder link has no
+//! (`server-diagnostic-site`). The holder link has no
 //! `Mux` at hand, so the owner makes its Mux's watchdog the process's
 //! ([`RequestWatchdog::watch_for_process`]).
 //!
@@ -72,7 +72,6 @@ use std::cell::Cell;
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering, fence};
 use std::sync::{Arc, OnceLock};
-use std::thread::Thread;
 use std::time::{Duration, Instant};
 
 use cmux_tui_platform::thread_backtrace::{self, Backtrace, BacktraceError, ThreadHandle};
@@ -80,8 +79,9 @@ use cmux_tui_platform::thread_backtrace::{self, Backtrace, BacktraceError, Threa
 use super::Command;
 use super::command_names::COMMANDS;
 use crate::diagnostics::{SlowRequest, SlowRequestFrame, SlowRequestsSnapshot};
-use crate::panic_free::RecoverPoison;
+use crate::panic_free::{JsonFields, RecoverPoison};
 use crate::resource::ResourceOperation;
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 
 /// How long a request runs before the watchdog records it.
 pub(crate) const REQUEST_WATCHDOG_THRESHOLD: Duration = Duration::from_millis(250);
@@ -268,11 +268,17 @@ impl Slot {
 pub(crate) type HangSink = Box<dyn Fn(serde_json::Value) + Send + Sync>;
 
 /// Starts the watchdog thread with `body`; a seam so tests can fail it.
-type SpawnWatchdog = fn(Box<dyn FnOnce() + Send>) -> std::io::Result<Thread>;
+type SpawnWatchdog = fn(Box<dyn FnOnce() + Send>) -> std::io::Result<supervised::Unparker>;
 
-fn spawn_watchdog_thread(body: Box<dyn FnOnce() + Send>) -> std::io::Result<Thread> {
-    cmux_threads::spawn(THREAD_NAME, cmux_threads::ThreadQos::Utility, body)
-        .map(|handle| handle.thread().clone())
+fn spawn_watchdog_thread(body: Box<dyn FnOnce() + Send>) -> std::io::Result<supervised::Unparker> {
+    supervised::spawn_at(
+        THREAD_NAME,
+        cmux_threads::ThreadQos::Utility,
+        Fatal,
+        ShutdownBehavior::Continue,
+        body,
+    )
+    .map(|handle| handle.unparker())
 }
 
 /// Stops a thread and walks its stack; a seam so tests can end the run
@@ -318,7 +324,7 @@ struct Shared {
     stack_captures: AtomicU64,
     /// The watchdog thread, set by the first arm whose start succeeds. Only
     /// the run that flipped `armed` starts it, so no two starts race.
-    thread: OnceLock<Thread>,
+    thread: OnceLock<supervised::Unparker>,
     wakeups: AtomicU64,
     unwatched: AtomicU64,
     expected_waits: AtomicU64,
@@ -374,19 +380,25 @@ impl Shared {
     /// Claim a slot for one run of `method` of `kind` and publish its start.
     /// `None` when every slot is taken (counted as unwatched).
     // perf-hot: <100ns daemon-request
-    fn claim(self: &Arc<Self>, kind: WatchKind, client: u64, method: u32) -> Option<(usize, u64)> {
+    fn claim(
+        self: &Arc<Self>,
+        kind: WatchKind,
+        client: u64,
+        method: u32,
+    ) -> Option<(usize, &Slot, u64)> {
         let hint = (client as usize) % SLOT_COUNT;
-        let index = (0..SLOT_COUNT).map(|offset| (hint + offset) % SLOT_COUNT).find(|index| {
-            self.slots[*index]
-                .busy
+        let claimed = (0..SLOT_COUNT).find_map(|offset| {
+            let index = (hint + offset) % SLOT_COUNT;
+            let slot = self.slots.get(index)?;
+            slot.busy
                 .compare_exchange(0, CLAIMING, Ordering::Acquire, Ordering::Relaxed)
                 .is_ok()
+                .then_some((index, slot))
         });
-        let Some(index) = index else {
+        let Some((index, slot)) = claimed else {
             self.unwatched.fetch_add(1, Ordering::Relaxed);
             return None;
         };
-        let slot = &self.slots[index];
         // Seqlock write: the kind, client, method and thread are published
         // with the busy word below.
         fence(Ordering::Release);
@@ -399,7 +411,7 @@ impl Shared {
         let word = busy_word(start);
         slot.busy.store(word, Ordering::SeqCst);
         self.arm();
-        Some((index, word))
+        Some((index, slot, word))
     }
 
     /// End the run `word` in `slot`. A run under its first tier frees its
@@ -615,7 +627,7 @@ impl Shared {
             "stack_error": stack.error,
         });
         if run.kind.records_slow() {
-            record["client"] = run.client.into();
+            record.insert("client", run.client.into());
         } else {
             // A request's site was noted at the threshold (`record`); the
             // other kinds have only this tier (`server-diagnostic-site`).
@@ -861,8 +873,8 @@ impl RequestWatchdog {
     }
 
     fn watch_run(&self, kind: WatchKind, client: u64, method: u32) -> Option<RequestScope<'_>> {
-        let (index, word) = self.shared.claim(kind, client, method)?;
-        Some(RequestScope::new(&self.shared, index, word))
+        let (_, slot, word) = self.shared.claim(kind, client, method)?;
+        Some(RequestScope::new(&self.shared, slot, word))
     }
 
     /// The echo threads' handle on this watchdog ([`EchoWatch::item`]).
@@ -935,8 +947,8 @@ pub(crate) struct RequestScope<'a> {
 }
 
 impl<'a> RequestScope<'a> {
-    fn new(shared: &'a Arc<Shared>, index: usize, word: u64) -> Self {
-        Self { shared, slot: &shared.slots[index], word, ended: Cell::new(false) }
+    fn new(shared: &'a Arc<Shared>, slot: &'a Slot, word: u64) -> Self {
+        Self { shared, slot, word, ended: Cell::new(false) }
     }
 
     /// The run is now doing `method` (a frame reaching its handler).

@@ -31,6 +31,7 @@ impl Driver {
             return;
         }
         let Driver { mut tunn, mut underlay, mut scratch, .. } = self;
+        // supervise-allow: bounded to FAREWELL_WAITS (1.6 s) and owns the ended driver's session and carrier; a panic loses only the repeated resets, as a lost datagram would.
         tokio::spawn(async move {
             for wait in FAREWELL_WAITS {
                 tokio::time::sleep(wait).await;

@@ -13,12 +13,11 @@
 
 use std::io::{ErrorKind, Read, Write};
 use std::path::Path;
-use std::thread;
 use std::time::Duration;
 
 use cmux_process::{Child, Command, Stdio};
 
-use crate::run::{GitFailure, GitOutput, Override, deny_transports, set_overrides};
+use crate::run::{GitFailure, GitOutput, Override, deny_transports, pipe_thread, set_overrides};
 
 const MAX_STDERR_BYTES: usize = 16 * 1024;
 
@@ -64,11 +63,15 @@ impl WriteGit<'_> {
             return Err(GitFailure::Unavailable("git pipes are missing".to_string()));
         };
         let bytes = stdin.to_vec();
-        let writer = thread::spawn(move || {
+        // supervise-allow: joined below in this function on every path; a panic ends the input write only.
+        let writer = pipe_thread(&mut child, "git-stdin", move || {
             let _ = input.write_all(&bytes);
-        });
-        let stdout = thread::spawn(move || drain(stdout, max_stdout));
-        let stderr = thread::spawn(move || drain(stderr, MAX_STDERR_BYTES));
+        })?;
+        // supervise-allow: joined below in this function on every path; a panic reads as empty output.
+        let stdout = pipe_thread(&mut child, "git-stdout", move || drain(stdout, max_stdout))?;
+        // supervise-allow: joined below in this function on every path; a panic reads as empty output.
+        let stderr =
+            pipe_thread(&mut child, "git-stderr", move || drain(stderr, MAX_STDERR_BYTES))?;
         let waited = match bound {
             Bound::Deadline(deadline) => child.wait_timeout(deadline),
             Bound::Unbounded => child.wait().map(Some),

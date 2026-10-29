@@ -24,6 +24,7 @@ use serde_json::{Value, json};
 use super::super::GlobalArgs;
 use super::super::agents_doctor::{ACCESSIBILITY_URL, SCREEN_RECORDING_URL, STATUS_METHOD};
 use super::{Outcome, Refusal};
+use crate::cli::json_fields::JsonFields;
 
 const TASK: &str = "computer_use";
 
@@ -52,64 +53,70 @@ pub(super) fn run(global: &GlobalArgs, args: &[String]) -> Result<Outcome, Refus
         "user_action": Value::Null,
     });
     if !applies(global) {
-        report["state"] = json!("not_applicable");
+        report.insert("state", json!("not_applicable"));
         return Ok(Outcome { report, failed: false });
     }
     let before = match read(global) {
         Ok(status) => status,
         Err(action) => {
-            report["state"] = json!("needs_user");
-            report["user_action"] = action;
+            report.insert("state", json!("needs_user"));
+            report.insert("user_action", action);
             return Ok(Outcome { report, failed: false });
         }
     };
-    report["before"] = before.clone();
+    report.insert("before", before.clone());
     let mut current = before;
-    if current["phase"] == "off" {
+    if current.field("phase") == "off" {
         // Already on, and the app's phase has not caught up: asking again
         // would show the person a second sheet.
         if enabled(global) {
-            report["state"] = json!("needs_user");
-            report["after"] = current;
-            report["user_action"] = wait_step();
+            report.insert("state", json!("needs_user"));
+            report.insert("after", current);
+            report.insert("user_action", wait_step());
             return Ok(Outcome { report, failed: false });
         }
         if dry_run {
-            report["state"] = json!("planned");
-            report["undo"] = json!(UNDO);
+            report.insert("state", json!("planned"));
+            report.insert("undo", json!(UNDO));
             return Ok(Outcome { report, failed: false });
         }
         if let Err(action) = turn_on(global) {
-            report["state"] = json!("needs_user");
-            report["user_action"] = action;
+            report.insert("state", json!("needs_user"));
+            report.insert("user_action", action);
             return Ok(Outcome { report, failed: false });
         }
-        report["undo"] = json!(UNDO);
+        report.insert("undo", json!(UNDO));
         current = match read(global) {
             Ok(status) => status,
             Err(action) => {
-                report["state"] = json!("needs_user");
-                report["user_action"] = action;
+                report.insert("state", json!("needs_user"));
+                report.insert("user_action", action);
                 return Ok(Outcome { report, failed: false });
             }
         };
-        report["after"] = current.clone();
+        report.insert("after", current.clone());
     }
-    let changed = !report["undo"].is_null();
+    let changed = !report.field("undo").is_null();
     // The app's phase follows the setting a moment later: right after the
     // person allowed it, `off` means the helper has not caught up, and asking
     // again would show them a second sheet.
-    let action =
-        if changed && current["phase"] == "off" { Some(wait_step()) } else { next_step(&current) };
-    report["state"] = json!(match (&action, changed) {
-        (Some(_), _) => "needs_user",
-        (None, true) => "changed",
-        (None, false) => "ok",
-    });
-    if report["after"].is_null() {
-        report["after"] = current;
+    let action = if changed && current.field("phase") == "off" {
+        Some(wait_step())
+    } else {
+        next_step(&current)
+    };
+    report.insert(
+        "state",
+        json!(match (&action, changed) {
+            (Some(_), _) => "needs_user",
+            (None, true) => "changed",
+            (None, false) => "ok",
+        }),
+    );
+    if report.field("after").is_null() {
+        report.insert("after", current);
     }
-    report["user_action"] = action.unwrap_or(Value::Null);
+    report.insert("user_action", action.unwrap_or(Value::Null));
     Ok(Outcome { report, failed: false })
 }
 
@@ -122,9 +129,9 @@ pub(super) fn status(global: &GlobalArgs) -> Value {
         Ok(status) => {
             // Off but already allowed: the phase lags the setting, and `run`
             // says to wait rather than ask again; so does the check.
-            let lags = status["phase"] == "off" && enabled(global);
+            let lags = status.field("phase") == "off" && enabled(global);
             let action = if lags { Some(wait_step()) } else { next_step(&status) };
-            let state = match (&action, status["phase"].as_str()) {
+            let state = match (&action, status.field("phase").as_str()) {
                 (_, Some("off")) if !lags => "needs_setup",
                 (Some(_), _) => "needs_user",
                 (None, _) => "ok",
@@ -183,7 +190,7 @@ fn enabled(global: &GlobalArgs) -> bool {
         super::super::app::READ_TIMEOUT,
         None,
     )
-    .is_ok_and(|reply| reply["value"] == Value::Bool(true))
+    .is_ok_and(|reply| reply.field("value") == &Value::Bool(true))
 }
 
 /// Turns Computer Use on: the app asks the person on its sheet. Answers what

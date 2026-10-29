@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import CmuxNextCrashReporting
 
-/// p09-observability-084: the `FATAL` line Chromium wrote before it aborted the process that ran `CefInitialize`
+/// The `FATAL` line Chromium wrote before it aborted the process that ran `CefInitialize`
 /// becomes the `cef.fatal` tag: `FATAL:<path>:<line>]` plus 120 characters, every URL removed.
 @Suite struct CEFFatalLineTests {
     private static let pid: Int32 = 4242

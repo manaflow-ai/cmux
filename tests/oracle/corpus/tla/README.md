@@ -1,10 +1,15 @@
 # tests/oracle/corpus/tla
 
-Golden suite `tla` of the oracle (p15-oracle-100). Generated; do not edit. Regenerate with:
+Golden suite `tla` of the oracle (p15-oracle-100). Generated; do not edit. Git carries only this README: the cases are
+a content-addressed tarball pinned in [`tests/oracle/corpus-store/tla.pin.json`](../../corpus-store/tla.pin.json)
+(sha256 of the tarball and `tree_sha256` of its files). Every oracle tool writes them here first
+(`scripts/cmux-next/oracle/corpus_store.py ensure`); when no store has the tarball, `gen_tla.py` writes them (about
+15 minutes) and the result must match the pin. Regenerate and publish with:
 
 ```bash
 python3 -I scripts/cmux-next/oracle/gen_tla.py            # or: oracle.py gen --suite tla
-python3 -I scripts/cmux-next/oracle/gen_tla.py --check    # exit 1 when this directory is stale
+python3 -I scripts/cmux-next/oracle/gen_tla.py --check    # exit 1 when the pinned suite differs from a fresh run
+python3 -I scripts/cmux-next/oracle/corpus_store.py publish tla   # upload to R2, rewrite the pin; commit the pin
 ```
 
 Each case is one TLC simulate trace of a spec in `plans/cmux-next/formal/`, mapped by

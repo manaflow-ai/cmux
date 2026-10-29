@@ -6,7 +6,7 @@ public import CoreGraphics
 /// snapping and focus-after-scroll are the column strip's rules.
 public nonisolated struct ScrollAreaScroll: Hashable, Sendable {
     public var state = ColumnScrollState()
-    /// While a pan of the area shows on its motion container (p04-input-050), the offset its views are
+    /// While a pan of the area shows on its motion container, the offset its views are
     /// laid out at; nil when they are laid out at the camera.
     public var panBase: CGFloat?
     /// The offset the last layout pass laid the area's views out at.

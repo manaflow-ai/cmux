@@ -1,17 +1,13 @@
 public import Foundation
+import CmuxNextCompat
 
 /// Reads a Chromium user data dir's profile list from `Local State`
 /// (`profile.info_cache`, ordered by `profile.profiles_order`), falling back
 /// to folders that hold a `Preferences` file.
 public struct ChromiumProfileList {
-    private let fileManager: FileManager
 
-    /// Creates a reader with the filesystem used to discover Chromium profiles.
-    ///
-    /// - Parameter fileManager: Filesystem access for discovery.
-    public init(fileManager: FileManager = FileManager()) {
-        self.fileManager = fileManager
-    }
+    /// Creates a reader of Chromium profiles.
+    public init() {}
 
     public struct Entry: Sendable, Equatable {
         public var directoryName: String
@@ -41,7 +37,7 @@ public struct ChromiumProfileList {
     public func entries(in userDataDirectory: URL) -> [Entry] {
         let localState = userDataDirectory.appending(path: "Local State")
         var entries: [Entry] = []
-        if let data = fileManager.contents(atPath: localState.path),
+        if let data = FileManager.checked.contents(atPath: localState.path),
            let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
            let profile = root["profile"] as? [String: Any],
            let cache: [String: Any] = profile["info_cache"] as? [String: Any] {
@@ -59,14 +55,14 @@ public struct ChromiumProfileList {
         }
         // Profiles on disk that Local State does not list (or no Local State).
         let listed = Set(entries.map(\.directoryName))
-        let folders = (try? fileManager.contentsOfDirectory(atPath: userDataDirectory.path)) ?? []
+        let folders = (try? FileManager.checked.contentsOfDirectory(atPath: userDataDirectory.path)) ?? []
         for folder in folders.sorted(by: { sortKey($0) < sortKey($1) }) where !listed.contains(folder) {
             guard folder == "Default" || folder.hasPrefix("Profile ") else { continue }
             let preferences = userDataDirectory.appending(path: folder).appending(path: "Preferences")
-            guard fileManager.fileExists(atPath: preferences.path) else { continue }
+            guard FileManager.checked.fileExists(atPath: preferences.path) else { continue }
             entries.append(Entry(directoryName: folder, displayName: folder))
         }
-        return entries.filter { fileManager.fileExists(atPath: userDataDirectory.appending(path: $0.directoryName).path) }
+        return entries.filter { FileManager.checked.fileExists(atPath: userDataDirectory.appending(path: $0.directoryName).path) }
     }
 
     /// "Default" first, then "Profile 2" before "Profile 10", then other names. The folder's own

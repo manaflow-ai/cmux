@@ -3,6 +3,7 @@ import struct CmuxNextDaemon.POSIXErrorText
 import struct CmuxNextDaemon.UnixSocketAddress
 import Darwin
 import Foundation
+import CmuxNextCompat
 
 /// A bounded client for another local cmux control socket.
 ///
@@ -107,7 +108,7 @@ public struct ControlPeerClient {
             while unsafe offset < bytes.count {
                 // SAFETY: 0 <= offset < bytes.count, so the write covers the bytes.count - offset bytes left, from
                 // base + offset to the buffer's end.
-                let count = unsafe Darwin.write(descriptor, base.advanced(by: offset), bytes.count - offset)
+                let count = unsafe blockingWrite(descriptor, base.advanced(by: offset), bytes.count - offset)
                 if count > 0 { offset += count; continue }
                 if count < 0, errno == EINTR { continue }
                 return count < 0 ? errno : EIO

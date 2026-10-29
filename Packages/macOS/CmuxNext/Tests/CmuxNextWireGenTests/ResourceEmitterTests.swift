@@ -60,7 +60,7 @@ private func allSource(_ emitter: ResourceEmitter) throws -> String {
     try emitter.files().map(\.text).joined()
 }
 
-/// The `cmux.protocol/2` bindings generator (p05-ipc-024): typed params and results for the
+/// The `cmux.protocol/2` bindings generator: typed params and results for the
 /// operations the app names, one file per family, the catalog's errors with typed details, open
 /// enums, tagged unions, and refusals that name the catalog place. The byte goldens of the
 /// generated types (3 ops encode to today's lines) are ResourceRequestLineTests in

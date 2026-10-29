@@ -11,7 +11,7 @@ import CmuxNextWakeups
 /// its terminals stay. Browser pages are tracked the same way: a tab the daemon closed
 /// (`cmux tab close`, another client) kept its page, and a Chromium page its renderer.
 ///
-/// One ServiceObservation per store (p06-scheduler-303), whose apply only posts the walk as one
+/// One ServiceObservation per store, whose apply only posts the walk as one
 /// background task per store: freeing memory is work nobody sees, so a burst of tab-list changes is
 /// one walk of the tracked tabs, after the person's and the visible work, whether or not any of those
 /// tabs shows. The observation applies a person's tab close in their input-response pass; only the

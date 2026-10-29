@@ -32,7 +32,8 @@ pub fn brand_for(agent: &str) -> Option<&'static str> {
         table::LOOKUP
             .binary_search_by(|(id, _)| (*id).cmp(candidate.as_str()))
             .ok()
-            .map(|index| table::LOOKUP[index].1)
+            .and_then(|index| table::LOOKUP.get(index))
+            .map(|(_, brand)| *brand)
     })?
 }
 

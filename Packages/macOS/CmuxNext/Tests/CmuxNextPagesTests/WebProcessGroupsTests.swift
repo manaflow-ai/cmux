@@ -78,6 +78,20 @@ struct WebProcessGroupsTests {
         #expect(Self.related(second) === first)
     }
 
+    /// One in-memory store per group for the app's life: a group's pages share it,
+    /// so their localStorage, and a page of another group or a solo page that asks gets another.
+    @Test func eachGroupHasOneDataStoreOfItsOwn() {
+        let groups = WebProcessGroups(pagesPerProcess: 8)
+        let agentStore = groups.dataStore(for: .group(.agent))
+        let privilegedStore = groups.dataStore(for: .group(.privileged))
+        #expect(groups.dataStore(for: .group(.agent)) === agentStore)
+        #expect(groups.dataStore(for: .group(.privileged)) === privilegedStore)
+        #expect(privilegedStore !== agentStore)
+        #expect(groups.dataStore(for: .group(.viewer)) !== agentStore)
+        #expect(groups.dataStore(for: .page(solo.id)) !== agentStore)
+        #expect(groups.dataStore(for: .page(solo.id)) !== privilegedStore)
+    }
+
     @Test func aClosedFirstPageStartsANewGroup() {
         let groups = WebProcessGroups(pagesPerProcess: 8)
         let pool = WKProcessPool()

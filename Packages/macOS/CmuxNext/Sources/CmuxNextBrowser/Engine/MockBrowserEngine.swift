@@ -21,7 +21,7 @@ public final class MockBrowserEngine: BrowserEngine {
     let waitDeadlines: AlignedWakeups
 
     /// - Parameter waitDeadlines: The deadline queue for the pages' waits; nil: a queue of the engine's own
-    ///   (a test that moves time passes its own).
+    ///   (a test engine; a test that moves time passes its own).
     public init(kind: BrowserEngineKind = .webkit, completesNavigationsImmediately: Bool = true,
                 waitDeadlines: MainWakeUpQueue? = nil) {
         self.kind = kind

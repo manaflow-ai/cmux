@@ -1,8 +1,8 @@
-//! Cold scrollback (p07-memory-041; plans/cmux-next/chrome-parity/p07-memory.md).
+//! Cold scrollback (plans/cmux-next/chrome-parity/p07-memory.md).
 //!
 //! A terminal that no client views and that printed nothing for
-//! [`COLD_SCROLLBACK_AFTER`] is compressed with ghostty-vt's lossless codec
-//! (p07-memory-040), on one utility thread per mux. Its next access restores
+//! [`COLD_SCROLLBACK_AFTER`] is compressed with ghostty-vt's lossless codec,
+//! on one utility thread per mux. Its next access restores
 //! it first (surface/terminal_runtime/cold_terminal.rs), so a read is
 //! byte-identical. This is Chrome's tab discarding with its rules: only what
 //! the person cannot see, decided by one policy with one timer, restored on
@@ -10,7 +10,7 @@
 //! `chrome/browser/performance_manager/policies/page_discarding_helper.cc`).
 //!
 //! - Full persistence mode compresses nothing: its segment files are the
-//!   cold store there (p07-memory-072).
+//!   cold store there.
 //! - Nothing is compressed under memory pressure. Compressing reads every
 //!   page, and at warning the kernel may have compressed or swapped them
 //!   already; reading them would bring them back. A due terminal waits one
@@ -33,6 +33,7 @@ use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use cmux_threads::ThreadQos;
 
 use super::*;
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 use crate::surface::{ColdFreeze, ThawWake};
 
 /// Wakes the cold-scrollback worker; a send never blocks.
@@ -47,7 +48,7 @@ impl ColdScrollbackWake {
 }
 
 /// How long a terminal stays unviewed and quiet before it is compressed.
-/// `DaemonBudget::cold_scrollback_after` (p07-memory-089) replaces it.
+/// `DaemonBudget::cold_scrollback_after` replaces it.
 pub(crate) const COLD_SCROLLBACK_AFTER: Duration = Duration::from_secs(10 * 60);
 
 /// The kernel's memory pressure level.
@@ -232,9 +233,15 @@ impl Mux {
     ) -> std::io::Result<()> {
         let Some(wakes) = self.install_cold_scrollback_wake() else { return Ok(()) };
         let mux = Arc::downgrade(self);
-        cmux_threads::spawn("mux-cold-scrollback", ThreadQos::Utility, move || {
-            run_cold_scrollback(&mux, &wakes, policy);
-        })?;
+        supervised::spawn_at(
+            "mux-cold-scrollback",
+            ThreadQos::Utility,
+            Fatal,
+            ShutdownBehavior::Continue,
+            move || {
+                run_cold_scrollback(&mux, &wakes, policy);
+            },
+        )?;
         Ok(())
     }
 

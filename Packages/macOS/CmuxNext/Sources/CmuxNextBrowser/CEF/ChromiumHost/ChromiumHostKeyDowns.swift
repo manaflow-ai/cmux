@@ -9,7 +9,7 @@ struct ChromiumHostInputReceipt: Equatable, Sendable {
 
 /// The Command and Control key-downs a hosted page view sent (``ChromiumHostPageView``), by the
 /// browser and input seq of the frame that carried each, until that browser reports the key
-/// unhandled (KEY_UNHANDLED with the seq, p01-process-030).
+/// unhandled (KEY_UNHANDLED with the seq).
 ///
 /// A report names its key exactly (the host's side, `CEFShim/src/host_key_seqs.h`, pairs it by the
 /// event Chromium queued, as Chrome's ack carries the queued event back). A key the page handled is

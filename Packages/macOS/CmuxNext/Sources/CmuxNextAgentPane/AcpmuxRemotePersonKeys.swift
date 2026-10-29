@@ -78,7 +78,7 @@ public nonisolated final class AcpmuxSecretKey: @unchecked Sendable { // crash-a
             while offset < count {
                 // SAFETY: base is the line's buffer of `count` bytes (withLine), live for this closure; 0 <= offset
                 // < count (the loop's condition), so the write covers the count - offset bytes left.
-                let written = unsafe Darwin.write(descriptor, base + offset, count - offset)
+                let written = unsafe blockingWrite(descriptor, base + offset, count - offset)
                 if written < 0, errno == EINTR { continue }
                 guard written > 0 else { return false }
                 offset += written

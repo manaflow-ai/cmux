@@ -3,9 +3,9 @@ import AppKit
 import CmuxNextChiefPetWiring
 import CmuxNextDaemon
 import CmuxNextDesign
-import CmuxNextWakeups
 @testable import CmuxNextHomeEngine
 @testable import CmuxNextSettings
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -71,7 +71,7 @@ import Testing
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         await settings.reload()
         let home = directory.appending(path: "brain")
-        let popover = HomeChiefSettingsView(muxHome: home, source: HomeChiefLocalEngine(files: HomeChiefFiles(muxHome: home), connection: { nil }))
+        let popover = HomeChiefSettingsView(muxHome: home, source: HomeChiefLocalEngine(files: HomeChiefFiles(muxHome: home), lanes: BackgroundWork(label: "test.chief-engine"), connection: { nil }))
         let rows = ChiefPetSettingsRows(settings: { settings }, homes: ChiefPetHomes(),
                                         picks: ChiefMascotPicks(defaults: nil, defaultChief: HomeChiefAvatars.defaultChief))
         rows.install(in: popover, node: node, mainWork: linklessMainWork(), addRow: { popover.addAppearanceRow($0, control: $1) },
@@ -134,7 +134,7 @@ import Testing
         let directory = FileManager.default.temporaryDirectory.appending(path: "cnc-chief-pet-ordered-out-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: directory) }
         let home = directory.appending(path: "brain")
-        let popover = HomeChiefSettingsView(muxHome: home, source: HomeChiefLocalEngine(files: HomeChiefFiles(muxHome: home), connection: { nil }))
+        let popover = HomeChiefSettingsView(muxHome: home, source: HomeChiefLocalEngine(files: HomeChiefFiles(muxHome: home), lanes: BackgroundWork(label: "test.chief-engine"), connection: { nil }))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled],
                               backing: .buffered, defer: true)
         window.isReleasedWhenClosed = false

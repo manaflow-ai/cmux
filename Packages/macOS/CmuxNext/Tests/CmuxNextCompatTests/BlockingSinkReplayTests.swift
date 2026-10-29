@@ -4,7 +4,7 @@ import Dispatch
 import Foundation
 import Testing
 
-/// The sink sees every site of the launch once (p02-threads-008): a site recorded before the composition
+/// The sink sees every site of the launch once: a site recorded before the composition
 /// root installs the sink is replayed to it at install, a site after reaches it by the drain, and
 /// every call runs on the detector's drain queue.
 @Suite(.serialized)

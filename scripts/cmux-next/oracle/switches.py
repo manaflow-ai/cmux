@@ -66,6 +66,11 @@ configured trial that no code queried reports nothing; here the site counts the 
   and an `expected_differences` list that diff.py refuses.
 `--check` does not read the date: an expired switch is the `--expired` queue (task 171), not a refusal.
 
+`bisect_switch_set(candidates, probe, seed=N)` (task p15-oracle-183) is the search of `oracle.py bisect-switches
+CASE`: the smallest set of switches at their `planned` arm whose run of CASE diverges from all-default. ddmin over
+an order shuffled by the seed, then every smaller set in that order (up to max_proof_probes) to prove it the
+smallest; the same seed and probe answers give the same probes. `--selftest` plants interactions and checks it.
+
 `--expired` (MQ-switch-expiry) prints, by `expires` day then name, one line per switch:
     NAME expired=DAY owner=OWNER key=app:KEY|daemon:KEY catalog=PATH default=ARM keep=ARM delete=P1,P2,...
 `keep` is the `planned` arm. `delete` is the old arm's `old_paths` (only when `keep` is new) and the
@@ -84,7 +89,10 @@ import argparse
 import datetime as dt
 import importlib
 import io
+import itertools
 import json
+import math
+import random
 import re
 import shlex
 import shutil
@@ -93,7 +101,7 @@ import tempfile
 from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any, Dict, List, Mapping, Optional, Sequence, Set, Tuple
+from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Set, Tuple
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[2]
@@ -386,7 +394,7 @@ def check(roots: Roots) -> Tuple[List[Finding], int]:
 
 
 # ---------------------------------------------------------------------------------------------------------
-# --expired (task p15-oracle-171): the MQ-switch-expiry queue, one deletion task per switch
+# --expired: the MQ-switch-expiry queue, one deletion task per switch
 
 
 @dataclass(frozen=True)
@@ -449,7 +457,7 @@ def expired(roots: Roots, today: dt.date) -> Tuple[List[DeletionTask], List[Find
 
 
 # ---------------------------------------------------------------------------------------------------------
-# --hits (p15-oracle-027)
+# --hits
 
 
 ARMS = ("old", "new")
@@ -556,7 +564,7 @@ def hits(roots: Roots, report_path: Path, name: str, arm: str) -> HitVerdict:
 
 
 # ---------------------------------------------------------------------------------------------------------
-# Applying and reading back the arms (p15-oracle-049)
+# Applying and reading back the arms
 
 
 APP_SWITCHES_ENV = "CMUX_NEXT_SWITCHES"
@@ -762,6 +770,108 @@ def parse_requests(items: Sequence[str]) -> Dict[str, str]:
             raise UsageError(f"{name} is requested twice")
         requested[name] = arm
     return requested
+
+
+# ---------------------------------------------------------------------------------------------------------
+# bisect-switches: the smallest switch set at its planned arm that makes one case
+# diverge from all-default. `oracle.py bisect-switches CASE` runs the probes; this is the search.
+
+
+PROBE_DIVERGENT, PROBE_SAME = "divergent", "same"
+# Probe sizes the smallest-set proof may spend after ddmin; past it the answer is only 1-minimal.
+DEFAULT_MAX_PROOF_PROBES = 64
+
+# A probe: the sorted switch names set to their planned arm (every other switch at its default) to the
+# verdict of the case against all-default: PROBE_DIVERGENT, PROBE_SAME, or anything else (flaky, refused),
+# which stops the search because no later answer could be trusted.
+Probe = Callable[[Tuple[str, ...]], str]
+
+
+@dataclass(frozen=True)
+class BisectResult:
+    """verdict: found (switches is the set), not-reproducible (the whole set does not diverge) or unreliable
+    (a probe answered neither divergent nor same; reason names it). minimality: smallest (no smaller set
+    diverges: every smaller one was probed) or 1-minimal (dropping any one switch stops the divergence)."""
+
+    verdict: str
+    order: Tuple[str, ...]
+    switches: Tuple[str, ...] = ()
+    minimality: Optional[str] = None
+    probes: Tuple[Tuple[Tuple[str, ...], str], ...] = ()
+    reason: Optional[str] = None
+
+
+class _Unreliable(Exception):
+    pass
+
+
+def _chunks(items: Sequence[str], n: int) -> List[Tuple[str, ...]]:
+    size, extra = divmod(len(items), n)
+    out, start = [], 0
+    for index in range(n):
+        end = start + size + (1 if index < extra else 0)
+        out.append(tuple(items[start:end]))
+        start = end
+    return out
+
+
+def bisect_switch_set(candidates: Sequence[str], probe: Probe, *, seed: int,
+                      max_proof_probes: int = DEFAULT_MAX_PROOF_PROBES) -> BisectResult:
+    """Delta debugging (Zeller and Hildebrandt, "Simplifying and Isolating Failure-Inducing Input", 2002)
+    over the switches in a seeded order, then a size-ascending search below ddmin's answer to prove it the
+    smallest. Chrome's tools/variations/bisect_variations.py halves a field-trial config to one culprit
+    study; ddmin also finds an interaction of several. The same seed and probe answers give the same probes."""
+    order = sorted(set(candidates))
+    random.Random(seed).shuffle(order)
+    answers: Dict[frozenset, bool] = {}
+    log: List[Tuple[Tuple[str, ...], str]] = []
+
+    def diverges(subset: Sequence[str]) -> bool:
+        key = frozenset(subset)
+        if not key:
+            return False  # all-default against itself: confirm.py's question, not a switch's
+        if key not in answers:
+            names = tuple(sorted(key))
+            verdict = probe(names)
+            log.append((names, verdict))
+            if verdict not in (PROBE_DIVERGENT, PROBE_SAME):
+                raise _Unreliable(f"probe {','.join(names)}: {verdict}")
+            answers[key] = verdict == PROBE_DIVERGENT
+        return answers[key]
+
+    def result(verdict: str, **fields: Any) -> BisectResult:
+        return BisectResult(verdict, tuple(order), probes=tuple(log), **fields)
+
+    if not order:
+        return result("not-reproducible", reason="no switch has a planned arm unlike its default")
+    try:
+        if not diverges(order):
+            return result("not-reproducible", reason="every switch at its planned arm does not diverge")
+        items: List[str] = list(order)
+        n = 2
+        while len(items) >= 2:
+            chunks = _chunks(items, n)
+            subset = next((c for c in chunks if diverges(c)), None)
+            if subset is not None:
+                items, n = list(subset), 2
+                continue
+            complement = next((rest for rest in ([x for x in items if x not in c] for c in chunks)
+                               if n > 2 and diverges(rest)), None)
+            if complement is not None:
+                items, n = complement, max(n - 1, 2)
+                continue
+            if n >= len(items):
+                break
+            n = min(len(items), 2 * n)
+        smaller_total = sum(math.comb(len(order), size) for size in range(1, len(items)))
+        answered = sum(1 for key in answers if len(key) < len(items))
+        if smaller_total - answered > max_proof_probes:
+            return result("found", switches=tuple(sorted(items)), minimality="1-minimal")
+        smaller = (combo for size in range(1, len(items)) for combo in itertools.combinations(order, size))
+        found = next((combo for combo in smaller if diverges(combo)), None)
+        return result("found", switches=tuple(sorted(found or items)), minimality="smallest")
+    except _Unreliable as error:
+        return result("unreliable", reason=str(error))
 
 
 # ---------------------------------------------------------------------------------------------------------
@@ -1232,8 +1342,60 @@ def selftest_arms(tmp: Path) -> Tuple[List[str], int]:
     return failures, checks
 
 
+def planted(*culprits: str, flaky: Tuple[str, ...] = ()) -> Probe:
+    """A probe whose case diverges exactly when every switch of `culprits` is in the set (a planted
+    interaction); a set equal to `flaky` answers flaky."""
+    def probe(names: Tuple[str, ...]) -> str:
+        if names == tuple(sorted(flaky)):
+            return "flaky"
+        return PROBE_DIVERGENT if culprits and set(culprits) <= set(names) else PROBE_SAME
+    return probe
+
+
+BISECT_NAMES = ("cef-helper", "discard", "holder", "intents", "layer-hosting", "motion", "overlay")
+
+
+@dataclass(frozen=True)
+class BisectRow:
+    label: str
+    culprits: Tuple[str, ...]
+    want: Tuple[str, Tuple[str, ...], Optional[str]]  # verdict, switches, minimality
+    names: Tuple[str, ...] = BISECT_NAMES
+    flaky: Tuple[str, ...] = ()
+    budget: int = DEFAULT_MAX_PROOF_PROBES
+
+
+SELFTEST_BISECT = [
+    BisectRow("planted pair", ("holder", "overlay"), ("found", ("holder", "overlay"), "smallest")),
+    BisectRow("one switch", ("intents",), ("found", ("intents",), "smallest")),
+    BisectRow("every switch", BISECT_NAMES, ("found", BISECT_NAMES, "1-minimal")),
+    BisectRow("triple, no proof budget", ("discard", "holder", "motion"),
+              ("found", ("discard", "holder", "motion"), "1-minimal"), budget=0),
+    BisectRow("no divergence", (), ("not-reproducible", (), None)),
+    BisectRow("no suspects", ("holder",), ("not-reproducible", (), None), names=()),
+    BisectRow("a flaky probe", ("holder", "overlay"), ("unreliable", (), None), flaky=BISECT_NAMES),
+]
+BISECT_SEEDS = range(1, 41)
+
+
+def selftest_bisect() -> List[str]:
+    """Each row over BISECT_SEEDS: the verdict and set, and the same probes for a seed twice."""
+    failures = []
+    for row in SELFTEST_BISECT:
+        for seed in BISECT_SEEDS:
+            first, again = (bisect_switch_set(row.names, planted(*row.culprits, flaky=row.flaky), seed=seed,
+                                              max_proof_probes=row.budget) for _ in range(2))
+            got = (first.verdict, first.switches, first.minimality)
+            if got != row.want or first != again:
+                failures.append(f"bisect {row.label} seed {seed}: got {got}, want {row.want}, "
+                                f"deterministic {first == again}")
+                break
+    return failures
+
+
 def selftest() -> int:
     failures = selftest_closures()
+    failures.extend(selftest_bisect())
     with tempfile.TemporaryDirectory(prefix="oracle-switches-") as name:
         tmp = Path(name)
         for label, files, site, want in SELFTEST_CASES:
@@ -1255,10 +1417,11 @@ def selftest() -> int:
         messages = [str(f) for f in check(missing)[0]]
         if not (len(messages) == 2 and APP_CATALOG_TASK in messages[1] and DAEMON_CATALOG_TASK in messages[0]):
             failures.append(f"missing catalogs: got {messages}")
-    # The closure, refusal, --expired, --expired CLI, --hits, --hits golden and --hits CLI tables, the missing registry,
-    # the missing catalogs, the golden sites, the --hits line round trip and the arm checks.
+    # The closure, refusal, --expired, --expired CLI, --hits, --hits golden, --hits CLI and bisect tables, the
+    # missing registry, the missing catalogs, the golden sites, the --hits line round trip and the arm checks.
     total = (len(SELFTEST_CLOSURES) + len(SELFTEST_CASES) + len(SELFTEST_EXPIRED) + len(SELFTEST_EXPIRED_CLI)
-             + len(SELFTEST_HITS) + len(SELFTEST_HITS_GOLDEN) + len(SELFTEST_HITS_CLI) + 4 + arm_checks)
+             + len(SELFTEST_HITS) + len(SELFTEST_HITS_GOLDEN) + len(SELFTEST_HITS_CLI) + len(SELFTEST_BISECT) + 4
+             + arm_checks)
     for failure in failures:
         print(f"FAIL {failure}")
     print(f"selftest: {total - len(failures)}/{total} pass")

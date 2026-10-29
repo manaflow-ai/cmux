@@ -12,7 +12,7 @@ import Foundation
 /// Immutable C function pointers, closures over them, and the immutable resolver they came from
 /// (`dlsym` on a handle never closed): safe to hand from the loading thread to the main thread.
 ///
-/// Memory safety (p10-stability-067): every C string, buffer and out-parameter crosses here, as
+/// Memory safety: every C string, buffer and out-parameter crosses here, as
 /// Chromium keeps its `UNSAFE_BUFFERS()` at the boundary (docs/unsafe_buffers.md). Callers pass and
 /// get Swift values (`String?`, `[Int32]`, ``CEFShimBounds``, ``CEFParentView``); only the
 /// callback installers, `initialize`, `passwordReveal`'s callback and context, and the mirror's `free` keep C types.
@@ -65,7 +65,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     /// Fork API 27: `cmux_shim_browser_set_resize_sync` (deadline in ms, 0 never holds the commit).
     let browserSetResizeSync: @convention(c) (Int32, Int32) -> Int32
     /// `cmux_shim_browser_set_resize_fence(browser, fence, deadline_frames)` (fork API
-    /// ``CEFLayerHosting/resizeFenceForkAPI``, p03-rendering-042): 1 when the fork took its own send
+    /// ``CEFLayerHosting/resizeFenceForkAPI``): 1 when the fork took its own send
     /// right to `fence` for the page's next GPU commit at its new size. Nil when the shim lacks the
     /// export, and in host mode: a Mach port name means nothing in the Chromium Host's process.
     let browserSetResizeFence: (@convention(c) (Int32, UInt32, UInt32) -> Int32)?
@@ -79,19 +79,19 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let browserAccessibilityToken: (_ browser: Int32, _ embedderPID: Int32, _ viewToken: [UInt8], _ windowToken: [UInt8],
                                     _ capacity: Int32) -> ChromiumHostAccessibilityToken
     /// Fork API 34: `cmux_shim_browser_set_embedder_visibility` (a `cmux_shim_embedder_visibility_t`; 1 when the
-    /// fork took it). Nil on a shim without the export (task p03-rendering-058).
+    /// fork took it). Nil on a shim without the export.
     let browserSetEmbedderVisibility: (@convention(c) (Int32, Int32) -> Int32)?
     /// Fork API 31: `cmux_shim_browser_set_page_visibility` (a ``ChromiumHostPageVisibility``), what cmux shows
-    /// of a detached page's window; host mode only (task p01-process-220).
+    /// of a detached page's window; host mode only.
     let browserSetPageVisibility: @convention(c) (Int32, Int32) -> Int32
     /// Fork API 37: `cmux_shim_tab_set_visibility(browser, visibility, capture)` (a `cmux_shim_tab_visibility_t`
     /// and a `cmux_shim_tab_capture_t`): the tab's visibility tree node caps its WebContents' visibility
     /// (``CEFTab/followVisibility(of:capture:)``). A post in host mode, so no caller reads its answer. Nil on a
-    /// shim without the export (task p06-scheduler-212).
+    /// shim without the export.
     let tabSetVisibility: (@convention(c) (Int32, Int32, Int32) -> Int32)?
-    /// Fork API 39: `cmux_shim_tab_page_push(browser, text)`, a string to the receiver a cmux-page document
+    /// Fork API 43: `cmux_shim_tab_page_push(browser, text)`, a string to the receiver a cmux-page document
     /// registered (the page push channel, ``CEFPagePush``). A post in host mode, so no caller reads its
-    /// answer. Nil on a shim without the export (task p13-webui-079).
+    /// answer. Nil on a shim without the export.
     let tabPagePush: ((Int32, String) -> Int32)?
     /// Fork API 31: `cmux_shim_browser_set_page_display(browser, display_id, screen_x, screen_y)`, the display a
     /// detached page window takes its scale, color space and refresh rate from (task 221); 0 when the fork lacks it.
@@ -103,8 +103,11 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         UnsafeMutableRawPointer?, ScheduleFn?, EventFn?, KeyFn?
     ) -> Int32
     let doWork: @convention(c) () -> Void
+    /// `cmux_shim_set_pump_time_slice(us)`: the slice of the next `doWork` only (fork
+    /// `cmux_set_message_loop_time_slice`); 1 when the fork has the call, 0 otherwise.
+    let setPumpTimeSlice: @convention(c) (Int64) -> Int32
     /// `cmux_shim_set_schedule_delayed`: CEF's delayed work as absolute run times with Chromium's
-    /// leeway (p14-energy-046); 1 when the fork has the call, 0 when delayed work stays on `ScheduleFn`.
+    /// leeway; 1 when the fork has the call, 0 when delayed work stays on `ScheduleFn`.
     let setScheduleDelayed: @convention(c) (ScheduleDelayedFn?) -> Int32
     /// `cmux_shim_set_energy_saver(enabled, exempt_scheme)` (``CEFEnergySaver``); 1 when the fork took it.
     let setEnergySaver: (Int32, String?) -> Int32
@@ -115,7 +118,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     /// The same window whose first tab has no renderer and never navigates (the spare window's
     /// placeholder, fork `CMUX_EXTRA_INFO_NO_RENDERER`); 0 when `placeholderSupported` is 0.
     let createPlaceholderWindow: (Int32, CEFParentView?, Int32, Int32, String?) -> Int32
-    /// 1 when the fork makes renderer-less placeholders (`cmux_tab_renderer_state`, p13-webui-017).
+    /// 1 when the fork makes renderer-less placeholders (`cmux_tab_renderer_state`).
     let placeholderSupported: @convention(c) () -> Int32
     let tabAdd: (Int32, String?, Int32, Int32) -> Int32
     let tabDuplicate: @convention(c) (Int32, Int32, Int32) -> Int32
@@ -184,7 +187,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let extSetPinned: (Int32, String?, Int32) -> Int32
     let extOpenOptions: (Int32, String?) -> Int32
     let extLoadUnpacked: (Int32, String?) -> Int32
-    /// 1 when the fork has `cmux_ext_load_command_line_async` (p13-webui-055); a mirror read in host mode.
+    /// 1 when the fork has `cmux_ext_load_command_line_async`; a mirror read in host mode.
     let extLoadLaterSupported: @convention(c) () -> Int32
     /// `--load-extension`'s load into a persistent context key's profile (context key, reply id, folder),
     /// answered by a CMUX_SHIM_REPLY under the reply id (``CEFBuiltInExtensionLoads``).
@@ -267,8 +270,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     /// Every browser's frames per renderer client id (``CEFRendererFrames``); nil when the list grew between
     /// the sizing call and the read (a partial list would hide frames). Empty in host mode.
     let rendererFrames: () -> [CEFRendererFrames.Entry]?
-    /// The pid of the renderer hosting the tab's main frame (the fork's `cmux_cef_browser_renderer_pid`,
-    /// p14-energy-124); 0 while none, on a fork without the call, and in host mode.
+    /// The pid of the renderer hosting the tab's main frame (the fork's `cmux_cef_browser_renderer_pid`);
+    /// 0 while none, on a fork without the call, and in host mode.
     let rendererPID: @convention(c) (Int32) -> Int32
 
     // Renderer paths that keep a tab off DevTools (fork API 29, `CEFForkFeatures.rendererPaths`), so
@@ -285,15 +288,15 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let tabSetFrozen: (@convention(c) (Int32, Int32) -> Int32)?
     /// `CefBrowserHost::SendMouseClickEvent` down and up: browser, x, y (view points), button, modifiers, clicks.
     let tabSendClick: (@convention(c) (Int32, Double, Double, Int32, Int32, Int32) -> Int32)?
-    /// `CefBrowserHost::SendMouseMoveEvent` with no button held (p13-webui-077): browser, x, y (view points),
+    /// `CefBrowserHost::SendMouseMoveEvent` with no button held: browser, x, y (view points),
     /// modifiers. Nil without the export.
     let tabSendMouseMove: (@convention(c) (Int32, Double, Double, Int32) -> Int32)?
     /// The page's `prefers-color-scheme` (WebPreferences preferred_color_scheme): browser, 1 light, 2 dark.
     let tabSetColorScheme: (@convention(c) (Int32, Int32) -> Int32)?
-    /// `WebContents::Discard` in place (p13-webui-018): browser; 1 discarded, 0 refused. Nil without the
+    /// `WebContents::Discard` in place: browser; 1 discarded, 0 refused. Nil without the
     /// export and in host mode, whose return means only "sent" (the answer is a later REPLY).
     let tabDiscard: (@convention(c) (Int32) -> Int32)?
-    /// The page as it last drew, with no DevTools agent (the fork's `cmux_browser_capture`, p13-webui-077):
+    /// The page as it last drew, with no DevTools agent (the fork's `cmux_browser_capture`):
     /// browser, reply id, max width, max height (pixels), format (``CEFSurfaceCopyFormat``), JPEG quality;
     /// 1 started. CMUX_SHIM_REPLY answers (``CEFTab/copySurface(maxPixelSize:)``). Nil without the export.
     let tabCopySurface: (@convention(c) (Int32, Int32, Int32, Int32, Int32, Int32) -> Int32)?
@@ -309,7 +312,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     /// The color chooser, device choosers and screen-share picker as data (task 228, fork API 31).
     let choosers: CEFShimChooserOps
     let textInput: CEFShimTextInputOps
-    /// `cmux_shim_browser_attach_view(browser, parent_view)` (fork API 36, p03-rendering-044, Track B): moves the
+    /// `cmux_shim_browser_attach_view(browser, parent_view)` (fork API 36, Track B): moves the
     /// browser's `WebContentsViewCocoa` into `parent_view` (an NSView), below its other subviews; 1 attached, 0
     /// refused (an unknown browser, no page window yet, a fork below API 36). Nil without the export and in host
     /// mode, where no view pointer crosses the process.
@@ -346,7 +349,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     /// The same with the page's dynamic prefixes (newline-separated), which the page host answers,
     /// and the file `/` serves (NULL = index.html).
     let pageSchemeAddFirstPartyDynamic: (String?, String?, String?, String?, String?) -> Int32
-    /// The renderer group of a first-party page (p13-webui-011): id, group name (`privileged`); 1 set,
+    /// The renderer group of a first-party page: id, group name (`privileged`); 1 set,
     /// 0 an unknown id or group. Call before `CefInitialize` ends. Optional: a fork before page groups
     /// has no such export (nil) and still loads, with no page in a group.
     let pageSchemeSetGroup: ((String?, String?) -> Int32)?

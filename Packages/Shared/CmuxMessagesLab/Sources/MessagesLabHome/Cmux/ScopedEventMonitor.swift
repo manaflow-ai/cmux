@@ -1,4 +1,4 @@
-// cmux (p10-stability-044): an NSEvent local monitor owned like a stored value. Not a vendored file.
+// cmux: an NSEvent local monitor owned like a stored value. Not a vendored file.
 import AppKit
 
 /// An NSEvent local monitor that is removed when this object is released.

@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextSettings
 import CmuxNextWakeups
@@ -24,17 +25,21 @@ final class WorkspaceBackgroundStore {
     /// The file has entries this build cannot read, or could not be read: it is left as is.
     @ObservationIgnored private var keepsFile = false
     @ObservationIgnored private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "themes")
+    /// The app's blocking-work lanes: the file's read and writes run there.
+    @ObservationIgnored private let runner: any MayBlockRunner
 
     /// `url` nil keeps backgrounds in memory only (tests).
-    init(url: URL?) {
+    init(url: URL?, runner: any MayBlockRunner) {
         self.url = url
+        self.runner = runner
     }
 
-    static func forApplication(bundleIdentifier: String?, file: String = "workspace-backgrounds.json") -> WorkspaceBackgroundStore {
+    static func forApplication(bundleIdentifier: String?, file: String = "workspace-backgrounds.json",
+                               runner: any MayBlockRunner) -> WorkspaceBackgroundStore {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? URL(filePath: NSTemporaryDirectory())
         let bundle = bundleIdentifier.flatMap { $0.isEmpty ? nil : $0 } ?? "com.cmuxterm.app.next"
-        return WorkspaceBackgroundStore(url: support.appending(path: bundle).appending(path: file))
+        return WorkspaceBackgroundStore(url: support.appending(path: bundle).appending(path: file), runner: runner)
     }
 
     static func key(session: String, workspace: String) -> String { "\(session)/\(workspace)" }
@@ -67,11 +72,11 @@ final class WorkspaceBackgroundStore {
             .reply(on: mainWork, class: .visible, owner: "WorkspaceBackgroundStore.load") { [weak self] loaded in self?.merge(loaded) }
     }
 
-    /// Reads the file off the main thread and returns once its entries merged (a caller that awaits the read: tests).
+    /// Reads the file on the runner's files lane and returns once its entries merged (a caller that awaits the read: tests).
     func load() async {
         guard let url else { return }
         let logger = logger
-        merge(await Task.detached(priority: .userInitiated) { TerminalThemeStore.read(url, logger: logger) }.value)
+        merge((try? await runner.runFiles(.userBlocking) { TerminalThemeStore.read(url, logger: logger) }) ?? (themes: [:], complete: false))
     }
 
     private func merge(_ loaded: (themes: [String: String], complete: Bool)) {
@@ -100,16 +105,20 @@ final class WorkspaceBackgroundStore {
         }
         let data = try? JSONEncoder().encode(backgrounds)
         let empty = backgrounds.isEmpty
-        let previous = lastWrite, logger = logger
-        // priority-allow: only tests await lastWrite (flush); no person waits for a save
-        lastWrite = Task.detached(priority: .utility) {
+        let previous = lastWrite, logger = logger, runner = runner
+        // task-owner: lastWrite; each write waits for the one before it, so they land in order. Nonisolated: it only
+        // awaits the files lane, so no main-thread job runs for it.
+        lastWrite = Task { @concurrent in
             await previous?.value
             do {
-                if let data, !empty {
-                    try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-                    try data.write(to: url, options: .atomic)
-                } else if FileManager.default.fileExists(atPath: url.path) {
-                    try FileManager.default.removeItem(at: url)
+                // One small atomic replace: quit waits for it.
+                try await runner.runFiles(.bestEffort, shutdown: .blockShutdown) {
+                    if let data, !empty {
+                        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+                        try data.write(to: url, options: .atomic)
+                    } else if FileManager.default.fileExists(atPath: url.path) {
+                        try FileManager.default.removeItem(at: url)
+                    }
                 }
             } catch {
                 logger.error("workspace backgrounds write failed: \(String(describing: error), privacy: .public)")

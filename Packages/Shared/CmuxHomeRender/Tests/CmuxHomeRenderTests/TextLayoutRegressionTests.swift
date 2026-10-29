@@ -5,7 +5,7 @@ import Foundation
 import Testing
 @testable import CmuxHomeRender
 
-/// What HomeRenderFuzzTests (p10-stability-028) found in the text path: a mention range from the wire
+/// What HomeRenderFuzzTests found in the text path: a mention range from the wire
 /// trapped on `NSMaxRange`'s overflow when the bubble was drawn, a zero or NaN wrap width, and drawing that
 /// re-walked every earlier line for each line's baseline (O(lines²)).
 @MainActor

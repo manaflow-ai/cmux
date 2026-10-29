@@ -34,11 +34,11 @@ nonisolated struct AcpmuxFailureLog: Sendable {
     func record(_ cause: AcpmuxFailureCause, detail: String) -> Bool {
         Self.logger.error("cannot reach acpmux: \(cause.logText, privacy: .public) \(detail, privacy: .public) log=\(logPath, privacy: .public)")
         guard Self.written.withLock({ $0.insert("\(logPath)|\(cause)").inserted }) else { return false }
-        guard let handle = FileHandle(forWritingAtPath: logPath) else { return false }
+        guard let handle = try? FileHandle.blockingForWriting(to: URL(fileURLWithPath: logPath)) else { return false }
         defer { try? handle.close() }
         do {
-            try handle.seekToEnd()
-            try handle.write(contentsOf: Data(line(cause, detail: detail).utf8))
+            try handle.blockingSeekToEnd()
+            try handle.blockingWrite(contentsOf: Data(line(cause, detail: detail).utf8))
             return true
         } catch {
             return false

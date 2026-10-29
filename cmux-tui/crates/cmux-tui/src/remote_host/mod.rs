@@ -66,11 +66,11 @@ pub(crate) fn handles(raw_args: &[String]) -> bool {
     if raw_args.first().map(String::as_str) != Some("host") {
         return false;
     }
-    let rest = &raw_args[1..];
+    let rest = crate::panic_free::rest_after(raw_args, 1);
     match rest.first().map(String::as_str) {
         Some(verb) if VERBS.contains(&verb) => true,
         Some(verb) if PAIRING_VERBS.contains(&verb) => cfg!(unix),
-        Some("status") => status_is_remote(&rest[1..]),
+        Some("status") => status_is_remote(crate::panic_free::rest_after(rest, 1)),
         _ => false,
     }
 }
@@ -84,13 +84,14 @@ fn status_is_remote(args: &[String]) -> bool {
     if args.iter().any(|a| a == "--root") {
         return false;
     }
-    !(cfg!(target_os = "linux") && Path::new("/run/cmux-host/status.json").exists())
+    !(cfg!(target_os = "linux")
+        && cmux_blocking::fs::metadata(Path::new("/run/cmux-host/status.json")).is_ok())
 }
 
 /// Runs `cmux host <rest>`; returns the exit code.
 pub(crate) fn run(rest: &[String]) -> i32 {
     let verb = rest.first().map(String::as_str).unwrap_or_default();
-    let args = &rest[1.min(rest.len())..];
+    let args = crate::panic_free::rest_after(rest, 1);
     if verb == "dial" {
         return dial(args);
     }
@@ -283,9 +284,10 @@ pub(crate) fn self_exe() -> anyhow::Result<PathBuf> {
     if is_cmux_name(&exe) {
         return Ok(exe);
     }
-    let real = std::fs::canonicalize(&exe).unwrap_or_else(|_| exe.clone());
-    let same =
-        |candidate: &Path| std::fs::canonicalize(candidate).is_ok_and(|resolved| resolved == real);
+    let real = cmux_blocking::fs::canonicalize(&exe).unwrap_or_else(|_| exe.clone());
+    let same = |candidate: &Path| {
+        cmux_blocking::fs::canonicalize(candidate).is_ok_and(|resolved| resolved == real)
+    };
     let mut candidates = Vec::new();
     if let Some(argv0) = std::env::args_os().next().map(PathBuf::from)
         && is_cmux_name(&argv0)
@@ -601,7 +603,7 @@ fn active_guests() -> Value {
     }
     config::dir()
         .ok()
-        .and_then(|dir| std::fs::read(dir.join(serve::ACTIVE_FILE)).ok())
+        .and_then(|dir| cmux_blocking::fs::read(dir.join(serve::ACTIVE_FILE)).ok())
         .and_then(|bytes| serde_json::from_slice(&bytes).ok())
         .unwrap_or_else(|| json!([]))
 }

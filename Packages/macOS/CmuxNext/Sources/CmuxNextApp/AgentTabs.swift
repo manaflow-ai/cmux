@@ -107,13 +107,14 @@ final class AgentTabStore {
     var views: [String: AgentPaneView] = [:]
     /// A page is about to show: a tab's (``view(for:)``, an adopted spare) or a standalone chat (a
     /// prewarmed spare is not shown until adopted). The launch's New Tab feeds start right after the first frame
-    /// (`HomeService.postLaunchFeeds`, p08-startup-027).
+    /// (`HomeService.postLaunchFeeds`).
     var pageShown: @MainActor () -> Void = {}
     /// Agent tabs whose view waits for its launch post (`deferAtLaunch`).
     let launchDeferred = LaunchViewQueue()
     /// The tabs' pages from the last quit, drawn at launch (`AgentPaneLaunchImages`).
     var launchImages = AgentPaneLaunchImages(directory: nil)
-    /// The app's blocking-work lanes (`AppServices.work`), for each pane view's file drags (`AgentPaneView.work`).
+    /// The app's blocking-work lanes (`AppServices.work`), handed to every pane model (`AgentPaneModel.runner`) and view
+    /// (`AgentPaneView.work`) it makes.
     let work: any MayBlockRunner
     /// New chats' typed text from before they have a session, kept across a relaunch (cx-z5vd).
     var unsentDrafts = AgentUnsentDrafts(file: nil)
@@ -358,7 +359,7 @@ final class AgentTabStore {
         if kind == .local, (sessions[key] ?? record.session) == nil, daemonForTab(key)?.isLocal == false {
             let machine = daemonForTab(key).flatMap { remoteMachineName($0) } ?? ""
             let refused = AgentTabRefusedHost(refusal: AgentRemoteStartRefusal(code: AgentRemoteStartRefusal.hostMismatchCode, machine: machine))
-            let model = AgentPaneModel(host: refused, allowsTabConversion: false, deadlines: mainThread.deadlines)
+            let model = AgentPaneModel(runner: work, host: refused, allowsTabConversion: false, deadlines: mainThread.deadlines)
             // Its folder tools never act on this Mac either (cx-k21v).
             (model.remoteChat, model.neverPooled) = (true, true)
             guard let view = makeView(model, maker: .tab) else { return nil }
@@ -394,6 +395,7 @@ final class AgentTabStore {
             return spare
         }
         let model = AgentPaneModel(
+            runner: work,
             host: paneHost,
             sessionId: sessions[key] ?? record.session,
             seed: seed,
@@ -405,7 +407,7 @@ final class AgentTabStore {
         model.pendingRevealTurn = pendingTurns.removeValue(forKey: key)
         model.pendingWake = wakeStates.removeValue(forKey: key)
         model.chatOpen = ChatOpenStages(chat: createTabs?.interval(ofTab: key)) // its open, while it waits for its first paint
-        // A tab its connection found (relaunch) that no open of this run made: its page follows the launch order (p08-startup-041).
+        // A tab its connection found (relaunch) that no open of this run made: its page follows the launch order.
         if seed == nil, store.restoredTabIDs.contains(key), createTabs?.interval(ofTab: key) == nil { model.pageOrigin = .launchRestore }
         relaunchWake.hand(key, to: model)
         wire(model, key: key)
@@ -433,7 +435,7 @@ final class AgentTabStore {
     /// A preloaded new tab page (NewTabPreload): loaded, rendered and
     /// connected before any tab exists; ``open(in:of:session:seed:newTab:spare:linked:adopt:idempotencyKey:)`` adopts it.
     func makeSpare(_ page: AgentPaneNewTab) -> AgentPaneView? {
-        guard let view = makeView(AgentPaneModel(host: host, newTab: page, deadlines: mainThread.deadlines), shown: false, maker: .spare) else { return nil }
+        guard let view = makeView(AgentPaneModel(runner: work, host: host, newTab: page, deadlines: mainThread.deadlines), shown: false, maker: .spare) else { return nil }
         standaloneViews.add(view)
         return view
     }
@@ -566,7 +568,7 @@ final class AgentTabStore {
     /// A chat outside any pane (onboarding's first task, Start Agent's panel), new or on `session`,
     /// on the same daemon and page as the tabs. The caller owns it and closes it.
     func standaloneView(seed: AgentPaneSeed, session: String? = nil) -> AgentPaneView? {
-        guard let view = makeView(AgentPaneModel(host: host, sessionId: session, seed: AgentPaneSeedSource(seed), deadlines: mainThread.deadlines), maker: .standalone) else { return nil }
+        guard let view = makeView(AgentPaneModel(runner: work, host: host, sessionId: session, seed: AgentPaneSeedSource(seed), deadlines: mainThread.deadlines), maker: .standalone) else { return nil }
         standaloneViews.add(view)
         return view
     }

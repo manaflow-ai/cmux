@@ -23,7 +23,7 @@ nonisolated enum ChromiumPageTextAccessory {
     private typealias Getter = @convention(c) (AnyObject, Selector) -> Int
 
     /// The answer of a text input client cmux implements itself (host mode's
-    /// ``ChromiumHostPageView``, task p01-process-230): `.invisible` on a cmux
+    /// ``ChromiumHostPageView``): `.invisible` on a cmux
     /// page, the system's placement on a web page, the rule ``install(hides:)``
     /// gives Chromium's own view.
     static func placement(showsCmuxPage: Bool) -> NSTextCursorAccessoryPlacement {

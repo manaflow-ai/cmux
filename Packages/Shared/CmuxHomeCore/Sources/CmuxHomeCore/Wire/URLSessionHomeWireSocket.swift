@@ -17,6 +17,7 @@ final class URLSessionHomeWireSocket: HomeWireSocket {
     }
 
     func receive() async throws -> String {
+        // wakeup-allow: bounded each pass awaits one WebSocket message; a text or data frame or an error ends it
         while true {
             switch try await task.receive() {
             case .string(let text): return text

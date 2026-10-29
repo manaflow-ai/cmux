@@ -9,7 +9,7 @@ import Testing
 /// `ReleaseNotesStore` does. A tampered byte or a foreign key fails both.
 /// The `resolve` and `serial` cases are decoded in the shape the daemon
 /// replays (each layer gated on its own, one serial per document), so the
-/// app's remote overrides model (task p12-perf-process-092) reads the same.
+/// app's remote overrides model reads the same.
 @Suite struct FlagsDocumentVectorTests {
     struct Vectors: Decodable {
         struct Case: Decodable {

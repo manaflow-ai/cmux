@@ -1,8 +1,3 @@
-#if canImport(Darwin)
-import Darwin
-#elseif canImport(Glibc)
-import Glibc
-#endif
 import Foundation
 
 /// One canonical numeric address for a user-configured private path.
@@ -98,32 +93,11 @@ public struct CmxIrohCustomPrivateAddress: Codable, Equatable, Hashable, Sendabl
     }
 
     private static func canonicalIPv4(_ rawValue: String) -> String? {
-        var address = in_addr()
-        guard rawValue.withCString({ inet_pton(AF_INET, $0, &address) }) == 1 else {
-            return nil
-        }
-        var buffer = [CChar](repeating: 0, count: Int(clamping: INET_ADDRSTRLEN))
-        guard inet_ntop(AF_INET, &address, &buffer, socklen_t(INET_ADDRSTRLEN)) != nil else {
-            return nil
-        }
-        return Self.string(beforeNullIn: buffer)
+        CmxIPLiteral(rawValue, family: .ipv4)?.canonicalText
     }
 
     private static func canonicalIPv6(_ rawValue: String) -> String? {
-        var address = in6_addr()
-        guard rawValue.withCString({ inet_pton(AF_INET6, $0, &address) }) == 1 else {
-            return nil
-        }
-        var buffer = [CChar](repeating: 0, count: Int(clamping: INET6_ADDRSTRLEN))
-        guard inet_ntop(AF_INET6, &address, &buffer, socklen_t(INET6_ADDRSTRLEN)) != nil else {
-            return nil
-        }
-        return Self.string(beforeNullIn: buffer)
-    }
-
-    private static func string(beforeNullIn buffer: [CChar]) -> String {
-        let bytes = buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }
-        return String(decoding: bytes, as: UTF8.self)
+        CmxIPLiteral(rawValue, family: .ipv6)?.canonicalText
     }
 }
 

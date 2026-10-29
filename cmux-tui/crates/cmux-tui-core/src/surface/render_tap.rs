@@ -22,16 +22,16 @@ pub enum RenderAttachFrame {
     ScrollChanged { offset: u64, at_bottom: bool },
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum PendingRenderKind {
-    Frame,
-    Scroll,
-}
-
+/// A tap's undrained events, coalesced in stream order: at most one
+/// `scroll-changed` before the pending frame, the frame, and at most one
+/// `scroll-changed` after it. A newer position replaces an older one in the
+/// same slot and frames coalesce, so the queue stays bounded however far the
+/// receiver lags, and a frame never overtakes the position of the scroll that
+/// moved its rows (spec/render.md "Stream Ordering").
 struct RenderTapQueue {
+    leading_scroll: Option<(u64, bool)>,
     pending_frame: Option<PendingRenderFrame>,
-    pending_scroll: Option<(u64, bool)>,
-    latest_kind: Option<PendingRenderKind>,
+    trailing_scroll: Option<(u64, bool)>,
     sender_alive: bool,
     receiver_alive: bool,
 }
@@ -81,38 +81,67 @@ impl PendingRenderFrame {
 }
 
 impl RenderTapQueue {
+    fn new() -> Self {
+        Self {
+            leading_scroll: None,
+            pending_frame: None,
+            trailing_scroll: None,
+            sender_alive: true,
+            receiver_alive: true,
+        }
+    }
+
+    fn is_empty(&self) -> bool {
+        self.leading_scroll.is_none()
+            && self.pending_frame.is_none()
+            && self.trailing_scroll.is_none()
+    }
+
+    fn clear(&mut self) {
+        self.leading_scroll = None;
+        self.pending_frame = None;
+        self.trailing_scroll = None;
+    }
+
     fn push(&mut self, event: RenderAttachFrame) {
         match event {
             RenderAttachFrame::Frame(frame) => {
+                // The newer frame replaces the pending one, so a position
+                // queued after the pending frame now belongs before it. That
+                // position is newer than any leading one and replaces it.
+                if let Some(scroll) = self.trailing_scroll.take() {
+                    self.leading_scroll = Some(scroll);
+                }
                 match &mut self.pending_frame {
                     Some(pending) => pending.coalesce(frame),
                     None => self.pending_frame = Some(PendingRenderFrame::new(frame)),
                 }
-                self.latest_kind = Some(PendingRenderKind::Frame);
             }
             RenderAttachFrame::ScrollChanged { offset, at_bottom } => {
-                self.pending_scroll = Some((offset, at_bottom));
-                self.latest_kind = Some(PendingRenderKind::Scroll);
+                let slot = if self.pending_frame.is_some() {
+                    &mut self.trailing_scroll
+                } else {
+                    &mut self.leading_scroll
+                };
+                *slot = Some((offset, at_bottom));
             }
         }
     }
 
-    /// With a frame and a scroll both pending, the older one drains first so
-    /// the receiver ends on the kind pushed last.
+    /// Drains in push order: the position before the pending frame, the
+    /// frame, then the position after it, so the receiver ends on the kind
+    /// pushed last.
     fn pop(&mut self) -> Option<RenderAttachFrame> {
-        let scroll_first = self.pending_frame.is_none()
-            || (self.pending_scroll.is_some()
-                && self.latest_kind == Some(PendingRenderKind::Frame));
-        let next = if scroll_first {
-            let (offset, at_bottom) = self.pending_scroll.take()?;
-            RenderAttachFrame::ScrollChanged { offset, at_bottom }
-        } else {
-            RenderAttachFrame::Frame(self.pending_frame.take()?.into_frame())
-        };
-        if self.pending_frame.is_none() && self.pending_scroll.is_none() {
-            self.latest_kind = None;
+        if let Some((offset, at_bottom)) = self.leading_scroll.take() {
+            return Some(RenderAttachFrame::ScrollChanged { offset, at_bottom });
         }
-        Some(next)
+        if let Some(frame) = self.pending_frame.take() {
+            // With no frame pending, the trailing position leads again.
+            self.leading_scroll = self.trailing_scroll.take();
+            return Some(RenderAttachFrame::Frame(frame.into_frame()));
+        }
+        let (offset, at_bottom) = self.trailing_scroll.take()?;
+        Some(RenderAttachFrame::ScrollChanged { offset, at_bottom })
     }
 }
 
@@ -120,7 +149,7 @@ struct RenderTapState {
     queue: Mutex<RenderTapQueue>,
     ready: Condvar,
     /// The viewer's drain task when it runs on a sequence instead of
-    /// blocking on `ready` (attach streams, p05-ipc-079).
+    /// blocking on `ready` (attach streams).
     ready_hook: crate::stream_interrupt::ReadyHook,
 }
 
@@ -131,13 +160,7 @@ pub(super) struct RenderTap {
 impl RenderTap {
     pub(super) fn pair(render: &Arc<RankedMutex<RenderHub>>) -> (Self, RenderAttachFrameReceiver) {
         let state = Arc::new(RenderTapState {
-            queue: Mutex::new(RenderTapQueue {
-                pending_frame: None,
-                pending_scroll: None,
-                latest_kind: None,
-                sender_alive: true,
-                receiver_alive: true,
-            }),
+            queue: Mutex::new(RenderTapQueue::new()),
             ready: Condvar::new(),
             ready_hook: Default::default(),
         });
@@ -210,8 +233,7 @@ impl RenderAttachFrameReceiver {
             };
             let (next, result) = self.state.ready.wait_timeout(queue, remaining).recover_poison();
             queue = next;
-            if result.timed_out() && queue.pending_frame.is_none() && queue.pending_scroll.is_none()
-            {
+            if result.timed_out() && queue.is_empty() {
                 return Err(RecvTimeoutError::Timeout);
             }
         }
@@ -268,8 +290,7 @@ impl Drop for RenderAttachFrameReceiver {
         {
             let mut queue = self.state.queue.lock().recover_poison();
             queue.receiver_alive = false;
-            queue.pending_frame = None;
-            queue.pending_scroll = None;
+            queue.clear();
         }
         if let Some(render) = self.render.upgrade() {
             render.lock().recover_poison().taps.retain(|tap| !Arc::ptr_eq(&tap.state, &self.state));

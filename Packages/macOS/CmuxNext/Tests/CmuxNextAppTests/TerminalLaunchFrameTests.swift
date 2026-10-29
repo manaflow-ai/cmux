@@ -240,7 +240,47 @@ import Testing
         #expect(pane.held == nil)
     }
 
-    /// p07-memory-083: the decoded frames no pane took went 30 s after launch; they go once the launch settled.
+    /// After a run that ended with no quit (`kill -9`), the saved frames are an earlier quit's screens.
+    /// Shown, they drew an older screen that the daemon's live one then replaced; discarded, the terminal stays held
+    /// clear until its live content draws, as with no saved frame.
+    @Test func aDiscardedReadShowsNoFrame() async throws {
+        let reveal = LaunchReveal(deadline: .seconds(60))
+        let pane = Pane(reveal: reveal)
+        defer { pane.close() }
+        try #require(pane.session.surfaceView.surface != nil, "libghostty created no surface")
+        let directory = try await Self.saved(["tab-1": Self.frame(pane.session.surfaceView.bounds.size, scale: pane.window.backingScaleFactor)])
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let frames = await Self.launch(directory)
+        frames.discardLaunchRead()
+        #expect(!frames.show("tab-1", on: pane.session, in: pane.content, reveal: reveal))
+        #expect(pane.held == nil, "an earlier quit's frame covers the terminal")
+        #expect(pane.content.alphaValue == 0, "the pane waits for its first live frame, as with no saved frame")
+        #expect(frames.launchFrameCount == 0)
+        #expect(frames.prefetch(on: Self.work) == nil, "no read starts again")
+    }
+
+    /// Unlike the settle's drop, a discard while the read runs gives no frame to the panes that asked before it ended.
+    @Test func aReadDiscardedWhileItRunsGivesTheWaitingPanesNoFrame() async throws {
+        let reveal = LaunchReveal(deadline: .seconds(60))
+        let pane = Pane(reveal: reveal)
+        defer { pane.close() }
+        try #require(pane.session.surfaceView.surface != nil, "libghostty created no surface")
+        let directory = try await Self.saved(["tab-1": Self.frame(pane.session.surfaceView.bounds.size, scale: pane.window.backingScaleFactor)])
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let probe = LaunchReadProbe(held: true)
+        let frames = TerminalLaunchFrames(directory: directory, reader: probe.reader)
+        let read = try #require(frames.prefetch(on: Self.work), "the launch read did not start")
+        #expect(await probe.waitForStart(), "the read never started")
+        #expect(!frames.show("tab-1", on: pane.session, in: pane.content, reveal: reveal))
+        frames.discardLaunchRead()
+        probe.release()
+        await read.value
+        #expect(pane.held == nil, "the pane that asked before the read ended got an earlier quit's frame")
+        #expect(pane.content.alphaValue == 0)
+        #expect(frames.launchFrameCount == 0)
+    }
+
+    /// The decoded frames no pane took went 30 s after launch; they go once the launch settled.
     @Test func theLaunchReadHoldsNoFrameOnceTheLaunchSettled() async throws {
         let directory = try await Self.saved(["tab-1": Self.frame(Self.size, scale: 2), "tab-2": Self.frame(Self.size, scale: 2)])
         defer { try? FileManager.default.removeItem(at: directory) }

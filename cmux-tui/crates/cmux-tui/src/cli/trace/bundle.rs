@@ -158,7 +158,8 @@ pub(super) fn collect(
     chromium_asked: bool,
 ) -> Result<Collected, Failure> {
     let rings_dir = out.join(RINGS_DIR);
-    std::fs::create_dir_all(&rings_dir).map_err(|error| super::write_failure(out, &error))?;
+    cmux_blocking::fs::create_dir_all(&rings_dir)
+        .map_err(|error| super::write_failure(out, &error))?;
     let mut bundle =
         Bundle { dir: out.to_owned(), remotes: Vec::new(), rings: Vec::new(), chromium: None };
     let mut not_copied = Vec::new();
@@ -173,7 +174,7 @@ pub(super) fn collect(
             continue;
         };
         let target = unused(&rings_dir, name);
-        match std::fs::copy(source, &target) {
+        match cmux_blocking::fs::copy(source, &target) {
             Ok(_) => bundle.rings.push(RingFile {
                 role: entry.role.to_owned(),
                 pid: entry.pid,
@@ -186,7 +187,7 @@ pub(super) fn collect(
     match chromium_entry(stop) {
         Some(ProcessEntry { ring: Some(source), .. }) => {
             let target = out.join(CHROMIUM_FILE);
-            match std::fs::copy(source, &target) {
+            match cmux_blocking::fs::copy(source, &target) {
                 Ok(_) => {
                     let offset_ns = stop.pointer("/chromium/offset_ns").and_then(Value::as_i64);
                     bundle.chromium = Some(ChromiumFile { path: target, offset_ns });
@@ -204,12 +205,12 @@ pub(super) fn collect(
 /// `dir/name`, or `dir/<n>-name` when two processes' rings share a name.
 fn unused(dir: &Path, name: &std::ffi::OsStr) -> PathBuf {
     let plain = dir.join(name);
-    if !plain.exists() {
+    if cmux_blocking::fs::metadata(&plain).is_err() {
         return plain;
     }
     (1..)
         .map(|n| dir.join(format!("{n}-{}", name.to_string_lossy())))
-        .find(|path| !path.exists())
+        .find(|path| cmux_blocking::fs::metadata(path).is_err())
         .unwrap_or(plain)
 }
 
@@ -251,7 +252,7 @@ impl Bundle {
 
     /// The bundle `dir/manifest.json` describes. Every file it names must be inside `dir`.
     pub(super) fn read(dir: &Path) -> Result<Bundle, String> {
-        let bytes = std::fs::read(dir.join(MANIFEST_FILE))
+        let bytes = cmux_blocking::fs::read(dir.join(MANIFEST_FILE))
             .map_err(|error| format!("{MANIFEST_FILE}: {error}"))?;
         let manifest: Value =
             serde_json::from_slice(&bytes).map_err(|error| format!("{MANIFEST_FILE}: {error}"))?;

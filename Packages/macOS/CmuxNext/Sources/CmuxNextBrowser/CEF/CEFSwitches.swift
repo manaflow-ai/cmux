@@ -28,7 +28,7 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     /// Development builds share one ad hoc identity per tag; the real
     /// keychain would prompt for "Chromium Safe Storage" on every rebuild.
     /// `CMUX_NEXT_BENCH_REAL_KEYCHAIN=1` turns it off in Debug and bench builds of a development
-    /// bundle: chromium-host-bench.py `--modes tcc` measures the real OSCrypt key read (p01-process-089).
+    /// bundle: chromium-host-bench.py `--modes tcc` measures the real OSCrypt key read.
     var useMockKeychain: Bool
     /// Unpacked extension directories (development and verification only).
     var loadExtensions: [String]
@@ -72,7 +72,9 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     ]
 
     /// The longest one Chromium pump pass runs before it returns to the main run loop: a quarter
-    /// of a 120 Hz frame, so the app's own frame work and the display link fit beside a pass.
+    /// of a 120 Hz frame, so the app's own frame work and the display link fit beside a pass. It is
+    /// the cap: with feature `cefPumpFrameDeadline` and a fork that takes a slice per call, each pass
+    /// runs only to the frame's commit deadline (``CEFPumpFrameDeadline``).
     static let pumpTimeSliceMicroseconds = 2_000
 
     /// The first fork API with the resize-sync call (``CEFForkFeatures/resizeSyncForkAPI``; the same
@@ -135,7 +137,7 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         // sends top-chrome WebUI to a live renderer of its lock (ShouldTryToUseExistingProcessHost). The
         // fork reads this table the second way, so a cap holds: a listed cmux page host joins a live
         // renderer of its own host (with page groups registered, of its group) while that renderer has
-        // fewer main frames than the cap and no DevTools agent (cmux_page_groups.cc, cp/p13-webui-011).
+        // fewer main frames than the cap and no DevTools agent (cmux_page_groups.cc).
         // A host with no entry keeps Chromium's process per origin. Without the renderer paths every
         // page talks through DevTools and the fork shares none, so the switch needs them too.
         let siteCaps = pageSiteTable
@@ -194,7 +196,7 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         // CFRunLoop and kqueue pump's delayed timer the task's leeway. It changes renderer, GPU and
         // utility processes and the browser's non-UI threads only: the UI thread's MessagePumpExternal
         // arms no base timer, and the app's deadline queue gets the leeway from the fork's absolute
-        // run times (p14-energy-046).
+        // run times.
         // A feature the app turns off leaves this entry, so the two lists never name one feature.
         let named = [Self.chromePromptOffFeature] + Self.wakeUpAlignmentFeatures + Self.idleSourceOffFeatures
         let disabled = Set(disabledFeatures)
@@ -208,7 +210,7 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     /// The Chromium `base::Feature`s of the one `disable-features` entry, each once: the idle services
     /// cmux does not use (``idleServiceOffFeatures``), then the app's off features
     /// (``disabledChromiumFeatures``), then Chromium's spare renderer while ``chromiumSpareOff``
-    /// (``spareRendererFeature``, p07-memory-113).
+    /// (``spareRendererFeature``).
     var disabledFeatures: [String] {
         var features: [String] = []
         let spareOff = chromiumSpareOff ? [Self.spareRendererFeature] : []
@@ -356,8 +358,8 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
 
     static let chromePromptOffFeature = "IPH_DemoMode:chosen_feature/IPH_Dummy"
 
-    /// Chrome runtime services that work with no page shown and that cmux does not use (p13-webui-084;
-    /// the census, and what stays on and why, is perf-lead.md "Chrome runtime idle services"): the
+    /// Chrome runtime services that work with no page shown and that cmux does not use
+    /// (the census, and what stays on and why, is perf-lead.md "Chrome runtime idle services"): the
     /// ``syncOffSwitch`` and these features in the one `disable-features` entry (``disabledFeatures``).
     /// Chromium 154 sources are named on each constant. Safe Browsing, the component updater
     /// (Widevine CDM, CRLSet), network time and Cast stay on.

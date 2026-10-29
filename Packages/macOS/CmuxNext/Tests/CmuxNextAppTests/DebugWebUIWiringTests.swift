@@ -6,7 +6,7 @@ import CmuxNextSettings
 import Foundation
 import Testing
 
-/// `debug.webui`'s App half (p13-webui-001): the census reads the app's own page registry, the
+/// `debug.webui`'s App half: the census reads the app's own page registry, the
 /// Chromium spare window and the browser tabs. The CEFTab and CEFPageChromiumPage casts need a
 /// live Chromium runtime, which no unit test has; the tagged-build run in the commit covers them.
 @MainActor @Suite(.serialized)
@@ -36,7 +36,8 @@ struct DebugWebUIWiringTests {
 
     /// The test process runs no Chromium helper: the argv listing finds none.
     @Test func theHelperListingFindsNoHelperOutsideTheApp() {
-        #expect(AppControl.webUIHelpers().isEmpty)
+        #expect(AppControl.webUIHelpers(of: getpid()).isEmpty)
+        #expect(AppControl.webUIHelpers(of: nil).isEmpty, "host mode with no host attached lists none")
     }
 }
 #endif

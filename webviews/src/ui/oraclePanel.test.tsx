@@ -1,4 +1,4 @@
-// The shared overlays' part of the refactor oracle's page state (oraclePanel.ts, p15-oracle-215): an
+// The shared overlays' part of the refactor oracle's page state (oraclePanel.ts): an
 // open overlay names its kind in the page's panels, and only while it is open.
 import { afterEach, expect, test } from "bun:test";
 import { act } from "react";

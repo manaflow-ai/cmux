@@ -746,6 +746,16 @@
       "size": 4354
     },
     {
+      "path": "BridgeHelloRequest.java",
+      "sha256": "2209699e6fd22f40d1bdeb2e53bb97e21bf5e0998b17729a28448222c135197a",
+      "size": 2163
+    },
+    {
+      "path": "BridgeHelloResult.java",
+      "sha256": "f96482f2c1492c0f37a4286aa79d5d1a07e300f54abc848960148e427728285b",
+      "size": 2076
+    },
+    {
       "path": "BrowserActivateRequest.java",
       "sha256": "6bdb2c997a17d53d400628e0c82d03f47834209c8063e6caf8d081ad6c55a1d3",
       "size": 2077
@@ -1382,8 +1392,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "6df86d9672bd1e6f8ead8718bab440bac05254444cab1df86a14f7166cc599a4",
-      "size": 98134
+      "sha256": "d39aadfa0e70009e1ddda145db9491288f77427bce3c9bf9c4cb7a67093ae405",
+      "size": 98908
     },
     {
       "path": "ConfigReloadRequestedEvent.java",
@@ -1811,6 +1821,11 @@
       "size": 1599
     },
     {
+      "path": "DaemonStartupMarks.java",
+      "sha256": "55dbf01c999da149b09e437832c512e269e4d18ed93228ad49f8d61e4d2c40cf",
+      "size": 10806
+    },
+    {
       "path": "DeadPane.java",
       "sha256": "fd0369d02f9cf43eb0475112fb7cb5ebe682d4e7b067f2eb6e7556f2f34a88d6",
       "size": 1963
@@ -2142,8 +2157,8 @@
     },
     {
       "path": "GeneratedCmuxClient.java",
-      "sha256": "467398632fa2cee19c6bc1908bfe156ce44cfacee987090e225d42e105fc5c1e",
-      "size": 86554
+      "sha256": "b2afb657c8adc7f40e88dc9fd616ff631c6c361bd2843b7c0b86df284aedf5d5",
+      "size": 87224
     },
     {
       "path": "GetBlobRequest.java",
@@ -2302,13 +2317,13 @@
     },
     {
       "path": "IdentifyRequest.java",
-      "sha256": "3251e325f31a9b8adde1ca82d219b351130a548291927a87ed603f9b04b6efc7",
-      "size": 2730
+      "sha256": "507690efc80dcb43824924e44bc526bd39412d0dac1041b181545d1c30a0e131",
+      "size": 3441
     },
     {
       "path": "IdentifyResult.java",
-      "sha256": "ce5ae40f2c39c1b084a63ad892108db7ed9841d34ff21def67a1acc23ba8a84f",
-      "size": 22813
+      "sha256": "6af04da3844f4b06f78af4599f82b7ca2eef32e11f1ebad94f826727ce831dc5",
+      "size": 23594
     },
     {
       "path": "IdsRequest.java",
@@ -2649,6 +2664,11 @@
       "path": "MarkWorkspacesProviderManagedRequest.java",
       "sha256": "dbc87645f2737dc605c2781747cb7b9b80dd464fc502f4f8d7fb7b04d4b7b473",
       "size": 2275
+    },
+    {
+      "path": "MemoryReportRequest.java",
+      "sha256": "de2a2340b0e27bac1d3354d8f463a45ad3f4e6b225fb11a8f0f74d271728acb1",
+      "size": 1363
     },
     {
       "path": "MintTerminalRendererByTerminalRequest.java",
@@ -3007,7 +3027,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "3f5447636df35106667356cded482316a92fd6f31d2ebc5783f4c8397d0f116d",
+      "sha256": "50cccefc2f2cfcf01ce3fb162857f370e7b015658d96144bdadad917e72b2561",
       "size": 8063
     },
     {
@@ -3719,6 +3739,26 @@
       "path": "SetSplitRatioRequest.java",
       "sha256": "cf8889ee1d32de4657cf5268e3f478438b31ee6e5bda26e74b9fef70bd52f0ce",
       "size": 3374
+    },
+    {
+      "path": "SetStreamPriorityRequest.java",
+      "sha256": "dbe61a7ec2c4fc72887cd40d81eccf83afbd912338b719dbfca2f3b247e711ef",
+      "size": 2867
+    },
+    {
+      "path": "SetStreamPriorityRequestPriority.java",
+      "sha256": "d5c0c2f14e62d6a8865590682819ddea1f3e7ac478e5fe1216229bf1455773fd",
+      "size": 1010
+    },
+    {
+      "path": "SetStreamPriorityResult.java",
+      "sha256": "b025581bc3880a9610dba79f3b872f44954516003fd7f5ca1def664b569f7e23",
+      "size": 2745
+    },
+    {
+      "path": "SetStreamPriorityResultOutcome.java",
+      "sha256": "37c02f75ab36456e86187f59ace07262e8a137b940a2e126bd9dd9ba6ac9fde8",
+      "size": 974
     },
     {
       "path": "SetTabPinnedRequest.java",
@@ -4502,7 +4542,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "8a9866283a47ec9e7be97f2560dca821030bc2dbfa05a573677c94e172d2b72d",
+  "ir_sha256": "d60b4d9a4e2b29ec10b92b01dff8f04e076911755afc8c218f2d85410be831e3",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

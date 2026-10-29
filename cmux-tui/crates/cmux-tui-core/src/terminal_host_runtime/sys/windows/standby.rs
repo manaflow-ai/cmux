@@ -225,6 +225,7 @@ impl Drop for HostProcess {
         }
         // SAFETY: the exact process this value started and still owns.
         unsafe { TerminateProcess(self.process.as_raw_handle() as HANDLE, 1) };
+        // wakeup-allow: deadline the one bound on a terminated host's exit; the exit ends the wait first
         self.wait_timeout(Duration::from_secs(5));
     }
 }
@@ -417,8 +418,9 @@ fn with_connect_watchdog<R>(
     // SAFETY: a new handle owned here.
     let done = unsafe { OwnedHandle::from_raw_handle(done) };
     let (process_raw, done_raw) = (process as usize, done.as_raw_handle() as usize);
-    std::thread::scope(|scope| {
-        scope.spawn(move || {
+    cmux_threads::scope(|scope| {
+        let qos = cmux_threads::caller_qos(cmux_threads::ThreadQos::UserInitiated);
+        scope.spawn("terminal-host-connect-watch", qos, move || {
             let handles = [process_raw as HANDLE, done_raw as HANDLE];
             let millis = CONNECT_TIMEOUT.as_millis() as u32;
             // SAFETY: both handles outlive this scope.
@@ -431,7 +433,7 @@ fn with_connect_watchdog<R>(
             // `.in` is outbound from us (the client reads), `.out` inbound.
             let _ = files::open_with(File::options().read(true), &names[0]);
             let _ = files::open_with(File::options().write(true), &names[1]);
-        });
+        })?;
         let result = connect();
         // SAFETY: the event owned above.
         unsafe { SetEvent(done.as_raw_handle() as HANDLE) };
@@ -573,6 +575,7 @@ impl SpawnedHostProcess {
 
     pub(crate) fn wait_timeout(&mut self, timeout: Duration) -> bool {
         let Some(process) = self.process.as_ref() else { return true };
+        // wakeup-allow: deadline the caller's one bound on the host's exit; the exit ends the wait first
         if process.wait_timeout(timeout) {
             self.process = None;
             return true;
