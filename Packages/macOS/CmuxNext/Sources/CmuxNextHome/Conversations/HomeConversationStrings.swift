@@ -242,6 +242,9 @@ enum HomeConversationStrings {
                                   bundle: .module), text)
         case .offline:
             String(localized: "home.outcome.offline", defaultValue: "You’re offline. Nothing was sent.", bundle: .module)
+        case .cloudUnreachable:
+            String(localized: "home.outcome.cloudUnreachable",
+                   defaultValue: "cmux Cloud didn’t answer. Check your connection and try again.", bundle: .module)
         case .refused(let reason) where reason.isEmpty:
             String(localized: "home.outcome.failed", defaultValue: "That didn’t work. Try again.", bundle: .module)
         case .refused(let reason):
