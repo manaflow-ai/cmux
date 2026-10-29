@@ -763,6 +763,7 @@ import Testing
         let page = SettingsPageProvider(settings: settings)
         let sets = Recorder()
         page.setJoinConsent = { surface, on in sets.values.append("\(surface) \(on)"); return nil }
+        page.personBacksGesture = { _ in true } // the gesture's origin is the next test's
         let on: JSONValue = ["surface": "screen", "on": true], off: JSONValue = ["surface": "screen", "on": false]
         do {
             _ = try await page.call("cmux.settings.devices.join_consent", params: on, context: PageCallContext(page: PageDescriptor.settings.id))
@@ -786,6 +787,72 @@ import Testing
             Issue.record("an unknown surface was taken")
         } catch let error as PageError {
             #expect(error.code != PageNativeOp.userOnlyCode, "refused for its surface, not its gesture")
+        }
+        #expect(sets.values == ["screen false", "screen true"])
+    }
+
+    /// A synthesized click on the Settings page's switch: the page saw a real event, but one posted from a
+    /// HID-state source by another process (how the cmux-cua helper clicks). Turning a consent on with it
+    /// changes nothing; turning one off with the same click works (off takes any input). The person's own
+    /// click from the HID system turns it on; one posted right after the person's backs nothing.
+    @Test func aPostedClickOnTheSettingsSwitchGrantsNothingButRevokes() async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "cn-settings-join-posted-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appending(path: "cmux.json")
+        try Data("{}".utf8).write(to: url)
+        let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
+            managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
+        await settings.reload()
+        let page = SettingsPageProvider(settings: settings)
+        let sets = Recorder()
+        page.setJoinConsent = { surface, on in sets.values.append("\(surface) \(on)"); return nil }
+        let ledger = PersonInputLedger()
+        page.personBacksGesture = { ledger.backs($0) }
+        let poster = Process()
+        poster.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        poster.arguments = ["30"]
+        try poster.run()
+        defer { poster.terminate() }
+        var second: UInt64 = 100
+        let click = { (pid: Int64) throws -> NSEvent in
+            second += 1
+            let cgEvent = try #require(CGEvent(mouseEventSource: CGEventSource(stateID: .hidSystemState), mouseType: .leftMouseUp,
+                                               mouseCursorPosition: .zero, mouseButton: .left))
+            cgEvent.setIntegerValueField(.eventSourceUnixProcessID, value: pid)
+            cgEvent.setIntegerValueField(.eventSourceStateID, value: Int64(CGEventSourceStateID.hidSystemState.rawValue))
+            cgEvent.timestamp = second * 1_000_000_000
+            return try #require(NSEvent(cgEvent: cgEvent))
+        }
+        /// The page's call for `event` (the gesture the page recorded is the event's own time).
+        let call = { (event: NSEvent, on: Bool) async throws in
+            ledger.record(event)
+            _ = try await page.call("cmux.settings.devices.join_consent", params: ["surface": "screen", "on": .bool(on)],
+                                    context: PageCallContext(page: PageDescriptor.settings.id, userGesture: true, gestureEvent: event.timestamp))
+        }
+        let posted = try click(Int64(poster.processIdentifier))
+        do {
+            try await call(posted, true)
+            Issue.record("a posted click turned it on")
+        } catch let error as PageError {
+            #expect(error.code == PageNativeOp.userOnlyCode)
+        }
+        #expect(sets.values.isEmpty, "consent unchanged")
+        try await call(posted, false)
+        #expect(sets.values == ["screen false"], "the same posted click turns it off")
+        let person = try click(0)
+        try await call(person, true)
+        #expect(sets.values == ["screen false", "screen true"], "the person's own click turns it on")
+        // The person clicks, then a posted click lands before the page's call for the person's.
+        let mine = try click(0)
+        ledger.record(mine)
+        ledger.record(try click(Int64(poster.processIdentifier)))
+        do {
+            _ = try await page.call("cmux.settings.devices.join_consent", params: ["surface": "control", "on": true],
+                                    context: PageCallContext(page: PageDescriptor.settings.id, userGesture: true, gestureEvent: mine.timestamp))
+            Issue.record("a posted click right after the person's backed a grant")
+        } catch let error as PageError {
+            #expect(error.code == PageNativeOp.userOnlyCode)
         }
         #expect(sets.values == ["screen false", "screen true"])
     }

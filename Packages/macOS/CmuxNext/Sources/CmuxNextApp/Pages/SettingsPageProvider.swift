@@ -81,6 +81,9 @@ final class SettingsPageProvider: PageProvider {
     var setDeviceFullAccess: (@MainActor (String, Bool) async -> String?)?
     /// Settings > Devices' Screen sharing or Control switch of this joined Mac (`screen`, `control`): the error to show, or nil.
     var setJoinConsent: (@MainActor (String, Bool) async -> String?)?
+    /// Whether the gesture at this uptime was the person's own input from the HID system
+    /// (``PersonInputLedger/backs(_:)``); nil, never.
+    var personBacksGesture: (@MainActor (TimeInterval) -> Bool)?
     /// Settings > Machines' "Dedicated agent machine" switch on a Cloud machine: the error to show, or nil.
     var setMachineVmHost: (@MainActor (String, Bool) async -> String?)?
     /// The gesture (``PageCallContext/gestureEvent``) that last turned a device's Full access on:
@@ -170,11 +173,14 @@ final class SettingsPageProvider: PageProvider {
             }
             // SECURITY: turning one on lets the team's other machines see or control this Mac, so,
             // like Full access, only the person's own click or key in this page turns it on (spent
-            // once), and acpmux then takes it only over a line proven as the person. Off only
-            // narrows, so it needs no gesture.
+            // once), and acpmux then takes it only over a line proven as the person. Stricter than
+            // Full access: the gesture must be the HID system's input (``PersonInputLedger``), so an
+            // agent with Control consent driving this page (the cmux-cua helper posts real-looking
+            // clicks) never grants itself more, and the app's line to acpmux is the person's anyway.
+            // Off only narrows, so it needs no gesture and takes any input.
             if on {
                 guard context.page == PageDescriptor.settings.id, context.userGesture, let event = context.gestureEvent,
-                      event != spentFullAccessGesture else {
+                      event != spentFullAccessGesture, personBacksGesture?(event) == true else {
                     throw PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage)
                 }
                 spentFullAccessGesture = event

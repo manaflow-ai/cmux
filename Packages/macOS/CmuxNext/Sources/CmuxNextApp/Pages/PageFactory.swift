@@ -124,6 +124,7 @@ struct PageFactory {
             guard let services, let surface = JoinConsentSurface(rawValue: surface) else { return nil }
             return await services.joinConsent.set(surface, on: on)
         }
+        provider.personBacksGesture = { [weak services] uptime in services?.personInput.backs(uptime) ?? false }
         provider.setMachineVmHost = { [weak services] id, on in
             guard let services else { return nil }
             return await services.cloudVmHost.set(id, on: on, reachable: services.settingsWindow.vmHostReach(id) == true)
