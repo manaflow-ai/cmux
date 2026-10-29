@@ -179,6 +179,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_pr_capture_check.py
 
+      - name: Validate attachment admission caps
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_attachment_caps_guard.py
+
       - name: Validate the PR perf section check
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_pr_perf_section_check.py
