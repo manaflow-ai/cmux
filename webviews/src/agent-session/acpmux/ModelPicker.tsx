@@ -434,6 +434,11 @@ export function ModelPicker(props: ModelPickerProps) {
   const [open, setOpen] = useState(false);
   // The compact menu (QuickModelMenu) a click opens when `quick` is set; More models opens the full one.
   const [quickOpen, setQuickOpen] = useState(false);
+  // Once opened, retain the lists through Base UI's close fade. Only a never-opened picker
+  // skips catalog work; reopening keeps its existing menu and selection lifecycle.
+  const [hasOpened, setHasOpened] = useState(false);
+  const modelsNeeded = hasOpened || open || quickOpen;
+  if (modelsNeeded && !hasOpened) setHasOpened(true);
   const [openHeight, setOpenHeight] = useState<number>();
   const [selectedHarness, setSelectedHarness] = useState(harness);
   const [activeHarness, setActiveHarness] = useState(0);
@@ -496,8 +501,8 @@ export function ModelPicker(props: ModelPickerProps) {
     : (harnesses.find((entry) => entry.ids.includes(selectedHarness ?? "")) ?? current);
   // A typed query searches every harness; without one, the rail's tab picks the list.
   const vocabulary = useMemo(
-    () => (open || quickOpen ? effortWords(harnesses.flatMap((entry) => entry.models)) : new Set<string>()),
-    [harnesses, open, quickOpen],
+    () => (modelsNeeded ? effortWords(harnesses.flatMap((entry) => entry.models)) : new Set<string>()),
+    [harnesses, modelsNeeded],
   );
   const parsed = useMemo(() => parseQuery(query, vocabulary), [query, vocabulary]);
   const searching = query.trim() !== "";
@@ -505,7 +510,7 @@ export function ModelPicker(props: ModelPickerProps) {
   const runsHere = selected?.ids.includes(harness ?? "") ? props.model : undefined;
   const owners = useMemo(() => {
     const owner = new Map<ModelChoice, HarnessChoice>();
-    if (!open) return owner;
+    if (!modelsNeeded) return owner;
     if (searching) {
       const searchable = harnesses.filter(
         (entry) => entry.pickable && !blockedProfile(entry) && loginFor(entry) === undefined,
@@ -521,7 +526,7 @@ export function ModelPicker(props: ModelPickerProps) {
       for (const model of olderOpen ? [...latest, ...older] : latest) owner.set(model, selected);
     }
     return owner;
-  }, [open, favorites, harnesses, olderOpen, parsed, searching, selected, starredView, runsHere, loginFor]);
+  }, [modelsNeeded, favorites, harnesses, olderOpen, parsed, searching, selected, starredView, runsHere, loginFor]);
   const visible = useMemo(() => [...owners.keys()], [owners]);
   // Add harness… is the list's last row, after the models: arrows reach it like a model row.
   const addRow = onAddAgent ? visible.length : -1;
@@ -529,7 +534,7 @@ export function ModelPicker(props: ModelPickerProps) {
   const addRowId = `${menuId}-add-harness`;
   const onAddRow = active === addRow && (visible.length > 0 || addChosen);
   const olderCount =
-    !open || searching || starredView || (selected && loginFor(selected) !== undefined)
+    !modelsNeeded || searching || starredView || (selected && loginFor(selected) !== undefined)
       ? 0
       : shownSections(selected, runsHere).older.length;
   const refreshStatus = localRefreshStatus ?? catalogRefresh?.status ?? "idle";
@@ -822,7 +827,7 @@ export function ModelPicker(props: ModelPickerProps) {
     // opens the full picker, which has no rail either.
     // A folder profile is a machine choice, so its current models stay in the plain compact list
     // while the harness-only rail remains absent.
-    if (!quickOpen || !quick || (harnessFixed && !fork) || current?.folder) return undefined;
+    if (!modelsNeeded || !quick || (harnessFixed && !fork) || current?.folder) return undefined;
     const row = (entry: HarnessChoice, model: ModelChoice) => quickRow(entry.id, model);
     // A started chat that forks lists every harness, as a New Tab does; its own stays the chat's.
     const startable = (fork ? allHarnesses : harnesses).filter(
@@ -870,7 +875,7 @@ export function ModelPicker(props: ModelPickerProps) {
       return [{ ...own, models: [], more: [], fork: true }];
     });
   }, [
-    quickOpen,
+    modelsNeeded,
     quick,
     harnessFixed,
     fork,
@@ -1155,7 +1160,7 @@ export function ModelPicker(props: ModelPickerProps) {
               ...(update && updateText ? { update: { text: updateText, run: update.update } } : {}),
               // This harness's top models, the running one among them; a signed-out harness lists none.
               models:
-                quickOpen && current && loginFor(current) === undefined
+                modelsNeeded && current && loginFor(current) === undefined
                   ? quickSections(current, props.model, (model) => !model.unavailable).shown.map((model) =>
                       quickRow("", model),
                     )
