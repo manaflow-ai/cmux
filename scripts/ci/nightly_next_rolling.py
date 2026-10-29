@@ -13,7 +13,8 @@ builds alongside a running one instead of waiting behind it"):
 - nothing is building the newest nightly-next commit: promote now, so a landing
   on a quiet branch starts its build within minutes;
 - a build is running: promote once the oldest feat-cmux-next commit it does not
-  carry has waited --window-minutes (10). A burst of landings becomes one build
+  carry has waited --window-minutes (10) and the newest build started at least that
+  long ago, so at most one build starts per window and it is the newest tip. A burst of landings becomes one build
   of the newest tip, started beside the running one, never cancelling it. The
   window bounds the builds that run at once to about one per 10 minutes of
   build time, and keeps landing-to-feed under the feed watch's 30 minutes once
@@ -64,20 +65,57 @@ PROMOTION_TITLE = "Promote nightly-next to"
 RUN_LOOKBACK = dt.timedelta(hours=3)
 # oldest_after's answer when the gap to the tip cannot be read.
 UNKNOWN = "unknown"
+# A promotion moves nightly-next in about 20 s and its push run appears within about 20 s more:
+# a promotion created this recently counts as a start whatever its status reads, so a run list
+# that has not caught up never reads as "nothing is building" (tick 40817979989 at 04:29:13
+# promoted again 4 s after the promotion that moved nightly-next, before its run existed).
+PROMOTION_RACE_MINUTES = 2.0
+
+
+def youngest_start(now: dt.datetime, starts: list[dict], promotions: list[dict]) -> float | None:
+    """Minutes since the newest build start: a nightly-next push run's creation, or a promotion
+    created within PROMOTION_RACE_MINUTES (its run may not be listed yet). None when there is none."""
+    ages = []
+    for run in starts:
+        try:
+            ages.append((now - watch.parse_time(run["created_at"])).total_seconds() / 60)
+        except (KeyError, TypeError, ValueError):
+            continue
+    for run in promotions:
+        if not (run.get("display_title") or "").startswith(PROMOTION_TITLE):
+            continue
+        try:
+            age = (now - watch.parse_time(run["created_at"])).total_seconds() / 60
+        except (KeyError, TypeError, ValueError):
+            continue
+        if age < PROMOTION_RACE_MINUTES:
+            ages.append(age)
+    ages = [age for age in ages if age >= 0]
+    return min(ages) if ages else None
 
 
 def decide(now: dt.datetime, *, head: str, head_runs: list[dict], jobs_of,
            promotions: list[dict], oldest_waiting,
            window_minutes: float = WINDOW_MINUTES,
-           promotion_minutes: float = PROMOTION_MINUTES) -> tuple[bool, str]:
+           promotion_minutes: float = PROMOTION_MINUTES,
+           starts: list[dict] | None = None) -> tuple[bool, str]:
     """(promote now, why). head: nightly-next's commit; head_runs: nightly.yml runs on nightly-next
     for it; promotions: recent nightly.yml workflow_dispatch runs on main; oldest_waiting: the
     oldest feat-cmux-next commit after head and when it landed, None when nothing waits, or
-    UNKNOWN (oldest_after)."""
+    UNKNOWN (oldest_after); starts: recent nightly.yml push runs on nightly-next (any commit).
+
+    At most one new build starts per window while builds run, and it is always the newest
+    buildable commit (the request walks from the tip). Measuring the window only from landing
+    let every tick after a cmux-tui tree stall promote again (2026-10-29 04:25-04:30: three
+    starts in four minutes, five builds in flight on contended runners); now the newest start
+    must be a window old too. A started build is never cancelled."""
     if not head:
         return True, "nightly-next is unreadable; asking as before"
     building = ""
-    for run in promotions:
+    since_start = youngest_start(now, starts or [], promotions)
+    if since_start is not None and since_start < PROMOTION_RACE_MINUTES:
+        building = f"a build started {since_start * 60:.0f} s ago"
+    for run in promotions if not building else []:
         if not (run.get("display_title") or "").startswith(PROMOTION_TITLE) or run.get("status") == "completed":
             continue
         try:
@@ -103,6 +141,9 @@ def decide(now: dt.datetime, *, head: str, head_runs: list[dict], jobs_of,
         return True, f"nothing is building nightly-next ({head[:12]}); promoting the newest buildable commit now"
     if oldest_waiting is None:
         return False, f"{building}, and no feat-cmux-next commit waits after it"
+    if since_start is not None and since_start < window_minutes:
+        return False, (f"{building}, and the newest build started {since_start:.0f} of {window_minutes:g} min ago; "
+                       "the next start, for the newest buildable commit, waits for the window")
     if oldest_waiting == UNKNOWN:
         return True, f"{building}, and the gap to the tip is unknown, so the oldest landing counts as old; promoting"
     sha, landed = oldest_waiting
@@ -162,8 +203,10 @@ def evaluate(now: dt.datetime, repo: str, tip: str, api=gh_api,
         return False, f"could not read nightly-next ({error!r}); the feed watch's backstop covers this"
     try:
         base = f"repos/{repo}/actions/workflows/nightly.yml/runs?"
-        head_runs = api(base + urllib.parse.urlencode(
-            {"branch": "nightly-next", "head_sha": head, "per_page": 10}))["workflow_runs"]
+        # One listing of nightly-next's recent push runs: its head's runs, and the newest start.
+        recent = api(base + urllib.parse.urlencode(
+            {"branch": "nightly-next", "event": "push", "per_page": 20}))["workflow_runs"]
+        head_runs = [run for run in recent if (run.get("head_sha") or "").lower() == head.lower()]
         promotions = api(base + urllib.parse.urlencode(
             {"branch": "main", "event": "workflow_dispatch", "per_page": 10}))["workflow_runs"]
 
@@ -171,7 +214,8 @@ def evaluate(now: dt.datetime, repo: str, tip: str, api=gh_api,
             return api(f"repos/{repo}/actions/runs/{run['id']}/jobs?filter=latest&per_page=100")["jobs"]
 
         return decide(now, head=head, head_runs=head_runs, jobs_of=jobs_of, promotions=promotions,
-                      oldest_waiting=oldest_after(api, repo, head, tip), window_minutes=window_minutes)
+                      oldest_waiting=oldest_after(api, repo, head, tip), window_minutes=window_minutes,
+                      starts=recent)
     except Exception as error:  # noqa: BLE001
         print(f"::warning title=nightly-next rolling rule::could not read the running builds ({error!r}); promoting")
         return True, f"could not read the running builds ({error!r}); promoting"

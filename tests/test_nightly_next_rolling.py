@@ -147,6 +147,95 @@ class RollingRuleTests(unittest.TestCase):
         self.assertIn("unknown", reason)
 
 
+class OneStartPerWindowTests(unittest.TestCase):
+    """At most one new build per window while builds run, always the newest buildable commit.
+
+    2026-10-29: after a cmux-tui tree stall every waiting landing was already past the window, so
+    the ticks at 04:25:53, 04:28:13 and 04:29:13 each promoted (three starts in four minutes) and
+    five nightly-next builds ran at once on contended runners. A started build is never cancelled."""
+
+    def at_clock(self, hhmmss: str) -> dt.datetime:
+        return dt.datetime.fromisoformat(f"2026-10-29T{hhmmss}+00:00")
+
+    def stamp(self, hhmmss: str) -> str:
+        return f"2026-10-29T{hhmmss}Z"
+
+    def test_a_build_started_inside_the_window_holds_an_old_landing(self):
+        start = run(30, 4, head_sha=HEAD)
+        go, reason = rolling.decide(NOW, head=HEAD, head_runs=[start], jobs_of=lambda r: BUILDING, promotions=[],
+                                    oldest_waiting=(WAITING, NOW - dt.timedelta(minutes=24)), starts=[start])
+        self.assertFalse(go, reason)
+        self.assertIn("started 4 of 10 min ago", reason)
+
+    def test_once_the_newest_start_is_a_window_old_the_newest_tip_starts_beside_it(self):
+        start = run(31, 12, head_sha=HEAD)
+        go, reason = rolling.decide(NOW, head=HEAD, head_runs=[start], jobs_of=lambda r: BUILDING, promotions=[],
+                                    oldest_waiting=(WAITING, NOW - dt.timedelta(minutes=24)), starts=[start])
+        self.assertTrue(go, reason)
+        self.assertIn("beside", reason)
+
+    def test_an_older_commit_s_newer_start_still_counts(self):
+        """The newest start may be another commit's run (nightly-next moved on since)."""
+        mine = run(32, 30, head_sha=HEAD)
+        other = run(33, 3, head_sha="e" * 40)
+        go, reason = rolling.decide(NOW, head=HEAD, head_runs=[mine], jobs_of=lambda r: BUILDING, promotions=[],
+                                    oldest_waiting=(WAITING, NOW - dt.timedelta(minutes=24)), starts=[mine, other])
+        self.assertFalse(go, reason)
+
+    def test_a_promotion_seconds_old_counts_as_a_start_before_its_run_exists(self):
+        """Tick 40817979989 promoted at 04:29:13, 4 s after promotion 40818000917 moved nightly-next."""
+        promo = run(34, 0.07, status="completed", display_title="Promote nightly-next to tick:" + WAITING)
+        go, reason = rolling.decide(NOW, head=HEAD, head_runs=[], jobs_of=lambda r: [], promotions=[promo],
+                                    oldest_waiting=(WAITING, NOW - dt.timedelta(minutes=24)), starts=[])
+        self.assertFalse(go, reason)
+        self.assertRegex(reason, r"a build started [0-9]+ s ago")
+
+    def test_with_nothing_building_and_no_recent_start_it_promotes_at_once(self):
+        promo = run(35, 3, status="completed", display_title="Promote nightly-next to tick:" + WAITING)
+        done = run(36, 40, status="completed", head_sha=HEAD)
+        go, reason = rolling.decide(NOW, head=HEAD, head_runs=[done], jobs_of=lambda r: [], promotions=[promo],
+                                    oldest_waiting=(WAITING, NOW - dt.timedelta(minutes=1)), starts=[done])
+        self.assertTrue(go, reason)
+        self.assertIn("nothing is building", reason)
+
+    def test_replay_of_the_0425_burst_starts_one_build_not_three(self):
+        """The ticks of 2026-10-29 04:25-04:32 against the runs that existed when each ran."""
+        b0bb = {**run(40815647360, 0), "created_at": self.stamp("04:04:16"), "head_sha": "0bb2eda1" + "0" * 32}
+        b1857 = {**run(40817728360, 0), "created_at": self.stamp("04:26:08"), "head_sha": "185716ef" + "0" * 32}
+        promo_1857 = {**run(40817698795, 0, status="completed"), "created_at": self.stamp("04:25:49"),
+                      "display_title": "Promote nightly-next to tick:185716e"}
+        decisions = []
+        for clock, head, starts, promos, oldest in (
+                # Tick 40817598158 (its decision at 04:25:3x) made promotion 40817698795 for 185716ef.
+                ("04:25:35", b0bb["head_sha"], [b0bb], [], "04:03:56"),
+                # Tick 40817657120: 4 s after that promotion, before its run existed.
+                ("04:25:53", b0bb["head_sha"], [b0bb], [promo_1857], "04:03:56"),
+                ("04:28:13", b1857["head_sha"], [b0bb, b1857], [promo_1857], "04:05:00"),
+                ("04:29:13", b1857["head_sha"], [b0bb, b1857], [promo_1857], "04:05:00"),
+                ("04:31:41", b1857["head_sha"], [b0bb, b1857], [promo_1857], "04:05:00"),
+                ("04:36:20", b1857["head_sha"], [b0bb, b1857], [promo_1857], "04:05:00")):
+            now = self.at_clock(clock)
+            head_runs = [r for r in starts if r["head_sha"] == head]
+            go, _ = rolling.decide(now, head=head, head_runs=head_runs, jobs_of=lambda r: BUILDING,
+                                   promotions=promos, starts=starts,
+                                   oldest_waiting=(WAITING, self.at_clock(oldest)))
+            decisions.append((clock, go))
+        # 04:25:35 is the promotion that did happen (0bb2's build started 21 min before); every later
+        # tick waits until 185716ef's build is a window old (04:36:08), then the newest tip starts.
+        # Before: 04:28:13 and 04:29:13 started 68e51e81 and 913e9372 as well.
+        self.assertEqual(decisions, [("04:25:35", True), ("04:25:53", False), ("04:28:13", False),
+                                     ("04:29:13", False), ("04:31:41", False), ("04:36:20", True)])
+
+    def test_evaluate_reads_one_listing_of_nightly_next_runs(self):
+        api = api_for(compare("ahead", [(WAITING, 30)]), runs=[run(37, 4, head_sha=HEAD)])
+        go, reason = rolling.evaluate(NOW, "o/r", TIP, api=api)
+        self.assertFalse(go, reason)
+        listing = [p for p in api.paths if "branch=nightly-next" in p]
+        self.assertEqual(len(listing), 1)
+        self.assertIn("event=push", listing[0])
+        self.assertNotIn("head_sha=", listing[0])
+
+
 TIP = "c" * 40
 
 
@@ -176,7 +265,7 @@ def api_for(compare_answer, ref=None, runs=None, jobs=None) -> Api:
     return Api({
         "/git/ref/heads/nightly-next": ref if ref is not None else {"ref": "refs/heads/nightly-next", "object": {"sha": HEAD, "type": "commit"}},
         f"/compare/{HEAD}...{TIP}?per_page=1&page=1": compare_answer,
-        "branch=nightly-next": {"total_count": 1, "workflow_runs": runs if runs is not None else [run(20, 12)]},
+        "branch=nightly-next": {"total_count": 1, "workflow_runs": runs if runs is not None else [run(20, 12, head_sha=HEAD)]},
         "event=workflow_dispatch": {"total_count": 0, "workflow_runs": []},
         "/jobs?": {"total_count": 2, "jobs": jobs if jobs is not None else BUILDING},
     })
