@@ -246,7 +246,7 @@ function StartedCard({ call, tool }: { call: Extract<SubsessionCall, { tool: "st
           <Markdown commits="quiet">{call.prompt}</Markdown>
         </div>
       )}
-      <Raw tool={tool} />
+      <Raw tool={tool} promptShown={Boolean(call.prompt)} />
     </SessionCard>
   );
 }
@@ -301,7 +301,7 @@ export function Cut({ text, prompt }: { text: string; prompt?: boolean }) {
 }
 
 /// The call's request and response as the generic MCP row shows them, behind "Raw".
-function Raw({ tool }: { tool: Tool }) {
+function Raw({ tool, promptShown = false }: { tool: Tool; promptShown?: boolean }) {
   const [open, setOpen] = useState(false);
   const [reveal, setReveal] = useState(0);
   useFindReveal(
@@ -313,12 +313,12 @@ function Raw({ tool }: { tool: Tool }) {
   );
   return (
     <RawToggle open={open} onOpenChange={setOpen}>
-      <McpDetails tool={tool} reveal={reveal} />
+      <McpDetails tool={tool} reveal={reveal} promptShown={promptShown} />
     </RawToggle>
   );
 }
 
-function McpDetails({ tool, reveal = 0 }: { tool: Tool; reveal?: number }) {
+function McpDetails({ tool, reveal = 0, promptShown = false }: { tool: Tool; reveal?: number; promptShown?: boolean }) {
   const id = useId();
   const call = useMemo(() => mcpCall(tool), [tool]);
   if (!call) return null;
@@ -330,6 +330,7 @@ function McpDetails({ tool, reveal = 0 }: { tool: Tool; reveal?: number }) {
       output={tool.output}
       strip={false}
       reveal={reveal}
+      requestFindSkipKeys={promptShown ? ["prompt"] : undefined}
     />
   );
 }

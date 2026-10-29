@@ -42,7 +42,8 @@ export function DisclosureRow({
   const bodyId = useId();
   return (
     <div className="cv-disclosure" data-open={collapse.open || undefined}>
-      <div className="cv-disclosure__line">
+      {/* The line summarizes indexed content in the panel; it adds no Find occurrences. */}
+      <div className="cv-disclosure__line" data-find-skip>
         <button
           ref={collapse.headerRef}
           type="button"

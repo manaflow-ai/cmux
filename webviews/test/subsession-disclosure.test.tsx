@@ -6,7 +6,11 @@ import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { JSDOM } from "jsdom";
 import { setPaneLanguage } from "../src/agent-session/acpmux/i18n";
-import { FindReveal } from "../src/agent-session/acpmux/conversation/chatFind";
+import {
+  FindReveal,
+  findMatchesIncremental,
+  paintFindHighlights,
+} from "../src/agent-session/acpmux/conversation/chatFind";
 import { SubsessionCallCard } from "../src/agent-session/acpmux/conversation/SubsessionCallCard";
 import { SubsessionContext, SubsessionStore } from "../src/agent-session/acpmux/subagents/subsessions";
 import {
@@ -14,6 +18,7 @@ import {
   TranscriptDisclosureProvider,
 } from "../src/agent-session/acpmux/conversation/transcriptDisclosure";
 import type { AcpmuxSessionEntry } from "../src/agent-session/acpmux/sessionList";
+import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/model";
 import type { SubsessionCall } from "../src/agent-session/acpmux/conversation/subsessionCalls";
 
 const scope = globalThis as Record<string, unknown>;
@@ -46,6 +51,13 @@ function installDom() {
     window: dom.window,
     document: dom.window.document,
     HTMLElement: dom.window.HTMLElement,
+    NodeFilter: dom.window.NodeFilter,
+    CSS: { highlights: new Map() },
+    Highlight: class {
+      constructor(...ranges: Range[]) {
+        Object.assign(this, { ranges });
+      }
+    },
     IS_REACT_ACT_ENVIRONMENT: true,
   })) {
     saved.set(key, scope[key]);
@@ -226,4 +238,77 @@ test("Find opens both a group and its matching child's prompt, leaving siblings 
   expect(toggles.map((button) => button.getAttribute("aria-expanded"))).toEqual(["true", "false", "true", "false"]);
   expect(container.querySelector(".cv-subsession__markdown h1")?.textContent).toBe("picker-polish");
   expect(container.querySelector(".cv-subsession__raw button")?.getAttribute("aria-expanded")).toBe("true");
+});
+
+test("Find's two prompt occurrences select the first and second child, never their Raw copies", async () => {
+  const container = installDom();
+  root = createRoot(container);
+  const entries = ["first", "second"].map((name) => ({ call: start(name), tool: tool(name) }));
+  const items: AcpmuxActivity[] = entries.map(({ tool }) => ({ kind: "tool", text: "start", tool }));
+  const row: AcpmuxRow = { id: "row", kind: "activity", version: 1, at: 1, items };
+  const matches = findMatchesIncremental([row], "review").matches;
+  expect(matches).toHaveLength(2);
+  await act(async () =>
+    root!.render(
+      <FindReveal.Provider value={{ rowId: "row", card: false, needle: "review", repaint: () => {} }}>
+        <div data-row-id="row">
+          <SubsessionCallCard group={entries} />
+        </div>
+      </FindReveal.Provider>,
+    ),
+  );
+  for (const [index, match] of matches.entries()) {
+    const range = paintFindHighlights(container, "review", { ...match, card: false });
+    const prompt = range?.startContainer.parentElement?.closest(".cv-subsession__markdown");
+    expect(prompt).not.toBeNull();
+    expect(prompt?.querySelector("h1")?.textContent).toBe(entries[index]!.call.name);
+    const highlights = (scope.CSS as { highlights: Map<string, { ranges: Range[] }> }).highlights;
+    expect(highlights.get("acpmux-find")!.ranges).toHaveLength(1);
+  }
+  // Raw remains available, including its exact request text; it simply isn't a second search hit.
+  expect(container.querySelectorAll(".cv-mcp-call")).toHaveLength(2);
+});
+
+test("Find retains Raw-only fields and response matches alongside the displayed prompt", async () => {
+  const container = installDom();
+  root = createRoot(container);
+  const prompt = 'Check the "review" logs in `C:\\review`.';
+  const call = { ...start("first"), prompt };
+  const input = { name: "first", prompt, cwd: "unique-folder" };
+  const rawTool = {
+    id: "raw-search",
+    title: "mcp__cmux-subsessions__start_session",
+    status: "completed",
+    inputSummary: JSON.stringify(input),
+    output: "review complete",
+  };
+  const row: AcpmuxRow = {
+    id: "row",
+    kind: "activity",
+    version: 1,
+    at: 1,
+    items: [{ kind: "tool", text: rawTool.title, tool: rawTool }],
+  };
+  for (const needle of ["review", "unique-folder"]) {
+    await act(async () =>
+      root!.render(
+        <FindReveal.Provider value={{ rowId: "row", card: false, needle, repaint: () => {} }}>
+          <div data-row-id="row">
+            <SubsessionCallCard call={call} tool={rawTool} />
+          </div>
+        </FindReveal.Provider>,
+      ),
+    );
+    const matches = findMatchesIncremental([row], needle).matches;
+    expect(matches).toHaveLength(needle === "review" ? 3 : 1);
+    for (const [index, match] of matches.entries()) {
+      const range = paintFindHighlights(container, needle, { ...match, card: false })!;
+      expect(range.toString()).toBe(needle);
+      const inPrompt = Boolean(range.startContainer.parentElement?.closest(".cv-subsession__markdown"));
+      expect(inPrompt).toBe(needle === "review" && index < 2);
+      const highlights = (scope.CSS as { highlights: Map<string, { ranges: Range[] }> }).highlights;
+      expect(highlights.get("acpmux-find")!.ranges).toHaveLength(matches.length - 1);
+    }
+    expect(container.querySelector(".cv-mcp-call__body")?.textContent).toBe(JSON.stringify(input, null, 2));
+  }
 });

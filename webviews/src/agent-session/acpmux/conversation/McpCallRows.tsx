@@ -3,7 +3,7 @@
 // pretty-printed (mcpCalls.ts). Nothing of a call's JSON is drawn until it is opened; opening and
 // closing play the transcript's fold (fold.ts).
 import { useFindReveal } from "./chatFind";
-import { useContext, useId, useMemo, useState } from "react";
+import { type ReactNode, useContext, useId, useMemo, useState } from "react";
 import { useT } from "../i18n";
 import type { AcpmuxActivity } from "../model";
 import { stripsEnvelopeImages, toolImages } from "../toolImages";
@@ -137,6 +137,29 @@ function McpCallRow({ item }: { item: AcpmuxActivity }) {
   );
 }
 
+/// Keep a string argument's exact Raw text visible but exclude its duplicate from Find when a
+/// surrounding card already renders it (for example, a start's Markdown prompt). Only top-level
+/// string values are marked; keys, other arguments and the response remain searchable.
+function requestPresentation(request: string, skipKeys: readonly string[]): ReactNode {
+  if (!skipKeys.length) return request;
+  const parts: ReactNode[] = [];
+  let from = 0;
+  for (const match of request.matchAll(/^  ("(?:\\.|[^"\\])*"): ("(?:\\.|[^"\\])*")/gm)) {
+    if (!skipKeys.includes(JSON.parse(match[1]!))) continue;
+    const start = match.index + 2 + match[1]!.length + 2;
+    parts.push(request.slice(from, start));
+    parts.push(
+      <span key={start} data-find-skip>
+        {match[2]}
+      </span>,
+    );
+    from = start + match[2]!.length;
+  }
+  if (!from) return request;
+  parts.push(request.slice(from));
+  return parts;
+}
+
 /// The opened call: its request, then its response (only its end while long), each as a tight
 /// block; a block with nothing in it is left out. A sub-session card's Raw shows the same.
 export function McpCallDetails({
@@ -146,6 +169,7 @@ export function McpCallDetails({
   output,
   strip,
   reveal,
+  requestFindSkipKeys = [],
 }: {
   id: string;
   call: McpCall;
@@ -154,6 +178,8 @@ export function McpCallDetails({
   /// Whether the call's strip shows its envelope's images, which its response then leaves out.
   strip: boolean;
   reveal: number;
+  /// String arguments already rendered by the surrounding card; Raw is a duplicate for Find.
+  requestFindSkipKeys?: readonly string[];
 }) {
   const t = useT();
   const request = useMemo(() => prettyValue(call.args), [call]);
@@ -168,13 +194,17 @@ export function McpCallDetails({
       </code>
       {request && (
         <div className="cv-mcp-call__part">
-          <div className="cv-mcp-call__head">{t("tools.mcp.request")}</div>
-          <pre className="cv-mcp-call__body selectable">{request}</pre>
+          <div className="cv-mcp-call__head" data-find-skip>
+            {t("tools.mcp.request")}
+          </div>
+          <pre className="cv-mcp-call__body selectable">{requestPresentation(request, requestFindSkipKeys)}</pre>
         </div>
       )}
       {response.text && (
         <div className="cv-mcp-call__part">
-          <div className="cv-mcp-call__head">{t("tools.mcp.response")}</div>
+          <div className="cv-mcp-call__head" data-find-skip>
+            {t("tools.mcp.response")}
+          </div>
           <pre className="cv-mcp-call__body selectable">
             {response.cut && (
               <span className="cv-output-cut" aria-hidden="true">
