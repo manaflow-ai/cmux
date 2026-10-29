@@ -46,6 +46,25 @@ function RunningLine({ children }: { children: ReactNode }) {
   );
 }
 
+/// Whether a session's `doing` line only repeats the start of the prompt shown under it: acpmux
+/// names a new session from its prompt, so its first line is that prompt's opening words, often cut
+/// with an ellipsis. Compared on words, ignoring whitespace, case and a trailing ellipsis.
+export function repeatsPrompt(line: string, prompt: string): boolean {
+  const words = (text: string) =>
+    text
+      .replace(/(?:\.\.\.|\u2026)\s*$/u, "")
+      .toLowerCase()
+      .split(/\s+/u)
+      .filter(Boolean);
+  const head = words(line);
+  if (head.length === 0) return false;
+  const body = words(prompt).slice(0, head.length);
+  // The line's last word may be cut mid-word ("includi…").
+  return head.every((word, index) =>
+    index === head.length - 1 ? (body[index] ?? "").startsWith(word) : body[index] === word,
+  );
+}
+
 /// The live card of sub-session `sessionId`, with what the call knew of it until the list has it.
 function SessionCard({
   sessionId,
@@ -53,8 +72,12 @@ function SessionCard({
   harness,
   model,
   fallback,
+  shown,
   children,
 }: {
+  /// The prompt the card shows under its header (a start's preview): a `doing` line that only
+  /// repeats its start is left out, so the same words never show twice (Leo 2026-10-29).
+  shown?: string;
   sessionId?: string;
   name: string;
   harness?: string;
@@ -74,7 +97,8 @@ function SessionCard({
   const state = retry ? "working" : (live?.state ?? fallback?.state);
   const waiting = live ? live.waiting : fallback?.waiting;
   // A failed one says why (acpmux's lane error), a retry acpmux refused included.
-  const doing = waiting ? waitingLine(t, waiting) : (live?.doing ?? (state === "failed" ? live?.error : undefined));
+  const line = waiting ? waitingLine(t, waiting) : (live?.doing ?? (state === "failed" ? live?.error : undefined));
+  const doing = !waiting && line && shown && repeatsPrompt(line, shown) ? undefined : line;
   return (
     <AgentCard
       name={live?.name ?? name}
@@ -109,6 +133,7 @@ function StartedCard({ call, tool }: { call: Extract<SubsessionCall, { tool: "st
       model={call.model}
       // Until the call returns, the sub-session is starting: the working spinner.
       fallback={call.running ? { state: "working" } : undefined}
+      shown={call.prompt}
     >
       {call.prompt && <Cut text={call.prompt} prompt />}
       <Raw tool={tool} />
