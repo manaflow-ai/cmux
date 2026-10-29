@@ -291,6 +291,8 @@ import SwiftUI
         await source.restartShell("t-zsh")
         #expect(backend.restartedShells.isEmpty)
         store.updateTab("t-zsh", in: "ws-cmux") { $0.shellEnded = true }
+        // The source lists store changes on the next main-queue turn (#27087): list it now.
+        source.refreshTabs()
         let ended = try #require(source.tabs.first { $0.id == "t-zsh" })
         #expect(source.pageMenu(for: ended).flatMap { $0 }.map(\.title).first == WorkspaceTabsSource.restartShellTitle)
         await source.restartShell("t-zsh")
@@ -377,6 +379,7 @@ import SwiftUI
         // Close Tab Group closes every member once the Mac did.
         store.updateTab("t-zsh", in: "ws-cmux") { $0.group = WorkspaceTab.TabGroupRef(id: "tgrp_2") }
         store.updateTab("t-docs", in: "ws-cmux") { $0.group = WorkspaceTab.TabGroupRef(id: "tgrp_2") }
+        source.refreshTabs()
         await source.editGroup(.close, "t-zsh")
         #expect(tab("t-zsh") == nil && tab("t-docs") == nil)
         #expect(backend.groupEdits.last == .close)
@@ -392,6 +395,7 @@ import SwiftUI
         for id in ["t-zsh", "t-docs"] {
             store.updateTab(id, in: "ws-cmux") { $0.group = WorkspaceTab.TabGroupRef(id: "tgrp_1", name: "Jobs", color: "red") }
         }
+        source.refreshTabs()
         let zsh = try #require(source.tabs.first { $0.id == "t-zsh" })
         let row = try #require(source.cardMenu(for: zsh).flatMap { $0 }.first { $0.id == "tab-group-actions" })
         row.action()
@@ -492,6 +496,7 @@ import SwiftUI
     @Test func aBlankBrowserTabHasNoAddress() throws {
         let (store, source) = make()
         store.appendTab(WorkspaceTab(id: "t-blank", kind: .browser, title: "New Tab", url: URL(string: "about:blank")), to: "ws-cmux")
+        source.refreshTabs()
         let blank = try #require(source.tabs.first { $0.id == "t-blank" })
         #expect(blank.address.label == "Search or enter website")
         #expect(blank.subtitle.isEmpty)
