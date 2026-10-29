@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "build": "4092299464301",
+  "notes": "notes/4092299464301.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 27071,
+      "title": "Add destination-aware New Agent Chat",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
