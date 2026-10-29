@@ -948,7 +948,6 @@
         "CmuxNextCompat",
         "CmuxNextDesign",
         "CmuxNextDesignTokens",
-        "CmuxNextTestSupport",
         "CmuxNextWakeupsTestSupport"
       ],
       "packages": [
@@ -1095,8 +1094,7 @@
       "kind": "test",
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextFloatingTests",
       "targets": [
-        "CmuxNextFloating",
-        "CmuxNextTestSupport"
+        "CmuxNextFloating"
       ],
       "packages": [],
       "reads": []
@@ -1461,8 +1459,7 @@
       "kind": "test",
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextPaletteTests",
       "targets": [
-        "CmuxNextPalette",
-        "CmuxNextTestSupport"
+        "CmuxNextPalette"
       ],
       "packages": [
         "CmuxTheme"
@@ -1852,8 +1849,7 @@
       "kind": "test",
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextTerminalTests",
       "targets": [
-        "CmuxNextTerminal",
-        "CmuxNextTestSupport"
+        "CmuxNextTerminal"
       ],
       "packages": [],
       "reads": []
