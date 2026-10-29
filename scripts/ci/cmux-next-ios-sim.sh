@@ -100,11 +100,13 @@ export PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.cargo/bin:$PATH"
 xcodegen_dir=""
 sims=""
 cleanup() {
-  # test ui='s iPhone in the default device set, when a step is cut short.
-  if [[ -n "${ui_udid:-}" ]]; then
-    xcrun simctl shutdown "$ui_udid" >/dev/null 2>&1 || true
-    xcrun simctl delete "$ui_udid" >/dev/null 2>&1 || true
-  fi
+  # The test iPhones in the default device set, when a step is cut short.
+  local d
+  for d in "${test_udid:-}" "${ui_udid:-}"; do
+    [[ -n "$d" ]] || continue
+    xcrun simctl shutdown "$d" >/dev/null 2>&1 || true
+    xcrun simctl delete "$d" >/dev/null 2>&1 || true
+  done
   if [[ -n "$sims" ]]; then
     xcrun simctl --set "$sims" shutdown all >/dev/null 2>&1 || true
     xcrun simctl --set "$sims" delete all >/dev/null 2>&1 || true
@@ -132,6 +134,9 @@ cleanup() {
   fi
 }
 trap cleanup EXIT
+# A cancelled step gets SIGTERM: exit, so the EXIT trap cleans up.
+trap 'exit 143' TERM
+trap 'exit 130' INT
 
 # xcodegen: a pinned release, checksum-verified, in a temp dir of this step's
 # own, never the host's (aws-m4pro-2 has none, and the fleet's AWS Macs are not
@@ -261,6 +266,7 @@ if [[ ( "$mode" == test || "$mode" == all ) && $run_kit -eq 1 ]]; then
   set -e
   xcrun simctl shutdown "$test_udid" >/dev/null 2>&1 || true
   xcrun simctl delete "$test_udid" >/dev/null 2>&1 || true
+  test_udid=""
   counts="$(xcrun xcresulttool get test-results summary --path "$work/kit.xcresult" --compact 2>/dev/null | python3 -c '
 import json, sys
 d = json.load(sys.stdin)
@@ -431,4 +437,5 @@ fi
 (cd "$out" && rm -f evidence.zip && zip -qr evidence.zip . -x evidence.zip)
 cat "$summary"
 if [[ "${test_status:-0}" -ne 0 ]]; then exit "$test_status"; fi
+if [[ "${ui_status:-0}" -ne 0 ]]; then exit "$ui_status"; fi
 if [[ "${pair_status:-0}" -ne 0 ]]; then exit "$pair_status"; fi
