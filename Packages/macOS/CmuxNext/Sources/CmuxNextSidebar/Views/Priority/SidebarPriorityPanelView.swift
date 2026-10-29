@@ -71,12 +71,11 @@ final class SidebarPriorityPanelView: NSView {
     func show(_ panel: SidebarPriorityPanel) {
         let old = self.panel
         self.panel = panel
-        // Hiding ends a drag even when the hidden feed keeps the same attention rows: the release
-        // may never reach the hidden row. A re-rank, a fold or a height change also invalidates its slot.
-        if draggingID != nil,
-           old.shown != panel.shown || old.collapsed != panel.collapsed || old.entries.map(\.id) != panel.entries.map(\.id)
+        // Hiding invalidates even a press below the drag threshold: its release may never reach
+        // the hidden row. A re-rank, a fold or a height change also invalidates the press's slot.
+        if old.shown != panel.shown || old.collapsed != panel.collapsed || old.entries.map(\.id) != panel.entries.map(\.id)
             || old.entries.map({ $0.preview != nil }) != panel.entries.map({ $0.preview != nil }) {
-            stopDrag()
+            stopPresses()
         }
         header.configure(title: Strings.priorityTitle, collapsed: panel.collapsed)
         let attention = panel.attentionCount
@@ -231,16 +230,16 @@ final class SidebarPriorityPanelView: NSView {
         return false
     }
 
-    private func stopDrag() {
+    private func stopPresses() {
+        for row in rows.values { row.cancelPress() }
         guard let id = draggingID else { return }
         draggingID = nil
-        rows[id]?.cancelPress()
         rows[id]?.layer?.zPosition = 0
     }
 
     private func cancelDrag() {
         guard draggingID != nil else { return }
-        stopDrag()
+        stopPresses()
         placeRows(animated: window != nil)
     }
 
