@@ -427,7 +427,15 @@ fn shell_idle_a_multi_line_prompt_with_secondary_marks_is_idle() {
     assert!(extra["shell_idle"]["since_ms"].is_string(), "{extra}");
     // And after a command: the next two-line prompt reads idle again.
     type_text(&harness, surface, "true\r");
-    let screen = wait_for_screen(&harness.socket, surface, "top");
-    assert!(screen.matches("top").count() >= 1, "{screen:?}");
+    // The second prompt drew (the first prompt's `top` is on screen already).
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
+    loop {
+        let screen = wait_for_screen(&harness.socket, surface, "top");
+        if screen.matches("top").count() >= 2 {
+            break;
+        }
+        assert!(Instant::now() < deadline, "no second prompt: {screen:?}");
+        std::thread::sleep(Duration::from_millis(50));
+    }
     wait_for_idle(&harness);
 }

@@ -966,14 +966,19 @@ mod tests {
         activity.observe(ShellMark::SecondaryPromptStart, 2_001);
         assert_eq!(activity.foreground_check_due(), None, "the quote is open");
         assert_eq!(activity.idle_since(), None);
-        // A multi-line PS1's own `A;k=s` (right after its `A`) is part of that
-        // prompt and pays no line: the typed-ahead lines stay owed.
+        // A multi-line PS1's own `A;k=s` (right after its `A`, before its `B`)
+        // is part of that prompt and pays no line: the typed-ahead lines stay
+        // owed, so after two of them run, the third still waits.
         let mut activity = idle_at(1_000);
         activity.note_input(b"true\rsleep 1\rsleep 600\r");
-        activity.observe(ShellMark::PromptStart, 2_000);
-        activity.observe(ShellMark::SecondaryPromptStart, 2_001);
-        assert_eq!(activity.foreground_check_due(), None);
-        assert_eq!(activity.idle_since(), None);
+        for at in [2_000, 3_000] {
+            activity.observe(ShellMark::CommandStart, at - 50);
+            activity.observe(ShellMark::CommandEnd { exit_code: None }, at - 40);
+            activity.observe(ShellMark::PromptStart, at);
+            activity.observe(ShellMark::SecondaryPromptStart, at + 1);
+            check_at_b(&mut activity, at + 2);
+        }
+        assert_eq!(activity.idle_since(), None, "`sleep 600` still waits");
     }
 
     /// The check a `B` asks for, with the shell holding the foreground.
@@ -1067,6 +1072,27 @@ mod tests {
         activity.observe(ShellMark::PromptStart, 1_300);
         check_at_b(&mut activity, 1_301);
         assert_eq!(activity.idle_since(), None, "`sleep 600` still waits");
+    }
+
+    /// Review 3 of cp/fix-tip-continuation-prompt-idle-2, finding 1: an
+    /// integration that sends no `B` (kitty-style `A`, `A;k=s`, `C`, `D`).
+    /// A transient prompt redraws PS1 (`A`) after the Return of an unfinished
+    /// heredoc, then the PS2 `A;k=s` comes. With no `B`, nothing tells a
+    /// later line of that PS1 from the PS2: the PS2 must keep it not idle.
+    #[test]
+    fn shell_idle_a_continuation_prompt_with_no_b_marks_is_not_idle() {
+        let mut activity = ShellActivity::default();
+        activity.observe(ShellMark::PromptStart, 1_000);
+        if let Some(epoch) = activity.foreground_check_due() {
+            activity.record_foreground(epoch, true);
+        }
+        activity.note_input(b"cat <<EOF\r");
+        activity.observe(ShellMark::PromptStart, 1_100);
+        activity.observe(ShellMark::SecondaryPromptStart, 1_101);
+        if let Some(epoch) = activity.foreground_check_due() {
+            activity.record_foreground(epoch, true);
+        }
+        assert_eq!(activity.idle_since(), None, "the heredoc is open");
     }
 
     #[test]
