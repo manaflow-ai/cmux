@@ -89,6 +89,9 @@ fn a_normal_install_host_has_no_orphan_grace_and_a_dev_host_keeps_it() {
         if expected.is_some() {
             continue;
         }
+        // The owner rule (owner_exit.rs) ends a host whose owner dies with
+        // no recorded handoff; this owner's shutdown records one first.
+        super::owner_exit::declare_owner_handoff(&harness);
         kill_daemon(&mut harness);
         assert!(running(host_pid), "{bundle}: the host ended with its daemon");
         // cx-t2sqm.17: a stray SIGTERM (a cleanup script, `pkill`) to the

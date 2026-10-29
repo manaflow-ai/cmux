@@ -5276,6 +5276,9 @@ mod durable_tab_links;
 #[path = "terminal_host_recovery/host_orphan.rs"]
 mod host_orphan;
 
+#[path = "terminal_host_recovery/owner_exit.rs"]
+mod owner_exit;
+
 #[path = "terminal_host_recovery/false_exit.rs"]
 mod false_exit;
 
