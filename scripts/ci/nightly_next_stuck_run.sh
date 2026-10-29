@@ -95,12 +95,13 @@ if [[ ! -s "$scratch/runs" ]]; then
 fi
 
 # The first stuck job of a run's latest attempt (name<TAB>labels<TAB>minutes), or nothing. Fail-closed
-# on shape: a job without a string status, a labels array of strings or a created_at timestamp makes
+# on shape: a job without a string status, a labels array of strings (non-empty on a queued job, which
+# is judged by it) or a created_at timestamp makes
 # jq fail (error), and the caller then leaves the run alone; a job is never judged on a field it lacks.
 stuck_filter='
   def checked: if (type == "object") and (.status | type) == "string"
-                   and ((.labels | type) == "array") and ((.labels | length) > 0)
-                   and all(.labels[]; type == "string")
+                   and ((.labels | type) == "array") and all(.labels[]; type == "string")
+                   and (.status != "queued" or (.labels | length) > 0)
                    and ((.created_at | type) == "string")
                then . else error("a job of an unexpected shape") end;
   def unserved: .status == "queued" and ((.runner_name // "") == "");

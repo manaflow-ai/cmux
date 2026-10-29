@@ -175,21 +175,39 @@ def stuck_without_runner(now: dt.datetime, jobs: list[dict], minutes: float = ST
     `minutes` queued with no runner on a label that is not owned (glaeda-* jobs are the
     owned-pool rescue's), and every other job has finished or also waits with no runner. A job
     that is running, or waiting on a gate, means the run is not stuck.
+
+    Fail-closed on shape, as scripts/ci/nightly_next_stuck_run.sh: a job list that is not a
+    non-empty list, or a job without a string status, a list of string labels (non-empty on a
+    queued job, which is judged by it) and a parseable created_at, is not judged, so the run counts as carrying the tip.
     """
     if run is not None and run.get("status") not in ("queued", "in_progress"):
         return False
-    def unserved(job: dict) -> bool:
-        return job.get("status") == "queued" and not job.get("runner_name")
-
-    def waited(job: dict) -> float:
+    if not isinstance(jobs, list) or not jobs:
+        return False
+    checked: list[tuple[dict, float]] = []
+    for job in jobs:
+        if not isinstance(job, dict) or not isinstance(job.get("status"), str):
+            return False
+        labels = job.get("labels")
+        if not isinstance(labels, list) or not all(isinstance(label, str) for label in labels):
+            return False
+        if job["status"] == "queued" and not labels:  # a queued job is judged by its label
+            return False
+        created = job.get("created_at")
+        if not isinstance(created, str):
+            return False
         try:
-            return (now - parse_time(job.get("created_at") or "")).total_seconds() / 60
+            waited = (now - parse_time(created)).total_seconds() / 60
         except (TypeError, ValueError):
-            return 0.0
+            return False
+        checked.append((job, waited))
 
-    stuck = [job for job in jobs if unserved(job) and waited(job) >= minutes
-             and not any(str(label).startswith("glaeda-") for label in job.get("labels") or [])]
-    return bool(stuck) and all(job.get("status") == "completed" or unserved(job) for job in jobs)
+    def unserved(job: dict) -> bool:
+        return job["status"] == "queued" and not job.get("runner_name")
+
+    stuck = [job for job, waited in checked if unserved(job) and waited >= minutes
+             and not any(label.startswith("glaeda-") for label in job["labels"])]
+    return bool(stuck) and all(job["status"] == "completed" or unserved(job) for job, _ in checked)
 
 
 def assess(now: dt.datetime, newest: dt.datetime, pushes: list[dict], nightly: list[dict],
@@ -417,7 +435,11 @@ def stuck_run(gh: GitHub, run: dict, now: dt.datetime) -> bool:
     A run with a deployment waiting for approval is gated, not stuck, as in that script. An
     unreadable job or deployment list keeps the run, so a failed read never doubles a build."""
     try:
-        return stuck_without_runner(now, gh.jobs(run), run=run) and not gh.pending_deployments(run)
+        if not stuck_without_runner(now, gh.jobs(run), run=run):
+            return False
+        pending = gh.pending_deployments(run)
+        # Only a list is a reading: null, an object or anything else is unread, and keeps the run.
+        return isinstance(pending, list) and not pending
     except Exception:  # noqa: BLE001 - fail closed: the run may be carrying the tip
         return False
 

@@ -268,6 +268,13 @@ class StuckRun(unittest.TestCase):
                 self.assertEqual(self.writes(calls), [], case)
                 self.assertIn("could not be read; left alone", result.stdout)
 
+    def test_a_finished_job_with_no_labels_is_a_normal_shape(self):
+        # A skipped job comes back with labels []: the run is still judged, and cancelled when stuck.
+        skipped = dict(job("probe", 34, status="completed"), labels=[])
+        result, calls = self.run_script({7: [STUCK_DECIDE, skipped]}, next_runs=[run(7)])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.writes(calls), ["api -X POST repos/o/r/actions/runs/7/cancel"])
+
     def test_a_run_listing_of_an_unexpected_shape_cancels_nothing(self):
         for bad in (dict(run(7), head_sha=None), dict(run(7), id=None), dict(run(7), run_attempt=None)):
             with self.subTest(bad=bad):

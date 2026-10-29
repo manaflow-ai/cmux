@@ -711,11 +711,11 @@ class StuckRunTests(unittest.TestCase):
                 raise self._pending
             return self._pending
 
-    def guard(self, jobs, workflow="nightly.yml", status="in_progress", pending=()):
+    def guard(self, jobs, workflow="nightly.yml", status="in_progress", pending=()):  # () is []
         run = {"id": 9, "status": status, "created_at": at(0.5), "head_sha": self.TIP,
                "html_url": "https://github.com/o/r/actions/runs/9"}
         gh = self.Gh(self, [run], jobs)
-        gh._pending = pending if isinstance(pending, Exception) else list(pending)
+        gh._pending = list(pending) if isinstance(pending, tuple) else pending
         result = watch.starvation_dispatch(
             gh, NOW, feed=NOW - dt.timedelta(minutes=90), published_sha="", branch="feat-cmux-next",
             workflow="nightly-next-tick.yml", ref="main", active_workflows=[(workflow, "nightly-next")])
@@ -760,6 +760,36 @@ class StuckRunTests(unittest.TestCase):
             with self.subTest(pending=pending):
                 result, dispatched = self.guard([stuck], pending=pending)
                 self.assertEqual(result, "running https://github.com/o/r/actions/runs/9")
+                self.assertEqual(dispatched, [])
+
+    def test_a_finished_job_with_no_labels_is_a_normal_shape(self):
+        # GitHub reports a skipped job with labels []: that is not unread, and the run is judged.
+        stuck = queued_job("decide", 34, ["blacksmith-4vcpu-ubuntu-2404"])
+        skipped = dict(queued_job("probe", 34, []), status="completed", conclusion="skipped")
+        self.assertTrue(watch.stuck_without_runner(NOW, [stuck, skipped], run={"status": "queued"}))
+        self.assertFalse(watch.stuck_without_runner(NOW, [stuck, dict(skipped, labels=None)], run={"status": "queued"}))
+
+    def test_a_response_of_an_unexpected_shape_still_holds(self):
+        # Valid JSON of the wrong shape is unread, never "nothing there": the run keeps carrying the
+        # tip and no second build is dispatched.
+        stuck = queued_job("decide", 34, ["blacksmith-4vcpu-ubuntu-2404"])
+        cases = {
+            "deployments null": ([stuck], None),
+            "deployments an object": ([stuck], {}),
+            "null labels": ([dict(stuck, labels=None)], ()),
+            "no labels": ([{k: v for k, v in stuck.items() if k != "labels"}], ()),
+            "empty labels": ([dict(stuck, labels=[])], ()),
+            "a non-string label": ([dict(stuck, labels=[3])], ()),
+            "no status": ([{k: v for k, v in stuck.items() if k != "status"}], ()),
+            "no created_at": ([{k: v for k, v in stuck.items() if k != "created_at"}], ()),
+            "a bad created_at": ([dict(stuck, created_at="yesterday")], ()),
+            "no jobs": ([], ()),
+            "jobs not a list": ({"jobs": []}, ()),
+        }
+        for case, (jobs, pending) in cases.items():
+            with self.subTest(case):
+                result, dispatched = self.guard(jobs, pending=pending)
+                self.assertEqual(result, "running https://github.com/o/r/actions/runs/9", case)
                 self.assertEqual(dispatched, [])
 
     def test_only_nightly_runs_are_judged(self):
