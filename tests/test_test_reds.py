@@ -453,6 +453,41 @@ class WebviewTestsAcrossJobs(unittest.TestCase):
         self.assertTrue(reds.classify_web([with_error], [None]).own)
         self.assertTrue(reds.classify_web([None], [with_error]).own)
 
+    def test_assertion_values_are_part_of_the_error(self):
+        head = web_job((CAPSULES, [(CAPSULE_TEST, CAPSULE_ERROR + "\nExpected: 3\nReceived: 9", 87)]))
+        base = web_job((CAPSULES, [(CAPSULE_TEST, CAPSULE_ERROR + "\nExpected: 3\nReceived: 4", 87)]))
+        self.assertTrue(reds.classify_web([head], [base]).own)
+
+    def test_an_unnamed_file_failure_needs_a_matching_error(self):
+        def unloadable(error):
+            return log(f"##[group]FAIL {CAPSULES}", f"error: {error}", "##[endgroup]",
+                       "### webviews tests: 1 files, 1 failed or timed out", f"FAIL {CAPSULES} (limit 120s)")
+        self.assertTrue(reds.classify_web([unloadable("missing export foo")],
+                                          [unloadable("missing export bar")]).own)
+        self.assertTrue(reds.classify_web([unloadable("")], [unloadable("")]).own)
+        self.assertFalse(reds.classify_web([unloadable("missing export foo")],
+                                           [unloadable("missing export foo")]).own)
+
+    def test_crashes_and_cut_short_logs_are_never_shared(self):
+        shared = web_job((CAPSULES, [(CAPSULE_TEST, CAPSULE_ERROR, 87)]))
+        for broken in (shared + "\n2026-10-28T03:40:35Z Segmentation fault (core dumped)",
+                       shared.split("### webviews tests:")[0],
+                       shared.replace("##[endgroup]", "... output truncated; complete log retained ...\n##[endgroup]")):
+            with self.subTest(log=broken):
+                self.assertTrue(reds.classify_web([broken], [broken]).own)
+
+    def test_replay_cannot_excuse_a_crashed_head_shard(self):
+        head = web_job((CAPSULES, [(CAPSULE_TEST, CAPSULE_ERROR, 87)]))
+        head += "\n2026-10-28T03:40:35Z oh no: Bun has crashed"
+        verdict = reds.classify_web([replay(charged=[f"{CAPSULES} > {CAPSULE_TEST}"]), head], [head])
+        self.assertTrue(verdict.own)
+
+    def test_retry_only_failure_cannot_be_excused_by_the_first_attempt(self):
+        head = web_job((CAPSULES, [(CAPSULE_TEST, CAPSULE_ERROR, 87)]))
+        head = head.replace("##[endgroup]", "--- retry, alone ---\nerror: new retry failure\n(fail) " + CAPSULE_TEST + "\n##[endgroup]")
+        base = web_job((CAPSULES, [(CAPSULE_TEST, CAPSULE_ERROR, 87)]))
+        self.assertTrue(reds.classify_web([head], [base]).own)
+
     def test_a_job_that_names_no_webview_test_is_not_this_classifiers(self):
         self.assertIsNone(reds.classify_web([log("error: oxlint found 3 problems")], [replay()]))
 
