@@ -333,6 +333,27 @@ export class FsBucket {
     }
   }
 
+  /** Remove through a held parent descriptor, so a checked directory cannot be swapped to a link. */
+  private remove(path: string, area: Area, recursive = false) {
+    const dir = dirname(path)
+    this.checkDir(dir, area)
+    this.options.afterPathCheck?.(path)
+    let directory: number
+    try {
+      directory = openSync(dir, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW)
+    } catch (error) {
+      if (["ELOOP", "ENOTDIR", "ENOENT"].includes(errorCode(error) ?? "")) throw linkError()
+      throw error
+    }
+    try {
+      this.checkFd(directory, dir, area)
+      const fdPath = process.platform === "linux" ? `/proc/self/fd/${directory}` : `/dev/fd/${directory}`
+      rmSync(join(fdPath, basename(path)), { force: true, recursive })
+    } finally {
+      closeSync(directory)
+    }
+  }
+
   /** Drain to disk with bounded memory, including short filesystem writes. */
   private async writeStream(path: string, stream: ReadableStream<Uint8Array>, area: Area): Promise<{ etag: string; size: number }> {
     const file = await this.createFile(path, area)
@@ -575,7 +596,7 @@ export class FsBucket {
     try {
       const { etag, size } = await this.writeStream(tmp, bodyStream(value), "upload")
       this.checkDir(partsDir, "upload")
-      rmSync(`${partPath}.json`, { force: true })
+      this.remove(`${partPath}.json`, "upload")
       this.rename(tmp, partPath, "upload")
       await this.writeFile(`${partPath}.json`, JSON.stringify({ etag, size }), "upload")
       return { partNumber, etag }
@@ -592,11 +613,11 @@ export class FsBucket {
     // rm never follows a link inside the tree it removes; the tree itself is checked first.
     const partsDir = this.multipartPath(uploadId)
     if (lstatOrNull(partsDir)) this.checkDir(partsDir, "upload")
-    rmSync(partsDir, { recursive: true, force: true })
+    this.remove(partsDir, "upload", true)
     // Each path is named (and passes its lstat checks) before the directory it is in is checked, then used.
     const record = this.multipartMetaPath(uploadId)
     this.checkDir(this.multipartDir, "upload")
-    rmSync(record, { force: true })
+    this.remove(record, "upload")
   }
 
   /**
@@ -670,8 +691,8 @@ export class FsBucket {
       if (file === null) continue
       // rm removes a link itself, never its target; the directory it removes from is checked first.
       this.checkDir(dirname(file), "key")
-      rmSync(file, { force: true })
-      rmSync(`${file}.meta.json`, { force: true })
+      this.remove(file, "key")
+      this.remove(`${file}.meta.json`, "key")
     }
   }
 
