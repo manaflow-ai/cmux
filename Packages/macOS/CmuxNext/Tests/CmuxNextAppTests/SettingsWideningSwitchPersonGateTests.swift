@@ -202,6 +202,36 @@ import Testing
         #expect(h.recorder.sets == ["device true", "vm true"])
     }
 
+    /// An off that comes in while an on's write is still in flight wins: once the on lands, off is written
+    /// again, so the last write each machine took is off.
+    @Test(.timeLimit(.minutes(1))) func anOffDuringAnOnsWriteWins() async throws {
+        let h = try await make(owner: FakeOwner())
+        defer { h.cleanUp() }
+        var landing: [CheckedContinuation<Void, Never>] = []
+        let write = { (name: String, id: String, on: Bool) async -> String? in
+            if on { await withCheckedContinuation { landing.append($0) } }
+            h.recorder.sets.append("\(name) \(on)")
+            return nil
+        }
+        h.page.setDeviceFullAccess = { await write("device", $0, $1) }
+        h.page.setMachineVmHost = { await write("vm", $0, $1) }
+        for op in Switch.allCases {
+            let mine = try h.click(0)
+            h.ledger.record(mine)
+            let page = h.page, stamp = mine.timestamp
+            let turningOn = Task {
+                try await page.call(op.rawValue, params: ["id": "m1", "on": true],
+                                    context: PageCallContext(page: PageDescriptor.settings.id, userGesture: true, gestureEvent: stamp))
+            }
+            for _ in 0..<1000 where landing.isEmpty { await Task.yield() }
+            try #require(landing.count == 1, "the on's write is in flight")
+            #expect(try await !h.refused(op, on: false, h.posted()))
+            landing.removeFirst().resume()
+            _ = try await turningOn.value
+        }
+        #expect(h.recorder.sets == ["device false", "device true", "device false", "vm false", "vm true", "vm false"])
+    }
+
     /// Under ``SettingsPageProvider/PersonGatePolicy/alwaysConfirm`` the HID system's click asks too, and
     /// only a success turns it on.
     @Test func alwaysConfirmAsksEvenForTheHIDSystemsClick() async throws {

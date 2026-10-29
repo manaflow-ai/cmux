@@ -55,6 +55,17 @@ extension SettingsPageProvider {
         guard await ownerConfirm.authenticate(reason: widening.reason), offs[key, default: 0] == offsBefore else { throw refusal }
     }
 
+    /// Writes `on` for `widening` on machine `id` through `write` (the host's error, or nil). An on whose
+    /// write was still in flight when an off of the same switch on the same machine came in writes off
+    /// again once it lands, so the two writes landing out of order never leave it on after the off.
+    func widenedWrite(_ widening: WideningSwitch, _ id: String, _ on: Bool,
+                      _ write: @MainActor (String, Bool) async -> String?) async -> String? {
+        let key = widening.key(id), offsBefore = offs[key, default: 0]
+        let error = await write(id, on)
+        guard on, offs[key, default: 0] != offsBefore else { return error }
+        return await write(id, false)
+    }
+
     /// An off of `widening` on machine `id`: it voids that switch's confirm if one is up.
     func turnedOff(_ widening: WideningSwitch, _ id: String) {
         offs[widening.key(id), default: 0] += 1
