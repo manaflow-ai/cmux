@@ -10,13 +10,15 @@ extension ChatsFeed {
     /// (WORKING-AND-LOADING-INDICATORS), whether or not a window shows Chats.
     /// Nil without a local acpmux environment.
     static func started(for services: AppServices) -> ChatsFeed? {
-        // The showcase has no acpmux daemon, but the DEBUG pull-request fixture still
-        // needs the real sidebar feed to publish its sample badges. Keep this capture
-        // seam scoped to the fixture; ordinary showcase runs retain the no-feed path.
-        if SidebarPullRequestFixture.enabled {
-            SidebarSessionTreeFeed.shared.start(workspaces: { services.machines.allWorkspaces.map { $0.0 } }, localHost: nil)
+        guard let environment = QuitAgents.environment(services) else {
+            // The showcase has no acpmux daemon, but the DEBUG pull-request fixture
+            // still needs the real sidebar feed to publish its sample badges. With a
+            // real environment, normal startup below preserves the local host identity.
+            if SidebarPullRequestFixture.enabled {
+                SidebarSessionTreeFeed.shared.start(workspaces: { services.machines.allWorkspaces.map { $0.0 } }, localHost: nil)
+            }
+            return nil
         }
-        guard let environment = QuitAgents.environment(services) else { return nil }
         let turns = AgentTurnStateFeed.shared ?? AgentTurnStateFeed(socketPath: environment.socketPath)
         AgentTurnStateFeed.shared = turns
         AgentTurnStateFeed.drained = { DebugTimings.turnStatesApplied(lines: $0, $1) }
