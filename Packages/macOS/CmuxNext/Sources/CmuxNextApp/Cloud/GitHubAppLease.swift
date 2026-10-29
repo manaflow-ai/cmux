@@ -255,7 +255,15 @@ import os
     /// `_acpmux/github_app_lease` on a checked connection; the daemon's reply.
     private static func send(_ environment: AcpmuxEnvironment?, _ params: [String: Any]) async -> [String: Any]? {
         guard let environment, let line = await AcpmuxPersonLine.open(environment) else { return nil }
+        return await send(on: line, params)
+    }
+
+    /// The call on `line`, only once acpmux took its person proof. `open` also returns a line whose
+    /// proof was refused or never asked for (an older daemon, or another one at the socket path),
+    /// and the sign-in must never reach that daemon at all, not even to be refused.
+    static func send(on line: some AgentDialogLine, _ params: [String: Any]) async -> [String: Any]? {
         defer { line.close() }
+        guard line.isPerson else { return nil }
         return await line.call("_acpmux/github_app_lease", params)
     }
 

@@ -162,4 +162,30 @@ import Testing
         open.finish()
         #expect(!daemon.calls.contains { $0["bearer"] != nil }, "the fetch that hung lends nothing")
     }
+
+    @MainActor final class Line: AgentDialogLine {
+        let isPerson: Bool
+        var calls: [[String: Any]] = []
+        var closed = false
+        init(isPerson: Bool) { self.isPerson = isPerson }
+        func call(_ method: String, _ params: [String: Any]) async -> [String: Any]? {
+            calls.append(params)
+            return ["lent": true]
+        }
+        func close() { closed = true }
+    }
+
+    /// Review of the lender at ac6b681: a line whose person proof was refused (an older daemon, or
+    /// another at the socket path) was still sent the bearer.
+    @MainActor @Test func theSignInGoesOnlyToADaemonThatTookThePersonProof() async {
+        let params: [String: Any] = ["seq": UInt64(1), "bearer": "install-token", "team": "team_1"]
+        let unproven = Line(isPerson: false)
+        #expect(await GitHubAppLease.send(on: unproven, params) == nil)
+        #expect(unproven.calls.isEmpty, "nothing, the bearer included, reaches it")
+        #expect(unproven.closed)
+        let proven = Line(isPerson: true)
+        #expect(await GitHubAppLease.send(on: proven, params)?["lent"] as? Bool == true)
+        #expect(proven.calls.first?["bearer"] as? String == "install-token")
+        #expect(proven.closed)
+    }
 }
