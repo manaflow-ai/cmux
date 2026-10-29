@@ -15,8 +15,9 @@
 //     button and the ring, so it keeps "Opus 5.5  Medium" and "Auto" while they fit (live-qa
 //     2026-10-21 read "Opus Med" with about 250 px of the row free), and shortens the effort only
 //     when they do not (below a 280 px pane: test/composer-model-quiet.test.ts measures it).
-//   - The in-box row (Debug Settings' plain footer off): every control in the box's one row, where
-//     the width steps still apply. First the button's effort shows the level's short name ("Med"),
+//   - The stepped row (Debug Settings' plain footer off): the same row element, without
+//     `data-footer-look="plain"`, where the composer's width steps still apply as they did when
+//     every control shared one row. First the button's effort shows the level's short name ("Med"),
 //     then the model its family ("Opus"), the access label goes, then the model its harness mark
 //     alone (its name in its tooltip), the effort still beside it.
 //
@@ -120,10 +121,10 @@ await requireBrowserLane("composer-row-steps.test.ts", async () => {
       { model: "Opus 5.5", effort: "Medium", access: "Auto", mic: true },
     ]),
   );
-  /** The in-box row (plain footer off): what each pane width shows (the composer is the pane less
+  /** The stepped row (plain footer off): what each pane width shows (the composer is the pane less
    *  36 px): the model button's name, its effort (Fast on never adds a word to it), the access
    *  label, the mic (always). */
-  const IN_BOX: Record<number, Expected> = {
+  const STEPPED: Record<number, Expected> = {
     760: { model: "Opus 5.5", effort: "Medium", access: "Auto", mic: true },
     520: { model: "Opus 5.5", effort: "Medium", access: "Auto", mic: true },
     500: { model: "Opus 5.5", effort: "Med", access: "Auto", mic: true },
@@ -166,18 +167,23 @@ await requireBrowserLane("composer-row-steps.test.ts", async () => {
     await vite?.close();
   });
 
-  const at = async (width: number, look: "quiet" | "in-box") => {
+  const at = async (width: number, look: "quiet" | "stepped") => {
     const page = await browser!.newPage({ viewport: { width, height: 300 } });
     await page.goto(stageURL());
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
     await page.locator(".acpmux-model .acpmux-picker-button").waitFor();
     await page.evaluate(() => document.fonts.ready);
     // The plain footer is the default (DEFAULT_COMPOSER.plainFooter); the host's `composer` event
-    // turns it off, as Debug Settings does, and the chips move into the box's row.
-    if (look === "in-box") {
+    // turns it off, as Debug Settings does. ComposerFoot draws the same row either way and marks
+    // only the plain one `data-footer-look="plain"`, so the look is read off that attribute, not off
+    // which element holds the chips.
+    await page.locator(".acpmux-composer-foot .acpmux-model .acpmux-picker-button").waitFor();
+    if (look === "stepped") {
       await page.evaluate(() => window.cmuxAcpmuxComposer?.({ plainFooter: false }));
-      await page.locator(".acpmux-composer-box .acpmux-model .acpmux-picker-button").waitFor();
-    } else await page.locator(".acpmux-composer-foot .acpmux-model .acpmux-picker-button").waitFor();
+      await page
+        .locator('.acpmux-composer-foot:not([data-footer-look="plain"]) .acpmux-model .acpmux-picker-button')
+        .waitFor();
+    } else await page.locator('.acpmux-composer-foot[data-footer-look="plain"]').waitFor();
     // Claude desktop's box: no Send until there is a draft (Leo 2026-10-20). A typed prompt brings
     // Send in, so the row is measured with every control it can hold.
     await page.locator(".acpmux-composer-prompt [contenteditable]").click();
@@ -192,7 +198,7 @@ await requireBrowserLane("composer-row-steps.test.ts", async () => {
 
   const cases = [
     ...Object.entries(QUIET).map(([w, e]) => ["quiet", Number(w), e] as const),
-    ...Object.entries(IN_BOX).map(([w, e]) => ["in-box", Number(w), e] as const),
+    ...Object.entries(STEPPED).map(([w, e]) => ["stepped", Number(w), e] as const),
   ];
   for (const [look, width, expected] of cases)
     test(`${look} row at ${width} px swaps whole units: model "${expected.model}", effort "${expected.effort}", access "${expected.access}"`, async () => {

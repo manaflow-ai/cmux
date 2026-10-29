@@ -225,6 +225,7 @@ await requireBrowserLane("composer-model-quiet.test.ts", async () => {
         return element ? getComputedStyle(element).fontFamily : `missing ${selector}`;
       };
       return {
+        token: getComputedStyle(document.documentElement).getPropertyValue("--font-ui").trim(),
         composer: family(".acpmux-composer"),
         prompt: family(".acpmux-composer-box .acpmux-md"),
         button: family(".acpmux-composer-foot .acpmux-model .acpmux-picker-button"),
@@ -234,9 +235,16 @@ await requireBrowserLane("composer-model-quiet.test.ts", async () => {
       };
     });
     await page.close();
-    // The app's UI font (SF Pro in the app's WebKit, styles.css `.acpmux-composer`).
-    expect(fonts.composer).toBe("system-ui");
-    for (const [part, family] of Object.entries(fonts)) expect(family, part).toBe(fonts.composer);
+    const { token, ...parts } = fonts;
+    // The app's UI font token (styles.css `.acpmux-composer { font-family: var(--font-ui) }`,
+    // defined in pages/shared/desktop.css), not a family this surface names for itself. Compared as
+    // the token resolves here, so changing the stack never reddens this.
+    // getComputedStyle drops the quotes a family name does not need, so both sides are compared
+    // without quotes or repeated space.
+    const families = (value: string) => value.replace(/["']/g, "").replace(/\s+/g, " ").trim();
+    expect(token, "the page defines the app's UI font token").not.toBe("");
+    expect(families(parts.composer)).toBe(families(token));
+    for (const [part, family] of Object.entries(parts)) expect(family, part).toBe(parts.composer);
   });
 
   /** The forms the quiet row shows: each unit's visible label, and whether its controls fit. */

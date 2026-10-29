@@ -1,6 +1,7 @@
 // The composer and its model button draw in the app's UI font (Leo 2026-10-21: "WE ALREADY FIXED THE
-// FONTS"). The composer names it once, `.acpmux-composer { font-family: system-ui }` in styles.css
-// (SF Pro in the app's WebKit); every control in it inherits that family, so no rule in the
+// FONTS"). The composer names it once, `.acpmux-composer { font-family: var(--font-ui) }` in
+// styles.css (the shared UI token, desktop.css: Inter then the system stack, so SF Pro in the app's
+// WebKit); every control in it inherits that family, so no rule in the
 // composer's stylesheets may name another one, and the quiet row under the box (ComposerFoot), which
 // sits outside `.acpmux-composer-box`, must inherit it too. test/composer-model-quiet.test.ts checks
 // the computed family of the model button, its labels and the mode in Chromium.
@@ -25,7 +26,8 @@ const SHEETS = [
 /** A selector that styles the composer or a control in it. */
 const COMPOSER =
   /acpmux-composer|acpmux-picker-button|acpmux-model|acpmux-chips|acpmux-access|acpmux-context-ring|nt-pickers/;
-const APP_FONT = "system-ui";
+/** The app's UI font token (src/pages/shared/desktop.css), which the composer names once. */
+const APP_FONT = "var(--font-ui)";
 
 function rules(file: string): { selector: string; body: string }[] {
   const css = readFileSync(path.join(DIR, file), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");

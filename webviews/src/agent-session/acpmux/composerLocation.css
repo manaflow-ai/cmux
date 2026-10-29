@@ -557,15 +557,16 @@
    container queries, or data-fit-model / data-fit-access when a label is too long for its step)
    take the model's name or the mode's label away, its mark or symbol alone shows, so neither chip
    is ever a bare chevron. The widths are COMPOSER_FIT_STEPS modelMark (370) and
-   accessLabelHidden (420); the quiet row under the box has no width steps (below), so there only
-   data-fit-model brings the model's mark back (the mode's symbol always shows). test/composer-footer-plain.test.ts measures it. */
+   accessLabelHidden (420); the quiet row (the plain look) has no width steps (below), so there only
+   data-fit-model brings the model's mark back (the mode's symbol always shows). With the plain footer
+   off the row draws the mark as the one row always did. test/composer-footer-plain.test.ts measures it. */
 :is(.acpmux-composer-bar, .nt-pickers)[data-footer-look="plain"] :is(.acpmux-model-name, .acpmux-model-short) { color: inherit; }
 @container composer (width > 370px) {
   :is(.acpmux-composer-bar, .nt-pickers)[data-footer-look="plain"]:not([data-fit-model="icon"]) .acpmux-model .acpmux-picker-button .agent-mark {
     display: none;
   }
 }
-.acpmux-composer-foot:not([data-fit-model="icon"]) .acpmux-model .acpmux-picker-button .agent-mark {
+.acpmux-composer-foot[data-footer-look="plain"]:not([data-fit-model="icon"]) .acpmux-model .acpmux-picker-button .agent-mark {
   display: none;
 }
 :is(.acpmux-composer-bar, .nt-pickers)[data-footer-look="plain"] .acpmux-picker-button:focus-visible,
@@ -673,18 +674,21 @@
   visibility: hidden;
   pointer-events: none;
 }
-/* The width steps below skip the quiet row through `:where(:not(.acpmux-composer-foot))`, never a bare
-   `:not(...)`: these rules sit after the hiding rules above and must keep losing to them, so the row's
-   measured fit (data-fit-model="icon" at a width whose step only asks for "family") still wins. A bare
-   `:not()` adds a class to the selector, ties the hider at (0,4,0) and would bring a label back that the
+/* The width steps below skip the quiet row, which is the plain look, not the element: ComposerFoot
+   draws the same `.acpmux-composer-bar.acpmux-composer-foot` in both looks and marks only the plain
+   one `data-footer-look="plain"`, so with the plain footer off its row takes these steps as the one
+   row always did. The guard is `:where(:not([data-footer-look="plain"]))`, never a bare `:not(...)`:
+   these rules sit after the hiding rules above and must keep losing to them, so the row's measured
+   fit (data-fit-model="icon" at a width whose step only asks for "family") still wins. A bare
+   `:not()` adds to the selector, ties the hider at (0,4,0) and would bring a label back that the
    fit had taken away. */
 @container composer (max-width: 470px) {
-  :is(.acpmux-composer-bar:where(:not(.acpmux-composer-foot)), .nt-pickers) [data-fit-part="effort"][data-fit-forms~="short"] {
+  :is(.acpmux-composer-bar:where(:not([data-footer-look="plain"])), .nt-pickers) [data-fit-part="effort"][data-fit-forms~="short"] {
     position: static;
     visibility: visible;
     pointer-events: auto;
   }
-  :is(.acpmux-composer-bar:where(:not(.acpmux-composer-foot)), .nt-pickers) [data-fit-part="effort"]:not([data-fit-forms~="short"]) {
+  :is(.acpmux-composer-bar:where(:not([data-footer-look="plain"])), .nt-pickers) [data-fit-part="effort"]:not([data-fit-forms~="short"]) {
     position: absolute;
     top: 0;
     inset-inline-start: 0;
@@ -693,12 +697,12 @@
   }
 }
 @container composer (max-width: 440px) {
-  .acpmux-composer-bar:where(:not(.acpmux-composer-foot)) [data-fit-part="model"][data-fit-forms~="family"] {
+  .acpmux-composer-bar:where(:not([data-footer-look="plain"])) [data-fit-part="model"][data-fit-forms~="family"] {
     position: static;
     visibility: visible;
     pointer-events: auto;
   }
-  .acpmux-composer-bar:where(:not(.acpmux-composer-foot)) [data-fit-part="model"]:not([data-fit-forms~="family"]) {
+  .acpmux-composer-bar:where(:not([data-footer-look="plain"])) [data-fit-part="model"]:not([data-fit-forms~="family"]) {
     position: absolute;
     top: 0;
     inset-inline-start: 0;
@@ -707,7 +711,7 @@
   }
 }
 @container composer (max-width: 370px) {
-  .acpmux-composer-bar:where(:not(.acpmux-composer-foot)) [data-fit-part="model"]:not([data-fit-forms~="icon"]) {
+  .acpmux-composer-bar:where(:not([data-footer-look="plain"])) [data-fit-part="model"]:not([data-fit-forms~="icon"]) {
     position: absolute;
     top: 0;
     inset-inline-start: 0;
@@ -731,7 +735,7 @@
   }
 }
 @container composer (max-width: 420px) {
-  .acpmux-composer-bar:where(:not(.acpmux-composer-foot)) [data-fit-part="access"]:not([data-fit-forms~="icon"]) {
+  .acpmux-composer-bar:where(:not([data-footer-look="plain"])) [data-fit-part="access"]:not([data-fit-forms~="icon"]) {
     position: absolute;
     top: 0;
     inset-inline-start: 0;
