@@ -69,6 +69,7 @@ pub(super) async fn route(
 ) -> Result<Value, RpcError> {
     // A read-only paired machine reads, nothing else (`pairing.rs`), before any dispatcher.
     let params = super::pairing::gate(conn, m, params)?;
+    hub.prepare_store_request(m, &params).await;
     if let Some(reply) = super::pairing::dispatch(hub, conn, m, &params).await {
         return reply;
     }
@@ -102,6 +103,9 @@ pub(super) async fn route(
         return reply;
     }
     if let Some(reply) = super::processes::dispatch(hub, conn, m, &params).await {
+        return reply;
+    }
+    if let Some(reply) = super::bg_tasks::dispatch(hub, conn, m, &params).await {
         return reply;
     }
     // Moving a chat to another daemon (`hub/transfer_out.rs`): a bundle holds the whole chat and

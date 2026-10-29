@@ -278,7 +278,7 @@ impl Hub {
                 && let Some(running) = running
                 && p.interrupt_turn.is_none_or(|aimed| aimed == running)
             {
-                self.cancel_turn(session, &running).await;
+                self.cancel_turn_for_replacement(session, &running, p.prompt_id).await;
             }
         }
         // A queued prompt `remove_queued` withdraws answers at once, not when the turn ends.
@@ -348,6 +348,20 @@ impl Hub {
             && let Err(e) = self.cancel(session).await
         {
             tracing::warn!(session = %session.id, "interrupt for a steer: {}", e.message);
+        }
+    }
+
+    /// Stops only the targeted turn and preserves the prompt that requested its replacement.
+    pub(super) async fn cancel_turn_for_replacement(
+        &self,
+        session: &Arc<Session>,
+        turn_id: &str,
+        prompt_id: &str,
+    ) {
+        if session.turn().is_some_and(|t| t.turn_id == turn_id)
+            && let Err(e) = self.cancel_preserving_queued(session, Some(prompt_id)).await
+        {
+            tracing::warn!(session = %session.id, "interrupt for a queued prompt: {}", e.message);
         }
     }
 

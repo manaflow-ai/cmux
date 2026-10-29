@@ -1,4 +1,4 @@
-import { cmuxTuiAsDaemonUser, cmuxTuiLayoutSelector } from "./drivers/cmuxTuiDaemon";
+import { CMUX_TUI_PORT, cmuxTuiAsDaemonUser, cmuxTuiLayoutSelector } from "./drivers/cmuxTuiDaemon";
 
 /**
  * Idle auto-pause for Cloud machines (pilot blocker 1a). A 4 vCPU / 8 GB
@@ -12,12 +12,15 @@ import { cmuxTuiAsDaemonUser, cmuxTuiLayoutSelector } from "./drivers/cmuxTuiDae
  *   on each running machine through the provider's exec, the same exec the
  *   resource sampler uses (read-only; nothing is installed or started);
  * - {@link decideVmIdlePause} calls the machine idle only when the probe shows
- *   no attached session (an app, terminal or agent client of the session
- *   daemon, or an ssh login), no agent turn or sub-session running (the
+ *   no person's input through an attached client for the whole timeout (an
+ *   attached app by itself is not activity: the Mac app stays attached for
+ *   days and re-attaches after every daemon restart), no ssh login, no agent
+ *   turn or sub-session running (the
  *   daemon's live agents and every acpmux session with a turn or a pending
  *   permission), no terminal running a foreground command (a build, a server
  *   started by hand, vim, an agent CLI), and no inbound connection on the
- *   machine's private address (a forwarded port in use), no CPU use above
+ *   machine's private address (a forwarded port in use; the app's own link
+ *   to the daemon port does not count), no CPU use above
  *   {@link VM_IDLE_CPU_BUSY_CORES} since the previous probe (a `nohup make`,
  *   a container, a systemd unit), and no exec, files or attach call through
  *   the API within the timeout ({@link VM_LAST_API_ACTIVITY_KEY});
@@ -289,7 +292,6 @@ function cpuCoresSince(previous: VmIdleObservation | null, probe: VmIdleProbe, n
 
 function activeReasons(probe: KnownVmIdleProbe, cpuCores: number | "reset" | null): string[] {
   return [
-    probe.daemon.attachedClients > 0 && "attached_clients",
     probe.daemon.liveAgents > 0 && "live_agents",
     probe.acpmux.busySessions > 0 && "agent_turns",
     probe.busyTerminals > 0 && "busy_terminals",
@@ -302,15 +304,22 @@ function activeReasons(probe: KnownVmIdleProbe, cpuCores: number | "reset" | nul
 /**
  * The guest half of the probe, run by python3 as root. It reads only:
  * - the session daemon's `subscribe-activity` snapshot (cmux-tui
- *   server/activity.rs), over the socket named in /etc/cmux/daemon-socket;
+ *   server/activity.rs), over the socket named in /etc/cmux/daemon-socket,
+ *   else (images baked before that file) the `cloud` session's own socket
+ *   under the daemon user's runtime roots ($CMUX_IDLE_DAEMON_UID);
  * - the acpmux session list the shell part wrote to $CMUX_IDLE_ACPMUX
  *   (`NONE` when acpmux is not running, `ERR` when it could not be read);
  * - /proc: each pseudo-terminal's foreground process group (a group with
  *   anything but a shell in it is a running command), sshd session processes,
  *   and established TCP connections into a listening port, counted when they
  *   reach the machine's private address ($CMUX_IDLE_PRIVATE_ADDRESSES) or sshd,
+ *   except the daemon's own port ($CMUX_IDLE_DAEMON_PORT: the app's link, whose
+ *   input the daemon already reports; the link alone is not activity), plus
+ *   each stream the daemon (a `cmux-tui` process, by its socket inodes) holds to
+ *   a listening loopback port: a port the app forwards over that link,
  *   and the aggregate `cpu` line of /proc/stat (busy CPU time since boot).
- * $CMUX_IDLE_PROC_ROOT and $CMUX_IDLE_DAEMON_SOCKET_FILE exist for tests.
+ * $CMUX_IDLE_PROC_ROOT, $CMUX_IDLE_DAEMON_SOCKET_FILE and
+ * $CMUX_IDLE_DAEMON_SOCKET_ROOTS exist for tests.
  * Times and counts only leave the machine.
  */
 export const VM_IDLE_PROBE_SCRIPT = String.raw`
@@ -318,10 +327,30 @@ import ipaddress, json, os, socket
 proc = os.environ.get("CMUX_IDLE_PROC_ROOT", "/proc")
 SHELLS = {"bash", "zsh", "fish", "sh", "dash", "ksh", "mksh", "tcsh", "csh", "nu", "xonsh", "elvish"}
 
-def daemon():
+def daemon_sockets():
+    out = []
     try:
         with open(os.environ.get("CMUX_IDLE_DAEMON_SOCKET_FILE", "/etc/cmux/daemon-socket")) as f:
-            path = f.read().strip()
+            out.append(f.read().strip())
+    except Exception:
+        pass
+    # The supervisor starts "cmux-tui server start --session cloud"; cmux-tui puts the
+    # session socket in cmux-tui-<uid> under the runtime dir, else /tmp.
+    uid = os.environ.get("CMUX_IDLE_DAEMON_UID", "")
+    if uid.isdigit():
+        roots = os.environ.get("CMUX_IDLE_DAEMON_SOCKET_ROOTS", "/run/user/" + uid + ":/tmp")
+        out += [os.path.join(r, "cmux-tui-" + uid, "cloud.sock") for r in roots.split(":") if r]
+    return [p for p in out if p]
+
+def daemon():
+    for path in daemon_sockets():
+        a = daemon_at(path)
+        if a is not None:
+            return a
+    return None
+
+def daemon_at(path):
+    try:
         s = socket.socket(socket.AF_UNIX)
         s.settimeout(3)
         s.connect(path)
@@ -409,7 +438,26 @@ def address(hexaddr):
         return ipaddress.ip_address(raw[::-1])
     return ipaddress.ip_address(b"".join(raw[i:i + 4][::-1] for i in range(0, 16, 4)))
 
-def inbound_connections():
+def daemon_socket_inodes(procs):
+    inodes = set()
+    for pid, (comm, _, _, _) in procs.items():
+        if comm != "cmux-tui":
+            continue
+        fd_dir = os.path.join(proc, str(pid), "fd")
+        try:
+            names = os.listdir(fd_dir)
+        except Exception:
+            continue
+        for fd in names:
+            try:
+                target = os.readlink(os.path.join(fd_dir, fd))
+            except Exception:
+                continue
+            if target.startswith("socket:[") and target.endswith("]"):
+                inodes.add(target[8:-1])
+    return inodes
+
+def inbound_connections(procs):
     private = set()
     for a in os.environ.get("CMUX_IDLE_PRIVATE_ADDRESSES", "").split(","):
         try:
@@ -427,13 +475,22 @@ def inbound_connections():
             p = line.split()
             try:
                 lhex, lport = p[1].split(":")
-                rows.append((address(lhex), int(lport, 16), p[3]))
+                rport = int(p[2].split(":")[1], 16)
+                rows.append((address(lhex), int(lport, 16), p[3], rport, p[9]))
             except Exception:
                 pass
-    listening = {port for _, port, state in rows if state == "0A"}
+    listening = {port for _, port, state, _, _ in rows if state == "0A"}
+    daemon_port = os.environ.get("CMUX_IDLE_DAEMON_PORT", "")
+    daemon_inodes = daemon_socket_inodes(procs)
     n = 0
-    for local, port, state in rows:
-        if state != "01" or port not in listening:
+    for local, port, state, rport, inode in rows:
+        if state != "01":
+            continue
+        # A stream the daemon opened to a local service for the app (loopback-forward-v1 over its link).
+        if inode in daemon_inodes and local.is_loopback and rport in listening and str(rport) != daemon_port:
+            n += 1
+            continue
+        if port not in listening or str(port) == daemon_port:
             continue
         mapped = local.ipv4_mapped if local.version == 6 else None
         if port == 22 or local in private or (mapped is not None and mapped in private):
@@ -464,7 +521,7 @@ print(json.dumps({
     "acpmux": acpmux(),
     "busy_terminals": busy_terminals(procs),
     "ssh_sessions": ssh_sessions(procs),
-    "inbound_connections": inbound_connections(),
+    "inbound_connections": inbound_connections(procs),
     "cpu_busy_ms": cpu_busy_ms(),
 }))
 `;
@@ -484,7 +541,7 @@ export function vmIdleProbeCommand(privateAddresses: readonly string[]): string 
     `t=$(mktemp) || exit 1`,
     `s=$(${acp("daemon status")} </dev/null 2>/dev/null)`,
     `case "$s" in *'"pid":'[0-9]*|*'"pid": '[0-9]*) ${acp("ls")} </dev/null >"$t" 2>/dev/null || printf ERR >"$t" ;; *'"running":false'*|*'"running": false'*) printf NONE >"$t" ;; *) printf ERR >"$t" ;; esac`,
-    `CMUX_IDLE_ACPMUX="$t" CMUX_IDLE_PRIVATE_ADDRESSES='${addresses}' python3 - <<'CMUX_IDLE_PY'\n${VM_IDLE_PROBE_SCRIPT}\nCMUX_IDLE_PY`,
+    `CMUX_IDLE_ACPMUX="$t" CMUX_IDLE_DAEMON_UID="$(id -u "$CMUX_TUI_USER")" CMUX_IDLE_DAEMON_PORT=${CMUX_TUI_PORT} CMUX_IDLE_PRIVATE_ADDRESSES='${addresses}' python3 -I - <<'CMUX_IDLE_PY'\n${VM_IDLE_PROBE_SCRIPT}\nCMUX_IDLE_PY`,
     `rc=$?; rm -f "$t"; exit $rc`,
   ].join("\n");
 }
