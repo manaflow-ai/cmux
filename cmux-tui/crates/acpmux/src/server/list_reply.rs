@@ -111,7 +111,15 @@ pub(super) async fn watch(hub: &Hub, conn: &Conn, params: &Value) -> Result<Valu
     // A peer daemon is a trusted internal consumer: it retains full rows so its
     // wait/info paths remain complete. Local/web census rows stay compact.
     if conn.origin == super::Origin::Peer && whole(params) {
-        return reply(hub, conn, None, |list| Ok(list.full_whole(hub).clone())).await;
+        return reply(hub, conn, None, |list| {
+            let full = list.full_whole(hub);
+            Ok(if conn.raw_text {
+                full.clone()
+            } else {
+                Arc::new(masked(serde_json::from_str(&full).unwrap_or_default()))
+            })
+        })
+        .await;
     }
     sessions(hub, conn, params).await
 }
