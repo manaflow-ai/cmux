@@ -238,7 +238,7 @@ pub(crate) const ARGV_TICKET_WARNING: &str = "acpmux host join: a ticket on the 
 
 /// Decode and validate text already read by the shared host-join stdin reader.
 pub(crate) fn join_ticket_text(text: &str) -> Result<Ticket> {
-    let ticket = Ticket::decode(&text).map_err(AppError::usage)?;
+    let ticket = Ticket::decode(text).map_err(AppError::usage)?;
     if !crate::pairing::transport_ok(&ticket.url) {
         return Err(anyhow!(
             "refusing to send the ticket to {}: only wss://, or ws:// to a loopback host, carries it",

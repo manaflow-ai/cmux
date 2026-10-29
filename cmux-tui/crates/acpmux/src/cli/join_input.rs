@@ -96,7 +96,7 @@ fn parse_line(bytes: &[u8]) -> Result<Zeroizing<String>> {
     if bytes.len() as u64 > MAX_BYTES {
         return Err(anyhow!("stdin holds more than a join value"));
     }
-    let text = std::str::from_utf8(&bytes).map_err(|_| anyhow!("join value is not text"))?;
+    let text = std::str::from_utf8(bytes).map_err(|_| anyhow!("join value is not text"))?;
     if text.trim_start().starts_with("cmj_") && !text.ends_with('\n') {
         return Err(anyhow!("join value must be newline terminated"));
     }
@@ -116,6 +116,34 @@ fn parse_line(bytes: &[u8]) -> Result<Zeroizing<String>> {
         return Err(anyhow!("join value is empty"));
     }
     Ok(Zeroizing::new(value.to_owned()))
+}
+
+/// Reject cloud credentials in argv before status, idempotence or any stdin read.
+pub(crate) fn validate_arguments(
+    ticket: Option<&str>,
+    hub: bool,
+    replace: bool,
+    status: bool,
+) -> Result<()> {
+    if let Some(ticket) = ticket {
+        let message = if ticket.starts_with("cmj_") {
+            Some("join token must be provided on stdin")
+        } else if hub || replace || status {
+            Some("a positional pairing ticket cannot use cloud join flags")
+        } else {
+            None
+        };
+        if let Some(message) = message {
+            return Err(crate::cli::errors::AppError::new(
+                crate::cli::errors::Code::Usage,
+                "join.malformed",
+                message,
+            )
+            .with_exit(2)
+            .into());
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -147,32 +175,4 @@ mod tests {
         assert!(validate_arguments(Some("cmxt1.legacy"), true, false, false).is_err());
         assert!(validate_arguments(None, true, true, false).is_ok());
     }
-}
-
-/// Reject cloud credentials in argv before status, idempotence or any stdin read.
-pub(crate) fn validate_arguments(
-    ticket: Option<&str>,
-    hub: bool,
-    replace: bool,
-    status: bool,
-) -> Result<()> {
-    if let Some(ticket) = ticket {
-        let message = if ticket.starts_with("cmj_") {
-            Some("join token must be provided on stdin")
-        } else if hub || replace || status {
-            Some("a positional pairing ticket cannot use cloud join flags")
-        } else {
-            None
-        };
-        if let Some(message) = message {
-            return Err(crate::cli::errors::AppError::new(
-                crate::cli::errors::Code::Usage,
-                "join.malformed",
-                message,
-            )
-            .with_exit(2)
-            .into());
-        }
-    }
-    Ok(())
 }

@@ -269,11 +269,9 @@ pub async fn join_with_token(
     let body: Value = response.json().await.unwrap_or_else(|_| json!({}));
     if !status.is_success() {
         let code = body.get("code").and_then(Value::as_str).unwrap_or_default();
-        let exit = if matches!(status.as_u16(), 409 | 410)
+        let exit = if matches!(status.as_u16(), 404 | 409 | 410)
             || matches!(code, "join.expired" | "join.used" | "join.malformed")
         {
-            3
-        } else if status.as_u16() == 404 {
             3
         } else {
             4
