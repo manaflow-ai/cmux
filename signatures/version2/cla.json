@@ -1495,6 +1495,14 @@
       "created_at": "2026-10-29T01:17:41Z",
       "repoId": 1144115288,
       "pullRequestNo": 7969
+    },
+    {
+      "name": "eligutovsky",
+      "id": 9871129,
+      "comment_id": 6496994637,
+      "created_at": "2026-10-29T12:43:23Z",
+      "repoId": 1144115288,
+      "pullRequestNo": 27414
     }
   ]
 }
