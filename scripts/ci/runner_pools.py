@@ -206,8 +206,8 @@ def label_evidence(health: Mapping[str, Any] | None, snapshot: Mapping[str, Any]
         labels = health.get("labels")
         if checked is None or not isinstance(labels, Mapping):
             notes.append(f"{HEALTH_VARIABLE} is unreadable; no probe evidence")
-        elif now - checked > HEALTH_MAX_AGE:
-            notes.append(f"{HEALTH_VARIABLE} is from {iso(checked)}, older than {HEALTH_MAX_AGE}; no probe evidence")
+        elif not (dt.timedelta(minutes=-1) <= now - checked <= HEALTH_MAX_AGE):
+            notes.append(f"{HEALTH_VARIABLE} is from {iso(checked)}, outside the last {HEALTH_MAX_AGE}; no probe evidence")
         else:
             for label, state in labels.items():
                 if state == "stalled":
