@@ -395,7 +395,16 @@ def acpmux():
         if not isinstance(s, dict) or "peer" in s:
             continue
         pending = s.get("pendingPermissions")
-        if s.get("turn") is not None or (isinstance(pending, int) and pending > 0) or s.get("status") in ("running", "waiting"):
+        queued = s.get("queued", 0)
+        # A durable queued prompt may be waiting while its session reports
+        # "ready" and has no current turn. A malformed count is unknown.
+        if type(queued) is not int or queued < 0:
+            return None
+        if (s.get("turn") is not None or (isinstance(pending, int) and pending > 0)
+                or queued > 0 or s.get("queuePaused") is True
+                or s.get("waitsForSlot") is True or s.get("moving") is True
+                or s.get("waitingOn") is not None
+                or s.get("status") in ("running", "waiting")):
             busy += 1
         u = s.get("updatedAt")
         if isinstance(u, int) and u > 0 and (latest is None or u > latest):
