@@ -492,6 +492,14 @@ const TTY_DRAIN: std::time::Duration = std::time::Duration::from_secs(2);
 
 /// Gives `cmd` a new pseudo-terminal (160 by 50) as its stdout and
 /// controlling terminal; the terminal's controller, to read its output.
+///
+/// This terminal is a protocol adapter, not one a person uses: nothing draws
+/// it and nobody selects in it, and its output is parsed into ACP
+/// `agent_message_chunk` updates (hence `NO_COLOR=1` above). So it sets no
+/// terminal identity and is not one of the terminal child paths that apply
+/// `cmux_pty::UNSET_IN_TERMINAL_CHILDREN` (cmux#22585): a Ghostty version
+/// here cannot cost anyone a mouse selection, and changing what the program
+/// sees would change the text this parses.
 #[cfg(unix)]
 fn attach_tty(cmd: &mut tokio::process::Command) -> std::io::Result<std::fs::File> {
     use std::os::fd::{FromRawFd, OwnedFd};

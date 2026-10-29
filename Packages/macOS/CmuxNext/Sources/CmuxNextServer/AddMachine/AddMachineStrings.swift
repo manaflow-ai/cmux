@@ -47,7 +47,25 @@ nonisolated enum AddMachineStrings {
         case .peer: s("addMachine.step.peer", "Add it as a peer here")
         case .peerBack: s("addMachine.step.peerBack", "Add this Mac as its peer")
         case .identity: s("addMachine.step.identity", "Name the machine")
-        default: step.rawValue
+        default: joinStep(step) ?? step.rawValue
+        }
+    }
+
+    /// The steps of a one-line join's doctor (`acpmux host doctor --here`, `cmux machine doctor ID`).
+    static func joinStep(_ step: HostStep) -> String? {
+        switch step.rawValue {
+        case "binary": s("addMachine.step.binary", "Install the agent daemon")
+        case "service": s("addMachine.step.service", "Start it with the machine")
+        case "credential": s("addMachine.step.credential", "Keep its machine credential")
+        case "revoked": s("addMachine.step.revoked", "Still allowed in")
+        case "hub": s("addMachine.step.hub", "Reach cmux")
+        case "heartbeat": s("addMachine.step.heartbeat", "Check in with cmux")
+        case "consent": s("addMachine.step.consent", "Screen sharing and control")
+        case "signed-in": s("addMachine.step.signedIn", "Signed in to cmux")
+        case "platform": s("addMachine.step.platform", "Reach the machines service")
+        case "listed": s("addMachine.step.listed", "Listed in your machines")
+        case "mesh": s("addMachine.step.mesh", "Reach it through the mesh")
+        default: nil
         }
     }
 

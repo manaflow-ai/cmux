@@ -93,7 +93,7 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
       const chip = await bounds(page, "button[data-menu=model]");
       expect(menu.y).toBeGreaterThan(chip.y);
       expect(menu.y + menu.height - fast.y - fast.height).toBeLessThan(12);
-      expect(await page.locator(".acpmux-quick-rail-tab").count()).toBe(10);
+      expect(await page.locator(".acpmux-quick-rail-tab").count()).toBe(11);
       expect(await page.locator(".acpmux-quick-fast").innerText()).toBe("Fast mode");
       expect(await page.locator(".acpmux-quick-list").innerText()).toContain("Claude subscription");
     } finally {
@@ -150,6 +150,9 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
     const page = await open("claude-many-harnesses", 320);
     try {
       await page.keyboard.press("ArrowLeft");
+      const add = page.locator(".acpmux-quick-rail-add");
+      expect(await add.evaluate((node) => node === document.activeElement)).toBe(true);
+      await page.keyboard.press("ArrowLeft");
       const selected = page.locator(".acpmux-quick-rail-tab[aria-pressed=true]");
       await page.waitForFunction(
         () =>
@@ -187,21 +190,23 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
     try {
       expect(await page.getByRole("menuitem", { name: /^Profile/ }).count()).toBe(0);
       expect(await page.getByRole("button", { name: "Claude Code (sr)", exact: true }).count()).toBe(1);
-      await page.getByRole("menuitem", { name: /^Account/ }).hover();
+      await page.getByRole("menuitem", { name: /^Provider/ }).hover();
       await page.getByRole("menuitemradio", { name: "API key", exact: true }).waitFor();
     } finally {
       await page.close();
     }
   });
 
-  test("the picker uses readable rows and a left harness rail", async () => {
+  test("the picker uses native menu rows and a left harness rail", async () => {
     const page = await open("claude");
     try {
       const rail = await bounds(page, ".acpmux-quick-rail");
       const body = await bounds(page, ".acpmux-quick-body");
       const row = (await page.locator(".acpmux-quick-list .acpmux-quick-item").first().boundingBox())!;
       expect(rail.x + rail.width).toBeLessThanOrEqual(body.x + 1);
-      expect(row.height).toBeGreaterThanOrEqual(36);
+      // A native menu's row (Leo 2026-10-28: "AND I THINK IT'S ALL SO STUPIDLY SPACED AND STYLED
+      // IT'S FUCKING TONKA TOYS").
+      expect(Math.round(row.height)).toBe(28);
       const search = await bounds(page, ".acpmux-quick-search");
       expect(search.height).toBe(row.height);
       expect(await page.locator(".acpmux-quick-rail .agent-mark-monogram").count()).toBe(0);
@@ -225,13 +230,13 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
     }
   });
 
-  test("a long account name keeps the Account control readable in a narrow pane", async () => {
+  test("a long account name keeps the Provider control readable in a narrow pane", async () => {
     for (const width of [320, 420]) {
       const page = await open("claude", width);
       try {
-        const label = page.getByRole("menuitem", { name: /^Account/ }).locator(".acpmux-menu-label");
+        const label = page.getByRole("menuitem", { name: /^Provider/ }).locator(".acpmux-menu-label");
         expect(await label.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
-        await page.getByRole("menuitem", { name: /^Account/ }).hover();
+        await page.getByRole("menuitem", { name: /^Provider/ }).hover();
         await page.getByRole("menuitemradio", { name: "API key", exact: true }).waitFor();
       } finally {
         await page.close();
@@ -242,6 +247,10 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
   test("searching from a launch entry selects the visible model, not that launch entry", async () => {
     const page = await open("claude");
     try {
+      await page.keyboard.press("ArrowLeft");
+      expect(await page.locator(".acpmux-quick-rail-add").evaluate((node) => node === document.activeElement)).toBe(
+        true,
+      );
       await page.keyboard.press("ArrowLeft");
       await page.waitForFunction(
         () => document.querySelector('.acpmux-quick-rail-tab[aria-pressed="true"]')?.textContent === "Claude Code (sr)",

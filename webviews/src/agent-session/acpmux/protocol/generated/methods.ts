@@ -55,6 +55,8 @@ export interface AcpmuxRequests {
   "_acpmux/workflows": { params: unknown; result: unknown };
   "_acpmux/app_reply": { params: unknown; result: unknown };
   "_acpmux/stats": { params: unknown; result: unknown };
+  "_acpmux/github_action": { params: unknown; result: unknown };
+  "_acpmux/github_app_lease": { params: unknown; result: unknown };
   "_acpmux/bookmark_get": { params: unknown; result: unknown };
   "_acpmux/bookmark_set": { params: unknown; result: unknown };
   "_acpmux/prompt_withdraw": { params: unknown; result: unknown };
@@ -153,6 +155,7 @@ export interface AcpmuxRequests {
   "_acpmux/chat_settings": { params: unknown; result: unknown };
   "_acpmux/chat_settled": { params: unknown; result: unknown };
   "_acpmux/chat_transcript": { params: unknown; result: unknown };
+  "_acpmux/chat_fork": { params: unknown; result: unknown };
   "_acpmux/transfer_abort": { params: unknown; result: unknown };
   "_acpmux/transfer_begin": { params: unknown; result: unknown };
   "_acpmux/transfer_commit": { params: unknown; result: unknown };
@@ -216,6 +219,9 @@ export interface AcpmuxRequests {
   "_acpmux/pair_revoke": { params: unknown; result: unknown };
   "_acpmux/pair_issue": { params: unknown; result: unknown };
   "_acpmux/pair_set": { params: unknown; result: unknown };
+  "_acpmux/machine_consent_set": { params: unknown; result: unknown };
+  "_acpmux/machine_consent_get": { params: unknown; result: unknown };
+  "_acpmux/machine_consent_refused": { params: unknown; result: unknown };
   "_acpmux/pair_redeem": { params: unknown; result: unknown };
 }
 
@@ -314,6 +320,8 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/workflows", kind: "request", acp: false, typed: false },
   { name: "_acpmux/app_reply", kind: "request", acp: false, typed: false },
   { name: "_acpmux/stats", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/github_action", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/github_app_lease", kind: "request", acp: false, typed: false },
   { name: "_acpmux/bookmark_get", kind: "request", acp: false, typed: false },
   { name: "_acpmux/bookmark_set", kind: "request", acp: false, typed: false },
   { name: "_acpmux/prompt_withdraw", kind: "request", acp: false, typed: false },
@@ -413,6 +421,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/chat_settings", kind: "request", acp: false, typed: false },
   { name: "_acpmux/chat_settled", kind: "request", acp: false, typed: false },
   { name: "_acpmux/chat_transcript", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/chat_fork", kind: "request", acp: false, typed: false },
   { name: "_acpmux/chat_changed", kind: "notification", acp: false, typed: false },
   { name: "_acpmux/chats_lagged", kind: "notification", acp: false, typed: false },
   { name: "_acpmux/transfer_abort", kind: "request", acp: false, typed: false },
@@ -478,6 +487,9 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/pair_revoke", kind: "request", acp: false, typed: false },
   { name: "_acpmux/pair_issue", kind: "request", acp: false, typed: false },
   { name: "_acpmux/pair_set", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/machine_consent_set", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/machine_consent_get", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/machine_consent_refused", kind: "request", acp: false, typed: false },
   { name: "_acpmux/pair_redeem", kind: "request", acp: false, typed: false },
   { name: "_acpmux/event", kind: "notification", acp: false, typed: true },
   { name: "_acpmux/session_changed", kind: "notification", acp: false, typed: true },
