@@ -3,6 +3,7 @@ import CmuxNextBridge
 @testable import CmuxNextDaemon
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import QuartzCore
 import Testing
 
@@ -10,7 +11,7 @@ import Testing
 /// below an insert make room on the render server's spring (`RowMotion.animate`, `SidebarDragSpring`): each
 /// row's frame is at its slot at once and an additive spring carries what is on screen there, so the main
 /// thread writes no row frame per display frame. AppKit's spring wrote every moving row's frame each frame.
-@MainActor @Suite(.serialized)
+@MainActor @Suite(.serialized, .closesItsWindows)
 struct SidebarRowsMoveOnRenderServerTests {
     /// The local machine's section with the workspaces `ids`, in that order.
     private static func sections(_ ids: [Int]) -> [CmuxNextSidebar.SidebarSection] {
@@ -94,6 +95,7 @@ struct SidebarRowsMoveOnRenderServerTests {
         window.isReleasedWhenClosed = false
         window.contentView?.addSubview(sidebar)
         window.orderFrontRegardless()
+        if window.screen == nil { window.close() } // the require below throws before any test's restore
         try #require(window.screen != nil)
         sidebar.layoutSubtreeIfNeeded()
         sidebar.list.reload(animated: false)
@@ -105,7 +107,7 @@ struct SidebarRowsMoveOnRenderServerTests {
             Motion.reduceMotionOverride = nil
             DesignSettings.shared.enabledAnimations = kinds
             DesignSettings.shared.animationSpeed = speed
-            window.orderOut(nil)
+            window.close()
         })
     }
 
