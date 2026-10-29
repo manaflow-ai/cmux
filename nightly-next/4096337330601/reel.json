@@ -1,0 +1,83 @@
+{
+  "version": 1,
+  "build": "4096337330601",
+  "notes": "notes/4096337330601.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 27453,
+      "title": "Machine join E2E: dispatch-only dev harness (mint, join on stdin, heartbeat, revoke)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26942,
+      "title": "fix(sidebar): attach workspace hover previews to the row",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27546,
+      "title": "cmux NEXT: an open panel's header toggle reads as on",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27497,
+      "title": "Give tab attention persistent request identity and guarded clearing",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27524,
+      "title": "cmux NEXT: See What's New opens the What's New tab again",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27579,
+      "title": "fix(composer): Access menu's allowed rules sit on the mode rows' columns, and only their × lights",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26844,
+      "title": "fix(measure): holder-dogfood's holder model reaches the app's daemon, and quit-relaunch really quits",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26409,
+      "title": "NEXT: remove native staged upload size caps and detect hidden ceilings",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27008,
+      "title": "Open workflow agent transcripts beside their chat",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26447,
+      "title": "acpmux: agents start daemon-owned background tasks; Claude's background shells route to them",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27341,
+      "title": "New Tab: keep dot names visible during keyboard focus",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27577,
+      "title": "acpmux: run a prompt's turn on the heap, so awaiting it in place cannot overflow a stack",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
