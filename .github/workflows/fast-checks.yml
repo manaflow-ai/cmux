@@ -166,6 +166,33 @@ jobs:
         working-directory: ${{ github.workspace }}/.fast-checks-checkout/webviews
         run: bun install --frozen-lockfile
 
+      # Bun resolves a package from the importing file's directory upward, so
+      # webviews/node_modules never serves a scripts/<tool>/ workspace that
+      # commits its own package.json and bun.lock (scripts/gallery-matrix needs
+      # pngjs). Install each one, frozen to its own lockfile.
+      - name: Install script workspace dependencies
+        if: inputs.setup == 'webviews' || inputs.setup == 'playwright'
+        run: |
+          shopt -s nullglob
+          for manifest in scripts/*/package.json; do
+            workspace=${manifest%/package.json}
+            [[ -f "$workspace/bun.lock" ]] || continue
+            echo "bun install --frozen-lockfile in $workspace"
+            (cd "$workspace" && bun install --frozen-lockfile)
+          done
+
+      # The cloud backend (backend/, on feat-cmux-next) is one Bun workspace with
+      # its own lockfile: its apps' tests (vitest with the Workers pool in
+      # backend/apps/api, bun test in backend/apps/home-server) import from
+      # backend/node_modules, which no other install provides.
+      - name: Install backend workspace dependencies
+        if: inputs.setup == 'webviews' || inputs.setup == 'playwright'
+        run: |
+          if [[ -f backend/package.json && -f backend/bun.lock ]]; then
+            echo "bun install --frozen-lockfile in backend"
+            (cd backend && bun install --frozen-lockfile)
+          fi
+
       - name: Prepare full webview tests
         if: inputs.setup == 'webviews'
         run: |
@@ -181,8 +208,8 @@ jobs:
         if: inputs.setup == 'playwright'
         run: |
           if [[ -f scripts/gallery-matrix/package.json ]]; then
+            # Its dependencies were installed with the other script workspaces.
             cd scripts/gallery-matrix
-            bun install --frozen-lockfile
           else
             cd webviews
             if [[ ! -x node_modules/.bin/playwright ]]; then

@@ -628,11 +628,15 @@ class CmuxBotTokenWorkflowShape(unittest.TestCase):
 
                     # Every shell step that can call gh receives the App token,
                     # while the expression keeps forks and rollouts working.
-                    token_envs = [(step.get("id"), step.get("env", {}).get("GH_TOKEN")) for step in steps]
+                    token_envs = [(step.get("id") or step.get("name"), step.get("env", {}).get("GH_TOKEN"))
+                                  for step in steps]
                     token_envs = [(step_id, value) for step_id, value in token_envs if value is not None]
                     self.assertTrue(token_envs)
                     for step_id, value in token_envs:
-                        if filename == "ci-queue-janitor.yml" and step_id == "fresh":
+                        if str(step_id).startswith("Log the glaeda-route App budget "):
+                            # The budget probes read that App installation's own rate_limit (free).
+                            self.assertEqual(value, "${{ steps.glaeda-token.outputs.token }}")
+                        elif filename == "ci-queue-janitor.yml" and step_id == "fresh":
                             # Ahead of the cmux-bot mint, so only the glaeda-route App's token.
                             self.assertEqual(value, "${{ steps.glaeda-token.outputs.token || github.token }}")
                         else:
