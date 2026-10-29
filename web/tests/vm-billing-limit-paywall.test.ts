@@ -114,8 +114,8 @@ describe("Cloud VM memory allowance", () => {
     expect(maxDiskMbForPlan("pro", { CMUX_VM_PLAN_PRO_MAX_DISK_MB: "262144" })).toBe(128 * GB);
   });
 
-  test("Starter is capped at two 2 vCPU, 4 GB, 16 GB VMs", () => {
-    expect(maxActiveVmsForPlan("go", {})).toBe(2);
+  test("Starter is capped at one 2 vCPU, 4 GB, 16 GB VM", () => {
+    expect(maxActiveVmsForPlan("go", {})).toBe(1);
     expect(maxMemoryMbForPlan("go", {})).toBe(4096);
     expect(maxVcpusForPlan("go", {})).toBe(2);
     expect(maxDiskMbForPlan("go", {})).toBe(16 * GB);
