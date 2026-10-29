@@ -1545,7 +1545,8 @@
       "args": [],
       "returns": "int",
       "result_used_by": [
-        "CmuxNextBrowser/CEF/CEFPaneHost.swift"
+        "CmuxNextBrowser/CEF/CEFPaneHost.swift",
+        "CmuxNextBrowser/CEF/CEFRuntime.swift"
       ],
       "mirror_key": "host.placeholder_supported",
       "refresh_events": [
