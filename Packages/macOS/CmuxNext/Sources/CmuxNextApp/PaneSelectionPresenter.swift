@@ -21,8 +21,8 @@ extension PaneController {
             letGo(key, parks: true) // what showed stays parked here
         }
         if view.stripView.window != nil { view.stripView.syncFromModel() }
-        if isFocusedInWorkspace, showsLiveTerminal {  // keys typed meanwhile wait for its surface
-            services.keyRouter.creationInputCoordinator.holdUntilShown(in: view.window)
+        if isFocusedInWorkspace, showsLiveTerminal, let tab = stripModel.selectedID?.rawValue {  // keys typed meanwhile wait for its surface
+            services.keyRouter.creationInputCoordinator.holdUntilShown(tab: tab, in: view.window)
         }
         services.presentation.setNeedsShowSelected(self)
     }

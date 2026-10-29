@@ -97,8 +97,6 @@ struct SwitchToColdTabTypeAheadTests {
         await Self.wait(within: .seconds(60)) { window.firstResponder is TerminalSurfaceView }
         try #require(window.firstResponder is TerminalSurfaceView, "the new terminal never took the keyboard")
         let router = services.keyRouter
-        // The keys must wait for the surface itself, not for the hold's bound.
-        router.creationInputCoordinator.holdLimit = .seconds(60)
         // Its terminal, by one key typed there.
         var seq = Self.lastSeq()
         Self.type("x", in: window, router: router)

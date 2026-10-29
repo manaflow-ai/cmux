@@ -102,6 +102,9 @@ final class InputInvariantMonitor {
         result.violations += services.hoverCards.singleCardViolations().map {
             InputViolation(invariant: .hoverCardSingle, window: nil, detail: $0)
         }
+        result.violations += services.keyRouter.creationInputCoordinator.heldKeyProblems().map {
+            InputViolation(invariant: .heldKeysAccounted, window: nil, detail: $0)
+        }
         lastResult = result
         return result
     }

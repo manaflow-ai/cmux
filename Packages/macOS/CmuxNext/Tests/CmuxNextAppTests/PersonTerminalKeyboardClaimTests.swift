@@ -73,7 +73,6 @@ struct PersonTerminalKeyboardClaimTests {
         try await Self.withWindow { h in
             let router = h.services.keyRouter
             let coordinator = router.creationInputCoordinator
-            coordinator.holdLimit = .milliseconds(100)
             let ticket = try #require(coordinator.beginWorkspace(in: h.controller), "a person's new terminal opened no key hold")
             let typed = try Self.key("e", keyCode: 14, in: h.window)
             let held = router.interceptKeyDown(typed, in: h.window)
@@ -107,7 +106,6 @@ struct PersonTerminalKeyboardClaimTests {
     @Test func aPersonsFocusMoveEndsTheClaim() async throws {
         try await Self.withWindow { h in
             let coordinator = h.services.keyRouter.creationInputCoordinator
-            coordinator.holdLimit = .milliseconds(100)
             let ticket = try #require(coordinator.beginWorkspace(in: h.controller))
             coordinator.resolve(ticket, workspace: nil, in: h.window)
             try await PasswordManagerRouteTests.until({ !coordinator.isHolding(in: h.window) }, report: { "the hold never ended" })
@@ -124,7 +122,6 @@ struct PersonTerminalKeyboardClaimTests {
     @Test func automationLeavesThePersonsClaimAlone() async throws {
         try await Self.withWindow { h in
             let coordinator = h.services.keyRouter.creationInputCoordinator
-            coordinator.holdLimit = .milliseconds(100)
             let ticket = try #require(coordinator.beginWorkspace(in: h.controller))
             coordinator.resolve(ticket, workspace: nil, in: h.window)
             try await PasswordManagerRouteTests.until({ !coordinator.isHolding(in: h.window) }, report: { "the hold never ended" })
@@ -139,7 +136,6 @@ struct PersonTerminalKeyboardClaimTests {
     @Test func aPersonsActionEndsTheClaim() async throws {
         try await Self.withWindow { h in
             let coordinator = h.services.keyRouter.creationInputCoordinator
-            coordinator.holdLimit = .milliseconds(100)
             let ticket = try #require(coordinator.beginWorkspace(in: h.controller))
             coordinator.resolve(ticket, workspace: nil, in: h.window)
             try await PasswordManagerRouteTests.until({ !coordinator.isHolding(in: h.window) }, report: { "the hold never ended" })
@@ -168,7 +164,6 @@ struct PersonTerminalKeyboardClaimTests {
     @Test func aNestedUserRunIsNoNewIntent() async throws {
         try await Self.withWindow { h in
             let coordinator = h.services.keyRouter.creationInputCoordinator
-            coordinator.holdLimit = .milliseconds(100)
             let ticket = try #require(coordinator.beginWorkspace(in: h.controller))
             coordinator.resolve(ticket, workspace: nil, in: h.window)
             try await PasswordManagerRouteTests.until({ !coordinator.isHolding(in: h.window) }, report: { "the hold never ended" })

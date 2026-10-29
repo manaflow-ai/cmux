@@ -76,6 +76,9 @@ public final class WindowInputQueue {
     /// Whether no key waits.
     public var isEmpty: Bool { held.isEmpty }
 
+    /// How many keys wait, for every target.
+    public var count: Int { held.count }
+
     /// How many keys wait for `target`.
     public func waiting(for target: Target) -> Int { held.reduce(0) { $0 + ($1.target == target ? 1 : 0) } }
 

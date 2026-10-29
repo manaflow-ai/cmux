@@ -143,6 +143,8 @@ public nonisolated enum InputInvariant: String, Hashable, Sendable, Codable, Cas
     case mirrorSingleWriter = "M1"
     // Hover cards (plans/cmux-next/hovercards.md).
     case hoverCardSingle = "H1"
+    // Held keys (principled audit, lagFirstKey): each window's ``WindowInputQueue``.
+    case heldKeysAccounted = "HK1"
 
     public var summary: String {
         switch self {
@@ -177,6 +179,7 @@ public nonisolated enum InputInvariant: String, Hashable, Sendable, Codable, Cas
         case .stripShowsPaneTabs: "with no tab drag in flight, every tab strip shows exactly its pane's tabs (tab conservation)"
         case .mirrorSingleWriter: "only daemon events, snapshots and the intent overlay write the mirror, and the overlay keeps every tab"
         case .hoverCardSingle: "at most one hover card exists and shows, and it shows the coordinator's target"
+        case .heldKeysAccounted: "held keys: captured == delivered + dropped + waiting, each target's in typed order"
         }
     }
 }
