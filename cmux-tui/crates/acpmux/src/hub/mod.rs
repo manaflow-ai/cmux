@@ -16,6 +16,7 @@ mod bg_tasks;
 mod bounded;
 mod btw;
 mod exit_reason;
+mod fallback_start;
 pub(crate) mod session_auth;
 pub(crate) mod subagent_retry;
 pub(crate) mod turn_errors;
