@@ -310,7 +310,6 @@ export function NewTabScreen(props: Props) {
   const [projectPeer, setProjectPeer] = useState<string | undefined>();
   // Do not work in a project (Leo 2026-10-18): no project, no start folder, until a folder pick.
   const [pickedNoProject, setNone] = useState(false);
-  const peerRemoved = projectPeer !== undefined && !(snapshot.peers ?? []).includes(projectPeer);
   // Saved SSH environments obey the same live-peer boundary as headline picks. Validate before
   // deriving any folder or send target, including the render before cleanup effects run.
   const saved = useSavedEnvironments(props.environments ? props.savedEnvironments : undefined);
@@ -319,6 +318,7 @@ export function NewTabScreen(props: Props) {
   const savedPeerRemoved =
     saved.picked?.kind === "ssh" && (savedPeer === undefined || !(snapshot.peers ?? []).includes(savedPeer));
   const environment = savedPeerRemoved ? undefined : saved.picked;
+  const peerRemoved = !saved.picked && projectPeer !== undefined && !(snapshot.peers ?? []).includes(projectPeer);
   // Suppress the removed machine's folder in this render, before effect cleanup runs.
   const none = pickedNoProject || peerRemoved || savedPeerRemoved;
   const folderless = !props.cwd || props.cwd === home || isAgentHome(props.cwd);
@@ -623,10 +623,15 @@ export function NewTabScreen(props: Props) {
   const [headlineMachineSelection, setHeadlineMachineSelection] = useState("local");
   // A peer can disappear between snapshots. Keep the visible machine and the peer sent with a
   // prompt bound to the same live row instead of showing a stale remote selection.
+  const headlineMachineTarget = environment
+    ? environment.kind === "ssh"
+      ? environment.host!
+      : "local"
+    : headlineMachineSelection;
   const headlineMachineIsLive =
-    headlineMachineSelection === "local" || (snapshot.peers ?? []).includes(headlineMachineSelection);
+    headlineMachineTarget === "local" || (snapshot.peers ?? []).includes(headlineMachineTarget);
   const headlineMachine =
-    (headlineMachineIsLive ? headlineMachines.find((machine) => machine.id === headlineMachineSelection) : undefined) ??
+    (headlineMachineIsLive ? headlineMachines.find((machine) => machine.id === headlineMachineTarget) : undefined) ??
     headlineMachines[0]!;
   const headlineMachineId = headlineMachine.id;
   // The handshake may omit a display name on older hosts; the local row still has a stable
@@ -1639,6 +1644,7 @@ export function NewTabScreen(props: Props) {
           ? {
               machineName: headlineMachine.label,
               machineId: headlineMachine.id,
+              savedEnvironmentSelected: environment !== undefined,
               machines: headlineMachines,
               onPickMachine: pickHeadlineMachine,
               ...(props.environments && props.runMode ? { runMode: props.runMode } : {}),

@@ -587,6 +587,111 @@ test("switching machines clears a picked saved environment", async () => {
   }
 });
 
+for (const target of ["studio", "oldbox"] as const) {
+  test(`picking ${target} in the headline replaces a saved environment on the same or another machine`, async () => {
+    const snapshot = { ...noChat([]), peers: ["oldbox"], peerKinds: { oldbox: "ssh" as const } };
+    const asked: unknown[][] = [];
+    const savedEnvironments: SavedEnvironmentHost = {
+      list: async () => [{ id: "old", name: "Old box", kind: "ssh", host: "oldbox", folder: "/old", updatedAt: 1 }],
+      save: async (draft) => ({ ...draft, id: "new", updatedAt: 2 }),
+      remove: async () => undefined,
+    };
+    const root = await render("minimal", ["greeting"], undefined, {
+      machineName: "studio",
+      snapshot,
+      environments: true,
+      savedEnvironments,
+      onAsk: (...args) => asked.push(args),
+    });
+    try {
+      const computer = [
+        ...host.querySelectorAll<HTMLButtonElement>('.acpmux-location-picker[data-kind="computer"] button'),
+      ].at(-1)!;
+      await act(async () => computer.click());
+      const savedRow = [...window.document.querySelectorAll<HTMLElement>(".acpmux-menu-label")].find((row) =>
+        row.textContent?.includes("Old box"),
+      )!;
+      await act(async () => savedRow.dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true })));
+      expect(host.querySelector(".nt-headline-machine-label")?.textContent).toBe("oldbox");
+      await act(async () => host.querySelector<HTMLElement>(".nt-headline-machine-label")!.click());
+      const row = [...window.document.querySelectorAll<HTMLElement>("[role=option]")].find((row) =>
+        row.textContent?.includes(target),
+      )!;
+      await act(async () => row.dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true })));
+      expect(host.querySelector(".nt-location")?.textContent).not.toContain("Old box");
+      const field = host.querySelector<HTMLTextAreaElement>(".nt-field")!;
+      const setValue = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(field), "value")!.set!;
+      await act(async () => {
+        setValue.call(field, "use selected machine");
+        field.dispatchEvent(new window.Event("input", { bubbles: true }));
+      });
+      await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="Send"]')!.click());
+      expect(asked[0]?.[6]).toEqual(target === "studio" ? undefined : { peer: "oldbox" });
+      expect(asked[0]?.[2]).toBeUndefined();
+      expect(asked[0]?.[4]).toBe(true);
+    } finally {
+      await act(async () => root.unmount());
+    }
+  });
+}
+
+test("removing an old machine keeps the active saved environment on another live peer", async () => {
+  const snapshot = {
+    ...noChat([]),
+    peers: ["devbox", "oldbox"],
+    peerKinds: { devbox: "ssh" as const, oldbox: "ssh" as const },
+  };
+  const asked: unknown[][] = [];
+  const savedEnvironments: SavedEnvironmentHost = {
+    list: async () => [{ id: "old", name: "Old box", kind: "ssh", host: "oldbox", folder: "/old", updatedAt: 1 }],
+    save: async (draft) => ({ ...draft, id: "new", updatedAt: 2 }),
+    remove: async () => undefined,
+  };
+  const options = {
+    machineName: "studio",
+    snapshot,
+    environments: true,
+    savedEnvironments,
+    onAsk: (...args: unknown[]) => asked.push(args),
+  };
+  const root = await render("minimal", ["greeting"], undefined, options);
+  try {
+    await act(async () => host.querySelector<HTMLElement>(".nt-headline-machine-label")!.click());
+    const devbox = [...window.document.querySelectorAll<HTMLElement>("[role=option]")].find((row) =>
+      row.textContent?.includes("devbox"),
+    )!;
+    await act(async () => devbox.dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true })));
+    const computer = [
+      ...host.querySelectorAll<HTMLButtonElement>('.acpmux-location-picker[data-kind="computer"] button'),
+    ].at(-1)!;
+    await act(async () => computer.click());
+    const savedRow = [...window.document.querySelectorAll<HTMLElement>(".acpmux-menu-label")].find((row) =>
+      row.textContent?.includes("Old box"),
+    )!;
+    await act(async () => savedRow.dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true })));
+    await render(
+      "minimal",
+      ["greeting"],
+      undefined,
+      { ...options, snapshot: { ...snapshot, peers: ["oldbox"] } },
+      root,
+    );
+    expect(host.querySelector(".nt-location")?.textContent).toContain("Old box");
+    expect(host.querySelector(".nt-headline-machine-label")?.textContent).toBe("oldbox");
+    const field = host.querySelector<HTMLTextAreaElement>(".nt-field")!;
+    const setValue = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(field), "value")!.set!;
+    await act(async () => {
+      setValue.call(field, "keep saved target");
+      field.dispatchEvent(new window.Event("input", { bubbles: true }));
+    });
+    await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="Send"]')!.click());
+    expect(asked[0]?.[6]).toEqual({ peer: "oldbox" });
+    expect(asked[0]?.[2]).toBe("/old");
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
 test("a removed saved SSH peer clears its folder before sending and permits a fresh machine pick", async () => {
   const snapshot = noChat([
     {
@@ -626,7 +731,7 @@ test("a removed saved SSH peer clears its folder before sending and permits a fr
     )!;
     await act(async () => savedRow.dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true })));
     expect(host.querySelector(".nt-location")?.textContent).toContain("Old box");
-    expect(parts().headline).toBe("What should we work on on studio?");
+    expect(parts().headline).toBe("What should we work on on oldbox?");
     const field = host.querySelector<HTMLTextAreaElement>(".nt-field")!;
     const setValue = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(field), "value")!.set!;
     await act(async () => {

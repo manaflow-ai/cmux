@@ -24,6 +24,7 @@ export type NewTabHeadlineProps = {
   machineName?: string;
   machines?: Environment[];
   machineId?: string;
+  savedEnvironmentSelected?: boolean;
   onPickMachine?(id: string): void;
   runMode?: RunModeRows;
   onRefreshMachines?(): void;
@@ -73,7 +74,7 @@ export function NewTabHeadline(props: NewTabHeadlineProps) {
             </>
           }
           environments={props.machines ?? []}
-          current={selectedMachine.id}
+          current={props.savedEnvironmentSelected ? undefined : selectedMachine.id}
           onPick={props.onPickMachine}
           {...(props.runMode ? { runMode: props.runMode } : {})}
           {...(props.onRefreshMachines ? { onOpen: props.onRefreshMachines } : {})}

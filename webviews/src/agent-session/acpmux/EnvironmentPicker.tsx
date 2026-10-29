@@ -121,7 +121,7 @@ export function EnvironmentPicker({
   value: string;
   face: React.ReactNode;
   environments: Environment[];
-  current: string;
+  current: string | undefined;
   onPick(id: string): void;
   onConnect?(kind: ConnectKind): void;
   saved?: SavedEnvironmentRows;

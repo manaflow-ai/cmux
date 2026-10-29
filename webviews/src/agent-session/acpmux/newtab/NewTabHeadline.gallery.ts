@@ -60,7 +60,7 @@ const openMachine = async (ctx: PlayContext) => {
 };
 const pickRemoteMachine = async (ctx: PlayContext) => {
   await openMachine(ctx);
-  await ctx.click({ role: "option", name: /^devbox(?:\s|$)/ });
+  await ctx.click({ role: "option", name: /^devbox/ });
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-location-menu") === null);
   await ctx.waitFor(
     () =>
@@ -86,7 +86,7 @@ const start = async (ctx: PlayContext) => {
   }
   if (ctx.document.querySelector(machineButton)?.textContent?.includes("devbox")) {
     await openMachine(ctx);
-    await ctx.click({ role: "option", name: /^studio(?:\s|$)/ });
+    await ctx.click({ role: "option", name: /^studio/ });
     await ctx.waitFor(() => ctx.document.querySelector(".acpmux-location-menu") === null);
   }
   if (!ctx.document.querySelector(".nt-headline-text")?.textContent?.includes("cmux")) await pick(ctx, "cmux");
