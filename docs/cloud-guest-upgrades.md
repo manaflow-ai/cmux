@@ -29,6 +29,7 @@ missing, and an in-place upgrade plus a one-row backfill restored them
 | --- | --- | --- |
 | `cmux-tui` binary, `cmux-tui-hook`, and the state-mount helper | Yes | `web/scripts/upgrade-fleet-cmux-tui.ts` (below) |
 | Coding-agent hook entries | Yes | Same run: the pinned install command re-runs `cmux-tui agent hook install` |
+| The guest DNS fallback (`cmux-dns` and its units) | Yes | `web/scripts/install-fleet-dns-fallback.ts` (below) |
 | `cmux-devbox-boot`, systemd units, the daemon's argv and environment | No | Bake only. The supervisor that is running keeps its own copy |
 | Baked packages, agent pins, desktop, `/etc/cmux/*` | No (agent pins: only on machines opted into `agentUpdates: "latest"`) | Bake only; opted-in machines update their coding agents on attach (`web/services/vms/guestAgentUpdates.ts`) |
 | Create-time provider config: inline TLS rules (coderouter), VPC, firewall | No | Fixed at `vms.create`; the platform ignores later rules |
@@ -156,6 +157,71 @@ to roll back, the previous helper is restored with the binary.
 
 A connected Mac sees one daemon restart per upgraded machine: its link drops
 and resumes; the terminals and their processes do not restart.
+
+## Runbook: install the DNS fallback on running machines
+
+Machines baked before the DNS fallback (`web/services/vms/images/devbox/README.md`,
+"DNS fallback") resolve straight through the platform resolver, which
+intermittently answers SERVFAIL or nothing for every name
+([#26640](https://github.com/manaflow-ai/cmux/issues/26640)). Users see this as
+lost internet. The runner installs the same files with the same install and
+check commands the bake runs, so a fixed machine matches a new one.
+
+It changes customer machines as root: it adds a DNS service and points
+resolv.conf at it. Do not run it on the fleet before these steps.
+
+1. **Tell owners.** Say what changes (a local DNS service, resolv.conf), why,
+   and how to opt out. Do it before the first customer machine.
+2. **Inventory.** The running Freestyle machines, as in the cmux-tui runbook above.
+3. **Canary.** One machine you own, then one customer machine whose owner agreed:
+
+   ```bash
+   cd web
+   FREESTYLE_API_KEY=... bun scripts/install-fleet-dns-fallback.ts --vm <vm-id>
+   ```
+
+   Then on that machine, `getent ahostsv4 github.com` works and
+   `head -1 /etc/resolv.conf` prints `# cmux-dns`. Watch both for a day,
+   including a pause and resume.
+4. **Fleet.** `bun scripts/install-fleet-dns-fallback.ts --vms-file <file>`
+   (one id per line). It runs 8 machines at a time, each in about 5 seconds, and
+   stops after a batch with a `FAIL` or `ERR`. It lists the machines it did not
+   start; read the failure, then run again (machines already done report
+   `SKIP current`).
+
+Results, one line per machine:
+
+- `OK installed`: the stub answers and resolv.conf points at it.
+- `SKIP current`: the same stub and units are already installed and pass the check.
+- `SKIP no-systemd`: not a devbox guest (a container image). Nothing changed.
+- `SKIP custom-resolv-conf`: resolv.conf is a link, or the platform did not
+  write it (the user, a VPN or Tailscale owns DNS). Nothing changed.
+- `SKIP busy`: another run holds the machine's lock (`flock` on
+  `/run/cmux-dns-fleet.lock`; the kernel frees it when that run exits or dies).
+- `SKIP no-flock`: the guest has no `flock`. Nothing changed.
+- `SKIP not-running <state>`: the runner reads the state with a plain GET
+  first and leaves a paused or stopped machine asleep. Run it again when the
+  machine runs.
+- `FAIL <reason> (...)`: the install or its check failed. The runner saved the
+  files, the unit states and resolv.conf first, put them back, and checked
+  that it did. `rolled back`: nothing was there before, and nothing is now.
+  `restored the previous fallback`: an older stub was there and runs again.
+  `left the installed fallback in place`: this version was already installed;
+  nothing was rewritten or restarted. `rollback incomplete`: the check after
+  the restore failed; look at the machine by hand.
+  During a platform resolver outage, a stub that just started has no cached
+  answers, and it fails a cold miss closed while TLS steering is active (the
+  devbox README). Its install check then fails and the runner puts back what
+  the machine had. Run it again after the outage.
+- `FAIL timeout ...`: the exec ran out of time (180 s) before the result. Run
+  that machine again; a second run finishes or rolls back.
+- `ERR`: a provider call failed. Nothing is known about the machine.
+
+Terminals and their processes keep running. The platform rewrites resolv.conf
+on every TLS rule change and on resume; the installed guard re-points it within
+a second, as on a new machine. To take the fallback off, run the same command
+with `--remove` (`OK removed`, or `FAIL remove incomplete` when something is
+left).
 
 ## When a machine cannot be upgraded
 
