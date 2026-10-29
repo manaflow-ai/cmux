@@ -120,7 +120,7 @@ impl Hub {
         };
         #[cfg(test)]
         {
-            let seam = self.cancel_write_seam.lock().unwrap().take();
+            let seam = self.cancel_write_seam.lock().unwrap_or_else(|e| e.into_inner()).take();
             if let Some((arrived, release)) = seam {
                 let _ = arrived.send(());
                 let _ = release.await;
