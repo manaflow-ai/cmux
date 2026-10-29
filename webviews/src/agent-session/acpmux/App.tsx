@@ -2815,9 +2815,9 @@ export function VirtualTranscript({
   const seenAnchor = useRef<ScrollAnchor | null | undefined>(undefined);
   /// When the reader last moved the transcript themselves (wheel, pointer, touch or key).
   const readerAt = useRef(Number.NEGATIVE_INFINITY);
-  /// The last input that explicitly moved upward. A tiny real wheel at the old end must not
-  /// be mistaken for the browser's clamp window during a layout correction.
-  const readerUpAt = useRef(Number.NEGATIVE_INFINITY);
+  /// The last upward input has not yet been acknowledged by the native scroll event. A tiny real
+  /// wheel at the old end must not be mistaken for the browser's clamp window during a layout correction.
+  const readerUpPending = useRef(false);
   // Scroll frames re-render with the same rows; only rows, width or the registry
   // change an estimate.
   const estimated = useMemo(() => {
@@ -3227,6 +3227,7 @@ export function VirtualTranscript({
       // A single VirtualTranscript is reused while the selected chat changes. Discard every
       // scroll anchor from the old session before the placement pass chooses the new session's
       // openAt position or latest row.
+      readerUpPending.current = false;
       previousSession.current = sessionId;
       wheelGlide.current?.stop();
       didOpenAtLatest.current = false;
@@ -3285,8 +3286,7 @@ export function VirtualTranscript({
       const previousOrigin = scrollOrigin(node);
       // The browser rounds the height it clamps to, so the old end allows a pixel either way.
       const end = Math.min(node.scrollHeight, old.totalHeight) - node.clientHeight;
-      const recentUp =
-        performance.now() - readerUpAt.current <= READER_SCROLL_MS && live < scrolledTo.current.top;
+      const recentUp = readerUpPending.current && live < scrolledTo.current.top;
       const clamped = !recentUp && live < scrolledTo.current.top - 0.5 && live >= end - 1;
       // A reader's move can reach the live offset before its scroll event. Layout changes alone
       // never release or reacquire follow; the input window only identifies this event race.
@@ -3298,6 +3298,7 @@ export function VirtualTranscript({
         performance.now() - readerAt.current <= READER_SCROLL_MS &&
         scrolledTo.current.top - live > 0;
       if (readerLeft) follow(false);
+      if (readerUpPending.current && readerLeft) readerUpPending.current = false;
       // A real wheel can move the live offset before its scroll event reaches React. Keep that
       // movement for this pass and mark the view away from the latest row; otherwise the stored
       // bottom offset would immediately snap the reader back. Once the event is acknowledged,
@@ -3807,6 +3808,7 @@ export function VirtualTranscript({
       return;
     }
     const was = scrolledTo.current;
+    if (readerUpPending.current) readerUpPending.current = false;
     const measured = scrollPosition(node, layout.totalHeight);
     // A recent upward input is authoritative even when it moved only a pixel or two. The
     // deadband absorbs layout rounding, but must not turn a real trackpad step into bottom follow.
@@ -3926,7 +3928,7 @@ export function VirtualTranscript({
       // deliver the input before its scroll event; a streamed snapshot in that gap must not pin
       // the view back to the bottom. Capture the event so nested rows cannot commit first.
       if (movingUp) followIntent(false);
-      if (movingUp) readerUpAt.current = performance.now();
+      if (movingUp) readerUpPending.current = true;
       if (jumpTarget.current !== undefined) {
         stopJump();
         scrolledTo.current = { top: node?.scrollTop ?? 0, atLatest: false };
@@ -3941,11 +3943,19 @@ export function VirtualTranscript({
     };
     const readerReleased = () => {
       dragging = false;
+      readerUpPending.current = false;
+    };
+    const readerCanceled = (event: Event) => {
+      if (event.defaultPrevented && node?.contains(event.target as Node)) readerUpPending.current = false;
     };
     const ownerDocument = node?.ownerDocument;
     ownerDocument?.addEventListener("pointermove", readerMove, { capture: true, passive: true });
     ownerDocument?.addEventListener("pointerup", readerReleased, { capture: true });
     ownerDocument?.addEventListener("pointercancel", readerReleased, { capture: true });
+    ownerDocument?.addEventListener("lostpointercapture", readerReleased, { capture: true });
+    ownerDocument?.defaultView?.addEventListener("blur", readerReleased);
+    const canceledInputs = ["wheel", "keydown"] as const;
+    for (const name of canceledInputs) ownerDocument?.addEventListener(name, readerCanceled, { passive: true });
     const inputs = ["wheel", "pointerdown", "touchstart", "touchmove", "keydown"] as const;
     for (const name of inputs) node?.addEventListener(name, reader, { capture: true, passive: true });
     // A click on a disclosure line holds it where it is (foldAnchor.ts), before the row's own handler
@@ -4021,6 +4031,9 @@ export function VirtualTranscript({
       ownerDocument?.removeEventListener("pointermove", readerMove, { capture: true });
       ownerDocument?.removeEventListener("pointerup", readerReleased, { capture: true });
       ownerDocument?.removeEventListener("pointercancel", readerReleased, { capture: true });
+      ownerDocument?.removeEventListener("lostpointercapture", readerReleased, { capture: true });
+      ownerDocument?.defaultView?.removeEventListener("blur", readerReleased);
+      for (const name of canceledInputs) ownerDocument?.removeEventListener(name, readerCanceled);
       node?.removeEventListener("click", holdClicked, { capture: true });
       node?.removeEventListener(ANCHORED_COLLAPSE_EVENT, holdAsked);
       for (const name of releases) node?.removeEventListener(name, release);
