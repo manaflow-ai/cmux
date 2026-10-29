@@ -316,7 +316,7 @@ mod tests {
 
     #[test]
     fn machine_metadata_is_optional_and_preserves_non_secret_capabilities() {
-        let machine: super::Machine = serde_json::from_str(
+        let machine: Machine = serde_json::from_str(
             r#"{"id":"vm-1","revision":"2","platform":{"os":"linux","arch":"x86_64"},"capabilities":["terminal","agent_session"]}"#,
         )
         .expect("machine metadata decodes");
@@ -327,7 +327,7 @@ mod tests {
         assert!(machine.has_capability("agent_session"));
         assert!(!machine.has_capability("provider_secret"));
 
-        let older: super::Machine = serde_json::from_str(r#"{"id":"vm-old","revision":"3"}"#)
+        let older: Machine = serde_json::from_str(r#"{"id":"vm-old","revision":"3"}"#)
             .expect("older machine decodes");
         assert!(older.platform.is_none());
         assert!(older.capabilities.is_empty());
