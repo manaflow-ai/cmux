@@ -224,22 +224,7 @@ class FrameClientTests(unittest.TestCase):
         self.assertEqual(got["ticked"], [{"owner": "GlassBackdropFeed", "per_s": 60.0}])
         self.assertEqual(got["schedulers"], [{"name": "window-1", "frames_per_s": 60.0, "active_clients": ["GlassBackdropFeed"]}])
         self.assertEqual(got["active_end"], ["GlassBackdropFeed"])
-        self.assertNotIn("looping_animations", got)  # not asked
         self.assertEqual(got["not_covered"], [])
-
-    def test_core_animation_loops_and_video_that_no_scheduler_sees(self):
-        start = {"looping_animations": {"NightSkyView": 12, "SpinnerView": 1}, "playing_videos": {"BackdropVideoView": 1}}
-        end = {"looping_animations": {"NightSkyView": 12}, "playing_videos": {"BackdropVideoView": 1}}
-        got = pa.frame_clients(self.BEFORE, self.AFTER, 10.0, (start, end))
-        self.assertEqual(got["looping_animations"], [{"owner": "NightSkyView", "start": 12, "end": 12},
-                                                     {"owner": "SpinnerView", "start": 1, "end": 0}])
-        self.assertEqual(got["playing_videos"], [{"owner": "BackdropVideoView", "start": 1, "end": 1}])
-        self.assertEqual(got["not_covered"], [])
-
-    def test_a_build_without_frame_sources_says_what_is_not_covered(self):
-        got = pa.frame_clients({}, {}, 10.0, (None, None))
-        self.assertIsNone(got["looping_animations"])
-        self.assertEqual(len(got["not_covered"]), 3)  # the ledger, Core Animation loops, video
 
 
 class FakeCounters:
@@ -337,7 +322,7 @@ class IdleBudgetSessionTests(unittest.TestCase):
     def test_power_sessions_are_one_shown_tab_on_both_sides(self):
         mine, chrome = ib.SESSIONS[ib.POWER_SESSION], ib.SESSIONS[ib.CHROME_POWER_SESSION]
         self.assertEqual(mine["tabs"], chrome["tabs"])
-        self.assertEqual(len(ib.tab_plan(type("P", (), {"probe_url": lambda self, key: key, "origin": ""})(), mine["tabs"])), 1)
+        self.assertEqual(len(ib.tab_plan(type("P", (), {"url": lambda self, k, key: key, "origin": ""})(), mine["tabs"])), 1)
         self.assertTrue(mine["power"] and chrome["power"] and chrome["chrome"])
         self.assertEqual(ib.SESSIONS[ib.CHROME_SESSION]["tabs"], ib.TABS_STATIC)
         self.assertEqual(ib.parse_sessions("power-visible,chrome-power-visible"), [ib.POWER_SESSION, ib.CHROME_POWER_SESSION])

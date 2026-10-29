@@ -39,45 +39,14 @@ Sessions (--sessions):
   light         the launch window with its terminal (Home's pages run in Chromium by default)
   light-webkit  the same with browser.defaultEngine webkit: no Chromium at all
   light-hidden  the light session with the app hidden (Show/Hide All Windows hidden=true)
-  minimized     the light session with its window minimized (minimizeWindow)
-  light-hidden and minimized are hidden-wake sessions: they fail unless the app is hidden (no main window visible)
-  or every main window is miniaturized at both ends of the window and after the wake trace, and they name every
-  main-thread wake source above 0.1/s in HIDDEN-WAKE lines (`hidden_wake_sources`): a DTrace trace of the main
-  thread right after the window (--wake-trace) that gives each wake to the first item it ran, the main run loop's
-  repeating timer fires and the wakeup ledger, one list per basis, with the owners' frames from 3 x --sample
-  `/usr/bin/sample` runs after the trace. A run whose shipping mode is not confirmed, or whose callbacks atos did not
-  name, prints HIDDEN-WAKE-UNCONFIRMED instead.
   Each session starts from an empty saved session (`fresh_session`).
   stress-static  STRESS with its pages served without their rAF spinner (STRESS's own pages animate: not idle)
   stress   STRESS (scripts/cmux-next/perf-stress-session.py: 60 workspaces, a 12-pane grid of 6 tabs each,
            Chromium pages elsewhere); its 10 busy terminals are stopped (Ctrl-C) before the settle, so the
            terminals are quiet
   tabs-static   the launch pane with 5 WebKit and 10 Chromium tabs hidden behind 1 shown static Chromium tab,
-                every page a probe page (Visibility, below); the settle lasts past `browser.freezeHiddenTabs`; after
-                the window one hidden Chromium tab is shown and the roles read again (Reshow, below)
+                every page tab_pages' static page; the settle lasts past `browser.freezeHiddenTabs`
   minimized     the light session with its window minimized (action minimizeWindow)
-  occluded      the light session with benchhelper's opaque full-screen window over it (`benchhelper cover`: another
-                app that activates and shows its key window in front; debug.window_list must report every main window
-                occluded and no window of the app key, so the app resigned active)
-  home          the light session with Home selected (action home.show; xbench's idle-wakeups-home, D6)
-  signed-in     the light session signed in as the host's staging agent test account (CMUX_UITEST_STACK_* of
-                --signed-in-credentials, default the fleet secrets file, which the app reads itself; the bench passes
-                the account's email and the agent profile only, so no secret or token reaches a log or the report),
-                with Phone Access and the GitHub feed on and both keep-awake settings off; auth.status must report the
-                account signed in, and the app signs out (debug.cloud.end_session) before it stops. The app signs a
-                test account in only in a Debug build (DogfoodCredentials): the session is refused on another build,
-                and on a Debug build its own rows are reported, not judged (not the code users run)
-  signed-in-display-sleep  signed-in with `pmset displaysleepnow` after the activation (the display wakes at the
-                teardown); judged by its relative row: app <= light-hidden of the same run (D13)
-  Every session other than the signed-in ones runs signed out: a sign-in the app restores is ended first, and each
-  session's `shape.signed_in` records which it ran as.
-  app-quit      the light session quit after the settle with the sessions kept (action quitKeepSessions), then settled
-                QUIT_SETTLE_S again: the window measures what keeps running without the app (daemon, holders, terminal
-                hosts, acpmux; TagTeardown's process set of the tag)
-  external-churn  the light session hidden, its terminal in a git project the bench writes 10 times a second, and a
-                Chrome History fixture (Chromium's `urls` table) imported with Keep in Sync (the tag's BrowserImport
-                store, seeded before the launch and restored after) that gets a visit appended every
-                HISTORY_PERIOD_S; the writes run through the settle and the window, from this script
   energy-saver  tabs-static with `energy.saver: always` (and the default-off `energySaver` feature on: saver_launch,
                 which bench-typing's --energy-saver uses too), the shown tab an animated page (/anim, rAF every
                 frame, no input) whose rAF count the page server reads at the window's two ends: the page keeps
@@ -102,9 +71,8 @@ Sessions (--sessions):
                 and `<kind>/serviced` that must sum to within 10% of the app's coalition total; WindowServer's own
                 energy (with `sudo -n`); unnamed threads summed per kind (`<kind>/unnamed threads`), and while that
                 is >= 2 mW a stack sample of the process with the most of it names its threads; the FrameClients
-                that ticked (debug.wakeups `frame` ledger owners and FrameScheduler frames) and the infinite Core
-                Animation loops and playing video layers at both ends (debug.layers `frame_sources`). Reported, not
-                judged: no budget row.
+                that ticked (debug.wakeups `frame` ledger owners and FrameScheduler frames). Reported, not judged:
+                no budget row.
   chrome-power-visible  the same 1 tab in the chrome-static browser, attributed the same way. With both sessions
                 measured, POWER-OVER lines list each owner group >= 2 mW (Chrome's kinds: the app and cef-host are
                 `browser`) that spends more than Chrome's same group, or that Chrome does not have: reported, not
@@ -134,27 +102,11 @@ rows.
 Roles (D16 of plans/cmux-next/chrome-parity/p14-energy.md, task 106): at the window's end each task's base priority
 (proc_pidinfo pti_priority) and the kernel's darwinbg bit give its observed role (darwinbg, suppressed, default:
 observed_role). The app and the Chromium Host (task 128) are napped while no window shows; renderers the debug.webui census marks hidden (or every
-renderer while no window shows) and the extension process are best-effort (Chrome's kBestEffort); in tabs-static
-(`judge_shown_renderers`) a renderer it marks shown is not backgrounded (kUserBlocking, task 107); the daemon and
+renderer while no window shows) and the extension process are best-effort (Chrome's kBestEffort); the daemon and
 terminal hosts are never backgrounded while a terminal shows; pooled acpmux agents are PRIO_DARWIN_BG. A budget
 `role` (napped, best-effort, background, not-background; null: not judged) overrides the default. Each mismatch is
 one `IDLE-BUDGET-OVER <session> <kind> role owner=role pids=... observed=... expected=...` line; a role that could not
 be read and a renderer of unknown visibility are IDLE-BUDGET-NOT-JUDGED.
-Reshow (task 107, tabs-static's `reshow`): after the window and its samples, a hidden Chromium tab whose renderer was
-read best-effort is selected (action tab.focus, as a click does) and the roles are read again until its renderer is
-not backgrounded and the tab shown before is best-effort, or RESHOW_WAIT_S passes (reshow_tab, IDLE-BUDGET-RESHOW).
-Each renderer that does not change is one `IDLE-BUDGET-OVER tabs-static cef-renderer role owner=role pids=...
-observed=... expected=... phase=reshow` line (reshow_audit); a reshow that could not run is IDLE-BUDGET-NOT-JUDGED.
-
-Visibility (D17 of plans/cmux-next/chrome-parity/p14-energy.md, task 048): every tab session's page is a probe page
-(PROBE_PAGE: tab_pages' static page plus a probe). It reports document.visibilityState at load and on each change,
-and 11 s after it reports `hidden` (before the freeze grace ends) it counts its rAF callbacks and timer wakes for 4 s.
-The report's `visibility` has, per tab, the state at the window's start and end, the last hidden probe and what is
-wrong or unknown; `met` holds when every Chromium tab reports what it should (the shown tab `visible` unless the
-session hides, minimizes or covers its window, every other `hidden`) and a hidden one ran no rAF and <= 1 timer wake/s.
-Reported (IDLE-BUDGET-VISIBILITY), never an over. chrome-static's tabs get the same report as the reference.
---visibility-tab gives light, light-hidden, minimized and occluded one shown Chromium probe tab (off by default: it
-changes their shape).
 
 A session that fails (STRESS refuses a window under the Dock, a launch fails) is recorded with its exit
 code (`session_exits` in the report) and the others still run; the script exits 0 unless --gate.
@@ -189,23 +141,16 @@ Use (fleet only, a host with a GUI console session; never on a laptop in use):
   D6 on an xbench.py result (any host): python3 scripts/cmux-next/idle-budget.py --xbench OUT/results.json [--gate]
   On the fleet through the allowlisted entry (STRESS needs the 1920 x 1080 virtual display):
     scripts/measure/split-spring.sh --suite=idle-budget --vdisplay=120 -- --sessions tabs-static,energy-saver
-    scripts/measure/split-spring.sh --suite=idle-budget --vdisplay=120 -- \\
-        --sessions home,occluded,app-quit,external-churn      (Release + CMUX_BENCH_HOOKS: these four can --gate)
-  The signed-in sessions need a Debug build of the same tag (no --gate; their own rows are not judged there):
-    python3 scripts/cmux-next/idle-budget.py --app "<...>/Debug/cmux DEV <tag>.app" --out DIR \\
-        --sessions light-hidden,signed-in,signed-in-display-sleep
 
 Output: one `IDLE-BUDGET-MACHINE {json}` line, one `IDLE-BUDGET-ROW {json}` line per session and process
 kind, IDLE-BUDGET-UNCLASSIFIED <session> pid <pid> other:<exe>: <command> for each process no kind names (also an IDLE-BUDGET-OVER
 `kind other != classified`), IDLE-BUDGET-GOAL for a number the plan names a goal (reported, never an over),
-IDLE-BUDGET-ENERGY / -STATE / -ASSERTION / -ANIM / -CHROME / -VISIBILITY lines, IDLE-BUDGET-SHAPE {json} for what a session
-built (signed in or not, the cover, Home, the sign-in and sign-out, the display sleep, the quit, the churn counts),
+IDLE-BUDGET-ENERGY / -STATE / -ASSERTION / -ANIM / -CHROME lines,
 IDLE-BUDGET-TEARDOWN for a teardown step that failed (the later steps still run), IDLE-BUDGET-REFUSED for a saver
 mismatch, an unread rAF rate or a failed or unequal chrome-static, IDLE-BUDGET-THERMAL for a marked session,
 IDLE-BUDGET-FRAME-CLIENTS when the build has debug.wakeups, IDLE-BUDGET-WINDOWSERVER per session,
 IDLE-BUDGET-READER-FAILED for a D15 reader that failed, POWER-BREAKDOWN / -OWNER / -UNNAMED / -WINDOWSERVER for the
-power sessions and POWER-OVER <owner> <mW>, IDLE-BUDGET-MODE with the shipping fields, for a hidden session
-`HIDDEN-WAKE {json}` per source and one `HIDDEN-WAKE-TOTAL {json}` with sha and host, a Markdown table, and --json
+power sessions and POWER-OVER <owner> <mW>, IDLE-BUDGET-MODE with the shipping fields, a Markdown table, and --json
 with every sample.
 
 Results (cmux-perf-result/v1, p12-perf-process-063): each cmux session that measured writes its perf cron rows
@@ -216,9 +161,8 @@ idle-budget (the Chromium light sessions), idle-budget-webkit (light-webkit) and
 sessions of one story in one invocation share one run. The reference sessions (chrome-static, chrome-power-visible)
 measure another browser and write none.
 """
-import argparse, contextlib, dataclasses, fcntl, fnmatch, glob, hashlib, json, os, platform, plistlib, re, select, \
-    shlex, shutil, socket, sqlite3, subprocess, sys, tempfile, threading, time
-from pathlib import Path
+import argparse, dataclasses, fcntl, fnmatch, glob, hashlib, json, os, platform, plistlib, re, shutil, socket, \
+    subprocess, sys, tempfile, threading, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -453,9 +397,9 @@ def read_rpc(app, method, params=None):
 
 def window_end(app, pids, read_anim=None):
     """What one end of the window records outside the process counters: the app's energy policy (debug.energy:
-    the saver state; unknown with `app` None, after the app quit), the Mac's thermal state, the power assertions of
-    the pid set and, with `read_anim` (IdlePages.read_anim), the animated page's rAF count."""
-    saver, reason = saver_state(read_rpc(app, "debug.energy") if app is not None else {})
+    the saver state), the Mac's thermal state, the power assertions of the pid set and, with `read_anim`
+    (IdlePages.read_anim), the animated page's rAF count."""
+    saver, reason = saver_state(read_rpc(app, "debug.energy"))
     end = {"saver": saver, "saver_reason": reason, "thermal": procs.thermal_state(),
            "assertions": procs.power_assertions(pids)}
     if read_anim is not None:
@@ -475,9 +419,8 @@ def saver_state(reply):
 
 
 def measure(app, instance, seconds, read_anim=None, attribute=False, shown_tab=None, workdir=None, d15=None,
-            ledger_limit=20, hidden_hosts=()):
-    """Counters of every process of the app over `seconds` with no input (`ledger_limit` busiest ledger owners,
-    None: all). The window's end reads (window_end and
+            hidden_hosts=()):
+    """Counters of every process of the app over `seconds` with no input. The window's end reads (window_end and
     the debug.webui census the kinds need) sit outside every counter bracket, the app's own counters included, so
     the bench's reads are never counted. Each row's kind and `hidden` come from one WindowKinds (the `last` set's
     own `ps` rows, the census and `shown_tab`, build_tabs's), which also names the power owners; a process that
@@ -491,12 +434,8 @@ def measure(app, instance, seconds, read_anim=None, attribute=False, shown_tab=N
     Processes that exit inside the window keep their D15 values (`exited`, aggregate).
     The agent harness processes (procs.Instance.harness of the last process_set read, the table that named
     `last_pids`) are kind agent-harness, with `agent_host`; those under one of `hidden_hosts` (the agent host pids of
-    hidden panes) are `hidden` rows. With `app` None (app-quit: the app is gone) only the process counters and D15
-    are read, no socket at all."""
+    hidden panes) are `hidden` rows."""
     d15 = d15 or D15Readers()
-
-    def rpc(method, params=None):
-        return read_rpc(app, method, params) if app is not None else {}
 
     pids = process_set(instance)
     start = window_end(app, pids, read_anim)
@@ -507,10 +446,9 @@ def measure(app, instance, seconds, read_anim=None, attribute=False, shown_tab=N
     if window:
         window.prepare()
     time.sleep(QUIET_GAP_S)  # bench: the start reads' aftermath (the page's POST, the RPC's reply) ends before the counters
-    hangs0 = rpc("debug.hangs", {"limit": 0})
-    ledger0 = rpc("debug.wakeups", {"run_loop": True})
-    sources0 = frame_sources(app) if attribute and app is not None else None
-    counters0 = app_counters(app) if app is not None else {}
+    hangs0 = read_rpc(app, "debug.hangs", {"limit": 0})
+    ledger0 = read_rpc(app, "debug.wakeups")
+    counters0 = app_counters(app)
     server0 = d15.windowserver()
     first = snapshot(pids)
     gpu0 = procs.gpu_ns_by_pid()
@@ -531,12 +469,11 @@ def measure(app, instance, seconds, read_anim=None, attribute=False, shown_tab=N
     last = snapshot(last_pids)
     server1 = d15.windowserver()
     power = window.finish() if window else None
-    hangs1 = rpc("debug.hangs", {"limit": 0})
-    ledger1 = rpc("debug.wakeups", {"run_loop": True})
-    sources1 = frame_sources(app) if attribute and app is not None else None
-    counters1 = app_counters(app) if app is not None else {}
+    hangs1 = read_rpc(app, "debug.hangs", {"limit": 0})
+    ledger1 = read_rpc(app, "debug.wakeups", {"run_loop": True})
+    counters1 = app_counters(app)
     # debug.webui runs on the app's main actor: read after every counter, with the window's other end reads.
-    census = rpc("debug.webui")
+    census = read_rpc(app, "debug.webui")
     classify = WindowKinds(last_pids.rows, census, shown_tab, harness, hidden_hosts)
     end = window_end(app, last_pids, read_anim)
     # The roles at the window's end, after every counter (proc_pidinfo wakes no process); the pooled agents from the
@@ -557,19 +494,17 @@ def measure(app, instance, seconds, read_anim=None, attribute=False, shown_tab=N
     if helper is not None:
         coalition = coalition_without(coalition, helper0, helper1, elapsed)
     result = {"seconds": round(elapsed, 1), "processes": rows, "ends": {"start": start, "end": end},
-              "browser_tabs": census_tab_pids(census),
               "exited": exited_rows(first, last, WindowKinds(pids.rows, census, shown_tab), network=network, logs=logs),
               "coalition": coalition,
               "readers": {"network": network is not NOT_MEASURED, "log": logs is not NOT_MEASURED},
               "windowserver": windowserver_report(windowserver_rate(server0, server1), None, server1[2])}
     if "main_wakes" in hangs0 and "main_wakes" in hangs1:
         result["main_wakes_per_s"] = round((hangs1["main_wakes"] - hangs0["main_wakes"]) / elapsed, 3)
-    owners = ledger_rates(ledger0, ledger1, elapsed, limit=ledger_limit)
+    owners = ledger_rates(ledger0, ledger1, elapsed)
     if owners is not None:
         result["ledger"] = owners
     if owners is not None or attribute:
-        result["frame_clients"] = power_attribution.frame_clients(ledger0, ledger1, elapsed,
-                                                                  (sources0, sources1) if attribute else None)
+        result["frame_clients"] = power_attribution.frame_clients(ledger0, ledger1, elapsed)
     if power is not None:
         result["power"] = power_attribution.attribute({**power, "classify": classify})
     rates = {key: round((counters1[key] - counters0[key]) / elapsed, 3) for key in counters1
@@ -578,8 +513,6 @@ def measure(app, instance, seconds, read_anim=None, attribute=False, shown_tab=N
         result["app_counter_rates"] = rates
     if ledger1.get("main_run_loop"):
         result["main_run_loop_timers"] = run_loop_timers(ledger1["main_run_loop"])
-        if ledger0.get("main_run_loop"):
-            result["main_run_loop_timer_fires"] = timer_fires(ledger0["main_run_loop"], ledger1["main_run_loop"], elapsed)
     return result
 
 
@@ -603,13 +536,6 @@ def coalition_without(coalition, first, last, elapsed):
     less = {field: round(coalition[field] - member[field], 3)
             for field in ("energy_mw_cpu", "energy_mw_billed", "cpu_pct", "wakeups_per_s", "pkg_idle_wakeups_per_s")}
     return {**coalition, **less}
-
-
-def frame_sources(app):
-    """The app's frame sources no FrameScheduler sees (debug.layers `frame_sources`: infinite Core Animation loops
-    and playing video layers per owner view), or None when the build does not report them."""
-    got = read_rpc(app, "debug.layers", {"frame_sources": True}).get("frame_sources")
-    return got if isinstance(got, dict) else None
 
 
 def snapshot(commands):
@@ -879,696 +805,36 @@ def window_state(app):
     return {"main": main, "any_key": any(w.get("key") for w in windows)}
 
 
-def run_sample(pid, seconds, path):
-    """`/usr/bin/sample` of `pid` for `seconds` after the window (it suspends the process to sample, so it never runs
-    inside the measured window); its text, "" when it failed."""
+def sample_threads(pid, seconds, path):
+    """`/usr/bin/sample` of `pid` for `seconds` after the window (it suspends the process to sample, so it
+    never runs inside the measured window); per thread, the frames with the most samples outside the wait."""
     try:
         subprocess.run(["/usr/bin/sample", str(pid), str(seconds), "-mayDie", "-file", path], capture_output=True,
                        timeout=seconds + 60)
-        return open(path, errors="replace").read()
+        text = open(path, errors="replace").read()
     except (OSError, subprocess.TimeoutExpired):
-        return ""
-
-
-BLOCKING_SYMBOLS = ("mach_msg", "__psynch_cvwait", "__workq_kernreturn", "kevent", "__semwait", "__select", "__ulock_wait")
-WAIT_SYMBOLS = BLOCKING_SYMBOLS + ("start_wqthread", "thread_start", "_pthread_start")
-THREAD_HEAD_RE = re.compile(r"\s{4}(\d+) Thread_\d+(.*)")
-FRAME_RE = re.compile(r"[\s+!:|]*(\d+) (.+?)\s+\(in ([^)]+)\)")
-
-
-def call_graph(text):
-    """The `Call graph:` part of a `/usr/bin/sample` report."""
-    return text.split("Call graph:", 1)[-1].split("Total number in stack", 1)[0]
-
-
-def threads_from_sample(text):
-    """Per thread of a `/usr/bin/sample` report, the frames with the most samples outside the wait."""
+        return {}
+    graph = text.split("Call graph:", 1)[-1].split("Total number in stack", 1)[0]
     threads_out = {}
     current = None
-    for line in call_graph(text).splitlines():
-        head = THREAD_HEAD_RE.match(line)
+    for line in graph.splitlines():
+        head = re.match(r"\s{4}(\d+) Thread_\d+(.*)", line)
         if head:
             name = head.group(2).strip(" :") or "thread"
             current = {"samples": int(head.group(1)), "frames": {}}
             threads_out[f"{name} ({head.group(1)})"] = current
             continue
-        frame = FRAME_RE.match(line)
+        frame = re.match(r"[\s+!:|]*(\d+) (.+?)\s+\(in ([^)]+)\)", line)
         if current is not None and frame:
             count, symbol, image = int(frame.group(1)), frame.group(2), frame.group(3)
-            if any(wait in symbol for wait in WAIT_SYMBOLS):
+            if any(wait in symbol for wait in ("mach_msg", "__psynch_cvwait", "__workq_kernreturn", "kevent", "__semwait",
+                                                "__select", "__ulock_wait", "start_wqthread", "thread_start", "_pthread_start")):
                 continue
             key = f"{symbol} ({image})"
             current["frames"][key] = max(current["frames"].get(key, 0), count)
     for entry in threads_out.values():
         entry["frames"] = sorted(entry["frames"].items(), key=lambda kv: -kv[1])[:12]
     return threads_out
-
-
-# ---------------------------------------------------------------------------------------------------------
-# Hidden main wakes: who wakes the main thread while no window can be seen
-
-# CFRunLoop's callout trampolines (CoreFoundation CFRunLoop.c), the frame below __CFRunLoopRun that says why the main
-# thread is awake. A timer, a source, a main-queue drain or a block wakes the run loop; observers run on every wake
-# one of those causes, so they are listed but never counted as a cause. Chromium's MessagePumpCFRunLoopBase
-# (base/message_loop/message_pump_apple.mm) has the same split: a work source and a delayed-work timer wake it,
-# observers only bracket the loop.
-RUN_LOOP_CALLOUTS = {
-    "__CFRUNLOOP_IS_CALLING_OUT_TO_A_TIMER_CALLBACK_FUNCTION__": "timer",
-    "__CFRUNLOOP_IS_CALLING_OUT_TO_A_SOURCE0_PERFORM_FUNCTION__": "source0",
-    "__CFRUNLOOP_IS_CALLING_OUT_TO_A_SOURCE1_PERFORM_FUNCTION__": "source1",
-    "__CFRUNLOOP_IS_SERVICING_THE_MAIN_DISPATCH_QUEUE__": "main-queue",
-    "__CFRUNLOOP_IS_CALLING_OUT_TO_A_BLOCK__": "block",
-    "__CFRUNLOOP_IS_CALLING_OUT_TO_AN_OBSERVER_CALLBACK_FUNCTION__": "observer",
-}
-# The trace's kind codes (D keeps integers in thread-locals); 0 is a wake that no callout claimed.
-TRACE_KIND_CODES = {"no-callout": 0, "timer": 1, "source0": 2, "source1": 3, "main-queue": 4, "block": 5, "observer": 6}
-TRACE_KINDS = {code: kind for kind, code in TRACE_KIND_CODES.items()}
-# The (function, item) key of each callout, as DTrace expressions on its entry (CFRunLoop.c's callout signatures):
-# a timer by its callback and CFRunLoopTimerRef, a source0 by its perform function and info, a source1 by its perform
-# function and info (its fifth argument), a block by its invoke pointer (Block_layout.invoke, 16 bytes in), an
-# observer by its callback and CFRunLoopObserverRef. The main-queue drain is keyed by each item it runs instead.
-CALLOUT_KEYS = {"timer": ("arg0", "arg1"), "source0": ("arg0", "arg1"), "source1": ("arg0", "arg4"),
-                "block": ("*(uint64_t *)copyin(arg0 + 16, 8)", "0"), "observer": ("arg0", "arg1")}
-# A Swift job's RunJob/ResumeTask (swift/ABI/Task.h Job: HeapObject, SchedulerPrivate[2], Flags, Id, Voucher,
-# Reserved, then the function): for a task, the partial function it resumes.
-SWIFT_JOB_FUNCTION_OFFSET = 56
-ADDRESS_MASK = 0x7FFFFFFFFFFF  # drops the pointer-auth bits
-WAKE_CAUSES = ("timer", "source0", "source1", "main-queue", "block")
-# Where the OS's images live (the dyld shared cache's images have these paths too); every other image (the app
-# binary, its frameworks, Sentry, Chromium Embedded Framework) is an owner.
-OS_IMAGE_PREFIXES = ("/System/", "/usr/lib/", "/usr/libexec/", "/Library/Apple/")
-# Only for an image the report gives no `Binary Images:` path for: the OS images most often on its paths.
-FALLBACK_OS_IMAGES = {"CoreFoundation", "Foundation", "AppKit", "HIToolbox", "SkyLight", "QuartzCore", "CoreGraphics",
-                      "CoreText", "CFNetwork", "IOKit", "Security", "Metal", "CoreVideo", "CoreDisplay", "ViewBridge",
-                      "SwiftUI", "SwiftUICore", "AttributeGraph", "Combine", "Observation", "CoreServices", "Network",
-                      "LaunchServices", "AE", "CarbonCore", "RunningBoardServices", "HIServices", "CoreUI", "dyld"}
-# Trampolines: a frame in these images with no owner below it passes its samples down to the frame that does the
-# work (a run-loop, dispatch, runtime or Swift job frame does none itself).
-TRAMPOLINE_IMAGES = {"CoreFoundation", "Foundation", "libdispatch.dylib", "libobjc.A.dylib", "libswift_Concurrency.dylib"}
-SWIFT_THUNKS = ("thunk for ", "reabstraction thunk", "partial apply for ", "@objc ", "merged ")
-BINARY_IMAGE_RE = re.compile(r"^\s*(0x[0-9a-fA-F]+)\s+-\s+(\S+)\s+.*?<[0-9A-Fa-f-]+>\s+(/.+?)\s*$")
-ATOS_RE = re.compile(r"(.+?) \(in ([^)]+)\)")
-
-
-def image_ranges(text):
-    """[(start, end, path)] of a `/usr/bin/sample` report's `Binary Images:` part: where each image is loaded in that
-    process (an end of `???` makes a one-byte range)."""
-    out = []
-    for line in text.split("Binary Images:", 1)[1].splitlines() if "Binary Images:" in text else []:
-        match = BINARY_IMAGE_RE.match(line)
-        if match:
-            start = int(match.group(1), 16)
-            end = int(match.group(2), 16) if match.group(2).startswith("0x") else start
-            out.append((start, end, match.group(3)))
-    return out
-
-
-def binary_images(text):
-    """{image name: path} from a `/usr/bin/sample` report's `Binary Images:` part (the call graph's `(in NAME)` is
-    the image file's name)."""
-    images = {}
-    for _start, _end, path in image_ranges(text):
-        images.setdefault(os.path.basename(path), path)
-    return images
-
-
-def image_at(address, ranges):
-    """The path of the image loaded at `address` (image_ranges), or None."""
-    return next((path for start, end, path in ranges or () if start <= address <= end), None)
-
-
-def is_system_image(image, images=None):
-    """An OS image (by its path in the report), whose frames do not name an owner."""
-    path = (images or {}).get(image)
-    if path:
-        return path.startswith(OS_IMAGE_PREFIXES)
-    return image in FALLBACK_OS_IMAGES or (image.startswith("lib") and image.endswith(".dylib"))
-
-
-def is_wait(node):
-    return any(wait in node["symbol"] for wait in BLOCKING_SYMBOLS)
-
-
-def names_no_owner(node):
-    """True for a frame that can not name an owner: an OS image, or a Swift thunk with a frame below it."""
-    return node["system"] or (node["symbol"].startswith(SWIFT_THUNKS) and bool(node["children"]))
-
-
-def main_thread_tree(text):
-    """The main thread's call tree in a `/usr/bin/sample` report, nested {symbol, image, system, count, children}
-    (the thread on com.apple.main-thread, else the first thread); None when the report has no thread."""
-    images = binary_images(text)
-    order = []
-    stack = []
-    for line in call_graph(text).splitlines():
-        head = THREAD_HEAD_RE.match(line)
-        if head:
-            thread = {"symbol": head.group(2).strip(" :") or "thread", "image": "", "system": True,
-                      "count": int(head.group(1)), "children": []}
-            order.append(thread)
-            stack = [(-1, thread)]
-            continue
-        frame = FRAME_RE.match(line)
-        if not stack or not frame:
-            continue
-        depth = frame.start(1)
-        node = {"symbol": frame.group(2), "image": frame.group(3), "system": is_system_image(frame.group(3), images),
-                "count": int(frame.group(1)), "children": []}
-        while len(stack) > 1 and stack[-1][0] >= depth:
-            stack.pop()
-        stack[-1][1]["children"].append(node)
-        stack.append((depth, node))
-    main = [thread for thread in order if "com.apple.main-thread" in thread["symbol"]]
-    return (main or order or [None])[0]
-
-
-def owner_name(node):
-    return f"{node['symbol'][:120]} ({node['image']})"
-
-
-def busy(node):
-    """Samples of `node` that ran: its count less the samples blocked in a wait below it (a nested run loop, a
-    condition wait), which are not wake time."""
-    def waited(n):
-        return n["count"] if is_wait(n) else sum(waited(child) for child in n["children"])
-    return node["count"] - waited(node)
-
-
-def attribute(node, label, add):
-    """Gives each sample below a callout to its owner: the first frame in an owner image takes all of its running
-    samples; a sample with no owner frame goes to the first non-trampoline frame on its own path (`label`), so two OS
-    handlers under one callout stay two owners. Wait frames take nothing."""
-    if is_wait(node):
-        return
-    if not names_no_owner(node):
-        add(owner_name(node), busy(node))
-        return
-    if label is None and node["image"] not in TRAMPOLINE_IMAGES:
-        label = owner_name(node)
-    own = node["count"] - sum(child["count"] for child in node["children"])
-    if own > 0:
-        add(label or owner_name(node), own)
-    for child in node["children"]:
-        attribute(child, label, add)
-
-
-def callout_owners(tree):
-    """{(kind, callback, owner): samples} of the main thread's outermost run-loop callouts. `callback` is the frame
-    the callout calls, the key the DTrace count has too (None for the main queue drain, which has no callback)."""
-    out = {}
-
-    def adder(kind, callback):
-        def add(owner, count):
-            if count > 0:
-                out[(kind, callback, owner)] = out.get((kind, callback, owner), 0) + count
-        return add
-
-    pending = [tree] if tree else []
-    while pending:
-        node = pending.pop()
-        kind = RUN_LOOP_CALLOUTS.get(node["symbol"])
-        if not kind:
-            pending.extend(node["children"])
-            continue
-        for child in node["children"]:
-            attribute(child, None, adder(kind, None if kind == "main-queue" else owner_name(child)))
-        adder(kind, None)(owner_name(node), node["count"] - sum(child["count"] for child in node["children"]))
-    return out
-
-
-def main_callouts_from_samples(texts):
-    """[{kind, callback, owner, samples}] of the main thread's run-loop callouts, summed over `/usr/bin/sample`
-    reports, most first."""
-    total = {}
-    for text in texts:
-        for key, count in callout_owners(main_thread_tree(text)).items():
-            total[key] = total.get(key, 0) + count
-    rows = [{"kind": kind, "callback": callback, "owner": owner, "samples": count}
-            for (kind, callback, owner), count in total.items()]
-    return sorted(rows, key=lambda r: (-r["samples"], r["kind"], r["owner"]))
-
-
-def wake_trace_script(main_tid, seconds):
-    """A DTrace script of the main thread (`main_tid`) for `seconds`, its span measured from BEGIN (after the probes
-    are enabled) to END. It counts:
-
-    - WAKES: returns from a run-loop wait that can block (__CFRunLoopServiceMachPort with a timeout other than 0; the
-      main-queue port poll has 0);
-    - FIRST: each wake once, given to the first non-observer callout after it (for a main-queue drain, its first
-      item; a drain with no item is the drain's), or to kind 0 when the next blocking wait comes first;
-    - CALL: every callout entry, by (function, item) (CALLOUT_KEYS), and each item of an outermost main-queue drain:
-      a dispatch function, a block (_dispatch_call_block_and_release's invoke) or a Swift job's resume function;
-    - STACK: 997 Hz stacks while an outermost callout runs, by the same key, to name an item from its own frames.
-
-    Addresses lose their pointer-auth bits."""
-    tid, mask = f"tid == {int(main_tid)}", f"0x{ADDRESS_MASK:x}"
-    cf = "pid$target:CoreFoundation"
-    drain = f"{tid} && self->ik == {TRACE_KIND_CODES['main-queue']} && self->cd == 1"
-    items = "pid$target:libdispatch.dylib:_dispatch_client_callout:{0}, pid$target:libswift_Concurrency.dylib:swift_job_run:{0}"
-    job = f"*(uint64_t *)copyin(arg0 + {SWIFT_JOB_FUNCTION_OFFSET}, 8) & {mask}"
-    lines = ["#pragma D option quiet", "#pragma D option ustackframes=64",
-             *(f"self int {name};" for name in ("wake", "blk", "cd", "ik", "qd", "qref")),
-             *(f"self uint64_t {name};" for name in ("ia", "ib", "qa")),
-             "BEGIN { began = timestamp; }",
-             f"{cf}:__CFRunLoopServiceMachPort:entry /{tid} && arg4 != 0 && self->wake/ "
-             f"{{ @first[self->wake == 2 ? {TRACE_KIND_CODES['main-queue']} : 0, (uint64_t)0, (uint64_t)0] = count(); "
-             "self->wake = 0; }",
-             f"{cf}:__CFRunLoopServiceMachPort:entry /{tid}/ {{ self->blk = arg4 != 0; }}",
-             f"{cf}:__CFRunLoopServiceMachPort:return /{tid} && self->blk/ {{ @wakes = count(); self->wake = 1; self->blk = 0; }}"]
-    for function, kind in RUN_LOOP_CALLOUTS.items():
-        code, probe = TRACE_KIND_CODES[kind], f"{cf}:{function}:entry"
-        if kind == "main-queue":
-            lines += [f"{probe} /{tid} && self->wake == 1 && self->cd == 0/ {{ self->wake = 2; }}",
-                      f"{probe} /{tid} && self->wake == 1/ {{ @first[{code}, (uint64_t)0, (uint64_t)0] = count(); "
-                      "self->wake = 0; }",
-                      f"{probe} /{tid} && self->cd == 0/ {{ self->ik = {code}; self->ia = 0; self->ib = 0; }}"]
-        else:
-            function_expr, item_expr = CALLOUT_KEYS[kind]
-            lines.append(f"{probe} /{tid}/ {{ this->a = (uint64_t)({function_expr}) & {mask}; "
-                         f"this->b = (uint64_t)({item_expr}) & {mask}; @calls[{code}, this->a, this->b] = count(); }}")
-            if kind != "observer":
-                lines.append(f"{probe} /{tid} && self->wake == 1/ {{ @first[{code}, this->a, this->b] = count(); "
-                             "self->wake = 0; }")
-            lines.append(f"{probe} /{tid} && self->cd == 0/ {{ self->ik = {code}; self->ia = this->a; self->ib = this->b; }}")
-        lines.append(f"{probe} /{tid}/ {{ self->cd++; }}")
-    returns = ", ".join(f"{cf}:{function}:return" for function in RUN_LOOP_CALLOUTS)
-    lines += [f"{returns} /{tid} && self->cd > 0/ {{ self->cd--; }}",
-              f"{returns} /{tid} && self->cd == 0/ {{ self->ik = 0; self->ia = 0; self->ib = 0; }}",
-              # One item per outermost dispatch callout or Swift job of the drain; a block or a job inside a dispatch
-              # function names that item instead.
-              f"pid$target:libdispatch.dylib:_dispatch_client_callout:entry /{drain} && self->qd == 0/ "
-              f"{{ self->qa = arg1 & {mask}; self->qref = 0; }}",
-              f"pid$target:libswift_Concurrency.dylib:swift_job_run:entry /{drain} && (self->qd == 0 || "
-              f"(self->qd == 1 && !self->qref))/ {{ self->qa = {job}; self->qref = 1; }}",
-              f"pid$target:libdispatch.dylib:_dispatch_call_block_and_release:entry /{drain} && self->qd == 1 && "
-              f"!self->qref/ {{ self->qa = *(uint64_t *)copyin(arg0 + 16, 8) & {mask}; self->qref = 1; self->ia = self->qa; }}",
-              f"{items.format('entry')} /{drain}/ {{ self->qd++; self->ia = self->qa; }}",
-              f"{items.format('return')} /{drain} && self->qd > 0/ {{ self->qd--; }}",
-              f"{items.format('return')} /{drain} && self->qd == 0 && self->qa/ "
-              f"{{ @calls[{TRACE_KIND_CODES['main-queue']}, self->qa, (uint64_t)0] = count(); }}",
-              f"{items.format('return')} /{drain} && self->qd == 0 && self->qa && self->wake == 2/ "
-              f"{{ @first[{TRACE_KIND_CODES['main-queue']}, self->qa, (uint64_t)0] = count(); self->wake = 0; }}",
-              f"{items.format('return')} /{drain} && self->qd == 0/ {{ self->qa = 0; self->ia = 0; }}",
-              f"profile-997 /pid == $target && {tid} && self->ik/ {{ @stacks[self->ik, self->ia, self->ib, ustack()] = count(); }}",
-              f"tick-{max(1, int(seconds))}s {{ exit(0); }}",
-              'END { printf("SPAN %d\\n", timestamp - began); printa("WAKES %@d\\n", @wakes); '
-              'printa("CALL %d %x %x %@d\\n", @calls); printa("FIRST %d %x %x %@d\\n", @first); '
-              'printa("STACK %d %x %x %@d\\n%k\\nEND-STACK\\n", @stacks); }']
-    return "\n".join(lines) + "\n"
-
-
-TRACE_ROW_RE = re.compile(r"^(CALL|FIRST|STACK) (\d+) ([0-9a-f]+) ([0-9a-f]+) (\d+)$")
-
-
-def parse_wake_trace(output):
-    """{span_ns, wakes, calls, first, stacks} from the trace's output: calls and first map (kind, function, item) to a
-    count, stacks map it to [(frames innermost first, count)]."""
-    parsed = {"span_ns": None, "wakes": 0, "calls": {}, "first": {}, "stacks": {}}
-    stack = None
-    for raw in output.splitlines():
-        line = raw.strip()
-        if stack is not None:
-            if line == "END-STACK":
-                parsed["stacks"].setdefault(stack[0], []).append((tuple(stack[1]), stack[2]))
-                stack = None
-            elif line:
-                stack[1].append(line)
-            continue
-        if line.startswith("SPAN ") and line[5:].isdigit():
-            parsed["span_ns"] = int(line[5:])
-        elif line.startswith("WAKES ") and line[6:].isdigit():
-            parsed["wakes"] += int(line[6:])
-        match = TRACE_ROW_RE.match(line)
-        if not match or int(match.group(2)) not in TRACE_KINDS:
-            continue
-        key = (TRACE_KINDS[int(match.group(2))], int(match.group(3), 16), int(match.group(4), 16))
-        if match.group(1) == "STACK":
-            stack = (key, [], int(match.group(5)))
-        else:
-            table = parsed["calls" if match.group(1) == "CALL" else "first"]
-            table[key] = table.get(key, 0) + int(match.group(5))
-    return parsed
-
-
-def stack_frame(line):
-    """(image, symbol) of one DTrace ustack line (`image`symbol+0x1c`; a bare address has no image)."""
-    if "`" not in line:
-        return None, line
-    image, rest = line.split("`", 1)
-    return image, rest.rsplit("+0x", 1)[0]
-
-
-def stack_owner(frames, images=None):
-    """The owner of one DTrace stack taken in a callout (frames innermost first): below the outermost run-loop
-    callout, the first frame in an owner image (a Swift thunk with a frame below it does not count), else the first
-    OS frame outside the trampoline images; None when no frame below the callout names one."""
-    path = [stack_frame(line) for line in reversed(frames)]
-    start = next((index for index, (_image, symbol) in enumerate(path) if symbol in RUN_LOOP_CALLOUTS), None)
-    if start is None:
-        return None
-    below, handler = path[start + 1:], None
-    for index, (image, symbol) in enumerate(below):
-        if not image or any(wait in symbol for wait in BLOCKING_SYMBOLS):
-            continue
-        node = {"symbol": symbol, "image": image, "system": is_system_image(image, images),
-                "children": below[index + 1:index + 2]}
-        if not names_no_owner(node):
-            return owner_name(node)
-        if handler is None and node["system"] and image not in TRAMPOLINE_IMAGES:
-            handler = owner_name(node)
-    return handler
-
-
-def callback_name(address, symbols, images=None, ranges=None):
-    """(callback, named, system) of a callout function address: atos's `symbol (image)` when it resolved, else the
-    address with the image it is loaded in. `system` comes from the image's path (image_ranges) when the sample has
-    it, so the OS or owner decision never rests on atos; None when neither knows the image."""
-    path = image_at(address, ranges)
-    match = ATOS_RE.match(symbols.get(address, ""))
-    symbol, image = (match.group(1), match.group(2)) if match else (None, None)
-    image = image or (os.path.basename(path) if path else None)
-    if path:
-        system = path.startswith(OS_IMAGE_PREFIXES)
-    else:
-        system = is_system_image(image, images) if image else None
-    if symbol and not symbol.startswith("0x"):
-        return f"{symbol[:120]} ({image})", True, system
-    return (f"0x{address:x} (in {image})" if image else f"0x{address:x}"), False, system
-
-
-def trace_callouts(parsed, seconds, symbols, images=None, ranges=None):
-    """[{kind, callback, callback_named, callback_system, item, calls, calls_per_s, wakes, per_s, stack_samples,
-    stack_owners}] from a parsed trace, one row per (kind, function, item): `per_s` is the wakes it claimed (the
-    rows add up to the trace's wakes), `calls_per_s` its callout entries; `stack_owners` names it from its own
-    stacks only."""
-    rows = []
-    for key in sorted(set(parsed["calls"]) | set(parsed["first"]), key=lambda k: (k[0], k[1], k[2])):
-        kind, function, item = key
-        callback, named, system = callback_name(function, symbols, images, ranges) if function else (None, True, None)
-        owners = {}
-        for frames, count in parsed["stacks"].get(key, []):
-            owner = stack_owner(frames, images)
-            if owner:
-                owners[owner] = owners.get(owner, 0) + count
-        sampled = sum(owners.values())
-        calls, wakes = parsed["calls"].get(key, 0), parsed["first"].get(key, 0)
-        rows.append({"kind": kind, "callback": callback, "callback_named": named, "callback_system": system,
-                     "item": f"0x{item:x}" if item else None, "calls": calls, "wakes": wakes,
-                     "calls_per_s": round(calls / seconds, 3), "per_s": round(wakes / seconds, 3),
-                     "stack_samples": sampled,
-                     "stack_owners": [{"owner": owner, "share": round(count / sampled, 3)}
-                                      for owner, count in sorted(owners.items(), key=lambda kv: -kv[1])[:3]]})
-    return sorted(rows, key=lambda r: (-r["wakes"], -r["calls"], r["kind"], r["callback"] or ""))
-
-
-def privileged(tool):
-    """`tool` through `sudo -n` unless this is root: DTrace's pid provider needs root, and atos needs the same right
-    to read a Release app's task."""
-    return [tool] if os.geteuid() == 0 else ["sudo", "-n", tool]
-
-
-def symbolize(pid, addresses):
-    """{address: atos line} for the callback addresses in process `pid` ({} when atos can not run)."""
-    addresses = sorted(a for a in addresses if a)
-    if not addresses:
-        return {}
-    try:
-        run = subprocess.run([*privileged("/usr/bin/atos"), "-p", str(pid), *(f"0x{a:x}" for a in addresses)],
-                             capture_output=True, text=True, timeout=120)
-    except (OSError, subprocess.TimeoutExpired):
-        return {}
-    return dict(zip(addresses, run.stdout.splitlines())) if run.returncode == 0 else {}
-
-
-def demangle_stacks(stacks):
-    """`stacks` with Swift symbols demangled (`xcrun swift-demangle`); unchanged when it can not run."""
-    lines = sorted({line for entries in stacks.values() for frames, _count in entries for line in frames})
-    if not lines:
-        return stacks
-    try:
-        run = subprocess.run(["/usr/bin/xcrun", "swift-demangle", "--simplified"], input="\n".join(lines) + "\n",
-                             capture_output=True, text=True, timeout=120)
-    except (OSError, subprocess.TimeoutExpired):
-        return stacks
-    out = run.stdout.splitlines()
-    if run.returncode != 0 or len(out) != len(lines):
-        return stacks
-    names = dict(zip(lines, out))
-    return {key: [(tuple(names[line] for line in frames), count) for frames, count in entries]
-            for key, entries in stacks.items()}
-
-
-def count_main_callouts(app, seconds, folder):
-    """Traces the main thread for `seconds` (DTrace pid provider, wake_trace_script): {ok, error, seconds (the
-    trace's own span), main_wakes, main_wakes_per_s (wakes on that span), parsed}. The debug.hangs `main_wakes`
-    bracket around the dtrace run is kept apart (`rpc_main_wakes_per_s` over `rpc_seconds`, which include dtrace's
-    start and exit) and never set against the trace's counts. ok False with the reason when DTrace can not run (no
-    root, SIP, a restricted process). name_trace turns `parsed` into named rows."""
-    pid = app.process.pid
-    ids = threads(pid)
-    if not ids:
-        return {"ok": False, "error": "the app has no threads", "seconds": None, "callouts": []}
-    script = os.path.join(folder, "wake-trace.d")
-    with open(script, "w") as handle:
-        handle.write(wake_trace_script(min(ids), seconds))  # the main thread is the first: its id is the lowest
-    hangs0 = read_rpc(app, "debug.hangs", {"limit": 0})
-    began = time.monotonic()
-    try:
-        run = subprocess.run([*privileged("/usr/sbin/dtrace"), "-p", str(pid), "-s", script], capture_output=True,
-                             text=True, timeout=seconds + 120)
-    except (OSError, subprocess.TimeoutExpired) as error:
-        return {"ok": False, "error": f"dtrace: {error}"[:300], "seconds": None, "callouts": []}
-    elapsed = time.monotonic() - began
-    hangs1 = read_rpc(app, "debug.hangs", {"limit": 0})
-    if run.returncode != 0:
-        return {"ok": False, "error": f"dtrace exit {run.returncode}: {run.stderr.strip()[-300:]}", "seconds": None,
-                "callouts": []}
-    parsed = parse_wake_trace(run.stdout)
-    if not parsed["span_ns"]:
-        return {"ok": False, "error": "dtrace printed no SPAN line", "seconds": None, "callouts": []}
-    span = parsed["span_ns"] / 1e9
-    result = {"ok": True, "error": "", "seconds": round(span, 3), "main_wakes": parsed["wakes"],
-              "main_wakes_per_s": round(parsed["wakes"] / span, 3), "parsed": parsed}
-    if "main_wakes" in hangs0 and "main_wakes" in hangs1 and elapsed > 0:
-        result["rpc_seconds"] = round(elapsed, 1)
-        result["rpc_main_wakes_per_s"] = round((hangs1["main_wakes"] - hangs0["main_wakes"]) / elapsed, 3)
-    return result
-
-
-def name_trace(trace, pid, sample_text=None):
-    """The trace with `callouts` (trace_callouts) in place of its parsed counts: callback addresses through atos and
-    the sample report's `Binary Images:` ranges (the same process, so the same load addresses)."""
-    parsed = trace.pop("parsed", None)
-    trace.setdefault("callouts", [])
-    if not trace.get("ok") or parsed is None:
-        return trace
-    images = binary_images(sample_text) if sample_text else None
-    ranges = image_ranges(sample_text) if sample_text else []
-    keys = set(parsed["calls"]) | set(parsed["first"])
-    symbols = symbolize(pid, {function for _kind, function, _item in keys})
-    parsed = {**parsed, "stacks": demangle_stacks(parsed["stacks"])}
-    trace["callouts"] = trace_callouts(parsed, trace["seconds"], symbols, images, ranges)
-    return trace
-
-
-TIMER_ENTRY_RE = re.compile(r"<CFRunLoopTimer (0x[0-9a-fA-F]+)[^>]*>\{valid = (\w+), firing = \w+, interval = "
-                            r"([0-9.e+-]+),[^}]*?next fire date = ([0-9.e+-]+)[^}]*?callout = (.*?)"
-                            r"(?:, context = ([^}]*))?\}")
-# Callouts every timer of a kind shares: they name Foundation, not the timer's owner (NSTimer and Swift's Timer).
-GENERIC_TIMER_CALLOUTS = ("__NSFireTimer",)
-
-
-def repeating_timers(description):
-    """{timer address: {interval_s, next_fire, callout, context}} of the valid repeating timers of a main run loop
-    description (a timer in several modes appears once)."""
-    found = {}
-    for address, valid, interval, fire, callout, context in TIMER_ENTRY_RE.findall(description or ""):
-        if valid == "Yes" and float(interval) > 0:
-            found[address] = {"interval_s": float(interval), "next_fire": float(fire), "callout": callout.strip()[:160],
-                              "context": (context or "").strip()[:160]}
-    return found
-
-
-def timer_owner(address, timer):
-    """(owner, named): the timer's callout, or for a callout every timer shares (__NSFireTimer) the timer itself,
-    marked unnamed (the trace names it from the timer's own stacks)."""
-    if timer["callout"].startswith(GENERIC_TIMER_CALLOUTS):
-        return f"unnamed NSTimer {address} (context {timer['context'] or '?'})", False
-    return timer["callout"], True
-
-
-def timer_fires(before, after, elapsed):
-    """Fires per second of each repeating main run-loop timer between two `CFCopyDescription`s of the main run loop
-    (debug.wakeups `run_loop`), by timer address: its next fire date advances one interval per fire. A timer at
-    only one end, or whose interval changed, is a row with per_s None and its `unpaired` reason. A fire the run
-    loop skipped (App Nap) counts as a fire, so the rate is an upper bound."""
-    first, last = repeating_timers(before), repeating_timers(after)
-    out = []
-    for address in sorted(set(first) | set(last)):
-        old, new = first.get(address), last.get(address)
-        timer = new or old
-        owner, named = timer_owner(address, timer)
-        row = {"timer": address, "owner": owner, "named": named, "callout": timer["callout"],
-               "context": timer["context"], "interval_s": timer["interval_s"], "per_s": None}
-        if old is None or new is None or old["interval_s"] != new["interval_s"]:
-            row["unpaired"] = ("created in the window" if old is None else "gone at the end" if new is None
-                               else "interval changed")
-            out.append(row)
-            continue
-        fired = max(0, round((new["next_fire"] - old["next_fire"]) / new["interval_s"]))
-        if fired and elapsed > 0:
-            row["per_s"] = round(fired / elapsed, 3)
-            out.append(row)
-    return sorted(out, key=lambda t: (-(t["per_s"] or 0), t["owner"]))
-
-
-HIDDEN_WAKE_FLOOR = 0.1  # per second: every main wake source above it is named
-
-
-def row_owner(row, timers_by_address):
-    """(owner, owner_from) of one traced item: its callback when atos named it in an owner image; for a timer, the
-    run-loop timer at the same address when its callout names it; else the owner frame of the item's own stacks;
-    else unnamed."""
-    if row["callback"] and row["callback_named"] and row["callback_system"] is False:
-        return row["callback"], "callback"
-    timer = timers_by_address.get(int(row["item"], 16)) if row["kind"] == "timer" and row["item"] else None
-    if timer and timer.get("named"):
-        return timer["owner"], "timer"
-    if row["stack_owners"]:
-        return row["stack_owners"][0]["owner"], "item-stack"
-    where = row["callback"] or "main queue drain, no item ran"
-    return f"unnamed {row['kind']} ({where}{', item ' + row['item'] if row['item'] else ''})", "none"
-
-
-def counted_sources(trace, timers, floor):
-    """The `callout-count` sources: each traced main-thread item (kind, function, item) that claimed more than `floor`
-    wakes per second or ran more than `floor` callouts per second, named by row_owner. `per_s` is wakes/s (the
-    sources add up to the trace's wakes with the no-callout wakes), `calls_per_s` callout entries/s. An item whose
-    own stacks show several owners (a source that runs many kinds of work) is `multiplexed`: its owners carry time
-    shares, not rates."""
-    by_address = {int(t["timer"], 16): t for t in timers if str(t.get("timer", "")).startswith("0x")}
-    out = []
-    for row in trace.get("callouts") or []:
-        if row["kind"] not in WAKE_CAUSES or max(row["per_s"], row["calls_per_s"]) <= floor:
-            continue
-        owner, owner_from = row_owner(row, by_address)
-        out.append({"basis": "callout-count", "kind": row["kind"], "owner": owner, "owner_from": owner_from,
-                    "per_s": row["per_s"], "calls_per_s": row["calls_per_s"], "callback": row["callback"],
-                    "callback_named": row["callback_named"], "item": row["item"],
-                    "top": row["stack_owners"][0]["owner"] if row["stack_owners"] else row["callback"],
-                    "multiplexed": len(row["stack_owners"]) > 1, "stack_samples": row["stack_samples"],
-                    "stack_owners": row["stack_owners"]})
-    return sorted(out, key=lambda s: (-s["per_s"], -s["calls_per_s"]))
-
-
-def hidden_wake_sources(result, floor=HIDDEN_WAKE_FLOOR):
-    """The main thread's wake sources of a hidden session, one list per basis. A source can be in more than one
-    basis, so the bases are never summed and `sources_by_basis` counts each apart:
-
-    - `callout-count`: the DTrace trace of the main thread (`wake_trace`): each wake given once to the first item
-      that ran after it, per second of the trace's own span (`counted_sources`).
-    - `unattributed`: with a trace, its wakes that no callout claimed before the next wait (the same span); without
-      one, the window's main wakes less the run-loop timer fires (both over the window).
-    - `run-loop-timer`: each repeating main run-loop timer's fires, by timer; unpaired timers with per_s None.
-    - `ledger`: wakeup ledger owners (DemandTimer, FrameScheduler, Backoff) on any thread (`thread: any`).
-    - `frames` (sample-time): the `/usr/bin/sample` owners' share of the main thread's callout time. Samples measure
-      time, not wakes, so per_s is None and no floor applies: they name frames, they do not rank sources.
-
-    Observers are not causes and come back apart. `naming_problems` lists what makes the names unsure (callbacks atos
-    did not name); the caller adds them to the session's problems."""
-    main_wakes = result.get("main_wakes_per_s")
-    trace = result.get("wake_trace") or {"ok": False, "error": "not run", "callouts": []}
-    callouts = result.get("main_callouts") or []
-    causes = [c for c in callouts if c["kind"] in WAKE_CAUSES]
-    total = sum(c["samples"] for c in causes)
-    all_timers = result.get("main_run_loop_timer_fires") or []
-    timers = [t for t in all_timers if t.get("unpaired") or (t["per_s"] or 0) > floor]
-    if trace.get("ok"):
-        unattributed = round(sum(r["per_s"] for r in trace["callouts"] if r["kind"] == "no-callout"), 3)
-        of = "trace wakes no callout claimed"
-    elif isinstance(main_wakes, (int, float)):
-        unattributed = round(max(0.0, main_wakes - sum(t["per_s"] for t in timers if t["per_s"])), 3)
-        of = "window main wakes less run-loop timer fires"
-    else:
-        unattributed, of = None, None
-    sources = counted_sources(trace, all_timers, floor)
-    unnamed = sum(1 for s in sources if s["callback"] and not s["callback_named"])
-    naming_problems = [f"atos failed: {unnamed} callbacks unnamed"] if unnamed else []
-    if unattributed is not None and unattributed > floor:
-        sources.append({"basis": "unattributed", "kind": "unattributed", "owner": "unattributed", "per_s": unattributed,
-                        "top": None, "of": of})
-    for timer in timers:
-        sources.append({"basis": "run-loop-timer", "kind": "timer", "top": timer["callout"],
-                        **{k: v for k, v in timer.items() if k != "next_fire"}})
-    ledger = [{"basis": "ledger", "kind": "ledger", "owner": f"{e['owner']}:{e['reason']}", "per_s": e["per_s"],
-               "thread": "any", "top": None}
-              for e in (result.get("ledger") or {}).get("owners") or [] if e["per_s"] > floor]
-    sources += sorted(ledger, key=lambda s: -s["per_s"])
-    frames = [{"basis": "sample-time", "kind": c["kind"], "owner": c["owner"], "callback": c["callback"],
-               "samples": c["samples"], "share": round(c["samples"] / total, 4), "per_s": None} for c in causes]
-    observers = ([{"basis": "callout-count", **r} for r in trace.get("callouts") or [] if r["kind"] == "observer"]
-                 + [{"basis": "sample-time", **c} for c in callouts if c["kind"] == "observer"])
-    by_basis = {}
-    for source in sources:
-        by_basis[source["basis"]] = by_basis.get(source["basis"], 0) + 1
-    return {"main_wakes_per_s": main_wakes, "trace_main_wakes_per_s": trace.get("main_wakes_per_s"),
-            "trace": {k: trace.get(k) for k in ("ok", "error", "seconds", "main_wakes", "rpc_seconds",
-                                                "rpc_main_wakes_per_s")},
-            "cause_samples": total, "unattributed_per_s": unattributed, "sources": sources, "sources_by_basis": by_basis,
-            "unnamed": sum(1 for s in sources if s.get("owner_from") == "none"), "naming_problems": naming_problems,
-            "frames": frames, "observers": observers[:20]}
-
-
-def hidden_wake_lines(session, report, build_sha, host, problems=()):
-    """The `HIDDEN-WAKE {json}` lines of one hidden session for the Q9 slots (one per source and basis), the
-    `HIDDEN-WAKE-FRAME` sample-time lines and observers, then one `HIDDEN-WAKE-TOTAL {json}` line with the build sha
-    and host. When `problems` says the run was not the shipping app in the session's state, the source lines are
-    `HIDDEN-WAKE-UNCONFIRMED` instead, so no Q9 task comes from them."""
-    prefix = "HIDDEN-WAKE-UNCONFIRMED" if problems else "HIDDEN-WAKE"
-    lines = [f"{prefix} " + json.dumps({"session": session, **source}) for source in report["sources"]]
-    lines += ["HIDDEN-WAKE-FRAME " + json.dumps({"session": session, **frame}) for frame in report["frames"]]
-    lines += ["HIDDEN-WAKE-OBSERVER " + json.dumps({"session": session, **o}) for o in report["observers"]]
-    lines.append("HIDDEN-WAKE-TOTAL " + json.dumps({
-        "session": session, "sha": build_sha, "host": host, "main_wakes_per_s": report["main_wakes_per_s"],
-        "trace_main_wakes_per_s": report["trace_main_wakes_per_s"], "trace": report["trace"],
-        "unattributed_per_s": report["unattributed_per_s"], "sources_by_basis": report["sources_by_basis"],
-        "unnamed": report.get("unnamed", 0), "samples_taken": report.get("samples_taken", 0), "cause_samples": report["cause_samples"],
-        "confirmed": not problems, "problems": list(problems), "floor_per_s": HIDDEN_WAKE_FLOOR}))
-    return lines
-
-
-class HiddenStateError(RuntimeError):
-    """A hidden-wake session's app was not hidden or minimized as the session asked: its wakes are not hidden wakes."""
-
-
-def hidden_state_problem(spec, state):
-    """None when `window_state` shows the session's state (light-hidden: no main window visible; minimized: every
-    main window miniaturized), else why not."""
-    if not isinstance(state, dict) or "error" in state:
-        return f"debug.window_list failed: {(state or {}).get('error')}"
-    main = state.get("main") or []
-    if not main:
-        return "debug.window_list shows no main window"
-    if spec.get("hide") and any(w.get("visible") for w in main):
-        return "a main window is visible: the app is not hidden"
-    if spec.get("minimize") and not all(w.get("miniaturized") for w in main):
-        return "a main window is not miniaturized"
-    return None
-
-
-def shipping_problems(entry):
-    """Why the session's applied mode (p14-energy-100's fields) is not the shipping app's; [] when it is: the
-    shipping refusals (activation, Sentry, hang reports) and the app's own occluded-window draw answer."""
-    problems = [f"{what}: {why}" for what, why in shipping_refusals(entry)]
-    if ((entry.get("draws_when_occluded") or {}).get("windows")) is not False:
-        problems.append("draws when occluded (the automation draw, not the shipping one)")
-    return problems
-
-
-def check_action_reply(name, reply):
-    """Raises HiddenStateError when an `action.run` reply is an error."""
-    if not isinstance(reply, dict) or reply.get("error"):
-        raise HiddenStateError(f"action.run {name} failed: {str(reply)[:200]}")
 
 
 def app_counters(app):
@@ -1586,9 +852,8 @@ def app_counters(app):
     return out
 
 
-def ledger_rates(before, after, elapsed, limit=20):
-    """Wakeup ledger owners that fired in the window (debug.wakeups, when the build has it), the `limit` busiest
-    (None: all)."""
+def ledger_rates(before, after, elapsed):
+    """Wakeup ledger owners that fired in the window (debug.wakeups, when the build has it)."""
     if not before.get("ledger") and not after.get("ledger"):
         return None
     counts = {(e["owner"], e["reason"]): e.get("count", 0) for e in before.get("ledger") or []}
@@ -1598,7 +863,7 @@ def ledger_rates(before, after, elapsed, limit=20):
         if delta > 0:
             out.append({"owner": entry["owner"], "reason": entry["reason"], "per_s": round(delta / elapsed, 3)})
     out.sort(key=lambda e: -e["per_s"])
-    return {"owners": out[:limit], "active_frame_clients": after.get("active_frame_clients", [])}
+    return {"owners": out[:20], "active_frame_clients": after.get("active_frame_clients", [])}
 
 
 # ---------------------------------------------------------------------------------------------------------
@@ -1748,8 +1013,6 @@ def summarize(session, result, budget):
         entry["over"], entry["not_judged"] = [], []
         return entry
     roles, role_notes = role_audit(session, result["processes"], budget)
-    reshown, reshow_notes = reshow_audit(session, result.get("reshow"))
-    roles, role_notes = roles + reshown, role_notes + reshow_notes
     entry["role_mismatches"] = roles
     entry["over"] = [list(o) for o in over_budget(session, kinds, budget, window_facts(entry))]
     entry["over"] += [[m["kind"], "role", m["observed"], m["expected"]] for m in roles]
@@ -2127,8 +1390,7 @@ def ratio_over(of, field, kinds, vs, reference, max_ratio, suffix, floor=None):
 #
 # Chrome's model (base/process/process_mac.cc `Process::SetPriority`; RenderProcessHostImpl::UpdateProcessPriority
 # in content/browser/renderer_host/render_process_host_impl.cc): a hidden or spare renderer is kBestEffort
-# (TASK_BACKGROUND_APPLICATION + TASK_SUPPRESSION_POLICY: low CPU priority), a shown one kUserBlocking
-# (TASK_FOREGROUND_APPLICATION; kUserVisible maps to it while kUserVisibleProcessPriority is off, its default). App Nap suppresses a
+# (TASK_BACKGROUND_APPLICATION + TASK_SUPPRESSION_POLICY: low CPU priority), a shown one is not. App Nap suppresses a
 # hidden app the same way. The audit reads each task's role at the window's end (procs.priorities: its base priority
 # and darwinbg bit, never its busiest thread's priority) and compares it with D16 or the budget's `role`.
 
@@ -2226,10 +1488,7 @@ def renderer_visibility(row):
 def expected_role(session, row, budget=None, sessions=None):
     """The role D16 expects of one process in `session`, or None when it is not judged: the budget's `role` wins (an
     explicit null: not judged); a busy kind or a reference session is not judged; a renderer is best-effort when the
-    census marks it hidden or no window shows; in a session with `judge_shown_renderers` (tabs-static) it is not
-    backgrounded when a window shows and the census marks it shown (Chrome's kUserBlocking for a visible widget:
-    RenderProcessPriority::GetProcessPriority in content/browser/child_process_launcher.cc); otherwise a shown
-    renderer, or one of unknown visibility, is not judged."""
+    census marks it hidden or no window shows, and not judged when it is shown or its visibility is unknown."""
     budget = budget or {}
     name = row["kind"]
     limit = budget_role(budget, session, name)
@@ -2242,9 +1501,6 @@ def expected_role(session, row, budget=None, sessions=None):
         return "best-effort"
     if name == "cef-renderer" and (facts.get("shown") is False or renderer_visibility(row) == "hidden"):
         return "best-effort"
-    if (name == "cef-renderer" and facts.get("judge_shown_renderers") and facts.get("shown")
-            and renderer_visibility(row) == "shown"):
-        return "not-background"
     # The Chromium Host holds its App Nap activity only while a page shows (host_page_activity.h, task 128).
     if facts.get("shown") is False and name in ("app", "cef-host"):
         return "napped"
@@ -2285,130 +1541,8 @@ def role_audit(session, rows, budget=None, sessions=None):
 def role_over_line(session, mismatch):
     """One Q9 work item: `IDLE-BUDGET-OVER <session> <kind> role owner=role pids=... observed=... expected=...`."""
     pids = ",".join(str(pid) for pid in mismatch["pids"])
-    phase = f" phase={mismatch['phase']}" if mismatch.get("phase") else ""
     return (f"IDLE-BUDGET-OVER {session} {mismatch['kind']} role owner=role pids={pids} "
-            f"observed={mismatch['observed']} expected={mismatch['expected']}{phase}")
-
-
-# The reshow step (task 107). Chrome changes a renderer's priority on every visibility change of its widgets
-# (RenderWidgetHostImpl::WasShown / WasHidden -> RenderProcessHostImpl::UpdateProcessPriority in
-# content/browser/renderer_host/render_process_host_impl.cc): a renderer that went to kBestEffort while its tab was
-# hidden comes back to kUserBlocking when the tab is shown, and the tab hidden by that switch goes to kBestEffort.
-# The window's own role read sees only the steady state, so tabs-static shows a hidden tab after its window and reads
-# the roles again.
-RESHOW_WAIT_S = 10
-
-
-def census_tab_pids(census):
-    """{census name: sorted renderer pids} of the Chromium browser tabs in a debug.webui reply."""
-    return {tab.get("tab"): sorted(host_pids(tab)) for tab in census_rows(census, "browser_tabs")
-            if isinstance(tab.get("tab"), str)}
-
-
-def reshow_candidate(rows, browser_tabs, shown_tab):
-    """(tab, its renderer pids, None) of the first Chromium browser tab (census name order) that is not the shown
-    one, shares no renderer with it, and whose every renderer the window read hidden and best-effort; (None, None,
-    why) when there is none."""
-    previous = set((shown_tab or {}).get("tabs") or [])
-    if not browser_tabs or not previous:
-        return None, None, "no census browser_tabs or no shown tab"
-    by_pid = {row["pid"]: row for row in rows}
-    previous_pids = {pid for name in previous for pid in browser_tabs.get(name, [])}
-    for name in sorted(browser_tabs):
-        pids = browser_tabs[name]
-        if name in previous or not pids or previous_pids & set(pids):
-            continue
-        if all(by_pid.get(pid, {}).get("kind") == "cef-renderer" and by_pid[pid].get("hidden") is True
-               and by_pid[pid].get("role") in ROLE_EXPECTATIONS["best-effort"] for pid in pids):
-            return name, pids, None
-    return None, None, "no hidden Chromium tab was read best-effort at the window's end"
-
-
-def tab_selected(app, tab):
-    """Whether browser.page.tabs reports the tab `tab` selected in its pane."""
-    reply = read_rpc(app, "browser.page.tabs", {"all": True})
-    tabs = reply.get("tabs") if isinstance(reply.get("tabs"), list) else []
-    return any(isinstance(t, dict) and t.get("id") == tab and t.get("selected") is True for t in tabs)
-
-
-def reshow_settled(after, priority):
-    """Whether, in one priority read, every renderer of the shown tab is not backgrounded and every renderer of the
-    tab shown before is best-effort."""
-    want = {"tab": ROLE_EXPECTATIONS["not-background"], "previous": ROLE_EXPECTATIONS["best-effort"]}
-    return all(observed_role(priority.get(item["pid"])) in want[item["of"]] for item in after)
-
-
-def reshow_tab(app, rows, browser_tabs, shown_tab, read_priorities=procs.priorities, clock=time.monotonic,
-               sleep=time.sleep, wait_s=RESHOW_WAIT_S):
-    """Shows a hidden Chromium tab (reshow_candidate) through the action path a click takes (tab.focus) and reads
-    the roles again. Waits up to `wait_s` for browser.page.tabs to report it selected, takes the renderer pids of it
-    and of the tab shown before from a fresh census, then reads their priorities until reshow_settled or `wait_s`
-    passes. Returns {tab, previous, before: [{pid, of, role}] from the window's read, selected, after: [{pid, of,
-    priority}], waited_s} for reshow_audit, or {"skipped": why} (no candidate, or the app refused the switch)."""
-    tab, pids, why = reshow_candidate(rows, browser_tabs, shown_tab)
-    if tab is None:
-        return {"skipped": why}
-    previous = sorted((shown_tab or {}).get("tabs") or [])
-    roles = {row["pid"]: row.get("role") for row in rows}
-    before_previous = sorted({pid for name in previous for pid in browser_tabs.get(name, [])})
-    record = {"tab": tab, "previous": previous,
-              "before": [{"pid": pid, "of": "tab", "role": roles.get(pid)} for pid in pids]
-                        + [{"pid": pid, "of": "previous", "role": roles.get(pid)} for pid in before_previous]}
-    try:
-        run_action(app, "tab.focus", target=f"tab:{tab}", focus=True)
-    except SessionShapeError as error:  # the window is measured; a refused switch skips only the reshow
-        return {"skipped": str(error)}
-    began = clock()
-    while not tab_selected(app, tab) and clock() - began < wait_s:
-        sleep(0.2)  # bench: bounded wait for the selection to land
-    record["selected"] = tab_selected(app, tab)
-    after_tabs = census_tab_pids(read_rpc(app, "debug.webui"))
-    shown_pids = after_tabs.get(tab, [])
-    hidden_after = sorted({pid for name in previous for pid in after_tabs.get(name, [])} - set(shown_pids))
-    after = [{"pid": pid, "of": "tab"} for pid in shown_pids] + [{"pid": pid, "of": "previous"} for pid in hidden_after]
-    priority = read_priorities([item["pid"] for item in after])
-    while not reshow_settled(after, priority) and clock() - began < wait_s:
-        sleep(0.2)  # bench: bounded wait for Chromium's priority change on show and hide (proc_pidinfo wakes no one)
-        priority = read_priorities([item["pid"] for item in after])
-    record["after"] = [{**item, "priority": priority.get(item["pid"])} for item in after]
-    record["waited_s"] = round(clock() - began, 1)
-    return record
-
-
-def reshow_audit(session, reshow):
-    """([mismatch with phase "reshow"], [not-judged note]) of a reshow_tab record: after the switch every renderer
-    of the shown tab must be not-background and every renderer of the tab shown before best-effort. The before half
-    is the window's own role read (role_audit). A skipped reshow, a tab that was not selected, an unread role, a tab
-    with no renderer after the switch and a tab that runs a new renderer (no return measured) are notes."""
-    if not reshow:
-        return [], []
-    prefix = f"{session} cef-renderer reshow: not judged:"
-    if reshow.get("skipped"):
-        return [], [f"{prefix} {reshow['skipped']}"]
-    tab = reshow["tab"]
-    if not reshow.get("selected"):
-        return [], [f"{prefix} tab {tab} was not reported selected in {RESHOW_WAIT_S:g} s"]
-    want = {"tab": "not-background", "previous": "best-effort"}
-    out, unread, notes = [], [], []
-    for item in reshow["after"]:
-        role = observed_role(item["priority"])
-        if role is None:
-            unread.append(item["pid"])
-        elif role not in ROLE_EXPECTATIONS[want[item["of"]]]:
-            out.append({"kind": "cef-renderer", "pids": [item["pid"]], "observed": role, "expected": want[item["of"]],
-                        "phase": "reshow"})
-    before = sorted(item["pid"] for item in reshow["before"] if item["of"] == "tab")
-    after = sorted(item["pid"] for item in reshow["after"] if item["of"] == "tab")
-    if not after:
-        notes.append(f"{prefix} tab {tab} has no renderer in the census after the switch")
-    elif before != after:
-        notes.append(f"{prefix} tab {tab} runs a new renderer after the switch (pids before="
-                     f"{','.join(map(str, before))} after={','.join(map(str, after))}): its return is not measured")
-    if not any(item["of"] == "previous" for item in reshow["after"]):
-        notes.append(f"{prefix} the tab shown before ({','.join(reshow['previous'])}) has no renderer of its own")
-    if unread:
-        notes.append(f"{prefix} unread pids={','.join(map(str, sorted(unread)))}")
-    return out, notes
+            f"observed={mismatch['observed']} expected={mismatch['expected']}")
 
 
 def acpmux_homes(env=None, user_home=None):
@@ -2851,59 +1985,6 @@ SCROLL_PAGE = ("<!doctype html><meta charset='utf-8'><title>scroll</title>"
                "fetch('/loaded/scroll',{method:'POST'}).then(ask)</script>")
 
 
-# The tab sessions' pages (D17): tab_pages' static page (it POSTs /loaded/<key> and /vis/<key>/<state>
-# at load and on every visibilitychange, nothing else) plus a visibility probe. PROBE_DELAY_MS after the page reports
-# `hidden` (a timer of the hidden page, so Chromium has throttled it by then and the freeze grace of
-# FREEZE_HIDDEN_TABS_S has not ended), it counts for PROBE_MS its rAF callbacks and the fires of a setTimeout(0)
-# chain, then POSTs PROBE_REPORT_PATH/<key>/<state at start>/<state at end>/<rAF>/<timer fires>/<first to last fire
-# ms>/<probe ms>/<ms hidden at start>/<1: no visibilitychange in it>. A page shown again before its probe starts runs
-# none. A page that never reports `hidden` is never probed: its visibilityState is the finding. No held request, no
-# DevTools port: Release builds have none, and the page runs nothing in the window.
-PROBE_PATH = "/probe"
-PROBE_REPORT_PATH = "/probe-report"
-PROBE_DELAY_MS = 11000
-PROBE_MS = 4000
-PROBE_PAGE = ("<title>static {key}</title><body style='font:16px system-ui'><h1>Static page {key}</h1>"
-              "<p>Nothing runs here.</p><script>(function(){{const k='{key}';let gen=0,hiddenAt=0;"
-              "const post=p=>fetch(p,{{method:'POST'}});post('/loaded/'+k);"
-              "function probe(g){{const t0=performance.now(),s0=document.visibilityState;"
-              "let raf=0,n=0,first=0,last=0,done=false;"
-              "requestAnimationFrame(function f(){{if(done)return;raf++;requestAnimationFrame(f)}});"
-              "function tick(){{const now=performance.now();if(!n)first=now;n++;last=now;"
-              "if(now-t0<{window}){{setTimeout(tick,0);return}}done=true;"
-              "post('{report}/'+[k,s0,document.visibilityState,raf,n,Math.round(last-first),Math.round(now-t0),"
-              "Math.round(t0-hiddenAt),g===gen?1:0].join('/'))}}setTimeout(tick,0)}}"
-              "function vis(){{const s=document.visibilityState;post('/vis/'+k+'/'+s);const g=++gen;"
-              "if(s!=='hidden')return;hiddenAt=performance.now();setTimeout(function(){{if(g===gen)probe(g)}},{delay})}}"
-              "vis();document.addEventListener('visibilitychange',vis)}})()</script>")
-# A hidden page's limits (D17): no rAF, at most 1 timer wake a second (Chrome aligns a hidden page's timers to one
-# wake a second, third_party/blink/renderer/platform/scheduler/main_thread/page_scheduler_impl.cc).
-HIDDEN_TIMER_WAKES_MAX = 1.0
-
-
-def probe_page(key):
-    """The probe page of tab `key` (PROBE_PAGE)."""
-    return PROBE_PAGE.format(key=key, window=PROBE_MS, delay=PROBE_DELAY_MS, report=PROBE_REPORT_PATH)
-
-
-def parse_probe(path):
-    """(key, probe) from the page's PROBE_REPORT_PATH POST: the states at the probe's two ends, rAF callbacks and
-    rAF/s, timer fires and timer wakes/s (the intervals between the first and last fire: a probe that starts between
-    two aligned wakes counts no extra one), the probe's and the hidden time in ms, and `intact` (the page stayed as it
-    was through it); (None, {"error": ...}) for an unreadable post."""
-    parts = path.split("?", 1)[0].removeprefix(PROBE_REPORT_PATH + "/").split("/")
-    try:
-        key, start, end = parts[0], parts[1], parts[2]
-        raf, fires, span_ms, probe_ms, hidden_ms, intact = (int(float(value)) for value in parts[3:9])
-    except (IndexError, ValueError):
-        return None, {"error": f"unreadable probe post {path[:80]}"}
-    seconds = probe_ms / 1000
-    wakes = round((fires - 1) / (span_ms / 1000), 2) if fires >= 2 and span_ms > 0 else None
-    return key, {"state_start": start, "state_end": end, "raf": raf,
-                 "raf_per_s": round(raf / seconds, 2) if seconds > 0 else None, "timer_fires": fires,
-                 "timer_wakes_per_s": wakes, "probe_ms": probe_ms, "hidden_ms": hidden_ms, "intact": intact == 1}
-
-
 def parse_anim_count(path):
     """{count, t_ms, visibility} from the page's ANIM_COUNT_PATH POST, or {"error": ...}."""
     parts = path.split("?", 1)[0].removeprefix(ANIM_COUNT_PATH + "/").split("/")
@@ -2969,26 +2050,17 @@ class HeldRead:
 
 
 class IdlePages(tab_pages.TabPages):
-    """The shared tab-page server plus the tab sessions' probe pages (PROBE_PATH-<key>, their posts in `probes`:
-    {key: [parse_probe's probe, in order]}), energy-saver's animated page at ANIM_PATH, bench-typing's scroll page at
+    """The shared tab-page server plus energy-saver's animated page at ANIM_PATH, bench-typing's scroll page at
     SCROLL_PATH, and their read paths."""
 
     def __init__(self, *args, **kwargs):
         self._held = {held.read_path: held for held in (
             HeldRead(ANIM_READ_PATH, ANIM_COUNT_PATH, parse_anim_count, "rAF count"),
             HeldRead(SCROLL_READ_PATH, SCROLL_FRAMES_PATH, parse_scroll_frames, "scroll frames"))}
-        self._probes = threading.Lock()  # guards probes and probe_errors
-        self.probes = {}
-        self.probe_errors = []
         super().__init__(*args, **kwargs)
-
-    def probe_url(self, key):
-        return f"{self.origin}{PROBE_PATH}-{key}"
 
     def body(self, path):
         path = path.split("?", 1)[0]
-        if path.startswith(PROBE_PATH + "-"):
-            return probe_page(path.removeprefix(PROBE_PATH + "-")).encode()
         if path == ANIM_PATH:
             return ANIM_PAGE.encode()
         if path == SCROLL_PATH:
@@ -2999,14 +2071,6 @@ class IdlePages(tab_pages.TabPages):
         return super().body(path)
 
     def report(self, path):
-        if path.startswith(PROBE_REPORT_PATH + "/"):
-            key, probe = parse_probe(path)
-            with self._probes:
-                if key is None:
-                    self.probe_errors.append(probe["error"])
-                else:
-                    self.probes.setdefault(key, []).append(probe)
-            return
         for held in self._held.values():
             if path.startswith(held.post_path + "/"):
                 held.posted(path)
@@ -3021,11 +2085,6 @@ class IdlePages(tab_pages.TabPages):
         """The scroll page's {wheels, scrolled_px, runs_ms, post_runs_ms} since its last read (HeldRead.read); the
         page then starts a new record."""
         return self._held[SCROLL_READ_PATH].read(seconds)
-
-    def page_states(self):
-        """({key: the latest document.visibilityState}, {key: [probes]}) now, one copy each."""
-        with self._probes:
-            return dict(self.visibility), {key: list(probes) for key, probes in self.probes.items()}
 
     def close(self):
         """Ends the held reads with the other held loads."""
@@ -3047,15 +2106,12 @@ class SessionShapeError(RuntimeError):
     """The session could not be built as its table entry says (a tab that never opened, a window not minimized)."""
 
 
-def run_action(app, action, args=None, focus=False, timeout=30, target=None):
+def run_action(app, action, args=None, focus=False, timeout=30):
     """action.run from a script; raises SessionShapeError on the app's refusal. A reply that times out is no
     refusal (a cold CefInitialize can outlast the reply while the tab still opens): the caller checks the result.
-    `focus` selects what the action opens, as STRESS and browser-idle-cost-live open their tabs; `target` is the
-    action's target (`tab:<id>`)."""
-    params = {"action": action, "args": args or {}, "focus": focus, "origin": "script"}
-    if target is not None:
-        params["target"] = target
-    reply = app.rpc("action.run", params, timeout=timeout)
+    `focus` selects what the action opens, as STRESS and browser-idle-cost-live open their tabs."""
+    reply = app.rpc("action.run", {"action": action, "args": args or {}, "focus": focus, "origin": "script"},
+                    timeout=timeout)
     error = reply.get("error") if isinstance(reply, dict) else None
     code = error.get("code") if isinstance(error, dict) else None
     if error and code != "timeout" and not (isinstance(reply, dict) and reply.get("unreachable")):
@@ -3063,19 +2119,14 @@ def run_action(app, action, args=None, focus=False, timeout=30, target=None):
     return reply
 
 
-def plan_keys(tabs):
-    """[(engine, loaded key)] of a session's tabs in opening order: the hidden WebKit tabs, the hidden Chromium tabs,
-    then the shown Chromium tab (`tabs["shown"]`: "static", key "shown", or "anim", key "anim")."""
-    return ([("webkit", f"w{n}") for n in range(tabs["webkit_hidden"])]
-            + [("chromium", f"c{n}") for n in range(tabs["chromium_hidden"])]
-            + [("chromium", "anim" if tabs["shown"] == "anim" else "shown")])
-
-
 def tab_plan(pages, tabs):
-    """[(engine, url, loaded key)] of a session's tabs (plan_keys): each a probe page (IdlePages.probe_url), the
-    animated one at ANIM_PATH."""
-    return [(engine, pages.origin + ANIM_PATH if key == "anim" else pages.probe_url(key), key)
-            for engine, key in plan_keys(tabs)]
+    """[(engine, url, loaded key)] of a session's tabs in opening order: the hidden WebKit tabs, the hidden Chromium
+    tabs, then the shown Chromium tab (`tabs["shown"]`: "static" or "anim")."""
+    plan = ([("webkit", pages.url("static", f"w{n}"), f"w{n}") for n in range(tabs["webkit_hidden"])]
+            + [("chromium", pages.url("static", f"c{n}"), f"c{n}") for n in range(tabs["chromium_hidden"])])
+    if tabs["shown"] == "anim":
+        return plan + [("chromium", pages.origin + ANIM_PATH, "anim")]
+    return plan + [("chromium", pages.url("static", "shown"), "shown")]
 
 
 def build_tabs(app, pages, tabs):
@@ -3112,76 +2163,6 @@ def anim_rate(start, end):
         return {"error": "the page clock did not advance"}
     return {"raf_per_s": round((end["count"] - start["count"]) / seconds, 2), "seconds": round(seconds, 1),
             "visibility": [start.get("visibility"), end.get("visibility")]}
-
-
-def expected_visibility(spec, key, shown):
-    """What tab `key` of a session (`spec`, its SESSIONS entry) should report: the shown tab `visible`, unless the
-    session hides, minimizes or covers its window; every other tab `hidden`."""
-    if key != shown:
-        return "hidden"
-    return "hidden" if spec.get("hide") or spec.get("minimize") or spec.get("cover") else "visible"
-
-
-def hidden_probe(probes):
-    """The last probe of a tab that ran hidden from start to end with no visibilitychange in it, or None."""
-    for probe in reversed(probes or []):
-        if probe.get("intact") and probe.get("state_start") == "hidden" and probe.get("state_end") == "hidden":
-            return probe
-    return None
-
-
-def tab_visibility(engine, expected, start, end, probes):
-    """One tab's D17 row: the visibilityState it reported last at the window's start and end, its last hidden probe,
-    and (problems, unknowns): a state other than `expected`, rAF or more than HIDDEN_TIMER_WAKES_MAX timer wakes/s
-    in a hidden probe; no state reported, or a hidden tab with no hidden probe."""
-    probe = hidden_probe(probes)
-    problems, unknowns = [], []
-    for when, state in (("window start", start), ("window end", end)):
-        if state is None:
-            unknowns.append(f"no visibilityState by the {when}")
-        elif state != expected:
-            problems.append(f"visibilityState {state} at the {when}, expected {expected}")
-    if expected == "hidden" and start == "hidden":
-        if probe is None:
-            unknowns.append("no hidden probe")
-        else:
-            if probe["raf"] > 0:
-                problems.append(f"{probe['raf_per_s']} rAF/s while hidden")
-            wakes = probe["timer_wakes_per_s"]
-            if wakes is None:
-                unknowns.append("the hidden probe's timer fired less than twice")
-            elif wakes > HIDDEN_TIMER_WAKES_MAX:
-                problems.append(f"{wakes} timer wakes/s while hidden > {HIDDEN_TIMER_WAKES_MAX:g}")
-    return {"engine": engine, "expected": expected, "window_start": start, "window_end": end, "probe": probe,
-            "probes": len(probes or []), "problems": problems, "unknown": unknowns}
-
-
-def visibility_report(spec, tabs, before, after, probes, judged_engine="chromium"):
-    """D17 of one session (plans/cmux-next/chrome-parity/p14-energy.md, task 048), reported and never judged as an
-    over: per tab of `tabs` (plan_keys; the animated page has its own visibility in `anim`) its tab_visibility row
-    from the page states `before` and `after` the window ({key: state}, IdlePages.page_states) and its `probes`;
-    `met` is True when every `judged_engine` tab reports what it should with a clean hidden probe, False when one
-    does not, None when one is unknown. `wrong` and `unknown` name the tabs. WebKit tabs are reported, not judged
-    (p14-energy-005 hides them)."""
-    keys = plan_keys(tabs)
-    shown = keys[-1][1]
-    rows = {key: tab_visibility(engine, expected_visibility(spec, key, shown), before.get(key), after.get(key),
-                                probes.get(key))
-            for engine, key in keys if key != "anim"}
-    judged = {key: row for key, row in rows.items() if row["engine"] == judged_engine}
-    wrong = {key: row["problems"] for key, row in judged.items() if row["problems"]}
-    unknown = {key: row["unknown"] for key, row in judged.items() if row["unknown"]}
-    met = None if not judged else False if wrong else None if unknown else True
-    return {"tabs": rows, "met": met, "wrong": wrong, "unknown": unknown}
-
-
-def visibility_line(report):
-    """The IDLE-BUDGET-VISIBILITY summary: met, then per tab its two states and its hidden probe's rAF/s and timer
-    wakes/s."""
-    tabs = {key: [row["window_start"], row["window_end"]]
-            + ([row["probe"]["raf_per_s"], row["probe"]["timer_wakes_per_s"]] if row["probe"] else [])
-            for key, row in report["tabs"].items()}
-    return json.dumps({"met": report["met"], "wrong": report["wrong"], "unknown": report["unknown"], "tabs": tabs})
 
 
 def build_stress(app, static=False):
@@ -3564,13 +2545,6 @@ def stop_session(app, agents):
         app.stop()
 
 
-def build_sha_of(app_path):
-    """The commit the app was built from (bench_launch.build_sha); raises bench_launch.RecordError when neither the
-    bundle nor CMUX_CI_SHA names one (a hidden-wake report without its sha can not be cited)."""
-    from bench_launch import build_sha
-    return build_sha(app_path)
-
-
 # Both keep-awake settings off (D11): their shipping default is pluggedIn, and a session that asks for keep-awake
 # names them in its budget `settings`.
 KEEP_AWAKE_OFF = {"sessions": {"keepAwake": "off"}, "phone": {"keepAwake": "off"}}
@@ -3602,46 +2576,24 @@ def saver_launch(on):
 ONE_TAB = {"webkit_hidden": 0, "chromium_hidden": 0, "shown": "static"}
 POWER_SESSION, CHROME_POWER_SESSION = "power-visible", "chrome-power-visible"
 POWER_SETTLE_S = 120
-# signed-in: Phone Access and the GitHub feed on (both off by default), keep-awake still off (D11, D13).
-SIGNED_IN_CONFIG = {"phone": {"allowConnections": True}, "feed": {"github": {"enabled": True}}}
-# Seconds auth.status has to report the test account signed in after the launch, and signed out after the sign-out.
-SIGN_IN_WAIT_S = 90
-SIGN_OUT_WAIT_S = 60
-# Seconds an unsigned session waits for the app's restore of a stored sign-in to end (auth.status `restoring`).
-RESTORE_WAIT_S = 30
-# app-quit: seconds after the app's exit before the window (the daemon's own wind-down after its client left).
-QUIT_SETTLE_S = 30
-# external-churn: writes per second into the watched project, and seconds between two Chrome History visits.
-CHURN_WRITES_PER_S = 10
-HISTORY_PERIOD_S = 5
 # The sessions (the docstring describes each). Keys: config (merged into BASE_CONFIG: session_config), env (adds to
 # the launch environment: session_env), hide, minimize,
 # stress, static (STRESS without its rAF spinner), tabs (build_tabs's plan), settle_min (seconds), saver (the energy
 # saver state the session asks for; --gate refuses a window that shows another), anim (read the animated page's rAF
 # count at both ends), power (attribute the window's power: power_attribution), chrome (the reference browser with
 # the session's tabs), shown (role_audit: an app window, with a terminal, can be seen; a session without it gets
-# only the role rules that hold in every session), hidden_wake (print HIDDEN-WAKE lines: hidden_wake_sources),
+# only the role rules that hold in every session),
 # agents (build_agents's plan, in the session's own acpmux home: AgentHome), busy_terminal (the hidden terminal's
-# print period: build_busy_hidden), cover (benchhelper's full-screen window over the app), home (Home selected),
-# sign_in (the agent test account), display_sleep (`pmset displaysleepnow` after the activation), quit
-# (quitKeepSessions after the settle; the window measures what is left), churn (external-churn's writers),
-# judge_shown_renderers (role_audit: a renderer the census marks shown must be not-background) and reshow (after the
-# window, show a hidden tab and read the roles again: reshow_tab).
+# print period: build_busy_hidden).
 SESSIONS = {
     "light": {"shown": True},
     "light-webkit": {"config": {"browser": {"defaultEngine": "webkit"}}, "shown": True},
-    "light-hidden": {"hide": True, "shown": False, "hidden_wake": True},
-    "minimized": {"minimize": True, "shown": False, "hidden_wake": True},
-    "occluded": {"cover": True},
-    "home": {"home": True},
-    "signed-in": {"config": SIGNED_IN_CONFIG, "sign_in": True, "shown": True},
-    "signed-in-display-sleep": {"config": SIGNED_IN_CONFIG, "sign_in": True, "display_sleep": True},
-    "app-quit": {"quit": True},
-    "external-churn": {"churn": True, "hide": True, "shown": False},
+    "light-hidden": {"hide": True, "shown": False},
+    "minimized": {"minimize": True, "shown": False},
     "stress": {"stress": True, "shown": True},
     "stress-static": {"stress": True, "static": True, "shown": True},
     "tabs-static": {"config": TABS_CONFIG, "tabs": TABS_STATIC, "settle_min": FREEZE_HIDDEN_TABS_S + FREEZE_GRACE_S,
-                    "shown": True, "judge_shown_renderers": True, "reshow": True},
+                    "shown": True},
     "energy-saver": {"config": {**TABS_CONFIG, **saver_launch(True)[0]}, "env": saver_launch(True)[1],
                      "tabs": {**TABS_STATIC, "shown": "anim"}, "settle_min": FREEZE_HIDDEN_TABS_S + FREEZE_GRACE_S,
                      "saver": True, "anim": True, "shown": True},
@@ -3656,25 +2608,8 @@ SESSIONS = {
 }
 
 
-# --visibility-tab (D17): the light sessions get one shown Chromium probe tab (ONE_TAB), so the visible tab of a hidden,
-# minimized or covered window reports its visibility. Off by default: it changes those sessions' shape (D3 compares
-# them with light, which then has the tab too). Its settle outlasts the probe.
-LIGHT_SESSIONS = ("light", "light-hidden", "minimized", "occluded")
-VISIBILITY_SETTLE_S = (PROBE_DELAY_MS + PROBE_MS) / 1000 + 5
-
-
-def session_tabs(session, visibility_tab=False):
-    """The tabs build_tabs opens for `session`: its own, or with `visibility_tab` ONE_TAB in a light session; None
-    when it has none."""
-    tabs = SESSIONS[session].get("tabs")
-    if tabs is None and visibility_tab and session in LIGHT_SESSIONS:
-        return ONE_TAB
-    return tabs
-
-
 def session_config(session):
-    """The cmux-next.json of `session`: BASE_CONFIG with the session's own keys merged on top (a session's
-    `phone.allowConnections` keeps BASE_CONFIG's `phone.keepAwake`)."""
+    """The cmux-next.json of `session`: BASE_CONFIG with the session's own keys merged on top."""
     return merged(BASE_CONFIG, SESSIONS[session].get("config") or {})
 
 
@@ -3700,10 +2635,9 @@ def parse_sessions(text):
     return names
 
 
-def settle_seconds(session, asked, tabs=None):
-    """The settle of `session`: the asked one, at least the session's settle_min (past the hidden-tab freeze), and
-    with tabs at least VISIBILITY_SETTLE_S (each hidden tab's probe ends before the window)."""
-    return max(asked, SESSIONS[session].get("settle_min", 0), VISIBILITY_SETTLE_S if tabs else 0)
+def settle_seconds(session, asked):
+    """The settle of `session`: the asked one, at least the session's settle_min (past the hidden-tab freeze)."""
+    return max(asked, SESSIONS[session].get("settle_min", 0))
 
 
 def wait_for(check, seconds, what):
@@ -3791,9 +2725,8 @@ def run_chrome_static(opts, out, session=CHROME_SESSION):
             if target.get("url") not in urls:
                 browser.close(target["id"])
         browser.activate(browser.tabs[-1])
-        settle = settle_seconds(session, opts.settle, spec["tabs"])
+        settle = settle_seconds(session, opts.settle)
         time.sleep(settle)  # bench: the pages settle and hidden tabs pass Chrome's background throttling
-        states_before = pages.page_states()[0]
         # As measure: PowerWindow's subprocesses before `first` and after `last`, its libproc reads around the sleep.
         window = (power_attribution.PowerWindow(browser.instance.pid, browser.instance.pids, chrome_kind)
                   if spec.get("power") else None)
@@ -3818,7 +2751,6 @@ def run_chrome_static(opts, out, session=CHROME_SESSION):
             # Named while the browser still runs: a stack sample of each process with an unnamed owner over the floor.
             result["power"] = name_power_owners(power_attribution.attribute(power), opts.sample, os.path.join(out, session))
         visibility = dict(pages.visibility)
-        states_after, probes = pages.page_states()
         running = any(t.get("url", "").startswith(f"chrome-extension://{UBLOCK_ID}/") for t in targets)
         chrome = {"app": bundle, "bundle_id": bundle_id, "version": version, "build": info.get("CFBundleVersion"),
                   "switches": browser.switches(), "settle_s": settle, "template_built": built,
@@ -3828,9 +2760,7 @@ def run_chrome_static(opts, out, session=CHROME_SESSION):
                   "ublock": {"cmux_version": manifest_version(cmux_ublock), "chrome_version": chrome_version,
                              "running": running},
                   "unequal": chrome_shape_unequal(page_targets, visibility, [key for _engine, _url, key in plan]),
-                  "extension_targets": [target.get("url", "")[:120] for target in targets],
-                  # D17's reference: Chrome's own tabs (every one a Chromium tab), reported.
-                  "visibility": visibility_report(spec, spec["tabs"], states_before, states_after, probes)}
+                  "extension_targets": [target.get("url", "")[:120] for target in targets]}
         return {"chrome": chrome, "result": result}
     finally:
         browser.quit()
@@ -3848,9 +2778,7 @@ def chrome_static_entry(opts, out, session, markdown):
         entry["exit"] = 0
         for name, values in entry["kinds"].items():
             print("IDLE-BUDGET-ROW " + json.dumps({"session": session, "kind": name, **values}), flush=True)
-        print("IDLE-BUDGET-CHROME " + json.dumps({k: v for k, v in entry["chrome"].items() if k not in ("switches", "visibility")}),
-              flush=True)
-        print(f"IDLE-BUDGET-VISIBILITY {session} " + visibility_line(entry["chrome"]["visibility"]), flush=True)
+        print("IDLE-BUDGET-CHROME " + json.dumps({k: v for k, v in entry["chrome"].items() if k != "switches"}), flush=True)
         if entry["result"].get("power"):
             entry["power"] = entry["result"]["power"]
             for line in power_attribution.report_lines(session, entry["power"]):
@@ -3928,454 +2856,6 @@ def minimize(app):
             return {"miniaturized": len(main)}
         time.sleep(0.2)  # bench: bounded wait for the window to reach the Dock
     raise SessionShapeError(f"the window is not minimized after 10 s: {window_state(app)}")
-
-
-def wait_occluded(app, seconds=10, inactive=False, what="the cover"):
-    """Waits until debug.window_list reports every main window occluded and, with `inactive`, no window of the app
-    key (the app resigned active, as under another app's window); returns the window state, or raises
-    SessionShapeError with the last one."""
-    deadline = time.monotonic() + seconds
-    while True:
-        state = window_state(app)
-        main = state.get("main") or []
-        if main and all(w.get("occluded") for w in main) and not (inactive and state.get("any_key") is not False):
-            return state
-        if time.monotonic() >= deadline:
-            wanted = "occluded and inactive" if inactive else "occluded"
-            raise SessionShapeError(f"the app's windows are not {wanted} {seconds:g} s after {what}: {state}")
-        time.sleep(0.2)  # bench: bounded wait for the window server's occlusion change to reach the app
-
-
-def start_cover(helper_path, seconds=10):
-    """Starts `benchhelper cover` and returns its process once it says its window is shown; raises SessionShapeError
-    (the process ended) when it does not within `seconds`."""
-    cover = subprocess.Popen([helper_path, "cover"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-    ready, _, _ = select.select([cover.stdout], [], [], seconds)
-    line = cover.stdout.readline().strip() if ready else ""
-    if not line.startswith("covering "):
-        errors = stop_process(cover)
-        raise SessionShapeError(f"benchhelper cover showed no window in {seconds:g} s: {(line or errors)[:200]}")
-    return cover
-
-
-def stop_process(process, seconds=10):
-    """Ends a process this script started (TERM, then KILL) and closes its pipes; returns what it wrote to stderr,
-    or why it could not be ended. Never raises."""
-    try:
-        if process.poll() is None:
-            process.terminate()
-        try:
-            _out, errors = process.communicate(timeout=seconds)
-        except subprocess.TimeoutExpired:
-            process.kill()
-            _out, errors = process.communicate(timeout=seconds)
-    except (OSError, ValueError, subprocess.SubprocessError) as error:
-        return f"pid {process.pid} not ended: {type(error).__name__}: {error}"[:200]
-    return (errors or "").strip()
-
-
-def command_error(run, argv):
-    """Runs `argv` through `run` (subprocess.run's signature); returns "" or the error. Never raises."""
-    try:
-        done = run(argv, capture_output=True, text=True, timeout=30)
-    except (OSError, subprocess.SubprocessError) as error:
-        return f"{argv[0]}: {error}"[:200]
-    return "" if done.returncode == 0 else f"{argv[0]} exit {done.returncode}: {(done.stderr or '').strip()[:200]}"
-
-
-def sleep_display(run=subprocess.run):
-    """`pmset displaysleepnow` (no root needed); returns "" or the error."""
-    return command_error(run, ["pmset", "displaysleepnow"])
-
-
-def wake_display(run=subprocess.run):
-    """Wakes the display as user activity does (`caffeinate -u`: a 2 s user-active assertion); returns "" or the
-    error."""
-    return command_error(run, ["caffeinate", "-u", "-t", "2"])
-
-
-def sign_in_refusal(build_config):
-    """Why the signed-in sessions cannot run on this build, or None: the app signs a test account in from the fleet
-    secrets only in a Debug build (CloudAuth: a release build never reads them)."""
-    if build_config != "debug":
-        return (f"a {build_config} build signs no test account in (CloudAuth's dev sign-in runs in a Debug build "
-                "only); measure the signed-in sessions on a Debug build")
-    return None
-
-
-def unjudged_on_debug(session, entry, build_config):
-    """A signed-in session's own rows on a Debug build (the only build that signs a test account in) are reported,
-    not judged: a Debug build is not the code users run. Its overs move into `not_judged`; returns the new notes.
-    Its `relative` rows compare two sessions of the same build and are still judged (cross_overs)."""
-    if not SESSIONS[session].get("sign_in") or build_config != "debug":
-        return []
-    overs, entry["over"] = entry.get("over") or [], []
-    notes = [f"{session}: own rows not judged on a Debug build (not the code users run)"]
-    notes += [f"{session} {over[0]} {over[1]}: {over[2]} over {over[3]} on a Debug build" for over in overs]
-    entry.setdefault("not_judged", []).extend(notes)
-    return notes
-
-
-def signed_in_state(reply, account=None):
-    """auth.status reduced to what the report keeps: signed in, still restoring, the backend and, with `account`,
-    whether the account is the test account. The email itself is never kept."""
-    reply = reply if isinstance(reply, dict) else {}
-    state = {"signed_in": reply.get("signed_in") is True, "restoring": reply.get("restoring") is True,
-             "backend": reply.get("backend")}
-    if account is not None:
-        email = reply.get("email") if isinstance(reply.get("email"), str) else ""
-        state["account_matches"] = bool(email) and email.lower() == account.lower()
-    return state
-
-
-def wait_signed_in(app, account, seconds=SIGN_IN_WAIT_S):
-    """Waits until auth.status reports `account` signed in (not restoring); returns signed_in_state, or raises
-    SessionShapeError."""
-    deadline = time.monotonic() + seconds
-    while True:
-        state = signed_in_state(read_rpc(app, "auth.status"), account)
-        if state["signed_in"] and not state["restoring"]:
-            if not state["account_matches"]:
-                raise SessionShapeError(f"another account than the test account is signed in: {state}")
-            return state
-        if time.monotonic() >= deadline:
-            raise SessionShapeError(f"the test account is not signed in {seconds:g} s after the launch: {state}")
-        time.sleep(0.5)  # bench: bounded wait for the app's own sign-in
-
-
-def wait_auth_settled(app, seconds=RESTORE_WAIT_S):
-    """auth.status (signed_in_state, no account) once the app's restore of a stored sign-in ended, or the last
-    state after `seconds`."""
-    deadline = time.monotonic() + seconds
-    while True:
-        state = signed_in_state(read_rpc(app, "auth.status"))
-        if not state["restoring"] or time.monotonic() >= deadline:
-            return state
-        time.sleep(0.5)  # bench: bounded wait for the app's own restore
-
-
-def sign_out(app, seconds=SIGN_OUT_WAIT_S):
-    """Ends the app's Cloud session (debug.cloud.end_session: CloudAuth.signOut, which clears the stored tokens and
-    `cmux.auth.hasTokens`; the tokens live in the data protection Keychain, which only the app reaches) and waits
-    until auth.status reports it signed out. Returns {"signed_out": bool, "error": str}."""
-    reply = read_rpc(app, "debug.cloud.end_session")
-    deadline = time.monotonic() + seconds
-    while True:
-        state = signed_in_state(read_rpc(app, "auth.status"))
-        if not state["signed_in"] and not state["restoring"]:
-            return {"signed_out": True, "error": ""}
-        if time.monotonic() >= deadline:
-            return {"signed_out": False,
-                    "error": f"still signed in {seconds:g} s after debug.cloud.end_session: {json.dumps(reply)[:200]}"}
-        time.sleep(0.5)  # bench: bounded wait for the app's own sign-out
-
-
-class QuitTree:
-    """app-quit's process set once the app is gone: the tag's processes (TagTeardown: daemon, holders, terminal
-    hosts, acpmux and their children, by bundle path), as procs.Instance.pids gives them for a running app. `pid`
-    stays the app's (its coalition reads as unknown)."""
-
-    def __init__(self, teardown, pid):
-        self.teardown = teardown
-        self.pid = pid
-
-        self.harness = {}  # the last pids() read's agent harness processes: {pid: host pid}, as procs.Instance's
-
-    def pids(self, table=None):
-        """{pid: command} of the tag's processes (TagTeardown reads its own table) and the agent harnesses under one
-        of them (from `table`, procs.process_table rows, read now when None), as procs.Instance.pids."""
-        found = dict(self.teardown.processes())
-        table = procs.process_table() if table is None else table
-        commands = {pid: cmd for pid, _ppid, cmd in table}
-        self.harness = {pid: host for pid, host in procs.agent_harness_pids(table).items()
-                        if host in found and pid in commands}
-        found.update({pid: commands[pid] for pid in self.harness})
-        return found
-
-
-# external-churn's fixtures: a Chrome profile's History database and its import record with Keep in Sync on.
-CHURN_PROFILE_ID = "6d3c6a4e-0b55-4e7b-9a0c-1d2e3f405162"  # a browser profile id (lowercase UUID) for the import
-CHROME_EPOCH_OFFSET_S = 11644473600  # Chromium's base::Time counts microseconds from 1601-01-01
-# components/history/core/browser/url_database.cc CreateURLTable: the columns ChromiumHistoryReader reads.
-CHROME_URLS_TABLE = ("CREATE TABLE urls(id INTEGER PRIMARY KEY AUTOINCREMENT, url LONGVARCHAR, title LONGVARCHAR, "
-                     "visit_count INTEGER DEFAULT 0 NOT NULL, typed_count INTEGER DEFAULT 0 NOT NULL, "
-                     "last_visit_time INTEGER NOT NULL, hidden INTEGER DEFAULT 0 NOT NULL)")
-
-
-def chrome_time(unix_s):
-    """Chromium's stored time (microseconds since 1601-01-01) of a Unix time."""
-    return int((unix_s + CHROME_EPOCH_OFFSET_S) * 1_000_000)
-
-
-def make_chrome_history(path, visits=20, now=None):
-    """A Chrome `History` database at `path` with `visits` pages, as a profile that has browsed."""
-    now = time.time() if now is None else now
-    with contextlib.closing(sqlite3.connect(path)) as db, db:
-        db.execute(CHROME_URLS_TABLE)
-        db.executemany("INSERT INTO urls(url, title, visit_count, last_visit_time) VALUES (?, ?, 1, ?)",
-                       [(f"https://example.com/page/{n}", f"Page {n}", chrome_time(now - 60 * (visits - n)))
-                        for n in range(visits)])
-    return path
-
-
-def append_chrome_visit(path, n, now=None):
-    """One visit appended to the History database as Chrome writes it: a committed row, with SQLite's rollback
-    journal (`History-journal`) made and removed by the commit, which is what Keep in Sync's folder watch sees."""
-    with contextlib.closing(sqlite3.connect(path)) as db, db:
-        db.execute("INSERT INTO urls(url, title, visit_count, last_visit_time) VALUES (?, ?, 1, ?)",
-                   (f"https://example.com/churn/{n}", f"Churn {n}", chrome_time(time.time() if now is None else now)))
-
-
-def keep_in_sync_store(history, now=None):
-    """{relative path: JSON} of an import store (ImportedDataStore) holding one Chrome profile imported with Keep in
-    Sync on: `sources.json` (the ImportSourceRecord list, `syncedHistoryFile` the History file URL) and the source's
-    batch (`<profile>/<source key>.json`, history kind, no pages yet: the first read fills them)."""
-    record = {"browser": "chrome", "profileDirectory": "Default", "displayName": "Google Chrome",
-              "proposedProfileID": CHURN_PROFILE_ID, "targetProfileID": CHURN_PROFILE_ID, "profileName": "Person 1",
-              "syncedHistoryFile": Path(history).resolve().as_uri()}
-    batch = {"source": record, "bookmarks": [], "history": [], "openTabs": [], "extensions": [], "kinds": ["history"],
-             "importedAt": round(time.time() if now is None else now, 3)}
-    return {"sources.json": [record], f"{CHURN_PROFILE_ID}/chrome_Default.json": batch}
-
-
-def import_store_dir(app):
-    """The tag's browser import store (OnboardingService: Application Support/<bundle id>/BrowserImport), or None when
-    the bundle is not a tagged DEV bundle (its store is a person's own)."""
-    import bench_launch
-    ident = bench_launch.bundle_id(app)
-    if not ident or not ident.startswith("com.cmuxterm.app.debug."):
-        return None
-    return os.path.join(os.path.expanduser("~"), "Library/Application Support", ident, "BrowserImport")
-
-
-class SeededStore:
-    """Writes keep_in_sync_store into the tag's import store for one session and restores the store after: an
-    earlier store moves aside (`<dir>.bench-prev`) and comes back at `restore`."""
-
-    def __init__(self, directory, files):
-        self.directory = directory
-        self.files = files
-        self.aside = directory + ".bench-prev"
-        self.moved = False
-
-    def write(self):
-        if os.path.lexists(self.directory):
-            if os.path.lexists(self.aside):
-                raise SessionShapeError(f"{self.aside} is left from an earlier run: restore or remove it first")
-            os.rename(self.directory, self.aside)
-            self.moved = True
-        for relative, value in self.files.items():
-            path = os.path.join(self.directory, relative)
-            os.makedirs(os.path.dirname(path), exist_ok=True)
-            with open(path, "w") as handle:
-                json.dump(value, handle, sort_keys=True)
-        return self
-
-    def restore(self):
-        """Removes the seeded store and moves the earlier one back; returns "" or why it could not (the earlier
-        store then stays at `aside`, and the next write refuses to run over it). Never raises."""
-        shutil.rmtree(self.directory, ignore_errors=True)
-        if not self.moved:
-            return ""
-        try:
-            os.rename(self.aside, self.directory)
-        except OSError as error:
-            return f"the earlier store stays at {self.aside}: {error.strerror or error}"
-        self.moved = False
-        return ""
-
-
-def make_project(folder):
-    """A git project with one file at `folder` (the external-churn writes go to its `churn.log`)."""
-    os.makedirs(folder, exist_ok=True)
-    with open(os.path.join(folder, "README.md"), "w") as handle:
-        handle.write("idle-budget external-churn project\n")
-    subprocess.run(["git", "init", "-q", folder], check=True, capture_output=True, timeout=30)
-    return folder
-
-
-class ExternalChurn:
-    """Other apps' writes while cmux sits hidden: `writes_per_s` appends a second to the watched project's
-    `churn.log`, and every `history_period_s` one visit appended to the Chrome History fixture. Each step has its own
-    deadline from the start (no drift); a thread runs them through the settle and the window."""
-
-    def __init__(self, project, history, writes_per_s=CHURN_WRITES_PER_S, history_period_s=HISTORY_PERIOD_S):
-        self.file = os.path.join(project, "churn.log")
-        self.history = history
-        self.writes_per_s = writes_per_s
-        self.history_every = max(1, round(writes_per_s * history_period_s))
-        self.writes = self.visits = 0
-        self.error = None
-        self.stopped = threading.Event()
-        self.thread = threading.Thread(target=self.run, name="external-churn", daemon=True)
-
-    def step(self, n):
-        """Write number `n`: one line into the project; every `history_every`th also one History visit."""
-        with open(self.file, "a") as handle:
-            handle.write(f"{n} {time.time():.3f}\n")
-        self.writes += 1
-        if n % self.history_every == 0:
-            append_chrome_visit(self.history, n)
-            self.visits += 1
-
-    def run(self):
-        began = time.monotonic()
-        n = 0
-        # bench: each write waits for its own deadline; stop() ends the wait at once
-        while not self.stopped.wait(max(0.0, began + n / self.writes_per_s - time.monotonic())):
-            try:
-                self.step(n)
-            except (OSError, sqlite3.Error) as error:  # the counts show where the churn stopped
-                self.error = f"{type(error).__name__}: {error}"[:200]
-                return
-            n += 1
-
-    def start(self):
-        self.thread.start()
-        return self
-
-    def stop(self):
-        """Stops the writes; returns their counts."""
-        self.stopped.set()
-        self.thread.join(10)
-        return {"writes": self.writes, "history_visits": self.visits, "error": self.error}
-
-
-class SessionRig:
-    """What a session builds around the app and takes down after it: the launch env of the signed-in account,
-    the fixtures made before the launch (external-churn's project, Chrome History and import store; the cover's
-    helper, compiled before the app runs), the shape made after the launch and after the activation (the sign-in,
-    or the check that the app runs signed out; the terminal in the project, Home, the cover, the display sleep, the
-    churn), and their teardown (`teardown`). `shape` is what it built, for the report; it never holds a secret.
-    `run` runs pmset and caffeinate (subprocess.run's signature)."""
-
-    def __init__(self, session, build_config, credentials=None, helper_cache=None, run=subprocess.run):
-        self.spec = SESSIONS[session]
-        self.build_config = build_config
-        self.credentials = credentials
-        self.helper_cache = helper_cache
-        self.run = run
-        self.account = self.helper = self.cover = self.churn = self.store = self.scratch = None
-        self.project = self.history = None
-        self.display_slept = False
-        self.shape = {}
-
-    def env(self, base):
-        """The launch env: `base`, plus the agent account's sign-in for a signed-in session (SessionShapeError on a
-        build that signs no test account in, or a credentials file the app would not read or that signs another
-        account in)."""
-        if not self.spec.get("sign_in"):
-            return base
-        refusal = sign_in_refusal(self.build_config)
-        if refusal:
-            raise SessionShapeError(refusal)
-        import bench_launch
-        try:
-            extra = bench_launch.agent_sign_in_env(self.credentials or bench_launch.AGENT_CREDENTIALS)
-        except bench_launch.CredentialsError as error:
-            raise SessionShapeError(f"signed-in: {error}") from None
-        self.account = extra["CMUX_DEV_AUTH_ACCOUNT"]
-        return {**base, **extra}
-
-    def before_launch(self, app_path):
-        if self.spec.get("cover"):
-            import xbench  # scripts/perf-bench (on sys.path): benchhelper, compiled once per source hash
-            self.helper = xbench.Helper(self.helper_cache).path
-        if not self.spec.get("churn"):
-            return
-        store = import_store_dir(app_path)
-        if store is None:
-            raise SessionShapeError("external-churn seeds only a tagged DEV bundle's import store")
-        import tempfile
-        self.scratch = tempfile.mkdtemp(prefix="idle-budget-churn-")
-        self.project = make_project(os.path.join(self.scratch, "project"))
-        profile = os.path.join(self.scratch, "Chrome", "Default")
-        os.makedirs(profile)
-        self.history = make_chrome_history(os.path.join(profile, "History"))
-        self.store = SeededStore(store, keep_in_sync_store(self.history)).write()
-        self.shape["keep_in_sync"] = {"store": store, "history": self.history}
-
-    def after_launch(self, app):
-        """The sign-in of a signed-in session. Any other session runs signed out: a sign-in the app restored (one an
-        earlier run did not end) is ended in the app (`left_signed_in`), or the session is refused. `signed_in`
-        records which it ran as."""
-        if self.account:
-            self.shape["sign_in"] = wait_signed_in(app, self.account)
-            self.shape["signed_in"] = True
-        else:
-            state = wait_auth_settled(app)
-            if state["signed_in"]:
-                ended = self.shape["left_signed_in"] = sign_out(app)
-                if not ended["signed_out"]:
-                    raise SessionShapeError(f"the app restored a stored sign-in and did not sign out: {ended['error']}")
-            self.shape["signed_in"] = False
-        if self.project:
-            run_action(app, "terminal.sendText", {"text": f"cd {shlex.quote(self.project)} && clear\n"})
-            self.shape["project"] = self.project
-
-    def after_activate(self, app):
-        """After the activation and any hide or minimize: Home; the cover, until the app is occluded and no longer
-        active (another app's window in front); the display sleep, until the app is occluded; then the churn (it
-        runs through the settle and the window)."""
-        if self.spec.get("home"):
-            run_action(app, "home.show")
-            self.shape["home"] = True
-        if self.helper:
-            self.cover = start_cover(self.helper)
-            self.shape["cover"] = wait_occluded(app, inactive=True)
-        if self.spec.get("display_sleep"):
-            error = sleep_display(self.run)
-            if error:
-                raise SessionShapeError(f"the display did not sleep: {error}")
-            self.display_slept = True
-            self.shape["display_sleep"] = wait_occluded(app, 15, what="pmset displaysleepnow")
-        if self.project:
-            self.churn = ExternalChurn(self.project, self.history).start()
-
-    def after_window(self):
-        """Stops the churn at the window's end; its counts go into `shape`."""
-        if self.churn is not None and "churn" not in self.shape:
-            self.shape["churn"] = self.churn.stop()
-        return self.shape
-
-    def teardown(self, app, stop=None):
-        """Takes the session down in this order: the churn's writes stop; a signed-in app signs out while it still
-        runs (`shape.sign_out`); the app stops (`stop`, default `app.stop`); then the cover ends, the display wakes, the import store
-        comes back and the scratch folder goes. Every step runs whatever an earlier one raised; returns the steps'
-        errors."""
-        errors = []
-
-        def step(name, work):
-            try:
-                problem = work()
-            except Exception as error:  # noqa: BLE001 - recorded; the later steps still run
-                problem = f"{type(error).__name__}: {error}"
-            if problem:
-                errors.append(f"{name}: {problem}"[:300])
-
-        step("churn", lambda: self.after_window() and None)  # its counts (and a write error) go into `shape`
-        if app is not None:
-            process = getattr(app, "process", None)
-            if self.account and process is not None and process.poll() is None:
-                step("sign-out", lambda: self.sign_out(app))
-            step("app", stop or app.stop)
-        if self.cover is not None:
-            step("cover", self.stop_cover)
-        if self.display_slept:
-            step("display", lambda: wake_display(self.run))
-        if self.store is not None:
-            step("store", self.store.restore)
-        if self.scratch:
-            step("scratch", lambda: shutil.rmtree(self.scratch, ignore_errors=True))
-        return errors
-
-    def stop_cover(self):
-        stop_process(self.cover)
-        return f"benchhelper cover pid {self.cover.pid} still runs" if self.cover.poll() is None else None
-
-    def sign_out(self, app):
-        self.shape["sign_out"] = sign_out(app, SIGN_OUT_WAIT_S)
-        return self.shape["sign_out"]["error"]
 
 
 def bundle_build_config(app):
@@ -4496,9 +2976,7 @@ def table(session, kinds, overs, entry=None):
         lines.append(f"energy {energy['cpu']} mW CPU, {energy['billed']} mW billed (tree); saver asked {saver['asked']}, "
                      f"observed {saver['observed']}{' REFUSED' if saver['mismatch'] else ''}; thermal {thermal['worst']}"
                      f"{' (marked)' if thermal['marked'] else ''}; {len(entry['assertions'])} power assertion(s)"
-                     + (f"; page rAF {entry['anim']}" if "anim" in entry else "")
-                     + (f"; D17 visibility met={entry['visibility']['met']} wrong={sorted(entry['visibility']['wrong'])}"
-                        if "visibility" in entry else "") + "\n")
+                     + (f"; page rAF {entry['anim']}" if "anim" in entry else "") + "\n")
     lines += ["| process | n | threads (max) | wakeups/s (max) | pkg-idle wakeups/s | main wakes/s | "
               "CPU mW | billed mW | GPU ms/s | csw/s | CPU % | threads that ran | disk B/s | net bytes (conns) | "
               "log lines | roles |",
@@ -4569,15 +3047,6 @@ def main(argv=None):
     parser.add_argument("--windowserver-reference", type=float, default=None,
                         help="seconds of the WindowServer reference window with cmux hidden, after the window and its "
                         "samples (default: --measure; 0: none; a hidden session is its own reference)")
-    parser.add_argument("--visibility-tab", action="store_true",
-                        help="D17: open one shown Chromium probe tab in light, light-hidden, minimized and occluded, so "
-                        "the visible tab of a hidden, minimized or covered window reports its visibility (changes "
-                        "those sessions' shape)")
-    parser.add_argument("--samples", type=int, default=None,
-                        help="how many --sample runs to take and add (default: 3 in a hidden-wake session, else 1)")
-    parser.add_argument("--wake-trace", type=float, default=30,
-                        help="seconds of DTrace wake trace of the main thread right after the window and before the "
-                             "samples, in a hidden-wake session (0: none)")
     parser.add_argument("--chrome-app", default=CHROME_APP,
                         help="the chrome-static browser: a Chromium that runs Manifest V2 (ungoogled-chromium of "
                         "cmux's Chromium major); branded Chrome 137+ and Chrome for Testing 139+ are refused")
@@ -4587,11 +3056,7 @@ def main(argv=None):
     parser.add_argument("--chrome-template-settle", type=float, default=45,
                         help="seconds the reference browser's template profile runs before its first clone")
     parser.add_argument("--chrome-helper-cache", default=os.path.expanduser("~/Library/Caches/cmux-perf-bench"),
-                        help="xbench's benchhelper cache (the chrome-static reference and occluded's cover window)")
-    parser.add_argument("--signed-in-credentials", default=None,
-                        help="signed-in's 0600 file with the agent test account (CMUX_UITEST_STACK_*; default the fleet "
-                        "secrets file ~/.secrets/cmuxterm-dev.env, which the app finds itself; another file is passed "
-                        "by path and must hold no CMUX_DOGFOOD_STACK_* pair); the bench passes no secret")
+                        help="xbench's benchhelper cache (the chrome-static reference)")
     opts, _unknown = parser.parse_known_args(argv)
     budget = load_budget(opts.budget)
     role_errors = role_budget_errors(budget)
@@ -4633,38 +3098,30 @@ def main(argv=None):
         if spec.get("chrome"):
             report["sessions"][session] = chrome_static_entry(opts, out, session, markdown)
             continue
-        rig = SessionRig(session, build_config, opts.signed_in_credentials, opts.chrome_helper_cache)
-        folder = os.path.join(out, session)
         app = agents = None
-        tabs = session_tabs(session, opts.visibility_tab)
-        pages = IdlePages() if tabs else None
+        pages = IdlePages() if spec.get("tabs") else None
         try:
-            sha = build_sha_of(opts.app) if spec.get("hidden_wake") else None  # before the launch: no report without it
-            app, agents = session_app(BenchApp, opts.app, out, session, rig.env(env), runs)
-            entry = {"fresh_session": fresh_session(app), "shape": rig.shape}  # a failed session keeps its shape too
+            app, agents = session_app(BenchApp, opts.app, out, session, env, runs)
+            entry = {"fresh_session": fresh_session(app)}
             report["sessions"][session] = entry
             consent = bench_launch.seed_hang_report_consent(app.app)
             if consent:
                 print(f"IDLE-BUDGET-NO-HANG-CONSENT {session}: {consent}", flush=True)
-            rig.before_launch(app.app)
             start_session(app, agents, spec, entry)
-            rig.after_launch(app)
             if spec.get("stress"):
                 entry["stress"] = build_stress(app, static=spec.get("static", False))
             shown_tab = None
-            if tabs:
-                entry["tabs"], shown_tab = build_tabs(app, pages, tabs)
+            if spec.get("tabs"):
+                entry["tabs"], shown_tab = build_tabs(app, pages, spec["tabs"])
                 entry["shown_tab"] = shown_tab
             activation = app.activate()  # once, before the settle (and before a hide or minimize): users run an active app
             if not activation["activated"]:
                 print(f"IDLE-BUDGET-NOT-ACTIVATED {session}: {activation['error']}", flush=True)
             if spec.get("hide"):
                 entry["hide"] = hide_all(app)
-                check_action_reply("showHideAllWindows", entry["hide"])
             if spec.get("minimize"):
                 entry["minimize"] = minimize(app)
-            rig.after_activate(app)
-            settle = settle_seconds(session, opts.settle, tabs)
+            settle = settle_seconds(session, opts.settle)
             entry["settle_s"] = settle
             time.sleep(settle)  # bench: the session settles (page loads, Chromium's post-load work, the hidden-tab freeze)
             instance = procs.Instance(app.app, app.process.pid)
@@ -4675,76 +3132,25 @@ def main(argv=None):
             mismatch = draw_mismatch(entry)
             if mismatch:
                 print(f"IDLE-BUDGET-DRAW-MISMATCH {session}: {mismatch}", flush=True)
-            measured_app = app
-            if spec.get("quit"):
-                quit_state = app.quit_keep_sessions()
-                rig.shape["quit"] = quit_state
-                if not quit_state["quit"]:
-                    raise SessionShapeError(quit_state["error"])
-                time.sleep(QUIT_SETTLE_S)  # bench: the daemon's wind-down after its client left, before the window
-                instance, measured_app = QuitTree(app.teardown, app.process.pid), None
-            window_before = window_state(app) if measured_app else None
-            problem = hidden_state_problem(spec, window_before) if spec.get("hidden_wake") else None
-            if problem:
-                print(f"IDLE-BUDGET-WINDOW {session} " + json.dumps({"start": window_before}), flush=True)
-                raise HiddenStateError(f"before the window: {problem}")
-            states_before = pages.page_states()[0] if pages else None
-            result = measure(measured_app, instance, opts.measure, pages.read_anim if spec.get("anim") else None,
-                             attribute=spec.get("power", False) and measured_app is not None, shown_tab=shown_tab,
-                             workdir=folder, ledger_limit=None if spec.get("hidden_wake") else 20,
+            window_before = window_state(app)
+            result = measure(app, instance, opts.measure, pages.read_anim if spec.get("anim") else None,
+                             attribute=spec.get("power", False), shown_tab=shown_tab,
+                             workdir=os.path.join(out, session),
                              hidden_hosts=tuple((entry.get("agents") or {}).get("hidden_hosts") or ()))
-            visibility = None
-            if pages:
-                states_after, probes = pages.page_states()
-                visibility = visibility_report(spec, tabs, states_before, states_after, probes)
-            if measured_app:
-                result["window_state"] = {"start": window_before, "end": window_state(app)}
-                print(f"IDLE-BUDGET-WINDOW {session} " + json.dumps(result["window_state"]), flush=True)
-            entry["shape"] = rig.after_window()
-            print(f"IDLE-BUDGET-SHAPE {session} " + json.dumps(entry["shape"]), flush=True)
-            problem = hidden_state_problem(spec, result["window_state"]["end"]) if spec.get("hidden_wake") else None
-            if problem:
-                raise HiddenStateError(f"at the end of the window: {problem}")
-            trace = None
-            if spec.get("hidden_wake") and opts.wake_trace:
-                # Before /usr/bin/sample, which suspends the app again and again: no catch-up work in the trace.
-                os.makedirs(folder, exist_ok=True)
-                time.sleep(QUIET_GAP_S)  # bench: the end read's reply settles before the trace
-                trace = count_main_callouts(app, opts.wake_trace, folder)
-                result["window_state"]["after_trace"] = window_state(app)
-                problem = hidden_state_problem(spec, result["window_state"]["after_trace"])
-                if problem:
-                    raise HiddenStateError(f"after the wake trace: {problem}")
-            texts = []
-            if opts.sample and measured_app:
-                os.makedirs(folder, exist_ok=True)
-                for index in range(opts.samples or (3 if spec.get("hidden_wake") else 1)):
-                    text = run_sample(app.process.pid, opts.sample, os.path.join(folder, f"sample-app-{index + 1}.txt"))
-                    if text:
-                        texts.append(text)
-                result["sample"] = threads_from_sample(texts[0]) if texts else {}
-                result["main_callouts"] = main_callouts_from_samples(texts)
-            if trace is not None:
-                result["wake_trace"] = name_trace(trace, app.process.pid, texts[0] if texts else None)
-            if spec.get("reshow") and measured_app:
-                # After the window and its samples (input would be counted), before the WindowServer reference hides
-                # the app.
-                result["reshow"] = reshow_tab(app, result["processes"], result.get("browser_tabs") or {}, shown_tab)
-                print(f"IDLE-BUDGET-RESHOW {session} " + json.dumps(result["reshow"]), flush=True)
+            result["window_state"] = {"start": window_before, "end": window_state(app)}
+            print(f"IDLE-BUDGET-WINDOW {session} " + json.dumps(result["window_state"]), flush=True)
+            app_sample = os.path.join(out, session, "sample-app.txt")
+            if opts.sample:
+                result["sample"] = sample_threads(app.process.pid, opts.sample, app_sample)
             if result.get("power"):
-                # Named while the app runs: the app's first sample above, and one sample of each other process with an
+                # Named while the app runs: the app's sample above, and one sample of each other process with an
                 # unnamed owner over the floor.
-                taken = {app.process.pid: texts[0]} if texts else {}
-                name_power_owners(result["power"], opts.sample, folder, samples=taken)
-            # After app-quit no app is left to hide for the reference: the window's own rate, no reference.
+                taken = {app.process.pid: open(app_sample, errors="replace").read()} if os.path.exists(app_sample) else {}
+                name_power_owners(result["power"], opts.sample, os.path.join(out, session), samples=taken)
             result["windowserver"] = windowserver_with_reference(app, result["windowserver"], spec,
-                                                                 reference_s if measured_app else 0, entry)
+                                                                 reference_s, entry)
             print(f"IDLE-BUDGET-WINDOWSERVER {session} " + json.dumps(result["windowserver"]), flush=True)
             entry.update(summarize(session, result, budget))
-            unjudged_on_debug(session, entry, build_config)
-            if visibility is not None:
-                entry["visibility"] = visibility
-                print(f"IDLE-BUDGET-VISIBILITY {session} " + visibility_line(visibility), flush=True)
             for reader in entry["readers_failed"]:
                 print(f"IDLE-BUDGET-READER-FAILED {session} {reader}: not measured", flush=True)
             if result.get("power"):
@@ -4781,13 +3187,6 @@ def main(argv=None):
                 top = "; ".join(f"{frame} x{count}" for frame, count in sampled["frames"][:6])
                 if top:
                     print(f"IDLE-BUDGET-SAMPLE {session} {name}: {top}", flush=True)
-            if spec.get("hidden_wake"):
-                hidden = hidden_wake_sources(result)
-                hidden.update({"sha": sha, "host": machine["host"], "samples_taken": len(texts),
-                               "problems": shipping_problems(entry) + hidden["naming_problems"]})
-                entry["hidden_wake"] = hidden
-                for line in hidden_wake_lines(session, hidden, sha, machine["host"], hidden["problems"]):
-                    print(line, flush=True)
             for note in notes:
                 print(f"IDLE-BUDGET-NOT-JUDGED {note}", flush=True)
             for over in overs:
@@ -4820,12 +3219,12 @@ def main(argv=None):
                 report["sessions"][session]["results_v1"] = record_session(app, session, {}, budget, failed=True)
         finally:
             try:
-                # The app stops (stop_session: the gated agent turns end first) before the rig's fixtures go.
-                teardown_errors = rig.teardown(app, stop=lambda: stop_session(app, agents))
-                if teardown_errors:
-                    report["sessions"].setdefault(session, {})["teardown_errors"] = teardown_errors
-                for problem in teardown_errors:
-                    print(f"IDLE-BUDGET-TEARDOWN {session} {problem}", flush=True)
+                if app is not None:  # stop_session: the gated agent turns end before the app stops
+                    stop_session(app, agents)
+            except Exception as error:  # noqa: BLE001 - recorded; the next session still runs
+                problem = f"app: {type(error).__name__}: {error}"[:300]
+                report["sessions"].setdefault(session, {})["teardown_errors"] = [problem]
+                print(f"IDLE-BUDGET-TEARDOWN {session} {problem}", flush=True)
             finally:
                 if pages is not None:
                     pages.close()
