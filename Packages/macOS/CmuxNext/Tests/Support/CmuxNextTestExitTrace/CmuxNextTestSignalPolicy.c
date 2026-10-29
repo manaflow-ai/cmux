@@ -26,25 +26,29 @@ static void sigpipe_caught(int signal) {
     errno = saved;
 }
 
-void cmux_next_test_signal_policy_install(void) {
-    struct sigaction action;
-    memset(&action, 0, sizeof action);
-    action.sa_handler = sigpipe_caught;
-    action.sa_flags = SA_RESTART;
-    sigemptyset(&action.sa_mask);
-    sigaction(SIGPIPE, &action, NULL);
+void cmux_next_test_signal_policy_action(struct sigaction *action) {
+    memset(action, 0, sizeof *action);
+    action->sa_handler = sigpipe_caught;
+    action->sa_flags = SA_RESTART;
+    sigemptyset(&action->sa_mask);
 }
 
-int cmux_next_test_sigpipe_handler_is_current(void) {
-    struct sigaction current;
-    return sigaction(SIGPIPE, NULL, &current) == 0 && current.sa_handler == sigpipe_caught;
+int cmux_next_test_signal_policy_is_handler(const struct sigaction *action) {
+    return action->sa_handler == sigpipe_caught;
+}
+
+void cmux_next_test_sigpipe_handle(void) {
+    sigpipe_caught(SIGPIPE);
 }
 
 static int installed_at_load;
 
+// Runs when the bundle loads, before any test: no test can change SIGPIPE between the install and the check.
 __attribute__((constructor)) static void cmux_next_test_signal_policy_load(void) {
-    cmux_next_test_signal_policy_install();
-    installed_at_load = cmux_next_test_sigpipe_handler_is_current();
+    struct sigaction action, current;
+    cmux_next_test_signal_policy_action(&action);
+    sigaction(SIGPIPE, &action, NULL);
+    installed_at_load = sigaction(SIGPIPE, NULL, &current) == 0 && cmux_next_test_signal_policy_is_handler(&current);
 }
 
 int cmux_next_test_signal_policy_installed_at_load(void) {
