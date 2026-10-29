@@ -79,4 +79,9 @@ await requireBrowserLane("composer-capture.test.ts", async () => {
     const result = await play("attach-window-cancelled");
     expect(playFailures(result.report)).toEqual([]);
   });
+
+  test("a failed screenshot original shows the native recovery path", async () => {
+    const result = await play("attach-screenshot-failed");
+    expect(playFailures(result.report)).toEqual([]);
+  });
 });

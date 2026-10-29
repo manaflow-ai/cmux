@@ -1696,6 +1696,35 @@ export default agentPaneEntry({
           throw new Error("a cancelled capture left focus off the prompt");
       },
     },
+    "attach-screenshot-failed": {
+      note: "A failed original upload shows the native recovery path in the originating composer instead of silently acting like cancellation.",
+      snapshot: chat(finished),
+      checks: {
+        anchorMovePx: { value: 18, reason: "The existing attachment error note adds one 18 px line." },
+        layoutShiftMax: { value: 0.005, reason: "The composer grows by its one-line recovery note." },
+      },
+      native: {
+        "composer.capture": {
+          nativeError: {
+            code: "capture_failed",
+            userMessage:
+              "The screenshot could not be attached. Its original was kept at /private/tmp/cmux-capture-recover.png.",
+            details: { originalPath: "/private/tmp/cmux-capture-recover.png" },
+          },
+        },
+      },
+      play: async (ctx) => {
+        await ctx.click({ selector: ".acpmux-composer-plus .acpmux-picker-button" });
+        await ctx.click({ selector: '.acpmux-composer-plus [data-value="add.screenshot"]' });
+        await ctx.waitFor(() =>
+          ctx.document
+            .querySelector(".acpmux-attachment-note")
+            ?.textContent?.includes("/private/tmp/cmux-capture-recover.png"),
+        );
+        if (ctx.document.querySelector(".acpmux-attachment-image"))
+          throw new Error("the failed screenshot attached a preview");
+      },
+    },
     "context-breakdown": {
       note: "Play: rest the pointer on the context ring after a first message on Codex; the glass card shows the share and tokens used and the window as a bar.",
       snapshot: chat(finished, {

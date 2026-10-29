@@ -596,6 +596,9 @@ export function Composer({
     },
     carries: () => carryPrompt.current || Boolean(switching),
   });
+  useLayoutEffect(() => {
+    setAttachError(undefined);
+  }, [sessionId, setAttachError]);
   const attachmentsRef = useRef(attachments);
   attachmentsRef.current = attachments;
   // A prompt sent while a pasted screenshot is still being read goes once its chip is ready.
@@ -1983,6 +1986,12 @@ export function Composer({
                                           false,
                                           undefined,
                                           shot.original ? [{ path: shot.original, folder: false }] : undefined,
+                                        );
+                                    })
+                                    .catch((error: unknown) => {
+                                      if (source !== null && captureScope.current === source)
+                                        setAttachError(
+                                          error instanceof Error ? error.message : t("error.requestFailed"),
                                         );
                                     })
                                     .finally(() => {

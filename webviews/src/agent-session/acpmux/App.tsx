@@ -4994,7 +4994,7 @@ function AcpmuxPane() {
       mimeType?: string;
       data?: string;
       original?: { path?: unknown };
-    } | null>("composer.capture", { mode }).catch(() => null);
+    } | null>("composer.capture", { mode });
     const path = shot?.original?.path;
     const original = typeof path === "string" && path.startsWith("/") ? path : undefined;
     if (!shot?.data && !original) return undefined;

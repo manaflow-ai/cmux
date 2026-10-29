@@ -279,3 +279,25 @@ test("a capture completing after a chat switch never attaches the source origina
   });
   expect(destination.getHandle().wakeState().attachments ?? []).toEqual([]);
 });
+
+test("a capture failure is visible only in its originating composer", async () => {
+  for (const switchChat of [false, true]) {
+    let fail!: (error: Error) => void;
+    const capture = () =>
+      new Promise<CapturedShot>((_resolve, reject) => {
+        fail = reject;
+      });
+    await composer(chat(), "", capture);
+    const plus = host.querySelector<HTMLElement>(".acpmux-composer-plus .acpmux-picker-button")!;
+    await dispatch(plus, new window.MouseEvent("click", { bubbles: true }));
+    const screenshot = document.querySelector<HTMLElement>('[data-value="add.screenshot"]')!;
+    await dispatch(screenshot, new window.MouseEvent("mousedown", { bubbles: true }));
+    if (switchChat) await composer(chat(), "Destination chat", capture);
+    const message = "Original kept at /private/tmp/cmux-capture-recover.png";
+    await act(async () => {
+      fail(new Error(message));
+      await Promise.resolve();
+    });
+    expect(host.querySelector(".acpmux-attachment-note")?.textContent?.includes(message) ?? false).toBe(!switchChat);
+  }
+});
