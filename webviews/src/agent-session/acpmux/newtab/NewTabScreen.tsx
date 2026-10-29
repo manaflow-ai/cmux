@@ -572,8 +572,9 @@ export function NewTabScreen(props: Props) {
   // The model picker uses one footer position in every New Tab template and composer look.
   const look = useComposerLook();
   const split = props.chips !== undefined;
-  // Folder/computer keep their look-specific placement: Claude's one row, Codex's tray.
-  const locationInFooter = plainFooter && look === "claude" && template !== "default";
+  // Folder/computer keep their look-specific placement: Claude's one row, Codex's tray. The footer
+  // row exists only with the chips, so without them the strip stays above the box.
+  const locationInFooter = split && plainFooter && look === "claude" && template !== "default";
   // Footer look and template can change while this screen stays mounted.
   useRowFit(foot, `${split}:${plainFooter}:${look}`);
   // A press outside an open chip menu only closes it (menuPressGuard.ts).

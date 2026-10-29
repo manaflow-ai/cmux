@@ -112,7 +112,7 @@
 {"file":"agent-session/acpmux/newtab/screen.css","kind":"spacing","property":"gap","values":{"10px":11,"6px":13,"14px":2,"2px":7,"6px 16px":1,"5px":1}}
 {"file":"agent-session/acpmux/newtab/screen.css","kind":"spacing","property":"padding","values":{"clamp(40px,14vh,140px) max(var(--cv-edge,18px),calc((100% - var(--cv-column,720px))/2)) 24px":1,"0 18px":1,"2px 6px":1,"2px 8px":1,"12px 14px":1,"0 10px 6px":1,"0 6px":3,"0 12px 0 10px":1,"0 10px":7,"0 0 0 10px":2,"1px 0":2,"6px":3,"8px 10px":1,"0 8px 0 22px":1,"0 14px":1,"5px 14px":1,"14px 16px":1}}
 {"file":"agent-session/acpmux/newtab/screen.css","kind":"spacing","property":"padding-block","values":{"6px 18px":1,"18px":1}}
-{"file":"agent-session/acpmux/newtab/screen.css","kind":"spacing","property":"padding-bottom","values":{"2px":1,"22px":1}}
+{"file":"agent-session/acpmux/newtab/screen.css","kind":"spacing","property":"padding-bottom","values":{"2px":1}}
 {"file":"agent-session/acpmux/newtab/screen.css","kind":"spacing","property":"padding-left","values":{"30px":1}}
 {"file":"agent-session/acpmux/newtab/screen.css","kind":"spacing","property":"padding-right","values":{"6px":1}}
 {"file":"agent-session/acpmux/newtab/screen.css","kind":"spacing","property":"padding-top","values":{"clamp(12px,calc(46vh - 154px),clamp(40px,14vh,140px))":1,"max(32px, calc(50vh - 102px))":1,"2px":1,"clamp(24px, 8vh, 96px)":1,"max(32px, calc(50vh - 150px))":1}}
@@ -335,7 +335,7 @@
 {"file":"ui/findPill.css","kind":"spacing","property":"padding","values":{"0 6px":1}}
 {"file":"ui/findPill.css","kind":"spacing","property":"padding-bottom","values":{"5px":1}}
 {"file":"ui/findPill.css","kind":"spacing","property":"padding-top","values":{"5px":1}}
-{"file":"ui/ghost.css","kind":"height","property":"height","values":{"22px":1,"14px":1}}
+{"file":"ui/ghost.css","kind":"height","property":"height","values":{"22px":1}}
 {"file":"ui/ghost.css","kind":"spacing","property":"gap","values":{"6px":1,"2px":1}}
 {"file":"ui/importCards.css","kind":"height","property":"height","values":{"4px":1}}
 {"file":"ui/importCards.css","kind":"spacing","property":"gap","values":{"10px":1,"1px":1,"6px":1}}

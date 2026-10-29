@@ -42,7 +42,10 @@ statically, so a reordered step fails in review and not on a release day:
    cmux-next-guards.yml's signing-runner-variables job (on a literal Blacksmith
    runner) checks it on every feat-cmux-next pull request and push: pointing one
    of those variables at an owned mini turns it red. It detects; it does not stop
-   a signing job that starts before it.
+   a signing job that starts before it. The one way onto an owned Mac is a
+   picker output from scripts/ci/signing_runner.py (Leo, 2026-10-28: the
+   release signing jobs may run on our own Macs), on a mini held whole for the
+   job; tests/test_ci_signing_owned_mac.py checks those jobs.
 8. A job that signs with the release signer (RELEASE_POOL_SIGNERS) makes no
    keychain: it runs on a literal ubuntu label and hands the certificate only
    to its signer script, which keeps the key in its own temporary directory.
@@ -67,6 +70,9 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github/workflows"
+sys.path.insert(0, str(ROOT / "scripts" / "ci"))
+
+import signing_runner_variables  # noqa: E402
 
 CREATE = re.compile(r"signing-keychain\.sh\s+create\b|\bsecurity\s+create-keychain\b")
 DELETE = re.compile(
@@ -136,10 +142,11 @@ SIGNING_SECRET_REFERENCE = re.compile(
     re.IGNORECASE,
 )
 # Rule 7. These repository variables hold only ephemeral runner labels; the
-# live-value check in cmux-next-guards.yml keeps them so. Add a variable here
-# only together with that check.
-EPHEMERAL_RUNNER_VARIABLES = ("LINUX_RUNNER", "MACOS_RUNNER_26")
-EPHEMERAL_LABEL = re.compile(r"^(blacksmith-|ubuntu-)[a-z0-9.-]+$")
+# live-value check in cmux-next-guards.yml keeps them so, and the cloud overflow
+# switch never writes anything else to them. The list lives in
+# scripts/ci/signing_runner_variables.py; the check must name exactly it.
+EPHEMERAL_RUNNER_VARIABLES = signing_runner_variables.EPHEMERAL_RUNNER_VARIABLES
+EPHEMERAL_LABEL = signing_runner_variables.EPHEMERAL_LABEL
 # vars.NAME or vars['NAME'] / vars["NAME"], with the literal it falls back to. GitHub reads
 # context and variable names without regard to case, so this does too.
 RUNNER_VARIABLE = re.compile(
@@ -150,6 +157,9 @@ ANY_VARS = re.compile(r"\bvars\b", re.IGNORECASE)
 RUNS_ON_END = re.compile(r"\s*\}\}\s*$")
 LIVE_VALUE_CHECK = (".github/workflows/cmux-next-guards.yml", "signing-runner-variables")
 LIVE_VALUE_RUNNER = "blacksmith-2vcpu-ubuntu-2404"
+# `vars.CI_CLOUD_OVERFLOW_SAVED && '<blacksmith label>' ||`: the overflow failover,
+# a boolean record choosing between two literal Blacksmith Linux labels.
+OVERFLOW_FAILOVER = re.compile(r"vars\.CI_CLOUD_OVERFLOW_SAVED\s*&&\s*'blacksmith-\d+vcpu-ubuntu-2404'\s*\|\|\s*")
 
 
 def commands(run: str) -> list[str]:
@@ -396,8 +406,12 @@ def check_live_runner_variables(failures: list[str]) -> None:
     document = yaml.safe_load((ROOT / path).read_text(encoding="utf-8")) or {}
     job = (document.get("jobs") or {}).get(job_name) or {}
     # The check's own runner must not come from the variables it checks: a variable
-    # pointed at a missing label would leave it queued instead of red.
-    if ANY_VARS.search(str(job.get("runs-on", ""))) or LIVE_VALUE_RUNNER not in str(job.get("runs-on", "")):
+    # pointed at a missing label would leave it queued instead of red. The one
+    # variable it may read is the overflow record as a switch between two literal
+    # Blacksmith labels (tests/test_ci_blacksmith_linux_failover.py requires it):
+    # the record holds no label, so both outcomes stay literal ephemeral runners.
+    runs_on = OVERFLOW_FAILOVER.sub("", str(job.get("runs-on", "")))
+    if ANY_VARS.search(runs_on) or LIVE_VALUE_RUNNER not in runs_on:
         failures.append(f"{path} {job_name}: runs on the literal {LIVE_VALUE_RUNNER}, never a repository variable")
     steps = job.get("steps") or []
     for step in steps:
@@ -405,6 +419,15 @@ def check_live_runner_variables(failures: list[str]) -> None:
         run = str((step or {}).get("run", ""))
         if all(env.get(v, "").replace(" ", "") == "${{vars.%s}}" % v for v in EPHEMERAL_RUNNER_VARIABLES) \
                 and "blacksmith-" in run and "ubuntu-" in run and "exit 1" in run:
+            # The step loops over exactly the shared list, so a variable added there is checked live too.
+            loop = re.search(r"^\s*for\s+name\s+in\s+([A-Z0-9_ ]+?)\s*;\s*do\b", run, re.MULTILINE)
+            looped = tuple(loop.group(1).split()) if loop else ()
+            if sorted(looped) != sorted(EPHEMERAL_RUNNER_VARIABLES) or \
+                    sorted(n for n in env if n.isupper() and env[n].startswith("${{")) != sorted(EPHEMERAL_RUNNER_VARIABLES):
+                failures.append(
+                    f"{path} {job_name}: checks {', '.join(looped) or 'no variables'}, not exactly "
+                    f"{', '.join(EPHEMERAL_RUNNER_VARIABLES)} (scripts/ci/signing_runner_variables.py)"
+                )
             return
     failures.append(
         f"{path} {job_name}: no step fails when {', '.join(EPHEMERAL_RUNNER_VARIABLES)} hold a label other than "

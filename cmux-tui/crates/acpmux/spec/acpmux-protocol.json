@@ -379,6 +379,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/github_action",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/bookmark_get",
       "params": true,
       "result": true
@@ -460,6 +466,30 @@
     {
       "kind": "request",
       "name": "_acpmux/process/kill",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/bg/start",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/bg/list",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/bg/output",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/bg/stop",
       "params": true,
       "result": true
     },
@@ -1424,6 +1454,13 @@
       "name": "_acpmux/presence",
       "params": {
         "$ref": "#/types/PresenceNote"
+      }
+    },
+    {
+      "kind": "notification",
+      "name": "_acpmux/peer_state_changed",
+      "params": {
+        "$ref": "#/types/PeerStateChanged"
       }
     },
     {
@@ -2575,6 +2612,78 @@
       ],
       "type": "object"
     },
+    "PeerLinkState": {
+      "description": "A peer link's state (`peer_link.rs` `PeerState`; `state` in `_acpmux/peers`).",
+      "oneOf": [
+        {
+          "const": "connecting",
+          "description": "Not reached yet, this run or a saved one.",
+          "type": "string"
+        },
+        {
+          "const": "connected",
+          "description": "The handshake finished and the peer answers.",
+          "type": "string"
+        },
+        {
+          "const": "degraded",
+          "description": "The WebSocket is open and the handshake runs, or a ping went unanswered.",
+          "type": "string"
+        },
+        {
+          "const": "reconnecting",
+          "description": "Down after it was reached; its last-known sessions stay listed. Attempts go on.",
+          "type": "string"
+        },
+        {
+          "const": "offline",
+          "description": "Never reached and attempts failed, or removed (`error: \"removed\"`, its last note).",
+          "type": "string"
+        }
+      ]
+    },
+    "PeerStateChanged": {
+      "description": "`_acpmux/peer_state_changed`, to every watching connection (`_acpmux/watch`) when a peer's\nstate changes, never twice for the same state: a peer that is added sends its first state,\nand one that is removed a last `offline` with `error: \"removed\"`. Listed as the\n`peerStateEvents` feature.",
+      "properties": {
+        "at": {
+          "description": "When the state changed, ms since the epoch.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "error": {
+          "description": "Why the link is down, when it is.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "lastSeen": {
+          "description": "The last frame from the peer, ms since the epoch.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "peer": {
+          "description": "The peer's name, as in `_acpmux/peers`.",
+          "type": "string"
+        },
+        "state": {
+          "$ref": "#/types/PeerLinkState"
+        }
+      },
+      "required": [
+        "at",
+        "error",
+        "lastSeen",
+        "peer",
+        "state"
+      ],
+      "type": "object"
+    },
     "PermissionBatching": {
       "properties": {
         "maxItems": {
@@ -3530,6 +3639,13 @@
           "minimum": 0,
           "type": "integer"
         },
+        "effort": {
+          "description": "The harness's current reasoning effort, when it reports one.\nAdditive for older clients and peers.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "enforcement": {
           "$ref": "#/types/Enforcement"
         },
@@ -4010,6 +4126,13 @@
           "format": "uint32",
           "minimum": 0,
           "type": "integer"
+        },
+        "effort": {
+          "description": "The harness's current reasoning effort, when it reports one.\nAdditive for older clients and peers.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "enforcement": {
           "$ref": "#/types/Enforcement"
