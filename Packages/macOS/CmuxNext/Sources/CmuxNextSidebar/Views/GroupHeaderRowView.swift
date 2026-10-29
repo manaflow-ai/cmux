@@ -358,9 +358,11 @@ final class GroupHeaderRowView: SidebarRowView {
         let control = barHeight - Metrics.space1
         // The more button and the + center on the slots left of the chevron (`trailingSlotCenterX`), the lines a hovered
         // row's chevron and menu take, whatever the header's control size (Leo 2026-10-29: "MISALIGNED").
+        // At most one slot wide, so neighbors never overlap (at a comfortable app density the control outgrows the pitch).
+        let slotWidth = min(control, SidebarStyle.trailingSlotPitch)
         func slotFrame(_ slot: Int) -> NSRect {
-            let x = max(pad, SidebarStyle.trailingSlotCenterX(rowWidth: b.width, slot: slot) - control / 2)
-            return NSRect(x: x, y: (b.height - control) / 2, width: control, height: control)
+            let x = max(pad, SidebarStyle.trailingSlotCenterX(rowWidth: b.width, slot: slot) - slotWidth / 2)
+            return NSRect(x: x, y: (b.height - control) / 2, width: slotWidth, height: control)
         }
         moreButton.frame = slotFrame(1)
         // Lawrence 2026-10-11: the + and more show only on hover, keyboard

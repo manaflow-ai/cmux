@@ -92,6 +92,14 @@ import Testing
                     centers.append((what, h.list.convert(view.frame, from: header).midX))
                 }
                 expectSlots(id.rawValue, centers, header.onAdd == nil ? ["chevron", "more"] : ["chevron", "more", "add"])
+                // Neighbors never overlap: a click on the menu's visible area never lands on the +.
+                let shown = ([header.moreButton, header.addButton] as [NSView]).filter(drawn).map(\.frame)
+                if let chevron = header.debugDisclosure, chevron.shown, let more = shown.first {
+                    #expect(more.maxX <= chevron.frame.minX + 0.01, "\(look.testDescription) \(id.rawValue): the menu overlaps the chevron")
+                }
+                if shown.count == 2 {
+                    #expect(shown[1].maxX <= shown[0].minX + 0.01, "\(look.testDescription) \(id.rawValue): the + overlaps the menu")
+                }
             }
             print("TRAILSLOT|hover|\(look.testDescription)|column \(column) pitch \(pitch)|\(report.joined(separator: "; "))")
         } }
