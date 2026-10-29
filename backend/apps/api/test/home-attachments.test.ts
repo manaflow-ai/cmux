@@ -35,12 +35,20 @@ describe("Home attachments: upload intent", { timeout: 60_000 }, () => {
     const alice = await signIn("att-quota-alice")
     const { id } = await group(alice)
     const video = (i: number) => ({ sha256: sha(bytesOf(`v${i}`)), byte_count: 1_000_000, mime_type: "video/mp4", name: `v${i}.mp4`, duration_ms: 1000 })
-    for (let i = 0; i < 299; i++) expect((await post("/v1/home/attachments/intent", alice.token, { conversation: id, ...video(i) })).status).toBe(200)
-    // The 300th intent is allowed; the 301st exceeds the rolling daily ceiling.
-    expect((await post("/v1/home/attachments/intent", alice.token, { conversation: id, ...video(299) })).status).toBe(200)
-    const over = await post("/v1/home/attachments/intent", alice.token, { conversation: id, ...video(300) })
+    // Seed earlier slots through the owner: sending 300 HTTP requests at once would test
+    // the separate 60/minute burst limiter instead of the rolling daily quota.
+    const user = testEnv.USER_DO.get(testEnv.USER_DO.idFromName(alice.user)) as unknown as {
+      takeAttachmentQuota(entity: string, key: string, bytes: number): Promise<{ ok: boolean }>
+    }
+    for (let i = 0; i < 298; i++) expect(await user.takeAttachmentQuota(alice.user, `prior-${i}`, 1_000_000)).toEqual({ ok: true })
+    // Both new slots for the same hash count: intents 299 and 300 pass, 301 fails.
+    const request = { conversation: id, ...video(0) }
+    expect((await post("/v1/home/attachments/intent", alice.token, request)).status).toBe(200)
+    expect((await post("/v1/home/attachments/intent", alice.token, request)).status).toBe(200)
+    const over = await post("/v1/home/attachments/intent", alice.token, request)
     expect(over.status).toBe(429)
     expect(over.json.error.code).toBe("attachment.quota")
+    expect(over.json.error.message).toBe("attachment quota reached (day_intents)")
     expect(over.json.error.retry_after_ms).toBeGreaterThan(0)
   })
 })

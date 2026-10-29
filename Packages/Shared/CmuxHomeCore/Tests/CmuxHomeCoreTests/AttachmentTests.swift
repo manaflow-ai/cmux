@@ -421,11 +421,20 @@ func makeTextSample(_ text: String, format: CMFormatDescription, duration: CMTim
     @Test func ingestStreamsTheCompleteOriginal() throws {
         let root = try temporaryDirectory()
         let source = root.appendingPathComponent("growing.txt")
-        try Data(repeating: 1, count: 100).write(to: source)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let byteCount = 100_000_001
+        #expect(FileManager.default.createFile(atPath: source.path, contents: nil))
+        let file = try FileHandle(forWritingTo: source)
+        try file.truncate(atOffset: UInt64(byteCount))
+        try file.seek(toOffset: UInt64(byteCount - 1))
+        try file.write(contentsOf: Data([1]))
+        try file.close()
         let cache = root.appendingPathComponent("cache")
         let ingested = try AttachmentMedia.ingest(fileURL: source, root: cache)
-        #expect(ingested.byteCount == 100)
-        #expect(FileManager.default.fileExists(atPath: ingested.url.path))
+        #expect(ingested.byteCount == byteCount)
+        #expect(try ingested.url.resourceValues(forKeys: [.fileSizeKey]).fileSize == byteCount)
+        #expect(ingested.hash == (try AttachmentMedia.sha256(ofFile: source)))
+        #expect(try FileManager.default.contentsOfDirectory(atPath: cache.path) == [ingested.hash])
     }
 
     /// Sample bytes prepare can take for `type`: a real image for a type

@@ -30,6 +30,7 @@ ADMISSION_PATHS = {
     "webviews/src/pages/home-channels/attachmentService.ts",
     "webviews/src/agent-session/acpmux/attachments.ts",
     "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneRequest+Decoding.swift",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/AgentChatUploads.swift",
     "Packages/Shared/CmuxHomeCore/Sources/CmuxHomeCore/Attachments/AttachmentPolicy.swift",
     "Packages/Shared/CmuxHomeCore/Sources/CmuxHomeCore/Attachments/AttachmentMedia.swift",
     "Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/HomeComposerCheck.swift",
@@ -48,10 +49,6 @@ RETAINED_BOUNDS = {
     "Packages/Shared/CmuxHomeCore/Sources/CmuxHomeCore/Attachments/AttachmentMedia.swift": {
         "previewMaxBytes": "Derived image-preview representation budget.",
         "maximumSize": "Derived video-poster pixel dimensions, not original bytes.",
-    },
-    "cmux-tui/crates/cmux-conversation/src/attachments.rs": {
-        "MAX_POSTER_BYTES": "Derived video-poster representation budget.",
-        "MAX_PREVIEW_IMAGE_BYTES": "Derived image-preview representation budget.",
     },
     "backend/packages/home-core/src/conversation/attachments.ts": {
         "maxBytes": "Derived image representation budget; original upload is uncapped.",

@@ -56,6 +56,8 @@ class AttachmentCapsGuardTests(unittest.TestCase):
         for relative in paths:
             with self.subTest(path=relative):
                 self.check_source("let maximumUploadFileBytes = 100\n", 1, relative)
+                self.check_source("static let maxBytes = 100_000_000", 1, relative)
+                self.check_source("guard size <= HomeAttachmentPolicy.maxBytes else { return }", 1, relative)
 
     def test_swift_derived_preview_limits_are_explicitly_retained(self):
         self.check_source("let previewMaxBytes = 512 * 1024\n", 0,
