@@ -861,7 +861,8 @@ impl Hub {
         if session.caught_up.swap(true, Ordering::SeqCst) {
             return;
         }
-        let after = session.meta.lock().unwrap().harness_failures.through_seq;
+        let after =
+            session.meta.lock().unwrap_or_else(|e| e.into_inner()).harness_failures.through_seq;
         let mut results = Vec::new();
         let restored = self.store.scan_back(
             &session.id,
@@ -879,7 +880,7 @@ impl Hub {
         );
         let rebuilt = restored.is_ok() && !results.is_empty();
         if rebuilt {
-            let mut meta = session.meta.lock().unwrap();
+            let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
             for record in results.into_iter().rev() {
                 meta.harness_failures.observe(&record.msg, record.seq, record.at);
             }
