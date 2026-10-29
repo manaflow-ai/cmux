@@ -455,6 +455,42 @@ async fn a_codex_side_session_runs_sandboxed_read_only_and_the_adapter_is_refuse
     assert_eq!(side["readOnly"], "mode", "{side}");
     assert_eq!(mode_of(&hub, &sid).as_deref(), Some("read-only"), "the sandboxed mode");
 
+    // Inline Codex forks are disposable too: the Codex rollout must not remain
+    // discoverable after the aside has answered.
+    let before_rollouts = {
+        let mut files = std::collections::BTreeSet::new();
+        let mut dirs = vec![codex_home.clone()];
+        while let Some(dir) = dirs.pop() {
+            for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    dirs.push(path);
+                } else if path.extension().is_some_and(|e| e == "jsonl") {
+                    files.insert(path);
+                }
+            }
+        }
+        files
+    };
+    let inline = c
+        .request(BTW, json!({"sessionId": bridge, "question": "inline codex", "inline": true}))
+        .await
+        .unwrap();
+    assert!(inline["text"].as_str().is_some_and(|s| !s.is_empty()), "{inline}");
+    let mut after_rollouts = std::collections::BTreeSet::new();
+    let mut dirs = vec![codex_home.clone()];
+    while let Some(dir) = dirs.pop() {
+        for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                dirs.push(path);
+            } else if path.extension().is_some_and(|e| e == "jsonl") {
+                after_rollouts.insert(path);
+            }
+        }
+    }
+    assert_eq!(after_rollouts, before_rollouts, "inline Codex rollout is purged");
+
     let adapter = c.request(method::SESSION_NEW, new_on("adapter")).await.unwrap();
     let adapter = adapter["sessionId"].as_str().unwrap().to_owned();
     c.request(method::SESSION_PROMPT, prompt(&adapter, "hello")).await.unwrap();

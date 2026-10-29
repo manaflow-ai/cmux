@@ -92,8 +92,9 @@ where
 async fn with_inline_creation(
     hub: Arc<Hub>,
     deadline: Option<tokio::time::Instant>,
-    is_claude: bool,
-    claude_env: std::collections::BTreeMap<String, String>,
+    family: String,
+    harness_env: std::collections::BTreeMap<String, String>,
+    transcripts_before: std::collections::BTreeSet<std::path::PathBuf>,
     future: Pin<Box<dyn Future<Output = Result<Arc<Session>, RpcError>> + Send>>,
 ) -> Result<Arc<Session>, RpcError> {
     let Some(deadline) = deadline else {
@@ -107,10 +108,69 @@ async fn with_inline_creation(
         Err(_) => {
             task.abort();
             if let Ok(Ok(side)) = task.await {
-                hub.btw_cleanup(&side, is_claude, &claude_env).await;
+                hub.btw_cleanup(&side, &family, &harness_env).await;
+            } else {
+                cleanup_new_transcripts(&family, &harness_env, &transcripts_before);
             }
             Err(RpcError::internal("the inline side question timed out"))
         }
+    }
+}
+
+fn transcript_files(
+    family: &str,
+    env: &std::collections::BTreeMap<String, String>,
+) -> std::collections::BTreeSet<std::path::PathBuf> {
+    let homes = crate::adopt::HarnessHomes::from_env().with_env(&[env]);
+    let root = match family {
+        "claude" => homes.claude.join("projects"),
+        "codex" => homes.codex.join("sessions"),
+        _ => return Default::default(),
+    };
+    let mut out: std::collections::BTreeSet<std::path::PathBuf> = Default::default();
+    let mut dirs = vec![root];
+    while let Some(dir) = dirs.pop() {
+        for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                dirs.push(path);
+            } else if path.extension().is_some_and(|e| e == "jsonl")
+                && (family != "codex"
+                    || path
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .is_some_and(|n| n.starts_with("rollout-")))
+            {
+                out.insert(path);
+            }
+        }
+    }
+    out
+}
+
+fn transcript_file(
+    family: &str,
+    env: &std::collections::BTreeMap<String, String>,
+    id: &str,
+) -> Option<std::path::PathBuf> {
+    if !crate::adopt::is_bare_id(id) {
+        return None;
+    }
+    let homes = crate::adopt::HarnessHomes::from_env().with_env(&[env]);
+    match family {
+        "claude" => crate::adopt::find_claude(&homes.claude, id),
+        "codex" => crate::adopt::find_codex(&homes.codex, id),
+        _ => None,
+    }
+}
+
+fn cleanup_new_transcripts(
+    family: &str,
+    env: &std::collections::BTreeMap<String, String>,
+    before: &std::collections::BTreeSet<std::path::PathBuf>,
+) {
+    for file in transcript_files(family, env).difference(before) {
+        let _ = std::fs::remove_file(file);
     }
 }
 
@@ -136,11 +196,12 @@ impl Hub {
         // it cannot spend separate acceptance and answer windows beyond the app's request budget.
         let inline_deadline = inline.then(|| tokio::time::Instant::now() + INLINE_TIMEOUT);
         let meta = session.meta();
-        let (is_claude, claude_env) = if inline {
+        let (is_claude, harness_env) = if inline {
             with_inline_deadline(inline_deadline, self.harness_env(&meta)).await?
         } else {
             self.harness_env(&meta).await
         };
+        let family = meta.family.clone().unwrap_or_else(|| meta.harness.clone());
         // Claude Code owns a transcript-free side-question callback on its
         // running stream-json process. It never creates a session or sends an
         // ACP prompt, so the main turn and its queue stay untouched.
@@ -177,8 +238,8 @@ impl Hub {
             client,
             opts,
             inline_deadline,
-            is_claude,
-            claude_env,
+            family,
+            harness_env,
         ))
         .await
     }
@@ -191,8 +252,8 @@ impl Hub {
         client: &str,
         opts: PromptOptions,
         inline_deadline: Option<tokio::time::Instant>,
-        is_claude: bool,
-        claude_env: std::collections::BTreeMap<String, String>,
+        family: String,
+        harness_env: std::collections::BTreeMap<String, String>,
     ) -> Result<Value, RpcError> {
         let inline = inline_deadline.is_some();
         let explicit = model.map(str::trim).filter(|m| !m.is_empty()).map(str::to_owned);
@@ -221,8 +282,9 @@ impl Hub {
                 with_inline_creation(
                     self.clone(),
                     inline_deadline,
-                    is_claude,
-                    claude_env.clone(),
+                    family.clone(),
+                    harness_env.clone(),
+                    transcript_files(&family, &harness_env),
                     Box::pin({
                         let hub = self.clone();
                         let parent = session.clone();
@@ -269,8 +331,9 @@ impl Hub {
                 let side = match with_inline_creation(
                     self.clone(),
                     inline_deadline,
-                    is_claude,
-                    claude_env.clone(),
+                    family.clone(),
+                    harness_env.clone(),
+                    transcript_files(&family, &harness_env),
                     Box::pin({
                         let hub = self.clone();
                         let req = req.clone();
@@ -286,8 +349,9 @@ impl Hub {
                         with_inline_creation(
                             self.clone(),
                             inline_deadline,
-                            is_claude,
-                            claude_env.clone(),
+                            family.clone(),
+                            harness_env.clone(),
+                            transcript_files(&family, &harness_env),
                             Box::pin({
                                 let hub = self.clone();
                                 async move {
@@ -312,7 +376,7 @@ impl Hub {
         {
             Ok(settled) => settled,
             Err(e) => {
-                self.btw_cleanup(&side, is_claude, &claude_env).await;
+                self.btw_cleanup(&side, &family, &harness_env).await;
                 return Err(e);
             }
         };
@@ -323,7 +387,7 @@ impl Hub {
                     match with_inline_deadline(inline_deadline, self.set_model(&side, &m)).await {
                         Ok(modeled) => modeled,
                         Err(e) => {
-                            self.btw_cleanup(&side, is_claude, &claude_env).await;
+                            self.btw_cleanup(&side, &family, &harness_env).await;
                             return Err(e);
                         }
                     };
@@ -342,7 +406,7 @@ impl Hub {
         let read_only = match settled {
             Ok(read_only) => read_only,
             Err(e) => {
-                self.btw_cleanup(&side, is_claude, &claude_env).await;
+                self.btw_cleanup(&side, &family, &harness_env).await;
                 return Err(e);
             }
         };
@@ -380,13 +444,13 @@ impl Hub {
                         }
                         Err(e) => RpcError::internal(e.to_string()),
                     };
-                    self.btw_cleanup(&side, is_claude, &claude_env).await;
+                    self.btw_cleanup(&side, &family, &harness_env).await;
                     return Err(e);
                 }
                 Err(_) => {
                     run.abort();
                     let _ = run.await;
-                    self.btw_cleanup(&side, is_claude, &claude_env).await;
+                    self.btw_cleanup(&side, &family, &harness_env).await;
                     return Err(RpcError::internal("the inline side question timed out"));
                 }
             }
@@ -420,7 +484,7 @@ impl Hub {
             };
             // An inline emulation is one-shot: its side session never remains
             // in the session list, whether the answer succeeded or failed.
-            self.btw_cleanup(&side, is_claude, &claude_env).await;
+            self.btw_cleanup(&side, &family, &harness_env).await;
             return answer.map(|(text, _)| json!({"text": text}));
         }
         Ok(json!({"sessionId": side.id, "model": model, "readOnly": read_only}))
@@ -462,19 +526,15 @@ impl Hub {
     async fn btw_cleanup(
         &self,
         side: &Arc<Session>,
-        is_claude: bool,
-        claude_env: &std::collections::BTreeMap<String, String>,
+        family: &str,
+        harness_env: &std::collections::BTreeMap<String, String>,
     ) {
         let agent_sid = side.meta().agent_session_id;
         if let Err(e) = self.kill(side, true).await {
             tracing::warn!(session = %side.id, "inline side question cleanup: {e}");
         }
-        if is_claude
-            && let Some(sid) = agent_sid.filter(|s| crate::adopt::is_bare_id(s))
-            && let Some(file) = crate::adopt::find_claude(
-                &self.harness_homes().with_env(&[claude_env]).claude,
-                &sid,
-            )
+        if let Some(sid) = agent_sid
+            && let Some(file) = transcript_file(family, harness_env, &sid)
             && let Err(e) = std::fs::remove_file(&file)
         {
             tracing::warn!(session = %side.id, "inline side question transcript: {e}");
@@ -801,4 +861,43 @@ fn newest(text: &str, max: usize) -> (bool, &str) {
         start += 1;
     }
     (true, &text[start..])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn cancelled_inline_creation_purges_a_transcript_created_before_abort() {
+        let root = std::env::temp_dir().join(format!("acpmux-btw-cancel-{}", uuid::Uuid::now_v7()));
+        let projects = root.join("projects");
+        std::fs::create_dir_all(&projects).unwrap();
+        let transcript = projects.join("temporary.jsonl");
+        let env = std::collections::BTreeMap::from([(
+            "CLAUDE_CONFIG_DIR".to_owned(),
+            root.to_string_lossy().into_owned(),
+        )]);
+        let before = transcript_files("claude", &env);
+        let hub = Hub::new(Config::default(), Box::new(crate::store::MemoryStore::default()));
+        let path = transcript.clone();
+        let future: Pin<Box<dyn Future<Output = Result<Arc<Session>, RpcError>> + Send>> =
+            Box::pin(async move {
+                std::fs::write(path, "temporary").unwrap();
+                tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+                Err(RpcError::internal("unreachable"))
+            });
+        let result = with_inline_creation(
+            hub.clone(),
+            Some(tokio::time::Instant::now() + std::time::Duration::from_millis(20)),
+            "claude".into(),
+            env,
+            before,
+            future,
+        )
+        .await;
+        assert!(result.is_err());
+        assert!(!transcript.exists(), "cancelled inline creation leaves no transcript");
+        hub.shutdown_all().await;
+        let _ = std::fs::remove_dir_all(root);
+    }
 }
