@@ -703,6 +703,7 @@ struct ShellTabs: View {
                     directory: shell.deviceDirectory,
                     sizing: shell.sizingService,
                     callChief: { shell.callChief() },
+                    screenSharing: shell.screenSharing,
                     inviteToTeam: { shell.invite(to: $0) },
                     saveAppearance: { shell.saveAppearance($0, for: $1) }
                 ) {
