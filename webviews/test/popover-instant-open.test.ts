@@ -8,8 +8,8 @@
 //   draws a starting style for one to enter from (outside its exit state). A popup surface is one of
 //   the listed classes, any class named like one (`-menu`, `-popover`, `-popup`, `-dropdown`,
 //   `-picker`, `-listbox`), or an ARIA menu or listbox.
-// - No component gives a menu or listbox a `data-enter` entrance, and every Web Animations call
-//   under webviews/src is a listed non-popup surface (WEB_ANIMATIONS).
+// - Every `data-enter` entrance (ENTRANCES) and every Web Animations call (WEB_ANIMATIONS) under
+//   webviews/src is a listed non-popup surface, so a menu cannot enter from script.
 // - Palettes are exempt (Leo: "Command palette gets a pass"): the quick-open and jump palettes keep
 //   their entrance, and each is named in PALETTES.
 // popover-instant-open-pane.test.ts opens the real agent pane's ... menu in Chromium.
@@ -114,11 +114,14 @@ function popupEntrances(source: string): string[] {
     if (!subjects.length) continue;
     const where = `${rule.line} \`${subjects.join(", ")}\``;
     const values = (...names: string[]) => rule.decls.filter(([name]) => names.includes(name)).map(([, v]) => v);
-    const loops = values("animation-iteration-count").some((value) => /infinite/.test(value));
-    // Each animation in a comma list on its own: `none, ui-enter 120ms` still runs ui-enter.
+    // Each animation in a comma list on its own (`none, ui-enter 120ms` still runs ui-enter), with
+    // the iteration count at its index (CSS repeats a shorter count list): a looping spinner is not
+    // an entrance, the finite animation beside it is.
+    const counts = values("animation-iteration-count").flatMap((value) => splitTop(value, /,/));
+    const loops = (index: number) => counts.length > 0 && /infinite/.test(counts[index % counts.length]);
     const animation = values("animation", "animation-name")
       .flatMap((value) => splitTop(value, /,/))
-      .find((value) => !/^none\b/.test(value) && !/\binfinite\b/.test(value) && !loops);
+      .find((value, index) => !/^none\b/.test(value) && !/\binfinite\b/.test(value) && !loops(index));
     if (animation) found.push(`${where} starts \`animation: ${animation}\``);
     if (subjects.some((one) => /\[data-starting-style\]|\[data-open\]|\[data-instant\]/.test(one))) {
       const moves = rule.decls.some(
@@ -149,56 +152,32 @@ const scripts = (dir: string) =>
     (file) => /\.tsx?$/.test(file) && !/\.(test|gallery)\.tsx?$/.test(file) && !file.includes("/prototypes/"),
   );
 
-/// A class word that names a popup surface (no leading dot), as in a className string.
-const POPUP_WORD = new RegExp(
-  `(?<![\\w-])(${POPUP_CLASSES.join("|")}|[\\w-]+-(${POPUP_SUFFIXES.join("|")}))(?![\\w-])`,
-);
-const PALETTE_WORD = new RegExp(`(?<![\\w-])(${PALETTES.join("|")})(?![\\w-])`);
+/// Every script that gives an element a `data-enter` entrance (ui/popupSurface.css), directly
+/// (`data-enter=`, `"data-enter":`) or through `usePresence(`, with the count and what enters.
+/// None of them is a popup or menu: they are banners, side panels and arriving rows. A new
+/// entrance anywhere under webviews/src fails until it is listed here, so a menu cannot be given
+/// one whatever shape its JSX takes.
+const ENTRANCES: Record<string, { count: number; what: string }> = {
+  "src/agent-session/acpmux/App.tsx": { count: 1, what: "the hand-off error line under the header" },
+  "src/agent-session/acpmux/DiffPanel.tsx": { count: 1, what: "the diff side panel, from the right" },
+  "src/agent-session/acpmux/Inspector.tsx": { count: 1, what: "the inspector side panel, from the right" },
+  "src/agent-session/acpmux/LiveChatChoice.tsx": { count: 1, what: "a banner at the top of the chat" },
+  "src/agent-session/acpmux/MissingChat.tsx": { count: 1, what: "a banner at the top of the chat" },
+  "src/agent-session/acpmux/PeerCopyBanner.tsx": { count: 3, what: "a banner at the top of the chat" },
+  "src/agent-session/acpmux/WatchBanner.tsx": { count: 1, what: "a banner at the top of the chat" },
+  "src/agent-session/acpmux/conversation/ArtifactPanel.tsx": { count: 1, what: "the artifact side panel" },
+  "src/agent-session/acpmux/inspector/ChatInspector.tsx": { count: 1, what: "the chat inspector side panel" },
+  "src/agent-session/acpmux/inspector/TasksSection.tsx": { count: 1, what: "an arriving task row" },
+  "src/agent-session/acpmux/subagents/SubagentTray.tsx": { count: 1, what: "an arriving subagent row" },
+  "src/agent-session/acpmux/summary/SummaryCard.tsx": { count: 1, what: "the summary side panel" },
+  "src/agent-session/acpmux/summary/SummaryTasks.tsx": { count: 1, what: "an arriving task row" },
+  "src/pages/settings/components/ReadOnlyBanner.tsx": { count: 1, what: "a banner at the top of Settings" },
+  "src/ui/presence.ts": { count: 3, what: "usePresence itself (its declaration, props type and value)" },
+};
 
-/// The opening JSX tag around `at`: from its `<Name` to the `>` that closes it, skipping quoted
-/// strings and `{...}` expressions (so `title="a > b"`, `onClick={() => x}` or
-/// `className={cx("a", b)}` stay inside).
-function enclosingTag(source: string, at: number): string | undefined {
-  let start = at;
-  while (start >= 0 && !(source[start] === "<" && /[A-Za-z]/.test(source[start + 1] ?? ""))) start--;
-  if (start < 0) return undefined;
-  let depth = 0;
-  for (let index = start + 1; index < source.length; index++) {
-    const char = source[index];
-    if (char === '"' || char === "'" || char === "`") {
-      const close = source.indexOf(char, index + 1);
-      if (close < 0) return undefined;
-      index = close;
-      continue;
-    }
-    if (char === "{") depth++;
-    else if (char === "}") depth--;
-    else if (char === ">" && depth === 0) return index >= at ? source.slice(start, index + 1) : undefined;
-  }
-  return undefined;
-}
-
-/// String literals in a tag: every quoted value, inside or outside `{...}`.
-const literals = (tag: string) => [...tag.matchAll(/(["'`])((?:(?!\1)[^\\]|\\.)*)\1/g)].map((match) => match[2]);
-
-/// A JSX element that is a menu or listbox, by role or by a popup-named class in any form
-/// (`role={"menu"}`, `className={cx("ui-popup", extra)}`), and asks for a `data-enter` entrance
-/// (ui/popupSurface.css), as `line why`.
-function scriptEntrances(source: string): string[] {
-  const found: string[] = [];
-  const lineAt = (index: number) => source.slice(0, index).split("\n").length;
-  for (const attr of source.matchAll(/\bdata-enter\b(?=\s*=)/g)) {
-    const tag = enclosingTag(source, attr.index);
-    if (!tag) continue;
-    const role = /\brole\s*=\s*\{?\s*["'`](menu|listbox)["'`]/.exec(tag);
-    const named = literals(tag)
-      .flatMap((text) => text.split(/\s+/))
-      .find((word) => POPUP_WORD.test(word) && !PALETTE_WORD.test(word));
-    if (role || named)
-      found.push(`${lineAt(attr.index)} a ${role ? `role=${role[1]}` : `.${named}`} element enters with data-enter`);
-  }
-  return found;
-}
+/// How many entrances a script asks for: `data-enter` attributes or keys, and `usePresence(` calls.
+const entranceCalls = (source: string) =>
+  source.match(/\bdata-enter\b["']?\s*[=:]|\busePresence\s*\(/g)?.length ?? 0;
 
 /// Every script that drives the Web Animations API (`.animate(`, `new KeyframeEffect(`), with its
 /// call count and what it animates. None of them is a popup or menu. A new call anywhere under
@@ -260,6 +239,7 @@ describe("popovers and menus open in one frame", () => {
         .model-dropdown, .color-picker { animation: ui-enter 120ms both }
         [role=listbox] { animation: ui-enter 120ms both }
         [role = "menu"] { animation-name: none, ui-enter }
+        .x-popover { animation: spin 1s, ui-enter 120ms; animation-iteration-count: infinite, 1 }
         .acpmux-file-search { animation: ui-enter 120ms both }
         .lg-palette { animation: ui-enter 120ms both }
         .nt-edit-add-menu-item { animation: row-in 80ms }`),
@@ -269,36 +249,29 @@ describe("popovers and menus open in one frame", () => {
       "4 `.model-dropdown, .color-picker` starts `animation: ui-enter 120ms both`",
       "5 `[role=listbox]` starts `animation: ui-enter 120ms both`",
       '6 `[role = "menu"]` starts `animation: ui-enter`',
+      "7 `.x-popover` starts `animation: ui-enter 120ms`",
     ]);
   });
 
-  test("the script scan catches a menu that enters, in any JSX form, and passes a panel that does", () => {
+  test("the script scans count every entrance and Web Animations call", () => {
     expect(
-      scriptEntrances(`
-        <div role="menu" data-enter="top">
-        <ul className="nt-add-popover" data-enter="bottom">
-        <div role={"listbox"} onClick={() => go()} data-enter="top">
-        <div className={cx("ui-popup", open && "is-open")} data-enter="top">
-        <section className="acpmux-inspector" data-enter="right">
-        <dialog className="acpmux-file-search" data-enter="top">`),
-    ).toEqual([
-      "2 a role=menu element enters with data-enter",
-      "3 a .nt-add-popover element enters with data-enter",
-      "4 a role=listbox element enters with data-enter",
-      "5 a .ui-popup element enters with data-enter",
-    ]);
-    expect(scriptEntrances(`<div title="a > b" role="menu" data-enter="top" />`)).toEqual([
-      "1 a role=menu element enters with data-enter",
-    ]);
+      entranceCalls(`
+        <Menu icon={<Icon />} role="menu" data-enter="top" />
+        <div role={isMenu ? "menu" : "dialog"} data-enter = "top">
+        return { "data-enter": "bottom" as const, ref };
+        const presence = usePresence(shown, "right");
+        // data-entered, data-enterable`),
+    ).toBe(4);
     expect(webAnimationCalls("a.animate(k, t); b.animate (k); new KeyframeEffect(el, k); c.animated = 1")).toBe(3);
   });
 
-  test("no component animates a popup or menu in", () => {
-    const found: string[] = [];
-    for (const file of scripts(path.join(WEBVIEWS, "src")))
-      for (const entrance of scriptEntrances(readFileSync(file, "utf8")))
-        found.push(`${path.relative(WEBVIEWS, file)}:${entrance}`);
-    expect(found).toEqual([]);
+  test("every entrance is a listed non-popup surface", () => {
+    const found: Record<string, number> = {};
+    for (const file of scripts(path.join(WEBVIEWS, "src"))) {
+      const count = entranceCalls(readFileSync(file, "utf8"));
+      if (count) found[path.relative(WEBVIEWS, file)] = count;
+    }
+    expect(found).toEqual(Object.fromEntries(Object.entries(ENTRANCES).map(([file, { count }]) => [file, count])));
   });
 
   test("every Web Animations call is a listed non-popup surface", () => {
