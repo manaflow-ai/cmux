@@ -90,6 +90,29 @@ struct AgentPaneCaptureTests {
         #expect(rig.requests.count == 3)
     }
 
+    /// The native model can persist another chat while the system picker is open. Both the
+    /// source route and its session (including a fresh chat's nil) belong to the original click.
+    @Test func aPendingPickKeepsItsSourceRouteAndSession() async throws {
+        for session: String? in ["s1", nil] {
+            let source = Rig(session: session)
+            let destination = Rig(session: "s2")
+            source.model.transport.gestures.record(click: true)
+            let reply = await AgentPaneCapture.reply(to: "screen", in: source.model, taken: Self.taken) { _, file in
+                // reply is suspended inside the picker while the normal native persist handler
+                // changes the chat and its route; no staging has started yet.
+                _ = await source.model.respond(to: .persistSession("s2"))
+                await MainActor.run { source.model.onUploadStage = destination.model.onUploadStage }
+                return (try? Self.png.write(to: file)) != nil
+            }
+            let answer = try #require(Self.value(reply))
+            #expect((answer["original"] as? [String: Any])?["path"] as? String == Self.saved)
+            #expect(source.model.sessionId == "s2")
+            #expect(source.received == Self.png)
+            #expect(source.sessions == [session, session, session])
+            #expect(destination.requests.isEmpty)
+        }
+    }
+
     /// CloudUploads finishes with uploads:[{name,path}], unlike the local stager's path field.
     @Test func aCloudCaptureKeepsItsOriginalFromTheUploadList() async throws {
         let rig = Rig(finishValue: ["uploads": [["name": "Screenshot.png", "path": Self.saved]]])
