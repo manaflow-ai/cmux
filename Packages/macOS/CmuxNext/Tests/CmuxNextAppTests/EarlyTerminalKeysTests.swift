@@ -364,16 +364,19 @@ struct EarlyTerminalKeysTests {
             }
             coordinator.resolve(ticket, created: SurfaceID(rawValue: 1), in: window) // its flush runs in a later turn
             window.makeFirstResponder(composer)
-            // The focus model follows the responder to the composer (fleet ceed6045: resolved .textField), a programmatic
-            // move, not the person's: the keys typed for the new terminal still wait for it.
+            // The focus model follows the responder to the composer (fleet ceed6045: resolved .textField). The keys typed
+            // for the new terminal go to that terminal, which is ready, directly: never into the composer, and the
+            // composer keeps the keyboard (lead 2026-10-29: held keys go to the target they were typed for).
             #expect(window.firstResponder === composer, "the test needs another view to have the keyboard")
             let before = coordinator.replayedCount
 
-            let next = router.interceptKeyDown(try Self.key("c", keyCode: 8, in: window), in: window)
+            _ = router.interceptKeyDown(try Self.key("c", keyCode: 8, in: window), in: window)
+            _ = await PasswordManagerRouteTests.becomes({ coordinator.replayedCount >= before + 2 }, within: .seconds(2))
             #expect(composer.string.isEmpty, "keys typed for the new terminal went into another view")
-            #expect(coordinator.replayedCount == before, "held keys ran while another view had the keyboard: \(Self.held(h))")
-            #expect(next, "a key typed for the new terminal went on to another view: \(Self.held(h))")
-            #expect(coordinator.heldCount(in: window) == 3, "the held keys do not wait in order: \(Self.held(h))")
+            #expect(coordinator.lastReplays.suffix(2).map(\.target) == [h.tab, h.tab], "the held keys went to another target: \(coordinator.lastReplays)")
+            #expect(coordinator.lastReplays.suffix(2).map(\.keyCode) == [0, 11], "the held keys were not in typed order: \(coordinator.lastReplays)")
+            #expect(window.firstResponder === composer, "delivering the keys took the keyboard from the composer")
+            #expect(coordinator.heldKeyProblems().isEmpty, "HK1: \(coordinator.heldKeyProblems())")
         }
     }
 
@@ -401,17 +404,18 @@ struct EarlyTerminalKeysTests {
             // move, not the person's: the keys typed for the new terminal still wait for it.
             #expect(window.firstResponder === composer, "the test needs another view to have the keyboard")
 
-            // 600 ms after the reply (this test's bound was 50 ms): a forced flush would have run the keys by now.
-            _ = await PasswordManagerRouteTests.becomes({ coordinator.replayedCount != before }, within: .milliseconds(600))
-            #expect(coordinator.replayedCount == before, "the hold's bound ran terminal keys into another view: \(Self.held(h))")
+            // No timer moves them: they go to the terminal they were typed for once it is ready, directly, never into
+            // the composer (lead 2026-10-29: held keys go to their target even when the focus is elsewhere).
+            _ = await PasswordManagerRouteTests.becomes({ coordinator.replayedCount >= before + 2 }, within: .seconds(2))
+            #expect(coordinator.lastReplays.suffix(2).map(\.target) == [h.tab, h.tab], "the held keys went to another target: \(coordinator.lastReplays)")
             #expect(composer.string.isEmpty, "keys typed for the new terminal reached another text input")
-            #expect(coordinator.heldCount(in: window) == 2, "the keys typed for the new terminal no longer wait: \(Self.held(h))")
+            #expect(window.firstResponder === composer, "delivering the keys took the keyboard from the composer")
 
-            // The model's target takes the keyboard again: the held keys run first, in order, and the next key goes on.
+            // The terminal takes the keyboard: nothing waits, and the next key goes on.
             window.makeFirstResponder(entry.session.surfaceView)
             let next = router.interceptKeyDown(try Self.key("c", keyCode: 8, in: window), in: window)
             #expect(!next, "the key after the terminal took the keyboard back waited: \(Self.held(h))")
-            #expect(coordinator.replayedCount == before + 2, "the held keys did not run into the new terminal")
+            #expect(coordinator.replayedCount == before + 2, "a key ran twice or late: \(coordinator.lastReplays)")
             #expect(!coordinator.isHolding(in: window))
         }
     }
@@ -534,17 +538,24 @@ struct EarlyTerminalKeysTests {
             let (controller, window, entry) = (h.controller, h.window, h.entry)
             let router = h.services.keyRouter
             let coordinator = router.creationInputCoordinator
+            let otherKey = try #require(controller.focus.state.topology.panes.map(\.id).first { $0 != h.paneKey }, "the harness has no second pane")
+            try await PasswordManagerRouteTests.until({ controller.workspaceContent?.paneController(key: otherKey)?.currentContent != nil },
+                                                      within: .seconds(10), report: { "the second pane never showed its terminal" })
+            let otherTab = try #require(controller.workspaceContent?.paneController(key: otherKey)?.currentTabKey)
             let ticket = try #require(coordinator.begin(in: window, generation: controller.focus.state.generation))
             #expect(router.interceptKeyDown(try Self.key("a", keyCode: 0, in: window), in: window), "the key was not held: \(Self.held(h))")
             let before = coordinator.replayedCount
 
             // The creation made the second pane's surface; no expectation was set for it, and the old terminal has the
-            // keyboard and the model's focus.
+            // keyboard and the model's focus. The key typed for the new surface goes to it, never to the old terminal;
+            // the key typed after the landing goes where the focus is (the old terminal), not held.
             coordinator.resolve(ticket, created: SurfaceID(rawValue: 2), in: window)
             window.makeFirstResponder(entry.session.surfaceView)
-            _ = router.interceptKeyDown(try Self.key("b", keyCode: 11, in: window), in: window)
-            _ = await PasswordManagerRouteTests.becomes({ coordinator.replayedCount != before }, within: .milliseconds(300))
-            #expect(coordinator.replayedCount == before, "a key typed for the new surface ran in the old terminal: \(Self.held(h))")
+            _ = await PasswordManagerRouteTests.becomes({ coordinator.replayedCount > before }, within: .seconds(2))
+            let next = router.interceptKeyDown(try Self.key("b", keyCode: 11, in: window), in: window)
+            #expect(coordinator.replayedCount == before + 1, "the key typed for the new surface did not run once: \(coordinator.lastReplays)")
+            #expect(coordinator.lastReplays.last?.target == otherTab, "a key typed for the new surface ran in another terminal: \(coordinator.lastReplays)")
+            #expect(!next, "a key typed after the landing, with the focus on the old terminal, was held: \(Self.held(h))")
         }
     }
 
