@@ -1359,6 +1359,17 @@ fn rewrite_server_start(args: &mut Vec<String>) {
     }
 }
 
+const STARTUP_SWITCH_OPTIONS: &[&str] = &[
+    "--ephemeral",
+    "--cloud",
+    "--headless",
+    "--ws-insecure-bind",
+    "--remote",
+    "--remote-ws-insecure-bind",
+    "--remote-ws-trusted-carrier",
+    "--iroh",
+];
+
 const STARTUP_VALUE_OPTIONS: &[&str] = &[
     "--socket",
     "--session",
@@ -1467,14 +1478,7 @@ fn is_cli_invocation(args: &[String]) -> bool {
         }
         match value {
             "--json" | "--jsonl" | "--quiet" => index += 1,
-            "--ephemeral"
-            | "--cloud"
-            | "--headless"
-            | "--ws-insecure-bind"
-            | "--remote"
-            | "--remote-ws-insecure-bind"
-            | "--remote-ws-trusted-carrier"
-            | "--iroh" => index += 1,
+            value if STARTUP_SWITCH_OPTIONS.contains(&value) => index += 1,
             "-h" | "--help" | "help" => return true,
             "attach" => return false,
             value if cli::is_public_scope(value) => return true,

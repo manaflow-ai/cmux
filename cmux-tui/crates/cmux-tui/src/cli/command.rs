@@ -217,8 +217,8 @@ pub(super) fn parse(args: &[String]) -> Result<CommandPlan, UsageError> {
     Ok(plan)
 }
 
-/// Whether the first two command words are `server start`, skipping each
-/// flag and the value it would take (`--term xterm-256color server start`).
+/// Whether the first two command words are `server start`, skipping startup
+/// switches and value-bearing options with the same arity as startup routing.
 fn starts_with_server_start(args: &[String]) -> bool {
     let mut words = Vec::new();
     let mut index = 0;
@@ -226,6 +226,14 @@ fn starts_with_server_start(args: &[String]) -> bool {
         let value = args[index].as_str();
         if value == "--" {
             break;
+        }
+        if crate::STARTUP_SWITCH_OPTIONS.contains(&value) {
+            index += 1;
+            continue;
+        }
+        if let Some(end) = crate::startup_option_value_end(args, index) {
+            index = end;
+            continue;
         }
         if value.starts_with("--") {
             if !value.contains('=')
