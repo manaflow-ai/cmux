@@ -251,6 +251,7 @@ struct SidebarWorkspaceTabHierarchyTests {
 
     @Test(arguments: [false, true])
     func offscreenParentModelChangesReanchorUnchangedTabs(_ reload: Bool) throws {
+        TunableStore.shared.activate(file: nil)
         TunableStore.shared.register(SidebarTunables.all)
         let markKey = SidebarTunables.agentMark.key
         let oldMark = SidebarTunables.agentMark.value
@@ -260,6 +261,7 @@ struct SidebarWorkspaceTabHierarchyTests {
         }
         try #require(TunableStore.shared.set(markKey, SidebarAgentMarkVariant.besideTitle.tunableValue)
             == SidebarAgentMarkVariant.besideTitle.tunableValue)
+        try #require(SidebarTunables.agentMark.value == .besideTitle, "agent mark override must be active")
         SidebarTunablesWatch.shared.changed()
         let (list, window) = try Self.list(width: 260, tabOnly: true)
         defer { window.close() }
@@ -322,6 +324,7 @@ struct SidebarWorkspaceTabHierarchyTests {
 
     @Test
     func offscreenParentAgentMarkSettingReanchorsUnchangedTab() throws {
+        TunableStore.shared.activate(file: nil)
         TunableStore.shared.register(SidebarTunables.all)
         let key = SidebarTunables.agentMark.key
         let before = SidebarTunables.agentMark.value
@@ -331,6 +334,7 @@ struct SidebarWorkspaceTabHierarchyTests {
         }
         try #require(TunableStore.shared.set(key, SidebarAgentMarkVariant.off.tunableValue)
             == SidebarAgentMarkVariant.off.tunableValue)
+        try #require(SidebarTunables.agentMark.value == .off, "agent mark override must be active")
         SidebarTunablesWatch.shared.changed()
         let (list, window) = try Self.list(width: 260, tabOnly: true)
         defer { window.close() }
@@ -345,6 +349,7 @@ struct SidebarWorkspaceTabHierarchyTests {
         let width = title.frame.width
         try #require(TunableStore.shared.set(key, SidebarAgentMarkVariant.besideTitle.tunableValue)
             == SidebarAgentMarkVariant.besideTitle.tunableValue)
+        try #require(SidebarTunables.agentMark.value == .besideTitle, "agent mark override must be active")
         // Match the production observer's main-actor callback in the same test turn.
         SidebarTunablesWatch.shared.changed()
         list.layoutSubtreeIfNeeded()
@@ -356,6 +361,7 @@ struct SidebarWorkspaceTabHierarchyTests {
 
     @Test(arguments: SidebarAgentMarkVariant.allCases)
     func virtualizedTitleColumnMatchesLeadingMarks(_ variant: SidebarAgentMarkVariant) throws {
+        TunableStore.shared.activate(file: nil)
         TunableStore.shared.register(SidebarTunables.all)
         let key = SidebarTunables.agentMark.key
         let before = SidebarTunables.agentMark.value
@@ -364,6 +370,7 @@ struct SidebarWorkspaceTabHierarchyTests {
             SidebarTunablesWatch.shared.changed()
         }
         try #require(TunableStore.shared.set(key, variant.tunableValue) == variant.tunableValue)
+        try #require(SidebarTunables.agentMark.value == variant, "agent mark override must be active")
         SidebarTunablesWatch.shared.changed()
         let (list, window) = try Self.list(width: 260)
         defer { window.close() }
