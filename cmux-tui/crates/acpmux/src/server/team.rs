@@ -60,10 +60,9 @@ async fn send(
             from: Sender {
                 name: caller.map(|id| hub.session_name(id)),
                 session_id: caller.map(str::to_owned),
-                team_address: caller_session
-                    .as_ref()
-                    .and_then(|session| session.meta().tags.get("teamAddress"))
-                    .map(|tag| tag.value.clone()),
+                team_address: caller_session.as_ref().and_then(|session| {
+                    session.meta().tags.get("teamAddress").map(|tag| tag.value.clone())
+                }),
                 host: Some(crate::pairing::machine_name()),
                 ..Sender::default()
             },
