@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 /// Kiro CLI v3 global hook definitions, installation, and ownership-preserving removal.
@@ -237,21 +238,11 @@ extension CMUXCLI {
                     print(String(localized: "cli.hooks.kiro.global.aborted", defaultValue: "Aborted."))
                     return
                 }
-                // The file can change while the user is reading the prompt.
-                // Do not overwrite another process's update or bypass the
-                // ownership check that produced the preview.
-                guard fm.contents(atPath: filePath) == oldData else {
-                    print(
-                        String(
-                            localized: "cli.hooks.kiro.global.changedDuringConfirmation",
-                            defaultValue: "The Kiro global hooks file changed while cmux was waiting. No changes were made; run the command again."
-                        )
-                    )
-                    return
-                }
             }
             try fm.createDirectory(atPath: hooksDir, withIntermediateDirectories: true)
-            try newData.write(to: URL(fileURLWithPath: filePath), options: .atomic)
+            guard try mutateKiroGlobalHooks(atPath: filePath, expected: oldData, replacement: newData) else {
+                return
+            }
             print(String.localizedStringWithFormat(String(localized: "cli.hooks.kiro.global.installed", defaultValue: "%@ global hooks installed at %@"), def.displayName, filePath))
         }
 
@@ -291,7 +282,7 @@ extension CMUXCLI {
         }
         let otherKeys = Set(json.keys).subtracting(["version", "hooks"])
         if remaining.isEmpty, otherKeys.isEmpty {
-            try fm.removeItem(atPath: filePath)
+            guard try mutateKiroGlobalHooks(atPath: filePath, expected: data, replacement: nil) else { return }
             print(String.localizedStringWithFormat(String(localized: "cli.hooks.kiro.global.removedAndDeleted", defaultValue: "Removed cmux hooks and deleted %@"), filePath))
             return
         }
@@ -300,7 +291,38 @@ extension CMUXCLI {
             withJSONObject: json,
             options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
         )
-        try newData.write(to: URL(fileURLWithPath: filePath), options: .atomic)
+        guard try mutateKiroGlobalHooks(atPath: filePath, expected: data, replacement: newData) else { return }
         print(String.localizedStringWithFormat(String(localized: "cli.hooks.kiro.global.removed", defaultValue: "Removed cmux hooks from %@"), filePath))
+    }
+
+    /// Serializes cmux writers and rechecks the exact snapshot after taking the
+    /// lock. The confirmation prompt never holds the lock; a competing edit
+    /// requires a fresh ownership check and preview even with --yes.
+    private func mutateKiroGlobalHooks(atPath path: String, expected: Data?, replacement: Data?) throws -> Bool {
+        let descriptor = Darwin.open(path + ".lock", O_RDWR | O_CREAT | O_CLOEXEC | O_NOFOLLOW, 0o600)
+        guard descriptor >= 0 else { throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno)) }
+        defer { _ = Darwin.close(descriptor) }
+        var result: Int32
+        repeat { result = flock(descriptor, LOCK_EX) } while result != 0 && errno == EINTR
+        guard result == 0 else { throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno)) }
+        defer { _ = flock(descriptor, LOCK_UN) }
+        let current: Data?
+        do { current = try Data(contentsOf: URL(fileURLWithPath: path)) }
+        catch let error as NSError where error.domain == NSCocoaErrorDomain && error.code == NSFileReadNoSuchFileError {
+            current = nil
+        }
+        guard current == expected else {
+            print(String(
+                localized: "cli.hooks.kiro.global.changedDuringConfirmation",
+                defaultValue: "The Kiro global hooks file changed while cmux was waiting. No changes were made; run the command again."
+            ))
+            return false
+        }
+        if let replacement {
+            try replacement.write(to: URL(fileURLWithPath: path), options: .atomic)
+        } else {
+            try FileManager.default.removeItem(atPath: path)
+        }
+        return true
     }
 }

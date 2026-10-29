@@ -1,5 +1,6 @@
 import CmuxAgentJournal
 import CmuxControlSocket
+import CmuxFoundation
 import Foundation
 import Testing
 
@@ -119,6 +120,26 @@ struct AgentMessageHookClaimTests {
         let result = try decodeResult(response)
         #expect((result["text"] as? String) == "")
         #expect(AgentMessageCenter.store.message(id: queued.id)?.state == .queued)
+    }
+
+    @MainActor
+    @Test("Kiro inbox ownership requires the recorded process birth time")
+    func kiroRuntimeOwnershipRejectsReusedOrMissingProcessIdentity() {
+        let surfaceID = UUID()
+        let identity = AgentPIDProcessIdentity(pid: 123, startSeconds: 100, startMicroseconds: 2)
+        var runtime = Workspace.DetachedAgentRuntimeState(
+            panelId: surfaceID,
+            statusEntries: [:],
+            agentPIDs: ["kiro.session": identity.pid],
+            agentPIDProcessIdentities: ["kiro.session": identity],
+            agentPIDKeys: ["kiro.session"]
+        )
+        #expect(runtime.ownsKiroProcess(identity))
+        #expect(!runtime.ownsKiroProcess(AgentPIDProcessIdentity(
+            pid: identity.pid, startSeconds: 101, startMicroseconds: 2
+        )))
+        runtime.agentPIDProcessIdentities.removeAll()
+        #expect(!runtime.ownsKiroProcess(identity))
     }
 
     private func appendMessage(to surfaceID: UUID, body: String) throws -> AgentMessage {

@@ -1,5 +1,6 @@
 import CmuxAgentJournal
 import CmuxControlSocket
+import CmuxFoundation
 import Foundation
 
 /// Claims queued agent messages after validating a supplied runtime owner.
@@ -10,19 +11,33 @@ extension TerminalController {
         guard let surfaceId = Self.agentMessageSurfaceUUID(params["surface_id"]) else {
             return Self.agentMessageMissingSurface()
         }
-        if let rawPID = params["agent_pid"] as? Int,
-           let pid = pid_t(exactly: rawPID) {
-            let isCurrentAgent = await MainActor.run {
-                guard let target = AppDelegate.shared?.liveAgentDeliveryTarget(forAgentPID: pid) else {
-                    return false
-                }
-                guard target.surfaceId.uuidString == surfaceId else { return false }
-                return AppDelegate.shared?.liveKiroAgentProcessMatchesSurface(
-                    pid: pid,
-                    surfaceID: target.surfaceId
-                ) == true
+        if params["agent_pid"] != nil {
+            guard let rawPID = v2StrictIntAny(params["agent_pid"]),
+                  rawPID > 0,
+                  let pid = pid_t(exactly: rawPID) else {
+                return .ok(["messages": [], "text": ""])
             }
-            guard isCurrentAgent else {
+            let evidence = await runSocketWorkerBlockingBody {
+                agentDeliveryProcessEvidence(pid: pid, resolution: .corroborated)
+            }
+            guard let key = evidence.scopeCacheKey else {
+                return .ok(["messages": [], "text": ""])
+            }
+            let identity = AgentPIDProcessIdentity(
+                pid: pid,
+                startSeconds: Int64(key.startSeconds),
+                startMicroseconds: Int64(key.startMicroseconds)
+            )
+            let isCurrentAgent = await MainActor.run {
+                guard let appDelegate = AppDelegate.shared,
+                      let target = appDelegate.liveAgentDeliveryTarget(for: evidence, resolution: .corroborated),
+                      target.surfaceId.uuidString == surfaceId else { return false }
+                return appDelegate.liveKiroAgentProcessMatchesSurface(identity: identity, surfaceID: target.surfaceId)
+            }
+            // The actor hop may wait behind a UI turn. Validate the same birth
+            // time again on the worker before consuming any queued message.
+            let currentIdentity = await runSocketWorkerBlockingBody { AgentPIDProcessIdentity(pid: pid) }
+            guard isCurrentAgent, currentIdentity == identity else {
                 return .ok(["messages": [], "text": ""])
             }
         }
