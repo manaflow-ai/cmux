@@ -155,7 +155,7 @@
     "CmuxNextTerminal": 3,
     "CmuxNextVSCodeServer": 2,
     "CmuxNextWakeups": 1,
-    "CmuxSafeConcurrency": 2,
+    "CmuxSafeConcurrency": 3,
     "CmuxVNC": 2,
     "CmuxVNCDemoServer": 3,
     "CmuxVNCWebRTC": 7,
