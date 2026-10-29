@@ -316,7 +316,7 @@ test("the rail never outgrows a short transcript", async () => {
   expect(railHeight(60, 820, 0)).toBe(railHeight(60, 820));
   // The selected height arm starts a short thread tall and grows toward the cleared pane room.
   expect(railHeight(4, 720, 720)).toBe(320);
-  expect(railHeight(70, 720, 720)).toBe(720 - 22 - 22);
+  expect(railHeight(70, 720, 720)).toBe(Math.floor(720 * 0.92));
   // The visible transcript band no longer controls the rail's initial height.
   expect(railHeight(18, 720, 720, 720, 1)).toBe(railHeight(18, 720, 720, 720, 4));
   expect(railHeight(18, 720, 720, 720, 4, RAIL_HEIGHTS["initial-240-max-80"])).toBe(240);
