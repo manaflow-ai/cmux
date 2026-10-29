@@ -293,4 +293,51 @@ struct EarlyTerminalKeysTests {
             #expect(coordinator.isHolding(in: window))
         }
     }
+
+    /// A view inside the new terminal that moves the keyboard to `next` when a key reaches it: what a held Ctrl-1…9 does
+    /// when it runs again (the pane shows the selected tab, so the new terminal no longer has the keyboard).
+    private final class KeyboardMover: NSView {
+        weak var next: NSView?
+        private(set) var keys = 0
+        override var acceptsFirstResponder: Bool { true }
+        override func keyDown(with event: NSEvent) {
+            keys += 1
+            if let next { window?.makeFirstResponder(next) }
+        }
+    }
+
+    /// Held keys run into the early terminal one by one; a held key whose run moves the keyboard away (a Ctrl-2 onto a
+    /// cold tab) stops the run: the keys after it wait, in order, and none goes into the view that has the keyboard now
+    /// (review of 86d959eb118, finding 1: the next held key was run into whatever had the keyboard, and was lost).
+    @Test func aHeldKeyThatMovesTheKeyboardStopsTheEarlyRun() async throws {
+        try await Self.withTerminal { h in
+            let (controller, window, tab, entry) = (h.controller, h.window, h.tab, h.entry)
+            let router = h.services.keyRouter
+            let coordinator = router.creationInputCoordinator
+            let composer = NSTextView(frame: NSRect(x: 0, y: 0, width: 200, height: 40))
+            window.contentView?.addSubview(composer)
+            defer { composer.removeFromSuperview() }
+            let mount = try Self.unmount(h)
+            _ = try #require(coordinator.begin(in: window, generation: controller.focus.state.generation, earlyTab: tab, tab: tab))
+            for (letter, code) in [("a", UInt16(0)), ("b", UInt16(11))] {
+                #expect(router.interceptKeyDown(try Self.key(letter, keyCode: code, in: window), in: window),
+                        "a key was not held while the new terminal could not take it: \(Self.held(h))")
+            }
+            mount()
+            let mover = KeyboardMover(frame: NSRect(x: 0, y: 0, width: 10, height: 10))
+            mover.next = composer
+            entry.session.view.addSubview(mover)
+            defer { mover.removeFromSuperview() }
+            window.makeFirstResponder(mover)
+            let before = coordinator.replayedCount
+
+            // The next key runs the held keys first: "a" moves the keyboard to the composer, so "b" and this key wait.
+            let next = router.interceptKeyDown(try Self.key("c", keyCode: 8, in: window), in: window)
+            #expect(mover.keys == 1, "the first held key never reached the new terminal (the test's setup): \(Self.held(h))")
+            #expect(composer.string.isEmpty, "a key typed for the new terminal went into the view that took the keyboard")
+            #expect(coordinator.replayedCount == before + 1, "held keys ran on after the keyboard left the new terminal")
+            #expect(next, "the key after the run went on while the new terminal did not have the keyboard: \(Self.held(h))")
+            #expect(coordinator.heldCount(in: window) == 2, "the keys after the run do not wait in order: \(Self.held(h))")
+        }
+    }
 }
