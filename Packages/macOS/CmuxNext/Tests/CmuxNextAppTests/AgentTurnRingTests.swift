@@ -71,8 +71,19 @@ struct AgentTurnRingTests {
         #expect(service.attentionMarks(for: workspace).count == 1, "the finished chat's pane has no ring")
     }
 
-    @Test func focusAloneKeepsTheRingAndAClickBlinksItOut() throws {
+    /// The default `focus` (https://github.com/manaflow-ai/cmux/issues/25662): selecting the pane
+    /// reads its finished turn, and the ring does not come back.
+    @Test func focusClearsTheRingWithTheDefaultSettings() throws {
         let (service, workspace, tab) = try Self.chatTab()
+        service.interacted(.focus, tab: tab)
+        #expect(service.attentionMarks(for: workspace).isEmpty, "selecting the pane left the ring")
+        service.interacted(.focus, tab: tab)
+        #expect(service.attentionMarks(for: workspace).isEmpty, "the ring came back")
+    }
+
+    @Test func underTheClickModeFocusKeepsTheRingAndAClickBlinksItOut() throws {
+        let (service, workspace, tab) = try Self.chatTab()
+        service.preferences.dismissal = .click
         service.interacted(.focus, tab: tab)
         #expect(service.attentionMarks(for: workspace).count == 1, "focus cleared the ring")
         service.interacted(.click, tab: tab)

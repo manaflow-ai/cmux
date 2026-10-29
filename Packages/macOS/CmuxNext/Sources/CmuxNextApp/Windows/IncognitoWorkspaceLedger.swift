@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 import os
 
@@ -9,10 +10,11 @@ import os
 /// daemon with state resources incognito workspaces are ephemeral and the
 /// daemon's flag replaces this file (`WindowManager+Ephemeral`); it keeps
 /// only incognito workspaces the daemon does not know as such (a tab torn
-/// off into a new workspace).
+/// off into a new workspace). It also lists the incognito spaces
+/// (spaces-overhaul-DESIGN.md rule 2), which the next launch deletes.
 final class IncognitoWorkspaceLedger {
     private let url: URL
-    private var written: Set<String>?
+    private var written: (workspaces: Set<String>, spaces: Set<String>)?
     /// The latest write; the next one waits for it, so writes land in order.
     private var lastWrite: Task<Void, Never>?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "incognito")
@@ -31,6 +33,8 @@ final class IncognitoWorkspaceLedger {
 
     nonisolated private struct Document: Codable, Sendable {
         var workspaces: [String]
+        /// Incognito space ids; absent in a file an older build wrote.
+        var spaces: [String]?
     }
 
     /// True when the last run left incognito workspaces: the file exists
@@ -39,26 +43,38 @@ final class IncognitoWorkspaceLedger {
 
     /// The ids the last run left (read off the main thread).
     func load() async -> [String] {
+        await document()?.workspaces ?? []
+    }
+
+    /// The incognito spaces the last run left (read off the main thread).
+    func loadSpaces() async -> [String] {
+        await document()?.spaces ?? []
+    }
+
+    /// The file's document, read off the main thread; nil when there is none.
+    private func document() async -> Document? {
         let url = url
         return await Task.detached(priority: .userInitiated) {
             // concurrency-allow: runs in a detached task, off the main actor
-            guard let data = try? Data(contentsOf: url),
-                  let document = try? JSONDecoder().decode(Document.self, from: data) else { return [String]() }
-            return document.workspaces
+            guard let data = try? Data(blockingContentsOf: url) else { return nil }
+            return try? JSONDecoder().decode(Document.self, from: data)
         }.value
     }
 
-    /// Records `ids` when they changed (written off the main thread).
-    func record(_ ids: Set<String>) {
-        guard ids != written else { return }
-        written = ids
+    /// Records `ids` and the incognito `spaces` when they changed (written off the main thread). Returns the
+    /// write, which a caller may await (nil when nothing changed).
+    @discardableResult
+    func record(_ ids: Set<String>, spaces: Set<String> = []) -> Task<Void, Never>? {
+        if let written, written.workspaces == ids, written.spaces == spaces { return nil }
+        written = (ids, spaces)
         let url = url, logger = logger
-        let data = try? JSONEncoder().encode(Document(workspaces: ids.sorted()))
+        let empty = ids.isEmpty && spaces.isEmpty
+        let data = try? JSONEncoder().encode(Document(workspaces: ids.sorted(), spaces: spaces.isEmpty ? nil : spaces.sorted()))
         let previous = lastWrite
         lastWrite = Task.detached(priority: .utility) {
             await previous?.value
             do {
-                if let data, !ids.isEmpty {
+                if let data, !empty {
                     try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
                     try data.write(to: url, options: .atomic)
                 } else if FileManager.default.fileExists(atPath: url.path) {
@@ -68,5 +84,6 @@ final class IncognitoWorkspaceLedger {
                 logger.error("incognito ledger write failed: \(String(describing: error), privacy: .public)")
             }
         }
+        return lastWrite
     }
 }

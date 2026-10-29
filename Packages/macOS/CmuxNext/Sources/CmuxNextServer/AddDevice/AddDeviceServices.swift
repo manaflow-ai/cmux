@@ -8,14 +8,25 @@ public struct AddDeviceServices {
     public var addByName: () -> Void
     /// The Add Server card's code field.
     public var enterCode: () -> Void
+    /// The app's New Cloud Machine flow (sign-in first when signed out).
+    public var newCloudMachine: () -> Void
     public var copy: (String) -> Void
+    /// The one-line join's calls, nil while Labs `labs.machineJoin` is off (the way does not show).
+    public var machineJoin: () -> MachineJoinService?
+    /// Copies a secret line: plain text marked concealed and transient, so clipboard managers skip it.
+    public var copyConcealed: (String) -> Void
 
     public init(list: @escaping () async -> DeviceListing?, addComputer: @escaping (String, String) -> Void,
-                addByName: @escaping () -> Void, enterCode: @escaping () -> Void, copy: @escaping (String) -> Void) {
+                addByName: @escaping () -> Void, enterCode: @escaping () -> Void, newCloudMachine: @escaping () -> Void = {},
+                copy: @escaping (String) -> Void, machineJoin: @escaping () -> MachineJoinService? = { nil },
+                copyConcealed: @escaping (String) -> Void = { _ in }) {
         self.list = list
         self.addComputer = addComputer
         self.addByName = addByName
         self.enterCode = enterCode
+        self.newCloudMachine = newCloudMachine
         self.copy = copy
+        self.machineJoin = machineJoin
+        self.copyConcealed = copyConcealed
     }
 }

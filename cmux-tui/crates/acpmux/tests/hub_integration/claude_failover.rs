@@ -289,6 +289,7 @@ async fn context_failover_setup(root: &std::path::Path, late: bool) -> (Arc<Hub>
         let mut env = BTreeMap::from([("FAKE_CLAUDE_STORE".to_owned(), path("claude"))]);
         if primary {
             env.insert("FAKE_CLAUDE_CONTEXT".into(), "1".into());
+            env.insert("FAKE_CLAUDE_LIMITS".into(), "1".into());
             env.insert("FAKE_CLAUDE_DIE_IF".into(), path("die"));
             if late {
                 env.insert("FAKE_CLAUDE_LATE_CONTEXT".into(), path("late"));
@@ -335,6 +336,8 @@ async fn chat_with_a_breakdown(c: &mut TestClient) -> String {
     c.request(method::SESSION_PROMPT, prompt).await.unwrap();
     let before = info_breakdown(c, &id, |b| !b.is_null()).await;
     assert!(!before.is_null(), "the primary's turn leaves its /context breakdown");
+    let info = c.request(method::MUX_INFO, json!({"sessionId": id})).await.unwrap();
+    assert!(!info["usageLimits"].is_null(), "the primary's turn leaves its usage limits: {info}");
     id
 }
 
@@ -354,6 +357,9 @@ async fn a_failover_drops_the_last_harnesss_context_breakdown() {
     let after = info_breakdown(&mut c, &id, Value::is_null).await;
     assert!(after.is_null(), "the primary's breakdown outlived the failover: {after}");
     assert!(session.meta().context_breakdown.is_none(), "the saved meta keeps the old breakdown");
+    // Nor do the primary account's usage limits stay.
+    let info = c.request(method::MUX_INFO, json!({"sessionId": id})).await.unwrap();
+    assert!(info["usageLimits"].is_null(), "the primary's limits outlived the failover: {info}");
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&root);
 }
@@ -384,6 +390,7 @@ async fn a_replaced_harnesss_late_context_breakdown_is_not_kept() {
     assert!(probed, "the replaced process's late lines never reached its reader");
     let info = c.request(method::MUX_INFO, json!({"sessionId": id})).await.unwrap();
     assert!(info["contextBreakdown"].is_null(), "the late answer came back: {info}");
+    assert!(info["usageLimits"].is_null(), "the late limits came back: {info}");
     assert!(session.meta().context_breakdown.is_none());
     // Nor is it in the log after the failover, where a pane's replay would take it up.
     let log = events(&hub);
@@ -391,9 +398,14 @@ async fn a_replaced_harnesss_late_context_breakdown_is_not_kept() {
     let late: Vec<_> = log
         .iter()
         .filter(|e| e.seq > failover)
-        .filter(|e| e.msg.pointer("/params/update/_meta/acpmux/contextBreakdown").is_some())
+        .filter(|e| {
+            let meta = e.msg.pointer("/params/update/_meta/acpmux");
+            meta.is_some_and(|m| {
+                m.get("contextBreakdown").is_some() || m.get("usageLimits").is_some()
+            })
+        })
         .collect();
-    assert!(late.is_empty(), "a breakdown was logged after the failover: {late:?}");
+    assert!(late.is_empty(), "a breakdown or limits were logged after the failover: {late:?}");
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&root);
 }

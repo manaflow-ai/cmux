@@ -1,0 +1,771 @@
+#!/usr/bin/env python3
+"""cmux-machine-health: check a persistent cmux machine and heal what it safely can.
+
+One bounded, idempotent pass per run, as root, from cmux-machine-health.timer every 60 s (a
+oneshot with TimeoutStartSec=45: no resident process). Its state lives only in /run/cmux (tmpfs)
+and every fix is rate-limited. It writes /run/cmux/machine-health.json:
+  {"schema": 1, "checkedAt": T, "problems": [{"check", "detail", "since", "severity"?}], "fixed": [{"check", "action", "at"}]}
+problems: what is wrong now and could not be fixed. fixed: the last 24 h of actions, at most 20.
+
+  dns     A public name, and this machine's MagicDNS name when it is logged in to a tailnet,
+          resolve. Once they have failed dnsFailuresBeforeHeal passes in a row (at most once per
+          15 min): restart systemd-resolved, relink /etc/resolv.conf to its stub if it is not, and
+          check again. tailscaled is restarted too (so it picks resolved mode again) only when the
+          config sets restartTailscaled: a restart drops every Tailscale SSH session and tunnel.
+  disk    Free space on / stays above a floor. Else start the hygiene commands, each as its own
+          transient unit (at most once per 15 min). Under the floor the problem has severity
+          "warning"; under the hard floor, "critical".
+  ram     MemAvailable stays above a floor. Reported only: kills are the cgroup limits' job.
+  acpmux  For each user with lingering on: a failed acpmux*.service user unit is reset and
+          started (at most once per 5 min).
+  cmux    A failed cmux-tui unit is reset and started (at most once per 5 min per unit): system
+          units matching cmuxSystemUnits (cmux-tui-daemon.service on a devbox, cmux-host.service on
+          a cmux VM), and user units matching cmuxUserUnits for each user with lingering on.
+  peer    For each running daemon: every peer that is not connected is reported with a fixed
+          summary of its last error (PEER_ERRORS, never the daemon's words) and how long it has been down; one down 10 min gets one forced reconnect
+          (_acpmux/peer_reconnect, what `acpmux host doctor NAME --fix` does) per 15 min. An
+          expected peer (config expectedPeers) the daemon has no peer for is reported, never added:
+          adding one needs a route and a token, the operator's or app's call.
+
+problems come most important first (acpmux, cmux, dns, disk, ram, peer, loop), at most 8.
+
+Config: /etc/cmux/machine-health.json overrides DEFAULTS. Install, from any copy of this file:
+  sudo python3 cmux-machine-health install [--config FILE]
+Remove: sudo cmux-machine-health uninstall (or systemctl disable --now cmux-machine-health.timer).
+"""
+import argparse, contextlib, fcntl, hashlib, json, os, pwd, re, shutil, socket, subprocess, sys, time
+
+STATE_DIR = "/run/cmux"
+HEALTH_FILE = f"{STATE_DIR}/machine-health.json"
+STATE_FILE = f"{STATE_DIR}/machine-health-state.json"
+CONFIG_FILE = "/etc/cmux/machine-health.json"
+RESOLV_CONF = "/etc/resolv.conf"
+RESOLVED_STUB = "/run/systemd/resolve/stub-resolv.conf"
+LINGER_DIR = "/var/lib/systemd/linger"
+HYGIENE = "/usr/local/bin/cmux-machine-hygiene"
+SBIN = "/usr/local/sbin/cmux-machine-health"
+PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+BUDGET_S = 40  # under the unit's TimeoutStartSec=45
+GB = 10**9
+DEFAULTS = {
+    "dnsNames": ["github.com"],
+    "tailnetName": True,
+    "dnsFailuresBeforeHeal": 3,  # passes in a row (one a minute); one slow lookup under load is not an outage
+    "restartTailscaled": False,  # opt in per host: the restart cuts every Tailscale SSH session and tunnel
+    "diskPath": "/",
+    "diskFloorBytes": None,  # max(min(10 GB, 20% of the disk), 5% of the disk)
+    "diskHardFloorBytes": None,  # min(3 GB, 10% of the disk)
+    "ramFloorBytes": None,  # min(2 GiB, 10% of RAM)
+    "hygieneCommands": None,  # argv lists; default: cmux-machine-hygiene --apply per /home user
+    "acpmuxUnits": ["acpmux*.service"],
+    "acpmuxSockets": ["~/.acpmux/acpmux.sock"],
+    "cmuxSystemUnits": ["cmux-tui-daemon.service", "cmux-host.service", "cmux-server.service"],
+    "cmuxUserUnits": ["cmux-server.service", "cmux-host-remote.service"],
+    "peerDownMinutes": 10,
+    "expectedPeers": [],  # peer names every daemon here should have; none in code
+}
+PEER_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,79}")
+# The only actions a pass writes; an older fixed entry is kept only when it is one of them.
+FIXED_ACTIONS = re.compile("|".join([
+    r"restarted systemd-resolved",
+    r"relinked /etc/resolv\.conf to the systemd-resolved stub",
+    r"restarted tailscaled so it picks systemd-resolved",
+    r"started disk hygiene \(\d+ of \d+ commands\)",
+    r"reset and started [A-Za-z0-9@._:-]{1,100}( for [a-z_][a-z0-9_-]{0,31})?",
+    r"forced a reconnect of the peer link to ([A-Za-z0-9][A-Za-z0-9._-]{0,79}|a peer with an unreadable name)"
+]))
+HOSTNAME = re.compile(r"(?=.{1,253}$)[A-Za-z0-9_]([A-Za-z0-9_-]{0,62})(\.[A-Za-z0-9_]([A-Za-z0-9_-]{0,62}))*\.?")
+DNS_FAILURES_MAX = 60  # the count of failed dns passes kept in state saturates here, the largest dnsFailuresBeforeHeal
+ORDER = ["acpmux", "cmux", "dns", "disk", "ram", "peer", "loop"]
+UNIT_NAME = re.compile(r"[A-Za-z0-9@._:*?\[\]-]{1,100}")
+# What a unit check may restart: its own namespace only, a literal prefix then at most a narrow
+# suffix glob (acpmux*.service, cmux-host-remote.service), never "*" or another program's unit.
+UNIT_SCOPE = {"acpmux": re.compile(r"acpmux[A-Za-z0-9@._:-]*(\*)?\.service"), "cmux": re.compile(r"cmux-[A-Za-z0-9@._:-]+(\*)?\.service")}
+UNIT_KEYS = {"acpmuxUnits": "acpmux", "cmuxSystemUnits": "cmux", "cmuxUserUnits": "cmux"}
+MAX_PROBLEMS = 8
+MAX_PEERS = 256  # rows read from one daemon's list
+MAX_REPLY = 4 << 20  # bytes read from one daemon socket
+GUARD = "# cmux machine guard (cmux-machine-health install). Managed, do not edit.\n"
+UNITS = {
+    "/etc/systemd/system/cmux-machine-health.service": "[Unit]\nDescription=cmux machine health: check and heal DNS, disk, RAM, acpmux and cmux-tui once\nAfter=network.target systemd-resolved.service\n\n[Service]\nType=oneshot\nExecStart=" + SBIN + " run\nTimeoutStartSec=45\nNice=10\nIOSchedulingClass=idle\nOOMScoreAdjust=-500\nMemoryMax=256M\nTasksMax=64\n",
+    "/etc/systemd/system/cmux-machine-health.timer": "[Unit]\nDescription=Run cmux machine health every minute\n\n[Timer]\nOnActiveSec=60\nOnUnitActiveSec=60\nAccuracySec=5\n\n[Install]\nWantedBy=timers.target\n",
+    # Every ssh and login session (logind's session-N.scope): a runaway hits its own limits.
+    # MemorySwapMax as a share of swap needs systemd 254+; older systemd ignores the line.
+    "/etc/systemd/system/session-.scope.d/50-cmux-guard.conf": GUARD + "[Scope]\nMemoryHigh=70%\nMemoryMax=80%\nMemorySwapMax=25%\nTasksMax=8192\n",
+    # The user's systemd manager (and so acpmux) outlives a runaway; memory.min needs its ancestors.
+    "/etc/systemd/system/user@.service.d/50-cmux-guard.conf": GUARD + "[Service]\nOOMScoreAdjust=-900\nMemoryMin=64M\n",
+    "/etc/systemd/system/user-.slice.d/50-cmux-guard.conf": GUARD + "[Slice]\nMemoryMin=64M\n",
+    # Every user's sessions and services together leave a tenth of RAM to the system.
+    "/etc/systemd/system/user.slice.d/50-cmux-guard.conf": GUARD + "[Slice]\nMemoryMin=256M\nMemoryMax=90%\n",
+    # The manager's own -900 must not reach the user services it starts.
+    "/etc/systemd/user.conf.d/50-cmux-guard.conf": GUARD + "[Manager]\nDefaultOOMScoreAdjust=200\n",
+}
+
+
+def iso(ts):
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(ts))
+
+
+def gb(n):
+    return f"{n / GB:.1f} GB"
+
+
+def ago(seconds):
+    s = int(max(0, seconds))
+    return f"{s}s" if s < 120 else f"{s // 60}m" if s < 7200 else f"{s // 3600}h" if s < 172800 else f"{s // 86400}d"
+
+
+# A daemon's error text is never copied into the report: it becomes one of these fixed summaries
+# (first match wins, by substring of the lowercased text), or the fallback. `acpmux host doctor
+# NAME` shows the daemon's own text to whoever can reach the machine.
+PEER_ERRORS = (
+    (("handshake",), "WebSocket handshake not finished"),
+    (("refused",), "connection refused"),
+    (("timed out", "timeout", "deadline"), "timed out"),
+    (("host key", "known_hosts", "known hosts"), "ssh host key mismatch"),
+    (("permission denied", "unauthorized", "forbidden", "401", "403", "auth"), "authentication failed"),
+    (("resolve", "name or service", "dns", "no such host"), "name does not resolve"),
+    (("unreachable", "no route"), "host unreachable"),
+    (("reset",), "connection reset"),
+    (("closed", "eof", "broken pipe"), "connection closed"),
+    (("tls", "certificate", "ssl"), "TLS error"),
+    (("version", "protocol"), "protocol mismatch"),
+)
+
+
+def daemon_error(text):
+    """A fixed summary of a daemon's error (PEER_ERRORS), or "" for none; never its own words."""
+    low = str(text or "")[:2000].lower()
+    if not low.strip():
+        return ""
+    return next((summary for needles, summary in PEER_ERRORS if any(n in low for n in needles)), "an error it did not name (acpmux host doctor shows it)")
+
+
+SECRET_WORDS = ("token", "key", "secret", "password", "passwd", "auth", "cookie", "credential")
+# key[=:]value: a bounded key and separator, then the value; scanned left to right so every
+# key is seen (a value may itself start a key), and matching stays linear.
+KEY_SEP = re.compile(r"""(--?)?([\w-]{1,64})(["']?[ \t]{0,4}[:=][ \t]{0,4}|[ \t]{1,4}(?=["'\w]))""")
+VALUE = re.compile(r""""(?:[^"\\\n]|\\.){0,512}"?|'(?:[^'\\\n]|\\.){0,512}'?|[^\s"',}&]{1,512}""")
+
+
+def redact_keys(text):
+    out, pos = [], 0
+    while (m := KEY_SEP.search(text, pos)):
+        flag, key, sep = m.groups()
+        secret = any(w in key.lower() for w in SECRET_WORDS) and (flag or any(c in sep for c in ":="))
+        value = VALUE.match(text, m.end()) if secret else None
+        if value:
+            out.append(text[pos:m.end()] + "...")
+            pos = value.end()
+        else:
+            out.append(text[pos:m.end()])
+            pos = m.end()
+    return "".join(out) + text[pos:]
+
+
+def clean(text, homes=()):
+    """Short plain text: no control characters, hint tail, home paths or credentials."""
+    text = re.sub(r"\x1b\[[0-9;?]*[ -/]*[@-~]|[\x00-\x1f\x7f]", " ", str(text)[:2000]).split("; `")[0]
+    text = re.sub(r"(?i)\b(bearer|basic)[ \t]+\S{1,2000}", r"\1 ...", text)
+    text = re.sub(r"(?i)([a-z]{1,16}://)[^\s/@]{1,512}@", r"\1...@", text)
+    text = redact_keys(text)
+    for home in sorted({h for h in homes if h and h != "/"}, key=len, reverse=True):
+        text = text.replace(home, "~")
+    return re.sub(r"/(home|Users|root)(/[^\s/]+)?", "~", text).strip()[:200]
+
+
+class Host:
+    """Every side effect; tests pass a fake."""
+
+    def now(self):
+        return time.time()
+
+    def mono(self):
+        return time.monotonic()
+
+    def sleep(self, s):
+        time.sleep(s)
+
+    def run(self, argv, timeout, user=None):
+        kw = {"env": {"PATH": PATH, "LANG": "C.UTF-8"}, "cwd": "/"}
+        if user is not None:
+            kw.update(user=user.pw_uid, group=user.pw_gid, extra_groups=[])
+            kw["env"]["HOME"] = user.pw_dir
+        try:
+            r = subprocess.run(argv, capture_output=True, text=True, timeout=max(1, timeout), stdin=subprocess.DEVNULL, **kw)
+            return r.returncode, r.stdout
+        except (OSError, subprocess.SubprocessError):
+            return 124, ""
+
+    def is_root(self):
+        return os.geteuid() == 0
+
+    @contextlib.contextmanager
+    def lock(self):
+        """One pass at a time (a manual run beside the timer's); yields False when another holds it."""
+        os.makedirs(STATE_DIR, mode=0o755, exist_ok=True)
+        with open(f"{STATE_DIR}/machine-health.lock", "w") as f:
+            try:
+                fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except OSError:
+                yield False
+                return
+            yield True
+
+    def getpwnam(self, name):
+        found = next((u for u in self.users() if u.pw_name == name), None)
+        if found is None:
+            raise KeyError(name)
+        return found
+
+    def set_oom_score(self, pid, score, unit):
+        """Write the score only if pid is still unit's manager: the /proc/PID directory fd stays
+        bound to the process it was opened for (a reused PID fails with ESRCH), so the identity
+        check and the write are about the same process. False when it is gone or not that unit."""
+        try:
+            d = os.open(f"/proc/{pid}", os.O_RDONLY | os.O_DIRECTORY)
+        except OSError:
+            return False
+        def read(name):
+            fd = os.open(name, os.O_RDONLY, dir_fd=d)
+            try:
+                return os.read(fd, 65536).decode(errors="replace")
+            finally:
+                os.close(fd)
+
+        try:
+            paths = [line.split(":", 2)[-1].strip() for line in read("cgroup").splitlines()]
+            if not any(f"/{unit}/" in path + "/" for path in paths) or read("comm").strip() != "systemd":
+                return False
+            fd = os.open("oom_score_adj", os.O_WRONLY, dir_fd=d)
+            try:
+                os.write(fd, f"{score}\n".encode())
+            finally:
+                os.close(fd)
+            return True
+        except OSError:
+            return False
+        finally:
+            os.close(d)
+
+    def which(self, name):
+        return shutil.which(name, path=PATH)
+
+    def disk(self, path):
+        s = os.statvfs(path)
+        return s.f_bavail * s.f_frsize, s.f_blocks * s.f_frsize
+
+    def meminfo(self):
+        with open("/proc/meminfo") as f:
+            kb = dict(re.findall(r"^(\w+):\s+(\d+) kB", f.read(), re.M))
+        return int(kb["MemAvailable"]) * 1024, int(kb["MemTotal"]) * 1024
+
+    def stub_linked(self):
+        return os.path.islink(RESOLV_CONF) and os.path.realpath(RESOLV_CONF) == RESOLVED_STUB
+
+    def stub_ready(self):
+        try:
+            with open(RESOLVED_STUB) as f:
+                return "\nnameserver " in "\n" + f.read()
+        except OSError:
+            return False
+
+    def relink(self):
+        tmp = RESOLV_CONF + ".cmux-health"
+        if os.path.lexists(tmp):
+            os.unlink(tmp)
+        os.symlink("../run/systemd/resolve/stub-resolv.conf", tmp)
+        os.replace(tmp, RESOLV_CONF)
+
+    def linger_users(self):
+        try:
+            return sorted(os.listdir(LINGER_DIR))
+        except OSError:
+            return []
+
+    def users(self):
+        """Local accounts from /etc/passwd: no NSS lookup, so a hung directory service cannot stall a pass."""
+        rows = []
+        try:
+            with open("/etc/passwd") as f:
+                for line in f:
+                    parts = line.rstrip("\n").split(":")
+                    if len(parts) == 7 and parts[2].isdigit() and parts[3].isdigit():
+                        rows.append(pwd.struct_passwd((parts[0], parts[1], int(parts[2]), int(parts[3]), parts[4], parts[5], parts[6])))
+        except OSError:
+            pass
+        return rows
+
+    def read_json(self, path):
+        try:
+            with open(path) as f:
+                return json.load(f)
+        except FileNotFoundError:
+            return None
+
+    def write(self, path, text, mode=0o644):
+        os.makedirs(os.path.dirname(path), mode=0o755, exist_ok=True)
+        tmp = f"{path}.tmp-{os.getpid()}"
+        with open(tmp, "w") as f:
+            f.write(text)
+        os.chmod(tmp, mode)
+        os.replace(tmp, path)
+
+    def remove(self, path):
+        if os.path.lexists(path):
+            os.unlink(path)
+
+
+class Pass:
+    def __init__(self, host, config, state, heal=True):
+        self.host, self.config, self.heal = host, config, heal
+        self.start = host.mono()
+        state = state if isinstance(state, dict) else {}
+        since, last, fixed, dns_failures = state.get("since"), state.get("last"), state.get("fixed"), state.get("dnsFailures")
+        self.dns_failures_was = dns_failures if isinstance(dns_failures, int) and not isinstance(dns_failures, bool) and 0 < dns_failures <= DNS_FAILURES_MAX else 0
+        self.dns_failures = self.dns_failures_was
+        stamp = lambda v: isinstance(v, str) and re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ", v) is not None
+        self.since_was = {k: v for k, v in since.items() if isinstance(k, str) and stamp(v)} if isinstance(since, dict) else {}
+        self.last = {k: v for k, v in last.items() if isinstance(v, (int, float)) and not isinstance(v, bool)} if isinstance(last, dict) else {}
+        ok = lambda f: isinstance(f, dict) and f.get("check") in ORDER and isinstance(f.get("action"), str) and FIXED_ACTIONS.fullmatch(f["action"]) and stamp(f.get("at"))
+        # Every login account's home, known before any text is kept, so no detail or action can carry one.
+        self.homes = {u.pw_dir for u in host.users() if (u.pw_uid == 0 or u.pw_uid >= 1000) and u.pw_dir not in ("/", "/nonexistent")}
+        state = {"fixed": [{"check": f["check"], "action": clean(f["action"], self.homes), "at": f["at"]} for f in fixed if ok(f)] if isinstance(fixed, list) else []}
+        self.since, self.problems, self.new_fixed = {}, [], []
+        self.fixed_was = state.get("fixed", [])
+
+    def left(self):
+        return BUDGET_S - (self.host.mono() - self.start)
+
+    def run(self, argv, timeout, user=None):
+        """A command bounded by what is left of this pass, so the report is always written."""
+        t = min(timeout, self.left() - 3)
+        return self.host.run(argv, t, user=user) if t >= 1 else (124, "")
+
+    def may(self, key, every_s, needs_s=0):
+        """True at most once per every_s for this fix, and only with needs_s left in this run. A
+        last time in the future (the clock went back) does not block."""
+        now = self.host.now()
+        if not self.heal or self.left() < needs_s or 0 <= now - self.last.get(key, 0) < every_s:
+            return False
+        self.last[key] = now
+        return True
+
+    def problem(self, check, key, detail, since=None, severity=None):
+        self.since[key] = self.since_was.get(key) or since or iso(self.host.now())
+        self.problems.append({"check": check, "detail": clean(detail, self.homes), "since": self.since[key]})
+        if severity:
+            self.problems[-1]["severity"] = severity
+
+    def fixed(self, check, action):
+        self.new_fixed.append({"check": check, "action": clean(action, self.homes), "at": iso(self.host.now())})
+
+    def run_check(self, name, fn):
+        try:
+            fn()
+        except Exception as e:  # one broken check must not stop the others or the report
+            self.problem("loop", f"loop:{name}", f"machine health: the {name} check failed: {type(e).__name__}")
+
+    # dns
+    def resolves(self, name):
+        code, out = self.run(["getent", "ahosts", name], 5)
+        return code == 0 and bool(out.strip())
+
+    def tailnet_name(self):
+        if not self.config["tailnetName"] or not self.host.which("tailscale"):
+            return None
+        try:
+            s = json.loads(self.run(["tailscale", "status", "--json"], 5)[1])
+        except ValueError:
+            return None
+        if s.get("BackendState") != "Running" or not s.get("MagicDNSSuffix") or (s.get("CurrentTailnet") or {}).get("MagicDNSEnabled") is False:
+            return None
+        return ((s.get("Self") or {}).get("DNSName") or "").rstrip(".") or None
+
+    def check_dns(self):
+        names = list(self.config["dnsNames"]) + [n for n in [self.tailnet_name()] if n]
+        failing = [n for n in names if not self.resolves(n)]
+        self.dns_failures = min(self.dns_failures_was + 1, DNS_FAILURES_MAX) if failing else 0
+        if failing and self.dns_failures >= self.config["dnsFailuresBeforeHeal"] and self.may("fix:dns", 15 * 60, needs_s=20):
+            if self.run(["systemctl", "restart", "systemd-resolved.service"], 15)[0] == 0:
+                self.fixed("dns", "restarted systemd-resolved")
+            if not self.host.stub_linked() and self.host.stub_ready():
+                self.host.relink()
+                self.fixed("dns", "relinked /etc/resolv.conf to the systemd-resolved stub")
+            if self.config["restartTailscaled"] and self.run(["systemctl", "show", "-p", "LoadState", "--value", "tailscaled.service"], 5)[1].strip() == "loaded":
+                if self.run(["systemctl", "restart", "tailscaled.service"], 15)[0] == 0:
+                    self.fixed("dns", "restarted tailscaled so it picks systemd-resolved")
+            until = self.host.mono() + 10
+            while failing:
+                failing = [n for n in failing if not self.resolves(n)]
+                if not failing or self.host.mono() >= until or self.left() < 8:
+                    break
+                self.host.sleep(1)
+            if not failing:
+                self.dns_failures = 0
+        for n in failing:
+            self.problem("dns", f"dns:{n}", f"DNS: {n} does not resolve")
+
+    # disk and ram
+    def hygiene_commands(self):
+        if self.config["hygieneCommands"] is not None:
+            return self.config["hygieneCommands"]
+        if not self.host.which(HYGIENE):
+            return []
+        homes = [u for u in self.host.users() if 1000 <= u.pw_uid < 60000 and u.pw_dir == f"/home/{u.pw_name}"]
+        return [["runuser", "-u", u.pw_name, "--", HYGIENE, "--apply", "--home", u.pw_dir, "--root", u.pw_dir] for u in homes]
+
+    def check_disk(self):
+        path = self.config["diskPath"]
+        free, total = self.host.disk(path)
+        floor = self.config["diskFloorBytes"]
+        floor = max(min(10 * GB, total // 5), total // 20) if floor is None else floor
+        hard = self.config["diskHardFloorBytes"]
+        hard = min(3 * GB, total // 10) if hard is None else hard
+        floor = max(floor, hard)  # the hard floor is never under the soft one
+        if free >= floor:
+            return
+        commands = self.hygiene_commands()
+        if commands and self.may("fix:disk", 15 * 60, needs_s=10):
+            started = 0
+            for i, argv in enumerate(commands):
+                unit = ["systemd-run", "--quiet", "--collect", "--no-block", f"--unit=cmux-machine-health-hygiene-{i}", "-p", "RuntimeMaxSec=900", "-p", "Nice=10", "-p", "IOSchedulingClass=idle", "--"]
+                started += self.run(unit + list(argv), 5)[0] == 0
+            if started:
+                self.fixed("disk", f"started disk hygiene ({started} of {len(commands)} commands)")
+                free, total = self.host.disk(path)
+            else:
+                del self.last["fix:disk"]  # nothing ran: the next pass tries again
+        if free < hard:
+            self.problem("disk", "disk", f"disk: CRITICAL: {gb(free)} free on {path}, under the hard floor of {gb(hard)}", severity="critical")
+        elif free < floor:
+            self.problem("disk", "disk", f"disk: {gb(free)} free on {path}, under the floor of {gb(floor)}", severity="warning")
+
+    def check_ram(self):
+        avail, total = self.host.meminfo()
+        floor = self.config["ramFloorBytes"]
+        floor = min(2 * 2**30, total // 10) if floor is None else floor
+        if avail < floor:
+            self.problem("ram", "ram", f"RAM: {gb(avail)} available of {gb(total)}, under the floor of {gb(floor)}")
+
+    # acpmux
+    def check_acpmux(self):
+        answered = False
+        for name in self.host.linger_users():
+            try:
+                user = self.host.getpwnam(name)
+            except KeyError:
+                continue
+            self.homes.add(user.pw_dir)
+            self.check_units(user, "acpmux", self.config["acpmuxUnits"])
+            self.check_units(user, "cmux", self.config["cmuxUserUnits"])
+            for sock in self.config["acpmuxSockets"]:
+                answered |= self.check_peers(user, user.pw_dir + sock[1:] if sock.startswith("~/") else sock, sock)
+        if self.config["expectedPeers"] and not answered:
+            self.problem("acpmux", "acpmux:none", "acpmux: no acpmux daemon answers on this machine, so its peers cannot be checked")
+
+    def check_units(self, user, check, patterns):
+        """A failed unit matching patterns (a user's when user is set, else a system unit) is reset
+        and started at most once per 5 min, and reported while it stays failed."""
+        if not patterns:
+            return  # no patterns: systemctl would list every failed unit
+        manager = ["systemctl", "--user", "-M", f"{user.pw_name}@"] if user else ["systemctl"]
+        whose = f" for {user.pw_name}" if user else ""
+        code, out = self.run(manager + ["list-units", "--state=failed", "--plain", "--no-legend", "--no-pager", "--"] + patterns, 10)
+        if code != 0:
+            return  # no manager to ask
+        for unit in [line.split()[0] for line in out.splitlines() if line.strip()]:
+            if not (UNIT_NAME.fullmatch(unit) and UNIT_SCOPE[check].fullmatch(unit) and "*" not in unit):
+                continue  # only a literal unit in this check's namespace is ever touched
+            key = f"{check}:{user.pw_name if user else ''}:{unit}"
+            if self.may(f"fix:{key}", 5 * 60, needs_s=25):
+                self.run(manager + ["reset-failed", "--", unit], 5)
+                started = self.run(manager + ["start", "--", unit], 20)[0] == 0
+                self.fixed(check, f"reset and started {unit}{whose}")
+                if started:
+                    continue
+            self.problem(check, key, f"{check}: {unit}{whose} failed")
+
+    def check_cmux(self):
+        self.check_units(None, "cmux", self.config["cmuxSystemUnits"])
+
+    def rpc_as(self, user, sock, method, params, timeout):
+        """One daemon request over its socket, as its user; None when no daemon answers. Never starts one."""
+        t = int(min(timeout, self.left() - 6))
+        if t < 2:
+            return None
+        code, out = self.run([sys.executable, "-I", os.path.abspath(__file__), "rpc", "--timeout", str(t), sock, method, json.dumps(params)], t + 2, user=user)
+        try:
+            reply = json.loads(out) if code == 0 else None
+        except ValueError:
+            return None
+        return reply if isinstance(reply, dict) else None
+
+    def check_peers(self, user, sock, sock_key):
+        reply = self.rpc_as(user, sock, "_acpmux/peers", {}, 10)
+        peers = (reply or {}).get("peers")
+        if not isinstance(peers, list):
+            return False  # no daemon on this socket (a failed unit is the units check's)
+        now = self.host.now()
+        rows = [p for p in peers if isinstance(p, dict)]
+        listed = {p["name"] for p in rows if isinstance(p.get("name"), str) and p["name"]}
+        tag = hashlib.sha256(sock_key.encode()).hexdigest()[:8]  # rate limits per daemon, without its path
+        if len(rows) > MAX_PEERS:
+            self.problem("peer", f"peer:{user.pw_name}:{tag}:many", f"acpmux lists {len(rows)} peers; only the first {MAX_PEERS} were checked")
+        peers = rows[:MAX_PEERS]
+        for name in self.config["expectedPeers"]:
+            if name not in listed:
+                self.problem("peer", f"peer:{user.pw_name}:{tag}:{hashlib.sha256(name.encode()).hexdigest()[:16]}:missing", f"no acpmux peer for {name}: sessions there can't be reached from here")
+        for peer in peers:
+            if peer.get("connected") is True:
+                continue
+            raw = peer.get("name") if isinstance(peer.get("name"), str) and peer.get("name") else None
+            if self.left() < 3:
+                break  # the report is always written inside the pass budget
+            # Only a well-formed peer name is shown; any other is a placeholder (its hash keys its limits).
+            shown = raw if raw and PEER_NAME.fullmatch(raw) else "a peer with an unreadable name"
+            name, err, down = shown, daemon_error(peer.get("error") or ""), peer.get("downSince")
+            if isinstance(down, bool) or not isinstance(down, (int, float)) or not 0 < down < 1e15:
+                down = None
+            down_s = None if down is None else now - down / 1000
+            # The daemon's own name goes to the reconnect; the key hashes it, so long or similar names never collide.
+            key = f"peer:{user.pw_name}:{tag}:{hashlib.sha256((raw or '').encode()).hexdigest()[:16]}"
+            if raw and down_s is not None and down_s >= self.config["peerDownMinutes"] * 60 and self.may(f"fix:{key}", 15 * 60, needs_s=25):
+                again = self.rpc_as(user, sock, "_acpmux/peer_reconnect", {"name": raw, "wait": True}, 20)
+                self.fixed("peer", f"forced a reconnect of the peer link to {name}")
+                rows_again = (again or {}).get("peers")
+                row = next((p for p in rows_again[:MAX_PEERS] if isinstance(p, dict) and p.get("name") == raw), None) if isinstance(rows_again, list) else None
+                if row and row.get("connected") is True:
+                    continue
+                err = daemon_error((row or {}).get("error") or err)
+            why = f": {err}" if err else ""
+            if down_s is None:
+                self.problem("peer", key, f"peer link to {name} has not connected{why}")
+            else:
+                since = iso(down / 1000)
+                self.problem("peer", key, f"peer link to {name} down since {since} ({ago(down_s)}){why}", since=since)
+        return True
+
+    def report(self):
+        day_ago = iso(self.host.now() - 86400)
+        fixed = ([f for f in self.fixed_was if f.get("at", "") >= day_ago] + self.new_fixed)[-20:]
+        state = {"since": self.since, "last": {k: v for k, v in self.last.items() if self.host.now() - v < 86400}, "fixed": fixed, "dnsFailures": self.dns_failures}
+        problems = sorted(self.problems, key=lambda p: ORDER.index(p["check"]))[:MAX_PROBLEMS]
+        health = {"schema": 1, "checkedAt": iso(self.host.now()), "problems": problems, "fixed": fixed}
+        return health, state
+
+
+def config_problems(given):
+    """Why a config is unusable, or nothing; install refuses it, a pass uses the defaults."""
+    if not isinstance(given, dict):
+        return ["the config must be a JSON object"]
+    unknown = set(given) - set(DEFAULTS)
+    problems = [f"{len(unknown)} unknown config keys (known: {', '.join(DEFAULTS)})"] if unknown else []
+    for key in ("dnsNames", "acpmuxUnits", "acpmuxSockets", "expectedPeers", "cmuxSystemUnits", "cmuxUserUnits"):
+        if key in given and not (isinstance(given[key], list) and all(isinstance(x, str) and x for x in given[key])):
+            problems.append(f"{key} must be a list of non-empty strings")
+    for key, scope in UNIT_KEYS.items():
+        if isinstance(given.get(key), list) and not all(isinstance(u, str) and UNIT_NAME.fullmatch(u) and UNIT_SCOPE[scope].fullmatch(u) for u in given[key]):
+            problems.append(f"{key} must be {scope} service names (a trailing * before .service at most)")
+    if isinstance(given.get("expectedPeers"), list) and not all(isinstance(n, str) and PEER_NAME.fullmatch(n) for n in given["expectedPeers"]):
+        problems.append("expectedPeers must be peer names (letters, digits, dot, dash, underscore; at most 80)")
+    if isinstance(given.get("dnsNames"), list) and not all(isinstance(n, str) and HOSTNAME.fullmatch(n) for n in given["dnsNames"]):
+        problems.append("dnsNames must be host names")
+    for key in ("tailnetName", "restartTailscaled"):
+        if key in given and not isinstance(given[key], bool):
+            problems.append(f"{key} must be true or false")
+    v = given.get("dnsFailuresBeforeHeal")
+    if "dnsFailuresBeforeHeal" in given and (isinstance(v, bool) or not isinstance(v, int) or not 1 <= v <= DNS_FAILURES_MAX):
+        problems.append("dnsFailuresBeforeHeal must be a whole number from 1 to 60")
+    if "diskPath" in given and not (isinstance(given["diskPath"], str) and given["diskPath"].startswith("/")):
+        problems.append("diskPath must be an absolute path")
+    for key in ("diskFloorBytes", "diskHardFloorBytes", "ramFloorBytes"):
+        v = given.get(key)
+        if v is not None and (isinstance(v, bool) or not isinstance(v, int) or v < 0):
+            problems.append(f"{key} must be a whole number of bytes, or null")
+    soft, hard = given.get("diskFloorBytes"), given.get("diskHardFloorBytes")
+    if all(isinstance(v, int) and not isinstance(v, bool) for v in (soft, hard)) and hard > soft:
+        problems.append("diskHardFloorBytes must not be above diskFloorBytes")
+    hc = given.get("hygieneCommands")
+    if hc is not None and not (isinstance(hc, list) and all(isinstance(a, list) and a and all(isinstance(x, str) for x in a) for a in hc)):
+        problems.append("hygieneCommands must be a list of argv lists")
+    m = given.get("peerDownMinutes", 10)
+    if isinstance(m, bool) or not isinstance(m, (int, float)) or not 0 < m < 10**6:
+        problems.append("peerDownMinutes must be a positive number")
+    for sock in given["acpmuxSockets"] if isinstance(given.get("acpmuxSockets"), list) else []:
+        if isinstance(sock, str) and not (sock.startswith("/") or sock.startswith("~/")):
+            problems.append("acpmuxSockets entries must be absolute or start with ~/")
+    return problems
+
+
+def load_config(host):
+    config = dict(DEFAULTS)
+    try:
+        given = host.read_json(CONFIG_FILE)
+    except (OSError, ValueError):
+        return config, f"{CONFIG_FILE} is not valid JSON; the defaults apply"
+    if given is None:
+        return config, None
+    problems = config_problems(given)
+    if problems:
+        return config, f"{CONFIG_FILE}: {problems[0]}; the defaults apply"
+    config.update(given)
+    return config, None
+
+
+def check_config(given):
+    problems = config_problems(given)
+    if problems:
+        raise SystemExit("; ".join(problems))
+
+
+def run_pass(host, heal=True):
+    config, config_error = load_config(host)
+    state = {}
+    try:
+        state = host.read_json(STATE_FILE) or {}
+    except (OSError, ValueError):
+        pass
+    p = Pass(host, config, state, heal)
+    if config_error:
+        p.problem("loop", "loop:config", config_error)
+    for name, fn in (("disk", p.check_disk), ("ram", p.check_ram), ("dns", p.check_dns), ("cmux", p.check_cmux), ("acpmux", p.check_acpmux)):
+        p.run_check(name, fn)
+    health, state = p.report()
+    for item in p.problems:
+        print(f"PROBLEM {item['check']}: {item['detail']} (since {item['since']})")
+    host.write(STATE_FILE, json.dumps(state), 0o600)
+    host.write(HEALTH_FILE, json.dumps(health) + "\n", 0o644)
+    return health
+
+
+def rpc(sock, method, params, timeout):
+    """A line-delimited JSON-RPC request to an acpmux daemon socket; prints the result."""
+    deadline = time.monotonic() + timeout
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+        s.settimeout(timeout)
+        try:
+            s.connect(sock)
+        except OSError:
+            return 3  # no daemon here
+        try:
+            s.sendall((json.dumps({"jsonrpc": "2.0", "id": 1, "method": method, "params": json.loads(params)}) + "\n").encode())
+        except OSError:
+            return 1
+        buf = b""
+        while time.monotonic() < deadline and len(buf) <= MAX_REPLY:
+            s.settimeout(max(0.1, deadline - time.monotonic()))
+            try:
+                chunk = s.recv(1 << 16)
+            except OSError:
+                return 1
+            if not chunk:
+                return 1
+            buf += chunk
+            while b"\n" in buf:
+                line, buf = buf.split(b"\n", 1)
+                try:
+                    msg = json.loads(line)
+                except ValueError:
+                    continue
+                if isinstance(msg, dict) and msg.get("id") == 1:
+                    if "result" not in msg:
+                        return 1
+                    print(json.dumps(msg["result"]))
+                    return 0
+    return 1
+
+
+def protect_running_managers(host):
+    """Running user managers predate the drop-ins: each re-executes (it keeps every service, as
+    after a systemd upgrade) to read DefaultOOMScoreAdjust, and only once that shows 200 does the
+    manager itself get -900, so its services can never inherit it."""
+    for line in host.run(["systemctl", "list-units", "--plain", "--no-legend", "--state=running", "user@*.service"], 10)[1].splitlines():
+        unit = line.split()[0] if line.strip() else ""
+        m = re.fullmatch(r"user@(\d+)\.service", unit)
+        name = next((u.pw_name for u in host.users() if m and u.pw_uid == int(m.group(1))), None)
+        if not name:
+            continue
+        host.run(["systemctl", "kill", "--kill-whom=main", "--signal=SIGRTMIN+25", unit], 10)
+        default = ""
+        for _ in range(20):
+            default = host.run(["systemctl", "--user", "-M", f"{name}@", "show", "-p", "DefaultOOMScoreAdjust", "--value"], 5)[1].strip()
+            if default == "200":
+                break
+            host.sleep(0.5)
+        pid = host.run(["systemctl", "show", "-p", "MainPID", "--value", unit], 5)[1].strip()
+        if default == "200" and pid.isdigit() and pid != "0" and host.set_oom_score(int(pid), -900, unit):
+            print(f"{unit}: re-executed; OOM score -900 now, its services get 200")
+        else:
+            print(f"{unit}: not protected until it starts again (DefaultOOMScoreAdjust {default or 'unknown'})")
+
+
+def install(host, config_path, start=True):
+    if config_path:
+        with open(config_path) as f:
+            given = json.load(f)
+        check_config(given)
+        host.write(CONFIG_FILE, json.dumps(given, indent=2) + "\n")
+    with open(os.path.abspath(__file__)) as f:
+        host.write(SBIN, f.read(), 0o755)
+    for path, text in UNITS.items():
+        host.write(path, text)
+    enable = ["systemctl", "enable", "--now", "cmux-machine-health.timer"] if start else ["systemctl", "enable", "cmux-machine-health.timer"]
+    for argv in (["systemctl", "daemon-reload"], enable):
+        if host.run(argv, 60)[0] != 0:
+            raise SystemExit(f"{' '.join(argv)} failed")
+    protect_running_managers(host)
+    print("installed: guard drop-ins apply to new login sessions now")
+    print("installed: cmux-machine-health.timer " + ("runs every 60 s" if start else "enabled, not started (--no-start)") + "; /run/cmux/machine-health.json")
+
+
+def uninstall(host):
+    host.run(["systemctl", "disable", "--now", "cmux-machine-health.timer"], 30)
+    for path in [*UNITS, SBIN]:
+        host.remove(path)
+    host.run(["systemctl", "daemon-reload"], 60)
+    print(f"removed; {CONFIG_FILE} and {STATE_DIR} are kept")
+
+
+def main(argv=None, host=None):
+    host = host or Host()
+    ap = argparse.ArgumentParser(prog="cmux-machine-health", description=__doc__.split("\n")[0])
+    sub = ap.add_subparsers(dest="cmd")
+    runp = sub.add_parser("run", help="one pass (the default)")
+    runp.add_argument("--check-only", action="store_true", help="check and report, start no fix (an image bake's own pass)")
+    ins = sub.add_parser("install", help="install the script, timer and guard drop-ins; enable the timer")
+    ins.add_argument("--config", help="a JSON config to install as " + CONFIG_FILE)
+    ins.add_argument("--no-start", action="store_true", help="enable the timer without starting it (an image bake starts it last)")
+    sub.add_parser("uninstall", help="stop the timer and remove what install wrote")
+    sub.add_parser("config", help="print the effective config")
+    r = sub.add_parser("rpc")
+    r.add_argument("--timeout", type=float, default=10)
+    r.add_argument("sock")
+    r.add_argument("method")
+    r.add_argument("params")
+    args = ap.parse_args(argv)
+    if args.cmd == "rpc":
+        return rpc(args.sock, args.method, args.params, args.timeout)
+    if args.cmd == "config":
+        print(json.dumps(load_config(host)[0], indent=2))
+        return 0
+    if not host.is_root():
+        print("cmux-machine-health: run as root", file=sys.stderr)
+        return 2
+    if args.cmd == "install":
+        install(host, args.config, start=not args.no_start)
+        return 0
+    if args.cmd == "uninstall":
+        uninstall(host)
+        return 0
+    with host.lock() as mine:
+        if not mine:
+            print("another pass is running")
+            return 0
+        health = run_pass(host, heal=not getattr(args, "check_only", False))
+    print(f"{len(health['problems'])} problems reported, {len(health['fixed'])} fixes in 24 h")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

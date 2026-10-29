@@ -222,7 +222,7 @@ final class TabGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
         makeKeyAndOrderFront(nil)
         makeFirstResponder(nameField)
         styleFieldEditor()
-        openPopup(pivot: popupPivot(toward: anchor))
+        openPopup(pivot: popupPivot(toward: anchor), entrance: true)
     }
 
     /// Gray selection and caret: the system accent (blue) never shows in chrome.

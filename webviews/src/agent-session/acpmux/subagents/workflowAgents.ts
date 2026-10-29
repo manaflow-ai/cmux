@@ -20,6 +20,8 @@ export type WorkflowAgent = {
   agentId?: string;
   kind?: string;
   model?: string;
+  effort?: string;
+  lastMessage?: string;
   fallbackModel?: string;
   tokens?: number;
   toolUses?: number;
@@ -48,6 +50,8 @@ const TEXT = [
   "agentId",
   "kind",
   "model",
+  "effort",
+  "lastMessage",
   "fallbackModel",
   "retryReason",
   "isolation",

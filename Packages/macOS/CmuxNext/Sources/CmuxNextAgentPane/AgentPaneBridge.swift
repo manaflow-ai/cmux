@@ -95,6 +95,8 @@ final class AgentPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
         if request == .ready {
             logger.info("agent pane ready accepted")
             view.applyTheme(force: true)
+            // This document has no composer state, even when the native value has not changed.
+            view.deliver([.composer(view.model.composer)], scripts: [view.model.composer.pageScript])
             view.applyShortcuts()
             view.applyPreviewFeatures()
             AgentPaneSessionStatus.push(to: view)
@@ -103,6 +105,7 @@ final class AgentPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
             if view.pageEvents == nil { view.model.sidebarPreviewVariant.replay(to: view) }
             view.replayCustomization()
             AgentPaneToolCard.replay(to: view)
+            AgentPaneComputerUsePreview.replay(to: view)
             AgentPaneDeviceChat.push(view.deviceChats, to: view)
             AgentPaneClosedItem.push(view.recentlyClosed, to: view)
             AgentPaneNowPlaying.shared.push(to: view)

@@ -52,7 +52,9 @@ struct RapidWorkspaceCreateTests {
         }
     }
 
-    static func launch() async throws -> Launched {
+    /// `sessionEvents`: the connection follows `session.events`, as the app's does (the sidebar document's items and
+    /// the personal rows and groups come on it).
+    static func launch(sessionEvents: Bool = false) async throws -> Launched {
         let binary = try #require(SameTreeDaemonBinary.url)
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("cn-race-\(UUID().uuidString.prefix(8))")
         let session = "cn-race-\(UUID().uuidString.prefix(8).lowercased())"
@@ -65,7 +67,8 @@ struct RapidWorkspaceCreateTests {
         services.palette.bindRegistryActions()
         services.windows.ordersWindowsIn = false
         services.daemon.start {
-            DaemonConnection(configuration: DaemonConnection.Configuration(terminalEnvironment: nil), endpointProvider: launcher.endpointProvider)
+            DaemonConnection(configuration: DaemonConnection.Configuration(terminalEnvironment: nil, sessionEvents: sessionEvents),
+                             endpointProvider: launcher.endpointProvider)
         }
         services.windows.restoreWhenLoaded()
         await Self.wait(within: .seconds(90)) {

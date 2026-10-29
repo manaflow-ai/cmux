@@ -13,7 +13,7 @@ extension WorkspaceRowView {
     func configureBadges(_ ws: SidebarWorkspace, shown: WorkspaceRowContent, style: SidebarRowBadgeStyle,
                          stackLimit: Int = SidebarRowBadgeStackCap.tunable.defaultValue.limit) {
         let badges = WorkspaceRowBadges(unread: ws.unread, activity: shown.activity, stackLimit: stackLimit,
-                                        detailed: shown.detailedStatus)
+                                        detailed: shown.detailedStatus || ws.activityFromProgram)
         guard style != .trailing, !isShowingPlaceholder else {
             rowBadge.configure([], look: .corner)
             return

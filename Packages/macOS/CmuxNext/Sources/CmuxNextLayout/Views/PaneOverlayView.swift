@@ -61,6 +61,9 @@ final class PaneOverlayView: NSView {
     /// The attention ring glows (`notifications.attention.ringStyle` glow), `PaneOverlayView+Glow`.
     var ringGlows: Bool { attentionSettings.ringStyle == .glow }
     private var attentionMark: AttentionMark?
+    /// The ring is drawn for the current mark. A mark that arrived while the look was
+    /// `none` has no ring yet, so turning the look on still shows it.
+    private var attentionRingShown = false
     /// The source color of the ring flashing out: the flash keeps it after its mark is gone.
     private var dismissingColor: ThemeRGB?
     /// The ring shown or flashing out marks an agent chat (`AttentionMark.agentChat`).
@@ -316,6 +319,7 @@ final class PaneOverlayView: NSView {
         attentionMark = mark
         attentionLook = observedAttentionLook()
         guard let mark, attentionSettings.drawsRing else {
+            attentionRingShown = false
             attention.removeAnimation(forKey: "attention")
             // The look turned off (none) mid-flash: the flash and its glow go with it.
             if !attentionSettings.drawsRing {
@@ -339,15 +343,16 @@ final class PaneOverlayView: NSView {
         attention.removeAnimation(forKey: "attention-dismiss")
         attention.removeAnimation(forKey: "attention-dismiss-glow")
         dismissingColor = nil
-        guard previous?.generation != mark.generation else { return }
-        // A new notification: run the style's animation from the start and
-        // rest at its final opacity (the steady ring swells from its rest when
-        // it already shows, rather than dropping out first).
+        // Attention is on or off, not a queue (https://github.com/manaflow-ai/cmux/issues/25662): a
+        // further event on a ring that already shows leaves it as it is, so it never comes back.
+        guard !attentionRingShown else { return }
+        attentionRingShown = true
+        // Off to on: run the style's animation from the start and rest at its final opacity.
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         attention.opacity = Motion.attentionRestingOpacity(attentionSettings, look: attentionLook)
         attention.removeAnimation(forKey: "attention")
-        if !mark.quiet, let animation = Motion.indicators.attentionAnimation(attentionSettings, look: attentionLook, showing: previous != nil) {
+        if !mark.quiet, let animation = Motion.indicators.attentionAnimation(attentionSettings, look: attentionLook) {
             attention.add(animation, forKey: "attention")
         }
         CATransaction.commit()
