@@ -1,5 +1,4 @@
-import CmuxNextFocus
-import CmuxNextInputModel
+public import CmuxNextFocus
 
 // World invariants (W): the focus model against what AppKit, Ghostty,
 // WebKit and Chromium actually show (plans/cmux-next/input-spec.md
@@ -7,15 +6,21 @@ import CmuxNextInputModel
 // whose selected content is not presented yet is reported as unsettled and
 // its window's content checks are skipped.
 nonisolated extension InputInvariants {
-    struct WorldResult: Hashable, Sendable, Codable {
-        var violations: [InputViolation]
+    public struct WorldResult: Hashable, Sendable, Codable {
+        public var violations: [InputViolation]
         /// Windows skipped because content was still being presented.
-        var unsettled: [String]
+        public var unsettled: [String]
         /// The observation checked, when the invariant registry keeps it as the rules' state (its report shows it).
-        var observation: InputObservation?
+        public var observation: InputObservation?
+
+        public init(violations: [InputViolation], unsettled: [String], observation: InputObservation? = nil) {
+            self.violations = violations
+            self.unsettled = unsettled
+            self.observation = observation
+        }
     }
 
-    static func world(_ observation: InputObservation) -> WorldResult {
+    public static func world(_ observation: InputObservation) -> WorldResult {
         var out: [InputViolation] = []
         var unsettled: [String] = []
         for window in observation.windows {
@@ -35,8 +40,8 @@ nonisolated extension InputInvariants {
     }
 
     /// The ids `world(_:)` can report: the invariant registry declares one rule for each, and each rule takes its own
-    /// id's share of the one world result of a pass (InputVerificationService+Invariants).
-    static let worldRules: [InputInvariant] = [
+    /// id's share of the one world result of a pass (``declaredRules(world:)``).
+    public static let worldRules: [InputInvariant] = [
         .overlayOnTop, .livePane, .paneWhenPanes, .targetKind, .noStaleExpectation, .focusModeLive, .omnibarTarget,
         .responderMatches, .layoutMatches, .ghosttyMatches, .chromiumMatches, .keyWindowOwned, .overlaysMatch,
         .contextMatches, .presentedMatchesSelection, .keysHaveTarget,
@@ -44,7 +49,7 @@ nonisolated extension InputInvariants {
 
     /// The focused pane shows the tab the model targets, and that tab's content is not owed (a page made after the
     /// frame commits, or waiting for its engine: level state, not a delay).
-    static func isSettled(_ window: InputObservation.Window) -> Bool {
+    public static func isSettled(_ window: InputObservation.Window) -> Bool {
         let resolved = window.model.underlying
         guard let pane = resolved.pane, let tab = resolved.tab else { return true }
         return window.presented[pane] == tab && window.owed?.contains(pane) != true
@@ -92,7 +97,7 @@ nonisolated extension InputInvariants {
     }
 
     /// The responder AppKit should report for `resolved` (W1; `debug.focus` uses the same table).
-    static func expectedResponder(_ resolved: FocusState.Resolved, childPage: String?) -> FocusEvent.Responder? {
+    public static func expectedResponder(_ resolved: FocusState.Resolved, childPage: String?) -> FocusEvent.Responder? {
         switch resolved {
         case .terminal(let pane, _): .content(pane: pane)
         // A Chromium page has the keys in its own window; this window keeps no responder.
@@ -187,7 +192,7 @@ nonisolated extension InputInvariants {
         return out
     }
 
-    static func describe(_ responder: FocusEvent.Responder) -> String {
+    public static func describe(_ responder: FocusEvent.Responder) -> String {
         switch responder {
         case .content(let pane): "content:\(pane)"
         case .addressBar(let pane): "addressBar:\(pane)"
@@ -203,7 +208,7 @@ nonisolated extension InputInvariants {
 
 extension FocusEvent.Responder {
     /// The pane a pane-scoped responder is in.
-    nonisolated var pane: String? {
+    public nonisolated var pane: String? {
         switch self {
         case .content(let pane), .addressBar(let pane), .findBar(let pane), .devTools(let pane): pane
         default: nil

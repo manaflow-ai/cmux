@@ -1454,7 +1454,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // AppKit recorders and the key routing invariants (KeyRouter's tier rules) stay in the App.
         .target(
             name: "CmuxNextInputModel",
-            dependencies: ["CmuxNextDaemon", "CmuxNextFocus"],
+            // CmuxNextInvariants: the input rules declare themselves (Debug and bench builds only).
+            dependencies: ["CmuxNextDaemon", "CmuxNextFocus", "CmuxNextInvariants"],
             swiftSettings: daemonSwiftSettings
         ),
         // App-layer mapping between daemon records and feature view models,

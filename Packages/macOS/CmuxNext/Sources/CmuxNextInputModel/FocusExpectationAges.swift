@@ -5,7 +5,7 @@ public import CmuxNextFocus
 /// never landed, and the keys go to the old target meanwhile. A create that failed leaves its expectation until a
 /// newer intent; that is reported too (the keys went nowhere new). Keeps, per window, the expectation seen last and when it was
 /// first seen; a different expectation (a newer intent) starts its own clock. Pure: the caller passes the time. The
-/// invariant registry's W11 liveness rule judges the waits it returns (`InputVerificationService.expectationRule`).
+/// invariant registry's W11 liveness rule judges the waits it returns (`InputInvariants.expectationRule`).
 public nonisolated struct FocusExpectationAges: Sendable {
     private var seen: [String: Entry] = [:]
 

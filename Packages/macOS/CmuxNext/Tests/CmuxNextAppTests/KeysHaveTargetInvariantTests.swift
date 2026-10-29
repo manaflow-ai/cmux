@@ -74,7 +74,7 @@ struct KeysHaveTargetInvariantTests {
     }
 
     #if DEBUG || CMUX_BENCH_HOOKS
-    // W11 runs as the invariant registry runs it in the app (InputVerificationService.expectationRule): one turn per
+    // W11 runs as the invariant registry runs it in the app (InputInvariants.expectationRule): one turn per
     // step, at the step's time.
 
     @MainActor @Test func anExpectationReKeyedFromItsSurfaceToItsTabKeepsItsClock() {
@@ -128,7 +128,7 @@ struct KeysHaveTargetInvariantTests {
 /// W11 in a registry of its own, with a clock and a deadline the test moves.
 @MainActor
 private final class W11Run {
-    let limit = InputVerificationService.expectationLimit
+    let limit = InputInvariants.expectationLimit
     var now = ContinuousClock.now
     var windows: [InputObservation.Window] = []
     var holding: Set<String> = []
@@ -138,7 +138,7 @@ private final class W11Run {
 
     init() {
         let registry = InvariantRegistry(mode: .on, now: { [unowned self] in now }, schedule: { [unowned self] delay, _ in scheduled = delay })
-        registry.declare(InputVerificationService.expectationRule { [unowned self] _ in (windows, holding) })
+        registry.declare(InputInvariants.expectationRule { [unowned self] _ in (windows, holding) })
         self.registry = registry
     }
 

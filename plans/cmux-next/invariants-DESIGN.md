@@ -556,6 +556,11 @@ This branch implements steps 1 to 3, step 4 except the BlockingDetector sink (VS
 - **Turn observer in the package.** `InvariantTurnObserver` is in `CmuxNextInvariants`, not the App: the
   `app-size` guardrail refuses a new App file that is not a move, and the observer needs only
   `MainRunLoopObserver` (CmuxNextCompat). The App only constructs it, and only when the registry is armed.
+- **The wiring lives in the packages.** The world check (`InputInvariants+World`), the input rules
+  (`InputInvariants.declaredRules(world:)`, `expectationRule`), the observation reuse (`InputObservationReuse`) are
+  in CmuxNextInputModel; the report pipeline (`InvariantReporter`: one capture turn per batch, the files lane's
+  encoding, the ledger's annotation) is in CmuxNextInvariants. The App only builds the observation from its live
+  state, names the facets and passes its scheduler: CmuxNextApp does not grow (check-app-size.sh `--base`).
 - **No App `Invariants/` folder and no `AppInvariants` type,** for the same reason. The input rules are declared
   by `InputVerificationService.declareInvariants(in:services:)` (InputVerificationService.swift); G1 by
   `ChildPageGeometry.declareInvariants(in:services:)`; DP1 by `DebugTabDrag.declareInvariants(in:services:)`;

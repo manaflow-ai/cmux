@@ -6,7 +6,7 @@ import CmuxNextInvariants
 import Testing
 @testable import CmuxNextApp
 
-/// The input rules as the invariant registry declares them (InputVerificationService.worldRules): one world check per
+/// The input rules as the invariant registry declares them (InputInvariants.declaredRules): one world check per
 /// pass, each declared rule taking its own id's share of it, W4 only where the harness waited, and the windows the
 /// check skips (a pane that does not present its target yet, or whose content is owed) waited on by W9, not checked.
 struct InputInvariantRulesTests {
@@ -79,7 +79,7 @@ struct InputInvariantRulesTests {
                 return InputInvariants.world(fixture.current)
             }
         }
-        for rule in InputVerificationService.worldRules(world) { registry.declare(rule) }
+        for rule in InputInvariants.declaredRules(world: world) { registry.declare(rule) }
         registry.noteAction("pane.split", origin: "key")
         registry.runTurn()
         #expect(fixture.builds == 1, "every rule of the pass shares one world check")

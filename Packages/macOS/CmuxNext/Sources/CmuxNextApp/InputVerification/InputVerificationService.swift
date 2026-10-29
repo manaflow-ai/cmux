@@ -22,12 +22,10 @@ final class InputVerificationService {
     private(set) var invariants: InvariantRegistry?
     /// Runs the registry at the end of every committed turn; only while the registry is armed.
     private var turnObserver: InvariantTurnObserver?
-    /// Where the violations' reports go.
-    private var reports: InvariantReportStore?
+    /// Writes the violations' reports, off the violating turn.
+    private var reporter: InvariantReporter?
     /// Each window's observation as the last pass built it, taken again by a pass that touched nothing it reads.
-    private var observedWindows: [String: InputObservation.Window] = [:]
-    /// New violations whose report waits for its capture turn (one per frame, however many violations).
-    private var unreported: [InvariantRegistry.NewViolation] = []
+    private let observed = InputObservationReuse()
     #endif
     /// The journal of the latest violation's report, for `debug.replay {source: "report"}` (nil before one).
     private(set) var lastReportJournal: [InputJournalEntry]?
@@ -51,12 +49,6 @@ final class InputVerificationService {
     var keyboardGuardSubscription: InputSubscription?
     private weak var services: AppServices?
 
-    /// How long a focus expectation may wait to land (W11): the creation hold (`CreationInputCoordinator.holdLimit`,
-    /// 2 s), the longest the keys typed meanwhile are held for it, plus W9's wait for the presentation.
-    static let expectationLimit: Duration = .seconds(2) + presentationLimit
-    /// How long a window's focused pane may present another tab than the one the model targets (W9): about 12
-    /// display frames.
-    static let presentationLimit: Duration = .milliseconds(200)
     /// Journal entries a violation's report keeps.
     static let reportJournalTail = 512
     /// Tab switch timeline marks (category "tab-switch", debug level).
@@ -261,9 +253,24 @@ extension InputVerificationService {
         let deadline = MainDeadline(owner: "InvariantRegistry.liveness", workClass: .background, scheduler: services.mainDeadlines)
         let registry = InvariantRegistry(mode: mode) { delay, work in deadline.schedule(after: delay, work) }
         invariants = registry
-        reports = InvariantReportStore(tag: services.environment.tag, runner: services.work)
-        registry.onReports = { [weak self] batch in self?.reported(batch) }
-        declareInvariants(in: registry, services: services)
+        let reporter = makeReporter(registry, services: services)
+        self.reporter = reporter
+        registry.onReports = { [weak reporter] in reporter?.take($0) }
+        // The input rules over one world check per pass; W11 over the same observation.
+        let world: @MainActor (InvariantPass) -> InputInvariants.WorldResult? = { [weak self, weak services] pass in
+            guard let self, let services else { return nil }
+            return pass.memo("input.world") {
+                let observed = observation(in: pass, services: services)
+                var result = InputInvariants.world(observed)
+                result.observation = observed
+                return result
+            }
+        }
+        for rule in InputInvariants.declaredRules(world: world) { registry.declare(rule) }
+        registry.declare(InputInvariants.expectationRule { [weak services] pass in
+            guard let services, let observation = world(pass)?.observation else { return nil }
+            return (observation.windows, Self.holdingWindows(services))
+        })
         ChildPageGeometry.declareInvariants(in: registry, services: services)
         DebugTabDrag.declareInvariants(in: registry, services: services)
         SurfaceDiagnosticsReport.declareInvariants(in: registry, services: services)
@@ -286,6 +293,36 @@ extension InputVerificationService {
         turnObserver = InvariantTurnObserver(registry: registry) { [weak turns] pass in
             if let turns { turns.debugCheck(pass) } else { pass() }
         }
+    }
+
+    /// The registry's reports: journaled at once; the journal tail, the observation, `debug.focus`,
+    /// `debug.surfaces` and `debug.layers` read once per report in a background turn after the frame.
+    private func makeReporter(_ registry: InvariantRegistry, services: AppServices) -> InvariantReporter {
+        let journal = InputJournal.shared
+        let delivery = MainDelivery(class: .background, owner: "InvariantReports.written", on: services.mainWork)
+        return InvariantReporter(
+            registry: registry, store: InvariantReportStore(tag: services.environment.tag, runner: services.work),
+            post: { [weak services] work in services?.mainWork.post(.background, owner: "InvariantReports.capture", work) },
+            deliver: { work in delivery.run(work) },
+            journal: { batch in
+                journal.append(window: batch.first?.subject.windowID, .desync(batch.map { "\($0.id.rawValue) \($0.subject): \($0.detail)" }))
+                return journal.stats.lastSeq
+            },
+            capture: { [weak self, weak services] in
+                guard let services else { return [:] }
+                let entries = journal.entries(last: Self.reportJournalTail)
+                self?.lastReportJournal = entries
+                let stats = journal.stats, observation = InputObservationBuilder.observe(services)
+                let facets: [String: CmuxNextSettings.JSONValue] = [
+                    "debug_focus": DebugFocus.report(services: services), "debug_surfaces": SurfaceDiagnosticsReport.make(services),
+                    "debug_layers": DebugLayers.report(services: services), "tag": services.environment.tag.map { .string($0) } ?? .null,
+                ]
+                var facts: InvariantReporter.Facts = facets.mapValues { facet -> @Sendable () -> Data in { Data(facet.prettyText().utf8) } }
+                facts["observation"] = { Data(AppControl.encode(observation).prettyText().utf8) }
+                facts["journal"] = { Data(AppControl.encode(entries).prettyText().utf8) }
+                facts["journal_stats"] = { Data(AppControl.encode(stats).prettyText().utf8) }
+                return facts
+            })
     }
 
     /// A press: the focus rules of the window that has the keys (its own, or the one that owns its page, panel or
@@ -313,115 +350,22 @@ extension InputVerificationService {
         if found.count < keys.count { registry.touch(.presentation, .app) }
     }
 
-    /// The input rules (plans/cmux-next/input-spec.md 2.5, focus-invariant.md): ``worldRules(_:)`` on one world check
-    /// per pass (each rule takes its own id's share of it), and the liveness rule W11 (a focus expectation lands). The
-    /// observation names windows and panes, so none of them is a parity rule.
-    func declareInvariants(in registry: InvariantRegistry, services: AppServices) {
-        let world: @MainActor (InvariantPass) -> InputInvariants.WorldResult? = { [weak self, weak services] pass in
-            guard let self, let services else { return nil }
-            return pass.memo("input.world") {
-                let observed = observation(in: pass, services: services)
-                var result = InputInvariants.world(observed)
-                result.observation = observed
-                return result
-            }
-        }
-        for rule in Self.worldRules(world) { registry.declare(rule) }
-        registry.declare(Self.expectationRule { [weak services] pass in
-            guard let services, let observation = world(pass)?.observation else { return nil }
-            return (observation.windows, Self.holdingWindows(services))
-        })
-    }
-
-    /// The rules over one world check per pass (`world`, memoized by the caller): F1-F8, W1-W3, W5-W8 and W10 after
-    /// each action and each touched turn; W4 at the harness check point (it compares the model with Chromium's focus,
-    /// which an async reply sets: until an in-flight ledger names that wait as level state, it is checked only where
-    /// the harness already waited, after a journey step); `INV-UNDECLARED` for an id the world check reports that no
-    /// rule declares (never dropped); and the liveness rule W9 over the windows the check skipped as unsettled.
-    static func worldRules(_ world: @escaping @MainActor (InvariantPass) -> InputInvariants.WorldResult?) -> [InvariantRule] {
-        var rules = InputInvariants.worldRules.map { invariant in
-            let chromium = invariant == .chromiumMatches
-            return InvariantRule(
-                id: InvariantID(rawValue: invariant.rawValue), statement: invariant.summary, owner: "InputVerification",
-                reads: [.focus, .presentation, .paneFrame], points: chromium ? .harness : [.afterAction, .afterTurn],
-                cost: .walk, parity: false,
-                interim: chromium ? "harness only (after each journey step) until the Chromium focus in-flight ledger exists" : nil,
-                read: world,
-                check: { result in result.violations.filter { $0.invariant == invariant }.map(Self.finding) })
-        }
-        let declared = Set(InputInvariants.worldRules)
-        rules.append(InvariantRule(
-            id: "INV-UNDECLARED", statement: "every id the world check reports is a declared rule", owner: "InputVerification",
-            reads: [.focus, .presentation, .paneFrame], points: [.afterAction, .afterTurn], cost: .cheap, parity: false,
-            read: world,
-            check: { result in
-                result.violations.filter { !declared.contains($0.invariant) }.map {
-                    InvariantFinding(subject: $0.window.map(InvariantSubject.window) ?? .app,
-                                     detail: "\($0.invariant.rawValue) is not declared (InputInvariants.worldRules): \($0.detail)")
-                }
-            }))
-        rules.append(.liveness(
-            id: InvariantID(rawValue: InputInvariant.presentationSettles.rawValue), statement: InputInvariant.presentationSettles.summary,
-            owner: "InputVerification", reads: [.focus, .presentation], limit: presentationLimit) { pass in
-                (world(pass)?.unsettled ?? []).map {
-                    InvariantPending(subject: .window($0), detail: "the focused pane does not present the targeted tab")
-                }
-            })
-        return rules
-    }
-
-    /// W11 (focus-invariant.md) as the registry runs it: a window's focus expectation still pending
-    /// ``expectationLimit`` after its clock started (`FocusExpectationAges`: one expectation keeps its clock across a
-    /// re-key; a window whose keys wait in a create's hold starts it when the hold ends). `read` gives the windows and
-    /// the holding ones, nil when there is nothing to read.
-    static func expectationRule(
-        limit: Duration = expectationLimit,
-        read: @escaping @MainActor (InvariantPass) -> (windows: [InputObservation.Window], holding: Set<String>)?
-    ) -> InvariantRule {
-        let clocks = ExpectationClocks()
-        return .liveness(
-            id: InvariantID(rawValue: InputInvariant.expectationLands.rawValue), statement: InputInvariant.expectationLands.summary,
-            owner: "InputVerification", reads: [.focus, .presentation], limit: limit) { pass in
-                guard let input = read(pass) else { return [] }
-                return clocks.ages.pending(input.windows, now: pass.now, holding: input.holding).map {
-                    InvariantPending(subject: .window($0.window), since: $0.since, detail: $0.detail)
-                }
-            }
-    }
-
     /// The observation of this pass, built once: a window no key it reads was touched for keeps the observation the
-    /// last pass built (its state did not change); the windows a turn touched, the key window and the active one are
-    /// read again. After an action, at a liveness limit and on a check, every window is read.
+    /// last pass built; the windows a turn touched, the key window and the active one are read again.
     private func observation(in pass: InvariantPass, services: AppServices) -> InputObservation {
         pass.memo("input.observation") {
-            let dirty = pass.touchedSubjects([.focus, .presentation, .paneFrame]).map { Self.windowIDs($0, services: services) }
-            let pinned = Set([services.windows.active?.state.id, NSApp.keyWindow.flatMap { services.windows.owner(of: $0)?.state.id }]
-                .compactMap { $0 })
-            let kept = observedWindows
-            let observation = InputObservationBuilder.observe(services) { controller in
-                let id = controller.state.id
-                guard let dirty, !dirty.contains(id), !pinned.contains(id) else { return nil }
-                return kept[id]
+            let windows = services.windows
+            let dirty = pass.touchedSubjects([.focus, .presentation, .paneFrame]).map { subjects in
+                Set(subjects.compactMap { subject -> String? in
+                    guard case .pane(let key) = subject else { return subject.windowID }
+                    return windows.controllers.first { $0.content?.panes.values.contains { $0.paneKey == key } == true }?.state.id
+                })
             }
-            observedWindows = Dictionary(observation.windows.map { ($0.id, $0) }, uniquingKeysWith: { _, last in last })
+            let pinned = Set([windows.active?.state.id, NSApp.keyWindow.flatMap { windows.owner(of: $0)?.state.id }].compactMap { $0 })
+            let observation = InputObservationBuilder.observe(services) { [observed] in observed.window($0.state.id, dirty: dirty, pinned: pinned) }
+            observed.keep(observation)
             return observation
         }
-    }
-
-    /// The windows `subjects` name: a window itself, or the window that holds a pane.
-    private static func windowIDs(_ subjects: Set<InvariantSubject>, services: AppServices) -> Set<String> {
-        var ids = Set<String>()
-        for subject in subjects {
-            switch subject {
-            case .window(let id): ids.insert(id)
-            case .pane(let key):
-                if let owner = services.windows.controllers.first(where: { $0.content?.panes.values.contains { $0.paneKey == key } == true }) {
-                    ids.insert(owner.state.id)
-                }
-            default: break
-            }
-        }
-        return ids
     }
 
     /// The windows whose keys wait in a creation or New Tab hold now: W11's clock starts when the hold ends.
@@ -431,84 +375,6 @@ extension InputVerificationService {
             router.creationInputCoordinator.isHolding(in: $0.window) || router.newTabInputCoordinator.isHolding(in: $0.window)
         }.map(\.state.id))
     }
-
-    nonisolated static func finding(_ violation: InputViolation) -> InvariantFinding {
-        InvariantFinding(subject: violation.window.map(InvariantSubject.window) ?? .app, detail: violation.detail)
-    }
-
-    /// New violations (the registry's `onReports`, once per pass): journaled now, in one entry. Their report (the
-    /// rules' states, the journal tail, the observation, `debug.focus`, `debug.surfaces` and `debug.layers`) is read
-    /// once for every violation still waiting, in a background-class turn of its own after this frame, never in the
-    /// violating turn; encoding and the write run on the files lane.
-    private func reported(_ batch: [InvariantRegistry.NewViolation]) {
-        guard let services, let registry = invariants else { return }
-        let journal = InputJournal.shared
-        journal.append(window: batch.first?.violation.subject.windowID,
-                       .desync(batch.map { "\($0.violation.id.rawValue) \($0.violation.subject): \($0.violation.detail)" }))
-        let tail = journal.stats.lastSeq
-        for item in batch { registry.ledger.annotate(item.violation.seq, journalTail: tail) }
-        let waiting = !unreported.isEmpty
-        unreported += batch
-        guard !waiting else { return }
-        services.mainWork.post(.background, owner: "InvariantReports.capture") { [weak self] in self?.captureReports() }
-    }
-
-    /// Reads the facts of every waiting violation's report once, and hands the encoding and the write to the files
-    /// lane; the ledger names the report (and keeps the rules' states) once the file is written.
-    private func captureReports() {
-        guard let services, let reports, let first = unreported.first else { return }
-        let batch = unreported
-        unreported = []
-        let journal = InputJournal.shared
-        let entries = journal.entries(last: Self.reportJournalTail)
-        lastReportJournal = entries
-        let stats = journal.stats, observation = InputObservationBuilder.observe(services)
-        let facets: [String: CmuxNextSettings.JSONValue] = [
-            "debug_focus": DebugFocus.report(services: services),
-            "debug_surfaces": SurfaceDiagnosticsReport.make(services),
-            "debug_layers": DebugLayers.report(services: services),
-        ]
-        let violations = batch.map { (seq: $0.violation.seq, json: InvariantsControl.json($0.violation), state: $0.state) }
-        let tag = services.environment.tag
-        let delivery = MainDelivery(class: .background, owner: "InvariantReports.written", on: services.mainWork)
-        reports.write(first: first.violation, count: batch.count, {
-            var states: [UInt64: Data] = [:]
-            var items: [CmuxNextSettings.JSONValue] = []
-            for violation in violations {
-                let state = violation.state()
-                if let state { states[violation.seq] = state }
-                guard case .object(var fields) = violation.json else { continue }
-                fields["state"] = state.flatMap { try? CmuxNextSettings.JSONValue.parse($0) } ?? .null
-                items.append(.object(fields))
-            }
-            var fields = facets
-            fields["tag"] = tag.map(CmuxNextSettings.JSONValue.string) ?? .null
-            fields["created_at"] = .string(Date().formatted(.iso8601))
-            fields["violations"] = .array(items)
-            fields["observation"] = AppControl.encode(observation)
-            fields["journal"] = AppControl.encode(entries)
-            fields["journal_stats"] = AppControl.encode(stats)
-            return (Data(CmuxNextSettings.JSONValue.object(fields).prettyText().utf8), states)
-        }, written: { [weak self] url, states in
-            let seqs = violations.map(\.seq)
-            guard let self else { return }
-            delivery.run { [weak self] in self?.reportWritten(url, seqs: seqs, states: states) }
-        })
-    }
-
-    /// The report file exists: the ledger names it, and keeps each rule's state that fits.
-    private func reportWritten(_ url: URL, seqs: [UInt64], states: [UInt64: Data]) {
-        let path = url.path(percentEncoded: false)
-        for seq in seqs { invariants?.ledger.annotate(seq, report: path, state: states[seq]) }
-    }
-}
-#endif
-
-#if DEBUG || CMUX_BENCH_HOOKS
-/// W11's clock per window, kept by its rule (`InputVerificationService.expectationRule`): one expectation keeps its
-/// clock across a re-key.
-private final class ExpectationClocks {
-    var ages = FocusExpectationAges()
 }
 #endif
 
