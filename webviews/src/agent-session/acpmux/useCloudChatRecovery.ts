@@ -39,26 +39,33 @@ export function useCloudChatRecovery({ cloud, session, active, recheck }: Props)
     let timer: ReturnType<typeof setTimeout> | undefined;
     const deadline = Date.now() + 60_000;
     if (!resuming) setState(undefined);
+    // A failed or superseded inventory read says nothing about the accepted wake.
+    // Keep the paused card and the original deadline while the machine reconnects.
+    const retry = () => {
+      if (disposed || !resuming) return;
+      if (Date.now() < deadline) {
+        timer = setTimeout(() => void read(), 1_000);
+      } else {
+        setResuming(false);
+        setError(true);
+      }
+    };
     const read = async () => {
       if (!identity || !active) return;
       try {
         const reply = await postNative(resuming ? "cloudMachine.list" : "cloudMachine.recoveryList");
         if (disposed) return;
         const next = cloudChatState(JSON.parse(identity) as CloudChatIdentity, reply);
-        setState(next);
+        if (next !== undefined || !resuming) setState(next);
         if (resuming && next !== "deleted" && next !== undefined) await recheck();
         if (disposed) return;
-        if (resuming && next !== "deleted" && next !== undefined && Date.now() < deadline) {
-          timer = setTimeout(() => void read(), 1_000);
-        } else if (resuming) {
+        if (next === "deleted") {
           setResuming(false);
-          setError(next !== "deleted");
+          return;
         }
+        retry();
       } catch {
-        if (!disposed && resuming) {
-          setResuming(false);
-          setError(true);
-        }
+        retry();
       }
     };
     void read();
