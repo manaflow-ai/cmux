@@ -172,7 +172,10 @@ fn fixes_name_the_listed_machine_and_never_echo_a_secret_key() {
     for key in ["cmj_0123456789abcdefghij", "cmm_secret", "a b; rm -rf ~", "x\u{1b}[2J"] {
         let checked = remote_steps(ORIGIN, key, Some(Ok(vec![])), None, now);
         let text = format!("{checked:?}");
-        assert!(!text.contains("cmj_") && !text.contains("cmm_") && !text.contains("rm -rf"), "{text}");
+        assert!(
+            !text.contains("cmj_") && !text.contains("cmm_") && !text.contains("rm -rf"),
+            "{text}"
+        );
         assert_eq!(
             state(&checked, "listed").fix.as_deref(),
             Some("Not joined (or revoked): cmux machine add --name NAME")

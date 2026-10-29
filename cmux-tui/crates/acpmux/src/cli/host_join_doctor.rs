@@ -529,7 +529,10 @@ fn repair(facts: &Facts) -> bool {
         // The one install path: the join script with no token installs and repairs only
         // (checked download, service, daemon), and never redeems.
         ran = true;
-        let script = format!("curl --proto '=https' --tlsv1.2 -fsSL {}/v1/machines/join.sh | sh", origin(facts));
+        let script = format!(
+            "curl --proto '=https' --tlsv1.2 -fsSL {}/v1/machines/join.sh | sh",
+            origin(facts)
+        );
         let _ = output(Path::new("sh"), &["-c", &script]);
         return ran;
     }

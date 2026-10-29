@@ -256,7 +256,8 @@ fn an_unsafe_hub_origin_or_path_is_never_printed() {
     let credential = step(&loose, "credential");
     assert_eq!(credential.state, StepState::Fail, "a loose file still fails");
     assert!(!format!("{credential:?}").contains("cmm_"), "{credential:?}");
-    let spaced = with_status(json!({"credentialMode": "0644", "credentialPath": "/h/my dir/m.json"}));
+    let spaced =
+        with_status(json!({"credentialMode": "0644", "credentialPath": "/h/my dir/m.json"}));
     assert_eq!(step(&spaced, "credential").fix.as_deref(), Some("chmod 600 '/h/my dir/m.json'"));
     let secret_id = with_status(json!({"machineId": "cmm_leak"}));
     assert_eq!(step(&secret_id, "credential").detail, "joined as this machine");
