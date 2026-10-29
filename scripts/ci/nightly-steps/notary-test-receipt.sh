@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # nightly.yml build-sign-notarize-nightly: "Write notary test receipt". Moved out of the workflow to keep
 # nightly.yml under GitHub's workflow file size limit; the step's env: still sets every input.
-set -uo pipefail
+# The inline step ran under Actions' `bash -e`, then `set -uo pipefail`: the same options here.
+set -euo pipefail
 out="notary-receipt"
 mkdir -p "$out"
 {

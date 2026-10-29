@@ -561,12 +561,18 @@ class ClaimScriptTests(unittest.TestCase):
                     refused = self.run_claim(tmp, **env)
                     self.assertEqual(refused.returncode, 1, refused.stdout)
                     self.assertIn("did not give the job the whole mini", refused.stdout)
-            for sha in ("", OLD_HOOK, SIGNING_HOOKS[0][:12], "x" * 64):
+            for sha in ("", OLD_HOOK, SIGNING_HOOKS[0][:12], "x" * 64, ".*", ".*.*", "[0-9a-f]*",
+                        SIGNING_HOOKS[0] + " ", "#", SIGNING_HOOKS[0][:63] + "."):
                 with self.subTest(sha=sha):
                     refused = self.run_claim(tmp, RUNNER_NAME="cmux12-glaeda-3", GLAEDA_JOB_CLAIM="exclusive",
                                              GLAEDA_HOOK_SHA256=sha)
                     self.assertEqual(refused.returncode, 1, refused.stdout)
                     self.assertIn("is not one", refused.stdout)
+            for sha in SIGNING_HOOKS:
+                with self.subTest(listed=sha):
+                    passed = self.run_claim(tmp, RUNNER_NAME="cmux12-glaeda-3", GLAEDA_JOB_CLAIM="exclusive",
+                                            GLAEDA_HOOK_SHA256=sha)
+                    self.assertEqual(passed.returncode, 0, passed.stdout + passed.stderr)
             (tmp / "keychains" / "build.keychain-db").write_text("left by a killed job")
             claimed = self.run_claim(tmp, RUNNER_NAME="cmux12-glaeda-3", GLAEDA_JOB_CLAIM="exclusive",
                                      GLAEDA_HOOK_SHA256=FIRST_SIGNING_HOOK)

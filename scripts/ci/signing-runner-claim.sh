@@ -44,7 +44,13 @@ if [ "${GLAEDA_JOB_CLAIM:-}" != "exclusive" ]; then
   exit 1
 fi
 hook_sha="${GLAEDA_HOOK_SHA256:-}"
-if [ -z "$hook_sha" ] || ! grep -Eq "^${hook_sha}( |\$)" "$HOOKS_FILE" 2>/dev/null; then
+listed=""
+if [[ "$hook_sha" =~ ^[0-9a-f]{64}$ ]] && [ -r "$HOOKS_FILE" ]; then
+  while read -r sha _; do
+    if [ "$sha" = "$hook_sha" ]; then listed=1; fi
+  done < "$HOOKS_FILE"
+fi
+if [ -z "$listed" ]; then
   echo "::error title=Signing runner::This owned Mac's glaeda hook (GLAEDA_HOOK_SHA256='${hook_sha}') is not one $HOOKS_FILE lists. Only a listed hook waits out an earlier job's leftover processes; this run's Blacksmith job signs instead."
   exit 1
 fi
