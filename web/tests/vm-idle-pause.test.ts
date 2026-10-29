@@ -572,7 +572,11 @@ describe("a shell running a command", () => {
   });
 
   test("a login or interactive shell at its prompt stays idle", async () => {
-    for (const [comm, cmdline] of [["bash", ["-bash"]], ["bash", ["bash"]], ["zsh", ["zsh", "-l"]], ["bash", ["bash", "-i"]], ["bash", ["bash", "--login"]]] as const) {
+    for (const [comm, cmdline] of [["bash", ["-bash"]], ["bash", ["bash"]], ["zsh", ["zsh", "-l"]], ["bash", ["bash", "-i"]], ["bash", ["bash", "--login"]],
+      // Option operands are not scripts: an rcfile, a set -o option, a shopt name; -s reads commands from stdin.
+      ["bash", ["bash", "--rcfile", "/home/cmux/.cmux/bashrc", "-i"]], ["bash", ["bash", "--init-file", "x.sh"]],
+      ["bash", ["bash", "-o", "emacs"]], ["bash", ["bash", "+O", "extglob"]], ["zsh", ["zsh", "-o", "vi"]],
+      ["bash", ["bash", "-s", "arg"]]] as const) {
       expect({ cmdline, busy: (await runProbeScript(shellOnly(comm, cmdline), "NONE")).busy_terminals }).toEqual({ cmdline, busy: 0 });
     }
   });
