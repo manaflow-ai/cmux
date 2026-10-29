@@ -24,7 +24,15 @@ import { ImageViewerContext } from "./imageViewerContext";
 import { useStableImage } from "./imageEntries";
 import { PromptText } from "./PromptText";
 import { attachmentPath, FileAttachment, type FileAttachmentInfo } from "../FileAttachment";
-import { ForkButton, forkWithFeedback, MessageCopy, MessageTime, PromptRetry, ROW_ICON } from "./MessageActions";
+import {
+  ForkButton,
+  forkWithFeedback,
+  MessageCopy,
+  MessageFooterRow,
+  MessageTime,
+  PromptRetry,
+  ROW_ICON,
+} from "./MessageActions";
 import { TurnActionsContext } from "./turnActions";
 
 /// A waiting steer replaces the hover actions with queue controls until delivery is accepted.
@@ -113,58 +121,60 @@ export function UserBubble({
             className={branch ? "cv-user__actions cv-user__actions--versions" : "cv-user__actions"}
             pending={pending}
           >
-            {branch && branches && (
-              <span className="cv-user__versions">
-                <button
-                  type="button"
-                  className="cv-iconbtn cv-iconbtn--compact"
-                  aria-label={t("message.previousVersion")}
-                  title={t("message.previousVersion")}
-                  disabled={branch.index === 0}
-                  onClick={() => branches.open(branch.sessions[branch.index - 1]!)}
-                >
-                  <ChevronLeft size={12} />
-                </button>
-                <span
-                  className="cv-user__version-count"
-                  aria-label={t("message.versionCount", {
-                    index: branch.index + 1,
-                    total: branch.sessions.length,
-                  })}
-                >
-                  {branches.running?.has(branch.sessions[branch.index] ?? "") && <Spinner size={12} loading />}
-                  {branch.index + 1}/{branch.sessions.length}
+            <MessageFooterRow>
+              {branch && branches && (
+                <span className="cv-user__versions">
+                  <button
+                    type="button"
+                    className="cv-iconbtn cv-iconbtn--compact"
+                    aria-label={t("message.previousVersion")}
+                    title={t("message.previousVersion")}
+                    disabled={branch.index === 0}
+                    onClick={() => branches.open(branch.sessions[branch.index - 1]!)}
+                  >
+                    <ChevronLeft size={12} />
+                  </button>
+                  <span
+                    className="cv-user__version-count"
+                    aria-label={t("message.versionCount", {
+                      index: branch.index + 1,
+                      total: branch.sessions.length,
+                    })}
+                  >
+                    {branches.running?.has(branch.sessions[branch.index] ?? "") && <Spinner size={12} loading />}
+                    {branch.index + 1}/{branch.sessions.length}
+                  </span>
+                  <button
+                    type="button"
+                    className="cv-iconbtn cv-iconbtn--compact"
+                    aria-label={t("message.nextVersion")}
+                    title={t("message.nextVersion")}
+                    disabled={branch.index === branch.sessions.length - 1}
+                    onClick={() => branches.open(branch.sessions[branch.index + 1]!)}
+                  >
+                    <ChevronRight size={12} />
+                  </button>
                 </span>
+              )}
+              <MessageTime at={row.at} className="cv-user__time" />
+              <MessageCopy text={row.text ?? text} />
+              {through !== undefined && (
                 <button
                   type="button"
                   className="cv-iconbtn cv-iconbtn--compact"
-                  aria-label={t("message.nextVersion")}
-                  title={t("message.nextVersion")}
-                  disabled={branch.index === branch.sessions.length - 1}
-                  onClick={() => branches.open(branch.sessions[branch.index + 1]!)}
+                  aria-label={t("message.edit")}
+                  title={t("message.edit")}
+                  onClick={() => setEditing(true)}
                 >
-                  <ChevronRight size={12} />
+                  <Pencil size={ROW_ICON} />
                 </button>
-              </span>
-            )}
-            <MessageTime at={row.at} className="cv-user__time" />
-            <MessageCopy text={row.text ?? text} />
-            {through !== undefined && (
-              <button
-                type="button"
-                className="cv-iconbtn cv-iconbtn--compact"
-                aria-label={t("message.edit")}
-                title={t("message.edit")}
-                onClick={() => setEditing(true)}
-              >
-                <Pencil size={ROW_ICON} />
-              </button>
-            )}
-            {/* Not while it is still on its way: a second send would duplicate it. */}
-            {!row.pending && row.delivery?.state !== "sending" && <PromptRetry rowId={row.id} prompt={resend} />}
-            {forkThrough !== undefined && (
-              <ForkButton onFork={() => forkWithFeedback(forkThrough, () => fork!(forkThrough))} />
-            )}
+              )}
+              {/* Not while it is still on its way: a second send would duplicate it. */}
+              {!row.pending && row.delivery?.state !== "sending" && <PromptRetry rowId={row.id} prompt={resend} />}
+              {forkThrough !== undefined && (
+                <ForkButton onFork={() => forkWithFeedback(forkThrough, () => fork!(forkThrough))} />
+              )}
+            </MessageFooterRow>
           </UserFooter>
         )}
       </div>

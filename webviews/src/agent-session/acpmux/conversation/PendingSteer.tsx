@@ -3,6 +3,7 @@ import type { ComposerAttachment } from "../attachments";
 import { useT } from "../i18n";
 import type { AcpmuxRow, QueueEdit } from "../model";
 import { Close } from "./icons";
+import { MessageFooterRow, ROW_ICON } from "./MessageActions";
 import { TurnActionsContext } from "./turnActions";
 
 /// Under a steer the agent has not read yet: a quiet clock (it reads a steer when its current
@@ -36,45 +37,47 @@ export function PendingSteer({
   const busy = sending;
   return (
     <div className="cv-user__pending">
-      {promptId && (
-        <button
-          type="button"
-          className="cv-user__send-now"
-          // tooltip-allow: says Send now stops only the current step, not the turn; shown nowhere else
-          title={t("steer.sendNowHelp")}
-          disabled={busy}
-          onClick={() => {
-            setSending(true);
-            void send(promptId, { op: "send_now" })
-              .catch(() => false)
-              .then((sent) => {
-                if (!sent) return;
-                sentNowIds.add(promptId);
-                setSentNow(true);
-              })
-              .finally(() => setSending(false));
-          }}
-        >
-          {t("steer.sendNow")}
-        </button>
-      )}
-      {promptId && unsteer && (
-        <button
-          type="button"
-          className="cv-user__take-back"
-          aria-label={t("composer.queueEditMessage")}
-          title={t("composer.queueEditMessage")}
-          disabled={busy}
-          onClick={() => {
-            setSending(true);
-            void unsteer(row)
-              .catch(() => false)
-              .finally(() => setSending(false));
-          }}
-        >
-          <Close size={13} />
-        </button>
-      )}
+      <MessageFooterRow>
+        {promptId && (
+          <button
+            type="button"
+            className="cv-user__send-now"
+            // tooltip-allow: says Send now stops only the current step, not the turn; shown nowhere else
+            title={t("steer.sendNowHelp")}
+            disabled={busy}
+            onClick={() => {
+              setSending(true);
+              void send(promptId, { op: "send_now" })
+                .catch(() => false)
+                .then((sent) => {
+                  if (!sent) return;
+                  sentNowIds.add(promptId);
+                  setSentNow(true);
+                })
+                .finally(() => setSending(false));
+            }}
+          >
+            {t("steer.sendNow")}
+          </button>
+        )}
+        {promptId && unsteer && (
+          <button
+            type="button"
+            className="cv-user__take-back cv-iconbtn cv-iconbtn--compact"
+            aria-label={t("composer.queueEditMessage")}
+            title={t("composer.queueEditMessage")}
+            disabled={busy}
+            onClick={() => {
+              setSending(true);
+              void unsteer(row)
+                .catch(() => false)
+                .finally(() => setSending(false));
+            }}
+          >
+            <Close size={ROW_ICON} />
+          </button>
+        )}
+      </MessageFooterRow>
     </div>
   );
 }
