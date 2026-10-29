@@ -509,6 +509,8 @@ function cronFakes(
     readonly beforeResumeClaim?: FakeHook;
     /** Runs inside each provider status read, before it answers. */
     readonly duringStatus?: FakeHook;
+    /** Runs right after the provider resumes, before the caller records it. */
+    readonly afterResume?: FakeHook;
     /** "accepted": the provider pauses, then the call errors (a lost answer); "refused": it errors without pausing. */
     readonly pauseFails?: "accepted" | "refused";
     /** How many provider status reads fail before they answer. */
@@ -648,8 +650,7 @@ function cronFakes(
     resume: (_provider: string, vmId: string) => Effect.sync(() => {
       recorded.resumed.push(vmId);
       providerState.set(vmId, "running");
-      return { id: vmId, status: "running" };
-    }),
+    }).pipe(Effect.andThen(runHook(fakeOptions.afterResume)), Effect.as({ id: vmId, status: "running" })),
   } as unknown as VmProviderGatewayShape;
   // main's access check (requireAccessibleUserVm) also reads the billing gateway.
   const layer = Layer.mergeAll(
@@ -1309,6 +1310,33 @@ describe("the pause's other races", () => {
     expect(await runAt(T0 + 5 * MIN)).toMatchObject({ aborted: 1 });
     expect(recorded.resumed).toEqual([VM]);
     expect(rows[0].status).toBe("running");
+  });
+
+  test("the compensating resume wakes the machine but its running write loses to Off: the next run repairs the row", async () => {
+    let once = false;
+    const { rows, runAt, recorded, providerState } = setup({
+      // Activity moves the fence and the reconciler records the provider's pause, so the row is paused.
+      duringPause: (repo, ctx) => {
+        Effect.runSync(repo.recordVmApiActivity!({ id: "row-1", providerVmId: VM, at: T0 }));
+        ctx.reconcilerSees("row-1", "paused");
+      },
+      afterResume: (repo) => {
+        if (once) return;
+        once = true;
+        Effect.runSync(repo.setIdlePauseMinutes!({ id: "row-1", minutes: 0 }));
+      },
+    });
+    await runAt(T0);
+    expect(recorded.resumed).toEqual([VM]);
+    expect(providerState.get(VM)).toBe("running");
+    // The row still says paused and holds the claim: the fenced running write lost to Off.
+    expect(rows[0].status).toBe("paused");
+    expect(rows[0].providerMetadata.cmuxIdlePauseClaim).toBeDefined();
+    // The next run finds the provider running and repairs the row through a fenced running write.
+    await runAt(T0 + 5 * MIN);
+    expect(rows[0].status).toBe("running");
+    expect(rows[0].providerMetadata.cmuxIdlePauseClaim).toBeUndefined();
+    expect(recorded.resumed).toEqual([VM]);
   });
 
   test("a person's Pause on a row the reconciler already marked paused is still theirs: not undone", async () => {
