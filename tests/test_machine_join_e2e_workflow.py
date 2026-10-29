@@ -57,6 +57,15 @@ class MachineJoinE2EWorkflow(unittest.TestCase):
         self.assertIn("refs/heads/feat-cmux-next", steps()[0]["run"])
         self.assertIn("exit 1", steps()[0]["run"])
 
+    def test_only_the_runs_own_commit_builds(self) -> None:
+        # The build runs as the user that later holds the secrets: no other commit may build here.
+        resolve = step("Resolve inputs")["run"]
+        self.assertIn('"$ACPMUX_REF_INPUT" != "$GITHUB_SHA"', resolve)
+        checkouts = [s for s in steps() if "actions/checkout" in s.get("uses", "")]
+        self.assertEqual(len(checkouts), 1)
+        self.assertNotIn("ref", checkouts[0].get("with", {}))
+        self.assertEqual(step("Build acpmux")["working-directory"], "cmux-tui")
+
     def test_read_only_token(self) -> None:
         document = load()
         self.assertEqual(document["permissions"], {"contents": "read"})
