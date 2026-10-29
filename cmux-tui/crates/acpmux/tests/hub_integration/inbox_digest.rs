@@ -385,12 +385,17 @@ fn cut_lines(dir: &std::path::Path, cut: impl Fn(&str) -> bool) -> usize {
     dropped
 }
 
-/// The digest's `queued` record is logged first, then the queue's order and the originals'
-/// `dequeued` records. A stop right after it leaves the originals' `queued` records with nothing
-/// after them: the digest's record names them and holds the order, so the restart runs the digest
-/// in its place, ahead of an agent message it left (a slash command), and never them again.
+/// A restart before a digest's turn started drops it and gives its messages back in its place,
+/// ahead of an agent message it left (a slash command), each once: also when the stop cut every
+/// record after the digest's own (the queue's order and their `dequeued` records).
 #[tokio::test]
-async fn a_restart_never_runs_a_message_a_digest_took_even_when_the_stop_cut_its_dequeued() {
+async fn a_restart_before_a_digest_ran_gives_its_messages_back_in_its_place() {
+    for cut in [false, true] {
+        gives_back_after_a_restart(cut).await;
+    }
+}
+
+async fn gives_back_after_a_restart(cut: bool) {
     let dir = std::env::temp_dir().join(format!("acpmux-inbox-digest-{}", uuid::Uuid::now_v7()));
     let hub = durable_hub(&dir);
     let mut c = connect(&hub).await;
@@ -403,18 +408,22 @@ async fn a_restart_never_runs_a_message_a_digest_took_even_when_the_stop_cut_its
     hub.shutdown_all().await;
     drop(c);
     drop(hub);
-    let stop = |l: &str| {
-        l.contains("\"digestPromptId\"")
-            || (l.contains("\"kind\":\"queue_order\"") && l.contains(digest.as_str()))
-    };
-    assert_eq!(cut_lines(&dir, stop), 3);
+    if cut {
+        let stop = |l: &str| {
+            l.contains("\"digestPromptId\"")
+                || (l.contains("\"kind\":\"queue_order\"") && l.contains(digest.as_str()))
+        };
+        assert_eq!(cut_lines(&dir, stop), 3);
+    }
 
     let hub = durable_hub(&dir);
     let mut c = connect(&hub).await;
     let order = queue_order(&mut c, &id).await;
     let at = |p: &str| order.iter().position(|q| q == p);
-    assert!(at(&digest).is_some() && at(&digest) < at("p-slash"), "{order:?}");
-    assert!(at("p-a").is_none() && at("p-b").is_none(), "{order:?}");
+    assert!(at(&digest).is_none(), "cut {cut}: the digest that never ran stayed: {order:?}");
+    let (a, b, slash) = (at("p-a"), at("p-b"), at("p-slash"));
+    assert!(a.is_some() && a < b && b < slash, "cut {cut}: {order:?}");
+    assert_eq!(order.iter().filter(|p| *p == "p-a").count(), 1, "{order:?}");
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -460,9 +469,9 @@ async fn resent_after_a_restart(cut_dequeued: bool) {
 }
 
 /// A steered digest leaves the queue (`dequeued`) before its steer is written (`user_message`).
-/// A stop between them must not lose it: the originals are gone, so the restart queues it again.
+/// A stop between them loses nothing: its turn never started, so its messages come back.
 #[tokio::test]
-async fn a_restart_queues_again_a_steered_digest_the_stop_cut_before_it_was_written() {
+async fn a_restart_gives_back_the_messages_of_a_steered_digest_cut_before_it_was_written() {
     let dir = std::env::temp_dir().join(format!("acpmux-inbox-digest-{}", uuid::Uuid::now_v7()));
     let hub = durable_hub(&dir);
     let steers = BTreeMap::from([("FAKE_CLAUDE_STEER".to_owned(), "1".to_owned())]);
@@ -486,8 +495,8 @@ async fn a_restart_queues_again_a_steered_digest_the_stop_cut_before_it_was_writ
     let hub = durable_hub(&dir);
     let mut c = connect(&hub).await;
     let order = queue_order(&mut c, &id).await;
-    assert!(order.contains(&digest), "the steered digest was lost: {order:?}");
-    assert!(!order.iter().any(|p| p == "p-a"), "{order:?}");
+    assert!(order.iter().any(|p| p == "p-a"), "the steered digest's message was lost: {order:?}");
+    assert!(!order.contains(&digest), "{order:?}");
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -552,5 +561,58 @@ async fn a_digest_refused_before_its_turn_puts_every_message_back_and_a_restart_
     let mut c = connect(&hub).await;
     assert_eq!(queue_order(&mut c, &id).await, ["p-a", "p-b"], "a restart lost them");
     hub.shutdown_all().await;
+    drop(c);
+    drop(hub);
+
+    // A stop between the digest's refusal and their `requeued` records loses none either.
+    let saved = root.join("saved");
+    copy_dir(&state, &saved);
+    assert_eq!(cut_lines(&saved, |l| l.contains("\"requeued\":true")), 2);
+    let hub = durable_hub(&saved);
+    let mut c = connect(&hub).await;
+    let order = queue_order(&mut c, &id).await;
+    assert_eq!(order, ["p-a", "p-b"], "a stop before they went back lost them");
+    hub.shutdown_all().await;
+    drop(c);
+    drop(hub);
+
+    // Once they ran on their own, a resend of one answers from its own turn, not the refused
+    // digest's (and not from the chat's last turn: another one runs after it).
+    std::fs::create_dir_all(&folder).unwrap();
+    let hub = durable_hub(&state);
+    hub.config.write().await.auto_resume_delays_ms = Some(vec![60_000]);
+    let mut c = connect(&hub).await;
+    queue_order(&mut c, &id).await;
+    hub.resume_queues();
+    c.request("_acpmux/queue_edit", json!({"sessionId": id, "op": "resume"})).await.unwrap();
+    let own = record_until(&hub, &id, "queued", |m| m["promptId"] == "p-a").await["turnId"].clone();
+    record_until(&hub, &id, "turn_result", |m| m["turnId"] == own).await;
+    c.request(method::SESSION_PROMPT, prompt(&id, "after", Some("p-after"))).await.unwrap();
+    hub.shutdown_all().await;
+    drop(c);
+    drop(hub);
+    let hub = durable_hub(&state);
+    let mut c = connect(&hub).await;
+    let mut again = from_agent(&id, "p-a", "lane-a", "from a");
+    again["_meta"]["acpmux"]["resend"] = json!(true);
+    let again = c.request(method::SESSION_PROMPT, again).await.unwrap();
+    let status = &again["_meta"]["acpmux"]["status"];
+    assert!(status != "withdrawn" && status != "interrupted", "{again}");
+    assert_eq!(again["stopReason"], "end_turn", "{again}");
+    hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&root);
+}
+
+/// Copies the directory `from` to `to`.
+fn copy_dir(from: &std::path::Path, to: &std::path::Path) {
+    std::fs::create_dir_all(to).unwrap();
+    for entry in std::fs::read_dir(from).unwrap().flatten() {
+        let path = entry.path();
+        let target = to.join(entry.file_name());
+        if path.is_dir() {
+            copy_dir(&path, &target);
+        } else {
+            std::fs::copy(&path, &target).unwrap();
+        }
+    }
 }
