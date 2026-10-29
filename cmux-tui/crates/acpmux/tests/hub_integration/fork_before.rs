@@ -137,8 +137,9 @@ async fn fork_before_first_and_later_prompt_preserves_native_history_and_source(
 async fn fork_before_retry_after_lost_reply_and_restart_reuses_configured_child() {
     let root = std::env::temp_dir().join(format!("acpmux-before-retry-{}", uuid::Uuid::now_v7()));
     std::fs::create_dir_all(&root).unwrap();
-    let (seed, mut c) = claude_setup(&root.join("native"), &[]).await;
-    c = connect(&seed).await;
+    let (seed, initial) = claude_setup(&root.join("native"), &[]).await;
+    drop(initial);
+    let mut c = connect(&seed).await;
     let id = source(&seed, &mut c).await;
     c.request(method::SESSION_SET_MODE, json!({"sessionId": id, "modeId": "default"}))
         .await
