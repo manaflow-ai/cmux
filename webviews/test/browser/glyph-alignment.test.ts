@@ -131,6 +131,15 @@ await requireBrowserLane("glyph-alignment.test.ts", async () => {
                 ),
               entry.selectors,
             );
+            const captureDir = process.env.GLYPH_CAPTURE_DIR;
+            if (captureDir) {
+              const { mkdir } = await import("node:fs/promises");
+              await mkdir(captureDir, { recursive: true });
+              await page.screenshot({
+                path: path.join(captureDir, `${colorScheme}-${entry.id.replaceAll("/", "_")}.png`),
+                fullPage: true,
+              });
+            }
             for (const check of checks) {
               observed.push(check);
               if (check.centerDelta > 0.5)
