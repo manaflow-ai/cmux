@@ -179,13 +179,17 @@ private struct NoKeychain: KeychainProbing {
 }
 
 extension GitHubConnections {
+    static func signedInScope(project: String, user: String, team: String?, managedTeam: String?) -> Scope? {
+        guard managedTeam == nil || team == managedTeam else { return nil }
+        return Scope(user: backendUser(project: project, stackUser: user), team: team)
+    }
+
     static func live(cloud: CloudService, preview: Bool) -> GitHubConnections {
         let auth = cloud.auth
         let transport = InstallHTTPTransport(baseURL: cloud.configuration.ownerAPIBaseURL())
         let current: @MainActor () -> Scope? = {
-            guard !preview, auth.isSignedIn, let user = auth.user?.id,
-                  auth.managedTeamID == nil || auth.teamID != nil else { return nil }
-            return Scope(user: backendUser(project: auth.configuration.stackProjectID, stackUser: user), team: auth.teamID)
+            guard !preview, auth.isSignedIn, let user = auth.user?.id else { return nil }
+            return signedInScope(project: auth.configuration.stackProjectID, user: user, team: auth.teamID, managedTeam: auth.managedTeamID)
         }
         return GitHubConnections(scope: current, call: { bound, op, params, mutationKey in
             let access = try await auth.tokens().access

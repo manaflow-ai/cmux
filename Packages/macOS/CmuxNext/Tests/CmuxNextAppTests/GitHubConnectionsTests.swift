@@ -147,41 +147,65 @@ import Testing
         #expect(keys[0] != keys[1])
     }
 
-    @Test func aRefusalFromAnOlderGenerationCannotClearANewKey() async {
+    @Test func aRefusalFromAnOlderGenerationCannotClearANewKey() async throws {
         var current: GitHubConnections.Scope? = self.scope
-        var firstResult: CheckedContinuation<JSONValue, Error>?
-        var secondResult: CheckedContinuation<JSONValue, Error>?
-        var started: CheckedContinuation<Void, Never>?
-        var secondStarted: CheckedContinuation<Void, Never>?
+        let requests = AsyncStream<CheckedContinuation<JSONValue, Error>>.makeStream()
+        var events = requests.stream.makeAsyncIterator()
         var keys: [String] = []
-        let other = GitHubConnections.Scope(user: "other", team: nil)
         let model = GitHubConnections(scope: { current }, call: { _, op, _, key in
-            if op == "integration.connect" {
-                keys.append(key ?? "")
-                if keys.count == 1 {
-                    started?.resume()
-                    started = nil
-                    return try await withCheckedThrowingContinuation { firstResult = $0 }
-                }
-                secondStarted?.resume()
-                secondStarted = nil
-                return try await withCheckedThrowingContinuation { secondResult = $0 }
+            guard op == "integration.connect" else { return self.listing }
+            keys.append(try #require(key))
+            if keys.count == 1 || keys.count == 3 {
+                return try await withCheckedThrowingContinuation { requests.continuation.yield($0) }
             }
-            return self.listing
+            throw GitHubConnections.GitHubFailure.refused
         }, open: { _ in })
-        let first = Task { await model.perform("githubConnect") }
-        await withCheckedContinuation { started = $0 }
-        current = other
+        let first = Task {
+            await model.connect()
+            requests.continuation.finish()
+        }
+        let oldest = try #require(await events.next())
+        current = .init(user: "other", team: nil)
         await model.perform("githubRefresh")
         current = self.scope
-        let second = Task { await model.perform("githubConnect") }
-        await withCheckedContinuation { secondStarted = $0 }
-        firstResult?.resume(throwing: GitHubConnections.GitHubFailure.refused)
+        await model.connect() // Current refusal of K1 permits a new key.
+        let second = Task {
+            await model.connect()
+            requests.continuation.finish()
+        }
+        let latest = try #require(await events.next())
+        oldest.resume(throwing: GitHubConnections.GitHubFailure.refused)
         await first.value
-        secondResult?.resume(throwing: URLError(.networkConnectionLost))
+        latest.resume(throwing: URLError(.networkConnectionLost))
         await second.value
-        #expect(keys.count == 2)
-        #expect(keys[0] != keys[1])
+        await model.connect()
+        try #require(keys.count == 4)
+        #expect(keys[0] == keys[1])
+        #expect(keys[1] != keys[2])
+        #expect(keys[2] == keys[3]) // Obsolete K1 failure must not discard K2.
+    }
+
+    @Test func managedTeamCannotFallBackToPersonalIntegration() async {
+        var team: String?
+        var calls = 0
+        let model = GitHubConnections(scope: {
+            GitHubConnections.signedInScope(project: "project", user: "user", team: team, managedTeam: "managed")
+        }, call: { bound, _, _, _ in
+            calls += 1
+            #expect(bound.team == "managed")
+            return self.listing
+        }, open: { _ in })
+        await model.connect()
+        #expect(calls == 0)
+        team = "another-team"
+        await model.connect()
+        #expect(calls == 0)
+        team = "managed"
+        await model.perform("githubRefresh")
+        #expect(calls == 1)
+        #expect(model.ready)
+        #expect(GitHubConnections.signedInScope(project: "project", user: "user", team: nil, managedTeam: nil)?.team == nil)
+        #expect(GitHubConnections.signedInScope(project: "project", user: "user", team: nil, managedTeam: nil) != nil)
     }
 
     @Test func restoredPendingConnectionDoesNotCreateADuplicate() async {
