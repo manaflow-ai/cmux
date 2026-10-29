@@ -30,12 +30,15 @@ public struct BrowserRetirementProbe {
         try Task.checkCancellation()
         guard page.browserID != nil else { throw BrowserTabError.closed }
         _ = try await page.evaluate("1", world: .page, gesture: .cmux)
-        weak var chrome = mounted?.chrome
-        mounted?.chrome.isHidden = true
-        // Leave the hidden chrome unattached, with the CEF probe still in its subtree.
-        // Releasing the owner now exercises AppKit's hidden-ancestor finalization path.
-        window.contentView = nil
-        autoreleasepool { mounted = nil }
+        weak var chrome: BrowserChromeView?
+        autoreleasepool {
+            chrome = mounted?.chrome
+            mounted?.chrome.isHidden = true
+            // Leave the hidden chrome unattached, with the CEF probe still in its subtree.
+            // Drain AppKit's temporary retains here so the reply observes finalization too.
+            window.contentView = nil
+            mounted = nil
+        }
         let detached = page.contentView.superview == nil
         var closed = false
         do { _ = try await page.evaluate("1", world: .page, gesture: .cmux) }
