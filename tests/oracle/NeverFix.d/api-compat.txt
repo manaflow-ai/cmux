@@ -1,9 +1,0 @@
-# The api-compat cases run the bare oracle-built cmux with the case's argv (`__oracle-api-compat`), which only
-# the cli product's driver does (p15-oracle-048). The daemon driver has no cli op; the app, mcp, tui and
-# headless drivers put global flags such as --app-socket before argv or ship a build without the mode.
-# scripts/cmux-next/oracle/gen_api_compat.py writes the suite; --replay runs it against a built cmux.
-p15-oracle-048 [ daemon ] api-compat/* [ Skip ]
-p15-oracle-048 [ app ] api-compat/* [ Skip ]
-p15-oracle-048 [ mcp ] api-compat/* [ Skip ]
-p15-oracle-048 [ tui ] api-compat/* [ Skip ]
-p15-oracle-048 [ headless ] api-compat/* [ Skip ]

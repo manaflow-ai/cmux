@@ -21,14 +21,7 @@ extension AppActionContext {
     func observeRefusals() {
         let registry = registry
         let services = services
-        #if DEBUG || CMUX_BENCH_HOOKS
-        // The oracle's turn observer counts a turn whose handler refused (the `intents` facet).
-        registry.willRunObservers.append { [turns = services.oracleTurns] _, _ in turns.runStarted() }
-        #endif
         registry.refusalObserver = { reason, quiet in
-            #if DEBUG || CMUX_BENCH_HOOKS
-            services.oracleTurns.noteRefusal()
-            #endif
             Self.logger.notice("action refused: \(reason, privacy: .public)")
             guard Self.showsNotice(quiet: quiet, hasCaller: registry.refusalHasCaller) else { return }
             // Keyed by the key event that ran the refused action, so the burst bench matches it to its press.

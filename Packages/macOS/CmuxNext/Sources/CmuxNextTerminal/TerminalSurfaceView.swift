@@ -158,6 +158,9 @@ public final class TerminalSurfaceView: NSView, KeyEquivalentOwningSurface {
     var textInputStage: TextInputStage?
     /// Where `doCommand` re-sends a chord no one claimed: the app's dispatch (a test records it).
     var resendKey: @MainActor (NSEvent) -> Void = { NSApp.sendEvent($0) }
+    /// The input methods' turn for a key: nil is AppKit's (`interpretKeyEvents`, the selected input
+    /// source); a test replays a recorded input method's calls (setMarkedText, insertText, doCommand).
+    var inputMethod: (@MainActor (TerminalSurfaceView, NSEvent) -> Void)?
     var previousPressureStage = 0
     /// The left press went to Ghostty as a link click, in a program that has the mouse or with
     /// Shift- or Option-Command (``TerminalPointerMods``): its drags and release go the same way.

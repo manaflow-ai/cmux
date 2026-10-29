@@ -30,8 +30,7 @@ const TEST_PANIC_ENV: &str = "CMUX_TUI_TEST_OWNER_PANIC";
 #[cfg(debug_assertions)]
 const TEST_PANIC_THREAD: &str = "owner-panic-test";
 
-/// The log for `session` (the rule lives in core, so `oracle-state` reports
-/// the same path).
+/// The log for `session` (the rule lives in core).
 pub(super) use cmux_tui_core::diagnostics::owner_panic_log_path as log_path;
 
 /// Install the owner's panic hook and hang log. Call once, in the headless

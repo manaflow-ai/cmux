@@ -179,13 +179,19 @@ impl LocalOutput {
             let cursor_activity = term
                 .cursor_activity()
                 .expect("INVARIANT: valid local terminals expose cursor activity");
+            // Read before the parse confirms these bytes: whether they may
+            // be the holder ring's replay to a restarted daemon.
+            #[cfg(unix)]
+            let replayed = self.parsed_sink.as_ref().is_some_and(|sink| sink.replaying());
+            #[cfg(not(unix))]
+            let replayed = false;
             let normalized =
                 crate::prompt_mode_reset::write_output(&mut term, output, &mut self.shell_marks);
             #[cfg(unix)]
             if let Some(sink) = self.parsed_sink.as_ref() {
                 sink.confirm_parsed();
             }
-            terminal_notifications = pty.observe_terminal_output(output);
+            terminal_notifications = pty.observe_terminal_output_replayed(output, replayed);
             finished_commands = pty.observe_shell_marks(&mut term, || {
                 mux.upgrade().is_some_and(|mux| mux.terminal_command_history_enabled())
             });
@@ -380,7 +386,7 @@ impl OutputPublisher {
             );
             if !responses.is_empty() {
                 // Waits while the child does not read its input.
-                let _ = will_block(|| surface.write_bytes(&responses));
+                let _ = will_block(|| surface.write_terminal_reply(&responses));
             }
         }
     }
@@ -399,6 +405,7 @@ impl OutputPublisher {
         let surface = surface.clone();
         let publish = Box::new(move || {
             loop {
+                surface.check_pending_shell_foreground();
                 surface.publish_pending_directory();
                 surface.publish_pending_progress();
                 if !job.0.pass_done() {

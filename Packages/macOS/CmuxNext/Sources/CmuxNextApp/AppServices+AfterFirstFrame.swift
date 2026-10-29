@@ -1,6 +1,7 @@
 import CmuxNextAgentPane
 import CmuxNextKeepAwake
 import CmuxNextLaunch
+import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextWakeups
 
@@ -29,12 +30,21 @@ extension AppServices {
     }
 
     /// Warm-ups for later tabs (WebKit for agent pages, Chromium, the New Tab spare, page preloads), the agent tab
-    /// import and the right sidebar's icons (on the cpu lane; a panel built first posted them already), through
-    /// ``LaterTabWarmups`` on this app (`AppServices+LaterTabWarmupHost`). No WebKit view is made by these before
-    /// startup completes. The warm-up makes no WebKit page when a shown agent tab made its view
-    /// or agent pages open in Chromium (`AgentPageWarmup.start(webUI:)` decides when it runs).
+    /// import and the right sidebar's icons (on the cpu lane; a panel built first posted them already). No WebKit
+    /// view is made by these before startup completes. The warm-up makes no WebKit page when a shown agent tab made
+    /// its view or agent pages open in Chromium (`AgentPageWarmup.start(webUI:)` decides when it runs); each outcome
+    /// leaves its own launch mark (`AgentPageWarmupOutcome.launchMark`).
     func postLaterTabWarmups(on startup: StartupScheduler) {
-        LaterTabWarmups(host: self).posts().post(on: startup)
+        LaunchServicePosts.laterTabs(chromiumWarmup: { [weak self] in if let self, !crashRecovery.recovery.skipsBrowserPages { startChromiumWarmup() } },
+                                     spareHooks: { [weak self] in self?.newTabSpares.start(holdingWarm: true) },
+                                     agentPageWarmup: { [weak self] in
+                                         if let mark = self.flatMap({ $0.agentPageWarmup.start(webUI: $0.webUI).launchMark }) { DebugTimings.markLaunch(mark) }
+                                     },
+                                     spareProbe: { [weak self] in self?.newTabSpares.prewarm() },
+                                     spareWarming: { [weak self] in self?.newTabSpares.startWarming() },
+                                     pagePreload: { [weak self] in self?.pagePreloads.start() },
+                                     agentTabImport: { [weak self] in if let self { AgentTabImport.start(self); DebugTimings.markLaunch("launch.post_window_warmups") } },
+                                     rightSidebarIcons: { [weak self] in self?.rightSidebarSections.buildIcons(.afterStartup) }).post(on: startup)
     }
 
     /// The platform services. Now, before the windows build and the restore mounts a page:

@@ -284,7 +284,7 @@ final class TabContentCache {
         let gate = ProvisionalTab.isProvisional(surface: tab.surface) ? TerminalTargetGate() : nil, create = createTabs.waitingInterval(.terminal, tab: tab.id, surface: tab.surface.rawValue) // create: a new tab's, whose stages its view marks (NewTerminalTrace)
         let io = DaemonTerminalIO(target: target, resizes: resizes, visible: render, gate: gate, createIntent: create?.intentID ?? 0, creatingInput: gate.flatMap { gate in daemon.creatingInput(tab.terminalID) { gate.isResolved } },
                                   burstTrace: pageRequests.services?.burstTrace, policyBlocked: daemon.policyBlock.check,
-                                  hangWatch: daemon.hangWatch, screenChanged: pageRequests.services?.terminalScreenChanged,
+                                  hangWatch: daemon.hangWatch,
                                   keyStamps: daemon.isLocal ? terminalKeyStamps : nil, streamFocus: streamFocus,
                                   connection: { try await daemon.machineConnection() })
         let session = makeSession(io: io, tab: tab, daemon: daemon); session.traceCreate(create, surface: tab.surface.rawValue)

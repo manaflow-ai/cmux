@@ -243,16 +243,6 @@ extension AppControl {
         // raw-observer-allow: the center the synthetic sleep and wake notices are posted on; nothing observes it here
         router.register(LifecycleSimulationControl(notices: .appKit, workspaceCenter: NSWorkspace.shared.notificationCenter,
                                                    workspace: NSWorkspace.shared, appCenter: .default, application: NSApp).methods)
-        #if CMUX_PGO_PROFILE
-        // The profile build only: rest.profraw before quit, on the files lane; launch.profraw
-        // was written at startup complete.
-        if let flush = profileFlush {
-            router.register([.async("debug.pgo_flush") { _ in
-                let rest = try await flush.writeRestProfile()
-                return ["rest": .string(rest.file.path), "rest_bytes": .number(Double(rest.bytes)), "launch": .string(flush.files.launch.path)]
-            }.withDeadline(.fixed(.seconds(30)))])
-        }
-        #endif
     }
 }
 

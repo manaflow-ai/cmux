@@ -66,6 +66,17 @@ impl Surface {
         #[cfg(any(unix, windows))]
         {
             let turn = pty.input_fifo.enter();
+            // A host on the alternate screen types the fallback key itself:
+            // input, so the shell is not idle until its next prompt
+            // (`terminal_activity`). Noted before the request, whether or not
+            // the host types it.
+            let hosted = matches!(&*pty.runtime.lock().recover_poison(), PtyRuntime::Hosted(_));
+            if hosted
+                && fallback_key.is_some()
+                && pty.terminal_metadata.lock().recover_poison().activity.note_input(&[])
+            {
+                self.post_pending_publications();
+            }
             let pending = match &*pty.runtime.lock().recover_poison() {
                 PtyRuntime::Hosted(host) => Some(host.begin_clear_history(fallback_key)?),
                 PtyRuntime::ExitedHosted => {
@@ -141,20 +152,34 @@ impl Surface {
                         )));
                     };
                     drop(term);
+                    // The fallback key is input: the shell is not idle until
+                    // its next prompt (`terminal_activity`), noted before it
+                    // is written.
+                    let publish =
+                        pty.terminal_metadata.lock().recover_poison().activity.note_input(&[]);
                     // A holder terminal's keys go through its `pty-writer`
                     // queue, so the fallback key follows them in order. The
                     // wait for its delivery runs after the runtime lock is
                     // released.
                     #[cfg(unix)]
                     if let Some(input) = holder.as_ref().and_then(|holder| holder.input()) {
-                        let receipt = queue_clear_history_fallback(input, &encoded)?;
+                        let receipt = queue_clear_history_fallback(input, &encoded);
                         drop(runtime);
                         drop(turn);
+                        if publish {
+                            self.post_pending_publications();
+                        }
                         return crate::request_path::will_block(|| {
-                            wait_clear_history_fallback(receipt)
+                            wait_clear_history_fallback(receipt?)
                         });
                     }
-                    return write_clear_history_fallback(master, writer.as_mut(), &encoded);
+                    let written = write_clear_history_fallback(master, writer.as_mut(), &encoded);
+                    drop(runtime);
+                    drop(turn);
+                    if publish {
+                        self.post_pending_publications();
+                    }
+                    return written;
                 }
                 ClearHistoryTransition::Noop => return Ok(()),
                 ClearHistoryTransition::Cleared(clear) => {
