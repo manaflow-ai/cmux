@@ -150,7 +150,7 @@ impl ArtifactsClient {
         let relay = config.mesh_relay.as_ref().ok_or_else(|| anyhow!("artifacts sync requires meshRelay credentials"))?;
         let hub = crate::mesh_http::HttpHub::new(relay).map_err(|error| anyhow!("mesh auth: {error}"))?;
         let token = hub.token(false).await.map_err(|error| anyhow!("mesh auth: {error}"))?;
-        Self::from_parts(config.artifacts_sync.clone(), Some(token.to_string()))
+        Self::from_parts(config.artifacts_sync.clone(), Some(token.as_ref().as_str().to_owned()))
     }
 
     pub fn from_parts(config: ArtifactsSyncConfig, access_token: Option<String>) -> Result<Option<Self>> {
@@ -196,7 +196,8 @@ impl ArtifactsClient {
     }
 
     pub async fn search(&self, query: &str, limit: usize) -> Result<serde_json::Value> {
-        let response = self.client.get(self.url("/v1/artifacts/search")).query(&[("q", query), ("limit", &limit.to_string())]).bearer_auth(self.token.as_ref()).send().await?;
+        let limit_string = limit.to_string();
+        let response = self.client.get(self.url("/v1/artifacts/search")).query(&[("q", query), ("limit", limit_string.as_str())]).bearer_auth(self.token.as_ref()).send().await?;
         ensure_success(response.status(), "artifact search")?;
         Ok(response.json().await?)
     }
@@ -231,7 +232,7 @@ impl ArtifactsSync {
     /// own cancellation token; this method never starts a polling loop.
     pub async fn sync_once(&mut self, trailers: Trailers) -> Result<SyncReport> {
         if !self.config.enabled { return Ok(SyncReport::default()); }
-        let token = self.token.as_deref().ok_or_else(|| anyhow!("artifacts sync access token unavailable"))?;
+        let token = self.token.as_ref().map(|token| token.to_string()).ok_or_else(|| anyhow!("artifacts sync access token unavailable"))?;
         let mut report = SyncReport::default();
         let mut batch = Vec::new();
         let mut batch_bytes = 0usize;
@@ -260,8 +261,8 @@ impl ArtifactsSync {
     }
 
     async fn push_batch(&mut self, files: Vec<(String, Vec<u8>)>, trailers: &Trailers) -> Result<usize> {
-        let token = self.token.as_deref().ok_or_else(|| anyhow!("artifacts sync access token unavailable"))?;
-        let changes = self.make_changes(&files, token).await?;
+        let token = self.token.as_ref().map(|token| token.to_string()).ok_or_else(|| anyhow!("artifacts sync access token unavailable"))?;
+        let changes = self.make_changes(&files, &token).await?;
         let request = SaveRequest {
             expected_head_sha: self.state.head_sha.clone(),
             branch: "main",
@@ -269,7 +270,7 @@ impl ArtifactsSync {
             trailers: trailers.clone(),
             changes,
         };
-        let response = self.client.post(self.url("/v1/artifacts/save")).bearer_auth(token).json(&request).send().await?;
+        let response = self.client.post(self.url("/v1/artifacts/save")).bearer_auth(&token).json(&request).send().await?;
         if response.status() != StatusCode::CONFLICT {
             ensure_success(response.status(), "artifact save")?;
             let saved: SaveResponse = response.json().await.context("decode save response")?;
@@ -284,7 +285,7 @@ impl ArtifactsSync {
         let current_head = conflict.current_head_sha.or_else(|| self.state.head_sha.clone());
         let mut resolved = Vec::new();
         for (path, local) in files {
-            let remote = self.remote_file(&path, token).await.unwrap_or_default();
+            let remote = self.remote_file(&path, &token).await.unwrap_or_default();
             let base = self.state.base.get(&path).map(Vec::as_slice).unwrap_or(&[]);
             if path.to_ascii_lowercase().ends_with(".md") {
                 let merged = merge_markdown(base, &local, &remote);
@@ -293,18 +294,18 @@ impl ArtifactsSync {
                     fs::write(destination, &merged)?;
                 }
                 self.state.base.insert(path.clone(), merged.clone());
-                resolved.push(self.change_for(path, merged, token).await?);
+                resolved.push(self.change_for(path, merged, &token).await?);
             } else {
                 let sibling = conflict_sibling(&path);
                 if let Some(destination) = self.local_for_remote(&sibling) {
                     if let Some(parent) = destination.parent() { fs::create_dir_all(parent)?; }
                     fs::write(destination, &local)?;
                 }
-                resolved.push(self.change_for(sibling, local, token).await?);
+                resolved.push(self.change_for(sibling, local, &token).await?);
             }
         }
         let retry = SaveRequest { expected_head_sha: current_head.clone(), branch: "main", message: "Resolve concurrent artifact sync".into(), trailers: trailers.clone(), changes: resolved };
-        let response = self.client.post(self.url("/v1/artifacts/save")).bearer_auth(token).json(&retry).send().await?;
+        let response = self.client.post(self.url("/v1/artifacts/save")).bearer_auth(&token).json(&retry).send().await?;
         ensure_success(response.status(), "artifact conflict resolution save")?;
         let saved: SaveResponse = response.json().await.context("decode conflict save response")?;
         self.state.head_sha = Some(saved.head_sha);
@@ -431,9 +432,12 @@ pub fn should_skip(path: &str, bytes: &[u8]) -> bool {
 pub fn merge_markdown(base: &[u8], local: &[u8], remote: &[u8]) -> Vec<u8> {
     if local == base { return remote.to_vec(); }
     if remote == base || local == remote { return local.to_vec(); }
-    let b = String::from_utf8_lossy(base).lines().collect::<Vec<_>>();
-    let l = String::from_utf8_lossy(local).lines().collect::<Vec<_>>();
-    let r = String::from_utf8_lossy(remote).lines().collect::<Vec<_>>();
+    let b_text = String::from_utf8_lossy(base);
+    let l_text = String::from_utf8_lossy(local);
+    let r_text = String::from_utf8_lossy(remote);
+    let b = b_text.lines().collect::<Vec<_>>();
+    let l = l_text.lines().collect::<Vec<_>>();
+    let r = r_text.lines().collect::<Vec<_>>();
     let mut out = String::new();
     for i in 0..b.len().max(l.len()).max(r.len()) {
         let (base, ours, theirs) = (b.get(i).copied().unwrap_or(""), l.get(i).copied().unwrap_or(""), r.get(i).copied().unwrap_or(""));
