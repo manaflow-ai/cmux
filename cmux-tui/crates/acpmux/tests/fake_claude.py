@@ -33,7 +33,9 @@ cancel_async_message drops a waiting line by its uuid.
 "gated: PATH" runs turn after turn on gates PATH.1, PATH.2, ...: user lines written meanwhile
 wait. A gate that says "read" reads them at a tool boundary (each echoed), then the turn ends and
 the prompt is done. One that says "end" ends the turn first; the lines waiting then run as the
-next turn of Claude Code's own (echoed, "read: TEXT"), which waits for the next gate.
+next turn of Claude Code's own (echoed, "read: TEXT"), which waits for the next gate; "end-first"
+does the same with only the first waiting line, and the rest stay unread. An interrupt is
+answered and changes nothing.
 A stop_task control request ends its task killed (task_updated);
 FAKE_CLAUDE_STOP_NOTIFY=1 sends the task's task_notification too.
 "fg-shell" runs a foreground Bash call until a background_tasks control
@@ -384,9 +386,13 @@ def gated(prompt, base):
               "duration_api_ms": 5, "usage": {"input_tokens": 1, "output_tokens": 1}})
         if not waiting:
             return
-        for m in waiting:
+        # "end-first": its next turn reads only the first waiting line; the rest stay unread.
+        read = waiting[:1] if how == "end-first" else waiting
+        for m in read:
             send({"type": "user", "isReplay": True, "uuid": m.get("uuid"), "message": m.get("message")})
-        waiting = []
+        said = " | ".join("".join(b.get("text", "") for b in (m.get("message") or {}).get("content") or []
+                                  if isinstance(b, dict)) for m in read)
+        waiting = waiting[len(read):]
         n += 1
         send({"type": "stream_event", "event": {"type": "content_block_delta", "index": 0,
                                                  "delta": {"type": "text_delta", "text": "read: " + said}}})

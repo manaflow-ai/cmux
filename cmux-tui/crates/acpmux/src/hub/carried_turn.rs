@@ -16,6 +16,7 @@
 //! Only Claude's adapter carries: codex-acp folds a steer into the running turn
 //! (`steer_end.rs`), unchanged.
 
+use super::subsession_runs::RunSlot;
 use super::*;
 use std::sync::atomic::Ordering;
 
@@ -67,6 +68,41 @@ pub(super) fn carried(result: &Result<Value, RpcError>) -> Option<Carried> {
 /// ended.
 pub(super) fn steer_carry(answer: &Result<Value, RpcError>) -> Option<u64> {
     answer.as_ref().ok()?.pointer("/_meta/claude/carried").and_then(Value::as_u64)
+}
+
+impl NextTurn {
+    /// The ended turn's `turn_result` names the turn it carried into (`carriedTo`), so a restart
+    /// before that turn's `turn_started` still runs it (`Hub::recover_carried`).
+    pub(super) fn record(&self) -> Value {
+        let t = &self.next;
+        json!({
+            "turnId": t.turn_id,
+            "promptId": t.prompt_id,
+            "prompt": t.prompt_preview,
+            "client": t.client,
+            "control": t.control.as_str(),
+            "seq": self.carried.seq,
+            "promptIds": self.carried.prompt_ids,
+        })
+    }
+
+    /// The turn a `turn_result`'s `carriedTo` names ([`NextTurn::record`]).
+    pub(super) fn from_record(record: &Value) -> Option<Self> {
+        let text = |k: &str| record.get(k).and_then(Value::as_str).map(str::to_owned);
+        let ids = record.get("promptIds").and_then(Value::as_array);
+        let carried = Carried {
+            seq: record.get("seq").and_then(Value::as_u64)?,
+            prompt_ids: ids
+                .map(|ids| ids.iter().filter_map(Value::as_str).map(str::to_owned).collect())
+                .unwrap_or_default(),
+        };
+        let control = Control::from_recorded(record.get("control").and_then(Value::as_str));
+        let (client, prompt) =
+            (text("client").unwrap_or_default(), text("prompt").unwrap_or_default());
+        let next =
+            TurnInfo::prompted(&client, &prompt, &text("turnId")?, &text("promptId")?, control);
+        Some(Self { carried, next })
+    }
 }
 
 impl Hub {
@@ -138,6 +174,7 @@ impl Hub {
         child: &Arc<ChildAgent>,
         from: &str,
         next: &NextTurn,
+        slot: Option<RunSlot>,
     ) {
         let mut turn = next.next.clone();
         if session.turn().is_none_or(|t| t.turn_id != turn.turn_id) {
@@ -145,7 +182,39 @@ impl Hub {
         }
         turn.turn_seq = self.begin_carried(session, from, &turn, &next.carried);
         let (hub, session, child) = (self.clone(), session.clone(), child.clone());
-        tokio::spawn(Box::pin(async move { hub.run_carried(session, child, turn).await }));
+        tokio::spawn(Box::pin(async move { hub.run_carried(session, child, turn, slot).await }));
+    }
+
+    /// A carried turn a restart cut before its prompt went to the agent host, whose Claude Code
+    /// runs it still (`hosts.rs` `recover_work`): it goes on, its prompt sent now. With `begin`
+    /// (the turn before ended and named it in its `turn_result`, `carriedTo`) it starts first.
+    /// The host's adapter answers that prompt at the turn's result, or at once when it owes
+    /// none (`carry.rs` `adopt_carried`).
+    pub(super) fn recover_carried(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        child: &Arc<ChildAgent>,
+        mut turn: TurnInfo,
+        begin: Option<(String, Carried)>,
+    ) {
+        {
+            let mut running = session.turn.lock().unwrap_or_else(|e| e.into_inner());
+            if running.is_some() {
+                return;
+            }
+            *running = Some(turn.clone());
+        }
+        if let Some((from, carried)) = &begin {
+            let mut now =
+                session.steer_now.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            now.carries.push_back((carried.seq, turn.turn_id.clone()));
+            now.successors.push_back((from.clone(), turn.turn_id.clone()));
+            drop(now);
+            turn.turn_seq = self.begin_carried(session, from, &turn, carried);
+        }
+        self.set_status(session, SessionStatus::Running);
+        let (hub, session, child) = (self.clone(), session.clone(), child.clone());
+        tokio::spawn(Box::pin(async move { hub.run_carried(session, child, turn, None).await }));
     }
 
     /// The carried turn's start: counted, and logged as `turn_started` after `from`'s end.
@@ -183,12 +252,24 @@ impl Hub {
         session: Arc<Session>,
         child: Arc<ChildAgent>,
         mut turn: TurnInfo,
+        // The run slot the first turn held (`subsession_runs.rs`): the agent runs until the
+        // last of these turns ends.
+        slot: Option<RunSlot>,
     ) {
         let guard = session.turn_lock.lock().await;
         loop {
             Self::hold_stalled_count(&session);
             self.set_status(&session, SessionStatus::Running);
             self.watch_silent_turn(&session, &turn.turn_id).await;
+            // Debug builds only: `ACPMUX_TEST_CARRY_HOLD_MS` holds a carried turn before its
+            // prompt goes out, so a test can restart the daemon there
+            // (`tests/durable_agents/carried_restart.rs`). Bounded; release builds have no seam.
+            #[cfg(debug_assertions)]
+            if let Some(ms) =
+                std::env::var("ACPMUX_TEST_CARRY_HOLD_MS").ok().and_then(|v| v.parse::<u64>().ok())
+            {
+                tokio::time::sleep(std::time::Duration::from_millis(ms.min(60_000))).await;
+            }
             let result = match session.meta().agent_session_id {
                 Some(sid) => {
                     let params =
@@ -203,7 +284,6 @@ impl Hub {
                 None => Err(RpcError::internal("no agent session")),
             };
             let next = self.next_carried(&session, &turn.turn_id, &result);
-            let in_place = next.as_ref().map(|n| n.next.clone());
             let (prompt_id, turn_id) = (&turn.prompt_id, &turn.turn_id);
             let _ = self
                 .finish_turn(
@@ -214,7 +294,7 @@ impl Hub {
                     turn_id,
                     turn.turn_seq,
                     None,
-                    in_place,
+                    next.as_deref(),
                 )
                 .await;
             self.schedule_auto_resume(&session, turn_id, None);
@@ -230,26 +310,32 @@ impl Hub {
         if session.route_switch.load(Ordering::SeqCst) {
             let _ = self.restart_on_route(&session).await;
         }
+        // Freed while the turn lock is held, as a turn's guard frees it (`TurnGuard`).
+        drop(slot);
         drop(guard);
     }
 
     /// The session's turn if it is `turn` or a turn carried on from it (`carried_turn`), else
     /// `None`: a Stop that saw `turn` stops what its agent runs now (`cancel.rs`).
     pub(super) fn carried_on(session: &Session, turn: &TurnInfo) -> Option<TurnInfo> {
-        let current = session.turn()?;
+        session.turn().filter(|current| Self::succeeds(session, &turn.turn_id, &current.turn_id))
+    }
+
+    /// Whether turn `to` is turn `from` or a turn carried on from it (`carried_turn`).
+    pub(super) fn succeeds(session: &Session, from: &str, to: &str) -> bool {
         let now = session.steer_now.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        let mut id = turn.turn_id.clone();
+        let mut id = from;
         // Each step moves to a newer entry, so this ends within the kept entries.
         for _ in 0..=now.successors.len() {
-            if id == current.turn_id {
-                return Some(current);
+            if id == to {
+                return true;
             }
-            match now.successors.iter().find(|(from, _)| *from == id) {
-                Some((_, to)) => id = to.clone(),
-                None => return None,
+            match now.successors.iter().find(|(f, _)| f == id) {
+                Some((_, next)) => id = next,
+                None => return false,
             }
         }
-        None
+        false
     }
 
     /// The turn a steer read in carry `seq`'s turn went into, once the turn before named it

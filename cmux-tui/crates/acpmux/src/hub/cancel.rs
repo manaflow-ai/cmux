@@ -22,10 +22,10 @@ impl Hub {
     fn force_cancel(session: &Session, turn: &TurnInfo) {
         // The cancel may have waited for the child writer. If that turn ended
         // while the request was in flight, never publish a stale answer into
-        // the next turn.
-        if session.turn().is_none_or(|current| current.turn_id != turn.turn_id) {
-            return;
-        }
+        // the next turn; the turn its agent ran on into after it ended is the
+        // work the Stop was for (`carried_turn.rs`).
+        let Some(turn) = Self::carried_on(session, turn) else { return };
+        let turn = &turn;
         let already_forced = {
             let mut forced = session.cancel_forced_turn.lock().unwrap_or_else(|e| e.into_inner());
             if forced.as_deref() == Some(turn.turn_id.as_str()) {
@@ -164,7 +164,8 @@ impl Hub {
                 let session = session.clone();
                 tokio::spawn(async move {
                     tokio::time::sleep(CANCEL_GRACE).await;
-                    if let Some(current) = session.turn().filter(|t| t.turn_id == turn.turn_id) {
+                    // Or the turn its agent ran on into meanwhile (`carried_turn.rs`).
+                    if let Some(current) = Self::carried_on(&session, &turn) {
                         Self::force_cancel(&session, &current);
                     }
                 });

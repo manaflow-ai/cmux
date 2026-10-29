@@ -313,11 +313,11 @@ impl Hub {
             replaced: &replaced,
             no_queue: opts.no_queue,
         };
-        let (turn_id, waiting, guard, run) = match self.queue_slot(session, slot, &mut accept).await
-        {
-            Ok(slot) => slot,
-            Err(done) => return done,
-        };
+        let (turn_id, waiting, mut guard, run) =
+            match self.queue_slot(session, slot, &mut accept).await {
+                Ok(slot) => slot,
+                Err(done) => return done,
+            };
         // A normal Stop releases the next queued prompt. Its cancellation epoch starts
         // when it acquires the turn; an immediately admitted prompt keeps its entry epoch.
         if waiting {
@@ -829,7 +829,6 @@ impl Hub {
         // Its agent ended the turn and runs on with steers it read after: the next turn starts
         // as this one ends (`carried_turn.rs`). Boxed: this future stays small.
         let carried = self.next_carried(session, &turn_id, &result);
-        let next = carried.as_ref().map(|c| c.next.clone());
         let mut result = self
             .finish_turn(
                 session,
@@ -839,11 +838,11 @@ impl Hub {
                 &turn_id,
                 turn_seq,
                 Some(joined),
-                next,
+                carried.as_deref(),
             )
             .await;
         if let Some(c) = &carried {
-            self.start_carried(session, &child, &turn_id, c);
+            self.start_carried(session, &child, &turn_id, c, guard.take_slot());
         }
         // A rule counts as told once the agent answered the prompt that carried it.
         self.forum_turn_end(session, &told, result.is_ok());
@@ -891,16 +890,19 @@ impl Hub {
         turn_id: &str,
         turn_seq: u64,
         joined: Option<&super::digest::DigestTurn>,
-        next: Option<TurnInfo>,
+        next: Option<&super::carried_turn::NextTurn>,
     ) -> Result<Value, RpcError> {
         // This turn's number, before taking it lets the next one start (`lane_reports.rs`).
         let turn = session.meta().turn_count;
         // A model switch (`detach_child`) ended this turn already: its failure is not the queue's.
         // A turn its agent runs on with steers it read after this one ended takes its place
         // (`carried_turn.rs`).
-        let carries_on = next.is_some();
-        let detached = self.take_turn(session, turn_id, next).is_none_or(|t| t.turn_id != turn_id);
-        let carries_on = carries_on && !detached;
+        let in_place = next.map(|n| n.next.clone());
+        let detached =
+            self.take_turn(session, turn_id, in_place).is_none_or(|t| t.turn_id != turn_id);
+        // Named in this turn's `turn_result`, so a restart before it starts still runs it.
+        let carried_to = next.filter(|_| !detached).map(super::carried_turn::NextTurn::record);
+        let carries_on = carried_to.is_some();
         session.queue_moved.notify_waiters();
         // Debug builds only: `ACPMUX_TEST_FINISH_HOLD_MS` holds a turn's end once its turn is
         // taken, as a slow end does (`tests/durable_agents.rs`). Bounded; release builds have no
@@ -1018,6 +1020,9 @@ impl Hub {
                         o.insert("cancelForced".into(), Value::Bool(true));
                     }
                     o.extend(super::turn_usage::turn_usage(session, v));
+                    if let Some(to) = &carried_to {
+                        o.insert("carriedTo".into(), to.clone());
+                    }
                 }
                 self.write_turn_result(session, msg, git);
                 // The chat works again: agent messages a failed turn held go in (`digest.rs`).
@@ -1044,6 +1049,9 @@ impl Hub {
                         o.extend(info.clone());
                     }
                     o.extend(crate::recovery::fields(e));
+                    if let Some(to) = &carried_to {
+                        o.insert("carriedTo".into(), to.clone());
+                    }
                     // Ended by acpmux, not the agent (`stalled_turn.rs`).
                     if let Some(data) = e.data.as_ref().filter(|d| d["detail"] == "stalled") {
                         o.insert("detail".into(), data["detail"].clone());

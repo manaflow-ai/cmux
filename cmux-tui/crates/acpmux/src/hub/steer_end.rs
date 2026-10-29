@@ -40,6 +40,9 @@ pub(super) async fn agent_prompt_hook<F: FnOnce()>(
     // turn actually received. An unsent steer must take the existing no-turn fallback.
     // Once delivery begins it may already have reached a translator, so do not retry it.
     let delivery_started = std::sync::atomic::AtomicBool::new(false);
+    // A steer may be read in a turn its agent ran on into after `turn_id` ended
+    // (`carried_turn.rs`): that turn's forced end settles it too.
+    let settles = |turn: &str| turn == turn_id || (steer && Hub::succeeds(session, turn_id, turn));
     let settled = |answer: Value| {
         if steer
             && !delivery_started.load(std::sync::atomic::Ordering::SeqCst)
@@ -65,7 +68,7 @@ pub(super) async fn agent_prompt_hook<F: FnOnce()>(
         let input_handoff = session.input_handoff.clone().lock_owned().await;
         // The turn can settle while this prompt waits behind a Stop's handoff.
         if let Some((turn, answer)) = session.steer_end.borrow().clone()
-            && turn == turn_id
+            && settles(&turn)
         {
             return settled(answer);
         }
@@ -98,7 +101,7 @@ pub(super) async fn agent_prompt_hook<F: FnOnce()>(
                 }
                 let by_steer = ended.borrow_and_update().clone();
                 if let Some((turn, answer)) = by_steer
-                    && turn == turn_id
+                    && settles(&turn)
                 {
                     return settled(answer);
                 }

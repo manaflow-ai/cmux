@@ -202,6 +202,11 @@ impl<'a> TurnGuard<'a> {
     pub(super) fn new(lock: tokio::sync::MutexGuard<'a, ()>, slot: Option<RunSlot>) -> Self {
         Self { _slot: slot, _lock: lock }
     }
+
+    /// The run slot, for a turn its agent runs on into (`carried_turn.rs`): it stays taken.
+    pub(super) fn take_slot(&mut self) -> Option<RunSlot> {
+        self._slot.take()
+    }
 }
 
 impl Hub {

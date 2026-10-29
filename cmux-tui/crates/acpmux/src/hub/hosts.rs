@@ -26,6 +26,12 @@ pub(super) struct OpenWork {
     /// `turn_started` without `turn_result`: (seq, turnId, promptId, prompt,
     /// client, control; a Web steer's `turn_control` raises it).
     turn: Option<(u64, String, String, String, String, Control)>,
+    /// That turn was carried on from the turn before (`turn_started` `carried`,
+    /// `carried_turn.rs`): its prompt is the hub's own, and a steer is never it.
+    turn_carried: bool,
+    /// The last turn ended naming the turn it carried into (`turn_result` `carriedTo`), which
+    /// never logged its start: the restart came in between.
+    carry_next: Option<(String, Value)>,
     /// When that turn started and when its model last showed a sign of work
     /// (`tap.rs` `logged_from_the_model`; 0 for none), Unix ms: the
     /// recovered turn keeps its age and its stalled count (`stalled_turn.rs`).
@@ -828,6 +834,8 @@ impl Hub {
                     work.prompt_request = None;
                     work.prompt_response = None;
                     work.steers.clear();
+                    // A new harness runs no carried turn of the old one's.
+                    work.carry_next = None;
                     work.last_host_seq = 0;
                     host_seq_at = None;
                     work.doing = Default::default();
@@ -845,6 +853,8 @@ impl Hub {
                         Control::from_recorded(e.msg.get("control").and_then(Value::as_str)),
                     ));
                     work.turn_at = e.at;
+                    work.turn_carried = e.msg.get("carried").is_some_and(|c| !c.is_null());
+                    work.carry_next = None;
                     work.heard_at = 0;
                     work.open_tools.clear();
                     work.prompt_request = None;
@@ -860,7 +870,15 @@ impl Hub {
                     }
                 }
                 ("mux", "turn_result") => {
+                    work.carry_next = e.msg.get("carriedTo").filter(|c| !c.is_null()).map(|c| {
+                        let from = work.turn.as_ref().map(|t| t.1.clone());
+                        let from = from.or_else(|| {
+                            e.msg.get("turnId").and_then(Value::as_str).map(str::to_owned)
+                        });
+                        (from.unwrap_or_default(), c.clone())
+                    });
                     work.turn = None;
+                    work.turn_carried = false;
                     work.compacting = false;
                     // No turn, no turn state: an ended turn's records are not read
                     // (`open_work_reads`), so none of them may outlive it here.
@@ -947,13 +965,16 @@ impl Hub {
                     let id = e.msg.get("id").cloned();
                     // A steer into the running turn is not the turn's prompt: its
                     // answer (Claude Code's `steered`) does not end the turn.
-                    if e.msg.pointer("/params/_meta/steer").and_then(Value::as_bool) == Some(true)
-                        && work.prompt_request.is_some()
-                    {
+                    let steer =
+                        e.msg.pointer("/params/_meta/steer").and_then(Value::as_bool) == Some(true);
+                    if steer && (work.prompt_request.is_some() || work.turn_carried) {
                         work.steers.extend(id.map(|id| (id, None)));
                     } else {
                         work.prompt_request = id;
-                        work.steers.clear();
+                        // A carried turn's steers may go in before its prompt.
+                        if !work.turn_carried {
+                            work.steers.clear();
+                        }
                     }
                 }
                 ("in", "response") if current => {
@@ -1051,7 +1072,27 @@ impl Hub {
         Self::recover_floor(session, &work);
         session.compacting.store(work.compacting, Ordering::SeqCst);
         self.rebuild_processes(session);
-        if let Some((turn_seq, turn_id, prompt_id, prompt, client, control)) = work.turn.clone() {
+        // A carried turn the restart cut before its prompt went out (or before it started):
+        // the agent runs it still, and it goes on (`carried_turn.rs`).
+        if let Some((turn_seq, turn_id, prompt_id, prompt, client, control)) = work.turn.clone()
+            && work.turn_carried
+            && work.prompt_request.is_none()
+        {
+            let mut turn = TurnInfo::prompted(&client, &prompt, &turn_id, &prompt_id, control);
+            turn.turn_seq = turn_seq;
+            if work.turn_at > 0 {
+                turn.started_at = work.turn_at;
+            }
+            self.recover_carried(session, child, turn, None);
+        } else if work.turn.is_none()
+            && let Some((from, record)) = &work.carry_next
+            && let Some(next) = super::carried_turn::NextTurn::from_record(record)
+        {
+            let super::carried_turn::NextTurn { carried, next } = next;
+            self.recover_carried(session, child, next, Some((from.clone(), carried)));
+        } else if let Some((turn_seq, turn_id, prompt_id, prompt, client, control)) =
+            work.turn.clone()
+        {
             // A steer whose logged answer ended the turn settles it like the turn's own answer.
             let answer = work.prompt_response.clone().or_else(|| {
                 work.steers.iter().find_map(|(_, a)| a.clone().filter(steer_answer_ends_turn))
@@ -1127,7 +1168,7 @@ impl Hub {
                         // Its agent ended it and runs on with steers it read after: the next turn
                         // starts as this one ends (`carried_turn.rs`).
                         let carried = hub.next_carried(&s, &turn_id, &result);
-                        let next = carried.as_ref().map(|c| c.next.clone());
+                        let next = carried.as_deref();
                         let _ = hub
                             .finish_turn(&s, &c, result, &prompt_id, &turn_id, turn_seq, None, next)
                             .await;
@@ -1135,7 +1176,7 @@ impl Hub {
                         hub.schedule_auto_resume(&s, &turn_id, None);
                         if let Some(carried) = &carried {
                             // Its task takes the turn lock once this one lets it go.
-                            hub.start_carried(&s, &c, &turn_id, carried);
+                            hub.start_carried(&s, &c, &turn_id, carried, None);
                             drop(guard);
                             return;
                         }

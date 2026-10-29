@@ -258,3 +258,32 @@ async fn a_codex_turn_that_took_steers_stays_one_turn() {
     assert_eq!(records(&hub, &id, "turn_started").len(), 1);
     assert_eq!(records(&hub, &id, "turn_result").len(), 1);
 }
+
+/// Stop while Claude Code runs a carried turn and never answers the interrupt: acpmux ends that
+/// turn itself, and a steer still unread in it, sent into the turn before, is answered too
+/// (`steer_end.rs` follows the carried turns).
+#[tokio::test]
+async fn a_forced_stop_of_a_carried_turn_answers_its_unread_steers() {
+    let (hub, mut c, id) = claude_hub().await;
+    let gates = Gates::new();
+    let turn = c.send(method::SESSION_PROMPT, prompt(&id, "p-turn", &gates.text(), false)).await;
+    c.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "gated turn 1").await;
+    let (mut a, first) = steer_in(&hub, &id, "p-1", "ONE").await;
+    let (mut b, second) = steer_in(&hub, &id, "p-2", "TWO").await;
+    gates.open(1, "end-first");
+    let (answer, _) = c.response(turn).await;
+    let answer = answer.unwrap();
+    assert_eq!(answer["_meta"]["claude"]["carried"]["promptIds"], json!(["p-1", "p-2"]));
+    let turns = started(&hub, &id, 2).await;
+    let (read, _) = a.response(first).await;
+    assert_eq!(read.unwrap()["_meta"]["acpmux"]["turnId"], turns[1]["turnId"]);
+    // Claude Code answers the interrupt and runs on: acpmux ends the turn after its grace.
+    c.send(method::SESSION_CANCEL, json!({"sessionId": id})).await;
+    let (unread, _) = tokio::time::timeout(Duration::from_secs(30), b.response(second))
+        .await
+        .expect("the steer unread in the stopped turn was never answered");
+    assert_eq!(unread.unwrap()["stopReason"], "cancelled");
+    let ended = records(&hub, &id, "turn_result");
+    assert_eq!(ended.last().unwrap()["turnId"], turns[1]["turnId"], "{ended:#?}");
+    assert_eq!(ended.last().unwrap()["cancelForced"], true, "{ended:#?}");
+}
