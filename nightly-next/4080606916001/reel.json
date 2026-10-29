@@ -1,0 +1,65 @@
+{
+  "version": 1,
+  "build": "4080606916001",
+  "notes": "notes/4080606916001.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 27099,
+      "title": "Cloud VM image: production channel (promote channel production, prod-copy bake), inert until its environment exists",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27093,
+      "title": "fix(cloud): allow keyless production Stack env audit",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26982,
+      "title": "fix(cloud): retry transient guest edge DNS misses in canaries",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27057,
+      "title": "fix: keep native permission labels in receipts",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26948,
+      "title": "cmux NEXT docs: cmux Classic Mode covers Cmd-N, new windows and a new workspace (#23021)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26979,
+      "title": "cmux NEXT: make the {\"any\": [...]} binding form reachable (schema for bare-stroke actions, docs, skill references)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26755,
+      "title": "Chat: halve the gap between the same assistant's turns",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27151,
+      "title": "Picker: choose Cmux as a provider, not an agent harness",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27132,
+      "title": "fix(acpmux): do not expose Claude context occupancy as tokens",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
