@@ -27,7 +27,7 @@ public actor WorkspaceProjection {
         case malformedSnapshot
     }
 
-    private struct Row {
+    fileprivate struct Row {
         var value: [String: Any]
         var key: String
         var handle: Int?
@@ -143,13 +143,15 @@ public actor WorkspaceProjection {
     // MARK: Delta patching
 
     private func apply(_ delta: DaemonTreeDelta) throws -> (ids: Set<String>, topology: Bool) {
+        if let eventRegistry = delta.registryID, let registryID, eventRegistry != registryID {
+            throw ProjectionError.needsSnapshot
+        }
         var nextRevision: Int?
         if delta.kind.isWorkspace, let next = delta.workspaceRevision {
             if let current = revision {
                 if next <= current { return ([], false) }
                 if next != current + 1 { throw ProjectionError.needsSnapshot }
             }
-        }
             nextRevision = next
         }
         if delta.kind.isWorkspace {
@@ -168,8 +170,8 @@ public actor WorkspaceProjection {
             return (Set([id]), changed)
         }
         let id = try rowID(at: workspaceIndex)
-        let topology = try patchNested(delta, in: &rows[workspaceIndex].value, entity: entity)
-        return (Set([id]), topology)
+        _ = try patchNested(delta, in: &rows[workspaceIndex].value, entity: entity)
+        return (Set([id]), true)
     }
 
     private func patchWorkspace(_ delta: DaemonTreeDelta) throws -> (ids: Set<String>, topology: Bool) {
@@ -178,6 +180,8 @@ public actor WorkspaceProjection {
             let row = Row(value: entity, key: Self.rowKey(entity), handle: entity["id"] as? Int)
             let index = min(max(delta.index ?? rows.count, 0), rows.count)
             rows.insert(row, at: index)
+            metadata[row.key] = Self.metadata(for: row.value)
+            rebuildSurfaceIndex()
             return (Set([row.key]), true)
         }
         guard let index = rowIndex(workspace: delta.workspace, key: delta.workspaceKey) else {
@@ -193,14 +197,15 @@ public actor WorkspaceProjection {
         guard let entity = delta.entity.flatMap(Self.object) else { throw ProjectionError.needsSnapshot }
         let row = Row(value: entity, key: Self.rowKey(entity), handle: entity["id"] as? Int)
         rows[index] = row
-        metadata[oldID] = Self.metadata(for: row.value)
+        metadata.removeValue(forKey: oldID)
+        metadata[row.key] = Self.metadata(for: row.value)
         rebuildSurfaceIndex()
         if delta.kind == .workspaceMoved, let target = delta.index {
             let moved = rows.remove(at: index)
             rows.insert(moved, at: min(max(target, 0), rows.count))
             rebuildSurfaceIndex()
         }
-        return (Set([oldID, row.key]), delta.kind == .workspaceMoved)
+        return (Set([oldID, row.key]), true)
     }
 
     /// Patches a screen, pane, or tab in-place. Returns whether row topology
@@ -283,6 +288,7 @@ public actor WorkspaceProjection {
             let parsed = try parseRow(rows[index], previous: Self.workspace(id: id, in: current))
             replace(parsed, id: id, in: &current)
             metadata[id] = Self.metadata(for: rows[index].value)
+            rebuildSurfaceIndex()
             changed.insert(id)
         }
         // Closed workspaces no longer have a raw row; remove them from the
@@ -394,8 +400,8 @@ public actor WorkspaceProjection {
 
     private static func metadata(for row: [String: Any]) -> RowMetadata {
         var tabs = Set<String>(), surfaces = Set<Int>(), groups = Set<String>()
-        for tab in Self.tabs(row) where tab["surface"] is Int {
-            let surface = tab["surface"] as! Int
+        for tab in Self.tabs(row) {
+            guard let surface = tab["surface"] as? Int else { continue }
             surfaces.insert(surface)
             tabs.insert(DaemonTree.tabID(surface: surface))
         }
@@ -425,7 +431,7 @@ public actor WorkspaceProjection {
     }
 }
 
-private extension WorkspaceProjection.Row {
+fileprivate extension WorkspaceProjection.Row {
     mutating func setTitle(surface: Int, title: String) {
         guard var screens = value["screens"] as? [[String: Any]] else { return }
         for screenIndex in screens.indices {

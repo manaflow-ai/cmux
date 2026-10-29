@@ -501,10 +501,11 @@ public struct DaemonTreeDelta: Equatable, Sendable {
     public var index: Int?
     public var entity: Data?
     public var workspaceRevision: Int?
+    public var registryID: String?
 
     public init(kind: Kind, workspace: Int? = nil, workspaceKey: String? = nil, screen: Int? = nil,
                 pane: Int? = nil, surface: Int? = nil, index: Int? = nil, entity: Data? = nil,
-                workspaceRevision: Int? = nil) {
+                workspaceRevision: Int? = nil, registryID: String? = nil) {
         self.kind = kind
         self.workspace = workspace
         self.workspaceKey = workspaceKey
@@ -514,6 +515,7 @@ public struct DaemonTreeDelta: Equatable, Sendable {
         self.index = index
         self.entity = entity
         self.workspaceRevision = workspaceRevision
+        self.registryID = registryID
     }
 
     init(event: String, object: [String: Any]) {
@@ -525,6 +527,7 @@ public struct DaemonTreeDelta: Equatable, Sendable {
         self.surface = object["surface"] as? Int
         self.index = object["index"] as? Int
         self.workspaceRevision = object["workspace_revision"] as? Int
+        self.registryID = object["registry_id"] as? String
         if let entity = object["entity"], JSONSerialization.isValidJSONObject(entity),
            let data = try? JSONSerialization.data(withJSONObject: entity) {
             self.entity = data
