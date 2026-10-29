@@ -893,7 +893,14 @@ impl Store for MemoryStore {
                 let end = events.partition_point(|e| e.seq < before);
                 let mut window = Vec::new();
                 let mut lowest = None;
-                for e in events[..end].iter().rev().take_while(|e| e.seq > after).take(WINDOW) {
+                for e in events
+                    .get(..end)
+                    .unwrap_or_default()
+                    .iter()
+                    .rev()
+                    .take_while(|e| e.seq > after)
+                    .take(WINDOW)
+                {
                     lowest = Some(e.seq);
                     if !skip(e.dir.as_bytes(), e.kind.as_bytes()) {
                         window.push(e.clone());

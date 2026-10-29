@@ -19,7 +19,9 @@ Blacksmith macOS last. On an owned Mac a signing job must:
    SIGNING_JOBS here) and writes GLAEDA_JOB_CLAIM=exclusive and
    GLAEDA_HOOK_SHA256 (its own sha256); the gate fails on an owned Mac without
    the claim or with a hook scripts/ci/glaeda-signing-hooks.txt does not list
-   (every listed sha is one glaeda-disk pins), and sets the job's `claim`
+   (every listed sha is one glaeda-disk pins, and glaeda's newest pin is
+   listed), read at the run's own commit since no checkout has run yet, and
+   no workflow names a hook sha itself (NoLiteralHookTests); it sets the job's `claim`
    output to owned when it passes there. A step that runs
    scripts/ci/signing-runner-claim.sh (the same check, and it removes a
    signing keychain a killed job left) comes before every step that names a
@@ -27,7 +29,8 @@ Blacksmith macOS last. On an owned Mac a signing job must:
 3. have a Blacksmith twin, <job>-blacksmith, with the same steps, env,
    outputs and permissions, that signs in the same run when the owned attempt
    never passed its claim gate (glaeda refused the job, or an unlisted hook
-   admitted it), and that every job reading the signing job's result or
+   admitted it) or, for a job in FALLBACK_ON_FAILURE, failed after it, and
+   that every job reading the signing job's result or
    outputs also needs and reads, so no run fails or goes stale on a refused
    owned Mac;
 4. make its keychain with scripts/ci/signing-keychain.sh create (the
@@ -89,15 +92,33 @@ if [ -n "$owned" ]; then
     echo "::error title=Signing runner::This owned Mac did not give the job the whole mini; this run's Blacksmith job signs instead."
     exit 1
   fi
-  case "${{GLAEDA_HOOK_SHA256:-}}" in
-    {"|".join(SIGNING_HOOKS)}) ;;
-    *) echo "::error title=Signing runner::glaeda hook ${{GLAEDA_HOOK_SHA256:-unnamed}} is not one scripts/ci/glaeda-signing-hooks.txt lists; this run's Blacksmith job signs instead."
-       exit 1 ;;
-  esac
+  hooks=$(curl -fsS --proto '=https' --retry 3 --max-time 20 \\
+    "https://raw.githubusercontent.com/${{GITHUB_REPOSITORY}}/${{GITHUB_SHA}}/scripts/ci/glaeda-signing-hooks.txt") || hooks=""
+  hook="${{GLAEDA_HOOK_SHA256:-}}"
+  listed=""
+  if [[ "$hook" =~ ^[0-9a-f]{{64}}$ ]]; then
+    while read -r sha _; do if [ "$sha" = "$hook" ]; then listed=1; fi; done <<< "$hooks"
+  fi
+  if [ -z "$listed" ]; then
+    echo "::error title=Signing runner::glaeda hook ${{hook:-unnamed}} is not one scripts/ci/glaeda-signing-hooks.txt lists; this run's Blacksmith job signs instead."
+    exit 1
+  fi
   echo "claim=owned" >> "$GITHUB_OUTPUT"
 fi
 """
 TWIN_SUFFIX = "-blacksmith"
+# Signing jobs whose twin also signs when the owned attempt passed its claim and then failed, with the condition that
+# says it failed. sign-nightly-identity-legacy runs with continue-on-error, so its result reads success after a failed
+# step; signed_ok (true only when every step passed) says, unless the old feed already had the build (skip) or Apple
+# already holds its submission (pending: a second signer would submit it again). On
+# 2026-10-29 it failed codesign on a mini after its claim (errSecInternalComponent) and, its twin skipped, the run
+# published nothing to the old feed. The other twins sign only after a refused claim: release and the v0.64.25 repair
+# publish from inside the signing job, so a second signer after a failed one could publish twice.
+FALLBACK_ON_FAILURE = {
+    ("nightly.yml", "sign-nightly-identity-legacy"):
+        "needs.{name}.outputs.signed_ok != 'true' && needs.{name}.outputs.skip != 'true' && "
+        "needs.{name}.outputs.pending != 'true'",
+}
 # The hook from before the leftover-process check (glaeda before #1738): the gate refuses it.
 OLD_HOOK = "fb0442d31e23f01326118b7d6be2effd0ba91bff9a0b59c62016c39bc23116da"
 NEEDS_OUTPUT = re.compile(r"needs\.([\w-]+)\.outputs\.([\w-]+)")
@@ -177,8 +198,13 @@ def picker_scripts(jobs: dict, needed: str, output: str) -> list[str]:
     return found or [f"needs.{needed}.outputs.{output} (no step output)"]
 
 
-def twin_failures(jobs: dict, name: str, owned_reads: list[str]) -> list[str]:
-    """Why the owned-routed signing job `name` lacks a same-run Blacksmith twin that every reader of it also reads."""
+def twin_failures(jobs: dict, name: str, owned_reads: list[str], workflow: str = "") -> list[str]:
+    """Why the owned-routed signing job `name` lacks a same-run Blacksmith twin that every reader of it also reads.
+
+    A twin in FALLBACK_ON_FAILURE also signs after a failed owned attempt, so each reader takes the twin's outputs
+    whenever the twin ran, (needs.<twin>.result == 'skipped' && needs.<job>.outputs.X || needs.<twin>.outputs.X): the
+    failed attempt's outputs never mix into the twin's."""
+    failed = FALLBACK_ON_FAILURE.get((workflow, name), "").format(name=name)
     twin_name = name + TWIN_SUFFIX
     job, twin = jobs[name], jobs.get(twin_name)
     if str((job.get("outputs") or {}).get("claim", "")).strip() != f"${{{{ steps.{CLAIM_GATE_ID}.outputs.claim }}}}":
@@ -200,8 +226,9 @@ def twin_failures(jobs: dict, name: str, owned_reads: list[str]) -> list[str]:
         failures.append(f"{twin_name} needs must be {name}'s needs, then {name}")
     condition = re.sub(r"\s+", " ", str(twin.get("if", "")))
     for read in owned_reads:
+        refused = f"needs.{name}.outputs.claim != 'owned'"
         want = (f"!cancelled() && github.run_attempt == 1 && {read} != '' && needs.{name}.result != 'skipped' && "
-                f"needs.{name}.result != 'cancelled' && needs.{name}.outputs.claim != 'owned'")
+                f"needs.{name}.result != 'cancelled' && " + (f"({refused} || {failed})" if failed else refused))
         if condition != want:
             failures.append(f"{twin_name} if must be exactly: {want}")
     for other, reader in jobs.items():
@@ -215,8 +242,12 @@ def twin_failures(jobs: dict, name: str, owned_reads: list[str]) -> list[str]:
         if twin_name not in reader_needs:
             failures.append(f"{other} needs {name} but not {twin_name}, so it never sees the twin's sign")
         for ref in re.findall(rf"needs\.{re.escape(name)}\.(outputs\.[\w-]+|result)", text):
-            pair = (f"(needs.{twin_name}.{ref} || needs.{name}.{ref})" if ref.startswith("outputs.")
-                    else f"(needs.{twin_name}.result == 'skipped' && needs.{name}.result || needs.{twin_name}.result)")
+            if not ref.startswith("outputs."):
+                pair = f"(needs.{twin_name}.result == 'skipped' && needs.{name}.result || needs.{twin_name}.result)"
+            elif failed:
+                pair = f"(needs.{twin_name}.result == 'skipped' && needs.{name}.{ref} || needs.{twin_name}.{ref})"
+            else:
+                pair = f"(needs.{twin_name}.{ref} || needs.{name}.{ref})"
             if text.count(f"needs.{name}.{ref}") != text.count(pair):
                 failures.append(f"{other} reads needs.{name}.{ref} without the twin first: write it as {pair}")
         condition = str(reader.get("if", ""))
@@ -270,7 +301,7 @@ def check(documents: dict[str, dict]) -> tuple[list[str], int]:
                 failures.append(f"{label}: the first step must be the claim gate ({CLAIM_GATE_NAME}): CLAIM_GATE word "
                                 f"for word, id {CLAIM_GATE_ID}, with no if, uses, env or continue-on-error, before the "
                                 "checkout's token")
-            failures.extend(f"{label}: {why}" for why in twin_failures(jobs, name, owned_reads))
+            failures.extend(f"{label}: {why}" for why in twin_failures(jobs, name, owned_reads, workflow))
             claim = next((index for index, step in enumerate(steps) if CLAIM in str(step.get("run", ""))), None)
             first_secret = next((index for index, step in enumerate(steps) if "secrets." in json.dumps(step)), None)
             if claim is None:
@@ -313,6 +344,57 @@ def runner(name: str, labels: list[str], busy: bool = False, status: str = "onli
 
 
 SIDE = "glaeda-side-std-xcode-26.6"
+
+
+class LegacyTwinAfterAFailedOwnedSign(unittest.TestCase):
+    """nightly.yml's legacy-identity twin signs and publish reads it when the owned sign failed after its claim.
+
+    Run 40920248555 (2026-10-29): sign-nightly-identity-legacy passed its claim on a mini, failed codesign
+    (errSecInternalComponent), and read as success to every later job (continue-on-error); its twin skipped, and the
+    old feed got nothing."""
+
+    OWNED, TWIN = "sign-nightly-identity-legacy", "sign-nightly-identity-legacy-blacksmith"
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        from test_ci_fork_runner_routing import parse_expression
+        from test_nightly_trusted_routing import evaluate
+        cls.parse, cls.evaluate = staticmethod(parse_expression), staticmethod(evaluate)
+        cls.jobs = yaml.safe_load((WORKFLOWS / "nightly.yml").read_text(encoding="utf-8"))["jobs"]
+
+    def run_twin(self, **owned: str) -> bool:
+        context = {"github.run_attempt": 1, "needs.pick-nightly-sign-runner.outputs.sign_owned": '["x"]',
+                   f"needs.{self.OWNED}.result": "success"}
+        context.update({f"needs.{self.OWNED}.outputs.{key}": value for key, value in owned.items()})
+        condition = str(self.jobs[self.TWIN]["if"]).replace("!cancelled() && ", "", 1)
+        return bool(self.evaluate(self.parse(condition), context))
+
+    def test_the_twin_signs_after_a_refused_or_a_failed_owned_attempt(self) -> None:
+        self.assertTrue(self.run_twin(), "a refused claim (no outputs)")
+        # The 2026-10-29 failure: claimed, then a failed step; the job's result still reads success.
+        self.assertTrue(self.run_twin(claim="owned", skip="false", signed_ok="false"))
+        # Failed between the claim and the old-feed check (no skip or signed_ok yet).
+        self.assertTrue(self.run_twin(claim="owned"))
+
+    def test_the_twin_stays_off_after_a_good_or_needless_owned_attempt(self) -> None:
+        self.assertFalse(self.run_twin(claim="owned", skip="false", signed_ok="true"))
+        # Still in Apple's queue counts as signed (signed_ok true), so the pending submission is not repeated.
+        self.assertFalse(self.run_twin(claim="owned", skip="false", signed_ok="true", pending="true"))
+        self.assertFalse(self.run_twin(claim="owned", skip="true"), "the old feed already has the build")
+        # Apple holds the submission but a later step (an upload, the record) failed: never submit it again.
+        self.assertFalse(self.run_twin(claim="owned", skip="false", pending="true", signed_ok="false"))
+        self.assertFalse(self.run_twin(claim="owned", skip="false", pending="true"))
+
+    def test_readers_take_the_twins_outputs_whenever_it_ran(self) -> None:
+        env = self.jobs["verify-nightly-identity-legacy"]["env"]
+        expression = str(env["STAPLED_APP_FALLBACK_ID"]).strip().removeprefix("${{").removesuffix("}}")
+        node = self.parse(expression)
+        owned = {f"needs.{self.OWNED}.outputs.stapled_app_fallback_id": "owned-submission"}
+        twin_ran = {**owned, f"needs.{self.TWIN}.result": "success"}
+        self.assertEqual(self.evaluate(node, twin_ran), "", "the failed owned attempt's id leaked into the twin's")
+        self.assertEqual(self.evaluate(node, {**twin_ran, f"needs.{self.TWIN}.outputs.stapled_app_fallback_id": "t"}),
+                         "t")
+        self.assertEqual(self.evaluate(node, {**owned, f"needs.{self.TWIN}.result": "skipped"}), "owned-submission")
 
 
 class SigningOwnedMacTests(unittest.TestCase):
@@ -496,6 +578,8 @@ class SigningOwnedMacTests(unittest.TestCase):
         run_status = ["in_progress"]
 
         def jobs(path: str) -> dict:
+            if not path.endswith("&page=1"):
+                return {}  # every listing here fits one page
             if "/runs?" in path:
                 return {"workflow_runs": [{"id": 7}] if "nightly.yml" in path and f"status={run_status[0]}&" in path
                         else []}
@@ -522,23 +606,72 @@ class SigningOwnedMacTests(unittest.TestCase):
         owned, why = signing_runner.owned_pick(env, read, jobs)
         self.assertEqual(owned, "", why)
         self.assertIn("already hold an owned Mac", why)
-        for status in ("queued", "waiting", "pending", "requested"):  # every unfinished run status is read
+        for status in ("waiting", "pending", "requested"):  # every unfinished run status a started run can have
             with self.subTest(run_status=status):
                 run_status[0] = status
                 self.assertEqual(signing_runner.owned_pick(env, read, jobs)[0], "")
+        run_status[0] = "queued"  # no job of a queued run has started, so none carries a pin: never read
+        self.assertTrue(signing_runner.owned_pick(env, read, jobs)[0])
+        reads: list[str] = []
+        signing_runner.owned_signing_jobs(lambda path: reads.append(path) or {})
+        self.assertFalse([path for path in reads if "status=queued" in path],
+                         "over 100 queued runs failed every pick closed (runs 40897459413, 40905688542)")
         run_status[0] = "in_progress"
+        fails = [502]
 
-        def truncated(path: str) -> dict:
+        def flaky(path: str) -> dict:
+            if fails:
+                import urllib.error  # noqa: PLC0415
+                raise urllib.error.HTTPError(path, fails.pop(), "Bad Gateway", {}, None)
+            return jobs(path)
+
+        kept = list(held)
+        held.clear()
+        self.assertTrue(signing_runner.owned_pick(env, read, flaky)[0], "one 502 is retried, and the count goes on")
+        self.assertEqual(fails, [])
+        fails[:] = [404]
+        self.assertEqual(signing_runner.owned_pick(env, read, flaky)[0], "", "a 4xx is not retried: fails closed")
+        fails[:] = [502, 502, 502]
+        self.assertEqual(signing_runner.owned_pick(env, read, flaky)[0], "", "persistent 5xx fails closed")
+        held[:] = kept
+
+        def lagging(path: str) -> dict:  # total_count ahead of what is listed: the pages are what counts
+            if not path.endswith("&page=1"):
+                return {}
             if "/runs?" in path:
                 return {"total_count": 101, "workflow_runs": [{"id": 7}]}
-            return {"jobs": []}
+            return {"total_count": 3, "jobs": []}
 
-        self.assertEqual(signing_runner.owned_pick(env, read, truncated)[0], "", "a listing past one page fails closed")
+        self.assertTrue(signing_runner.owned_pick(env, read, lagging)[0], "total_count is never trusted")
+        pinned = {"name": "sign-nightly-identity-legacy", "status": "in_progress",
+                  "labels": [SIDE, "glaeda-runner-cmux13-glaeda-3"]}
 
-        def many_jobs(path: str) -> dict:
-            return jobs(path) if "/runs?" in path else {"total_count": 150, "jobs": []}
+        def short_then_runs(path: str) -> dict:  # a short first page of runs, the held one on page 2
+            if "/runs?" in path and "nightly.yml" in path and "status=in_progress" in path:
+                return {"workflow_runs": [{"id": 7}] if path.endswith("&page=1") else
+                        [{"id": 8}] if path.endswith("&page=2") else []}
+            if "/runs?" in path:
+                return {}
+            return {"jobs": [pinned] if "/runs/8/" in path and path.endswith("&page=1") else []}
 
-        self.assertEqual(signing_runner.owned_pick(env, read, many_jobs)[0], "", "so does a job list past one page")
+        self.assertEqual(signing_runner.owned_pick(env, read, short_then_runs)[0], "",
+                         "a held job on a later page of runs is counted, however short page 1 is")
+
+        def short_then_jobs(path: str) -> dict:  # a short first page of jobs, the held one on page 2
+            if "/runs?" in path:
+                return {"workflow_runs": [{"id": 7}]} if ("nightly.yml" in path and "status=in_progress" in path
+                                                           and path.endswith("&page=1")) else {}
+            return {"jobs": [{"name": "decide", "status": "completed"}] if path.endswith("&page=1") else
+                    [pinned] if path.endswith("&page=2") else []}
+
+        self.assertEqual(signing_runner.owned_pick(env, read, short_then_jobs)[0], "",
+                         "so is one on a later page of a run's jobs")
+
+        def endless(path: str) -> dict:
+            return {"workflow_runs": [{"id": 7}]} if "/runs?" in path else {"jobs": []}
+
+        self.assertEqual(signing_runner.owned_pick(env, read, endless)[0], "",
+                         f"a listing past {signing_runner.MAX_PAGES} pages fails closed")
         order: list[str] = []
         signing_runner.owned_pick(env, lambda t, r: order.append("runners") or runners,
                                   lambda path: order.append("jobs") or jobs(path))
@@ -667,12 +800,29 @@ class ClaimGateTests(unittest.TestCase):
     def test_gate(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             output = Path(raw) / "output"
+            # curl stands in for raw.githubusercontent.com: it serves this tree's glaeda-signing-hooks.txt for
+            # the run's own commit only, records the URL it was asked for, and fails as a 404 for anything else.
+            bin_dir = Path(raw) / "bin"
+            bin_dir.mkdir()
+            served = Path(raw) / "served"
+            asked = Path(raw) / "asked"
+            curl = bin_dir / "curl"
+            curl.write_text('#!/bin/sh\nfor a; do url="$a"; done\necho "$url" >> "$ASKED"\n'
+                            '[ "$url" = "$WANT" ] && [ -f "$SERVED" ] && exec cat "$SERVED"\nexit 22\n')
+            curl.chmod(0o755)
+            run_env = {"GITHUB_REPOSITORY": "manaflow-ai/cmux", "GITHUB_SHA": "a" * 40}
+            want = (f"https://raw.githubusercontent.com/{run_env['GITHUB_REPOSITORY']}/{run_env['GITHUB_SHA']}/"
+                    "scripts/ci/glaeda-signing-hooks.txt")
 
             def gate(**env: str) -> subprocess.CompletedProcess:
                 output.write_text("")
-                return subprocess.run(["bash", "-e", "-c", CLAIM_GATE],
-                                      env={"PATH": "/usr/bin:/bin", "GITHUB_OUTPUT": os.fspath(output), **env},
+                return subprocess.run(["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", CLAIM_GATE],
+                                      env={"PATH": f"{bin_dir}:/usr/bin:/bin", "GITHUB_OUTPUT": os.fspath(output),
+                                           "ASKED": os.fspath(asked), "SERVED": os.fspath(served), "WANT": want,
+                                           **run_env, **env},
                                       capture_output=True, text=True, timeout=30, check=False)
+
+            served.write_text(SIGNING_HOOKS_FILE.read_text())
 
             fleet = Path("/Users/Shared/cmux-build-fleet").is_dir()
             if not fleet:
@@ -697,8 +847,30 @@ class ClaimGateTests(unittest.TestCase):
                     passed = gate(**owned, GLAEDA_HOOK_SHA256=sha)
                     self.assertEqual(passed.returncode, 0, passed.stdout + passed.stderr)
                     self.assertEqual(output.read_text(), "claim=owned\n")
+            self.assertEqual(set(asked.read_text().split()), {want}, "the list is read at the run's own commit only")
             self.assertIn(FIRST_SIGNING_HOOK, SIGNING_HOOKS, "the hook with the leftover-process check passes")
             self.assertNotIn(OLD_HOOK, SIGNING_HOOKS, "the hook from before it is refused")
+            # The list read at the run's commit is the one that counts: a hook it adds passes with no workflow edit,
+            # a hook it lacks (or a list that cannot be read) is refused.
+            new_hook = "b" * 64
+            served.write_text(SIGNING_HOOKS_FILE.read_text() + f"{new_hook} a hook glaeda pinned later\n")
+            self.assertEqual(gate(**owned, GLAEDA_HOOK_SHA256=new_hook).returncode, 0)
+            self.assertEqual(output.read_text(), "claim=owned\n")
+            served.write_text(f"# only a note\n{new_hook}\n")
+            refused = gate(**owned, GLAEDA_HOOK_SHA256=FIRST_SIGNING_HOOK)
+            self.assertEqual(refused.returncode, 1, "a hook the run's commit does not list is refused")
+            self.assertEqual(output.read_text(), "")
+            served.unlink()
+            refused = gate(**owned, GLAEDA_HOOK_SHA256=FIRST_SIGNING_HOOK)
+            self.assertEqual(refused.returncode, 1, "an unreadable list refuses: the Blacksmith twin signs")
+            self.assertIn("is not one scripts/ci/glaeda-signing-hooks.txt lists", refused.stdout)
+            self.assertEqual(output.read_text(), "")
+            for sha in ("#", ""):
+                with self.subTest(note_line=sha):
+                    served.write_text("# a note\n\n")
+                    self.assertEqual(gate(**owned, GLAEDA_HOOK_SHA256=sha).returncode, 1)
+            self.assertEqual(gate(**owned, GLAEDA_HOOK_SHA256=new_hook,
+                                  GITHUB_SHA="c" * 40).returncode, 1, "another commit's list is never read")
 
 
 class SigningHooksInStepWithGlaedaTests(unittest.TestCase):
@@ -729,9 +901,58 @@ class SigningHooksInStepWithGlaedaTests(unittest.TestCase):
         released = pins[pins.index(FIRST_SIGNING_HOOK):]
         for sha in SIGNING_HOOKS:
             self.assertIn(sha, released, f"{sha} is not a hook glaeda pinned at or after {FIRST_SIGNING_HOOK[:8]}")
-        if pins[-1] not in SIGNING_HOOKS:
-            print(f"warning: glaeda's newest hook {pins[-1]} is not in {SIGNING_HOOKS_FILE.name}; minis on it sign "
-                  "on Blacksmith until it is added", file=sys.stderr)
+        # glaeda #1740's hook was released and never listed, so every owned signing attempt was refused for hours: the
+        # hook glaeda pins now (its newest, which minis are moving to) must be listed. HQ's glaeda-signing-hooks-sync
+        # workflow opens the PR that adds it.
+        self.assertIn(pins[-1], SIGNING_HOOKS,
+                      f"glaeda's newest hook {pins[-1]} is not in {SIGNING_HOOKS_FILE.name}; minis on it sign on "
+                      "Blacksmith until it is added (add its line, or land the glaeda-signing-hooks sync PR)")
+
+
+# A 64-hex sha256 in a workflow: a hook named outside the one list.
+HEX64 = re.compile(r"(?<![0-9a-fA-F])[0-9a-f]{64}(?![0-9a-fA-F])")
+
+
+def literal_hook_failures(texts: dict[str, str], hooks: list[str]) -> list[str]:
+    """Where a workflow names a glaeda hook itself: any listed (or refused) hook sha anywhere in it, and any 64-hex
+    literal in a step that reads GLAEDA_HOOK_SHA256. The claim gates read glaeda-signing-hooks.txt instead."""
+    failures = []
+    known = set(hooks) | {OLD_HOOK}
+    for name, text in sorted(texts.items()):
+        for sha in sorted(known):
+            if sha in text:
+                failures.append(f"{name} names hook {sha[:12]} itself; only {SIGNING_HOOKS_FILE.name} lists hooks")
+        document = yaml.safe_load(text)
+        jobs = ((document or {}).get("jobs") or {}) if isinstance(document, dict) else {}
+        for job_name, job in jobs.items():
+            steps = (job.get("steps") or []) if isinstance(job, dict) else []
+            for step in steps:
+                run = str(step.get("run", "")) if isinstance(step, dict) else ""
+                if "GLAEDA_HOOK_SHA256" in run:
+                    for sha in sorted(set(HEX64.findall(run)) - known):
+                        failures.append(f"{name} {job_name}: a step that reads GLAEDA_HOOK_SHA256 names {sha[:12]} "
+                                        f"itself; only {SIGNING_HOOKS_FILE.name} lists hooks")
+    return failures
+
+
+class NoLiteralHookTests(unittest.TestCase):
+    """The claim gates carry no hook sha of their own: glaeda-signing-hooks.txt is the one list, read at the run's
+    commit, so a new hook is one line there and never four workflow edits (cmux#27408 was the last of those)."""
+
+    def test_no_workflow_names_a_hook(self) -> None:
+        texts = {path.name: path.read_text(encoding="utf-8") for path in sorted(WORKFLOWS.glob("*.y*ml"))}
+        self.assertEqual(literal_hook_failures(texts, SIGNING_HOOKS), [])
+
+    def test_the_guard_catches_a_literal(self) -> None:
+        gate = "jobs:\n  sign:\n    steps:\n      - run: |\n          case \"$GLAEDA_HOOK_SHA256\" in %s) ;; esac\n"
+        self.assertTrue(literal_hook_failures({"a.yml": gate % FIRST_SIGNING_HOOK}, [FIRST_SIGNING_HOOK]))
+        self.assertTrue(literal_hook_failures({"a.yml": gate % ("d" * 64)}, [FIRST_SIGNING_HOOK]),
+                        "an unlisted literal in a gate fails too")
+        self.assertTrue(literal_hook_failures({"a.yml": f"env:\n  HOOKS: {FIRST_SIGNING_HOOK}\n"},
+                                              [FIRST_SIGNING_HOOK]))
+        other = "jobs:\n  x:\n    steps:\n      - run: echo %s\n" % ("e" * 64)
+        self.assertEqual(literal_hook_failures({"a.yml": other}, [FIRST_SIGNING_HOOK]), [],
+                         "other sha256 literals are not hooks")
 
 
 if __name__ == "__main__":
