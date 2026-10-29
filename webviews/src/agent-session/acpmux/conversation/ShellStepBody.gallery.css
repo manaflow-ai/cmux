@@ -12,6 +12,8 @@
 .shell-step-gallery[data-mode="light"] {
   --cv-page: #f4f5f7;
   --cv-text: #22252b;
+  --cv-card-ring: color-mix(in srgb, #22252b 10%, transparent);
+  --cv-card-fill: color-mix(in srgb, #22252b 4%, transparent);
   --cv-text-muted: #626a76;
   --cv-tool-strong: #30343b;
 }

@@ -8,8 +8,9 @@ import { useLayoutEffect, useRef, type RefObject } from "react";
 /// On a fixed-height output box while text lies under its bottom edge.
 export const MORE_BELOW = "data-more-below";
 
-/// Whether `box` has text under its bottom edge (a half pixel of slack for zoomed pages).
-export const moreBelow = (box: Element) => box.scrollTop + box.clientHeight < box.scrollHeight - 0.5;
+/// Whether `box` has text under its bottom edge (a pixel of slack: zoomed pages and fractional line
+/// heights end a scroll a fraction short of the content's height).
+export const moreBelow = (box: Element) => box.scrollTop + box.clientHeight < box.scrollHeight - 1;
 
 /// A ref for such a box that keeps `MORE_BELOW` current: once each time `content` changes (a
 /// streamed response), on each of its scrolls, and when it or what it holds resizes. Its listener

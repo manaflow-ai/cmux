@@ -62,8 +62,9 @@ export function ShellBlock({
   const marked = shown.cut || Boolean(cut && shown.shown);
   const body = useRef<HTMLPreElement>(null);
   useSidewaysEdge(body);
-  useMoreBelowOn(body, shown.shown);
+  // Following first, so the fade reads where the box ends up, not where it was.
   useFollowEnd(body, shown.shown, live && preview.cut);
+  useMoreBelowOn(body, shown.shown);
   return (
     <div className="cv-shell" id={id} ref={menuPartRef({ command, output: shown.text })}>
       <div className="cv-shell__label">
