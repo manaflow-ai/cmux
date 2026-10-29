@@ -409,8 +409,9 @@ public final class TerminalSurfaceView: NSView, KeyEquivalentOwningSurface {
     /// Runs ``syncPlacement()`` when ``visibilityNode`` shows.
     private var placementWatch: VisibilitySubscription?
     /// In a window, its nodes not hidden and no container above parked (``windowNode``). A layout change of
-    /// a terminal that is not shown records its size only (PL-script A3: a hidden workspace's layout sized
-    /// every warm terminal's surface and resized its PTY); showing it applies the last size once.
+    /// a terminal that is not shown does no size work (PL-script A3: a hidden workspace's layout sized every
+    /// warm terminal's surface and resized its PTY); its edge to shown sizes it from its bounds once
+    /// (``reconcileShown()``).
     var isShown: Bool { windowNode.effective > .hidden }
 
 
@@ -557,8 +558,10 @@ public final class TerminalSurfaceView: NSView, KeyEquivalentOwningSurface {
         session?.surfaceDidReport(grid: report, pixelWidth: cells.width, pixelHeight: cells.height)
     }
 
-    /// The PTY owner has no grid from this view (a new session or owner, or it took over geometry): it
-    /// gets the view's grid now when shown, else when the view shows (``TerminalGridPolicy/ownerNeedsReport()``).
+    /// The PTY owner has no grid from this view (a new session or owner, or it took over geometry): it gets
+    /// the view's grid at the view's next sizing: now when shown and at rest, when its pane's layout spring
+    /// lands (or the spring's final grid at once, ``reportFinalGrid(_:)``), else when the view shows
+    /// (``TerminalGridPolicy/ownerNeedsReport()``).
     func reportToNewOwner() {
         geometry.ownerNeedsReport()
         updateSurfaceSize()

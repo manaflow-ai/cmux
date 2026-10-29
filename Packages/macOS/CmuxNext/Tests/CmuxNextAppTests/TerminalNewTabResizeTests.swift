@@ -42,6 +42,11 @@ struct TerminalNewTabResizeTests {
                 return Self.live(services, [pane]) && Self.unfitted(services, [pane]).isEmpty
             }, report: { "the new tab never showed fitted: " + Self.describe(services, controller) })
 
+            // The terminal the pane shows counts as shown (the journey's state on v2.2.7-opt: on screen and drawing,
+            // but never sized again, so its window node stayed hidden): its node chain says which node hides it.
+            let surface = try #require(pane.currentTabKey.flatMap { services.cache.existingTerminal($0)?.session.surfaceView })
+            #expect(surface.isShown, "the new tab's terminal is on screen but not shown: \(surface.nodeChain)")
+
             // The window gets smaller, as a person's drag or a window_place leaves it.
             let tall = window.frame
             // Narrower by 240 pt and shorter by a fifth: both grid dimensions change.

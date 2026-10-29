@@ -63,21 +63,33 @@ extension TerminalSurfaceView: PaneMotionTargeting {
 
 /// The resting-grid invariant (G2, `InputInvariantMonitor.terminalGrids`; principled-audit R3).
 extension TerminalSurfaceView {
-    /// Nil when this terminal keeps the invariant or is not at rest; else what differs. Shown and at rest (no
-    /// pane spring, no report held; a report on its way to the owner passes the monitor's settle and its
-    /// confirmation one settle later, so only a grid that stays wrong is reported): the grid Ghostty fits the view's bounds,
-    /// the grid it was sized to, the grid reported and the grid the owner announced are one grid.
-    package var restingGridMismatch: String? {
-        guard let surface, isShown, !isInPaneMotion, !geometry.held else { return nil }
+    /// Nil when this terminal keeps the invariant or is not at rest; else what differs. Facts only, no timing (R5):
+    /// - a terminal its pane shows on screen counts as shown (``isShown``): only a shown surface sizes itself;
+    /// - shown and at rest (no pane spring, no report held): the surface was sized to the grid its bounds fit,
+    ///   and, where this view sets the grid, that grid is the one it reported to the owner;
+    /// - where the owner applies this view's grid (``TerminalIO/appliesViewGrid(reporting:)``: no other client
+    ///   holds it, the link is up), the owner's announced grid is that grid too, once the owner answered.
+    /// `onScreen`: the caller's fact that the pane shows this terminal in a visible window. `ownerSettled`: the
+    /// caller's fact that no grid of this terminal waits to be sent to its owner or for the owner's echo.
+    package func restingGridMismatch(onScreen: Bool, ownerSettled: Bool) -> String? {
+        guard let surface else { return nil }
+        guard isShown else { return onScreen ? "on screen but not shown: \(nodeChain.joined(separator: " < "))" : nil }
+        guard !isInPaneMotion, !geometry.held else { return nil }
         let pixels = convertToBacking(bounds.size)
         var columns: UInt16 = 0, rows: UInt16 = 0
         // SAFETY: the view's live surface (`surface`); Ghostty writes one UInt16 into each local, alive for the call.
         guard pixels.width >= 1, pixels.height >= 1,
               unsafe ghostty_surface_fit_grid(surface, UInt32(pixels.width), UInt32(pixels.height), &columns, &rows) else { return nil }
         let fits = TerminalGridSize(columns: Int(columns), rows: Int(rows))
-        let sized = geometry.desired, owner = geometry.announced
-        guard sized != fits || (geometry.ownsGeometry && owner != nil && owner != fits) else { return nil }
+        let sized = geometry.desired, reported = geometry.reported, owner = geometry.announced
         func text(_ grid: TerminalGridSize?) -> String { grid.map { "\($0.columns)x\($0.rows)" } ?? "-" }
-        return "bounds \(Int(bounds.width))x\(Int(bounds.height)) fit \(text(fits)), surface sized to \(text(sized)), owner \(text(owner))"
+        let detail = "bounds \(Int(bounds.width))x\(Int(bounds.height)) fit \(text(fits)), sized \(text(sized)), reported \(text(reported)), owner \(text(owner))"
+        if sized != fits { return detail }
+        guard geometry.ownsGeometry else { return nil }
+        if reported != fits { return detail }
+        // The owner's side: only where it applies this view's grid and nothing of it is in flight (the caller's
+        // fact, `ownerSettled`: no grid of this terminal waits to be sent or for its echo).
+        guard ownerSettled, session?.io.appliesViewGrid(reporting: false) == true, let owner, owner != fits else { return nil }
+        return detail
     }
 }

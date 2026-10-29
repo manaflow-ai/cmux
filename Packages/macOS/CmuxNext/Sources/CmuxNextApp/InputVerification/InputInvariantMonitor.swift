@@ -1,4 +1,5 @@
 import CmuxNextDaemon
+import CmuxNextDesign
 import CmuxNextInputModel
 import CmuxNextSettings
 import CmuxNextTerminal
@@ -122,16 +123,21 @@ final class InputInvariantMonitor {
         }
     }
 
-    /// G2 (felt 1e; principled-audit R3): a shown terminal at rest renders the grid its bounds fit, and that
-    /// grid is the one its PTY owner announced (the daemon's and the PTY's: the owner announces a grid only once
-    /// the PTY has it). At rest: its window is in no live resize and its pane on no layout spring; a grid on its
-    /// way to the owner is not a violation, because the monitor reports only what its confirmation sees again.
+    /// G2 (felt 1e; principled-audit R3), from facts only (no settle timing, R5): every terminal a pane shows in a
+    /// visible window counts as shown (it sizes itself to its bounds), and a shown terminal at rest was sized to
+    /// the grid its bounds fit and reported it; where the owner applies this view's grid and none of it is in
+    /// flight (`ResizeCoordinator` idle, no echo due), the owner announced that grid (the PTY and the daemon
+    /// have it). Skips a window in a live resize or whose frame animation holds content sizes
+    /// (`Motion.holdsContentResize`): its grids move every frame by design.
     static func terminalGrids(_ services: AppServices) -> [InputViolation] {
         services.windows.controllers.flatMap { controller -> [InputViolation] in
-            guard controller.window?.inLiveResize != true else { return [] }
+            guard let window = controller.window, window.isVisible, !window.isMiniaturized, !window.inLiveResize,
+                  !Motion.holdsContentResize(window) else { return [] }
             return (controller.content?.panes.values.map { $0 } ?? []).compactMap { pane in
-                guard let key = pane.currentTabKey, let entry = services.cache.existingTerminal(key),
-                      let problem = entry.session.surfaceView.restingGridMismatch else { return nil }
+                guard !pane.isSuspended, let key = pane.currentTabKey, let entry = services.cache.existingTerminal(key) else { return nil }
+                let onScreen = entry.session.view.window === window && !entry.session.view.isHiddenOrHasHiddenAncestor // visibility-walk-allow: a debug invariant reads AppKit's own state once per check, the ground truth the nodes must match
+                let settled = services.resizes.isIdle && !entry.io.awaitsEcho
+                guard let problem = entry.session.surfaceView.restingGridMismatch(onScreen: onScreen, ownerSettled: settled) else { return nil }
                 return InputViolation(invariant: .terminalGridFits, window: controller.state.id, detail: "pane \(pane.paneKey) tab \(key): \(problem)")
             }
         }
