@@ -288,10 +288,18 @@ pub mod method {
     pub const MUX_AGENT_PAIR_RESUME: &str = "_acpmux/agent_pair_resume";
     /// Retry a chat's failed last turn now (`hub/auto_resume/retry_turn.rs`).
     pub const MUX_RETRY: &str = "_acpmux/retry";
+    /// What this daemon knows of a chat's sign-in (`hub/session_auth.rs`).
+    pub const MUX_SESSION_AUTH: &str = "_acpmux/session/auth";
     pub const MUX_INFO: &str = "_acpmux/info";
     /// Metadata-only paths for a session's config and state files; local Unix socket only.
     pub const MUX_SESSION_FILES: &str = "_acpmux/session_files";
     pub const MUX_EVENTS: &str = "_acpmux/events";
+    /// One GitHub action for an agent on a machine the person added, run by the Mac that lends it
+    /// its `gh` login; never a credential (`github_broker.rs`).
+    pub const MUX_GITHUB_ACTION: &str = "_acpmux/github_action";
+    /// The app lends this daemon its cmux sign-in for GitHub App tokens, or takes it back
+    /// (`github_app_token.rs`); the unix socket only.
+    pub const MUX_GITHUB_APP_LEASE: &str = "_acpmux/github_app_lease";
     /// Durable inter-session mailbox: send, page/wait, and recipient-only ack.
     pub const MUX_MAIL_SEND: &str = "_acpmux/mail/send";
     pub const MUX_MAIL_READ: &str = "_acpmux/mail/read";
@@ -499,6 +507,12 @@ pub mod method {
     /// Ctrl-B: move a chat's running work to the background, `{sessionId,
     /// toolCallId?}` -> `{backgrounded}`. Claude Code only.
     pub const MUX_PROCESS_BACKGROUND: &str = "_acpmux/process/background";
+    /// Background tasks the daemon owns (`hub/bg_tasks.rs`): start one for a chat, list a
+    /// chat's, read one's output, stop one.
+    pub const MUX_BG_START: &str = "_acpmux/bg/start";
+    pub const MUX_BG_LIST: &str = "_acpmux/bg/list";
+    pub const MUX_BG_OUTPUT: &str = "_acpmux/bg/output";
+    pub const MUX_BG_STOP: &str = "_acpmux/bg/stop";
     /// Worktree cleanup (`server/worktrees.rs`).
     pub const MUX_WORKTREE_REPORT: &str = "_acpmux/worktree/report";
     pub const MUX_WORKTREE_CLEAN: &str = "_acpmux/worktree/clean";
@@ -523,6 +537,9 @@ pub mod method {
     /// To local watchers when a new chat's start mode may have changed (a
     /// mode pick, a config reload): ask `_acpmux/start_mode` again. `{}`.
     pub const MUX_START_MODE_CHANGED: &str = "_acpmux/start_mode_changed";
+    /// To watchers on each change of a peer link's state: `{peer, state, lastSeen, error, at}`
+    /// (`protocol/peer_state.rs`).
+    pub const MUX_PEER_STATE_CHANGED: &str = "_acpmux/peer_state_changed";
     /// Sent to the prompting connection as soon as a `session/prompt` is
     /// recorded, before the turn ends: `{sessionId, promptId, turnId, queued}`.
     pub const MUX_PROMPT_ACCEPTED: &str = "_acpmux/prompt_accepted";

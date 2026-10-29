@@ -1,3 +1,5 @@
+import { SignInContext, useSignIn } from "../signIn";
+import { authBlocksSend, authText, useSessionAuth } from "../sessionAuth";
 import { useWebSwapHold } from "../../../pages/shared/useWebSwapHold";
 import { WEB_SWAP_KEPT_TEXT } from "../../../pages/shared/webSwap";
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -469,6 +471,7 @@ export function NewTabScreen(props: Props) {
   const [sandboxRefusal, setSandboxRefusal] = useState<string>();
   /// False only when a Sandboxed send started nothing, so the caller's one-shot guards stay open.
   const askChat = (agent: string, prompt: string, cwd?: string, model?: string): boolean | void => {
+    if (targetAuthPending || authBlocksSend(targetAuth)) return false;
     if (props.runMode?.mode === "sandboxed" && props.onSandbox) {
       const started = props.onSandbox(agent, prompt, attachments);
       setSandboxRefusal(typeof started === "string" ? started : undefined);
@@ -498,6 +501,31 @@ export function NewTabScreen(props: Props) {
     [snapshot, agents, lastAgent, chatFolder, remembered, harnessesListed],
   );
   const chipModel = useNewTabChipModel(chipSnapshot);
+  const parentSignIn = useSignIn();
+  // Auth must follow the same target precedence as askChat: a saved environment wins over a
+  // previously picked machine, so an old machine verdict cannot block this environment's prompt.
+  const targetHost = environment
+    ? environment.kind === "ssh" && environment.host && snapshot.peers?.includes(environment.host)
+      ? environment.host
+      : undefined
+    : machine?.peer;
+  const remoteTarget = environment ? environment.kind === "ssh" : Boolean(machine?.peer);
+  const authQuery =
+    harness && (!remoteTarget || targetHost)
+      ? { target: { harness, ...(targetHost ? { host: targetHost } : {}) } }
+      : undefined;
+  const {
+    auth: targetAuth,
+    pending: targetAuthPending,
+    recheck: recheckTarget,
+  } = useSessionAuth(
+    authQuery,
+    parentSignIn?.readSessionAuth,
+    parentSignIn?.authEpoch,
+    parentSignIn?.authRefresh,
+    parentSignIn?.authObservation,
+  );
+
   // The Ask row names the agent Return asks and the model on its chip.
   const ask = useMemo(() => {
     const entry = snapshot.catalog.find((agent) => agent.id === harness);
@@ -563,6 +591,7 @@ export function NewTabScreen(props: Props) {
     setSelected(row ? rowKey(row) : NO_ROW);
   };
   const t = useT();
+  const targetAuthText = authText(targetAuth, t);
   const chrome = useComposerChrome();
   // The chat composer's footer look (composerSettings.ts plainFooter): the New Tab row draws the
   // same plain chips, so the two composers never disagree (composerLocation.css).
@@ -572,8 +601,9 @@ export function NewTabScreen(props: Props) {
   // The model picker uses one footer position in every New Tab template and composer look.
   const look = useComposerLook();
   const split = props.chips !== undefined;
-  // Folder/computer keep their look-specific placement: Claude's one row, Codex's tray.
-  const locationInFooter = plainFooter && look === "claude" && template !== "default";
+  // Folder/computer keep their look-specific placement: Claude's one row, Codex's tray. The footer
+  // row exists only with the chips, so without them the strip stays above the box.
+  const locationInFooter = split && plainFooter && look === "claude" && template !== "default";
   // Footer look and template can change while this screen stays mounted.
   useRowFit(foot, `${split}:${plainFooter}:${look}`);
   // A press outside an open chip menu only closes it (menuPressGuard.ts).
@@ -1323,6 +1353,11 @@ export function NewTabScreen(props: Props) {
           chat starts in heads it, as text over the card (ComposerContext, the composer's own; hq#1957
           composer location strip; newtab/screen.css). */}
       <div ref={setComposer} className="nt-composer" data-composer-look={look === "codex" ? "codex" : undefined}>
+        {authBlocksSend(targetAuth) && (
+          <p className="acpmux-composer-remote-note" role="alert">
+            {targetAuthText}
+          </p>
+        )}
         {worktreeError && <WorktreeFailure error={worktreeError} onDismiss={() => setWorktreeError(undefined)} />}
         {sandboxRefusal && props.runMode?.mode === "sandboxed" && (
           <output className="acpmux-switch-notice">
@@ -1347,47 +1382,48 @@ export function NewTabScreen(props: Props) {
           {/* oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- A pointer convenience only: the input inside is the control and takes the keyboard itself. */}
           <div className="nt-input" onMouseDown={focusFromRow}>
             {split && attachmentPicker}
-            {shell ? (
-              <span className="nt-shell-glyph" aria-hidden="true">
-                !
-              </span>
-            ) : (
-              sections.prompt && (
-                <span className="nt-prompt-glyph" aria-hidden="true">
-                  &gt;
+            <div className="nt-field-slot">
+              {(shell || sections.prompt) && (
+                <span
+                  className={shell ? "nt-input-glyph nt-shell-glyph" : "nt-input-glyph nt-prompt-glyph"}
+                  aria-hidden="true"
+                >
+                  {shell ? "!" : ">"}
                 </span>
-              )
-            )}
-            {/* A textarea, not a one-line input (Austin: a typed draft was cut to its first line): a long
+              )}
+              {/* A textarea, not a one-line input (Austin: a typed draft was cut to its first line): a long
               draft wraps and the field grows with it up to its cap (screen.css), then scrolls. Return
               still sends; every line break is one the draft brought in (a paste). */}
-            <textarea
-              ref={field}
-              className="nt-field"
-              {...{ [WEB_SWAP_KEPT_TEXT]: "" }}
-              rows={1}
-              data-focus-ring="none"
-              aria-label={shell ? t("composer.shell") : placeholder}
-              placeholder={shell ? t("composer.shellPlaceholder") : dictating ? t("dictation.listening") : placeholder}
-              data-dictation-listening={dictating && !shell ? "" : undefined}
-              value={text}
-              aria-controls={commandsOpen ? "acpmux-slash-menu" : "nt-rows"}
-              aria-activedescendant={
-                commandsOpen ? `acpmux-slash-${commandIndex}` : rows[current] ? `nt-row-${current}` : undefined
-              }
-              spellCheck={spellChecking && !shell}
-              autoCapitalize="off"
-              autoCorrect="off"
-              onChange={(event) => edit(event.target.value)}
-              onKeyDown={keyDown}
-              onMouseDown={() => setDismissed(undefined)}
-              onCompositionStart={() => {
-                composing.current = true;
-              }}
-              onCompositionEnd={() => {
-                composing.current = false;
-              }}
-            />
+              <textarea
+                ref={field}
+                className="nt-field"
+                {...{ [WEB_SWAP_KEPT_TEXT]: "" }}
+                rows={1}
+                data-focus-ring="none"
+                aria-label={shell ? t("composer.shell") : placeholder}
+                placeholder={
+                  shell ? t("composer.shellPlaceholder") : dictating ? t("dictation.listening") : placeholder
+                }
+                data-dictation-listening={dictating && !shell ? "" : undefined}
+                value={text}
+                aria-controls={commandsOpen ? "acpmux-slash-menu" : "nt-rows"}
+                aria-activedescendant={
+                  commandsOpen ? `acpmux-slash-${commandIndex}` : rows[current] ? `nt-row-${current}` : undefined
+                }
+                spellCheck={spellChecking && !shell}
+                autoCapitalize="off"
+                autoCorrect="off"
+                onChange={(event) => edit(event.target.value)}
+                onKeyDown={keyDown}
+                onMouseDown={() => setDismissed(undefined)}
+                onCompositionStart={() => {
+                  composing.current = true;
+                }}
+                onCompositionEnd={() => {
+                  composing.current = false;
+                }}
+              />
+            </div>
             {/* Claude Code's split: the mode, model and effort went to the quiet row under the box, so
               the mic and Send end the field's row and the empty box is one line tall, as the chat
               composer's (Leo 2026-10-22: "it's also 2 lines tall for some reason"). */}
@@ -1710,7 +1746,21 @@ export function NewTabScreen(props: Props) {
     </ContextMenu>
   );
   // The chips' menus open down and drop their key hints here (newTabComposer.ts).
-  return <OnNewTab.Provider value={true}>{page}</OnNewTab.Provider>;
+  return (
+    <SignInContext.Provider
+      value={
+        parentSignIn && {
+          ...parentSignIn,
+          signedOut: targetHost ? {} : parentSignIn.signedOut,
+          sessionAuth: targetAuth,
+          recheckSession: recheckTarget,
+          loginSession: () => parentSignIn.loginSession?.(targetAuth),
+        }
+      }
+    >
+      <OnNewTab.Provider value={true}>{page}</OnNewTab.Provider>
+    </SignInContext.Provider>
+  );
 }
 
 /// The stage's widgets in runs: next to each other, Projects and Quick Actions share a cards

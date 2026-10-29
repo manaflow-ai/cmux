@@ -296,6 +296,9 @@
   }
 }
 .acpmux-send:focus-visible {
+  /* Its own wash marks keyboard focus: the pane's focus pill (shared/styles.css) stays off it, so
+     focus paints the hover pill alone, not a second wash over it. */
+  --acpmux-focus-pill: transparent;
   background: var(--acpmux-row-hover, var(--acpmux-composer-hover));
 }
 /* The first Esc of the double press (escapeStop.ts): Stop keeps its glyph and footprint and takes the
@@ -444,6 +447,13 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
 .acpmux-composer-box:has(:focus-visible),
 .nt-box:has(:focus-visible) {
   --acpmux-card-ring: inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-composer-edge-focus);
+}
+/* The New Tab box is shared glass (#24593), whose own rim ignores --acpmux-card-ring. Its edge is
+   the card ring, as the chat card's is, so focus lifts it a step, Increase Contrast widens it and
+   appearance.borders none clears it. Over art or a see-through window the rule below adds the
+   glass's light rim. */
+.nt-box.ui-glass {
+  box-shadow: var(--acpmux-card-ring), var(--glass-elevation);
 }
 /* Under a top strip variant the strip draws its own rim in --acpmux-strip-edge (composerLocation.css);
    by default the card's rim goes round the strip and takes the focused tone itself (below). */

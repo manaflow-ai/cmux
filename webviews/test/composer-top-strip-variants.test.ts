@@ -11,7 +11,7 @@
 //     no rim, the card's rim whole;
 //   - bump: a few px above the card, the card's fill, one closed hairline ring, the card's rim whole;
 //   - plain: a few px above the card, no fill and no rim, its first ink on the card's content edge
-//     (where the prompt's text starts), the card's rim whole;
+//     (the + glyph's box), the card's rim whole;
 //   - tray: a filled tray tucked under the card's top edge, one inset for the location strip and
 //     the queue, its first ink on the card's content edge, a lighter fill than the card's in a light
 //     theme, the card's rim whole and drawn over the tray.
@@ -49,7 +49,7 @@ await requireBrowserLane("composer-top-strip-variants.test.ts", async () => {
     browser = await chromium.launch({ headless: true });
     // Warm the stage once: the first load can run Vite's dependency optimizer and reload mid-compile.
     await warmGalleryFrame(vite, "agent-pane.composer-strip", { browser, params: { variant: "project" } });
-    await warmGalleryFrame(vite, "agent-pane.new-tab", { browser });
+    await warmGalleryFrame(vite, "agent-pane.new-tab", { browser, params: { variant: "layout-claude-chips-below" } });
   });
   afterAll(async () => {
     await browser?.close();
@@ -62,7 +62,7 @@ await requireBrowserLane("composer-top-strip-variants.test.ts", async () => {
     const top = (document.querySelector(".acpmux-composer-queue") ?? document.querySelector(".acpmux-composer-strip"))!;
     const style = getComputedStyle(top);
     const field = box.querySelector(".ProseMirror, textarea, [contenteditable]")!;
-    const lead = box.querySelector(".acpmux-composer-inner .acpmux-composer-plus .acpmux-icon");
+    const lead = box.querySelector(".acpmux-composer-plus .acpmux-icon");
     // A location icon's ink starts 1.5 px inside its box (ui/ghost.css); a queued prompt's text at its box.
     const icon = top.querySelector(".acpmux-location-icon");
     const mark = top.querySelector(".acpmux-queued-clamp");
@@ -77,8 +77,8 @@ await requireBrowserLane("composer-top-strip-variants.test.ts", async () => {
       cardMasked: getComputedStyle(box, "::before").content !== "none",
       cardTopRadius:
         parseFloat(getComputedStyle(box).borderTopLeftRadius) + parseFloat(getComputedStyle(box).borderTopRightRadius),
-      // The prompt's text column, or the + glyph's 16 px box where + stands beside the prompt
-      // (the Claude desktop box, composerLocation.css).
+      // The + glyph's box where + stands beside the prompt (the chat's Claude desktop box, and the
+      // New Tab's since #25125), else the prompt's text column (composerLocation.css).
       contentEdge: (lead ?? field).getBoundingClientRect().left - cardBox.left,
       inkFromCard: ink - cardBox.left,
     };
@@ -99,13 +99,14 @@ await requireBrowserLane("composer-top-strip-variants.test.ts", async () => {
       card: ".acpmux-composer-box",
       kind: "queue",
     },
-    // The strip over the New Tab card is the top-of-page templates' (Threads here): the default
-    // Cards draws it in a row under its pill field, and Default's stage layout in the footer under
-    // the box (new-tab-stage-layout, new-tab-cards-template).
+    // The strip over the New Tab card is the Default template's with Claude's quiet row: Cards
+    // draws it in a row under its pill field, and since #24519 (2026-10-27, one quiet row) every
+    // other template with Claude's plain footer draws it in the quiet row under the box
+    // (NewTabScreen.tsx locationInFooter; new-tab-cards-template, composer-one-row-layout).
     {
       name: "New Tab strip",
       entry: "agent-pane.new-tab",
-      variant: "template-threads",
+      variant: "layout-claude-chips-below",
       card: ".nt-box",
       kind: "strip",
     },
@@ -223,7 +224,7 @@ await requireBrowserLane("composer-top-strip-variants.test.ts", async () => {
     const top = (document.querySelector(".acpmux-composer-queue") ?? document.querySelector(".acpmux-composer-strip"))!;
     const topBox = top.getBoundingClientRect();
     const field = box.querySelector(".ProseMirror, textarea, [contenteditable]")!;
-    const lead = box.querySelector(".acpmux-composer-inner .acpmux-composer-plus .acpmux-icon");
+    const lead = box.querySelector(".acpmux-composer-plus .acpmux-icon");
     // The folder icon's ink is its ghost bearing (1.5 px, ui/ghost.css) inside its box; a queued
     // prompt's ink is its text, left-aligned.
     const icon = top.querySelector(".acpmux-location-icon");
@@ -246,8 +247,8 @@ await requireBrowserLane("composer-top-strip-variants.test.ts", async () => {
       fill: getComputedStyle(top).backgroundColor,
       cardFill: getComputedStyle(box).backgroundColor,
       cardMasked: getComputedStyle(box, "::before").content !== "none",
-      // The prompt's text column, or the + glyph's 16 px box where + stands beside the prompt
-      // (the Claude desktop box, composerLocation.css).
+      // The + glyph's box where + stands beside the prompt (the chat's Claude desktop box, and the
+      // New Tab's since #25125), else the prompt's text column (composerLocation.css).
       contentEdge: (lead ?? field).getBoundingClientRect().left - cardBox.left,
       inkFromCard: ink - cardBox.left,
     };

@@ -41,6 +41,36 @@ public final class AgentChatSurface {
     public var parityRoute: AgentParityRoute?
     /// The session's artifacts browser (a sheet).
     public var showArtifacts = false
+    /// Find in Chat while its bar is up (nil: closed).
+    public var find: AgentChatFind?
+    /// Each searchable block's frame (top, height) in the transcript's content coordinates
+    /// (Find in Chat scrolls to its current match). Written as rows lay out; never observed.
+    @ObservationIgnored var findAnchors: [String: (top: CGFloat, height: CGFloat)] = [:]
+    /// Asks the find bar's field for the keyboard (it takes it when the bar opens).
+    var findFieldFocused = false
+
+    /// Find in Chat: opens the bar with its field focused (the composer gives the keyboard up).
+    public func openFind() {
+        if find == nil { find = AgentChatFind() }
+        composerFocused = false
+        findFieldFocused = true
+    }
+
+    /// Done: the bar closes and the marks go.
+    public func closeFind() {
+        find = nil
+        findFieldFocused = false
+    }
+
+    /// Scrolls the transcript to the find bar's current match: the top of the rendered block
+    /// that holds it (a prompt bubble, or one paragraph, list, code card or table of an answer).
+    func revealFindMatch() {
+        guard let match = find?.currentMatch, let frame = findAnchors[match.block] else { return }
+        // Within a block taller than the screen (a long paragraph or code card), its place in
+        // the block's text, as a share of the block's height.
+        let y = frame.top + max(0, frame.height * CGFloat(match.position) - 24)
+        scroller?.scrollTranscript(toContentY: y, animated: !UIAccessibility.isReduceMotionEnabled)
+    }
     public let artifacts = ArtifactsBrowserState()
     // DEBUG demo hooks for the parity screens (the screens act on them through their own paths).
     var demoCheckpointRestore: String?
@@ -245,6 +275,8 @@ public struct AgentChatScreen: View {
                     .disabled(!AgentChatSurface.hasAgentEdits(store))
                 AgentParityMenuItems(store: store, surface: surface)
                 Button("Copy Session ID", systemImage: "doc.on.doc") { UIPasteboard.general.string = store.summary.id }
+                Button("Find in Chat…", systemImage: "magnifyingglass") { surface.openFind() }
+                    .disabled(store.turns.isEmpty)
                 if !store.modes.isEmpty {
                     Section("Mode") {
                         Picker("Mode", selection: Binding(get: { store.currentModeID ?? "" }, set: { store.setMode($0) })) {
@@ -358,6 +390,14 @@ public struct AgentChatTranscript: View {
         // UIKit owns the safe areas and the keyboard (the controller docks
         // the stack to the keyboard layout guide).
         .ignoresSafeArea()
+        // Find in Chat's bar, under the header (a tab's status bar inset, or the pushed bar).
+        .overlay(alignment: .top) {
+            if let find = surface.find {
+                AgentChatFindBar(find: find, surface: surface, store: store)
+                    .padding(.top, (topInset ?? 0) + 4)
+                    .transition(.opacity)
+            }
+        }
         // The soft top edge under the status bar or bar is the controller's TopFadeView.
         .navigationDestination(item: $surface.diffRoute) { route in
             Group {
@@ -432,6 +472,7 @@ struct AgentChatTurns: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 20)
+        .coordinateSpace(.named(AgentChatFindBar.contentSpace))
     }
 }
 
@@ -673,6 +714,7 @@ struct TurnView: View {
             // Replayed history (the transcript on open, a reattach's catch-up) is drawn in
             // place; only what arrives live animates in.
             UserBubble(turn: turn, isLast: isLast) { store.send(prompt: $0) }
+                .findBlock(AgentChatFind.promptKey(turn.id), surface: surface)
                 .frame(maxWidth: .infinity, alignment: .trailing)
                 .transition(.asymmetric(insertion: store.isReplayed(turn.id) ? .identity
                     : .offset(y: 24).combined(with: .scale(scale: 0.96)).combined(with: .opacity), removal: .opacity))
@@ -697,11 +739,14 @@ struct TurnView: View {
                     Text("Stopped").font(.footnote).foregroundStyle(.tertiary)
                 case .failed:
                     let failure = TurnFailureCopy(message: turn.errorText, harness: store.summary.harness, harnessName: store.summary.agentName)
-                    FailureCard(title: "Agent stopped", message: failure.sentence, detail: failure.detail) {
+                    FailureCard(title: "Agent stopped", message: failure.sentence, detail: failure.detail,
+                                retryWith: RetryModelChoice(store: store, turn: turn)) {
                         store.send(prompt: turn.prompt)
                     }
                 case .completed:
-                    AnswerActionRow(turn: turn, isLast: isLast) { store.send(prompt: turn.prompt) }
+                    AnswerActionRow(turn: turn, isLast: isLast, retryWith: RetryModelChoice(store: store, turn: turn)) {
+                        store.send(prompt: turn.prompt)
+                    }
                 case .running:
                     EmptyView()
                 }
@@ -715,8 +760,11 @@ struct TurnView: View {
         case .message(_, let markdown):
             // A replayed message's blocks are drawn in place too, not faded in one by one
             // (one still streaming when the chat opened streams on without the block fade).
+            // Find in Chat marks and scrolls to the markdown block (paragraph, list, code) that
+            // holds a match, never a guess inside the whole message.
             StreamingMarkdown(markdown: markdown, isStreaming: turn.status == .running && isLastRow,
-                              animatesBlocks: !store.isReplayed(row.id))
+                              animatesBlocks: !store.isReplayed(row.id),
+                              findMarks: surface.map { MessageFindMarks(row: row.id, surface: $0) as any MarkdownBlockMarks })
         case .thought(_, let text):
             ThoughtRow(text: text, isLive: turn.status == .running && isLastRow)
         case .tool(let call):
@@ -784,11 +832,14 @@ struct StreamingMarkdown: View {
     let markdown: String
     let isStreaming: Bool
     var animatesBlocks = true
+    /// Find in Chat's marks on this message's blocks.
+    var findMarks: (any MarkdownBlockMarks)?
 
     var body: some View {
-        // While streaming, an emphasis or code marker that has not closed yet is hidden.
+        // While streaming, an emphasis or code marker that has not closed yet is hidden (the
+        // blocks keep their ids: only the last block's inline markers change).
         MarkdownView(MarkdownDocument(parsing: isStreaming ? MarkdownStreamTail(markdown).displayed : markdown), isStreaming: isStreaming,
-                     animatesBlocks: animatesBlocks)
+                     animatesBlocks: animatesBlocks, marks: findMarks)
             .contextMenu {
                 Button("Copy", systemImage: "doc.on.doc") { UIPasteboard.general.string = markdown }
                 ShareLink(item: markdown) { Label("Share", systemImage: "square.and.arrow.up") }
@@ -931,10 +982,49 @@ extension EnvironmentValues {
     @Entry var attachmentLoader = AttachmentLoader { _ in nil }
 }
 
+/// Retry with another model (the Mac's turn menu, cx-ncc.62): the chat harness's models, the
+/// one it runs checked. Shown with two or more models; a pick moves the chat and sends the
+/// prompt again, and a model the Mac refuses (a Claude chat the Mac started) says why in the
+/// chat with the Mac's words, sending nothing.
+@MainActor
+struct RetryModelChoice {
+    let store: AgentChatStore
+    let turn: AgentTurn
+
+    init?(store: AgentChatStore, turn: AgentTurn) {
+        guard !store.retryModels.isEmpty else { return nil }
+        self.store = store
+        self.turn = turn
+    }
+
+    /// The Mac's title (`turn.retryWith`).
+    static let title = "Retry with another model"
+
+    var menu: some View {
+        Menu {
+            ForEach(store.retryModels) { model in
+                Button {
+                    store.retry(turn, model: model.id)
+                } label: {
+                    if model.id == store.currentModelID {
+                        Label(model.name, systemImage: "checkmark")
+                    } else {
+                        Text(model.name)
+                    }
+                }
+            }
+        } label: {
+            Label(Self.title, systemImage: "arrow.triangle.2.circlepath")
+        }
+        .accessibilityIdentifier("chat.retryWithModel")
+    }
+}
+
 /// SPEC 4.4 action row: copy, share, retry, more; trailing duration.
 struct AnswerActionRow: View {
     let turn: AgentTurn
     let isLast: Bool
+    var retryWith: RetryModelChoice?
     let retry: () -> Void
     @State private var copied = false
 
@@ -960,6 +1050,7 @@ struct AnswerActionRow: View {
                 Section(AgentTurn.menuTimestamp(turn.endedAt ?? turn.promptAt)) {
                     Button("Copy as Markdown", systemImage: "text.document") { UIPasteboard.general.string = turn.answerMarkdown }
                     Button("Retry", systemImage: "arrow.clockwise", action: retry)
+                    retryWith?.menu
                 }
             } label: {
                 IconActionLabel("ellipsis")

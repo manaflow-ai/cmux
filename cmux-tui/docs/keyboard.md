@@ -220,6 +220,17 @@ browser-reload
 browser-edit-url
 show-shortcuts
 detach
+dock-workspace-left
+dock-workspace-right
+dock-workspace-top
+dock-workspace-bottom
+undock-workspace
+toggle-dock-left
+toggle-dock-right
+toggle-dock-top
+toggle-dock-bottom
+toggle-dock-floating
+toggle-dock-orientation
 ```
 
 `rename-pane` is still accepted as an alias for `rename-tab`.

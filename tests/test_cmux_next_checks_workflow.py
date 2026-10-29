@@ -45,6 +45,17 @@ def is_setup(step: dict) -> bool:
     return "uses" in step
 
 
+
+# The DEV daily placement (dev-daily-place) hands cmux-scheme-compile a runs-on that may be a label list
+# ([a pool label, glaeda-runner-<name>]); the job's label copy reads that list's first label instead.
+DAILY_PICK = ("needs.dev-daily-place.outputs.runs_on != '' && fromJSON(needs.dev-daily-place.outputs.runs_on)",
+              "needs.dev-daily-place.outputs.runner_label != '' && needs.dev-daily-place.outputs.runner_label")
+
+
+def label_copy(runs_on: str) -> str:
+    """runs-on as the job's own CMUX_NEXT_RUNNER copy states it."""
+    return runs_on.replace(*DAILY_PICK)
+
 class ChecksJobStructure(unittest.TestCase):
     def split(self) -> tuple[list[dict], list[dict], dict]:
         all_steps = steps()
@@ -602,7 +613,7 @@ class PathRoutingStructure(unittest.TestCase):
         """a925bd9 went red when PRs that skipped swift test landed a stale export."""
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
         runs = " ".join(step.get("run", "") for step in jobs["generated-files"]["steps"])
-        self.assertIn("check-action-surfaces.sh", runs)
+        self.assertIn("judge-action-exports.sh", runs)
         # The CI target graph is bot-only (#21946): no event checks it.
         self.assertNotIn("ci-target-graph.py --check", runs)
         self.assertNotIn("same-tree-cmux-tui", jobs["generated-files"]["needs"])
@@ -610,7 +621,7 @@ class PathRoutingStructure(unittest.TestCase):
         # build (generated_host, tests/test_cmux_next_generated_fold.py); a PR that skips swift
         # test still gets the generated-files job.
         for step in jobs["swift-test"]["steps"]:
-            if "check-action-surfaces.sh" in step.get("run", ""):
+            if "judge-action-exports.sh" in step.get("run", ""):
                 self.assertIn("env.CMUX_NEXT_FOLD_GENERATED == 'true'", step["if"])
         self.assertIn("needs.path_route.outputs.generated_host == 'generated-files'", jobs["generated-files"]["if"])
 
@@ -775,7 +786,7 @@ class PathRoutingStructure(unittest.TestCase):
             expression = job["runs-on"]
             if "CMUX_NEXT_RUNNER" in job.get("env", {}):
                 with self.subTest(job=name, field="CMUX_NEXT_RUNNER"):
-                    self.assertEqual(job["env"]["CMUX_NEXT_RUNNER"], expression)
+                    self.assertEqual(job["env"]["CMUX_NEXT_RUNNER"], label_copy(expression))
             for event in ("pull_request", "workflow_dispatch"):
                 for attempt, actor, expected in (
                     (1, "github-actions[bot]", "stale-owned-label"),
@@ -1529,7 +1540,7 @@ REUSE_GUARD = "steps.reuse.outputs.hit != 'true'"
 SAME_REPOSITORY = "(github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)"
 # Steps that build, test or regenerate: none may run before a job's reuse lookup.
 HEAVY_MARKERS = ("swift build", "swift-test-with-hang-sampler", "fast-tier.py", "check-release-compile.sh",
-                 "cargo test", "build-web-bundles.sh", "check-action-surfaces.sh", "defaults_guard.py",
+                 "cargo test", "build-web-bundles.sh", "check-action-surfaces.sh", "judge-action-exports.sh", "defaults_guard.py",
                  "regenerate-", "ensure-cef.sh", "build-cef-shim.sh")
 
 
