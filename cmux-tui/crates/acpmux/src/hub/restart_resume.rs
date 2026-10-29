@@ -302,13 +302,28 @@ fn mask_input_assignments(text: &str) -> String {
                 end += 2;
                 continue;
             }
+            // Substitutions can contain spaces, nested quotes and shell commands.
+            // Without evaluating shell syntax, hide the remaining bounded preview
+            // rather than exposing part of a credential at an ambiguous boundary.
+            if shell_assignment
+                && quote != Some(b'\'')
+                && (byte == b'`'
+                    || (byte == b'$' && matches!(bytes.get(end + 1), Some(b'(' | b'{')))
+                    || (matches!(byte, b'<' | b'>') && bytes.get(end + 1) == Some(&b'(')))
+            {
+                end = bytes.len();
+                break;
+            }
             if let Some(delimiter) = quote {
                 if byte == delimiter {
                     quote = None;
                 }
             } else if matches!(byte, b'\"' | b'\'') {
                 quote = Some(byte);
-            } else if byte.is_ascii_whitespace() || matches!(byte, b',' | b';' | b'}' | b']') {
+            } else if byte.is_ascii_whitespace()
+                || byte == b';'
+                || (!shell_assignment && matches!(byte, b',' | b'}' | b']'))
+            {
                 break;
             }
             end += 1;
@@ -896,6 +911,10 @@ mod tests {
             r#"PASSWORD='open '\''sesame' ./deploy"#,
             r#"PASSWORD="open "sesame\ again ./deploy"#,
             r#"PASSWORD=x"open sesame" API_KEY=$'another secret' ./deploy"#,
+            r#"PASSWORD=abc,correcthorse ./deploy"#,
+            r#"PASSWORD=abc}correcthorse ./deploy"#,
+            r#"PASSWORD=abc]correcthorse ./deploy"#,
+            r#"PASSWORD=abc{correcthorse,more}[tail] ./deploy"#,
         ] {
             let expected = if command.contains("API_KEY") {
                 "PASSWORD=[secret] API_KEY=[secret] ./deploy"
@@ -913,6 +932,28 @@ mod tests {
                     masked.to_string(),
                     "{command}"
                 );
+            }
+        }
+    }
+
+    #[test]
+    fn restart_inputs_hide_ambiguous_shell_substitution_boundaries() {
+        for command in [
+            r#"PASSWORD=$(printf 'open sesame') ./deploy"#,
+            r#"PASSWORD=prefix`printf 'open sesame'` ./deploy"#,
+            r#"PASSWORD=${unset:-open sesame} ./deploy"#,
+            r#"PASSWORD="${unset:-open sesame}" ./deploy"#,
+            r#"PASSWORD=<(printf 'open sesame') ./deploy"#,
+            r#"PASSWORD=>(printf 'open sesame') ./deploy"#,
+        ] {
+            let expected = "PASSWORD=[secret]";
+            assert_eq!(mask_input_assignments(command), expected, "{command}");
+            for (raw, masked) in [
+                (json!(command), json!(expected)),
+                (json!({"command": command}), json!({"command": expected})),
+                (json!([command]), json!([expected])),
+            ] {
+                assert_eq!(input_prefix(&json!({"rawInput": raw})).unwrap(), masked.to_string());
             }
         }
     }
