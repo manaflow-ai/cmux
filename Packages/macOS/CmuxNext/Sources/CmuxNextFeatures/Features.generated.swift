@@ -248,12 +248,12 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
-    /// The built-in ad blocker loads into a browser profile right before its first browser tab instead of when Chromium starts, so Home with no browser tab runs no extension renderer.
+    /// The ad blocker loads into a profile before its first browser tab, so Home and Chromium's root profile run no extension. A fork without that load (API 41) runs no ad blocker unless browser.builtInAdBlocker is true: kept out of dogfood until one is pinned.
     public static let chromiumAdBlockerAtFirstTab = Feature(
         index: 14,
         name: "chromiumAdBlockerAtFirstTab",
         owner: "PL-webui",
-        description: "The built-in ad blocker loads into a browser profile right before its first browser tab instead of when Chromium starts, so Home with no browser tab runs no extension renderer.",
+        description: "The ad blocker loads into a profile before its first browser tab, so Home and Chromium's root profile run no extension. A fork without that load (API 41) runs no ad blocker unless browser.builtInAdBlocker is true: kept out of dogfood until one is pinned.",
         kind: .perfPath,
         process: .app,
         chromiumFeature: nil,
