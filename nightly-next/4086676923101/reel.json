@@ -1,0 +1,55 @@
+{
+  "version": 1,
+  "build": "4086676923101",
+  "notes": "notes/4086676923101.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 27395,
+      "title": "swift-test-bench.sh: stream build output so a long build is not stopped as a hung measurement",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25208,
+      "title": "cmux NEXT: scope session Changes and add Sources",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27389,
+      "title": "test(cmux-next): suites that build AppServices make the shared application first (DiffRemoteWiringTests trap)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27147,
+      "title": "fix(newtab): keep project chip label beside chevron",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/27147/cap-735e226e-steps-bebcba23cb.mp4",
+      "source": "manual",
+      "note": "2 hand-posted clips; picked by name"
+    },
+    {
+      "pr": 27262,
+      "title": "feat(agent-pane): make sub-session cards disclosure rows",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27340,
+      "title": "fix(acpmux): fence ambiguous compaction metadata after Stop",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27220,
+      "title": "cmux-tui: machine-join.sh, the one-line machine join script (token on stdin only)",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
