@@ -46,7 +46,9 @@ public struct SidebarWorkspaceUnreadSummary: Equatable, Sendable {
         case .unread:
             // A workspace marked unread by hand has no unread notification, so
             // it previews its latest one for as long as it stays unread.
-            return latestUnreadNotificationText ?? (unreadCount > 0 ? latestNotificationText : nil)
+            return latestUnreadNotificationText ?? (
+                !hasUnreadNotification && unreadCount > 0 ? latestNotificationText : nil
+            )
         }
     }
 }

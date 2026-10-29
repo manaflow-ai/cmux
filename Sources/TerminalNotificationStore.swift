@@ -657,6 +657,7 @@ final class TerminalNotificationStore: ObservableObject {
             unreadCount: count,
             latestNotificationText: latestNotification?.sidebarPreviewText,
             latestUnreadNotificationText: indexes.latestUnreadByTabId[tabId]?.sidebarPreviewText,
+            hasUnreadNotification: indexes.latestUnreadByTabId[tabId] != nil,
             latestNotificationId: latestNotification?.id,
             latestNotificationCreatedAt: latestNotification?.createdAt,
             hasLatestNotification: latestNotification != nil
