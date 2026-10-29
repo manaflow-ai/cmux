@@ -103,6 +103,7 @@ pub struct Peer {
     peer_token: Option<String>,
     /// The `ssh -W` process carrying an `ssh://` peer's current connection.
     tunnel: Mutex<Option<tokio::process::Child>>,
+    wireguard: std::sync::OnceLock<(Arc<crate::wireguard::Transport>, std::net::SocketAddr)>,
     /// Outbound frames, each tagged with the link epoch it was admitted on:
     /// `serve` drops one whose link is gone, so it never goes out on the next,
     /// and `fail_link_requests` fails the request it carries as not sent.
@@ -220,6 +221,7 @@ impl Peer {
             token,
             peer_token,
             tunnel: Mutex::new(None),
+            wireguard: std::sync::OnceLock::new(),
             out,
             out_rx: Mutex::new(Some(out_rx)),
             next_id: AtomicI64::new(1),
@@ -264,6 +266,14 @@ impl Peer {
             health_asking: AtomicBool::new(false),
             watch_key: StdMutex::new(None),
         })
+    }
+
+    pub(crate) fn set_wireguard(
+        &self,
+        transport: Arc<crate::wireguard::Transport>,
+        address: std::net::SocketAddr,
+    ) {
+        let _ = self.wireguard.set((transport, address));
     }
 
     pub fn link(&self) -> Link {
@@ -925,6 +935,37 @@ impl Peer {
         self: &Arc<Self>,
         out_rx: &mut mpsc::Receiver<Outbound>,
     ) -> Result<LinkEnd, String> {
+        // Explicit static credentials let the encrypted mesh connect without
+        // SSH. No application privilege follows from the WireGuard key alone.
+        if let Some((transport, address)) = self.wireguard.get()
+            && let Some(token) = self.token.as_deref()
+        {
+            let req = self.ws_request(
+                &format!("ws://localhost:{}", address.port()),
+                Some(token),
+                self.peer_token.as_deref(),
+            )?;
+            let opening = async {
+                let stream = transport.connect(*address).await.map_err(|e| e.to_string())?;
+                tokio_tungstenite::client_async_with_config(
+                    req,
+                    stream,
+                    Some(crate::server::ws_config()),
+                )
+                .await
+                .map_err(|e| e.to_string())
+            };
+            let opened = tokio::select! {
+                biased;
+                _ = self.stop_signal.notified() => return Err("peer stopped".to_owned()),
+                result = tokio::time::timeout(self.timings.connect, opening) => result,
+            };
+            if let Ok(Ok((ws, _))) = opened {
+                *self.presented.lock().unwrap_or_else(|e| e.into_inner()) = self.peer_token.clone();
+                return self.serve(ws, out_rx).await;
+            }
+            tracing::debug!(peer = %self.name, "WireGuard unavailable; trying the configured peer route");
+        }
         if self.ssh_parts().is_some() {
             let (token, peer_token) = self.remote_tokens_settled().await?;
             *self.presented.lock().unwrap_or_else(|e| e.into_inner()) = peer_token.clone();

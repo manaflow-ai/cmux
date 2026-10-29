@@ -127,6 +127,7 @@ pub mod trust_auto;
 pub mod tui;
 pub mod user_settings;
 pub mod web_modes;
+pub mod wireguard;
 pub mod worktree_sessions;
 
 pub mod model_catalog;
