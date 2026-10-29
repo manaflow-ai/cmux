@@ -224,7 +224,9 @@ public final class MainFrameBudget {
         lastTimestamp = timestamp
         response.noteTick()
         turns.noteTurn(.tick)
-        if let refreshInterval, refreshInterval > 0 { windowLength = UInt64(refreshInterval * 1_000_000_000) }
+        // Rounded, not truncated: 1/60 s is 16_666_666.67 ns, and a truncated 16_666_666 is under
+        // FrameBudgets.referenceIntervalNanos, which would scale a 60 Hz display's shares down.
+        if let refreshInterval, refreshInterval > 0 { windowLength = UInt64((refreshInterval * 1_000_000_000).rounded()) }
         if placement == .afterCommit, windowLength != sharesIntervalNanos {
             (sharesIntervalNanos, shares) = (windowLength, budgets.scaled(toIntervalNanos: windowLength))
             totalNanos = Self.nanos(shares.total)
