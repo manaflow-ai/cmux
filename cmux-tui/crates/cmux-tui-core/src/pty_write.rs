@@ -130,6 +130,11 @@ impl WriteCancel {
         Ok(Self { read, write, cancelled: std::sync::atomic::AtomicBool::new(false) })
     }
 
+    /// Whether the owner ended this client's writes.
+    pub(crate) fn is_cancelled(&self) -> bool {
+        self.cancelled.load(Ordering::Acquire)
+    }
+
     /// Ends the writes that wait now and every later one that would wait.
     pub(crate) fn cancel(&self) {
         if !self.cancelled.swap(true, Ordering::AcqRel) {
@@ -175,13 +180,18 @@ pub(crate) fn write_cancellable(
             }
             // Waiting for a whole escape sequence's room is checked again
             // after ROOM_POLL (the kernel signals any room as writable).
-            let timeout = if room_wait.is_some() {
-                input_queue::ROOM_POLL.as_millis().clamp(1, i32::MAX as u128) as i32
+            // While a whole escape sequence waits for room, writability
+            // means nothing (any free byte makes the master writable): wait
+            // for no event, only ROOM_POLL or the cancel, as the
+            // `pty-writer` does (`wait_writable`), so a slow reader is not a
+            // busy loop.
+            let (timeout, events) = if room_wait.is_some() {
+                (input_queue::ROOM_POLL.as_millis().clamp(1, i32::MAX as u128) as i32, 0)
             } else {
-                -1
+                (-1, libc::POLLOUT)
             };
             let mut fds = [
-                libc::pollfd { fd, events: libc::POLLOUT, revents: 0 },
+                libc::pollfd { fd, events, revents: 0 },
                 libc::pollfd { fd: cancel.fd(), events: libc::POLLIN, revents: 0 },
             ];
             // SAFETY: `fds` is two valid, exclusively borrowed pollfds and the
@@ -200,6 +210,13 @@ pub(crate) fn write_cancellable(
             }
             if pty.revents & libc::POLLNVAL != 0 {
                 return Err(io::Error::new(io::ErrorKind::BrokenPipe, "PTY fd is invalid"));
+            }
+            // The program's side hung up and nothing more can be written:
+            // end, never spin on a hang-up that `write` still answers EAGAIN.
+            if pty.revents & (libc::POLLHUP | libc::POLLERR) != 0
+                && pty.revents & libc::POLLOUT == 0
+            {
+                return Err(io::Error::new(io::ErrorKind::BrokenPipe, "PTY hung up"));
             }
         }
         nonblocking.restore()

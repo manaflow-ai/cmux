@@ -572,6 +572,15 @@ struct ClientFrames {
 }
 
 impl ClientFrames {
+    /// Ends this client's PTY writes, the one under way and a wait for the
+    /// writer's turn behind another thread's write
+    /// ([`HostShared::pty_writer_for`]): the client is gone, nothing it sent
+    /// is still owed, and its control thread returns for its owner's join.
+    fn end_writes(&self) {
+        self.cancel.cancel();
+        self.host.wake_writer_waits();
+    }
+
     /// Client-to-host messages define one flag (a negotiated
     /// FLAG_INPUT_FLOW on interactive Input) and never participate in the
     /// host live-stream sequence.
@@ -619,7 +628,10 @@ impl ClientFrames {
                     return FrameStep::Close;
                 }
                 let bracketed = ctx.host.term.lock().recover_poison().mode(2004, false);
-                let mut writer = ctx.host.pty_writer();
+                // The client's end ends its wait for the writer's turn too.
+                let Some(mut writer) = ctx.host.pty_writer_for(&ctx.cancel) else {
+                    return FrameStep::Close;
+                };
                 let mut pasted = Vec::with_capacity(frame.payload.len() + 12);
                 if bracketed {
                     pasted.extend_from_slice(b"\x1b[200~");
@@ -873,7 +885,7 @@ impl Drop for ClientEnd {
         if self.frames.ended.swap(true, Ordering::AcqRel) {
             return;
         }
-        self.frames.cancel.cancel();
+        self.frames.end_writes();
         // Wake a writer that is waiting on an otherwise-empty live-frame
         // channel. The socket is shut down first, so this private wakeup
         // frame can never be mistaken for a sequenced host transition.
@@ -940,7 +952,7 @@ struct FinishInput {
 
 impl Drop for FinishInput {
     fn drop(&mut self) {
-        self.frames.cancel.cancel();
+        self.frames.end_writes();
         self.lane.finish();
     }
 }

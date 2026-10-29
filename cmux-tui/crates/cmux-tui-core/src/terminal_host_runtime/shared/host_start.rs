@@ -129,6 +129,7 @@ pub(crate) fn start_host_runtime(
         parser_budget: ParserBudget::new(MAX_HOST_PARSER_QUEUED_BYTES),
         clipboard,
         parser_progress: (Mutex::new(0), Condvar::new()),
+        writer_turn: Default::default(),
         next_client: AtomicU64::new(1),
         last_input_flow: Default::default(),
         input_stages: Default::default(),

@@ -164,12 +164,14 @@ impl LocalReader {
     /// The stream ended. The reader releases the parser's descriptor and
     /// publishes the final frame here, at once (memory only, from both
     /// readers and at every load), so the last frame never waits behind
-    /// other terminals' commits. The exit, a registry commit a reader may
-    /// not make, goes to the terminal's publication sequence (Files lane,
-    /// may block): after every publication the terminal's output queued, so
-    /// it follows the last cwd and progress. No inline path for it. An exit
-    /// item that never runs (shutdown) publishes nothing, and the reaper
-    /// publishes the exit if it ends later.
+    /// other terminals' commits. The PTY counts as drained, and the exit
+    /// (a registry commit a reader may not make) is published, on the
+    /// terminal's publication sequence (Files lane, may block): after every
+    /// publication the terminal's output queued, so the exit follows the
+    /// last cwd and progress. The reaper publishes the exit only once the PTY
+    /// is drained, so it never passes those either. No inline path. An item
+    /// that never runs (shutdown) still marks the PTY drained as it drops
+    /// ([`DrainedMark`]), so a reaper that ends later publishes the exit.
     fn end(self) {
         #[cfg(unix)]
         {
@@ -180,19 +182,34 @@ impl LocalReader {
         }
         let Some(pty) = self.surface.as_pty() else { return };
         pty.publish_final_frame();
-        pty.local_pty_drained.store(true, Ordering::Release);
+        let drained = DrainedMark(self.surface.clone());
         let Some(owner) = pty.mux.upgrade() else { return };
-        let surface = self.surface.clone();
         owner.post_terminal_end(&pty.publications, move || {
             // R3 (Debug): the exit commit never runs where blocking is disallowed.
             debug_assert!(
                 !cmux_threads::blocking::is_blocking_disallowed(),
                 "a terminal's exit ran on a thread that disallows blocking"
             );
+            let surface = drained.0.clone();
+            drop(drained);
             publish_local_exit_if_ready(&surface);
         });
         // The reader's completion drops here, after the descriptor is
-        // released and the exit is queued, as before this change.
+        // released and the exit is queued.
+    }
+}
+
+/// Marks a local terminal's PTY drained (the reader saw its end and the
+/// final frame is out) when it drops: on the publication sequence, right
+/// before the exit item publishes; or wherever an item that never ran is
+/// dropped; or at once when the terminal has no owner to post to.
+struct DrainedMark(Arc<Surface>);
+
+impl Drop for DrainedMark {
+    fn drop(&mut self) {
+        if let Some(pty) = self.0.as_pty() {
+            pty.local_pty_drained.store(true, Ordering::Release);
+        }
     }
 }
 

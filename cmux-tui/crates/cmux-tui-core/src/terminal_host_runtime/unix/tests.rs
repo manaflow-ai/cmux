@@ -157,6 +157,7 @@ fn exited_host_fixture_with_parser_at(
         parser_budget: ParserBudget::new(1),
         clipboard: ClipboardReads::new(Arc::new(SystemClock)),
         parser_progress: (Mutex::new(0), Condvar::new()),
+        writer_turn: Default::default(),
         next_client: AtomicU64::new(1),
         last_input_flow: Default::default(),
         input_stages: Default::default(),

@@ -32,15 +32,64 @@ pub(crate) type ClientCancel = crate::pty_write::WriteCancel;
 
 /// Windows has no descriptor to wait on ([`HostShared::write_pty`]).
 #[cfg(not(unix))]
-pub(crate) struct ClientCancel;
+pub(crate) struct ClientCancel(AtomicBool);
 
 #[cfg(not(unix))]
 impl ClientCancel {
     pub(crate) fn new() -> std::io::Result<Self> {
-        Ok(Self)
+        Ok(Self(AtomicBool::new(false)))
     }
 
-    pub(crate) fn cancel(&self) {}
+    pub(crate) fn is_cancelled(&self) -> bool {
+        self.0.load(Ordering::Acquire)
+    }
+
+    pub(crate) fn cancel(&self) {
+        self.0.store(true, Ordering::Release);
+    }
+}
+
+/// Whose turn it is to write the PTY ([`HostShared::pty_writer`]). A write
+/// to a program that does not read its input lasts as long as the program
+/// does not read, so the turn is waited for on a condition variable, never
+/// on the writer's lock: a client's end can wake its wait
+/// ([`HostShared::wake_writer_waits`]) and end it, while the writer itself
+/// is locked only by the one thread whose turn it is.
+#[derive(Default)]
+pub(crate) struct WriterTurn {
+    busy: Mutex<bool>,
+    changed: Condvar,
+}
+
+/// The PTY writer, held for one turn ([`HostShared::pty_writer`]): the turn
+/// passes on when it drops.
+pub(crate) struct PtyWriterGuard<'a> {
+    turn: &'a WriterTurn,
+    writer: std::sync::MutexGuard<'a, Box<dyn Write + Send>>,
+}
+
+impl std::ops::Deref for PtyWriterGuard<'_> {
+    type Target = Box<dyn Write + Send>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.writer
+    }
+}
+
+impl std::ops::DerefMut for PtyWriterGuard<'_> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.writer
+    }
+}
+
+impl Drop for PtyWriterGuard<'_> {
+    /// Passes the turn on. The writer's lock is released right after this
+    /// body, so the next turn may meet it held for that moment only: never
+    /// across a write.
+    fn drop(&mut self) {
+        *self.turn.busy.lock().recover_poison() = false;
+        self.turn.changed.notify_all();
+    }
 }
 
 #[cfg(test)]
@@ -84,6 +133,8 @@ pub(crate) struct HostShared {
     /// waits here when a PTY read ends inside UTF-8 or a control sequence,
     /// without blocking the reader from enqueueing the completing bytes.
     pub(crate) parser_progress: (Mutex<u64>, Condvar),
+    /// Whose turn it is to write the PTY ([`Self::pty_writer`]).
+    pub(crate) writer_turn: WriterTurn,
     pub(crate) next_client: AtomicU64,
     /// The flow of the newest key press an `Input` with `FLAG_INPUT_FLOW`
     /// wrote (0: none since the last read took it): the reader's next PTY
@@ -219,9 +270,44 @@ impl HostShared {
     /// another thread's write holds, last until the program reads its input: the program's time,
     /// not the host's. So it stops blaming the calling thread's hang-watch scope (Chrome's
     /// `ScopedBlockingCall` `WILL_BLOCK`, base/threading/scoped_blocking_call.h).
-    pub(crate) fn pty_writer(&self) -> std::sync::MutexGuard<'_, Box<dyn Write + Send>> {
+    pub(crate) fn pty_writer(&self) -> PtyWriterGuard<'_> {
+        self.take_writer_turn(&|| false);
+        self.held_writer()
+    }
+
+    /// [`Self::pty_writer`] for a client, whose end (`cancel`) ends its wait
+    /// for another thread's turn: `None` once the client is cancelled. The
+    /// client's owner wakes the wait ([`Self::wake_writer_waits`]).
+    pub(crate) fn pty_writer_for(&self, cancel: &ClientCancel) -> Option<PtyWriterGuard<'_>> {
+        self.take_writer_turn(&|| cancel.is_cancelled()).then(|| self.held_writer())
+    }
+
+    /// Waits for the writer's turn and takes it; false (and no turn) once
+    /// `ended` says the caller is gone.
+    fn take_writer_turn(&self, ended: &dyn Fn() -> bool) -> bool {
         cmux_hang_watch::invalidate_active();
-        self.writer.lock().recover_poison()
+        let turn = &self.writer_turn;
+        let mut busy = turn.busy.lock().recover_poison();
+        while *busy && !ended() {
+            busy = turn.changed.wait(busy).recover_poison();
+        }
+        if *busy || ended() {
+            return false;
+        }
+        *busy = true;
+        true
+    }
+
+    /// The writer, for the turn the caller took ([`Self::take_writer_turn`]).
+    fn held_writer(&self) -> PtyWriterGuard<'_> {
+        PtyWriterGuard { turn: &self.writer_turn, writer: self.writer.lock().recover_poison() }
+    }
+
+    /// Wakes every wait for a writer turn, so a cancelled client's wait sees
+    /// its end ([`Self::pty_writer_for`]).
+    pub(crate) fn wake_writer_waits(&self) {
+        let _busy = self.writer_turn.busy.lock().recover_poison();
+        self.writer_turn.changed.notify_all();
     }
 
     pub(crate) fn mark_launch_owner_stream_ready(&self) {
@@ -517,7 +603,16 @@ impl HostShared {
                 cmux_trace::terminal_hash(self.terminal_id.as_bytes()),
                 payload.len()
             );
-            let mut writer = self.pty_writer();
+            // A client waits for its turn until it ends ([`Self::pty_writer_for`]):
+            // its end ends the wait as it ends its write.
+            let writer = match cancel {
+                Some(cancel) => self.pty_writer_for(cancel),
+                None => Some(self.pty_writer()),
+            };
+            let Some(mut writer) = writer else {
+                write.set_end_args(0, InputWrite::Failed as u8);
+                return false;
+            };
             // Receipted input certifies delivery, so none of it is dropped. The master is
             // held only to read the queue, never across a write that can block.
             let admitted = request_id != 0 || {
