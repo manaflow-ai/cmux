@@ -40,6 +40,16 @@ pub(crate) fn migrate_workspace_name_authority(connection: &Connection) -> anyho
            WHERE workspace_key = NEW.workspace_key;
          END;",
     )?;
+    // Cmd-N used to send the daemon's own `workspace-N` as a requested
+    // name, stored as user-owned, so auto-naming never touched it. A name
+    // still at revision 0 was never renamed (every rename advances it), so a
+    // default-shaped one hands back to the automatic namer.
+    connection.execute(
+        "UPDATE workspaces SET name_source = 'auto'
+         WHERE name_source = 'user' AND name_revision = 0
+           AND name GLOB 'workspace-[0-9]*' AND name NOT GLOB 'workspace-*[^0-9]*'",
+        [],
+    )?;
     Ok(())
 }
 

@@ -165,6 +165,9 @@ impl Hub {
                         hub.register_agent_request(&s, &id, host_incarnation.as_deref());
                     }
                     let request_id = id.clone();
+                    // Counted until its task ends: the idle exit never ends an agent that
+                    // waits on an answer to one of its own requests (`idle.rs`).
+                    let busy = super::idle::AgentRequest::new(&session);
                     tokio::spawn(async move {
                         let finish_hub = hub.clone();
                         hub.on_agent_request(
@@ -184,6 +187,7 @@ impl Hub {
                             &request_id,
                             host_incarnation.as_deref(),
                         );
+                        drop(busy);
                     });
                 }
                 Inbound::Stderr(line, host_seq) => {
@@ -240,15 +244,22 @@ impl Hub {
                     self.processes_lost(&session, processes::HARNESS_EXIT);
                     // So did its background subagents (`work_below.rs`).
                     self.end_background_subagents(&session);
-                    let intentional =
-                        matches!(session.status(), SessionStatus::Idle | SessionStatus::Closed);
+                    // The idle exit marked it before it ended the harness (`idle.rs`); a stop clears the mark.
+                    let hibernating = session.hibernated_at.load(Ordering::SeqCst) != 0
+                        && session.status() != SessionStatus::Closed;
+                    let intentional = hibernating
+                        || matches!(session.status(), SessionStatus::Idle | SessionStatus::Closed);
                     // An agent host's exit was logged before its ack.
                     if host_seq.is_none() {
                         self.append(
                             &session,
                             "mux",
                             if intentional { "stopped" } else { "exited" },
-                            json!({"code": code}),
+                            if hibernating {
+                                json!({"code": code, "hibernated": true})
+                            } else {
+                                json!({"code": code})
+                            },
                         );
                     }
                     if !intentional {
@@ -264,6 +275,11 @@ impl Hub {
         let Some(update) = params.and_then(|p| p.get("update")) else {
             return;
         };
+        // The tap persists a redacted receipt for ambiguous hosted metadata; the
+        // same fence must also keep its original update out of in-memory state.
+        if session.fences_compaction_update(update) {
+            return;
+        }
         // A subagent's messages and settings are not the session's own.
         let sid = params.and_then(|p| p.get("sessionId")).and_then(Value::as_str);
         let owned = sid.is_some_and(|sid| {

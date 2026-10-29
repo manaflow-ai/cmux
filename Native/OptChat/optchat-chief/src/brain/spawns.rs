@@ -1523,6 +1523,10 @@ impl Brain {
             })
             .collect();
         for (id, text, floor, requires_approval, quiet) in done {
+            // A stopped run (the person's own stop) owes no outcome.
+            if !quiet {
+                self.note_finished(&id);
+            }
             let source = Source::Spawn(SpawnRef {
                 spawn: spawn.to_owned(),
                 subs: vec![(id.clone(), floor)],
@@ -1618,6 +1622,7 @@ impl Brain {
                 peer.as_deref().unwrap_or("?")
             ));
         }
+        self.outcome_resumed(id);
         // B4: its VM was paused while it was idle; it resumes before the
         // message (a rare tell to a finished cloud subagent, seconds).
         if !cancelled

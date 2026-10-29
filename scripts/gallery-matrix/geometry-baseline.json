@@ -1,0 +1,92 @@
+{
+  "schemaVersion": 1,
+  "revision": {
+    "sha": "025db075fae19040c3d3c3eb686e2aca4f353b81",
+    "source": "src/agent-session/acpmux/inspector/ChatInspector.gallery.tsx"
+  },
+  "required": [
+    {
+      "caseId": "session-info-light",
+      "engine": "chromium",
+      "theme": "light"
+    },
+    {
+      "caseId": "session-info-dark",
+      "engine": "chromium",
+      "theme": "dark"
+    }
+  ],
+  "rules": [
+    {
+      "id": "session-info-top-block-label-column",
+      "kind": "peer-alignment",
+      "group": "top-block-label",
+      "axis": "x",
+      "measure": "start",
+      "tolerancePx": 0.5,
+      "minCount": 7,
+      "source": "dom-rect"
+    }
+  ],
+  "acceptedFindings": {
+    "[\"session-info-top-block-label-column\",\"session-info-light\",\"chromium\",\"light\",[\"top-block-label:0\",\"top-block-label:1\",\"top-block-label:2\",\"top-block-label:3\",\"top-block-label:4\",\"top-block-label:5\",\"top-block-label:6\"]]": {
+      "maxDeltaPx": 2,
+      "reason": "Audit 2026-10-28: Context/Connectors start at126px; five Environment labels at128px (header6px vsrow8px gap). Measured in fleet capture0e45b912; surface owner fixes separately."
+    },
+    "[\"session-info-top-block-label-column\",\"session-info-dark\",\"chromium\",\"dark\",[\"top-block-label:0\",\"top-block-label:1\",\"top-block-label:2\",\"top-block-label:3\",\"top-block-label:4\",\"top-block-label:5\",\"top-block-label:6\"]]": {
+      "maxDeltaPx": 2,
+      "reason": "Audit 2026-10-28: Context/Connectors start at126px; five Environment labels at128px (header6px vsrow8px gap). Measured in fleet capture0e45b912; surface owner fixes separately."
+    }
+  },
+  "cases": [
+    {
+      "id": "session-info-light",
+      "path_or_url": "frame.html",
+      "params": {
+        "entry": "agent-pane.chat-inspector",
+        "variant": "full",
+        "frame": "component",
+        "locale": "en",
+        "theme": "Apple System Colors Light",
+        "colorScheme": "light",
+        "width": 420,
+        "height": 900,
+        "source": "src/agent-session/acpmux/inspector/ChatInspector.gallery.tsx"
+      }
+    },
+    {
+      "id": "session-info-dark",
+      "path_or_url": "frame.html",
+      "params": {
+        "entry": "agent-pane.chat-inspector",
+        "variant": "full",
+        "frame": "component",
+        "locale": "en",
+        "theme": "Apple System Colors",
+        "colorScheme": "dark",
+        "width": 420,
+        "height": 900,
+        "source": "src/agent-session/acpmux/inspector/ChatInspector.gallery.tsx"
+      }
+    }
+  ],
+  "selectors": {
+    "session-info-light": [
+      {
+        "group": "top-block-label",
+        "selector": "[data-section=environment] .acpmux-chat-inspector-row__name, .acpmux-chat-inspector-section[data-section=context] .acpmux-chat-inspector-section__title, .acpmux-chat-inspector-section[data-section=connectors] .acpmux-chat-inspector-section__title"
+      }
+    ],
+    "session-info-dark": [
+      {
+        "group": "top-block-label",
+        "selector": "[data-section=environment] .acpmux-chat-inspector-row__name, .acpmux-chat-inspector-section[data-section=context] .acpmux-chat-inspector-section__title, .acpmux-chat-inspector-section[data-section=connectors] .acpmux-chat-inspector-section__title"
+      }
+    ]
+  },
+  "coverageGaps": [
+    "Native AX frames require an authorized capture provider; view frames do not satisfy that coverage.",
+    "Text baselines need measured glyph-baseline data; rectangle bottoms are not a substitute.",
+    "This initial baseline covers Session Info label columns only. Other audit surfaces require measured selectors and rules."
+  ]
+}

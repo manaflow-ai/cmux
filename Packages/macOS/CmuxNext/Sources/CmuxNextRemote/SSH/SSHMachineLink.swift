@@ -47,7 +47,7 @@ public enum SSHLinkError: Error, Sendable, CustomStringConvertible {
     public var waitsForUser: Bool {
         switch self {
         case .blocked, .needsInstall, .stopped: true
-        case .ssh(let failure): failure.kind == .authFailed || failure.kind == .hostKeyUntrusted
+        case .ssh(let failure): failure.kind == .authFailed || failure.kind == .hostKeyUntrusted || failure.kind == .sessionInUse
         case .linkFailed: false
         }
     }

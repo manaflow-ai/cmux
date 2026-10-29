@@ -3,6 +3,7 @@ import type { ConversationDO } from "./conversation-do.ts"
 import type { MuxDO } from "./mux-do.ts"
 import type { ChiefBrainDO } from "./chief-brain/brain-do.ts"
 import type { OpencodeBrainDO } from "./chief-brain-opencode/brain-do.ts"
+import type { ChiefDurableDO } from "./chief-durable/durable-do.ts"
 import type { AccountIndexDO } from "./account-index-do.ts"
 import type { DomainDO } from "./domain-do.ts"
 import type { PairingDO } from "./pairing-do.ts"
@@ -125,6 +126,9 @@ export interface Env {
   readonly CLOUD_VM_API_IMAGE_REVISION?: string
   /** The https API origin written into each VM's bind file (the image's bind agent calls it). */
   readonly CLOUD_API_ORIGIN?: string
+  /** Prepaid credits top-up range in USD (paid-plans-DESIGN.md §6.2); defaults 5 and 2500. */
+  readonly CREDITS_TOPUP_MIN_USD?: string
+  readonly CREDITS_TOPUP_MAX_USD?: string
   /** Secret: the operator key for /v1/admin/cloud/abandoned/clear (also needs a person's session token). */
   readonly CLOUD_ADMIN_KEY?: string
   /** Comma-separated user ids who may use the Cloud admin routes (with CLOUD_ADMIN_KEY and their own verified session). */
@@ -140,6 +144,8 @@ export interface Env {
   readonly CLOUD_ALLOWED_TEAMS?: string
   /** Var: "on" = Cloud machine limits follow the team's paid plan (cloud-entitlements.ts); anything else = off (stub plan only). Production stays off until go-live. */
   readonly CLOUD_PLAN_ENTITLEMENTS?: string
+  /** Var: "on" = PlatformMachines (platform-machines.ts) answers bound Workers; anything else refuses every call. Development only today. */
+  readonly PLATFORM_MACHINES?: string
   /**
    * Secret: link-token signing keys (LINK-TOKEN-FORMAT) as JSON {active: kid, keys: {kid: private Ed25519 JWK}}, at most 2 kids.
    * Per environment; never logged, never in a response, error, event or storage. Without it bind and link_token refuse.
@@ -172,6 +178,9 @@ export interface Env {
   readonly STRIPE_CREDITS_WEBHOOK_SECRET?: string
   /** Credits price = provider cost x this margin (default 1, pass-through; 1..10). */
   readonly CHIEF_CREDITS_MARGIN?: string
+  /** Paid model calls one chief may start per minute / per hour (credits.ts chiefCallCap; defaults 120 / 2400; never off). */
+  readonly CHIEF_MODEL_CALLS_PER_MINUTE?: string
+  readonly CHIEF_MODEL_CALLS_PER_HOUR?: string
   /** The least one model call holds, USD (default 0.01): a zero-priced model still needs a positive balance. */
   readonly CHIEF_CREDITS_MIN_RESERVE_USD?: string
   /** "0" turns the credits gate off on development and staging (default on); production ignores it and always enforces. */
@@ -308,6 +317,10 @@ export interface Env {
   readonly OPENCODE_BRAIN_DO?: DurableObjectNamespace<OpencodeBrainDO>
   /** "1": a Chief's owner may pick the opencode brain (`brain_impl`); MuxDO sends that Chief's wakes there only. */
   readonly CHIEF_OPENCODE_ENABLED?: string
+  /** One ChiefDurableDO per Chief conversation: Cloud Chief D (chief-durable/, pi-durable). Absent: D is off. */
+  readonly CHIEF_DURABLE_DO?: DurableObjectNamespace<ChiefDurableDO>
+  /** "1": a Chief may pick brain_impl "durable" and its wakes go to D (with CHIEF_DURABLE_DO bound). */
+  readonly CHIEF_DURABLE_ENABLED?: string
   /** "1": the deployment has the brain container image bound to OpencodeBrainDO. */
   readonly CHIEF_OPENCODE_CONTAINER?: string
   /** "1": test-only fault hooks (chief-fault.ts) for the crash-mid-turn conformance case; ignored on staging and production. */
@@ -442,6 +455,9 @@ export interface Env {
   readonly INFERENCE_DAILY_CAP_USD_FIREWORKS?: string
   readonly INFERENCE_DAILY_CAP_USD_BASETEN?: string
   readonly INFERENCE_DAILY_CAP_USD_DEEPINFRA?: string
+  readonly INFERENCE_DAILY_CAP_USD_AZURE?: string
+  readonly INFERENCE_DAILY_CAP_USD_CUSTOM?: string
+  readonly INFERENCE_DAILY_CAP_USD_OPENAI?: string
   /** Hard USD cap per UTC day for all free-tier requests together. Missing = 0 = refuse. */
   readonly INFERENCE_FREE_DAILY_CAP_USD?: string
   /** Open requests per team (default 4) and per free device (default 1). */
@@ -455,6 +471,23 @@ export interface Env {
   readonly INFERENCE_FIREWORKS_KEY?: string
   readonly INFERENCE_BASETEN_KEY?: string
   readonly INFERENCE_DEEPINFRA_KEY?: string
+  /** Comma list of public model ids this deployment serves; unset = the whole catalog. */
+  readonly INFERENCE_MODEL_ALLOWLIST?: string
+  /** The provider tried first for every model it serves (staging and production: "vercel"; unset = cheapest first); the rest stay cheapest first. */
+  readonly INFERENCE_PRIMARY_PROVIDER?: string
+  /** Vercel AI Gateway through the dashboard's OIDC relay: its URL and the shared relay key (secret). */
+  readonly INFERENCE_VERCEL_RELAY_URL?: string
+  readonly INFERENCE_VERCEL_RELAY_KEY?: string
+  /** Azure AI Foundry resource endpoint (https://<resource>.services.ai.azure.com) and its key (secret). */
+  readonly INFERENCE_AZURE_ENDPOINT?: string
+  readonly INFERENCE_AZURE_KEY?: string
+  /** OpenAI's own API key (secret). */
+  readonly INFERENCE_OPENAI_KEY?: string
+  /** Our own OpenAI-compatible chat/completions URL and its bearer key (secret, optional). */
+  readonly INFERENCE_CUSTOM_URL?: string
+  readonly INFERENCE_CUSTOM_KEY?: string
+  /** Cloudflare AI Gateway id Workers AI calls go through (for example "cmux-ai-proxy"); unset = direct. */
+  readonly INFERENCE_CF_GATEWAY_ID?: string
   /**
    * Hard cap per team per UTC month for automations (USD, decision A18). Staging and development: "25"
    * until Lawrence sets the value (Stripe TEST only). Missing = 0 = no metered run may start.
@@ -478,6 +511,6 @@ export interface Env {
   readonly PROJECTION_PRIMARY?: string
   /** Projection shadow during dual write: "mysql" or "postgres"; unset = none. */
   readonly PROJECTION_SHADOW?: string
-  /** Where projection reads (home.search, feed sweep) go: "postgres" (default) or "mysql". */
+  /** Where projection reads (home.search, feed sweep) go: "postgres" (default), "shadow" (Postgres answers, MySQL compared per read) or "mysql". */
   readonly PROJECTION_READS?: string
 }

@@ -37,7 +37,7 @@ final class NotificationRowView: NSView {
         build(now: now)
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
-        setAccessibilityLabel([row.title, row.workspaceTitle, row.body].compactMap { $0 }.joined(separator: ", "))
+        setAccessibilityLabel([row.title, row.sourceLabel, row.workspaceTitle, row.body].compactMap { $0 }.joined(separator: ", "))
         setAccessibilityIdentifier("cmux.notifications.row")
     }
 
@@ -102,8 +102,9 @@ final class NotificationRowView: NSView {
         header.alignment = .firstBaseline
 
         var lines: [NSView] = [header]
-        if let workspace = row.workspaceTitle {
-            let label = Self.label(workspace, font: Typography.caption)
+        let context = [row.sourceLabel, row.workspaceTitle].compactMap { $0 }.joined(separator: " · ")
+        if !context.isEmpty {
+            let label = Self.label(context, font: Typography.caption)
             tinted.append((label, .tertiary))
             lines.append(label)
         }

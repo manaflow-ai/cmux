@@ -206,6 +206,87 @@ wire_enum! {
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudEnvironment {
+    pub id: EnvironmentId,
+    pub name: String,
+    pub repo: Option<String>,
+    pub setup_script: String,
+    pub env: Vec<CloudEnvironmentVariable>,
+    pub creator: UserId,
+    pub status: CloudEnvironmentStatus,
+    pub snapshot: Option<SnapshotId>,
+    pub last_build: Option<CloudEnvironmentBuildRecord>,
+    pub created_at: i64,
+    pub revision: Revision,
+}
+
+wire_enum! {
+    CloudEnvironmentStatus {
+        Unbuilt = "unbuilt",
+        Building = "building",
+        Ready = "ready",
+        Stale = "stale",
+        Failed = "failed",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudEnvironmentBuildRecord {
+    pub state: CloudEnvironmentBuildRecordState,
+    pub started_at: i64,
+    pub finished_at: Option<i64>,
+    pub error: Option<CloudEnvironmentBuildRecordError>,
+    pub log_tail: Option<String>,
+    pub timings: Option<CloudEnvironmentBuildRecordTimings>,
+}
+
+wire_enum! {
+    CloudEnvironmentBuildRecordState {
+        Building = "building",
+        Ready = "ready",
+        Failed = "failed",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudEnvironmentBuildRecordError {
+    pub code: String,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudEnvironmentBuildRecordTimings {
+    pub boot_ms: i64,
+    pub ready_ms: i64,
+    pub setup_ms: i64,
+    pub snapshot_ms: i64,
+    pub warm_ms: i64,
+    pub total_ms: i64,
+}
+
+/// A plain variable (baked into the snapshot) or a secret (a vault item name; the value never enters the snapshot).
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(untagged)]
+pub enum CloudEnvironmentVariable {
+    Variant1(CloudEnvironmentVariableVariant1),
+    Variant2(CloudEnvironmentVariableVariant2),
+    /// A member this build does not know (a newer backend), kept verbatim.
+    Unknown(Value),
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudEnvironmentVariableVariant1 {
+    pub name: String,
+    pub value: String,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudEnvironmentVariableVariant2 {
+    pub name: String,
+    pub secret: String,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct CloudGroup {
     pub id: GroupId,
     pub name: String,
@@ -497,6 +578,9 @@ pub struct EnrollmentToken {
 pub type EnrollmentTokenHash = String;
 
 pub type EnrollmentTokenId = String;
+
+/// A Cloud environment.
+pub type EnvironmentId = String;
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct FeedAction {
@@ -802,100 +886,5 @@ wire_enum! {
     HomeAttachmentPreviewMimeType {
         ImageJpeg = "image/jpeg",
         ImageWebp = "image/webp",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct HomeChief {
-    pub id: ChiefId,
-    pub owner_user: String,
-    pub display_name: String,
-    pub is_default: bool,
-    pub brain: LitCloud,
-    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
-    pub brain_place: Option<Option<ChiefBrainPlace>>,
-    pub main_conversation: Option<ConversationId>,
-    pub harness: Option<String>,
-    pub rev: WireNumber,
-    pub created_at: Timestamp,
-    pub updated_at: Timestamp,
-    pub archived_at: Option<Timestamp>,
-}
-
-/// rev after the op; seq and message_id for a new message; change is the committed Change.
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct HomeConversationCommit {
-    pub rev: i64,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub seq: Option<i64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub message_id: Option<MessageId>,
-    pub change: Value,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct HomeConversationSettings {
-    pub wake_policy: HomeConversationSettingsWakePolicy,
-    pub agent_budget: HomeConversationSettingsAgentBudget,
-    pub history_visible: HomeConversationSettingsHistoryVisible,
-}
-
-wire_enum! {
-    HomeConversationSettingsWakePolicy {
-        Auto = "auto",
-        Mentions = "mentions",
-        All = "all",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct HomeConversationSettingsAgentBudget {
-    pub turns: i64,
-    pub gap_ms: i64,
-}
-
-wire_enum! {
-    HomeConversationSettingsHistoryVisible {
-        All = "all",
-        SinceJoin = "since_join",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct HomeConversationSummary {
-    pub id: ConversationId,
-    pub owner: String,
-    pub title: String,
-    pub participants: Vec<HomeParticipant>,
-    pub last_seq: i64,
-    pub rev: i64,
-    pub created_at: Timestamp,
-    pub updated_at: Timestamp,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub last_message: Option<HomeMessage>,
-    pub read_cursors: BTreeMap<String, i64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub kind: Option<ConversationKind>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub team: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub created_by: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub state: Option<HomeConversationSummaryState>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub settings: Option<HomeConversationSettings>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub invites: Option<Vec<HomeInvite>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub retention_days: Option<i64>,
-    /// A large group (more than 64 members): participants is a roster of at most 16 humans plus the owner and agents; this counts every current participant, and conversation.members pages them.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub member_count: Option<i64>,
-}
-
-wire_enum! {
-    HomeConversationSummaryState {
-        Active = "active",
-        Archived = "archived",
     }
 }

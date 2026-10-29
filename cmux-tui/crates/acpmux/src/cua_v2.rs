@@ -19,9 +19,9 @@
 //! A host crash leaves `endpoint.json` behind: [`active_dir`] checks that
 //! its helper still runs and removes a stale file ([`liveness`], cx-zgk0).
 //!
-//! Phase 1 forwards `tools/list` and `tools/call` unchanged (upstream tool
-//! names and arguments). Argument mapping, per-session scope and the
-//! activity log are phase 2.
+//! Tool names and arguments stay upstream-shaped. The trusted bridge adds
+//! the session's target allow-list to the helper envelope, outside model
+//! arguments; the Swift host resolves targets and enforces the policy.
 
 use std::path::{Path, PathBuf};
 
@@ -200,6 +200,7 @@ impl<S: tokio::io::AsyncRead + AsyncWrite + Unpin> Helper<S> {
         if let Some(name) = name {
             message["name"] = json!(name);
             message["arguments"] = arguments;
+            // The helper owns target policy. This process's env is caller-controlled.
         }
         self.send(&message).await?;
         // One request at a time, so the next reply is ours.
