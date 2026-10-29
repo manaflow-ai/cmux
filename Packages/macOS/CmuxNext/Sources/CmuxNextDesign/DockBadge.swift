@@ -62,8 +62,8 @@ public final class DockBadge {
     }
 }
 
-// concurrency-allow: the holder is initialized before the stream escapes and `release` runs once,
-// from AsyncStream's serialized termination callback, before the observer token is dropped.
+// crash-allow: initialized before publication; only AsyncStream's once-only termination callback
+// accesses the stored reference afterward, releasing it after KVO invalidation.
 private nonisolated final class ActivationPolicyObservationLifetime<Object: NSObject>: @unchecked Sendable {
     private var object: Object?
 
