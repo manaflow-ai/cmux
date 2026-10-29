@@ -78,7 +78,7 @@ impl Client {
 
     /// The first message that matches `pred`; every other one is dropped.
     async fn until(&mut self, pred: impl Fn(&Value) -> bool) -> Value {
-        if let Some(i) = self.3.iter().position(|reply| pred(reply)) {
+        if let Some(i) = self.3.iter().position(&pred) {
             return self.3.remove(i);
         }
         loop {
