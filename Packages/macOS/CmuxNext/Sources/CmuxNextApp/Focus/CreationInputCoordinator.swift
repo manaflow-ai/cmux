@@ -393,10 +393,22 @@ final class CreationInputCoordinator {
         guard KeyRouter.isChord(event.modifierFlags) else { return .input }
         if let controller {
             let context = router.keyContext(for: controller.focus.currentState(), facts: router.facts(in: window, controller: controller))
-            if let binding = router.resolve(event, context: context) { return WindowKeyTable.isClose(binding.command) ? .close : .command }
+            if let binding = router.resolve(event, context: context) {
+                if WindowKeyTable.isClose(binding.command) { return .close }
+                // An action on the focused terminal's content (Paste, Copy, Clear) was typed for the target, as text is.
+                return router.registry.descriptor(for: binding.command)?.requires.contains(.terminalFocused) == true ? .input : .command
+            }
         }
         guard event.modifierFlags.contains(.command), let item = NSApp.mainMenu.flatMap({ menuItem(for: event, in: $0) }) else { return .input }
         return item.action.map(responderEditActions.contains) == true ? .input : .command
+    }
+
+    /// Whether `event` runs a binding or a menu item (it must run as typed, in its target's focus).
+    static func runsCommand(_ event: NSEvent, in window: NSWindow, controller: WindowController, router: KeyRouter) -> Bool {
+        guard KeyRouter.isChord(event.modifierFlags) else { return false }
+        let context = router.keyContext(for: controller.focus.currentState(), facts: router.facts(in: window, controller: controller))
+        if router.resolve(event, context: context) != nil { return true }
+        return event.modifierFlags.contains(.command) && NSApp.mainMenu.flatMap { menuItem(for: event, in: $0) } != nil
     }
 
     /// The Edit menu's responder-chain actions (MainMenu): they act on the view that has the keyboard, so their keys are
@@ -539,15 +551,7 @@ final class CreationInputCoordinator {
         lastReplays = Array((lastReplays + [(target.id, event.keyCode)]).suffix(16))
         defer { replaying = false }
         if let view {
-            return router.heldKeys.replay(event, heldBy: .creation, keyWindow: window) { send in
-                // An Edit menu key (Cmd-V) is its responder action on the target's view, not a key-down.
-                if event.modifierFlags.contains(.command), let action = NSApp.mainMenu.flatMap({ Self.menuItem(for: event, in: $0) })?.action,
-                   Self.responderEditActions.contains(action) {
-                    NSApp.sendAction(action, to: view, from: nil)
-                } else {
-                    send.view(view, event)
-                }
-            }
+            return router.heldKeys.replay(event, heldBy: .creation, keyWindow: window) { send in send.view(view, event) }
         }
         let to = NSApp.keyWindow.flatMap { $0.parent === window ? $0 : nil } ?? window
         router.heldKeys.replay(event, heldBy: .creation, keyWindow: to) { send in
@@ -683,7 +687,12 @@ final class CreationInputCoordinator {
                     runAgain(event, for: target, in: window, router: router)
                 }
             } else if target != named || !NewTabInputCoordinator.mayTakeKey(window, keyWindow: NSApp.keyWindow) {
-                hold.queue.drain(target, takesKeys: { readyView(target, hold: hold, window: window) != nil }) { event in
+                // Straight to the view: keys that run no binding or menu item (text, Return, Ctrl-C). A key that runs
+                // one (Paste) waits, with the keys after it, until the target has the keyboard and runs as typed.
+                hold.queue.drain(target, takesKeys: {
+                    readyView(target, hold: hold, window: window) != nil
+                        && hold.queue.next(for: target).map { !Self.runsCommand($0, in: window, controller: controller, router: router) } == true
+                }) { event in
                     runAgain(event, for: target, view: readyView(target, hold: hold, window: window), in: window, router: router)
                 }
             }

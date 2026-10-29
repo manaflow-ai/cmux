@@ -123,6 +123,9 @@ public final class WindowInputQueue {
         return count
     }
 
+    /// The oldest key waiting for `target`, the one ``drain(_:takesKeys:deliver:)`` delivers next.
+    public func next(for target: Target) -> NSEvent? { held.first { $0.target == target }?.event }
+
     /// Drops every key waiting for `target` (`reason` says why). Returns how many dropped.
     @discardableResult
     public func drop(_ target: Target, _ reason: DropReason) -> Int {
