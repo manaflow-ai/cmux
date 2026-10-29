@@ -273,6 +273,7 @@
         "CmuxNextDaemonService",
         "CmuxNextDesign",
         "CmuxNextDevices",
+        "CmuxNextDictation",
         "CmuxNextDiff",
         "CmuxNextErrorJournal",
         "CmuxNextFavicons",
@@ -1195,6 +1196,7 @@
       "targets": [
         "CmuxNextDaemon",
         "CmuxNextDesign",
+        "CmuxNextHome",
         "CmuxNextHomeEngine"
       ],
       "packages": [

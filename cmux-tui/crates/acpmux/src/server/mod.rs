@@ -103,6 +103,8 @@ pub struct Conn {
     /// The media files of peers' chats it opened, closed on the peer when it closes
     /// (`media_forward.rs`).
     pub(super) remote_media: media_forward::RemoteMedia,
+    /// Requests this daemon sent the client, waiting on its answer (`client_request.rs`).
+    client_requests: client_request::ClientRequests,
 }
 
 // Bound only request handlers that do finite work on behalf of the connection.
@@ -286,7 +288,8 @@ impl Conn {
     }
 
     fn send(&self, msg: &Message) {
-        let control = matches!(msg, Message::Response { .. });
+        // A request to the client waits on its answer, so it is never dropped as lossy.
+        let control = matches!(msg, Message::Response { .. } | Message::Request { .. });
         if msg.method() == Some(method::MUX_SESSION_CHANGED) {
             self.notices.fetch_add(1, Ordering::SeqCst);
         }
@@ -330,9 +333,12 @@ impl Conn {
     /// goes out after such a notice (`anyway`, or one that waited for room in a full queue)
     /// is followed by `_acpmux/lagged {watch: true}`, so the client reads the list again.
     /// One larger than a frame goes as its error, as in [`Self::send`].
-    fn send_serialized(&self, id: &Value, result: &str, seen: u64, anyway: bool) -> bool {
+    /// None if it was not sent; else whether it went whole into an open queue (not as its
+    /// too-large error, nor into a queue whose reader is gone).
+    fn send_serialized(&self, id: &Value, result: &str, seen: u64, anyway: bool) -> Option<bool> {
         let mut line = list_reply::reply_line(id, result);
-        if line.len() > crate::rpc::MAX_MESSAGE_BYTES {
+        let whole = line.len() <= crate::rpc::MAX_MESSAGE_BYTES;
+        if !whole {
             line = Message::err(id.clone(), RpcError::too_large(line.len())).to_line();
         }
         let lag = || {
@@ -342,11 +348,12 @@ impl Conn {
         let _guard = self.outbound_lock.lock().unwrap_or_else(|e| e.into_inner());
         let stale = self.notices.load(Ordering::SeqCst) != seen;
         if stale && !anyway {
-            return false;
+            return None;
         }
         match self.out.try_send(line) {
             Ok(()) if stale => self.enqueue_control_locked(lag()),
-            Ok(()) | Err(mpsc::error::TrySendError::Closed(_)) => {}
+            Ok(()) => {}
+            Err(mpsc::error::TrySendError::Closed(_)) => return Some(false),
             // No room: it waits for some, and a notice may go first; then the lag follows it.
             Err(mpsc::error::TrySendError::Full(line)) => {
                 let (out, notices) = (self.out.clone(), self.notices.clone());
@@ -360,7 +367,33 @@ impl Conn {
                 });
             }
         }
-        true
+        Some(whole)
+    }
+
+    /// [`Self::send`] for a request to the client that must go out after every response and
+    /// request queued before it ([`enqueue_after_controls`]): a GitHub action after the watch
+    /// answer that opened the Mac's side (`hub/github_owner.rs`). Refused, with nothing sent,
+    /// while one of those still waits for room, or when it is larger than a frame.
+    fn send_request_in_order(&self, msg: &Message) -> Result<(), RpcError> {
+        let masked = (!self.raw_text).then(|| peer_text::masked(msg)).flatten();
+        let msg = masked.as_ref().unwrap_or(msg);
+        let line = msg.bounded_line().map_err(RpcError::too_large)?;
+        if self.out.is_closed() {
+            return Err(RpcError::internal("the connection that would answer ended"));
+        }
+        let queued = enqueue_after_controls(
+            &self.out,
+            line,
+            &self.outbound_dropped,
+            &self.outbound_gap_pending,
+            &self.outbound_lock,
+            &self.outbound_pending_controls,
+        );
+        if !queued {
+            return Err(RpcError::new(-32000, "the link to that client is backed up; try again")
+                .with_data(json!({"reason": "client.busy", "retryable": true})));
+        }
+        Ok(())
     }
 
     fn enqueue_control_locked(&self, line: String) {
@@ -438,6 +471,26 @@ fn enqueue_outbound(
         outbound_lock,
         pending_controls,
     );
+}
+
+/// [`enqueue_outbound`] of a control line that must go out after every control queued before
+/// it: queued only if none of those still waits for room in a full queue (each such waits in a
+/// task of its own, which a line queued now would pass). False, with nothing queued, if one does
+/// or the queue's reader is gone.
+fn enqueue_after_controls(
+    out: &mpsc::Sender<String>,
+    line: String,
+    dropped: &Arc<AtomicU64>,
+    gap_pending: &Arc<AtomicBool>,
+    outbound_lock: &Arc<StdMutex<()>>,
+    pending_controls: &Arc<AtomicUsize>,
+) -> bool {
+    let _guard = outbound_lock.lock().unwrap_or_else(|e| e.into_inner());
+    if out.is_closed() || pending_controls.load(Ordering::Acquire) != 0 {
+        return false;
+    }
+    enqueue_outbound_locked(out, line, true, dropped, gap_pending, outbound_lock, pending_controls);
+    true
 }
 
 /// [`enqueue_outbound`] with `outbound_lock` held.
@@ -1227,6 +1280,7 @@ async fn serve_connection_from(
             crate::hub::media_handles::Handles::default()
         },
         remote_media: media_forward::RemoteMedia::default(),
+        client_requests: Default::default(),
     });
     tracing::debug!(conn = %conn.id, "client connected");
 
@@ -1287,18 +1341,28 @@ async fn serve_connection_from(
                     let _slot = slot;
                     let route = chats::route(&hub, &conn, &m, params.unwrap_or(Value::Null));
                     let (result, sent) = list_reply::scope(id.clone(), route).await;
+                    // Its answer went whole into an open queue: one sent as its too-large error, or
+                    // to a reader that is gone, opened nothing.
+                    let watched = m == method::MUX_WATCH && result.is_ok() && sent == Some(true);
                     // A shared session list, sent already as the bytes it was serialized to.
-                    if sent && result.is_ok() {
-                        return;
+                    if !(sent.is_some() && result.is_ok()) {
+                        conn.send(&match result {
+                            Ok(v) => Message::ok(id, v),
+                            Err(mut e) => {
+                                // What kind of failure, and what to do (`recovery.rs`).
+                                crate::recovery::annotate(&mut e, None);
+                                Message::err(id, e)
+                            }
+                        });
                     }
-                    conn.send(&match result {
-                        Ok(v) => Message::ok(id, v),
-                        Err(mut e) => {
-                            // What kind of failure, and what to do (`recovery.rs`).
-                            crate::recovery::annotate(&mut e, None);
-                            Message::err(id, e)
-                        }
-                    });
+                    // A Mac that lends GitHub counts from here: its watch answer is queued, so
+                    // no action reaches it before the answer that opens its side.
+                    if watched
+                        && conn.watch_all.load(Ordering::SeqCst)
+                        && conn.client_requests.lends_github.load(Ordering::SeqCst)
+                    {
+                        hub.add_github_owner(&conn);
+                    }
                 });
             }
             // A read-only machine's notifications (a cancel) change nothing.
@@ -1337,9 +1401,9 @@ async fn serve_connection_from(
                     }
                 }
             }
-            Message::Response { .. } => {
-                // acpmux sends no requests to clients today (permission goes
-                // through _acpmux/permission_pending + permission_respond).
+            // An answer to a request this daemon sent the client (`client_request.rs`).
+            Message::Response { id, result, error } => {
+                conn.settle_client_request(&id, result, error);
             }
         }
     }
@@ -1549,6 +1613,7 @@ fn mux_meta(params: &Value) -> Option<&Value> {
 
 mod agent_messages;
 mod app_reply;
+mod client_request;
 mod clock_text;
 pub(crate) use clock_text::iso;
 mod change_kind;
@@ -1558,6 +1623,7 @@ mod ephemeral;
 mod fanout;
 mod forum;
 mod media_forward;
+pub mod mesh_relay;
 pub use conn_auth::ConnAuth;
 mod fork_through;
 mod harness_admin;
@@ -1566,6 +1632,7 @@ mod inventory_watch;
 mod lane_parent;
 mod list_reply;
 use lane_parent::lane_parent;
+mod bg_tasks;
 pub mod local_app;
 pub(crate) mod machine_health;
 mod models_fanout;
@@ -1589,6 +1656,7 @@ pub(crate) mod remote_guard;
 mod requests;
 mod routes;
 mod secrets;
+mod session_auth;
 mod session_files;
 mod stream;
 mod subsessions;
@@ -1773,7 +1841,7 @@ mod nodelay_tests {
 
 #[cfg(test)]
 mod outbound_queue_tests {
-    use super::{Message, enqueue_outbound};
+    use super::{Message, enqueue_after_controls, enqueue_outbound};
     use serde_json::json;
     use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize};
     use std::sync::{Arc, Mutex};
@@ -1839,6 +1907,73 @@ mod outbound_queue_tests {
         assert_eq!(queued.recv().await.as_deref(), Some("queued-before-reader-catches-up\n"));
         let gap = Message::parse(&queued.recv().await.unwrap()).unwrap();
         assert!(matches!(gap, Message::Notification { method, .. } if method == "_acpmux/lagged"));
+    }
+
+    /// Review of #26784 at 0a57249: a watch answer that waited for room in a full queue (in a
+    /// task of its own) could be passed by the GitHub request sent after it, which the Mac then
+    /// refused. That request now waits for no such answer: it is refused until none is left.
+    #[tokio::test]
+    async fn a_request_in_order_never_passes_an_answer_waiting_for_room() {
+        let (out, mut queued) = mpsc::channel(1);
+        out.try_send("queued-before-reader-catches-up\n".to_owned()).unwrap();
+        let dropped = Arc::new(AtomicU64::new(0));
+        let gap_pending = Arc::new(AtomicBool::new(false));
+        let pending_controls = Arc::new(AtomicUsize::new(0));
+        let lock = Arc::new(Mutex::new(()));
+        let answer = Message::ok(json!(7), json!({"sessions": []})).to_line();
+        enqueue_outbound(&out, answer, true, &dropped, &gap_pending, &lock, &pending_controls);
+        let request =
+            || Message::request(json!("acpmux-0"), "_acpmux/github_action", json!({})).to_line();
+
+        // The reader takes a line; the answer still waits for room in its task. The request is
+        // refused, and queues nothing.
+        assert_eq!(queued.recv().await.as_deref(), Some("queued-before-reader-catches-up\n"));
+        let sent = enqueue_after_controls(
+            &out,
+            request(),
+            &dropped,
+            &gap_pending,
+            &lock,
+            &pending_controls,
+        );
+        assert!(!sent, "nothing goes ahead of an answer that waits for room");
+        let first = Message::parse(&queued.recv().await.unwrap()).unwrap();
+        assert!(matches!(first, Message::Response { id, .. } if id == json!(7)));
+        // The answer is in the queue, so the request is sent after it.
+        while pending_controls.load(std::sync::atomic::Ordering::Acquire) != 0 {
+            tokio::task::yield_now().await;
+        }
+        assert!(enqueue_after_controls(
+            &out,
+            request(),
+            &dropped,
+            &gap_pending,
+            &lock,
+            &pending_controls
+        ));
+        let next = Message::parse(&queued.recv().await.unwrap()).unwrap();
+        assert!(matches!(next, Message::Request { .. }));
+    }
+
+    /// Review of #26784 at d0b90b0: a request to a client whose reader was gone counted as sent,
+    /// and its action waited out the whole wait before failing.
+    #[test]
+    fn a_request_in_order_to_a_reader_that_is_gone_is_not_sent() {
+        let (out, queued) = mpsc::channel(4);
+        drop(queued);
+        let (dropped, gap_pending) =
+            (Arc::new(AtomicU64::new(0)), Arc::new(AtomicBool::new(false)));
+        let (pending, lock) = (Arc::new(AtomicUsize::new(0)), Arc::new(Mutex::new(())));
+        let request = Message::request(json!("acpmux-0"), "_acpmux/github_action", json!({}));
+        let sent = enqueue_after_controls(
+            &out,
+            request.to_line(),
+            &dropped,
+            &gap_pending,
+            &lock,
+            &pending,
+        );
+        assert!(!sent);
     }
 }
 

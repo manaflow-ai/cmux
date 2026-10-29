@@ -1,0 +1,20 @@
+# Swift packages whose tests build and pass on Linux, one per line:
+#   PACKAGE_DIR  TEST_TARGETS(comma list)  ENV(- or KEY=VALUE[,KEY=VALUE])
+#
+# `package-test-lane.sh suite` runs a listed package on Linux without selecting an Xcode or a macOS
+# SDK, with its ENV, and only filters that name one of its TEST_TARGETS (TARGET, TARGET.Suite or
+# TARGET/test). On Linux it refuses every package not listed here. The fleet controller reads this file
+# at a step's commit and sends only these suites to Linux; every other package keeps the Mac path.
+#
+# The receipt behind every row is .github/workflows/swift-linux-packages.yml, which runs each listed
+# package's TEST_TARGETS through that same script on Linux. tests/test_swift_linux_packages.py keeps
+# the rows, the manifests and that workflow in step. Add a package only with a green run of that job.
+Packages/Shared/CmuxTerminalSizing  CmuxTerminalSizingTests  -
+Packages/Shared/CmuxTerminalStream  CmuxTerminalStreamTests  -
+Packages/Shared/CmuxTerminalClient  CmuxTerminalClientModelTests  CMUX_TERMINAL_CLIENT_MODEL_ONLY=1
+Packages/Shared/CmuxAgentQuestion  CmuxAgentQuestionTests  -
+Packages/Shared/CMUXAuthCore  CMUXAuthCoreTests  -
+Packages/Shared/CmuxFeedPushCore  CmuxFeedPushCoreTests  CMUX_SWIFTPM_TARGET_LINUX=1
+Packages/Shared/CmuxInstallAuthCore  CmuxInstallAuthCoreTests  CMUX_SWIFTPM_TARGET_LINUX=1
+Packages/Shared/CmuxTextConfirmCore  CmuxTextConfirmCoreTests  CMUX_SWIFTPM_TARGET_LINUX=1
+Packages/Shared/CmuxChiefVoiceCore  CmuxChiefVoiceCoreTests  CMUX_SWIFTPM_TARGET_LINUX=1

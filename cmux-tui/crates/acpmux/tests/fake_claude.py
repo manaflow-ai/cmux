@@ -529,7 +529,8 @@ while True:
             if os.environ.get("FAKE_CLAUDE_STOP_NOTIFY") == "1":
                 send({"type": "system", "subtype": "task_notification", "task_id": task, "status": "stopped",
                       "output_file": "", "summary": ""})
-        if request.get("subtype") == "initialize":
+        # FAKE_CLAUDE_INIT_ON_TURN=1: system/init only when a turn starts, as Claude Code sends it.
+        if request.get("subtype") == "initialize" and os.environ.get("FAKE_CLAUDE_INIT_ON_TURN") != "1":
             send(init())
     elif kind == "user" and os.environ.get("FAKE_CLAUDE_AUTH") == "1":
         import subprocess
@@ -617,7 +618,7 @@ while True:
             sys.stderr.write("No conversation found with session ID: %s\n" % RESUME)
             sys.stderr.flush()
             sys.exit(1)
-        if SKILLS:
+        if SKILLS or os.environ.get("FAKE_CLAUDE_INIT_ON_TURN") == "1":
             send(init())
         content = (msg.get("message") or {}).get("content") or []
         said = "".join(b.get("text", "") for b in content if isinstance(b, dict))
@@ -851,11 +852,13 @@ while True:
         # reply carry its tool_use id as parent_tool_use_id, then the tool's result ends it.
         if said.strip() == "agent-probe":
             send({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "toolu_ag1", "name": "Agent",
-                  "input": {"description": "Find the tests", "prompt": "List the test files", "subagent_type": "Explore"}}]}})
+                  "input": {"description": "Find the tests", "prompt": "List the test files", "subagent_type": "Explore", "model": "haiku", "effort": "high"}}]}})
             send({"type": "assistant", "parent_tool_use_id": "toolu_ag1", "message": {"content": [
                   {"type": "tool_use", "id": "toolu_ag2", "name": "Read", "input": {"file_path": "/a/tests.rs"}}]}})
             send({"type": "user", "parent_tool_use_id": "toolu_ag1", "message": {"content": [
                   {"type": "tool_result", "tool_use_id": "toolu_ag2", "content": "fn t() {}"}]}})
+            send({"type": "assistant", "parent_tool_use_id": "toolu_ag1", "message": {"id": "child-final", "content": [
+                  {"type": "text", "text": "Found one test file"}]}})
             send({"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "toolu_ag1", "content": "one test file"}]}})
         if said.strip().startswith(tuple(AGENT_ERRORS)):
             send({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "toolu_a503", "name": "Agent",
