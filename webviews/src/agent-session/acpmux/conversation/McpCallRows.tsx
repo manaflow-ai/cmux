@@ -15,6 +15,8 @@ import { OutputMore, useOutput } from "./toolOutput";
 import { ToolImages } from "./ToolRow";
 import { useTranscriptDisclosure } from "./transcriptDisclosure";
 import { useAnchoredCollapse } from "./useAnchoredCollapse";
+import { ToolLabel } from "./ToolVerb";
+import { useMoreBelow } from "./moreBelow";
 import { toolFailure } from "./toolFailure";
 import { failureWord, InlineFailureCause, ToolFailureCause } from "./ToolFailureCause";
 
@@ -50,7 +52,7 @@ function McpGroupRow({ items, disclosureKey }: { items: readonly AcpmuxActivity[
           {running ? <Spinner size={16} /> : <ToolGroup size={16} strokeWidth={1.2} />}
         </span>
         <span className="cv-tool__text" data-find-skip>
-          {mcpLabel(t, calls, names)}
+          <ToolLabel text={mcpLabel(t, calls, names)} />
           {failures > 0 && <span className="cv-tool__failed"> {t("tools.failedCount", { n: failures })}</span>}
         </span>
         <ChevronRight
@@ -109,7 +111,7 @@ function McpCallRow({ item }: { item: AcpmuxActivity }) {
           {running ? <Spinner size={16} /> : <ToolGroup size={16} strokeWidth={1.2} />}
         </span>
         <span className="cv-tool__text" data-find-skip>
-          {mcpLabel(t, [call], names)}
+          <ToolLabel text={mcpLabel(t, [call], names)} />
           {failure && <span className="cv-tool__failed"> {failureWord(t, failure)}</span>}
           <InlineFailureCause failure={failure} />
         </span>
@@ -161,6 +163,8 @@ export function McpCallDetails({
     useMemo(() => prettyOutput(output, strip), [output, strip]),
     reveal,
   );
+  const requestBox = useMoreBelow<HTMLPreElement>(request);
+  const responseBox = useMoreBelow<HTMLPreElement>(response.shown);
   return (
     <div id={id} className="cv-mcp-call" ref={menuPartRef({ output: response.text })}>
       <code className="cv-mcp-call__name selectable" data-find-skip>
@@ -169,13 +173,15 @@ export function McpCallDetails({
       {request && (
         <div className="cv-mcp-call__part">
           <div className="cv-mcp-call__head">{t("tools.mcp.request")}</div>
-          <pre className="cv-mcp-call__body selectable">{request}</pre>
+          <pre ref={requestBox} className="cv-mcp-call__body selectable">
+            {request}
+          </pre>
         </div>
       )}
       {response.text && (
         <div className="cv-mcp-call__part">
           <div className="cv-mcp-call__head">{t("tools.mcp.response")}</div>
-          <pre className="cv-mcp-call__body selectable">
+          <pre ref={responseBox} className="cv-mcp-call__body selectable">
             {response.cut && (
               <span className="cv-output-cut" aria-hidden="true">
                 …{"\n"}
