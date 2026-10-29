@@ -89,6 +89,9 @@ public nonisolated enum AgentPaneHostError: Error, Equatable, Sendable {
     /// Nothing listens on the socket and this handshake may not start a
     /// daemon (``AgentPaneHostProviding/reconnectHandshake(sessionId:)``).
     case daemonStopped
+    /// Nothing listens on an attached daemon's socket (`CMUX_NEXT_ACPMUX_ATTACH`): that daemon is
+    /// another app's, so no handshake of this app starts it, not even Retry. Said as ``daemonStopped``.
+    case attachedDaemonStopped
     /// Nothing listens on the Chief home's socket: only the Chief host starts
     /// that daemon, never a tab (cx-ebm.54).
     case chiefStopped
@@ -517,7 +520,8 @@ public actor AcpmuxHost: AgentPaneHostProviding {
                 if !owned, !environment.isAttached, let startOwner, await startOwner() {
                     throw AgentPaneHostError.chiefStarting
                 }
-                throw owned || environment.isAttached ? AgentPaneHostError.daemonStopped : AgentPaneHostError.chiefStopped
+                if environment.isAttached { throw AgentPaneHostError.attachedDaemonStopped }
+                throw owned ? AgentPaneHostError.daemonStopped : AgentPaneHostError.chiefStopped
             }
         } catch AcpmuxStatusClient.Failure.noWebSocket {
             logger.error("acpmux status returned no websocket socket=\(environment.socketPath, privacy: .public)")

@@ -88,8 +88,9 @@ enum AgentPaneHandshakeReply {
             // The web pane keeps an update's socket handoff neutral, but still shows actionable
             // host refusals (missing binary, stopped daemon, unsupported peer) with their next step.
             if case .daemonRestarting = error as? AgentPaneHostError { details["reconnecting"] = true }
-            // A cleanly stopped daemon: the automatic reconnect never starts it (crash-only restart),
-            // but the card's Retry does, so the page's hint says so.
+            // A cleanly stopped daemon this app owns: the automatic reconnect never starts it
+            // (crash-only restart), but the card's Retry does, so the page's hint says so. An
+            // attached daemon (`attachedDaemonStopped`) is another app's: Retry cannot start it.
             if case .daemonStopped = error as? AgentPaneHostError { details["daemonStopped"] = true }
             // A refused chat of another machine still names that machine on its chip (cx-k21v).
             if let machine = (error as? any AgentPaneHostRefusal)?.machineName { details["machineName"] = machine }

@@ -59,6 +59,17 @@ struct AcpmuxRefusedRestartTests {
         }
     }
 
+    /// Only a stopped daemon this app owns says Retry starts it; an attached one is another app's.
+    @Test func onlyAnOwnedStoppedDaemonIsMarkedStopped() async throws {
+        for cause in [AgentPaneHostError.daemonStopped, .attachedDaemonStopped, .acpmuxNotFound, .chiefStopped, .daemonRestarting] {
+            let model = AgentPaneModel(host: RefusingHost(cause))
+            let reply = await model.respond(to: .reconnect)
+            let error = try #require(reply["error"] as? [String: Any])
+            let details = error["details"] as? [String: Any]
+            #expect((details?["daemonStopped"] as? Bool == true) == (cause == .daemonStopped), "\(cause)")
+        }
+    }
+
     /// Without a refusal that offered it, or without the person's click, the page cannot stop a daemon.
     @Test func restartAcpmuxNeedsAnOfferAndAGesture() async {
         let model = AgentPaneModel(host: NoHost())

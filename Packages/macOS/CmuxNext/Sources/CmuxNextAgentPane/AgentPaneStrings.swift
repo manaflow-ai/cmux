@@ -222,7 +222,7 @@ extension AgentPaneHostError {
             }
         case .daemonRestarting:
             String(localized: "agentPane.error.daemonRestarting", defaultValue: "acpmux is restarting on the new version. This chat connects when it is back.", bundle: .module)
-        case .daemonStopped:
+        case .daemonStopped, .attachedDaemonStopped:
             String(localized: "agentPane.error.daemonStopped", defaultValue: "acpmux stopped.", bundle: .module)
         case .chiefStopped:
             String(localized: "agentPane.error.chiefStopped", defaultValue: "The Chief is not running. Reopen cmux and open Home to start it.", bundle: .module)
