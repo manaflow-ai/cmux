@@ -155,6 +155,23 @@ struct AttentionBannerTests {
         #expect(notifications.preferences.sounds.choice(for: .needsInput, in: labScope, fallback: "default")?.volume == 0.25)
         #expect(notifications.preferences.sounds.choice(for: .needsInput, in: hereScope, fallback: "default")?.name == "Hero")
 
+        notifications.preferences.desktop = .always
+        notifications.preferences.suppressWhileTypingSeconds = 60
+        let now = ContinuousClock.now
+        notifications.recordTyping(tabID: hereTab.id, onMachine: "local", at: now)
+        let recentLocal = notifications.attentionArrival(here)
+        let untouchedRemote = notifications.attentionArrival(lab)
+        #expect(recentLocal.typedAgo != nil)
+        #expect(untouchedRemote.typedAgo == nil, "local typing leaked onto the same-id remote tab")
+        let policy = NotificationPolicy(prefs: notifications.preferences)
+        #expect(!policy.decide(recentLocal).desktop && policy.decide(recentLocal).sound == nil,
+                "attention ignored Quiet After Typing")
+        #expect(policy.decide(untouchedRemote).desktop)
+        notifications.recordTyping(tabID: hereTab.id, onMachine: "local", at: now.advanced(by: .seconds(-120)))
+        notifications.recordTyping(tabID: labTab.id, onMachine: ssh.machineID, at: now)
+        #expect(policy.decide(notifications.attentionArrival(here)).desktop,
+                "remote typing suppressed the same-id local tab after its quiet period expired")
+        #expect(!policy.decide(notifications.attentionArrival(lab)).desktop)
     }
 
     @Test func launchReconciliationWithdrawsOldRequestsButKeepsConcurrentNewBanners() {

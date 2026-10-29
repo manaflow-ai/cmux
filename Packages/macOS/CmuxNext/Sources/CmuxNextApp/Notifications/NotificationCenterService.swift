@@ -76,7 +76,11 @@ final class NotificationCenterService {
     @ObservationIgnored var onPasskeyBanner: ((String) -> Void)?
     /// Pages' click handlers of their web notifications' banners.
     @ObservationIgnored let webNotificationClicks = WebNotificationClicks()
-    @ObservationIgnored private var lastKeystroke: [String: ContinuousClock.Instant] = [:]
+    private nonisolated struct TypingTarget: Hashable {
+        var machine: String
+        var tab: String
+    }
+    @ObservationIgnored private var lastKeystroke: [TypingTarget: ContinuousClock.Instant] = [:]
     /// `timeout` dismissal deadlines per tab id (one-shot `DemandTimer`s).
     @ObservationIgnored private var timeouts: [String: DemandTimer] = [:]
     /// OSC 7501 alerts held until their record arrives, by notification id
@@ -212,11 +216,21 @@ final class NotificationCenterService {
     /// A key reached `window`'s focused terminal or page (not an app shortcut).
     func noteTyping(in window: NSWindow?) {
         guard let tab = focusedTab(in: window) else { return }
-        lastKeystroke[tab] = .now
+        let machine = content(of: window)?.daemon.machineID ?? services?.machines.local.machineID ?? "local"
+        recordTyping(tabID: tab, onMachine: machine)
         // Workspace Mark as Unread is this Mac's: typing in another machine's terminal clears none
         // (its tab may share an id with one here).
         if isTerminalFocused(in: window), content(of: window)?.daemon.isLocal != false { clearUnreadMark(ofTab: tab) }
         interacted(.keystroke, tabID: tab, in: window)
+    }
+
+    /// Quiet After Typing belongs to the actual tab's machine, including cloned tab ids.
+    func recordTyping(tabID: String, onMachine machine: String, at instant: ContinuousClock.Instant = .now) {
+        lastKeystroke[TypingTarget(machine: machine, tab: tabID)] = instant
+    }
+
+    private func typedAgo(tabID: String, onMachine machine: String) -> Double? {
+        lastKeystroke[TypingTarget(machine: machine, tab: tabID)].map { Self.seconds(ContinuousClock.now - $0) }
     }
 
     /// A mouse-down landed in `window` at `location` (window coordinates,
@@ -502,7 +516,7 @@ final class NotificationCenterService {
                                                                      agent: located?.tab.agentSession?.harness ?? located?.tab.agent?.agent, workspace: (located?.workspace ?? workspace)?.id)
         if let located {
             arrival.paneIsViewed = isViewed(located.tab.id)
-            arrival.typedAgo = lastKeystroke[located.tab.id].map { Self.seconds(ContinuousClock.now - $0) }
+            arrival.typedAgo = typedAgo(tabID: located.tab.id, onMachine: services?.machines.local.machineID ?? "local")
         }
         let components = Calendar.current.dateComponents([.hour, .minute], from: Date())
         arrival.minuteOfDay = (components.hour ?? 0) * 60 + (components.minute ?? 0)
@@ -729,6 +743,7 @@ extension NotificationCenterService {
                                                                         machine: { $0.machineID }, store: { $0.store },
                                                                         expectedAtMs: item.atMs) {
             arrival.paneIsViewed = isViewed(tab, onMachine: daemon.machineID)
+            arrival.typedAgo = typedAgo(tabID: tab, onMachine: daemon.machineID)
             if let model = daemon.store.tab(idOrResource: tab), let pane = daemon.store.pane(holding: model),
                let workspace = daemon.store.workspace(containing: pane.handle) {
                 arrival.workspaceMuted = preferences.workspaceMuted(machine: daemon.machineID, workspace: workspace.id,
