@@ -1,7 +1,6 @@
 // l10n-allow-file: gallery fixture labels and dates, not shipped UI.
 import { useEffect } from "react";
 import { componentEntry } from "../../../gallery/format";
-import type { AcpmuxRow } from "../model";
 
 type Props = { language: string };
 const now = new Date(2026, 9, 29, 12).getTime();
@@ -26,7 +25,7 @@ export default componentEntry<Props>({
           {[0, 1, 10].map((days) => (
             <DateLine
               key={days}
-              row={{ id: `date-${days}`, kind: "date", at: new Date(2026, 9, 29 - days, 9, 15).getTime() } as AcpmuxRow}
+              row={{ id: `date-${days}`, version: 1, kind: "date", at: new Date(2026, 9, 29 - days, 9, 15).getTime() }}
               now={now}
             />
           ))}
