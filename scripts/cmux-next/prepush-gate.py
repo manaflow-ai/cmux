@@ -105,6 +105,7 @@ from __future__ import annotations
 import argparse
 import collections
 import concurrent.futures
+import contextlib
 import fcntl
 import hashlib
 import importlib.util
@@ -366,18 +367,31 @@ def tool_stamp(target: Path) -> str:
     return f"{st.st_size} {st.st_mtime_ns} {st.st_ino}"
 
 
-def write_tool_record(target: Path, digest: str) -> None:
-    """TARGET's sha256 and the file state it was hashed at, written beside it in one rename."""
+def write_tool_record(target: Path, digest: str) -> bool:
+    """TARGET's sha256 and the file state it was hashed at, written beside it in one rename (a temporary file of its
+    own, so threads and pushes that record the same tool at once never share one). False when the folder cannot be
+    written (a read-only cache): the caller still trusts a hash that matched, and hashes again next time."""
     record = tool_record(target)
-    temporary = record.with_name(f"{record.name}.{os.getpid()}.tmp")
-    temporary.write_text(f"{digest}\n{tool_stamp(target)}\n", encoding="utf-8")
-    os.replace(temporary, record)
+    try:
+        handle, temporary = tempfile.mkstemp(prefix=f".{record.name}.", suffix=".tmp", dir=record.parent)
+    except OSError:
+        return False
+    try:
+        with os.fdopen(handle, "w", encoding="utf-8") as out:
+            out.write(f"{digest}\n{tool_stamp(target)}\n")
+        os.replace(temporary, record)
+        return True
+    except OSError:
+        with contextlib.suppress(OSError):
+            os.unlink(temporary)
+        return False
 
 
 def verified_tool(target: Path) -> bool:
     """TARGET is an executable with the sha256 ensure_tool recorded when it took it out of the pinned archive whose
     sha256 matched. It is hashed again only when its size, mtime or inode changed since (a push pays a stat). A binary
-    from before the record is trusted once and recorded: ensure_tool only ever placed one after the archive matched."""
+    from before the record is trusted once and recorded: ensure_tool only ever placed one after the archive matched.
+    A record that cannot be written (write_tool_record) never refuses: the hash that matched is the answer."""
     if not (target.is_file() and os.access(target, os.X_OK)):
         return False
     try:
