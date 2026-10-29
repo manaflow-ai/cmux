@@ -254,6 +254,15 @@ pub enum Command {
         /// Only sessions carrying this tag (key or key=value).
         #[arg(long)]
         tag: Option<String>,
+        /// Return at most N sessions, newest first.
+        #[arg(long, value_name = "N", value_parser = clap::value_parser!(u64).range(1..))]
+        limit: Option<u64>,
+        /// Select comma-separated fields from each session record.
+        #[arg(long, value_name = "FIELD[,FIELD…]")]
+        fields: Option<String>,
+        /// Only sessions updated within this duration (for example `24h` or `30m`).
+        #[arg(long, value_name = "DURATION")]
+        since: Option<String>,
     },
     /// Open the TUI on a session, or on the session list.
     #[command(alias = "a")]
