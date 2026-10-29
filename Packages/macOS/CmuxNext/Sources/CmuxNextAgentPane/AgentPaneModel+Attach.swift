@@ -37,7 +37,7 @@ extension AgentPaneModel {
         let recordings = items.enumerated().filter { $0.element.needsSnapshot }
         var urls = items.map(\.url)
         guard !recordings.isEmpty else { return urls }
-        guard recordings.count <= AgentPaneUpload.maximumFiles, let uploader = onUpload?() else { return nil }
+        guard let uploader = onUpload?() else { return nil }
         var uploads: [AgentPaneUpload] = []
         for (_, item) in recordings {
             guard let snapshot = item.snapshot, let upload = await snapshot.upload(),

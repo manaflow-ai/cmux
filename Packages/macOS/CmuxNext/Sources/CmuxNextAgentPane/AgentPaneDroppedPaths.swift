@@ -56,15 +56,11 @@ public final class AgentPaneDroppedPaths {
         let paths = urls.map { url in (url as NSURL).isFileReferenceURL() ? (url as NSURL).filePathURL ?? url : url }
         guard !paths.isEmpty, paths.count <= Self.maximumNames else { return }
         var budget = AgentPaneUpload.maximumTotalBytes
-        var pinnedCount = 0
         let items = paths.map { url -> Item in
             let needsSnapshot = AgentPaneRecordingSnapshot.needsSnapshot(url)
-            var snapshot = needsSnapshot && pinnedCount < AgentPaneUpload.maximumFiles ? AgentPaneRecordingSnapshot.pin(url) : nil
+            var snapshot = needsSnapshot ? AgentPaneRecordingSnapshot.pin(url) : nil
             if let pinned = snapshot {
-                if pinned.size > budget { snapshot = nil } else {
-                    budget -= pinned.size
-                    pinnedCount += 1
-                }
+                if pinned.size > budget { snapshot = nil } else { budget -= pinned.size }
             }
             return Item(url: url, needsSnapshot: needsSnapshot, snapshot: snapshot)
         }
