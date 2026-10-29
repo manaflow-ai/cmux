@@ -577,7 +577,10 @@ private struct LinkSettingsObserver: ViewModifier {
                 // Hidden pages stop painting on the Mac and give up the lane.
                 StreamedBrowserDirectory.shared.setAppActive(phase != .background)
                 // The notification preview shows these chats' last messages.
-                if phase == .background { Task { await PushSnapshots().save() } }
+                if phase == .background {
+                    shell.live?.background()
+                    Task { await PushSnapshots().save() }
+                }
             }
     }
 }

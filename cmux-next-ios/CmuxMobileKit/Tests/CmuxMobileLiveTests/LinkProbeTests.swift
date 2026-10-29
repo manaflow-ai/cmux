@@ -55,7 +55,7 @@ final class BusyDialer: MacLinkDialer, @unchecked Sendable {
 
 @MainActor
 @Suite struct LinkProbeTests {
-    /// The app's probes (the 15 s heartbeat, a foreground, a presence change)
+    /// The app's probes (the heartbeat, a foreground, a presence change)
     /// keep a link whose Mac is sending, even when its pong is late. Live on
     /// 2026-10-23 the phone closed such links ("peer closed the link" 22 to
     /// 24 s after link up, with the Mac's tunnel still delivering) and redialed
@@ -63,6 +63,7 @@ final class BusyDialer: MacLinkDialer, @unchecked Sendable {
     @Test func aBusyLinkWithALatePongIsKept() async throws {
         let dialer = BusyDialer()
         let controller = LinkController(transport: .wireGuard, dialer: dialer) { _ in "token" }
+        defer { controller.send(.target(nil)) }
         controller.endpoint = { mac in
             LinkEndpoint(baseURL: URL(string: "https://example.invalid")!, teamID: "t", deviceID: "d", macDeviceID: mac)
         }
@@ -79,8 +80,7 @@ final class BusyDialer: MacLinkDialer, @unchecked Sendable {
         #expect(controller.phase.isConnected, "\(controller.phase)")
         #expect(dialer.dials == 1)
         #expect(dialer.first?.isClosed == false)
-        // The foreground's and the presence change's probes both ran (the adopt's
-        // own foreground comes before the link counts as connected, so it probes nothing).
+        // Initial liveness and the heartbeat ran; overlapping hints coalesce.
         #expect((dialer.first?.probeCount ?? 0) >= 2)
     }
 }
