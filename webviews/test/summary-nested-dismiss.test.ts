@@ -72,9 +72,11 @@ await requireBrowserLane("summary-nested-dismiss.test.ts", async () => {
             if (process.env.CMUX_CAPTURE_DIR) {
               await mkdir(process.env.CMUX_CAPTURE_DIR, { recursive: true });
               await page.screenshot({
+                type: "jpeg",
+                quality: 50,
                 path: path.join(
                   process.env.CMUX_CAPTURE_DIR,
-                  `summary-${engine}-${theme.replaceAll(" ", "-")}-${action}.png`,
+                  `summary-${engine}-${theme.replaceAll(" ", "-")}-${action}.jpg`,
                 ),
               });
             }
