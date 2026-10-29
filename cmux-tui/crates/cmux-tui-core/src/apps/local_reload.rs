@@ -53,7 +53,7 @@ impl Supervisor {
         let customize = self.config.sources.customize.clone();
         let prints = {
             let inner = self.inner.lock().recover_poison();
-            local_prints(inner.catalog.packages.values())
+            local_prints(&inner.catalog)
         };
         let spawned = supervised::spawn_at(
             "apps-local-reload",
@@ -96,7 +96,7 @@ impl Supervisor {
         if let Some(hook) = AFTER_CATALOG_READ.with(|hook| hook.borrow_mut().take()) {
             hook();
         }
-        let next = local_prints(catalog.packages.values());
+        let next = local_prints(&catalog);
         let changed: Vec<String> = next
             .iter()
             .filter(|(id, print)| prints.get(*id) != Some(*print))
@@ -184,16 +184,25 @@ fn is_local_dir(sources: &catalog::Sources, dir: &Path) -> bool {
         || sources.local.as_deref().is_some_and(|local| dir.starts_with(local))
 }
 
-fn local_prints<'a>(packages: impl Iterator<Item = &'a Package>) -> Prints {
-    packages
+/// The fingerprint of each local package: the one the catalog took before it
+/// read the package (`Catalog::stamps`), so a save after that read differs
+/// from it. A local-publisher package outside the watched folders has no
+/// stamp; nothing reloads it, and its fingerprint is taken now.
+fn local_prints(catalog: &catalog::Catalog) -> Prints {
+    catalog
+        .packages
+        .values()
         .filter(|p| p.source == Source::Local)
-        .map(|p| (p.id.clone(), fingerprint(&p.dir)))
+        .map(|p| {
+            let print = catalog.stamps.get(&p.dir).copied().unwrap_or_else(|| fingerprint(&p.dir));
+            (p.id.clone(), print)
+        })
         .collect()
 }
 
 /// Every file's path, size and modification time under `dir` (dot folders and
 /// node_modules skipped), hashed.
-fn fingerprint(dir: &Path) -> u64 {
+pub(super) fn fingerprint(dir: &Path) -> u64 {
     let mut files = Vec::new();
     collect(dir, &mut files);
     files.sort();

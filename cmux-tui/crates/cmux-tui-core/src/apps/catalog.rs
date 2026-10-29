@@ -4,7 +4,7 @@
 //! validator (`cmux-app-manifest`) before the supervisor knows it.
 
 use cmux_threads::checked::fs as files;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 
 use serde_json::Value;
@@ -237,6 +237,11 @@ pub struct Catalog {
     pub defaults: Vec<String>,
     /// Packages that failed validation: (directory, first issue).
     pub rejected: Vec<(PathBuf, String)>,
+    /// The fingerprint of each package directory of the local development
+    /// folder and of the customize folder, taken before its files were read
+    /// (`local_reload::fingerprint`): a save after the read always changes
+    /// it, so the reload that save starts is never taken for no change.
+    pub stamps: HashMap<PathBuf, u64>,
 }
 
 /// Where packages come from.
@@ -335,6 +340,9 @@ pub fn load(sources: &Sources) -> Catalog {
             .collect();
         paths.sort();
         for dir in paths {
+            if kind == DirKind::Local {
+                catalog.stamps.insert(dir.clone(), super::local_reload::fingerprint(&dir));
+            }
             match package(&dir, kind) {
                 // First source wins: the first-party directory, then bundled,
                 // then local (a local package never shadows a shipped id).
@@ -354,6 +362,7 @@ pub fn load(sources: &Sources) -> Catalog {
         .as_ref()
         .filter(|dir| dir.join("cmux-app.json").is_file() || dir.join(V2_MANIFEST).is_file())
     {
+        catalog.stamps.insert(dir.clone(), super::local_reload::fingerprint(dir));
         match package(dir, DirKind::Local) {
             Ok(package)
                 if package.id == CUSTOMIZE_APP && !catalog.packages.contains_key(CUSTOMIZE_APP) =>
