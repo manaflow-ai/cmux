@@ -45,7 +45,8 @@ struct PasswordManagerRouteTests {
                         _ body: (AppServices, DaemonConnection) async throws -> Void) async throws {
         let binary = try #require(SameTreeDaemonBinary.url)
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("cn-pwroute-\(UUID().uuidString.prefix(8))")
-        defer { try? FileManager.default.removeItem(at: root) }
+        var reaped = false
+        defer { if reaped { try? FileManager.default.removeItem(at: root) } }
         let launcher = DaemonLauncher(
             configuration: .init(binary: binary, session: "cn-pwroute-\(UUID().uuidString.prefix(8).lowercased())",
                                  stateDirectory: root.appendingPathComponent("state"), exitWithProcess: ProcessInfo.processInfo.processIdentifier),
@@ -78,7 +79,7 @@ struct PasswordManagerRouteTests {
             try await until({ !services.windows.registry.isLaunching }, within: .seconds(30))
             result = .success(try await body(services, try #require(services.daemon.connection)))
         } catch { result = .failure(error) }
-        await owner.stop(services)
+        reaped = await owner.stop(services)
         try result.get()
     }
 }

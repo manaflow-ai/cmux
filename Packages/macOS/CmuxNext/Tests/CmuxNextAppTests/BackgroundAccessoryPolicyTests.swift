@@ -72,8 +72,9 @@ struct BackgroundAccessoryPolicyTests {
             }
         }
 
-        func shutDown() async {
-            await owner.stop(services)
+        @discardableResult
+        func shutDown() async -> Bool {
+            let reaped = await owner.stop(services)
             for controller in services.windows.controllers { controller.window?.close() }
             for key in Array(services.cache.browsers.keys) { services.cache.release(key) }
             let panels = NSApp.windows.filter { services.palette.owns($0) }
@@ -81,6 +82,7 @@ struct BackgroundAccessoryPolicyTests {
             for panel in panels { panel.close() }
             // Leave background mode as a window opening does: its menu bar item goes.
             services.background.windowWillAppear(activates: false)
+            return reaped
         }
     }
 
@@ -90,14 +92,15 @@ struct BackgroundAccessoryPolicyTests {
         // A test process may have no root yet. Its inert replacement owns no windows or actions.
         let previous = AppProcessRoot.shared.services ?? AppServices(environment: AppEnvironment.current([:]))
         let launch = try await Launch()
-        defer { try? FileManager.default.removeItem(at: launch.root) }
+        var reaped = false
+        defer { if reaped { try? FileManager.default.removeItem(at: launch.root) } }
         let result: Result<Void, any Error>
         do { result = .success(try await body(launch)) }
         catch { result = .failure(error) }
         // Disable this launch's background eligibility before closing windows: a queued settle
         // must not recreate the status item after shutDown or change the restored activation policy.
         AppProcessRoot.shared.adopt(previous)
-        await launch.shutDown()
+        reaped = await launch.shutDown()
         try result.get()
     }
 

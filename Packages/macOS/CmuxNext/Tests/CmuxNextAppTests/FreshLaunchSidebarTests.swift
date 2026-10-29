@@ -21,7 +21,8 @@ struct FreshLaunchSidebarTests {
     @Test func aFreshProfilesLaunchWindowShowsItsSidebarFromItsFirstFrame() async throws {
         let binary = try #require(SameTreeDaemonBinary.url)
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("cn-fresh-\(UUID().uuidString.prefix(8))")
-        defer { try? FileManager.default.removeItem(at: root) }
+        var reaped = false
+        defer { if reaped { try? FileManager.default.removeItem(at: root) } }
         let session = "cn-fresh-\(UUID().uuidString.prefix(8).lowercased())"
         let launcher = DaemonLauncher(
             configuration: .init(binary: binary, session: session, stateDirectory: root.appendingPathComponent("state"), exitWithProcess: ProcessInfo.processInfo.processIdentifier),
@@ -60,7 +61,7 @@ struct FreshLaunchSidebarTests {
 
         // stop() joins its uncancelled teardown before any failure escapes and the defers
         // close windows and remove the state directory, including cancellation before connection.
-        await owner.stop(services)
+        reaped = await owner.stop(services)
         try result.get()
 
         #expect(presented.sidebarShown.first == true, "the launch window opened with its sidebar held clear: glass alone")
