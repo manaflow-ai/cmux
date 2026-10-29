@@ -65,16 +65,24 @@ fn text(o: &Output) -> String {
 
 struct CustomDaemon(Child);
 
+impl CustomDaemon {
+    fn stop(&mut self) {
+        if self.0.try_wait().unwrap().is_none() {
+            // SAFETY: this is the unreaped daemon child this test started.
+            unsafe { libc::kill(self.0.id() as i32, libc::SIGTERM) };
+        }
+        self.0.wait().unwrap();
+    }
+}
+
 impl Drop for CustomDaemon {
     fn drop(&mut self) {
-        // SAFETY: this is the daemon child started by this test.
-        unsafe { libc::kill(self.0.id() as i32, libc::SIGTERM) };
-        let _ = self.0.wait();
+        self.stop();
     }
 }
 
 fn start_custom_daemon(dir: &Path, extra: &[&str]) -> CustomDaemon {
-    let mut child = daemon_env::acpmux(dir)
+    let mut child = daemon_env::command(dir, daemon_env::Agents::StandIn, &[])
         .args(["daemon", "run", "--listen", "127.0.0.1:0", "--ready-fd", "1", "--log", "warn"])
         .args(extra)
         .env("ACPMUX_HOME", dir)
@@ -235,6 +243,7 @@ fn cli_daemon_restart_reattaches_an_active_turn() {
 fn streaming_send_and_active_wait_return_one_reply_across_restart() {
     let dir = scratch("waiting-stream");
     let _shutdown = Shutdown(&dir);
+    let mut daemon = start_custom_daemon(&dir, &[]);
     let made = cli(&dir, &["new", "-d", "-n", "lane", "-m", "fake"]);
     assert!(made.status.success(), "new: {}", text(&made));
 
@@ -277,8 +286,9 @@ fn streaming_send_and_active_wait_return_one_reply_across_restart() {
         .unwrap();
     std::thread::sleep(Duration::from_millis(500));
     assert!(wait.try_wait().unwrap().is_none(), "wait ended before the gated turn");
-    let stopped = cli(&dir, &["daemon", "shutdown"]);
-    assert!(stopped.status.success(), "shutdown: {}", text(&stopped));
+    // Wait for this child, not socket absence: the reconnecting clients can
+    // bring the replacement up before a shutdown CLI finishes checking.
+    daemon.stop();
     let started = cli(&dir, &["daemon", "start"]);
     assert!(started.status.success(), "replacement: {}", text(&started));
     drop(gate_writer);
@@ -334,6 +344,7 @@ fn cli_daemon_restart_refuses_unsaved_token_before_stopping() {
 fn failed_reconnect_keeps_the_generated_prompt_recovery_identity() {
     let dir = scratch("reconnect-error");
     let _shutdown = Shutdown(&dir);
+    let mut daemon = start_custom_daemon(&dir, &[]);
     let made = cli(&dir, &["new", "-d", "-n", "lane", "-m", "fake"]);
     assert!(made.status.success(), "new: {}", text(&made));
     let gate = dir.join("gate");
@@ -364,19 +375,15 @@ fn failed_reconnect_keeps_the_generated_prompt_recovery_identity() {
         serde_json::from_slice(&cli(&dir, &["--json", "ls"]).stdout).unwrap();
     let session_id = sessions["sessions"][0]["sessionId"].clone();
 
-    // The old daemon has its log open. Refuse only its replacement's attempt
-    // to open the log, using an unsafe link in this test's private home; no
-    // real service or binary changes. This makes reconnect fail immediately.
+    // Refuse only the replacement's attempt to open its log, using an unsafe
+    // link in this test's private home; the direct child logs to stderr, so
+    // no existing log needs changing. This makes reconnect fail immediately.
     let log = dir.join("daemon.log");
-    let original_log = dir.join("daemon-before.log");
-    fs::rename(&log, &original_log).unwrap();
     std::os::unix::fs::symlink(dir.join("outside"), &log).unwrap();
-    let stopped = cli(&dir, &["daemon", "shutdown"]);
-    assert!(stopped.status.success(), "shutdown: {}", text(&stopped));
+    daemon.stop();
     let sent = send.wait_with_output().unwrap();
     // Restore before cleanup starts a daemon to stop the kept harness.
     fs::remove_file(&log).unwrap();
-    fs::rename(&original_log, &log).unwrap();
     drop(gate_writer);
     let restarted = cli(&dir, &["daemon", "start"]);
     assert!(restarted.status.success(), "cleanup daemon: {}", text(&restarted));
