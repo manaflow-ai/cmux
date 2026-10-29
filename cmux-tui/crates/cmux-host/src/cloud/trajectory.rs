@@ -190,14 +190,69 @@ fn remotes_of(value: &Value) -> Vec<Remote> {
     remotes
 }
 
+/// A single backend page is capped at 500 sessions. Refuse a legacy truncated reply,
+/// and follow every cursor before allowing prime() to report a complete restore.
+const LIST_PAGE_MAX: usize = 500;
+const LIST_MAX_PAGES: usize = 100_000;
+
 fn list(api: &mut dyn Api, body: &Value) -> Result<Vec<Remote>, Pass> {
-    match reply(api.call("list", body)) {
-        Reply::Ok(v) => Ok(remotes_of(&v)),
-        Reply::Refused { code, .. } if code == "cloud.trajectory.disabled" => Err(Pass::Disabled),
-        Reply::Refused { code, .. } | Reply::Invalid(code) | Reply::Failed(code) => {
-            Err(Pass::Failed(code))
+    let mut result = Vec::new();
+    let mut cursor: Option<String> = None;
+    for _ in 0..LIST_MAX_PAGES {
+        let mut request = body.clone();
+        if let Some(after) = cursor.as_deref() {
+            request["after_session"] = json!(after);
+        }
+        match reply(api.call("list", &request)) {
+            Reply::Ok(v) => {
+                let Some(raw) = v["sessions"].as_array() else {
+                    return Err(Pass::Failed("trajectory list omitted sessions".to_owned()));
+                };
+                if raw.len() > LIST_PAGE_MAX {
+                    return Err(Pass::Failed("trajectory list exceeded page cap".to_owned()));
+                }
+                let page = remotes_of(&v);
+                if page.len() != raw.len()
+                    || page.windows(2).any(|rows| rows[0].session >= rows[1].session)
+                    || cursor.as_deref().is_some_and(|after| {
+                        page.first().is_some_and(|row| row.session.as_str() <= after)
+                    })
+                {
+                    return Err(Pass::Failed("trajectory list contains invalid or unordered sessions".to_owned()));
+                }
+                let has_more = match v["has_more"].as_bool() {
+                    Some(value) => value,
+                    None if raw.len() < LIST_PAGE_MAX => false, // Older backend, entire list fits.
+                    None => return Err(Pass::Failed("trajectory list may be truncated on old backend".to_owned())),
+                };
+                let next = if has_more {
+                    let Some(next) = v["next_after_session"].as_str() else {
+                        return Err(Pass::Failed("trajectory list has no next cursor".to_owned()));
+                    };
+                    if page.last().is_none_or(|row| row.session != next)
+                        || cursor.as_deref().is_some_and(|after| next <= after)
+                    {
+                        return Err(Pass::Failed("trajectory list cursor did not advance".to_owned()));
+                    }
+                    Some(next.to_owned())
+                } else {
+                    None
+                };
+                result.extend(page);
+                if !has_more {
+                    return Ok(result);
+                }
+                cursor = next;
+            }
+            Reply::Refused { code, .. } if code == "cloud.trajectory.disabled" => {
+                return Err(Pass::Disabled);
+            }
+            Reply::Refused { code, .. } | Reply::Invalid(code) | Reply::Failed(code) => {
+                return Err(Pass::Failed(code));
+            }
         }
     }
+    Err(Pass::Failed("trajectory list exceeded pagination limit".to_owned()))
 }
 
 impl Mirror {
