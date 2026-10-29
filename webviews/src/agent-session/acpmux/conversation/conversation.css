@@ -599,8 +599,8 @@
   padding-right: 2px;
   opacity: 0;
 }
-/* Claude's fade: in after a beat when the pointer arrives, at once from the keyboard, out quickly. */
-@media (prefers-reduced-motion: no-preference) {
+/* Hover fades need a fine pointer; keyboard focus keeps its immediate response. */
+@media (prefers-reduced-motion: no-preference) and (hover: hover) and (pointer: fine) {
   .cv-user__actions,
   .cv-received-actions,
   .acpmux-turnSummary .cv-turn-actions {
@@ -612,6 +612,8 @@
   .acpmux-turnSummary:hover .cv-turn-actions {
     transition: opacity var(--cv-actions-in) var(--cv-actions-ease) var(--cv-actions-in-delay);
   }
+}
+@media (prefers-reduced-motion: no-preference) {
   .cv-user__actions:focus-within,
   .cv-received-actions:focus-within,
   .acpmux-turnSummary:focus-visible .cv-turn-actions,
@@ -2195,9 +2197,7 @@ pre.cv-math-source {
   color: var(--cv-text-dim);
 }
 /* "⌃B to run in background" while a command runs (BackgroundHint.tsx), at the right of the running
-   turn's live line; never on the command's own row.
-   It fades in after a moment, so a quick command never shows it; opacity only, so it runs under
-   Reduce Motion too. */
+   turn's live line; never on the command's own row. Its live-line hover rule controls visibility. */
 .cv-command__bg {
   flex: none;
   margin-left: auto;
@@ -2205,12 +2205,6 @@ pre.cv-math-source {
   font-size: var(--text-detail);
   white-space: nowrap;
   letter-spacing: var(--text-detail--letter-spacing);
-}
-/* Quick commands end before the hint shows. */
-@media (prefers-reduced-motion: no-preference) {
-  .cv-command__bg {
-    animation: cv-enter-fade var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) 1.5s both;
-  }
 }
 /* A message to another agent (MessageCard.tsx) is the shared agent message row
    (AgentMessageRow.css). Opened, its text grows in place under the line, at the line's text
