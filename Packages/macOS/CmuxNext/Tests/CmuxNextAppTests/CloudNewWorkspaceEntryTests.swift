@@ -21,4 +21,18 @@ struct CloudNewWorkspaceEntryTests {
         #expect(call.origin == .user)
         #expect(call.target == ActionTargetRef(kind: .window, id: state.id))
     }
+
+    @Test func sidebarPlusInARemoteMachinesWindowStaysOnThatMachine() throws {
+        let services = MachineIconTests.services()
+        let record = try JSONDecoder().decode(WindowRecord.self, from: Data(#"{"id":"cloud-plus-remote","workspace_key":"plus-remote"}"#.utf8))
+        let state = WindowState(record: record)
+        state.machineID = "vm-plus-remote"
+        let bridge = SidebarBridge(services: services, state: state)
+        var calls: [ActionInvocation] = []
+        let bound = services.registry.bind("newTab", invoke: { calls.append($0) })
+        #expect(bound)
+        bridge.handle(.newWorkspace(machine: nil, group: nil))
+        // Cmd-N's route makes it on this Mac; this window's machine (here gone) keeps it there or makes nothing.
+        #expect(calls.isEmpty)
+    }
 }
