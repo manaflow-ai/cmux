@@ -99,7 +99,7 @@ export function Combobox({
   const [field, setField] = useState<HTMLInputElement | null>(null);
   const [popup, setPopup] = useState<HTMLElement | null>(null);
   const nativePopup = useNativePopup({
-    open: native !== undefined,
+    open: native !== undefined && (inline || suggestions.length > 0),
     model: native?.model ?? { side: "bottom", align: "start", width: 0, rows: [] },
     anchor: native?.anchor ?? (() => field),
     onEvent: (event) => {
