@@ -305,7 +305,9 @@ impl Hub {
         let (withdraw, joined) = withdraw;
         // A steer the agent cannot take goes next, and stops the turn that runs now, unless it was
         // aimed at a turn that has ended since: the one running now is another prompt's.
-        if p.interrupt {
+        // Never an inbox item: the setting may have turned on since the caller read it.
+        let in_inbox = || session.queue().iter().any(|q| q.turn_id == turn_id && q.inbox);
+        if p.interrupt && !in_inbox() {
             let running = session.turn().map(|t| t.turn_id);
             if self.put_next(session, p.prompt_id, None).is_ok_and(|next| next)
                 && let Some(running) = running

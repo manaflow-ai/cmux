@@ -308,6 +308,15 @@ impl Hub {
         if steer_now && session.moving().is_some() {
             return Err(super::queue::moving_error());
         }
+        // The chat became a coordinator during the await above: the message is an inbox item
+        // after all, and waits in the queue (`enqueue` reads the setting again).
+        let steer_now = steer_now && !(may_wait_in_inbox && session.is_coordinator());
+        if steer && opts.steer_only && !steer_now {
+            return Err(RpcError::invalid_params(
+                "steer.unavailable: this session is a coordinator; other agents' messages wait for its inbox digest",
+            )
+            .with_data(json!({"reason": "steer.unavailable", "turnCap": false})));
+        }
         // What it asks of this chat: another agent's only, `result` when it named none.
         let class = crate::prompt_class::of_message(opts.class, agent.is_some());
         if steer_now {
@@ -328,7 +337,7 @@ impl Hub {
             prompt_id: &prompt_id,
             control,
             trust_gate,
-            interrupt: opts.interrupt && !inbox,
+            interrupt: opts.interrupt && !(may_wait_in_inbox && session.is_coordinator()),
             interrupt_turn: opts.interrupt_turn.as_deref(),
             provenance: opts.provenance.as_ref(),
             agent: agent.as_deref(),

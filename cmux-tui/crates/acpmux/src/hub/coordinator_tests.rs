@@ -489,3 +489,61 @@ async fn a_capped_turn_end_during_a_digest_brings_its_own_digest_after_it() {
     f.until("the turn end's digest", |f| f.digests().len() == 1).await;
     assert_eq!(parts(&f.digests()[0]), ["p-r"]);
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_digest_refused_before_its_turn_puts_its_items_back_in_the_inbox() {
+    let f = fixture().await;
+    let cwd = f.dir.join("work");
+    std::fs::create_dir_all(&cwd).unwrap();
+    let session = f
+        .hub
+        .new_session(NewRequest { cwd: Some(cwd.clone()), ..Default::default() })
+        .await
+        .unwrap();
+    f.hub.set_coordinator(&session, Some(true), None, None);
+    let (tx, rx) = oneshot::channel();
+    let opts = PromptOptions {
+        prompt_id: Some("p-r".into()),
+        agent: Some("lane-a".into()),
+        class: Some(Class::Result),
+        on_accepted: Some(Box::new(move |v| {
+            let _ = tx.send(v);
+        })),
+        ..PromptOptions::default()
+    };
+    let (hub, s) = (f.hub.clone(), session.clone());
+    let blocks = vec![json!({"type": "text", "text": "merged"})];
+    let task = tokio::spawn(async move { hub.prompt_with(&s, blocks, "test", true, opts).await });
+    tokio::time::timeout(WAIT, rx).await.unwrap().unwrap();
+    assert_eq!(session.inbox_len(), 1);
+
+    // Its agent stopped and its folder gone: the digest is refused before its turn.
+    f.hub.detach_child(&session).await;
+    std::fs::remove_dir_all(&cwd).unwrap();
+    f.hub.coordinator_digest(&session);
+    let back = |s: &Session| s.queue().iter().any(|q| q.prompt_id == "p-r" && q.inbox);
+    let armed = |s: &Session| s.inbox_timer.lock().unwrap().is_some();
+    let deadline = tokio::time::Instant::now() + WAIT;
+    loop {
+        let refused = f.hub.events(&session.id, 0, 10_000).unwrap();
+        let refused = refused.iter().any(|r| r.kind == "prompt_refused");
+        if refused && back(&session) && armed(&session) {
+            break;
+        }
+        assert!(tokio::time::Instant::now() < deadline, "the item never came back to the inbox");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert!(!task.is_finished(), "its session/prompt waits again");
+    let records = f.hub.events(&session.id, 0, 10_000).unwrap();
+    let requeued = records
+        .iter()
+        .filter(|r| r.kind == "queued" && r.msg["promptId"] == "p-r")
+        .filter(|r| r.msg["requeued"] == true)
+        .count();
+    assert_eq!(requeued, 1, "logged again, so a restart keeps it");
+
+    // Its folder back, the next digest takes it and its prompt answers.
+    std::fs::create_dir_all(&cwd).unwrap();
+    f.hub.coordinator_digest(&session);
+    tokio::time::timeout(WAIT, task).await.unwrap().unwrap().unwrap();
+}

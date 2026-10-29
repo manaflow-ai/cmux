@@ -427,22 +427,40 @@ impl Hub {
             agent: Some(SENDER.to_owned()),
             ..PromptOptions::default()
         };
+        // What goes back if the digest is refused before its turn (`requeue_joined`).
+        let originals = super::DigestTurn::default();
+        *originals.taken.lock().unwrap_or_else(|e| e.into_inner()) = taken
+            .iter()
+            .cloned()
+            .map(|mut q| {
+                q.requeued = false;
+                q
+            })
+            .collect();
+        let digested = taken.len();
         tokio::spawn(async move {
             let result = hub.run_prompt(&s, blocks, &who, false, opts).await;
             // Refused before its turn (as a restored prompt is, `resume_restored`): it leaves the
-            // queue, so the prompts behind it still run, and the log says why.
+            // queue, so the prompts behind it still run, and the log says why. Its originals
+            // never reached the agent: they go back in the queue, logged again, and their
+            // `session/prompt`s wait again (`queue_slot`), before the answer is sent.
             if let Err(e) = &result
                 && hub.remove_queued(&s, &id)
             {
                 let msg = json!({"promptId": id, "turnId": turn, "client": who, "error": e.message, "data": e.data});
                 hub.append(&s, "mux", "prompt_refused", msg);
+                hub.requeue_joined(&s, &originals, false);
+                // A coordinator's are its inbox again: its timer brings them, never at once.
+                if s.is_coordinator() {
+                    hub.arm_inbox(&s);
+                }
             }
             answer.send_replace(Some(result));
         });
         Ok(json!({
             "sessionId": session.id,
             "dryRun": false,
-            "digested": taken.len(),
+            "digested": digested,
             "promptId": digest_id,
             "turnId": turn_id,
             "delivery": if steer { "steer" } else { "queued" },

@@ -362,6 +362,9 @@ impl Hub {
                 *q.joined.lock().unwrap_or_else(|e| e.into_inner()) = None;
                 (q.held, q.steer, q.sent_now, q.restored, q.resume, q.requeued) =
                     (hold, false, false, false, false, true);
+                // An inbox item stays one while the setting is on (read under the queue lock, as
+                // `set_coordinator` releases them under it).
+                q.inbox = q.inbox && session.is_coordinator();
                 queue.insert(i, q);
                 session.queued.fetch_add(1, Ordering::SeqCst);
             }
