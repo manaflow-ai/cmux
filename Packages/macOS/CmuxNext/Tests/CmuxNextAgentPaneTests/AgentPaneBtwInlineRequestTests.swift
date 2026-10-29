@@ -88,3 +88,16 @@ func inlineBtwPreservesTrustRefusal(reason: String) async throws {
     #expect(!model.transport.gestures.isAvailable)
     #expect(await relay.waitForRequest(containing: "_acpmux/btw"), "the request reached the daemon relay")
 }
+
+@Test("remote inline btw leaves its gesture for the legacy fallback")
+@MainActor
+func remoteInlineBtwDoesNotConsumeGesture() async {
+    let model = AgentPaneModel(host: NoHost(), sessionId: "session-1")
+    model.remoteChat = true
+    model.transport.gestures.record(click: true)
+
+    let reply = await model.respond(to: .btwInline(question: "What changed?", sessionId: "session-1"))
+
+    #expect((reply["error"] as? [String: Any])?["code"] as? String == "unsupported")
+    #expect(model.transport.gestures.isAvailable, "remote inline rejection leaves the fallback gesture")
+}
