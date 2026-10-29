@@ -505,7 +505,7 @@ export function transcriptPullRequests(
       }
       // Without a repository (no `-R`, no folder), a merge names every one with its number.
       for (const pr of found.values())
-        if (pr.number === finding.number && (!repo || repo === pr.repo)) {
+        if (pr.number === finding.number && (!repo || repo.toLowerCase() === pr.repo.toLowerCase())) {
           pr.state = finding.state;
           if (pr.state === "closed" && finding.at !== undefined) pr.closedAt = finding.at;
           else if (pr.state === "open") delete pr.closedAt;
