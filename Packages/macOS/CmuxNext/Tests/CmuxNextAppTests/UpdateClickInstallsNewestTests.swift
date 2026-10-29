@@ -136,5 +136,30 @@ import Testing
         #expect(installs.count == 0)
         #expect(h.updater.installAfterSwap)
         #expect(h.updater.newestFetch == .click)
+
+        // A cached appcast serves pulled build 300 again: the carried click drops it, installs
+        // nothing, and fetches nothing more.
+        h.sparkle.staged = nil
+        h.updater.debugIndicatorPhase = .hidden
+        h.updater.debugIndicatorPhase = .checking
+        h.updater.debugIndicatorPhase = .downloading(.starting)
+        h.sparkle.staged = "300"
+        h.updater.debugIndicatorPhase = .ready(version: "3.0.0")
+        #expect(await eventually { h.sparkle.cancels == 2 }, "the carried click kept pulled build 300 staged again")
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(installs.count == 0, "the carried click installed pulled build 300")
+        #expect(h.sparkle.backgroundChecks == 1, "pulled build 300 was fetched again")
+    }
+
+    /// With no installer this app can cancel, a pulled staged build is still never installed: the
+    /// update sheet opens instead.
+    @Test func aPulledStagedBuildThatCannotBeCancelledIsNotInstalled() async throws {
+        let (h, installs) = Self.make(newer: false, pulled: ["300"])
+        var sheets = 0
+        h.updater.presentUpdateUI = { sheets += 1 }
+        h.updater.cancelStaged = { false }
+        h.updater.installClicked()
+        #expect(await eventually { sheets == 1 }, "the click ended in silence")
+        #expect(installs.count == 0, "the click installed pulled build 300")
     }
 }
