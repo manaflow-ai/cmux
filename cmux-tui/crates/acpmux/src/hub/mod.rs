@@ -781,6 +781,13 @@ impl Hub {
     }
 
     pub(super) fn load_from_store(self: &Arc<Self>, deferred: bool) {
+        // A bounded debug seam for slow-filesystem startup tests; absent in release builds.
+        #[cfg(debug_assertions)]
+        if let Some(ms) = std::env::var("ACPMUX_TEST_DELAY_LOAD_STORE_MS")
+            .ok().and_then(|v| v.parse::<u64>().ok())
+        {
+            std::thread::sleep(std::time::Duration::from_millis(ms.min(10_000)));
+        }
         let Ok(mut metas) = self.store.list().inspect_err(|e| tracing::warn!("store list: {e}"))
         else {
             // Adoption still reaches every host this list hid: an off push waits for it

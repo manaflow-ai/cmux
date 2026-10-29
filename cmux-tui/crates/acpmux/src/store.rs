@@ -1891,3 +1891,7 @@ impl LocalStore {
         Ok(())
     }
 }
+
+#[cfg(all(test, target_os = "linux"))]
+#[path = "store/startup_tests.rs"]
+mod startup_tests;
