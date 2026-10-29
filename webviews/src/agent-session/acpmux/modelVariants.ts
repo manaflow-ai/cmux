@@ -51,7 +51,13 @@ export function providerOf(model: VariantModel): {
   const named = slash > 0 ? model.name.slice(0, model.name.indexOf("/")).trim() : undefined;
   const bare = slash > 0 ? model.name.slice(slash + 1).trim() : model.name.trim();
   const tag = BRACKET_TAG.exec(bare)?.[1];
-  const provider = id ? (named ?? PROVIDER_NAMES[id.toLowerCase()] ?? id[0]!.toUpperCase() + id.slice(1)) : undefined;
+  // A known provider is always written its own way ("OpenCode"), whatever case the row's name used.
+  const provider = id
+    ? (PROVIDER_NAMES[id.toLowerCase()] ??
+      (named && PROVIDER_NAMES[named.toLowerCase()]) ??
+      named ??
+      id[0]!.toUpperCase() + id.slice(1))
+    : undefined;
   const vendor = parts.length > 2 ? parts.at(-2)!.toLowerCase() : undefined;
   return {
     ...(provider ? { provider } : {}),
