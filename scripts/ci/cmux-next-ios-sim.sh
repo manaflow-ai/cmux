@@ -23,10 +23,12 @@
 #   all     build, test and bench.
 #   shots   build, plus one screenshot per scene, in dark and in light, from
 #           the app's own DEBUG launch arguments and demo drivers (mock data,
-#           setup marked complete). Scenes come from the next argument or
-#           CMUX_NEXT_IOS_SHOTS: `name=ARGS` separated by `;`, where ARGS are
-#           launch arguments and leading KEY=VALUE words are environment, e.g.
-#             "devices=-cmux-mobile-settings-page devices;chief=-cmux-mobile-demo chief-open"
+#           setup marked complete). Each later argument is one scene,
+#           `name=WORD,WORD,...`: the words are launch arguments (commas stand
+#           for spaces, which fleet step arguments cannot hold), and leading
+#           KEY=VALUE words are the app's environment, e.g.
+#             --arg shots --arg devices=-cmux-mobile-settings-page,devices \
+#               --arg feed=CMUX_MOBILE_FEED_STRESS=60,-cmux-mobile-tab,feed
 #           Run it at the base and at the head for a PR's before and after.
 #   pair-e2e
 #           build, plus a tagged DEBUG cmux NEXT Mac app built here
@@ -53,9 +55,9 @@ cmux_next_require_fleet cmux-next-ios-sim.sh "xcodebuild and an iOS simulator" "
 
 mode="${1:-build}"
 case "$mode" in build|test|bench|all|pair-e2e|shots) ;; *) echo "cmux-next-ios-sim.sh: MODE is build, test, bench, all, pair-e2e or shots, got '$mode'" >&2; exit 2 ;; esac
-shots_spec="${2:-${CMUX_NEXT_IOS_SHOTS:-}}"
-if [[ "$mode" == shots && -z "$shots_spec" ]]; then
-  echo "cmux-next-ios-sim.sh: shots needs scenes (\"name=ARGS;...\") as its second argument or in CMUX_NEXT_IOS_SHOTS" >&2; exit 2
+scenes=("${@:2}")
+if [[ "$mode" == shots && ${#scenes[@]} -eq 0 ]]; then
+  echo "cmux-next-ios-sim.sh: shots needs one or more scenes after it, name=WORD,WORD,..." >&2; exit 2
 fi
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -305,13 +307,10 @@ if [[ "$mode" == shots ]]; then
   note ""
   note "## Screens (mock data, DEBUG launch arguments)"
   note ""
-  IFS=';' read -r -a scenes <<< "$shots_spec"
   for scene in "${scenes[@]}"; do
-    scene="${scene#"${scene%%[![:space:]]*}"}"
-    [[ -n "$scene" ]] || continue
     name="${scene%%=*}"
-    [[ "$name" =~ ^[A-Za-z0-9._-]+$ && "$scene" == *=* ]] || { note "- skipped scene '$scene': want name=ARGS"; continue; }
-    read -r -a words <<< "${scene#*=}"
+    [[ "$name" =~ ^[A-Za-z0-9._-]+$ && "$scene" == *=?* ]] || { note "- skipped scene '$scene': want name=WORD,WORD,..."; continue; }
+    IFS=',' read -r -a words <<< "${scene#*=}"
     envs=(SIMCTL_CHILD_CMUX_MOBILE_MOCK_AUTH=1)
     args=()
     for w in ${words[@]+"${words[@]}"}; do
