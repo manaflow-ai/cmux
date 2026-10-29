@@ -307,6 +307,19 @@ async fn chats_list_their_tools_and_claude_turns_mcp_servers_off() {
         }
     }
 
+    // Even trusted peers get compact rows by default. A peer daemon opts in to
+    // inventories because its per-session wait cache must keep them up to date.
+    let mut peer = client(&hub, Origin::Peer);
+    for method in ["_acpmux/sessions", "_acpmux/watch"] {
+        let compact = peer.call(method, json!({})).await.unwrap();
+        assert_summary_without_tools(&compact["sessions"][0]);
+        for params in [json!({"withTools": true}), json!({"withTools": true, "limit": 1})] {
+            let full = peer.call(method, params).await.unwrap();
+            assert_eq!(rows(&full["sessions"][0]["tools"]), cmux_servers);
+            assert_eq!(full["sessions"][0]["toolsMutable"], false);
+        }
+    }
+
     // Claude Code: cmux's servers and skills, then what its init reports
     // (cmux's own server and skill and plugin once, the user's after them).
     // linear is off in the user's own Claude config: cmux cannot turn it on.
@@ -341,6 +354,8 @@ async fn chats_list_their_tools_and_claude_turns_mcp_servers_off() {
     let attached = watcher.call("_acpmux/attach", json!({"sessionId": claude})).await.unwrap();
     assert_eq!(attached["session"]["tools"], info["tools"]);
     assert_eq!(attached["session"]["toolsMutable"], info["toolsMutable"]);
+    let discovered = peer.changed(&claude, "tools").await;
+    assert_eq!(discovered["session"]["tools"], info["tools"]);
 
     // Turn the user's github server off in an idle chat: the row flips,
     // watchers hear it, and Claude Code restarts now (resumed) without it.
@@ -355,6 +370,8 @@ async fn chats_list_their_tools_and_claude_turns_mcp_servers_off() {
     assert_summary_without_tools(&census.changed(&claude, "tools").await["session"]);
     let tool = |tools: &Value, id: &str| rows(tools).into_iter().find(|r| r.0 == id).unwrap();
     assert_eq!(tool(&set["tools"], "mcp:github"), row("mcp:github", "mcp", "claude", false, true));
+    // The opted-in peer receives the new inventory even without attaching.
+    while tool(&peer.changed(&claude, "tools").await["session"]["tools"], "mcp:github").3 {}
     // The first `tools` change is Claude Code's init; then the set's.
     while tool(&watcher.changed(&claude, "tools").await["session"]["tools"], "mcp:github").3 {}
     let args = argv(&local.ask(&claude, "hi").await);

@@ -549,6 +549,9 @@ pub enum RetryKind {
 #[serde(rename_all = "camelCase")]
 #[schemars(deny_unknown_fields)]
 pub struct SessionsParams {
+    /// Include tool inventories explicitly; default census rows omit them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub with_tools: Option<bool>,
     /// Page size, at least 1. Without it the reply is the whole list.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(range(min = 1))]

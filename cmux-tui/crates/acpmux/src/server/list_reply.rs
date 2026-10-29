@@ -79,9 +79,29 @@ fn busy(wait: std::time::Duration) -> RpcError {
         .with_data(json!({"reason": "list.paced", "retryable": true, "retryAfterMs": ms}))
 }
 
+fn with_tools(params: &Value) -> Result<bool, RpcError> {
+    match params.get("withTools") {
+        None | Some(Value::Null) => Ok(false),
+        Some(Value::Bool(value)) => Ok(*value),
+        Some(_) => Err(RpcError::invalid_params("withTools must be a boolean")),
+    }
+}
+
 /// `_acpmux/sessions`: the whole list shared, or a page or filter cut from it.
 pub(super) async fn sessions(hub: &Hub, conn: &Conn, params: &Value) -> Result<Value, RpcError> {
     let raw = conn.raw_text;
+    if with_tools(params)? {
+        return reply(hub, conn, params.get("limit").and_then(Value::as_u64), |list| {
+            let full = list.full_whole(hub);
+            let mut result: Value = serde_json::from_str(&full).unwrap_or_default();
+            if !whole(params) {
+                let rows = result["sessions"].take().as_array().cloned().unwrap_or_default();
+                result = crate::hub::session_pages::session_list_reply(rows, params)?;
+            }
+            Ok(Arc::new(if raw { result.to_string() } else { masked(result) }))
+        })
+        .await;
+    }
     if !whole(params) {
         return reply(hub, conn, params.get("limit").and_then(Value::as_u64), |list| {
             let page = list.page(params)?;
@@ -107,20 +127,9 @@ pub(super) async fn sessions(hub: &Hub, conn: &Conn, params: &Value) -> Result<V
 pub(super) async fn watch(hub: &Hub, conn: &Conn, params: &Value) -> Result<Value, RpcError> {
     crate::hub::session_pages::refuse_watch_filters(params)?;
     let on = params.get("enabled").and_then(Value::as_bool).unwrap_or(true);
+    let tools = with_tools(params)?;
+    conn.watch_tools.store(on && tools, Ordering::SeqCst);
     conn.watch_all.store(on, Ordering::SeqCst);
-    // A peer daemon is a trusted internal consumer: it retains full rows so its
-    // wait/info paths remain complete. Local/web census rows stay compact.
-    if conn.origin == super::Origin::Peer && whole(params) {
-        return reply(hub, conn, None, |list| {
-            let full = list.full_whole(hub);
-            Ok(if conn.raw_text {
-                full.clone()
-            } else {
-                Arc::new(masked(serde_json::from_str(&full).unwrap_or_default()))
-            })
-        })
-        .await;
-    }
     sessions(hub, conn, params).await
 }
 

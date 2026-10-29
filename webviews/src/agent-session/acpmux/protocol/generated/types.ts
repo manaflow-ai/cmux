@@ -1136,6 +1136,8 @@ export interface SessionsParams {
    * (`running`, `ready`, `idle`, `waiting`, `closed`). Empty is no filter.
    */
   status?: (string | null);
+  /** Include tool inventories explicitly; default census rows omit them. */
+  withTools?: (boolean | null);
 }
 
 export type SessionsResult = {
@@ -1216,4 +1218,6 @@ export interface WatchParams {
    */
   enabled?: (boolean | null);
   limit?: (number | null);
+  /** Include tool inventories explicitly; default census rows omit them. */
+  withTools?: (boolean | null);
 }

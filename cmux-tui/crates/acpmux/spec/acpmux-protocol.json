@@ -4619,6 +4619,13 @@
             "string",
             "null"
           ]
+        },
+        "withTools": {
+          "description": "Include tool inventories explicitly; default census rows omit them.",
+          "type": [
+            "boolean",
+            "null"
+          ]
         }
       },
       "type": "object"
@@ -4828,6 +4835,13 @@
           "minimum": 0,
           "type": [
             "integer",
+            "null"
+          ]
+        },
+        "withTools": {
+          "description": "Include tool inventories explicitly; default census rows omit them.",
+          "type": [
+            "boolean",
             "null"
           ]
         }
