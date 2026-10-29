@@ -11,6 +11,9 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { HeaderIcon } from "./HeaderIcon";
+import { HEADER_ACTIONS } from "./headerActions";
+import { headerQuickTools } from "./headerQuickTools";
+import { useNativeRowTools, type NativeRowToolsHost } from "./useNativeRowTools";
 import { tooltipProps, useShortcut } from "../shortcuts";
 import { registerPicker } from "../pickerOpeners";
 import { Menu, MenuButton, MenuItem, MenuPopup, MenuSeparator, Submenu } from "../../../ui/Menu";
@@ -35,25 +38,7 @@ import {
 /// them, the Needs you inbox and the Inspector toggle included.
 export const HEADER_GLYPH = 16;
 
-/// The app actions the header runs on its tab (CmuxNextAgentPane AgentPaneModel.headerActions).
-export const HEADER_ACTIONS = {
-  terminal: "splitRight",
-  splitDown: "splitDown",
-  browser: "splitBrowserRight",
-  changes: "openDiffViewer",
-  /// Not an app action: the App opens the Files tree (CmuxNextApp AgentChatSplitToggles.files).
-  files: "files",
-  /// Not an app action: its own `pane.action` (CmuxNextAgentPane AgentPaneModel.previewAction).
-  preview: "preview",
-  rename: "renameTab",
-  pin: "palette.toggleTabPin",
-  moveRight: "moveSurfaceToPaneRight",
-  newWorkspace: "palette.moveTabToNewWorkspace",
-  newWindow: "tab.moveToNewWindow",
-  /// Not an app action: Start Agent's panel holds the chat (CmuxNextAgentPane AgentPaneHeaderHooks.moveToFloatingChat).
-  floatingChat: "floatingChat",
-  close: "closeTab",
-} as const;
+export { HEADER_ACTIONS } from "./headerActions";
 
 export type ChatMenuItem =
   | "separator"
@@ -71,16 +56,6 @@ export type ChatMenuItem =
 /// The menu's groups in order, the empty ones dropped, with a separator between each two.
 export const menuGroups = (...groups: ChatMenuItem[][]): ChatMenuItem[] =>
   groups.filter((group) => group.length > 0).flatMap((group, index) => (index ? ["separator", ...group] : group));
-
-/// A preview's address as its card shows it: host, then the path and query when there is one.
-function previewAddress(url: string): string {
-  try {
-    const parsed = new URL(url);
-    return `${parsed.host}${parsed.pathname === "/" ? "" : parsed.pathname}${parsed.search}`;
-  } catch {
-    return url;
-  }
-}
 
 /// A submenu row: its label, and the keycap of `shortcutAction` when it has one.
 export type ChatMenuChild = { key: string; label: string; shortcutAction?: string; onSelect: () => void };
@@ -113,6 +88,7 @@ export function ChatHeaderTools({
   onRemoveWorktree,
   inspector,
   inbox,
+  nativeRowTools,
 }: {
   /// Terminal and Browser run their split with the quick action's mode: the App opens it, or for
   /// `toggle` closes the split this button opened when it is still there.
@@ -139,7 +115,7 @@ export function ChatHeaderTools({
   onCustomize?: (list: readonly QuickAction[]) => void;
   /// Terminal and Browser split the chat's tab; Quick Chat's panel has none.
   tabTools?: boolean;
-  summary: ReactNode;
+  summary: ReactNode | ((native: boolean) => ReactNode);
   /// The menu's rows, read when it opens.
   menu: () => ChatMenuItem[];
   /// Runs before the menu opens; the menu shows once it settles.
@@ -166,6 +142,8 @@ export function ChatHeaderTools({
   /// The Needs you inbox (needsYou/NeedsYou.tsx), right after the panel toggle, so the toggle stays
   /// the first of the top-right icons.
   inbox?: ReactNode;
+  /// Only the migrated icons; the host offers this opt-in while its native tab row is visible.
+  nativeRowTools?: NativeRowToolsHost;
 }) {
   const t = useT();
   const terminalKey = useShortcut(HEADER_ACTIONS.terminal);
@@ -180,8 +158,6 @@ export function ChatHeaderTools({
       ? withShown(quick, "preview", true)
       : quick;
   const worktree = useWorktree(folder, readStatus, statusKey);
-  // A toggle is on while the split it opened is open; in open mode each click makes another, so none is.
-  const on = (action: string, mode: QuickActionMode) => (mode === "toggle" ? lit.includes(action) : undefined);
   // The right-clicked button, read as the menu opens.
   const target = useRef<QuickActionId>(undefined);
   const [menuTarget, setMenuTarget] = useState<QuickActionId>();
@@ -278,133 +254,48 @@ export function ChatHeaderTools({
     return folded;
   };
   const rows = () => menuGroups(foldedRows(), menu());
-  // Browser without its own Preview button (the default): the chat's local page when it has one, so the
-  // globe opens what the chat is about, not a blank tab (Leo 2026-10-20). A toggle click closes whichever
-  // browser it opened: the page's preview or the plain split.
-  const previewInBrowser =
-    browserOpensPreview && onPreview !== undefined && !actions.some((action) => action.id === "preview");
-  const browserRun = (mode: QuickActionMode) => {
-    // The page goes along, as the Preview button sent it: a preview the person closed since the last
-    // state push opens again instead of the click doing nothing.
-    if (previewInBrowser && on(HEADER_ACTIONS.preview, mode)) return onPreview(previewUrl, mode);
-    if (previewInBrowser && previewUrl && !on(HEADER_ACTIONS.browser, mode)) return onPreview(previewUrl, mode);
-    onBrowser(mode);
+  const tools = headerQuickTools({
+    actions,
+    tabTools,
+    sideTabs,
+    lit,
+    browserOpensPreview,
+    hasChanges,
+    previewUrl,
+    onTerminal,
+    onSplitDown,
+    onBrowser,
+    onChanges,
+    onFiles,
+    onPreview,
+    onSideTabs,
+    t,
+  });
+  const native = useNativeRowTools(nativeRowTools, tools);
+  const shortcuts: Partial<Record<QuickActionId, string | undefined>> = {
+    terminal: terminalKey,
+    splitDown: splitDownKey,
+    browser: browserKey,
+    changes: changesKey,
   };
-  const browserPressed = (mode: QuickActionMode) =>
-    previewInBrowser && on(HEADER_ACTIONS.preview, mode) ? true : on(HEADER_ACTIONS.browser, mode);
-  const buttons = tabTools && actions.length > 0 && (
-    <>
-      {actions.map(({ id, mode }) =>
-        id === "newTab" ? (
-          // One button whose label and icon change, so the next click lands on it again.
-          <button
-            key={id}
-            data-quick-action={id}
-            type="button"
-            className="acpmux-header-tool"
-            aria-label={t(sideTabs ? "header.hideTabs" : "header.newTab")}
-            aria-pressed={sideTabs}
-            title={t(sideTabs ? "header.hideTabs" : "header.newTab")}
-            onClick={onSideTabs}
-          >
-            <HeaderIcon name={sideTabs ? "tunable.sidebar" : "action.add"} size={HEADER_GLYPH} />
-          </button>
-        ) : id === "changes" ? (
-          // Hidden, not disabled, without changes (cx-qom0); an open diff keeps it, to close it here.
-          onChanges && (hasChanges || lit.includes(HEADER_ACTIONS.changes)) ? (
-            <button
-              key={id}
-              data-quick-action={id}
-              type="button"
-              className="acpmux-header-tool"
-              aria-label={t("header.changes")}
-              aria-pressed={on(HEADER_ACTIONS.changes, mode)}
-              {...tooltipProps(t("header.changes"), changesKey)}
-              onClick={() => onChanges(mode)}
-            >
-              <HeaderIcon name="diff.file" size={HEADER_GLYPH} />
-            </button>
-          ) : null
-        ) : id === "files" ? (
-          onFiles ? (
-            <button
-              key={id}
-              data-quick-action={id}
-              type="button"
-              className="acpmux-header-tool"
-              aria-label={t("header.files")}
-              aria-pressed={on(HEADER_ACTIONS.files, mode)}
-              title={t("header.files")}
-              onClick={() => onFiles(mode)}
-            >
-              <HeaderIcon name="folder" size={HEADER_GLYPH} />
-            </button>
-          ) : null
-        ) : id === "preview" ? (
-          // Hidden, not disabled, without a page (cx-qom0); an open preview keeps it, to close it here.
-          onPreview && (previewUrl || on(HEADER_ACTIONS.preview, mode)) ? (
-            <button
-              key={id}
-              data-quick-action={id}
-              type="button"
-              className="acpmux-header-tool"
-              aria-label={t("header.preview")}
-              aria-pressed={on(HEADER_ACTIONS.preview, mode)}
-              title={
-                previewUrl ? t("header.previewAddress", { address: previewAddress(previewUrl) }) : t("header.preview")
-              }
-              onClick={() => onPreview(previewUrl, mode)}
-            >
-              <HeaderIcon name="media.play" size={HEADER_GLYPH} />
-            </button>
-          ) : null
-        ) : id === "splitDown" ? (
-          onSplitDown ? (
-            <button
-              key={id}
-              data-quick-action={id}
-              type="button"
-              className="acpmux-header-tool"
-              aria-label={t("header.splitDown")}
-              aria-pressed={on(HEADER_ACTIONS.splitDown, mode)}
-              {...tooltipProps(t("header.splitDown"), splitDownKey)}
-              onClick={() => onSplitDown(mode)}
-            >
-              <HeaderIcon name="pane.split.down" size={HEADER_GLYPH} />
-            </button>
-          ) : null
-        ) : id === "terminal" ? (
-          <button
-            key={id}
-            data-quick-action={id}
-            type="button"
-            className="acpmux-header-tool"
-            aria-label={t("header.terminal")}
-            aria-pressed={on(HEADER_ACTIONS.terminal, mode)}
-            {...tooltipProps(t("header.terminal"), terminalKey)}
-            onClick={() => onTerminal(mode)}
-          >
-            <HeaderIcon name="terminal" size={HEADER_GLYPH} />
-          </button>
-        ) : (
-          <button
-            key={id}
-            data-quick-action={id}
-            type="button"
-            className="acpmux-header-tool"
-            aria-label={t("header.browser")}
-            aria-pressed={browserPressed(mode)}
-            {...(previewInBrowser && previewUrl
-              ? tooltipProps(t("header.previewAddress", { address: previewAddress(previewUrl) }), undefined)
-              : tooltipProps(t("header.browser"), browserKey))}
-            onClick={() => browserRun(mode)}
-          >
-            <HeaderIcon name="browser" size={HEADER_GLYPH} />
-          </button>
-        ),
-      )}
-    </>
-  );
+  const buttons =
+    !native &&
+    tabTools &&
+    actions.length > 0 &&
+    tools.map((tool) => (
+      <button
+        key={tool.id}
+        data-quick-action={tool.id}
+        type="button"
+        className="acpmux-header-tool"
+        aria-label={tool.label}
+        aria-pressed={tool.pressed}
+        {...tooltipProps(tool.title ?? tool.label, tool.title ? undefined : shortcuts[tool.id])}
+        onClick={tool.run}
+      >
+        <HeaderIcon name={tool.icon} size={HEADER_GLYPH} />
+      </button>
+    ));
   return (
     <div className="acpmux-header-tools" onPointerEnter={onPointerEnter}>
       {worktree && <WorktreePill worktree={worktree} onApply={onApplyWorktree} onRemove={onRemoveWorktree} />}
@@ -412,8 +303,8 @@ export function ChatHeaderTools({
         <PullRequestChip pullRequest={pullRequest} onMerge={onMergePullRequest} />
       )}
       {/* The panel toggle leads the icons, as in Claude and ChatGPT desktop. */}
-      {inspector}
-      {summary}
+      {!native && inspector}
+      {typeof summary === "function" ? summary(native) : !native && summary}
       {inbox}
       {buttons ? (
         <div className="acpmux-header-tool-group acpmux-header-tool-group-actions">

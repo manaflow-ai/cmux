@@ -10092,6 +10092,23 @@ function AcpmuxPane() {
                       </span>
                     )}
                     <ChatHeaderTools
+                      nativeRowTools={{
+                        enabled: inTabRow && tabRow.nativeRowTools === true && !diffFiles && !inspectorOpen,
+                        callNative,
+                        panel: inspector.on
+                          ? {
+                              id: "inspector",
+                              label: t("chatInspector.title"),
+                              toggled: inspector.shown === true,
+                              run: inspector.toggle,
+                            }
+                          : {
+                              id: "summary",
+                              label: t("summary.open"),
+                              toggled: summaryCard.shown,
+                              run: summaryCard.toggle,
+                            },
+                      }}
                       tabTools={!quick}
                       pullRequestChip={!readOnlySubagent}
                       // A new chat's picked folder too: New Worktree names its branch before the first prompt.
@@ -10159,7 +10176,7 @@ function AcpmuxPane() {
                       }}
                       inspector={inspector.button}
                       inbox={<NeedsYouButton items={needsYou.items} mode={needsYou.mode} actions={needsYou.actions} />}
-                      summary={inspector.on ? null : <SummaryButton card={summaryCard} />}
+                      summary={inspector.on ? null : (native) => <SummaryButton card={summaryCard} native={native} />}
                       menu={chatMenu}
                       onMenuOpen={readTabState}
                       expand={continuing && canContinue ? "continue" : undefined}

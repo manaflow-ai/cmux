@@ -362,6 +362,7 @@ export function useChatInspector({
   onReconnectMcp?: (server: string) => Promise<unknown>;
 }): {
   on: boolean;
+  shown?: boolean;
   button?: ReactNode;
   panel?: ReactNode;
   // The native command palette shares the header's visibility and uncover behavior.
@@ -453,6 +454,7 @@ export function useChatInspector({
     : undefined;
   return {
     on: true,
+    shown,
     toggle,
     reveal,
     button: <PanelToggle className="acpmux-chat-inspector-toggle" label={label} shown={shown} onToggle={toggle} />,
