@@ -46,6 +46,22 @@ test("combobox search IDs do not collide with suggestion IDs", () => {
   expect(d.rows.map((row) => row.value)).toEqual(suggestions);
   expect(d.search!.id).toBe(comboboxDescription({ suggestions: [] }).search!.id);
 });
+test.each(["select", "combobox"] as const)("%s option IDs remain valid for arbitrary domain values", (kind) => {
+  const values = ["", "x".repeat(118), "x".repeat(1000), "日".repeat(150)];
+  const describe = (given: string[]) =>
+    kind === "select"
+      ? selectDescription({ value: "", options: given.map((value) => ({ value, label: value || "None" })) })
+      : comboboxDescription({ suggestions: given });
+  const model = describe(values);
+  expect(model.rows.map((row) => row.value)).toEqual(values);
+  const ids = model.rows.map((row) => row.id);
+  expect(ids.every((id) => id.length > 0 && id.length <= 128)).toBe(true);
+  expect(new Set(ids).size).toBe(values.length);
+  for (const row of model.rows) {
+    expect(describe([...values].reverse()).rows.find((other) => other.value === row.value)?.id).toBe(row.id);
+    expect(describe([row.value!]).rows[0]!.id).toBe(row.id);
+  }
+});
 test("context descriptors preserve separators, toggles, and icon metadata", () => {
   const d = contextDescription([
     { id: "copy", label: "Copy", icon: "doc.on.doc" },
