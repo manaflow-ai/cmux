@@ -372,7 +372,7 @@
 .acpmux-home-dot{flex:none;width:8px;height:8px;margin:0 4px;border-radius:50%;background:var(--acpmux-needs-you-mark)}
 .acpmux-home-title{flex:none;max-width:45%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .acpmux-home-detail{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--agent-muted)}
-.acpmux-home-meta{flex:none;color:var(--agent-muted);font-size:13px}
+.acpmux-home-meta{flex:none;color:var(--agent-muted);font-size:13px;font-variant-numeric:tabular-nums}
 .acpmux-home-title+.acpmux-home-meta{margin-left:auto}
 /* The inbox (HomeInbox.tsx): each ask, the chat it is in under it, and its answers in place. */
 .acpmux-home-inbox .acpmux-home-label{display:flex;align-items:baseline;gap:4px}

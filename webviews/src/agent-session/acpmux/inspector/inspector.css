@@ -946,6 +946,7 @@ button.acpmux-chat-inspector-port:focus-visible {
   font-size: var(--text-detail);
   text-align: left;
   appearance: none;
+  font-variant-numeric: tabular-nums;
   letter-spacing: var(--text-detail--letter-spacing);
 }
 /* No hover fill (Leo: plain text, no hover pill) and no focus rule of its own: keyboard focus takes

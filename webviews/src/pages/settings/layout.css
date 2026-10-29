@@ -523,6 +523,7 @@
 }
 
 .token-tuner-contrast {
+  font-variant-numeric: tabular-nums;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -751,6 +752,7 @@
 }
 
 .theme-count {
+  font-variant-numeric: tabular-nums;
   padding: 6px 6px 2px;
   border-top: 1px solid var(--border);
   margin-top: 4px;
