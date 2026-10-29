@@ -131,7 +131,8 @@ struct ComputerUseConsentHostTests {
 }
 
 nonisolated private func json(_ line: Data?) throws -> [String: Any] {
-    try #require(try JSONSerialization.jsonObject(with: try #require(line)) as? [String: Any])
+    let line = try #require(line)
+    return try #require(try JSONSerialization.jsonObject(with: line) as? [String: Any])
 }
 
 /// Runs blocking socket work off the cooperative pool.
@@ -164,7 +165,7 @@ nonisolated private final class FakeHelper: Sendable {
         guard listener >= 0, bound == 0, listen(listener, 4) == 0 else { throw POSIXError(.EADDRNOTAVAIL) }
     }
 
-    var configuration: AgentActivitySocketSource.Configuration {
+    @MainActor var configuration: AgentActivitySocketSource.Configuration {
         .init(socketPath: path, authToken: "agent", hostAuthToken: "host", machineName: "")
     }
 
