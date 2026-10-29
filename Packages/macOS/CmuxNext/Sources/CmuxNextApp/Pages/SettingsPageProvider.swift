@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextPages
+import CmuxNextServer
 import CmuxNextSettings
 import CmuxNextTerminal
 import Foundation
@@ -163,8 +164,9 @@ final class SettingsPageProvider: PageProvider {
             }
             return try await Self.host(setDeviceFullAccess, "devices")(id, on).map { ["error": .string($0)] } ?? .object([:])
         case "cmux.settings.devices.join_consent":
-            guard let surface = params["surface"]?.stringValue, let on = params["on"]?.boolValue else {
-                throw PageError.invalidParams("surface and on are required")
+            guard let surface = params["surface"]?.stringValue, JoinConsentSurface(rawValue: surface) != nil,
+                  let on = params["on"]?.boolValue else {
+                throw PageError.invalidParams("surface (screen or control) and on are required")
             }
             // SECURITY: turning one on lets the team's other machines see or control this Mac, so,
             // like Full access, only the person's own click or key in this page turns it on (spent

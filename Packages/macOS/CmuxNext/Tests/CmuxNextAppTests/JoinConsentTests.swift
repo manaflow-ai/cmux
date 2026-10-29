@@ -142,7 +142,9 @@ import Testing
             },
             openLine: { nil }, enabled: { true }, askShown: { false }, markAskShown: {}))
         let first = Task { await model.refresh() }
-        while reads < 1 { await Task.yield() }
+        for _ in 0..<1000 where reads < 1 { await Task.yield() }
+        #expect(reads == 1, "the first read never started")
+        guard reads == 1 else { gate.open(); return }
         await model.refresh()
         gate.open()
         await first.value
@@ -267,6 +269,14 @@ import Testing
             Issue.record("one click turned two on")
         } catch let error as PageError {
             #expect(error.code == PageNativeOp.userOnlyCode)
+        }
+        #expect(sets.values == ["screen false", "screen true"])
+        do {
+            _ = try await page.call("cmux.settings.devices.join_consent", params: ["surface": "webcam", "on": true],
+                                    context: PageCallContext(page: PageDescriptor.settings.id, userGesture: true, gestureEvent: 10))
+            Issue.record("an unknown surface was taken")
+        } catch let error as PageError {
+            #expect(error.code != PageNativeOp.userOnlyCode, "refused for its surface, not its gesture")
         }
         #expect(sets.values == ["screen false", "screen true"])
     }

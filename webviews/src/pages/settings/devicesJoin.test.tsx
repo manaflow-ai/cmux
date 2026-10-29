@@ -36,7 +36,8 @@ test("a joined Mac shows what it joined as, with both switches off", async () =>
 test("each switch sends one join_consent and shows the host's answer", async () => {
   const page = await renderPage({ path: "/settings/devices", mock: { devicesJoin: mockDevicesJoin } });
   await settle();
-  const sent = () => page.provider.log.filter((entry) => entry.op === "cmux.settings.devices.join_consent").map((e) => e.params);
+  const sent = () =>
+    page.provider.log.filter((entry) => entry.op === "cmux.settings.devices.join_consent").map((e) => e.params);
   await act(async () => toggle(page.container, "screen").click());
   await settle();
   expect(sent()).toEqual([{ surface: "screen", on: true }]);
