@@ -333,6 +333,20 @@ public final class AgentChatStore {
     }
 
     public func setModel(_ id: String) { source.send(.setModel(id)) }
+
+    /// Retry with another model (the Mac's turn menu): the chat moves to `model`, then `turn`'s
+    /// prompt goes again; the model the chat runs retries as Retry does. When the Mac refuses
+    /// the model, the prompt is not sent and the chat shows the Mac's reason.
+    public func retry(_ turn: AgentTurn, model: String) {
+        let text = turn.prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        guard model != currentModelID else { return send(prompt: text) }
+        clientError = nil
+        source.send(.retryWithModel(model: model, text: text, promptID: UUID().uuidString.lowercased()))
+    }
+
+    /// The models Retry with another model offers (the Mac shows it only with two or more).
+    public var retryModels: [ACPModelInfo] { models.count > 1 ? models : [] }
     public func setMode(_ id: String) { source.send(.setMode(id)) }
     public func setConfig(_ id: String, value: String) { source.send(.setConfigOption(id: id, value: value)) }
     public func removeQueued(_ id: String) { source.send(.removeQueued(promptId: id)) }
