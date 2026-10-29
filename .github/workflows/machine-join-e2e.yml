@@ -157,12 +157,13 @@ jobs:
           set -uo pipefail
           out="$RUNNER_TEMP/machine-join-smoke.txt"
           # The runner, not the disposable user, writes the output file (it lives in the runner's temp).
+          # The step shell is `bash -e`: the expected non-zero exit is captured, not fatal.
+          code=0
           # shellcheck disable=SC2024
           printf 'not-a-join-token\n' | sudo -n -u "$JOIN_USER" -- /usr/bin/env -i -C "$JOIN_HOME" \
             HOME="$JOIN_HOME" USER="$JOIN_USER" LOGNAME="$JOIN_USER" \
             PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin LANG=C.UTF-8 \
-            "$JOIN_BASE/bin/acpmux" host join --hub "$HUB_ORIGIN" --name ci-join-smoke --json >"$out" 2>&1
-          code=$?
+            "$JOIN_BASE/bin/acpmux" host join --hub "$HUB_ORIGIN" --name ci-join-smoke --json >"$out" 2>&1 || code=$?
           cat -- "$out"
           if [ "$code" -eq 5 ]; then
             echo "::error::acpmux refused its state directory as the disposable user (exit 5, join.store)"

@@ -145,6 +145,9 @@ class MachineJoinE2EWorkflow(unittest.TestCase):
         self.assertIn("/usr/bin/env -i", run)
         self.assertIn('"$JOIN_BASE/bin/acpmux" host join --hub "$HUB_ORIGIN"', run)
         self.assertNotIn("cmj_", run)
+        # GitHub runs `bash -e`: a bare `code=$?` after the expected exit 2 is never reached.
+        self.assertIn('--json >"$out" 2>&1 || code=$?', run)
+        self.assertNotRegex(run, r"(?m)^\s*code=\$\?")
         self.assertIn('if [ "$code" -eq 5 ]', run)
         self.assertIn('if [ "$code" -ne 2 ]', run)
         self.assertIn('"$JOIN_HOME/.acpmux"', run)
