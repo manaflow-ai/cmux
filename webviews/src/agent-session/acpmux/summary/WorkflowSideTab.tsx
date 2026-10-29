@@ -57,7 +57,7 @@ function PhaseAgents({ workflow, phase, now }: { workflow: WorkflowSummary; phas
   return (
     <ul className="acpmux-workflow-side-tab__agents">
       {agents.map((agent) => (
-        <WorkflowAgentRow key={agent.id} agent={agent} now={now} variant="compact" />
+        <WorkflowAgentRow key={agent.id} workflow={workflow} agent={agent} now={now} variant="compact" />
       ))}
     </ul>
   );
@@ -139,7 +139,7 @@ function Table({ workflow, now }: { workflow: WorkflowSummary; now: number }) {
               <td>{phaseLabel(t, phase)}</td>
               <td>
                 <ul className="acpmux-workflow-side-tab__agents">
-                  <WorkflowAgentRow agent={agent} now={now} variant="grid" />
+                  <WorkflowAgentRow workflow={workflow} agent={agent} now={now} variant="grid" />
                 </ul>
               </td>
               <td>{stateLabel(t, agent.state)}</td>
