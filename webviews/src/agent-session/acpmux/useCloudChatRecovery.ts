@@ -39,26 +39,33 @@ export function useCloudChatRecovery({ cloud, session, active, recheck }: Props)
     let timer: ReturnType<typeof setTimeout> | undefined;
     const deadline = Date.now() + 60_000;
     if (!resuming) setState(undefined);
+    // The native attach and inventory reads can overlap. A superseded/failed list tells us
+    // nothing about the VM, so keep checking until the chat reconnects or this deadline passes.
+    const retryOrFail = () => {
+      if (disposed) return;
+      if (Date.now() < deadline) timer = setTimeout(() => void read(), 1_000);
+      else {
+        setResuming(false);
+        setError(true);
+      }
+    };
     const read = async () => {
       if (!identity || !active) return;
       try {
         const reply = await postNative(resuming ? "cloudMachine.list" : "cloudMachine.recoveryList");
         if (disposed) return;
         const next = cloudChatState(JSON.parse(identity) as CloudChatIdentity, reply);
-        setState(next);
+        // An untrusted inventory must not erase the last verified paused/deleted state.
+        if (next !== undefined) setState(next);
         if (resuming && next !== "deleted" && next !== undefined) await recheck();
         if (disposed) return;
-        if (resuming && next !== "deleted" && next !== undefined && Date.now() < deadline) {
-          timer = setTimeout(() => void read(), 1_000);
-        } else if (resuming) {
-          setResuming(false);
-          setError(next !== "deleted");
+        if (resuming) {
+          if (next === "deleted") setResuming(false);
+          else retryOrFail();
         }
       } catch {
-        if (!disposed && resuming) {
-          setResuming(false);
-          setError(true);
-        }
+        // Temporary network faults or a refresh superseded by attach aren't resume failures.
+        if (!disposed && resuming) retryOrFail();
       }
     };
     void read();
