@@ -747,8 +747,13 @@ impl Hub {
         }
         self.reset_stream(session);
         // Nobody showing it: the sidebar dot and `wait --until done` see it.
+        // Under the append lock (`change_logged`, logging nothing): a read mark being logged
+        // meanwhile cannot land after this, so a replay never puts the chat back to read over it.
         if !self.shown(session) {
-            session.meta.lock_or_recover().unread = true;
+            self.change_logged(session, "status", |m| {
+                m.unread = true;
+                None
+            });
         }
         if session.status() != SessionStatus::Closed {
             let alive = child.is_alive().await;

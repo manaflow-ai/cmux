@@ -63,6 +63,13 @@ impl Hub {
 
     /// The person saw the chat: clears `unread` and tells every client.
     fn mark_seen(&self, session: &Session) {
+        // A chat switch to a read chat changes nothing: no append lock on that path. Only once
+        // caught up: before, a replay may still bring back an unread mark this must clear.
+        if session.caught_up.load(Ordering::SeqCst)
+            && !session.meta.lock().unwrap_or_else(|e| e.into_inner()).unread
+        {
+            return;
+        }
         let logged = self.change_logged(session, "status", |m| {
             std::mem::replace(&mut m.unread, false)
                 .then(|| json!({"status": m.status.to_string(), "read": true}))
