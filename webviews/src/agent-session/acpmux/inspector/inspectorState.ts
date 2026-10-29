@@ -15,6 +15,7 @@ export type InspectorSectionId =
   | "context"
   | "connectors"
   | "changes"
+  | "sources"
   | "servers"
   | "subagents"
   | "tasks"
@@ -31,6 +32,7 @@ export const DEFAULT_SECTIONS: InspectorSections = {
   context: false,
   connectors: false,
   changes: true,
+  sources: true,
   servers: true,
   subagents: true,
   tasks: true,
@@ -43,7 +45,7 @@ export const DEFAULT_SECTIONS: InspectorSections = {
 const OPEN_KEY = "cmux.agentPane.inspector.open";
 const WIDTH_KEY = "cmux.agentPane.inspector.width";
 const SECTIONS_KEY = "cmux.agentPane.inspector.sections";
-/// Each chat's own state, one key per chat (`{ open, width, sections, at, v }`): a pane writes only its
+/// Each chat's own state, one key per chat (`{ open, width, sections, sourcesAll, at, v }`): a pane writes only its
 /// chat's key, so two panes saving at once never undo each other's change.
 export const INSPECTOR_PANE_PREFIX = "cmux.agentPane.inspector.pane.";
 /// The chats that have a key, newest first: `[sessionId, savedAt]` pairs, at most ``PANES_KEPT``.
@@ -53,9 +55,14 @@ export const INSPECTOR_INDEX_KEY = "cmux.agentPane.inspector.index";
 export const PANES_KEPT = 200;
 const PANE_DAYS = 30;
 
-export type InspectorState = { readonly open: boolean; readonly width: number; readonly sections: InspectorSections };
+export type InspectorState = {
+  readonly open: boolean;
+  readonly width: number;
+  readonly sections: InspectorSections;
+  readonly sourcesAll: boolean;
+};
 type State = InspectorState;
-type Stored = { open?: unknown; width?: unknown; sections?: unknown; at?: unknown; v?: unknown };
+type Stored = { open?: unknown; width?: unknown; sections?: unknown; sourcesAll?: unknown; at?: unknown; v?: unknown };
 /// The saved state's version. Before 2 a new chat saved the Inspector open without the viewer
 /// opening it (the old default), so an open from then is not the viewer's: it reads closed.
 const STORED_VERSION = 2;
@@ -89,6 +96,7 @@ function storedState(raw: string | null): State | undefined {
     open: stored.open && stored.v === STORED_VERSION,
     width: widthOf(stored.width),
     sections: sectionsOf(stored.sections),
+    sourcesAll: stored.sourcesAll === true,
   };
 }
 
@@ -129,6 +137,7 @@ export function createInspectorStore(storage: () => Storage | undefined = () => 
     open: false,
     width: widthOf(Number(read(WIDTH_KEY))),
     sections: sectionsOf(parse(read(SECTIONS_KEY))),
+    sourcesAll: false,
   });
   const indexOf = (): [string, number][] => {
     const value = parse(read(INSPECTOR_INDEX_KEY));
@@ -257,6 +266,9 @@ export function createInspectorStore(storage: () => Storage | undefined = () => 
       write(SECTIONS_KEY, JSON.stringify(sections));
       update({ ...current(), sections }, true);
     },
+    setSourcesAll(all: boolean) {
+      update({ ...current(), sourcesAll: all }, true);
+    },
     /// Forgets every choice, every chat's too (the gallery and tests; it scans the storage).
     reset() {
       for (const key of [OPEN_KEY, WIDTH_KEY, SECTIONS_KEY, INSPECTOR_INDEX_KEY, ...paneKeys()]) write(key, null);
@@ -289,5 +301,6 @@ export const bindInspectorPane = page.bind;
 export const setInspectorOpen = page.setOpen;
 export const setInspectorWidth = page.setWidth;
 export const setInspectorSection = page.setSection;
+export const setInspectorSourcesAll = page.setSourcesAll;
 /// Forgets every choice: the gallery and the tests start each case on a clean slate.
 export const resetInspectorState = page.reset;

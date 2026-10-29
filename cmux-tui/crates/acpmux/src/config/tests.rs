@@ -1,4 +1,16 @@
 use super::*;
+use crate::test_exec::write_executable;
+
+#[test]
+fn cli_session_resource_settings_are_config_values() {
+    let mut config = Config::default();
+    config.set_session_resource("session.memory_mb", "6144").unwrap();
+    config.set_session_resource("session.swap_mb", "2048").unwrap();
+    assert_eq!(config.session.memory_mb, Some(6144));
+    assert_eq!(config.session.swap_mb, Some(2048));
+    config.set_session_resource("session.memory_mb", "default").unwrap();
+    assert_eq!(config.session.memory_mb, None);
+}
 
 fn prof(kind: HarnessKind, argv: &[&str]) -> HarnessProfile {
     HarnessProfile {
@@ -299,28 +311,4 @@ fn the_model_router_setting_is_read_from_the_settings_document() {
         Some("deepseek/deepseek-v4-pro")
     );
     assert_eq!(super::discover::cmux_router_model_in(&serde_json::json!({})), None);
-}
-
-/// Creates an executable (0755) script without this process ever holding a
-/// write descriptor for it.
-///
-/// Tests run on many threads. A sibling test that forks while this process
-/// holds such a descriptor hands a copy to its child until that child execs,
-/// and executing the script in that window fails with ETXTBSY ("Text file
-/// busy"). `O_CLOEXEC` does not close that window, and a temp file plus a
-/// rename does not either (the child holds the same inode). A short-lived
-/// `sh` opens, writes, and closes the file in its own process, so no fork of
-/// this process can inherit it. (The same helper as cmux-tui's `test_exec`.)
-fn write_executable(path: impl AsRef<std::path::Path>, contents: impl AsRef<[u8]>) {
-    use std::io::Write as _;
-    use std::process::{Command, Stdio};
-    let path = path.as_ref();
-    let mut child = Command::new("/bin/sh")
-        .args(["-c", "cat >\"$1\" && chmod 755 \"$1\"", "sh"])
-        .arg(path)
-        .stdin(Stdio::piped())
-        .spawn()
-        .unwrap();
-    child.stdin.take().unwrap().write_all(contents.as_ref()).unwrap();
-    assert!(child.wait().unwrap().success(), "could not write {}", path.display());
 }

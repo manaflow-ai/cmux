@@ -75,8 +75,11 @@ test("a new chat never opens Session Info by itself, whatever another chat or an
   expect((await page("chat-next")).inspectorState().open).toBe(false);
 
   // A chat saved open by the old default (no version): the viewer never opened it there.
-  localStorage.setItem(`${PREFIX}chat-old-default`, JSON.stringify({ open: true, width: 360, at: Date.now() }));
-  expect((await page("chat-old-default")).inspectorState()).toMatchObject({ open: false, width: 360 });
+  localStorage.setItem(
+    `${PREFIX}chat-old-default`,
+    JSON.stringify({ open: true, width: 360, sourcesAll: true, at: Date.now() }),
+  );
+  expect((await page("chat-old-default")).inspectorState()).toMatchObject({ open: false, width: 360, sourcesAll: true });
 
   // A pane showing a chat with Session Info open moves to a new chat: the new chat shows it closed
   // from its first frame, and keeps it closed once bound.
@@ -112,6 +115,15 @@ test("after a relaunch each pane shows its own state again", async () => {
 
   expect((await page("chat-left")).inspectorState().open).toBe(false);
   expect((await page("chat-right")).inspectorState()).toMatchObject({ open: true, width: 400 });
+});
+
+test("Sources View all persists with the pane's chat", async () => {
+  const left = await page("chat-left");
+  left.setInspectorSourcesAll(true);
+  const relaunched = await page("chat-left");
+  expect(relaunched.inspectorState().sourcesAll).toBe(true);
+  const other = await page("chat-right");
+  expect(other.inspectorState().sourcesAll).toBe(false);
 });
 
 test("a pane with no state of its own starts closed at the last width, and the old shared key migrates", async () => {
