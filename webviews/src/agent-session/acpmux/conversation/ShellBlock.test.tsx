@@ -151,6 +151,18 @@ test("random shell-ish text never throws and keeps every character", () => {
   }
 });
 
+test("whitespace other than space, tab and newline never stalls the lexer", () => {
+  // A CRLF command once looped forever: BREAK ends a word at "\r", but the lexer never stepped
+  // over it, so opening the step hung the pane.
+  for (const command of ["echo a\r\necho b", "a\rb", "x\fy", "ls\u00a0-la", "cat\vfile"]) {
+    expect(
+      shellTokens(command)
+        .map((token) => token.text)
+        .join(""),
+    ).toBe(command);
+  }
+});
+
 test("past its highlighted head, a long command draws plain", () => {
   const command = `echo ${"x".repeat(MAX_HIGHLIGHTED_COMMAND + 50)} "tail"`;
   const tokens = shellTokens(command);
