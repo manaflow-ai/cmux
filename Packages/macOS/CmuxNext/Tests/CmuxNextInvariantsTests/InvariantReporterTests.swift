@@ -17,10 +17,11 @@ struct InvariantReporterTests {
         let world = InvariantTestWorld()
         registry.declare(world.stripRule())
         let lanes = HeldLanes()
+        let deliveries = HeldDeliveries()
         let fixture = ReporterFixture()
         let reporter = InvariantReporter(
             registry: registry, store: InvariantReportStore(tag: "t", runner: lanes, logs: directory),
-            post: { fixture.posted.append($0) }, deliver: { work in MainActor.assumeIsolated { work() } }, // main-proof: HeldLanes runs on the test's main actor
+            post: { fixture.posted.append($0) }, deliver: { deliveries.hold($0) },
             journal: { batch in
                 fixture.journaled += batch.count
                 return 7
@@ -44,6 +45,8 @@ struct InvariantReporterTests {
         #expect(fixture.captures == 1)
         #expect(registry.ledger.since(0).violations.allSatisfy { $0.report == nil }, "no report path before the write")
         lanes.runAll()
+        #expect(registry.ledger.since(0).violations.allSatisfy { $0.report == nil }, "named only on the main actor's delivery")
+        deliveries.runAll()
         let violations = registry.ledger.since(0).violations
         let path = try #require(violations.first?.report)
         #expect(violations.allSatisfy { $0.report == path && $0.state != nil }, "named and given its state once written")
@@ -63,6 +66,25 @@ private final class ReporterFixture {
     var posted: [@MainActor () -> Void] = []
     var journaled = 0
     var captures = 0
+}
+
+/// The main actor's deliveries from the files lane, held until the test (on the main actor) runs them: the
+/// reporter's `deliver` is called off the main actor, and the work it hands over runs only here.
+private final class HeldDeliveries: Sendable {
+    // concurrency-allow: a test double's queue of held deliveries; the lock is held only to append or take them
+    private let held = Mutex<[@MainActor @Sendable () -> Void]>([])
+
+    func hold(_ work: @escaping @MainActor @Sendable () -> Void) {
+        held.withLock { $0.append(work) }
+    }
+
+    @MainActor func runAll() {
+        let works = held.withLock { works in
+            defer { works = [] }
+            return works
+        }
+        for work in works { work() }
+    }
 }
 
 /// Files lanes that hold every job until the test runs them.
