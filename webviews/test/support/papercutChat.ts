@@ -141,7 +141,9 @@ export async function papercutPane(
     socket?.send(JSON.stringify({ jsonrpc: "2.0", method: "_acpmux/event", params: event }));
   };
   /// The connection drops (acpmux restarted): the page connects again and reads the log again.
-  const drop = () => socket?.close();
+  const drop = () => {
+    for (const socket of sockets) socket.close(1012, "restart");
+  };
   /// Waiters for a method's next send: `sent(method, after)` settles once the pages have sent `method`
   /// more than `after` times (an event, not a poll).
   const waiters: { method: string; after: number; done: () => void }[] = [];
@@ -227,9 +229,6 @@ export async function papercutPane(
   const close = async () => {
     await vite.close();
     await daemon.stop(true);
-  };
-  const drop = () => {
-    for (const socket of sockets) socket.close(1012, "restart");
   };
   return { open, close, methods, prompts, record, drop, sent };
 }
