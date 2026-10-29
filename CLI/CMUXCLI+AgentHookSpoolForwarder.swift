@@ -55,8 +55,9 @@ extension CMUXCLI {
     /// agent, so the agent is this process's parent. Queued hook events arrive
     /// as spool records instead of CLI launches; one socket connection admits
     /// them in publication order. When the socket connection fails, the
-    /// forwarder exits so every later hook falls back to the CLI, which also
-    /// drains any record left behind.
+    /// forwarder keeps its lock and retries on the next watcher tick. This
+    /// keeps later hooks on the fast spool path while the app is busy or
+    /// restarting, without retrying a record whose admission already began.
     func runAgentHookSpoolForwarder(
         agent: String,
         socketPath: String,
@@ -88,20 +89,16 @@ extension CMUXCLI {
             return
         }
 
-        var connected = true
         let watcher = AgentHookSpoolWatcher(directory: spool.url)
-        for await _ in await watcher.changes(parentPID: parentPID) {
-            connected = forwardPublishedAgentHookRecords(
+        for await _ in await watcher.changes(parentPID: parentPID, retryInterval: 0.5) {
+            let connected = forwardPublishedAgentHookRecords(
                 in: spool, agentExited: false, client: client, socketPassword: socketPassword
             )
-            if !connected { break }
-        }
-        guard connected else {
-            // Unclaimed records stay for the next CLI hook's drain. Releasing
-            // the lifetime lock sends every later producer to the CLI.
-            client.close()
-            withExtendedLifetime(lifetimeLock) {}
-            return
+            if !connected {
+                // The watcher keeps ticking until the parent exits. Records
+                // that were not claimed remain available for this retry.
+                client.close()
+            }
         }
         // Move the spool aside so no producer can publish after the final
         // drain; a producer that loses the rename takes the CLI path and its
