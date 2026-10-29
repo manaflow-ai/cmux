@@ -162,8 +162,10 @@ main() {
     local ffi_status
     set +e
     JOBS="$(sysctl -n hw.ncpu)" bash cmux-next-ios/rust/scripts/build-xcframework.sh 2>&1 | tee "$work/ffi.log"
-    ffi_status=${PIPESTATUS[0]}
+    local -a ffi_pipe=("${PIPESTATUS[@]}")
     set -e
+    ffi_status=${ffi_pipe[0]}
+    [[ ${ffi_pipe[1]} -eq 0 ]] || { echo "swift-test-bench.sh: could not write $work/ffi.log" >&2; exit 3; }
     [[ $ffi_status -eq 0 ]] || { echo "swift-test-bench.sh: CmuxMobileLinkFFI.xcframework build failed (exit $ffi_status)" >&2; exit 1; }
     # The script regenerates checked-in bindings; any difference is the tree's, not the run's.
     git diff --stat -- cmux-next-ios/ | tee -a "$report"
@@ -173,8 +175,10 @@ main() {
   local build_status
   set +e
   swift build --package-path "$package" --build-tests 2>&1 | tee "$work/build.log"
-  build_status=${PIPESTATUS[0]}
+  local -a build_pipe=("${PIPESTATUS[@]}")
   set -e
+  build_status=${build_pipe[0]}
+  [[ ${build_pipe[1]} -eq 0 ]] || { echo "swift-test-bench.sh: could not write $work/build.log" >&2; exit 3; }
   if [[ $build_status -ne 0 ]]; then
     grep -E "error:" "$work/build.log" | sort -u | head -40 || true
     note "- build: failed (exit $build_status) after $((SECONDS - t0)) s"
