@@ -266,6 +266,13 @@ struct InternalPageDiscardPolicyCoverageTests {
         #expect(TaskManagerPageService.topRow(in: scrolled.container, rows: rows) == ProcessKey(pid: 1020), "400 points down: row 20")
         let top = Self.scrolledTable(count: rows.count, offset: 0, style: style)
         #expect(TaskManagerPageService.topRow(in: top.container, rows: rows) == ProcessKey(pid: 1000))
+        // A row the top edge cuts is the saved row while more than half of it shows, else the next one.
+        let pad: CGFloat = style == .inset ? 10 : 0
+        let mostlyShown = Self.scrolledTable(count: rows.count, offset: pad + 401, style: style)
+        #expect(TaskManagerPageService.topRow(in: mostlyShown.container, rows: rows) == ProcessKey(pid: 1020), "19 of row 20's 20 points show")
+        let mostlyGone = Self.scrolledTable(count: rows.count, offset: pad + 411, style: style)
+        #expect(TaskManagerPageService.topRow(in: mostlyGone.container, rows: rows) == ProcessKey(pid: 1021), "9 of row 20's 20 points show")
+        withExtendedLifetime((mostlyShown.rows, mostlyGone.rows)) {}
         #expect(TaskManagerPageService.topRow(in: NSView(), rows: rows) == nil, "no table")
         withExtendedLifetime((scrolled.rows, top.rows)) {}
     }
