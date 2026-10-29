@@ -472,7 +472,7 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
 
     /// `close-terminal` for each terminal a phone close ended (`terminalsEndedByClosing`),
     /// after its tabs closed. A refusal leaves the reap to the daemon: the tabs are closed.
-    private func end(_ terminals: [DaemonTree.TerminalRef], on client: DaemonClient) async {
+    func end(_ terminals: [DaemonTree.TerminalRef], on client: DaemonClient) async {
         for terminal in terminals {
             do {
                 try WorkspaceSync.check(await client.request("close-terminal", params: Self.closeParams(terminal)))
@@ -976,7 +976,8 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
             }
             let id = DaemonTree.tabID(surface: surface)
             let tree = try await sync.listNow()
-            guard let copy = tree.workspaces.flatMap(\.tabs).first(where: { $0.id == id }) else {
+            // A chat of the Mac's Home forks there too (its tabs are listed apart).
+            guard let copy = (tree.workspaces + tree.homeWorkspaces).flatMap(\.tabs).first(where: { $0.id == id }) else {
                 throw WorkspaceCreationError("The new tab didn't appear on the Mac")
             }
             return copy
@@ -1004,7 +1005,7 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
         try await run(client, "close-surface", ["surface": surface])
     }
 
-    private func target(_ tab: WorkspaceTab, in workspace: Workspace) throws -> (DaemonClient, Int) {
+    func target(_ tab: WorkspaceTab, in workspace: Workspace) throws -> (DaemonClient, Int) {
         guard canManage(on: workspace.macID), let client = sync.daemon else {
             throw WorkspaceCreationError("Not connected")
         }
