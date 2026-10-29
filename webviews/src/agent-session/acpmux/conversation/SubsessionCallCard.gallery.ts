@@ -155,7 +155,7 @@ export default agentPaneEntry({
   covers: ["agent-session/acpmux/conversation/SubsessionCallCard.tsx"],
   variants: {
     recorded: {
-      note: "A recorded start_session through the cmux server (mcp__cmux__subsessions_start_session): the sub-session's card with its harness, model, live state (the working spinner) and what it does now, Open chat, and its prompt as Markdown cut to three lines with Show prompt. The call's JSON is behind Raw.",
+      note: "Variant A (selected): a Claude-Code-style one-line disclosure with a working spinner, muted model and Open chat on hover. Expanding opens the full prompt as Markdown; Raw stays at the panel end.",
       snapshot: withChildren(
         [
           user("Start a lane for the retry banner.", 3),
@@ -235,7 +235,7 @@ export default agentPaneEntry({
       ),
     },
     started: {
-      note: "Five sub-sessions started, each with its state now: tests working (what it does under it, 2 queued), docs waiting on a question (its prompt after), deps waiting for permission, bench failed, lint done. A name opens that chat beside this one.",
+      note: "Variant B: five adjacent starts use the same one-line disclosure family, keeping Working, Waiting on you, Failed and Done visible without prompt text. A single start opens its chat on hover.",
       snapshot: withChildren(
         [
           user(prompt, 6),
@@ -255,7 +255,7 @@ export default agentPaneEntry({
       ),
     },
     avatars: {
-      note: "Sub-sessions whose person uploaded an avatar (the chat menu's Set Avatar…): each card draws it in place of the harness mark (a synthetic picture).",
+      note: "Variant C: grouped starts keep the family row compact while each child disclosure retains its uploaded avatar. This is the selected grouped treatment for three adjacent sessions.",
       snapshot: withChildren(
         [
           user(prompt, 6),

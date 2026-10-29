@@ -10,6 +10,7 @@ import { type Translate, useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import type { AcpmuxActivity } from "../model";
 import { AgentCard } from "../subagents/AgentCard";
+import { DisclosureRow } from "../subagents/DisclosureRow";
 import { SubsessionContext, useSenderChat, useSubsessionInfo, waitingLine } from "../subagents/subsessions";
 import { retryLabel, sessionRetry } from "../subagents/retryState";
 import { Spinner } from "./icons";
@@ -22,7 +23,22 @@ import "./SubsessionCallCard.css";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
 
-export function SubsessionCallCard({ call, tool }: { call: SubsessionCall; tool: Tool }) {
+export type StartedGroupEntry = {
+  call: Extract<SubsessionCall, { tool: "start" }>;
+  tool: Tool;
+};
+
+export function SubsessionCallCard({
+  call,
+  tool,
+  group,
+}: {
+  call?: SubsessionCall;
+  tool?: Tool;
+  group?: readonly StartedGroupEntry[];
+}) {
+  if (group) return <StartedGroup entries={group} />;
+  if (!call || !tool) return null;
   switch (call.tool) {
     case "start":
       return <StartedCard call={call} tool={tool} />;
@@ -32,6 +48,27 @@ export function SubsessionCallCard({ call, tool }: { call: SubsessionCall; tool:
     case "list":
       return <SessionCards call={call} tool={tool} />;
   }
+}
+
+function StartedGroup({ entries }: { entries: readonly StartedGroupEntry[] }) {
+  const t = useT();
+  const names = entries.map(
+    ({ call }) => call.name ?? (call.sessionId ? shortId(call.sessionId) : t("subsession.startingBare")),
+  );
+  const running = entries.some(({ call }) => call.running);
+  return (
+    <DisclosureRow
+      icon={<Icon name="agent.session" size={16} />}
+      label={t("subsession.started", {
+        name: `${t("turn.working.sessions", { n: entries.length })}: ${names.join(", ")}`,
+      })}
+      status={running ? <Spinner size={12} loading /> : undefined}
+    >
+      {entries.map(({ call, tool }, index) => (
+        <StartedCard key={tool.id || index} call={call} tool={tool} />
+      ))}
+    </DisclosureRow>
+  );
 }
 
 /// A call still running: one line with the working spinner.
@@ -93,6 +130,8 @@ function SessionCard({
   model,
   fallback,
   shown,
+  disclosure = false,
+  disclosurePrefix,
   children,
 }: {
   /// The prompt the card shows under its header (a start's preview): a `doing` line that only
@@ -104,6 +143,8 @@ function SessionCard({
   model?: string;
   /// Its state as the call read it, for a session the list does not have.
   fallback?: Pick<SubsessionReply, "state" | "waiting" | "slot">;
+  disclosure?: boolean;
+  disclosurePrefix?: ReactNode;
   children?: ReactNode;
 }) {
   const t = useT();
@@ -129,6 +170,8 @@ function SessionCard({
       slot={live ? live.slot === true : fallback?.slot === true}
       doing={doing}
       queued={live?.queued}
+      disclosure={disclosure}
+      disclosurePrefix={disclosurePrefix}
       onOpen={sessionId && open ? () => open(sessionId) : undefined}
     >
       {children}
@@ -138,12 +181,6 @@ function SessionCard({
 
 function StartedCard({ call, tool }: { call: Extract<SubsessionCall, { tool: "start" }>; tool: Tool }) {
   const t = useT();
-  if (call.running && !call.prompt)
-    return (
-      <RunningLine>
-        {call.name ? t("subsession.starting", { name: call.name }) : t("subsession.startingBare")}
-      </RunningLine>
-    );
   return (
     <SessionCard
       sessionId={call.sessionId}
@@ -153,8 +190,14 @@ function StartedCard({ call, tool }: { call: Extract<SubsessionCall, { tool: "st
       // Until the call returns, the sub-session is starting: the working spinner.
       fallback={call.running ? { state: "working" } : undefined}
       shown={call.prompt}
+      disclosure={true}
+      disclosurePrefix={call.name ? t("subsession.started", { name: "" }).trim() : undefined}
     >
-      {call.prompt && <Cut text={call.prompt} prompt />}
+      {call.prompt && (
+        <div className="cv-subsession__markdown selectable">
+          <Markdown commits="quiet">{call.prompt}</Markdown>
+        </div>
+      )}
       <Raw tool={tool} />
     </SessionCard>
   );
@@ -288,6 +331,7 @@ function SessionCards({ call, tool }: { call: Extract<SubsessionCall, { tool: "w
           name={session.name ?? shortId(session.sessionId)}
           harness={session.harness}
           fallback={session}
+          disclosure
         >
           {session.reply && session.state !== "working" && <Cut text={session.reply} />}
         </SessionCard>

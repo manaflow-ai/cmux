@@ -847,9 +847,9 @@ const USER_STATUS_HEIGHT = 20;
 const META_GAP = 4;
 const META_ROW = 24;
 const MESSAGE_GAP = 8;
-/// A sub-session card (subagents/AgentCard.css): its 10px margins, 12px padding and 24px head, and
-/// while it works or waits on the person, its 16px doing line.
-const cardHeight = (state: string) => 46 + (state === "working" || state === "input" ? 16 : 0);
+/// A collapsed sub-session disclosure (subagents/AgentCard.css): one 26px line plus its transcript
+/// rhythm margins. Expanded Markdown is measured by the virtual transcript after the reader opens it.
+const cardHeight = (_state: string) => 32;
 
 /// A sub-session reply under its card (SubsessionCallCard.tsx `Cut`): up to three 16px detail lines of
 /// about 60 characters, and the toggle once it is cut.
