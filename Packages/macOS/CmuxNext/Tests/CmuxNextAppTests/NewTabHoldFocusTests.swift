@@ -145,7 +145,7 @@ struct NewTabHoldFocusTests {
             let before = seam.stage(.newTab).count
 
             // Past the old bound (2 s after Cmd-T): no key went anywhere, and the hold still has them.
-            try? await PasswordManagerRouteTests.until({ seam.stage(.newTab).count != before }, within: .milliseconds(2600))
+            _ = await PasswordManagerRouteTests.becomes({ seam.stage(.newTab).count != before }, within: .milliseconds(2600))
             #expect(seam.stage(.newTab).count == before, "the hold's bound sent the keys typed for the page to another view: \(input.log)")
             #expect(input.isHolding(in: window), "the hold ended without its field: \(input.log)")
 

@@ -402,7 +402,7 @@ struct EarlyTerminalKeysTests {
             #expect(window.firstResponder === composer, "the test needs another view to have the keyboard")
 
             // 600 ms after the reply (this test's bound was 50 ms): a forced flush would have run the keys by now.
-            try? await PasswordManagerRouteTests.until({ coordinator.replayedCount != before }, within: .milliseconds(600))
+            _ = await PasswordManagerRouteTests.becomes({ coordinator.replayedCount != before }, within: .milliseconds(600))
             #expect(coordinator.replayedCount == before, "the hold's bound ran terminal keys into another view: \(Self.held(h))")
             #expect(composer.string.isEmpty, "keys typed for the new terminal reached another text input")
             #expect(coordinator.heldCount(in: window) == 2, "the keys typed for the new terminal no longer wait: \(Self.held(h))")

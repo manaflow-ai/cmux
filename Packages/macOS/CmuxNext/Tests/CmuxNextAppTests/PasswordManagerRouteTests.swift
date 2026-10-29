@@ -40,6 +40,14 @@ struct PasswordManagerRouteTests {
         try #require(condition(), "timed out: \(report())", sourceLocation: sourceLocation)
     }
 
+    /// Whether `condition` became true within `timeout`. Records no issue: for a wait that proves nothing happened (a
+    /// held key that must not run), where ``until(_:within:report:sourceLocation:)`` would record its time-out.
+    static func becomes(_ condition: () -> Bool, within timeout: Duration) async -> Bool {
+        let deadline = ContinuousClock.now + timeout
+        while !condition(), ContinuousClock.now < deadline, !Task.isCancelled { try? await Task.sleep(for: .milliseconds(50)) }
+        return condition()
+    }
+
     /// The app's services on a fresh same-tree daemon, ready once restore made its first terminal.
     /// `home` is the daemon's HOME (where it reads its Ghostty config).
     static func withApp(home: String = NSHomeDirectory(), _ body: (AppServices, DaemonConnection) async throws -> Void) async throws {
