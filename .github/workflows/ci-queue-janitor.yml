@@ -99,7 +99,7 @@ jobs:
       contents: read
     name: Sweep wasted macOS demand
     if: ${{ !(github.event_name == 'workflow_run' && github.event.workflow_run.pull_requests[0].base.ref == 'feat-cmux-next') }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     steps:
       # Before the freshness gate, so its one read is on the App's budget too. Minting
