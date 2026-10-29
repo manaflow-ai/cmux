@@ -9,7 +9,11 @@ const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
 use acpmux::rpc::{Message, method};
-use acpmux::server::{Origin, serve_connection_with};
+use acpmux::server::peer_auth::PeerAuth;
+use acpmux::server::{
+    ConnAuth, Origin, WsAuth, bind_ws, serve_connection_authed, serve_connection_with,
+    serve_ws_with,
+};
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};
 use std::sync::Arc;
@@ -135,7 +139,10 @@ async fn lane_asking(
                 _ => json!({}),
             };
             let mut lines = vec![Message::ok(id, result).to_line()];
-            let ask = Message::request(json!("lane-1"), GITHUB_ACTION, action.clone()).to_line();
+            // As a lane sends it: with the time it stops waiting (`deadline_from`).
+            let mut action = action.clone();
+            action["deadlineMs"] = json!(acpmux::store::now_ms() + 90_000);
+            let ask = Message::request(json!("lane-1"), GITHUB_ACTION, action).to_line();
             match when {
                 Ask::BeforeInitialize if m == method::INITIALIZE => lines.insert(0, ask),
                 Ask::BeforeWatch if m == method::INITIALIZE => lines.push(ask),
@@ -273,6 +280,197 @@ async fn lending_to_a_peer_added_before_keeps_its_tokens() {
     let saved = a.config.read().await.peers.get("old").cloned().unwrap();
     assert!(saved.github_broker);
     assert_eq!((saved.token.as_deref(), saved.peer_token.as_deref()), (Some("tok"), Some("pt")));
+}
+
+/// A machine whose agent session asks, with the session config of a real lane.
+fn lane_hub() -> Arc<Hub> {
+    let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+    let profile = acpmux::config::HarnessProfile {
+        kind: Default::default(),
+        argv: vec!["python3".into(), fake.into()],
+        env: Default::default(),
+        description: None,
+        fallback: None,
+        family: None,
+        models: vec![],
+        model: None,
+        effort: None,
+        policy: None,
+    };
+    let mut cfg = Config {
+        harnesses: [("fake".to_owned(), profile)].into(),
+        default_harness: Some("fake".into()),
+        ..Default::default()
+    };
+    cfg.store.mode = StoreMode::Memory;
+    let store = acpmux::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+    Hub::new(cfg, store)
+}
+
+/// B's WebSocket listener with a peer token; returns its port and that token.
+async fn listen(b: Arc<Hub>, tag: &str) -> (u16, String) {
+    let home = std::env::temp_dir().join(format!("ghb-{tag}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&home);
+    let auth = PeerAuth::create(&home).unwrap();
+    let token = std::fs::read_to_string(acpmux::server::peer_auth::token_path(&home)).unwrap();
+    let l = bind_ws("127.0.0.1:0").await.unwrap();
+    let port = l.local_addr().unwrap().port();
+    let auth = WsAuth { local_app: None, peer: Some(Arc::new(auth)) };
+    tokio::spawn(serve_ws_with(b, l, "tok".into(), auth));
+    (port, token)
+}
+
+/// B, one agent session on it, and A mirroring it with `githubBroker` as given.
+async fn pair(a: &mut C, tag: &str, github_broker: Option<bool>) -> (Arc<Hub>, String) {
+    let b = lane_hub();
+    let (port, peer_token) = listen(b.clone(), tag).await;
+    let s = C::new(&b, None)
+        .await
+        .call(method::SESSION_NEW, json!({"cwd": std::env::temp_dir(), "mcpServers": []}))
+        .await
+        .unwrap();
+    let mut add = json!({"name": tag, "url": format!("ws://127.0.0.1:{port}"), "token": "tok",
+        "peerToken": peer_token, "wait": true});
+    if let Some(on) = github_broker {
+        add["githubBroker"] = json!(on);
+    }
+    let peers = a.call("_acpmux/peer_add", add).await.unwrap();
+    let listed = peers["peers"].as_array().unwrap().iter().find(|p| p["name"] == tag).unwrap();
+    assert_eq!(listed["connected"], true, "{peers}");
+    (b, s["sessionId"].as_str().unwrap().to_owned())
+}
+
+#[tokio::test]
+async fn an_added_machines_agent_uses_the_macs_gh_login_and_no_other_peers_does() {
+    fake_gh();
+    let a = hub();
+    let mut app = C::new(&a, None).await;
+
+    // Added with Add Machine: the agent's action runs on A, with A's own login.
+    let (b, session) = pair(&mut app, "added", Some(true)).await;
+    let mut agent = C::new(&b, Some(&session)).await;
+    let read = agent
+        .call(GITHUB_ACTION, json!({"action": "read", "repo": "o/r"}))
+        .await
+        .expect("an added machine's agent reads through the Mac");
+    let out = read["output"].as_str().unwrap();
+    assert!(out.starts_with("gh repo view o/r --json="), "{out}");
+    assert!(!out.contains("token-seen"), "{out}");
+    let comment = agent
+        .call(GITHUB_ACTION, json!({"action": "comment", "repo": "o/r", "issue": 7, "body": "hi"}))
+        .await
+        .unwrap();
+    assert_eq!(comment["output"], "gh issue comment 7 --body=hi --repo=o/r\n");
+    // Each decision is on the agent's session, with no body in it.
+    let page = agent
+        .call(method::MUX_EVENTS, json!({"sessionId": session, "afterSeq": 0, "limit": 1000}))
+        .await
+        .unwrap();
+    let rows: Vec<&Value> = page["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|e| e["kind"] == "github_broker_action")
+        .collect();
+    assert_eq!(rows.len(), 2, "{page}");
+    assert_eq!(rows[1]["msg"]["status"], "allowed");
+    assert!(!rows[1].to_string().contains("\"hi\""), "{}", rows[1]);
+
+    // An action outside the broker's words is refused on the machine, before A sees it.
+    let e = agent
+        .call(GITHUB_ACTION, json!({"action": "read", "repo": "o/r", "body": "x"}))
+        .await
+        .unwrap_err();
+    assert!(e["message"].as_str().unwrap().contains("body is not used by read"), "{e}");
+    // So is anything that is not an agent session there.
+    let e = C::new(&b, None)
+        .await
+        .call(GITHUB_ACTION, json!({"action": "read", "repo": "o/r"}))
+        .await
+        .unwrap_err();
+    assert!(e["message"].as_str().unwrap().contains("acpmux session's agent"), "{e}");
+
+    // A peer added any other way is lent nothing.
+    let (b2, session2) = pair(&mut app, "plain", None).await;
+    let e = C::new(&b2, Some(&session2))
+        .await
+        .call(GITHUB_ACTION, json!({"action": "read", "repo": "o/r"}))
+        .await
+        .unwrap_err();
+    assert_eq!(e["data"]["reason"], "github.no_owner", "{e}");
+}
+
+/// The review of the lane part at 1ea8bb6: a Mac counted as lending from its `initialize`, before
+/// its own side of the handshake was done, so an action then reached a Mac that refused it.
+#[tokio::test]
+async fn a_mac_lends_from_its_watch_and_each_action_says_when_it_stops_waiting() {
+    let b = lane_hub();
+    let s = C::new(&b, None)
+        .await
+        .call(method::SESSION_NEW, json!({"cwd": std::env::temp_dir(), "mcpServers": []}))
+        .await
+        .unwrap();
+    let session = s["sessionId"].as_str().unwrap().to_owned();
+    // The Mac's link, as the peer listener serves it once it read this machine's peer token.
+    let (mac_tx, mac_in) = mpsc::channel(64);
+    let (mac_out, mut mac_rx) = mpsc::channel(4096);
+    tokio::spawn(serve_connection_authed(
+        b.clone(),
+        mac_in,
+        mac_out,
+        Origin::Peer,
+        ConnAuth::PeerToken,
+    ));
+    let hello = json!({"protocolVersion": 1, "clientInfo": {"name": "mac"},
+        "_meta": {"acpmux": {"githubBroker": true}}});
+    mac_tx.send(Message::request(1, method::INITIALIZE, hello).to_line()).await.unwrap();
+    let read = json!({"action": "read", "repo": "o/r"});
+    let mut agent = C::new(&b, Some(&session)).await;
+    let e = agent.call(GITHUB_ACTION, read.clone()).await.unwrap_err();
+    assert_eq!(e["data"]["reason"], "github.no_owner", "before the Mac's watch: {e}");
+
+    let watch = Message::request(2, method::MUX_WATCH, json!({"enabled": true}));
+    mac_tx.send(watch.to_line()).await.unwrap();
+    // The link lends from the watch's answer on (the watch reply is built asynchronously).
+    loop {
+        let line = tokio::time::timeout(Duration::from_secs(30), mac_rx.recv())
+            .await
+            .expect("the watch is answered")
+            .unwrap();
+        let v: Value = serde_json::from_str(&line).unwrap();
+        if v["id"] == json!(2) {
+            assert!(v.get("error").is_none(), "{v}");
+            break;
+        }
+    }
+    // It counts just after its answer is queued: until then an ask finds no Mac.
+    let asked = tokio::spawn(async move {
+        loop {
+            match agent.call(GITHUB_ACTION, read.clone()).await {
+                Err(e) if e["data"]["reason"] == "github.no_owner" => {
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
+                answer => break answer,
+            }
+        }
+    });
+    let ask = loop {
+        let line = tokio::time::timeout(Duration::from_secs(30), mac_rx.recv())
+            .await
+            .expect("the action reaches the Mac")
+            .unwrap();
+        let v: Value = serde_json::from_str(&line).unwrap();
+        if v["method"] == GITHUB_ACTION {
+            break v;
+        }
+    };
+    let deadline = ask["params"]["deadlineMs"].as_u64().expect("a deadline");
+    let now = acpmux::store::now_ms();
+    assert!(deadline > now && deadline <= now + 90_000, "{ask}");
+    let answer =
+        Message::ok(ask["id"].clone(), json!({"action": "read", "repo": "o/r", "output": "ok"}));
+    mac_tx.send(answer.to_line()).await.unwrap();
+    assert_eq!(asked.await.unwrap().unwrap()["output"], "ok");
 }
 
 /// Review of #24797 at f2e68a4: an action already running went on for up to 60 s after the
