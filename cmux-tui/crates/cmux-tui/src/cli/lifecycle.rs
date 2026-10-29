@@ -564,6 +564,7 @@ impl StopWait<'_> {
                     if matches!(said, Ok(OwnerAnswer::Restoring)) {
                         continue 'connect;
                     }
+                    self.note_no_phase();
                     return Ok(());
                 }
                 let phase = loop {
@@ -586,7 +587,16 @@ impl StopWait<'_> {
                         }
                         // No answer yet: the owner holds the connection.
                         Err(ExchangeError::Timeout) => {}
-                        // A close with no answer, a refused or a malformed
+                        // A close with no answer and no phase line: an owner
+                        // of an older build that dropped a parked connection
+                        // at its park cap, or one whose request thread died.
+                        // The stop does not guess which from timing; it says
+                        // so and the lifecycle exchange reports the socket.
+                        Err(ExchangeError::Closed | ExchangeError::Transport) => {
+                            self.note_no_phase();
+                            return Ok(());
+                        }
+                        // A refused or a malformed
                         // identify: the lifecycle exchange reports it with
                         // its own codes.
                         Err(_) => return Ok(()),
@@ -603,6 +613,23 @@ impl StopWait<'_> {
                 cmux_blocking::thread::sleep(STOP_POLL_INTERVAL);
             }
         }
+    }
+
+    /// One line on stderr: the owner closed the stop's connection without a
+    /// phase, so the cause is visible (an older build, or a dead request
+    /// thread) before the lifecycle exchange reports the socket.
+    fn note_no_phase(&self) {
+        let message = crate::localization::catalog().local_server.stop_owner_gave_no_phase;
+        let mut stderr = std::io::stderr().lock();
+        let _ = match self.output {
+            OutputMode::Quiet => return,
+            OutputMode::Json | OutputMode::JsonLines => writeln!(
+                stderr,
+                "{}",
+                json!({"progress": "no-phase", "session": self.session, "message": message})
+            ),
+            OutputMode::Human => writeln!(stderr, "{message}"),
+        };
     }
 
     /// One progress line on stderr once the wait passes a slice, then one

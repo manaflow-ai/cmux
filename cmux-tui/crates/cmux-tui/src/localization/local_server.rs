@@ -76,6 +76,11 @@ pub(crate) struct LocalServerMessages {
     /// Progress while `server stop` waits for an owner that restored but
     /// reports `lifecycle_ready: false`: `{waited}`, `{limit}`.
     pub stop_waiting_starting: &'static str,
+    /// `server stop`: the owner closed the stop's connection without an
+    /// answer and without the phase line a restoring owner writes before it
+    /// drops one (an owner of an older build, or one that died); the stop
+    /// reports what the socket does now.
+    pub stop_owner_gave_no_phase: &'static str,
     /// `server stop` gave up on an owner still restoring: `{seconds}`, `{command}`.
     pub stop_gave_up_restoring: &'static str,
     /// `server stop` gave up on an owner still finishing its startup:
@@ -190,6 +195,7 @@ pub(super) const ENGLISH: LocalServerMessages = LocalServerMessages {
     stop_restore_wait_invalid: "--restore-wait-seconds must be a whole number of seconds from 1 to 3600",
     stop_waiting_restoring: "cmux: the local server is restoring its session; the stop waits for the restore to end ({waited} s of up to {limit} s)",
     stop_waiting_starting: "cmux: the local server restored its session and is finishing its startup; the stop waits for it ({waited} s of up to {limit} s)",
+    stop_owner_gave_no_phase: "cmux: the local server closed the connection without saying its phase (an older build, or a server that stopped answering); the stop reports what the socket does now",
     stop_gave_up_restoring: "the local server did not stop: after {seconds} s it is still restoring its session (registry and terminal hosts) or too busy to answer. Its client log under the session state directory shows what the restore waits for. To wait longer, run: {command}",
     stop_gave_up_starting: "the local server did not stop: it restored its session, but after {seconds} s it is still finishing its startup. To wait longer, run: {command}",
     all_sessions_agent_refused: "--all-sessions is refused for an agent caller ({marker} is set); drop --all-sessions to list this session",
@@ -264,6 +270,7 @@ pub(super) const JAPANESE: LocalServerMessages = LocalServerMessages {
     stop_restore_wait_invalid: "--restore-wait-seconds には 1 から 3600 までの整数の秒数を指定してください",
     stop_waiting_restoring: "cmux: ローカルサーバーがセッションを復元しています。停止は復元の完了を待っています ({waited} 秒 / 最大 {limit} 秒)",
     stop_waiting_starting: "cmux: ローカルサーバーはセッションを復元し、起動を完了しています。停止はその完了を待っています ({waited} 秒 / 最大 {limit} 秒)",
+    stop_owner_gave_no_phase: "cmux: ローカルサーバーは状態を伝えずに接続を閉じました (古いビルド、または応答しなくなったサーバー)。停止はソケットの現在の状態を報告します",
     stop_gave_up_restoring: "ローカルサーバーは停止していません: {seconds} 秒後もセッション (レジストリとターミナルホスト) を復元中か、応答できないほど混雑しています。復元が何を待っているかは、セッション状態ディレクトリのクライアントログで確認できます。さらに待つには次を実行してください: {command}",
     stop_gave_up_starting: "ローカルサーバーは停止していません: セッションは復元しましたが、{seconds} 秒後も起動を完了していません。さらに待つには次を実行してください: {command}",
     all_sessions_agent_refused: "エージェントからの呼び出しでは --all-sessions を使えません ({marker} が設定されています)。このセッションを一覧するには --all-sessions を外してください",
