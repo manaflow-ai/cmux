@@ -63,11 +63,13 @@ import Testing
             let elapsed = Self.seconds(start.duration(to: .now))
             let fetches = await daemon.fullFetches - initialFetches
             let emitted = await daemon.emittedEvents
-            print("workspace-sync perf agents=\(agents) batches_per_second=10 events_per_batch=\(agents * 2) "
+            let line = "workspace-sync perf agents=\(agents) batches_per_second=10 events_per_batch=\(agents * 2) "
                 + "elapsed_seconds=\(elapsed) events=\(emitted) main_cpu_ms=\(cpuMilliseconds) "
                 + "main_ms_per_second=\(cpuMilliseconds / elapsed) full_fetches=\(fetches) "
                 + "full_fetches_per_minute=\(Double(fetches) * 60 / elapsed) "
-                + "snapshot_publications=\(snapshots - initialPublications) row_publications=\(rowPublications)")
+                + "snapshot_publications=\(snapshots - initialPublications) row_publications=\(rowPublications)"
+            print(line)
+            Attachment.record(line, named: "workspace-sync-perf.txt")
             #expect(emitted == ticks * agents * 2)
             #expect(store.workspaces.count == agents)
             #if WORKSPACE_DELTA_PUBLICATION

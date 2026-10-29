@@ -154,7 +154,7 @@ import Testing
         let snapshot = Data(#"{"ok":true,"data":{"workspace_revision":1,"workspaces":[{"id":1,"key":"one","screens":[{"id":1,"panes":[{"id":1,"tabs":[{"surface":4,"kind":"pty","title":"one"}]}]}]},{"id":2,"key":"two","screens":[{"id":2,"panes":[{"id":2,"tabs":[{"surface":5,"kind":"pty","title":"two"}]}]}]}]}}"#.utf8)
         let projection = WorkspaceProjection()
         _ = try await projection.reset(snapshot: snapshot, macID: "m")
-        let added: [String: Any] = ["id": 3, "key": "three", "screens": [["id": 3, "panes": [["id": 3, "tabs": [["surface": 6, "kind": "pty", "title": "three"]]]]]]
+        let added: [String: Any] = ["id": 3, "key": "three", "screens": [["id": 3, "panes": [["id": 3, "tabs": [["surface": 6, "kind": "pty", "title": "three"]]]]]]]
         _ = try await projection.apply(Self.delta(.workspaceAdded, workspace: 3, screen: nil, pane: nil, index: 0, entity: added), agents: AgentStates(), activity: [:])
         let update = try await projection.apply(.titleChanged(surface: 5, title: "updated"), agents: AgentStates(), activity: [:])
         #expect(update?.tree.workspaces.map(\.id) == ["three", "one", "two"])
