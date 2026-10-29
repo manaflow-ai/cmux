@@ -494,6 +494,12 @@ jobs:
           # 130 s) short, so its first run's typing reads stood as reds. 300 s
           # keeps the slowest shard (about 32 min on 16 vCPU) inside its 40 min.
           CMUX_WEB_TEST_RETRY_BUDGET: "300"
+          # Every timed-out file now gets its alone retry (the runner's timeout
+          # retry budget defaults to their summed limits): 7 of #27007's shard 1
+          # timeouts never got one and stood as new reds. The retries end 32 min
+          # into this step (it starts about 2 min into the job), which leaves the
+          # uploads room inside the 40 min timeout-minutes.
+          CMUX_WEB_TEST_RETRY_DEADLINE: "1920"
         run: |
           # Replay uses this exact runner and result parser, with the base's tests and bun.
           # Different deadline policies can otherwise turn an old named failure into a new timeout.
