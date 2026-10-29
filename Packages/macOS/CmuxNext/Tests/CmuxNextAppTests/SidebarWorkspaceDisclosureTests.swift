@@ -52,4 +52,33 @@ struct SidebarWorkspaceDisclosureTests {
             }
         }
     }
+
+    @Test(arguments: [CGFloat(200), 260, 400])
+    func aLongNameAndItsCaretLeaveRoomForTrailingContent(_ width: CGFloat) throws {
+        let (model, sidebar, window) = SidebarTabGroupControlsTests.sidebar()
+        defer { window.close() }
+        var workspace = try #require(model.workspace(SidebarTabGroupControlsTests.shown))
+        workspace.title = "A long workspace name that needs to truncate beside its status"
+        workspace.audio = .playing
+        #expect(model.patchWorkspaces([workspace]))
+        sidebar.frame.size.width = width
+        sidebar.layoutSubtreeIfNeeded()
+        let row = try #require(sidebar.list.rowViews[.workspace(workspace.id)] as? WorkspaceRowView)
+        row.timeText = "Updated recently"
+        row.timeLabel.setString("Updated recently")
+        row.needsLayout = true
+        var caretX: CGFloat?
+        for hovered in [false, true, false] {
+            row.isHovered = hovered
+            row.layoutSubtreeIfNeeded()
+            #expect(!row.timeLabel.isHidden && !row.audioButton.isHidden)
+            for mark in [row.timeLabel, row.audioButton] as [NSView] {
+                #expect(row.title.frame.maxX <= mark.frame.minX)
+                #expect(row.disclosureButton.frame.maxX <= mark.frame.minX)
+            }
+            #expect(abs(row.disclosureButton.frame.minX - row.title.frame.maxX - Metrics.space1) < 0.5)
+            if let caretX { #expect(abs(row.disclosureButton.frame.minX - caretX) < 0.5) }
+            caretX = row.disclosureButton.frame.minX
+        }
+    }
 }
