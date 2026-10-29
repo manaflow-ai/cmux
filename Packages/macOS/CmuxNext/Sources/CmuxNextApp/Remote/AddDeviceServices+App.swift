@@ -37,18 +37,17 @@ extension AddDeviceServices {
             copy: { CloudPresenter.copy($0) },
             // Labs labs.machineJoin: read at each opening, so the switch takes effect on the next one.
             machineJoin: { [weak services] in
-                guard let services else { return nil }
+                guard let services, services.settings?.snapshot.machineJoin == true else { return nil }
                 #if DEBUG
                 if let fixture = DebugAddDevice.joinService { return fixture }
                 #endif
-                return services.settings?.snapshot.machineJoin == true ? MachineJoinService.app(services) : nil
+                return MachineJoinService.app(services)
             },
             // The line carries a single-use token: marked concealed and transient (nspasteboard.org) so
             // clipboard managers do not keep it.
             copyConcealed: { line in
                 SystemPasswordPasteboard().write(line, markers: [ConcealedPasteboard.concealedType, ConcealedPasteboard.transientType])
-            },
-            showMachines: { [weak services] in _ = services?.registry.perform(RightSidebarMode.machines.actionID) })
+            })
     }
 }
 

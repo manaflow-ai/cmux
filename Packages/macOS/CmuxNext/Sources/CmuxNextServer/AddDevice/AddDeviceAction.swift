@@ -16,8 +16,6 @@ public nonisolated enum AddDeviceAction: Equatable, Sendable {
     case makeJoinLine
     /// Mint a new join line (an expired or failed one is never shown again).
     case newJoinLine
-    /// The joined machine's row in the Machines sidebar.
-    case showMachines
     case done
     case cancel
 }
