@@ -519,19 +519,35 @@ public struct AgentChatBottomStack: View {
         VStack(spacing: 12) {
             VStack(spacing: 12) {
                 if let error = store.clientError {
-                    Button {
-                        withAnimation(.cmuxMobileSmooth) { store.clientError = nil }
-                    } label: {
-                        Label(error, systemImage: "exclamationmark.circle")
+                    if store.canRetryPrompt {
+                        HStack(spacing: 8) {
+                            Label(error, systemImage: "exclamationmark.circle")
+                                .font(.footnote.weight(.semibold))
+                                .foregroundStyle(.primary)
+                            Button("Retry", systemImage: "arrow.clockwise") {
+                                store.send(prompt: surface.text, attachments: surface.attachments)
+                            }
                             .font(.footnote.weight(.semibold))
-                            .foregroundStyle(.primary)
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 9)
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 9)
+                        .glassEffect(.regular, in: .capsule)
+                        .transition(.opacity.combined(with: .offset(y: 8)))
+                    } else {
+                        Button {
+                            withAnimation(.cmuxMobileSmooth) { store.clientError = nil }
+                        } label: {
+                            Label(error, systemImage: "exclamationmark.circle")
+                                .font(.footnote.weight(.semibold))
+                                .foregroundStyle(.primary)
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 9)
+                        }
+                        .buttonStyle(.plain)
+                        .glassEffect(.regular, in: .capsule)
+                        .transition(.opacity.combined(with: .offset(y: 8)))
+                        .accessibilityHint("Dismiss")
                     }
-                    .buttonStyle(.plain)
-                    .glassEffect(.regular, in: .capsule)
-                    .transition(.opacity.combined(with: .offset(y: 8)))
-                    .accessibilityHint("Dismiss")
                 }
                 // Pinned plan progress while a turn runs (ACP web UI parity).
                 if let progress = store.runningPlan, let entries = store.runningPlanEntries {

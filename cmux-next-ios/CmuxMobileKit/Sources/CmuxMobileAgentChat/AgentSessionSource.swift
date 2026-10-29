@@ -239,8 +239,16 @@ public final class DisconnectedAgentSource: AgentSessionSource {
         return stream
     }
 
-    /// Nothing to send to: say why again.
+    /// Nothing to send to: return prompts to the composer instead of dropping them.
     public func send(_ intent: AgentClientIntent) {
-        for continuation in continuations { continuation.yield(.clientError(message)) }
+        let event: AgentSessionEvent
+        switch intent {
+        case .prompt(let text, let attachments, _, let promptID, _):
+            event = .promptNotSent(text: text, attachments: attachments, promptID: promptID,
+                                   reason: "Mac offline. Not sent.")
+        default:
+            event = .clientError(message)
+        }
+        for continuation in continuations { continuation.yield(event) }
     }
 }

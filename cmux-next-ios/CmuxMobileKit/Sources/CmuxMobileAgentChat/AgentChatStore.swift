@@ -207,6 +207,8 @@ public final class AgentChatStore {
     @ObservationIgnored private var sentOrder: [String] = []
     /// The last returned prompt still waiting for a resend: what it held and its id.
     private var resendable: (text: String, attachments: [AgentAttachment], promptID: String)?
+    /// Whether the last failed prompt can be sent again from the composer.
+    public var canRetryPrompt: Bool { resendable != nil }
     /// Prompt ids the transcript showed running or queued (a lost reply for one of them is not
     /// a prompt that never went out).
     private var seenPromptIDs: Set<String> = []

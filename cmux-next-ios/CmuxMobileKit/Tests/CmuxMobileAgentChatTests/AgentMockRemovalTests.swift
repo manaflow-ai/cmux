@@ -25,4 +25,17 @@ import Testing
             try await source.artifactSource.load(TerminalArtifact(reference: "README.md", kind: .markdown))
         }
     }
+
+    @Test func offlinePromptReturnsDraftWithConciseReason() async throws {
+        let source = DisconnectedAgentSource(summary: summary)
+        let store = AgentChatStore(source: source)
+        store.send(prompt: "run the tests")
+
+        for _ in 0..<100 where store.returnedDraft == nil { await Task.yield() }
+        let draft = try #require(store.returnedDraft)
+        #expect(draft.text == "run the tests")
+        #expect(draft.promptID != nil)
+        #expect(store.clientError == "Mac offline. Not sent.")
+        #expect(store.canRetryPrompt)
+    }
 }
