@@ -165,6 +165,27 @@ import Testing
         #expect(picked == nil)
     }
 
+    @Test func numberedShortcutPicksOnlyAnEnabledActionRow() throws {
+        let content = NativePopupContent()
+        var model = Self.model()
+        model.rows = [NativePopupRow(id: "disabled", kind: .action, label: "Disabled", shortcut: "1", disabled: true),
+                      NativePopupRow(id: "pick", kind: .action, label: "Pick", shortcut: "2")]
+        var picked: String?
+        content.emit = { type, id, _ in if type == .pick { picked = id } }
+        content.update(model)
+        let two = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+                                                windowNumber: 0, context: nil, characters: "2", charactersIgnoringModifiers: "2",
+                                                isARepeat: false, keyCode: 19))
+        content.keyDown(with: two)
+        #expect(picked == "pick")
+        picked = nil
+        let one = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+                                                windowNumber: 0, context: nil, characters: "1", charactersIgnoringModifiers: "1",
+                                                isARepeat: false, keyCode: 18))
+        content.keyDown(with: one)
+        #expect(picked == nil)
+    }
+
     private static func model() -> NativePopupModel {
         NativePopupModel(schemaVersion: 1, id: "content", revision: 1,
                          anchor: NativePopupAnchor(left: 0, top: 0, right: 20, bottom: 20),

@@ -259,6 +259,13 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
     override func keyDown(with event: NSEvent) {
         if handleKey(event.keyCode) { return }
         if event.modifierFlags.intersection([.command, .control, .option]).isEmpty,
+           let key = event.charactersIgnoringModifiers, key.count == 1,
+           key.first?.isNumber == true,
+           let row = enabledRows.first(where: { $0.0.shortcut == key }) {
+            activate(row.0, view: row.1)
+            return
+        }
+        if event.modifierFlags.intersection([.command, .control, .option]).isEmpty,
            let text = event.characters, !text.isEmpty, text.unicodeScalars.allSatisfy({ !CharacterSet.controlCharacters.contains($0) }) {
             typeahead = event.timestamp - typeaheadTime > 0.8 ? text : typeahead + text
             typeaheadTime = event.timestamp
