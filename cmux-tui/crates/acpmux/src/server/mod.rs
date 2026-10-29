@@ -697,19 +697,24 @@ pub async fn serve_ws_with(
         // A ticket redeems and a paired machine opens on the hub: Fatal, as its connection.
         let supervising = hub.clone();
         supervising.supervise("server.ws-connection", Fatal, ShutdownBehavior::Skip, async move {
-            let mut head = [0u8; 4096];
-            let n = match tokio::time::timeout(HANDSHAKE, stream.peek(&mut head)).await {
-                Ok(Ok(n)) => n,
-                _ => return,
+            // The whole head routes the request, never a peek of what has arrived: a client
+            // may send its head in several segments, and an upgrade whose `Upgrade` line came
+            // later was served as a page (200) without its token checked. Each path checks
+            // the head it parses: serve_http_head this one, tungstenite the same bytes again.
+            // A head that does not end within the handshake deadline (a client that stalls
+            // midway), runs past `MAX_HTTP_HEAD_BYTES` or ends early gets no answer: the
+            // connection closes, as a stalled upgrade's always did. An answer would hold a
+            // stalled client's connection open as a reply it can read.
+            let mut stream = stream;
+            let Some(head) = read_http_head_bytes(&mut stream, HANDSHAKE).await else {
+                return;
             };
-            // The peek only routes the request. Each path checks the full
-            // head it parses: serve_http reads it, tungstenite parses the
-            // upgrade request for the callback.
-            let head_text = String::from_utf8_lossy(head.get(..n).unwrap_or(&head)).into_owned();
+            let head_text = String::from_utf8_lossy(&head).into_owned();
             if !head_text.to_ascii_lowercase().contains("upgrade: websocket") {
-                serve_http(stream, &policy, peer).await;
+                serve_http_head(stream, &head_text, &policy, peer).await;
                 return;
             }
+            let stream = rewind::Rewind::new(head, stream);
             let expected = token.clone();
             // The upgrade request's Origin headers, for the LocalApp check.
             let seen_origins: Arc<StdMutex<Vec<String>>> = Arc::default();
@@ -943,10 +948,13 @@ async fn refuse_http(mut stream: tokio::net::TcpStream, refusal: Refusal) {
 /// The largest request head the dashboard reads.
 const MAX_HTTP_HEAD_BYTES: usize = 32 * 1024;
 
-/// Read a request head up to its blank line. None when it is larger than
-/// [`MAX_HTTP_HEAD_BYTES`] (room for large localhost cookies), the peer
-/// closes first, or it takes over 2 s.
-async fn read_http_head(stream: &mut tokio::net::TcpStream) -> Option<String> {
+/// Read a request head up to its blank line, with any bytes that came with it. None when it
+/// is larger than [`MAX_HTTP_HEAD_BYTES`] (room for large localhost cookies), the peer closes
+/// first, or it takes over `limit`.
+async fn read_http_head_bytes(
+    stream: &mut tokio::net::TcpStream,
+    limit: std::time::Duration,
+) -> Option<Vec<u8>> {
     let read = async {
         let mut head = Vec::with_capacity(1024);
         let mut chunk = [0u8; 4096];
@@ -960,25 +968,22 @@ async fn read_http_head(stream: &mut tokio::net::TcpStream) -> Option<String> {
             }
             head.extend_from_slice(chunk.get(..n).unwrap_or(&chunk));
         }
-        Some(String::from_utf8_lossy(&head).into_owned())
+        Some(head)
     };
-    tokio::time::timeout(std::time::Duration::from_secs(2), read).await.ok().flatten()
+    tokio::time::timeout(limit, read).await.ok().flatten()
 }
 
 /// Minimal HTTP for the dashboard. The whole head passes the listener rule
 /// first; then GET / serves the page, and anything else is 404. The page is
 /// static and holds no secret: it reads the token from its URL fragment,
 /// which never reaches a server, and its WebSocket presents it.
-async fn serve_http(
+async fn serve_http_head(
     mut stream: tokio::net::TcpStream,
+    head: &str,
     policy: &ListenerPolicy,
     peer: std::net::SocketAddr,
 ) {
-    let Some(head) = read_http_head(&mut stream).await else {
-        refuse_http(stream, Refusal::MissingHost).await;
-        return;
-    };
-    if let Err(refusal) = check_head(policy, &head) {
+    if let Err(refusal) = check_head(policy, head) {
         tracing::warn!("web request from {peer} refused: {refusal}");
         refuse_http(stream, refusal).await;
         return;
@@ -1449,6 +1454,7 @@ mod redact;
 pub(crate) mod remote_guard;
 mod request_task;
 mod requests;
+mod rewind;
 mod routes;
 mod secrets;
 mod session_files;
