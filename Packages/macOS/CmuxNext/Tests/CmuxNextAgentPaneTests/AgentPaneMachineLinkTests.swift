@@ -31,7 +31,7 @@ struct AgentPaneMachineLinkTests {
     @Test func aDownMachineReconnectsOnUse() async throws {
         let calls = Calls()
         let socket = DaemonEndpoint(socketPath: "/tmp/acpmux-test.sock")
-        let comesBack = try await AgentSessionAttachClient.retrying({
+        let comesBack = try await AgentSessionAttachClient.retrying({ _ in
             if await calls.tapEndpoint() == 1 { throw Down() }
             return socket
         }, reconnect: { await calls.tapReconnect("box"); return true })
@@ -39,11 +39,11 @@ struct AgentPaneMachineLinkTests {
         #expect(await calls.reconnect == ["box"])
 
         await #expect(throws: Down.self) {
-            try await AgentSessionAttachClient.retrying({ () throws -> DaemonEndpoint in throw Down() }, reconnect: { false })
+            try await AgentSessionAttachClient.retrying({ _ throws -> DaemonEndpoint in throw Down() }, reconnect: { false })
         }
 
         let up = Calls()
-        let fine = try await AgentSessionAttachClient.retrying({ socket }, reconnect: { await up.tapReconnect("box"); return true })
+        let fine = try await AgentSessionAttachClient.retrying({ _ in socket }, reconnect: { await up.tapReconnect("box"); return true })
         #expect(fine == socket)
         #expect(await up.reconnect.isEmpty)
     }
