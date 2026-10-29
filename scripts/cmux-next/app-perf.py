@@ -48,6 +48,9 @@ Usage: app-perf.py --tag <tag> --app PATH [--workspaces 10,50] [--scenarios ...]
 import argparse, glob, json, math, os, signal, socket, subprocess, sys, tempfile, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from bench_launch import LaunchError, launch_app  # noqa: E402
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import bench_memory  # noqa: E402  (process lookups for --open)
 
 SCENARIOS = ["split-right", "split-down", "right-sidebar", "sidebar", "new-top", "switch"]
@@ -520,8 +523,13 @@ def measure_count(count, wanted, bench):
             switch(count, bench)
 
 
-def main():
+def started(process):
     global app
+    app = process
+
+
+def main():
+    global app, SOCKET
     if os.path.exists(SOCKET):
         os.remove(SOCKET)
     env = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
@@ -531,15 +539,22 @@ def main():
            "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_TEST_WINDOW_FRAME": ",".join(str(v) for v in WINDOW)}
     os.makedirs(opts.out, exist_ok=True)
     log_path = os.path.join(opts.out, f"app-{TAG}.log")
-    app = launch(env, log_path)
-    if app is None:
-        print("the tagged app did not start (open -n found no process)", flush=True)
-        return False
+    if opts.open:
+        app = launch(env, log_path)
+        if app is None:
+            print("the tagged app did not start (open -n found no process)", flush=True)
+            return False
+    else:
+        # One launch path (bench_launch.py): socket in the state folder, bench env, the reason when it does not come up.
+        try:
+            app, SOCKET = launch_app(APP, env, log_path, timeout=120, on_start=started)
+        except LaunchError:
+            return False
     REPORT["macos"] = subprocess.run(["sw_vers", "-productVersion"], capture_output=True, text=True).stdout.strip()
     REPORT["host"] = subprocess.run(["hostname", "-s"], capture_output=True, text=True).stdout.strip()
     REPORT["sha"] = (opts.sha or subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip())[:12] or "?"
     print(f"launched pid {app.pid} macOS {REPORT['macos']} host {REPORT['host']} at {REPORT['sha']}", flush=True)
-    if not wait(lambda: os.path.exists(SOCKET) and (rpc("debug.windows") or {}).get("windows"), 120):
+    if opts.open and not wait(lambda: os.path.exists(SOCKET) and (rpc("debug.windows") or {}).get("windows"), 120):
         print(f"the tagged app did not come up (socket {os.path.exists(SOCKET)})\n"
               + open(log_path, errors="replace").read()[-6000:], flush=True)
         return False

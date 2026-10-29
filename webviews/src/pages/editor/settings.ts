@@ -424,6 +424,11 @@ export function monacoOptions(
     readOnly: context.readOnly,
     readOnlyMessage: { value: context.readOnlyMessage ?? "" },
     domReadOnly: false,
+    // Typing goes through Monaco's hidden textarea, never Chromium's EditContext: the app holds a
+    // page's printable keys until it reports an input, textarea or contenteditable focused
+    // (PageInputReadiness), and an EditContext element is none of them, so in a Chromium page no
+    // typed key reached the editor until another field had taken focus once.
+    editContext: false,
     // A file is written only by the user's edits: Monaco never rewrites line terminators itself.
     unusualLineTerminators: "off",
     // Large files: everything that walks the whole document stays off.
@@ -441,7 +446,8 @@ export function monacoOptions(
     ...scrollerOptions,
     // The page is the scroller's only owner; the native view handles the window.
     scrollbar: { ...scrollerOptions.scrollbar, alwaysConsumeMouseWheel: false },
-    // Monaco's own context menu inside the editor (R139 allows it); no popup while typing.
+    // Monaco's own context menu, only where the page has no native menu (the dev loop): in the app
+    // a right-click opens the app's macOS menu (nativeEditorMenu.ts). No popup while typing.
     contextmenu: true,
     quickSuggestions: settings.quickSuggestions && !large,
     padding: { top: 4 },

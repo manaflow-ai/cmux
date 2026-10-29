@@ -3,9 +3,9 @@
 //! reader itself; the `_acpmux/media_open` and `_acpmux/media_range` methods that serve it come in
 //! their own change.
 //!
-//! What a chat may read: a file under its folder (`cwd`, the root a relative path starts from) or
-//! its own uploads (`hub/file_uploads.rs`). The hub keeps no `additionalDirectories`, so they are
-//! no root. The open runs against the descriptor, not the path:
+//! What a chat may read: a file under its folder (`cwd`, the root a relative path starts from),
+//! `/tmp`, its home folder, or its own uploads (`hub/file_uploads.rs`). The open runs against the
+//! descriptor, not the path:
 //!
 //! - each root is resolved once (`realpath`): a root that is itself a link (`/tmp` on macOS, a
 //!   folder the person linked) means the person chose its target. That resolved folder is opened
@@ -29,11 +29,16 @@
 //! its path keeps serving the bytes that were opened. A range is at most [`MAX_RANGE`] bytes:
 //! 8 MiB of base64, under the RPC cap (`rpc.rs`) and an older peer's 16 MiB frame.
 
-use crate::rpc::RpcError;
-use serde_json::json;
+use super::Hub;
+use super::media_handles::Handles;
+use crate::rpc::{RpcError, method};
+use serde_json::{Value, json};
 use std::ffi::OsString;
 use std::fs::File;
 use std::path::{Component, Path, PathBuf};
+
+/// The `initialize` feature of a daemon that serves the media reader methods.
+pub const FEATURE: &str = "mediaRead";
 
 /// The most bytes one range reads.
 pub const MAX_RANGE: usize = 6 << 20;
@@ -42,7 +47,7 @@ pub const MAX_IMAGE_BYTES: u64 = 10 << 20;
 /// The largest video read.
 pub const MAX_VIDEO_BYTES: u64 = 200 << 20;
 
-fn refused(reason: &str, message: &str) -> RpcError {
+pub(crate) fn refused(reason: &str, message: &str) -> RpcError {
     RpcError::invalid_params(message).with_data(json!({"reason": reason}))
 }
 
@@ -272,6 +277,47 @@ pub fn open_in(
     Ok(Opened { file, identity, mime })
 }
 
+/// Opens the regular file `parts` names below `root`, the way [`open_in`] opens media: the root
+/// resolved once and opened from `/` without following a link, each component below it opened
+/// with `O_NOFOLLOW` on the root's mount, the file's folder's `..` chain back to the root, and
+/// the file a regular file with one link. For a reader of files the daemon's own agents write
+/// under a root it chose (`subagent_transcript.rs`), so no type sniff and no private-place check.
+/// Blocking: run it off the runtime.
+pub(crate) fn open_regular_below(root: &Path, parts: &[OsString]) -> Result<File, RpcError> {
+    let root = resolve(root).ok_or_else(unreadable)?;
+    let mut dir = sys::open_root(&root.path).ok_or_else(unreadable)?;
+    if sys::dev_ino(&dir.metadata().map_err(|_| unreadable())?) != root.id {
+        return Err(unreadable());
+    }
+    let device = sys::mount(&dir).ok_or_else(unreadable)?;
+    let (name, folders) = parts.split_last().ok_or_else(unreadable)?;
+    for folder in folders {
+        dir = sys::open_below(&dir, folder, true).ok_or_else(unreadable)?;
+        if sys::mount(&dir).ok_or_else(unreadable)? != device {
+            return Err(mount());
+        }
+    }
+    let file = sys::open_below(&dir, name, false).ok_or_else(unreadable)?;
+    let mut up = dir;
+    for _ in folders {
+        up = sys::open_below(&up, std::ffi::OsStr::new(".."), true).ok_or_else(unreadable)?;
+    }
+    if sys::dev_ino(&up.metadata().map_err(|_| unreadable())?) != root.id {
+        return Err(outside());
+    }
+    if sys::mount(&file).ok_or_else(unreadable)? != device {
+        return Err(mount());
+    }
+    let meta = file.metadata().map_err(|_| unreadable())?;
+    if !meta.is_file() {
+        return Err(refused("media.notFile", "the path is not a regular file"));
+    }
+    if sys::links(&meta) != 1 {
+        return Err(refused("media.linked", "the file has another name (a hard link)"));
+    }
+    Ok(file)
+}
+
 /// Fills `buf` from `offset` until it is full or the file ends; answers how many bytes it read.
 fn read_at(file: &File, buf: &mut [u8], offset: u64) -> Result<usize, RpcError> {
     let mut got = 0;
@@ -312,6 +358,119 @@ pub fn read_range(
         return Err(changed());
     }
     Ok(buf)
+}
+
+async fn blocking<T: Send + 'static>(
+    work: impl FnOnce() -> Result<T, RpcError> + Send + 'static,
+) -> Result<T, RpcError> {
+    tokio::task::spawn_blocking(work).await.map_err(|e| RpcError::internal(e.to_string()))?
+}
+
+/// `_acpmux/media_open` or `_acpmux/media_range` for one of this daemon's chats.
+pub async fn handle(
+    hub: &Hub,
+    handles: &Handles,
+    m: &str,
+    params: &Value,
+) -> Result<Value, RpcError> {
+    // A range for a chat that is gone closes its handle, which nothing can read again: a
+    // forwarding daemon closes a departed client's handles so (`server/media_forward.rs`). Only
+    // the handle's own chat counts: a purged chat closes its own handles, and a chat that no
+    // longer resolves only a handle whose chat no longer exists at all.
+    let range_handle = (m == method::MUX_MEDIA_RANGE)
+        .then(|| params.get("handle").and_then(Value::as_str))
+        .flatten();
+    let session = hub.resolve(crate::server::session_key(params)?).inspect_err(|_| {
+        if let Some(handle) = range_handle {
+            handles.forget_orphan(handle);
+        }
+    })?;
+    if session.purged.load(std::sync::atomic::Ordering::SeqCst) {
+        if let Some(handle) = range_handle {
+            handles.close(&session, handle);
+        }
+        return Err(RpcError::invalid_params("no such chat"));
+    }
+    if m == method::MUX_MEDIA_OPEN {
+        let home = dirs::home_dir();
+        let raw_path = params.get("path").and_then(Value::as_str).unwrap_or_default();
+        let path = expand_reply_path(raw_path, &session.meta().cwd, home.as_deref());
+        let mut roots = vec![session.meta().cwd.clone(), PathBuf::from("/tmp")];
+        if let Some(home) = &home {
+            roots.push(home.clone());
+        }
+        roots.extend(super::file_uploads::session_dir(&session.id));
+        let opened = blocking(move || open_in(&roots, &path, home.as_deref(), &mut |_| {})).await?;
+        let (size, mime, identity) = (opened.identity.size, opened.mime, opened.identity.token());
+        let handle = handles.insert(&session, opened)?;
+        return Ok(json!({"handle": handle, "size": size, "mimeType": mime, "identity": identity}));
+    }
+    let handle = params.get("handle").and_then(Value::as_str).unwrap_or_default();
+    let (file, identity) = handles.get(&session, handle)?;
+    let number = |key: &str| {
+        params.get(key).and_then(Value::as_u64).ok_or_else(|| {
+            refused("media.range", &format!("{key} must be a whole number of bytes"))
+        })
+    };
+    let read = match (number("offset"), number("length")) {
+        (Ok(offset), Ok(length)) => blocking(move || read_range(&file, &identity, offset, length))
+            .await
+            .map(|bytes| (offset, bytes)),
+        (Err(e), _) | (_, Err(e)) => Err(e),
+    };
+    // A refused range closes the handle: a reader that asks wrong opens the file again.
+    let (offset, bytes) = read.inspect_err(|_| handles.close(&session, handle))?;
+    let end = offset.saturating_add(u64::try_from(bytes.len()).unwrap_or(u64::MAX));
+    if end >= identity.size {
+        handles.close(&session, handle);
+    }
+    use base64::Engine;
+    Ok(json!({
+        "offset": offset,
+        "size": identity.size,
+        "identity": identity.token(),
+        "data": base64::engine::general_purpose::STANDARD.encode(bytes),
+    }))
+}
+
+/// Resolve the harmless spelling conveniences accepted by reply markdown before the descriptor
+/// walk. The walk itself still rejects symlinks, mounts and every component outside its roots.
+fn expand_reply_path(path: &str, cwd: &Path, home: Option<&Path>) -> String {
+    if let Some(home) = home {
+        if path == "~" {
+            return home.to_string_lossy().into_owned();
+        }
+        if let Some(rest) = path.strip_prefix("~/") {
+            return home.join(rest).to_string_lossy().into_owned();
+        }
+    }
+    if path.starts_with("./") || path.starts_with("../") {
+        let mut expanded = cwd.to_path_buf();
+        for component in Path::new(path).components() {
+            match component {
+                Component::CurDir => {}
+                Component::ParentDir => {
+                    expanded.pop();
+                }
+                Component::Normal(name) => expanded.push(name),
+                Component::RootDir | Component::Prefix(_) => return path.to_owned(),
+            }
+        }
+        return expanded.to_string_lossy().into_owned();
+    }
+    path.to_owned()
+}
+
+/// The refusal of `m` for a peer that does not serve the reader: the app shows the media as a
+/// card.
+pub fn peer_unsupported(peer: &crate::peer::Peer, m: &str) -> RpcError {
+    RpcError::method_not_found(&format!(
+        "{m} (peer {} runs acpmux build {}; run `acpmux host update {}`)",
+        peer.name,
+        peer.remote_build().unwrap_or_else(|| "unknown".into()),
+        peer.name
+    ))
+    .with_data(json!({"reason": "mediaRead.unsupported"}))
 }
 
 #[cfg(unix)]

@@ -43,6 +43,22 @@ struct CmuxToastQuietTests {
         other.dismiss()
     }
 
+    /// Only what it said is quiet: the same message with another detail (another subagent that
+    /// could not be stopped, and why) still shows (Codex review of #23393).
+    @Test func anotherDetailStillShows() {
+        let host = RecordingToastHost()
+        let center = CmuxToastCenter(host: host)
+        let window = Self.window()
+        let first = CmuxToast(id: "home.stopAllAgents", message: "1 could not be stopped", detail: "a2: refused")
+        center.show(first, in: window)
+        host.shown.last?.onClose?()
+        #expect(center.isQuieted(first))
+
+        let other = center.show(CmuxToast(id: "home.stopAllAgents", message: "1 could not be stopped", detail: "a4: refused"), in: window)
+        #expect(!other.isDismissed)
+        other.dismiss()
+    }
+
     /// A toast with an action (an Undo, a Retry) is never quieted: it may hold the person's work.
     @Test func aToastWithAnActionIsNeverQuieted() {
         let host = RecordingToastHost()

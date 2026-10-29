@@ -31,6 +31,11 @@ extension PageWebView {
         return image
     }
 
+    /// Whether ``snapshot()`` keeps the page's clear areas the color the pane shows under them. A
+    /// Chromium picture is a JPEG, with no alpha: a clear page comes out black, so it is no cover for a
+    /// page that has not drawn yet (Cmd-T spam drew a black New Tab page, 2026-10-24).
+    public var snapshotKeepsClearAreas: Bool { chromiumSession == nil }
+
     /// `Page.captureScreenshot` for ``snapshot()``.
     nonisolated static var snapshotParams: [String: any Sendable] { ["format": "jpeg", "quality": 85, "optimizeForSpeed": true] }
 

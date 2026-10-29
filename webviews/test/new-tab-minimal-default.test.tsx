@@ -137,7 +137,7 @@ test("Minimal is the default layout and the first dot; no other layout is gone",
   expect(PAGE_STYLES).toEqual(["minimal", "cards", "default", "composer", "threads", "console", "classic"]);
 });
 
-test("by default Minimal is the composer alone, with its project strip and no greeting", async () => {
+test("by default Minimal is the composer alone", async () => {
   const root = await render("minimal", undefined);
   try {
     expect(parts()).toEqual({
@@ -149,7 +149,7 @@ test("by default Minimal is the composer alone, with its project strip and no gr
       chats: 0,
       strip: 1,
     });
-    // No greeting of any kind: no greeting element, no time-of-day text.
+    // No time-of-day greeting.
     expect(host.querySelector(".nt-greeting")).toBeNull();
     expect(host.textContent).not.toMatch(/Good (morning|afternoon|evening)/);
   } finally {
@@ -180,6 +180,25 @@ test("the toggle draws a useful headline: what to work on, with the project as a
   }
 });
 
+test("optional time, warm greeting, stopwatch and quote widgets are independently opt-in", async () => {
+  let root = await render("minimal", []);
+  try {
+    expect(host.querySelector(".nt-extras")).toBeNull();
+    expect(host.textContent).not.toMatch(/Good (morning|afternoon|evening)/);
+  } finally {
+    await act(async () => root.unmount());
+  }
+  root = await render("minimal", ["clock", "timer", "warmGreeting", "quote"]);
+  try {
+    expect(host.querySelector(".nt-extra-clock")).not.toBeNull();
+    expect(host.querySelector(".nt-extra-timer")).not.toBeNull();
+    expect(host.querySelector(".nt-extra-warm")).not.toBeNull();
+    expect(host.querySelector(".nt-extra-quote")).not.toBeNull();
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
 test("a project picked in the headline is the folder the composer starts its chat in", async () => {
   const asked: unknown[][] = [];
   const root = await render("minimal", ["greeting"], "/Users/you/src/atlas", {
@@ -193,7 +212,7 @@ test("a project picked in the headline is the folder the composer starts its cha
     const strip = () => host.querySelector(".acpmux-composer-strip")?.textContent ?? "";
     expect(strip()).toContain("atlas");
     await act(async () => host.querySelector<HTMLButtonElement>(".nt-headline-text .acpmux-project-button")!.click());
-    const row = window.document.querySelector<HTMLElement>('[role="option"][aria-label^="manaflow,"]');
+    const row = window.document.querySelector<HTMLElement>('[role="option"][aria-label^="manaflow "]');
     expect(row).not.toBeNull();
     await act(async () => {
       row!.dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true, cancelable: true }));
@@ -293,6 +312,8 @@ test("the handshake's pageWidgets: known names in order, Settings' defaults when
   expect([...shownPageWidgets("minimal")]).toEqual([]);
   expect([...shownPageWidgets("minimal", [])]).toEqual([]);
   expect([...shownPageWidgets("cards", ["greeting"])]).toEqual(
-    PAGE_WIDGETS.filter((widget) => widget !== "greeting" && widget !== "weather" && widget !== "machines"),
+    PAGE_WIDGETS.filter(
+      (widget) => !["greeting", "weather", "machines", "clock", "timer", "warmGreeting", "quote"].includes(widget),
+    ),
   );
 });

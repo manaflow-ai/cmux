@@ -23,7 +23,14 @@
           },
           "kind": "toggle",
           "default": false,
-          "keywords": ["new tab", "widget", "headline", "greeting", "project", "question"]
+          "keywords": [
+            "new tab",
+            "widget",
+            "headline",
+            "greeting",
+            "project",
+            "question"
+          ]
         },
         {
           "key": "tabs.newTabWidgets.projects",
@@ -38,7 +45,14 @@
           },
           "kind": "toggle",
           "default": false,
-          "keywords": ["new tab", "widget", "project", "folder", "machine", "environment"]
+          "keywords": [
+            "new tab",
+            "widget",
+            "project",
+            "folder",
+            "machine",
+            "environment"
+          ]
         },
         {
           "key": "tabs.newTabWidgets.actions",
@@ -53,7 +67,14 @@
           },
           "kind": "toggle",
           "default": false,
-          "keywords": ["new tab", "widget", "actions", "new terminal", "new browser tab", "new chat"]
+          "keywords": [
+            "new tab",
+            "widget",
+            "actions",
+            "new terminal",
+            "new browser tab",
+            "new chat"
+          ]
         },
         {
           "key": "tabs.newTabWidgets.chats",
@@ -68,7 +89,14 @@
           },
           "kind": "toggle",
           "default": false,
-          "keywords": ["new tab", "widget", "chats", "recent", "history", "all chats"]
+          "keywords": [
+            "new tab",
+            "widget",
+            "chats",
+            "recent",
+            "history",
+            "all chats"
+          ]
         },
         {
           "key": "tabs.newTabWidgets.styleDots",
@@ -84,7 +112,13 @@
           },
           "kind": "toggle",
           "default": false,
-          "keywords": ["new tab", "widget", "template", "style", "dots"]
+          "keywords": [
+            "new tab",
+            "widget",
+            "template",
+            "style",
+            "dots"
+          ]
         },
         {
           "key": "tabs.newTabWidgets.weather",
@@ -99,7 +133,14 @@
           },
           "kind": "toggle",
           "default": false,
-          "keywords": ["new tab", "widget", "weather", "temperature", "forecast", "location"]
+          "keywords": [
+            "new tab",
+            "widget",
+            "weather",
+            "temperature",
+            "forecast",
+            "location"
+          ]
         },
         {
           "key": "tabs.newTabWidgets.weatherCity",
@@ -114,7 +155,13 @@
           },
           "kind": "text",
           "default": "",
-          "keywords": ["new tab", "widget", "weather", "city", "location"]
+          "keywords": [
+            "new tab",
+            "widget",
+            "weather",
+            "city",
+            "location"
+          ]
         },
         {
           "key": "tabs.newTabWidgets.machines",
@@ -129,7 +176,99 @@
           },
           "kind": "toggle",
           "default": false,
-          "keywords": ["new tab", "widget", "machines", "computers", "ssh", "cloud", "online"]
+          "keywords": [
+            "new tab",
+            "widget",
+            "machines",
+            "computers",
+            "ssh",
+            "cloud",
+            "online"
+          ]
+        },
+        {
+          "key": "tabs.newTabWidgets.clock",
+          "name": "clock",
+          "note": "Off by default. On: a quiet local time display beside the composer.",
+          "title": {
+            "key": "settings.tabs.newTabWidgets.clock",
+            "text": "Show Clock on New Tab"
+          },
+          "help": {
+            "key": "settings.tabs.newTabWidgets.clock.help",
+            "text": "A quiet local time display beside the composer."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "new tab",
+            "widget",
+            "clock",
+            "time"
+          ]
+        },
+        {
+          "key": "tabs.newTabWidgets.timer",
+          "name": "timer",
+          "note": "Off by default. On: a small elapsed-time stopwatch beside the composer.",
+          "title": {
+            "key": "settings.tabs.newTabWidgets.timer",
+            "text": "Show Stopwatch on New Tab"
+          },
+          "help": {
+            "key": "settings.tabs.newTabWidgets.timer.help",
+            "text": "A small elapsed-time stopwatch beside the composer."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "new tab",
+            "widget",
+            "timer",
+            "stopwatch"
+          ]
+        },
+        {
+          "key": "tabs.newTabWidgets.warmGreeting",
+          "name": "warmGreeting",
+          "note": "Off by default. On: a time-of-day greeting such as Good afternoon.",
+          "title": {
+            "key": "settings.tabs.newTabWidgets.warmGreeting",
+            "text": "Show Warm Greeting on New Tab"
+          },
+          "help": {
+            "key": "settings.tabs.newTabWidgets.warmGreeting.help",
+            "text": "A time-of-day greeting such as Good afternoon."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "new tab",
+            "widget",
+            "greeting",
+            "time of day"
+          ]
+        },
+        {
+          "key": "tabs.newTabWidgets.quote",
+          "name": "quote",
+          "note": "Off by default. On: a bundled public-domain quote, changing daily.",
+          "title": {
+            "key": "settings.tabs.newTabWidgets.quote",
+            "text": "Show Quote of the Day on New Tab"
+          },
+          "help": {
+            "key": "settings.tabs.newTabWidgets.quote.help",
+            "text": "A bundled public-domain quote, changing daily."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "new tab",
+            "widget",
+            "quote",
+            "daily"
+          ]
         }
       ]
     }

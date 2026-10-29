@@ -9,6 +9,7 @@ export const L = {
   disconnected: "page.disconnected",
   retry: "page.retry",
   modeLabel: "mode.label",
+  edit: "edit.button",
   rich: "mode.rich",
   source: "mode.source",
   saved: "status.saved",

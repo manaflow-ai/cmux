@@ -1,5 +1,7 @@
 // DEBUG and Demo builds only: the Feed scroll stress rig (frame timing, G-04).
 #if DEBUG
+import CmuxAgentQuestion
+import CmuxMobileAgentChat
 import CmuxMobileModel
 import Foundation
 import Observation
@@ -34,7 +36,13 @@ public struct FeedStressConfig: Equatable, Sendable {
         scrollSpeed = environment["CMUX_MOBILE_FEED_SCROLL_SPEED"].flatMap(Double.init) ?? 2400
         settle = environment["CMUX_MOBILE_FEED_SETTLE"].flatMap(Double.init) ?? 4
         idleWindow = environment["CMUX_MOBILE_FEED_IDLE_WINDOW"].flatMap(Double.init)
+        logsChurn = environment["CMUX_MOBILE_FEED_CHURN_LOG"] == "1"
     }
+
+    /// `CMUX_MOBILE_FEED_CHURN_LOG=1`: log what each store write changed (`FeedStore.logChange`).
+    /// Off by default: it reflects over every changed event on the main thread, which the
+    /// frame timings must not include.
+    public var logsChurn: Bool
 
     public var isActive: Bool { seedCount != nil || liveHz != nil || autoscrollPasses != nil }
 }
@@ -100,11 +108,22 @@ extension FeedStore {
             Want me to retry?
             """,
         ]
-        let body = bodies[index % bodies.count]
-        let kinds: [FeedItem.Kind] = [.response, .finished, .response, .needsInput, .response, .failed]
+        // What a real Feed carries (two Macs, Codex and Claude): answers, finished and failed
+        // cards, terminal asks, permission cards with long commands, and questions.
+        let kinds: [FeedItem.Kind] = [
+            .response, .finished, .permission(stressPermission(index: index, revision: revision)), .needsInput,
+            .response, .failed, .question(stressQuestion(index: index)), .response,
+        ]
+        let kind = kinds[index % kinds.count]
+        let body: String
+        switch kind {
+        case .permission: body = "Codex wants to run a command in `~/Development/cmux` (#\(index))."
+        case .question: body = "Before I tag the build I need a decision (#\(index))."
+        default: body = bodies[index % bodies.count]
+        }
         let codex = index % 2 == 0
         var item = FeedItem(
-            id: "stress-\(index)", kind: kinds[index % kinds.count],
+            id: "stress-\(index)", kind: kind,
             workspaceID: "ws-stress-\(index % 5)", tabID: "t-\(index % 7)",
             agentName: codex ? "Codex" : "Claude", harness: codex ? "codex" : "claude",
             workspaceTitle: ["cmux", "cmux.com", "web", "cmux-next-ios", "daemon"][index % 5], markdown: body,
@@ -114,7 +133,44 @@ extension FeedStore {
         )
         item.isRead = index % 4 != 0
         item.opensTerminal = item.kind == .needsInput
+        item.macID = index % 3 == 0 ? "mac-stress-b" : "mac-stress-a"
+        if index % 9 == 4 { item.replies = ["Ship it after the e2e retry passes."] }
         return item
+    }
+
+    /// A permission card as Codex sends one: a long shell command in a code block.
+    static func stressPermission(index: Int, revision: Int) -> ACPPermissionRequest {
+        let command = """
+        cd ~/Development/cmux && ./scripts/reload.sh --tag feed-\(index) --launch \\
+          && xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug \\
+             -destination 'platform=macOS' -derivedDataPath /tmp/cmux-feed-\(index) build \\
+          | xcbeautify --quiet && git push origin HEAD:feat-feed-\(index) # rev \(revision)
+        """
+        return ACPPermissionRequest(
+            id: "stress-perm-\(index)",
+            toolCall: ACPToolCall(id: "stress-call-\(index)", title: "Run reload.sh", kind: .execute, status: .pending,
+                                  rawInput: .object(["command": .string(command)])),
+            options: [
+                ACPPermissionOption(id: "allow", name: "Allow once", kind: .allowOnce),
+                ACPPermissionOption(id: "always", name: "Always allow", kind: .allowAlways),
+                ACPPermissionOption(id: "deny", name: "Deny", kind: .rejectOnce),
+            ],
+            cwd: "~/Development/cmux"
+        )
+    }
+
+    static func stressQuestion(index: Int) -> AgentQuestion {
+        AgentQuestion(
+            id: "stress-q-\(index)",
+            source: AgentQuestion.Source(harness: .claude, session: "t-\(index % 7)", permission: "stress-perm-q-\(index)", agentName: "Claude"),
+            items: [
+                AgentQuestion.Item(id: "channel", header: "Release", prompt: "Which channel should build \(index) go to first?", options: [
+                    AgentQuestion.Option(id: "nightly", label: "Nightly", detail: "Everyone on nightly gets it tonight."),
+                    AgentQuestion.Option(id: "rc", label: "Release candidate", detail: "Cut an rc and ask the team to dogfood."),
+                    AgentQuestion.Option(id: "testflight", label: "TestFlight only"),
+                ]),
+            ]
+        )
     }
 }
 
@@ -194,10 +250,11 @@ final class FeedStressRig {
         let count = max(store.items.count, 1)
         switch tick % 4 {
         case 0:
-            // A new event on top (a Codex notification), while scrolled away.
+            // A new event on top (a Codex notification), as live mode adds one (`atTop: true`;
+            // the store holds it while the Feed is scrolled away from the top).
             var item = FeedStore.stressItem(index: 10_000 + tick, now: Date())
             item.id = "stress-live-\(tick)"
-            store.upsert(item, atTop: false)
+            store.upsert(item, atTop: true)
         case 1:
             // The ledger re-read: an existing event's text changes in place.
             let index = (tick * 7) % count
@@ -274,6 +331,11 @@ final class FeedAutoScroller: NSObject {
     @objc private func step(_ link: CADisplayLink) {
         guard let scrollView else { link.invalidate(); return }
         let dt = last.map { link.timestamp - $0 } ?? 0
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["CMUX_MOBILE_FEED_CELL_TIMING"] == "1", dt > 0.025 {
+            FeedCellTiming.logger.notice("FEEDCELL long frame \(Int(dt * 1000), privacy: .public) ms at y=\(Int(scrollView.contentOffset.y), privacy: .public)")
+        }
+        #endif
         last = link.timestamp
         let top = -scrollView.adjustedContentInset.top
         let bottom = max(top, scrollView.contentSize.height - scrollView.bounds.height + scrollView.adjustedContentInset.bottom)
@@ -300,7 +362,11 @@ final class FeedAutoScroller: NSObject {
         Logger(subsystem: "dev.cmux.mobile", category: "frames")
             .notice("FRAMELOG feed-autoscroll-done passes=\(self.pass, privacy: .public) worst=\(worst?.line ?? "-", privacy: .public)")
         // The rig (`verify/feedperf/rig.sh run`) waits for the app to exit.
-        if ProcessInfo.processInfo.environment["CMUX_MOBILE_FEED_EXIT_WHEN_DONE"] == "1" { exit(0) }
+        if ProcessInfo.processInfo.environment["CMUX_MOBILE_FEED_EXIT_WHEN_DONE"] == "1" {
+            // The last window's line must be on disk before the process ends.
+            FrameLogFile.flush()
+            exit(0)
+        }
     }
 }
 

@@ -96,7 +96,15 @@ fn answer(mux: &Mux, client: u64, request: &ParsedResourceRequest) -> Result<Val
             }
         }
         let mut written =
-            chief_registry_resource::set_chief_avatar(mux, client, &chief_fields, key)?;
+            chief_registry_resource::set_chief_avatar(
+                mux,
+                client,
+                &chief_fields,
+                key,
+                request.envelope.origin.as_ref().is_some_and(|origin| {
+                    origin.claim == crate::request_origin::RequestOrigin::Agent
+                }),
+            )?;
         let avatar = written.pointer("/value/avatar").cloned().unwrap_or(Value::Null);
         written.insert("value", json!({"participant_id": participant, "avatar": avatar}));
         return Ok(written);

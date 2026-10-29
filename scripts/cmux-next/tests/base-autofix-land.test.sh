@@ -16,6 +16,8 @@ manifest=Packages/macOS/CmuxNext/Package.swift
 graph=Packages/macOS/CmuxNext/ci-target-graph.json
 setting=Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Settings.swift
 schema=schemas/settings/settings-schema.json
+cap_source=Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Connection/DaemonEndpoint.swift
+cap=plans/cmux-next/daemon-capabilities.json
 
 # A stand-in for base-autofix-repair.sh: the graph names the manifest it was made from. With
 # FAKE_MOVE, each repair on a moved tip (CMUX_BASE_AUTOFIX_AGAIN=1) is followed by a lane push that
@@ -28,10 +30,19 @@ repo="$1"
 echo "${TOKEN-unset}" >> "$FAKE_TOKENS"
 [[ "${CMUX_BASE_AUTOFIX_AGAIN:-}" == 1 ]] && echo again >> "$FAKE_AGAIN"
 graph="Packages/macOS/CmuxNext/ci-target-graph.json"
+cap_source="Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Connection/DaemonEndpoint.swift"
+cap="plans/cmux-next/daemon-capabilities.json"
 made="graph for $(cat "$repo/Packages/macOS/CmuxNext/Package.swift")"
 if [[ "$(cat "$repo/$graph")" != "$made" ]]; then
   echo "$made" > "$repo/$graph"
   echo "fixed: regenerated $graph"
+fi
+if [[ -f "$repo/$cap_source" && -f "$repo/$cap" ]]; then
+  cap_made="capability export for $(cat "$repo/$cap_source")"
+  if [[ "$(cat "$repo/$cap")" != "$cap_made" ]]; then
+    echo "$cap_made" > "$repo/$cap"
+    echo "fixed: regenerated $cap"
+  fi
 fi
 if [[ "${CMUX_BASE_AUTOFIX_AGAIN:-}" == 1 && "${FAKE_MOVE:-}" == always ]]; then
   n="$(wc -l < "$FAKE_AGAIN")"
@@ -44,15 +55,16 @@ chmod +x "$tmp/fake-repair.sh"
 # A remote with one base commit, a shallow bot checkout at it (actions/checkout) holding the run's
 # first repair commit, and a lane clone that pushes other people's commits.
 setup() {
+  with_cap="${1:-}"
   rm -rf "$tmp/remote.git" "$tmp/bot" "$tmp/lane" "$tmp/tokens" "$tmp/again"
   : > "$tmp/tokens"; : > "$tmp/again"
   git init -q --bare -b feat "$tmp/remote.git"
   git clone -q "$tmp/remote.git" "$tmp/lane" 2>/dev/null
   (cd "$tmp/lane" && git checkout -q -b feat \
-    && mkdir -p Packages/macOS/CmuxNext/Sources/CmuxNextSettings schemas/settings schemas/settings-export \
+    && mkdir -p Packages/macOS/CmuxNext/Sources/CmuxNextSettings schemas/settings \
     && echo "manifest v1" > "$manifest" && echo "graph old" > "$graph" \
     && echo "setting v1" > "$setting" && echo "schema old" > "$schema" \
-    && echo "stamp old" > schemas/settings-export/settings-schema.sources.sha256 \
+    && if [[ "$with_cap" == cap ]]; then mkdir -p "$(dirname "$cap_source")" "$(dirname "$cap")" && echo "capability source v1" > "$cap_source" && echo "cap old" > "$cap"; fi \
     && echo readme > README.md \
     && git add -A && git commit -q -m base && git push -q origin feat)
   git clone -q --depth=1 -b feat "file://$tmp/remote.git" "$tmp/bot"
@@ -62,6 +74,7 @@ setup() {
 # "settings" the settings exports the Mac job made there.
 first_repair() {
   (cd "$tmp/bot" && echo "graph for manifest v1" > "$graph" \
+    && if [[ "$with_cap" == cap ]]; then echo "capability export for capability source v1" > "$cap"; fi \
     && if [[ "${1:-}" == settings ]]; then echo "schema new" > "$schema"; fi \
     && git commit -q -am "chore(next): base autofix at ${base:0:12}")
 }
@@ -100,6 +113,15 @@ git -C "$tmp/remote.git" log -1 --format=%s feat | grep -qE "^chore\(next\): bas
   || fail "the new repair does not name the tip it was made at: $(git -C "$tmp/remote.git" log -1 --format=%s feat)"
 [[ "$(wc -l < "$tmp/again")" == 1 ]] || fail "the repair was made again $(wc -l < "$tmp/again") times, not once"
 grep -q "again on ${moved:0:12}" "$tmp/out" || fail "the run does not say it made the repair again on the tip: $(cat "$tmp/out")"
+
+# The source-derived capability export is also remade on a moved tip.
+setup cap
+first_repair
+lane_commit "lane edits a daemon capability" "$cap_source" "capability source v2"
+moved="$(remote_tip)"
+run > "$tmp/out" 2>&1 || fail "the capability export was not made again on the moved tip: $(cat "$tmp/out")"
+[[ "$(remote_show "$cap")" == "capability export for capability source v2" ]] \
+  || fail "the capability export on the branch is not the tip's: $(remote_show "$cap")"
 
 # 3. The repair never sees the push token, on any round.
 grep -qvx unset "$tmp/tokens" && fail "a repair ran with the push token in its environment"
@@ -203,7 +225,7 @@ chmod +x "$tmp/fake-dump.sh"
 mkdir -p "$tmp/exports/plans/cmux-next" "$tmp/patchdir" "$tmp/repo"
 echo patch > "$tmp/patchdir/webviews-fmt.patch"
 repair_args() { # [env...]
-  env GRAPH=true STRINGS=false SDK=true SHORTCUTS=false APPHOST=false ACTIONS=true SETTINGS=true \
+  env GRAPH=true STRINGS=false SDK=true CAPABILITIES=true SHORTCUTS=false APPHOST=false ACTIONS=true SETTINGS=true \
     EXPORTS_VERIFIED=true SETTINGS_VERIFIED=true RATCHETS=true CLOUD=false FMT=false \
     EXPORTS_DIR="$tmp/exports" WEBVIEWS_PATCH="$tmp/patchdir/webviews-fmt.patch" \
     CMUX_BASE_AUTOFIX_SCRIPT="$tmp/fake-autofix.sh" CMUX_BASE_AUTOFIX_DUMP="$tmp/fake-dump.sh" FAKE_ARGS="$tmp/args" "$@" \
@@ -211,7 +233,7 @@ repair_args() { # [env...]
   tr '\n' ' ' < "$tmp/args"
 }
 first="$(repair_args)"
-for want in "--generated $tmp/exports" --package-dump --sdk --docs-shortcuts --app-host --ratchets \
+for want in "--generated $tmp/exports" --package-dump --sdk --capabilities --docs-shortcuts --app-host --ratchets \
   "--webviews-fmt-patch $tmp/patchdir/webviews-fmt.patch" --no-fmt; do
   [[ " $first" == *" $want "* ]] || fail "the first round does not pass $want: $first"
 done

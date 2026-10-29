@@ -60,8 +60,13 @@ enum AgentBesidePlacement {
         let lone = controller.flatMap { ChatColumnPlacement.resolve(from: $0, services: services) == .dockChat ? $0 : nil }
         let chat = lone?.pane.tabs.first { ChatColumnPlacement.isChat($0, services: services) }
         let chatHadFocus = lone.map { $0.workspace?.focusedPane === $0 } ?? false
+        // The chat's strip never lists the tab on its way out: it first shows on the right (OutboundTab).
+        let outbound = controller.flatMap { $0.pane === anchor ? OutboundTab.begin(in: $0) : nil }
+        if let chat { outbound?.hidden(whileHolding: chat.id) }
         let (surfaces, sink) = AsyncStream<SurfaceID>.makeStream(bufferingPolicy: .bufferingNewest(1))
         services.registry.track(Task { @MainActor in
+            var moved = false
+            defer { outbound?.finish(moved: moved) }
             // The tab's surface, then the store listing it; a bounded wait, so a tab
             // that never opens cannot hold the run.
             let listed = Task { @MainActor () -> SurfaceID? in
@@ -95,6 +100,7 @@ enum AgentBesidePlacement {
                     content.layoutModel.cancelContentHandoff()
                     return "beside-caller: the chat did not dock (see the app log)"
                 }
+                moved = true
                 // Keyboard focus stays in the chat, now in its dock; a person's click focuses the tab.
                 // Not when the person acted since the run began: their focus stays where they put it.
                 if (chatHadFocus || content.focusedPane?.pane === anchor) && !personActed() {
@@ -134,12 +140,13 @@ enum AgentBesidePlacement {
             // the dock (`pinned-dock-alone-v1`), so there is nothing to move.
             let away = services.paneController(for: anchor)?.paneKey
             if services.locateTab(tab.id).map({ $0.1 !== anchor }) == true {
+                moved = true
                 if let clicked { focus(surface, returningTo: from, awayFrom: away, in: clicked, generation: intent, services: services) }
                 await revealMoved(tab.id, from: anchor, services: services)
                 return nil
             }
             let after = newColumn(beside: anchor, in: services.daemon(for: anchor).store)
-            let moved = await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
+            moved = await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
                 TabMoves.toNewColumn(tab, anchor: anchor, afterColumn: after, services: services) { done.resume(returning: $0) }
             }
             guard moved else { return "beside-caller: the move into a new column failed (see the app log)" }
@@ -148,6 +155,7 @@ enum AgentBesidePlacement {
             return nil
         })
         return { surface in
+            outbound?.made(surface)
             then?(surface)
             sink.yield(surface)
             sink.finish()

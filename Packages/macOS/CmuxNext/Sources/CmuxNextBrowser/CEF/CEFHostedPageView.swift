@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextRemoteLayer
 import QuartzCore
 
 /// The page's pixels inside the cmux window's own layer tree (fork API 26,
@@ -82,11 +83,8 @@ final class CEFHostedPageView: NSView {
     /// `CALayerHost` is QuartzCore SPI, the class Chromium itself uses to
     /// show its GPU process's output (`ui::DisplayCALayerTree`).
     nonisolated static func layerHost(contextID: UInt32) -> CALayer? {
-        guard let type = NSClassFromString("CALayerHost") as? CALayer.Type else { return nil }
-        let layerHost = type.init()
-        // A class without the key would raise in setValue(_:forKey:); ask first.
-        guard layerHost.responds(to: NSSelectorFromString("setContextId:")) else { return nil }
-        layerHost.setValue(NSNumber(value: contextID), forKey: "contextId")
+        let layerHost = CALayerHost()
+        layerHost.contextId = contextID
         return layerHost
     }
 

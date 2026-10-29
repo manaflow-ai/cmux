@@ -9,15 +9,16 @@ import Foundation
 /// agent chat of an EXISTING acpmux session. The Home Chief runs each
 /// subagent it spawns this way (optchat-chief `spawn`), so the user sees
 /// every subagent in the sidebar, watches its chat and tool calls, and can
-/// write to it. The workspace gets a terminal in `cwd` first (a daemon
-/// workspace needs a daemon tab), then the agent tab on `session`, which is
-/// selected in every window. Nothing takes focus or switches workspaces.
+/// write to it. The agent tab on `session` is the workspace's first and only
+/// tab, selected in every window; no terminal is made (Leo, 2026-10-28: "we
+/// don't want to just be seeing these bare terminals"). Nothing takes focus or
+/// switches workspaces.
 /// Closing the tab or the workspace only detaches from the session; the
 /// session ends only when someone ends it.
 ///
 /// Arguments: `session` (required, the acpmux session id), `name` (the
 /// workspace name), `key` (a caller-chosen workspace key, a lowercase UUID,
-/// so the caller can rename the workspace later), `cwd` (the terminal's), `host`
+/// so the caller can rename the workspace later), `cwd` (unused: the session keeps its own), `host`
 /// (`chief:<home id>`: the session runs in this app's Chief home's acpmux),
 /// `group` (the name of the sidebar group it goes in: any group of that name
 /// that can hold the row, made only when none can; `acpmux new --group` sends
@@ -74,19 +75,23 @@ enum AgentSessionWorkspace {
         // Placed like Cmd-N (`workspaces.newPlacement`): in the group of the
         // workspace the window shows, when it is in one (cx-caoh), then into
         // the named `group`.
-        var join: (@MainActor @Sendable (String, SidebarBridge) -> Void)?
+        var join: (@MainActor @Sendable (String, any WorkspaceSpawnSidebar) -> Void)?
         if let group {
-            join = { id, sidebar in AgentSessionWorkspace.join(id, group: group, sidebar: sidebar) }
+            join = { id, sidebar in
+                guard let sidebar = sidebar as? SidebarBridge else { return }
+                AgentSessionWorkspace.join(id, group: group, sidebar: sidebar)
+            }
         }
         NewWorkspacePlacements.expect(key.rawValue, in: nil, byDefault: NewWorkspacePlacements.rule(for: nil, in: windows),
                                       then: join, windows: windows)
         return Task { @MainActor in
             do {
-                // Waits for the terminal on a loaded host (Leo, 2026-10-21: a 5 s start deadline
-                // left the workspace a bare shell, never attached): the start that lands late is
-                // the one the session's tab goes beside.
-                _ = try await WorkspaceCreation.create(key, name: name, on: connection, repair: repair) { workspace in
-                    try await connection.createTerminalWaitingForStart(in: workspace, cwd: cwd)
+                // The session's chat is the workspace's first tab: a workspace store tab bound to
+                // the session (agent-session-tabs-v1), saved and restored with the workspace like any
+                // tab. No terminal first: one running `acpmux attach` landed as a bare "~" shell
+                // whenever its start missed the deadline (Leo, 2026-10-21 and 2026-10-28).
+                let tab = try await WorkspaceCreation.createWithFirstTab(key, name: name, on: connection, repair: repair) { created in
+                    try await WorkspaceCreation.sessionTab(session, in: created, host: host, linked: true, on: daemon, tabs: services.agentTabs)
                 }
                 // The workspace's first pane once the store mirrors it, found
                 // by the key chosen here (as CloudHandlers finds its anchor).
@@ -94,15 +99,11 @@ enum AgentSessionWorkspace {
                     logger.error("agent.openSessionWorkspace: the pane of workspace \(key.rawValue, privacy: .public) did not appear")
                     return ActionWorkFailure("agent.openSessionWorkspace: the new workspace's pane did not appear")
                 }
-                // A workspace store tab bound to the session (agent-session-tabs-v1),
-                // so it is saved and restored with the workspace like any tab.
-                let pending = try services.agentTabs.open(in: pane.handle, of: daemon, session: session, linked: true, host: host)
-                let created = try await pending.value()
                 // Selected wherever the workspace is shown later, never shown now.
                 for window in services.windows.controllers {
-                    window.state.selection.select(created.key, in: pane.id)
+                    window.state.selection.select(tab, in: pane.id)
                 }
-                logger.info("agent.openSessionWorkspace: session \(session, privacy: .public) in workspace \(key.rawValue, privacy: .public) tab \(created.key, privacy: .public)")
+                logger.info("agent.openSessionWorkspace: session \(session, privacy: .public) in workspace \(key.rawValue, privacy: .public) tab \(tab, privacy: .public)")
                 return nil
             } catch let refusal as AgentTabRefusal {
                 return ActionWorkFailure("agent.openSessionWorkspace: \(refusal.message)")
@@ -145,30 +146,12 @@ enum AgentSessionWorkspace {
     /// new group of that name when none can hold it: the path of a row drag and of New Group, so it is one
     /// undoable sidebar edit.
     @MainActor static func join(_ id: String, group name: String, sidebar: SidebarBridge) {
-        guard containsWorkspace(id, in: sidebar.model.sections) else { return }
         let ids = [SidebarWorkspaceID(id)]
         if let target = group(named: name, accepting: SidebarWorkspaceID(id), in: sidebar.model.sections) {
             sidebar.handle(.move(ids, toGroup: target))
             return
         }
         sidebar.groupFlow.newGroup(of: ids, name: name, byUser: false)
-    }
-
-    /// A workspace must still be listed before a group is created. A late or
-    /// failed agent-tab attach otherwise leaves an empty persistent group.
-    static func containsWorkspace(_ id: String, in sections: [CmuxNextSidebar.SidebarSection]) -> Bool {
-        sections.contains { section in
-            section.nodes.contains { node in
-                switch node {
-                case .workspace(let workspace):
-                    return workspace.id.rawValue == id
-                case .group(let group):
-                    return group.workspaces.contains { $0.id.rawValue == id }
-                case .item:
-                    return false
-                }
-            }
-        }
     }
 
     /// Sidebar group arguments are labels. Object ids are rejected so an

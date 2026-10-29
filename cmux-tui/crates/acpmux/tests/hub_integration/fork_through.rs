@@ -14,6 +14,9 @@ mod btw;
 // The context window a Claude chat reports, which shares these helpers too.
 #[path = "context_window.rs"]
 mod context_window;
+// The account's plan usage limits a Claude chat reports, which share these helpers too.
+#[path = "usage_limits.rs"]
+mod usage_limits;
 // Claude's todo list as an ACP plan, which shares these helpers too.
 #[path = "todo_plan.rs"]
 mod todo_plan;
@@ -303,6 +306,8 @@ async fn a_claude_fork_through_a_turn_after_a_failed_one_holds_that_turn_and_no_
     std::fs::create_dir_all(&claude).unwrap();
     let (hub, mut c) =
         claude_setup(&claude, &[("FAKE_CLAUDE_DIE_IF", &die.to_string_lossy())]).await;
+    // The turn whose agent dies stays failed: no continuation runs before "second".
+    hub.config.write().await.auto_resume_delays_ms = Some(vec![]);
     let s = c
         .request(
             method::SESSION_NEW,

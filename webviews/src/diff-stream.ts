@@ -4,7 +4,8 @@ import type { DiffViewerLabelResolver } from "./labels";
 import type { FileTreeRefreshSource } from "./file-tree-refresh";
 import { deferredFileDiff } from "./deferred-parse";
 import { annotateDiffMetadata } from "./diff-metadata";
-import { patchFingerprint } from "./viewed-files";
+import { blobFingerprint, patchFingerprint, textFingerprint } from "./viewed-files";
+import { MAX_KEPT_PATCH_BYTES, MAX_KEPT_PATCH_TOTAL_BYTES, PATCH_TEXT_KEY } from "./kept-patch-text";
 
 export type GitStatusPatchEntry = {
   path: string;
@@ -116,6 +117,11 @@ export type StreamPatchOptions = {
   processFile: (patchText: string, options: { cacheKey: string; isGitDiff: boolean }) => any;
   /** Whether the repository marks `path` generated (`.gitattributes`); such files load deferred. */
   isGeneratedPath?: (path: string) => boolean;
+  /**
+   * The patch text to show for one file's patch text, or null to leave the file out (Hide
+   * imports, diff-viewer/importHunks.ts). Each hunk kept must be a hunk of the text it got.
+   */
+  filterFileText?: (fileText: string) => string | null;
 };
 
 const commitMetadataPattern = /^From\s+([a-f0-9]+)\s/im;
@@ -143,6 +149,8 @@ export async function streamPatch(options: StreamPatchOptions): Promise<void> {
   let nextIncrementalBatchSize = 128;
   let currentPatchPrefix: string | undefined;
   let patchMetadataIndex = 0;
+  // The patch text kept for Load full files (diff-viewer/fullFiles.ts), within its limits.
+  let keptPatchBytes = 0;
   const batchConfig = {
     initialBatchSize: options.initialFileTreeRowCount,
     maxIncrementalBatchSize: 4_096,
@@ -253,17 +261,22 @@ export async function streamPatch(options: StreamPatchOptions): Promise<void> {
     options.onTreeSource(createFileTreeSourceFromModel(model));
   }
 
-  async function appendCompleteFileText(fileText: string) {
+  async function appendCompleteFileText(streamedText: string) {
     throwIfAborted();
-    if (fileText.trim() === "") {
+    if (streamedText.trim() === "") {
       return;
     }
-    const metadata = commitMetadataFromFileText(fileText);
+    // A commit's header rides on its first file: read it before a filter can leave that file out.
+    const metadata = commitMetadataFromFileText(streamedText);
     if (metadata != null) {
       currentPatchPrefix = commitMetadataLabel(metadata, patchMetadataIndex, options.label);
       patchMetadataIndex += 1;
     }
-    const cacheKey = `cmux-diff-file-${model.fileIndex}`;
+    const fileText = options.filterFileText ? options.filterFileText(streamedText) : streamedText;
+    if (fileText == null) {
+      return;
+    }
+    const cacheKey = diffFileCacheKey(model.fileIndex, fileText);
     // A file that will open collapsed behind "Load diff" is not parsed now
     // (deferred-parse.ts): only its header, plus a count of its changed lines.
     const fileDiff =
@@ -271,6 +284,15 @@ export async function streamPatch(options: StreamPatchOptions): Promise<void> {
       options.processFile(fileText, { cacheKey, isGitDiff: true });
     annotateDiffMetadata(fileDiff, fileText);
     annotatePatchIdentity(fileDiff, fileText);
+    // Load full files parses this file's patch again with its two sides.
+    if (
+      fileDiff != null &&
+      fileText.length <= MAX_KEPT_PATCH_BYTES &&
+      keptPatchBytes + fileText.length <= MAX_KEPT_PATCH_TOTAL_BYTES
+    ) {
+      fileDiff[PATCH_TEXT_KEY] = fileText;
+      keptPatchBytes += fileText.length;
+    }
     await enqueueFileDiff(fileDiff, currentPatchPrefix);
   }
 
@@ -770,11 +792,24 @@ function commitMetadataLabel(metadata: string | undefined, index: number, label:
  * patch text size (large-diff deferral) on the parsed diff. Only the streaming
  * path has per-file raw text; text-blob parses fall back to hunk hashing.
  */
+/**
+ * A streamed file's `cacheKey`: its place in the diff and a hash of its patch text. Pierre keeps a
+ * file's highlighted lines by this key and treats two diffs with one key as the same diff
+ * (`areDiffTargetsEqual`), so a key by place alone reused the highlight of the file's old patch
+ * after a refresh (a revert, a stage, Hide white space) and failed on the missing lines
+ * ("deletionLine and additionLine are null").
+ */
+export function diffFileCacheKey(fileIndex: number, fileText: string): string {
+  return `cmux-diff-file-${fileIndex}-${textFingerprint(fileText)}`;
+}
+
 function annotatePatchIdentity(fileDiff: any, fileText: string): void {
   if (fileDiff == null || typeof fileDiff !== "object") {
     return;
   }
   fileDiff.cmuxPatchFingerprint = patchFingerprint(fileText);
+  const blob = blobFingerprint(fileText);
+  if (blob != null) fileDiff.cmuxBlobFingerprint = blob;
   fileDiff.cmuxPatchByteLength = fileText.length;
 }
 

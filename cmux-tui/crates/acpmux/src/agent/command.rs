@@ -12,7 +12,9 @@ use tokio::process::Command;
 pub(crate) const REMOTE_ENV_POLICY_KEY: &str = "ACPMUX_REMOTE_ENV_POLICY";
 /// Recorded with every remote durable host. A changed or missing id means
 /// that host predates this process-authority boundary and is not adopted.
-pub(crate) const REMOTE_ENV_POLICY_ID: &str = "remote-env-v3";
+/// v4: a vmHost machine no longer runs remote Claude without the sandbox
+/// (`hub/vm_host.rs`), so a host an older daemon started there is ended.
+pub(crate) const REMOTE_ENV_POLICY_ID: &str = "remote-env-v4";
 /// Reserved legacy projection marker. A profile cannot control internal
 /// environment projection even if an older config used this valid env name.
 const REMOTE_ENV_CLEARED_KEY: &str = "__ACPMUX_REMOTE_ENV_CLEARED";
@@ -174,6 +176,9 @@ pub(crate) fn harness_command(
             }
         }
     }
+    // The durable store is bound by acpmux's profile spawn path; never
+    // inherit a controller or shell value into another harness.
+    cmd.env_remove("CMUX_HARNESS_SESSION_STORE_DIR");
     cmd.args(crate::harness_limits::launch_args(program, args, session.map(|_| (cwd, &env))))
         .envs(env.iter());
     // The profile's PATH first, never instead of the login PATH (login_env::with_agent_path).
@@ -197,6 +202,9 @@ pub(crate) fn harness_command(
     // job object (`job.rs`), made where the agent is spawned.
     #[cfg(unix)]
     cmd.process_group(0);
+    // A sub-session's harness execs only in the folder its start checked (`cwd_pin.rs`).
+    #[cfg(unix)]
+    crate::cwd_pin::CwdPin::pin(crate::cwd_pin::CwdPin::current(), &mut cmd);
     // Only its own session's credential: never acpmux's, a preset's or a Chief's.
     crate::launch_credential::apply(&mut cmd, session.map(|(id, _)| id));
     crate::harness_limits::lift_claude(&mut cmd, profile, session.is_some(), !remote_environment);
@@ -233,6 +241,10 @@ pub(crate) fn harness_command(
         }
         (false, Some((id, _))) => crate::claude_auth::forget(id),
         _ => {}
+    }
+    #[cfg(target_os = "linux")]
+    if remote_environment {
+        crate::hub::remote_sandbox::scrub_loader_env(&mut cmd);
     }
     Ok(cmd)
 }
@@ -405,6 +417,23 @@ pub(crate) fn host_environment() -> Vec<(std::ffi::OsString, std::ffi::OsString)
 
 #[cfg(test)]
 mod tests {
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn remote_outer_command_scrubs_loader_env() {
+        let p = serde_json::from_value(serde_json::json!({
+            "argv": ["/usr/bin/true"], "env": {"ACPMUX_REMOTE_ENV_POLICY": "1",
+                "LD_PRELOAD": "injected", "GLIBC_TUNABLES": "injected",
+                "TMPDIR": "/injected", "MALLOC_CHECK_": "3"}
+        }))
+        .unwrap();
+        let cmd = harness_command("remote", &p, &std::env::temp_dir(), None, None).unwrap();
+        let env = command_env_cleared(&cmd);
+        assert!(!env.iter().any(|(k, _)| matches!(
+            k.as_str(),
+            "LD_PRELOAD" | "GLIBC_TUNABLES" | "TMPDIR" | "MALLOC_CHECK_"
+        )));
+    }
+
     use super::*;
 
     #[test]

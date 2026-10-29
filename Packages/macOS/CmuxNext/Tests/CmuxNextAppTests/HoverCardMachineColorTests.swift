@@ -10,8 +10,8 @@ import Testing
 @MainActor @Suite(.serialized) struct HoverCardMachineColorTests {
     /// The machine row's icon tint, its dot, and textSecondary in the row's theme scope, sRGB.
     static func machineRow(picks: MachineColorOverrides) throws -> (icon: NSColor, secondary: NSColor, row: HoverCardRowView) {
-        ThemeStore.shared.setMachineColors(picks)
-        defer { ThemeStore.shared.setMachineColors(.none) }
+        ThemeScope.app.store.setMachineColors(picks)
+        defer { ThemeScope.app.store.setMachineColors(.none) }
         let machine = SidebarMachine(id: CmuxNextSidebar.MachineID("big-red"), name: "big-red", kind: .ssh, status: .connected)
         var workspace = SidebarWorkspace(id: CmuxNextSidebar.WorkspaceID("ws-remote"), machineID: machine.id, title: "Deploy")
         workspace.directory = "~/code"
@@ -60,13 +60,13 @@ import Testing
     /// appearance hook, and the row recolors in it.
     @Test func aPickWhileTheCardIsOpenRecolorsTheIcon() throws {
         let (_, secondary, row) = try Self.machineRow(picks: .none)
-        ThemeStore.shared.setMachineColors(MachineColorOverrides(["big-red": "#12ab34"]))
-        defer { ThemeStore.shared.setMachineColors(.none) }
+        ThemeScope.app.store.setMachineColors(MachineColorOverrides(["big-red": "#12ab34"]))
+        defer { ThemeScope.app.store.setMachineColors(.none) }
         row.viewDidChangeEffectiveAppearance()
         let icon = try #require(row.icon.contentTintColor?.usingColorSpace(.sRGB))
         let picked = try #require(ThemeRGB(cssHex: "#12ab34")?.nsColor.usingColorSpace(.sRGB))
         #expect(Self.same(icon, picked), "icon \(icon), pick \(picked)")
-        ThemeStore.shared.setMachineColors(.none)
+        ThemeScope.app.store.setMachineColors(.none)
         row.viewDidChangeEffectiveAppearance()
         let reset = try #require(row.icon.contentTintColor?.usingColorSpace(.sRGB))
         #expect(Self.same(reset, secondary), "icon \(reset), textSecondary \(secondary)")

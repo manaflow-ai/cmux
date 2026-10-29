@@ -9,19 +9,25 @@ type Props = {
   hint?: string | null;
   action?: string;
   initialRetrying: boolean;
+  reconnecting?: boolean;
   withRetry: boolean;
+  withRestart?: boolean;
 };
 
-function GalleryHostError({ message, hint, action, initialRetrying, withRetry }: Props) {
+function GalleryHostError({ message, hint, action, initialRetrying, reconnecting, withRetry, withRestart }: Props) {
   const [retrying, setRetrying] = useState(initialRetrying);
+  const [restarting, setRestarting] = useState(false);
   return (
     <div className="acpmux-shell" data-host-error-fixture>
       <HostError
         message={message}
         hint={hint}
         action={action}
+        reconnecting={reconnecting}
         retrying={retrying}
         onRetry={withRetry ? () => setRetrying(true) : undefined}
+        restarting={restarting}
+        onRestart={withRestart ? () => setRestarting(true) : undefined}
       />
     </div>
   );
@@ -30,6 +36,11 @@ function GalleryHostError({ message, hint, action, initialRetrying, withRetry }:
 const retry: Play = async (ctx) => {
   await ctx.click({ role: "button", name: "Retry" });
   await ctx.waitFor(() => ctx.find({ role: "button", name: "Retrying…" }).getAttribute("disabled") !== null);
+};
+
+const restart: Play = async (ctx) => {
+  await ctx.click({ role: "button", name: "Restart acpmux" });
+  await ctx.waitFor(() => ctx.find({ role: "button", name: "Restarting acpmux…" }).getAttribute("disabled") !== null);
 };
 
 const enable: Play = async (ctx) => {
@@ -45,7 +56,7 @@ export default componentEntry<Props>({
   widths: { narrow: 360, normal: 520, wide: 720 },
   anchors: [{ selector: "[data-host-error-fixture]" }],
   covers: ["agent-session/acpmux/HostError.tsx#HostError"],
-  styles: () => import("./styles.css"),
+  styles: () => Promise.all([import("./styles.css"), import("./conversation/conversation.css")]).then(() => undefined),
   load: async () => GalleryHostError,
   variants: {
     automatic: {
@@ -72,6 +83,15 @@ export default componentEntry<Props>({
         withRetry: true,
       },
     },
+    reconnecting: {
+      props: {
+        message: "The agent host is unavailable.",
+        initialRetrying: true,
+        reconnecting: true,
+        withRetry: false,
+      },
+      note: "A daemon or socket recovery is a neutral Reconnecting… line with a spinner; the last failure is not shown as a red alert.",
+    },
     enable: {
       props: {
         message: "Claude Code is not enabled for this folder.",
@@ -82,6 +102,25 @@ export default componentEntry<Props>({
       },
       play: enable,
       note: "Folder harness setup uses the same error card with a concrete action label.",
+    },
+    restart: {
+      props: {
+        message: "acpmux belongs to cmux NIGHTLY, and this build may not use it. Quit that app, then try again.",
+        initialRetrying: false,
+        withRetry: true,
+        withRestart: true,
+      },
+      play: restart,
+      note: "Another binary's acpmux holds this app's socket: Restart acpmux replaces it with this app's own.",
+    },
+    "restart-unnamed": {
+      props: {
+        message: "Another acpmux service is using this socket. It will reconnect when that service is ready.",
+        initialRetrying: false,
+        withRetry: true,
+        withRestart: true,
+      },
+      note: "A refusal whose holder is no app bundle offers the same Restart acpmux beside Retry.",
     },
   },
 });

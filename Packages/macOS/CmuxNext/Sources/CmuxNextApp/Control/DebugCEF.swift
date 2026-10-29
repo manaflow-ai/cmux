@@ -131,6 +131,7 @@ enum DebugCEF {
             "reentrant_fires": .number(Double(stats.reentrantFires)),
             "long_work_runs": .number(Double(stats.longWorkRuns)),
             "follow_up_runs": .number(Double(stats.followUpRuns)),
+            "kept_cross_thread_requests": .number(Double(stats.keptCrossThreadRequests)),
             "work_ms": .number(stats.workSeconds * 1_000),
             "fallback_ms": .number(stats.fallbackInterval * 1_000),
         ])
@@ -147,6 +148,7 @@ enum DebugCEF {
             "geometry_posts": .number(Double(stats.geometryPosts)),
             "hosted_pages": .number(Double(stats.hostedPages)),
             "hosting_refused": .number(Double(stats.hostingRefused)),
+            "geometry_skips": .number(Double(stats.geometrySkips)),
         ])
     }
 

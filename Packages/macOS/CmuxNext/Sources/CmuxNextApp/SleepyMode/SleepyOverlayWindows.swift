@@ -1,5 +1,4 @@
 import AppKit
-import SwiftUI
 
 /// Covers every screen with a ``SleepyOverlayWindow`` showing ``SleepySceneView``,
 /// rebuilt when screens change while it shows.
@@ -49,10 +48,9 @@ final class SleepyOverlayWindows: SleepyOverlayPresenting {
         for screen in screens {
             let window = SleepyOverlayWindow(screen: screen, frame: screen.frame)
             window.onWake = { [weak self] in self?.wake?() }
-            let scene = SleepySceneView(workingAgents: workingAgents,
-                                        wake: { [weak self] in self?.wake?() },
-                                        lockMac: lockMac)
-            window.contentView = NSHostingView(rootView: scene)
+            window.contentView = SleepySceneView.hostView(workingAgents: workingAgents,
+                                                          wake: { [weak self] in self?.wake?() },
+                                                          lockMac: lockMac)
             windows.append(window)
             window.orderFrontRegardless()
         }

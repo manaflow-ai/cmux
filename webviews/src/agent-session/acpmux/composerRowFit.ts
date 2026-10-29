@@ -14,6 +14,13 @@ import { type RefObject, useLayoutEffect } from "react";
 // and, while its controls would not fit, applies the next steps too, writing each unit's form on
 // the row (`data-fit-model="family"`).
 //
+// The quiet row under the box (ComposerFoot, #22285) takes no width step: the steps date from
+// #20802's one row, where +, the prompt, the chips, the mic and Send shared the width, and #22285
+// moved the mode, the model button and the ring into a row of their own. There the forms follow
+// what this hook measures alone: the units' natural widths against the row's room, so a 410 px
+// composer keeps "Opus 5.5  Medium" while it fits (live-qa 2026-10-21 read "Opus Med" with about
+// 250 px of the row free) and shortens only when the row really runs out.
+//
 // A part of a unit carries the unit's name (`data-fit-part="model"`) and the forms it shows in
 // (`data-fit-forms="full family"`). A part of another form is laid out of the row, absolute and
 // invisible, so its width is still known: the decision never toggles to measure. It runs when the
@@ -30,8 +37,6 @@ export const COMPOSER_FIT_STEPS = {
   effortShort: 470,
   /** The location strip's machine shows its laptop icon alone. */
   machineIconOnly: 460,
-  /** The quiet row's harness shows its mark alone, its name in its tooltip (ComposerHarness.tsx). */
-  harnessMark: 460,
   /** The model shows its family ("Opus"). */
   modelFamily: 440,
   /** The permission mode's label goes; its glyph and chevron stay. */
@@ -50,29 +55,28 @@ export const COMPOSER_FIT_STEPS = {
   barTight: 260,
 } as const;
 
-export type FitUnit = "access" | "effort" | "harness" | "mic" | "model";
+export type FitUnit = "access" | "effort" | "mic" | "model";
 export type FitForm = "full" | "short" | "family" | "icon" | "hidden";
 
 /** The row's steps: at its width (COMPOSER_FIT_STEPS) `unit` takes the form `to`. Labels shorten
- *  early and whole, a little before the row runs out of room: effort's short name, the quiet row's
- *  harness to its mark alone (the mark still names it, Leo 2026-10-21), the model's family, the permission label (its glyph stays), the model's mark alone (its name only while the
- *  row can hold it, #20548). The mic never leaves (Leo 2026-10-19, as Claude Code's): the prompt gives way instead. A row too long
+ *  early and whole, a little before the row runs out of room: effort's short name, the model's
+ *  family, the permission label (its glyph stays), and the model's mark alone (its name only while
+ *  the row can hold it, #20548). The mic never leaves (Leo 2026-10-19, as Claude Code's): the prompt gives way instead. A row too long
  *  for its width's steps takes the next ones too, in this order.
  *  One table: the steps change here. */
 export const ROW_FIT_STEPS: readonly { step: keyof typeof COMPOSER_FIT_STEPS; unit: FitUnit; to: FitForm }[] = [
   { step: "effortShort", unit: "effort", to: "short" },
-  { step: "harnessMark", unit: "harness", to: "icon" },
   { step: "modelFamily", unit: "model", to: "family" },
   { step: "accessLabelHidden", unit: "access", to: "icon" },
   { step: "modelMark", unit: "model", to: "icon" },
 ];
 
-const UNITS: readonly FitUnit[] = ["access", "effort", "harness", "mic", "model"];
+const UNITS: readonly FitUnit[] = ["access", "effort", "mic", "model"];
 type Forms = Record<FitUnit, FitForm>;
 
 /** Each unit's form in a pane `width` px wide that also took the first `extra` steps. */
 export function fitForms(width: number, extra = 0, steps = ROW_FIT_STEPS): Forms {
-  const forms: Forms = { access: "full", effort: "full", harness: "full", mic: "full", model: "full" };
+  const forms: Forms = { access: "full", effort: "full", mic: "full", model: "full" };
   steps.forEach(({ step, unit, to }, index) => {
     if (index < extra || width <= COMPOSER_FIT_STEPS[step]) forms[unit] = to;
   });
@@ -152,7 +156,12 @@ export function fitStep(
 /** The width the row's steps follow: the composer's content box (the CSS's `composer` container,
  *  #20548), so a split pane, the New Tab card and the quick surface step down alike. */
 function paneWidth(bar: HTMLElement): number {
-  const composer = bar.closest<HTMLElement>(".acpmux-composer, .nt-composer");
+  // The quiet row fits on its measured room alone (above): no composer width takes a step there. It
+  // is the plain look, not the element: ComposerFoot draws the same row in both looks and marks only
+  // the plain one, so with the plain footer off the row takes the width steps as the one row always
+  // did (composerLocation.css keys its own guards on the same attribute).
+  if (bar.dataset.footerLook === "plain") return Number.POSITIVE_INFINITY;
+  const composer = bar.closest<HTMLElement>(".acpmux-composer, .nt-composer, .acpmux-newtab");
   if (!composer) return bar.ownerDocument.documentElement.clientWidth;
   const style = getComputedStyle(composer);
   return composer.clientWidth - px(style.paddingLeft) - px(style.paddingRight);
@@ -191,8 +200,7 @@ function show(bar: HTMLElement, step: number): void {
  *  while its unit (`data-fit-title-unit`) is in its icon form. */
 function nameIcons(bar: HTMLElement, forms: Forms): void {
   for (const wrapper of bar.querySelectorAll<HTMLElement>("[data-fit-title]")) {
-    // The footer's fixed harness is text, not a button (ComposerHarness.tsx): its face takes the tooltip.
-    const button = wrapper.querySelector<HTMLElement>(".acpmux-picker-button, .acpmux-foot-harness-face");
+    const button = wrapper.querySelector<HTMLElement>(".acpmux-picker-button");
     const name = wrapper.dataset.fitTitle ?? "";
     if (!button) continue;
     const iconOnly = forms[wrapper.dataset.fitTitleUnit as FitUnit] === "icon";
@@ -218,10 +226,31 @@ export function useRowFit(bar: RefObject<HTMLElement | null>, row?: unknown): vo
     const fit = () => show(element, rowStep(element));
     fit();
     // The row's own width (the pane), and a chip's (a new model or mode name, a chip that comes or goes).
+    // The row's own items too, through `display: contents` wrappers (the quiet row's `.acpmux-chips`,
+    // whose box a ResizeObserver never reports): a label that sets wider without the row resizing (a
+    // font that loads late, Linux's wider metrics) runs the fit again, so the row never keeps a form
+    // it no longer has room for (narrow-layouts `new-tab-wide-type`). The fit's own form changes
+    // resize them as well; the next pass computes the same step (fitStep's LABELS_BACK keeps it from
+    // flipping), so it settles. An item that leaves the row stops being observed; `disconnect` below
+    // ends the rest.
     const resize = new ResizeObserver(fit);
     resize.observe(element);
+    const watched = new Set<Element>();
     const watchChips = () => {
-      for (const chip of element.querySelectorAll(".acpmux-chips, .acpmux-composer-actions")) resize.observe(chip);
+      const now = new Set<Element>([
+        ...element.querySelectorAll(".acpmux-chips, .acpmux-composer-actions"),
+        ...items(element),
+      ]);
+      for (const old of watched)
+        if (!now.has(old)) {
+          resize.unobserve(old);
+          watched.delete(old);
+        }
+      for (const item of now)
+        if (!watched.has(item)) {
+          resize.observe(item);
+          watched.add(item);
+        }
     };
     watchChips();
     const mutation = new MutationObserver(() => {

@@ -127,6 +127,9 @@ public nonisolated struct PageNativeOp {
     public static let popupHide = "cmux.app.popup.hide"
     /// Stream every page may subscribe to: the popup's `pick`, `highlight` and `dismiss`.
     public static let pagePopup = "cmux.page.popup"
+    /// Built in for every page: a right-click menu (`ui/ContextMenu.tsx`) shown as a standard macOS
+    /// menu (``WebContextMenu``); answers `{picked: id}` once it closes, `picked` null when dismissed.
+    public static let contextMenu = "cmux.app.contextMenu.show"
     /// The page command the host sends each time the page's web view becomes first responder: the
     /// page focuses its primary input when nothing in it has focus (pane-focus-DESIGN.md P1).
     public static let focusContent = "focusContent"
@@ -168,7 +171,7 @@ public extension PageDescriptor {
                   // Machines > Add Device… opens the one Add Device card (add-device-DESIGN.md).
                   "device.add",
                   // Agents > Computer Use card (ComputerUseSetup).
-                  "palette.computerUse.setup", "palette.computerUse.accessibility", "palette.computerUse.screenRecording",
+                  "palette.computerUse.setup", "palette.computerUse.accessibility", "palette.computerUse.screenRecording", "palette.computerUse.restart",
                   // Settings › Import's cards (CmuxNextImportCards): a card's button, and Import from Browser.
                   "import.card", "importFromBrowser"])
             .union(settingsSectionActions),

@@ -119,7 +119,7 @@ import WebKit
 
     private func install() async -> (ControlRouter, Page) {
         _ = NSApplication.shared
-        let router = ControlRouter(identity: testIdentity(), executor: RecordingExecutor())
+        let router = ControlRouter(identity: testIdentity(), executor: RecordingExecutor(), configuration: .loadTolerant)
         let page = Page()
         await page.load()
         BrowserPageService(engine: WebPageEngine(page: page)).install(on: router)

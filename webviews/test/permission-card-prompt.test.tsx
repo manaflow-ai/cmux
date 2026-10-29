@@ -42,8 +42,15 @@ const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { PermissionCard } = await import("../src/agent-session/acpmux/PermissionCard");
 const { translate } = await import("../src/agent-session/acpmux/i18n");
-const { commandPreview, permissionAnswers, permissionKeyAction, permissionTitle, unwrapShell } =
-  await import("../src/agent-session/acpmux/permissions/prompt");
+const {
+  commandPreview,
+  optionButtonLabel,
+  permissionAnswers,
+  permissionKeyAction,
+  permissionScopeText,
+  permissionTitle,
+  unwrapShell,
+} = await import("../src/agent-session/acpmux/permissions/prompt");
 
 const SCRIPT = [
   "bash -c '",
@@ -133,6 +140,12 @@ test("the three answers map onto the options offered, and nothing is invented", 
   expect(
     permissionAnswers([{ id: "chat", name: "Allow for this chat", kind: "allow_chat", allow: true }]).allowAlways?.id,
   ).toBe("chat");
+});
+
+test("a permission keeps its concrete scope visible without changing the option ids", () => {
+  const scoped = bash({ scope: { kind: "app", value: "Calculator" } });
+  expect(permissionScopeText(scoped, translate)).toBe("In Calculator");
+  expect(permissionAnswers(scoped.options).allowAlways?.id).toBe("always");
 });
 
 test("keys act only with nothing focused or focus in the card", () => {
@@ -227,6 +240,117 @@ test("the card draws the title, the clamped command and the three buttons, and e
   await card.unmount();
 });
 
+test("the card labels the scoped target once, on its line, and every answer is described by it", async () => {
+  const card = await mount(bash({ permissionId: "scoped", scope: { kind: "app", value: "Calculator" } }));
+  expect(card.host.querySelector(".acpmux-permission-scope")?.textContent).toBe("In Calculator");
+  const target = card.host.querySelector<HTMLElement>(".acpmux-permission-scope span")!;
+  for (const label of ["Allow once", "Always allow", "Deny"]) {
+    const button = card.host.querySelector(`[aria-label="${label}"]`)!;
+    expect(button.textContent).not.toContain("Calculator");
+    expect(button.getAttribute("aria-describedby")).toBe(target.id);
+  }
+  await card.unmount();
+});
+
+// Leo 2026-10-25: "the allow button, like this, it shouldn't be encompassing so much ... this other,
+// like, thing shouldn't be the same thing." Always allow held the whole session rule and the rule
+// repeated as a line under Deny.
+const RULE =
+  "Allow Read(//Users/you/media/reel/**), Bash(rm -f /Users/you/media/reel/*.tmp), Bash(ffmpeg:*) for this session";
+test("a long rule shows once, on the scope line, never in a button, and describes Always allow", async () => {
+  const card = await mount(
+    bash({ permissionId: "rule", rule: RULE, scope: { kind: "directory", value: "/Users/you/media/reel" } }),
+  );
+  expect(card.buttons()).toEqual(["Allow once", "Always allow", "Deny"]);
+  const buttons = [...card.host.querySelectorAll(".acpmux-permission-buttons button")];
+  expect(buttons.map((button) => button.querySelector(".acpmux-permission-action-label")?.textContent)).toEqual([
+    "Allow once",
+    "Always allow",
+    "Deny",
+  ]);
+  for (const button of buttons) expect(button.textContent).not.toContain("ffmpeg");
+  const lines = card.host.querySelectorAll(".acpmux-permission-scope");
+  expect(lines.length).toBe(1);
+  expect(lines[0]!.textContent).toBe(`In /Users/you/media/reel · ${RULE}`);
+  expect(lines[0]!.getAttribute("title")).toBe(`In /Users/you/media/reel · ${RULE}`);
+  // The rule is drawn exactly once in the whole card.
+  expect(card.host.textContent!.split(RULE).length - 1).toBe(1);
+  const [target, rule] = [...lines[0]!.querySelectorAll("span")];
+  const always = card.host.querySelector('[aria-label="Always allow"]')!;
+  expect(always.getAttribute("aria-describedby")).toBe(`${target!.id} ${rule!.id}`);
+  expect(always.getAttribute("title")).toBe(RULE);
+  expect(card.host.querySelector('[aria-label="Allow once"]')?.getAttribute("aria-describedby")).toBe(target!.id);
+  await card.unmount();
+});
+
+test("long agent labels get short buttons from their ACP kind, in one row, and their text moves out", async () => {
+  const card = await mount(
+    bash({
+      permissionId: "codex4",
+      rule: undefined,
+      options: [
+        { id: "approved", name: "Yes", kind: "allow_once", allow: true },
+        {
+          id: "session",
+          name: "Yes, and don't ask again for commands that start with `npm run`",
+          kind: "allow_always",
+          allow: true,
+        },
+        { id: "abort", name: "No, and tell Codex what to do differently", kind: "reject_once", allow: false },
+        { id: "denied", name: "No, continue without running it", kind: "reject_always", allow: false },
+      ],
+    }),
+    "codex",
+  );
+  expect(card.buttons()).toEqual(["Allow once", "Always allow", "Deny", "Always deny"]);
+  expect(card.host.querySelectorAll(".acpmux-permission-buttons").length).toBe(1);
+  // Sized to their labels: no equal-width grid and no per-card answer count drives the row.
+  expect(card.host.querySelector<HTMLElement>(".acpmux-permission-buttons")!.getAttribute("style")).toBeNull();
+  // The Always allow's own long name is its scope, on the line; the other's is its hover title.
+  expect(card.host.querySelector(".acpmux-permission-scope")?.textContent).toBe(
+    "Yes, and don't ask again for commands that start with `npm run`",
+  );
+  expect(card.host.querySelector('[aria-label="Always deny"]')?.getAttribute("title")).toBe(
+    "No, continue without running it",
+  );
+  const alwaysDeny = card.host.querySelector('[aria-label="Always deny"]')!;
+  expect(dom.window.document.getElementById(alwaysDeny.getAttribute("aria-describedby")!)?.textContent).toBe(
+    "No, continue without running it",
+  );
+  await card.click('[aria-label="Always deny"]');
+  expect(card.answers).toEqual(["denied"]);
+  await card.unmount();
+});
+
+test("an extra option keeps a short agent name, else its kind's label, else its name", () => {
+  const taken = new Set(["Allow once", "Always allow", "Deny"]);
+  const label = (name: string, kind?: string) =>
+    optionButtonLabel({ id: "o", name, kind, allow: false }, translate, taken);
+  expect(label("Show me the plan", "custom")).toBe("Show me the plan");
+  expect(label("No, continue without running it", "reject_always")).toBe("Always deny");
+  // A kind another button already names is numbered, never the agent's long text.
+  expect(label("No, and tell the agent what to do instead", "reject_once")).toBe("Deny 2");
+  expect(label("Allow Read(/Users/you/project/**) for this session", "allow_always")).toBe("Always allow 2");
+  expect(
+    optionButtonLabel(
+      { id: "o", name: "Allow Read(/Users/you/other/**) for this session", kind: "allow_always", allow: true },
+      translate,
+      new Set([...taken, "Always allow 2"]),
+    ),
+  ).toBe("Always allow 3");
+  // Only a kind the pane has no word for keeps its long name, which the button cuts.
+  expect(label("Show me the whole plan before running anything", "custom")).toBe(
+    "Show me the whole plan before running anything",
+  );
+  expect(
+    optionButtonLabel(
+      { id: "o", name: "Yes, and allow edits to every file in this folder", kind: "allow_once", allow: true },
+      translate,
+      new Set(),
+    ),
+  ).toBe("Allow once");
+});
+
 test("1, 2, Return answer; 3 and Esc open the feedback field; Esc closes it; its send denies with the text", async () => {
   let card = await mount(bash());
   await card.press("1");
@@ -281,4 +405,21 @@ test("an ask without an Always allow option draws no such button and 2 does noth
   await card.press("2");
   expect(card.answers).toEqual([]);
   await card.unmount();
+});
+
+test("the answer row is content-width buttons, never stretched to equal cells", async () => {
+  const { readFileSync } = await import("node:fs");
+  const css = readFileSync(new URL("../src/agent-session/acpmux/styles.css", import.meta.url), "utf8");
+  const rule = (selector: string) => {
+    const at = css.indexOf(`${selector}{`);
+    expect(at).toBeGreaterThanOrEqual(0);
+    return css.slice(at, css.indexOf("}", at));
+  };
+  const row = rule(".acpmux-permission-ask .acpmux-permission-buttons");
+  expect(row).toContain("display:flex");
+  expect(row).not.toContain("grid");
+  expect(row).not.toContain("1fr");
+  const button = rule(".acpmux-permission-ask .acpmux-permission-buttons button");
+  expect(button).toContain("flex:none");
+  expect(button).toContain("align-items:baseline");
 });

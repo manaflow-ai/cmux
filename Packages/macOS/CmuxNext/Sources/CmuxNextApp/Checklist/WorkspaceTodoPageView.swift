@@ -1,4 +1,5 @@
 import CmuxNextDaemon
+import CmuxNextDesign
 import SwiftUI
 import CmuxNextTasks
 
@@ -27,6 +28,7 @@ struct WorkspaceTodoPageView: View {
                                 WorkspaceTodoRow(item: item, isEditing: editing == item.id, actions: actions)
                             }
                         }
+                        .thinScrollers()
                     }
                 }
             }

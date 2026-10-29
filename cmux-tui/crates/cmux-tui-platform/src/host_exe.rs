@@ -52,8 +52,10 @@ pub const HOLDER_ENV: &str = "CMUX_TUI_HOLDER_EXE";
 /// or the file [`HOLDER_ENV`] names. On macOS it runs from a verified
 /// content-addressed copy under the host-exe root, as terminal hosts do, so
 /// an update or a rebuild of the bundle never overwrites the file a running
-/// holder came from; the copy's directory is named by the holder's own
-/// hash, so a build whose holder did not change reuses it. The candidate
+/// holder came from; the copy's directory is named by the holder file's own
+/// hash, so a build whose holder file did not change reuses it (signed
+/// builds strip and re-sign the holder with a timestamp, so each signed
+/// build's holder has a new hash and a new copy). The candidate
 /// must answer `--version` with a line `accepts` takes (the wire range the
 /// daemon speaks). `None` when there is no such file or it answers
 /// otherwise: the daemon then runs the holder built into its host
@@ -81,10 +83,10 @@ fn sibling_holder() -> Option<PathBuf> {
 /// takes. The first exec of a new file also pays its code-signature check
 /// here, before a terminal waits on the holder.
 fn holder_answers(path: &Path, accepts: &dyn Fn(&str) -> bool) -> bool {
-    std::process::Command::new(path)
+    cmux_process::Command::new(path)
         .arg("--version")
-        .stdin(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
+        .stdin(cmux_process::Stdio::null())
+        .stderr(cmux_process::Stdio::null())
         .output()
         .is_ok_and(|output| {
             output.status.success() && accepts(String::from_utf8_lossy(&output.stdout).trim_end())
@@ -121,6 +123,31 @@ pub fn use_sibling_host(identity: &'static str) {
 /// runs from one. A terminal host calls it once at start.
 pub fn hold_in_use_lock() {
     imp::hold_in_use_lock();
+}
+
+/// [`spawn_host`] through `cmux_process` (the child gets descriptors 0-2 and
+/// the ones it is given, and no other: reviews 1 and 2 of pl-holder-11). The
+/// holder launch uses it; the terminal-host callers move to it as
+/// cmux-tui-core's spawns move to `cmux_process`, and then [`spawn_host`]
+/// goes.
+pub fn spawn_host_isolated(
+    configure: impl Fn(&mut cmux_process::Command),
+) -> io::Result<cmux_process::Child> {
+    let binary = terminal_host_executable()?;
+    let spawn = |binary: &Path| {
+        let mut command = cmux_process::Command::new(binary);
+        command.arg0("cmux-tui");
+        configure(&mut command);
+        command.spawn()
+    };
+    match spawn(&binary) {
+        Err(error) if binary != crate::platform::self_exe_for_spawn()? => {
+            imp::copy_failed(&binary);
+            eprintln!("cmux-tui: a terminal host did not start from {}: {error}", binary.display());
+            spawn(&crate::platform::self_exe_for_spawn()?)
+        }
+        result => result,
+    }
 }
 
 /// Spawn a terminal host from [`terminal_host_executable`]. Its command line
@@ -169,7 +196,7 @@ mod imp {
 
     pub(super) fn prepare_in_background() {}
 
-    pub(super) fn copy_failed(_path: &std::path::Path) {}
+    pub(super) fn copy_failed(_path: &Path) {}
 }
 
 #[cfg(target_os = "macos")]

@@ -11,7 +11,6 @@ package import os
 /// back. The next launch reads `drafts()` and shows the restore notice.
 @MainActor
 public final class RecoveryDraftStore {
-    public static let shared = RecoveryDraftStore(directory: RecoveryDraftFiles.defaultDirectory)
     public static let defaultMaxDraftBytes = 8 * 1024 * 1024
     public static let defaultMaxTotalBytes = 100 * 1024 * 1024
 
@@ -100,7 +99,8 @@ public final class RecoveryDraftStore {
 }
 
 /// The draft files, all IO off the main actor.
-package nonisolated enum RecoveryDraftFiles {
+package nonisolated struct RecoveryDraftFiles {
+    package nonisolated init() {}
     package static var defaultDirectory: URL {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support")

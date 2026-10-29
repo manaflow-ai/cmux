@@ -103,6 +103,29 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
                 targets: [.tab], cliName: "tab new-browser"
             ),
             ActionDescriptor(
+                id: "macScreen.open",
+                title: String(localized: "action.macScreen.open", defaultValue: "New Mac Screen Tab", bundle: .module),
+                keywords: ["mac", "screen", "remote", "control", "screen sharing", "vnc", "pair", "share this mac"],
+                category: .tab, symbol: "display", surfaces: [.palette, .menu, .contextMenu],
+                targets: [.pane], cliName: "tab new-mac-screen", mainMenu: .file
+            ),
+            // The menu bar item shown while a device sees or controls this Mac runs these two
+            // (MacScreenShareIndicator); unavailable while no device is connected.
+            ActionDescriptor(
+                id: "macScreen.stopSharing",
+                title: String(localized: "action.macScreen.stopSharing", defaultValue: "Stop Sharing This Mac", bundle: .module),
+                keywords: ["mac", "screen", "sharing", "stop", "end", "disconnect", "viewer", "control"],
+                category: .tab, symbol: "display", surfaces: [.palette],
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
+            ),
+            ActionDescriptor(
+                id: "macScreen.revokeViewer",
+                title: String(localized: "action.macScreen.revokeViewer", defaultValue: "Revoke This Device", bundle: .module),
+                keywords: ["mac", "screen", "sharing", "revoke", "device", "permission", "viewer", "block"],
+                category: .tab, symbol: "person.badge.minus", surfaces: [.palette],
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
+            ),
+            ActionDescriptor(
                 id: "openBrowser.webkit",
                 title: String(localized: "action.openBrowser.webkit", defaultValue: "New WebKit Tab", bundle: .module),
                 keywords: ["tab", "web", "browser", "safari", "webkit", "create"],

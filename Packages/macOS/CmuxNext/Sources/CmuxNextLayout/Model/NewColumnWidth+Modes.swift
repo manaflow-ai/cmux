@@ -14,8 +14,15 @@ extension NewColumnWidth {
     /// - `fitScreen`: the visible scrolling columns (with the anchor's) and
     ///   the new one share the strip equally; each visible column whose
     ///   width differs resizes. Docked columns never resize.
+    ///
+    /// In every mode, a screen with no scrolling column (Home's dock alone,
+    /// `pinned-dock-alone-v1`) gives the new column the whole strip right of
+    /// the dock: width 1. A dock's width is a share of the window, not of
+    /// the strip, so copying it left half the strip empty.
     public static func plan(mode: NewColumnWidthMode, columns: [LayoutColumn], anchor: ColumnID?, visible: [ColumnID],
                             fixedWidth: Double, removing: PaneID? = nil) -> NewColumnPlan {
+        let scrollingStays = columns.contains { $0.dock == nil && $0.root.panes.contains { $0 != removing } }
+        if !columns.isEmpty, !scrollingStays { return NewColumnPlan(width: 1, resizes: []) }
         let range = ColumnWidthPreset.widthRange
         func clamp(_ value: Double) -> Double { min(max(value, range.lowerBound), range.upperBound) }
         switch mode {

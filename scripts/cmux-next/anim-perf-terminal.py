@@ -31,6 +31,9 @@ Fleet: scripts/measure/split-spring.sh --arg=--suite=anim-perf (scripts/measure/
 """
 import argparse, glob, json, os, signal, subprocess, sys, tempfile, time
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from bench_launch import LaunchError, launch_app  # noqa: E402
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, "../.."))
 BUDGETS = os.path.join(ROOT, "scripts/perf-bench/budgets.json")
@@ -477,43 +480,30 @@ def main():
            "CMUX_NEXT_TEST_WINDOW_FRAME": ",".join(str(v) for v in WINDOW),
            "CMUX_NEXT_CHIEF_ISOLATED": "1", "CMUX_NEXT_CHIEF_HOME": os.path.join(SCRATCH, "chief")}
     os.makedirs(opts.out, exist_ok=True)
-    log = open(os.path.join(opts.out, f"app-{TAG}.log"), "a")
-    app = subprocess.Popen([BINARY], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
+    log_path = os.path.join(opts.out, f"app-{TAG}.log")
     macos = subprocess.run(["sw_vers", "-productVersion"], capture_output=True, text=True).stdout.strip()
     host = subprocess.run(["hostname"], capture_output=True, text=True).stdout.strip()
-    print(f"launched pid {app.pid} macOS {macos} host {host}", flush=True)
-    state_socket = os.path.expanduser(f"~/.local/state/cmux/cmux-debug-{TAG}.sock")
 
-    def up():
-        global SOCKET
-        for path in (f"/tmp/cmux-debug-{TAG}.sock", state_socket):
-            if os.path.exists(path):
-                SOCKET = path
-                if (rpc("debug.windows") or {}).get("windows"):
-                    return True
-        return False
-    if not wait(up, 120):
+    def started(process):
+        global app
+        app = process
+    # One launch path (bench_launch.py): socket in the state folder, bench env, the reason (main-thread sample, log
+    # tail) when it does not come up.
+    try:
+        app, SOCKET = launch_app(APP, env, log_path, timeout=120, on_start=started)
+    except LaunchError as error:
+        if error.reason == "no-gui-session":
+            sys.exit(1)
         # macOS 27 minis: a first launch can stall before its socket (NSXPCSharedListener interrupted); one relaunch.
         print("the tagged app did not come up in 120 s; relaunching once", flush=True)
-        app.kill()
-        app.wait(timeout=30)
-        app = subprocess.Popen([BINARY], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
-        print(f"relaunched pid {app.pid}", flush=True)
-    if not wait(up, 120):
-        if app.poll() is None:
-            # Why: the main thread's stack while the socket is missing.
-            stuck = os.path.join(opts.out, "sample-launch.txt")
-            subprocess.run(["/usr/bin/sample", str(app.pid), "3", "-file", stuck], capture_output=True, timeout=60)
-            try:
-                graph = open(stuck, errors="replace").read().split("Call graph:", 1)[-1].splitlines()
-                print("== main thread while the socket is missing", flush=True)
-                print("\n".join(l[:200] for l in graph[:60]), flush=True)
-            except OSError:
-                pass
-        log.flush()
-        print("the tagged app did not come up", flush=True)
-        print(open(os.path.join(opts.out, f"app-{TAG}.log"), errors="replace").read()[-6000:], flush=True)
-        sys.exit(1)
+        if app and app.poll() is None:
+            app.kill()  # the pid this script started
+            app.wait(timeout=30)
+        try:
+            app, SOCKET = launch_app(APP, env, log_path, timeout=120, on_start=started)
+        except LaunchError:
+            sys.exit(1)
+    print(f"launched pid {app.pid} macOS {macos} host {host}", flush=True)
     time.sleep(5)  # test harness: launch work settles
     setup()
     wanted = set(filter(None, opts.anims.split(",")))

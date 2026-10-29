@@ -3,8 +3,11 @@ import { chiefPrincipal } from "./brain-io.ts"
 import { lastTalk, runError, type Run, type Step } from "./brain-runs.ts"
 import { writeConfig } from "./brain-store.ts"
 import { creditsCanStart } from "./models.ts"
-import { clipReply } from "./brain-text.ts"
+import { clipReply, linkIds } from "./brain-text.ts"
 import { type ChildStart, childInput, childObject, childRunId, postReports, readChild, slotCounts, slotEnqueue, slotPump, CHILD_LOST_MS, archiveAndDrop, childReportText, forwardOutcomes, outcomeWhere, keepMs, turnWhereOf, type AgentOutcome, checkOutcomes, noteAgentCall, postOutcomes, queueOutcome, spawnMax, subagentActivity, takeReport } from "./brain-spawn.ts"
+import { openCloudWorkspace } from "./brain-spawn-workspace.ts"
+import { handStub, listHands } from "../hand-api.ts"
+import type { HandReply } from "../hand-wire.ts"
 import { type ChiefBrainDO, POST_RETRY_MS, HOST, brainName, type Admission } from "./brain-do.ts"
 
 /**
@@ -41,6 +44,26 @@ export function spawnHost(b: ChiefBrainDO) {
     isChild: () => b.childOf() !== null,
     effectsAuthorized: () => b.effectsAuthorized(),
     enqueue: (items: ReadonlyArray<ChildStart>) => b.settingsOf(items[0]!.agent).spawnEnqueue(items[0]!.agent, items[0]!.owner, [...items]) as Promise<{ running: number; waiting: number }>,
+    workspace: async (name: string) => {
+      const c = b.config()
+      if (!c.agent || !c.owner) return { ok: false as const, reason: "no Chief" }
+      const caller = { kind: "chief" as const, user: c.owner, agent: c.agent }
+      return openCloudWorkspace(
+        {
+          list: async () => {
+            const r = await listHands(b.doEnv, caller)
+            return r.ok ? r.value : []
+          },
+          exec: async (hand, argv) => {
+            const r = (await handStub(b.doEnv, hand).call(caller, "exec", { argv: [...argv], timeout_ms: 20_000 }, 35_000)) as HandReply<unknown>
+            if (!r.ok) return { exitCode: 1, stdout: "", stderr: r.error.message }
+            const v = r.value as { exit_code?: number; exitCode?: number; stdout?: string; stderr?: string }
+            return { exitCode: v.exit_code ?? v.exitCode ?? 0, stdout: v.stdout ?? "", stderr: v.stderr ?? "" }
+          }
+        },
+        name
+      )
+    },
     changed: (conversation: string) => {
       b.subsChanged(conversation)
       // The lost-child check runs even when no report ever comes.
@@ -102,7 +125,7 @@ export async function childEnd(b: ChiefBrainDO, id: string, ok: boolean, reason:
   const talk = ok ? lastTalk(b.sql, id) : ""
   const report = childReportText(ok, talk, why)
   if (!ok) console.warn(JSON.stringify({ msg: "chief_brain.spawn_child_failed", run: id, reason: why.slice(0, 300), error: runError(b.sql, id)?.slice(0, 300) }))
-  b.sql.exec(`UPDATE cb_turn SET status = ?, reason = ?, ended = ?, input = NULL, reply = ?, post = 'pending' WHERE id = ?`, ok ? "done" : "failed", reason, Date.now(), clipReply(report), id)
+  b.sql.exec(`UPDATE cb_turn SET status = ?, reason = ?, ended = ?, input = NULL, reply = ?, post = 'pending' WHERE id = ?`, ok ? "done" : "failed", reason, Date.now(), clipReply(linkIds(report)), id)
   b.announce(id, [])
   await b.postAndSchedule(id)
 }

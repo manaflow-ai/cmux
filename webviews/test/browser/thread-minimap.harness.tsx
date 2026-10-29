@@ -5,6 +5,8 @@ import { createRoot } from "react-dom/client";
 import { VirtualTranscript } from "../../src/agent-session/acpmux/App";
 import type { AcpmuxRow } from "../../src/agent-session/acpmux/model";
 import { turnView } from "../../src/agent-session/acpmux/conversation/turns";
+import { TurnActionsContext } from "../../src/agent-session/acpmux/conversation/turnActions";
+import { setBookmarkTransport } from "../../src/agent-session/acpmux/threadMinimap/bookmarks";
 // The pane's styles, as its dev entry loads them (acpmux/dev.tsx).
 import "../../src/pages/shared/desktop.css";
 // The liquid glass next, as dev.tsx and the bundle load it: the user bubble is `.ui-glass`.
@@ -46,12 +48,36 @@ document.body.style.background = "rgb(22 22 22)";
 Object.assign(root.style, { height: "100%", display: "flex", flexDirection: "column" });
 
 const view = createRoot(root);
+// A prompt's sent images read through `window.__imageUrl(id)` when the test sets it (the pane reads
+// them from acpmux); a test serves that URL as late as it likes.
+const actions = {
+  promptImage: (id: string) =>
+    Promise.resolve((window as unknown as { __imageUrl?: (id: string) => string | undefined }).__imageUrl?.(id)),
+};
 (window as unknown as { __showRows: (rows: AcpmuxRow[]) => void }).__showRows = (rows) =>
   view.render(
-    <VirtualTranscript
-      rows={turnView(rows, new Set())}
-      sessionId="minimap-session"
-      onToggleActivity={() => {}}
-      expanded={new Set()}
-    />,
+    <TurnActionsContext.Provider value={actions}>
+      <VirtualTranscript
+        rows={turnView(rows, new Set())}
+        sessionId="minimap-session"
+        onToggleActivity={() => {}}
+        expanded={new Set()}
+      />
+    </TurnActionsContext.Provider>,
   );
+
+// The chat's bookmarks, answered as acpmux answers them: a test marks prompts (by their seq, rows
+// `user-<seq>`) with `window.__setMarks`.
+let marks: number[] = [];
+const transport = {
+  get: async (sessionId: string) => ({ sessionId, bookmarks: marks }),
+  set: async (sessionId: string, seq: number, on: boolean) => {
+    marks = on ? [...new Set([...marks, seq])] : marks.filter((entry) => entry !== seq);
+    return { sessionId, bookmarks: marks };
+  },
+};
+setBookmarkTransport(transport);
+(window as unknown as { __setMarks: (seqs: number[]) => void }).__setMarks = (seqs) => {
+  marks = seqs;
+  setBookmarkTransport(transport);
+};

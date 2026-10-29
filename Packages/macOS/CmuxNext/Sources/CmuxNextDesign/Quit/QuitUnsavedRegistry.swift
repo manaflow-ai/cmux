@@ -10,7 +10,6 @@ public import CmuxNextDesignTokens
 /// draft goes away, a failed one keeps it.
 @MainActor
 public final class QuitUnsavedRegistry {
-    public static let shared = QuitUnsavedRegistry()
     /// The longest deadline a participant may declare.
     public static let maxDeadline: Duration = .seconds(30)
 
@@ -24,7 +23,7 @@ public final class QuitUnsavedRegistry {
     private var entries: [Entry] = []
     private var nextToken = 1
 
-    public init(clock: any Clock<Duration> = ContinuousClock(), drafts: RecoveryDraftStore? = .shared) {
+    public init(clock: any Clock<Duration> = ContinuousClock(), drafts: RecoveryDraftStore? = nil) {
         self.clock = clock
         self.drafts = drafts
     }

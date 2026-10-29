@@ -68,14 +68,15 @@ impl Mux {
             };
             entry.hold.set(Some((held, now + grace)));
         }
-        match entry.hold.get() {
+        let target = match entry.hold.get() {
             Some((held, until)) if now < until => (decided.0.min(held.0), decided.1.min(held.1)),
             Some(_) => {
                 entry.hold.set(None);
                 decided
             }
             None => decided,
-        }
+        };
+        self.cap_to_fixed_grid_handhelds(entry, target)
     }
 
     /// What `terminal_grid_target` changes besides its result, to put back

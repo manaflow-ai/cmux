@@ -369,6 +369,7 @@ pub(super) fn process_info(mux: &Arc<Mux>, surface: SurfaceId) -> anyhow::Result
         "command": surface.spawn_command(),
         "cwd": surface.local_cwd(),
         "foreground_cwd": surface.process_id().and_then(platform::foreground_cwd),
+        "foreground_pid": surface.process_id().and_then(platform::foreground_leader),
         "foreground_executable": surface
             .process_id()
             .and_then(platform::foreground_process_name),

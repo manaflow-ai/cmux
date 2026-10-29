@@ -2,7 +2,8 @@ package import Carbon.HIToolbox
 package import os
 
 /// Faults from the Carbon event handler (a C callback, so no captured logger).
-package nonisolated enum CarbonHotKeyFaults {
+package nonisolated struct CarbonHotKeyFaults {
+    package nonisolated init() {}
     package static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.hotkeys")
 }
 

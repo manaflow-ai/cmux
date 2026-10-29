@@ -699,6 +699,7 @@ impl Mux {
                 changed |= entry.engine.detach(&id);
             }
             sizing.note_size_state(runtime, changed);
+            self.refresh_host_policy_locked(&mut sizing, runtime);
             self.apply_terminal_grid(&sizing, runtime);
             let owners_after = sizing.terminal_owner_clients(runtime);
             owner_changes.extend(owners_before.symmetric_difference(&owners_after).copied());

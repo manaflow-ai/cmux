@@ -104,6 +104,7 @@
   background: var(--page-hover);
   color: var(--page-text-2);
   white-space: nowrap;
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 .apps-chip.selected {
@@ -145,6 +146,7 @@
   color: var(--page-text);
   font-size: var(--text-detail);
   font-weight: 650;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 
 .apps-card {
@@ -199,6 +201,7 @@
   color: var(--page-text-3);
   font-size: var(--text-caption);
   overflow-wrap: anywhere;
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 .apps-verified {
@@ -211,6 +214,7 @@
   background: var(--page-text-2);
   font-size: var(--text-caption);
   font-weight: 700;
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 .apps-name {
@@ -292,6 +296,7 @@
   background: var(--page-hover);
   color: var(--page-text-2);
   white-space: nowrap;
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 .apps-button {
@@ -304,6 +309,19 @@
 
 .apps-button:hover {
   background: var(--page-hover);
+}
+
+.apps-action-label {
+  display: inline-grid;
+}
+
+.apps-action-label > span {
+  grid-area: 1 / 1;
+}
+
+.apps-action-label-size {
+  visibility: hidden;
+  font-weight: 500;
 }
 
 .apps-button.primary,
@@ -411,10 +429,12 @@
   justify-content: center;
 }
 
+/* Full width like Discover and Installed, on the toolbar's edges, so moving between them never
+   moves the content's left edge. */
 .apps-detail-body {
-  max-width: 760px;
-  margin: 0 auto;
   padding: 20px 20px 32px;
+  padding-left: var(--page-edge);
+  padding-right: var(--page-edge);
   display: flex;
   flex-direction: column;
   gap: 18px;
@@ -462,7 +482,9 @@
   gap: 8px;
 }
 
+/* The page is full width; running text stops at a readable line length. */
 .apps-detail-description {
+  max-width: 72ch;
   margin: 0;
   line-height: 1.45;
 }
@@ -604,13 +626,28 @@ code {
   transform: translateX(12px);
 }
 
+/* Full width like Discover: no centered column, so switching tabs keeps the toolbar's edges. */
 .apps-installed {
-  max-width: 980px;
-  margin: 0 auto;
   padding: var(--page-edge);
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+/* The failed-check notice and the update rows sit under the Updates head with the rows' own spacing. */
+.apps-updates-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin-top: 10px;
+}
+
+.apps-updates-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 10px;
 }
 
 .apps-installed-row {
@@ -678,11 +715,13 @@ code {
 .apps-state strong {
   color: var(--page-text);
   font-size: var(--text-body);
+  letter-spacing: var(--text-body--letter-spacing);
 }
 
 .apps-state > span:last-child {
   max-width: 340px;
   font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 
 .apps-state-mark {
@@ -696,6 +735,7 @@ code {
   color: var(--page-text-2);
   background: var(--page-hover);
   font-size: var(--text-title);
+  letter-spacing: var(--text-title--letter-spacing);
 }
 
 .apps-state-empty {
@@ -747,6 +787,7 @@ code {
 .apps-cloud-feature-title {
   font-size: var(--text-title);
   font-weight: 600;
+  letter-spacing: var(--text-title--letter-spacing);
 }
 
 .apps-cloud-feature-body {
@@ -754,6 +795,7 @@ code {
   line-height: 1.4;
   color: var(--page-text-2);
   text-wrap: pretty;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 
 .apps-cloud-feature-art {
@@ -787,7 +829,7 @@ code {
 @container apps-discover (max-width: 480px) {
   .apps-cloud-feature {
     flex-wrap: wrap;
-    gap: 10px;
+    gap: 8px;
   }
 
   .apps-cloud-feature-text {

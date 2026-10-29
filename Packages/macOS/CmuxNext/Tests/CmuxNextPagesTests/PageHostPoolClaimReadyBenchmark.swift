@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextSettings
 @testable import CmuxNextPages
 import Foundation
@@ -53,7 +54,7 @@ struct PageHostPoolClaimReadyBenchmark {
         defer { window.close() }
         var policy = PageHostPool.Policy()
         policy.idleInput = .milliseconds(5)
-        let pool = PageHostPool(policy: policy, activity: { 0 }, isTrackingMenu: { false })
+        let pool = PageHostPool(memoryPressure: MemoryPressureEvents(source: ManualMemoryPressureSource()), policy: policy, activity: { 0 }, isTrackingMenu: { false })
         defer { pool.dropSpare(); pool.claimedHosts.forEach(pool.release) }
         pool.follow(window)
         pool.noteLikely()
