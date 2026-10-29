@@ -271,8 +271,10 @@ final class WindowManager {
             states[launch] = nil
             closeProgrammatically(controller)
         }
-        // The adopted window is the frontmost saved one; keep it in front.
-        if let adopted, controllers.count > 1 { present(adopted) }
+        // The adopted window is the frontmost saved one; keep it in front. It was presented at
+        // launch already: raise it, never present it again, which under no-activate orders a
+        // window behind the others and would save it last in the window order.
+        if let adopted, controllers.count > 1, ordersWindowsIn, let window = adopted.window { WindowActivation.show(window, .raise) }
         observeMembership()
         sessionRegistrar.start()
         registry.isLaunching = false
