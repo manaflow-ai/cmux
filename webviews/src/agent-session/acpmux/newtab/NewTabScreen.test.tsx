@@ -78,7 +78,142 @@ test("New Tab exposes the chat composer attachment menu", async () => {
   const add = container.querySelector<HTMLButtonElement>(".nt-pickers .acpmux-newtab-plus .acpmux-picker-button");
   expect(add).toBeTruthy();
   await act(async () => add!.click());
-  expect(container.querySelector('.acpmux-newtab-plus [data-value="attach"]')).toBeTruthy();
+  expect(container.querySelector('.acpmux-newtab-plus [data-value="add.files"]')).toBeTruthy();
+});
+
+test("New Tab uses the native catalog row and the same action dispatcher as chat", async () => {
+  const actions: string[] = [];
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        snapshot={noChat()}
+        onAsk={() => {}}
+        onOpen={() => {}}
+        onSearch={() => {}}
+        onShell={() => {}}
+        onJump={() => {}}
+        onOpenSession={() => {}}
+        onShowAll={() => {}}
+        plusExtensions={[
+          {
+            id: "openBrowser",
+            section: "tools",
+            name: "New Browser Tab",
+            description: "Open a browser tab",
+            icon: "browser",
+            keywords: ["browser"],
+            action: { kind: "command", id: "openBrowser" },
+          },
+        ]}
+        onPaletteAction={(id) => {
+          actions.push(id);
+        }}
+      />,
+    );
+  });
+  const add = container.querySelector<HTMLButtonElement>(".nt-pickers .acpmux-newtab-plus .acpmux-picker-button")!;
+  await act(async () => add.click());
+  const row = container.querySelector<HTMLElement>('.acpmux-newtab-plus [data-value="openBrowser"]')!;
+  expect(row.textContent).toContain("New Browser Tab");
+  await act(async () =>
+    row.dispatchEvent(new dom!.window.MouseEvent("mousedown", { bubbles: true, cancelable: true })),
+  );
+  expect(actions).toEqual(["openBrowser"]);
+});
+
+test("a failed native plus action stays on New Tab with its draft and attachment", async () => {
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        snapshot={noChat()}
+        onAsk={() => {}}
+        onOpen={() => {}}
+        onSearch={() => {}}
+        onShell={() => {}}
+        onJump={() => {}}
+        onOpenSession={() => {}}
+        onShowAll={() => {}}
+        plusExtensions={[
+          {
+            id: "openBrowser",
+            section: "tools",
+            name: "New Browser Tab",
+            description: "Open a browser tab",
+            icon: "browser",
+            keywords: ["browser"],
+            action: { kind: "command", id: "openBrowser" },
+          },
+        ]}
+        onPaletteAction={() => Promise.reject(new Error("Browser unavailable"))}
+        upload={async (files) => ({ paths: files.map((file) => `/tmp/${file.name}`) })}
+      />,
+    );
+  });
+  const field = container.querySelector<HTMLTextAreaElement>(".nt-field")!;
+  await act(async () => {
+    const setter = Object.getOwnPropertyDescriptor(dom!.window.HTMLTextAreaElement.prototype, "value")!.set!;
+    setter.call(field, "Keep this draft");
+    field.dispatchEvent(
+      new dom!.window.InputEvent("input", { bubbles: true, inputType: "insertText", data: "Keep this draft" }),
+    );
+  });
+  expect(container.querySelector<HTMLTextAreaElement>(".nt-field")?.value).toBe("Keep this draft");
+  const input = container.querySelector<HTMLInputElement>(".acpmux-attach-input")!;
+  Object.defineProperty(input, "files", { configurable: true, value: [new dom!.window.File(["hello"], "notes.txt")] });
+  await act(async () => input.dispatchEvent(new dom!.window.Event("change", { bubbles: true })));
+  expect(container.querySelector(".acpmux-attachments")).toBeTruthy();
+  const add = container.querySelector<HTMLButtonElement>(".nt-pickers .acpmux-newtab-plus .acpmux-picker-button")!;
+  await act(async () => add.click());
+  const row = container.querySelector<HTMLElement>('.acpmux-newtab-plus [data-value="openBrowser"]')!;
+  await act(async () =>
+    row.dispatchEvent(new dom!.window.MouseEvent("mousedown", { bubbles: true, cancelable: true })),
+  );
+  expect(container.querySelector(".nt-composer")).toBeTruthy();
+  expect(container.querySelector<HTMLTextAreaElement>(".nt-field")?.value).toBe("Keep this draft");
+  expect(container.querySelector(".acpmux-attachments")).toBeTruthy();
+  expect(container.textContent).toContain("Browser unavailable");
+  expect(container.querySelector(".acpmux-palette-menu")).toBeTruthy();
+});
+
+test("a synchronously failed native plus action stays on New Tab with its error", async () => {
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        snapshot={noChat()}
+        onAsk={() => {}}
+        onOpen={() => {}}
+        onSearch={() => {}}
+        onShell={() => {}}
+        onJump={() => {}}
+        onOpenSession={() => {}}
+        onShowAll={() => {}}
+        plusExtensions={[
+          {
+            id: "openBrowser",
+            section: "tools",
+            name: "New Browser Tab",
+            description: "Open a browser tab",
+            icon: "browser",
+            keywords: ["browser"],
+            action: { kind: "command", id: "openBrowser" },
+          },
+        ]}
+        onPaletteAction={() => {
+          throw new Error("Browser unavailable synchronously");
+        }}
+      />,
+    );
+  });
+  await act(async () =>
+    container.querySelector<HTMLButtonElement>(".nt-pickers .acpmux-newtab-plus .acpmux-picker-button")!.click(),
+  );
+  const row = container.querySelector<HTMLElement>('.acpmux-newtab-plus [data-value="openBrowser"]')!;
+  await act(async () =>
+    row.dispatchEvent(new dom!.window.MouseEvent("mousedown", { bubbles: true, cancelable: true })),
+  );
+  expect(container.querySelector(".nt-composer")).toBeTruthy();
+  expect(container.textContent).toContain("Browser unavailable synchronously");
+  expect(container.querySelector(".acpmux-palette-menu")).toBeTruthy();
 });
 
 test("a chosen document uses the New Tab upload path and becomes sendable", async () => {
