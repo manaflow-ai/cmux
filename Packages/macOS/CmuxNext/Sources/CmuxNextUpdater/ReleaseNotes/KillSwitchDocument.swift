@@ -16,7 +16,7 @@ nonisolated public struct KillSwitchDocument: Equatable, Sendable {
     /// Nil unless `data` is a version 1 document.
     public init?(data: Data) {
         guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              (root["version"] as? NSNumber)?.intValue == 1 else { return nil }
+              root["version"] as? Int == 1 else { return nil }
         func disabled(_ object: Any?) -> [String]? {
             ((object as? [String: Any])?["DisabledFeatures"] as? [Any])?.compactMap { $0 as? String }
         }

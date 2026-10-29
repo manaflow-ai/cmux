@@ -21,18 +21,24 @@ public final class KillSwitchReader {
     private let store: @MainActor (UpdaterService) -> ReleaseNotesStore?
     private var observation: Task<Void, Never>?
     private var reading: (cohort: String, task: Task<Void, Never>)?
+    /// Invalidate every earlier read when a later ring/read request is observed, including a move
+    /// back to a cohort whose name matches the earlier request.
+    private var generation = 0
     /// A read was asked while ``reading`` ran: one more runs after it.
     private var readsAgain = false
 
-    /// The app's reader, set by ``start(updater:)``.
-    public private(set) static var app: KillSwitchReader?
+    /// The app's reader, set by ``start(updater:)``. The updater retains the reader; this weak
+    /// back-reference lets a replacement stop the previous observation without extending its life.
+    public private(set) static weak var app: KillSwitchReader?
 
     /// Makes the app's reader for `updater` and follows it; a reader started before stops.
-    public static func start(updater: UpdaterService) {
+    @discardableResult
+    public static func start(updater: UpdaterService) -> KillSwitchReader {
         app?.stop()
         let reader = KillSwitchReader(updater: updater)
         app = reader
         reader.follow()
+        return reader
     }
 
     /// The app's reader: the updater's own notes store, the shared switches.
@@ -45,6 +51,10 @@ public final class KillSwitchReader {
         self.updater = updater
         self.switches = switches
         self.store = store
+    }
+
+    nonisolated deinit {
+        observation?.cancel()
     }
 
     /// Follows the updater while it lives (see the type's note).
@@ -75,6 +85,8 @@ public final class KillSwitchReader {
     @discardableResult
     func read() -> Task<Void, Never>? {
         guard let updater else { return nil }
+        generation &+= 1
+        let requestedGeneration = generation
         let cohort = updater.ring.rawValue
         if let reading {
             readsAgain = true
@@ -91,7 +103,8 @@ public final class KillSwitchReader {
             let off = await store?.flags()?.off(cohort: cohort) ?? []
             guard let self else { return }
             reading = nil
-            if self.updater?.ring.rawValue == cohort, off != switches.off {
+            if self.generation == requestedGeneration, self.updater?.ring.rawValue == cohort,
+               off != switches.off {
                 switches.replace(off: off)
                 self.updater?.log.append("kill switches off: \(off.isEmpty ? "none" : off.sorted().joined(separator: ", "))")
             }

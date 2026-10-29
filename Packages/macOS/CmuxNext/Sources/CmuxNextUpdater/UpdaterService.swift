@@ -59,6 +59,8 @@ public final class UpdaterService {
     @ObservationIgnored let snoozeTimer: DemandTimer
     /// The pulled-build banner (made on first use; it needs `self`).
     @ObservationIgnored public private(set) lazy var pulledWatch = PulledBuildWatch(updater: self)
+    /// The app-owned per-PR kill-switch reader; retaining it cancels its observation with the updater.
+    @ObservationIgnored var killSwitchReader: KillSwitchReader?
     /// The notice whose timeout is pending, and its one-shot deadline on the
     /// injected clock (no `asyncAfter`).
     @ObservationIgnored var expiringCard: UpdateCard?
@@ -331,7 +333,7 @@ public final class UpdaterService {
     public func start() {
         guard !started else { return }
         started = true
-        if presentUpdateUI != nil { KillSwitchReader.start(updater: self) }
+        if presentUpdateUI != nil { killSwitchReader = KillSwitchReader.start(updater: self) }
         observeFlowPhase()
         refreshAnnouncements()
         refreshTip()

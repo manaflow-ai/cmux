@@ -51,6 +51,11 @@ DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 MAX_DAYS = 90
 
 
+def is_version_one(value: object) -> bool:
+    """JSON booleans and floats must not pass the integer version contract."""
+    return type(value) is int and value == 1
+
+
 def interpolation_end(text: str, i: int, close: str) -> int:
     """The offset just past the bracket `close` that ends the interpolation opened before `i`."""
     opening = "(" if close == ")" else "{"
@@ -126,7 +131,7 @@ def check_registry(switches: object, today: datetime.date, errors: list[str]) ->
             errors.append(f"{key}: a key is pr-<N>, N the pull request that adds the switch")
             continue
         entry = entry if isinstance(entry, dict) else {}
-        if entry.get("pr") != int(match.group(1)) or isinstance(entry.get("pr"), bool):
+        if type(entry.get("pr")) is not int or entry["pr"] != int(match.group(1)):
             errors.append(f"{key}: no PR number (`\"pr\": {match.group(1)}`)")
         if not isinstance(entry.get("owner"), str) or not entry["owner"].strip():
             errors.append(f"{key}: no owner")
@@ -201,6 +206,9 @@ def flagged_off(root: Path, errors: list[str]) -> set[str]:
     if not isinstance(document, dict):
         errors.append(f"{FLAGS}: not an object")
         return set()
+    if not is_version_one(document.get("version")):
+        errors.append(f"{FLAGS}: not a version 1 document")
+        return set()
     cohorts = document.get("cohorts", {})
     if not isinstance(cohorts, dict):
         errors.append(f"{FLAGS}: `cohorts` is not an object")
@@ -224,7 +232,7 @@ def check(root: Path, today: datetime.date) -> list[str]:
         registry = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {"version": 1, "switches": {}}
     except (OSError, ValueError) as error:
         return [f"{REGISTRY}: not JSON: {error}"]
-    if not isinstance(registry, dict) or registry.get("version") != 1:
+    if not isinstance(registry, dict) or not is_version_one(registry.get("version")):
         return [f"{REGISTRY}: not a version 1 registry"]
     switches = check_registry(registry.get("switches"), today, errors)
     sites = call_sites(root, errors)
