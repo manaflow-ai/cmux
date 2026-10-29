@@ -100,6 +100,37 @@ fn new_row_takes_client_minted_pane_and_tab_ids() {
     assert_eq!(bad["ok"], false, "a malformed pane id is refused: {bad}");
 }
 
+/// `new-tab-client-tab-id-v1` (felt 1e, principled-audit R1): `new-tab` takes the client-minted
+/// `tab_id` the splits take, so a New Terminal Tab (Ctrl-`) the app shows before the reply is the
+/// daemon's tab under the same public id, as a Cmd-D split's new pane is. An id that is malformed
+/// or already used is refused, and nothing is created.
+#[test]
+fn new_tab_takes_a_client_minted_tab_id() {
+    assert!(advertised_capabilities(false).contains(&"new-tab-client-tab-id-v1"));
+    let (mut wire, pane) = Wire::lone();
+    let tab_id = "tab_fedcba9876543210fedcba9876543210";
+    let tabs = |wire: &Wire| wire.mux.with_state(|state| state.panes[&pane].tabs.len());
+    let before = tabs(&wire);
+    let created = wire.ok(json!({"cmd": "new-tab", "pane": pane, "tab_id": tab_id}));
+    assert_eq!(tabs(&wire), before + 1, "{created}");
+    let surface: SurfaceId = serde_json::from_value(created["surface"].clone()).unwrap();
+    let public = wire.mux.with_state(|state| {
+        state
+            .resource_indexes
+            .tabs
+            .iter()
+            .find(|(_, s)| **s == surface)
+            .map(|(id, _)| id.to_string())
+    });
+    assert_eq!(public.as_deref(), Some(tab_id), "the new tab takes the caller's id: {created}");
+
+    let reused = wire.send(json!({"cmd": "new-tab", "pane": pane, "tab_id": tab_id}));
+    assert_eq!(reused["ok"], false, "a live id is refused: {reused}");
+    let bad = wire.send(json!({"cmd": "new-tab", "pane": pane, "tab_id": "tab_xyz"}));
+    assert_eq!(bad["ok"], false, "a malformed id is refused: {bad}");
+    assert_eq!(tabs(&wire), before + 1, "a refused new-tab created a tab");
+}
+
 /// New Row on a split screen: the tree becomes the first row of one column,
 /// and a new row with one pane holding one new terminal goes below it.
 #[test]

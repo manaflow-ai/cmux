@@ -133,12 +133,16 @@ extension DaemonConnection {
     /// New terminal tab in `pane` (the daemon's focused pane when nil).
     @discardableResult
     public func newTab(in pane: PaneID?, options: SpawnOptions = SpawnOptions()) async throws -> SurfaceCreated {
+        var options = options
+        // A client-minted tab id only where `new-tab` takes one (``DaemonCapability/newTabClientTabID``).
+        if identity?.supports(DaemonCapability.newTabClientTabID.rawValue) != true { options.tabID = nil }
+        options.paneID = nil
         if supportsPlacementEnv {
             let options = await placed(options)
             return Self.created(try await request(NewTabRequest(pane: pane, options: options)), options: options)
         }
         if let pane, let placed = try await spawnPlacedByMove(options, into: .tab(pane)) { return placed }
-        var options = served(options)
+        options = served(options)
         options.env = await terminalEnvironment(options.env)
         return try await request(NewTabRequest(pane: pane, options: options))
     }

@@ -43,15 +43,27 @@ pub(super) fn new_tab(
     actor: Actor,
     params: tabs_wire::NewTabParams,
 ) -> anyhow::Result<Value> {
-    let tabs_wire::NewTabParams { pane, cwd, env, cols, rows, keep, terminal_id, shell_args } =
-        params;
-    let spawn = placement_spawn_options(
+    let tabs_wire::NewTabParams {
+        pane,
+        cwd,
+        env,
+        cols,
+        rows,
+        keep,
+        terminal_id,
+        shell_args,
+        tab_id,
+    } = params;
+    let mut spawn = placement_spawn_options(
         cwd,
         env.as_ref(),
         terminal_id,
         shell_args,
         frontend_shell(mux, client),
     )?;
+    // `new-tab-client-tab-id-v1`: the caller's id for the tab, so the tab it shows before the
+    // reply is this one (the split's `split-client-keys-v1` rule; checked unused at creation).
+    super::split_kind::PaneClientIds { pane_id: None, tab_id }.apply(&mut spawn)?;
     let surface =
         mux.new_tab_with_options_as(&actor, pane, spawn, optional_surface_size(cols, rows))?;
     placed_terminal_result(mux, &surface, keep)

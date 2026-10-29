@@ -42,6 +42,11 @@ pub(super) struct SplitParams {
 /// shows the split before the daemon has it keys both by one id.
 pub(super) const SPLIT_CLIENT_SPLIT_ID_CAPABILITY: &str = "split-client-split-id-v1";
 
+/// `new-tab` takes a client-minted `tab_id` for the tab it makes (the same rule as
+/// `split-client-keys-v1`), so a New Terminal Tab the app shows before the reply is keyed
+/// by the tab's own id, as a split's new pane is.
+pub(super) const NEW_TAB_CLIENT_TAB_ID_CAPABILITY: &str = "new-tab-client-tab-id-v1";
+
 /// What the new pane holds: a terminal (fields of `terminal-env-v1`,
 /// `terminal-placement-env-v1`, `terminal-reap-v1`, `terminal-shell-args-v1`)
 /// or, with `pane-browser-kind-v1`, a browser at `url`.

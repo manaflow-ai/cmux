@@ -16,8 +16,20 @@ public struct ProvisionalTab: Sendable, Hashable {
 
     /// A fresh provisional tab.
     @MainActor public init() {
+        self.init(id: Self.idPrefix + UUID().uuidString.lowercased())
+    }
+
+    /// A fresh provisional tab under a client-minted public tab id (`tab_` and 32 hex), which the create
+    /// request names (`new-tab-client-tab-id-v1`): the daemon's tab gets the same id, so the stand-in and
+    /// the daemon's tab are one tab to every id-keyed view (one terminal view), as a split's new pane is
+    /// (``ProvisionalPane/tabID``).
+    @MainActor public static func clientMinted() -> ProvisionalTab {
+        ProvisionalTab(id: "tab_" + UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased())
+    }
+
+    @MainActor private init(id: String) {
         Self.next += 1
-        id = Self.idPrefix + UUID().uuidString.lowercased()
+        self.id = id
         surface = SurfaceID(rawValue: Self.surfaceBase + Self.next)
     }
 

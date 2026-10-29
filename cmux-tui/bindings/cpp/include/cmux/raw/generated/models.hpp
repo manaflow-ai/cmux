@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "d60b4d9a4e2b29ec10b92b01dff8f04e076911755afc8c218f2d85410be831e3";
+inline constexpr std::string_view kProtocolIrSha256 = "1a744ee54f182868a525dd51316826f68c6c6789bbf20a6e86af03dfa3cbdbe0";
 
 enum class AccessRequestKind;
 struct AccessRequestPending;
@@ -5586,6 +5586,7 @@ struct NewTabRequest {
     Field<Id> pane{};
     Field<std::uint16_t> rows{};
     Field<std::vector<std::string>> shell_args{};
+    Field<std::string> tab_id{};
     Field<std::string> terminal_id{};
     friend bool operator==(const NewTabRequest&, const NewTabRequest&) = default;
 };

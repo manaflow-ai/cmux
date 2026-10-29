@@ -37,10 +37,20 @@ struct TerminalNewTabResizeTests {
 
             // New Terminal Tab in the shown pane, as Ctrl-` runs it.
             #expect(services.registry.perform("newSurface", invocation: ActionInvocation(target: ActionTargetRef(kind: .pane, id: pane.pane.id), origin: .user)))
+            // The stand-in shows in the action's turn; its terminal view is the one the daemon's tab keeps.
+            let standInKey = try #require(pane.currentTabKey, "New Terminal Tab showed nothing in its turn")
+            #expect(standInKey != first)
+            let standInSession = services.cache.existingTerminal(standInKey)?.session
             try await Self.until({
-                guard let key = pane.currentTabKey, key != first, !ProvisionalTab.isProvisional(key) else { return false }
+                guard let key = pane.currentTabKey, key != first,
+                      let tab = pane.pane.tabs.first(where: { $0.id == key }), !ProvisionalTab.isProvisional(surface: tab.surface) else { return false }
                 return Self.live(services, [pane]) && Self.unfitted(services, [pane]).isEmpty
             }, report: { "the new tab never showed fitted: " + Self.describe(services, controller) })
+            // One create path (principled-audit R1, `new-tab-client-tab-id-v1`): the daemon's tab is the stand-in's
+            // tab id, and its terminal is the stand-in's session (no second view made and swapped in), as Cmd-D's.
+            #expect(pane.currentTabKey == standInKey, "the daemon's tab took another id than the stand-in's")
+            #expect(standInSession != nil && services.cache.existingTerminal(standInKey)?.session === standInSession,
+                    "the daemon's tab got a second terminal view")
 
             // The window gets smaller, as a person's drag or a window_place leaves it.
             let tall = window.frame

@@ -48,10 +48,15 @@ public struct NewTerminalTabCommand: Sendable {
     ///     directory, read while the stand-in shows); nil, or a nil result, keeps `options.cwd`.
     @MainActor
     public func intendNow(on daemon: DaemonService, cwd: Task<String?, Never>? = nil) -> Pending {
-        let provisional = ProvisionalTab()
+        // One create path (principled-audit R1): with `new-tab-client-tab-id-v1` the stand-in's id is the
+        // daemon tab's, so its terminal view is the daemon tab's view (`TabContentCache.terminal(for:)`
+        // keeps the entry and attaches it on the confirm), as a Cmd-D split's new pane is.
+        let clientTab = daemon.supports(DaemonCapability.newTabClientTabID.rawValue)
+        let provisional = clientTab ? ProvisionalTab.clientMinted() : ProvisionalTab()
         let terminal = TerminalID.generate()
         var options = options
         options.terminalID = terminal
+        if clientTab { options.tabID = provisional.id }
         let transaction = ClientTransactionID.generate()
         let pane = pane, sent = options
         let intent = Intent.createTab(pane: pane, provisional: provisional.terminal(terminal, cwd: options.cwd))
