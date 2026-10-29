@@ -23,6 +23,8 @@ Right after an upload GitHub can serve a cached 404 for a few minutes, so
 --settle-seconds retries failing feeds in rounds, 404 included, within one
 shared window. The deadline limits retry starts; HTTP calls already running
 can finish afterward, and the workflows enforce their own job timeouts.
+Retry windows are cancellation-aware: SIGINT/SIGTERM stops further requests
+and interrupts a pending backoff; an in-flight HTTP call retains its timeout.
 
 usage: verify_stable_feed.py [--feed URL ...] [--tag vX.Y.Z [--tag-only]] [--attempts 3] [--settle-seconds 0]
 Exits 1 with one line per problem.
@@ -32,7 +34,9 @@ from __future__ import annotations
 import argparse
 import http.client
 import re
+import signal
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -55,7 +59,46 @@ class FetchError(Exception):
     pass
 
 
+class RetryCancelled(Exception):
+    """The caller cancelled verification; no further request may start."""
+
+
+class RetryWindow:
+    """Bound retry starts by a monotonic deadline and an interruptible event.
+
+    A successful HTTP response establishes readiness. Waiting only spaces
+    attempts; it never turns a failed response into a successful result.
+    In-flight HTTP requests retain their own 30-second timeout.
+    """
+
+    def __init__(self, seconds: float, *, cancelled: threading.Event | None = None):
+        """Capture one absolute deadline and share the caller's cancellation."""
+        self.deadline = time.monotonic() + max(0, seconds)
+        self.cancelled = cancelled if cancelled is not None else threading.Event()
+
+    def check_cancelled(self):
+        """Stop before another request or retry if cancellation was signalled."""
+        if self.cancelled.is_set():
+            raise RetryCancelled()
+
+    def ready(self) -> bool:
+        """Whether a retry can start now, excluding the deadline itself."""
+        self.check_cancelled()
+        return time.monotonic() < self.deadline
+
+    def wait(self, seconds: float) -> bool:
+        """Wait for a retry slot, waking on cancellation or the deadline."""
+        self.check_cancelled()
+        remaining = self.deadline - time.monotonic()
+        if remaining <= 0:
+            return False
+        if self.cancelled.wait(min(seconds, remaining)):
+            raise RetryCancelled()
+        return self.ready()
+
+
 def http_get(url: str) -> bytes:
+    """Load a feed with a finite request timeout and uniform fetch errors."""
     request = urllib.request.Request(url, headers={"Cache-Control": "no-cache", "User-Agent": USER_AGENT})
     try:
         with urllib.request.urlopen(request, timeout=30) as response:
@@ -93,16 +136,23 @@ def http_content_length(url: str) -> int | None:
         raise FetchError(str(getattr(error, "reason", error))) from error
 
 
-def with_retries(attempts: int, call, *args):
+def with_retries(attempts: int, call, *args, retry: RetryWindow | None = None,
+                 cancelled: threading.Event | None = None):
     """GitHub's release CDN returns a transient 5xx or reset now and then; a
-    404 is the failure this check exists for, so it is never retried."""
+    404 is the failure this check exists for, so it is never retried here.
+    The window bounds the attempt timeouts plus their backoff intervals."""
+    retry = retry or RetryWindow(30 * attempts + attempts * (attempts - 1), cancelled=cancelled)
     for attempt in range(1, attempts + 1):
+        retry.check_cancelled()
         try:
-            return call(*args)
+            result = call(*args)
+            retry.check_cancelled()
+            return result
         except FetchError as error:
             if attempt == attempts or str(error).startswith("HTTP 4"):
                 raise
-            time.sleep(2 * attempt)
+            if not retry.wait(2 * attempt):
+                raise
 
 
 def enclosures(feed_xml: bytes) -> list[dict[str, str]]:
@@ -124,10 +174,11 @@ def enclosures(feed_xml: bytes) -> list[dict[str, str]]:
     return found
 
 
-def check_feed(feed_url: str, attempts: int, get=http_get, content_length=http_content_length) -> list[str]:
+def check_feed(feed_url: str, attempts: int, get=http_get, content_length=http_content_length,
+               *, cancelled: threading.Event | None = None) -> list[str]:
     """Returns one line per problem with the feed or any enclosure it lists."""
     try:
-        body = with_retries(attempts, get, feed_url)
+        body = with_retries(attempts, get, feed_url, cancelled=cancelled)
     except FetchError as error:
         return [f"{feed_url}: feed did not load ({error})"]
     try:
@@ -152,7 +203,7 @@ def check_feed(feed_url: str, attempts: int, get=http_get, content_length=http_c
             problems.append(f"{feed_url}: {url} has no numeric length")
             continue
         try:
-            served = with_retries(attempts, content_length, url)
+            served = with_retries(attempts, content_length, url, cancelled=cancelled)
         except FetchError as error:
             problems.append(f"{feed_url}: {url} does not download ({error})")
             continue
@@ -161,7 +212,8 @@ def check_feed(feed_url: str, attempts: int, get=http_get, content_length=http_c
     return problems
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None, *, cancelled: threading.Event | None = None) -> int:
+    """Check every selected feed, retry failures fairly, and report final results."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--feed", action="append", help="feed URL to check (repeatable; default: every stable feed)")
     parser.add_argument("--tag", help="also check this release's own feeds (releases/download/TAG/...)")
@@ -176,17 +228,17 @@ def main(argv: list[str] | None = None) -> int:
     feeds = [] if args.tag_only else list(args.feed or DEFAULT_FEEDS)
     if args.tag:
         feeds += [f"https://github.com/{args.repo}/releases/download/{args.tag}/{name}" for name in FEED_NAMES]
-    deadline = time.monotonic() + max(0, args.settle_seconds)
-    results = [check_feed(feed_url, max(1, args.attempts)) for feed_url in feeds]
-    while any(results):
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            break
-        time.sleep(min(15, remaining))
-        for index, feed_url in enumerate(feeds):
-            if results[index] and time.monotonic() < deadline:
-                print(f"wait {feed_url}: {results[index][0]}")
-                results[index] = check_feed(feed_url, max(1, args.attempts))
+    retries = RetryWindow(args.settle_seconds, cancelled=cancelled)
+    try:
+        results = [check_feed(feed_url, max(1, args.attempts), cancelled=retries.cancelled) for feed_url in feeds]
+        while any(results) and retries.wait(15):
+            for index, feed_url in enumerate(feeds):
+                if results[index] and retries.ready():
+                    print(f"wait {feed_url}: {results[index][0]}")
+                    results[index] = check_feed(feed_url, max(1, args.attempts), cancelled=retries.cancelled)
+    except RetryCancelled:
+        print("Feed verification cancelled")
+        return 130
     problems = []
     for feed_url, found in zip(feeds, results):
         print(f"{'FAIL' if found else 'ok  '} {feed_url}")
@@ -196,5 +248,22 @@ def main(argv: list[str] | None = None) -> int:
     return 1 if problems else 0
 
 
+def cli() -> int:
+    """Let SIGINT/SIGTERM cancel retry waits and restore the caller's handlers."""
+    cancelled = threading.Event()
+    previous = {}
+
+    def cancel(_signum, _frame):
+        cancelled.set()
+
+    try:
+        for signum in (signal.SIGINT, signal.SIGTERM):
+            previous[signum] = signal.signal(signum, cancel)
+        return main(cancelled=cancelled)
+    finally:
+        for signum, handler in previous.items():
+            signal.signal(signum, handler)
+
+
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(cli())

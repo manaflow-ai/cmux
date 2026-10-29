@@ -51,6 +51,7 @@ class Server:
     """Answers GET and HEAD from a URL table; a missing URL is a 404."""
 
     def __init__(self, bodies=None, lengths=None, failures=None):
+        """Set up response fixtures and a log independent of production code."""
         self.bodies = bodies or {}
         self.lengths = lengths or {}
         self.failures = dict(failures or {})
