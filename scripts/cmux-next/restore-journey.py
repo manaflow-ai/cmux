@@ -107,6 +107,7 @@ from urllib.parse import parse_qs, urlparse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import build_names  # noqa: E402  (next to this script; restore-journey-slot.sh copies both)
+import rj_rows  # noqa: E402  (next to this script, copied the same way)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 parser = argparse.ArgumentParser()
@@ -1509,18 +1510,7 @@ class visiting:
             wait(lambda: ((topology() or {}).get("focus") or {}).get("workspace") == self.back, 10, 0.3)
 
 
-def grid_fits_view(label, pp, view):
-    """A row: the terminal renders the grid its view fits (`fit_grid`), so the shell has no rows
-    past the pane's edge. Read after the settle wait, so a grid that never follows its view fails
-    here even when it is equally wrong before and after the relaunch (cx-yt7rt)."""
-    surface = view.get("surface") or {}
-    grid, fit = surface.get("grid"), surface.get("fit_grid")
-    row = f"{label}: {pp}.view.grid_fits_view"
-    if not grid:
-        return (row, False, "no terminal grid drawn", "layout")
-    if "fit_grid" not in surface:
-        return (row, True, f"grid {grid}; this build reports no fit_grid", "layout")
-    return (row, fit is not None and fit == grid, f"grid {grid}, view fits {fit}", "layout")
+grid_fits_view = rj_rows.grid_fits_view
 
 
 def snapshot(label):
