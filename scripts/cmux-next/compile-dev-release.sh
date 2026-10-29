@@ -33,9 +33,11 @@
 # CMUX_NEXT_SWIFT_COMPILATION_MODE is auto (the workflow's default; a repo
 # variable naming wholemodule or singlefile wins). A host build compiles
 # singlefile: that is what the host cache holds and replays (509/509 hits,
-# about 130 s), and a first build in a new host tree compiles singlefile too,
-# so it fills the cache the next landing replays (a whole-module first build
-# would leave no singlefile entries, and the next one would be cold again). Any
+# about 130 s), and a first build in a new host tree compiles singlefile too:
+# it can install the fleet seed (dev_cas_seed.py, keyed by this mode, so it
+# runs after the mode is chosen) and it fills the cache the next landing
+# replays (a whole-module first build would leave no singlefile entries, and
+# the next one would be cold again). Any
 # other build (lock busy, setup failed, cache off, not a mini) has no cache to
 # replay and never fills the host's, so it compiles whole-module: 0/509 hits
 # singlefile took about 808 s, whole-module about 545 s.
@@ -45,6 +47,16 @@
 # newest build its cache holds) before the compile starts. A host build also
 # prints `compilation cache source sha: <sha>` for the per-landing harness.
 #
+# The fleet-shared compile cache (dev_cas_seed.py): in host mode, before the
+# compile, a host whose cache is missing or older than the fleet's newest seed
+# installs that seed; after it, the host records the commit its cache holds
+# (HOST_ROOT/cas-origin.json) and, with CMUX_NEXT_DEV_CAS_PACK_DIR set, packs the
+# cache for the workflow to publish. The store's URL and token
+# (CMUX_NEXT_DEV_CAS_URL, CMUX_NEXT_DEV_CAS_TOKEN) and the records' read token
+# (CMUX_NEXT_DEV_CAS_GH_TOKEN) reach only that step, never the build's
+# environment. Without them nothing is fetched; a miss or any error compiles as
+# before.
+#
 # Usage: compile-dev-release.sh ARCHIVE
 set -euo pipefail
 
@@ -53,6 +65,9 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 workspace="$(cd "$here/../.." && pwd -P)"
 host_root="${HOME:?}/Library/Caches/cmux-next-ci/dev-daily-release/host"
 lock="$host_root/lock"
+cas_seed_token="${CMUX_NEXT_DEV_CAS_TOKEN:-}"
+cas_seed_gh_token="${CMUX_NEXT_DEV_CAS_GH_TOKEN:-}"
+unset CMUX_NEXT_DEV_CAS_TOKEN CMUX_NEXT_DEV_CAS_GH_TOKEN
 
 # Closing this script's fd 9 drops its share of the lock; a child still running
 # keeps it until it exits.
@@ -119,7 +134,7 @@ case "${CMUX_NEXT_SWIFT_COMPILATION_MODE:-auto}" in
     if [[ "$mode" == host && "$previous_sha" =~ ^[0-9a-f]{40}$ ]]; then
       swift_mode=singlefile swift_why="host cache from $previous_sha"
     elif [[ "$mode" == host ]]; then
-      swift_mode=singlefile swift_why="new host tree: singlefile seeds the host cache"
+      swift_mode=singlefile swift_why="no host cache yet: singlefile, so the fleet seed applies and this build fills the cache"
     else
       swift_mode=wholemodule swift_why="cache cold: $reason"
     fi
@@ -149,11 +164,23 @@ if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
   echo "DEV Release compile: $mode build root${reason:+ ($reason)}, $swift_mode ($swift_why)" >> "$GITHUB_STEP_SUMMARY" || true
 fi
 
+if [[ "$mode" == host && -f "$here/dev_cas_seed.py" ]]; then
+  CMUX_NEXT_DEV_CAS_TOKEN="$cas_seed_token" GH_TOKEN="$cas_seed_gh_token" python3 -I "$here/dev_cas_seed.py" restore \
+    --derived-data "$derived_data" --build-root "$build_root" --marker "$host_root/cas-origin.json" \
+    --scratch "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/cmux-next-dev-cas-restore" \
+    || echo "::warning::compile-dev-release: the compile cache seed restore failed; compiling without it" >&2
+fi
+cas_seed_token="" cas_seed_gh_token=""
 "$build_root/scripts/cmux-next/check-cmux-scheme-compile.sh" "$derived_data"
 app="$(find "$derived_data/Build/Products/Release" -maxdepth 1 -type d -name 'cmux NEXT DEV.app' -print -quit)"
 test -d "$app"
 "$build_root/scripts/cmux-next/check-app-personalities.sh" "$app"
 ditto -c -k --keepParent "$app" "$archive"
+if [[ "$mode" == host && -f "$here/dev_cas_seed.py" ]]; then
+  python3 -I "$here/dev_cas_seed.py" pack --derived-data "$derived_data" --build-root "$build_root" \
+    --marker "$host_root/cas-origin.json" ${CMUX_NEXT_DEV_CAS_PACK_DIR:+--out "$CMUX_NEXT_DEV_CAS_PACK_DIR"} \
+    || echo "::warning::compile-dev-release: packing the compile cache seed failed" >&2
+fi
 
 # The fleet build's REF capture (cmux-next.yml, after this step) reads this build. The host tree
 # and DerivedData are another build's as soon as this script's lock goes, so with the capture on
