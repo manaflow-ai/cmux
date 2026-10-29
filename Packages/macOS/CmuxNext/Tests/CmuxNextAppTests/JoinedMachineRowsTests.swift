@@ -140,7 +140,7 @@ import Testing
         let store = fake.store()
         await store.refresh()
         var ran: [(JoinedMachineAction, String, String)] = []
-        let registry = Self.registry(store) { ran.append(($0, $1.id, $2)) }
+        let registry = Self.registry(store, ran: { ran.append(($0, $1.id, $2)) })
         let menu = MachineSectionHostView.joinedMenu(store.machines[0], rowID: "ssh-1", registry: registry)
         let rotate = try #require(menu.items.first { $0.title == "Rotate Credential" })
         // A test process has no running NSApplication to dispatch the item: send its action to its
