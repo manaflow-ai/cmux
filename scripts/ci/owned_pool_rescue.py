@@ -757,6 +757,9 @@ NIGHTLY_SIGN_ALTERNATES: dict[str, tuple[str, tuple[str, ...]]] = {
     "recover-nightly-next-notarization": ("recover-nightly-next-notarization", (_RECOVERY_ALTERNATE,)),
     "verify-recovered-nightly-next": ("verify-recovered-nightly-next", (_RECOVERY_ALTERNATE,)),
     "sign-nightly-identity-legacy": ("sign-nightly-identity-legacy", (_LEGACY_ALTERNATE,)),
+    # feat-cmux-next's same-run Blacksmith signer for a refused owned-Mac attempt (#27357). It runs on attempt 1
+    # only, so a rescue re-run skips it; that still frees the run, and the feed watch re-runs the legacy job.
+    "sign-nightly-identity-legacy-blacksmith": ("sign-nightly-identity-legacy-blacksmith", (_LEGACY_ALTERNATE,)),
     "verify-nightly-identity-legacy": ("verify-nightly-identity-legacy", (_LEGACY_ALTERNATE,)),
 }
 SIGN_BLACKSMITH_LABEL = re.compile(r"blacksmith-[0-9]+vcpu-macos-[0-9]+(?:-[a-z0-9]+)*")
