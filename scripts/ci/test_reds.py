@@ -480,7 +480,7 @@ def web_failures(log: str | None) -> WebFailures:
         elif error and not in_stack and text.strip():
             error.append(text.strip())
     end_file()
-    if grouped and not summary:
+    if (grouped or any(BUN_STARTED.match(text) for text in texts)) and not summary:
         found.truncated.append("its webview run printed no closing summary")
     # Keep the common runtime and cut-short detection; Bun assertion titles can quote
     # crash words, so result lines are not runtime diagnostics.
@@ -497,8 +497,9 @@ def merged_web(logs: list) -> WebFailures:
     for log in logs:
         got = web_failures(log)
         for key, said in got.failed.items():
-            if said or key not in out.failed:
-                out.failed[key] = said
+            if key in out.failed and out.failed[key] != said:
+                said = "\n--- repeated failure ---\n".join(sorted({out.failed[key], said}))
+            out.failed[key] = said
         out.timed_out |= got.timed_out
         out.crashed |= got.crashed
         out.charged |= got.charged
