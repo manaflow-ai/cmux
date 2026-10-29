@@ -14,12 +14,30 @@ public struct MacName: Sendable {
     public static let captureName = "Studio Mac"
 
     /// ``captureName`` when this process runs under PR capture, else nil. Every name this type
-    /// shows answers it then, and so do the few views that read the computer name themselves.
+    /// gives answers it then (``computerName()``, ``displayName()``, ``hostName()``,
+    /// ``linkDeviceName()``), and so do the few readers outside it that ask it first.
     public static let captureOverride: String? = captureOverride(environment: ProcessInfo.processInfo.environment)
 
-    /// ``captureName`` when `environment` names a capture slot's shell home (an absolute path).
-    nonisolated static func captureOverride(environment: [String: String]) -> String? {
-        environment["CMUX_CAPTURE_SHELL_HOME"]?.hasPrefix("/") == true ? captureName : nil
+    /// ``captureName`` when `environment` names a capture slot's shell home (``captureShellHome(_:isFolder:)``).
+    nonisolated static func captureOverride(environment: [String: String],
+                                            isFolder: (String) -> Bool = existingFolder) -> String? {
+        captureShellHome(environment, isFolder: isFolder) == nil ? nil : captureName
+    }
+
+    /// `CMUX_CAPTURE_SHELL_HOME`: the folder a PR capture slot (cmuxterm-hq capture-host) writes neutral shell
+    /// startup files into and names in the clone's `LSEnvironment`. Nil unless it is an absolute path to an
+    /// existing folder. The one check of "this run is under capture": the app's terminal environment
+    /// (`AppEnvironment.captureShellHome`) and this type's names both read it, so they never disagree.
+    public nonisolated static func captureShellHome(_ environment: [String: String],
+                                                    isFolder: (String) -> Bool = existingFolder) -> String? {
+        guard let path = environment["CMUX_CAPTURE_SHELL_HOME"], path.hasPrefix("/"), isFolder(path) else { return nil }
+        return path
+    }
+
+    /// Whether `path` is an existing folder (a checked stat).
+    public nonisolated static func existingFolder(_ path: String) -> Bool {
+        var folder: ObjCBool = false
+        return FileManager.checked.fileExists(atPath: path, isDirectory: &folder) && folder.boolValue
     }
 
     /// The user-visible computer name (System Settings > General > Sharing),
@@ -109,7 +127,11 @@ public struct MacName: Sendable {
     /// CloudService). Reads the kernel hostname: `ProcessInfo.hostName`
     /// resolves through DNS and blocked the main thread for 35 s on launch.
     public nonisolated func linkDeviceName() -> String {
-        let name = kernelHostName()
+        Self.linkDeviceName(host: Self.captureOverride ?? kernelHostName())
+    }
+
+    /// `cmux-<host>` for `host`, lowercased, every other character a `-`, at most 40 characters of host.
+    nonisolated static func linkDeviceName(host name: String) -> String {
         let host = name.isEmpty ? "mac" : name
         let cleaned = host.lowercased().map { $0.isLetter || $0.isNumber ? $0 : "-" }
         return "cmux-" + String(String(cleaned).prefix(40))

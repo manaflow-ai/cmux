@@ -39,17 +39,28 @@ struct MacNameHostTests {
     }
 }
 
-/// A run under PR capture (`CMUX_CAPTURE_SHELL_HOME`, a capture slot's neutral shell home) names the
-/// showcase Mac wherever it shows this Mac's name, never the capture host's: the privacy check refuses
-/// every still that shows it. A person's run (no such variable, or a relative path) keeps the real name.
+/// A run under PR capture (`CMUX_CAPTURE_SHELL_HOME`, a capture slot's neutral shell home, an existing
+/// folder) names the showcase Mac wherever it gives this Mac's name, never the capture host's: the privacy
+/// check refuses every still that shows it. A person's run, or a stale or invalid variable (relative, or no
+/// such folder), keeps the real name, by the same check `AppEnvironment.captureShellHome` makes.
 struct MacNameCaptureTests {
+    private static let folder = { (path: String) in path == "/lease/home" }
+
     @Test func aCaptureSlotNamesTheShowcaseMac() {
-        #expect(MacName.captureOverride(environment: ["CMUX_CAPTURE_SHELL_HOME": "/lease/home"]) == MacName.captureName)
+        #expect(MacName.captureOverride(environment: ["CMUX_CAPTURE_SHELL_HOME": "/lease/home"], isFolder: Self.folder)
+            == MacName.captureName)
         #expect(MacName.captureName == "Studio Mac")
     }
 
-    @Test(arguments: [[:], ["CMUX_CAPTURE_SHELL_HOME": ""], ["CMUX_CAPTURE_SHELL_HOME": "lease/home"]] as [[String: String]])
-    func aPersonsRunKeepsThisMacsName(_ environment: [String: String]) {
-        #expect(MacName.captureOverride(environment: environment) == nil)
+    @Test(arguments: [[:], ["CMUX_CAPTURE_SHELL_HOME": ""], ["CMUX_CAPTURE_SHELL_HOME": "lease/home"],
+                      ["CMUX_CAPTURE_SHELL_HOME": "/missing"]] as [[String: String]])
+    func aPersonsRunOrAStaleVariableKeepsThisMacsName(_ environment: [String: String]) {
+        #expect(MacName.captureOverride(environment: environment, isFolder: Self.folder) == nil)
+        #expect(MacName.captureShellHome(environment, isFolder: Self.folder) == nil)
+    }
+
+    @Test func theLinkDeviceNameUnderCaptureNamesTheShowcaseMac() {
+        #expect(MacName.linkDeviceName(host: MacName.captureName) == "cmux-studio-mac")
+        #expect(MacName.linkDeviceName(host: "") == "cmux-mac")
     }
 }
