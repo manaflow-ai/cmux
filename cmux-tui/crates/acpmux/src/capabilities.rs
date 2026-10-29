@@ -24,7 +24,6 @@ pub struct Capability {
 }
 
 pub const CAPABILITIES: &[Capability] = &[
-    Capability { id: "machine.join.stdin.v1", wire: &[] },
     // The base the pane needs to show and drive a chat: ACP sessions, the
     // session list and its events, attach and view, harnesses and models,
     // drafts, bookmarks, prompts, permissions and the other per-chat actions.
@@ -71,6 +70,11 @@ pub const CAPABILITIES: &[Capability] = &[
             method::MUX_PERMISSION_PENDING,
             method::MUX_SECRET_SUBMIT,
         ],
+    },
+    Capability { id: "machine.join.stdin.v1", wire: &[] },
+    Capability {
+        id: "machine-consent-v1",
+        wire: &[method::MUX_MACHINE_CONSENT_SET, method::MUX_MACHINE_CONSENT_GET],
     },
     // Owner-VM Codex app-server bridge: access-only external tokens are read
     // from the private broker file and never exposed through ACP frames.
@@ -194,12 +198,16 @@ mod tests {
     fn every_id_is_stable_shaped_and_listed_once() {
         let mut seen = BTreeSet::new();
         for id in ids() {
-            let (name, version) = id.rsplit_once("-v").or_else(|| id.rsplit_once(".v")).unwrap_or_else(|| panic!("{id} has no version suffix"));
+            let (name, version) = id
+                .rsplit_once("-v")
+                .or_else(|| id.rsplit_once(".v"))
+                .unwrap_or_else(|| panic!("{id} has no version suffix"));
             assert!(
                 !name.is_empty()
-                    && name
-                        .bytes()
-                        .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-' || b == b'.')
+                    && name.bytes().all(|b| b.is_ascii_lowercase()
+                        || b.is_ascii_digit()
+                        || b == b'-'
+                        || b == b'.')
                     && !version.is_empty()
                     && version.bytes().all(|b| b.is_ascii_digit()),
                 "{id} is not a lowercase-kebab id ending in -vN"

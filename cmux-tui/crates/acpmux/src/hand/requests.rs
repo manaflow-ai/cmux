@@ -50,6 +50,8 @@ where
     F: FnOnce(Value) -> Fut,
     Fut: Future<Output = Result<bool, HandError>>,
 {
+    crate::cli::cloud_join::require_joined_consent("control")
+        .map_err(|_| HandError::new("consent_required", "local control consent is required"))?;
     let cwd = cwd_of(p)?;
     let cwd_ref = cwd.as_deref();
     // The paths each action touches; the policy sees all of them.

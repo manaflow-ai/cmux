@@ -546,37 +546,30 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
         }
         Command::Host(PeerCmd::Consent { cmd }) => {
-            match cmd {
+            let (screen, control, granted) = match cmd {
                 crate::cli::command_host::ConsentCmd::Grant { screen, control } => {
-                    let surface = if screen {
-                        "screen"
-                    } else if control {
-                        "control"
-                    } else {
-                        return Err(anyhow!("use --screen or --control"));
-                    };
-                    crate::cli::cloud_join::grant_consent(surface)?;
-                    if json_out {
-                        print_json(&json!({"granted": surface}));
-                    } else {
-                        println!("consent granted: {surface}");
-                    }
+                    (screen, control, true)
                 }
                 crate::cli::command_host::ConsentCmd::Revoke { screen, control } => {
-                    let surface = if screen {
-                        "screen"
-                    } else if control {
-                        "control"
-                    } else {
-                        return Err(anyhow!("use --screen or --control"));
-                    };
-                    crate::cli::cloud_join::revoke_consent(surface)?;
-                    if json_out {
-                        print_json(&json!({"revoked": surface}));
-                    } else {
-                        println!("consent revoked: {surface}");
-                    }
+                    (screen, control, false)
                 }
+            };
+            let surface = match (screen, control) {
+                (true, false) => "screen",
+                (false, true) => "control",
+                _ => return Err(anyhow!("use exactly one of --screen or --control")),
+            };
+            let client = crate::client::Client::connect(&crate::config::socket_path()).await?;
+            let value = client
+                .request(
+                    method::MUX_MACHINE_CONSENT_SET,
+                    json!({"surface":surface,"granted":granted}),
+                )
+                .await?;
+            if json_out {
+                print_json(&value);
+            } else {
+                println!("consent updated: {surface}");
             }
             Ok(())
         }

@@ -5,7 +5,6 @@ use anyhow::{Context, Result, anyhow};
 use base64::Engine as _;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::io::IsTerminal;
 use std::path::PathBuf;
 
 pub const CAPABILITY: &str = "machine.join.stdin.v1";
@@ -14,7 +13,7 @@ pub const CONSENT_REQUIRED: &str = "consent_required";
 const MAX_TOKEN_BYTES: usize = 512;
 const CREDENTIAL_FILE: &str = "machine-credential.json";
 const CONSENT_FILE: &str = "consent.json";
-const CONSENT_EVENTS_FILE: &str = "consent-events.jsonl";
+const CONSENT_EVENTS_FILE: &str = "consent-refusal.json";
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct MachineCredential {
@@ -427,49 +426,29 @@ pub async fn status(hub: Option<String>, json_out: bool) -> Result<()> {
     Ok(())
 }
 
-pub fn grant_consent(surface: &str) -> Result<()> {
-    confirm_local_person("Grant", surface)?;
+/// Only the person-proven local daemon RPC calls this writer. The ordinary
+/// CLI deliberately has no person key and cannot grant consent from a PTY.
+pub(crate) fn set_consent_for_person(surface: &str, granted: bool) -> Result<Consent> {
     let mut consent = load_consent();
-    let now = format!(
-        "{}",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs()
-    );
+    let state = if granted { ConsentState::Granted } else { ConsentState::None };
     match surface {
-        "screen" => consent.screen = ConsentState::Granted,
-        "control" => consent.control = ConsentState::Granted,
-        _ => return Err(anyhow!("use --screen or --control")),
+        "screen" => consent.screen = state,
+        "control" => consent.control = state,
+        _ => anyhow::bail!("unknown consent surface"),
     }
-    consent.granted_at = Some(now);
-    crate::config::private_state_dir(&state_dir())?;
-    crate::config::write_atomic(&consent_path(), &serde_json::to_vec_pretty(&consent)?)
-}
-
-pub fn revoke_consent(surface: &str) -> Result<()> {
-    confirm_local_person("Revoke", surface)?;
-    let mut consent = load_consent();
-    match surface {
-        "screen" => consent.screen = ConsentState::None,
-        "control" => consent.control = ConsentState::None,
-        _ => return Err(anyhow!("use --screen or --control")),
+    if granted {
+        consent.granted_at = Some(crate::store::now_ms().to_string());
     }
     crate::config::private_state_dir(&state_dir())?;
-    crate::config::write_atomic(&consent_path(), &serde_json::to_vec_pretty(&consent)?)
+    crate::config::write_atomic(&consent_path(), &serde_json::to_vec_pretty(&consent)?)?;
+    Ok(consent)
 }
 
-fn confirm_local_person(action: &str, surface: &str) -> Result<()> {
-    if !std::io::stdin().is_terminal() || std::env::var_os("ACPMUX_SESSION_ID").is_some() {
-        return Err(anyhow!("consent requires the local person's terminal"));
-    }
-    eprint!("{action} {surface} consent on this machine? Type 'yes' to continue: ");
-    use std::io::Write;
-    std::io::stderr().flush()?;
-    let mut answer = String::new();
-    std::io::stdin().read_line(&mut answer)?;
-    anyhow::ensure!(answer.trim() == "yes", "consent not granted");
-    Ok(())
+pub(crate) fn consent_status() -> Value {
+    let refusal = crate::config::private_state_file(&state_dir().join(CONSENT_EVENTS_FILE))
+        .ok()
+        .and_then(|file| serde_json::from_reader::<_, Value>(file).ok());
+    json!({"consent": load_consent(), "lastRefusal": refusal})
 }
 
 pub fn require_consent(surface: &str) -> Result<()> {
@@ -500,37 +479,19 @@ pub fn require_joined_consent(surface: &str) -> Result<()> {
 /// Record a local refusal for the app's one-time consent sheet. The file is
 /// owner-only and is intentionally separate from the grant record so a mesh
 /// caller cannot turn a refusal into a grant by editing one JSON object.
-fn record_consent_refusal(surface: &str) -> Result<()> {
+pub(crate) fn record_consent_refusal(surface: &str) -> Result<()> {
+    anyhow::ensure!(matches!(surface, "screen" | "control"), "unknown consent surface");
     crate::config::private_state_dir(&state_dir())?;
-    let path = state_dir().join(CONSENT_EVENTS_FILE);
-    #[cfg(unix)]
-    {
-        use std::io::Write;
-        use std::os::unix::fs::OpenOptionsExt;
-        let mut file = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .mode(0o600)
-            .custom_flags(libc::O_NOFOLLOW)
-            .open(&path)?;
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
-        writeln!(
-            file,
-            "{{\"event\":\"consent_refused\",\"surface\":\"{}\",\"at\":{}}}",
-            surface, now
-        )?;
-    }
-    #[cfg(not(unix))]
-    {
-        let _ = (surface, path);
-    }
-    Ok(())
+    crate::config::write_atomic(
+        &state_dir().join(CONSENT_EVENTS_FILE),
+        &serde_json::to_vec(
+            &json!({"event":"consent_refused", "code":"consent_required", "surface":surface, "at":crate::store::now_ms()}),
+        )?,
+    )
 }
 
 fn http_client() -> Result<reqwest::Client> {
+    let _ = rustls::crypto::ring::default_provider().install_default();
     reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
         .timeout(std::time::Duration::from_secs(10))

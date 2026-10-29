@@ -1508,3 +1508,32 @@ async fn a_relayed_answers_annotations_count_only_under_the_persons_proof_over_t
         r#"got {"annotations": {"Which layout?": {"notes": "but narrower", "preview": "[ B ]\n"}}, "answers": {"Which layout?": "B"}}"#
     );
 }
+
+/// A mesh-started shell can create a PTY and omit all agent env vars. Only
+/// the app's connection-bound person proof may change machine consent.
+#[tokio::test]
+async fn machine_consent_requires_person_proof_even_on_the_local_socket() {
+    use std::os::unix::fs::MetadataExt;
+    let daemon = Daemon::start("machine-consent", Some(KEY));
+    let mut shell = Rpc::connect(&daemon.socket).await;
+    shell.initialize().await;
+    let refused = shell
+        .call(
+            "_acpmux/machine_consent_set",
+            json!({"surface":"control","granted":true,"personKey":KEY}),
+        )
+        .await;
+    assert_eq!(reason(&refused), REASON, "{refused}");
+    assert!(!daemon.dir.join("consent.json").exists());
+    let mut app = Rpc::person(&daemon.socket, KEY).await;
+    let granted =
+        app.ok("_acpmux/machine_consent_set", json!({"surface":"control","granted":true})).await;
+    assert_eq!(granted["consent"]["control"], "granted");
+    assert_eq!(granted["consent"]["screen"], "none");
+    assert_eq!(std::fs::metadata(daemon.dir.join("consent.json")).unwrap().mode() & 0o777, 0o600);
+    let revoked =
+        app.ok("_acpmux/machine_consent_set", json!({"surface":"control","granted":false})).await;
+    assert_eq!(revoked["consent"]["control"], "none");
+    let view = app.ok("_acpmux/machine_consent_get", json!({})).await;
+    assert_eq!(view["consent"]["control"], "none");
+}

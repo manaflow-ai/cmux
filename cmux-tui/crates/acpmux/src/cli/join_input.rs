@@ -38,10 +38,14 @@ fn parse_line(bytes: &[u8]) -> Result<Zeroizing<String>> {
     if text.trim_start().starts_with("cmj_") && !text.ends_with('\n') {
         return Err(anyhow!("join value must be newline terminated"));
     }
+    let had_newline = text.ends_with('\n');
     let line = match text.strip_suffix('\n') {
         Some(line) => line.strip_suffix('\r').unwrap_or(line),
         None => text,
     };
+    if !had_newline && line.ends_with('\r') {
+        return Err(anyhow!("stdin must hold one join value line"));
+    }
     if line.contains(['\n', '\r']) {
         return Err(anyhow!("stdin must hold one join value line and nothing else"));
     }
