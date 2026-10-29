@@ -54,7 +54,7 @@ nonisolated public struct PulledBuild: Equatable, Sendable, Decodable {
 public final class PulledBuildWatch {
     /// The running build's entry on the pulled list, or nil.
     public private(set) var pulled: PulledBuild?
-    /// Every build on the pulled list: the Updated card leaves them out when it counts the newer
+    /// Every build seen on the pulled list since launch: the Updated card leaves them out when it counts the newer
     /// builds ("2 builds behind newest"), and the updater never installs one.
     public private(set) var pulledBuilds: [String] = []
     /// The daemons' state roots for the rollback's store check (set by the App).
@@ -96,22 +96,19 @@ public final class PulledBuildWatch {
         if let refreshTask { return refreshTask }
         let urls = PulledBuild.listURLs(feedURL: feedURL()), fetch = fetch, build = build
         let task = Task { [weak self] in
-            var entry: PulledBuild?
-            var all: [String] = []
-            var read = false
+            var read: [PulledBuild] = []
             for url in urls {
                 guard let data = await fetch(url) else { continue }
-                read = true
-                let list = PulledBuild.decode(data)
-                all += list.map(\.build).filter { !all.contains($0) }
-                if entry == nil, let found = list.first(where: { $0.build == build }) { entry = found }
+                read += PulledBuild.decode(data)
             }
             guard let self else { return }
             self.refreshTask = nil
-            // A read that failed (offline, or no list published) never forgets a build known to be pulled.
-            guard read else { return self.onRefresh() }
+            // A pulled build stays pulled for the life of this process: a read that fails, in whole
+            // or for one of its lists, never forgets one (the feed never un-pulls a build).
+            var all = self.pulledBuilds
+            for entry in read where !all.contains(entry.build) { all.append(entry.build) }
             if self.pulledBuilds != all { self.pulledBuilds = all }
-            if self.pulled != entry { self.pulled = entry }
+            if self.pulled == nil, let entry = read.first(where: { $0.build == build }) { self.pulled = entry }
             self.onRefresh()
         }
         refreshTask = task
