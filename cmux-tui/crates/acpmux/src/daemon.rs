@@ -577,7 +577,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     {
         ws_shutdown.restart();
     } else {
-        ws_shutdown.close_clients();
+        ws_shutdown.normal_shutdown();
     }
     let drain_deadline = tokio::time::Instant::now() + crate::server::WS_DRAIN_BUDGET;
     if tokio::time::timeout_at(drain_deadline, ws_shutdown.drained()).await.is_err() {

@@ -814,6 +814,10 @@ pub async fn serve_ws_until(
         let accepted = tokio::select! {
             biased;
             () = shutdown.requested() => break,
+            () = shutdown.normal() => {
+                shutdown.close_clients();
+                break;
+            }
             _ = connections.join_next(), if !connections.is_empty() => continue,
             accepted = listener.accept() => accepted,
         };

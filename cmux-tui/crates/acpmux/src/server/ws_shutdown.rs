@@ -13,6 +13,7 @@ const CLOSE_BUDGET: Duration = Duration::from_secs(1);
 #[derive(Clone)]
 pub struct WsShutdown {
     requested: watch::Sender<bool>,
+    normal: watch::Sender<bool>,
     closing: watch::Sender<bool>,
     listeners: watch::Sender<usize>,
 }
@@ -21,6 +22,7 @@ impl Default for WsShutdown {
     fn default() -> Self {
         Self {
             requested: watch::channel(false).0,
+            normal: watch::channel(false).0,
             closing: watch::channel(false).0,
             listeners: watch::channel(0).0,
         }
@@ -43,6 +45,7 @@ impl WsShutdown {
         self.listeners.send_modify(|count| *count += 1);
         let local = Self {
             requested: self.requested.clone(),
+            normal: self.normal.clone(),
             closing: watch::channel(false).0,
             listeners: self.listeners.clone(),
         };
@@ -66,6 +69,18 @@ impl WsShutdown {
 
     pub(crate) fn close_clients(&self) {
         self.closing.send_replace(true);
+    }
+
+    /// Stop admitting listeners and close their clients normally. Each listener
+    /// converts the shared latch into its own local writer signal.
+    pub(crate) fn normal_shutdown(&self) {
+        self.normal.send_replace(true);
+        self.close_clients();
+    }
+
+    pub(super) async fn normal(&self) {
+        let mut state = self.normal.subscribe();
+        let _ = state.wait_for(|stopping| *stopping).await;
     }
 
     pub(super) async fn closing(&self) {

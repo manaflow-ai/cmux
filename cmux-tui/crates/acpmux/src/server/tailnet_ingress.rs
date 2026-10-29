@@ -47,6 +47,7 @@ pub async fn serve(
     let listener = tokio::select! {
         biased;
         () = restart.requested() => return Ok(()),
+        () = restart.normal() => return Ok(()),
         _ = stopped(&mut stop) => return Ok(()),
         result = tokio::time::timeout(HANDSHAKE_BOUND, opening) => {
             let joined = result?;
@@ -62,6 +63,10 @@ pub async fn serve(
         tokio::select! {
             biased;
             () = restart.requested() => break Ok(()),
+            () = restart.normal() => {
+                restart.close_clients();
+                break Ok(());
+            },
             _ = stopped(&mut stop) => break Ok(()),
             Some(_) = connections.join_next(), if !connections.is_empty() => {},
             ready = listener.readable_mut() => {
