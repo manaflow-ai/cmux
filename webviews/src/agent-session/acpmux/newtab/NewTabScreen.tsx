@@ -455,7 +455,7 @@ export function NewTabScreen(props: Props) {
       : undefined
     : none
       ? undefined
-      : project && project !== props.cwd
+      : picked && project
         ? project
         : (props.startCwd ?? project ?? props.cwd);
   // The project chip names the folder a prompt starts in (screenActions onAsk): a real pick, else
@@ -465,14 +465,17 @@ export function NewTabScreen(props: Props) {
   // project (the handshake starts its chat there), so the first frame shows it.
   const askFolder = none
     ? undefined
-    : project && project !== props.cwd
+    : picked && project
       ? project
       : (props.startCwd ?? (props.startPending && !folderless && !homeOrAbove(props.cwd) ? props.cwd : undefined));
+  const localAskFolder = projectPeer === undefined ? askFolder : undefined;
   // The environment card checks the project the chat starts in: the chip's folder, else the tab's
   // own project (never the home ~ or a private agent-home folder it inherited).
   const envFolder = none
     ? undefined
-    : (askFolder ?? (props.cwd && !folderless && !homeOrAbove(props.cwd) ? props.cwd : undefined));
+    : projectPeer !== undefined
+      ? undefined
+      : (askFolder ?? (props.cwd && !folderless && !homeOrAbove(props.cwd) ? props.cwd : undefined));
   // A prompt's chat, in no project when that was the pick.
   // The images and files pasted or dropped on the page go with the first prompt.
   /// A Sandboxed send refused here (attachments, an agent a sandbox can't run): said over the box,
@@ -1404,7 +1407,7 @@ export function NewTabScreen(props: Props) {
         <WidgetCards
           sessions={snapshot.sessions}
           projects={props.projects ?? []}
-          {...(askFolder ? { folder: askFolder } : {})}
+          {...(localAskFolder ? { folder: localAskFolder } : {})}
           {...(props.cwd ? { inherited: props.cwd } : {})}
           attention={!allChats}
           {...(props.machineName ? { machineName: props.machineName } : {})}

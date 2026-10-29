@@ -376,6 +376,44 @@ test("the headline respects a peer's reconnecting state", async () => {
   }
 });
 
+test("a remote headline project stays remote in the composer and Projects card", async () => {
+  const snapshot = noChat([
+    {
+      sessionId: "remote-project",
+      cwd: "/Users/you/src/atlas",
+      harness: "claude",
+      status: "idle",
+      turnCount: 1,
+      updatedAt: Date.now(),
+      peer: "devbox",
+      host: "devbox",
+    },
+  ]);
+  snapshot.peers = ["devbox"];
+  snapshot.peerKinds = { devbox: "ssh" };
+  const root = await render("minimal", ["greeting", "projects"], undefined, {
+    machineName: "studio",
+    snapshot,
+    projects: [{ cwd: "/Users/you/src/atlas", label: "atlas" }],
+  });
+  try {
+    await act(async () => host.querySelector<HTMLElement>(".nt-headline-machine-label")!.click());
+    const machine = [...window.document.querySelectorAll<HTMLElement>("[role=option]")].find((row) =>
+      row.textContent?.includes("devbox"),
+    )!;
+    await act(async () => machine.dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true })));
+    await act(async () => host.querySelector<HTMLButtonElement>(".nt-headline-choose button")!.click());
+    const project = [...window.document.querySelectorAll<HTMLElement>("[role=option]")].find((row) =>
+      row.querySelector('[data-path="/Users/you/src/atlas"]'),
+    )!;
+    await act(async () => project.dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true })));
+    expect(host.querySelector(".nt-location")?.textContent).toContain("atlas");
+    expect(host.querySelector(".nt-env .nt-stage-detail")?.textContent).not.toContain("atlas");
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
 test("a headline machine pick returns a sandboxed page to persistent execution", async () => {
   const snapshot = noChat([]);
   snapshot.peers = ["devbox"];
