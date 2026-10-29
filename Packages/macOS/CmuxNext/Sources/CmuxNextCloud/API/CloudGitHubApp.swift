@@ -32,6 +32,9 @@ public enum CloudGitHubApp: String, Equatable, Sendable {
             self = .unknown
             return
         }
+        // The team policy disallows GitHub: the App mints nothing, so the helper must not replace
+        // the machine's own sign-in. An older Worker that does not say is allowed, as before.
+        guard object["allowed"] as? Bool != false else { self = .unknown; return }
         let connection = object["connection"] as? [String: Any]
         self = connection?["status"] as? String == "active" ? .ready : .notConnected
     }

@@ -1,4 +1,5 @@
 import CmuxNextActions
+import CmuxNextCloud
 @testable import CmuxNextApp
 import Darwin
 import Foundation
@@ -440,5 +441,17 @@ struct CloudGitHubSetupTests {
         let data = output.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
         return (process.terminationStatus, String(decoding: data, as: UTF8.self))
+    }
+
+    @Test func theAppCheckAnswersByItsDeadlineEvenWhenItsWorkIgnoresCancel() async {
+        let started = ContinuousClock().now
+        // A mint that does not stop on cancel (an unstructured task's value) still loses the race.
+        let answer = await CloudService.firstAnswer(within: .milliseconds(200), otherwise: CloudGitHubApp.unknown) {
+            await Task.detached { try? await Task.sleep(for: .seconds(5)); return CloudGitHubApp.ready }.value
+        }
+        #expect(answer == .unknown)
+        #expect(ContinuousClock().now - started < .seconds(2), "the check waited for the work it gave up on")
+        let fast = await CloudService.firstAnswer(within: .seconds(5), otherwise: CloudGitHubApp.unknown) { .ready }
+        #expect(fast == .ready)
     }
 }

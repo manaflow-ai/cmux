@@ -14,6 +14,8 @@ struct CloudGitHubAppTests {
 
     @Test(arguments: [
         (200, #"{"configured":true,"app_slug":"cmux","connection":null}"#, CloudGitHubApp.notConnected),
+        (200, #"{"configured":true,"app_slug":"cmux","allowed":false,"connection":{"status":"active"}}"#, .unknown),
+        (200, #"{"configured":true,"app_slug":"cmux","allowed":true,"connection":{"status":"active"}}"#, .ready),
         (200, #"{"configured":true,"app_slug":"cmux","connection":{"status":"needs_reauth"}}"#, .notConnected),
         (200, #"{"configured":false,"app_slug":null,"connection":null}"#, .notConfigured),
         (404, #"{"error":{"code":"integration.not_found","message":"no GitHub connection"}}"#, .notConnected),
