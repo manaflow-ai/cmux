@@ -34,16 +34,29 @@ await requireBrowserLane("ui-scale-chat-column.test.ts", async () => {
   const url = (entry: string, variant: string) =>
     `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}${galleryFrame(entry, { variant })}`;
 
-  const open = async (entry: string, variant: string, effectiveScale: number): Promise<Page> => {
+  // Mirrors the native host's two inputs: WKWebView/Chromium receives the product page zoom while
+  // the web page receives the same effective value as the sizing token and a change notification.
+  // Keeping the inputs separate makes a uiScale-only publication fail the browser assertions.
+  const publishNativePageZoom = async (page: Page, uiScale: number, chatZoom: number): Promise<void> => {
+    await page.evaluate(
+      ({ uiScale, pageZoom }) => {
+        document.documentElement.style.setProperty("--cmux-ui-scale", String(pageZoom));
+        document.documentElement.style.setProperty("--cmux-interface-scale", String(uiScale));
+        window.dispatchEvent(new Event("cmux-ui-scale-change"));
+      },
+      { uiScale, pageZoom: uiScale * chatZoom },
+    );
+  };
+
+  const open = async (entry: string, variant: string, uiScale: number, chatZoom: number): Promise<Page> => {
+    const effectiveScale = uiScale * chatZoom;
     const page = await browser!.newPage({
       viewport: { width: Math.round(PANE / effectiveScale), height: Math.round(900 / effectiveScale) },
       deviceScaleFactor: effectiveScale,
     });
     await page.goto(url(entry, variant));
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
-    await page.evaluate((scale) => {
-      document.documentElement.style.setProperty("--cmux-ui-scale", String(scale));
-    }, effectiveScale);
+    await publishNativePageZoom(page, uiScale, chatZoom);
     return page;
   };
 
@@ -73,13 +86,13 @@ await requireBrowserLane("ui-scale-chat-column.test.ts", async () => {
   test("the chat column and New Tab composer keep their 720px measure across scale combinations", async () => {
     for (const { interfaceScale, chatZoom } of CASES) {
       const effectiveScale = interfaceScale * chatZoom;
-      const chat = await open("agent-pane.chat-width", "standard", effectiveScale);
+      const chat = await open("agent-pane.chat-width", "standard", interfaceScale, chatZoom);
       const chatBox = await measure(chat, ".acpmux-row", effectiveScale);
       await chat.close();
       expect(chatBox.width, `chat width at ${interfaceScale} x ${chatZoom}`).toBeCloseTo(720, -0.5);
       expect(chatBox.left, `chat inset at ${interfaceScale} x ${chatZoom}`).toBeCloseTo(61.5, -0.5);
 
-      const newTab = await open("agent-pane.new-tab", "chats-unavailable", effectiveScale);
+      const newTab = await open("agent-pane.new-tab", "chats-unavailable", interfaceScale, chatZoom);
       const newTabBox = await measure(newTab, ".nt-box", effectiveScale);
       await newTab.close();
       expect(newTabBox.width, `New Tab width at ${interfaceScale} x ${chatZoom}`).toBeCloseTo(720, -0.5);
@@ -89,13 +102,10 @@ await requireBrowserLane("ui-scale-chat-column.test.ts", async () => {
 
   test("a native-style scale update keeps the live column geometry in sync", async () => {
     const effectiveScale = 1.5 * 1.25;
-    const page = await open("agent-pane.chat-width", "standard", 1);
+    const page = await open("agent-pane.chat-width", "standard", 1, 1);
     const before = await measure(page, ".acpmux-row", 1);
     await page.setViewportSize({ width: Math.round(PANE / effectiveScale), height: Math.round(900 / effectiveScale) });
-    await page.evaluate((scale) => {
-      document.documentElement.style.setProperty("--cmux-ui-scale", String(scale));
-      window.dispatchEvent(new Event("cmux-ui-scale-change"));
-    }, effectiveScale);
+    await publishNativePageZoom(page, 1.5, 1.25);
     const after = await measure(page, ".acpmux-row", effectiveScale);
     await page.close();
     expect(before.width).toBeCloseTo(720, -0.5);
