@@ -37,11 +37,12 @@ extension AppServices {
         cache.cef.setOneSpareRenderer(features.isEnabled(.chromiumOneSpareRenderer))
     }
 
-    /// Starts the launch preload and the likelihood observers. With the Chromium Host, Chromium's start holds the
-    /// main thread only for its shim calls (the host spawns and attaches off main, the start's disk reads run off
-    /// main), so once the launch's restore finished, one startup post starts it where ``ChromiumHostLaunchStart``
-    /// puts it, with no idle wait (``ChromiumHostLaunchSlot``); the warm-up, armed in the same post,
-    /// cannot start it sooner.
+    /// Starts the launch preload and the pages spare's engine follow; the likelihood hint is its own launch start
+    /// (``LaunchStart/chromiumLikely``), after the reveal with feature `launchStartDeferral`. With the Chromium Host,
+    /// Chromium's start holds the main thread only for its shim calls (the host spawns and attaches off main, the
+    /// start's disk reads run off main), so once the launch's restore finished, one startup post starts it where
+    /// ``ChromiumHostLaunchStart`` puts it, with no idle wait (``ChromiumHostLaunchSlot``); the warm-up, armed in
+    /// the same post, cannot start it sooner.
     func startChromiumWarmup() {
         guard chromiumRuntime.source.backend == .host, let launchStartup else { return armChromiumWarmup() }
         let preference = cache.browserTabs.preference
@@ -64,9 +65,8 @@ extension AppServices {
         }
     }
 
-    /// Arms the warm-up: its launch timer, the likelihood observers and the spare windows.
+    /// Arms the warm-up: its launch timer and the spare windows, then posts the likelihood hint (``postChromiumLikely()``).
     private func armChromiumWarmup() {
-        let machines = machines
         let preference = cache.browserTabs.preference
         // cmux pages follow `browser.defaultEngine` (ChromiumPageHost): with the feature, their profile
         // keeps a spare window too, so a page's key joins a live window.
@@ -92,6 +92,16 @@ extension AppServices {
                 if started { self?.chromiumWarmup.pagesSpareChanged() } else { started = true }
             }
         }
+        postChromiumLikely()
+    }
+
+    /// The Chromium likelihood hint (``LaunchStart/chromiumLikely``): after startup with feature `launchStartDeferral`.
+    func postChromiumLikely() { runLaunchStart(.chromiumLikely) { [weak self] in self?.followChromiumLikely() } }
+
+    /// The Chromium likelihood hint: a Chromium tab in any window, and the palette's Chromium entries.
+    private func followChromiumLikely() {
+        let machines = machines
+        let preference = cache.browserTabs.preference
         chromiumLikelyObservations.append(Task { [weak self] in
             // A Chromium tab in any window, restored or created elsewhere. While Chromium is the
             // default engine the launch warm start covers every tab (ChromiumWarmup.start), so the
@@ -167,8 +177,10 @@ extension AppServices {
         chromiumRuntime.source.appEvents = appEvents // the app's resign-active ends a page's pointer lock
         // Restored pages start Chromium by their origin, the visible one after the first frame.
         let launchOrder = features.isEnabled(.cefLaunchOrigin) ? launchStartup : nil
+        // The page host in every renderer, so cmux pages open no DevTools session (p13-webui-013).
+        let pageHostScripts = features.isEnabled(.chromiumPageRendererPaths) ? FirstPartyPageSchemes.hostScripts : []
         return ChromiumEngineSlot(stores: browserStores, waitDeadlines: mainWork.wakeUps, source: chromiumRuntime.source, launch: launchOrder,
-                                  make: { [signInCallbacks, contextMenus, inputTap, crashKeys, launchStartup, launchOrder, pointerFrames = dragFrameInput,
+                                  make: { [signInCallbacks, contextMenus, inputTap, crashKeys, launchStartup, launchOrder, pointerFrames = dragFrameInput, pageHostScripts,
                                            chromiumFeatures = features.enabledChromiumFeatures,
                                            disabledChromiumFeatures = features.disabledChromiumFeatures, layerHosting = features.isEnabled(.cefLayerHosting),
                                            attachedPages = features.isEnabled(.cefAttachedPages), resizeFence = features.isEnabled(.cefResizeFence),
@@ -182,7 +194,7 @@ extension AppServices {
                                                        launchMarks: launchMarks, pumpInput: pumpInput, pointerFrames: pointerFrames,
                                                        chromiumFeatures: chromiumFeatures, disabledChromiumFeatures: disabledChromiumFeatures,
                                                        prefetchWork: prefetchWork,
-                                                       launch: launchOrder).usingLayerHostingByDefault(layerHosting).usingAttachedPages(attachedPages)
+                                                       launch: launchOrder, pageHostScripts: pageHostScripts).usingLayerHostingByDefault(layerHosting).usingAttachedPages(attachedPages)
                                           .votingMemoryPressure(of: memoryCoordinator).mergingEvents(on: mergeWork)
                                           .followingVisibilityForRendererHangs(hangFollowsVisibility)
                                           .slicingPumpToFrames(of: pumpFrames).cappingSharedRendererMemory(rendererCaps).usingResizeFence(resizeFence)

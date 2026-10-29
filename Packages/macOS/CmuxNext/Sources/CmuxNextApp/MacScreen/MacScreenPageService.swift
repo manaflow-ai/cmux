@@ -31,6 +31,8 @@ final class MacScreenPageService: InternalPageProvider {
     private let pages: MacScreenPages
     /// Browser tabs on a Mac Screen address already being replaced.
     private var replacing: Set<String> = []
+    /// A visible need posted the device hub's start (``hubNeeded()``).
+    private var hubNeedPosted = false
 
     init(services: AppServices) {
         self.services = services
@@ -59,6 +61,17 @@ final class MacScreenPageService: InternalPageProvider {
             return id.rawValue
         }
         pages.events = events
+    }
+
+    /// A Mac Screen tab shows, or Settings > Devices watches: the device hub, which otherwise waits for startup to
+    /// complete (the `DeviceHub.start` post), starts right after the first frame, or in the next frame once it
+    /// passed. Once; nothing with no launch scheduler (tests) or before the settings exist.
+    func hubNeeded() {
+        guard !hubNeedPosted, let startup = services?.launchStartup, let settings = services?.settings else { return }
+        hubNeedPosted = true
+        startup.post(.afterFirstFrame, "DeviceHub.startNeeded", on: .main) { [weak services, weak settings] in
+            if let settings { services?.startDeviceHub(settings) }
+        }
     }
 
     /// Closes the Mac Screen tab `key` like the tab's own close. `replaced`:
@@ -90,7 +103,10 @@ final class MacScreenPageService: InternalPageProvider {
     var icon: IconName? { .remoteDisplay }
 
     func title(for key: String) -> String { pages.title(for: key) }
-    func makeView(for key: String, in window: WindowController?) -> NSView { pages.makeView(for: key) }
+    func makeView(for key: String, in window: WindowController?) -> NSView {
+        hubNeeded()  // a Mac Screen tab shows: the hub lists its Macs
+        return pages.makeView(for: key)
+    }
     func tabClosed(_ key: String) { pages.tabClosed(key) }
     func route(for key: String) -> String? { pages.route(for: key) }
     func restore(_ route: String, for key: String) { pages.restore(route, for: key) }
@@ -207,6 +223,7 @@ extension AppServices {
 
     /// The device hub follows the hub address (`deviceHub.url` in DEV builds) and the cmux account.
     func startDeviceHub(_ settings: SettingsController) {
+        guard !deviceHub.isStarted else { return }  // the `DeviceHub.start` post, or a visible need's post first
         deviceHub.start(settings: settings)
         cloud.willSignOut.append { [weak self] in self?.deviceHub.willSignOut() }
     }

@@ -31,9 +31,10 @@ public final class CloudStartPost {
         self.start = start
     }
 
-    /// Posts the default start: after startup completes.
+    /// Posts the default start: ``LaunchStart/cloud``, under its name at its class's priority (after startup completes).
     public func post() {
-        startup?.post(.afterStartup, "Cloud.start", on: .main, start)
+        guard let startup else { return }
+        LaunchStart.cloud.post(on: startup, start)
     }
 
     /// A visible need: Cloud starts right after the first frame (in the next frame once it passed),

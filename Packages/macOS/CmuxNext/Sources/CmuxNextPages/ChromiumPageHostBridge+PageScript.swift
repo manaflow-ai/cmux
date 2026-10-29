@@ -5,7 +5,9 @@ extension ChromiumPageHostBridge {
     /// microtask checkpoint as one call (a JSON array of several, up to ``maximumPostCharacters``):
     /// on the page channel when `channelEvent` is set and its relay takes the post, else on the
     /// binding, which the document then keeps, so its posts stay in order. Posts made before either
-    /// exists wait in the page and go out once one does. Ends with ``pushReceiverScript``.
+    /// exists wait in the page and go out once one does; when neither comes, their calls settle with
+    /// the host's failure instead of waiting for ever. ``addHandlersName`` adds handler names later
+    /// (a page view's own, at commit). Ends with ``pushReceiverScript``.
     ///
     /// - Parameters:
     ///   - handlers: Extra handler names whose messages need no reply.
@@ -14,6 +16,7 @@ extension ChromiumPageHostBridge {
         let names = ([PageHostTrust.handlerName] + handlers).map(ChromiumPageHostWire.jsonString).joined(separator: ", ")
         let replying = ChromiumPageHostWire.jsonString(PageHostTrust.handlerName)
         let event = channelEvent.map(ChromiumPageHostWire.jsonString) ?? "null"
+        let failure = ChromiumPageHostWire.failureJSON(code: "native.page_host_unavailable", message: "Page host unavailable")
         return """
         (() => {
           if (globalThis.__cmuxPageHostInstalled) return;
@@ -52,8 +55,23 @@ extension ChromiumPageHostBridge {
             }
             return true;
           };
+          // A post that never found a way out: its call settles with the host's failure.
+          const fail = (text) => {
+            let messages;
+            try { messages = JSON.parse(text); } catch (_) { return; }
+            for (const message of Array.isArray(messages) ? messages : [messages]) {
+              const done = pending.get(message?.seq);
+              if (done) { pending.delete(message.seq); done(\(failure)); }
+            }
+          };
           const drain = () => {
-            if (flush() || ++retries > 400) { waiting = false; return; }
+            if (flush()) { waiting = false; return; }
+            if (++retries > 400) {
+              waiting = false;
+              console.error("cmux page host: no page channel and no binding");
+              while (queue.length) fail(queue.shift());
+              return;
+            }
             setTimeout(drain, 5);
           };
           const send = (text) => {
@@ -70,21 +88,26 @@ extension ChromiumPageHostBridge {
             if (done) { pending.delete(seq); done(reply); }
           };
           Object.defineProperty(globalThis, "\(resolveName)", { value: resolve });
-          const handlers = {};
-          for (const name of [\(names)]) {
-            handlers[name] = {
-              postMessage(body) {
-                if (name !== \(replying)) { send(JSON.stringify({ name, body })); return undefined; }
-                return new Promise((resolve) => {
-                  const seq = next++;
-                  pending.set(seq, resolve);
-                  send(JSON.stringify({ name, seq, doc, body }));
-                });
-              },
-            };
-          }
-          const webkit = globalThis.webkit ?? {};
-          globalThis.webkit = { ...webkit, messageHandlers: { ...(webkit.messageHandlers ?? {}), ...handlers } };
+          const add = (list) => {
+            const handlers = {};
+            for (const name of list) {
+              if (typeof name !== "string") continue;
+              handlers[name] = {
+                postMessage(body) {
+                  if (name !== \(replying)) { send(JSON.stringify({ name, body })); return undefined; }
+                  return new Promise((resolve) => {
+                    const seq = next++;
+                    pending.set(seq, resolve);
+                    send(JSON.stringify({ name, seq, doc, body }));
+                  });
+                },
+              };
+            }
+            const webkit = globalThis.webkit ?? {};
+            globalThis.webkit = { ...webkit, messageHandlers: { ...(webkit.messageHandlers ?? {}), ...handlers } };
+          };
+          add([\(names)]);
+          Object.defineProperty(globalThis, "\(addHandlersName)", { value: (list) => { if (Array.isArray(list)) add(list); } });
         \(pushReceiverScript)
         })();
         """
@@ -122,6 +145,27 @@ extension ChromiumPageHostBridge {
             });
           }
     """
+
+    /// The page-world script every renderer runs at document start on the renderer paths (fork API
+    /// 29, `CEFDocumentScripts.hostPage`): ``pageScript(handlers:channelEvent:)`` and then
+    /// `documentScripts`, each in its own block, before any script of the page, in the main frame of
+    /// a `cmux-page:` document only, so a web page never gets them. The page then needs no DevTools
+    /// session for its host: no binding, no new-document script, no sender probe.
+    ///
+    /// - Parameters:
+    ///   - handlers: Handler names every cmux page gets at document start; a page view adds its
+    ///     own at commit (``rebind()``).
+    ///   - documentScripts: Scripts every cmux page runs at document start
+    ///     (``PageChromiumDocumentScripts/shared``).
+    ///   - channelEvent: The DOM event the runtime's page host relay sends on the page channel.
+    public static func rendererScript(handlers: [String], documentScripts: [String], channelEvent: String) -> String {
+        """
+        (() => {
+          if (location.protocol !== "cmux-page:" || window !== window.top) return;
+        \(batch([pageScript(handlers: handlers, channelEvent: channelEvent)] + documentScripts))
+        })();
+        """
+    }
 
     /// Runs of envelopes the page script keeps for a page that has no receiver yet.
     nonisolated static let maximumHeldPushes = 10_000
