@@ -18,7 +18,8 @@ final class WorkspaceRowView: SidebarRowView {
     /// The running agent's brand mark (`SidebarAgentMarkVariant`); hidden when off.
     internal let agentMark = DecorativeImageView() // the row's label says the agent's state
     internal(set) var agentMarkVariant = SidebarAgentMarkVariant.off
-    private var agentMarkFallbackColor: NSColor?
+    /// A harness mark with no registered icon or brand takes its workspace's stable color (WorkspaceRowView+Rendering).
+    private(set) var agentMarkFallbackColor: NSColor?
     /// The last configuration, so a Debug Settings switch of `sidebar.agentMark` redraws the row.
     internal(set) var lastConfiguration: (SidebarWorkspace, SidebarRow, SidebarRowBadgeStyle?)?
     var activityState = StatusIndicatorState.idle
