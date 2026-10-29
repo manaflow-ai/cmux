@@ -15,7 +15,10 @@ import UserNotifications
 /// create it. An automation launch (`WindowDrawPolicy.isAutomationLaunch`: e2e scripts and
 /// GUI proofs on shared hosts) never creates it either: no authorization
 /// request and no system banner cover the host's screen, and the two methods answer `unavailable`;
-/// `posted` still records each banner for `debug.notifications`.
+/// `posted` still records each banner for `debug.notifications`. An automation launch with
+/// `CMUX_NEXT_NATIVE_NOTIFICATIONS=1` (a capture that holds the whole host, so a real banner
+/// can be shown and shot) uses the system center as a user's launch does; its socket stays in
+/// automation mode.
 @MainActor
 final class DesktopNotifier: NSObject {
     /// A banner the app asked for (for `debug.notifications`).
@@ -54,8 +57,17 @@ final class DesktopNotifier: NSObject {
     nonisolated static let markReadAction = "cmux.notification.markRead"
     /// The last banners asked for, newest last (bounded).
     private(set) var posted: [Posted] = []
-    /// Whether this launch uses the system notification center (not in automation launches).
-    nonisolated static let usesSystemCenter = !WindowDrawPolicy.isAutomationLaunch(ProcessInfo.processInfo.environment)
+    /// Whether this launch uses the system notification center (not in automation launches,
+    /// unless they opt in with `CMUX_NEXT_NATIVE_NOTIFICATIONS=1`).
+    nonisolated static let usesSystemCenter = usesSystemCenter(in: ProcessInfo.processInfo.environment)
+    /// The launch variable an automation launch sets to post real system banners.
+    nonisolated static let nativeNotificationsVariable = "CMUX_NEXT_NATIVE_NOTIFICATIONS"
+
+    /// Whether a launch with `environment` uses the system notification center: every launch but
+    /// an automation one, and an automation one that sets `CMUX_NEXT_NATIVE_NOTIFICATIONS=1`.
+    nonisolated static func usesSystemCenter(in environment: [String: String]) -> Bool {
+        environment[nativeNotificationsVariable] == "1" || !WindowDrawPolicy.isAutomationLaunch(environment)
+    }
     /// Authorization as the center last reported it ("authorized", "denied", ...);
     /// "automation" when this launch never asks.
     private(set) var authorization = DesktopNotifier.usesSystemCenter ? "unknown" : "automation"
