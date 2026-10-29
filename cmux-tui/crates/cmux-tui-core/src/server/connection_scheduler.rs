@@ -41,8 +41,11 @@
 //! [`spawn_connection_thread`] and disallows blocking once its connection
 //! is admitted (websocket_listener.rs). A request task
 //! then rests at its connection's class (connection_qos.rs, task 224). A
-//! clear-history request runs as a `Mux::work` item at its cause's
-//! priority, blocking disallowed (task 230).
+//! clear-history request runs as a `Mux::work` item on the System lane at
+//! its cause's priority, inside `will_block`, as the connection's other
+//! requests run on its request sequence (`Mux::post_connection_request`): it
+//! waits for the host's acknowledgement or the stream, writes the PTY and
+//! removes the terminal's stored output, so it may block (task 230).
 //!
 //! Lock order: the scheduler's `state`, then the pool's. A pool task or
 //! fence callback takes `state` with no pool lock held.
@@ -1181,9 +1184,12 @@ fn run_clear_history(
         );
     };
     // A work item at the priority of the request it serves (its cause), as
-    // Chrome posts a task at its caller's priority; it runs the request as a
-    // request thread does, blocking disallowed. It waits on the terminal and
-    // its PTY, so it is system-lane work (task 230).
+    // Chrome posts a task at its caller's priority. It runs the request as
+    // the request sequence runs every other request of the connection: it
+    // may block (it waits for the host's acknowledgement or the stream,
+    // writes the PTY and removes the terminal's stored output), so it is
+    // System-lane work inside `will_block` (task 230), never on a thread
+    // that disallows blocking.
     let priority = pending.cause.work_priority();
     let mut clear = ClearWork {
         reply: pending.reply_writer(writer),
@@ -1199,7 +1205,7 @@ fn run_clear_history(
         let _active = clear.active.take();
         let _worker_permit = worker_permit;
         let Some(pending) = clear.pending.take() else { return };
-        cmux_threads::blocking::with_blocking_disallowed(|| {
+        cmux_threads::work::will_block(|| {
             if !run_pending_request(&worker_scheduler, &worker_mux, client, pending, &worker_writer)
             {
                 worker_scheduler.close();
