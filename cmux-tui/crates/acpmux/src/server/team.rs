@@ -84,6 +84,7 @@ async fn send(
                 ..Sender::default()
             },
             kind: Kind::Prompt,
+            op: None,
             body,
             // The hub alone decides whether this message may start work.
             mode: Mode::TurnEnd,

@@ -24,6 +24,7 @@ async fn fake_hub(
         token_command: vec!["must-not-run".into()],
         team_messaging: true,
         credential: None,
+        control_from: Vec::new(),
     })
     .unwrap();
     *hub.token.lock().await = Some((Arc::new(Zeroizing::new("test-fixture".into())), 0));
@@ -99,6 +100,7 @@ async fn team_http_send_browse_read_and_acknowledge_use_distinct_paths() {
                 to: Target { team_address: Some("@team/release".into()), ..Target::default() },
                 from: Sender { session_id: Some("sender".into()), ..Sender::default() },
                 kind: crate::mesh::Kind::Prompt,
+                op: None,
                 body: "release note".into(),
                 mode: Mode::TurnEnd,
                 idempotency_key: "team-message-test".into(),

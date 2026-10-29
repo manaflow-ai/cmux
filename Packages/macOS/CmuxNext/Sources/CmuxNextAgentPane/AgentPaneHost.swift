@@ -333,6 +333,15 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         return endpoint
     }
 
+    /// Whether the enroll after a launch may hand the daemon off. Only a daemon this launch
+    /// started: a launch that lost the lock race got the winner's readiness (`lockHeld`), and the
+    /// winner is another client's daemon, which a handoff would shut down under that client and
+    /// leave this one holding a dead endpoint. Such a daemon is enrolled like the one the
+    /// exited-before-ready branch finds (`mayHandOff: false`).
+    static func mayHandOff(after launched: AcpmuxDaemonLauncher.Launched) -> Bool {
+        launched.startedHere
+    }
+
     /// The pane's endpoint from `_acpmux/status` read on a connection whose server peer is the
     /// acpmux this app runs (cx-fcaq review P3-1): a squatter on the unix socket cannot point the
     /// pane at another daemon's WebSocket. Another cmux install's daemon (NIGHTLY shares
@@ -536,14 +545,15 @@ public actor AcpmuxHost: AgentPaneHostProviding {
             throw failure(environment, .other, detail: String(describing: error))
         }
         do {
-            let endpoint = try await AcpmuxDaemonLauncher.launch(environment)
+            let launched = try await AcpmuxDaemonLauncher.launchReporting(environment)
             // A signed daemon ignores the spawn key: it takes the key by this app's signature.
             if let status = await Self.startedStatus(environment), status.serves(home: environment.home) {
-                _ = await AcpmuxPersonKey.enroll(status, environment: environment)
+                _ = await AcpmuxPersonKey.enroll(status, environment: environment,
+                                                 mayHandOff: Self.mayHandOff(after: launched))
                 await AcpmuxComputerUse.enroll(environment)
                 AcpmuxMacApprover.register(environment)
             }
-            return endpoint
+            return launched.endpoint
         } catch AcpmuxDaemonLauncher.Failure.exited {
             logger.error("acpmux launcher exited before ready log=\(environment.logPath, privacy: .public)")
             // Another client may have started the daemon first; the loser exits because the

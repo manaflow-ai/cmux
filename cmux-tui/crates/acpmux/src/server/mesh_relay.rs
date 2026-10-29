@@ -32,10 +32,16 @@ use crate::mesh::{
     Ack, AckState, Backoff, ControlHook, Heartbeat, HubError, InMessage, Kind, MeshHub, Mode,
     StartWork,
 };
+use crate::mesh_http::MeshControlFrom;
 use std::collections::HashSet;
+use std::path::PathBuf;
 use std::sync::Weak;
 use std::time::{Duration, Instant};
-use tokio::sync::watch;
+use tokio::sync::{mpsc, watch};
+
+#[path = "mesh_control_ledger.rs"]
+mod control_ledger;
+use control_ledger::{Claim, ControlLedger};
 
 /// The loops' timings.
 #[derive(Debug, Clone)]
@@ -183,7 +189,8 @@ pub async fn start_configured(hub: &Arc<Hub>) -> Option<MeshRelay> {
     // The origin only (no user, password or query is accepted in the URL).
     let shown = config.shown();
     tracing::info!("mesh relay: on, through {shown}");
-    let control = Arc::new(crate::mesh::RefuseControl);
+    let ledger = hub.store.handoff_dir().map(|dir| dir.join("mesh-controls.json"));
+    let control = Arc::new(MeshControlHook::new(config.control_from, ledger));
     Some(MeshRelay::start(hub, client, control, RelayOptions::default()))
 }
 
@@ -404,6 +411,268 @@ pub fn relay_connection(hub: &Arc<Hub>) -> (mpsc::Sender<String>, mpsc::Receiver
     (in_tx, out_rx)
 }
 
+/// Runs an owner-allowlisted hub control message through the same authenticated peer-origin
+/// request path as a connected daemon. The relay hub only selected this daemon; it does not grant
+/// ownership, and the request handlers below still apply their normal peer-origin and owner checks.
+pub struct MeshControlHook {
+    /// Owner-configured grants. Only the hub-stamped daemon id can match an entry.
+    pub allowed: Vec<MeshControlFrom>,
+    ledger: ControlLedger,
+    /// Lifecycle replay requires a store-backed handoff directory. Memory-only daemons fail
+    /// closed rather than acknowledging a side effect that a restart could repeat.
+    durable: bool,
+    // A delivery lease can end before a start does. Retain its execution until its actual
+    // outcome, independently of the 50 s ack wait; dropping this hook aborts all such tasks.
+    tasks: StdMutex<tokio::task::JoinSet<()>>,
+    slots: Arc<tokio::sync::Semaphore>,
+}
+
+impl MeshControlHook {
+    pub fn new(allowed: Vec<MeshControlFrom>, path: Option<PathBuf>) -> Self {
+        let durable = path.is_some();
+        Self {
+            allowed,
+            ledger: ControlLedger::open(path),
+            durable,
+            tasks: StdMutex::new(Default::default()),
+            slots: Arc::new(tokio::sync::Semaphore::new(RelayOptions::default().max_in_flight)),
+        }
+    }
+}
+
+impl ControlHook for MeshControlHook {
+    fn control<'a>(
+        &'a self,
+        hub: &'a Arc<Hub>,
+        message: &'a InMessage,
+    ) -> futures::future::BoxFuture<'a, Option<Ack>> {
+        Box::pin(async move {
+            // Authorize every delivery before consulting a cached result. Revoking an owner
+            // grant takes effect even for a message whose earlier result remains in the ledger.
+            let sender = message.from.daemon_id.as_deref().filter(|id| !id.is_empty());
+            let op = message.op.as_deref().unwrap_or_default();
+            if !sender
+                .is_some_and(|sender| self.allowed.iter().any(|entry| entry.allows(sender, op)))
+            {
+                return Some(Ack::refused("mesh.control_not_allowed"));
+            }
+            if !crate::mesh::is_message_id(&message.message_id) {
+                return None;
+            }
+            if !self.durable {
+                return Some(Ack::refused("mesh.control_not_durable"));
+            }
+            let permit = self.slots.clone().try_acquire_owned().ok();
+            let claim = self.ledger.claim(sender.unwrap_or_default(), message, permit.is_some());
+            let receiver = match claim {
+                Claim::Done(ack) => return Some(ack),
+                Claim::Unknown => return None,
+                Claim::Conflict => return Some(Ack::refused("mesh.control_id_conflict")),
+                Claim::Waiting(receiver) => {
+                    drop(permit);
+                    receiver
+                }
+                Claim::New { key, receiver } => {
+                    let (hub, message) = (hub.clone(), message.clone());
+                    let execution = self.ledger.execution(key);
+                    let mut tasks = self.tasks.lock_or_recover();
+                    while tasks.try_join_next().is_some() {}
+                    tasks.spawn(async move {
+                        let _permit = permit;
+                        let shutdown = hub.shutdown.notified();
+                        tokio::pin!(shutdown);
+                        shutdown.as_mut().enable();
+                        if hub.is_stopping() {
+                            return;
+                        }
+                        let outcome = tokio::select! {
+                            ack = run_control(&hub, &message) => ack,
+                            () = &mut shutdown => None,
+                        };
+                        if let Some(ack) = outcome {
+                            execution.finish(clip(ack));
+                        }
+                    });
+                    receiver
+                }
+            };
+            // A 60 s lease need not contain a 90 s agent startup. No ack means pending, never
+            // refused; the retained task stores the later result for the next lease to replay.
+            wait_control_result(receiver, Duration::from_secs(50)).await
+        })
+    }
+}
+
+async fn wait_control_result(
+    mut receiver: watch::Receiver<Option<Ack>>,
+    wait: Duration,
+) -> Option<Ack> {
+    tokio::time::timeout(wait, async move {
+        loop {
+            if let Some(ack) = receiver.borrow_and_update().clone() {
+                return Some(ack);
+            }
+            if receiver.changed().await.is_err() {
+                return None;
+            }
+        }
+    })
+    .await
+    .ok()
+    .flatten()
+}
+
+async fn run_control(hub: &Arc<Hub>, message: &InMessage) -> Option<Ack> {
+    let Some(op) = message.op.as_deref() else {
+        return Some(Ack::refused("control message has no operation"));
+    };
+    if message.body.len() > 64 * 1024 {
+        return Some(Ack::refused("control body exceeds 64 KiB"));
+    }
+    let body: serde_json::Value = match serde_json::from_str(&message.body) {
+        Ok(body) => body,
+        Err(e) => return Some(Ack::refused(format!("invalid control body: {e}"))),
+    };
+    if body.get("version").and_then(serde_json::Value::as_u64) != Some(1) {
+        return Some(Ack::refused("unsupported control body version"));
+    }
+    let mut params = match op {
+        "start" => {
+            let Some(params) = body.get("params").filter(|value| value.is_object()) else {
+                return Some(Ack::refused("start control body has no params object"));
+            };
+            let params = params.clone();
+            if params.get("host").is_some()
+                || params.pointer("/_meta/acpmux/peer").is_some()
+                || params.pointer("/_meta/acpmux/host").is_some()
+            {
+                return Some(Ack::refused("mesh control start cannot forward to another daemon"));
+            }
+            params
+        }
+        "resume" | "stop" => serde_json::json!({}),
+        _ => return Some(Ack::refused(format!("unsupported control operation {op:?}"))),
+    };
+    if matches!(op, "resume" | "stop") {
+        // Only exact sessions owned here. Resolving locally before RPC also prevents a
+        // qualified target from being forwarded by the general request dispatcher.
+        let target = crate::mesh::Target {
+            session_id: message.to.session_id.clone(),
+            name: message.to.name.clone(),
+            ..Default::default()
+        };
+        let session = match hub.mesh_target(&target, None) {
+            Ok(session) => session,
+            Err(why) => return Some(Ack::refused(why)),
+        };
+        params["sessionId"] = serde_json::Value::String(session.id.clone());
+    }
+    let session_id = params.get("sessionId").cloned();
+    let (tx, mut rx) = relay_connection(hub);
+    let initialized = rpc_call(
+        &tx,
+        &mut rx,
+        1,
+        crate::rpc::method::INITIALIZE,
+        serde_json::json!({
+            "protocolVersion": 1,
+            "clientCapabilities": {},
+            "clientInfo": {"name": "acpmux-mesh-control", "version": crate::hub::VERSION},
+        }),
+    )
+    .await;
+    if let Err(error) = initialized {
+        return error.ack();
+    }
+    let result = match op {
+        "start" => rpc_call(&tx, &mut rx, 2, crate::rpc::method::SESSION_NEW, params).await,
+        "stop" => rpc_call(&tx, &mut rx, 2, crate::rpc::method::SESSION_CLOSE, params).await,
+        // `session/resume` replays history for a newly attached ACP client. The CLI's
+        // `session resume` operation instead releases a held queue item, so use the same
+        // queue-edit path here.
+        "resume" => {
+            let info = match rpc_call(&tx, &mut rx, 2, crate::rpc::method::MUX_INFO, params).await {
+                Ok(info) => info,
+                Err(error) => return error.ack(),
+            };
+            let held = info["queue"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .find(|entry| entry["held"] == true)
+                .and_then(|entry| entry["promptId"].as_str())
+                .map(str::to_owned);
+            match held {
+                Some(prompt_id) => {
+                    rpc_call(
+                        &tx,
+                        &mut rx,
+                        3,
+                        crate::rpc::method::MUX_QUEUE_EDIT,
+                        serde_json::json!({
+                            "sessionId": session_id,
+                            "promptId": prompt_id,
+                            "op": "resume"
+                        }),
+                    )
+                    .await
+                }
+                None => Ok(serde_json::json!({"resumed": false})),
+            }
+        }
+        _ => return Some(Ack::refused("unsupported control operation")),
+    };
+    match result {
+        Ok(result) => {
+            let detail =
+                result.get("sessionId").and_then(serde_json::Value::as_str).map(str::to_owned);
+            Some(Ack::delivered(&message.message_id, detail))
+        }
+        Err(error) => error.ack(),
+    }
+}
+
+enum ControlFailure {
+    /// An RPC error proves that the target handler refused this operation.
+    Refused(String),
+    /// Lost response/connection: execution may have happened; retain the pending fence.
+    Unknown,
+}
+
+impl ControlFailure {
+    fn ack(self) -> Option<Ack> {
+        match self {
+            Self::Refused(reason) => Some(Ack::refused(reason)),
+            Self::Unknown => None,
+        }
+    }
+}
+
+async fn rpc_call(
+    tx: &mpsc::Sender<String>,
+    rx: &mut mpsc::Receiver<String>,
+    id: i64,
+    method: &str,
+    params: serde_json::Value,
+) -> Result<serde_json::Value, ControlFailure> {
+    tx.send(crate::rpc::Message::request(id, method, params).to_line())
+        .await
+        .map_err(|_| ControlFailure::Unknown)?;
+    loop {
+        let line = rx.recv().await.ok_or(ControlFailure::Unknown)?;
+        let response = crate::rpc::Message::parse(&line).map_err(|_| ControlFailure::Unknown)?;
+        if let crate::rpc::Message::Response { id: got, result, error } = response
+            && got == serde_json::json!(id)
+        {
+            return match (result, error) {
+                (Some(result), None) => Ok(result),
+                (_, Some(error)) => Err(ControlFailure::Refused(error.to_string())),
+                _ => Err(ControlFailure::Unknown),
+            };
+        }
+    }
+}
+
 /// The longest ack detail the hub takes, in characters.
 const MAX_DETAIL_CHARS: usize = 1000;
 
@@ -593,6 +862,64 @@ mod tests {
         let limited =
             HubError { retry_after: Some(Duration::from_secs(9)), ..HubError::unavailable("") };
         assert_eq!(after_failure(&mut backoff, &limited), Duration::from_secs(9));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_late_rpc_result_survives_the_delivery_lease() {
+        let ledger = ControlLedger::open(None);
+        let mut message = from("", "");
+        message.kind = Kind::Control;
+        message.op = Some("start".into());
+        let Claim::New { key, receiver } = ledger.claim("sender", &message, true) else {
+            panic!("a new operation must be admitted");
+        };
+        let (tx, mut requests) = mpsc::channel(1);
+        let (replies, mut rx) = mpsc::channel(1);
+        let target = tokio::spawn(async move {
+            requests.recv().await.unwrap();
+            tokio::time::sleep(Duration::from_secs(90)).await;
+            replies
+                .send(
+                    crate::rpc::Message::ok(json!(2), json!({"sessionId": "stable-id"})).to_line(),
+                )
+                .await
+                .unwrap();
+        });
+        let worker_ledger = ledger.clone();
+        let worker = tokio::spawn(async move {
+            let result =
+                rpc_call(&tx, &mut rx, 2, crate::rpc::method::SESSION_NEW, json!({})).await;
+            if let Ok(result) = result {
+                worker_ledger.finish(
+                    &key,
+                    Ack::delivered("m", result["sessionId"].as_str().map(str::to_owned)),
+                );
+            }
+        });
+        assert!(wait_control_result(receiver, Duration::from_secs(50)).await.is_none());
+        let Claim::Waiting(receiver) = ledger.claim("sender", &message, true) else {
+            panic!("redelivery must join the running operation");
+        };
+        let ack = wait_control_result(receiver, Duration::from_secs(50)).await.unwrap();
+        assert_eq!(ack.state, AckState::Delivered);
+        assert_eq!(ack.detail.as_deref(), Some("stable-id"));
+        target.await.unwrap();
+        worker.await.unwrap();
+        assert!(matches!(ledger.claim("sender", &message, true), Claim::Done(_)));
+    }
+
+    #[tokio::test]
+    async fn a_lost_rpc_response_is_indeterminate_not_refused() {
+        let (tx, mut requests) = mpsc::channel(1);
+        let (replies, mut rx) = mpsc::channel(1);
+        let target = tokio::spawn(async move {
+            requests.recv().await.unwrap();
+            // The handler may have executed before the connection dropped.
+            drop(replies);
+        });
+        let result = rpc_call(&tx, &mut rx, 1, crate::rpc::method::SESSION_NEW, json!({})).await;
+        assert!(matches!(result, Err(ControlFailure::Unknown)));
+        target.await.unwrap();
     }
 
     #[test]

@@ -177,10 +177,26 @@ pub struct OutMessage {
     pub to: Target,
     pub from: Sender,
     pub kind: Kind,
+    /// A control operation. The hub rejects an operation on prompts and a control without one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub op: Option<String>,
     pub body: String,
     pub mode: Mode,
     /// The sender's prompt id: the same send posted again is the same message.
     pub idempotency_key: String,
+}
+
+impl OutMessage {
+    /// Validate the platform wire invariant before an HTTP request is posted.
+    pub fn validate(&self) -> Result<(), String> {
+        match (self.kind, self.op.as_deref()) {
+            (Kind::Control, Some("start" | "resume" | "stop")) => Ok(()),
+            (Kind::Control, _) => Err("control messages require op start, resume or stop".into()),
+            (Kind::Prompt, None) => Ok(()),
+            (Kind::Prompt, Some(_)) => Err("prompt messages cannot carry an operation".into()),
+            (Kind::Unknown, _) => Err("messages must use a known kind".into()),
+        }
+    }
 }
 
 /// A message's receipt: `queued`, `leased`, `delivered`, `refused` or `expired`.
@@ -329,12 +345,38 @@ pub trait MeshHub: Send + Sync {
     fn receipt<'a>(&'a self, message_id: &'a str) -> BoxFuture<'a, Result<Receipt, HubError>>;
 }
 
+#[cfg(test)]
+mod wire_tests {
+    use super::*;
+
+    fn message(kind: Kind, op: Option<&str>) -> OutMessage {
+        OutMessage {
+            to: Target::default(),
+            from: Sender::default(),
+            kind,
+            op: op.map(str::to_owned),
+            body: String::new(),
+            mode: Mode::Now,
+            idempotency_key: "mesh-test-1".into(),
+        }
+    }
+
+    #[test]
+    fn control_wire_requires_a_known_operation_and_prompts_have_none() {
+        assert!(message(Kind::Control, Some("start")).validate().is_ok());
+        assert!(message(Kind::Control, None).validate().is_err());
+        assert!(message(Kind::Control, Some("pause")).validate().is_err());
+        assert!(message(Kind::Prompt, None).validate().is_ok());
+        assert!(message(Kind::Prompt, Some("start")).validate().is_err());
+    }
+}
+
 /// What runs a control message (start, resume or stop a session). The hub grants nothing: a hook
-/// acts only through requests on a connection of `Origin::Peer` (`server::mesh_relay::
-/// relay_connection`, proven as `ConnAuth::PeerToken`), so the daemon holds a relayed control to
-/// exactly a peer daemon's rules, and never calls a `Hub` method that skips them. The message has
-/// already been checked to be for this daemon (`Hub::mesh_for_here`). None leaves the message
-/// unacked (its lease ends and it comes back).
+/// first checks the stamped sender daemon against the owner's `meshRelay.controlFrom` allowlist,
+/// then acts through requests on a connection of `Origin::Peer` (`server::mesh_relay::
+/// relay_connection`, proven as `ConnAuth::PeerToken`). The message has already been checked to be
+/// for this daemon (`Hub::mesh_for_here`). None leaves the message unacked (its lease ends and it
+/// comes back).
 pub trait ControlHook: Send + Sync {
     fn control<'a>(
         &'a self,

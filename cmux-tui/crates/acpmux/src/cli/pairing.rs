@@ -434,9 +434,7 @@ mod tests {
 
     #[cfg(unix)]
     fn executable(path: &std::path::Path, text: &str) {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::write(path, text).unwrap();
-        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        crate::test_exec::write_executable(path, text);
     }
 
     /// Runs `line` with `sh -c` and `bin` first on PATH: (argv, stdin) of

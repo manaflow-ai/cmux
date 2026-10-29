@@ -598,6 +598,10 @@ jobs:
         if: ${{ !cancelled() }}
         run: python3 tests/test_ci_package_lane_prebuild.py
 
+      - name: The iOS simulator step runs the declared runtime, never just the newest (ios_sim_runtime.py)
+        if: ${{ !cancelled() }}
+        run: python3 -I tests/test_ios_sim_runtime.py
+
       # cmux-ci sends a package-test-lane suite step that names a display suite to a display
       # worker; the list it reads is derived from the suites' own display skip traits, so a
       # Swift change that adds or drops such a trait without the list fails here.

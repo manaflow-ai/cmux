@@ -29,6 +29,7 @@ pub(crate) mod login_session;
 #[cfg(unix)]
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 mod cloud_handoff;
+mod handover;
 mod notify;
 mod persist_retry;
 #[cfg(windows)]
@@ -177,9 +178,23 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         Err(e) => {
             // The command that started this daemon waits for the holder (`connect`).
             if let Some(fd) = opts.ready_fd.filter(|_| e.downcast_ref::<LockHeld>().is_some()) {
-                write_ready(fd, &serde_json::json!({"ready": false, "lockHeld": true}));
+                // The app launches `daemon run` directly, without `start_and_connect`.
+                // Its losing launch must report the winner's endpoint once it answers.
+                tracing::info!("another daemon holds the lock; waiting for its socket or exit");
+                match handover::wait(&home(), &socket_path()).await {
+                    Some(handover::Started::Acquired(lock)) => lock,
+                    Some(handover::Started::Ready(ready)) => {
+                        write_ready(fd, &ready);
+                        return Ok(());
+                    }
+                    None => {
+                        write_ready(fd, &serde_json::json!({"ready": false, "lockHeld": true}));
+                        return Err(e);
+                    }
+                }
+            } else {
+                return Err(e);
             }
-            return Err(e);
         }
     };
     // The local CodeRouter relay (crate cmux-coderouter): `cmux-router` and
@@ -999,6 +1014,10 @@ pub async fn connect_stream() -> Result<crate::local_stream::Stream> {
 /// `START_BUDGET`.
 const HANDOVER_BUDGET: Duration = Duration::from_secs(20);
 
+// A detached start may wait for the old owner before binding its own socket.
+// Keep its launcher alive through both phases, including the Windows pipe reader.
+const READINESS_BUDGET: Duration = HANDOVER_BUDGET.saturating_add(START_BUDGET);
+
 /// How often a command tries again while another daemon holds the lock.
 const HANDOVER_RETRY: Duration = Duration::from_millis(250);
 
@@ -1103,10 +1122,10 @@ async fn start_daemon_with(key: Option<zeroize::Zeroizing<String>>) -> Result<St
         let mut line = String::new();
         tokio::io::BufReader::new(ready).read_line(&mut line).await.map(|_| line)
     };
-    match tokio::time::timeout(START_BUDGET, wait).await {
+    match tokio::time::timeout(READINESS_BUDGET, wait).await {
         Ok(read) => Ok(read.unwrap_or_default()),
         Err(_) => Err(anyhow!(
-            "daemon did not come up at {} within {START_BUDGET:?}; see {}",
+            "daemon did not come up at {} within {READINESS_BUDGET:?}; see {}",
             path.display(),
             home().join("daemon.log").display()
         )),
@@ -1156,7 +1175,7 @@ async fn wait_for_job(path: &std::path::Path, job: String) -> Result<String> {
 /// Windows: CreateProcessW with a handle list (`daemon/windows.rs`).
 #[cfg(windows)]
 async fn start_daemon() -> Result<String> {
-    windows::start_daemon(&home(), &daemon_prefix(), START_BUDGET).await
+    windows::start_daemon(&home(), &daemon_prefix(), READINESS_BUDGET).await
 }
 
 fn not_ready(path: &std::path::Path, ready: &str, error: &anyhow::Error) -> anyhow::Error {
@@ -1249,7 +1268,13 @@ fn spawn_detached(key: Option<zeroize::Zeroizing<String>>) -> Result<std::fs::Fi
             });
         }
     }
-    cmd.spawn().context("spawn acpmux daemon")?;
+    let mut child = tokio::process::Command::from(cmd).spawn().context("spawn acpmux daemon")?;
+    // A lock-race loser exits promptly. Reap it even when its CLI caller keeps
+    // running (stdio/TUI); dropping std::process::Child left a zombie per retry.
+    // This async wait never holds runtime teardown open or kills the winner.
+    tokio::spawn(async move {
+        let _ = child.wait().await;
+    });
     // Close this process's copy so end of file means the daemon closed it.
     drop(writer);
     if let (Some(key), Some((ours, theirs))) = (key, pair) {

@@ -1697,6 +1697,7 @@ mod ephemeral;
 mod fanout;
 mod forum;
 mod media_forward;
+mod mesh_control_send;
 pub mod mesh_relay;
 pub(super) mod mesh_send;
 mod team;
