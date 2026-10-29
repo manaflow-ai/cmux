@@ -557,12 +557,17 @@
    container queries, or data-fit-model / data-fit-access when a label is too long for its step)
    take the model's name or the mode's label away, its mark or symbol alone shows, so neither chip
    is ever a bare chevron. The widths are COMPOSER_FIT_STEPS modelMark (370) and
-   accessLabelHidden (420). test/composer-footer-plain.test.ts measures it. */
+   accessLabelHidden (420); the quiet row (the plain look) has no width steps (below), so there only
+   data-fit-model brings the model's mark back (the mode's symbol always shows). With the plain footer
+   off the row draws the mark as the one row always did. test/composer-footer-plain.test.ts measures it. */
 :is(.acpmux-composer-bar, .nt-pickers)[data-footer-look="plain"] :is(.acpmux-model-name, .acpmux-model-short) { color: inherit; }
 @container composer (width > 370px) {
   :is(.acpmux-composer-bar, .nt-pickers)[data-footer-look="plain"]:not([data-fit-model="icon"]) .acpmux-model .acpmux-picker-button .agent-mark {
     display: none;
   }
+}
+.acpmux-composer-foot[data-footer-look="plain"]:not([data-fit-model="icon"]) .acpmux-model .acpmux-picker-button .agent-mark {
+  display: none;
 }
 :is(.acpmux-composer-bar, .nt-pickers)[data-footer-look="plain"] .acpmux-picker-button:focus-visible,
 :is(.acpmux-composer-bar, .nt-pickers)[data-footer-look="plain"] .acpmux-plan:not([aria-pressed="true"]):focus-visible {
@@ -635,7 +640,10 @@
    scroll width. The container queries are the composer's widths (#20548's `composer` container) (literals:
    test/composer-fit-steps.test.ts holds them to the table); composerRowFit.ts marks the row with
    data-fit-<unit> when a label is too long for its width's step. The short labels are drawn from
-   data-label, so a chip's text stays its full value. */
+   data-label, so a chip's text stays its full value. The quiet row under the box
+   (.acpmux-composer-foot, #22285) takes none of these width steps: it holds only the mode, the model
+   button and the context ring, so composerRowFit.ts fits it on the room it measures (live-qa
+   2026-10-21: a 410 px composer read "Opus Med" with about 250 px of the row free). */
 [data-fit-part]:not([data-fit-forms~="full"]),
 .acpmux-model-short { display: none; }
 .acpmux-composer-bar .acpmux-picker-button { position: relative; overflow: clip; }
@@ -666,13 +674,21 @@
   visibility: hidden;
   pointer-events: none;
 }
+/* The width steps below skip the quiet row, which is the plain look, not the element: ComposerFoot
+   draws the same `.acpmux-composer-bar.acpmux-composer-foot` in both looks and marks only the plain
+   one `data-footer-look="plain"`, so with the plain footer off its row takes these steps as the one
+   row always did. The guard is `:where(:not([data-footer-look="plain"]))`, never a bare `:not(...)`:
+   these rules sit after the hiding rules above and must keep losing to them, so the row's measured
+   fit (data-fit-model="icon" at a width whose step only asks for "family") still wins. A bare
+   `:not()` adds to the selector, ties the hider at (0,4,0) and would bring a label back that the
+   fit had taken away. */
 @container composer (max-width: 470px) {
-  :is(.acpmux-composer-bar, .nt-pickers) [data-fit-part="effort"][data-fit-forms~="short"] {
+  :is(.acpmux-composer-bar:where(:not([data-footer-look="plain"])), .nt-pickers) [data-fit-part="effort"][data-fit-forms~="short"] {
     position: static;
     visibility: visible;
     pointer-events: auto;
   }
-  :is(.acpmux-composer-bar, .nt-pickers) [data-fit-part="effort"]:not([data-fit-forms~="short"]) {
+  :is(.acpmux-composer-bar:where(:not([data-footer-look="plain"])), .nt-pickers) [data-fit-part="effort"]:not([data-fit-forms~="short"]) {
     position: absolute;
     top: 0;
     inset-inline-start: 0;
@@ -681,12 +697,12 @@
   }
 }
 @container composer (max-width: 440px) {
-  .acpmux-composer-bar [data-fit-part="model"][data-fit-forms~="family"] {
+  .acpmux-composer-bar:where(:not([data-footer-look="plain"])) [data-fit-part="model"][data-fit-forms~="family"] {
     position: static;
     visibility: visible;
     pointer-events: auto;
   }
-  .acpmux-composer-bar [data-fit-part="model"]:not([data-fit-forms~="family"]) {
+  .acpmux-composer-bar:where(:not([data-footer-look="plain"])) [data-fit-part="model"]:not([data-fit-forms~="family"]) {
     position: absolute;
     top: 0;
     inset-inline-start: 0;
@@ -695,7 +711,7 @@
   }
 }
 @container composer (max-width: 370px) {
-  .acpmux-composer-bar [data-fit-part="model"]:not([data-fit-forms~="icon"]) {
+  .acpmux-composer-bar:where(:not([data-footer-look="plain"])) [data-fit-part="model"]:not([data-fit-forms~="icon"]) {
     position: absolute;
     top: 0;
     inset-inline-start: 0;
@@ -719,7 +735,7 @@
   }
 }
 @container composer (max-width: 420px) {
-  .acpmux-composer-bar [data-fit-part="access"]:not([data-fit-forms~="icon"]) {
+  .acpmux-composer-bar:where(:not([data-footer-look="plain"])) [data-fit-part="access"]:not([data-fit-forms~="icon"]) {
     position: absolute;
     top: 0;
     inset-inline-start: 0;
@@ -1211,6 +1227,26 @@
    effort one muted label, as every composer's model chip is. */
 .acpmux-composer-foot .acpmux-access .acpmux-picker-button { color: var(--agent-soft); }
 .acpmux-composer-foot :is(.acpmux-model, .acpmux-effort) .acpmux-picker-button { color: var(--agent-muted); }
+/* The model button is a quiet text button (Leo 2026-10-21, of a bordered capsule: "WTF IS THIS UGLY
+   BULLSHIT"): the model's name in the row's muted ink, its effort one step back of it (secondary
+   ink, in every theme and on hover), no edge and no capsule at rest. Hover draws the row's soft pill, as the mic's. Keyboard focus
+   (a menu closed with Esc hands focus back here) draws the same pill and a hairline in the row's
+   own ink, never the bright shared ring; Increase Contrast keeps the shared ring. */
+.acpmux-composer-foot .acpmux-model .acpmux-model-detail { color: color-mix(in srgb, currentcolor 68%, transparent); }
+/* The shared ring (pages/shared/desktop.css) draws from these two tokens with !important, so the
+   button narrows them on itself. */
+@media not (prefers-contrast: more) {
+  .acpmux-composer-foot .acpmux-model .acpmux-picker-button:focus-visible {
+    --cmux-focus-ring-width: 1px;
+    --cmux-focus-ring-color: color-mix(in srgb, var(--agent-text) 22%, transparent);
+    outline-offset: 0;
+  }
+}
+/* The row sits outside the box, so `.acpmux-composer-box button { font: inherit }` (styles.css) never
+   reached its buttons: they drew in the engine's control font, not the composer's. They take the
+   composer's family as the box's controls do (test/composer-app-font.test.ts); sizes stay the
+   row's own (--text-control). */
+.acpmux-composer-foot button { font-family: inherit; }
 .acpmux-composer-foot .acpmux-effort { margin-inline-start: 1px; }
 /* Neighbouring chips on the right (the model, Plan, a harness's Options, the effort) keep their
    labels 8 px apart, as with the old 4 px inset: each one after the first tucks its leading pill

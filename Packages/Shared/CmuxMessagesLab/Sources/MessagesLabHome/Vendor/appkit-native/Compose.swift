@@ -291,6 +291,7 @@ final class FieldTextView: NSTextView {
     }
     override func becomeFirstResponder() -> Bool {
         let ok = super.becomeFirstResponder()
+        if ok { PaletteScope.claimProcess(PaletteScope.palette(of: self)) } // cmux: the chat typed in gives the process palette
         DispatchQueue.main.async { [weak self] in self?.updateCaret() }
         return ok
     }
