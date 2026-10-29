@@ -198,6 +198,47 @@ class SignPicksStayOnSixVcpu(unittest.TestCase):
                         self.assertEqual((got["cloud"], got["alternate"]), (picker.SMALL, picker.SMALL))
 
 
+class BuildAndSeedStayOffTwelveVcpu(unittest.TestCase):
+    """build-nightly-app and the nightly cold seed never route to blacksmith-12vcpu-macos-26.
+
+    That label started no job from 2026-10-28 20:32Z (0 of the 10 jobs that asked for it in the 100
+    nightly.yml runs back to 2026-10-29 06:18Z got a runner). build-nightly-app took it from its picker's
+    default (12 vCPU first) and its runs-on literal; refresh-test-compilation-cache from its 12 vCPU
+    sibling of the 6 vCPU pull-request pool.
+    """
+
+    WORKFLOW = ROOT / ".github" / "workflows" / "nightly.yml"
+
+    def jobs(self) -> dict:
+        import yaml  # noqa: PLC0415
+
+        return yaml.safe_load(self.WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+
+    def test_the_build_pick_and_its_fallback_are_six_vcpu(self) -> None:
+        jobs = self.jobs()
+        steps = [step for step in jobs["pick-nightly-app-runner"]["steps"]
+                 if str(step.get("run", "")).strip() == "python3 scripts/ci/classic_nightly_build_runner.py"]
+        self.assertEqual(len(steps), 1)
+        env = {key: str(value) for key, value in (steps[0].get("env") or {}).items() if "${{" not in str(value)}
+        for snap in (snapshot(), snapshot(small=52), snapshot(small=52, large=52), None):
+            for attempt in (1, 2):
+                with self.subTest(snapshot=snap, attempt=attempt), tempfile.TemporaryDirectory() as directory:
+                    out = Path(directory) / "out"
+                    picker.main({**env, "GITHUB_OUTPUT": str(out), "GITHUB_RUN_ATTEMPT": str(attempt),
+                                 "SNAPSHOT_TOKEN": "t", "GITHUB_REPOSITORY": "o/r"},
+                                read_snapshot=lambda token, repo: snap, now=NOW, sleep=lambda seconds: None, clock=Clock())
+                    got = dict(line.split("=", 1) for line in out.read_text().split())
+                    self.assertEqual(got["cloud"], picker.SMALL)
+        runs_on = str(jobs["build-nightly-app"]["runs-on"])
+        self.assertTrue(runs_on.endswith("|| needs.pick-nightly-app-runner.outputs.cloud || 'blacksmith-6vcpu-macos-26' }}"), runs_on)
+
+    def test_no_nightly_runs_on_or_matrix_names_the_twelve_vcpu_label(self) -> None:
+        for name, job in self.jobs().items():
+            with self.subTest(job=name):
+                self.assertNotIn(picker.LARGE, str(job.get("runs-on", "")))
+                self.assertNotIn(picker.LARGE, str((job.get("strategy") or {}).get("matrix", "")))
+
+
 class Main(unittest.TestCase):
     def run_main(self, env, runners, snap):
         clock = Clock()
@@ -289,7 +330,7 @@ class Workflow(unittest.TestCase):
         runs_on = re.search(r"^    runs-on: (.+)$", job, re.MULTILINE).group(1)
         self.assertIn("pick-nightly-app-runner", re.search(r"^    needs: (.+)$", job, re.MULTILINE).group(1))
         self.assertIn("needs.pick-nightly-app-runner.outputs.trusted != 'false' && fromJSON(", runs_on)
-        self.assertIn("|| needs.pick-nightly-app-runner.outputs.cloud || 'blacksmith-12vcpu-macos-26' }}", runs_on)
+        self.assertIn("|| needs.pick-nightly-app-runner.outputs.cloud || 'blacksmith-6vcpu-macos-26' }}", runs_on)
         # A failed or skipped picker never skips the build.
         self.assertRegex(re.search(r"^    if: (.+)$", job, re.MULTILINE).group(1), r"^\"!cancelled\(\) && needs\.decide\.result == 'success'")
 
