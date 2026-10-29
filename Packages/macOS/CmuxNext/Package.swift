@@ -2296,6 +2296,14 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             name: "CmuxNextTestExitTrace",
             path: "Tests/Support/CmuxNextTestExitTrace"
         ),
+        // Test-only: the test process runs as an app (finishes launching, is active, dispatches NSApp's events),
+        // so suites that need a key window, an activation or an event-driven AppKit change get them
+        // (CmuxNextTestGUIHost.m). One setup for the whole test bundle, started when it loads.
+        .target(
+            name: "CmuxNextTestGUIHost",
+            path: "Tests/Support/CmuxNextTestGUIHost",
+            linkerSettings: [.linkedFramework("AppKit")]
+        ),
         // Test-only: the in-process benches' cmux-perf-result/v1 writer (PerfResultWriter, read when
         // CMUX_PERF_RESULT_DIR is set; scripts/perf-lab/stories/swift_benches.py).
         // Foundation only, so the Linux tier's bench targets keep building.
@@ -2380,6 +2388,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextTasks",
                 "CmuxNextTerminalGeometry",
                 "CmuxNextTestExitTrace",
+                "CmuxNextTestGUIHost",
                 "CmuxNextTestSupport",
                 "CmuxNextTrace",
                 "CmuxNextVSCodeServer",
