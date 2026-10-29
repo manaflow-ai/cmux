@@ -45,9 +45,10 @@ async fn managed_unit_start_avoids_a_symlinked_default_home() {
         std::process::id(),
         uuid::Uuid::now_v7()
     ));
-    std::fs::create_dir_all(dir.join("supervised")).unwrap();
+    let supervised = dir.join("supervised");
+    std::fs::create_dir_all(&supervised).unwrap();
     let link = dir.join(".acpmux");
-    std::os::unix::fs::symlink(dir.join("supervised"), &link).unwrap();
+    std::os::unix::fs::symlink(&supervised, &link).unwrap();
     let socket = link.join("acpmux.sock");
 
     // The safety invariant stays in force; the managed path must not call it
@@ -57,16 +58,23 @@ async fn managed_unit_start_avoids_a_symlinked_default_home() {
     let systemctl = dir.join("systemctl");
     std::fs::write(
         &systemctl,
-        "#!/bin/sh\nif [ \"$2\" = show ]; then echo loaded; exit 0; fi\nif [ \"$2\" = start ]; then : > \"$(dirname \"$0\")/started\"; exit 0; fi\nexit 1\n",
+        format!(
+            "#!/bin/sh\nif [ \"$2\" = show ] && [ \"$4\" = LoadState ]; then echo loaded; exit 0; fi\nif [ \"$2\" = show ] && [ \"$4\" = Environment ]; then echo ACPMUX_HOME={}; exit 0; fi\nif [ \"$2\" = start ]; then : > \"$(dirname \"$0\")/started\"; exit 0; fi\nexit 1\n",
+            supervised.display()
+        ),
     )
     .unwrap();
     std::fs::set_permissions(&systemctl, std::fs::Permissions::from_mode(0o755)).unwrap();
     let started = dir.join("started");
-    let result = managed_unit_connect_with(&systemctl, &socket, {
+    let detached = dir.join("detached");
+    let result = connect_with_systemctl(&systemctl, &link, &socket, true, {
         let started = started.clone();
+        let detached = detached.clone();
         move || {
             let started = started.clone();
+            let detached = detached.clone();
             async move {
+                assert!(!detached.exists(), "the CLI spawned a detached daemon");
                 if started.exists() {
                     Ok(())
                 } else {
@@ -78,7 +86,7 @@ async fn managed_unit_start_avoids_a_symlinked_default_home() {
     .await
     .unwrap();
 
-    assert_eq!(result, Some(()));
+    assert_eq!(result, ());
     assert!(started.exists(), "the CLI did not start the managed unit");
     assert!(!socket.exists(), "the test should not need a detached socket");
     let _ = std::fs::remove_dir_all(&dir);

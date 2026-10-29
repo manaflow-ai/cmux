@@ -914,43 +914,45 @@ pub async fn wait_for_exit() -> bool {
 
 /// Connect to the daemon, starting one if needed.
 pub async fn connect(autostart: bool) -> Result<Arc<Client>> {
+    let home = home();
     let path = socket_path();
-    if let Ok(c) = Client::connect(&path).await {
-        return Ok(c);
-    }
-    if !autostart {
-        return Err(anyhow!("no acpmux daemon at {} (run `acpmux daemon`)", path.display()));
-    }
-    if let Some(c) = managed_unit_connect(&path, || Client::connect(&path)).await? {
-        return Ok(c);
-    }
-    start_and_connect(&path, || Client::connect(&path)).await
+    connect_with_systemctl("systemctl", &home, &path, autostart, || Client::connect(&path)).await
 }
 
 /// A connected socket to the daemon, starting one if needed, for a client
 /// that speaks the wire protocol itself (`acpmux stdio`).
 pub async fn connect_stream() -> Result<crate::local_stream::Stream> {
+    let home = home();
     let path = socket_path();
-    if let Ok(stream) = crate::local_stream::connect(&path).await {
-        return Ok(stream);
-    }
-    if let Some(stream) =
-        managed_unit_connect(&path, || async { Ok(crate::local_stream::connect(&path).await?) })
-            .await?
-    {
-        return Ok(stream);
-    }
-    start_and_connect(&path, || async { Ok(crate::local_stream::connect(&path).await?) }).await
+    connect_with_systemctl("systemctl", &home, &path, true, || async {
+        Ok(crate::local_stream::connect(&path).await?)
+    })
+    .await
 }
 
-/// How long a command waits for a daemon that holds the lock: a stopping one settles its agents
-/// first (`SHUTDOWN_BUDGET`, the router's stop and kill waits; 12.3 s on cosmic-gray on
-/// 2026-10-22), a starting one binds within `START_BUDGET`. The last start then has its own
-/// `START_BUDGET`.
-const HANDOVER_BUDGET: Duration = Duration::from_secs(20);
-
-/// How often a command tries again while another daemon holds the lock.
-const HANDOVER_RETRY: Duration = Duration::from_millis(250);
+async fn connect_with_systemctl<S, T, F, Fut>(
+    systemctl: S,
+    current_home: &std::path::Path,
+    path: &std::path::Path,
+    autostart: bool,
+    connect: F,
+) -> Result<T>
+where
+    S: AsRef<std::ffi::OsStr> + Clone,
+    F: Fn() -> Fut,
+    Fut: std::future::Future<Output = Result<T>>,
+{
+    if let Ok(value) = connect().await {
+        return Ok(value);
+    }
+    if !autostart {
+        return Err(anyhow!("no acpmux daemon at {} (run `acpmux daemon`)", path.display()));
+    }
+    if let Some(value) = managed_unit_connect_with(systemctl, current_home, path, &connect).await? {
+        return Ok(value);
+    }
+    start_and_connect(path, connect).await
+}
 
 /// A CLI may be launched without the service's `ACPMUX_HOME` (for example,
 /// from a session shell) while its daemon is owned by the user systemd unit.
@@ -958,27 +960,12 @@ const HANDOVER_RETRY: Duration = Duration::from_millis(250);
 /// state directory while the default home is a symlink, and the private-state
 /// guard must continue to reject that symlink. Ask systemd to start its unit
 /// and wait for the socket instead.
-async fn managed_unit_connect<T, F, Fut>(path: &std::path::Path, connect: F) -> Result<Option<T>>
-where
-    F: Fn() -> Fut,
-    Fut: std::future::Future<Output = Result<T>>,
-{
-    #[cfg(target_os = "linux")]
-    {
-        managed_unit_connect_with("systemctl", path, connect).await
-    }
-    #[cfg(not(target_os = "linux"))]
-    {
-        let _ = (path, connect);
-        Ok(None)
-    }
-}
-
 #[cfg(target_os = "linux")]
 async fn managed_unit_connect_with<S, T, F, Fut>(
     systemctl: S,
+    current_home: &std::path::Path,
     path: &std::path::Path,
-    connect: F,
+    connect: &F,
 ) -> Result<Option<T>>
 where
     S: AsRef<std::ffi::OsStr> + Clone,
@@ -997,67 +984,106 @@ where
         return Ok(None);
     }
 
-    let start = tokio::process::Command::new(systemctl.clone())
-        .args(["--user", "start", "acpmux.service"])
+    let env = tokio::process::Command::new(systemctl.clone())
+        .args(["--user", "show", "acpmux.service", "-p", "Environment", "--value"])
         .output();
-    let output = tokio::time::timeout(PROBE_BUDGET, start)
+    let env = tokio::time::timeout(PROBE_BUDGET, env)
         .await
-        .map_err(|_| anyhow!("systemd did not start acpmux.service within {PROBE_BUDGET:?}"))??;
-    if !output.status.success() {
-        let detail = String::from_utf8_lossy(&output.stderr);
-        return Err(anyhow!("systemd could not start acpmux.service: {}", detail.trim()));
+        .ok()
+        .and_then(Result::ok)
+        .filter(|output| output.status.success())
+        .map(|output| String::from_utf8_lossy(&output.stdout).into_owned())
+        .unwrap_or_default();
+    let unit_home =
+        unit_environment_path(&env, "ACPMUX_HOME").unwrap_or_else(crate::config::default_home);
+    if !equivalent_path(current_home, &unit_home) {
+        return Ok(None);
+    }
+    if let Some(unit_socket) = unit_environment_path(&env, "ACPMUX_SOCKET") {
+        if !equivalent_path(path, &unit_socket) {
+            return Ok(None);
+        }
+    } else if !equivalent_path(path, &unit_home.join("acpmux.sock")) {
+        return Ok(None);
     }
 
     let deadline = tokio::time::Instant::now() + START_BUDGET;
+    let mut last_start_error = None;
+    let mut next_start = tokio::time::Instant::now();
     loop {
+        if tokio::time::Instant::now() >= next_start {
+            let start = tokio::process::Command::new(systemctl.clone())
+                .args(["--user", "start", "acpmux.service"])
+                .output();
+            match tokio::time::timeout(PROBE_BUDGET, start).await {
+                Ok(Ok(output)) if output.status.success() => last_start_error = None,
+                Ok(Ok(output)) => {
+                    last_start_error = Some(format!(
+                        "systemd could not start acpmux.service: {}",
+                        String::from_utf8_lossy(&output.stderr).trim()
+                    ));
+                }
+                Ok(Err(error)) => last_start_error = Some(error.to_string()),
+                Err(_) => {
+                    last_start_error = Some(format!(
+                        "systemd did not start acpmux.service within {PROBE_BUDGET:?}"
+                    ))
+                }
+            }
+            next_start = tokio::time::Instant::now() + HANDOVER_RETRY;
+        }
         if let Ok(value) = connect().await {
             return Ok(Some(value));
         }
         let left = deadline.saturating_duration_since(tokio::time::Instant::now());
         if left.is_zero() {
-            return Err(anyhow!(
-                "acpmux.service did not provide a socket at {} within {START_BUDGET:?}",
-                path.display()
-            ));
+            return Err(last_start_error
+                .unwrap_or_else(|| {
+                    anyhow!(
+                        "acpmux.service did not provide a socket at {} within {START_BUDGET:?}",
+                        path.display()
+                    )
+                    .to_string()
+                })
+                .into());
         }
         tokio::time::sleep(HANDOVER_RETRY.min(left)).await;
     }
 }
 
-/// Starts a daemon and connects. When the started daemon found the lock taken (its readiness
-/// line says `lockHeld`), another daemon is stopping (the app's handover to its bundled build,
-/// `host update`, `daemon shutdown`) or starting: the command connects once that one serves, or
-/// starts the next daemon once it has exited, instead of failing. Each try is a daemon start, so
-/// the command never takes the lock itself and never makes a starting daemon lose it.
-async fn start_and_connect<T, F, Fut>(path: &std::path::Path, connect: F) -> Result<T>
+#[cfg(not(target_os = "linux"))]
+async fn managed_unit_connect_with<S, T, F, Fut>(
+    _systemctl: S,
+    _current_home: &std::path::Path,
+    _path: &std::path::Path,
+    _connect: &F,
+) -> Result<Option<T>>
 where
     F: Fn() -> Fut,
     Fut: std::future::Future<Output = Result<T>>,
 {
-    exe_path::check_start()?;
-    let deadline = tokio::time::Instant::now() + HANDOVER_BUDGET;
-    loop {
-        let ready = start_daemon().await?;
-        let error = match connect().await {
-            Ok(c) => return Ok(c),
-            Err(e) => e,
-        };
-        if !lock_held(&ready) {
-            return Err(not_ready(path, &ready, &error));
-        }
-        if tokio::time::Instant::now() + HANDOVER_RETRY >= deadline {
-            return Err(anyhow!(
-                "another acpmux daemon still holds {} after {HANDOVER_BUDGET:?} and serves no socket at {}; see {}",
-                home().join("daemon.lock").display(),
-                path.display(),
-                home().join("daemon.log").display()
-            ));
-        }
-        tokio::time::sleep(HANDOVER_RETRY).await;
-        if let Ok(c) = connect().await {
-            return Ok(c);
-        }
+    Ok(None)
+}
+
+#[cfg(target_os = "linux")]
+fn unit_environment_path(environment: &str, key: &str) -> Option<std::path::PathBuf> {
+    environment.split_whitespace().find_map(|entry| {
+        entry
+            .strip_prefix(key)
+            .and_then(|value| value.strip_prefix('='))
+            .map(std::path::PathBuf::from)
+    })
+}
+
+#[cfg(target_os = "linux")]
+fn equivalent_path(left: &std::path::Path, right: &std::path::Path) -> bool {
+    fn normalized(path: &std::path::Path) -> Option<std::path::PathBuf> {
+        std::fs::canonicalize(path).or_else(|_| {
+            let parent = path.parent()?;
+            Some(std::fs::canonicalize(parent).ok()?.join(path.file_name()?))
+        })
     }
+    left == right || normalized(left).zip(normalized(right)).is_some_and(|(l, r)| l == r)
 }
 
 /// Whether a started daemon's readiness line says another daemon holds the lock.
