@@ -1077,9 +1077,9 @@ fn run_case(seed: u64, steps: usize) {
 
 #[test]
 fn resize_fuzz_grid_pty_child_and_every_viewer_agree() {
-    let first = env_u64("CMUX_RESIZE_FUZZ_SEED", 0x1e00);
-    let seeds = env_u64("CMUX_RESIZE_FUZZ_SEEDS", 3);
-    let steps = env_u64("CMUX_RESIZE_FUZZ_STEPS", 60) as usize;
+    let first = env_u64("CMUX_RESIZE_FUZZ_SEED", 0x1e10);
+    let seeds = env_u64("CMUX_RESIZE_FUZZ_SEEDS", 5);
+    let steps = env_u64("CMUX_RESIZE_FUZZ_STEPS", 200) as usize;
     eprintln!("resize fuzz: seeds 0x{first:x}..+{seeds}, {steps} steps each");
     for seed in first..first + seeds {
         run_case(seed, steps);
