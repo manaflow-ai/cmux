@@ -116,8 +116,8 @@ DEDICATED_LOOK_SECONDS = 30
 DEDICATED_EVENTS = frozenset({"push"})
 
 # A refusal at "Set up runner" holds the builder off this long; the next run after it probes it again.
-# The newest RECENT_RUNS nightly-next runs are read, newest first, until one has a build-nightly-app
-# job on the builder's label that passed or failed "Set up runner" (one or two reads, usually).
+# Inspect the newest RECENT_RUNS nightly-next runs together: an older-created run can execute later
+# through a full rerun or delayed dependencies, so run creation order is not admission order.
 BUILD_JOB = "build-nightly-app"
 SETUP_STEP = "Set up runner"
 REFUSAL_HOLD = dt.timedelta(minutes=30)
@@ -163,8 +163,9 @@ def refusal(label: str, job: Mapping[str, Any] | None, now: dt.datetime,
 
 
 def read_admission(github: Any, label: str, runs: int = RECENT_RUNS) -> Mapping[str, Any] | None:
-    """latest_admission() over the newest `runs` nightly-next runs of nightly.yml, read newest first."""
+    """latest_admission() across the newest `runs` nightly-next runs of nightly.yml."""
     listed = github.get(f"/actions/workflows/nightly.yml/runs?branch=nightly-next&per_page={runs}")
+    admissions: list[Mapping[str, Any]] = []
     for run in (listed or {}).get("workflow_runs") or []:
         if not isinstance(run, Mapping) or not run.get("id"):
             continue
@@ -178,8 +179,8 @@ def read_admission(github: Any, label: str, runs: int = RECENT_RUNS) -> Mapping[
                 break
         found = latest_admission(label, jobs)
         if found is not None:
-            return found
-    return None
+            admissions.append(found)
+    return latest_admission(label, admissions)
 
 
 def dedicated_builder(runner: Mapping[str, Any]) -> bool:

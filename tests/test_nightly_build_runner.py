@@ -193,14 +193,15 @@ class DedicatedRefusal(unittest.TestCase):
             with self.subTest(job=job):
                 self.assertIsNone(picker.latest_admission(DEDICATED, [job]))
 
-    def test_the_reader_stops_at_the_newest_run_with_a_decided_job(self) -> None:
+    def test_the_reader_pages_jobs_and_ignores_older_admissions(self) -> None:
         pages = {"/actions/workflows/nightly.yml/runs?branch=nightly-next&per_page=6":
                      {"workflow_runs": [{"id": 3}, {"id": 2}, {"id": 1}]},
                  "/actions/runs/3/jobs?filter=all&per_page=100&page=1": {"jobs": [admission_job("", 1)]},
                  # A run on its third attempt: the refused job is on the second page.
                  "/actions/runs/2/jobs?filter=all&per_page=100&page=1":
                      {"jobs": [admission_job("success", 9, name="decide", run_id=2)] * 100},
-                 "/actions/runs/2/jobs?filter=all&per_page=100&page=2": {"jobs": [admission_job("failure", 4, run_id=2)]}}
+                 "/actions/runs/2/jobs?filter=all&per_page=100&page=2": {"jobs": [admission_job("failure", 4, run_id=2)]},
+                 "/actions/runs/1/jobs?filter=all&per_page=100&page=1": {"jobs": [admission_job("success", 20, run_id=1)]}}
         seen = []
 
         class Fake:
@@ -209,7 +210,7 @@ class DedicatedRefusal(unittest.TestCase):
                 return pages[path]
 
         self.assertEqual(picker.read_admission(Fake(), DEDICATED)["run_id"], 2)
-        self.assertFalse(any(path.startswith("/actions/runs/1/") for path in seen))
+        self.assertIn("/actions/runs/1/jobs?filter=all&per_page=100&page=1", seen)
 
     def test_the_reader_uses_job_time_across_run_creation_order(self) -> None:
         # An older-created run can execute later through a full rerun or delayed dependencies.
