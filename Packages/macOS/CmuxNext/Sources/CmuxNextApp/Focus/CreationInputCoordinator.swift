@@ -19,8 +19,9 @@ import CmuxNextTerminal
 /// that closes or fails, or that the person's newer intent moved the focus away from, drops its keys with a logged
 /// reason; they never go to another target. No timer decides where or whether a key goes, and the queue goes with its
 /// window. Only input for the target waits: an app command (a key bound to a cmux action, a menu key equivalent, Escape)
-/// acts on the model at once (``heldKeyKind(_:in:controller:router:)``), and Escape ends the wait. A held key whose run
-/// makes another target (a key a terminal binds) takes the keys typed after it to that target, as the person typed them.
+/// acts on the model at once (``heldKeyKind(_:in:controller:router:)``). Keys typed for a target go to it when it is
+/// ready even after the person's next command moved the focus elsewhere (to its own view then, as Chrome sends input
+/// queued for a renderer to that renderer); they drop only when its owned operation ends without success.
 ///
 /// Invariant (HK1, checked after every change in DEBUG and by the input invariant monitor): captured == delivered +
 /// dropped + waiting, each target's keys in typed order, never delivered to another target.
@@ -400,13 +401,13 @@ final class CreationInputCoordinator {
 
     /// The Edit menu's responder-chain actions (MainMenu): they act on the view that has the keyboard, so their keys are
     /// input for the target the person typed them for.
-    private static let responderEditActions: Set<Selector> = [
+    static let responderEditActions: Set<Selector> = [
         Selector(("undo:")), Selector(("redo:")), #selector(NSText.cut(_:)), #selector(NSText.copy(_:)),
         #selector(NSText.paste(_:)), #selector(NSTextView.pasteAsPlainText(_:)), #selector(NSText.selectAll(_:)),
     ]
 
     /// The enabled-or-not item of `menu` (or its submenus) whose key equivalent `event` types.
-    private static func menuItem(for event: NSEvent, in menu: NSMenu) -> NSMenuItem? {
+    static func menuItem(for event: NSEvent, in menu: NSMenu) -> NSMenuItem? {
         let flags = event.modifierFlags.intersection([.command, .option, .control, .shift])
         let typed = (event.charactersIgnoringModifiers ?? "").lowercased()
         for item in menu.items {
@@ -448,17 +449,22 @@ final class CreationInputCoordinator {
         if controller != nil { reconcile(shell) }
         // A panel, popup or overlay of the window has the keyboard: the key is its. The held keys keep waiting.
         guard kind == .content || controller == nil else { return false }
-        // Escape is the person ending the wait (review finding 6): the keys typed for this hold's targets drop, the
-        // keys typed next go where the focus is, and a keyboard claim ends (``keepsFromWindow(_:in:)``). Escape itself
-        // goes on now.
+        // Escape is the person's next command (review finding 6): it goes on now, the keys typed after it go where the
+        // focus is, and a keyboard claim ends (``keepsFromWindow(_:in:)``). The keys already held keep waiting for the
+        // targets they were typed for: each wait ends with its owned operation.
         if event.keyCode == ChordTracker.escapeKeyCode {
-            endWait(hold)
+            hold.current = nil
             syncMode()
             return keepsFromWindow(event, in: shell)
         }
-        // Any other app command acts on the model at once; it never waits behind held input. The person's intent it
-        // runs leaves the targets the held keys were typed for (``reconcile(_:)``).
+        // Any other app command acts on the model at once; it never waits behind held input.
         if keyKind == .command { return false }
+        // The person acted since the target became the one keys are typed for, and the focus names another tab now: the
+        // keys typed from now on are for where the person is (those already held still go to their target).
+        if let current = hold.current, personActs(in: shell) > current.acts,
+           controller?.focus.currentState().resolved.tab != current.target.id {
+            hold.current = nil
+        }
         guard let current = holds[shell.windowNumber]?.current else {
             // As any key after a hold: a person's keyboard claim still keeps it from the window (the Chief's box).
             droppedLastKey = kind == .content && keepsFromWindow(event, in: shell)
@@ -518,18 +524,27 @@ final class CreationInputCoordinator {
     /// `creation`), so the hold is a measured stage in `debug.input late_keys` with its own latency slot. While it runs
     /// the window's queue is delivering (``WindowInputQueue/isDelivering``), so no hold captures it again.
     ///
-    /// A key that makes another target (a Cmd-D opened a creation, a Ctrl-2 selected a cold tab, a pane focus key moved
-    /// the focus) takes the keys typed after it, still waiting for `target`, to that target: the person typed them for it.
-    private func runAgain(_ event: NSEvent, for target: WindowInputQueue.Target, hold: WindowHold, in window: NSWindow, router: KeyRouter) {
-        let controller = router.focus(for: window).0
-        // The person typed this key: a focus change its run makes is theirs (the focus generation, read before and after).
-        let before = (current: hold.current?.target, generation: controller?.focus.currentState().generation ?? 0)
+    /// `view`: the target's own view, when the focus is elsewhere (the person's next command moved it): the key goes to
+    /// that view directly, as Chrome sends input queued for a renderer to that renderer, and the keyboard stays where
+    /// the person is. Nil: the target has the keyboard, and the key runs as typed (the key router, then the window's key
+    /// equivalents and the menu for a chord, then the window; never `NSApplication.sendEvent`, which routes by the key
+    /// window).
+    private func runAgain(_ event: NSEvent, for target: WindowInputQueue.Target, view: NSView? = nil, in window: NSWindow, router: KeyRouter) {
         replaying = true
         replayedCount += 1
         lastReplays = Array((lastReplays + [(target.id, event.keyCode)]).suffix(16))
-        // The one replay path of held keys (as the New Tab hold's): the key router, then the window's key equivalents and
-        // the menu for a chord, then the window that takesKeys found has the target's view as first responder (its own
-        // Chromium page window when that is key). Never `NSApplication.sendEvent`, which routes by the key window.
+        defer { replaying = false }
+        if let view {
+            return router.heldKeys.replay(event, heldBy: .creation, keyWindow: window) { send in
+                // An Edit menu key (Cmd-V) is its responder action on the target's view, not a key-down.
+                if event.modifierFlags.contains(.command), let action = NSApp.mainMenu.flatMap({ Self.menuItem(for: event, in: $0) })?.action,
+                   Self.responderEditActions.contains(action) {
+                    NSApp.sendAction(action, to: view, from: nil)
+                } else {
+                    send.view(view, event)
+                }
+            }
+        }
         let to = NSApp.keyWindow.flatMap { $0.parent === window ? $0 : nil } ?? window
         router.heldKeys.replay(event, heldBy: .creation, keyWindow: to) { send in
             router.dispatchingSynthetic(event) {
@@ -539,19 +554,17 @@ final class CreationInputCoordinator {
                 send.window(to, event)
             }
         }
-        replaying = false
-        guard hold.queue.waiting(for: target) > 0, let state = router.focus(for: window).0?.focus.currentState() else { return }
-        if let made = hold.current, made.target != before.current, made.target != target {
-            follow(target, to: made.target, acts: made.acts, in: hold)
-        } else if state.generation > before.generation, state.resolved.tab != target.id {
-            if let tab = state.resolved.tab {
-                follow(target, to: WindowInputQueue.Target(tab), acts: personActs(in: window), in: hold)
-            } else {
-                // The key moved the keyboard out of the content (a sidebar or bar field): the keys after it were typed
-                // for no target this queue knows.
-                hold.queue.drop(target, .focusMovedAway)
-            }
-        }
+    }
+
+    /// The view of terminal tab `target` in `window` that takes its held keys while the focus is elsewhere: its terminal
+    /// is mounted in the window, and (a creation still waiting for its reply) it takes keys before the reply (its early
+    /// tab). Nil: the target is not ready yet, and its keys wait.
+    private func readyView(_ target: WindowInputQueue.Target, hold: WindowHold, window: NSWindow) -> NSView? {
+        if let creation = hold.creations.all.first(where: { $0.creation.target == target })?.creation,
+           !creation.landed, creation.earlyTab != target.id { return nil }
+        guard let view = router?.services?.cache.existingTerminal(target.id)?.session.surfaceView, view.window === window,
+              view.isShownForInput else { return nil }
+        return view
     }
 
     /// The keys still waiting for `old` are `new`'s from now on (a key that made `new` the target was typed before them,
@@ -621,18 +634,11 @@ final class CreationInputCoordinator {
     }
 
     private func reconcileOnce(_ hold: WindowHold, controller: WindowController, window: NSWindow, router: KeyRouter) {
-        // 0. Another cmux window is key: the person left this one (its keys could not reach it: `dropsCrossWindowKey`).
-        if NSApp.isActive, let key = NSApp.keyWindow, router.focus(for: key).0 != nil,
-           !NewTabInputCoordinator.mayTakeKey(window, keyWindow: key) {
-            return endWait(hold)
-        }
         let state = controller.focus.currentState()
         let named = state.resolved.tab.map(WindowInputQueue.Target.init)
-        // 1. Creations the person moved on from (a newer intent replaced the focus each asked for), unless the model names
-        // that very target (the person focused it), or the window now shows the new workspace the creation made (showing it
-        // is that creation's own landing): their keys drop, they hold nothing more.
-        drop(hold.creations.remove { personActs(in: window) > (hold.typedAt[$0.target] ?? 0) && $0.target != named && !Self.showsMadeWorkspace($0, state) },
-             .focusMovedAway, in: hold)
+        // Keys typed for a target the person then left still go to it when it is ready (lead 2026-10-29, replacing the
+        // drop on focusMovedAway): every wait ends with its owned operation (the creation's reply or error, the store's
+        // barrier, the window's presentation), so none runs late, and dropping lost text typed before a fast Cmd-D.
         // 2. A landed creation's keys follow the tab of the surface it made, once the window lists it (never the tab the
         // model happens to name: review finding 5). A new workspace's follow its expectation, or the tab the model names
         // under the creation's own intent in that workspace.
@@ -655,24 +661,27 @@ final class CreationInputCoordinator {
             follow(creation.target, to: tab, acts: hold.typedAt[creation.target] ?? personActs(in: window), in: hold)
             hold.creations.setTarget(tab, of: ticket)
         }
-        // 3. Keys waiting for a tab no pending creation owns that is gone from the window (closed), or that the person's
-        // newer intent left (a cold tab, a target a held key made): they drop, never go elsewhere.
+        // 3. Keys waiting for a tab no pending creation owns that is gone from the window (closed): they drop, never go
+        // elsewhere.
         let pending = Set(hold.creations.all.filter {
             !$0.creation.landed || $0.creation.awaitsTab || state.expectation?.generation == $0.creation.generation
                 || hold.landsOn[$0.creation.target] != nil
         }.map { $0.creation.target })
-        let owned = Set(hold.creations.all.map { $0.creation.target })
-        for target in hold.queue.targets where !target.isNewTabPage && !pending.contains(target) && target != named {
-            if !state.topology.panes.contains(where: { $0.tab(target.id) != nil }) {
-                hold.queue.drop(target, .targetClosed)
-            } else if !owned.contains(target), (hold.typedAt[target] ?? 0) < personActs(in: window) {
-                hold.queue.drop(target, .focusMovedAway)
-            }
+        for target in hold.queue.targets where !target.isNewTabPage && !pending.contains(target) && target != named
+            && !state.topology.panes.contains(where: { $0.tab(target.id) != nil }) {
+            hold.queue.drop(target, .targetClosed)
         }
-        // 4. The target the model names takes its keys, in order, while its view has the keyboard.
-        if let named, hold.queue.waiting(for: named) > 0 {
-            hold.queue.drain(named, takesKeys: { takesKeys(named, hold: hold, controller: controller, window: window) }) { event in
-                runAgain(event, for: named, hold: hold, in: window, router: router)
+        // 4. Each target takes its keys, in typed order, when it is ready: the target the model names while its view has
+        // the keyboard; any other (the person's next command moved the focus) once its terminal is mounted, directly.
+        for target in hold.queue.targets where !target.isNewTabPage {
+            if target == named, takesKeys(target, hold: hold, controller: controller, window: window) {
+                hold.queue.drain(target, takesKeys: { takesKeys(target, hold: hold, controller: controller, window: window) }) { event in
+                    runAgain(event, for: target, in: window, router: router)
+                }
+            } else if target != named || !NewTabInputCoordinator.mayTakeKey(window, keyWindow: NSApp.keyWindow) {
+                hold.queue.drain(target, takesKeys: { readyView(target, hold: hold, window: window) != nil }) { event in
+                    runAgain(event, for: target, view: readyView(target, hold: hold, window: window), in: window, router: router)
+                }
             }
         }
         // 5. Creations that hold nothing more: replied, no key waits for them, their focus is not pending, and their
@@ -691,15 +700,6 @@ final class CreationInputCoordinator {
         if let current = hold.current, !live.contains(current.target), hold.queue.waiting(for: current.target) == 0 { hold.current = nil }
         hold.typedAt = hold.typedAt.filter { live.contains($0.key) || hold.queue.waiting(for: $0.key) > 0 }
         hold.landsOn = hold.landsOn.filter { live.contains($0.key) }
-    }
-
-    /// The person left every target `hold` waits for (Escape, another cmux window became key): the keys typed for them
-    /// drop (focusMovedAway), and the hold waits for nothing more. A creation's later reply still settles the focus.
-    private func endWait(_ hold: WindowHold) {
-        for target in hold.queue.targets where !target.isNewTabPage { hold.queue.drop(target, .focusMovedAway) }
-        drop(hold.creations.remove { _ in true }, .focusMovedAway, in: hold)
-        hold.shown = nil
-        hold.current = nil
     }
 
     /// Whether `creation` made a new workspace that the window shows now, its terminal tab not known yet.

@@ -417,10 +417,10 @@ struct EarlyTerminalKeysTests {
     }
 
     /// The person moves the focus model to another target while keys wait for a new terminal (they focus the other
-    /// pane): the keys typed for the new terminal drop (reason focusMovedAway) and never run anywhere, not later in that
-    /// terminal as a late command and not in the pane the person moved to (Chrome drops input for a node that lost
-    /// focus). The next key goes to the target the model names now, at once (principled audit, lagFirstKey).
-    @Test func keysTypedForATargetThePersonLeftDropAndTheNextKeyGoesToTheNewTarget() async throws {
+    /// pane): the keys typed for the new terminal keep waiting for it and never run in the pane the person moved to
+    /// (lead 2026-10-29, replacing the drop on focusMovedAway: they go to their terminal once it is ready,
+    /// ``textTypedBeforeTheNextCommandGoesToItsTargetWhenReady()``). The next key goes to the target the model names now.
+    @Test func keysTypedForATargetThePersonLeftWaitForItAndTheNextKeyGoesToTheNewTarget() async throws {
         try await Self.withTerminal(panes: 2) { h in
             let (controller, window, tab) = (h.controller, h.window, h.tab)
             let router = h.services.keyRouter
@@ -450,7 +450,7 @@ struct EarlyTerminalKeysTests {
             let next = router.interceptKeyDown(try Self.key("c", keyCode: 8, in: window), in: window)
             #expect(coordinator.replayedCount == before, "keys typed for the terminal the person left ran somewhere: \(Self.held(h))")
             #expect(!next, "the key after the move waited: \(Self.held(h))")
-            #expect(coordinator.heldCount(in: window) == 0, "keys typed for the terminal the person left still wait: \(Self.held(h))")
+            #expect(coordinator.heldCount(in: window) == 2, "keys typed for the terminal the person left no longer wait for it: \(Self.held(h))")
         }
     }
 
@@ -464,8 +464,8 @@ struct EarlyTerminalKeysTests {
     /// before, every later key waited behind it (Escape and Cmd-Q too) with nothing to end the wait. App commands (a
     /// key bound to a cmux action, a menu key equivalent, Escape) are never held: they act on the model at once, as
     /// Chrome runs browser shortcuts before the page. Only input for the new target waits (text, Return, Ctrl-C, Cmd-V,
-    /// which the target's view takes). Escape ends the wait: the held key drops with a reason and nothing holds the
-    /// window's keys.
+    /// which the target's view takes). Escape goes on at once; the held key keeps waiting for its target, whose own
+    /// operation ends the wait (lead 2026-10-29: held keys drop only when that operation fails or the target closes).
     @Test func appCommandsAndEscapeNeverWaitBehindAHeldKey() async throws {
         try await Self.withTerminal { h in
             let (controller, window) = (h.controller, h.window)
@@ -492,11 +492,9 @@ struct EarlyTerminalKeysTests {
             #expect(kind(try Self.chord("c", keyCode: 8, [.control], in: window)) == .input, "Ctrl-C is input for the new terminal")
             #expect(kind(try Self.key("x", keyCode: 7, in: window)) == .input)
 
-            // Escape ends the wait: the held key drops with a reason, never runs, and the window holds nothing.
+            // Escape goes on now; the held key keeps waiting for its target and never runs elsewhere.
             #expect(!router.interceptKeyDown(try Self.key("\u{1b}", keyCode: 53, in: window), in: window), "Escape was held: \(Self.held(h))")
-            #expect(coordinator.heldCount(in: window) == 0, "the held key still waits after Escape: \(Self.held(h))")
-            #expect(!coordinator.isHolding(in: window), "the window still holds keys after Escape: \(Self.held(h))")
-            #expect(router.inputQueues.existing(for: window.windowNumber)?.counts.dropped == 1, "the held key did not drop with a reason")
+            #expect(coordinator.heldCount(in: window) == 1, "Escape dropped the key typed for the new target: \(Self.held(h))")
             #expect(coordinator.replayedCount == before, "the held key ran somewhere")
             #expect(coordinator.heldKeyProblems().isEmpty, "HK1: \(coordinator.heldKeyProblems())")
         }
