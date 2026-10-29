@@ -16,9 +16,13 @@ test("the bottom-stack tray is flush with the composer and keeps the shared oute
 // thing? ... It's just unnecessary, stupid-ass fucking padding." The stack's 34px row floor left a
 // strip of tray glass under the tray's 28px header; the tray's floor is its one row.
 test("the bottom-stack tray's floor is its one row, not the stack's taller row", () => {
-  const rules = [...bottomStack.replace(/@media[^{]*\{(?:[^{}]*\{[^}]*\})*[^}]*\}/g, "").matchAll(
-    /\.acpmux-dock > \.acpmux-running-tray\s*\{([^}]*)\}/g,
-  )].map((match) => match[1]!);
-  const floors = rules.flatMap((rule) => [...rule.matchAll(/min-height:\s*([^;]+);/g)].map((match) => match[1]!.trim()));
+  const rules = [
+    ...bottomStack
+      .replace(/@media[^{]*\{(?:[^{}]*\{[^}]*\})*[^}]*\}/g, "")
+      .matchAll(/\.acpmux-dock > \.acpmux-running-tray\s*\{([^}]*)\}/g),
+  ].map((match) => match[1]!);
+  const floors = rules.flatMap((rule) =>
+    [...rule.matchAll(/min-height:\s*([^;]+);/g)].map((match) => match[1]!.trim()),
+  );
   expect(floors.at(-1)).toBe("var(--ds-control-row, 28px)");
 });

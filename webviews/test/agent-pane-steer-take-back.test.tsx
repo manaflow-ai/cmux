@@ -209,17 +209,18 @@ test("an X acpmux refuses gives way to Read after this step; Send now stays the 
     });
     expect(daemon.requests.filter((request) => request.method === "_acpmux/queue_edit")).toHaveLength(1);
     expect(restored).toEqual([]);
-    expect(takeBackButtons()).toEqual([]);
+    // Compared as counts and identities, not elements: a failing match prints no jsdom tree.
+    expect(takeBackButtons().length).toBe(0);
     const pending = dom.window.document.querySelector(".cv-user__pending")!;
-    expect(pending.querySelector(".cv-user__kept")?.textContent).toBe(translate("message.readAfterStep"));
+    expect(pending.querySelector(".cv-user__kept")?.textContent ?? null).toBe(translate("message.readAfterStep"));
     const [after] = sendNow();
-    expect(after).toBe(before);
-    expect(after!.disabled).toBe(false);
+    expect(after === before).toBe(true);
+    expect(after?.disabled).toBe(false);
     // Drawn again (scrolled away and back) while acpmux still says it waits: still no dead X.
     await act(async () => root.render(<></>));
     await render();
-    expect(takeBackButtons()).toEqual([]);
-    expect(dom.window.document.querySelector(".cv-user__kept")).not.toBeNull();
+    expect(takeBackButtons().length).toBe(0);
+    expect(dom.window.document.querySelector(".cv-user__kept") !== null).toBe(true);
   } finally {
     await act(async () => root.unmount());
   }
@@ -233,7 +234,13 @@ const toolEvents = (count: number): Step[] =>
     const toolCallId = `call-${index >> 1}`;
     const update =
       index % 2 === 0
-        ? { sessionUpdate: "tool_call", toolCallId, title: `Read src/file${index >> 1}.ts`, kind: "read", status: "in_progress" }
+        ? {
+            sessionUpdate: "tool_call",
+            toolCallId,
+            title: `Read src/file${index >> 1}.ts`,
+            kind: "read",
+            status: "in_progress",
+          }
         : { sessionUpdate: "tool_call_update", toolCallId, status: "completed" };
     return ["in", update.sessionUpdate, { method: "session/update", params: { update } }];
   });
@@ -252,8 +259,8 @@ test("Send now keeps its element through 50 transcript events", async () => {
       });
       await render();
       const [now, ...others] = sendNow();
-      expect(others).toEqual([]);
-      expect(now).toBe(first!);
+      expect(others.length).toBe(0);
+      expect(now === first).toBe(true);
     }
     expect(first!.isConnected).toBe(true);
   } finally {
