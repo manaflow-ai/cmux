@@ -65,7 +65,11 @@ await requireBrowserLane("markdown-reading-trigger.test.ts", async () => {
               await page.locator(".md-reading").waitFor({ state: "visible" });
               await page.locator(".md-reading").hover();
               expect(await trigger.getAttribute("aria-pressed")).toBe("true");
-              const open = await trigger.evaluate((el) => getComputedStyle(el).backgroundColor);
+              // Sample the selected fill only after the pointer's hover transition has finished.
+              const open = await trigger.evaluate(async (el) => {
+                await Promise.all(el.getAnimations().map((animation) => animation.finished));
+                return getComputedStyle(el).backgroundColor;
+              });
               if (
                 process.env.MENU_CAPTURE_DIR &&
                 engine === "chromium" &&
