@@ -25,6 +25,7 @@ pub mod agent_tools;
 pub mod attach;
 pub mod author;
 pub mod beads;
+pub mod bg_hook;
 pub mod bg_run;
 pub mod byo_endpoint;
 pub mod capabilities;
