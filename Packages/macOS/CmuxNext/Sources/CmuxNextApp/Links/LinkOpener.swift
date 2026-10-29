@@ -117,12 +117,14 @@ final class LinkOpener {
             })
         case .besideDock:
             // A lone pinned dock closed to tabs: the daemon makes a tab aimed at it in a new column
-            // right of it. Home's dock takes tabs, so the tab is made there and moves to the right.
+            // right of it. Home's dock takes tabs, so the tab is made there and moves to the right,
+            // left out of the dock's strip on the way (``OutboundTab``): it first shows on the right.
             guard source.isOpenPinnedDockPane else { return make(source, nil) }
-            return make(source) { [weak self, weak source] surface in
-                guard let self, let source else { return }
-                self.moveBeside(surface, from: source, focus: !background)
-            }
+            let outbound = OutboundTab.begin(in: source)
+            return outbound.started(make(source) { [weak self, weak source] surface in
+                guard let self, let source else { return outbound.finish(moved: false) }
+                self.moveBeside(surface, from: source, focus: !background, outbound: outbound)
+            })
         case .dockChat:
             let outbound = OutboundTab.begin(in: source)
             return outbound.started(make(source) { [weak source] surface in
@@ -284,8 +286,10 @@ final class LinkOpener {
 
     /// Moves new tab `surface`, made in `source`, to a new column right of it, focusing `target` in
     /// it when `focus` (Home's dock, which takes tabs, opens its tools beside itself this way).
-    func moveBeside(_ surface: SurfaceID, from source: PaneController, focus: Bool, target: FocusState.Target = .content) {
-        move(surface, from: source, to: .besideColumn, focus: focus, target: target)
+    /// `outbound`, begun before the tab was made, keeps it out of `source`'s strip until it has moved.
+    func moveBeside(_ surface: SurfaceID, from source: PaneController, focus: Bool, target: FocusState.Target = .content,
+                    outbound: OutboundTab? = nil) {
+        move(surface, from: source, to: .besideColumn, focus: focus, target: target, outbound: outbound)
     }
 
     /// Moves the new tab on `surface` out of `source` to `destination` (a new split, column or dock)
