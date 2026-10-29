@@ -60,6 +60,28 @@ import Testing
         #expect(store.turns.map(\.id) == ["retry"])
     }
 
+    @Test func onlyTheLatestFailedTurnOffersRetry() throws {
+        let source = PromptResendTests.Recorder()
+        let store = AgentChatStore(source: source)
+        store.apply(.userMessage(text: "First", promptId: "p1", turnId: "t1", attachments: [], at: Date()))
+        store.apply(.turnResult(turnId: "t1", status: .failed, errorText: "unavailable", at: Date()))
+        let old = try #require(store.turns.last)
+        #expect(store.canRetryFailedTurn(old))
+        store.apply(.userMessage(text: "Second", promptId: "p2", turnId: "t2", attachments: [], at: Date()))
+        let current = try #require(store.turns.last)
+        #expect(!store.canRetryFailedTurn(old))
+        #expect(!store.canRetryFailedTurn(current))
+        store.retryFailedTurn(old)
+        #expect(source.sent.isEmpty)
+        store.apply(.turnResult(turnId: "t2", status: .failed, errorText: "unavailable", at: Date()))
+        #expect(store.canRetryFailedTurn(current))
+        store.retryFailedTurn(current)
+        #expect(!store.canRetryFailedTurn(current))
+        #expect(source.sent == [.retryFailedTurn])
+        store.apply(.status(.disconnected))
+        #expect(store.canRetryFailedTurn(current))
+    }
+
     @Test(arguments: [false, true])
     func retryOutputStartsANewMessage(withMessageIDs: Bool) throws {
         let store = AgentChatStore(source: PromptResendTests.Recorder())

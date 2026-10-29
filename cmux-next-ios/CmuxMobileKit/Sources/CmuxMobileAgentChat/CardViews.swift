@@ -473,6 +473,7 @@ struct FailureCard: View {
     let message: String
     /// The agent's own message, when the sentence says it in plain words (the Mac's Details).
     var detail: String?
+    var canRetry = true
     let retry: () -> Void
 
     var body: some View {
@@ -492,6 +493,7 @@ struct FailureCard: View {
                 .tint(.secondary)
             }
             Button("Retry", action: retry).buttonStyle(CmuxMobileCapsuleButtonStyle(.primary, size: .large))
+                .disabled(!canRetry)
         }
         .padding(16)
         .overlay { RoundedRectangle(cornerRadius: 20, style: .continuous).strokeBorder(Color(uiColor: .separator), lineWidth: 1) }

@@ -229,6 +229,8 @@ public final class AgentChatStore {
     /// history): the bottom stack's next height lands at once too (then cleared).
     @ObservationIgnored var placeBottomStackInstantly = false
     private var currentMessageID: String?
+    /// Retained output belongs to the failed attempt, even when chunks carry no message ID.
+    private var startsNewAttempt = false
     private var task: Task<Void, Never>?
 
     public init(source: any AgentSessionSource) {
@@ -309,8 +311,12 @@ public final class AgentChatStore {
     }
 
     /// A failed latest turn retries through acpmux, which preserves its input and context.
+    public func canRetryFailedTurn(_ turn: AgentTurn) -> Bool {
+        turns.last?.id == turn.id && turns.last?.status == .failed && !retryRequested
+    }
+
     public func retryFailedTurn(_ turn: AgentTurn) {
-        guard turns.last?.id == turn.id, turns.last?.status == .failed, !retryRequested else { return }
+        guard canRetryFailedTurn(turn) else { return }
         clientError = nil
         retryRequested = true
         source.send(.retryFailedTurn)
@@ -409,11 +415,13 @@ public final class AgentChatStore {
             }
             retryRequested = false
             currentMessageID = nil
+            startsNewAttempt = true
         case .userMessage(let text, let promptId, let turnId, let attachments, let at):
             retryRequested = false
             currentMessageID = nil
             reached(promptId)
             if !turns.contains(where: { $0.id == turnId }) {
+                startsNewAttempt = false
                 turns.append(AgentTurn(id: turnId, prompt: text, attachments: Self.sentAttachments(sentAttachments[promptId], recorded: attachments),
                                        promptAt: at))
             }
@@ -608,20 +616,22 @@ public final class AgentChatStore {
         switch update {
         case .agentMessageChunk(let text, let messageId):
             guard var turn = turns.last else { return }
-            if case .message(let id, let existing)? = turn.items.last, messageId == nil || messageId == currentMessageID || currentMessageID == nil {
+            if !startsNewAttempt, case .message(let id, let existing)? = turn.items.last, messageId == nil || messageId == currentMessageID || currentMessageID == nil {
                 turn.items[turn.items.count - 1] = .message(id: id, markdown: existing + text)
             } else {
                 turn.items.append(.message(id: messageId ?? UUID().uuidString, markdown: text))
             }
             currentMessageID = messageId
+            startsNewAttempt = false
             turns[turns.count - 1] = turn
         case .agentThoughtChunk(let text):
             guard var turn = turns.last else { return }
-            if case .thought(let id, let existing)? = turn.items.last {
+            if !startsNewAttempt, case .thought(let id, let existing)? = turn.items.last {
                 turn.items[turn.items.count - 1] = .thought(id: id, text: existing + text)
             } else {
                 turn.items.append(.thought(id: UUID().uuidString, text: text))
             }
+            startsNewAttempt = false
             turns[turns.count - 1] = turn
         case .toolCall(var call):
             call.startedAt = call.startedAt ?? Date()

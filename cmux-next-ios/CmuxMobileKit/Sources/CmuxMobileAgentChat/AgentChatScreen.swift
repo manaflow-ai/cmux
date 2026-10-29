@@ -697,7 +697,8 @@ struct TurnView: View {
                     Text("Stopped").font(.footnote).foregroundStyle(.tertiary)
                 case .failed:
                     let failure = TurnFailureCopy(message: turn.errorText, harness: store.summary.harness, harnessName: store.summary.agentName)
-                    FailureCard(title: "Agent stopped", message: failure.sentence, detail: failure.detail) {
+                    FailureCard(title: "Agent stopped", message: failure.sentence, detail: failure.detail,
+                                canRetry: store.canRetryFailedTurn(turn)) {
                         store.retryFailedTurn(turn)
                     }
                 case .completed:
