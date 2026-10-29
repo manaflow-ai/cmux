@@ -90,14 +90,12 @@ function transport() {
   const emit = async (id: string, value?: string, type: NativePopupEvent["type"] = "pick") => {
     const model = latest();
     await act(async () => {
-      for (const listener of listeners)
-        listener({ type, popupId: model.id, revision: model.revision, id, value });
+      for (const listener of listeners) listener({ type, popupId: model.id, revision: model.revision, id, value });
     });
   };
   return { host, latest, emit, rows: () => all(latest().rows), models };
 }
-const all = (rows: NativePopupRow[]): NativePopupRow[] =>
-  rows.flatMap((row) => [row, ...all(row.children ?? [])]);
+const all = (rows: NativePopupRow[]): NativePopupRow[] => rows.flatMap((row) => [row, ...all(row.children ?? [])]);
 async function mount(menu: QuickMenu) {
   const container = install();
   const f = transport();
@@ -320,9 +318,7 @@ test("full native picker selects generated model IDs and retains native focus ow
 });
 
 test("late account replies cannot overwrite a different session, and refusal is shown on reopen", async () => {
-  let resolveOld:
-    | ((value: { accounts: { id: string; name: string; kind: string }[] }) => void)
-    | undefined;
+  let resolveOld: ((value: { accounts: { id: string; name: string; kind: string }[] }) => void) | undefined;
   const accounts = {
     list: (session: string) =>
       session === "old"

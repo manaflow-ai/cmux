@@ -31,8 +31,7 @@ export type {
 
 const LONG_LIST = 8;
 const FILTER_ROWS = 9;
-const rowValue = (model: Pick<QuickModel, "family" | "id">) =>
-  JSON.stringify([model.family, model.id]);
+const rowValue = (model: Pick<QuickModel, "family" | "id">) => JSON.stringify([model.family, model.id]);
 const runsOffers = (model: Pick<QuickModel, "id" | "offers">, current: string | undefined) =>
   !!model.offers?.some((offer) => offer.id === current);
 type QuickProps = React.ComponentProps<typeof QuickModelMenuFallback>;
@@ -45,22 +44,10 @@ export function QuickModelMenu(props: QuickProps) {
 
 /// The compact model menu keeps numbered rows, Effort and Account flyouts, and Fast mode.
 /// Its search field filters models in place using the full picker's matching.
-function NativeQuickModelMenu({
-  open,
-  onOpenChange,
-  trigger,
-  chip,
-  menu,
-  onMore,
-  children,
-}: QuickProps) {
+function NativeQuickModelMenu({ open, onOpenChange, trigger, chip, menu, onMore, children }: QuickProps) {
   const t = useT();
   const newTab = useContext(OnNewTab);
-  const {
-    open: sideOpen,
-    setOpen: setSideOpen,
-    side,
-  } = useOpenSide(trigger, newTab ? "bottom" : "top", 320);
+  const { open: sideOpen, setOpen: setSideOpen, side } = useOpenSide(trigger, newTab ? "bottom" : "top", 320);
   if (sideOpen !== open) setSideOpen(open);
   const { models, current, effort, account, auth, fast } = menu;
   const levels = effort?.levels.filter((choice) => !isDefaultChoice(choice)) ?? [];
@@ -94,34 +81,25 @@ function NativeQuickModelMenu({
           ? shown.models.length + shown.more.length
           : 0
         : (search?.find("").length ?? 0);
-  const showField =
-    !!search && (look === "always" || query !== "" || (look === "long" && listed > LONG_LIST));
+  const showField = !!search && (look === "always" || query !== "" || (look === "long" && listed > LONG_LIST));
   const found = useMemo(() => (query && search ? search.find(query) : undefined), [query, search]);
   const groupLook = menu.searchGroups ?? "harness";
   const groups = useMemo(
-    () =>
-      found && families && groupLook === "harness" ? searchGroups(found, families.list) : undefined,
+    () => (found && families && groupLook === "harness" ? searchGroups(found, families.list) : undefined),
     [found, families, groupLook],
   );
   const rows: QuickModel[] = groups
     ? groups.flatMap((group) => group.rows)
-    : (found ??
-      (!families ? models.map((model) => ({ ...model, family: "" })) : (shown?.models ?? [])));
+    : (found ?? (!families ? models.map((model) => ({ ...model, family: "" })) : (shown?.models ?? [])));
   const railTabs = useMemo(() => {
     if (!families || !groups?.length) return families?.list ?? [];
     const matched = new Set(groups.map((group) => group.id));
     return families.list.filter((family) => matched.has(family.id));
   }, [families, groups]);
-  const twins = useMemo(
-    () => twinRows(groups ?? (found ? [{ id: "", name: "", rows: found }] : [])),
-    [groups, found],
-  );
+  const twins = useMemo(() => twinRows(groups ?? (found ? [{ id: "", name: "", rows: found }] : [])), [groups, found]);
   const providerLook = menu.providers ?? "row";
-  const currentValue = families
-    ? rowValue({ family: families.current ?? "", id: current ?? "" })
-    : (current ?? "");
-  const valueOf = (model: Pick<QuickModel, "family" | "id">) =>
-    families ? rowValue(model) : model.id;
+  const currentValue = families ? rowValue({ family: families.current ?? "", id: current ?? "" }) : (current ?? "");
+  const valueOf = (model: Pick<QuickModel, "family" | "id">) => (families ? rowValue(model) : model.id);
   const runningRow = onChatTab
     ? (families ? shown?.models : models)?.find((model) => runsOffers(model, current))
     : undefined;
@@ -168,11 +146,7 @@ function NativeQuickModelMenu({
         disabled: offer.disabled,
       }),
     );
-  const modelRows = (
-    choices: readonly QuickModel[],
-    scope: string,
-    numbered = false,
-  ): NativePopupRow[] =>
+  const modelRows = (choices: readonly QuickModel[], scope: string, numbered = false): NativePopupRow[] =>
     choices.flatMap((choice, index) => {
       const key = `${scope}:${rowValue(choice)}`;
       const detail = [
@@ -232,16 +206,8 @@ function NativeQuickModelMenu({
     );
     if (moreShown) visibleRows.push(...modelRows(shown.more, "more"));
   }
-  if (
-    !query &&
-    !forkTab &&
-    inlineMore &&
-    families?.onAddHarness &&
-    (moreShown || !shown?.more.length)
-  )
-    visibleRows.push(
-      action("add-harness", t("modelPicker.addHarness"), closeThen(families.onAddHarness)),
-    );
+  if (!query && !forkTab && inlineMore && families?.onAddHarness && (moreShown || !shown?.more.length))
+    visibleRows.push(action("add-harness", t("modelPicker.addHarness"), closeThen(families.onAddHarness)));
   if (!query && onChatTab && effort && levels.length > 1) {
     const selected = levels.findIndex((choice) => choice.id === effort.current);
     const recommended = levels.findIndex((choice) => choice.recommended);
@@ -287,18 +253,9 @@ function NativeQuickModelMenu({
       id: "model-providers",
       label: t("picker.provider"),
       value: runningProvider,
-      children: providerRows(
-        { ...runningRow, family: families?.current ?? "" },
-        "running-provider",
-      ),
+      children: providerRows({ ...runningRow, family: families?.current ?? "" }, "running-provider"),
     });
-  if (
-    !query &&
-    !forkTab &&
-    !inlineMore &&
-    families &&
-    (shown?.more.length || families.onAddHarness)
-  )
+  if (!query && !forkTab && !inlineMore && families && (shown?.more.length || families.onAddHarness))
     visibleRows.push({
       kind: "submenu",
       id: "more-models",
@@ -363,25 +320,17 @@ function NativeQuickModelMenu({
       if (menu.routeLayout === "grouped") {
         accountRows.push(...routes(direct));
         if (routers.length)
-          accountRows.push(
-            { kind: "section", id: "provider-group", label: t("picker.provider") },
-            ...routes(routers),
-          );
+          accountRows.push({ kind: "section", id: "provider-group", label: t("picker.provider") }, ...routes(routers));
       } else accountRows.push(...routes(choices));
-      if (!choices.length)
-        accountRows.push({ kind: "text", id: "provider-hint", label: t("picker.accountHint") });
+      if (!choices.length) accountRows.push({ kind: "text", id: "provider-hint", label: t("picker.accountHint") });
     }
     const accountValue = accounts.switchFailed
       ? t("picker.accountSwitchFailed")
       : list
-        ? (list.accounts.find((choice) => choice.id === list.active)?.name ??
-          t("picker.harnessLogin"))
+        ? (list.accounts.find((choice) => choice.id === list.active)?.name ?? t("picker.harnessLogin"))
         : undefined;
     if (menu.routeLayout === "inline")
-      visibleRows.push(
-        { kind: "section", id: "providers", label: t("picker.provider") },
-        ...accountRows,
-      );
+      visibleRows.push({ kind: "section", id: "providers", label: t("picker.provider") }, ...accountRows);
     else
       visibleRows.push({
         kind: "submenu",
@@ -396,18 +345,14 @@ function NativeQuickModelMenu({
     visibleRows.push({ kind: "text", id: "auth-status", label: authLabel });
     if (canSessionLogin(auth.verdict) && auth.onLogin)
       visibleRows.push(action("auth-login", t("harness.logIn"), closeThen(auth.onLogin)));
-    if (auth.onRefresh)
-      visibleRows.push(
-        action("auth-refresh", t("harnesses.checkAgain"), closeThen(auth.onRefresh)),
-      );
+    if (auth.onRefresh) visibleRows.push(action("auth-refresh", t("harnesses.checkAgain"), closeThen(auth.onRefresh)));
   }
   if (!query && onChatTab && fast)
     visibleRows.push(
       action(
         "fast",
         t("picker.fastMode"),
-        (event) =>
-          fast.onChange(event.value === undefined ? !fast.checked : event.value === "true"),
+        (event) => fast.onChange(event.value === undefined ? !fast.checked : event.value === "true"),
         { kind: "toggle", checked: fast.checked, keepOpen: true },
       ),
     );
@@ -441,9 +386,7 @@ function NativeQuickModelMenu({
     width: families ? 310 : 280,
     rows: visibleRows,
     ...(rail ? { rail, railWidth: 44 } : {}),
-    ...(showField
-      ? { search: { id: "query", value: query, placeholder: t("picker.search") } }
-      : {}),
+    ...(showField ? { search: { id: "query", value: query, placeholder: t("picker.search") } } : {}),
     ...(menu.update
       ? {
           footer: [
@@ -524,9 +467,7 @@ function useAccountList(open: boolean, account: QuickMenu["account"]) {
       old
         ? {
             ...old,
-            ...(routeId
-              ? { active: routeId, scope: "chat" }
-              : { active: undefined, scope: undefined }),
+            ...(routeId ? { active: routeId, scope: "chat" } : { active: undefined, scope: undefined }),
           }
         : old,
     );
