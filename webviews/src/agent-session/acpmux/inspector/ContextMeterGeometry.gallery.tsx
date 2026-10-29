@@ -16,8 +16,31 @@ const BREAKDOWN = {
   totalTokens: 95,
   maxTokens: 100,
 };
+const TINY_BREAKDOWN = {
+  categories: [
+    { name: "Normal category", tokens: 49.5, kind: "used" },
+    { name: "Tiny positive category", tokens: 0.5, kind: "used" },
+    { name: "Free space", tokens: 50, kind: "free" },
+  ],
+  totalTokens: 50,
+  maxTokens: 100,
+};
 
-function ContextMeterGeometry({ width = 260 }: { width?: number }) {
+type ContextMeterGeometryProps = {
+  width?: number;
+  breakdown?: typeof BREAKDOWN | typeof TINY_BREAKDOWN;
+  fixture?: string;
+  usage?: { used: number; size: number };
+  percent?: number;
+};
+
+function ContextMeterGeometry({
+  width = 260,
+  breakdown = BREAKDOWN,
+  fixture = "five-equal-categories",
+  usage = { used: 95, size: 100 },
+  percent = 95,
+}: ContextMeterGeometryProps) {
   const stage: CSSProperties = {
     width,
     minHeight: 120,
@@ -26,8 +49,8 @@ function ContextMeterGeometry({ width = 260 }: { width?: number }) {
     background: "var(--surface-glass, color-mix(in srgb, var(--agent-text) 5%, transparent))",
   };
   return (
-    <div style={stage} data-context-meter-fixture="five-equal-categories">
-      <ContextSection usage={{ used: 95, size: 100 }} percent={95} breakdown={BREAKDOWN} />
+    <div style={stage} data-context-meter-fixture={fixture}>
+      <ContextSection usage={usage} percent={percent} breakdown={breakdown} />
     </div>
   );
 }
@@ -49,6 +72,16 @@ export default componentEntry({
     "five-equal-categories-wide": {
       note: "Worst-case geometry at a wider 400px panel: five equal 19% used categories and a 5% free track.",
       props: { width: 400 },
+    },
+    "tiny-positive-category": {
+      note: "Tiny positive category below the 2px minimum next to a normal category; its colored fill must survive the separator.",
+      props: {
+        width: 260,
+        breakdown: TINY_BREAKDOWN,
+        fixture: "tiny-positive-category",
+        usage: { used: 50, size: 100 },
+        percent: 50,
+      },
     },
   },
 });

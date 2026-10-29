@@ -35,6 +35,7 @@ await requireBrowserLane("context-meter-geometry.test.ts", async () => {
     const page: Page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
     const shots = process.env.CMUX_CONTEXT_METER_SHOTS;
     const captureOnly = process.env.CMUX_CONTEXT_METER_CAPTURE_ONLY === "1";
+    const baseline = process.env.CMUX_CONTEXT_METER_BASELINE === "1";
     const cases = [
       {
         name: "light-narrow",
@@ -104,7 +105,11 @@ await requireBrowserLane("context-meter-geometry.test.ts", async () => {
           };
         });
         console.log(`context-meter-geometry ${item.name} ${JSON.stringify(geometry)}`);
-        if (!captureOnly) {
+        if (baseline) {
+          expect(geometry.spans).toHaveLength(5);
+          expect(geometry.gap).toBe("2px");
+          expect(geometry.usedEnd - geometry.expectedUsedEnd).toBeGreaterThan(7);
+        } else {
           expect(geometry.spans).toHaveLength(5);
           expect(geometry.gap).toBe("0px");
           expect(Math.abs(geometry.usedEnd - geometry.expectedUsedEnd)).toBeLessThanOrEqual(1);
@@ -114,4 +119,46 @@ await requireBrowserLane("context-meter-geometry.test.ts", async () => {
       await page.close();
     }
   });
+
+  if (!captureOnly) {
+    test("tiny positive categories keep colored fill under their separator", async () => {
+      const page: Page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
+      try {
+        const port = (vite!.httpServer!.address() as { port: number }).port;
+        await page.goto(
+          `http://127.0.0.1:${port}${galleryFrame("agent-pane.context-meter-geometry", {
+            variant: "tiny-positive-category",
+            frame: "component",
+            width: 280,
+            height: 180,
+            theme: "Apple System Colors Light",
+          })}`,
+        );
+        await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
+        const selector = '[data-context-meter-fixture="tiny-positive-category"] .acpmux-chat-inspector-context__bar';
+        await page.waitForSelector(selector);
+        const geometry = await page.$eval(selector, (bar) => {
+          const spans = [...bar.querySelectorAll<HTMLElement>(":scope > span")];
+          const tiny = spans.at(-1)!;
+          const tinyBox = tiny.getBoundingClientRect();
+          const separator = getComputedStyle(tiny, "::after");
+          return {
+            spanCount: spans.length,
+            tinyWidth: tinyBox.width,
+            tinyColor: getComputedStyle(tiny).backgroundColor,
+            separatorColor: separator.backgroundColor,
+            separatorWidth: Number.parseFloat(separator.width),
+          };
+        });
+        console.log(`context-meter-geometry tiny-positive-category ${JSON.stringify(geometry)}`);
+        expect(geometry.spanCount).toBe(2);
+        expect(geometry.tinyWidth).toBeGreaterThanOrEqual(2);
+        expect(geometry.separatorWidth).toBeGreaterThan(0);
+        expect(geometry.separatorWidth).toBeLessThan(geometry.tinyWidth);
+        expect(geometry.separatorColor).not.toBe(geometry.tinyColor);
+      } finally {
+        await page.close();
+      }
+    });
+  }
 });
