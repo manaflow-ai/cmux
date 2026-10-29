@@ -6,6 +6,7 @@ import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextBridge
 import CmuxNextDaemon
+import CmuxNextLayout
 import CmuxNextWakeups
 import Observation
 
@@ -102,6 +103,8 @@ final class WindowManager {
     /// The incognito session's off-the-record browser profile while any
     /// incognito window is open (`WindowManager+Incognito`).
     var incognitoSession: BrowserProfileID?
+    /// The incognito space each incognito window shows (window id to space), deleted with its window.
+    var incognitoSpaces: [String: ProfileID] = [:]
     /// Workspaces of open incognito windows, closed at the next launch when
     /// this run ends without closing them.
     lazy var incognitoLedger = IncognitoWorkspaceLedger.forApplication(bundleIdentifier: Bundle.main.bundleIdentifier)
@@ -218,6 +221,10 @@ final class WindowManager {
         // resources: the app's ledger owns them, so they close, never shown.
         // A daemon with state resources owns its ephemeral workspaces (it closes them at its
         // next start); until then they show in an incognito window only, so wait for its flags.
+        // Incognito spaces a crashed run left: deleted, never shown.
+        if let home = services.machines.local.connection {
+            for space in await incognitoLedger.loadSpaces() { _ = try? await home.deleteProfile(ProfileID(rawValue: space), moveTo: nil) }
+        }
         let leftover = await incognitoLedger.load()
         if !leftover.isEmpty {
             registry.apply { $0.markDiscarding(leftover); return WindowRegistry.Changes() }
@@ -469,6 +476,10 @@ final class WindowManager {
             if let id = window.content?.workspace.id { shown.insert(id) }
             if let id = window.state.workspaceID { shown.insert(id) }
             shown.formUnion(window.state.viewSet?.ids ?? [])
+            if LayoutTunables.dockedWorkspaces.value {
+                shown.formUnion(window.state.docks.visible.map(\.workspace))
+                if let stage = window.state.stageWorkspaceID { shown.insert(stage) }
+            }
         }
     }
 
