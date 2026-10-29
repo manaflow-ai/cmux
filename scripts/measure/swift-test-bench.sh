@@ -49,12 +49,18 @@ main() {
   if ! [[ "$filter" =~ ^[A-Za-z0-9_][A-Za-z0-9_./:-]*$ ]] || [[ "$filter" == *. || "$filter" == */ ]]; then
     echo "swift-test-bench.sh: FILTER must be a test name such as Suite/test (letters, digits, _ . / : -; got '$filter')" >&2; exit 2
   fi
-  local source_sha="" restore_sha="" restore_list="" arg
+  local source_sha="" restore_sha="" restore_list="" arg key seen=" "
   for arg in "$@"; do
-    case "$arg" in
-      source=*) [[ -z "$source_sha" ]] || { echo "$usage" >&2; exit 2; }; source_sha=${arg#source=} ;;
-      restore_from=*) [[ -z "$restore_sha" ]] || { echo "$usage" >&2; exit 2; }; restore_sha=${arg#restore_from=} ;;
-      restore=*) [[ -z "$restore_list" ]] || { echo "$usage" >&2; exit 2; }; restore_list=${arg#restore=} ;;
+    key=${arg%%=*}
+    # Each key at most once, and never with an empty value.
+    if [[ "$arg" != *=?* || "$seen" == *" $key "* ]]; then
+      echo "swift-test-bench.sh: bad or repeated argument '$arg'; $usage" >&2; exit 2
+    fi
+    seen+="$key "
+    case "$key" in
+      source) source_sha=${arg#source=} ;;
+      restore_from) restore_sha=${arg#restore_from=} ;;
+      restore) restore_list=${arg#restore=} ;;
       *) echo "swift-test-bench.sh: unknown argument '$arg'; $usage" >&2; exit 2 ;;
     esac
   done
@@ -171,10 +177,13 @@ main() {
   status=${PIPESTATUS[0]}
   set -e
   note ""
-  # Swift Testing ends with "Test run with N test(s) ..."; XCTest with
-  # "Executed N test(s)". Neither, or zero tests in all: the filter matched nothing.
-  local ran
-  ran="$(grep -Eo 'Test run with [0-9]+ tests?|Executed [0-9]+ tests?' "$work/test.log" | grep -Eo '[0-9]+' | awk '{ s += $1 } END { print s + 0 }')"
+  # Swift Testing ends with "Test run with N test(s) ..."; XCTest prints
+  # "Executed N test(s)" per suite and then for all of them, so its largest
+  # count is the total. Zero in all: the filter matched nothing.
+  local ran swt xct
+  swt="$(grep -Eo 'Test run with [0-9]+ tests?' "$work/test.log" | grep -Eo '[0-9]+' | sort -n | tail -1 || true)"
+  xct="$(grep -Eo 'Executed [0-9]+ tests?' "$work/test.log" | grep -Eo '[0-9]+' | sort -n | tail -1 || true)"
+  ran=$(( ${swt:-0} + ${xct:-0} ))
   note "- swift test: exit $status, $ran test(s), $((SECONDS - t0)) s"
   if [[ "$ran" -eq 0 ]]; then
     note "- no test matched $filter"

@@ -46,6 +46,9 @@ expect refused $K Suite extra
 expect refused $K Suite --restore-from
 expect refused $K Suite source=d6623d8
 expect refused $K Suite source=$sha source=$sha
+expect refused $K Suite source=
+expect refused $K Suite source= source=
+expect refused $K Suite restore_from= restore=
 expect refused $K Suite restore_from=$sha
 expect refused $K Suite restore=Sources/A.swift
 expect refused $K Suite restore_from=$sha restore=
