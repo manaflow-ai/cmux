@@ -194,23 +194,20 @@ import Testing
     /// the daemon kept the sign-in.
     @MainActor @Test func aTimerOfTheAccountBeforeNeverCancelsTheClearAfterIt() async {
         let daemon = Daemon()
-        var reached: [[String: Any]] = []
         let token = jwt(user: "user_a", team: "team_1")
+        // A cancelled call never reaches acpmux (the real line ends with its task).
         let lease = GitHubAppLease(origin: "https://cloud-api.cmux.dev", call: { params in
-            // A cancelled call never reaches acpmux (the real line ends with its task).
-            guard !Task.isCancelled else { return nil }
-            reached.append(params)
-            return daemon.call(params)
+            Task.isCancelled ? nil : daemon.call(params)
         }, tokens: { _ in token })
         lease.accountChanged(user: "user_a", team: "team_1")
         await lease.settled()
         let before = lease.generation
-        #expect(reached.last?["bearer"] as? String == token)
+        #expect(daemon.calls.last?["bearer"] as? String == token)
         lease.signOutStarted()
         lease.lend(before)
         await lease.settled()
         lease.stop()
-        #expect(reached.last?["clear"] as? Bool == true, "the sign-out's clear reached the daemon")
-        #expect(!reached.dropFirst(2).contains { $0["bearer"] != nil }, "nothing was lent after it")
+        #expect(daemon.calls.last?["clear"] as? Bool == true, "the sign-out's clear reached the daemon")
+        #expect(!daemon.calls.dropFirst(2).contains { $0["bearer"] != nil }, "nothing was lent after it")
     }
 }
