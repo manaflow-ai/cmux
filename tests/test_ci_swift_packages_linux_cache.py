@@ -2,6 +2,7 @@
 """Keep the Linux SwiftPM build cache rolling instead of per-commit."""
 
 from pathlib import Path
+import json
 import os
 import subprocess
 import sys
@@ -41,6 +42,8 @@ class SwiftPackagesLinuxCacheTests(unittest.TestCase):
             manifest, resolved = package / "Package.swift", package / "Package.resolved"
             manifest.write_text("manifest v1")
             resolved.write_text("resolved v1")
+            sdk = root / "vendor/stack-auth-swift-sdk-prerelease"
+            sdk.mkdir(parents=True)
             tools = root / "bin"
             tools.mkdir()
             swift = tools / "swift"
@@ -73,6 +76,17 @@ class SwiftPackagesLinuxCacheTests(unittest.TestCase):
             self.assertNotEqual(changed, before)
             resolved.write_text("resolved v2")
             self.assertNotEqual(key(), changed)
+            sdk_manifest = sdk / "Package.swift"
+            sdk_manifest.write_text("SDK manifest v1")
+            sdk_key = key()
+            sdk_manifest.write_text("SDK manifest v2")
+            self.assertNotEqual(key(), sdk_key)
+            generated = sdk / ".build/checkouts/Dependency/Package.swift"
+            generated.parent.mkdir(parents=True)
+            generated.write_text("generated SDK dependency")
+            unchanged = key()
+            generated.write_text("generated SDK dependency v2")
+            self.assertEqual(key(), unchanged)
 
     def test_only_successful_pushes_seed_the_immutable_cache(self):
         steps = load_yaml(WORKFLOW)["jobs"]["packages"]["steps"]
@@ -96,6 +110,57 @@ class SwiftPackagesLinuxCacheTests(unittest.TestCase):
         text = WORKFLOW.read_text(encoding="utf-8")
         self.assertIn("immutable seed", text)
         self.assertNotIn("restore the newest entry", text)
+
+
+class SwiftPackagesLinuxExecutionTests(unittest.TestCase):
+    def run_packages(self, packages, test_filter="", timed_out=""):
+        job = load_yaml(WORKFLOW)["jobs"]["packages"]
+        step = next(s for s in job["steps"] if s.get("name") == "Build and test")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for package in packages:
+                (root / package / "Tests").mkdir(parents=True)
+            tools = root / "bin"
+            tools.mkdir()
+            swift = tools / "swift"
+            swift.write_text("#!/usr/bin/env python3\nimport json, os, sys\n"
+                             "with open(os.environ['CALLS'], 'a') as log:\n"
+                             "    log.write(json.dumps(sys.argv[1:]) + '\\n')\n")
+            swift.chmod(0o755)
+            timeout = tools / "timeout"
+            timeout.write_text("#!/bin/bash\n"
+                               "[[ $1 == --kill-after=30 && $2 == 600 ]] || exit 99\n"
+                               "shift 2\n"
+                               "if [[ $* == *\"$TIMED_OUT\"* && -n $TIMED_OUT ]]; then exit 124; fi\n"
+                               'exec "$@"\n')
+            timeout.chmod(0o755)
+            calls, summary = root / "calls", root / "summary"
+            env = {**os.environ, "PATH": str(tools) + os.pathsep + os.environ["PATH"],
+                   "PACKAGES": " ".join(packages), "TEST_FILTER": test_filter,
+                   "TIMED_OUT": timed_out, "CALLS": str(calls), "GITHUB_STEP_SUMMARY": str(summary)}
+            result = subprocess.run(["bash", "-e", "-o", "pipefail", "-c", step["run"]],
+                                    cwd=root, env=env, text=True, capture_output=True, timeout=10)
+            return result, [json.loads(line) for line in calls.read_text().splitlines()], summary.read_text()
+
+    def test_sdk_matrix_runs_only_the_credential_free_fixture_suites(self):
+        groups = load_yaml(WORKFLOW)["jobs"]["packages"]["strategy"]["matrix"]["include"]
+        sdk = next((g for g in groups if g["group"] == "stack-auth"), None)
+        self.assertIsNotNone(sdk, "Stack Auth fixture coverage is absent on Linux")
+        result, calls, _ = self.run_packages(sdk["packages"].split(), sdk["test_filter"])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        tests = next(call for call in calls if call[0] == "test")
+        self.assertEqual(tests[tests.index("--filter") + 1], sdk["test_filter"])
+        self.assertIn("RefreshLifecycleTests", sdk["test_filter"])
+        self.assertIn("PublishableKeyOptionalTests", sdk["test_filter"])
+        self.assertNotIn("AuthenticationTests", sdk["test_filter"])
+
+    def test_one_package_timeout_reports_its_name_and_keeps_the_next_package(self):
+        result, calls, summary = self.run_packages(["Packages/Slow", "Packages/Healthy"],
+                                                  timed_out="Packages/Slow")
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("::error title=Packages/Slow::tests failed or timed out", result.stdout)
+        self.assertIn("| `Packages/Healthy` | pass |", summary)
+        self.assertTrue(any(call[0] == "test" and "Packages/Healthy" in call for call in calls))
 
 
 if __name__ == "__main__":

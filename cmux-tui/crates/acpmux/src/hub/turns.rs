@@ -305,12 +305,21 @@ impl Hub {
         // is committed (queued, started, or steered in), never before a refusal.
         let supersede = opts.supersede.clone();
         let replaced = std::sync::OnceLock::<Vec<String>>::new();
+        // Another agent's message queued as the running turn crosses its cap still gets the
+        // turn its notice (`turn_cap.rs`): the timer may have looked at the queue just before.
+        let from_agent =
+            super::digest::agent_sender(opts.provenance.as_ref(), opts.agent.as_deref()).is_some()
+                && !opts.send_now;
         let mut accept = |mut v: Value| {
             if let Some(f) = on_accepted.take() {
                 if supersede.is_some() {
                     super::queue::supersede::mark(&mut v, replaced.get());
                 }
+                let queued = v.get("queued") == Some(&Value::Bool(true));
                 f(v);
+                if queued && from_agent {
+                    self.turn_cap_recheck(session);
+                }
             }
         };
         // A prompt that cannot reach any agent (none running, and its folder or harness is gone)
@@ -321,12 +330,14 @@ impl Hub {
         };
         let text = prompt_text(&blocks);
         let running = session.turn();
-        let steer_now = steer && session.steering.load(Ordering::SeqCst) && running.is_some();
+        // Another agent's message to a turn past its cap waits for the next turn (`turn_cap.rs`).
+        let capped = running.is_some()
+            && !opts.send_now
+            && self.turn_cap_holds(session, opts.provenance.as_ref(), opts.agent.as_deref());
+        let steer_now =
+            steer && session.steering.load(Ordering::SeqCst) && running.is_some() && !capped;
         if steer && opts.steer_only && !steer_now {
-            return Err(RpcError::invalid_params(
-                "steer.unavailable: the session has no running turn that its agent can steer",
-            )
-            .with_data(json!({"reason": "steer.unavailable"})));
+            return Err(super::turn_cap::steer_unavailable(capped));
         }
         if !live {
             self.cold_prompt_check(session).await?;
@@ -341,7 +352,10 @@ impl Hub {
         if steer_now {
             let turn_id = running.map(|t| t.turn_id).unwrap_or_default();
             let opts = PromptOptions { prompt_id: Some(prompt_id), on_accepted: None, ..opts };
-            return self.steer_turn(session, blocks, client, &turn_id, opts, &mut accept).await;
+            // Boxed: the steer's future stays out of this one, which every prompt's caller holds
+            // on its stack (a debug build's test thread has little room).
+            return Box::pin(self.steer_turn(session, blocks, client, &turn_id, opts, &mut accept))
+                .await;
         }
         // An automatic continuation runs only while its chat still ends on the cut turn: no await
         // from here to `queue_slot`'s choice, so it never joins the queue (`auto_resume.rs`).
@@ -356,7 +370,8 @@ impl Hub {
             prompt_id: &prompt_id,
             control,
             trust_gate,
-            interrupt: opts.interrupt,
+            // Held past the cap, it waits: it stops no turn (`turn_cap.rs`).
+            interrupt: opts.interrupt && !capped,
             interrupt_turn: opts.interrupt_turn.as_deref(),
             provenance: opts.provenance.as_ref(),
             agent: agent.as_deref(),
@@ -455,6 +470,7 @@ impl Hub {
             drop(guard);
             return Err(e);
         }
+        self.arm_turn_cap(session, &turn_id);
         // A lane's report to a parent whose close began since `queue_slot` checked is refused
         // (`lane_reports.rs`). Checked once the turn is set: `kill` marks the close before it
         // clears the turn, so a close that began any time before this check is seen.
@@ -683,6 +699,7 @@ impl Hub {
             json!({"sessionId": agent_sid, "prompt": wire}),
             &turn_id,
             false,
+            false,
             fence.as_ref(),
             confirm_team_write,
             || {
@@ -827,6 +844,7 @@ impl Hub {
                                         &child2,
                                         json!({"sessionId": sid2, "prompt": wire}),
                                         &turn_id,
+                                        false,
                                         false,
                                         fence.as_ref(),
                                         confirm_team_write,
