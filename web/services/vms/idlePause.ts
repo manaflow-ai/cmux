@@ -61,6 +61,15 @@ export const VM_PAUSE_REASON_KEY = "cmuxPauseReason";
 export const VM_LAST_API_ACTIVITY_KEY = "cmuxLastApiActivityAt";
 /** When the idle cron last checked the machine, epoch ms; the cron checks the least recent first. */
 export const VM_IDLE_PROBED_AT_KEY = "cmuxIdleProbedAt";
+/**
+ * The idle fence: a counter every write that can change the idle verdict
+ * moves (an observation, API activity, the setting, any status write, a
+ * resume, the cron's pause claim). The cron's observation write, its pause
+ * claim and its pause record each require the value it read, so a probe that
+ * overlapped any of those writes loses instead of restoring a stale stretch or
+ * pausing a machine someone just used.
+ */
+export const VM_IDLE_EPOCH_KEY = "cmuxIdleEpoch";
 
 /** API activity is written at most this often per machine. */
 export const VM_API_ACTIVITY_MIN_INTERVAL_MS = 60_000;
@@ -91,6 +100,12 @@ export function isVmIdlePauseMinutes(value: unknown): value is VmIdlePauseMinute
 }
 
 type MetadataRow = { readonly providerMetadata?: Record<string, unknown> | null };
+
+/** The row's idle fence (VM_IDLE_EPOCH_KEY); 0 when never written. */
+export function vmIdleEpochFromRow(row: MetadataRow): number {
+  const stored = row.providerMetadata?.[VM_IDLE_EPOCH_KEY];
+  return typeof stored === "number" && Number.isSafeInteger(stored) && stored >= 0 ? stored : 0;
+}
 
 /** The machine's own choice, else the default. A stored value outside the choices is ignored. */
 export function vmIdlePauseMinutesFromRow(row: MetadataRow): VmIdlePauseMinutes {

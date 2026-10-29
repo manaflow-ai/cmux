@@ -44,6 +44,7 @@ import { storedAgentUpdates, type VmAgentUpdatesSetting } from "./agentUpdates";
 import { VM_RESOURCE_USAGE_KEY, VM_RESOURCE_USAGE_MIN_INTERVAL_MS, type VmResourceUsage } from "./resourceUsage";
 import {
   VM_API_ACTIVITY_MIN_INTERVAL_MS,
+  VM_IDLE_EPOCH_KEY,
   VM_IDLE_OBSERVATION_KEY,
   VM_IDLE_PAUSE_MINUTES_KEY,
   VM_IDLE_PROBED_AT_KEY,
@@ -417,7 +418,20 @@ export type VmRepositoryShape = Partial<VmHealthRepositoryMethods> & {
     readonly providerVmId: string;
     readonly observation: VmIdleObservation | null;
     readonly probedAt: number;
+    /** The idle fence the cron read (VM_IDLE_EPOCH_KEY); a moved fence makes this a stale write (false). */
+    readonly epoch: number;
   }) => Effect.Effect<boolean, VmDatabaseError>;
+  /**
+   * The idle cron's last check before it pauses a machine at the provider:
+   * moves the fence if the row is still that running machine at `epoch`, and
+   * returns the new fence for the pause record (markProviderObservedStatus's
+   * expectIdleEpoch). Null when anything moved it since the cron's read.
+   */
+  readonly claimIdlePause?: (input: {
+    readonly id: string;
+    readonly providerVmId: string;
+    readonly epoch: number;
+  }) => Effect.Effect<number | null, VmDatabaseError>;
   /** Running Freestyle machines for the idle cron, least recently checked (never checked first). */
   readonly idlePauseCandidates?: (input: { readonly limit: number }) => Effect.Effect<CloudVmRow[], VmDatabaseError>;
   /**
@@ -731,6 +745,12 @@ export type VmRepositoryShape = Partial<VmHealthRepositoryMethods> & {
      * write also drops the idle observation (services/vms/idlePause.ts).
      */
     readonly pauseReason?: VmPauseReason;
+    /**
+     * The idle cron's pause: record only if the row is still running at this
+     * idle fence (claimIdlePause's answer). False when activity, a setting
+     * change, a person's pause or a resume landed while the provider paused.
+     */
+    readonly expectIdleEpoch?: number;
     /** Inserted atomically with a winning status transition. */
     readonly usageEvent?: VmUsageEventInput;
     /** Durable external cleanup work inserted atomically with a terminal status. */
@@ -1374,6 +1394,7 @@ function providerMetadataPatchForPersistence(
       key !== VM_IDLE_PAUSE_MINUTES_KEY &&
       key !== VM_IDLE_OBSERVATION_KEY &&
       key !== VM_IDLE_PROBED_AT_KEY &&
+      key !== VM_IDLE_EPOCH_KEY &&
       key !== VM_LAST_API_ACTIVITY_KEY &&
       key !== VM_PAUSE_REASON_KEY,
     ),
@@ -1386,22 +1407,33 @@ function metadataMillis(key: string): SQL {
   return sql`(case when ${text} ~ '^[0-9]{1,15}$' then ${text}::bigint else 0 end)`;
 }
 
+/** `metadata` with the idle fence (VM_IDLE_EPOCH_KEY) moved one past the row's current value. */
+function bumpIdleEpoch(metadata: SQL): SQL {
+  return sql`(${metadata} || jsonb_build_object(${VM_IDLE_EPOCH_KEY}::text, ${metadataMillis(VM_IDLE_EPOCH_KEY)} + 1))`;
+}
+
+/** The row's idle fence still holds the value the idle cron read. */
+function idleEpochIs(epoch: number): SQL {
+  return sql`${metadataMillis(VM_IDLE_EPOCH_KEY)} = ${epoch}::bigint`;
+}
+
 /**
  * The metadata a provider-observed status write leaves. Every write drops the
- * idle observation, so a paused, resumed or destroyed machine starts a new
- * idle stretch. A paused write records its reason (or keeps the stored one);
- * any other status clears the reason.
+ * idle observation and moves the idle fence, so a paused, resumed or destroyed
+ * machine starts a new idle stretch and an in-flight probe's write loses. A
+ * paused write records its reason (or keeps the stored one); any other status
+ * clears the reason.
  */
 function observedStatusMetadata(input: Parameters<VmRepositoryShape["markProviderObservedStatus"]>[0]): SQL {
   const base = sql`(coalesce(${cloudVms.providerMetadata}, '{}'::jsonb) - ${VM_IDLE_OBSERVATION_KEY}::text)`;
   if (input.cleanup && input.status === "destroyed") {
-    return sql`(${base} - ${VM_PAUSE_REASON_KEY}::text)
-      || ${JSON.stringify({ [OBSERVED_DESTROY_CLEANUP_METADATA_KEY]: input.cleanup })}::jsonb`;
+    return bumpIdleEpoch(sql`(${base} - ${VM_PAUSE_REASON_KEY}::text)
+      || ${JSON.stringify({ [OBSERVED_DESTROY_CLEANUP_METADATA_KEY]: input.cleanup })}::jsonb`);
   }
-  if (input.status !== "paused") return sql`(${base} - ${VM_PAUSE_REASON_KEY}::text)`;
-  return input.pauseReason
+  if (input.status !== "paused") return bumpIdleEpoch(sql`(${base} - ${VM_PAUSE_REASON_KEY}::text)`);
+  return bumpIdleEpoch(input.pauseReason
     ? sql`(${base} || ${JSON.stringify({ [VM_PAUSE_REASON_KEY]: input.pauseReason })}::jsonb)`
-    : base;
+    : base);
 }
 
 /** Build trusted numeric claim JSON without binding a JSON string as a JSON scalar. */
@@ -2025,7 +2057,8 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
       await cloudDb()
         .update(cloudVms)
         .set({
-          providerMetadata: sql`coalesce(${cloudVms.providerMetadata}, '{}'::jsonb) || ${JSON.stringify({ [VM_IDLE_PAUSE_MINUTES_KEY]: input.minutes })}::jsonb`,
+          // A changed setting moves the idle fence: a pause already under way records nothing.
+          providerMetadata: bumpIdleEpoch(sql`(coalesce(${cloudVms.providerMetadata}, '{}'::jsonb) || ${JSON.stringify({ [VM_IDLE_PAUSE_MINUTES_KEY]: input.minutes })}::jsonb)`),
           updatedAt: new Date(),
         })
         .where(eq(cloudVms.id, input.id));
@@ -2036,13 +2069,32 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
       const rows = await cloudDb()
         .update(cloudVms)
         .set({
-          providerMetadata: input.observation
-            ? sql`coalesce(${cloudVms.providerMetadata}, '{}'::jsonb) || ${JSON.stringify({ [VM_IDLE_OBSERVATION_KEY]: input.observation, [VM_IDLE_PROBED_AT_KEY]: input.probedAt })}::jsonb`
-            : sql`(coalesce(${cloudVms.providerMetadata}, '{}'::jsonb) - ${VM_IDLE_OBSERVATION_KEY}::text) || ${probed}::jsonb`,
+          providerMetadata: bumpIdleEpoch(input.observation
+            ? sql`(coalesce(${cloudVms.providerMetadata}, '{}'::jsonb) || ${JSON.stringify({ [VM_IDLE_OBSERVATION_KEY]: input.observation, [VM_IDLE_PROBED_AT_KEY]: input.probedAt })}::jsonb)`
+            : sql`((coalesce(${cloudVms.providerMetadata}, '{}'::jsonb) - ${VM_IDLE_OBSERVATION_KEY}::text) || ${probed}::jsonb)`),
         })
-        .where(and(eq(cloudVms.id, input.id), eq(cloudVms.providerVmId, input.providerVmId), eq(cloudVms.status, "running")))
+        .where(and(
+          eq(cloudVms.id, input.id),
+          eq(cloudVms.providerVmId, input.providerVmId),
+          eq(cloudVms.status, "running"),
+          idleEpochIs(input.epoch),
+        ))
         .returning({ id: cloudVms.id });
       return rows.length > 0;
+    }),
+  claimIdlePause: (input) =>
+    dbEffect("claimIdlePause", async () => {
+      const rows = await cloudDb()
+        .update(cloudVms)
+        .set({ providerMetadata: bumpIdleEpoch(sql`coalesce(${cloudVms.providerMetadata}, '{}'::jsonb)`) })
+        .where(and(
+          eq(cloudVms.id, input.id),
+          eq(cloudVms.providerVmId, input.providerVmId),
+          eq(cloudVms.status, "running"),
+          idleEpochIs(input.epoch),
+        ))
+        .returning({ id: cloudVms.id });
+      return rows.length > 0 ? input.epoch + 1 : null;
     }),
   idlePauseCandidates: (input) =>
     dbEffect("idlePauseCandidates", async () => await cloudDb()
@@ -2057,8 +2109,9 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
       const rows = await cloudDb()
         .update(cloudVms)
         .set({
-          // Activity has its own timestamp; it is not a lifecycle mutation.
-          providerMetadata: sql`coalesce(${cloudVms.providerMetadata}, '{}'::jsonb) || ${JSON.stringify({ [VM_LAST_API_ACTIVITY_KEY]: input.at })}::jsonb`,
+          // Activity has its own timestamp; it is not a lifecycle mutation. It
+          // moves the idle fence, so an idle pause already under way records nothing.
+          providerMetadata: bumpIdleEpoch(sql`(coalesce(${cloudVms.providerMetadata}, '{}'::jsonb) || ${JSON.stringify({ [VM_LAST_API_ACTIVITY_KEY]: input.at })}::jsonb)`),
         })
         .where(and(
           eq(cloudVms.id, input.id),
@@ -3075,11 +3128,11 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
 
           const [reserved] = await tx
             .update(cloudVms)
-            // A resumed machine starts a new idle stretch.
+            // A resumed machine starts a new idle stretch, and an older probe's write loses.
             .set({
               status: "running",
               updatedAt: new Date(),
-              providerMetadata: sql`coalesce(${cloudVms.providerMetadata}, '{}'::jsonb) - ${VM_IDLE_OBSERVATION_KEY}::text`,
+              providerMetadata: bumpIdleEpoch(sql`(coalesce(${cloudVms.providerMetadata}, '{}'::jsonb) - ${VM_IDLE_OBSERVATION_KEY}::text)`),
             })
             .where(
               and(
@@ -3949,6 +4002,9 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
               eq(cloudVms.id, input.id),
               eq(cloudVms.providerVmId, input.providerVmId),
               ne(cloudVms.status, "destroyed"),
+              input.expectIdleEpoch === undefined
+                ? undefined
+                : and(eq(cloudVms.status, "running"), idleEpochIs(input.expectIdleEpoch)),
             ),
           )
           .returning({ id: cloudVms.id });

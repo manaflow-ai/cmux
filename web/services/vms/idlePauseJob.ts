@@ -3,6 +3,7 @@ import { VmDatabaseError } from "./errors";
 import {
   decideVmIdlePause,
   parseVmIdleProbe,
+  vmIdleEpochFromRow,
   vmIdleObservationFromRow,
   vmIdlePauseMinutesFromRow,
   vmIdlePrivateAddressesFromRow,
@@ -47,7 +48,7 @@ export function enforceVmIdlePause(input: { readonly now?: () => number; readonl
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const candidates = repo.idlePauseCandidates;
-    if (!candidates || !repo.recordIdleObservation || !providers.pause) {
+    if (!candidates || !repo.recordIdleObservation || !repo.claimIdlePause || !providers.pause) {
       return yield* Effect.fail(new VmDatabaseError({ operation: "idle_pause_candidates", cause: new Error("idle pause is unavailable") }));
     }
     const limit = input.limit ?? VM_IDLE_PAUSE_BATCH_LIMIT;
@@ -105,39 +106,47 @@ function checkMachine(vm: CloudVmRow, now: () => number) {
       privateAddressKnown: addresses.length > 0,
       now: checkedAt,
     });
-    const current = decision.pause ? yield* stillUnchanged(vm, providerVmId) : null;
-    if (current) {
-      yield* pauseVmRow(current, providerVmId, "idle");
+    const claimed = decision.pause ? yield* claimPause(vm, providerVmId) : null;
+    if (claimed) {
+      yield* pauseVmRow(claimed.row, providerVmId, "idle");
       console.info("[VM] idle pause", JSON.stringify({ vmId: vm.id, minutes, reason: decision.reason, idleSince: decision.observation?.idleSince }));
       return "paused" as const;
     }
     // Every checked machine records when it was checked, so the next run starts with the others.
     const observation = decision.pause ? null : decision.observation;
-    yield* recordObservation(vm.id, providerVmId, observation, checkedAt);
+    yield* recordObservation(vm, providerVmId, observation, checkedAt);
     // A pause skipped because the row moved: something used the machine since the candidate read.
     return decision.pause ? "active" as const : outcomeOf(decision);
   });
 }
 
 /**
- * The row re-read just before pausing, or null when it is no longer the same
+ * The cron's last check before pausing: the row re-read and claimed at the
+ * idle fence it had when the cron read it. Null when it is no longer the same
  * running machine, it changed since the candidate read (an attach or resume
- * bumps updatedAt), or an exec, files or attach call landed since.
+ * bumps updatedAt), or anything moved the fence since (an exec, files or
+ * attach call, a setting change, a status write, another run's observation).
+ * `epoch` is the claimed fence the pause record must still find.
  */
-function stillUnchanged(vm: CloudVmRow, providerVmId: string) {
+function claimPause(vm: CloudVmRow, providerVmId: string) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
     const current = yield* repo.findUserVm({ userId: vm.userId, billingTeamId: vm.ownerTeamId, providerVmId, provider: vm.provider });
     if (!current || current.id !== vm.id || current.status !== "running" || current.providerVmId !== providerVmId) return null;
     if (current.updatedAt.getTime() !== vm.updatedAt.getTime()) return null;
-    return vmLastApiActivityFromRow(current) === vmLastApiActivityFromRow(vm) ? current : null;
+    if (vmLastApiActivityFromRow(current) !== vmLastApiActivityFromRow(vm)) return null;
+    if (vmIdleEpochFromRow(current) !== vmIdleEpochFromRow(vm)) return null;
+    const epoch = yield* repo.claimIdlePause!({ id: vm.id, providerVmId, epoch: vmIdleEpochFromRow(vm) });
+    return epoch === null ? null : { row: current, epoch };
   });
 }
 
-function recordObservation(id: string, providerVmId: string, observation: VmIdleDecision["observation"], probedAt: number) {
+/** Fenced on the idle epoch the cron read: a probe that overlapped any newer write stores nothing. */
+function recordObservation(vm: CloudVmRow, providerVmId: string, observation: VmIdleDecision["observation"], probedAt: number) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
-    yield* repo.recordIdleObservation!({ id, providerVmId, observation, probedAt });
+    const stored = yield* repo.recordIdleObservation!({ id: vm.id, providerVmId, observation, probedAt, epoch: vmIdleEpochFromRow(vm) });
+    if (!stored) console.info("[VM] idle observation dropped: the row moved during the probe", JSON.stringify({ vmId: vm.id }));
   });
 }
 
