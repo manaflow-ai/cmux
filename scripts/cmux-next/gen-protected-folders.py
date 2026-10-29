@@ -2,7 +2,7 @@
 """Write the Swift and TypeScript copies of the protected-folder list (LAUNCH-NO-TCC-PROMPTS).
 
 The one list is cmux-tui/crates/acpmux/data/protected-folders.json; acpmux reads it with
-include_str!, scripts/cmux-next/launch-tcc-smoke.py reads it at run time, and this script writes
+include_str!, and this script writes
 the copies the app's Swift modules and the webviews compile in.
 
     python3 scripts/cmux-next/gen-protected-folders.py           # write the copies

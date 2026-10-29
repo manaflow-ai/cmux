@@ -1,6 +1,8 @@
 #if os(iOS)
 import AVKit
+import CmuxMobileDesign
 import PDFKit
+import QuickLook
 import SwiftUI
 import WebKit
 
@@ -15,12 +17,25 @@ public struct ArtifactPreview: View {
     @State private var content: Result<ArtifactContent, any Error>?
     /// Bumped by Try Again: reloads the artifact.
     @State private var attempt = 0
+    /// A local file (or the link) Share hands to the share sheet: Save to
+    /// Files, Save Image, AirDrop, Open In.
+    @State private var shareItem: URL?
+    /// A downward drag on an image at its fitted size (closes a full-screen preview).
+    @State private var dismissDrag: CGFloat = 0
     @Environment(\.openURL) private var openURL
+    /// Shown as a Close button when the preview is full screen (a file tapped in a
+    /// chat or composer), not pushed in a browser.
+    let onClose: (() -> Void)?
+    /// "2 of 5" under the name, when the preview pages through several files.
+    let position: (index: Int, count: Int)?
 
-    public init(artifact: TerminalArtifact, source: any ArtifactSource, showSource: Binding<Bool>) {
+    public init(artifact: TerminalArtifact, source: any ArtifactSource, showSource: Binding<Bool>,
+                position: (index: Int, count: Int)? = nil, onClose: (() -> Void)? = nil) {
         self.artifact = artifact
         self.source = source
         _showSource = showSource
+        self.position = position
+        self.onClose = onClose
     }
 
     private var rendersAsWeb: Bool { artifact.kind == .html || artifact.kind == .markdown }
@@ -44,7 +59,7 @@ public struct ArtifactPreview: View {
     /// The loaded content wants the whole screen (images and videos, P4).
     private var wantsLargeSheet: Bool {
         switch content {
-        case .success(.image), .success(.file): true
+        case .success(.image), .success(.file), .success(.quickLook): true
         default: false
         }
     }
@@ -85,11 +100,25 @@ public struct ArtifactPreview: View {
         .toolbar {
             // The name truncates in the middle, so its extension stays visible.
             ToolbarItem(placement: .principal) {
-                Text(artifact.name)
-                    .font(.headline)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .accessibilityAddTraits(.isHeader)
+                VStack(spacing: 0) {
+                    Text(artifact.name)
+                        .font(.headline)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .accessibilityAddTraits(.isHeader)
+                    if let position, position.count > 1 {
+                        Text("\(position.index + 1) of \(position.count)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .accessibilityIdentifier("artifact.position")
+                    }
+                }
+            }
+            if let onClose {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Close", systemImage: "xmark", action: onClose)
+                        .accessibilityIdentifier("artifact.close")
+                }
             }
             if rendersAsWeb, !isDeadEnd {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -110,10 +139,17 @@ public struct ArtifactPreview: View {
             if content != nil {
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
-                        Button("Copy Path", systemImage: "doc.on.doc") { UIPasteboard.general.string = artifact.reference }
+                        if !isDeadEnd, let shareItem {
+                            // Save to Files, Save Image, AirDrop and Open In live in the share sheet.
+                            ShareLink(item: shareItem, preview: SharePreview(artifact.name)) {
+                                Label("Share or Save", systemImage: "square.and.arrow.up")
+                            }
+                        }
+                        if !artifact.reference.hasPrefix(LocalFileArtifactSource.scheme) {
+                            Button("Copy Path", systemImage: "doc.on.doc") { UIPasteboard.general.string = artifact.reference }
+                        }
                         if !isDeadEnd, case .success(.text(let text)) = content {
                             Button("Copy Contents", systemImage: "text.document") { UIPasteboard.general.string = text }
-                            ShareLink(item: text, preview: SharePreview(artifact.name)) { Label("Share", systemImage: "square.and.arrow.up") }
                         }
                     } label: {
                         Image(systemName: "ellipsis")
@@ -123,8 +159,18 @@ public struct ArtifactPreview: View {
             }
         }
         .task(id: ArtifactLoad(artifact: artifact, attempt: attempt)) {
-            do { content = .success(try await source.load(artifact)) } catch { content = .failure(error) }
+            do {
+                let loaded = try await source.load(artifact)
+                content = .success(loaded)
+                // The share copy (up to the preview limit) is written off the main actor.
+                let artifact = artifact
+                shareItem = await Task.detached(priority: .utility) { Self.shareItem(for: loaded, artifact: artifact) }.value
+            } catch {
+                content = .failure(error)
+                shareItem = nil
+            }
         }
+        .offset(y: dismissDrag)
     }
 
     @ViewBuilder
@@ -140,9 +186,34 @@ public struct ArtifactPreview: View {
                          highlightLine: artifact.line)
             }
         case .image(let data):
-            ZoomableImage(image: UIImage(data: data), label: "Image, \(artifact.name)")
+            ZoomableImage(image: UIImage(data: data), label: "Image, \(artifact.name)", onDismissDrag: onClose.map { close in
+                { translation, ended in
+                    if ended {
+                        if translation > 120 { close() } else { withAnimation(.cmuxMobileSnap) { dismissDrag = 0 } }
+                    } else {
+                        dismissDrag = max(0, translation)
+                    }
+                }
+            })
         case .file(let url):
             AutoplayVideo(url: url)
+        case .quickLook(let url):
+            if QuickLookPreview.canPreview(url) {
+                QuickLookPreview(url: url)
+                    .ignoresSafeArea(edges: .bottom)
+                    .accessibilityIdentifier("artifact.quickLook")
+            } else {
+                // Nothing on the phone shows this type: hand it to another app.
+                ArtifactDeadEnd(headline: "No preview for this file", systemImage: artifact.systemImage, name: artifact.name,
+                                message: Self.sizeLine(url)) {
+                    ShareLink(item: url, preview: SharePreview(artifact.name)) {
+                        Label("Share or Open In…", systemImage: "square.and.arrow.up")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .accessibilityIdentifier("artifact.share")
+                }
+                .accessibilityIdentifier("artifact.unpreviewable")
+            }
         case .web(let url):
             WebPreview(mode: .url(url))
         case .pdf(let data):
@@ -163,6 +234,53 @@ public struct ArtifactPreview: View {
                 Text(description).font(.footnote.monospaced())
             }
         }
+    }
+
+    /// What Share hands over: the loaded file under its own name (images, PDFs and
+    /// text get a local copy), the page for a link; nothing for folders.
+    nonisolated static func shareItem(for content: ArtifactContent, artifact: TerminalArtifact) -> URL? {
+        switch content {
+        case .file(let url), .quickLook(let url): return url
+        case .web(let url): return url
+        case .image(let data), .pdf(let data): return try? ArtifactLocalCopy.write(data, for: artifact)
+        case .text(let text): return try? ArtifactLocalCopy.write(Data(text.utf8), for: artifact)
+        case .directory, .binary: return nil
+        }
+    }
+
+    nonisolated static func sizeLine(_ url: URL) -> String? {
+        guard let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize else { return nil }
+        return ByteCountFormatter.string(fromByteCount: Int64(size), countStyle: .file)
+    }
+}
+
+/// QLPreviewController for one local file (audio, Office and iWork, RTF, and
+/// anything else Quick Look renders), embedded in the preview page.
+struct QuickLookPreview: UIViewControllerRepresentable {
+    let url: URL
+
+    static func canPreview(_ url: URL) -> Bool { QLPreviewController.canPreview(url as NSURL) }
+
+    func makeUIViewController(context: Context) -> QLPreviewController {
+        let controller = QLPreviewController()
+        controller.dataSource = context.coordinator
+        return controller
+    }
+
+    func updateUIViewController(_ controller: QLPreviewController, context: Context) {
+        guard context.coordinator.url != url else { return }
+        context.coordinator.url = url
+        controller.reloadData()
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(url: url) }
+
+    final class Coordinator: NSObject, QLPreviewControllerDataSource {
+        var url: URL
+        init(url: URL) { self.url = url }
+
+        func numberOfPreviewItems(in controller: QLPreviewController) -> Int { 1 }
+        func previewController(_ controller: QLPreviewController, previewItemAt index: Int) -> any QLPreviewItem { url as NSURL }
     }
 }
 

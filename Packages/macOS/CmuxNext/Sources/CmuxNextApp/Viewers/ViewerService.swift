@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextBrowser
+import CmuxNextDiff
 import CmuxNextPalette
 import typealias CmuxNextDaemon.SurfaceID
 
@@ -73,9 +74,9 @@ final class ViewerService {
 
     /// A diff tab for `directory` in `pane`; the diff host records the
     /// repository in its recents (`DiffRecents`, `cmux.diff.recents`).
-    func openDiff(_ directory: String, in pane: PaneController, focus: Bool,
+    func openDiff(_ directory: String, turn: DiffTurn? = nil, showTurn: Bool = false, in pane: PaneController, focus: Bool,
                   created: (@MainActor (SurfaceID) -> Void)? = nil) async throws {
-        try await diffViewer.openDiff(directory: directory, in: pane, focus: focus, created: created)
+        try await diffViewer.openDiff(directory: directory, turn: turn, showTurn: showTurn, in: pane, focus: focus, created: created)
     }
 
     /// The picker's folder mode for the diff viewer. `beside`: the placement of a diff opened beside

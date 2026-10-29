@@ -7,6 +7,7 @@ import enum CmuxNextLayout.DockMode
 import enum CmuxNextLayout.DockRole
 import CmuxNextWorkspaceNaming
 import Foundation
+import CmuxNextTabs
 
 /// Daemon commands for tab moves. With `tab-drag-v1` every outcome is one
 /// atomic command carrying the drag's client transaction (echoed in the
@@ -27,7 +28,7 @@ enum TabMoves {
         let surface = tab.surface, target = pane.handle
         let current = pane.tabs.firstIndex { $0.surface == surface }
         let wire = TabMoveIndex.wireIndex(finalIndex: index, currentIndex: current)
-        let echoes = daemon.supports(DaemonCapabilities.shared.tabDrag)
+        let echoes = daemon.supports(DaemonCapability.tabDrag.rawValue)
         services.registry.track(Task {
             let ok = await daemon.intend("move-tab", .moveTab(surface: surface, toPane: target, index: index),
                                          transaction: transaction) { connection -> Void in
@@ -98,7 +99,7 @@ enum TabMoves {
             return completion(false)
         }
         let surface = tab.surface, paneHandle = pane.handle
-        let echoes = daemon.supports(DaemonCapabilities.shared.tabDrag), emptied = respawn == nil ? services.locateTab(tab.id)?.1 : nil, sizing = services.splitSizing(for: pane, edge: edge, emptying: emptied?.tabs.count == 1 ? emptied : nil)
+        let echoes = daemon.supports(DaemonCapability.tabDrag.rawValue), emptied = respawn == nil ? services.locateTab(tab.id)?.1 : nil, sizing = services.splitSizing(for: pane, edge: edge, emptying: emptied?.tabs.count == 1 ? emptied : nil)
         // The even sizing lands with the move's echo, in the same layout update as the new split, not a
         // reply later (a visible resize after the drop, #22287); it runs only if the tab left its pane.
         // That waiter has no barrier, so a resync snapshot from before the move can settle it with the
@@ -132,11 +133,12 @@ enum TabMoves {
         guard services.daemon(for: pane) === daemon else { return refuseOtherMachine(services, completion) }
         guard !refusesIncognitoCrossing(tab, to: pane, services: services) else { return completion(false) }
         let surface = tab.surface, paneHandle = pane.handle
-        let echoes = daemon.supports(DaemonCapabilities.shared.tabDrag)
+        let echoes = daemon.supports(DaemonCapability.tabDrag.rawValue)
         let spawn = services.newColumnWidth(nextTo: pane, movingFrom: services.locateTab(tab.id)?.1)
         let width = spawn.width
         services.registry.track(Task {
-            let ok = await daemon.request("move-tab-to-column") { connection -> Void in
+            // The daemon's reason reaches the caller (a CLI run's reply, the sweep's row), not only the log.
+            let failure = await daemon.failure("move-tab-to-column") { connection in
                 do {
                     _ = try await connection.moveTabToColumn(surface, target: .pane(paneHandle), afterColumn: afterColumn,
                                                              width: width, keepFocus: keepFocus, transaction: echoes ? transaction : nil)
@@ -144,10 +146,10 @@ enum TabMoves {
                     let created = try await connection.newColumn(rightOf: paneHandle, width: width)
                     _ = try await adopt(surface, into: created, connection: connection)
                 }
-            } != nil
-            if ok { spawn.commit() }
-            completion(ok)
-            return ok ? nil : "move-tab-to-column failed (see the app log)"
+            }
+            if failure == nil { spawn.commit() }
+            completion(failure == nil)
+            return failure
         })
     }
 
@@ -169,8 +171,8 @@ enum TabMoves {
                                   services: AppServices,
                                   transaction: ClientTransactionID = .generate(), completion: @escaping Completion = { _ in }) {
         let daemon = services.machines.daemon(forTab: tab)
-        guard services.daemon(for: pane) === daemon, daemon.supports(DaemonCapabilities.shared.dockColumns),
-              !edge.isBand || daemon.supports(DaemonCapabilities.shared.edgeDocks),
+        guard services.daemon(for: pane) === daemon, daemon.supports(DaemonCapability.dockColumns.rawValue),
+              !edge.isBand || daemon.supports(DaemonCapability.edgeDocks.rawValue),
               !refusesIncognitoCrossing(tab, to: pane, services: services) else { return completion(false) }
         let surface = tab.surface, paneHandle = pane.handle
         let overlay = mode.map { $0 == .overlay } ?? (DesignSettings.shared.dockColumnMode == .overlay)
@@ -209,11 +211,11 @@ enum TabMoves {
                                transaction: ClientTransactionID = .generate()) async -> WorkspaceKey? {
         let daemon = services.machines.daemon(forTab: tab)
         let surface = tab.surface
-        let echoes = daemon.supports(DaemonCapabilities.shared.tabDrag)
+        let echoes = daemon.supports(DaemonCapability.tabDrag.rawValue)
         let before = Set(daemon.store.workspaces.compactMap(\.key))
         let name = newWorkspaceName(for: tab, services: services)
         // The daemon names the workspace in the move's commit when it can.
-        let inCommit = daemon.supports(DaemonCapabilities.shared.tabWorkspaceName)
+        let inCommit = daemon.supports(DaemonCapability.tabWorkspaceName.rawValue)
         let key = await daemon.request("move-tab-to-new-workspace") { connection -> WorkspaceKey? in
             let result = try await connection.moveTabToNewWorkspace(surface, group: nil, index: index, name: inCommit ? name : nil,
                                                                     transaction: echoes ? transaction : nil)
@@ -239,9 +241,13 @@ enum TabMoves {
     static func newWorkspaceName(for tab: TabModel, services: AppServices) -> String? {
         // An agent chat's name is its chat's title, which only the turn store knows.
         let tabName = WorkspaceAutoNameWiring(services: services).reader.newWorkspaceName(tab)
-        guard let source = services.workspaceID(ofTab: tab.id).flatMap(services.workspace(id:)),
+        guard let sourceID = services.workspaceID(ofTab: tab.id), let source = services.workspace(id: sourceID),
               source.screens.flatMap(\.panes).flatMap(\.tabs).count == 1 else { return tabName }
-        return NewWorkspaceName.forLastTab(workspaceName: source.name, workspaceTitle: source.title, tabName: tabName)
+        // The source workspace's own daemon, as WorkspaceAutoNameWiring reads it (none: legacy defaults apply).
+        let daemon = services.machines.daemon(forWorkspace: sourceID)
+        return NewWorkspaceName.forLastTab(workspaceName: source.name, workspaceTitle: source.title, tabName: tabName,
+                                           workspaceNameSource: source.nameSource, workspaceNameRevision: source.nameRevision,
+                                           allowsLegacyDefaults: !(daemon?.supports(DaemonCapability.workspaceNameSource.rawValue) ?? false))
     }
 
     /// What `NewWorkspaceName` reads from `tab`: the browser's live page
@@ -305,7 +311,7 @@ enum TabMoves {
             return services.remoteTerminals.move(tab, from: daemon, to: workspace, on: destination, completion: completion)
         }
         let surface = tab.surface, handle = workspace.handle
-        let echoes = daemon.supports(DaemonCapabilities.shared.tabDrag)
+        let echoes = daemon.supports(DaemonCapability.tabDrag.rawValue)
         // Where the daemon appends the tab, shown now as an intent (tab-move-tearing); a workspace
         // with no pane yet waits for the daemon's layout.
         if let intent = daemon.store.workspaceMoveIntent(surface: surface, into: handle) {

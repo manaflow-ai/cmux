@@ -17,7 +17,7 @@ export function UpdatesView({ snap, store, strings }: { snap: AppsSnapshot; stor
             <span className="apps-muted">{t("store.updates.loading")}</span>
           ) : updates.length > 0 ? (
             <span className="apps-muted">{strings.format("store.updates.available", String(updates.length))}</span>
-          ) : (
+          ) : snap.updatesError ? null : (
             <span className="apps-muted">{t("store.updates.empty")}</span>
           )}
         </div>

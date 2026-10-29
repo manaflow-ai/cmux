@@ -7,7 +7,7 @@
 import type { ReactNode } from "react";
 import { useT } from "../i18n";
 import { useBlockWrap } from "./blockWrap";
-import { Lines, lineCount, PreviewMore, usePreview, useSidewaysRef, WrapButton } from "./BlockParts";
+import { Lines, lineCount, PreviewMore, SIDEWAYS_SCROLLER, usePreview, useSidewaysRef, WrapButton } from "./BlockParts";
 import { commandFolder } from "./commandFolder";
 import { CopyButton } from "./CopyButton";
 import { menuPartRef } from "./menuParts";
@@ -22,6 +22,7 @@ export function ShellBlock({
   whole = false,
   cut,
   footer,
+  live = false,
 }: {
   id?: string;
   /** Bumped when Find in Chat reveals the call: shows the whole output, not only its end. */
@@ -35,6 +36,8 @@ export function ShellBlock({
   cut?: boolean;
   /** The card's last line, under the exit code (a background task's Open in terminal). */
   footer?: ReactNode;
+  /** The command still runs: its output may yet run past the right edge (conversation.css `data-live`). */
+  live?: boolean;
 }) {
   const t = useT();
   const raw = useOutput(output, reveal);
@@ -66,7 +69,14 @@ export function ShellBlock({
           {shown.text && <CopyButton text={shown.text} label={t("turn.copy")} />}
         </span>
       </div>
-      <pre ref={body} className="cv-shell__body selectable" data-wrap={wrap} data-preview={preview.attribute}>
+      <pre
+        ref={body}
+        className="cv-shell__body selectable"
+        data-wrap={wrap}
+        data-preview={preview.attribute}
+        data-live={live || undefined}
+        {...SIDEWAYS_SCROLLER}
+      >
         {rest && (
           <span className="cv-shell__command">
             <Lines text={`$ ${rest}`} />

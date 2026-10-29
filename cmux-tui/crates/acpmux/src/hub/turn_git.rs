@@ -10,6 +10,7 @@
 
 use super::{Hub, Session};
 use crate::git_state::GitState;
+use cmux_json::JsonSet as _;
 use serde_json::{Map, Value, json};
 use std::time::Duration;
 
@@ -17,14 +18,22 @@ use std::time::Duration;
 const GIT_READ_LIMIT: Duration = Duration::from_secs(2);
 
 /// The `turn_result` fields for the session folder's git state now:
-/// `gitBranch` and `gitHead`, each absent when it cannot be read.
+/// `gitBranch` and `gitHead`, each absent when it cannot be read. The linked
+/// worktree it is in is kept on the session (`worktree_care/revive.rs`).
 pub(super) async fn turn_git(session: &Session) -> Map<String, Value> {
     let cwd = session.meta.lock().unwrap_or_else(|e| e.into_inner()).cwd.clone();
-    let read = tokio::task::spawn_blocking(move || GitState::read(&cwd));
-    let git = match tokio::time::timeout(GIT_READ_LIMIT, read).await {
-        Ok(Ok(git)) => git,
-        _ => GitState::default(),
+    let read = tokio::task::spawn_blocking(move || {
+        let git = GitState::read(&cwd);
+        let worktree = super::worktree_care::revive::origin_of(&cwd, &git);
+        (git, worktree)
+    });
+    let (git, worktree) = match tokio::time::timeout(GIT_READ_LIMIT, read).await {
+        Ok(Ok(read)) => read,
+        _ => (GitState::default(), None),
     };
+    if let Some(worktree) = worktree {
+        session.meta.lock().unwrap_or_else(|e| e.into_inner()).worktree = worktree;
+    }
     let mut fields = Map::new();
     if let Some(branch) = git.branch {
         fields.insert("gitBranch".into(), json!(branch));
@@ -44,9 +53,21 @@ impl Hub {
         mut msg: Value,
         git: Map<String, Value>,
     ) {
+        if msg.get("cancelForced") == Some(&Value::Bool(true))
+            && session
+                .cancel_forced_result_turn
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .replace(msg["turnId"].as_str().unwrap_or_default().to_owned())
+                .is_some_and(|id| id == msg["turnId"].as_str().unwrap_or_default())
+        {
+            return;
+        }
         if let Some(o) = msg.as_object_mut() {
             o.extend(git);
+            o.insert("unread".into(), Value::Bool(!self.shown(session)));
         }
+        msg.set("pendingPermissions", self.session_summary(session)["pendingPermissions"].clone());
         self.record_last_turn(session, &msg);
         self.append(session, "mux", "turn_result", msg);
     }

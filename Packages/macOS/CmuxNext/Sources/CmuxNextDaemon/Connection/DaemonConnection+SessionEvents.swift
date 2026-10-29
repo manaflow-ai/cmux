@@ -18,7 +18,7 @@ extension DaemonConnection {
     /// the state resources.
     func openSessionEvents(serial: UInt64) async {
         guard configuration.sessionEvents, isReady, self.serial == serial,
-              identity?.supports(DaemonCapabilities.shared.stateResources) == true else { return }
+              identity?.supports(DaemonCapability.stateResources.rawValue) == true else { return }
         let id = SessionEventsWire.newStreamID()
         sessionStream = id
         do {

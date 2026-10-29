@@ -98,7 +98,7 @@ export default componentEntry({
   height: 520,
   widths: { narrow: 420, normal: 640, wide: 820 },
   anchors: [{ selector: ".acpmux-question" }],
-  covers: ["agent-session/acpmux/question/inlineText.tsx#inlineText"],
+  covers: ["agent-session/acpmux/question/QuestionCard.tsx#QuestionCard"],
   styles: () => Promise.all([import("../styles.css"), import("./QuestionMarks.gallery.css")]),
   load: async () => QuestionMarksInPane,
   variants: {

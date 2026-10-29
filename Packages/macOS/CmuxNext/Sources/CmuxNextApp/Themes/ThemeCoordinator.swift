@@ -84,21 +84,22 @@ final class ThemeCoordinator {
     /// resolved like the other theme levels (the variant for the system appearance, the user's
     /// explicit config colors over it). `followTerminal` leaves each scope on its own theme.
     func followChromeTheme(_ settings: SettingsController) {
+        let store = services.themeStore
         // `applied`: a live preview (a theme picker's highlighted row) shows too.
         chromeTheme = settings.applied.chromeTheme
-        ThemeStore.shared.setAccent(settings.applied.accent)
-        ThemeStore.shared.setAccentFollowsArt(AccentSetting.followsArt(settings.applied.root))
+        store.setAccent(settings.applied.accent)
+        store.setAccentFollowsArt(AccentSetting.followsArt(settings.applied.root))
         applyChromeTheme()
         artAccentObservation = Task { [weak self] in
             for await follows in ObservationStream({ AccentSetting.followsArt(settings.applied.root) }) {
-                guard ThemeStore.shared.setAccentFollowsArt(follows) else { continue }
+                guard store.setAccentFollowsArt(follows) else { continue }
                 self?.applyChromeTheme()
             }
         }
         // `appearance.accent` re-derives the terminal-theme tokens (the store) and the app theme.
         accentObservation = Task { [weak self] in
             for await accent in ObservationStream({ settings.applied.accent }) {
-                guard let self, ThemeStore.shared.setAccent(accent) else { continue }
+                guard let self, store.setAccent(accent) else { continue }
                 self.applyChromeTheme()
             }
         }
@@ -110,19 +111,20 @@ final class ThemeCoordinator {
             }
         }
         // `appearance.machineColors`: every machine mark reads the store's picks (MachineColor).
-        ThemeStore.shared.setMachineColors(settings.applied.machineColors)
+        store.setMachineColors(settings.applied.machineColors)
         machineColorsObservation = Task {
-            for await colors in ObservationStream({ settings.applied.machineColors }) { ThemeStore.shared.setMachineColors(colors) }
+            for await colors in ObservationStream({ settings.applied.machineColors }) { store.setMachineColors(colors) }
         }
     }
 
     private func applyChromeTheme() {
+        let store = services.themeStore
         let resolved = chromeTheme.flatMap(ThemeSpec.init).flatMap(resolver.resolve)
-        ThemeStore.shared.setAppTheme(resolved.map {
+        store.setAppTheme(resolved.map {
             var input = $0.input
-            input.accent = ThemeStore.shared.accent
+            input.accent = store.accent
             // Art Color: pages take the app's art hue (a workspace's own art tints its chrome only).
-            if ThemeStore.shared.accentFollowsArt, let hue = ThemeScope.app.backdropArt?.accentHue { input.accentColor = hue }
+            if store.accentFollowsArt, let hue = ThemeScope.app.backdropArt?.accentHue { input.accentColor = hue }
             return AppTheme.derive(from: input)
         })
     }
@@ -145,7 +147,7 @@ final class ThemeCoordinator {
             let read = catalog.colors.compactMapValues(\.accent)
             guard read != fileAccents else { return }
             fileAccents = read
-            ThemeBridge.refresh()
+            ThemeBridge.refresh(store: self?.services.themeStore ?? ThemeScope.app.store)
             self?.resolver.changed()
         }
         catalog.load()
@@ -179,7 +181,7 @@ final class ThemeCoordinator {
                     + [String(describing: store.personal.terminalThemes), String(describing: terminalThemes.themes),
                        String(describing: workspaceBackgrounds.backgrounds), String(describing: workspaceOpacities.backgrounds),
                        String(describing: appearanceScopes.backgrounds),
-                       String(store.identity?.supports(DaemonCapabilities.shared.personalTerminals) ?? false)]
+                       String(store.identity?.supports(DaemonCapability.personalTerminals.rawValue) ?? false)]
             }) {
                 self?.migrateTerminalThemes()
                 self?.apply()

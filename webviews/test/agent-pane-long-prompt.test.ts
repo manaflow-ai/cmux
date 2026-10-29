@@ -193,6 +193,16 @@ await requireBrowserLane("agent-pane-long-prompt.test.ts", async () => {
 
     await toggle.click();
     await longRow.locator(".cv-user__more[aria-expanded='false']").waitFor();
+    // Show less plays its fold (PromptText.tsx): the text shrinks back to its first lines, so the
+    // clamp is measured once that ends.
+    await text.evaluate((node) =>
+      Promise.all(
+        node
+          .closest(".cv-user__bubble")!
+          .getAnimations({ subtree: true })
+          .map((animation) => animation.finished.catch(() => undefined)),
+      ),
+    );
     expect((await measure()).height).toBeLessThanOrEqual(10 * closed.lineHeight + 1);
 
     // The short prompt draws whole, with no toggle and no fade.

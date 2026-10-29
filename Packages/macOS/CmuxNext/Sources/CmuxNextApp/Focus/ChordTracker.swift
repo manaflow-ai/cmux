@@ -89,7 +89,7 @@ struct ChordTracker {
 
     /// `first` gives the first key of a chord a key-down arms (or nil);
     /// `next` says what a key-down does after the armed keys.
-    mutating func step(_ event: NSEvent, window: ObjectIdentifier, focus: FocusState.Resolved? = nil,
+    mutating func step(_ event: NSEvent, window: ObjectIdentifier, focus: FocusState.Resolved? = nil, // perf-hot: 0.5ms key-dispatch (every chord key-down)
                        first: (NSEvent) -> Shortcut?, next: ([Shortcut], NSEvent) -> Next, canArm: () -> Bool) -> Step {
         if event.isARepeat {
             // A held key repeats: the chord it armed stays armed, and a repeat never arms one.

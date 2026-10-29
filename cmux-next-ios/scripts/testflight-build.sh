@@ -40,6 +40,14 @@
 #   CMUX_MOBILE_PROFILE_PATH    use this .mobileprovision instead of downloading CMUX_MOBILE_PROFILE_NAME (CI)
 #   CMUX_MOBILE_PROFILE_NAME    App Store profile for dev.cmux.app.internal (default
 #                       "cmux Internal Distribution")
+#   CMUX_MOBILE_CONTENT_EXTENSION_PROFILE_PATH, CMUX_MOBILE_CONTENT_EXTENSION_PROFILE_NAME
+#                       the same for the notification content extension
+#                       (dev.cmux.app.internal.notification-content; default
+#                       "cmux Internal Distribution Notification Content")
+#   CMUX_MOBILE_SERVICE_EXTENSION_PROFILE_PATH, CMUX_MOBILE_SERVICE_EXTENSION_PROFILE_NAME
+#                       the same for the notification service extension
+#                       (dev.cmux.app.internal.notification-service; default
+#                       "cmux Internal Distribution Notification Service")
 #   CMUX_MOBILE_SIGN_IDENTITY   SHA-1 of the distribution identity (default: the first one in
 #                       the keychain that the profile authorizes)
 #   CMUX_MOBILE_BUILDS_ROOT     output root (default ~/cmux-mobile-builds)
@@ -69,6 +77,11 @@ asc_profile="cmux-shared Team Key"
 asc_key_id=RUML2V4CW7
 asc_issuer=94d76068-119d-45cd-8700-86eb7a1a6235
 profile_name=${CMUX_MOBILE_PROFILE_NAME:-cmux Internal Distribution}
+# The notification content extension (verify/rich-push.md "Extensions and signing").
+ext_bundle_id=$bundle_id.notification-content
+ext_profile_name=${CMUX_MOBILE_CONTENT_EXTENSION_PROFILE_NAME:-cmux Internal Distribution Notification Content}
+svc_bundle_id=$bundle_id.notification-service
+svc_profile_name=${CMUX_MOBILE_SERVICE_EXTENSION_PROFILE_NAME:-cmux Internal Distribution Notification Service}
 prod_stack_project=9790718f-14cd-4f7e-824d-eaf527a82b82
 dev_stack_project=454ecd03-1db2-4050-845e-4ce5b0cd9895
 config=TestFlight what_to_test=""
@@ -226,40 +239,60 @@ if ! "$script_dir/check-tabskit-sync.sh" --ref "$sha"; then
 fi
 
 # --- Signing material -------------------------------------------------------
-profile_path="" profile_uuid="" identity=""
+profile_path="" profile_uuid="" identity="" ext_profile_path="" ext_profile_uuid="" svc_profile_path="" svc_profile_uuid=""
 if [[ $unsigned == 0 ]]; then
   log "signing: profile \"$profile_name\", distribution identity"
-  if [[ -n "${CMUX_MOBILE_PROFILE_PATH:-}" ]]; then
-    # CI: the release environment's copy of the profile (the one that lists
-    # CI's distribution certificate), not App Store Connect's current version.
-    [[ -f "$CMUX_MOBILE_PROFILE_PATH" ]] || die "CMUX_MOBILE_PROFILE_PATH $CMUX_MOBILE_PROFILE_PATH is not a file"
-    cp "$CMUX_MOBILE_PROFILE_PATH" "$private/profile.mobileprovision"
-    profile_id="file"
-  else
-    profile_id=$(asc_ bundle-ids list --paginate --output json | json '
-import json,sys
+  # fetch_profile <bundle id> <profile name> <CI file or ""> <out base>: the
+  # ACTIVE App Store profile, checked and installed; prints its UUID.
+  fetch_profile() {
+    local bid=$1 name=$2 file=$3 dest=$4 pid uuid expiry d
+    if [[ -n "$file" ]]; then
+      # CI: the release environment's copy of the profile (the one that lists
+      # CI's distribution certificate), not App Store Connect's current version.
+      [[ -f "$file" ]] || die "$file is not a file"
+      cp "$file" "$dest.mobileprovision"
+      pid="file"
+    else
+      pid=$(asc_ bundle-ids list --paginate --output json | BID="$bid" json '
+import json,os,sys
 d=json.JSONDecoder().raw_decode(sys.stdin.read())[0]
-print(next(b["id"] for b in d["data"] if b["attributes"]["identifier"]=="dev.cmux.app.internal"))' \
-      | { read -r bid; asc_ bundle-ids profiles list --id "$bid" --output json; } | CMUX_MOBILE_PROFILE_NAME="$profile_name" json '
+print(next(b["id"] for b in d["data"] if b["attributes"]["identifier"]==os.environ["BID"]))' \
+        | { read -r id; asc_ bundle-ids profiles list --id "$id" --output json; } | CMUX_MOBILE_PROFILE_NAME="$name" json '
 import json,os,sys
 d=json.JSONDecoder().raw_decode(sys.stdin.read())[0]
 p=[p for p in d["data"] if p["attributes"]["name"]==os.environ["CMUX_MOBILE_PROFILE_NAME"]
    and p["attributes"]["profileType"]=="IOS_APP_STORE" and p["attributes"]["profileState"]=="ACTIVE"]
 print(p[0]["id"] if p else "")')
-    [[ -n "$profile_id" ]] || die "no ACTIVE IOS_APP_STORE profile \"$profile_name\" for $bundle_id"
-    asc_ profiles download --id "$profile_id" --output "$private/profile.mobileprovision" >/dev/null
-  fi
-  security cms -D -i "$private/profile.mobileprovision" > "$private/profile.plist"
-  profile_uuid=$(plutil -extract UUID raw "$private/profile.plist")
-  expiry=$(plutil -extract ExpirationDate raw "$private/profile.plist")
-  [[ "$(date -u +%Y-%m-%dT%H:%M:%SZ)" < "$expiry" ]] || die "profile $profile_uuid expired $expiry"
-  [[ "$(plutil -extract Entitlements.application-identifier raw "$private/profile.plist")" == "$team.$bundle_id" ]] \
-    || die "profile $profile_id is not for $team.$bundle_id"
-  # Xcode 16+ reads profiles from UserData; older tools from MobileDevice.
-  for d in "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles" "$HOME/Library/MobileDevice/Provisioning Profiles"; do
-    mkdir -p "$d"; cp "$private/profile.mobileprovision" "$d/$profile_uuid.mobileprovision"
-  done
+      [[ -n "$pid" ]] || die "no ACTIVE IOS_APP_STORE profile \"$name\" for $bid"
+      asc_ profiles download --id "$pid" --output "$dest.mobileprovision" >/dev/null
+    fi
+    security cms -D -i "$dest.mobileprovision" > "$dest.plist"
+    uuid=$(plutil -extract UUID raw "$dest.plist")
+    expiry=$(plutil -extract ExpirationDate raw "$dest.plist")
+    [[ "$(date -u +%Y-%m-%dT%H:%M:%SZ)" < "$expiry" ]] || die "profile $uuid expired $expiry"
+    [[ "$(plutil -extract Entitlements.application-identifier raw "$dest.plist")" == "$team.$bid" ]] \
+      || die "profile $pid is not for $team.$bid"
+    # Xcode 16+ reads profiles from UserData; older tools from MobileDevice.
+    for d in "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles" "$HOME/Library/MobileDevice/Provisioning Profiles"; do
+      mkdir -p "$d"; cp "$dest.mobileprovision" "$d/$uuid.mobileprovision"
+    done
+    echo "$uuid"
+  }
+  profile_uuid=$(fetch_profile "$bundle_id" "$profile_name" "${CMUX_MOBILE_PROFILE_PATH:-}" "$private/profile")
+  ext_profile_uuid=$(fetch_profile "$ext_bundle_id" "$ext_profile_name" "${CMUX_MOBILE_CONTENT_EXTENSION_PROFILE_PATH:-}" "$private/ext-profile")
   profile_path="$private/profile.mobileprovision"
+  ext_profile_path="$private/ext-profile.mobileprovision"
+  svc_profile_uuid=$(fetch_profile "$svc_bundle_id" "$svc_profile_name" "${CMUX_MOBILE_SERVICE_EXTENSION_PROFILE_PATH:-}" "$private/svc-profile")
+  svc_profile_path="$private/svc-profile.mobileprovision"
+  # One identity signs both: the extension's profile must allow it too.
+  ext_authorized=$(python3 -I -c '
+import plistlib,hashlib,sys
+p=plistlib.load(open(sys.argv[1],"rb"))
+print("\n".join(hashlib.sha1(c).hexdigest().upper() for c in p["DeveloperCertificates"]))' "$private/ext-profile.plist")
+  svc_authorized=$(python3 -I -c '
+import plistlib,hashlib,sys
+p=plistlib.load(open(sys.argv[1],"rb"))
+print("\n".join(hashlib.sha1(c).hexdigest().upper() for c in p["DeveloperCertificates"]))' "$private/svc-profile.plist")
   keychain_ids=$(security find-identity -v -p codesigning | awk '/[0-9A-F]{40}/{print $2}')
   authorized=$(python3 -I -c '
 import plistlib,hashlib,sys
@@ -275,7 +308,9 @@ print("\n".join(hashlib.sha1(c).hexdigest().upper() for c in p["DeveloperCertifi
 $(sed 's/^/  /' <<<"$authorized")
 Import one of their .p12 files into the login keychain (see verify/testflight-readiness.md), or rerun with --unsigned for an unsigned archive."
   fi
-  echo "profile $profile_uuid, identity $identity"
+  grep -qx "$identity" <<<"$ext_authorized" || die "\"$ext_profile_name\" does not authorize identity $identity (the app's); regenerate it with the same certificates as \"$profile_name\""
+  grep -qx "$identity" <<<"$svc_authorized" || die "\"$svc_profile_name\" does not authorize identity $identity (the app's); regenerate it with the same certificates as \"$profile_name\""
+  echo "profile $profile_uuid, extension profiles $ext_profile_uuid $svc_profile_uuid, identity $identity"
 fi
 
 if [[ -n "$from_archive" ]]; then
@@ -334,8 +369,11 @@ args=(-project CmuxMobileApp.xcodeproj -scheme CmuxMobileApp -configuration "$co
 if [[ $unsigned == 1 ]]; then
   args+=(CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY= DEVELOPMENT_TEAM=$team)
 else
+  # Per target (project.yml): a global PROVISIONING_PROFILE_SPECIFIER would
+  # give the extension the app's profile.
   args+=(CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM=$team CODE_SIGN_IDENTITY="$identity"
-         PROVISIONING_PROFILE_SPECIFIER="$profile_uuid")
+         CMUX_MOBILE_APP_PROFILE="$profile_uuid" CMUX_MOBILE_CONTENT_EXTENSION_PROFILE="$ext_profile_uuid"
+         CMUX_MOBILE_SERVICE_EXTENSION_PROFILE="$svc_profile_uuid")
 fi
 log "xcodebuild archive"
 xcodebuild archive "${args[@]}" > "$out/logs/archive.log" 2>&1 \
@@ -396,7 +434,7 @@ import plistlib,sys
 e=plistlib.load(open(sys.argv[1],"rb")); team,bid=sys.argv[2],sys.argv[3]
 want={"application-identifier":f"{team}.{bid}","com.apple.developer.team-identifier":team,
       "aps-environment":"production","get-task-allow":False,"beta-reports-active":True,
-      "com.apple.developer.applesignin":["Default"],"keychain-access-groups":[f"{team}.{bid}"]}
+      "com.apple.developer.applesignin":["Default"],"keychain-access-groups":[f"{team}.{bid}",f"{team}.{bid}.push"]}
 bad=[f"{k}: {e.get(k)!r} != {v!r}" for k,v in want.items() if e.get(k)!=v]
 extra=sorted(set(e)-set(want))
 if bad or extra:
@@ -405,8 +443,65 @@ print("ok: entitlements "+", ".join(sorted(e)))
 PY
 }
 
+# The notification content extension: embedded, its own id and version, and
+# only the shared push keychain group beyond the profile's basics.
+check_extension() {  # <CmuxMobileApp.app> [signed]
+  local appex="$1/PlugIns/CmuxMobileNotificationContent.appex" info
+  info="$appex/Info.plist"
+  [[ -d "$appex" ]] || die "$1 has no notification content extension"
+  [[ "$(plutil -extract CFBundleIdentifier raw "$info")" == "$ext_bundle_id" ]] || die "extension bundle id is not $ext_bundle_id"
+  [[ "$(plutil -extract NSExtension.NSExtensionPointIdentifier raw "$info")" == com.apple.usernotifications.content-extension ]] \
+    || die "the extension is not a notification content extension"
+  [[ "$(plutil -extract CFBundleShortVersionString raw "$info")" == "$marketing" ]] || die "the extension's version differs from the app's"
+  [[ "$(plutil -extract CFBundleVersion raw "$info")" == "$build_number" ]] || die "the extension's build number differs from the app's"
+  [[ "${2:-}" == signed ]] || { echo "ok: notification content extension ($ext_bundle_id)"; return 0; }
+  [[ "$(plutil -extract CmuxMobileKeychainGroup raw "$info")" == "$team.$bundle_id.push" ]] \
+    || die "the extension's CmuxMobileKeychainGroup is not $team.$bundle_id.push"
+  codesign -d --entitlements - --xml "$appex" 2>/dev/null > "$private/ext-ent-check.plist"
+  python3 -I -c '
+import plistlib,sys
+e=plistlib.load(open(sys.argv[1],"rb")); team,bid,app=sys.argv[2],sys.argv[3],sys.argv[4]
+want={"application-identifier":f"{team}.{bid}","com.apple.developer.team-identifier":team,
+      "get-task-allow":False,"beta-reports-active":True,"keychain-access-groups":[f"{team}.{app}.push"]}
+bad=[f"{k}: {e.get(k)!r} != {v!r}" for k,v in want.items() if e.get(k)!=v]
+extra=sorted(set(e)-set(want))
+if bad or extra:
+    print("\n".join(["  - "+b for b in bad]+["  - unexpected "+x for x in extra]),file=sys.stderr); sys.exit(1)
+print("ok: extension entitlements "+", ".join(sorted(e)))' "$private/ext-ent-check.plist" "$team" "$ext_bundle_id" "$bundle_id" \
+    || die "$appex has the wrong entitlements"
+}
+
+# The notification service extension: embedded, its own id and version, and
+# only the shared push keychain group beyond the profile's basics.
+check_service_extension() {  # <CmuxMobileApp.app> [signed]
+  local appex="$1/PlugIns/CmuxMobileNotificationService.appex" info
+  info="$appex/Info.plist"
+  [[ -d "$appex" ]] || die "$1 has no notification service extension"
+  [[ "$(plutil -extract CFBundleIdentifier raw "$info")" == "$svc_bundle_id" ]] || die "service extension bundle id is not $svc_bundle_id"
+  [[ "$(plutil -extract NSExtension.NSExtensionPointIdentifier raw "$info")" == com.apple.usernotifications.service ]] \
+    || die "the service extension is not a notification service extension"
+  [[ "$(plutil -extract CFBundleShortVersionString raw "$info")" == "$marketing" ]] || die "the service extension's version differs from the app's"
+  [[ "$(plutil -extract CFBundleVersion raw "$info")" == "$build_number" ]] || die "the service extension's build number differs from the app's"
+  [[ "$(plutil -extract CmuxMobileKeychainGroup raw "$info")" == "$team.$bundle_id.push" ]] || die "the service extension's keychain group is not $team.$bundle_id.push"
+  [[ "${2:-}" == signed ]] || { echo "ok: notification service extension ($svc_bundle_id)"; return 0; }
+  codesign -d --entitlements - --xml "$appex" 2>/dev/null > "$private/svc-ent-check.plist"
+  python3 -I -c '
+import plistlib,sys
+e=plistlib.load(open(sys.argv[1],"rb")); team,bid,app=sys.argv[2],sys.argv[3],sys.argv[4]
+want={"application-identifier":f"{team}.{bid}","com.apple.developer.team-identifier":team,
+      "get-task-allow":False,"beta-reports-active":True,"keychain-access-groups":[f"{team}.{app}.push"]}
+bad=[f"{k}: {e.get(k)!r} != {v!r}" for k,v in want.items() if e.get(k)!=v]
+extra=sorted(set(e)-set(want))
+if bad or extra:
+    print("\n".join(["  - "+b for b in bad]+["  - unexpected "+x for x in extra]),file=sys.stderr); sys.exit(1)
+print("ok: service extension entitlements "+", ".join(sorted(e)))' "$private/svc-ent-check.plist" "$team" "$svc_bundle_id" "$bundle_id" \
+    || die "$appex has the wrong entitlements"
+}
+
 log "checks: archived app"
 check_app "$archived_app"
+check_extension "$archived_app"
+check_service_extension "$archived_app"
 
 ipa="" validated="not run" signing="unsigned (--unsigned)"
 if [[ -n "$from_archive" ]]; then
@@ -417,25 +512,52 @@ if [[ -n "$from_archive" ]]; then
   stage="$work/stage"; rm -rf "$stage"; mkdir -p "$stage/Payload"
   ditto "$archived_app" "$stage/Payload/CmuxMobileApp.app"
   app="$stage/Payload/CmuxMobileApp.app"
-  [[ -z "$(find "$app" -name '*.appex' -print -quit)" ]] || die "the app has an extension; it needs its own profile (not supported here)"
+  appexes=$(find "$app/PlugIns" -maxdepth 1 -name '*.appex' 2>/dev/null | sort)
+  [[ "$appexes" == "$app/PlugIns/CmuxMobileNotificationContent.appex"$'\n'"$app/PlugIns/CmuxMobileNotificationService.appex" ]] \
+    || die "unexpected app extensions: $appexes (CmuxMobileNotificationContent.appex and CmuxMobileNotificationService.appex have profiles here)"
   cp "$profile_path" "$app/embedded.mobileprovision"
   python3 -I - "$private/sign-ent.plist" "$team" "$bundle_id" <<'PY'
 import plistlib,sys
 team,bid=sys.argv[2],sys.argv[3]
 plistlib.dump({"application-identifier":f"{team}.{bid}","com.apple.developer.team-identifier":team,
   "aps-environment":"production","get-task-allow":False,"beta-reports-active":True,
-  "com.apple.developer.applesignin":["Default"],"keychain-access-groups":[f"{team}.{bid}"]},open(sys.argv[1],"wb"))
+  "com.apple.developer.applesignin":["Default"],"keychain-access-groups":[f"{team}.{bid}",f"{team}.{bid}.push"]},open(sys.argv[1],"wb"))
 PY
   while IFS= read -r nested; do
     codesign --force --sign "$identity" --timestamp "$nested"
   done < <(find "$app" -depth \( -name '*.framework' -o -name '*.dylib' \) -print)
+  content_appex="$app/PlugIns/CmuxMobileNotificationContent.appex"
+  service_appex="$app/PlugIns/CmuxMobileNotificationService.appex"
+  # The extensions first: each its own profile and the entitlements its check requires.
+  cp "$svc_profile_path" "$service_appex/embedded.mobileprovision"
+  python3 -I -c '
+import plistlib,sys
+team,bid,app=sys.argv[2],sys.argv[3],sys.argv[4]
+plistlib.dump({"application-identifier":f"{team}.{bid}","com.apple.developer.team-identifier":team,
+  "get-task-allow":False,"beta-reports-active":True,"keychain-access-groups":[f"{team}.{app}.push"]},open(sys.argv[1],"wb"))' \
+    "$private/svc-ent.plist" "$team" "$svc_bundle_id" "$bundle_id"
+  codesign --force --sign "$identity" --timestamp --generate-entitlement-der \
+    --entitlements "$private/svc-ent.plist" "$service_appex"
+  if [[ -n "$appexes" ]]; then
+    cp "$ext_profile_path" "$content_appex/embedded.mobileprovision"
+    python3 -I -c '
+import plistlib,sys
+team,bid,app=sys.argv[2],sys.argv[3],sys.argv[4]
+plistlib.dump({"application-identifier":f"{team}.{bid}","com.apple.developer.team-identifier":team,
+  "get-task-allow":False,"beta-reports-active":True,"keychain-access-groups":[f"{team}.{app}.push"]},open(sys.argv[1],"wb"))' \
+      "$private/ext-ent.plist" "$team" "$ext_bundle_id" "$bundle_id"
+    codesign --force --sign "$identity" --timestamp --generate-entitlement-der \
+      --entitlements "$private/ext-ent.plist" "$content_appex"
+  fi
   codesign --force --sign "$identity" --timestamp --generate-entitlement-der \
     --entitlements "$private/sign-ent.plist" "$app"
   ipa="$out/CmuxMobileApp.ipa"
   (cd "$stage" && zip -qry "$ipa" Payload)
-  signing="distribution identity $identity, profile \"$profile_name\" ($profile_uuid), signed from an unsigned archive"
+  signing="distribution identity $identity, profile \"$profile_name\" ($profile_uuid), extension profiles \"$ext_profile_name\" ($ext_profile_uuid), \"$svc_profile_name\" ($svc_profile_uuid), signed from an unsigned archive"
 elif [[ $unsigned == 0 ]]; then
   check_entitlements "$archived_app"
+  check_extension "$archived_app" signed
+  check_service_extension "$archived_app" signed
   # --- Export an App Store IPA ---------------------------------------------
   log "export (app-store-connect)"
   cat > "$out/ExportOptions.plist" <<EOF
@@ -448,7 +570,11 @@ elif [[ $unsigned == 0 ]]; then
   <key>teamID</key><string>$team</string>
   <key>signingStyle</key><string>manual</string>
   <key>signingCertificate</key><string>$identity</string>
-  <key>provisioningProfiles</key><dict><key>$bundle_id</key><string>$profile_uuid</string></dict>
+  <key>provisioningProfiles</key><dict>
+    <key>$bundle_id</key><string>$profile_uuid</string>
+    <key>$ext_bundle_id</key><string>$ext_profile_uuid</string>
+    <key>$svc_bundle_id</key><string>$svc_profile_uuid</string>
+  </dict>
   <key>manageAppVersionAndBuildNumber</key><false/>
   <key>uploadSymbols</key><true/>
   <key>testFlightInternalTestingOnly</key><$internal_only/>
@@ -460,7 +586,8 @@ EOF
     || { grep -E "error" "$out/logs/export.log" | sort -u | head -20; die "export failed (logs/export.log)"; }
   ipa="$out/CmuxMobileApp.ipa"
   mv "$work/export/"*.ipa "$ipa"
-  signing="distribution identity $identity, profile \"$profile_name\" ($profile_uuid)"
+  signing="distribution identity $identity, profile \"$profile_name\" ($profile_uuid), extension profiles \"$ext_profile_name\" ($ext_profile_uuid), \"$svc_profile_name\" ($svc_profile_uuid)"
+
 fi
 if [[ $unsigned == 0 ]]; then
 
@@ -469,6 +596,8 @@ if [[ $unsigned == 0 ]]; then
   rm -rf "$work/ipa" && mkdir -p "$work/ipa" && ditto -x -k "$ipa" "$work/ipa"
   check_app "$work/ipa/Payload/CmuxMobileApp.app"
   check_entitlements "$work/ipa/Payload/CmuxMobileApp.app"
+  check_extension "$work/ipa/Payload/CmuxMobileApp.app" signed
+  check_service_extension "$work/ipa/Payload/CmuxMobileApp.app" signed
 
   # --- Validate with Apple (no upload) -------------------------------------
   # altool reads the API key from a file: copy it out of the asc keychain item

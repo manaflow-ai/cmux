@@ -1,5 +1,5 @@
 import { checkAgentBudget, checkAgentStreak, threadAgentStreak, withTurn } from "./budget.ts"
-import { removeParticipant, setRole, setSettings, transferOwnership, unban } from "./cloud.ts"
+import { checkChiefAnswer, checkChiefShare, removeParticipant, setRole, setSettings, transferOwnership, unban } from "./cloud.ts"
 import { checkGrant, checkWriter, grantableRole } from "./roles.ts"
 import { MAX_GROUP_MEMBERS, memberCount } from "./large.ts"
 import { createGrant, revokeGrant } from "./grants.ts"
@@ -9,6 +9,7 @@ import { answerQuestion, checkQuestionEdit } from "./question.ts"
 import { fail, reject, RejectError } from "./reject.ts"
 import { conversationChanged, upsertParticipant, type ApplyResult, type Commit, type Draft, type OpRequest } from "./request.ts"
 import {
+  DEFAULT_SETTINGS,
   MAX_PARTICIPANTS,
   SYSTEM_ACTOR,
   type ThreadResolution,
@@ -183,6 +184,7 @@ const applyOrThrow = (head: ConversationHead, request: OpRequest): Commit => {
       const part = Number.isInteger(index) && index >= 0 && index <= 0xffff_ffff ? message.parts[index] : undefined
       if (part?.type !== "question") return fail("invalid_part_index")
       const answered = answerQuestion(part, op.answer, actor, now)
+      if (cloud) checkChiefAnswer(head, message, actor)
       // A person's answer (question answers are human only) is a person's turn in the question's
       // thread: agents may go on there (the loop guard counts from here).
       applyTurn(next, withTurn(next, message.thread_root, false, now))
@@ -196,14 +198,16 @@ const applyOrThrow = (head: ConversationHead, request: OpRequest): Commit => {
       return { head: next, change: { kind: "read-cursor", participant: request.actor, seq: op.seq } }
     }
     case "participants.add": {
-      if (head.kind === "dm" || head.kind === "chief") fail("kind_forbids")
+      if (head.kind === "dm") fail("kind_forbids")
       const participant = validateParticipant(op.participant, cloud)
       if (participant.kind === "address") fail("invalid_participant")
+      if (head.kind === "chief") checkChiefShare(actor, participant, op.role)
       if (currentParticipant(head, participant.id)) fail("duplicate_participant")
       // A departed participant (cloud only) rejoins; locally every id is current.
       if (!cloud && findParticipant(head, participant.id)) fail("duplicate_participant")
-      // A local head keeps the Rust cap; a cloud group grows into the large tier (large.ts).
-      if (cloud ? memberCount(head) >= MAX_GROUP_MEMBERS : currentParticipants(head).length >= MAX_PARTICIPANTS) fail("invalid_participant")
+      // A local head keeps the Rust cap; a cloud group grows into the large tier (large.ts). A shared
+      // Chief conversation stays small (a team around one Chief), under the local cap.
+      if (cloud && head.kind !== "chief" ? memberCount(head) >= MAX_GROUP_MEMBERS : currentParticipants(head).length >= MAX_PARTICIPANTS) fail("invalid_participant")
       let stamped: Participant = participant
       if (cloud) {
         if (request.banned === true) fail("banned")
@@ -213,6 +217,11 @@ const applyOrThrow = (head: ConversationHead, request: OpRequest): Commit => {
         const owner = findParticipant(head, participant.id)?.owner_user ?? participant.owner_user
         if (participant.kind === "agent" && owner !== request.actor && request.trusted_participant !== true) fail("forbidden")
         stamped = { ...participant, ...(owner === undefined ? {} : { owner_user: owner }), role, joined_seq: head.last_seq, added_by: request.actor }
+      }
+      // The first share of a Chief's conversation shows teammates what comes next, not the owner's earlier
+      // one-to-one history (the owner may open it with conversation.settings.set history_visible all).
+      if (head.kind === "chief" && !head.participants.some((p) => p.kind === "human" && p.id !== actor.id)) {
+        next.settings = { ...(head.settings ?? DEFAULT_SETTINGS), history_visible: "since_join" }
       }
       next.participants = upsertParticipant(head.participants, stamped)
       next.updated_at = now

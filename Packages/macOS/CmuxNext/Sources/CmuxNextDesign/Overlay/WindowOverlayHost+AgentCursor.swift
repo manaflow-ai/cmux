@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextDesignTokens
 
 /// The view that carries a window's agent cursor layer. It takes the mouse
 /// only on a name tag, which is a link to its agent's workspace (user,

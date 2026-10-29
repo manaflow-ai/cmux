@@ -19,6 +19,44 @@ pub(super) async fn handle(
 ) -> Result<Value, RpcError> {
     require_local_origin(conn.origin)?;
     match method {
+        crate::rpc::method::MUX_MAIL_SEND
+            if params.get("target").is_some_and(|target| !target.is_null()) =>
+        {
+            if params.get("recipient").is_some_and(|recipient| !recipient.is_null()) {
+                return Err(RpcError::invalid_params(
+                    "mailbox send accepts either recipient or target, not both",
+                ));
+            }
+            let id = required_string(params, "id")?;
+            let (sender_id, sender_receipt) = identity_params_or_bound(conn, params, "sender")?;
+            let sender_bound =
+                conn.mailbox_receipt(&sender_id).ok_or_else(|| detached("deliver", &sender_id))?;
+            let sender = validate_binding("sender", &sender_id, &sender_receipt, &sender_bound)?;
+            let target = required_string(params, "target")?;
+            validate_report_recipient(&target)?;
+            let body = params
+                .get("body")
+                .and_then(Value::as_str)
+                .ok_or_else(|| RpcError::invalid_params("body is required"))?;
+            let metadata = parse_metadata(params)?;
+            let result = hub
+                .mailbox()
+                .deliver_quiet(SendInput {
+                    id,
+                    sender,
+                    recipient: target,
+                    body: body.to_owned(),
+                    metadata,
+                })
+                .map_err(map_error)?;
+            Ok(json!({
+                "message": result.message,
+                "delivery": result.receipt,
+                "created": matches!(result.outcome, crate::mailbox::SendOutcome::Created),
+                "duplicate": matches!(result.outcome, crate::mailbox::SendOutcome::Duplicate),
+                "woke": false,
+            }))
+        }
         crate::rpc::method::MUX_MAIL_SEND => {
             let id = required_string(params, "id")?;
             let (sender_id, sender_receipt) = identity_params(params, "sender")?;
@@ -43,15 +81,21 @@ pub(super) async fn handle(
             )
         }
         crate::rpc::method::MUX_MAIL_READ | crate::rpc::method::MUX_MAIL_WAIT => {
-            let (recipient_id, recipient_receipt) = identity_params(params, "recipient")?;
-            let bound = conn.mailbox_receipt(&recipient_id).ok_or_else(|| {
-                detached(
-                    if method == crate::rpc::method::MUX_MAIL_WAIT { "wait" } else { "read" },
-                    &recipient_id,
-                )
-            })?;
-            let recipient =
-                validate_binding("recipient", &recipient_id, &recipient_receipt, &bound)?;
+            // The app reads the human reports alias. It is local-only and has
+            // no session receipt because it is not an agent mailbox.
+            let recipient = if let Some(report_recipient) = report_recipient(params) {
+                validate_report_recipient(report_recipient)?;
+                report_recipient.to_owned()
+            } else {
+                let (recipient_id, recipient_receipt) = identity_params(params, "recipient")?;
+                let bound = conn.mailbox_receipt(&recipient_id).ok_or_else(|| {
+                    detached(
+                        if method == crate::rpc::method::MUX_MAIL_WAIT { "wait" } else { "read" },
+                        &recipient_id,
+                    )
+                })?;
+                validate_binding("recipient", &recipient_id, &recipient_receipt, &bound)?
+            };
             let after = params.get("after").and_then(Value::as_u64).unwrap_or(0);
             let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(50) as usize;
             let page = if method == crate::rpc::method::MUX_MAIL_WAIT {
@@ -103,6 +147,21 @@ fn required_string(params: &Value, name: &str) -> Result<String, RpcError> {
         .ok_or_else(|| RpcError::invalid_params(format!("{name} is required")))
 }
 
+fn report_recipient(params: &Value) -> Option<&str> {
+    params
+        .get("recipient")
+        .and_then(Value::as_str)
+        .filter(|recipient| recipient.starts_with("reports:"))
+}
+
+fn validate_report_recipient(recipient: &str) -> Result<(), RpcError> {
+    if recipient.strip_prefix("reports:").is_some_and(|person| !person.trim().is_empty()) {
+        Ok(())
+    } else {
+        Err(RpcError::invalid_params("mailbox reports recipient must be reports:<person>"))
+    }
+}
+
 fn parse_metadata(params: &Value) -> Result<BTreeMap<String, Value>, RpcError> {
     match params.get("metadata") {
         None | Some(Value::Null) => Ok(BTreeMap::new()),
@@ -145,6 +204,26 @@ fn identity_params(params: &Value, role: &str) -> Result<(String, SessionReceipt
             .with_data(json!({"reason": "mailbox_identity_receipt_invalid", "role": role}))
     })?;
     Ok((id, receipt))
+}
+
+/// The local agent CLI is already attached to one session, so `deliver` may
+/// omit the verbose receipt object. Session-to-session mail keeps the explicit
+/// receipt requirement; the no-wake reports target only uses this convenience
+/// on a local connection with exactly one bound sender.
+fn identity_params_or_bound(
+    conn: &Arc<Conn>,
+    params: &Value,
+    role: &str,
+) -> Result<(String, SessionReceipt), RpcError> {
+    match identity_params(params, role) {
+        Ok(value) => Ok(value),
+        Err(error) if role == "sender" && error.message.contains("session receipt is required") => {
+            let id = params.get(role).and_then(Value::as_str).ok_or(error)?.to_owned();
+            let receipt = conn.mailbox_receipt(&id).ok_or_else(|| detached("deliver", &id))?;
+            Ok((id, receipt))
+        }
+        Err(error) => Err(error),
+    }
 }
 
 fn current_identity(hub: &Hub, requested: &str) -> Result<SessionReceipt, RpcError> {
@@ -200,7 +279,10 @@ fn map_error(error: MailboxError) -> RpcError {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_metadata, require_local_origin, validate_binding};
+    use super::{
+        parse_metadata, report_recipient, require_local_origin, validate_binding,
+        validate_report_recipient,
+    };
     use crate::mailbox::{Mailbox, MailboxError, SendInput};
     use crate::server::Origin;
     use crate::session_identity::SessionReceipt;
@@ -279,5 +361,16 @@ mod tests {
         let error = parse_metadata(&json!({"metadata": "invalid"}))
             .expect_err("metadata must be an object");
         assert!(error.message.contains("metadata must be an object"));
+    }
+
+    #[test]
+    fn reports_alias_is_detected_and_validated() {
+        let params = json!({"recipient": "reports:leo"});
+        assert_eq!(report_recipient(&params), Some("reports:leo"));
+        assert!(validate_report_recipient("reports:leo").is_ok());
+        for invalid in ["reports:", "reports:   ", "agent"] {
+            assert!(validate_report_recipient(invalid).is_err(), "{invalid} must be rejected");
+        }
+        assert_eq!(report_recipient(&json!({"recipient": "agent"})), None);
     }
 }

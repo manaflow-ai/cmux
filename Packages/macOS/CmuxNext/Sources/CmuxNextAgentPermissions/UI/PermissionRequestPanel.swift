@@ -32,7 +32,7 @@ public final class PermissionRequestPanel: NSPanel {
         card.translatesAutoresizingMaskIntoConstraints = true
         card.autoresizingMask = [.width, .height]
         surface.contentView.addSubview(card)
-        ThemeStore.shared.adopt(self)
+        ThemeScope.app.store.adopt(self)
     }
 
     override public var canBecomeKey: Bool { true }

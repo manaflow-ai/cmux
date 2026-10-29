@@ -14,7 +14,7 @@ extension AgentQuestion {
                 guard let id = option["id"]?.text, let label = option["label"]?.text else { return nil }
                 let preview = option["preview"].flatMap { preview -> Preview? in
                     guard let text = preview["text"]?.string else { return nil }
-                    return Preview(text: text, format: preview["format"]?.string == "markdown" ? .markdown : .monospace)
+                    return Preview(text: text, format: preview["format"]?.string.flatMap(Preview.Format.init(rawValue:)) ?? .monospace)
                 }
                 return Option(id: id, label: label, detail: option["detail"]?.text, preview: preview)
             }

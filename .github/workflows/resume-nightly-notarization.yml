@@ -43,10 +43,10 @@ concurrency:
 jobs:
   resume:
     environment: release
-    runs-on: macos-26
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 180
     # Secrets and the job token are set only on the steps that use them, so the
-    # steps that launch the recovered app do not inherit them.
+    # steps that verify the recovered artifact do not inherit them.
     env:
       SOURCE_RUN_ID: ${{ inputs.source_run_id }}
       ARTIFACT_RUN_ID: ${{ inputs.artifact_run_id }}
@@ -174,7 +174,7 @@ jobs:
         id: wait-staple
         timeout-minutes: 150
         env:
-          # Launch smokes run in verify-stapled, which holds no secrets.
+          # Runtime checks are disabled; verify-stapled holds no secrets.
           CMUX_DEFER_LAUNCH_SMOKES: "true"
           ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
           ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
@@ -276,12 +276,12 @@ jobs:
 
   verify-stapled:
     name: Verify stapled DMG
-    # No environment and no secrets: launch the app inside the exact DMG the
+    # No environment and no secrets: statically verify the exact DMG the
     # resume job stapled.
     needs: resume
     permissions:
       contents: read
-    runs-on: macos-26
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 30
     steps:
       - name: Checkout trusted continuation tools
@@ -299,7 +299,7 @@ jobs:
           name: cmux-${{ inputs.channel }}-notarization-verified-${{ inputs.variant }}-${{ github.run_id }}
           path: recovered
 
-      - name: Launch the app inside the exact stapled DMG
+      - name: Verify the exact stapled DMG artifact
         env:
           REQUESTED_CHANNEL: ${{ inputs.channel }}
         run: |
@@ -314,4 +314,4 @@ jobs:
           if [ -f "$dmg.stapled-app-fallback" ]; then
             stapled=(--stapled-app-fallback "$(cat "$dmg.stapled-app-fallback")")
           fi
-          ./scripts/ci/smoke-dmg.sh "$dmg" "$REQUESTED_CHANNEL" "${stapled[@]}"
+          ./scripts/ci/verify-dmg-artifact.sh "$dmg" "$REQUESTED_CHANNEL" "${stapled[@]}"

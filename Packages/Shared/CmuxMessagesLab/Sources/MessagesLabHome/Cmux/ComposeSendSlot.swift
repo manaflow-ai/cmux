@@ -8,11 +8,13 @@ import Foundation
 /// rewrap the field). The button is centred 15.5 pt above the field's bottom, the centre of a
 /// one-line field: a taller field grows upward, so the button stays on the last line's baseline
 /// row and does not move while the field grows, shrinks after a send or scrolls past its max height.
+/// The centre is as far from the right edge as from the bottom, so the 24 pt disc has the same
+/// 3.5 pt gap to both edges (Lawrence 2026-10-23: "make right and bottom padding the same").
 struct ComposeSendSlot: Equatable {
     /// The field's trailing width the text leaves free (the waveform's, and the button's).
     static let trailingReserve: CGFloat = 30
-    /// The button's centre from the field's right edge.
-    static let centreFromRight: CGFloat = 17.5
+    /// The button's centre from the field's right edge (the same as from its bottom).
+    static let centreFromRight: CGFloat = centreFromBottom
     /// The button's centre above the field's bottom (half a one-line field).
     static let centreFromBottom: CGFloat = 15.5
     /// The button's hit target (its view's size; the disc inside is 24 pt).

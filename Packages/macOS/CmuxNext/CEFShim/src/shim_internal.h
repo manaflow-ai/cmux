@@ -10,6 +10,7 @@
 #include "include/cef_app.h"
 #include "include/cef_browser.h"
 #include "include/cef_client.h"
+#include "include/cef_dialog_handler.h"
 #include "include/cef_context_menu_handler.h"
 #include "include/cef_jsdialog_handler.h"
 #include "include/cef_request_context.h"
@@ -64,6 +65,8 @@ struct ForkApi {
   int (*browser_set_background_color)(int, unsigned int) = nullptr;
   // API version 17: see-through pages.
   int (*tab_set_transparent_background)(int, int) = nullptr;
+  uint32_t (*browser_set_layer_hosting)(int, int) = nullptr;
+  int (*browser_set_resize_sync)(int, int) = nullptr;
   void (*set_new_tab_page_url)(const char*) = nullptr;
   void (*set_install_prompt_handler)(void (*)(void*, int, int, const char*), void*) = nullptr;
   int (*install_prompt_reply)(int, int) = nullptr;
@@ -104,6 +107,16 @@ struct ForkApi {
   // API version 22: the chrome.bookmarks bridge (shim_bookmarks.mm).
   int (*bookmarks_observe)(const char*, void (*)(void*, const char*), void*) = nullptr;
   int (*bookmarks_sync)(const char*, const char*) = nullptr;
+  // API version 30: the helper-app browser process (shim_helper_host.mm).
+  int (*browser_set_detached_hosting)(int, int) = nullptr;
+  int (*browser_set_embedder_active)(int, int) = nullptr;
+  int (*post_user_input_task)(void (*)(void*), void*) = nullptr;
+  int (*browser_send_wheel)(int, double, double, double, double, int, int, int, int) = nullptr;
+  int (*browser_text_input_watch)(int, void (*)(void*, int, const void*), void*) = nullptr;
+  int (*browser_accessibility_token)(int, int, const uint8_t*, int, const uint8_t*, int, uint8_t*, int) = nullptr;
+  void (*set_drag_source_handler)(void (*)(void*, int, const void*), void*) = nullptr;
+  int (*browser_drag_source_ended)(int, double, double, double, double, int) = nullptr;
+  int (*browser_drag_target_enter_source)(int, int, int, int, int) = nullptr;
 };
 
 struct Host {
@@ -112,6 +125,7 @@ struct Host {
   cmux_shim_event_fn event = nullptr;
   cmux_shim_key_fn key = nullptr;
   cmux_shim_key_fn devtools_key = nullptr;
+  cmux_shim_key_fn unhandled_key = nullptr;
   cmux_shim_window_request_fn window_request = nullptr;
   cmux_shim_focus_request_fn focus_request = nullptr;
 };
@@ -132,6 +146,11 @@ void Emit(int kind,
           int64_t b = 0,
           const std::string& s1 = std::string(),
           const std::string& s2 = std::string());
+
+// The file chooser handler (shim_file_dialog.mm); CancelFileDialogs cancels
+// the pending choosers of a browser that closed or crashed (UI thread).
+CefRefPtr<CefDialogHandler> FileDialogHandlerInstance();
+void CancelFileDialogs(int browser_id);
 
 // Live browsers by identifier (UI thread only).
 std::map<int, CefRefPtr<CefBrowser>>& browsers();

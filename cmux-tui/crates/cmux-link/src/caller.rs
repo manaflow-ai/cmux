@@ -103,7 +103,7 @@ pub(crate) fn peer_uid(fd: std::os::fd::RawFd) -> io::Result<u32> {
 /// socket (for a client stream: the process that called `listen`), or
 /// `None` on a system with no peer-pid API (the BSDs other than macOS).
 #[cfg(any(target_os = "linux", target_os = "android"))]
-pub(crate) fn peer_pid(fd: std::os::fd::RawFd) -> io::Result<Option<u32>> {
+pub fn peer_pid(fd: std::os::fd::RawFd) -> io::Result<Option<u32>> {
     // SAFETY: ucred is plain data and all-zero is a valid value.
     let mut credentials = unsafe { std::mem::zeroed::<libc::ucred>() };
     let mut length = size_of::<libc::ucred>() as libc::socklen_t;
@@ -125,7 +125,7 @@ pub(crate) fn peer_pid(fd: std::os::fd::RawFd) -> io::Result<Option<u32>> {
 
 /// See the Linux [`peer_pid`]: macOS answers through `LOCAL_PEERPID`.
 #[cfg(target_vendor = "apple")]
-pub(crate) fn peer_pid(fd: std::os::fd::RawFd) -> io::Result<Option<u32>> {
+pub fn peer_pid(fd: std::os::fd::RawFd) -> io::Result<Option<u32>> {
     let mut pid: libc::pid_t = 0;
     let mut length = size_of::<libc::pid_t>() as libc::socklen_t;
     // SAFETY: both out-pointers are valid for writes of the lengths passed.
@@ -147,7 +147,7 @@ pub(crate) fn peer_pid(fd: std::os::fd::RawFd) -> io::Result<Option<u32>> {
 /// See the Linux [`peer_pid`]: no peer-pid API here, so callers check the
 /// uid only.
 #[cfg(all(unix, not(any(target_os = "linux", target_os = "android", target_vendor = "apple"))))]
-pub(crate) fn peer_pid(_fd: std::os::fd::RawFd) -> io::Result<Option<u32>> {
+pub fn peer_pid(_fd: std::os::fd::RawFd) -> io::Result<Option<u32>> {
     Ok(None)
 }
 

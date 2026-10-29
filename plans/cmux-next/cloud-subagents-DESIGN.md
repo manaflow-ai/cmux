@@ -459,3 +459,57 @@ runs each:
   local subagents are now only the Mac-only tasks. Next step when local
   workspace time matters: one clean seed clone per repo, updated on each
   spawn, `rift create --copy-all` from it.
+
+## Pool box chief-subagents-2 and VM pushes (2026-10-23)
+
+Ask (Lawrence, Oct 23): a 64 GB RAM Freestyle box with the most CPU and a 200 GB
+disk, as the acpmux cloud peer for Chief subagents.
+
+- `deploy.sh resume chief-subagents-2 --size xl` (cmuxterm-hq
+  `tools/cloud-subagents`): 32 vCPU / 64 GiB / 200 GB, made from the base
+  snapshot. 32 vCPU is the most Freestyle gives at 64 GiB
+  (`freestyle/ubuntu-2xl`, the largest size any plan can create). 2.08 USD per
+  running hour (0.05 per vCPU-hour + 0.0075 per GiB-hour), about 1,520 USD a
+  month if it never pauses. A pool VM has no 7-day auto-delete. The Chief host
+  pauses it 60 s after its last live cloud subagent, never mid-turn.
+- acpmux on the box is built there from the NIGHTLY's sha (e80d1f65e), the same
+  build as the Mac. Claude Code goes through sr2, Codex (0.164.0) through the
+  cmux-lawrence subrouter (the tag:agent-cloud ACL now grants 100.89.225.106:31415).
+
+### Why new peers failed with ssh exit 255
+
+1. Host key race: the one `ssh-keyscan` after the tailnet join could time out,
+   so nothing reached known_hosts, and acpmux's BatchMode ssh failed with
+   "Host key verification failed" (255). The scan now repeats for up to a minute
+   and fails loudly.
+2. Stale tailscaled in forks: a fork resumes the base VM's memory, and its
+   days-old tailscaled lost the WireGuard data path minutes after the join
+   (disco ping answered, TCP and TSMP did not). The peer dropped with 255, which
+   is how a600's run on chief-sub-a600 failed after 2 minutes. `fork.sh` now
+   restarts tailscaled, `provision` uploads the checkout's `fork.sh` (the copy
+   in the snapshot was old), and `base.sh` leaves no tailscaled state in the image.
+
+### Pushes from a VM
+
+The VM's GitHub App token (contents and pull requests write) pushes to a branch
+that exists, such as feat-cmux-next. It cannot create a branch: GitHub's workflow
+check times out on a new ref and asks for the `workflows` permission. So a
+subagent lands on feat-cmux-next itself (rebase, plain push). For a new branch,
+it sets `git config cmux.land BRANCH`, and the Mac creates the branch with its
+own credential when it lands.
+
+### Proof
+
+A Claude Code session on chief-subagents-2, started from the Mac through acpmux,
+made a worktree of cmux, wrote this section, and pushed this commit to
+feat-cmux-next itself with the VM's App token. Nothing was pushed through the Mac.
+
+### Open: a tailnet VM does not stay paused (2026-10-23)
+
+`deploy.sh pause chief-subagents-2` returns `paused`, but Freestyle shows the VM
+`running` again 2-60 s later. It woke with tailscaled stopped and also with the
+Mac's acpmux peer removed (that held it about 5 s longer). A fresh VM off the
+tailnet stayed paused for 20 s. So inbound tailnet traffic probably wakes it.
+Until this is fixed, auto-pause saves nothing on tailnet VMs, and the ledger
+(which marks a pause as a stop) undercounts the daily budget. chief-subagents-2
+bills 2.08 USD/h while idle, about 50 USD/day.

@@ -16,8 +16,9 @@ import { Check, ChevronRight, Spinner, TerminalSquare } from "./icons";
 import { isRunning, toolDuration } from "./toolGroups";
 import { useTranscriptDisclosure } from "./transcriptDisclosure";
 import { ROW_WIDTH, shortCommand } from "./shortCommand";
-import { useFold } from "./fold";
+import { useAnchoredCollapse } from "./useAnchoredCollapse";
 import { rowFailed, toolFailure } from "./toolFailure";
+import { leadingVerb, ToolLabel } from "./ToolVerb";
 import { failureWord, InlineFailureCause, ToolFailureCause } from "./ToolFailureCause";
 
 export function CommandRow({ item }: { item: AcpmuxActivity }) {
@@ -33,7 +34,8 @@ export function CommandRow({ item }: { item: AcpmuxActivity }) {
       setReveal((count) => count + 1);
     },
   );
-  const fold = useFold(open);
+  const fold = useAnchoredCollapse({ open, onOpenChange: setOpen });
+  const menuPart = menuPartRef({ command: tool.command, output: tool.output?.replace(/\n$/, "") });
   const detailsId = useId();
   // Running in the foreground; a call that went on in the background shows BackgroundMark instead.
   const foreground = isRunning(tool);
@@ -54,6 +56,11 @@ export function CommandRow({ item }: { item: AcpmuxActivity }) {
   const [before = "", after = ""] = t(foreground ? "tools.runningCommand" : "tools.ranCommand", {
     command: "\u0000",
   }).split("\u0000");
+  const line = (
+    <code className="cv-command__line" data-find-skip={open || !whole || undefined}>
+      {short}
+    </code>
+  );
   return (
     <>
       <button
@@ -61,8 +68,11 @@ export function CommandRow({ item }: { item: AcpmuxActivity }) {
         className={`cv-tool cv-command is-toggle${running ? " is-live" : " is-strong"}`}
         aria-expanded={open}
         aria-controls={open ? detailsId : undefined}
-        ref={menuPartRef({ command: tool.command, output: tool.output?.replace(/\n$/, "") })}
-        onClick={() => setOpen((value) => !value)}
+        ref={(node) => {
+          fold.headerRef(node);
+          menuPart(node);
+        }}
+        onClick={fold.toggle}
       >
         <span className="cv-tool__icon">
           <TerminalSquare />
@@ -74,13 +84,12 @@ export function CommandRow({ item }: { item: AcpmuxActivity }) {
             // Find counts the command, not this, so it is not highlighted.
             <span data-find-skip>{tool.description}</span>
           ) : (
-            <>
+            // "Ran" in the run's verb column (ToolVerb.tsx), the command after it.
+            <ToolLabel verb={after ? undefined : leadingVerb(before)} subject={line} skip>
               {before && <span data-find-skip>{before}</span>}
-              <code className="cv-command__line" data-find-skip={open || !whole || undefined}>
-                {short}
-              </code>
+              {line}
               {after && <span data-find-skip>{after}</span>}
-            </>
+            </ToolLabel>
           )}
           {!tool.background && <InlineFailureCause failure={failure} />}
         </span>
@@ -107,13 +116,14 @@ export function CommandRow({ item }: { item: AcpmuxActivity }) {
       {/* A call that went on in the background says how it stands there, not why it failed. */}
       {!tool.background && <ToolFailureCause failure={failure} />}
       {fold.present && (
-        <div ref={fold.ref} className="cv-fold">
+        <div {...fold.bodyProps}>
           <ShellBlock
             id={detailsId}
             command={tool.command}
             output={output}
             exitCode={failure?.exitCode ?? tool.exitCode}
             reveal={reveal}
+            live={running}
           />
         </div>
       )}

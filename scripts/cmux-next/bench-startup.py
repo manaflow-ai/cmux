@@ -54,6 +54,9 @@ import tempfile
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# The shared launch helper's socket paths and session check (bench_launch.py). Not its bench env: this bench times
+# the launch itself, with the agent pane's real handshake and the account's Chief, as a person's launch runs.
+from bench_launch import finder_limits, limits_line, require_gui_session, socket_candidates  # noqa: E402
 
 DERIVED = os.path.expanduser("~/Library/Developer/Xcode/DerivedData")
 FINAL_MARK = "first_terminal_frame"
@@ -115,10 +118,19 @@ MARKS = [
     ("reveal.sidebar", "sidebar revealed"),
     ("reveal.tabs", "tab strips revealed"),
     ("reveal.pane", "pane content revealed"),
+    ("reveal.home", "Home revealed"),
     ("agent_pane.view_created", "first agent pane view made"),
     ("agent_pane.page_loaded", "agent page loaded (didFinish)"),
     ("agent_pane.handshake_start", "agent page asked for its handshake"),
     (AGENT_MARK, "agent pane handshake answered"),
+    # The last quit's pane images, read off the main thread from main() (slice c): a `missed` row means a pane
+    # asked before its read ended and showed its placeholder.
+    ("agent_pane.launch_images_read", "saved agent pages read and decoded"),
+    ("agent_pane.launch_image_missed", "an agent pane asked before its read ended"),
+    ("agent_pane.launch_image_shown", "an agent pane's saved page shown"),
+    ("terminal.launch_frames_read", "saved terminal frames read and decoded"),
+    ("terminal.launch_frame_missed", "a terminal asked before its read ended"),
+    ("terminal.launch_frame_shown", "a terminal's saved frame shown"),
 ]
 REALISTIC_WORKSPACES = 24
 # Launch work that must start only after the first window frame (perf-launch-memory): checked
@@ -228,8 +240,10 @@ class Launch:
             **({"CMUX_NEXT_HANG_THRESHOLD_MS": str(HANG_THRESHOLD_MS)} if HANG_THRESHOLD_MS else {}),
             **(extra_env or {}),
         }
-        self.process = subprocess.Popen([app_binary(tag)], env=env, stdout=subprocess.DEVNULL,
-                                        stderr=subprocess.DEVNULL, start_new_session=True, pass_fds=(write_fd,))
+        with finder_limits() as changed:  # the limits a Finder launch gets (bench_launch.py, Resource limits)
+            self.process = subprocess.Popen([app_binary(tag)], env=env, stdout=subprocess.DEVNULL,
+                                            stderr=subprocess.DEVNULL, start_new_session=True, pass_fds=(write_fd,))
+        print(f"bench-startup: app limits {limits_line(changed)}", file=sys.stderr, flush=True)
         os.close(write_fd)
         self.read_fd = read_fd
         self.buffer = b""
@@ -307,11 +321,13 @@ def app_client(tag, timeout=30):
     from bench_cli_storm import Client  # noqa: E402
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        try:
-            return Client(f"/tmp/cmux-debug-{tag}.sock", timeout=10)
-        except OSError:
-            time.sleep(0.2)
-    raise SystemExit(f"tag {tag}: control socket did not answer")
+        for path in socket_candidates(tag):  # the state folder first, then the /tmp link
+            try:
+                return Client(path, timeout=10)
+            except OSError:
+                pass
+        time.sleep(0.2)
+    raise SystemExit(f"tag {tag}: control socket did not answer at {', '.join(socket_candidates(tag))}")
 
 
 def app_tab_id(app, workspace_name, timeout, wanted=lambda tab: True):
@@ -588,6 +604,7 @@ def table(runs):
 
 
 def main():
+    require_gui_session("bench-startup")
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--tag", action="append", default=[])
     parser.add_argument("--app", action="append", default=[], help="a staged `cmux DEV <tag>.app` (fleet artifact)")

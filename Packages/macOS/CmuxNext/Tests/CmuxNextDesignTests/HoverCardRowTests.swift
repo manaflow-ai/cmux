@@ -2,6 +2,7 @@ import AppKit
 import CmuxTheme
 @testable import CmuxNextDesign
 import Testing
+import CmuxNextDesignTokens
 
 /// Leo 2026-10-19 (the Codex sidebar card, Claude desktop's PR list): one hover card row for the
 /// tab and session cards. A status word and +/− counts in the theme's colors, a trailing mark

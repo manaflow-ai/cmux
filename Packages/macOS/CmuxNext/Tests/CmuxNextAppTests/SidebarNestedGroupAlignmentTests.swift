@@ -22,7 +22,8 @@ import Testing
         var out: [Int: Set<CGFloat>] = [:]
         for row in list.displayed.rows {
             switch row.key {
-            case .group, .workspace: out[row.indentLevel, default: []].insert(list.frame(for: row).minX)
+            // A header's frame reaches left over its rail (`railReach`, Lawrence 2026-10-23); its level's x is its members'.
+            case .group, .workspace: out[row.indentLevel, default: []].insert(list.frame(for: row).minX + list.railReach(for: row))
             default: continue
             }
         }
@@ -72,9 +73,16 @@ import Testing
         let panesHeader = try #require(list.displayed.row(for: .group(GroupID("g-panes"))))
         let perfHeader = try #require(list.displayed.row(for: .group(GroupID("g-perf"))))
         let perfMember = try #require(list.displayed.row(for: .workspace(WorkspaceID("w-tab-switch"))))
-        #expect(list.frame(for: perfHeader).minX == list.frame(for: panesHeader).minX + list.indent.step,
-                "a subgroup's header steps in one level: it can never read as a sibling")
-        #expect(list.frame(for: perfHeader).minX == list.frame(for: perfMember).minX, "a header sits at its members' x")
+        let panesMember = try #require(list.displayed.row(for: .workspace(WorkspaceID("w-split-spring"))))
+        #expect(list.frame(for: perfMember).minX == list.frame(for: panesMember).minX + list.indent.step,
+                "a subgroup's members step in one level from its parent's")
+        // A top-level header keeps its edge padding (`groupEdgePadding`, b5400e7e342), so the gap between the
+        // two headers can be less than one step; the subgroup's header is still right of its parent's.
+        #expect(list.frame(for: perfHeader).minX > list.frame(for: panesHeader).minX,
+                "a subgroup's header steps in: it can never read as a sibling")
+        #expect(list.frame(for: perfHeader).minX + list.railReach(for: perfHeader) == list.frame(for: perfMember).minX,
+                "a header sits at its members' x, its bar reaching left over their rail")
+        #expect(perf.frame.minX == list.frame(for: perfHeader).minX, "the subgroup's rail starts at its header bar's left edge")
         #expect(perf.level == 1 && panes.level == 0)
         #expect(SidebarGroupLine.opacity(level: 1) < SidebarGroupLine.opacity(level: 0), "a nested rail is fainter")
     }
@@ -149,7 +157,8 @@ import Testing
         let fixture = SidebarNestedFixture(scenario: .narrow)
         let list = Self.list(fixture.sections, width: fixture.width)
         let cap = list.indent.visualCap(width: list.indentWidth)
-        #expect(cap + 1 < 6, "196 pt does not fit six levels")
+        // Since rows run to 1.5 pt from the right edge (157597d79a2) 196 pt fits one more level; it still stops short.
+        #expect(cap < list.indent.maxVisualLevels, "196 pt does not fit every level: the indent stops at \(cap)")
         let deepest = list.displayed.rows.filter { row in
             switch row.key {
             case .group, .workspace: row.indentLevel >= cap + 1
@@ -159,7 +168,7 @@ import Testing
         #expect(!deepest.isEmpty)
         for row in deepest {
             let frame = list.frame(for: row)
-            #expect(frame.minX == list.inset + CGFloat(cap) * list.indent.step, "\(row.key) draws at the cap")
+            #expect(frame.minX + list.railReach(for: row) == list.inset + CGFloat(cap) * list.indent.step, "\(row.key) draws at the cap")
             #expect(frame.width >= list.indent.minimumLabelWidth - 1, "\(row.key) keeps \(frame.width) pt for its label")
         }
         Self.expectAligned(list, "narrow")

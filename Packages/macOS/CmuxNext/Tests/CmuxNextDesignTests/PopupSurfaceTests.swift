@@ -2,6 +2,7 @@ import AppKit
 import CmuxTheme
 @testable import CmuxNextDesign
 import Testing
+import CmuxNextDesignTokens
 
 /// Leo, 2026-10-18: overlays that carry text (popovers, hover cards, the palette, the find bars)
 /// are themed Liquid Glass, like iOS's menus, replacing the solid surface of 2026-10-12. Under

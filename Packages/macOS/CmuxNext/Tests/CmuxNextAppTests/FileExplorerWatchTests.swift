@@ -3,6 +3,7 @@ import AppKit
 import CmuxNextCompat
 import Foundation
 import Testing
+import CmuxNextFilesUI
 
 /// The Files tree and its git states follow changes made outside cmux (an editor, an agent, a
 /// `git add` in a terminal): a file-system watch on the tree's folder and the repository's

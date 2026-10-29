@@ -25,22 +25,22 @@ import Testing
         let downloads = FileManager.default.temporaryDirectory
             .appendingPathComponent("cn-remote-video-dl-\(UUID().uuidString.prefix(8).lowercased())", isDirectory: true)
         defer { Task.detached { try? FileManager.default.removeItem(at: downloads) } }
-        let engine = WebKitEngine(downloadsDirectory: downloads)  // the tab holds its engine weakly
+        let engine = WebKitEngine(fileInput: NoFileInput(), stores: .inMemory(), downloadsDirectory: downloads)  // the tab holds its engine weakly
         let page = engine.makeWebKitTab()
         defer { page.close() }
         page.delegate = intents
         window.contentView = page.contentView
-        func title() async -> BrowserJSValue? { try? await page.evaluate("document.readyState === 'complete' && document.title", world: .page) }
+        func title() async -> BrowserJSValue? { try? await page.evaluate("document.readyState === 'complete' && document.title", world: .page, gesture: .agent) }
 
         // Two pages, then the second's link to the video.
         page.load(server.url("/a"))
         try await Self.until("a loads") { await title() == .string("a") }
-        _ = try await page.evaluate("document.querySelector('a').click(); true", world: .page)
+        _ = try await page.evaluate("document.querySelector('a').click(); true", world: .page, gesture: .agent)
         try await Self.until("b loads") { await title() == .string("b") }
-        _ = try await page.evaluate("document.querySelector('a').click(); true", world: .page)
+        _ = try await page.evaluate("document.querySelector('a').click(); true", world: .page, gesture: .agent)
 
         try await Self.until("the video plays") {
-            let time = try? await page.evaluate("document.querySelector('video')?.currentTime ?? 0", world: .page)
+            let time = try? await page.evaluate("document.querySelector('video')?.currentTime ?? 0", world: .page, gesture: .agent)
             if case .number(let seconds)? = time { return seconds > 0 }
             return false
         }
@@ -64,8 +64,40 @@ import Testing
         // A video a form posts for cannot be fetched again, so it still downloads.
         page.load(server.url("/c"))
         try await Self.until("c loads") { await title() == .string("c") }
-        _ = try await page.evaluate("document.forms[0].submit(); true", world: .page)
+        _ = try await page.evaluate("document.forms[0].submit(); true", world: .page, gesture: .agent)
         try await Self.until("the posted video downloads") { intents.downloaded }
+    }
+
+    /// A local .mp4 opened in a WebKit tab (the CEF tab hands it off here) plays, and does not end
+    /// in WebKit's "Plug-in handled load" error page. Fails on a tab that cancels the navigation.
+    @Test func aLocalVideoPlaysInTheWebKitTab() async throws {
+        let video = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cn-local-video-\(UUID().uuidString.prefix(8).lowercased())", isDirectory: true)
+        try FileManager.default.createDirectory(at: video, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: video) }
+        let file = video.appendingPathComponent("clip.mp4")
+        try await Self.makeVideo().write(to: file)
+
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600), styleMask: [.titled],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.orderFrontRegardless()
+        defer {
+            window.orderOut(nil)
+            window.close()
+        }
+        let engine = WebKitEngine(fileInput: NoFileInput(), stores: .inMemory(), downloadsDirectory: video)
+        let page = engine.makeWebKitTab()
+        defer { page.close() }
+        window.contentView = page.contentView
+
+        page.load(file)
+        try await Self.until("the local video plays") {
+            let time = try? await page.evaluate("document.querySelector('video')?.currentTime ?? 0", world: .page, gesture: .agent)
+            if case .number(let seconds)? = time { return seconds > 0 }
+            return false
+        }
+        #expect(page.state.url == file, "the tab shows \(page.state.url?.absoluteString ?? "nothing")")
     }
 
     @Test func onlyWebVideosPlayInTheTab() throws {

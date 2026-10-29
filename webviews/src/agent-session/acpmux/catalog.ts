@@ -1,5 +1,5 @@
-import { keepPreviousData, QueryClient, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useSyncExternalStore } from "react";
+import { keepPreviousData, notifyManager, QueryClient, QueryClientContext, useQuery } from "@tanstack/react-query";
+import { useContext, useMemo, useSyncExternalStore } from "react";
 import type { AcpmuxSnapshot } from "./model";
 
 // TanStack Query holds acpmux server state the pane reads on request: today the
@@ -155,15 +155,20 @@ export function useHarnessCatalog(
 
 /// True once a harness fetch of this pane landed (acpmux answered). A cached catalog from an earlier
 /// launch, or no answer yet, is not a listing: an empty catalog then says nothing about what is
-/// installed (the composer's Add harness chip waits for this).
+/// installed (the composer's Add harness chip waits for this). It hears the cache in the same batch
+/// as the catalog's own query observers (`notifyManager.batchCalls`, as useQuery subscribes), so no
+/// frame draws the listing landed before the catalog it lists: that frame drew Add harness for a
+/// moment over a first launch's model chip.
 export function useHarnessesListed(): boolean {
-  const client = useQueryClient();
+  // A page drawn with no query client (a gallery entry, a unit test of the New Tab page) has heard
+  // no listing: false, as before the fetch lands.
+  const client = useContext(QueryClientContext);
   return useSyncExternalStore(
-    (listener) => client.getQueryCache().subscribe(listener),
+    (listener) => client?.getQueryCache().subscribe(notifyManager.batchCalls(listener)) ?? (() => undefined),
     () =>
       client
-        .getQueryCache()
+        ?.getQueryCache()
         .findAll({ queryKey: ["acpmux", "harnesses"] })
-        .some((query) => query.state.status === "success" && query.state.dataUpdatedAt > 0),
+        .some((query) => query.state.status === "success" && query.state.dataUpdatedAt > 0) ?? false,
   );
 }

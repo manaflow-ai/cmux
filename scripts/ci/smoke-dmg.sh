@@ -134,8 +134,12 @@ fi
 "$SPCTL_TOOL" -a -vv --type execute "$APP"
 SMOKE_LOG="$(mktemp)"
 # The app must not inherit the fd that carries the tested line.
-CMUX_SMOKE_ALLOW_UNSUPPORTED_GUI=1 CMUX_SMOKE_DEBUG_LOGS=1 "$SMOKE_TOOL" "$APP" 3>&- 4>&- 2>&1 | tee "$SMOKE_LOG"
-CMUX_SMOKE_DIRECT_EXEC=1 CMUX_SMOKE_DEBUG_LOGS=1 "$SMOKE_TOOL" "$APP" 3>&- 4>&- 2>&1 | tee -a "$SMOKE_LOG"
+if [ "${CMUX_SKIP_LAUNCH_SMOKES:-false}" = true ]; then
+  echo "launch smoke skipped by CMUX_SKIP_LAUNCH_SMOKES=true"
+else
+  CMUX_SMOKE_ALLOW_UNSUPPORTED_GUI=1 CMUX_SMOKE_DEBUG_LOGS=1 "$SMOKE_TOOL" "$APP" 3>&- 4>&- 2>&1 | tee "$SMOKE_LOG"
+  CMUX_SMOKE_DIRECT_EXEC=1 CMUX_SMOKE_DEBUG_LOGS=1 "$SMOKE_TOOL" "$APP" 3>&- 4>&- 2>&1 | tee -a "$SMOKE_LOG"
+fi
 # The launches are done; the checks below only read files. Stop the daemons
 # the app left on the mount now: in run 39490194618 they ran on through the
 # metadata and license checks, which then took 6.5 min instead of seconds.

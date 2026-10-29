@@ -139,8 +139,9 @@ extension PageFactory {
         let notes = changelogNotes()
         let routes = [PageRoute(prefix: "cmux.changelog.surface.", provider: provider), PageRoute(prefix: "cmux.changelog.", provider: notes), PageRoute(prefix: "cmux.app.", provider: native)]
         // The island floats over the window's backdrop: a Chromium page cannot be transparent.
+        // Window chrome: a first click on See What's New acts while a Chromium page's window has the key.
         let page = PageWebView(descriptor: .changelog, routes: routes, route: "#/surface/\(kind.rawValue)",
-                               options: PageEngineOptions(requiresWebKit: .transparentOverlay))
+                               options: PageEngineOptions(requiresWebKit: .transparentOverlay, acceptsFirstMouse: true))
         native.anchor = { [weak page] in page }
         notes.anchor = { [weak page] in page }
         return page

@@ -5,8 +5,9 @@
 //! not know, and a chat refused that way is not frozen: it moves to a current
 //! machine right after.
 //!
-//! The older machine is this same binary under two debug-only seams: it
-//! reports another build (`CMUX_TEST_DAEMON_BUILD_ID`, cmux-tui daemon_build.rs) and
+//! The older machine is this same binary under debug-only seams: it
+//! reports another build (`CMUX_TEST_DAEMON_BUILD_ID`, cmux-tui daemon_build.rs),
+//! another build time when a journey asks (`CMUX_TEST_DAEMON_BUILD_TIME`, main.rs) and
 //! leaves the newer capabilities out of `identify`
 //! (`CMUX_TEST_DAEMON_HIDE_CAPABILITIES`, cmux-tui-core capabilities.rs), as
 //! a Cloud VM that baked a cmux-tui from before those verbs does. The
@@ -72,6 +73,7 @@ fn agent_move(mac: &Machine, surface: u64, to: &Machine, cwd: &Path, pump: &Path
             .arg(&to.socket)
             .arg("--cwd")
             .arg(cwd)
+            .args(["--vm-kind", "owner"])
             .arg("--state-dir")
             .arg(pump),
     )
@@ -214,6 +216,18 @@ impl SupervisedVm {
     /// While the binary is the older build, its daemon leaves `lacks` (a
     /// comma list) out of `identify`.
     fn start_lacking(root: &Path, old: &[u8], with_acpmux: bool, lacks: &str) -> Self {
+        Self::start_built_at(root, old, with_acpmux, lacks, "")
+    }
+
+    /// As `start_lacking`, and while the binary is the older build its daemon
+    /// reports `old_time` as its `build_time` (empty: the binary's own).
+    fn start_built_at(
+        root: &Path,
+        old: &[u8],
+        with_acpmux: bool,
+        lacks: &str,
+        old_time: &str,
+    ) -> Self {
         let dir = root.join("vm");
         for sub in ["home/work", "home/.cmux/bin", "acpmux", "state"] {
             fs::create_dir_all(dir.join(sub)).unwrap();
@@ -234,6 +248,7 @@ impl SupervisedVm {
             r#"while [ ! -e "$STOP" ]; do
   if [ "$(sha256sum "$BIN" | cut -d ' ' -f 1)" = "$OLD_SHA" ]; then
     CMUX_TEST_DAEMON_BUILD_ID="$OLD_BUILD" CMUX_TEST_DAEMON_HIDE_CAPABILITIES="$LACKS" \
+      CMUX_TEST_DAEMON_BUILD_TIME="$OLD_TIME" \
       "$BIN" --socket "$SOCK" --session "$SESSION" server start
   else
     "$BIN" --socket "$SOCK" --session "$SESSION" server start
@@ -262,6 +277,7 @@ done
             .env("OLD_SHA", sha256_hex(old))
             .env("OLD_BUILD", OLD_BUILD)
             .env("LACKS", lacks)
+            .env("OLD_TIME", old_time)
             .stdout(log.try_clone().unwrap())
             .stderr(log)
             .spawn()
@@ -300,6 +316,7 @@ done
             .env_remove("CMUX_AGENT_START_HOST")
             .env_remove("CMUX_TEST_DAEMON_BUILD_ID")
             .env_remove("CMUX_TEST_DAEMON_HIDE_CAPABILITIES")
+            .env_remove("CMUX_TEST_DAEMON_BUILD_TIME")
             .stdin(std::process::Stdio::null());
         for (key, value) in &self.env {
             command.env(key, value);
@@ -416,6 +433,18 @@ fn machine_update_to_bundled(client: &Path, root: &Path, vm: &SupervisedVm) -> (
             .args(["link", "machine", "update", "--socket"])
             .arg(&vm.socket)
             .arg("--to-bundled"),
+    )
+}
+
+/// `cmux link machine update --socket S --to-bundled --if-older` (the app's
+/// automatic update).
+fn machine_update_if_older(client: &Path, root: &Path, vm: &SupervisedVm) -> (bool, Value) {
+    run_json(
+        Command::new(client)
+            .env("XDG_CACHE_HOME", root.join("mac-cache"))
+            .args(["link", "machine", "update", "--socket"])
+            .arg(&vm.socket)
+            .args(["--to-bundled", "--if-older"]),
     )
 }
 
@@ -554,6 +583,58 @@ fn machine_update_to_bundled_updates_a_machine_of_another_build_that_serves_ever
 
     let (ok, again) = machine_update_to_bundled(&client, &root, &vm);
     assert!(ok && again["updated"] == json!(false), "{again}");
+}
+
+/// The app's automatic update (`--to-bundled --if-older`): a machine of
+/// another build that serves every verb is updated when its build time is
+/// older than this client's, and left alone, not restarted, when it is newer
+/// (2026-10-27: no app update reached a VM on 8b3b1891 that served every
+/// verb the app uses, because the app could not tell older from newer).
+#[test]
+fn machine_update_if_older_updates_only_an_older_machine() {
+    let shipped = fs::read(bin()).unwrap();
+    let mut old = shipped.clone();
+    old.extend_from_slice(b"\0cmux-tui of another build\0");
+
+    // Newer: built in 2100. Nothing changes.
+    let (root, _cleanup) = journey_root("mgn");
+    let vm = SupervisedVm::start_built_at(&root, &old, false, "", "4102444800");
+    let before = vm.identify().unwrap();
+    assert_eq!(before["build_id"], json!(OLD_BUILD), "{before}");
+    let client = mac_client(&root, None);
+    let (ok, newer) = machine_update_if_older(&client, &root, &vm);
+    assert!(ok && newer["updated"] == json!(false) && newer["not_older"] == json!(true), "{newer}");
+    assert_eq!(vm.identify().unwrap()["pid"], before["pid"], "a newer machine was restarted");
+    assert_eq!(sha256_hex(&fs::read(vm.bin()).unwrap()), sha256_hex(&old));
+    drop(vm);
+
+    // Older: built in 1970. Updated in place to this client's build.
+    let (root, _cleanup) = journey_root("mgl");
+    let vm = SupervisedVm::start_built_at(&root, &old, false, "", "1");
+    let before = vm.identify().unwrap();
+    let client = mac_client(&root, None);
+    let (ok, updated) = machine_update_if_older(&client, &root, &vm);
+    let log = fs::read_to_string(vm.dir.join("supervisor.log")).unwrap_or_default();
+    assert!(ok && updated["updated"] == json!(true), "update: {updated}\n{log}");
+    let after = vm.identify().expect("the updated daemon serves");
+    assert_eq!(after["build_id"], updated["build"], "{after}");
+    assert_ne!(after["pid"], before["pid"], "the daemon did not restart");
+    assert_eq!(sha256_hex(&fs::read(vm.bin()).unwrap()), sha256_hex(&shipped));
+    drop(vm);
+
+    // Older and too old to update in place (no fs-v1): unsupported, naming the build it was
+    // judged on (the app's exec update holds the machine to it), and nothing restarted.
+    let (root, _cleanup) = journey_root("mgu");
+    let vm = SupervisedVm::start_built_at(&root, &old, false, "fs-v1", "1");
+    let before = vm.identify().unwrap();
+    let client = mac_client(&root, None);
+    let (ok, unsupported) = machine_update_if_older(&client, &root, &vm);
+    assert!(
+        !ok && unsupported["error_code"] == json!("machine_update_unsupported"),
+        "{unsupported}"
+    );
+    assert_eq!(unsupported["build"], before["build_commit"], "{unsupported}");
+    assert_eq!(vm.identify().unwrap()["pid"], before["pid"], "an unsupported update restarted it");
 }
 
 /// A build that does not match the checksum this client's manifest pins is

@@ -74,12 +74,7 @@ extension BrowserPageService {
                 ["tab": .string(tab), "pane": .string(pane.id), "workspace": .string(column.workspace.publicID),
                  "agent": .string(agent), "created": .bool(created), "navigated": .bool(navigated), "shared": .bool(shared)]
             }
-            func held(_ holder: String, _ tab: String) -> ControlError {
-                ControlError(code: "lease_held",
-                             message: ControlStrings.format("control.error.rightLeaseHeld",
-                                                            "%@ is driving this tab; wait, or open your own tab with a URL", holder),
-                             data: ["holder": .string(holder), "tab": .string(tab)])
-            }
+            func held(_ holder: String, _ tab: String) -> ControlError { Self.leaseHeld(holder: holder, tab: tab) }
             // Its own tabs in the agent profile only: one from before in the person's profile
             // (their extensions) would refuse every page call, so a new one opens instead.
             let usable = Set(column.browserTabs.filter { Self.isAgentProfile($0.browserProfileID) }.map(\.id))

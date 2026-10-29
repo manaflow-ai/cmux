@@ -9,6 +9,8 @@ import { commitReferences, githubReferences, mentionedRepository } from "../src/
 
 const REPO = "manaflow-ai/cmux";
 const PR_MEDIA = "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/23650/tabs-light.png";
+const LOCAL_TMP = "/tmp/cx-lanes/sidebar-clean-cmux.png";
+const OUTSIDE_IMAGE = "/var/tmp/other-host/sidebar-clean-cmux.png";
 
 describe("image-only paragraphs", () => {
   const cases: Array<[name: string, text: string, items: Array<[src: string, alt: string]> | undefined]> = [
@@ -208,7 +210,13 @@ describe("rendered replies", () => {
   });
 
   const IMAGE = "data:image/png;base64,iVBORw0KGgo=";
-  async function render(markdown: string, host: "answer" | "silent" = "answer") {
+  const loads: string[] = [];
+  const CLICK_FREE = ["raw.githubusercontent.com"];
+  async function render(
+    markdown: string,
+    host: "answer" | "silent" | "refuse" = "answer",
+    clickFreeImageHosts: string[] = [],
+  ) {
     const { act } = await import("react");
     const { createRoot } = await import("react-dom/client");
     const { Markdown } = await import("../src/agent-session/acpmux/conversation/Markdown");
@@ -220,11 +228,16 @@ describe("rendered replies", () => {
         "/tmp/shots/before.png": { place: "root", folder: false },
         "/tmp/shots/after.png": { place: "root", folder: false },
         "/tmp/shots/slow.png": { place: "root", folder: false },
+        [LOCAL_TMP]: { place: "root", folder: false },
+        [OUTSIDE_IMAGE]: { place: "outside", folder: false },
       },
-      policy: { remoteImages: "click", outsideRoots: "confirm" },
+      policy: { remoteImages: "click", outsideRoots: "confirm", clickFreeImageHosts },
     });
-    setChipHost(async (method) => {
-      if (method === "image.load" && host === "answer") return { src: IMAGE };
+    loads.length = 0;
+    setChipHost(async (method, params) => {
+      if (method === "image.load") loads.push(params.auto === true ? `auto ${String(params.src)}` : String(params.src));
+      if (method === "image.load" && host === "refuse" && params.auto === true) return undefined;
+      if (method === "image.load" && host !== "silent") return { src: IMAGE };
       if (method === "image.load") return new Promise(() => {});
       return {};
     });
@@ -248,6 +261,23 @@ describe("rendered replies", () => {
     await unmount();
   });
 
+  test("a local /tmp image loads into its thumbnail", async () => {
+    const { container, unmount } = await render(`![Sidebar](${LOCAL_TMP})`);
+    expect(container.querySelector(".cv-thumb img.cv-thumb__img")).not.toBeNull();
+    expect(container.querySelector(".cv-image-file")).toBeNull();
+    expect(loads).toEqual([LOCAL_TMP]);
+    await unmount();
+  });
+
+  test("an image outside the local image roots stays gated", async () => {
+    const { container, unmount } = await render(`![Sidebar](${OUTSIDE_IMAGE})`);
+    expect(container.querySelector(".cv-thumb img.cv-thumb__img")).toBeNull();
+    expect(container.querySelector(".cv-image-file.is-outside")).not.toBeNull();
+    expect(container.querySelector(".cv-chip__lock")).not.toBeNull();
+    expect(loads).toEqual([]);
+    await unmount();
+  });
+
   test("an image still loading keeps its thumbnail frame, so nothing moves when it lands", async () => {
     const { container, unmount } = await render("![Slow](/tmp/shots/slow.png)", "silent");
     expect(container.querySelector(".cv-thumb.is-waiting")).not.toBeNull();
@@ -255,10 +285,53 @@ describe("rendered replies", () => {
     await unmount();
   });
 
-  test("a pr-media address waits for Load image inside the frame", async () => {
+  test("a pr-media address waits for Load image inside the frame when the host names no click-free site", async () => {
     const { container, unmount } = await render(`![Tabs](${PR_MEDIA})`);
     expect(container.querySelector(".cv-thumb.is-placeholder .cv-image-placeholder__load")).not.toBeNull();
+    expect(loads).toEqual([]);
     await unmount();
+  });
+
+  test("a before/after pair from pr-media draws inline side by side with no click (its site is click-free)", async () => {
+    // Leo 2026-10-23, of a pair whose second image waited on Load image: "i feel like this is a bit lame idk".
+    const before = PR_MEDIA.replace("tabs-light", "before"),
+      after = PR_MEDIA.replace("tabs-light", "after");
+    const { container, unmount } = await render(`![](${before}) ![](${after})`, "answer", CLICK_FREE);
+    const row = container.querySelector(".cv-thumbs.is-row");
+    expect(row!.querySelectorAll(".cv-thumb img.cv-thumb__img").length).toBe(2);
+    expect(container.querySelector(".cv-image-placeholder__load")).toBeNull();
+    // Each asks as the page's own load, so a refusal spends no click.
+    expect(loads).toEqual([`auto ${before}`, `auto ${after}`]);
+    await unmount();
+  });
+
+  test("a click-free image the host refuses waits for its Load image, which then loads it", async () => {
+    const src = PR_MEDIA.replace("tabs-light", "refused");
+    const { container, unmount } = await render(`![](${src})`, "refuse", CLICK_FREE);
+    const button = container.querySelector<HTMLButtonElement>(".cv-image-placeholder__load");
+    expect(button).not.toBeNull();
+    expect(container.querySelector(".cv-image-placeholder__note")).toBeNull();
+    const { act } = await import("react");
+    await act(async () => button!.click());
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    expect(container.querySelector(".cv-thumb img.cv-thumb__img")).not.toBeNull();
+    expect(loads).toEqual([`auto ${src}`, src]);
+    await unmount();
+  });
+
+  test("an image from another site still waits for Load image while raw.githubusercontent.com is click-free", async () => {
+    const others = [
+      "https://images.example.com/chart.png",
+      "https://github.com/o/r/releases/download/v1/chart.png",
+      "https://raw.githubusercontent.com.evil.example/chart.png",
+      "http://raw.githubusercontent.com/o/r/main/chart.png",
+    ];
+    for (const src of others) {
+      const { container, unmount } = await render(`![Chart](${src})`, "answer", CLICK_FREE);
+      expect(container.querySelector("img")).toBeNull();
+      await unmount();
+    }
+    expect(loads).toEqual([]);
   });
 
   test("an image path in a sentence stays a chip, with its thumbnail under the paragraph", async () => {

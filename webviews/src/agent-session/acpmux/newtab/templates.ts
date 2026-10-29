@@ -37,8 +37,8 @@ export type ScreenSections = {
 };
 
 const SECTIONS: Record<ScreenTemplate, ScreenSections> = {
-  // Minimal (Leo 2026-10-20: "only do the composer for the default ... maybe the little text, like
-  // hello"): a greeting and the composer, about the window's middle. The rest is widgets the user
+  // Minimal (Leo 2026-10-20: "only do the composer for the default"): the composer, about the
+  // window's middle, with no greeting (Leo 2026-10-22). The rest is widgets the user
   // turns on (pageWidgets.ts); with the project card, the actions or the chats on, the page takes
   // Default's stage around them. What an unset template shows (shownTemplate).
   minimal: { chats: "list", allChats: false, recent: 5, prompt: false, closed: false, stage: true },

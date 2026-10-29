@@ -19,7 +19,7 @@
   --glass-surface: var(--cmux-surface-solid, Canvas);
   /* The fill. With no wallpaper still to bend it is plain glass's; while the lens draws it is
      clearer (below): the bend, not the frost, says it is glass. */
-  --glass-tint: color-mix(in srgb, var(--glass-surface) 60%, transparent);
+  --glass-tint: color-mix(in srgb, var(--glass-surface) var(--ds-glass-plain-tint), transparent);
   /* The frost inside the glass, a length (the lens blurs by it; the CSS fallback too). */
   --glass-blur: 2px;
   /* The light blur the surface itself keeps while the lens draws, so page text under a menu, a
@@ -88,7 +88,7 @@
 
 /* Plain glass: today's blur glass, the default (any root that is not lens or spectrum). */
 :root:not([data-glass="lens"], [data-glass="spectrum"]) {
-  --glass-tint: color-mix(in srgb, var(--glass-surface) 60%, transparent);
+  --glass-tint: color-mix(in srgb, var(--glass-surface) var(--ds-glass-plain-tint), transparent);
   --glass-backdrop: var(--surface-blur);
 }
 :root:not([data-glass="lens"], [data-glass="spectrum"]),
@@ -99,19 +99,19 @@
 /* The lens draws the bend and its frost behind the glass; the surface keeps only a light frost
    for the page content between the canvas and the glass. */
 :root[data-glass-lens]:is([data-glass="lens"], [data-glass="spectrum"]) {
-  --glass-tint: color-mix(in srgb, var(--glass-surface) 40%, transparent);
-  --glass-backdrop: blur(var(--glass-frost)) saturate(1.3);
+  --glass-tint: color-mix(in srgb, var(--glass-surface) var(--ds-glass-lens-tint), transparent);
+  --glass-backdrop: var(--ds-glass-lens-blur);
 }
 
 /* A popup is glass of its own: it never inherits the tint of the surface it opens from (the
    composer's solid card on an opaque window would make a slash or mention menu opaque). */
 .ui-popup.ui-glass {
-  --glass-tint: color-mix(in srgb, var(--glass-surface) 60%, transparent);
+  --glass-tint: color-mix(in srgb, var(--glass-surface) var(--ds-glass-plain-tint), transparent);
   --glass-backdrop: var(--surface-blur);
 }
 :root[data-glass-lens]:is([data-glass="lens"], [data-glass="spectrum"]) .ui-popup.ui-glass {
-  --glass-tint: color-mix(in srgb, var(--glass-surface) 40%, transparent);
-  --glass-backdrop: blur(var(--glass-frost)) saturate(1.3);
+  --glass-tint: color-mix(in srgb, var(--glass-surface) var(--ds-glass-lens-tint), transparent);
+  --glass-backdrop: var(--ds-glass-lens-blur);
 }
 
 :root[data-borders="none"] {

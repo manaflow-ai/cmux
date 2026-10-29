@@ -51,7 +51,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     private var placementObservation: Task<Void, Never>?
     private var titleHeight: NSLayoutConstraint?
     private var tokenObservation: Task<Void, Never>?
-    private var displayOptionsObserver: (any NSObjectProtocol)?
+    private var displayOptionsObserver: MainActorObservation?
     private(set) weak var content: NSView?
     /// Empties AppKit's titlebar drag region: the window moves only through
     /// `TitlebarDragPolicy` (`ShellWindow.sendEvent`).
@@ -66,9 +66,10 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     /// is a theme fill, not a second glass material: the window keeps its
     /// one root material (WindowRootMaterialTests).
     let trafficLightsGlass = TrafficLightsPatch(frame: .zero)
-    /// Back, Forward and the glass patch: hidden until the top row or the
-    /// sidebar is hovered (`window.titlebarButtons`). The sidebar toggle
-    /// always shows.
+    /// The sidebar toggle, Back, Forward and the glass patch. With the
+    /// sidebar open they show (unless `sidebar.controlsOnHover`); with it
+    /// hidden, `window.titlebarButtons` hover hides them until the top row is
+    /// hovered (`applyTitlebarButtonsMode`).
     private(set) lazy var titlebarReveal = HoverReveal(region: titlebarRevealRegion)
     /// Held while the pointer is over the sidebar (its chrome reveal).
     var sidebarHoverHold: HoverReveal.Hold?
@@ -79,6 +80,9 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         didSet {
             toolbarBand.showSidebarState(hidden: sidebarHidden)
             collapsedBand.setSidebarHidden(sidebarHidden)
+            applyTitlebarButtonsMode()
+            // With tab bars at the bottom the card's top follows who holds the lights (`mainPaneTopInset`).
+            if sidebarHidden != oldValue { needsLayout = true }
         }
     }
     /// Opens the collapsed band while the top-left corner is hovered.
@@ -93,6 +97,18 @@ final class WindowRootView: NSView, WindowSurfacePainting {
             needsLayout = true
         }
     }
+    /// A fullscreen page has the whole window (`WindowRootView+MainPane`): the content host
+    /// fills it, and the chrome around it hides.
+    var presentsPage = false {
+        didSet { if presentsPage != oldValue { applyPagePresentation() } }
+    }
+    /// The content host's pins to the window's edges while `presentsPage`.
+    lazy var pagePresentationPins: [NSLayoutConstraint] = [
+        contentHost.leadingAnchor.constraint(equalTo: leadingAnchor), contentHost.trailingAnchor.constraint(equalTo: trailingAnchor),
+        contentHost.topAnchor.constraint(equalTo: topAnchor), contentHost.bottomAnchor.constraint(equalTo: bottomAnchor),
+    ]
+    /// The chrome views `presentsPage` hid.
+    var pagePresentationHidden: [NSView] = []
     /// The right sidebar's on-screen width (0 while hidden): the main pane
     /// is inset by it (`applyMainPane`).
     var rightPanelWidth: CGFloat = 0 {
@@ -159,22 +175,25 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         setUpCollapsedBandReveal()
         tokenObservation = Task { [weak self] in
             for await _ in ObservationStream({ [Metrics.titlebarHeight, Metrics.tabStripHeight, DesignSettings.shared.titlebar == .minimal ? 1 : 0,
-                                           DesignSettings.shared.titlebarButtons == .hover ? 1 : 0] }) {
+                                           DesignSettings.shared.titlebarButtons == .hover ? 1 : 0,
+                                           DesignSettings.shared.sidebarSections.controlsOnHover ? 1 : 0,
+                                           DesignSettings.shared.tabBarPosition == .bottom ? 1 : 0] }) {
                 self?.applyTokens()
                 self?.applyTitlebarButtonsMode()
             }
         }
         placementObservation = observePlacement()
-        contentHost.onFrameChange = { [weak self] in self?.updateMainPaneShade() }
+        contentHost.onFrameChange = { [weak self] in
+            self?.updateMainPaneShade()
+            self?.onMainPaneMove?()
+        }
         wireContentAreaMotion()
         applyMainPane()
         mainPaneObservation = observeMainPane()
         // queue: .main: the workspace center may post off main; a selector
         // into this main-actor view trapped there.
-        displayOptionsObserver = NSWorkspace.shared.notificationCenter.addObserver(
-            forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil, queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.themeDidChange() } // main-proof: observer on queue: .main
+        displayOptionsObserver = MainActorObservation(NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, center: NSWorkspace.shared.notificationCenter) { [weak self] in
+            self?.themeDidChange()
         }
         themeDidChange()
     }
@@ -189,7 +208,6 @@ final class WindowRootView: NSView, WindowSurfacePainting {
             tokenObservation?.cancel()
             placementObservation?.cancel()
             mainPaneObservation?.cancel()
-            if let displayOptionsObserver { NSWorkspace.shared.notificationCenter.removeObserver(displayOptionsObserver) }
         }
     }
 
@@ -197,10 +215,10 @@ final class WindowRootView: NSView, WindowSurfacePainting {
 
     /// Minimal: no strip, and the sidebar header is as tall as the tab
     /// strip, so the list starts level with the panes' content.
-    private func applyTokens() {
+    func applyTokens() {
         let minimal = titlebarStyle == .minimal
         titleHeight?.constant = minimal ? 0 : Metrics.titlebarHeight
-        titlebar.isHidden = minimal
+        titlebar.isHidden = minimal || presentsPage
         sidebar.sidebarView.titlebarHeightOverride = minimal ? Metrics.tabStripHeight : Metrics.titlebarHeight
         needsLayout = true
     }
@@ -223,11 +241,15 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     var showsTitlebarBadge = false {
         didSet { if oldValue != showsTitlebarBadge { needsLayout = true } }
     }
+    /// The host pressure indicator after the band and the badge (`layoutTitlebarAccessories`).
+    var hostPressureIndicator: NSView? { didSet { oldValue?.removeFromSuperview(); hostPressureIndicator.map { addSubview($0, positioned: .above, relativeTo: nil) }; needsLayout = true } }
 
     var onHintGeometryChange: (() -> Void)?
     /// Called from layout when the band's presence changed, so strips under
     /// the top row recompute their inset in the same layout pass.
     var onToolbarBandPresenceChange: (() -> Void)?
+    /// The main pane card moved or resized (every frame of a sidebar slide, its last included).
+    var onMainPaneMove: (() -> Void)?
 
     /// Work after the window's layout pass (`ShellWindow.layoutIfNeeded`),
     /// when every frame is final: the agent cursor goes back on top after a
@@ -246,13 +268,16 @@ final class WindowRootView: NSView, WindowSurfacePainting {
 
     override func layout() {
         defer { onHintGeometryChange?() }
+        // Before the pass solves the constraints: the traffic lights' frame does not depend on it,
+        // and a top set after `super.layout()` showed only on the next pass (bottom tab bars' card
+        // sat under the lights until something else relaid the window).
+        updateMainPaneTopInset()
         super.layout()
         // Inside the window's layout pass the cursor order and the sidebar
         // occluder wait for its end (`windowDidLayout`): both change other
         // windows (overlay panel, pages) or this view's subviews.
         if (window as? ShellWindow)?.isInLayoutPass != true { windowDidLayout() }
         TitlebarDragPolicy.layoutBandBlocker(titlebarBandBlocker, in: self)
-        updateMainPaneTopInset()
         // Every frame is final here: the shade follows the card even when the
         // shade's own autoresizing landed after the card's frame change.
         updateMainPaneShade()
@@ -284,12 +309,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         if presenceChanged { onToolbarBandPresenceChange?() }
         layoutTitlebarReveal(rowHeight: rowHeight, fullBandMaxX: fullBandMaxX)
         layoutRightPanel(rowHeight: rowHeight)
-        guard let badge = titlebarBadge else { return }
-        badge.isHidden = !showsTitlebarBadge
-        guard showsTitlebarBadge else { return }
-        let size = badge.fittingSize
-        badge.frame = CGRect(x: toolbarBand.frame.maxX + Metrics.space2, y: (midY - size.height / 2).rounded(),
-                             width: size.width, height: size.height)
+        layoutTitlebarAccessories(midY: midY)
     }
 
     /// Called after `show(_:)` swaps the content (a top page or a workspace).

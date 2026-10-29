@@ -10,13 +10,28 @@ extension TerminalSurfaceView: NSMenuItemValidation {
     // MARK: Edit menu
 
     /// Copies the selection. With nothing selected, Copy is Cmd-C for the
-    /// program: the key goes to Ghostty, whose `performable:` copy keybind
-    /// then passes it on, so a TUI (Kitty keyboard protocol) copies its own
-    /// selection, as in Ghostty and the shipping cmux. Legacy encoding sends
-    /// nothing for a Command key on macOS, so a shell sees nothing.
+    /// program, so a TUI (Kitty keyboard protocol: Claude Code, Codex) copies
+    /// its own selection, as in Ghostty and the shipping cmux. For a program
+    /// that reads the mouse (it draws that selection) the PTY owner encodes it
+    /// with the program's keyboard modes (`TerminalKeyEquivalent.sendToProgram`);
+    /// otherwise the key goes to Ghostty, whose `performable:` copy keybind
+    /// passes it on. Legacy encoding sends nothing for a Command key on macOS,
+    /// so a shell sees nothing.
     @objc public func copy(_ sender: Any?) {
-        guard hasSelection else { return sendCommandKeyToProgram("c", keyCode: UInt16(kVK_ANSI_C)) }
+        guard hasSelection else {
+            let local: @MainActor () -> Void = { [weak self] in self?.sendCommandKeyToProgram("c", keyCode: UInt16(kVK_ANSI_C)) }
+            if programCapturesMouse, let session, TerminalKeyEquivalent.sendToProgram?(session, "super+c", local) == true { return }
+            local()
+            return
+        }
         clipboardRequests.asUserClipboardWrite { performBindingAction("copy_to_clipboard") }
+    }
+
+    /// Whether the program asked for mouse reports, so it draws its own selection and owns its
+    /// editing keys (a TUI such as Claude Code fullscreen, Codex or OpenCode).
+    public var programCapturesMouse: Bool {
+        guard let surface else { return false }
+        return ghostty_surface_mouse_captured(surface)
     }
 
     private func sendCommandKeyToProgram(_ character: String, keyCode: UInt16) {

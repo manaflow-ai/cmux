@@ -83,6 +83,7 @@ enum HistoryAppStrings {
         case "opencode": "OpenCode"
         case "amp": "Amp"
         case "gemini": "Gemini"
+        case "muse": "Muse Code"
         default: provider
         }
     }

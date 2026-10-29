@@ -6,7 +6,7 @@ import Foundation
 public struct ConversationLiveRequest: DaemonRequest {
     public typealias Response = ChiefLiveFrame
     public static let command = "conversation-live"
-    public static let requiredCapability: String? = DaemonCapabilities.shared.chiefLive
+    public static let requiredCapability: String? = DaemonCapability.chiefLive.rawValue
     public var conversation: String
 
     public init(conversation: String) {
@@ -20,7 +20,7 @@ public struct ConversationLiveRequest: DaemonRequest {
 public struct CloudConversationLiveRequest: DaemonRequest {
     public typealias Response = EmptyResponse
     public static let command = "cloud-conversation-live"
-    public static let requiredCapability: String? = DaemonCapabilities.shared.cloudChiefLive
+    public static let requiredCapability: String? = DaemonCapability.cloudChiefLive.rawValue
     public var conversation: String
 
     public init(conversation: String) {
@@ -31,7 +31,7 @@ public struct CloudConversationLiveRequest: DaemonRequest {
 extension ConversationClient {
     /// The `run.live` snapshot of `conversation`; nil from a daemon without `chief-live-v1`.
     public func live(_ conversation: String) async throws -> ChiefLiveFrame? {
-        guard await connection.identity?.supports(DaemonCapabilities.shared.chiefLive) == true else { return nil }
+        guard await connection.identity?.supports(DaemonCapability.chiefLive.rawValue) == true else { return nil }
         return try await connection.request(ConversationLiveRequest(conversation: conversation))
     }
 }
@@ -63,7 +63,7 @@ public struct ConversationRunRows: Decodable, Sendable, Hashable {
 public struct ConversationRunRequest: DaemonRequest {
     public typealias Response = ConversationRunRows
     public static let command = "conversation-run"
-    public static let requiredCapability: String? = DaemonCapabilities.shared.conversationRuns
+    public static let requiredCapability: String? = DaemonCapability.conversationRuns.rawValue
     public var conversation: String
     public var run: String
     public var afterRev: UInt64?
@@ -79,7 +79,7 @@ public struct ConversationRunRequest: DaemonRequest {
 public struct CloudConversationRunRequest: DaemonRequest {
     public typealias Response = ConversationRunRows
     public static let command = "cloud-conversation-run"
-    public static let requiredCapability: String? = DaemonCapabilities.shared.cloudConversationRuns
+    public static let requiredCapability: String? = DaemonCapability.cloudConversationRuns.rawValue
     public var conversation: String
     public var agent: String
     public var run: String
@@ -96,7 +96,7 @@ public struct CloudConversationRunRequest: DaemonRequest {
 extension ConversationClient {
     /// Every step of `run` (pages read on while `has_more`, at most 8); nil from a daemon without `conversation-runs-v1`.
     public func runRows(_ conversation: String, run: String) async throws -> ConversationRunRows? {
-        guard await connection.identity?.supports(DaemonCapabilities.shared.conversationRuns) == true else { return nil }
+        guard await connection.identity?.supports(DaemonCapability.conversationRuns.rawValue) == true else { return nil }
         var all = try await connection.request(ConversationRunRequest(conversation: conversation, run: run))
         var pages = 1
         while all.hasMore == true, pages < 8, let last = all.steps.compactMap(\.rev).max() {

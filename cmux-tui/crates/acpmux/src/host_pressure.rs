@@ -27,8 +27,8 @@
 //!
 //! [`evaluate`] is the one place the verdict is made, from a [`Sample`]. A
 //! sample ([`HostProbe`]) and the override file ([`load_budget`]) are blocking
-//! reads: run them off the async runtime. The daemon's on-demand meter, `daemon
-//! status`'s `host_pressure` and the warning on a turn's acceptance build on this.
+//! reads: run them off the async runtime, as [`Meter`] does. `daemon status`'s
+//! `host_pressure` and the warning on a turn's acceptance read the meter.
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -301,13 +301,22 @@ pub fn host_name() -> String {
         // SAFETY: a writable buffer of the length passed; gethostname writes at most that many bytes.
         let rc = unsafe { libc::gethostname(buf.as_mut_ptr().cast(), buf.len()) };
         let end = buf.iter().position(|b| *b == 0).unwrap_or(buf.len());
-        if rc == 0 { String::from_utf8_lossy(&buf[..end]).into_owned() } else { String::new() }
+        if rc == 0 {
+            String::from_utf8_lossy(buf.get(..end).unwrap_or_default()).into_owned()
+        } else {
+            String::new()
+        }
     };
     #[cfg(not(unix))]
     let name = std::env::var("COMPUTERNAME").unwrap_or_default();
     let short = name.split('.').next().unwrap_or_default().trim().to_ascii_lowercase();
     if short.is_empty() { "localhost".into() } else { short }
 }
+
+// Samples on demand and keeps the last verdict (no timer).
+#[path = "host_pressure_meter.rs"]
+mod meter;
+pub use meter::{Meter, SAMPLE_WAIT};
 
 // The real host's readings, and the parsers of Linux's `/proc` files.
 #[path = "host_pressure_probe.rs"]

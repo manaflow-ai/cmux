@@ -27,6 +27,18 @@ Rules (Packages/macOS/CmuxNext/Sources, Swift; comment lines are ignored):
                    NSWindow) whose file never makes the shared glass (`Glass.makeOverlayPanel`).
                    Leo 2026-10-21: "WHERE IS THE GLASS EVERYWHERE, all these hover tooltips and
                    hover previews."
+  popup-host       a native host of a menu, picker, popover or web popup that is not on the shared
+                   glass: a panel or window class named for a menu, picker, popover, popup or the
+                   palette, a NativePopupHost(panel:), an adoptPopupStyle(card:) or an NSPopover(),
+                   whose own body builds no Glass.makeOverlayPanel(...) (or Glass.makeMenuPanel(...)).
+                   A host's own body is the panel class's braces (and its extensions in the file);
+                   for a call, the braces of the type it sits in (and the panel class it hands
+                   NativePopupHost(panel:), when the file declares it); glass elsewhere in the file,
+                   or in a type nested in the host, does not count. A host whose glass another file
+                   builds is listed in GLASS_FROM by its file and type, with the file and the type there
+                   whose own body builds it; a host that is not a menu says why in NOT_POPUP_HOST
+                   (also by file and type). An entry no host matches is stale and fails. (Leo 2026-10-21, "why is this not glassed and themed right", the
+                   folder picker and the chat menu.)
 
 Hover cards (a file that hands a body to the app's one hover card window, `HoverCardBody(...)`, or
 reports a card's lines, `HoverCardTextReporting`: the tab, link chip, sidebar workspace, group, pull
@@ -48,6 +60,7 @@ Usage: scripts/cmux-next/check-overlay-glass.py [repo-root]
 
 from __future__ import annotations
 
+import bisect
 import os
 import re
 import sys
@@ -148,8 +161,313 @@ ALLOWED: dict[str, dict[str, str]] = {
         "elevated-fill": "the drop target's label chip over the moving pane outline",
     },
     P + "CmuxNextSidebar/Views/DragLiftView.swift": {"elevated-fill": "the dragged row's lifted copy (85%), not a resting surface"},
-    P + "CmuxNextApp/TextBox/TextBoxView.swift": {"system-solid": "an editable text box's field fill (85%)"},
+    P + "CmuxNextTerminal/TextBox/TextBoxView.swift": {"system-solid": "an editable text box's field fill (85%)"},
 }
+
+
+# A native host of a menu, picker, popover, popup or the palette.
+POPUP_HOST = re.compile(
+    r"\bclass\s+\w*(Menu|Picker|Popover|Popup|Palette)\w*\s*:\s*\w*(Panel|Window)\b"
+    r"|\bNativePopupHost\(\s*panel:|\badoptPopupStyle\(\s*card:|\bNSPopover\(\s*\)"
+)
+GLASS_SURFACE = re.compile(r"\bGlass\.make(Overlay|Menu)Panel\(")
+
+# (path, host type) -> (the file and the type in it whose own body builds its glass, why it lives
+# there). That type must build it: glass elsewhere in the file does not count. The host type is the
+# popup class a line declares, else the type the call sits in ("" outside every type); another host
+# in the same file is checked on its own.
+GLASS_FROM: dict[tuple[str, str], tuple[str, str, str]] = {
+    (P + "CmuxNextPalette/PalettePanel.swift", "PalettePanel"): (
+        P + "CmuxNextPalette/PaletteContentView.swift",
+        "PaletteContentView",
+        "the palette's pages (the folder picker included) draw on PaletteContentView's glass",
+    ),
+    (P + "CmuxNextBrowser/UI/ExtensionsMenu/ExtensionsMenuPanel.swift", "ExtensionsMenuPanel"): (
+        P + "CmuxNextBrowser/UI/ExtensionsMenu/ExtensionsMenuCardView.swift",
+        "ExtensionsMenuCardView",
+        "the Extensions bubble's card is ExtensionsMenuCardView's glass",
+    ),
+    (P + "CmuxNextBrowser/UI/ExtensionsMenu/ExtensionsMenuController.swift", "ExtensionsMenuController"): (
+        P + "CmuxNextBrowser/UI/ExtensionsMenu/ExtensionsMenuCardView.swift",
+        "ExtensionsMenuCardView",
+        "adopts ExtensionsMenuCardView's glass as its popup card",
+    ),
+    (P + "CmuxNextBrowser/PageInfo/UI/PageInfoController.swift", "PageInfoController"): (
+        P + "CmuxNextBrowser/PageInfo/UI/PageInfoPanel.swift",
+        "PageInfoCardView",
+        "adopts PageInfoPanel.swift's glass card, PageInfoCardView",
+    ),
+}
+
+# (path, host type) -> why it hosts no menu of its own.
+NOT_POPUP_HOST: dict[tuple[str, str], str] = {
+    (P + "CmuxNextDesign/PopupStyle.swift", "NSPanel"): "defines adoptPopupStyle(card:); each caller brings its glass",
+    (P + "CmuxNextDesign/Overlay/NativePopupHost.swift", "NativePopupPanel"): (
+        "the shared host's panel; each caller brings its glass"
+    ),
+    (P + "CmuxNextPopups/BrowserPopupWindow.swift", "BrowserPopupWindow"): (
+        "a site's window.open popup: a browser window, not a menu"
+    ),
+    (P + "CmuxNextApp/Server/ServerMenuBarController.swift", "ServerMenuBarController"): (
+        "the menu bar status item's system NSPopover (the system's own glass), outside any themed window"
+    ),
+}
+
+
+# A type's declaration: its name, up to where its body's `{` may follow (`class func` is not one).
+TYPE_DECL = re.compile(
+    r"\b(?:class|struct|enum|actor|extension|protocol)\s+(?P<name>[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)"
+    r"\s*(?:<[^{]*?>)?\s*(?=[:{]|where\b|$)"
+)
+BLOCK_TOKEN = re.compile(TYPE_DECL.pattern + r"|(?P<open>\{)|(?P<close>\})")
+POPUP_CLASS = re.compile(r"\bclass\s+(?P<name>\w*(?:Menu|Picker|Popover|Popup|Palette)\w*)\s*:\s*\w*(?:Panel|Window)\b")
+RAW_OPEN = re.compile(r'(#+)"')
+HOSTED_PANEL = re.compile(r"\bNativePopupHost\(\s*panel:\s*(?P<name>[A-Za-z_][\w.]*)\(")
+
+
+def skip_interpolation(text: str, index: int, out: list[str]) -> int:
+    """The index just past a string interpolation's closing `)`, from just after its `\\(`. Its code is
+    string text here: only its newlines are kept, and a string inside it is skipped whole."""
+    depth = 1
+    while index < len(text) and depth:
+        char = text[index]
+        if char == "\n":
+            out.append(char)
+        elif char == '"':
+            index += 1
+            while index < len(text) and text[index] not in '"\n':
+                index += 2 if text[index] == "\\" else 1
+        elif char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+        index += 1
+    return index
+
+
+def code_lines(path: str) -> list[str]:
+    """The file's lines, one per source line, without comments (`//`, and `/* */` anywhere, nested
+    as Swift nests them) or the text of string literals, raw (`#"…"#`) ones too (each becomes `""`)."""
+    with open(path, encoding="utf-8", errors="replace") as handle:
+        text = handle.read()
+    out: list[str] = []
+    depth = 0  # how many /* */ comments are open
+    quote = ""  # the open string literal's closing delimiter: `"` or `"""`, then a raw one's `#`s
+    escape = "\\"  # what starts an escape in it: a backslash, then a raw one's `#`s
+    index, end = 0, len(text)
+    while index < end:
+        char = text[index]
+        if char == "\n":
+            out.append(char)
+            if not quote.startswith('"""'):
+                quote = ""
+            index += 1
+        elif depth:
+            if text.startswith("/*", index):
+                depth += 1
+                index += 2
+            elif text.startswith("*/", index):
+                depth -= 1
+                index += 2
+            else:
+                index += 1
+        elif quote:
+            if text.startswith(escape + "(", index):
+                index = skip_interpolation(text, index + len(escape) + 1, out)
+            elif text.startswith(escape, index) and index + len(escape) < end and text[index + len(escape)] != "\n":
+                index += len(escape) + 1
+            elif text.startswith(quote, index):
+                out.append('""')
+                index += len(quote)
+                quote = ""
+            else:
+                index += 1
+        elif text.startswith("//", index):
+            newline = text.find("\n", index)
+            index = end if newline < 0 else newline
+        elif text.startswith("/*", index):
+            depth = 1
+            index += 2
+        elif (raw := RAW_OPEN.match(text, index)) or char == '"':
+            hashes = raw.group(1) if raw else ""
+            index += len(hashes)
+            quote = ('"""' if text.startswith('"""', index) else '"') + hashes
+            escape = "\\" + hashes
+            index += len(quote) - len(hashes)
+        else:
+            out.append(char)
+            index += 1
+    return "".join(out).split("\n")
+
+
+class Blocks:
+    """The file's brace blocks, each the body of a type (by name) or not, and which are open where."""
+
+    def __init__(self, lines: list[str]) -> None:
+        self.names: list[str | None] = []  # block id -> the type (by its path) it is the body of, or None
+        self.line_starts: list[tuple[int, ...]] = []  # the blocks open at each line's start
+        self.line_events: list[list[tuple[int, tuple[int, ...]]]] = []  # (column, blocks open after it)
+        stack: list[int] = []
+        pending: str | None = None
+        for line in lines:
+            self.line_starts.append(tuple(stack))
+            events: list[tuple[int, tuple[int, ...]]] = []
+            for token in BLOCK_TOKEN.finditer(line):
+                if token.group("name"):
+                    pending = token.group("name")
+                    continue
+                if token.group("open"):
+                    # A nested type is named by its path (Outer.Inner); an extension names its own.
+                    outer = next((self.names[block] for block in reversed(stack) if self.names[block]), None)
+                    if pending and outer and "." not in pending:
+                        pending = f"{outer}.{pending}"
+                    self.names.append(pending)
+                    stack.append(len(self.names) - 1)
+                    pending = None
+                elif stack:
+                    stack.pop()
+                events.append((token.start(), tuple(stack)))
+            self.line_events.append(events)
+
+    def open_at(self, index: int, column: int) -> tuple[int, ...]:
+        """The blocks around a position, outermost first."""
+        open_blocks = self.line_starts[index]
+        for at, after in self.line_events[index]:
+            if at >= column:
+                break
+            open_blocks = after
+        return open_blocks
+
+    def bodies(self, name: str) -> set[int]:
+        """The blocks that are a type's body: its declaration's and its extensions' in the file."""
+        return {block for block, owner in enumerate(self.names) if owner == name}
+
+    def resolve(self, index: int, column: int, name: str) -> set[int]:
+        """The bodies of the type `name` names at a position: a type nested in an enclosing type
+        first, innermost out, then a top-level one."""
+        scopes = [self.names[block] for block in reversed(self.open_at(index, column)) if self.names[block]]
+        for scope in scopes:
+            if found := self.bodies(f"{scope}.{name}"):
+                return found
+        return self.bodies(name)
+
+    def owner(self, index: int, column: int) -> int | None:
+        """The innermost type body around a position (None: outside every type)."""
+        named = [block for block in self.open_at(index, column) if self.names[block] is not None]
+        return named[-1] if named else None
+
+
+def glass_in(lines: list[str], blocks: Blocks, owners: set[int] | None) -> bool:
+    """A Glass.make(Overlay|Menu)Panel call whose innermost type is one of `owners` (None: a call
+    outside every type). A call in a type nested inside an owner is that nested type's, not the
+    owner's."""
+    for index, line in enumerate(lines):
+        for glass in GLASS_SURFACE.finditer(line):
+            owner = blocks.owner(index, glass.start())
+            if (owner is None) if owners is None else (owner in owners):
+                return True
+    return False
+
+
+def type_builds_glass(path: str, name: str) -> bool:
+    """The type `name` in the file at `path` builds the glass in its own body."""
+    if not os.path.exists(path):
+        return False
+    lines = code_lines(path)
+    blocks = Blocks(lines)
+    owners = blocks.bodies(name)
+    return bool(owners) and glass_in(lines, blocks, owners)
+
+
+def declaration(lines: list[str], index: int) -> str:
+    """Line `index` and the next two, so a class declaration that wraps after its `:` reads whole."""
+    return "\n".join(lines[index : index + 3])
+
+
+def host_type(lines: list[str], blocks: Blocks, index: int, column: int) -> str:
+    """The popup host's type: the popup class declared at `column`, else the type the call sits in
+    ("" outside every type)."""
+    owner = blocks.owner(index, column)
+    declared = POPUP_CLASS.match(declaration(lines, index), column)
+    if declared:
+        return declared.group("name") if owner is None else f"{blocks.names[owner]}.{declared.group('name')}"
+    return "" if owner is None else str(blocks.names[owner])
+
+
+def host_has_glass(lines: list[str], blocks: Blocks, index: int, column: int) -> bool:
+    """The popup host on line `index` builds a Glass.make(Overlay|Menu)Panel in its own body.
+
+    A host's own body is its panel class's braces (and its extensions'). For a call, it is the
+    type the call sits in, plus the panel class it hands NativePopupHost(panel:) when the file
+    declares it; a call outside every type owns the code outside every type. A type nested in the
+    host is not the host: its glass does not count.
+    """
+    line = lines[index]
+    declared = POPUP_CLASS.match(declaration(lines, index), column)
+    if declared:
+        return glass_in(lines, blocks, blocks.resolve(index, column, declared.group("name")))
+    # The call's argument may wrap onto the next lines.
+    hosted = HOSTED_PANEL.match("\n".join([line[column:], *lines[index + 1 : index + 4]]))
+    panel = blocks.resolve(index, column, hosted.group("name")) if hosted else set()
+    if panel and glass_in(lines, blocks, panel):
+        return True
+    owner = blocks.owner(index, column)
+    if owner is None:
+        return glass_in(lines, blocks, None)
+    return glass_in(lines, blocks, blocks.bodies(str(blocks.names[owner])))
+
+
+def scan_popup_hosts(root: str) -> list[str]:
+    """Every native popup host whose own body is not on the shared glass, and every stale entry."""
+    findings: list[str] = []
+    seen: set[tuple[str, str]] = set()
+    base = os.path.join(root, SOURCES)
+    for directory, dirs, files in os.walk(base):
+        dirs[:] = sorted(d for d in dirs if d not in SKIP_DIRS)
+        for name in sorted(files):
+            if not name.endswith(".swift"):
+                continue
+            path = os.path.join(directory, name)
+            rel = os.path.relpath(path, root).replace(os.sep, "/")
+            lines = code_lines(path)
+            # A host call may wrap after its `(`: match the whole file, then find each hit's line.
+            text = "\n".join(lines)
+            starts = [0]
+            for line in lines[:-1]:
+                starts.append(starts[-1] + len(line) + 1)
+            hits = []
+            for hit in POPUP_HOST.finditer(text):
+                index = bisect.bisect_right(starts, hit.start()) - 1
+                hits.append((index, hit.start() - starts[index]))
+            if not hits:
+                continue
+            blocks = Blocks(lines)
+            for index, column in hits:
+                key = (rel, host_type(lines, blocks, index, column))
+                seen.add(key)
+                if key in NOT_POPUP_HOST:
+                    continue
+                source = GLASS_FROM.get(key)
+                if source and type_builds_glass(os.path.join(root, source[0]), source[1]):
+                    continue
+                if host_has_glass(lines, blocks, index, column):
+                    continue
+                where = (
+                    f" (GLASS_FROM names {source[1]} in {source[0]}, whose own body builds no Glass.makeOverlayPanel)"
+                    if source
+                    else ""
+                )
+                findings.append(f"{rel}:{index + 1}: [popup-host] {lines[index].strip()}{where}")
+    # A renamed or deleted file's entry is stale too. A test fixture's root (one without this
+    # script) holds only the files it tests, so there only an entry whose file is present counts.
+    whole_repo = os.path.exists(os.path.join(root, "scripts/cmux-next/check-overlay-glass.py"))
+    for rel, host in sorted({*GLASS_FROM, *NOT_POPUP_HOST} - seen):
+        if not whole_repo and not os.path.exists(os.path.join(root, rel)):
+            continue
+        findings.append(
+            f"{rel}:1: [popup-host] stale allowance: no popup host {host or '(top level)'} here; remove it"
+        )
+    return findings
 
 
 def scan(root: str) -> list[str]:
@@ -200,7 +518,7 @@ def scan(root: str) -> list[str]:
         for rule in sorted(rules):
             if (rel, rule) not in used and os.path.exists(os.path.join(root, rel)):
                 findings.append(f"{rel}:1: [{rule}] stale allowance: the file no longer matches; remove it from ALLOWED")
-    return findings
+    return findings + scan_popup_hosts(root)
 
 
 def escaped(lines: list[str], index: int) -> bool:
@@ -222,6 +540,8 @@ def main() -> int:
         print("check-overlay-glass: a floating surface is solid instead of the shared glass (Leo 2026-10-21:")
         print('  "STOP DOING SOLID. WE HAVE GLASS, SO JUST USE GLASS."). Use Glass.makeOverlayPanel, the')
         print("  tooltip glass or CardSurfaceView, or say why it stays solid: `// glass-opaque-allow: <reason>`.")
+        print("  [popup-host]: a menu, picker, popover or web popup host builds its surface with")
+        print("  Glass.makeOverlayPanel in its own body, or names the file that does in GLASS_FROM.")
         for finding in findings:
             print(finding)
         return 1

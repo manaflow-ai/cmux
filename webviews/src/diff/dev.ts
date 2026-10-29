@@ -3,7 +3,7 @@
 // /__cmux-diff/rpc, which runs the real cmux-diff-sidecar over stdio the way the app's `cmuxDiff`
 // handler does. The stylesheet is imported normally (the dev config stubs the shipped `?inline`
 // copy) so CSS edits hot-update. Query parameters pick the source: `?source=branch&base=HEAD~5`
-// (default), `?source=unstaged`, `?source=staged`; `&layout=unified` switches the layout; `?repo=`
+// (default), `?source=unstaged`, `?source=staged`; `&layout=unified|split|auto` picks the layout; `?repo=`
 // another repository in the home folder. `?pick` starts in the empty state (src/viewer-empty): the
 // repository and source it opens come from the dev server's /__cmux-diff/open.
 // DESKTOP-FEEL (R139): the shared desktop layer loads first, as on the shipped diff page.

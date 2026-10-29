@@ -653,5 +653,103 @@
    "a"
   ],
   "refused": true
+ },
+ {
+  "name": "subsession/limits for the chat in scope passes",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 4,
+   "method": "_acpmux/subsession/limits",
+   "params": {
+    "sessionId": "a",
+    "maxRunning": 8
+   }
+  },
+  "sessions": [
+   "a"
+  ],
+  "refused": false
+ },
+ {
+  "name": "subsession/limits clearing the chat in scope passes",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 4,
+   "method": "_acpmux/subsession/limits",
+   "params": {
+    "sessionId": "a",
+    "maxRunning": null
+   }
+  },
+  "sessions": [
+   "a"
+  ],
+  "refused": false
+ },
+ {
+  "name": "subsession/limits for another chat is refused",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 4,
+   "method": "_acpmux/subsession/limits",
+   "params": {
+    "sessionId": "b",
+    "maxRunning": 8
+   }
+  },
+  "sessions": [
+   "a"
+  ],
+  "refused": true
+ },
+ {
+  "name": "set_tools for the pane's chat passes",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 4,
+   "method": "_acpmux/set_tools",
+   "params": {
+    "sessionId": "a",
+    "id": "mcp:github",
+    "enabled": false
+   }
+  },
+  "sessions": [
+   "a"
+  ],
+  "refused": false
+ },
+ {
+  "name": "set_tools for a chat outside the scope is refused",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 4,
+   "method": "_acpmux/set_tools",
+   "params": {
+    "sessionId": "b",
+    "id": "mcp:github",
+    "enabled": true
+   }
+  },
+  "sessions": [
+   "a"
+  ],
+  "refused": true
+ },
+ {
+  "name": "set_tools without a chat is refused",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 4,
+   "method": "_acpmux/set_tools",
+   "params": {
+    "id": "mcp:github",
+    "enabled": true
+   }
+  },
+  "sessions": [
+   "a"
+  ],
+  "refused": true
  }
 ]

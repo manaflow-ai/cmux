@@ -12,8 +12,14 @@ pub(super) fn start_surface_thread(
 ) -> anyhow::Result<()> {
     let id = surface.id;
     std::thread::Builder::new().name(format!("browser-surface-{id}-events")).spawn(move || {
+        // tab-attention-v1: the page URL this thread last asked about, so
+        // repeated events on one page read nothing. Whether a mark goes is
+        // decided against the page the mark recorded, not this, so the first
+        // event (even one after the URL already moved) still clears it.
+        let mut seen_url: Option<String> = None;
         while let Some(event) = events.recv() {
             let Surface::Browser(browser) = surface.as_ref() else { break };
+            let seen_url = &mut seen_url;
             match event {
                 CdpEvent::ScreencastFrame(frame) => {
                     let frame_epoch = frame.frame_epoch;
@@ -88,6 +94,11 @@ pub(super) fn start_surface_thread(
                     let url_changed =
                         if info.url.is_empty() { false } else { browser.set_url(info.url) };
                     let title_changed = browser.set_title(title);
+                    clear_attention_if_page_changed(
+                        seen_url,
+                        browser,
+                        mux_attention_clear(&mux, id),
+                    );
                     if (url_changed || title_changed)
                         && let Some(mux) = mux.upgrade()
                     {
@@ -99,6 +110,11 @@ pub(super) fn start_surface_thread(
                 }
                 CdpEvent::FrameNavigated { params, frame_epoch, .. } => {
                     handle_frame_navigated(browser, params, frame_epoch);
+                    clear_attention_if_page_changed(
+                        seen_url,
+                        browser,
+                        mux_attention_clear(&mux, id),
+                    );
                     if let Some(mux) = mux.upgrade() {
                         mux.emit(MuxEvent::TitleChanged {
                             surface: id,
@@ -126,6 +142,11 @@ pub(super) fn start_surface_thread(
                     frame_epoch,
                 } => {
                     let _ = handle_same_document_navigated(browser, &params, frame_epoch);
+                    clear_attention_if_page_changed(
+                        seen_url,
+                        browser,
+                        mux_attention_clear(&mux, id),
+                    );
                     if browser.needs_same_document_paint() {
                         let _ = browser.enqueue_latest_authority(
                             BrowserCommand::AuthorizeSameDocumentPaint {
@@ -183,6 +204,32 @@ pub(super) fn start_surface_thread(
         }
     })?;
     Ok(())
+}
+
+/// tab-attention-v1: the tab is on `browser.url()`; `clear` drops a "needs
+/// you" mark set on another page (the marked page is gone). `seen_url` only
+/// skips the call for a page this thread already asked about.
+pub(super) fn clear_attention_if_page_changed(
+    seen_url: &mut Option<String>,
+    browser: &BrowserSurface,
+    clear: impl FnOnce(&str),
+) {
+    let url = browser.url();
+    if url.is_empty() || seen_url.as_deref() == Some(url.as_str()) {
+        return;
+    }
+    clear(&url);
+    *seen_url = Some(url);
+}
+
+/// The worker's `clear`: the mux's navigation clear for surface `id`, while
+/// the mux lives.
+fn mux_attention_clear(mux: &Weak<Mux>, id: SurfaceId) -> impl FnOnce(&str) + '_ {
+    move |url| {
+        if let Some(mux) = mux.upgrade() {
+            mux.clear_attention_after_navigation(&crate::Actor::Daemon, id, url);
+        }
+    }
 }
 
 pub(super) fn start_browser_worker(

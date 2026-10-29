@@ -355,5 +355,359 @@
       "hidesWhenTyping": false,
       "entersScope": false
     }
+  },
+  {
+    "id": "action:agentPane.toggleDisplaySettings",
+    "section": {
+      "id": "category.agents",
+      "title": "Agents",
+      "order": 109
+    },
+    "entry": {
+      "actionID": "agentPane.toggleDisplaySettings",
+      "title": "Toggle Text & Width",
+      "keywords": ["agent", "display", "text", "width", "appearance", "font", "layout"],
+      "subtitle": null,
+      "accessory": null,
+      "rankBias": -8,
+      "frecencyKey": "action:agentPane.toggleDisplaySettings",
+      "isEnabled": true,
+      "isVisibleWhenQueryEmpty": false,
+      "queryPrefix": null,
+      "hidesWhenTyping": false,
+      "entersScope": false,
+      "hasShortcut": false,
+      "demoted": false,
+      "sectionIndex": 10,
+      "typingSectionIndex": 16
+    }
+  },
+  {
+    "id": "action:agentPane.replayConversation",
+    "section": {
+      "id": "category.agents",
+      "title": "Agents",
+      "order": 109
+    },
+    "entry": {
+      "actionID": "agentPane.replayConversation",
+      "title": "Replay Conversation",
+      "keywords": ["agent", "conversation", "replay", "history", "recording", "playback"],
+      "subtitle": null,
+      "accessory": null,
+      "rankBias": -8,
+      "frecencyKey": "action:agentPane.replayConversation",
+      "isEnabled": true,
+      "isVisibleWhenQueryEmpty": false,
+      "queryPrefix": null,
+      "hidesWhenTyping": false,
+      "entersScope": false,
+      "hasShortcut": false,
+      "demoted": false,
+      "sectionIndex": 10,
+      "typingSectionIndex": 16
+    }
+  },
+  {
+    "id": "action:agentPane.editInstructions",
+    "section": {
+      "id": "category.agents",
+      "title": "Agents",
+      "order": 109
+    },
+    "entry": {
+      "actionID": "agentPane.editInstructions",
+      "title": "Edit Project Instructions…",
+      "keywords": ["agent", "project", "instructions", "claude.md", "agents.md", "rules", "edit"],
+      "subtitle": null,
+      "accessory": null,
+      "rankBias": -8,
+      "frecencyKey": "action:agentPane.editInstructions",
+      "isEnabled": true,
+      "isVisibleWhenQueryEmpty": false,
+      "queryPrefix": null,
+      "hidesWhenTyping": false,
+      "entersScope": false,
+      "hasShortcut": false,
+      "demoted": false,
+      "sectionIndex": 10,
+      "typingSectionIndex": 16
+    }
+  },
+  {
+    "id": "action:agentPane.addProjectFiles",
+    "section": {
+      "id": "category.agents",
+      "title": "Agents",
+      "order": 109
+    },
+    "entry": {
+      "actionID": "agentPane.addProjectFiles",
+      "title": "Add Project Files…",
+      "keywords": ["agent", "project", "files", "context", "knowledge", "add", "attach"],
+      "subtitle": null,
+      "accessory": null,
+      "rankBias": -8,
+      "frecencyKey": "action:agentPane.addProjectFiles",
+      "isEnabled": true,
+      "isVisibleWhenQueryEmpty": false,
+      "queryPrefix": null,
+      "hidesWhenTyping": false,
+      "entersScope": false,
+      "hasShortcut": false,
+      "demoted": false,
+      "sectionIndex": 10,
+      "typingSectionIndex": 16
+    }
+  },
+  {
+    "id": "action:agentPane.markUnread",
+    "section": {
+      "id": "category.agents",
+      "title": "Agents",
+      "order": 109
+    },
+    "entry": {
+      "actionID": "agentPane.markUnread",
+      "title": "Mark Chat Unread",
+      "keywords": ["agent", "chat", "unread", "notification", "mark", "later"],
+      "subtitle": null,
+      "accessory": null,
+      "rankBias": -8,
+      "frecencyKey": "action:agentPane.markUnread",
+      "isEnabled": true,
+      "isVisibleWhenQueryEmpty": false,
+      "queryPrefix": null,
+      "hidesWhenTyping": false,
+      "entersScope": false,
+      "hasShortcut": false,
+      "demoted": false,
+      "sectionIndex": 10,
+      "typingSectionIndex": 16
+    }
+  },
+  {
+    "id": "action:agentPane.moveToFloatingChat",
+    "section": {
+      "id": "category.agents",
+      "title": "Agents",
+      "order": 109
+    },
+    "entry": {
+      "actionID": "agentPane.moveToFloatingChat",
+      "title": "Move Chat to Floating Chat",
+      "keywords": ["agent", "chat", "floating", "float", "detach", "panel", "window"],
+      "subtitle": null,
+      "accessory": null,
+      "rankBias": -8,
+      "frecencyKey": "action:agentPane.moveToFloatingChat",
+      "isEnabled": true,
+      "isVisibleWhenQueryEmpty": false,
+      "queryPrefix": null,
+      "hidesWhenTyping": false,
+      "entersScope": false,
+      "hasShortcut": false,
+      "demoted": false,
+      "sectionIndex": 10,
+      "typingSectionIndex": 16
+    }
+  },
+  {
+    "id": "action:agentPane.toggleMinimap",
+    "section": {
+      "id": "category.agents",
+      "title": "Agents",
+      "order": 109
+    },
+    "entry": {
+      "actionID": "agentPane.toggleMinimap",
+      "title": "Toggle Thread Minimap",
+      "keywords": ["agent", "thread", "minimap", "rail", "prompts", "navigation", "map"],
+      "subtitle": null,
+      "accessory": null,
+      "rankBias": -8,
+      "frecencyKey": "action:agentPane.toggleMinimap",
+      "isEnabled": true,
+      "isVisibleWhenQueryEmpty": false,
+      "queryPrefix": null,
+      "hidesWhenTyping": false,
+      "entersScope": false,
+      "hasShortcut": false,
+      "demoted": false,
+      "sectionIndex": 10,
+      "typingSectionIndex": 16
+    }
+  },
+  {
+    "id": "action:agentPane.revealCwdInFinder",
+    "section": {
+      "id": "category.agents",
+      "title": "Agents",
+      "order": 109
+    },
+    "entry": {
+      "actionID": "agentPane.revealCwdInFinder",
+      "title": "Reveal Chat Folder in Finder",
+      "keywords": ["agent", "folder", "cwd", "directory", "finder", "reveal", "show"],
+      "subtitle": null,
+      "accessory": null,
+      "rankBias": -8,
+      "frecencyKey": "action:agentPane.revealCwdInFinder",
+      "isEnabled": true,
+      "isVisibleWhenQueryEmpty": false,
+      "queryPrefix": null,
+      "hidesWhenTyping": false,
+      "entersScope": false,
+      "hasShortcut": false,
+      "demoted": false,
+      "sectionIndex": 10,
+      "typingSectionIndex": 16
+    }
+  },
+  {
+    "id": "action:agentPane.openCwdInTerminal",
+    "section": {
+      "id": "category.agents",
+      "title": "Agents",
+      "order": 109
+    },
+    "entry": {
+      "actionID": "agentPane.openCwdInTerminal",
+      "title": "Open Chat Folder in Terminal",
+      "keywords": ["agent", "folder", "cwd", "directory", "terminal", "shell", "open"],
+      "subtitle": null,
+      "accessory": null,
+      "rankBias": -8,
+      "frecencyKey": "action:agentPane.openCwdInTerminal",
+      "isEnabled": true,
+      "isVisibleWhenQueryEmpty": false,
+      "queryPrefix": null,
+      "hidesWhenTyping": false,
+      "entersScope": false,
+      "hasShortcut": false,
+      "demoted": false,
+      "sectionIndex": 10,
+      "typingSectionIndex": 16
+    }
+  },
+  {
+    "id": "action:agentChat.copyName",
+    "section": {
+      "id": "actions",
+      "title": "Actions",
+      "order": 0
+    },
+    "entry": {
+      "actionID": "agentChat.copyName",
+      "title": "Copy Agent Name",
+      "keywords": ["agent", "chat", "harness", "name", "provider", "copy"],
+      "rankBias": 0,
+      "frecencyKey": "action:agentChat.copyName",
+      "hasShortcut": false,
+      "hidesWhenTyping": false,
+      "isEnabled": true,
+      "isVisibleWhenQueryEmpty": true,
+      "entersScope": false
+    }
+  },
+  {
+    "id": "action:agentChat.copyHarnessSessionID",
+    "section": {
+      "id": "actions",
+      "title": "Actions",
+      "order": 0
+    },
+    "entry": {
+      "actionID": "agentChat.copyHarnessSessionID",
+      "title": "Copy Harness Session ID",
+      "keywords": ["agent", "chat", "harness", "session", "id", "identifier", "claude", "codex", "copy"],
+      "rankBias": 0,
+      "frecencyKey": "action:agentChat.copyHarnessSessionID",
+      "hasShortcut": false,
+      "hidesWhenTyping": false,
+      "isEnabled": true,
+      "isVisibleWhenQueryEmpty": true,
+      "entersScope": false
+    }
+  },
+  {
+    "id": "action:agentChat.copyConversation",
+    "section": {
+      "id": "actions",
+      "title": "Actions",
+      "order": 0
+    },
+    "entry": {
+      "actionID": "agentChat.copyConversation",
+      "title": "Copy Conversation as Markdown",
+      "keywords": ["agent", "chat", "conversation", "transcript", "markdown", "messages", "copy"],
+      "rankBias": 0,
+      "frecencyKey": "action:agentChat.copyConversation",
+      "hasShortcut": false,
+      "hidesWhenTyping": false,
+      "isEnabled": true,
+      "isVisibleWhenQueryEmpty": true,
+      "entersScope": false
+    }
+  },
+  {
+    "id": "action:agentChat.copySessionDetails",
+    "section": {
+      "id": "actions",
+      "title": "Actions",
+      "order": 0
+    },
+    "entry": {
+      "actionID": "agentChat.copySessionDetails",
+      "title": "Copy Session Details",
+      "keywords": ["agent", "chat", "session", "details", "metadata", "cwd", "host", "copy"],
+      "rankBias": 0,
+      "frecencyKey": "action:agentChat.copySessionDetails",
+      "hasShortcut": false,
+      "hidesWhenTyping": false,
+      "isEnabled": true,
+      "isVisibleWhenQueryEmpty": true,
+      "entersScope": false
+    }
+  },
+  {
+    "id": "action:agentChat.copyWorkingDirectory",
+    "section": {
+      "id": "actions",
+      "title": "Actions",
+      "order": 0
+    },
+    "entry": {
+      "actionID": "agentChat.copyWorkingDirectory",
+      "title": "Copy Working Directory",
+      "keywords": ["agent", "chat", "session", "cwd", "directory", "folder", "path", "copy"],
+      "rankBias": 0,
+      "frecencyKey": "action:agentChat.copyWorkingDirectory",
+      "hasShortcut": false,
+      "hidesWhenTyping": false,
+      "isEnabled": true,
+      "isVisibleWhenQueryEmpty": true,
+      "entersScope": false
+    }
+  },
+  {
+    "id": "action:agentChat.copyHost",
+    "section": {
+      "id": "actions",
+      "title": "Actions",
+      "order": 0
+    },
+    "entry": {
+      "actionID": "agentChat.copyHost",
+      "title": "Copy Chat Host",
+      "keywords": ["agent", "chat", "session", "host", "machine", "remote", "copy"],
+      "rankBias": 0,
+      "frecencyKey": "action:agentChat.copyHost",
+      "hasShortcut": false,
+      "hidesWhenTyping": false,
+      "isEnabled": true,
+      "isVisibleWhenQueryEmpty": true,
+      "entersScope": false
+    }
   }
 ]

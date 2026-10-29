@@ -9,7 +9,7 @@ import { personalTeamIdFor } from "../domains/user.ts"
  * and the model forward), joined to the tailnet with a one-use, pre-authorized, ephemeral key tagged
  * CHIEF_CC_TS_TAG (default tag:agent-cloud; minted per VM with the Tailscale OAuth client CHIEF_CC_TS_OAUTH,
  * scope auth_keys, that tag only), so its model calls reach the sr2 gateway, which admits it by its tailnet identity. Deleted by
- * exact id after the turn; Freestyle's own timers (idle pause 300 s, ttl 30 min, run cap 15 min) are the
+ * exact id after the turn; Freestyle's own timers (idle pause 300 s, run cap RUN_MS + 5 min, ttl 10 min after that) are the
  * backstop for a turn whose object never came back. Keys, tokens and the VM's output are never logged:
  * errors carry only the step and the HTTP status.
  *
@@ -20,6 +20,8 @@ import { personalTeamIdFor } from "../domains/user.ts"
 const API = "https://api.freestyle.sh"
 const CALL_MS = 30_000
 export const BOOT_MS = 60_000
+/** One turn's time: the agent is told it (turn.ts ccAddendum) and the runner stops Claude Code at it; Freestyle's run cap is above it. */
+export const RUN_MS = 20 * 60_000
 
 export const ccConfigured = (env: Env): boolean => env.CHIEF_CC_ENABLED === "1" && Boolean(env.CHIEF_CC_FREESTYLE_API_KEY && env.CHIEF_CC_TS_OAUTH && env.CHIEF_CC_SNAPSHOT) && cloudEnvTag(env.ENVIRONMENT) !== null
 /**
@@ -53,8 +55,8 @@ export const createVm = async (env: Env, name: string, meta: { agent: string; co
     slug: name,
     snapshotId: env.CHIEF_CC_SNAPSHOT,
     idleTimeoutSeconds: 300,
-    maxRunSeconds: 900,
-    ttlSeconds: 1800,
+    maxRunSeconds: RUN_MS / 1000 + 300,
+    ttlSeconds: RUN_MS / 1000 + 900,
     automaticRestart: false,
     metadata: { cmux_chief_cc: meta.agent, cmux_conversation: meta.conversation, cmux_run: meta.run },
     // Out to the Internet only, IPv4 and IPv6 (the tailnet comes up inside the guest); nothing comes in.

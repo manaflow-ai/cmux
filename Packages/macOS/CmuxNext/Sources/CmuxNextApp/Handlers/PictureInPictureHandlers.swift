@@ -1,6 +1,7 @@
 import CmuxNextActions
 import CmuxNextBrowser
 import CmuxNextNowPlaying
+import CmuxNextSettings
 import CmuxNextSidebar
 
 /// Picture in Picture for a browser tab's video, in either engine: the
@@ -11,16 +12,23 @@ import CmuxNextSidebar
 /// window, WebKit's), keeps playing while its tab is hidden or another
 /// workspace shows (hibernation leaves a floating page alone, `PageProbe`),
 /// and goes back into its tab when that window closes or the toggle runs again.
+/// `media.pictureInPicture.enabled` off takes every one of these away (the action is
+/// unavailable, the menus hide it, the card's and the media hub's buttons go); a site's own
+/// video controls are the page's and stay.
 @MainActor
 enum PictureInPictureHandlers {
     static let actionID: ActionID = "tab.pictureInPicture"
 
     static func bind(into registry: ActionRegistry, context ctx: AppActionContext) {
         let cache = ctx.services.cache
-        registry.bind(actionID, invoke: { [weak registry] invocation in
+        let services = ctx.services
+        let enabled: @MainActor () -> Bool = { [weak services] in Self.isEnabled(services) }
+        registry.bind(actionID, unavailable: { enabled() ? nil : PictureInPictureStrings.off }, invoke: { [weak registry] invocation in
             guard let registry, let page = page(ctx, invocation) else { return }
             let work = Task { @MainActor () -> String? in
-                switch await page.togglePictureInPicture() {
+                // Turned off between the run and this task: nothing floats.
+                guard enabled() else { return PictureInPictureStrings.off }
+                return switch await page.togglePictureInPicture() {
                 case .noVideo?: PictureInPictureStrings.noVideo
                 case .unsupported?: PictureInPictureStrings.unsupported
                 case .entered?, .exited?, nil: nil
@@ -36,6 +44,7 @@ enum PictureInPictureHandlers {
         // A tab's menu offers it on a page that plays (or played) a video; the media card's menu
         // (no target) while the card shows a tab's video.
         ActionTargetVisibility.hide(actionID, in: registry) { invocation in
+            guard enabled() else { return true }
             guard let target = invocation.target else { return card(cache)?.canPictureInPicture != true }
             return target.kind == .tab && cache.existingBrowser(target.id)?.tab.state.media?.isVideo != true
         }
@@ -48,6 +57,11 @@ enum PictureInPictureHandlers {
                   cache.existingBrowser(target.id)?.tab.state.media?.isPictureInPicture == true else { return nil }
             return PictureInPictureStrings.exit
         }
+    }
+
+    /// `media.pictureInPicture.enabled`: cmux offers Picture in Picture (on when Settings are not loaded).
+    static func isEnabled(_ services: AppServices?) -> Bool {
+        services?.settings?.snapshot.nowPlaying.pictureInPicture ?? NowPlayingSettings.pictureInPictureDefault
     }
 
     /// The argument the media card's menu passes: the row acts on the tab the card shows.
@@ -84,6 +98,12 @@ enum PictureInPictureHandlers {
 enum PictureInPictureStrings {
     static var exit: String {
         String(localized: "pictureInPicture.menu.exit", defaultValue: "Exit Picture in Picture", table: "Music", bundle: .module)
+    }
+
+    static var off: String {
+        String(localized: "pictureInPicture.refusal.off",
+               defaultValue: "Picture in Picture is turned off: turn on media.pictureInPicture.enabled in Settings › Browser › Media.",
+               table: "Music", bundle: .module)
     }
 
     static var noVideo: String {

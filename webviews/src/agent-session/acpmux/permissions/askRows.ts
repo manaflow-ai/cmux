@@ -30,7 +30,13 @@ export function groupAskedCalls(groups: PermissionClientState | undefined): Set<
   for (const group of groups.groups)
     if (group.state === "pending" || group.state === "collecting")
       for (const item of group.items) {
-        const id = (item.request.toolCall as { toolCallId?: unknown } | undefined)?.toolCallId;
+        const request = item.request as {
+          toolCall?: { toolCallId?: unknown };
+          subject?: { type?: unknown; toolCall?: { toolCallId?: unknown } };
+        };
+        const id =
+          request.toolCall?.toolCallId ??
+          (request.subject?.type === "tool_call" ? request.subject.toolCall?.toolCallId : undefined);
         if (item.state === "pending" && typeof id === "string" && id) calls.add(id);
       }
   return calls;

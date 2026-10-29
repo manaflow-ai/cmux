@@ -87,7 +87,7 @@ impl Surface {
             (default_colors, cell_pixels, initial_kitty_limits),
             terminal_id,
             None,
-            seed,
+            (seed, ""),
         )?;
         Self::spawn_hosted(
             id,

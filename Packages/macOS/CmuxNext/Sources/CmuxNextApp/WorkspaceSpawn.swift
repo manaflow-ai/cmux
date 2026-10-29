@@ -1,4 +1,4 @@
-import CmuxNextActions
+import CmuxNextAppCore
 import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextDaemon
@@ -6,105 +6,6 @@ import CmuxNextSettings
 import CmuxNextSidebar
 import CmuxNextWorkspaceRepair
 import Foundation
-
-/// What a new workspace's first terminal starts with. The keyboard, menu,
-/// and palette pass nothing; the CLI (`cmux new-workspace`) passes a cwd,
-/// name, command, and extra environment through `newTab`'s arguments.
-struct WorkspaceSpawn: Sendable {
-    var cwd: String?
-    /// A person's Cmd-N: the folder of the tab they work in (Ghostty's
-    /// `window-inherit-working-directory`, NewTerminalStart.folder). After
-    /// `cwd` and the room's own default folder, before the daemon's default.
-    var inheritedCwd: String?
-    var name: String?
-    var command: String?
-    var env: [String: String] = [:]
-    /// The first terminal outlives its tab (`--keep`; `terminal-reap-v1`).
-    var keep = false
-    /// Room the workspace is born in; nil = the target window's room.
-    var profile: ProfileID?
-    /// Browser profile of the workspace's new browser tabs; nil = its room's.
-    var browserProfile: String?
-    /// Where the new workspace goes in its window's sidebar; nil puts it at
-    /// the `workspaces.newPlacement` slot (`NewWorkspaceDefaultSlot`).
-    var slot: WorkspaceSlot?
-    /// False keeps the daemon's place when `slot` is nil: a caller that
-    /// places the workspace itself (into a personal group). The daemon puts
-    /// a workspace of its own session at `workspaces.newPlacement` too (with
-    /// `afterCurrent` after the session's active workspace, not the window's),
-    /// so a batch that must keep its order names a slot.
-    var placesBySetting = true
-    /// Runs once the daemon reports the workspace and its window lists it
-    /// (after the slot is applied), with the window's sidebar.
-    var onListed: (@MainActor @Sendable (String, SidebarBridge) -> Void)?
-    /// A person's new workspace (sidebar +, the New tile, Cmd-N, first
-    /// launch, a new window) opens on the New Tab page; scripts and a spawn
-    /// with a `command` get a terminal. Also a terminal where the page
-    /// cannot run (a Cloud machine, a build without the agent page).
-    var opensNewTabPage = false
-    /// A person's New Agent Chat: the workspace's only tab is a chat
-    /// seeded with this (the cwd and draft of the tab it came from), with
-    /// no terminal. Wins over `opensNewTabPage`.
-    var firstChat: AgentPaneSeed?
-    /// The workspace's only tab shows this acpmux session of this Mac (a chat moved here by
-    /// session.transfer.pull), with no terminal. Wins over `firstChat`.
-    var firstSession: String?
-    /// The key hold of the Cmd-N that asked for this workspace (NewTabInputCoordinator): its first
-    /// New Tab page carries the token, so the keys typed since go to that page's field.
-    var inputToken: String?
-
-    init(cwd: String? = nil, name: String? = nil, command: String? = nil, env: [String: String] = [:], keep: Bool = false,
-         profile: ProfileID? = nil, newTabPage: Bool = false) {
-        opensNewTabPage = newTabPage
-        self.cwd = cwd
-        self.name = name
-        self.command = command
-        self.env = env
-        self.keep = keep
-        self.profile = profile
-    }
-
-    /// A workspace opened in `directory` (the Finder service "New cmux
-    /// Workspace Here"), named after the folder like `newTab` with only a
-    /// `cwd`; nil starts in the default directory and the daemon names it.
-    init(opening directory: String?) {
-        self.init(cwd: directory, name: directory.flatMap(Self.folderName))
-    }
-
-    /// `newTab` arguments: `cwd`, `name`, `command`, `env` (a JSON object of
-    /// strings), `keep`. A workspace opened in a `cwd` without a `name`
-    /// (`cmux open <dir>`, `cmux <dir>` on an explicit socket,
-    /// `new-workspace --cwd`) is named
-    /// after the folder, like Open Folder…
-    init(_ invocation: ActionInvocation) {
-        cwd = invocation["cwd"]?.stringValue.flatMap { $0.isEmpty ? nil : ($0 as NSString).expandingTildeInPath }
-        name = invocation["name"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 } ?? cwd.flatMap(Self.folderName)
-        command = invocation["command"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
-        keep = invocation["keep"]?.boolValue == true
-        profile = invocation["profile"]?.targetValue.map { ProfileID(rawValue: $0.id) }
-            ?? invocation["profile"]?.stringValue.flatMap { $0.isEmpty ? nil : ProfileID(rawValue: $0) }
-        if let text = invocation["env"]?.stringValue, let data = text.data(using: .utf8),
-           let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-            env = object.compactMapValues { $0 as? String }
-        }
-        opensNewTabPage = invocation.origin == .user && command == nil
-    }
-
-    /// `tabs.terminalFirst` (cmux Classic Mode, #23021): a person's new workspace or window opens
-    /// a terminal, as in cmux classic, not the New Tab page. A first chat or session still opens.
-    @MainActor mutating func followClassicMode(_ services: AppServices) {
-        if NewTabKind.terminalFirst(services) { opensNewTabPage = false }
-    }
-
-    /// The name of a workspace opened in `directory`: the folder's name
-    /// without surrounding whitespace, or nil for the filesystem root or a
-    /// blank name (the daemon names it).
-    static func folderName(_ directory: String) -> String? {
-        let name = URL(fileURLWithPath: directory).standardizedFileURL.lastPathComponent
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        return name.isEmpty || name == "/" ? nil : name
-    }
-}
 
 extension WindowManager {
     /// Creates a workspace and returns its id (`WorkspaceSpawner`).
@@ -216,10 +117,15 @@ struct WorkspaceSpawner {
                         try await WorkspaceClose.close(WorkspaceKey(rawValue: id), terminals: [], on: connection)
                     }
                 }, settle: { await Self.settled(on: daemon) }) {
+                    // One late-reply budget for the pin, the create and the first tab.
+                    let giveUp = DaemonConnection.lateReplyDeadline()
                     if let room, let session = daemon.store.registryID, let home = services.machines.local.connection {
-                        try await DaemonConnection.retryingLateReplies(PinWorkspaceRequest.command) { try await home.pinWorkspace(session: session, key: key, to: room.id) }; BenchSpans.mark("cmdN.pinWorkspace.returned")
+                        try await DaemonConnection.retryingLateReplies(PinWorkspaceRequest.command, until: giveUp) {
+                            try await home.pinWorkspace(session: session, key: key, to: room.id)
+                        }
+                        BenchSpans.mark("cmdN.pinWorkspace.returned")
                     }
-                    return try await shown.confirm()
+                    return try await shown.confirm(giveUp)
                 }
             } catch {
                 shown.abandon()
@@ -264,7 +170,10 @@ struct WorkspaceSpawner {
         let home = services.machines.local
         let room = home.store.profile(spawn.profile ?? profile)
         if let room, let session = daemon.store.registryID, let homeConnection = home.connection {
-            try await DaemonConnection.retryingLateReplies(PinWorkspaceRequest.command) { try await homeConnection.pinWorkspace(session: session, key: key, to: room.id) }; BenchSpans.mark("cmdN.pinWorkspace.returned")
+            try await DaemonConnection.retryingLateReplies(PinWorkspaceRequest.command) {
+                try await homeConnection.pinWorkspace(session: session, key: key, to: room.id)
+            }
+            BenchSpans.mark("cmdN.pinWorkspace.returned")
         }
         if let browserProfile = spawn.browserProfile {
             let qualified = BrowserProfileService.QualifiedWorkspace(session: daemon.store.registryID ?? daemon.machineID, key: key.rawValue)
@@ -277,8 +186,8 @@ struct WorkspaceSpawner {
         vars.merge(defaults?.env ?? [:]) { _, profile in profile }
         vars.merge(spawn.env) { _, caller in caller }
         vars.merge(DaemonConnection.placementEnvironment(workspace: key, terminal: terminal)) { _, placement in placement }
-        let env: [String: String]? = daemon.supports(DaemonCapabilities.shared.terminalEnv) ? vars : nil
-        let keep: Bool? = spawn.keep && daemon.supports(DaemonCapabilities.shared.terminalReap) ? true : nil
+        let env: [String: String]? = daemon.supports(DaemonCapability.terminalEnv.rawValue) ? vars : nil
+        let keep: Bool? = spawn.keep && daemon.supports(DaemonCapability.terminalReap.rawValue) ? true : nil
         let repair: EmptyWorkspaceRepair = services.machines.emptyWorkspaceRepair(daemon.machineID, local: services.emptyWorkspaces)
         let cwd = spawn.cwd ?? defaults?.cwd.flatMap { $0.isEmpty ? nil : ($0 as NSString).expandingTildeInPath }
             ?? (daemon.isLocal ? spawn.inheritedCwd : nil) ?? daemon.defaultCwd

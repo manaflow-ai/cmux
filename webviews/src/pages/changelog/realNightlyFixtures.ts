@@ -27,7 +27,7 @@ export const realNightlies: ReleaseNotes[] = [
       {
         id: "agent-routes",
         title: "Switch a chat between proxies without a restart",
-        body: "A route says how an agent reaches its model: its own sign-in, an API key, the local CodeRouter, a subrouter, CLIProxyAPI or any Anthropic- or OpenAI-compatible endpoint. Add one with `cmux route add`, make it the default with `cmux route use ID --default`, and move one chat with `cmux route use ID --chat CHAT`. The chat keeps its conversation: the agent restarts on the new route between turns and resumes where it was. Keys stay in the Keychain or the environment; a route file holds only a reference. `cmux route test ID` says whether the route answers, needs a sign-in, is rate limited or cannot be reached.",
+        body: "A route says how an agent reaches its model: its own sign-in, an API key, the local CodeRouter, a subrouter, CLIProxyAPI or any Anthropic- or OpenAI-compatible endpoint. Add one as a file in ~/.config/cmux/routes and move a chat to it in the composer's Account menu. The chat keeps its conversation: the agent restarts on the new route between turns and resumes where it was. Keys stay in the Keychain or the environment; a route file holds only a reference.",
         action: {
           id: "none",
           title: "Try it",

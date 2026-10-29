@@ -23,6 +23,9 @@ pub(crate) struct StateEffects {
 impl StateEffects {
     pub(crate) const PRESENTATION: Self = Self { presentation: true, tree: true };
     pub(crate) const EVENTS_ONLY: Self = Self { presentation: false, tree: false };
+    /// A presentation field the raw tree does not carry (a workspace's
+    /// description or task status): the cache reloads, no `tree-changed`.
+    pub(crate) const NOTES: Self = Self { presentation: true, tree: false };
 }
 
 impl Mux {

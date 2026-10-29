@@ -24,5 +24,10 @@ cmux_next_require_fleet check-action-surfaces.sh "swift test" "cmux-next generat
   "cmux-ci run --class light --script scripts/cmux-next/check-action-surfaces.sh"
 root="${1:-$(git rev-parse --show-toplevel)/Packages/macOS/CmuxNext}"
 cd "$root"
-CMUX_CHECK_GENERATED_EXPORTS=1 exec swift test -j "${CMUX_NEXT_SWIFT_JOBS:-4}" \
+# CMUX_ACTION_SURFACES_SKIP_BUILD=1: the package and its tests are already built
+# (the CI jobs run `swift build --build-tests` first), so swift test does not
+# plan the whole graph again.
+skip_build=()
+[[ "${CMUX_ACTION_SURFACES_SKIP_BUILD:-}" != 1 ]] || skip_build=(--skip-build)
+CMUX_CHECK_GENERATED_EXPORTS=1 exec swift test -j "${CMUX_NEXT_SWIFT_JOBS:-4}" ${skip_build[@]+"${skip_build[@]}"} \
   --filter 'ActionSurfaceParityTests|ActionCatalogTests|ActionContractTests|CLISurfaceParityTests|LinkExportTests'

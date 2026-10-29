@@ -62,6 +62,10 @@ TRACKED_LINTS = [
     "cast_possible_truncation",
 ]
 LINTS = DENY_LINTS + TRACKED_LINTS
+# Frozen test fixtures (a binary as it once shipped, never edited): the
+# ratchet neither counts their hits nor scans their allows, so no lint or
+# toolchain change can ask for an edit.
+FROZEN_FIXTURES = {"cmux-holder-v3"}
 
 ALLOW_ATTR = re.compile(r"#!?\[(?:cfg_attr\([^\]]*?,\s*)?(allow|expect)\(([^\]]*)\)\]", re.S)
 REASON = re.compile(r"\breason\s*=")
@@ -119,7 +123,7 @@ def read_clippy(path):
                 continue
             if reason == "compiler-artifact":
                 name = package_name(item.get("package_id", ""))
-                if name and any(k in ("lib", "rlib", "bin", "cdylib", "staticlib", "proc-macro", "dylib")
+                if name and name not in FROZEN_FIXTURES and any(k in ("lib", "rlib", "bin", "cdylib", "staticlib", "proc-macro", "dylib")
                                 for k in item.get("target", {}).get("kind", [])):
                     checked.add(name)
                 continue
@@ -141,6 +145,8 @@ def read_clippy(path):
             crate = crate_of(file_name) or package_name(item.get("package_id", ""))
             if crate is None:
                 continue  # vendor/ or registry code: third-party
+            if crate in FROZEN_FIXTURES:
+                continue
             key = (file_name, span.get("line_start"), span.get("column_start"), lint)
             if key in seen:
                 continue  # the same source line seen through a lib and a bin target
@@ -164,6 +170,9 @@ def _allow_scan(root, crates_dir):
     for dirpath, dirnames, filenames in os.walk(crates_dir):
         rel = os.path.relpath(dirpath, crates_dir).replace("\\", "/")
         parts = rel.split("/")
+        if parts[0] in FROZEN_FIXTURES:
+            dirnames[:] = []
+            continue
         if len(parts) >= 2 and parts[1] in ("tests", "benches", "examples", "fuzz", "target"):
             dirnames[:] = []
             continue

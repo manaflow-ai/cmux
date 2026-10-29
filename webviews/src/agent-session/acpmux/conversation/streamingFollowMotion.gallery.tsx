@@ -1,5 +1,5 @@
 // l10n-allow-file: deterministic motion fixture labels.
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
 import { VirtualTranscript } from "../App";
@@ -9,11 +9,19 @@ import { turnView } from "./turns";
 const paragraph = (index: number) =>
   `Streaming paragraph ${index}: the lighthouse keeper checked the glass, crossed the gallery, and watched the tide return beneath the window.`;
 
-function StreamingFollowMotionGallery() {
+type MotionVariant = "steady-reveal" | "smooth-follow" | "subtle-fade";
+
+function StreamingFollowMotionGallery({ variant }: { variant: MotionVariant }) {
   const [count, setCount] = useState(0);
   const [streaming, setStreaming] = useState(false);
   const [done, setDone] = useState(false);
   const timer = useRef<number | undefined>(undefined);
+  useEffect(
+    () => () => {
+      if (timer.current !== undefined) window.clearInterval(timer.current);
+    },
+    [],
+  );
   const rows = useMemo(() => {
     const history: AcpmuxRow[] = Array.from({ length: 12 }, (_, index) => [
       { id: `history-user-${index}`, kind: "user", version: 1, at: index + 1, text: `Prompt ${index + 1}` },
@@ -43,27 +51,36 @@ function StreamingFollowMotionGallery() {
     }, 45);
   };
   return (
-    <div className="streaming-follow-motion-gallery">
-      <button type="button" className="ui-button" data-testid="stream-follow-start" onClick={start}>
-        Start deterministic stream
-      </button>
-      <output data-testid="stream-follow-done" aria-live="polite">
-        {done ? "Stream settled" : "Ready"}
-      </output>
-      <div className="streaming-follow-motion-gallery__transcript">
-        <VirtualTranscript
-          rows={rows}
-          sessionId="stream-motion"
-          onToggleActivity={() => {}}
-          expanded={new Set()}
-          working={streaming}
-        />
+    <div
+      className={`acpmux-shell streaming-follow-motion-gallery streaming-follow-motion-gallery--${variant}`}
+      style={{ height: "100%" }}
+    >
+      <div className="acpmux-main" data-dock="float">
+        <div className="acpmux-stage">
+          <header className="acpmux-header">
+            <button type="button" className="ui-button" data-testid="stream-follow-start" onClick={start}>
+              Start deterministic stream
+            </button>
+            <output data-testid="stream-follow-done" aria-live="polite">
+              {done ? "Stream settled" : "Ready"}
+            </output>
+          </header>
+          <VirtualTranscript
+            rows={rows}
+            sessionId="stream-motion"
+            onToggleActivity={() => {}}
+            expanded={new Set()}
+            working={streaming}
+          />
+        </div>
       </div>
     </div>
   );
 }
 
 const streamFollow: Play = async (ctx) => {
+  const scroller = ctx.find({ selector: ".acpmux-scroll" }) as HTMLElement;
+  if (scroller.clientHeight < 100) throw new Error("The comparison transcript must have a visible viewport");
   ctx.motion.start({ kind: "streaming-follow", target: ".acpmux-scroll", maxMs: 3_000 });
   await ctx.click({ testId: "stream-follow-start" });
   await ctx.waitFor(() => ctx.find({ testId: "stream-follow-done" }).textContent === "Stream settled", {
@@ -74,7 +91,23 @@ const streamFollow: Play = async (ctx) => {
     throw new Error(report?.problems.join("; ") ?? "streaming follow was not sampled");
 };
 
-export default componentEntry<Record<string, never>>({
+/// The reader is deliberately away from the latest message while the same
+/// deterministic stream grows. A layout-only scroll adjustment must not move
+/// the thumb or pull the reader back to the bottom.
+const streamWhileScrolledUp: Play = async (ctx) => {
+  await ctx.click({ testId: "stream-follow-start" });
+  const scroller = ctx.find({ selector: ".acpmux-scroll" }) as HTMLElement;
+  await ctx.waitFor(() => scroller.scrollHeight > scroller.clientHeight, { capMs: 3_000 });
+  await ctx.scroll({ selector: ".acpmux-scroll" }, 180);
+  const held = scroller.scrollTop;
+  await ctx.waitFor(() => ctx.find({ testId: "stream-follow-done" }).textContent === "Stream settled", {
+    capMs: 4_000,
+  });
+  const moved = Math.abs(scroller.scrollTop - held);
+  if (moved > 1) throw new Error(`Scrolled-up transcript moved ${moved.toFixed(2)}px while streaming`);
+};
+
+export default componentEntry<{ variant: MotionVariant }>({
   id: "agent-pane.streaming-follow-motion",
   title: "Streaming follow motion",
   area: "Agent pane",
@@ -92,6 +125,12 @@ export default componentEntry<Record<string, never>>({
       import("../styles.css"),
       import("../conversation/conversation.css"),
       import("../composerControls.css"),
+      import("./streamingFollowMotion.css"),
     ]),
-  variants: { stream: { props: {}, play: streamFollow } },
+  variants: {
+    "steady-reveal": { props: { variant: "steady-reveal" }, play: streamFollow },
+    "smooth-follow": { props: { variant: "smooth-follow" }, play: streamFollow },
+    "subtle-fade": { props: { variant: "subtle-fade" }, play: streamFollow },
+    "stream-scrolled-up": { props: { variant: "steady-reveal" }, play: streamWhileScrolledUp },
+  },
 });

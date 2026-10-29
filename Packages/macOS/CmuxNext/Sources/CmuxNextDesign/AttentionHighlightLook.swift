@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextDesignTokens
 
 /// How strong the pane attention ring (the notification highlight) draws
 /// (Debug Settings `notifications.attention.look`, cx-epgo). Lawrence on the

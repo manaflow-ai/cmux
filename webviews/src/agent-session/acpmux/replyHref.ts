@@ -1,3 +1,5 @@
+import { AGENT_SESSION_TOKEN } from "./links";
+
 /// A link target from untrusted text (a reply, a tool's output) that the page may draw as a link:
 /// an absolute http or https URL with no user name or password, returned in its parsed form, so
 /// the link opens exactly what was checked. Anything else draws as text: a relative target
@@ -23,12 +25,13 @@ export function safeHref(href: string): string | undefined {
 /// (`javascript:`, `file:`, `data:`, `ssh:`...) as text.
 export function appHref(href: string): string | undefined {
   const text = href.trim();
-  if (
-    !/^cmux(-[a-z0-9-]+)?:\/\/(workspace|pane|tab|session|chief|agent)\/[A-Za-z0-9._~/-]+(\?[A-Za-z0-9._~=&-]+)?(#[A-Za-z0-9._~-]+)?$/.test(
-      text,
-    )
-  )
-    return undefined;
+  const authority = /^cmux(-[a-z0-9-]+)?:\/\//;
+  const rest = text.slice(text.indexOf("://") + 3);
+  const ordinary = /^(workspace|pane|tab|session|chief)\/[A-Za-z0-9._~/-]+(\?[A-Za-z0-9._~=&-]+)?(#[A-Za-z0-9._~-]+)?$/;
+  const agent = /^agent\/[a-z0-9-]{1,64}\/([^/?#]+)(\?[A-Za-z0-9._~=&-]+)?$/;
+  const agentMatch = rest.match(agent);
+  const isAgent = agentMatch !== null && AGENT_SESSION_TOKEN.test(agentMatch[1]);
+  if (!authority.test(text) || !(ordinary.test(rest) || isAgent)) return undefined;
   let url: URL;
   try {
     url = new URL(text);

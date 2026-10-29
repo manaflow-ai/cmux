@@ -28,6 +28,8 @@ struct BranchDaemonHarness {
         let environment = daemonEnvironment ?? LoginEnvironment.shared.daemonEnvironment(login: nil, base: base, overrides: [:])
         var configuration = DaemonLauncher.Configuration(binary: binary, session: session,
                                                          stateDirectory: root.appendingPathComponent("state"), installKey: installKey)
+        // The owner ends with this test process, also when it crashes or a CI job is cancelled before `stop()`.
+        if RealBinary.isBranchBuild { configuration.exitWithProcess = ProcessInfo.processInfo.processIdentifier }
         if let terminalReapGraceSeconds { configuration.terminalReapGraceSeconds = terminalReapGraceSeconds }
         let launcher = DaemonLauncher(configuration: configuration, environment: { environment })
         let ensured = try await launcher.ensure()
@@ -70,7 +72,7 @@ struct BranchDaemonHarness {
     static func shutDown(_ connection: DaemonConnection) async {
         guard let identity = await connection.identity else { return await connection.close() }
         let hosts = TerminalHosts.of(daemon: identity.pid)
-        if identity.supports(DaemonCapabilities.shared.terminalReap) {
+        if identity.supports(DaemonCapability.terminalReap.rawValue) {
             // Stop reconnecting first: on the daemon's EOF the connection
             // would run `server ensure` and start a fresh daemon that outlives
             // the test. The end-terminals shutdown uses its own socket.

@@ -303,6 +303,8 @@ static void BindForkApi(const char* framework_binary) {
   CMUX_BIND(tab_restore_navigation, "cmux_tab_restore_navigation");
   CMUX_BIND(browser_set_background_color, "cmux_browser_set_background_color");
   CMUX_BIND(tab_set_transparent_background, "cmux_tab_set_transparent_background");
+  CMUX_BIND(browser_set_layer_hosting, "cmux_browser_set_layer_hosting");
+  CMUX_BIND(browser_set_resize_sync, "cmux_browser_set_resize_sync");
   CMUX_BIND(set_new_tab_page_url, "cmux_set_new_tab_page_url");
   CMUX_BIND(set_install_prompt_handler, "cmux_set_install_prompt_handler");
   CMUX_BIND(install_prompt_reply, "cmux_install_prompt_reply");
@@ -332,6 +334,15 @@ static void BindForkApi(const char* framework_binary) {
   CMUX_BIND(set_password_generation_enabled, "cmux_set_password_generation_enabled");
   CMUX_BIND(bookmarks_observe, "cmux_bookmarks_observe");
   CMUX_BIND(bookmarks_sync, "cmux_bookmarks_sync");
+  CMUX_BIND(browser_set_detached_hosting, "cmux_browser_set_detached_hosting");
+  CMUX_BIND(browser_set_embedder_active, "cmux_browser_set_embedder_active");
+  CMUX_BIND(post_user_input_task, "cmux_post_user_input_task");
+  CMUX_BIND(browser_send_wheel, "cmux_browser_send_wheel");
+  CMUX_BIND(browser_text_input_watch, "cmux_browser_text_input_watch");
+  CMUX_BIND(browser_accessibility_token, "cmux_browser_accessibility_token");
+  CMUX_BIND(set_drag_source_handler, "cmux_set_drag_source_handler");
+  CMUX_BIND(browser_drag_source_ended, "cmux_browser_drag_source_ended");
+  CMUX_BIND(browser_drag_target_enter_source, "cmux_browser_drag_target_enter_source");
 #undef CMUX_BIND
 }
 

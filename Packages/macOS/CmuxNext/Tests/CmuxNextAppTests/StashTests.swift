@@ -188,7 +188,7 @@ struct StashTests {
     /// one workspace member, and Restore All brings the workspace back.
     @Test func saveAndCloseWorkspaceStashesItWhole() async throws {
         try await PinnedPageTests.withApp { services, connection in
-            try #require(services.daemon.supports(DaemonCapabilities.shared.stashWorkspaces), "the same-tree daemon stashes whole workspaces")
+            try #require(services.daemon.supports(DaemonCapability.stashWorkspaces.rawValue), "the same-tree daemon stashes whole workspaces")
             let model = services.historyPage.stash.model
             let store = services.daemon.store
             let name = "stash-ws-\(UUID().uuidString.prefix(6).lowercased())"
@@ -209,6 +209,47 @@ struct StashTests {
             try await services.historyPage.stash.restoreAll(group.id, workspaces: true)
             try await PinnedPageTests.until({ store.workspaces.contains { $0.name == name } }, report: { "the workspace did not come back" })
             #expect(!model.groups.contains { $0.id == group.id })
+        }
+    }
+
+    /// Save and Close Workspace with a remote-terminal tab (#24192): the app stops following the
+    /// tab (its placeholder, live surface and title follow go, as a close lets them go), and
+    /// Restore All brings the tab back on the same terminal, which the stash kept.
+    @Test func saveAndCloseWorkspaceLetsGoOfItsRemoteTerminalTabs() async throws {
+        try await PinnedPageTests.withApp { services, connection in
+            try #require(services.daemon.supports(DaemonCapability.stashWorkspaces.rawValue), "the same-tree daemon stashes whole workspaces")
+            let model = services.historyPage.stash.model
+            let store = services.daemon.store
+            let name = "stash-remote-\(UUID().uuidString.prefix(6).lowercased())"
+            let created = try await connection.state.createWorkspace(name: name, ephemeral: false, terminal: true, focus: false)
+            // The store lists the workspace before its first pane arrives, so wait for the pane too.
+            try await PinnedPageTests.until({
+                store.workspaces.contains { $0.resourceID == created.workspaceID && $0.key != nil && $0.screens.first?.panes.first?.handle != nil }
+            }, report: { "the workspace has no pane" })
+            let workspace = try #require(store.workspaces.first { $0.resourceID == created.workspaceID })
+            let pane = try #require(workspace.screens.first?.panes.first?.handle)
+            // A terminal on a machine this app has not connected to: the tab shows its placeholder.
+            let ref = RemoteTerminalRef(sessionID: UUID().uuidString.lowercased(),
+                                        terminalID: TerminalID(rawValue: UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()),
+                                        sessionName: "stash-remote-machine")
+            let surface = try await connection.newRemoteTerminalTab(ref, in: pane).surface
+            try await PinnedPageTests.until({ store.tab(surface: surface)?.kind == .remoteTerminal }, report: { "no remote-terminal tab" })
+            let tab = try #require(store.tab(surface: surface))
+            _ = services.remoteTerminals.content(for: tab, home: services.daemon)
+            try #require(services.remoteTerminals.existingPlaceholder(tab.id) != nil, "the remote-terminal tab shows no placeholder")
+
+            let target = ActionInvocation(target: ActionTargetRef(kind: .workspace, id: workspace.id), origin: .cli).confirmed()
+            let failures = try await Self.perform("workspace.stash", target, services)
+            #expect(failures.isEmpty, "\(failures)")
+            try await PinnedPageTests.until({ !store.workspaces.contains { $0.name == name } }, report: { "the workspace is still open" })
+            #expect(services.remoteTerminals.existingPlaceholder(tab.id) == nil, "the stashed remote-terminal tab is still followed")
+
+            await model.reload()
+            let group = try #require(model.groups.first { $0.tabs.first?.title == name }, "groups: \(model.groups)")
+            try await services.historyPage.stash.restoreAll(group.id, workspaces: true)
+            try await PinnedPageTests.until({
+                store.workspaces.first { $0.name == name }?.screens.flatMap(\.panes).flatMap(\.tabs).contains { $0.remote == ref } == true
+            }, report: { "the workspace did not come back with its remote-terminal tab" })
         }
     }
 

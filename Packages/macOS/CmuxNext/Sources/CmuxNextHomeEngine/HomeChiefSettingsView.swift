@@ -86,6 +86,12 @@ public final class HomeChiefSettingsView: NSView {
     /// Runs harness `id`'s backend check on this Mac's acpmux (`_acpmux/harness/doctor`, one real
     /// hello turn); true when it passed. The app sets it; unset, every harness passes.
     public var checkHarness: @MainActor (String) async -> Bool = { _ in true }
+    /// The ids of this Mac's acpmux harnesses (`_acpmux/harnesses`), which the Harness picker
+    /// offers after the official engines for a Chief whose brain runs on this Mac. The app sets
+    /// it; unset, the picker offers only the official engines.
+    public var listHarnesses: @MainActor () async -> [String] = { [] }
+    /// What ``listHarnesses`` last returned.
+    var listedHarnesses: [String] = []
     /// Renames the Chief: the daemon's set-title op for a Chief of this Mac, the account's
     /// `chief.update` for a cloud Chief. Nil when the name was saved, else why it was not.
     public var onRename: @MainActor (String) async -> HomeChiefRenameFailure? = { _ in nil }
@@ -111,19 +117,24 @@ public final class HomeChiefSettingsView: NSView {
     public var pictureWindow: () -> NSWindow? = { nil }
 
     /// The harness items the picker offers: the official engines (``ChiefBackend/official``:
-    /// the user's own Claude login, Codex, and UniiChat, acpmux's built-in `unii`); the
+    /// the user's own Claude login, Codex, Muse Code, and UniiChat, acpmux's built-in `unii`); the
     /// CodeRouter route (`claude-cr`) after Claude only when this Chief's acpmux has one
-    /// configured. The subrouter pool (`claude-sr`) is never a default item; a current choice
-    /// of it still shows (`fill`).
-    nonisolated static func harnesses(routeConfigured: Bool) -> [String] {
+    /// configured; then every other harness `listed` by this Mac's acpmux
+    /// (`_acpmux/harnesses`), in its order (Lawrence 2026-10-23: "chief can choose between
+    /// literally all the acpmux stuff"). A current choice outside the list still shows (`fill`).
+    nonisolated static func harnesses(routeConfigured: Bool, listed: [String] = []) -> [String] {
         let official = ChiefBackend.official.map(\.id)
-        guard routeConfigured else { return official }
-        return [ChiefBackend.claude.id, "claude-cr"] + official.filter { $0 != ChiefBackend.claude.id }
+        var offered = routeConfigured
+            ? [ChiefBackend.claude.id, "claude-cr"] + official.filter { $0 != ChiefBackend.claude.id }
+            : official
+        var seen = Set(offered)
+        for id in listed where !id.isEmpty && seen.insert(id).inserted { offered.append(id) }
+        return offered
     }
 
     /// The harness picker's items: each harness with the name the app shows for it.
-    nonisolated static func harnessItems(routeConfigured: Bool) -> [(value: String, title: String)] {
-        harnesses(routeConfigured: routeConfigured).map { ($0, ChiefBackend.title(for: $0)) }
+    nonisolated static func harnessItems(routeConfigured: Bool, listed: [String] = []) -> [(value: String, title: String)] {
+        harnesses(routeConfigured: routeConfigured, listed: listed).map { ($0, ChiefBackend.title(for: $0)) }
     }
 
     public init(muxHome: URL, source: any HomeChiefEngineSource) {
@@ -339,6 +350,12 @@ public final class HomeChiefSettingsView: NSView {
 
     @objc func useDefaultPicture() {
         usePicture(nil)
+    }
+
+    /// Says `text` on the card's note line (another part's refused change, such as an upload),
+    /// kept until the person's next change, as a refused picture's note is.
+    public func showNote(_ text: String) {
+        note(text, kept: true)
     }
 
     /// Makes `source` the shown Chief's picture (nil: the default again) through

@@ -1,5 +1,6 @@
 public import AppKit
 import SwiftUI
+public import CmuxNextDesignTokens
 
 /// The Motion animations that opted in to settling at sleep
 /// (`MotionGate.animate(_:in:_:settleAtSleep:completion:)`) and are still running.

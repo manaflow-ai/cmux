@@ -34,6 +34,7 @@ actor FakeAuthClient: AuthClient {
     private(set) var teamSelectionCount = 0
     private(set) var teamCreateCount = 0
     private var nextTeamSelectionGate: (started: TestPhaseSignal, release: TestContinuationBlocker)?
+    private var nextSelectedTeamReadGate: (started: TestPhaseSignal, release: TestContinuationBlocker)?
     private var nextTeamCreateGate: (started: TestPhaseSignal, release: TestContinuationBlocker)?
     var throwOnCurrentUser: (any Error)?
     var throwOnListTeams: (any Error)?
@@ -69,10 +70,16 @@ actor FakeAuthClient: AuthClient {
     func setMintedAccessToken(_ token: String?) { mintedAccessToken = token }
     func setThrowOnCurrentUser(_ error: (any Error)?) { throwOnCurrentUser = error }
     func setTeams(_ teams: [CMUXAuthTeam]) { self.teams = teams }
+    func setServerSelectedTeamID(_ id: String?) { serverSelectedTeamID = id }
     func setThrowOnListTeams(_ error: (any Error)?) { throwOnListTeams = error }
     func setNonce(_ nonce: String) { self.nonce = nonce }
     func holdNextTeamSelection(started: TestPhaseSignal, release: TestContinuationBlocker) {
         nextTeamSelectionGate = (started, release)
+    }
+    /// Holds the next ``selectedTeamID()`` read after it has read the server's
+    /// value, so the read answers a selection that may have changed meanwhile.
+    func holdNextSelectedTeamRead(started: TestPhaseSignal, release: TestContinuationBlocker) {
+        nextSelectedTeamReadGate = (started, release)
     }
     func holdNextTeamCreate(started: TestPhaseSignal, release: TestContinuationBlocker) {
         nextTeamCreateGate = (started, release)
@@ -116,7 +123,15 @@ actor FakeAuthClient: AuthClient {
         return teams
     }
 
-    func selectedTeamID() async throws -> String? { serverSelectedTeamID }
+    func selectedTeamID() async throws -> String? {
+        let read = serverSelectedTeamID
+        if let gate = nextSelectedTeamReadGate {
+            nextSelectedTeamReadGate = nil
+            await gate.started.markStarted()
+            await gate.release.wait()
+        }
+        return read
+    }
 
     func setSelectedTeam(id: String?) async throws {
         teamSelectionCount += 1

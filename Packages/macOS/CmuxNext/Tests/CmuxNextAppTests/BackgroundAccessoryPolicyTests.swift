@@ -26,41 +26,88 @@ struct BackgroundAccessoryPolicyTests {
         var policies: [NSApplication.ActivationPolicy] = []
     }
 
-    @Test func noWindowIsAMenuBarAppAndAnOpeningWindowComesBackRegular() async throws {
-        let binary = try #require(SameTreeDaemonBinary.url)
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent("cn-bg-\(UUID().uuidString.prefix(8))")
-        let session = "cn-bg-\(UUID().uuidString.prefix(8).lowercased())"
-        let launcher = DaemonLauncher(
-            configuration: .init(binary: binary, session: session, stateDirectory: root.appendingPathComponent("state")),
-            environment: { ["HOME": NSHomeDirectory(), "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "SHELL": "/bin/sh", "TERM": "xterm-256color"] })
+    /// A launch as `CmuxNextApp.main` and `AppDelegate` run it, on its own daemon and cmux.json.
+    @MainActor private struct Launch {
+        let services: AppServices
+        let settings: SettingsController
+        let configURL: URL
+        let root: URL
+        let presented = Presented()
+
+        init() async throws {
+            let binary = try #require(SameTreeDaemonBinary.url)
+            root = FileManager.default.temporaryDirectory.appendingPathComponent("cn-bg-\(UUID().uuidString.prefix(8))")
+            let session = "cn-bg-\(UUID().uuidString.prefix(8).lowercased())"
+            let launcher = DaemonLauncher(
+                configuration: .init(binary: binary, session: session, stateDirectory: root.appendingPathComponent("state")),
+                environment: { ["HOME": NSHomeDirectory(), "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "SHELL": "/bin/sh", "TERM": "xterm-256color"] })
+            // As `CmuxNextApp.main` and `AppDelegate` launch: regular, and these services are the process's.
+            NSApplication.shared.setActivationPolicy(.regular)
+            services = AppServices(environment: AppEnvironment.current([:]))
+            AppProcessRoot.shared.adopt(services)
+            // A cmux.json of its own (Settings needs one loaded), with the setting unset: on.
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            configURL = root.appendingPathComponent("cmux.json")
+            try Data("{}".utf8).write(to: configURL)
+            settings = SettingsController(registry: services.registry, design: DesignSettings(), fileURL: configURL,
+                                          managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
+            await settings.reload()
+            services.settings = settings
+            AppActions.bind(services)
+            services.palette.bindRegistryActions()
+            services.windows.ordersWindowsIn = false
+            // The policy each window is presented under (the hook runs after it is ordered in).
+            let presented = presented
+            services.windows.onPresent = { _ in presented.policies.append(NSApp.activationPolicy()) }
+            services.daemon.start {
+                DaemonConnection(configuration: DaemonConnection.Configuration(terminalEnvironment: nil), endpointProvider: launcher.endpointProvider)
+            }
+        }
+
+        func shutDown() async {
+            if let connection = services.daemon.connection, let identity = services.daemon.identity {
+                _ = try? await connection.request(ShutdownDaemonRequest(pid: identity.pid, generation: identity.generation, endTerminals: true),
+                                                  timeout: .seconds(10))
+            }
+            services.daemon.shutdownConnection()
+        }
+    }
+
+    /// The window closed while the restore still runs stays closed: the restore neither opens it
+    /// again nor lands the first workspace in a new one. The launch window is the one on screen then.
+    @Test func aWindowClosedBeforeTheRestoreFinishesStaysClosed() async throws {
         let app = NSApplication.shared
         let policyBefore = app.activationPolicy()
-        // As `CmuxNextApp.main` and `AppDelegate` launch: regular, and these services are the process's.
-        app.setActivationPolicy(.regular)
-        let services = AppServices(environment: AppEnvironment.current([:]))
-        AppProcessRoot.shared.adopt(services)
-        // A cmux.json of its own (Settings needs one loaded), with the setting unset: on.
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        let configURL = root.appendingPathComponent("cmux.json")
-        try Data("{}".utf8).write(to: configURL)
-        let settings = SettingsController(registry: services.registry, design: DesignSettings(), fileURL: configURL,
-                                          managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
-        await settings.reload()
-        services.settings = settings
-        AppActions.bind(services)
-        services.palette.bindRegistryActions()
-        services.windows.ordersWindowsIn = false
-        // The policy each window is presented under (the hook runs after it is ordered in).
-        let presented = Presented()
-        services.windows.onPresent = { _ in presented.policies.append(NSApp.activationPolicy()) }
-        services.daemon.start {
-            DaemonConnection(configuration: DaemonConnection.Configuration(terminalEnvironment: nil), endpointProvider: launcher.endpointProvider)
-        }
+        defer { app.setActivationPolicy(policyBefore) }
+        let launch = try await Launch()
+        defer { try? FileManager.default.removeItem(at: launch.root) }
+        let windows = launch.services.windows
+        windows.restoreWhenLoaded()
+        try #require(!windows.restored, "the restore finished before the launch window could close")
+        try #require(windows.controllers.count == 1, "no launch window")
+        _ = launch.services.registry.perform("closeAllWindows", invocation: ActionInvocation(origin: .user))
+        #expect(windows.controllers.isEmpty)
+        launch.presented.policies = []
+        await Self.wait(within: .seconds(90)) { windows.restored && !windows.registry.isLaunching }
+        try #require(windows.restored, "the restore never finished")
+        // A reopened window would land on the next main-actor turns; test-only wait.
+        try? await Task.sleep(for: .milliseconds(500))
+        #expect(launch.presented.policies.isEmpty, "the restore presented a closed window, even if only for a moment")
+        #expect(windows.controllers.isEmpty, "the restore opened \(windows.controllers.count) window(s) after the user closed the launch window")
+        await launch.shutDown()
+    }
+
+    @Test func noWindowIsAMenuBarAppAndAnOpeningWindowComesBackRegular() async throws {
+        let app = NSApplication.shared
+        let policyBefore = app.activationPolicy()
+        defer { app.setActivationPolicy(policyBefore) }
+        let launch = try await Launch()
+        defer { try? FileManager.default.removeItem(at: launch.root) }
+        let services = launch.services
+        let settings = launch.settings
+        let configURL = launch.configURL
+        let presented = launch.presented
         services.windows.restoreWhenLoaded()
-        defer {
-            app.setActivationPolicy(policyBefore)
-            try? FileManager.default.removeItem(at: root)
-        }
         let windows = services.windows
         let hasWindow = { windows.active.flatMap { windows.registry.members(of: $0.state.id).first } != nil }
         await Self.wait(within: .seconds(90), until: hasWindow)
@@ -103,10 +150,6 @@ struct BackgroundAccessoryPolicyTests {
         #expect(windows.controllers.isEmpty)
         #expect(app.activationPolicy() == .regular, "the setting is off: the Dock icon stays with no window")
 
-        if let connection = services.daemon.connection, let identity = services.daemon.identity {
-            _ = try? await connection.request(ShutdownDaemonRequest(pid: identity.pid, generation: identity.generation, endTerminals: true),
-                                              timeout: .seconds(10))
-        }
-        services.daemon.shutdownConnection()
+        await launch.shutDown()
     }
 }

@@ -15,6 +15,8 @@ extension HomeChiefSettingsView {
         let home = muxHome
         // task-owner: one read off the main actor; ends when it is shown
         return Task { [weak self] in
+            // This Mac's acpmux harnesses, for a brain that runs here (a paired server's are its own).
+            if let self, source.isLocal { listedHarnesses = await listHarnesses() }
             let result = await Task.detached { () async -> Result<HomeChiefSnapshot, HomeChiefEngineError> in
                 do { return .success(try await source.read()) } catch let error as HomeChiefEngineError { return .failure(error) } catch { return .failure(.other(String(describing: error))) }
             }.value
@@ -141,8 +143,12 @@ extension HomeChiefSettingsView {
         var all = values
         if let current, !all.contains(where: { $0.value == current }) { all.append((current, title(current))) }
         for item in all {
-            button.addItem(withTitle: item.title)
-            button.lastItem?.representedObject = item.value
+            // Added as items, not by title: two ids can read as one name, and addItem(withTitle:) keeps only one.
+            let entry = NSMenuItem(title: item.title, action: nil, keyEquivalent: "")
+            entry.representedObject = item.value
+            // A value shown by a name keeps its id where a person can still find it.
+            entry.toolTip = item.title == item.value ? nil : item.value
+            button.menu?.addItem(entry)
         }
         if let current, let index = all.firstIndex(where: { $0.value == current }) {
             button.selectItem(at: index + 1)
@@ -181,7 +187,7 @@ extension HomeChiefSettingsView {
     /// The rows' items for `snapshot`, with this harness's recent models.
     func titles(_ snapshot: HomeChiefSnapshot) -> HomeChiefEngineTitles {
         let harness = snapshot.harness ?? snapshot.effective?.harness
-        return HomeChiefEngineTitles(snapshot, recents: harness.map(recents.models(harness:)) ?? [])
+        return HomeChiefEngineTitles(snapshot, recents: harness.map(recents.models(harness:)) ?? [], listed: listedHarnesses)
     }
 
     @objc func picked(_ sender: NSPopUpButton) {

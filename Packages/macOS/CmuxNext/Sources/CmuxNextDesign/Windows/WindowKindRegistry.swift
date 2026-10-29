@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextDesignTokens
 
 /// Which windows are which ``WindowKind``. Weak keys, like
 /// `ThemeScopeRegistry`: an entry lives as long as its window.

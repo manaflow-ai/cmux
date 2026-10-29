@@ -57,40 +57,32 @@ bun scripts/agent-pane/bundle.mjs "$SRC/acpmux/main.tsx" "$SRC/acpmux/shiki" "$W
 # marks the module side-effect free, so an import of it would be dropped. Both hosts serve it
 # with a policy that allows no network.
 bun scripts/agent-pane/bundle.mjs node_modules/@pierre/diffs/dist/worker/worker.js "$SRC/acpmux/shiki" "$WORK/highlight-worker.js"
+# An attached image's decode, scale and encode run in a worker beside the page too
+# (composer/imagePool.ts), so pasting large screenshots never blocks typing.
+bun scripts/agent-pane/bundle.mjs "$SRC/acpmux/composer/imageWorker.ts" - "$WORK/image-worker.js"
 
-# The desktop layer first (R139): chrome never selects, so Cmd-A highlights only
-# fields and `.selectable` content. desktop.ts imports it, but the bundle drops CSS.
-cat "$ROOT/webviews/src/pages/shared/desktop.css" > "$WORK/styles.css"
-# The liquid glass surface and tokens, which desktop.ts imports beside desktop.css.
-cat "$ROOT/webviews/src/ui/glass/glass.css" >> "$WORK/styles.css"
-# The shared shimmer wave, which desktop.ts imports too.
-cat "$ROOT/webviews/src/ui/wave.css" >> "$WORK/styles.css"
-# The shared stylesheet opens with a Tailwind @import that only Vite resolves;
-# the pane needs just its variables and rules, so drop @import lines.
-grep -v '^@import ' "$SRC/shared/styles.css" >> "$WORK/styles.css"
-# One surface for every menu and popover (the pane does not load ui.css, which imports it).
-cat "$ROOT/webviews/src/ui/popupSurface.css" >> "$WORK/styles.css"
-# The shared icon+label button (New Tab's tools, the composer footer), imported by main.tsx.
-cat "$ROOT/webviews/src/ui/ghost.css" >> "$WORK/styles.css"
-# The shared find pill (Find in Chat), imported by ui/FindPill.tsx.
-cat "$ROOT/webviews/src/ui/findPill.css" >> "$WORK/styles.css"
-# The import suggestion cards in New Tab's notice slot (ui/ImportCards.tsx).
-cat "$ROOT/webviews/src/ui/importCards.css" >> "$WORK/styles.css"
-cat "$ROOT/webviews/src/theme/messages.css" "$SRC/acpmux/styles.css" "$SRC/acpmux/conversation/conversation.css" "$SRC/acpmux/chips/chips.css" "$SRC/acpmux/chips/linkCard.css" "$SRC/acpmux/previewCard/previewCard.css" "$SRC/acpmux/contextCard.css" >> "$WORK/styles.css"
-# changes.css @imports git.css; an @import never loads here (mid-sheet, and the CSP loads no
-# style file), so inline it where the import stood.
-cat "$SRC/acpmux/changes/git.css" >> "$WORK/styles.css"
-grep -v '^@import ' "$SRC/acpmux/changes/changes.css" >> "$WORK/styles.css"
-cat "$SRC/acpmux/handoff/styles.css" "$SRC/acpmux/checkpoints/styles.css" "$SRC/acpmux/composerControls.css" "$SRC/acpmux/composerStates.css" "$SRC/acpmux/composerLocation.css" "$SRC/acpmux/composerLook.css" "$SRC/acpmux/savedEnvironments.css" "$SRC/acpmux/bottomStack.css" "$SRC/acpmux/composerAttachments.css" "$SRC/acpmux/composer/dropOverlay.css" "$SRC/acpmux/markdownField.css" \
-  "$SRC/acpmux/modelPicker.css" "$SRC/acpmux/keys.css" "$SRC/acpmux/summary/summary.css" "$SRC/acpmux/subagents/subagents.css" "$SRC/acpmux/header/header.css" "$SRC/acpmux/needsYou/needsYou.css" "$SRC/acpmux/newtab/screen.css" "$SRC/acpmux/newtab/history.css" "$SRC/acpmux/newtab/noEntry.css" "$SRC/acpmux/threadMinimap/threadMinimap.css" >> "$WORK/styles.css"
-cat "$SRC/acpmux/turnChanges/turnChanges.css" "$SRC/acpmux/Inspector.css" "$SRC/acpmux/inspector/inspector.css" "$SRC/acpmux/inspector/ContextSection.css" "$SRC/acpmux/dictation.css" >> "$WORK/styles.css"
-cat "$SRC/acpmux/addProject.css" "$SRC/acpmux/harnesses/harnesses.css" "$SRC/acpmux/replay/replay.css" "$SRC/acpmux/offer/suggestedTasks.css" "$SRC/acpmux/started/startedSessions.css" "$SRC/acpmux/started/sessionHover.css" "$SRC/acpmux/conversation/SubsessionCallCard.css" "$SRC/acpmux/conversation/AgentMessageRow.css" "$ROOT/webviews/src/markdown-task-checkbox.css" >> "$WORK/styles.css"
-# Every sheet the pane imports ships: a missing one renders its component unstyled in the app
-# only (the dev server loads imports), as New Tab's tools did.
+# The page's sheets, derived, never a hand-kept list here (a sheet missing from one shipped its
+# component unstyled in the app only, and five times this month failed every app build at the check
+# below): every sheet the dev server applies, in its order. dev.tsx (the dev server's entry) imports
+# the base sheets in the page's order, then main.tsx, whose components import the rest; bundle.mjs
+# lists them depth-first as the modules run (cssInImportOrder). A new sheet a component imports
+# ships with no change here, after the base sheets, and the app and the dev server agree.
+bun scripts/agent-pane/bundle.mjs "$SRC/acpmux/dev.tsx" "$SRC/acpmux/shiki" "$WORK/order/dev.js" --split --css-inputs "$WORK/page-sheets" --css-inputs-only
+# A sheet's own @import never loads here (mid-sheet, and the CSP loads no style file): the walk
+# lists an imported local sheet before its importer, and Tailwind's import is compiled last below.
+strip_imports() { perl -ne 'print unless /^\@import /' "$1"; }
+: > "$WORK/styles.css"
 while IFS= read -r sheet; do
+  case "$sheet" in src/agent-session/acpmux/tailwind.css) continue ;; esac
+  strip_imports "$ROOT/webviews/$sheet" >> "$WORK/styles.css"
+done < "$WORK/page-sheets"
+# Every sheet the pane imports ships (main.tsx's list against the page): dev.tsx imports main.tsx,
+# so this holds unless the dev entry stops loading the pane.
+while IFS= read -r sheet; do
+  strip_imports "$ROOT/webviews/$sheet" > "$WORK/one.css"
   perl -0777 -e 'open my $all, "<", shift or die; open my $one, "<", shift or die; exit(index(<$all>, <$one>) < 0)' \
-    "$WORK/styles.css" "$ROOT/webviews/$sheet" && continue
-  echo "error: the agent pane imports webviews/$sheet but build-agent-pane-web.sh does not add it to the page's styles" >&2
+    "$WORK/styles.css" "$WORK/one.css" && continue
+  echo "error: the agent pane imports webviews/$sheet but the page's styles (dev.tsx's sheets) leave it out" >&2
   exit 1
 done < "$WORK/imported-sheets"
 if grep -n '^@import ' "$WORK/styles.css" >&2; then
@@ -141,6 +133,7 @@ cp "$WORK/pane/pane.js" "$OUT/pane.js"
 rm -rf "$OUT/chunks"
 cp -R "$WORK/pane/chunks" "$OUT/chunks"
 cp "$WORK/highlight-worker.js" "$OUT/highlight-worker.js"
+cp "$WORK/image-worker.js" "$OUT/image-worker.js"
 rm -rf "$OUT/locales"
 cp -R "$WORK/locales" "$OUT/locales"
 echo "wrote $OUT/index.html ($(wc -c < "$OUT/index.html" | tr -d ' ') bytes) pane.js ($(wc -c < "$OUT/pane.js" | tr -d ' ') bytes) and $(ls "$OUT/chunks" | wc -l | tr -d ' ') chunks"

@@ -3,6 +3,13 @@ import Foundation
 extension SidebarModel {
     // MARK: Selection (UI-local)
 
+    /// The bridge's `.select` echo is singular, but these two local gestures have already
+    /// established an intentional multi-selection that must survive the activation.
+    private func select(_ id: WorkspaceID, preserving selection: Set<WorkspaceID>) {
+        send(.select(id))
+        if self.selection == [id] { self.selection = selection }
+    }
+
     /// A placeholder row (a machine still connecting) is never selected,
     /// renamed, dragged or shown.
     public func isPlaceholder(_ id: WorkspaceID) -> Bool { workspace(id)?.rowState.isPending == true }
@@ -23,7 +30,7 @@ extension SidebarModel {
         if selection.contains(id) {
             guard selection.count > 1 else { return }
             selection.remove(id)
-            if activeWorkspaceID == id, let next = orderedSelection.first { send(.select(next)) }
+            if activeWorkspaceID == id, let next = orderedSelection.first { select(next, preserving: selection) }
         } else {
             selection.insert(id)
             selectionAnchor = id
@@ -71,7 +78,7 @@ extension SidebarModel {
             selectionAnchor = anchor
             selectionExtent = id
             activeWorkspaceID = id
-            send(.select(id))
+            select(id, preserving: selection)
         } else {
             click(id)
         }

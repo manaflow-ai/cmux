@@ -34,6 +34,12 @@ extension AgentHarnessCenter {
                     throw PageError.invalidParams("no backup")
                 }
                 return try await restore(backup: backup)
+            case "symbol":
+                // A custom harness's SF Symbol icon for the page (it cannot draw symbols itself).
+                let src = params["name"]?.stringValue.flatMap { symbols.dataURL($0) }
+                return .object(src.map { ["src": .string($0)] } ?? [:])
+            case "icon" where !id.isEmpty:
+                return try await setIcon(id: id, change: AgentHarnessIconChange(params))
             case "doctor" where !id.isEmpty:
                 return try await doctor(id: id, noPrompt: params["noPrompt"]?.boolValue ?? false)
             default:

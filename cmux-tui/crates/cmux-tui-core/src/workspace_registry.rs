@@ -40,6 +40,7 @@ use detached_terminals::require_live_workspace;
 mod effect_store;
 pub(crate) mod feed_local_store;
 pub use compact::{RegistryCompactError, RegistryCompaction, compact_registry};
+mod browser_profile_proxy;
 mod idle_policy_store;
 mod journal_extensions;
 mod mutation_ledger;
@@ -56,6 +57,8 @@ mod public_fold;
 mod public_projection_store;
 mod receipt_env;
 pub(crate) mod registry_connection;
+mod root_identity;
+pub(crate) mod wal_durability;
 pub(crate) use registry_connection::RegistryConnection;
 mod registry_intent;
 pub(crate) use registry_intent::{
@@ -793,6 +796,9 @@ pub struct WorkspaceRegistry {
     /// Behind its own lock; lock order rules: see `registry_connection`.
     pub(crate) connection: std::sync::Arc<RegistryConnection>,
     database_path: Option<PathBuf>,
+    /// How long each step of this registry's open took (the owner's
+    /// `startup-timings.jsonl`); taken once by the owner's start.
+    open_timings: crate::startup_timings::StartupTimings,
     registry_id: String,
     generation: String,
     session_name: String,
@@ -2453,10 +2459,12 @@ impl WorkspaceRegistry {
             None,
             None,
             None,
+            crate::startup_timings::StartupTimings::start(),
         )
     }
 
     pub fn open(root: &Path, session_name: &str) -> anyhow::Result<Self> {
+        let mut timings = crate::startup_timings::StartupTimings::start();
         let root = platform::normalize_filesystem_path(root.to_path_buf());
         // Keep short roots in their existing spelling while giving all
         // root-level files the same long-path handling as their descendants.
@@ -2492,6 +2500,7 @@ impl WorkspaceRegistry {
             .with_context(|| format!("open workspace registry {}", db_path.display()))?;
         let connection = open_guard::quarantine_if_unreadable(&db_path, connection)?;
         platform::restrict_file(&db_path)?;
+        timings.lap("registry.lock_and_connect");
         Self::initialize(
             connection,
             session_name.to_string(),
@@ -2500,9 +2509,11 @@ impl WorkspaceRegistry {
             Some(session_guard),
             Some(lease),
             Some(db_path),
+            timings,
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn initialize(
         connection: Connection,
         session_name: String,
@@ -2511,6 +2522,7 @@ impl WorkspaceRegistry {
         session_guard: Option<SessionLease>,
         lease: Option<SessionLease>,
         database_path: Option<PathBuf>,
+        mut timings: crate::startup_timings::StartupTimings,
     ) -> anyhow::Result<Self> {
         connection.busy_timeout(std::time::Duration::from_secs(5))?;
         // Before the first write, so every commit of this connection uses it.
@@ -2526,7 +2538,7 @@ impl WorkspaceRegistry {
         connection.execute_batch(
             "PRAGMA foreign_keys=ON;
              PRAGMA journal_mode=WAL;
-             PRAGMA synchronous=FULL;
+             PRAGMA synchronous=NORMAL;
              PRAGMA wal_autocheckpoint=1000;
              PRAGMA secure_delete=ON;
              CREATE TABLE IF NOT EXISTS meta (
@@ -2782,6 +2794,7 @@ impl WorkspaceRegistry {
             migrate_resource_tabs_to_multiview(&tx)?;
             tx.commit()?;
         }
+        timings.lap("registry.schema");
         {
             let tx = connection.unchecked_transaction()?;
             resource_store::migrate_tab_name_authority(&tx)?;
@@ -2811,23 +2824,7 @@ impl WorkspaceRegistry {
         }
         if migrate_existing_registry {
             connection.execute_batch("PRAGMA foreign_keys=ON;")?;
-            let violation = connection
-                .query_row(
-                    "SELECT \"table\", rowid, parent, fkid
-                     FROM pragma_foreign_key_check
-                     LIMIT 1",
-                    [],
-                    |row| {
-                        Ok((
-                            row.get::<_, String>(0)?,
-                            row.get::<_, Option<i64>>(1)?,
-                            row.get::<_, String>(2)?,
-                            row.get::<_, i64>(3)?,
-                        ))
-                    },
-                )
-                .optional()?;
-            if violation.is_some() {
+            if first_state_foreign_key_violation(&connection)?.is_some() {
                 anyhow::bail!(
                     "saved session data could not be loaded; start a new session or restore this session from a backup"
                 );
@@ -2891,16 +2888,20 @@ impl WorkspaceRegistry {
         if let Err(error) = crate::state::sidebar_doc_store::migrate_at_open(&connection) {
             eprintln!("cmux-tui: sidebar document migration skipped ({error:#})");
         }
+        timings.lap("registry.migrations");
         check_registry_integrity(&connection)?;
+        timings.lap("registry.integrity_check");
         {
             let tx = connection.unchecked_transaction()?;
             initialize_compatibility_active_workspace(&tx)?;
             validate_resource_invariants(&tx)?;
             tx.commit()?;
         }
+        timings.lap("registry.resource_invariants");
         Ok(Self {
-            connection: RegistryConnection::new(connection),
+            connection: RegistryConnection::new(connection, database_path.as_deref()),
             database_path,
+            open_timings: timings,
             registry_id,
             generation: try_new_uuid_v4()?,
             session_name,
@@ -2918,6 +2919,11 @@ impl WorkspaceRegistry {
 
     pub(crate) fn session_journal_database_path(&self) -> Option<PathBuf> {
         self.database_path.clone()
+    }
+
+    /// This registry's open steps, once (later calls get none).
+    pub(crate) fn take_open_timings(&mut self) -> crate::startup_timings::StartupTimings {
+        std::mem::take(&mut self.open_timings)
     }
 
     pub(crate) fn resource_input_receipt_hmac(
@@ -3281,23 +3287,6 @@ impl WorkspaceRegistry {
             result: serde_json::from_str(&stored_result)?,
             replayed: true,
         }))
-    }
-
-    /// Make this thread's deferred commits durable: one fully synced commit
-    /// (a write to `meta`, so SQLite flushes the WAL with F_FULLFSYNC). The
-    /// WAL is ordered, so it also makes every earlier commit durable
-    /// (`registry_connection::DeferredDurability`).
-    pub(crate) fn flush_deferred_commits(&mut self) -> anyhow::Result<()> {
-        debug_assert!(!registry_connection::current_thread_commits_deferred());
-        let connection = self.connection.get();
-        let tx = connection.unchecked_transaction()?;
-        tx.execute(
-            "INSERT INTO meta(key, value) VALUES('durability_barrier', '1')
-             ON CONFLICT(key) DO UPDATE SET value = CAST(value AS INTEGER) + 1",
-            [],
-        )?;
-        tx.commit()?;
-        Ok(())
     }
 
     /// Atomically replace the live ordered registry and record the mutation.
@@ -3835,6 +3824,59 @@ const JOURNAL_HISTORY_TABLES: [&str; 7] = [
 const MUTATION_LEDGER_TABLES: [&str; 3] =
     ["mutations", "projection_mutations", "terminal_mutations"];
 
+/// Journal receipt ledgers: one row per accepted ingress append, read only
+/// by its `(producer, origin, idempotency key)` for a retry. A long-lived
+/// machine holds hundreds of thousands (588k, about 5.5 s of a cold
+/// quick_check on a 41 GB nightly registry), so the open-time checks skip
+/// them like the mutation ledgers.
+const RECEIPT_LEDGER_TABLES: [&str; 1] = ["journal_ingress_receipts"];
+
+/// Tables the open-time checks leave alone: journal history, idempotency
+/// ledgers and quarantined ledgers grow with use and are validated when read.
+fn skipped_by_open_check(table: &str) -> bool {
+    JOURNAL_HISTORY_TABLES.contains(&table)
+        || MUTATION_LEDGER_TABLES.contains(&table)
+        || RECEIPT_LEDGER_TABLES.contains(&table)
+        || mutation_ledger_retention::is_quarantined_ledger(table)
+}
+
+/// One `PRAGMA foreign_key_check` row: `(table, rowid, parent, foreign key index)`.
+pub(crate) type ForeignKeyViolation = (String, i64, Option<String>, i64);
+
+/// The first row of a registry state table whose foreign key names a missing
+/// parent: `(table, rowid, parent, foreign key index)`. The open migrates
+/// state tables with foreign keys off and validates the resource topology, so
+/// both check them; an unscoped `PRAGMA foreign_key_check` also walked every
+/// receipt ledger (about 4 s cold on a 41 GB registry) while the daemon's
+/// socket waited.
+pub(crate) fn first_state_foreign_key_violation(
+    connection: &Connection,
+) -> anyhow::Result<Option<ForeignKeyViolation>> {
+    let tables = {
+        let mut statement = connection.prepare(
+            "SELECT DISTINCT m.name FROM sqlite_master AS m, pragma_foreign_key_list(m.name)
+             WHERE m.type = 'table' ORDER BY m.name",
+        )?;
+        statement.query_map([], |row| row.get::<_, String>(0))?.collect::<Result<Vec<_>, _>>()?
+    };
+    for table in tables.iter().filter(|table| !skipped_by_open_check(table.as_str())) {
+        let query = format!(
+            "SELECT \"table\", rowid, parent, fkid FROM pragma_foreign_key_check('{}') LIMIT 1",
+            table.replace('\'', "''")
+        );
+        let violation = connection
+            .query_row(&query, [], |row| {
+                let rowid = row.get::<_, Option<i64>>(1)?.unwrap_or_default();
+                Ok((row.get(0)?, rowid, row.get(2)?, row.get(3)?))
+            })
+            .optional()?;
+        if violation.is_some() {
+            return Ok(violation);
+        }
+    }
+    Ok(None)
+}
+
 /// Structural check of the registry state on open. An unscoped quick_check
 /// reads every page of the file, so its cost tracked total journal history;
 /// checking each state table and its indexes keeps startup proportional to
@@ -3848,12 +3890,7 @@ fn check_registry_integrity(connection: &Connection) -> anyhow::Result<()> {
         )?;
         statement.query_map([], |row| row.get::<_, String>(0))?.collect::<Result<Vec<_>, _>>()?
     };
-    let skipped = |table: &str| {
-        JOURNAL_HISTORY_TABLES.contains(&table)
-            || MUTATION_LEDGER_TABLES.contains(&table)
-            || mutation_ledger_retention::is_quarantined_ledger(table)
-    };
-    for table in tables.iter().filter(|table| !skipped(table.as_str())) {
+    for table in tables.iter().filter(|table| !skipped_by_open_check(table.as_str())) {
         let pragma = format!("PRAGMA quick_check('{}')", table.replace('\'', "''"));
         let result: String = connection.query_row(&pragma, [], |row| row.get(0))?;
         if result != "ok" {
@@ -3879,6 +3916,16 @@ fn check_registry_integrity(connection: &Connection) -> anyhow::Result<()> {
             continue;
         }
         for order in ["rowid DESC", "origin DESC, mutation_id DESC"] {
+            let query = format!("SELECT 1 FROM {table} ORDER BY {order} LIMIT 1");
+            let _: Option<i64> = connection.query_row(&query, [], |row| row.get(0)).optional()?;
+        }
+    }
+    // The receipt ledgers likewise: their newest row and newest key.
+    for table in RECEIPT_LEDGER_TABLES {
+        if !tables.iter().any(|name| name.as_str() == table) {
+            continue;
+        }
+        for order in ["rowid DESC", "producer_id DESC, origin DESC, idempotency_key DESC"] {
             let query = format!("SELECT 1 FROM {table} ORDER BY {order} LIMIT 1");
             let _: Option<i64> = connection.query_row(&query, [], |row| row.get(0)).optional()?;
         }
@@ -5190,29 +5237,15 @@ fn load_or_create_resource_effect_pepper(root: &Path) -> anyhow::Result<Resource
             platform::restrict_file(&path)?;
             let bytes = fs::read(&path)
                 .with_context(|| format!("read resource receipt pepper {}", path.display()))?;
-            ResourceEffectPepper::from_bytes(bytes, &path)
+            if bytes.len() < RESOURCE_EFFECT_PEPPER_BYTES {
+                root_identity::replace_cut_pepper(&root, &path, bytes)
+            } else {
+                ResourceEffectPepper::from_bytes(bytes, &path)
+            }
         }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
             ensure_missing_pepper_can_migrate(&root, &path)?;
-            let pepper = ResourceEffectPepper::random()?;
-            let mut options = OpenOptions::new();
-            options.create_new(true).write(true);
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::OpenOptionsExt;
-                options.mode(0o600);
-            }
-            let mut file = options
-                .open(&path)
-                .with_context(|| format!("create resource receipt pepper {}", path.display()))?;
-            platform::restrict_file(&path)?;
-            file.write_all(pepper.0.as_ref())
-                .with_context(|| format!("write resource receipt pepper {}", path.display()))?;
-            file.sync_all()
-                .with_context(|| format!("sync resource receipt pepper {}", path.display()))?;
-            platform::sync_directory(&root)
-                .with_context(|| format!("sync state root {}", root.display()))?;
-            Ok(pepper)
+            root_identity::create_pepper(&root, &path, false)
         }
         Err(error) => {
             Err(error).with_context(|| format!("read resource receipt pepper {}", path.display()))
@@ -5223,6 +5256,11 @@ fn load_or_create_resource_effect_pepper(root: &Path) -> anyhow::Result<Resource
 }
 
 fn ensure_missing_pepper_can_migrate(root: &Path, pepper_path: &Path) -> anyhow::Result<()> {
+    ensure_no_registry_at(root, pepper_path, SCHEMA_VERSION)
+}
+
+/// Fails when a registry under `root` is at `schema` or later.
+fn ensure_no_registry_at(root: &Path, pepper_path: &Path, schema_floor: i64) -> anyhow::Result<()> {
     for entry in
         fs::read_dir(root).with_context(|| format!("read state root {}", root.display()))?
     {
@@ -5244,7 +5282,7 @@ fn ensure_missing_pepper_can_migrate(root: &Path, pepper_path: &Path) -> anyhow:
             .parse()
             .with_context(|| format!("registry schema is invalid: {}", database.display()))?;
         anyhow::ensure!(
-            schema < SCHEMA_VERSION,
+            schema < schema_floor,
             "resource receipt pepper is missing for an existing registry: {}",
             pepper_path.display()
         );
@@ -5270,30 +5308,17 @@ fn load_or_create_machine_id(root: &Path) -> anyhow::Result<MachinePublicId> {
 
     let path = platform::normalize_filesystem_path(root.join(MACHINE_ID_FILE));
     let result = match fs::read(&path) {
+        // Cut by a full disk in an earlier build's in-place write: never
+        // handed out (returned only after its fsync), so a new id replaces it.
+        Ok(bytes) if root_identity::is_cut_machine_id(&bytes) => {
+            root_identity::create_machine_id(&root, &path, true)
+        }
         Ok(bytes) => {
             platform::restrict_file(&path)?;
             parse_machine_id_file(&path, &bytes)
         }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            let id = MachinePublicId::random()?;
-            let mut options = OpenOptions::new();
-            options.create_new(true).write(true);
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::OpenOptionsExt;
-                options.mode(0o600);
-            }
-            let mut file = options
-                .open(&path)
-                .with_context(|| format!("create machine identity {}", path.display()))?;
-            platform::restrict_file(&path)?;
-            file.write_all(id.as_str().as_bytes())
-                .and_then(|()| file.write_all(b"\n"))
-                .with_context(|| format!("write machine identity {}", path.display()))?;
-            file.sync_all().with_context(|| format!("sync machine identity {}", path.display()))?;
-            platform::sync_directory(&root)
-                .with_context(|| format!("sync state root {}", root.display()))?;
-            Ok(id)
+            root_identity::create_machine_id(&root, &path, false)
         }
         Err(error) => {
             Err(error).with_context(|| format!("read machine identity {}", path.display()))

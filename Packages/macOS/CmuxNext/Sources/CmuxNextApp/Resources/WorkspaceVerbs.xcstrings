@@ -269,127 +269,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "groups nest at most 3 levels deep"
+            "value": "groups nest at most 16 levels deep"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "لا يمكن تداخل المجموعات لأكثر من 3 مستويات"
+            "value": "لا يمكن تداخل المجموعات لأكثر من 16 مستوى"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "grupe se mogu ugnijezditi najviše 3 nivoa duboko"
+            "value": "grupe se mogu ugnijezditi najviše 16 nivoa duboko"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "grupper kan højst indlejres 3 niveauer"
+            "value": "grupper kan højst indlejres 16 niveauer"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Gruppen lassen sich höchstens 3 Ebenen tief verschachteln"
+            "value": "Gruppen lassen sich höchstens 16 Ebenen tief verschachteln"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "los grupos se anidan como máximo 3 niveles"
+            "value": "los grupos se anidan como máximo 16 niveles"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "les groupes s’imbriquent sur 3 niveaux au plus"
+            "value": "les groupes s’imbriquent sur 16 niveaux au plus"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "i gruppi si annidano al massimo su 3 livelli"
+            "value": "i gruppi si annidano al massimo su 16 livelli"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "グループは最大3階層までしか入れ子にできません"
+            "value": "グループは最大16階層までしか入れ子にできません"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ក្រុមអាចដាក់ក្នុងគ្នាបានច្រើនបំផុត 3 កម្រិត"
+            "value": "ក្រុមអាចដាក់ក្នុងគ្នាបានច្រើនបំផុត 16 កម្រិត"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "그룹은 최대 3단계까지 중첩할 수 있습니다"
+            "value": "그룹은 최대 16단계까지 중첩할 수 있습니다"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "grupper kan nestes høyst 3 nivåer"
+            "value": "grupper kan nestes høyst 16 nivåer"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "grupy można zagnieżdżać najwyżej na 3 poziomach"
+            "value": "grupy można zagnieżdżać najwyżej na 16 poziomach"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "os grupos se aninham no máximo 3 níveis"
+            "value": "os grupos se aninham no máximo 16 níveis"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "группы вкладываются не более чем на 3 уровня"
+            "value": "группы вкладываются не более чем на 16 уровней"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ซ้อนกลุ่มได้ไม่เกิน 3 ระดับ"
+            "value": "ซ้อนกลุ่มได้ไม่เกิน 16 ระดับ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "gruplar en fazla 3 düzey iç içe olabilir"
+            "value": "gruplar en fazla 16 düzey iç içe olabilir"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "групи вкладаються щонайбільше на 3 рівні"
+            "value": "групи вкладаються щонайбільше на 16 рівнів"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "nhóm chỉ lồng tối đa 3 cấp"
+            "value": "nhóm chỉ lồng tối đa 16 cấp"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "分组最多嵌套 3 层"
+            "value": "分组最多嵌套 16 层"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "群組最多巢狀 3 層"
+            "value": "群組最多巢狀 16 層"
           }
         }
       }

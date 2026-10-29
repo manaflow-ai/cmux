@@ -1,4 +1,5 @@
 import Foundation
+import CmuxNextPalette
 
 /// What Search All Windows looks through, read once when it opens: every
 /// tab's title and place, every terminal's history and screen (from its
@@ -15,6 +16,8 @@ nonisolated struct GlobalSearchCorpus: Sendable {
         let agent: AgentTranscriptText.Session?
         /// A terminal whose daemon is not connected: searched by title, counted as not read.
         var disconnected = false
+        /// Read from this Mac (its daemon or transcript file): read before other machines' terminals.
+        var local = true
     }
 
     /// Where a content match was found.
@@ -74,6 +77,30 @@ nonisolated struct GlobalSearchCorpus: Sendable {
         await AgentTranscriptText.lines(of: session)
     }
 
+    /// One source's text, as `reads` delivers it.
+    nonisolated struct Read: Sendable {
+        let index: Int
+        let texts: [Content]
+        let unreadable: Bool
+    }
+
+    init() {}
+
+    /// Every source with its title and no text yet: what a search finds before any read lands.
+    init(titles sources: [Source]) {
+        documents = sources.map { Document(tabID: $0.tabID, title: $0.title, loweredTitle: $0.title.lowercased(), texts: []) }
+        unreadable = sources.count(where: \.disconnected)
+    }
+
+    /// The corpus with `read`'s text in its source's place.
+    mutating func apply(_ read: Read) {
+        guard documents.indices.contains(read.index) else { return }
+        let document = documents[read.index]
+        documents[read.index] = Document(tabID: document.tabID, title: document.title, loweredTitle: document.loweredTitle,
+                                         texts: read.texts)
+        if read.unreadable { unreadable += 1 }
+    }
+
     /// Reads every source: terminals `TerminalTextSearch.concurrentReads` at
     /// a time, transcripts alongside. A cancelled task stops queueing reads.
     @concurrent static func load(
@@ -81,13 +108,31 @@ nonisolated struct GlobalSearchCorpus: Sendable {
         read: @escaping @Sendable (TerminalTextSearch.Target) async -> [String]? = TerminalTextSearch.lines(of:),
         transcript: @escaping @Sendable (AgentTranscriptText.Session) async -> [String]? = transcriptLines(of:)
     ) async -> GlobalSearchCorpus {
-        let texts = await withTaskGroup(of: (Int, [Content], Bool).self) { group in
-            var texts = [[Content]](repeating: [], count: sources.count)
-            var unread = 0
-            var queue = sources.enumerated().makeIterator()
-            func next() -> Bool {
-                while let (index, source) = queue.next() {
-                    guard source.terminal != nil || source.agent != nil else { continue }
+        var corpus = GlobalSearchCorpus(titles: sources)
+        for await done in reads(sources, read: read, transcript: transcript) { corpus.apply(done) }
+        return corpus
+    }
+
+    /// Each source's text as soon as it is read, in the order the reads end: terminals
+    /// `TerminalTextSearch.concurrentReads` at a time, transcripts alongside, sources on this
+    /// Mac first (a slow machine's daemon never holds up the others). Sources with nothing to
+    /// read yield nothing. Ending the stream (its consumer cancelled) stops queueing reads.
+    static func reads(
+        _ sources: [Source],
+        read: @escaping @Sendable (TerminalTextSearch.Target) async -> [String]? = TerminalTextSearch.lines(of:),
+        transcript: @escaping @Sendable (AgentTranscriptText.Session) async -> [String]? = transcriptLines(of:)
+    ) -> AsyncStream<Read> {
+        // One read per source at most: the buffer never drops one.
+        let (stream, continuation) = AsyncStream.makeStream(of: Read.self, bufferingPolicy: .bufferingOldest(max(1, sources.count)))
+        // task-owner: the stream's consumer; onTermination cancels it, which stops queueing reads.
+        let task = Task {
+            await withTaskGroup(of: Read.self) { group in
+                let ordered = sources.indices.filter { sources[$0].terminal != nil || sources[$0].agent != nil }
+                    .sorted { (sources[$0].local ? 0 : 1, $0) < (sources[$1].local ? 0 : 1, $1) }
+                var queue = ordered.makeIterator()
+                func next() -> Bool {
+                    guard let index = queue.next() else { return false }
+                    let source = sources[index]
                     group.addTask {
                         var found: [Content] = []
                         if let agent = source.agent, let lines = await transcript(agent) {
@@ -101,26 +146,22 @@ nonisolated struct GlobalSearchCorpus: Sendable {
                                 unreadable = true
                             }
                         }
-                        return (index, found, unreadable)
+                        return Read(index: index, texts: found, unreadable: unreadable)
                     }
                     return true
                 }
-                return false
+                for _ in 0..<TerminalTextSearch.concurrentReads {
+                    guard next() else { break }
+                }
+                for await done in group {
+                    continuation.yield(done)
+                    if !Task.isCancelled { _ = next() }
+                }
             }
-            for _ in 0..<TerminalTextSearch.concurrentReads {
-                guard next() else { break }
-            }
-            for await (index, found, unreadable) in group {
-                texts[index] = found
-                if unreadable { unread += 1 }
-                if !Task.isCancelled { _ = next() }
-            }
-            return (texts, unread)
+            continuation.finish()
         }
-        let documents = zip(sources, texts.0).map { source, texts in
-            Document(tabID: source.tabID, title: source.title, loweredTitle: source.title.lowercased(), texts: texts)
-        }
-        return GlobalSearchCorpus(documents: documents, unreadable: texts.1 + sources.count(where: \.disconnected))
+        continuation.onTermination = { _ in task.cancel() }
+        return stream
     }
 
     /// The tabs matching every word, at most `limit`: a word may match the

@@ -152,6 +152,31 @@ pub struct SignalEnvelope {
     pub from_user_id: Option<String>,
 }
 
+/// One sealed reply the backend held for this Mac (PROTOCOL.md "Reply
+/// mailbox"). `from` is the phone the backend verified as the sender.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MailboxItem {
+    pub id: String,
+    pub from: String,
+    pub sealed: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub at: Option<u64>,
+}
+
+/// The Mac's answer for one mailbox item.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MailboxResult {
+    pub id: String,
+    pub applied: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    /// The Mac's identity signature over the outcome (`cmux-mobile-mailbox-ack-v1
+    /// \0 mac \0 id \0 1|0 \0 reason`), so the phone can tell the backend did not
+    /// make it up (API 0.14.0).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sig: Option<String>,
+}
+
 /// Every JSON message on the socket.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
@@ -165,6 +190,15 @@ pub enum SignalMessage {
         mac: MacPresence,
     },
     Signal(SignalEnvelope),
+    /// Backend → Mac: sealed replies held for it (API 0.13.0).
+    Mailbox {
+        items: Vec<MailboxItem>,
+    },
+    /// Mac → backend: what became of each mailbox item.
+    #[serde(rename = "mailbox_ack")]
+    MailboxAck {
+        results: Vec<MailboxResult>,
+    },
     Error {
         code: String,
         #[serde(default)]
@@ -216,6 +250,8 @@ pub enum SignalingEvent {
         macs: Vec<MacPresence>,
     },
     Presence(MacPresence),
+    /// Sealed replies the backend held for this device (a Mac).
+    Mailbox(Vec<MailboxItem>),
     /// A backend refusal; `session_id` names the session it concerns, when
     /// the backend says.
     Error {
@@ -252,6 +288,9 @@ struct Shared {
     out: Arc<SendQueue>,
     sessions: Mutex<HashMap<String, mpsc::UnboundedSender<SessionEvent>>>,
     events: broadcast::Sender<SignalingEvent>,
+    /// Mailbox frames, queued until read (`next_mailbox`): the backend sends
+    /// them right after `hello`, before a caller could subscribe to `events`.
+    mailbox: mpsc::UnboundedSender<Vec<MailboxItem>>,
     closed: Mutex<Option<String>>,
 }
 
@@ -260,6 +299,7 @@ struct Shared {
 pub struct SignalingClient {
     shared: Arc<Shared>,
     incoming: Arc<tokio::sync::Mutex<mpsc::UnboundedReceiver<IncomingSession>>>,
+    mailbox: Arc<tokio::sync::Mutex<mpsc::UnboundedReceiver<Vec<MailboxItem>>>>,
 }
 
 impl std::fmt::Debug for SignalingClient {
@@ -316,6 +356,7 @@ impl SignalingClient {
         let (sink, mut source) = socket.split();
         let out = Arc::new(SendQueue::default());
         let (incoming_tx, incoming_rx) = mpsc::unbounded_channel();
+        let (mailbox_tx, mailbox_rx) = mpsc::unbounded_channel();
         let shared = Arc::new(Shared {
             device_id: device_id.to_owned(),
             inbound: tokio::sync::watch::channel(0).0,
@@ -323,6 +364,7 @@ impl SignalingClient {
             out: Arc::clone(&out),
             sessions: Mutex::new(HashMap::new()),
             events: broadcast::channel(256).0,
+            mailbox: mailbox_tx,
             closed: Mutex::new(None),
         });
         let pinger = Arc::clone(&out);
@@ -384,7 +426,11 @@ impl SignalingClient {
             }
             let _ = shared.events.send(SignalingEvent::Disconnected(reason));
         });
-        Ok(Self { shared, incoming: Arc::new(tokio::sync::Mutex::new(incoming_rx)) })
+        Ok(Self {
+            shared,
+            incoming: Arc::new(tokio::sync::Mutex::new(incoming_rx)),
+            mailbox: Arc::new(tokio::sync::Mutex::new(mailbox_rx)),
+        })
     }
 
     pub fn device_id(&self) -> &str {
@@ -427,6 +473,16 @@ impl SignalingClient {
         self.shared.events.subscribe()
     }
 
+    /// The next mailbox frame the backend sent (never lost to a late
+    /// subscriber); `None` once the socket is closed and the queue is empty.
+    pub async fn next_mailbox(&self) -> Option<Vec<MailboxItem>> {
+        let mut queue = self.mailbox.lock().await;
+        if self.closed_reason().is_some() {
+            return queue.try_recv().ok();
+        }
+        queue.recv().await
+    }
+
     /// The next session a peer started (a Mac answering dials), already
     /// subscribed; `None` once the socket is closed. Drop or
     /// [`unsubscribe`](Self::unsubscribe) a session you refuse.
@@ -467,6 +523,12 @@ impl SignalingClient {
         self.shared.out.push_signal(Signal::Text(text))
     }
 
+    /// Tell the backend what became of mailbox items (`mailbox_ack`).
+    pub fn send_mailbox_ack(&self, results: Vec<MailboxResult>) -> Result<(), SignalingError> {
+        let text = serde_json::to_string(&SignalMessage::MailboxAck { results }).expect("ack serializes");
+        self.shared.out.push_signal(Signal::Text(text))
+    }
+
     /// Close the socket. Sessions see `Disconnected`.
     pub fn close(&self) {
         self.shared.out.close();
@@ -492,6 +554,11 @@ impl Shared {
             SignalMessage::Error { code, message, session_id } => {
                 let _ = self.events.send(SignalingEvent::Error { code, message, session_id });
             }
+            SignalMessage::Mailbox { items } => {
+                let _ = self.mailbox.send(items.clone());
+                let _ = self.events.send(SignalingEvent::Mailbox(items));
+            }
+            SignalMessage::MailboxAck { .. } => {}
             SignalMessage::Signal(envelope) => {
                 let mut sessions = self.sessions.lock().unwrap_or_else(PoisonError::into_inner);
                 if let Some(tx) = sessions.get(&envelope.session_id) {
@@ -522,6 +589,31 @@ impl Shared {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mailbox_frames_match_the_contract() {
+        let frame: SignalMessage = serde_json::from_str(
+            r#"{"type":"mailbox","items":[{"id":"r1","from":"p","sealed":"AQ","at":5},{"id":"r2","from":"p","sealed":"AQ"}]}"#,
+        )
+        .unwrap();
+        let SignalMessage::Mailbox { items } = frame else { panic!("{frame:?}") };
+        assert_eq!(
+            items[0],
+            MailboxItem { id: "r1".into(), from: "p".into(), sealed: "AQ".into(), at: Some(5) }
+        );
+        assert_eq!(items[1].at, None);
+        let ack = SignalMessage::MailboxAck {
+            results: vec![
+                MailboxResult { id: "r1".into(), applied: true, reason: None, sig: Some("ab".into()) },
+                MailboxResult { id: "r2".into(), applied: false, reason: Some("replayed".into()), sig: None },
+            ],
+        };
+        assert_eq!(
+            serde_json::to_value(&ack).unwrap(),
+            serde_json::json!({"type":"mailbox_ack","results":[{"id":"r1","applied":true,"sig":"ab"},
+                {"id":"r2","applied":false,"reason":"replayed"}]})
+        );
+    }
 
     #[test]
     fn wire_shapes_match_the_contract() {

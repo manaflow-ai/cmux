@@ -12,8 +12,9 @@ import Foundation
 /// held ready reply keeps the session open, and a check answers with the waiting update. So a Dev
 /// build published after the staged one would wait for a restart. While an update waits, this
 /// probes the feed (the read-only probe, filtered by the ring as Sparkle filters) once per
-/// `updates.checkIntervalSeconds`, and at once when the person checks or picks a ring. When the
-/// ring has a strictly newer build, it cancels the staged installer (Skip on Sparkle's held reply,
+/// `updates.checkIntervalSeconds` (the tip app: every ``TipUpdateCheck/interval``), and
+/// at once when the person checks or picks a ring. When the ring has a strictly newer build, it
+/// cancels the staged installer (Skip on Sparkle's held reply,
 /// which records no skipped version and touches no file of the person's) and starts a check
 /// through this app's driver (``UpdateController/checkForUpdates()``, never Sparkle's silent
 /// driver), which downloads the newer build and stages it, replaceable again, for the card. If
@@ -34,9 +35,6 @@ final class StagedUpdateRefresh {
     var replaceable: (() -> Bool)?
     /// Starts the check that stages the newer build; nil runs the driver's ``UpdateController/checkForUpdates()``.
     var startCheck: (() -> Void)?
-    /// How long a fresh update that lists no deltas waits for them before a scheduled swap; nil reads
-    /// the driver's ``UpdateController/pendingDeltaWindow``.
-    var deltaWindow: TimeInterval?
     /// `updates.checkAutomatically` and `updates.checkIntervalSeconds` (``reschedule(automatic:interval:updater:)``).
     private(set) var schedule: (automatic: Bool, interval: TimeInterval) = (true, 3600)
     /// The probe in flight, if any, the ring pick it reads (``ringMoved()``) and whether the person asked for it.
@@ -47,9 +45,67 @@ final class StagedUpdateRefresh {
     /// A click on Install took the staged update: nothing probes or cancels until Update Ready ends.
     private var installing = false
     let timer: DemandTimer
+    /// The install click waiting for the feed (``beforeInstall(updater:install:)``): the staged
+    /// build it read against and the install to run if that build stays.
+    private var pendingClick: (staged: String, install: @MainActor () -> Void)?
+    /// The install click's deadline: the feed has ``clickProbeDeadline`` to answer.
+    let clickTimer: DemandTimer
+    /// How long the install click waits for the feed before it installs the staged build.
+    static let clickProbeDeadline: Duration = .seconds(3)
 
     init(clock: any Clock<Duration>) {
         timer = DemandTimer(owner: "UpdaterService.stagedRefresh", clock: clock)
+        clickTimer = DemandTimer(owner: "UpdaterService.installClick", clock: clock)
+    }
+
+    /// Whether an install click waits for the feed.
+    var clickWaits: Bool { pendingClick != nil }
+
+    /// The person clicked to install the staged build: read the ring's feed first, for at most
+    /// ``clickProbeDeadline``. A strictly newer build replaces the staged one (its installer is
+    /// cancelled, Sparkle's check downloads the newer build, and the click carries over to it,
+    /// ``UpdaterService/installAfterSwap``), so one click ends on the newest build (a583: the click
+    /// at 03:39 installed a build staged at 02:10, and the relaunched app staged the 03:37 nightly
+    /// for a second click). Otherwise, or when the feed fails or is slow, `install` runs. A second
+    /// click while the feed is read joins the first.
+    func beforeInstall(updater: UpdaterService, install: @escaping @MainActor () -> Void) {
+        guard pendingClick == nil else { return }
+        guard updater.disabledReason == nil, isReplaceable(updater), let staged = updater.stagedBuild(), !staged.isEmpty else {
+            return install()
+        }
+        updater.log.append("install click: looking for a build newer than staged build \(staged)")
+        pendingClick = (staged, install)
+        let probe = updater.probe()
+        clickTimer.schedule(after: Self.clickProbeDeadline) { @MainActor [weak self, weak updater] in
+            guard let self, let updater else { return }
+            self.settleClick(answered: false, updater: updater)
+        }
+        Task { @MainActor [weak self, weak updater] in
+            let failure = await probe.value
+            guard let self, let updater else { return }
+            self.settleClick(answered: failure == nil, updater: updater)
+        }
+    }
+
+    /// The feed answered (or its deadline passed): the first of the two decides the click.
+    private func settleClick(answered: Bool, updater: UpdaterService) {
+        guard let (staged, install) = pendingClick else { return }
+        pendingClick = nil
+        clickTimer.cancel()
+        guard answered, updater.stagedBuild() == staged,
+              case .updateAvailable(let item)? = updater.lastProbe?.outcome,
+              AppcastSelector.isOlder(staged, than: item.version) else {
+            updater.log.append(answered ? "install click: staged build \(staged) is the newest"
+                                        : "install click: the feed did not answer in time; installing staged build \(staged)")
+            return install()
+        }
+        guard updater.cancelStaged() else {
+            updater.log.append("install click: build \(item.version) is newer, but no installer was held to cancel; installing staged build \(staged)")
+            return install()
+        }
+        updater.log.append("install click: build \(item.version) is newer than staged build \(staged): installing it instead")
+        updater.installAfterSwap = true
+        if let startCheck { startCheck() } else { updater.controller?.checkForUpdates() }
     }
 
     /// Follows the flow's phase: an update waiting arms the next probe; anything else ends it.
@@ -81,11 +137,30 @@ final class StagedUpdateRefresh {
         arm(updater)
     }
 
+    /// Whether the pending probe is the tip app's (``probesFast(_:)``).
+    private(set) var armedFast = false
+
+    /// The tip app probes every ``TipUpdateCheck/interval`` while a probe could replace the staged
+    /// build, so a newer tip replaces it; otherwise (and in every other app) once per the person's
+    /// interval, so a staged build nothing can replace never wakes every few minutes.
+    private func probesFast(_ updater: UpdaterService) -> Bool {
+        updater.identity.isTipBuild && TipUpdateCheck.interval < schedule.interval && updater.disabledReason == nil && isReplaceable(updater)
+    }
+
+    /// Downloads became automatic or stopped, or the managed policy moved: the pending probe takes
+    /// the interval that now applies.
+    func policyChanged(updater: UpdaterService) {
+        guard timer.isScheduled, armedFast != probesFast(updater) else { return }
+        timer.cancel()
+        arm(updater)
+    }
+
     /// Schedules the next probe one interval from now, unless one is pending or running.
     private func arm(_ updater: UpdaterService) {
         guard schedule.automatic, schedule.interval > 0, task == nil, !timer.isScheduled, !installing,
               case .ready = updater.flow.phase else { return }
-        timer.schedule(after: .seconds(schedule.interval)) { @MainActor [weak self, weak updater] in
+        armedFast = probesFast(updater)
+        timer.schedule(after: .seconds(armedFast ? TipUpdateCheck.interval : schedule.interval)) { @MainActor [weak self, weak updater] in
             guard let self, let updater, self.run(reason: "scheduled check", updater: updater) == nil else { return }
             self.arm(updater)
         }
@@ -93,10 +168,11 @@ final class StagedUpdateRefresh {
 
     /// Probes the ring for a build newer than the staged one, and swaps it in. Joins a probe in
     /// flight (one of another ring is read again when it ends); nil when nothing waits that this
-    /// app can replace (then nothing is read).
+    /// app can replace (then nothing is read). `asked` overrides whether the person asked (the reason
+    /// is not "scheduled check"); the release push passes false, so nothing answers on screen.
     @discardableResult
-    func run(reason: String, updater: UpdaterService) -> Task<Void, Never>? {
-        let asked = reason != "scheduled check"
+    func run(reason: String, asked: Bool? = nil, updater: UpdaterService) -> Task<Void, Never>? {
+        let asked = asked ?? (reason != "scheduled check")
         if let task {
             if asked { probing?.asked = true }
             return task
@@ -161,13 +237,6 @@ final class StagedUpdateRefresh {
         guard case .updateAvailable(let item)? = updater.lastProbe?.outcome,
               AppcastSelector.isOlder(staged, than: item.version) else {
             updater.log.append("staged build \(staged) is the newest \(updater.ring.rawValue) build")
-            return nil
-        }
-        // As Sparkle's scheduled check does (PendingDeltaWait), a scheduled swap waits for the deltas
-        // nightly-next lists minutes after a build's full archive; the next probe is an interval later.
-        if !asked, !item.listsDeltas, let window = deltaWindow ?? updater.controller?.pendingDeltaWindow,
-           let date = item.date, abs(updater.now().timeIntervalSince(date)) < window {
-            updater.log.append("build \(item.version) lists no deltas yet: the next scheduled check takes it")
             return nil
         }
         return item.version

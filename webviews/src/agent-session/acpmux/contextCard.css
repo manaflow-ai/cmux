@@ -7,42 +7,74 @@
   width: 260px;
   max-width: min(260px, calc(100vw - 24px));
   box-sizing: border-box;
-  padding: 12px;
+  padding: var(--ui-popup-padding);
   border-radius: var(--ui-popup-radius, 10px);
   color: var(--agent-text);
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  font-family: var(--font-ui);
   font-size: var(--text-body);
   line-height: var(--text-body--line-height);
   pointer-events: auto;
+  letter-spacing: var(--text-body--letter-spacing);
+}
+
+/* The composer popover stays compact in both states. It uses the same glass material supplied by
+   AnchoredCard (.ui-card.ui-glass), while this sheet only controls its content rhythm. */
+.acpmux-context-pop--compact.ui-card {
+  width: 230px;
+  max-width: min(230px, calc(100vw - 24px));
+  padding: var(--ui-popup-padding);
+  text-align: left;
+}
+.acpmux-context-pop--compact .acpmux-context-card-title {
+  color: var(--agent-text);
+}
+.acpmux-context-card-compact-percent {
+  margin-top: var(--ds-space-1);
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+  font-weight: var(--weight-emphasis);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: var(--text-body--letter-spacing);
+}
+.acpmux-context-card-compact-tokens {
+  margin-top: var(--ds-space-1);
+  color: var(--agent-text);
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: var(--text-body--letter-spacing);
 }
 
 .acpmux-context-card-title {
   font-size: var(--text-detail);
   color: var(--agent-muted);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 
 .acpmux-context-card-line {
-  margin-top: 2px;
+  margin-top: var(--ds-space-1);
   font-size: var(--text-body);
   line-height: var(--text-body--line-height);
   font-weight: var(--weight-emphasis);
   font-variant-numeric: tabular-nums;
+  letter-spacing: var(--text-body--letter-spacing);
 }
 
 .acpmux-context-card-bar {
-  display: flex;
-  gap: 2px;
-  height: 4px;
-  margin-top: 8px;
-  border-radius: 2px;
+  appearance: none;
+  display: block;
+  width: 100%;
+  height: var(--cmux-hairline);
+  margin-top: var(--ds-space-1);
+  border: 0;
+  border-radius: 999px;
   background: color-mix(in srgb, var(--agent-text) 14%, transparent);
   overflow: hidden;
 }
 
-.acpmux-context-card-bar > span {
-  flex: none;
-  height: 100%;
-}
+.acpmux-context-card-bar::-webkit-progress-bar { background: color-mix(in srgb, var(--agent-text) 14%, transparent); }
+.acpmux-context-card-bar::-webkit-progress-value { border-radius: inherit; background: var(--agent-accent); }
+.acpmux-context-card-bar::-moz-progress-bar { border-radius: inherit; background: var(--agent-accent); }
 
 .acpmux-context-card [data-segment="used"],
 .acpmux-context-card [data-segment="conversation"] {
@@ -53,34 +85,36 @@
   --acpmux-context-segment: color-mix(in srgb, var(--agent-accent) 50%, transparent);
 }
 
-.acpmux-context-card.acpmux-context-full [data-segment] {
-  --acpmux-context-segment: var(--acpmux-warning);
-}
-
-.acpmux-context-card-bar > span,
 .acpmux-context-card-swatch {
-  background: var(--acpmux-context-segment);
+  background: var(--acpmux-context-segment, var(--agent-accent));
 }
 
 .acpmux-context-card-parts {
   display: grid;
-  gap: 4px;
-  margin-top: 10px;
+  gap: var(--ds-space-1);
+  margin: var(--ds-space-1) 0 0;
+  padding: 0;
   font-size: var(--text-detail);
+  list-style: none;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 
 .acpmux-context-card-part {
   display: grid;
   grid-template-columns: 8px minmax(0, 1fr) auto;
-  column-gap: 8px;
+  column-gap: var(--ds-space-1);
   align-items: center;
 }
 
 .acpmux-context-card-swatch {
-  width: 8px;
-  height: 8px;
+  width: var(--ds-space-1);
+  height: var(--ds-space-1);
   border-radius: 2px;
 }
+
+.acpmux-context-card-swatch[data-tone="0"] { background: var(--agent-accent); }
+.acpmux-context-card-swatch[data-tone="1"] { background: color-mix(in oklab, var(--agent-accent) 72%, transparent); }
+.acpmux-context-card-swatch[data-tone="2"] { background: color-mix(in oklab, var(--agent-accent) 48%, transparent); }
 
 .acpmux-context-card-part-tokens {
   color: var(--agent-muted);
@@ -90,26 +124,37 @@
 .acpmux-context-card-foot {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin-top: 10px;
+  justify-content: flex-start;
+  gap: var(--ds-space-1);
+  margin-top: var(--ds-space-1);
 }
 
 .acpmux-context-card-compact,
 .acpmux-context-card-details {
-  height: 22px;
-  padding: 0 6px;
+  height: var(--cmux-control-height);
+  padding: 0 var(--ds-space-1);
   border: 0;
   border-radius: 6px;
   background: none;
   color: var(--agent-muted);
   font: inherit;
   font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 
 .acpmux-context-card-details {
-  margin-inline-start: auto;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  margin: var(--ds-space-1) 0 0;
+  padding-inline: 0;
+  border-top: 1px solid color-mix(in srgb, var(--agent-text) 12%, transparent);
+  border-radius: 0;
+  text-align: left;
+  padding-top: var(--ds-space-1);
 }
+
+.acpmux-context-card-details span { margin-inline-start: auto; }
 
 .acpmux-context-card-compact:hover:not(:disabled),
 .acpmux-context-card-details:hover {

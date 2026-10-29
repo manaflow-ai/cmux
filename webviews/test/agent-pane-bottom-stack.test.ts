@@ -289,4 +289,58 @@ await requireBrowserLane("agent-pane-bottom-stack.test.ts", async () => {
     expect(drawn.queueScrolls).toBe(true);
     await page.close();
   });
+  // Leo 2026-10-22: "how did the bottom overflow!? maybe not overflow... the access to the composer
+  // got fucked". In a short pane the stack over the transcript (a question, the pull request dock,
+  // the queue) gave the composer less height than its card and quiet row need, so the quiet row (the
+  // mode, the model, the context ring) ran past the pane's bottom edge and could not be clicked. The
+  // other parts give up their height first, then the queue, then the card's draft, which scrolls.
+  for (const height of [320, 400, 520])
+    for (const lines of [0, 12])
+      test(`in a ${height} px pane with a ${lines}-line draft the card and its quiet row stay inside and clickable`, async () => {
+        const page = await open(height);
+        const field = page.locator(".acpmux-composer-box .ProseMirror");
+        if (lines) {
+          await field.click();
+          for (let line = 0; line < lines; line++) {
+            if (line) await page.keyboard.press("Shift+Enter");
+            await page.keyboard.type(`draft line ${line + 1}`);
+          }
+        }
+        await page.locator(".acpmux-composer-foot .acpmux-picker-button").first().waitFor();
+        const drawn = await page.evaluate(() => {
+          const main = document.querySelector(".acpmux-main")!.getBoundingClientRect();
+          const box = document.querySelector(".acpmux-composer-box")!.getBoundingClientRect();
+          const foot = document.querySelector(".acpmux-composer-foot")!.getBoundingClientRect();
+          // Every control of the quiet row and of the card's own row answers a click at its centre.
+          const controls = [
+            ...document.querySelectorAll<HTMLElement>(
+              ".acpmux-composer-foot button, .acpmux-composer-box .acpmux-composer-inner button",
+            ),
+          ].filter((control) => control.offsetWidth > 0 && control.offsetHeight > 0);
+          const unreachable = controls
+            .filter((control) => {
+              const rect = control.getBoundingClientRect();
+              const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+              return !hit || !(control === hit || control.contains(hit));
+            })
+            .map((control) => control.getAttribute("aria-label") || control.textContent?.trim() || control.className);
+          return {
+            footInside: foot.bottom <= main.bottom + 0.5,
+            boxAboveFoot: box.bottom <= foot.top + 0.5,
+            boxHeight: Math.round(box.height),
+            controls: controls.length,
+            unreachable,
+          };
+        });
+        await page.close();
+        expect({
+          footInside: drawn.footInside,
+          boxAboveFoot: drawn.boxAboveFoot,
+          unreachable: drawn.unreachable,
+        }).toEqual({ footInside: true, boxAboveFoot: true, unreachable: [] });
+        // The quiet row has the mode, the model and the ring; the card has + and the mic at least.
+        expect(drawn.controls).toBeGreaterThanOrEqual(4);
+        // The card keeps at least its one line.
+        expect(drawn.boxHeight).toBeGreaterThanOrEqual(40);
+      });
 });

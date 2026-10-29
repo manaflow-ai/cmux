@@ -1,4 +1,4 @@
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 import AppKit
 import CmuxNextActions
 import CmuxNextAgentPane
@@ -6,6 +6,7 @@ import CmuxNextSettings
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextTerminal
+import CmuxNextWakeups
 
 /// `debug.key` (DEBUG builds): a key-down synthesized into one of this
 /// process's own windows and dispatched the way `NSApplication.sendEvent`
@@ -18,8 +19,9 @@ import CmuxNextTerminal
 /// key (`CMUX_NEXT_NO_ACTIVATE=1`). A key the responder chain gets passes the
 /// local event monitors as a real key does (DebugNativeInput), so a key in an
 /// agent pane records the user's gesture. Never touches another app.
-/// With `sequence`, raw key transitions through the app's event queue
-/// instead (`DebugKey+Sequence`); with `last`, the router's last interception.
+/// A request with `sequence` plays raw key transitions through the app's event queue instead,
+/// optionally into a chosen key window (`DebugKey+Sequence`, dispatched by `AppControl`); with
+/// `last`, the router's last interception.
 enum DebugKey {
     private static let named: [String: (characters: String, keyCode: UInt16)] = [
         "return": ("\r", 36), "escape": ("\u{1b}", 53), "tab": ("\t", 48), "space": (" ", 49), "d": ("d", 2), "c": ("c", 8), "v": ("v", 9),
@@ -48,7 +50,6 @@ enum DebugKey {
     ]
 
     static func send(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
-        if let steps = params["sequence"]?.arrayValue { return sendSequence(steps) }
         // `last`: the action the router last took a key for (a real key's too), whether it ran,
         // and a count that changes with every interception.
         if params["last"]?.boolValue == true {
@@ -87,7 +88,10 @@ enum DebugKey {
         }
         let press = keyPress(params["key"]?.stringValue ?? "", modifiers: (params["modifiers"]?.arrayValue ?? []).compactMap(\.stringValue))
         let flags = press.flags
-        guard let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: ProcessInfo.processInfo.systemUptime,
+        // `timestamp` (seconds since boot, CLOCK_UPTIME_RAW): when the client sent the key, so the typing probe
+        // counts the wait for the main thread too, as a real key waits in the event queue (sidebar-churn-typing.py).
+        let timestamp = params["timestamp"]?.doubleValue ?? ProcessInfo.processInfo.systemUptime
+        guard let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: timestamp,
                                            windowNumber: window.windowNumber, context: nil, characters: press.characters,
                                            charactersIgnoringModifiers: press.characters, isARepeat: false, keyCode: press.keyCode)
         else { return .object(["error": .string("bad key")]) }
@@ -104,10 +108,6 @@ enum DebugKey {
             return .object(["decision": .string(String(describing: decision)), "action": action,
                             "focus": .string(String(describing: controller.focus.state.resolved))])
         }
-        let registry = services.registry
-        let previous = registry.isDispatchingKeyDown
-        registry.isDispatchingKeyDown = { true }
-        defer { registry.isDispatchingKeyDown = previous }
         // The target window is the key window for this dispatch, so rules
         // that read the key window (WindowKeyTable) see it.
         let previousKey = services.keyWindowSource
@@ -133,9 +133,15 @@ enum DebugKey {
             if DebugNativeInput.usesAppKitPath(window) {
                 DebugNativeInput.sendThroughApp([event])
             } else {
+                // Off the app's sendEvent (a window that is not key), the typing probe opens its sample here.
+                if TypingLatencyProbe.isEnabled { TypingLatencyProbe.shared.keyDown(eventTimestamp: event.timestamp) }
                 DebugNativeInput.runPaneMonitors(event, in: window, services: services)
                 window.sendEvent(event)
+                if TypingLatencyProbe.isEnabled { TypingLatencyProbe.shared.mark(.dispatchEnd) }
             }
+            // `probe: "commit"`: the key went to a text view (Home's composer, the omnibar), so the
+            // typing probe writes its row at the frame that commits the edit, not at a terminal echo.
+            if params["probe"]?.stringValue == "commit" { TypingLatencyProbe.shared.closeAtCommit() }
             return (window !== shell ? "page" : "responder", .null)
         }
         if params["target"]?.stringValue == "palette" {
