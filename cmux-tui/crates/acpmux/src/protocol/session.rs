@@ -113,6 +113,9 @@ pub struct SessionSummary {
     #[schemars(with = "Option<String>")]
     pub current_mode_id: Value,
     pub model: Option<String>,
+    /// The harness's current reasoning effort, when it reports one.
+    /// Additive for older clients and peers.
+    pub effort: Option<String>,
     pub policy: Option<String>,
     #[schemars(with = "Enforcement")]
     pub enforcement: Value,
@@ -397,9 +400,10 @@ pub struct LastTurn {
     /// Why a turn ended without an answer, e.g. `outcome_unknown`.
     pub detail: Option<String>,
     /// What kind of failure a failed turn was (`recovery.rs`): `disk.full`, `disk.low`,
-    /// `peer.unreachable`, `daemon.restarting`, `spawn.failed` or `agent.exited`. A client
-    /// treats a kind it does not know as a plain error. The same key is on a request's error
-    /// `data` and on the `turn_error` and `turn_result` records.
+    /// `peer.unreachable`, `daemon.restarting`, `spawn.failed`, `agent.exited`,
+    /// `auth.signed_out` or `auth.expired`. A client treats a kind it does not know as a plain
+    /// error. The same key is on a request's error `data` and on the `turn_error` and
+    /// `turn_result` records.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error_kind: Option<String>,
     /// One sentence saying what to do about the failure.

@@ -12,7 +12,13 @@ import type { ProjectRepo } from "./projectRepos";
 /// A folder to start a chat in. `peer` (with its display name `host`) is another machine's folder:
 /// its row carries a globe and the machine's name, and a pick starts the chat there. `repo` is the
 /// folder's repository as this Mac's host read it (projectRepos.ts).
-export type Project = { cwd: string; label: string; peer?: string; host?: string; repo?: ProjectRepo };
+export type Project = {
+  cwd: string;
+  label: string;
+  peer?: string;
+  host?: string;
+  repo?: ProjectRepo;
+};
 
 /// One row of the chooser: a project, or Do not work in a project (`project` undefined).
 type Row = { key: string; project?: Project };
@@ -76,9 +82,9 @@ export function ProjectChooser({
   }, [projects, query]);
   const rows = useMemo<Row[]>(() => {
     const listed: Row[] = shown.map((project) => ({ key: rowKey(project), project }));
-    if (onNoProject && !query.trim()) listed.push({ key: NO_PROJECT_KEY });
+    if (onNoProject) listed.unshift({ key: NO_PROJECT_KEY });
     return listed;
-  }, [shown, onNoProject, query]);
+  }, [shown, onNoProject]);
   const rowsByKey = useMemo(() => new Map(rows.map((row) => [row.key, row])), [rows]);
   const isCurrent = (key: string) =>
     rowsByKey.has(key) && (key === currentKey || (noProject && key === NO_PROJECT_KEY));
@@ -118,9 +124,11 @@ export function ProjectChooser({
     return () => window.removeEventListener("blur", blur);
   }, [open]);
 
-  const suggestions = rows.map((row) => row.key);
+  const pinned = [...(onNoProject ? [NO_PROJECT_KEY] : []), ...(onBrowse ? [ADD_PROJECT_KEY] : [])];
+  const suggestions = [...pinned, ...rows.filter((row) => row.key !== NO_PROJECT_KEY).map((row) => row.key)];
   if (typedPath && shown.length === 0) suggestions.push(typedPath);
   const rowLabel = (key: string) => {
+    if (key === ADD_PROJECT_KEY) return t("project.new");
     const project = rowsByKey.get(key)?.project;
     return project
       ? [project.label, project.host, project.cwd].filter(Boolean).join(" ")
@@ -138,6 +146,8 @@ export function ProjectChooser({
         className={inline ? "acpmux-project-button" : "acpmux-context-chip acpmux-project-button"}
         aria-label={inline ? `${t("project.label")}: ${label}` : t("project.label")}
         aria-haspopup="dialog"
+        // tooltip-allow: a truncated project label keeps its full path available.
+        title={current}
         aria-expanded={open}
         {...press}
       >
@@ -164,8 +174,14 @@ export function ProjectChooser({
           <Combobox
             inputRef={search}
             suggestions={suggestions}
+            pinnedSuggestions={pinned}
             onQuery={setQuery}
             onSubmit={(key) => {
+              if (key === ADD_PROJECT_KEY) {
+                close(false);
+                setAdding(true);
+                return;
+              }
               const row =
                 rowsByKey.get(key) ??
                 (!key && !query.trim()
@@ -181,12 +197,19 @@ export function ProjectChooser({
             label={t("project.search")}
             placeholder={t("project.search")}
             inputClassName="acpmux-project-search-field"
-            listClassName="m-0 list-none p-0"
+            listClassName="acpmux-project-folders m-0 list-none p-0"
             itemClassName="acpmux-menu-item rounded-lg data-[highlighted]:bg-hover"
             itemLabel={rowLabel}
             isItemCurrent={isCurrent}
             completionText={(key) => (key === NO_PROJECT_KEY ? "" : rowLabel(key))}
             renderItem={(key) => {
+              if (key === ADD_PROJECT_KEY)
+                return (
+                  <>
+                    <PlusIcon />
+                    <span>{t("project.new")}</span>
+                  </>
+                );
               const row = rowsByKey.get(key);
               const project = row?.project;
               const checked = isCurrent(key);
@@ -212,22 +235,8 @@ export function ProjectChooser({
             }}
             inline
           />
-          {suggestions.length === 0 && (query.trim() || !onNoProject) && (
+          {shown.length === 0 && !typedPath && (query.trim() || !onNoProject) && (
             <div className="acpmux-project-empty">{t(query.trim() ? "project.none" : "project.noneYet")}</div>
-          )}
-          {onBrowse && (
-            <button
-              type="button"
-              className="acpmux-project-browse"
-              onMouseDown={(event) => {
-                event.preventDefault();
-                close(false);
-                setAdding(true);
-              }}
-            >
-              <PlusIcon />
-              {t("project.new")}
-            </button>
           )}
         </div>
       </Popover>
@@ -302,3 +311,5 @@ function PlusIcon() {
     </svg>
   );
 }
+
+const ADD_PROJECT_KEY = "__add_project__";

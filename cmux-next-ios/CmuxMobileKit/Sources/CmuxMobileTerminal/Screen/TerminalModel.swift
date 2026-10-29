@@ -1,5 +1,6 @@
 #if os(iOS)
 import CmuxMobileArtifacts
+import CmuxMobileDesign
 import Foundation
 import Observation
 import UIKit
@@ -56,8 +57,13 @@ public final class TerminalModel {
     }
     /// The terminal surface is first responder (keys go straight to the PTY).
     var surfaceFocused = false
-    /// The terminal or its composer has focus: the key bar shows (SPEC M4).
+    /// The terminal or its composer has focus.
     var inputFocused: Bool { surfaceFocused || composerFocused }
+    /// The composer is shown (classic cmux iOS: open by default, closed with
+    /// the compose key for this page's life).
+    public internal(set) var composerPresented = true
+    /// Hide Toolbar took the key row and the composer away until the next terminal tap.
+    public internal(set) var chromeHidden = false
     /// Attachments are being sent; the composer waits.
     public internal(set) var isUploading = false
     /// Why the last send with attachments failed (shown over the composer).
@@ -276,13 +282,12 @@ public final class TerminalModel {
     static let reconcileInterval: CFTimeInterval = 0.5
     @ObservationIgnored private var lastReconcile: CFTimeInterval = 0
 
-    var composerPlaceholder: String {
-        directTyping ? "Typing into terminal" : "Send to \(programName)"
-    }
+    /// Classic cmux iOS's placeholder (iMessage's): the field is a message to the program.
+    let composerPlaceholder = "Message"
 
     // MARK: Actions
 
-    /// The always-visible keyboard button: hide, or show for the last input target.
+    /// The key row's keyboard key: hide, or show for the last input target.
     public func toggleKeyboard() {
         if keyboardVisible {
             controller?.hideKeyboard()
@@ -455,22 +460,77 @@ public final class TerminalModel {
 
     func keyBar(_ key: KeyBarKey) {
         guard let surface = controller?.surface else { return }
+        // Keys that leave the terminal (classic: paste, zoom, compose, hide)
+        // first turn off an armed modifier, so it cannot linger unseen.
+        let resetsModifiers: Bool = switch key {
+        case .paste, .zoomOut, .zoomIn, .composer, .hideChrome, .launcher: true
+        default: false
+        }
+        if resetsModifiers { surface.input.sticky.reset() }
         switch key {
         case .escape: surface.sendKey(usage: TerminalHIDUsage.escape)
         case .tab: surface.sendKey(usage: TerminalHIDUsage.tab)
-        case .shiftTab: surface.sendKey(usage: TerminalHIDUsage.tab, mods: .shift)
-        case .control: surface.tapSticky(.control)
-        case .alternate: surface.tapSticky(.alternate)
+        case .returnKey: surface.sendKey(usage: TerminalHIDUsage.enter)
+        case .control, .alternate, .command, .shift:
+            if let modifier = key.modifier { surface.tapSticky(modifier) }
         case .up: surface.sendKey(usage: TerminalHIDUsage.up)
         case .down: surface.sendKey(usage: TerminalHIDUsage.down)
         case .left: surface.sendKey(usage: TerminalHIDUsage.left)
         case .right: surface.sendKey(usage: TerminalHIDUsage.right)
+        case .home: surface.sendKey(usage: TerminalHIDUsage.home)
+        case .end: surface.sendKey(usage: TerminalHIDUsage.end)
+        case .pageUp: surface.sendKey(usage: TerminalHIDUsage.pageUp)
+        case .pageDown: surface.sendKey(usage: TerminalHIDUsage.pageDown)
         case .chord(let letter): surface.sendControl(letter)
         case .symbol(let text): surface.perform(surface.input.insertText(text))
+        case .launcher(let launcher):
+            // Typed with its Return in one go, as classic sent its bytes.
+            surface.perform([.text(launcher.command)])
+            if launcher.pressesReturn { surface.sendKey(usage: TerminalHIDUsage.enter) }
         case .paste: surface.paste(nil)
-        case .hideKeyboard: controller?.hideKeyboard()
+        case .zoomOut, .zoomIn: zoom(larger: key == .zoomIn)
+        case .composer: composeKeyTapped()
+        case .hideChrome: setChromeHidden(true)
         }
         sticky = surface.input.sticky
+    }
+
+    /// The key row's zoom keys: one point smaller or larger, saved as the
+    /// terminal's font size (the surface follows the preference).
+    private func zoom(larger: Bool) {
+        let defaults = UserDefaults.standard
+        let size = CmuxMobilePreferences.terminalFontSize(defaults)
+        let next = TerminalFontZoom(sizes: CmuxMobilePreferences.terminalFontSizes).step(size, larger: larger)
+        guard next != size else { return }
+        defaults.set(next, forKey: CmuxMobilePreferences.Key.terminalFontSize)
+    }
+
+    /// The compose key (classic cmux iOS's `ComposerDockState`): open and
+    /// focus, reveal and focus, or close only a shown, focused composer.
+    func composeKeyTapped() {
+        let dock = ComposerDockState(chromeHidden: chromeHidden, composerPresented: composerPresented,
+                                     fieldFocused: composerFocused)
+        switch dock.intentForComposeKeyTap() {
+        case .openComposer, .revealAndFocusComposer:
+            setChromeHidden(false)
+            composerPresented = true
+            focusComposer()
+        case .closeComposer:
+            // The keyboard stays up and keys go to the terminal (classic hands
+            // first responder over instead of dropping the keyboard).
+            composerPresented = false
+            controller?.focusTerminal()
+        }
+        controller?.dockChanged()
+    }
+
+    /// Hide Toolbar: the key row, the composer and the keyboard go away until
+    /// the next terminal tap. The composer and its draft stay as they were.
+    func setChromeHidden(_ hidden: Bool) {
+        guard chromeHidden != hidden else { return }
+        chromeHidden = hidden
+        if hidden { controller?.hideKeyboard() }
+        controller?.dockChanged()
     }
 
     /// The composer is about to insert `text`. With ctrl or alt on, the key

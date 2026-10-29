@@ -269,9 +269,14 @@ await requireBrowserLane("agent-pane-agents-pill.test.ts", async () => {
   test("by default the running agents sit in the tray above the composer, not in the transcript", async () => {
     const page = await open(BUSY, "Read app.ts", true);
     await tray(page).waitFor({ timeout: 5_000 });
-    // Reviewer and Tester run (Linter ended).
-    expect(await tray(page).locator(".acpmux-summary-agent__name").allTextContents()).toEqual(["Reviewer", "Tester"]);
-    expect(await tray(page).locator(".acpmux-agent-line__time").count()).toBe(2);
+    // Reviewer and Tester run; the Linter ended and stays as a finished card under them
+    // (49acdd1d589d keeps finished cards mounted in the tray).
+    const running = tray(page).locator("li:not([data-finished])");
+    expect(await running.locator(".acpmux-summary-agent__name").allTextContents()).toEqual(["Reviewer", "Tester"]);
+    expect(await running.locator(".acpmux-agent-line__time").count()).toBe(2);
+    expect(await tray(page).locator("li[data-finished] .acpmux-summary-agent__name").allTextContents()).toEqual([
+      "Linter",
+    ]);
     expect(await page.locator(".cv-subagents").count()).toBe(0);
     expect(await page.locator(".cv-subagent").count()).toBe(0);
     expect(await pill(page).count()).toBe(0);
@@ -280,11 +285,15 @@ await requireBrowserLane("agent-pane-agents-pill.test.ts", async () => {
       page.locator(".acpmux-composer").first().boundingBox(),
     ]);
     expect(trayBox!.y + trayBox!.height).toBeLessThanOrEqual(composerBox!.y);
-    // Both end: the tray goes, and each leaves its line.
+    // Both end: nothing runs in the tray, which keeps them as finished cards (49acdd1d589d), and
+    // each leaves its line.
     push(finished("a1", "Reviewer"));
     push(finished("a2", "Tester"));
-    await tray(page).first().waitFor({ state: "detached", timeout: 5_000 });
-    expect(await tray(page).count()).toBe(0);
+    await running.first().waitFor({ state: "detached", timeout: 5_000 });
+    expect(await running.count()).toBe(0);
+    expect(
+      (await tray(page).locator("li[data-finished] .acpmux-summary-agent__name").allTextContents()).sort(),
+    ).toEqual(["Linter", "Reviewer", "Tester"]);
     // Each leaves one line where it ended, at the transcript's end.
     await page.locator(".cv-subagent-done", { hasText: "Reviewer" }).waitFor({ timeout: 5_000 });
     await page.locator(".cv-subagent-done", { hasText: "Tester" }).waitFor({ timeout: 5_000 });
@@ -298,9 +307,11 @@ await requireBrowserLane("agent-pane-agents-pill.test.ts", async () => {
       "Tester",
     ]);
     await nested.close();
-    // The turn is over: an agent left "running" by a cancel or a reconnect pins no tray.
+    // The turn is over: an agent left "running" by a cancel or a reconnect pins no running row; the
+    // tray keeps it only as a stopped card (49acdd1d589d keeps ended cards).
     const stale = await open(STUCK, "Review the branch with a few agents", true);
-    expect(await tray(stale).count()).toBe(0);
+    expect(await tray(stale).locator("li:not([data-finished])").count()).toBe(0);
+    expect(await tray(stale).locator('li[data-finished] .acpmux-agent-line[data-status="stopped"]').count()).toBe(1);
     await stale.close();
   });
 
