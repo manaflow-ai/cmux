@@ -21,7 +21,7 @@ import Testing
         let first = try await projection.apply(add, agents: AgentStates(), activity: [:])
         let second = try await projection.apply(add, agents: AgentStates(), activity: [:])
         #expect(first?.tree.workspaces[0].tabs.map(\.id) == ["s4", "s6", "s5"])
-        #expect(second?.tree.workspaces[0].tabs.map(\.id) == ["s4", "s6", "s5"])
+        #expect(second == nil)
     }
 
     @Test func duplicateCloseAndUnknownRenameRequestSnapshot() async throws {
@@ -29,7 +29,7 @@ import Testing
         _ = try await projection.reset(snapshot: Self.snapshot, macID: "m")
         let close = Self.delta(.tabClosed, surface: 5)
         _ = try await projection.apply(close, agents: AgentStates(), activity: [:])
-        #expect(try await projection.apply(close, agents: AgentStates(), activity: [:])?.changedWorkspaceIDs.isEmpty == true)
+        #expect(try await projection.apply(close, agents: AgentStates(), activity: [:]) == nil)
         let rename = Self.delta(.tabRenamed, surface: 99, entity: ["surface": 99, "kind": "pty", "title": "bad"])
         #expect(throws: WorkspaceProjection.ProjectionError.needsSnapshot) {
             try await projection.apply(rename, agents: AgentStates(), activity: [:])
