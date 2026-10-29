@@ -2500,7 +2500,7 @@
         "bindings": {
           "type": "object",
           "default": {},
-          "description": "Shortcut overrides keyed by cmux action id. Use a string for a single shortcut, an array for a chord, null, an empty string, none, clear, unbound, or disabled to unbind.",
+          "description": "Shortcut overrides keyed by cmux action id. Use a string for a single shortcut, a two-item array for a chord, {\"any\": [...]} for several keys on one action, null, an empty string, none, clear, unbound, or disabled to unbind.",
           "propertyNames": {
             "enum": [
               "openSettings",
@@ -2683,6 +2683,15 @@
             ]
           },
           "properties": {
+            "selectSurfaceByNumber": {
+              "$ref": "#/$defs/numberedFamilyShortcutBindingNullable"
+            },
+            "selectWorkspaceByNumber": {
+              "$ref": "#/$defs/numberedFamilyShortcutBindingNullable"
+            },
+            "focusPaneByNumber": {
+              "$ref": "#/$defs/numberedFamilyShortcutBindingNullable"
+            },
             "fileExplorerOpenSelection": {
               "$ref": "#/$defs/singleBareFirstStrokeShortcutBindingNullable"
             },
@@ -2835,10 +2844,21 @@
                   {
                     "type": "array",
                     "minItems": 1,
-                    "maxItems": 2,
+                    "maxItems": 1,
                     "prefixItems": [
                       {
                         "$ref": "#/$defs/shortcutFirstStroke"
+                      }
+                    ],
+                    "description": "One key written as a one-item array. The parser reads it as a single stroke, not a chord, so the chord rule does not apply."
+                  },
+                  {
+                    "type": "array",
+                    "minItems": 2,
+                    "maxItems": 2,
+                    "prefixItems": [
+                      {
+                        "$ref": "#/$defs/shortcutChordFirstStroke"
                       },
                       {
                         "$ref": "#/$defs/shortcutStroke"
@@ -2850,6 +2870,89 @@
             }
           },
           "description": "Several shortcuts for one action, each a key or a chord. Example: {\"any\": [\"ctrl+tab\", \"cmd+]\"]}."
+        }
+      ]
+    },
+    "numberedFamilyShortcutBinding": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/unboundShortcutBinding",
+          "description": "Unbind this shortcut. Accepted values are an empty string, none, clear, unbound, or disabled."
+        },
+        {
+          "$ref": "#/$defs/shortcutFirstStroke",
+          "description": "Single-stroke shortcut, for example cmd+n or cmd+space."
+        },
+        {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 2,
+          "prefixItems": [
+            {
+              "$ref": "#/$defs/shortcutFirstStroke"
+            },
+            {
+              "$ref": "#/$defs/shortcutStroke"
+            }
+          ],
+          "description": "Chorded shortcut. Example: [\"ctrl+b\", \"c\"]."
+        },
+        {
+          "type": "object",
+          "required": [
+            "any"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "any": {
+              "type": "array",
+              "items": {
+                "oneOf": [
+                  {
+                    "$ref": "#/$defs/shortcutFirstStroke"
+                  },
+                  {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 1,
+                    "prefixItems": [
+                      {
+                        "$ref": "#/$defs/shortcutFirstStroke"
+                      }
+                    ],
+                    "description": "One key written as a one-item array. The parser reads it as a single stroke, not a chord, so the chord rule does not apply."
+                  },
+                  {
+                    "type": "array",
+                    "minItems": 2,
+                    "maxItems": 2,
+                    "prefixItems": [
+                      {
+                        "$ref": "#/$defs/shortcutChordFirstStroke"
+                      },
+                      {
+                        "$ref": "#/$defs/shortcutStroke"
+                      }
+                    ]
+                  }
+                ]
+              },
+              "maxItems": 1
+            }
+          },
+          "description": "A numbered family takes one key, so this list holds at most one (an empty list unbinds). cmux NEXT keeps only the first key and reports the rest as invalid. Example: {\"any\": [\"cmd+opt+1\"]}."
+        }
+      ],
+      "description": "A numbered family's binding (cmd+1 means the whole cmd+1 through cmd+9 family). As shortcutBinding, except that {\"any\": [...]} holds at most one key."
+    },
+    "numberedFamilyShortcutBindingNullable": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/numberedFamilyShortcutBinding"
+        },
+        {
+          "type": "null",
+          "description": "Unbind this shortcut."
         }
       ]
     },
@@ -2873,6 +2976,37 @@
         {
           "$ref": "#/$defs/bareFirstStrokeShortcutFirstStroke",
           "description": "Single-stroke shortcut. Bare first strokes are accepted for this action."
+        },
+        {
+          "type": "object",
+          "required": [
+            "any"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "any": {
+              "type": "array",
+              "items": {
+                "oneOf": [
+                  {
+                    "$ref": "#/$defs/bareFirstStrokeShortcutFirstStroke"
+                  },
+                  {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 1,
+                    "prefixItems": [
+                      {
+                        "$ref": "#/$defs/bareFirstStrokeShortcutFirstStroke"
+                      }
+                    ],
+                    "description": "One key written as a one-item array. The parser reads it as a single stroke."
+                  }
+                ]
+              }
+            }
+          },
+          "description": "Several shortcuts for one action, each a single stroke. Bare first strokes are accepted for this action. Example: {\"any\": [\"return\", \"o\"]}."
         }
       ]
     },
@@ -2910,6 +3044,50 @@
             }
           ],
           "description": "Chorded shortcut. Bare first strokes are accepted for this action. Example: [\"g\", \"g\"]."
+        },
+        {
+          "type": "object",
+          "required": [
+            "any"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "any": {
+              "type": "array",
+              "items": {
+                "oneOf": [
+                  {
+                    "$ref": "#/$defs/bareFirstStrokeShortcutFirstStroke"
+                  },
+                  {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 1,
+                    "prefixItems": [
+                      {
+                        "$ref": "#/$defs/bareFirstStrokeShortcutFirstStroke"
+                      }
+                    ],
+                    "description": "One key written as a one-item array. The parser reads it as a single stroke, not a chord, so a bare key is accepted here as it is for this action's plain binding."
+                  },
+                  {
+                    "type": "array",
+                    "minItems": 2,
+                    "maxItems": 2,
+                    "prefixItems": [
+                      {
+                        "$ref": "#/$defs/shortcutChordFirstStroke"
+                      },
+                      {
+                        "$ref": "#/$defs/shortcutStroke"
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          },
+          "description": "Several shortcuts for one action, each a single stroke or a chord. A bare single stroke is accepted for this action; a chord still needs Cmd or Ctrl in its first stroke. Example: {\"any\": [\"j\", \"ctrl+n\"]}."
         }
       ]
     },
@@ -2945,6 +3123,17 @@
         }
       ],
       "description": "First or only shortcut stroke. Must include a modifier unless the key is Space."
+    },
+    "shortcutChordFirstStroke": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/shortcutStroke"
+        },
+        {
+          "pattern": "^(?:(?:[cC][mM][dD]|[cC][oO][mM][mM][aA][nN][dD]|[sS][hH][iI][fF][tT]|[oO][pP][tT]|[oO][pP][tT][iI][oO][nN]|[aA][lL][tT]|[cC][tT][rR][lL]|[cC][oO][nN][tT][rR][oO][lL]|[cC][tT][lL]|⌘|⇧|⌥|⌃)\\+)*(?:[cC][mM][dD]|[cC][oO][mM][mM][aA][nN][dD]|[cC][tT][rR][lL]|[cC][oO][nN][tT][rR][oO][lL]|[cC][tT][lL]|⌘|⌃)\\+"
+        }
+      ],
+      "description": "First stroke of a chord listed in {\"any\": [...]}. Must include Cmd or Ctrl: cmux NEXT drops a chord whose first stroke has neither, whether or not the action accepts a bare single stroke. The plain two-item chord form stays wider because classic also reads it, and classic ships bare-first chords such as [\"]\", \"f\"]."
     },
     "bareFirstStrokeShortcutFirstStroke": {
       "allOf": [
