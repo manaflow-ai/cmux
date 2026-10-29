@@ -333,9 +333,8 @@ extension LiveCoordinator {
 
     /// Retry the Mac represented by the global connection banner.
     public func retryConnection() {
-        if store.isOffline || focused?.link.phase == .macOffline { retry() }
-        else if let focused { retry(macID: focused.macID) }
-        else { retry() }
+        if store.isOffline || focused.link.phase == .macOffline || focused === idleSession { retry() }
+        else { retry(macID: focused.macID) }
     }
 
     /// Retry for a Mac (the Workspaces Retry and Reconnect): pairs the link
