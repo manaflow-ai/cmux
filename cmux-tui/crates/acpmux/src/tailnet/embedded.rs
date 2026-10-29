@@ -201,16 +201,20 @@ pub struct Controller {
     pending_retirement: Arc<AtomicBool>,
     retirement_finished: Arc<TokioNotify>,
     stopping: Arc<AtomicBool>,
-    /// Held by a failure cleanup from its shutdown check through its close,
-    /// and taken by the shutdown fence, so a close admitted before the fence
-    /// finishes before it returns and none starts after it.
-    close_gate: Arc<tokio::sync::Mutex<()>>,
+    /// Held on the blocking thread by a failure cleanup from its final
+    /// shutdown check through its close, and taken by the shutdown fence after
+    /// it sets `stopping`. A close job that the blocking pool runs late sees
+    /// the fence and skips; only a close that really began before shutdown can
+    /// outlast the fence's bound.
+    close_admission: Arc<Mutex<()>>,
     #[cfg(test)]
     node_factory: Mutex<Option<NodeFactory>>,
     #[cfg(test)]
     before_close: Mutex<Option<Box<dyn FnOnce() + Send>>>,
     #[cfg(test)]
     remote_logout: Mutex<Option<RemoteLogout>>,
+    #[cfg(test)]
+    before_admission: Mutex<Option<Box<dyn FnOnce() + Send>>>,
 }
 
 #[cfg(test)]
@@ -234,13 +238,15 @@ impl Controller {
             pending_retirement: Arc::new(AtomicBool::new(false)),
             retirement_finished: Arc::new(TokioNotify::new()),
             stopping: Arc::new(AtomicBool::new(false)),
-            close_gate: Arc::new(tokio::sync::Mutex::new(())),
+            close_admission: Arc::new(Mutex::new(())),
             #[cfg(test)]
             node_factory: Mutex::new(None),
             #[cfg(test)]
             before_close: Mutex::new(None),
             #[cfg(test)]
             remote_logout: Mutex::new(None),
+            #[cfg(test)]
+            before_admission: Mutex::new(None),
         })
     }
 
@@ -374,7 +380,15 @@ impl Controller {
     /// later, after the WebSocket drain.
     pub(crate) async fn fence(&self) {
         self.begin_shutdown();
-        let _ = tokio::time::timeout(FENCE_CLOSE_BOUND, self.close_gate.lock()).await;
+        let admission = Arc::clone(&self.close_admission);
+        let waited = tokio::task::spawn_blocking(move || {
+            drop(admission.lock().unwrap_or_else(PoisonError::into_inner));
+        });
+        if tokio::time::timeout(FENCE_CLOSE_BOUND, waited).await.is_err() {
+            // Only a close that began before shutdown can hold admission this
+            // long; every later one sees `stopping` and leaves the node alone.
+            tracing::warn!("a tailnet listener-failure close began before shutdown and is slow");
+        }
     }
 
     fn shutting_down(&self) -> bool {
@@ -413,38 +427,56 @@ impl Controller {
             Arc::clone(&self.retirement_gate),
             Arc::clone(&self.lifecycle),
             move || async move {
-                let close_gate = Arc::clone(&controller.close_gate).lock_owned().await;
                 let plan = controller.begin_retirement_close(generation, &node);
-                if !plan.logout && controller.stopping.load(Ordering::Acquire) {
-                    // Queued before the shutdown fence, running after it. The
-                    // node stays owned (Retiring) and daemon shutdown closes it
-                    // after the WebSocket drain has sent its close frames.
-                    controller.pending_retirement.store(false, Ordering::Release);
-                    controller.retirement_finished.notify_waiters();
-                    drop(close_gate);
-                    release_node(cleanup_node);
-                    release_node(node);
-                    release_node(failed);
-                    return;
-                }
                 let remote_logout = controller.remote_logout(Arc::clone(&cleanup_node));
+                let admission = Arc::clone(&controller.close_admission);
+                let stopping = Arc::clone(&controller.stopping);
+                #[cfg(test)]
+                let before_admission = controller
+                    .before_admission
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .take();
                 #[cfg(test)]
                 let before_close =
                     controller.before_close.lock().unwrap_or_else(PoisonError::into_inner).take();
                 let result = tokio::task::spawn_blocking(move || {
                     #[cfg(test)]
+                    if let Some(before_admission) = before_admission {
+                        before_admission();
+                    }
+                    let _admitted = admission.lock().unwrap_or_else(PoisonError::into_inner);
+                    // Checked here, on the thread that closes, under the lock
+                    // the fence takes after setting `stopping`: however late
+                    // the pool runs this job, it never closes after the fence.
+                    if !plan.logout && stopping.load(Ordering::Acquire) {
+                        return None;
+                    }
+                    #[cfg(test)]
                     if let Some(before_close) = before_close {
                         before_close();
                     }
-                    if plan.logout {
+                    Some(if plan.logout {
                         logout_and_close(remote_logout, || cleanup_node.close().map_err(|e| e.0))
                     } else {
                         cleanup_node.close().map_err(|e| e.0)
-                    }
+                    })
                 })
-                .await
-                .map_err(|error| error.to_string());
-                drop(close_gate);
+                .await;
+                let result = match result {
+                    Ok(None) => {
+                        // Queued before the shutdown fence, running after it.
+                        // The node stays owned (Retiring) and daemon shutdown
+                        // closes it after the WebSocket drain.
+                        controller.pending_retirement.store(false, Ordering::Release);
+                        controller.retirement_finished.notify_waiters();
+                        release_node(node);
+                        release_node(failed);
+                        return;
+                    }
+                    Ok(Some(result)) => Ok(result),
+                    Err(error) => Err(error.to_string()),
+                };
                 let logout_pending = controller.finish_retirement(generation, &node, plan, result);
                 controller.note_listener_error_if_current(generation);
                 if !logout_pending {
@@ -1272,8 +1304,8 @@ pub(crate) fn release_node(node: Arc<Node>) {
     release_on_background(node);
 }
 
-/// How long the shutdown fence waits for a failure cleanup's close already
-/// under way. The fence takes effect at once either way.
+/// How long the shutdown fence waits for a failure close that began before
+/// shutdown. The fence takes effect at once either way.
 const FENCE_CLOSE_BOUND: std::time::Duration = std::time::Duration::from_secs(3);
 
 pub fn state_dir(home: &Path) -> PathBuf {
@@ -2139,6 +2171,51 @@ mod tests {
             .await
             .expect("a resume after the fence returns instead of waiting on retirement")
             .unwrap();
+        controller.shutdown().await.unwrap();
+        assert!(controller.state_node().is_none());
+        release_node(node);
+    }
+
+    #[tokio::test]
+    async fn a_failure_close_the_pool_runs_after_the_fence_never_closes() {
+        let temporary = tempfile::tempdir().unwrap();
+        let config = NodeConfig::new(temporary.path(), "late-close");
+        let node = tokio::task::spawn_blocking(move || Arc::new(Node::new(&config).unwrap()))
+            .await
+            .unwrap();
+        let controller = Controller::new(temporary.path(), "late-close");
+        controller.set_running_for_test(Arc::clone(&node), "node.example.ts.net");
+        // The cleanup passed every async check and queued its close, but the
+        // blocking pool runs it only after the fence and well past its bound.
+        let (queued, queued_seen) = tokio::sync::oneshot::channel();
+        let (run, delayed) = std::sync::mpsc::channel::<()>();
+        *controller.before_admission.lock().unwrap() = Some(Box::new(move || {
+            let _ = queued.send(());
+            delayed.recv_timeout(std::time::Duration::from_secs(15)).unwrap();
+        }));
+        *controller.before_close.lock().unwrap() =
+            Some(Box::new(|| panic!("a close admitted after the fence")));
+        let watcher = {
+            let (controller, node) = (controller.clone(), Arc::clone(&node));
+            tokio::spawn(async move { controller.listener_failed(&node).await })
+        };
+        queued_seen.await.unwrap();
+        tokio::time::timeout(
+            FENCE_CLOSE_BOUND + std::time::Duration::from_secs(1),
+            controller.fence(),
+        )
+        .await
+        .expect("the fence returns within its bound");
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        run.send(()).unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(5), watcher)
+            .await
+            .expect("the late cleanup finished")
+            .unwrap();
+        let retained = controller.state_node().expect("daemon shutdown, not the late job, closes");
+        assert!(Arc::ptr_eq(&retained, &node));
+        release_node(retained);
+        assert!(!controller.retirement_pending());
         controller.shutdown().await.unwrap();
         assert!(controller.state_node().is_none());
         release_node(node);
