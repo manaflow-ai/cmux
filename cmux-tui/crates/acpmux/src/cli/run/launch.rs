@@ -9,7 +9,6 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Output, Stdio};
 use std::sync::mpsc;
-use std::time::Duration;
 
 use anyhow::{Result, bail};
 use serde_json::{Value, json};
