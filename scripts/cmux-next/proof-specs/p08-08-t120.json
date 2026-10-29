@@ -1,0 +1,33 @@
+{
+ "row": "p08-08",
+ "toggle": "savedWindowPicture",
+ "inner": "launch",
+ "runs": 5,
+ "run_timeout": 1800,
+ "metric": [
+  "first_frame=\\.(cold|warm)\\.\\*\\.first_window_frame_committed$",
+  "first_terminal=\\.(cold|warm)\\.\\*\\.first_terminal_frame$"
+ ],
+ "validity": [],
+ "probe": [
+  {
+   "name": "launch_picture_shown",
+   "method": "debug.timings",
+   "params": {},
+   "regex": "^launch_ms_since_process_start\\.launch_picture_shown$",
+   "min": 1
+  }
+ ],
+ "inner_args": [
+  "--mode",
+  "warm",
+  "--mode",
+  "cold",
+  "--runs",
+  "1",
+  "--profile",
+  "realistic",
+  "--timeout",
+  "120"
+ ]
+}

@@ -55,5 +55,29 @@ class ProbeRule(unittest.TestCase):
         self.assertFalse(run_with(q, {"probe_error": "OSError"})["scenario_ran"])
 
 
+class RatioMetric(unittest.TestCase):
+    def report(self, on, off):
+        def run(arm, dropped, frames):
+            return {"arm": arm, "valid": True, "arm_verified": True,
+                    "raw": {"summary": [{"dropped": d, "frames": f} for d, f in zip(dropped, frames)]}}
+        runs = [run("on", *x) for x in on] + [run("off", *x) for x in off]
+        return {"runs": runs, "probes": ["p"]}
+
+    def test_ratio_is_one_value_per_run(self):
+        m = [pab.parse_metric(r"rate=ratio:^summary\.\*\.dropped$/^summary\.\*\.frames$")]
+        rep = self.report([([2, 0], [100, 100])] * 5, [([3, 1], [100, 100])] * 5)
+        out = pab.summarize(rep, m, 5)["rate"]
+        self.assertEqual(out["on"]["per_run_p95"], [0.01] * 5)
+        self.assertEqual(out["off"]["per_run_p95"], [0.02] * 5)
+
+    def test_ratio_resolves_a_gain_an_integer_count_cannot(self):
+        m = [pab.parse_metric(r"rate=ratio:^summary\.\*\.dropped$/^summary\.\*\.frames$")]
+        on = [([2, 2, 2], [160, 160, 160])] * 5
+        off = [([3, 3, 3], [160, 160, 160]), ([3, 3, 2], [160, 160, 160]), ([3, 3, 3], [160, 160, 160]),
+               ([3, 2, 3], [160, 160, 160]), ([3, 3, 3], [160, 160, 160])]
+        out = pab.summarize(self.report(on, off), m, 5)["rate"]
+        self.assertEqual(out["verdict"], "proven")
+
+
 if __name__ == "__main__":
     unittest.main()

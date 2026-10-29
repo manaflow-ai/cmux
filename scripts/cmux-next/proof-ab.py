@@ -114,7 +114,15 @@ def mann_whitney_p(a, b):
 
 
 def parse_metric(spec):
+    """NAME=REGEX[:higher], or NAME=ratio:NUM_REGEX/DEN_REGEX[:higher]: one value per run, the sum of the matched
+    numerator values over the sum of the matched denominator values (for example dropped frames over presented frames
+    across all animations of the run, so an integer count per animation does not set the noise band's floor)."""
     name, _, rest = spec.partition("=")
+    if rest.startswith("ratio:"):
+        higher = rest.endswith(":higher")
+        body = rest[len("ratio:"):-len(":higher")] if higher else rest[len("ratio:"):]
+        num, _, den = body.partition("/")
+        return name, ("ratio", re.compile(num), re.compile(den)), higher
     higher = rest.endswith(":higher")
     return name, re.compile(rest[:-len(":higher")] if higher else rest), higher
 
@@ -151,7 +159,15 @@ def summarize(report, metrics, runs_wanted):
             runs = [r for r in report["runs"] if r["arm"] == arm and r.get("valid")]
             pooled, per_run = [], []
             for r in runs:
-                values = [v for p, v in flatten(r.get("raw")) if regex.search(p)]
+                leaves = flatten(r.get("raw"))
+                if isinstance(regex, tuple):  # ratio metric: one value per run
+                    num = sum(v for p, v in leaves if regex[1].search(p))
+                    den = sum(v for p, v in leaves if regex[2].search(p))
+                    if den > 0:
+                        pooled.append(num / den)
+                        per_run.append(round(num / den, 6))
+                    continue
+                values = [v for p, v in leaves if regex.search(p)]
                 if values:
                     pooled += values
                     per_run.append(pct(values, 0.95))
