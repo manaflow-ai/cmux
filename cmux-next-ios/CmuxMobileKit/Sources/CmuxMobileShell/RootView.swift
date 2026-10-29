@@ -347,6 +347,15 @@ public struct RootView: View {
             heldInvite = nil
             coordinator.accept(invite)
         }
+        #if DEBUG
+        // Test-only (compiled out of Release): the pair-e2e rig (scripts/ci/cmux_next_pair_e2e.py)
+        // hands this launch a Mac's pairing code in its environment, taken as a scanned code is
+        // (.onOpenURL above). A simulator asks "Open in cmux?" for `simctl openurl`, and nothing on
+        // a CI Mac answers it. Never logged; the code's token is single use and expires in minutes.
+        if let text = ProcessInfo.processInfo.environment["CMUX_MOBILE_PAIR_URL"], let invite = PairInvite(text: text) {
+            coordinator.accept(invite)
+        }
+        #endif
     }
 
     #if DEBUG
@@ -578,7 +587,10 @@ private struct LinkSettingsObserver: ViewModifier {
                 // Hidden pages stop painting on the Mac and give up the lane.
                 StreamedBrowserDirectory.shared.setAppActive(phase != .background)
                 // The notification preview shows these chats' last messages.
-                if phase == .background { Task { await PushSnapshots().save() } }
+                if phase == .background {
+                    shell.live?.background()
+                    Task { await PushSnapshots().save() }
+                }
             }
     }
 }
@@ -632,7 +644,8 @@ private struct LiveCallHost: ViewModifier {
 }
 
 /// Exactly four tabs: Home, Workspaces, Feed, Settings. The selected tab is
-/// `label` (neutral accent), never blue.
+/// `label` (neutral accent), never blue. The bar stays fully visible while
+/// content scrolls: it never minimizes to the selected tab's pill.
 struct ShellTabs: View {
     let shell: ShellModel
 
@@ -667,7 +680,7 @@ struct ShellTabs: View {
                 }
             }
         }
-        .tabBarMinimizeBehavior(.onScrollDown)
+        .tabBarMinimizeBehavior(.never)
         .tint(theme.colors.label.color)
         .cmuxMobileSensoryFeedback(.selection, trigger: shell.tab)
     }

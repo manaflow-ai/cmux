@@ -268,6 +268,11 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(services.remoteLocalhost.report())
             },
+            // Every Chromium page's origin, hidden state and renderer client ids (bench_power.py loaded).
+            .mainActor("debug.cef_pages") { [weak services] _ in
+                guard let services else { return .value(.null) }
+                return .value(debugCEFPagesReport(services))
+            },
             // Chromium process failures, restart state, crash reports.
             .mainActor("debug.crashes") { [weak services] _ in
                 guard let services else { return .value(.null) }
@@ -555,6 +560,11 @@ final class AppControl {
             .mainActor("debug.add_device") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugAddDevice.show(call.params, services: services))
+            },
+            // Captures of the Machines section's joined rows: fixture machines, no platform or account.
+            .mainActor("debug.joined_machines") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(DebugAddDevice.showJoined(call.params, services: services))
             },
             // Captures of the daemon update: a board state, an ssh machine fixture and its header's tooltip.
             .mainActor("debug.daemon_update") { [weak services] call in
