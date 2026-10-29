@@ -1177,7 +1177,9 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     --release)
-      BUILD_CONFIGURATION="Release" BENCH_HOOKS=0 BLOCKING_CHECKS=0 BUILD_CONFIG_NAME="release" SANITIZER=""
+      # Bench scratch ref only (felt 1f new-tab A/B, never merge): the fleet's --release builds the bench
+      # configuration (Release optimization with the debug.* socket commands), as v2.2.7-opt's release_bench_tags did.
+      BUILD_CONFIGURATION="Release" BENCH_HOOKS=1 BLOCKING_CHECKS=0 BUILD_CONFIG_NAME="bench" SANITIZER=""
       shift
       ;;
     --config|--config=*)
