@@ -11,8 +11,8 @@ import Testing
 /// the scheduler interleaves starts and releases in a seeded random order. A reply is taken at its
 /// release, so a reply released before a write is the stale one it would be. After every step, once each
 /// started request is again waiting or done, the invariants are checked:
-/// - What the model allows Mac Screen is never more than acpmux allows (no stale grant, a revoke narrows
-///   the moment it starts, an unread record allows nothing).
+/// - What the model allows Mac Screen is never more than acpmux's record grants (no stale grant, a revoke
+///   narrows the moment it starts, an unread record allows nothing).
 /// - A ticket serves only when acpmux allows its scope and no write is in flight; otherwise it is refused.
 /// - One write at a time: a second one is refused as busy; a grant is never sent with the Labs switch off.
 /// - A press during a write does nothing: a Deny never closes the sheet over it, an Allow never writes.
@@ -30,9 +30,13 @@ import Testing
         var consentRequired: Bool?
         var readFails: Bool
 
-        func allows(full: Bool) -> Bool {
-            !readFails && (consentRequired == false || (screen && (!full || control)))
+        /// What acpmux's record grants, whether or not a read of it gets through.
+        func holds(full: Bool) -> Bool {
+            consentRequired == false || (screen && (!full || control))
         }
+
+        /// What a ticket may serve: a grant its own read can see.
+        func allows(full: Bool) -> Bool { !readFails && holds(full: full) }
     }
 
     nonisolated enum Current {
@@ -93,8 +97,9 @@ import Testing
             return world.truth.readFails ? nil : world.record
         }
         func set(_ surface: JoinConsentSurface, granted: Bool) async -> JoinConsentRecord? {
-            await world.boundary()
+            // The app sends the write here; acpmux takes it at the release.
             world.sends.append(("\(surface.rawValue) \(granted)", world.enabled))
+            await world.boundary()
             if surface == .screen { world.truth.screen = granted } else { world.truth.control = granted }
             return world.record
         }
@@ -143,6 +148,7 @@ import Testing
             if choices == 0 { break }
             let pick = Int.random(in: 0..<choices, using: &random)
             let writingBefore = model.writing
+            let askBefore = model.ask != nil
             var startedOp: Op?
             if canStart, pick == world.waiting.count {
                 let index = next, op = ops[index]
@@ -172,7 +178,7 @@ import Testing
             }
             #expect(world.sends.count <= admitted, "a write sent while another was in flight: \(label)")
             if let op = startedOp {
-                checkStart(op, world: world, writingBefore: writingBefore, label: label)
+                checkStart(op, world: world, writingBefore: writingBefore, askBefore: askBefore, label: label)
             }
             for (index, task) in tasks where world.done.contains(index) {
                 tasks[index] = nil
@@ -209,23 +215,23 @@ import Testing
         }
     }
 
-    /// After every step: the model never allows more than acpmux does.
+    /// After every step: the model never allows more than acpmux's record grants.
     private static func check(_ world: World, label: String) {
         guard world.enabled else { return }
         for full in [false, true] where world.model.permitsMacScreen(control: full) {
-            #expect(world.truth.allows(full: full), "allows more than acpmux (full \(full)): \(label)")
+            #expect(world.truth.holds(full: full), "allows more than acpmux (full \(full)): \(label)")
         }
     }
 
     /// Right after a request starts.
-    private static func checkStart(_ op: Op, world: World, writingBefore: Bool, label: String) {
+    private static func checkStart(_ op: Op, world: World, writingBefore: Bool, askBefore: Bool, label: String) {
         let model = world.model!
         switch op {
         case .revokeScreen where !writingBefore && world.enabled:
             #expect(!model.permitsMacScreen(control: false), "a revoke narrows the moment it starts: \(label)")
         case .revokeControl where !writingBefore && world.enabled:
             #expect(!model.permitsMacScreen(control: true), "a revoke narrows the moment it starts: \(label)")
-        case .deny where writingBefore:
+        case .deny where writingBefore && askBefore:
             #expect(model.ask != nil, "a Deny closed the sheet over a write: \(label)")
         default: break
         }
