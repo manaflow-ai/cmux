@@ -423,6 +423,17 @@ function withoutObservation(metadata: Record<string, unknown>): Record<string, u
   return omit(metadata, "cmuxIdleObservation");
 }
 
+/** The row's idle fence (repository.ts cmuxIdleEpoch); 0 when never written. */
+function epochOf(row: CloudVmRow): number {
+  const stored = row.providerMetadata?.cmuxIdleEpoch;
+  return typeof stored === "number" ? stored : 0;
+}
+
+/** Metadata with the fence moved on, as every write that can change the idle verdict does. */
+function bumped(row: CloudVmRow, metadata: Record<string, unknown> = row.providerMetadata ?? {}): Record<string, unknown> {
+  return { ...metadata, cmuxIdleEpoch: epochOf(row) + 1 };
+}
+
 /** What the live markProviderObservedStatus leaves in providerMetadata (repository.ts observedStatusMetadata). */
 function observedStatusMetadata(metadata: Record<string, unknown>, input: ObservedStatusInput): Record<string, unknown> {
   const base = withoutObservation(metadata);
@@ -434,12 +445,20 @@ function observedStatusMetadata(metadata: Record<string, unknown>, input: Observ
  * Fake repository and provider layers. The repository mirrors the live writes
  * on `rows`: a status write drops the idle observation, the cron's write
  * stores the observation and the check time, and `resume` does what
- * reservePausedResume does. `reread` changes what the pre-pause re-read sees.
+ * reservePausedResume does. Every write that can change the idle verdict moves
+ * the row's fence (cmuxIdleEpoch), and the cron's fenced writes lose when it
+ * moved, like the live SQL. `reread` changes what the pre-pause re-read sees;
+ * `duringProbe` and `duringPause` run other writers while the probe or the
+ * provider pause is under way.
  */
 function cronFakes(
   rows: CloudVmRow[],
   probeOut: (vmId: string) => { exitCode: number; stdout: string } | "fails",
-  fakeOptions: { readonly reread?: (row: CloudVmRow) => CloudVmRow | null } = {},
+  fakeOptions: {
+    readonly reread?: (row: CloudVmRow) => CloudVmRow | null;
+    readonly duringProbe?: (repo: VmRepositoryShape) => void;
+    readonly duringPause?: (repo: VmRepositoryShape) => void;
+  } = {},
 ) {
   const recorded = {
     execs: [] as Array<{ vmId: string; asRoot: boolean | undefined; command: string }>,
@@ -450,7 +469,10 @@ function cronFakes(
     apiActivity: [] as Array<{ id: string; at: number }>,
     events: [] as Array<Record<string, unknown>>,
     minutes: [] as Array<{ id: string; minutes: number }>,
+    resumed: [] as string[],
   };
+  const providerState = new Map<string, "running" | "paused">();
+  const fenced = (row: CloudVmRow, epoch: number | undefined) => epoch === undefined || epochOf(row) === epoch;
   const update = (id: string, change: (row: CloudVmRow) => CloudVmRow) => {
     const index = rows.findIndex((r) => r.id === id);
     if (index >= 0) rows[index] = change(rows[index]);
@@ -458,35 +480,61 @@ function cronFakes(
   const repo = {
     // Like the live query: running machines only.
     idlePauseCandidates: () => Effect.sync(() => rows.filter((r) => r.status === "running")),
-    recordIdleObservation: (input: { id: string; providerVmId: string; observation: VmIdleObservation | null; probedAt: number }) => Effect.sync(() => {
+    recordIdleObservation: (input: { id: string; providerVmId: string; observation: VmIdleObservation | null; probedAt: number; epoch?: number }) => Effect.sync(() => {
       recorded.observations.push({ id: input.id, observation: input.observation });
       recorded.probedAt.push({ id: input.id, probedAt: input.probedAt });
-      update(input.id, (row) => row.status !== "running" || row.providerVmId !== input.providerVmId ? row : {
-        ...row,
-        providerMetadata: {
-          ...withoutObservation(row.providerMetadata ?? {}),
-          ...(input.observation ? { cmuxIdleObservation: input.observation } : {}),
-          cmuxIdleProbedAt: input.probedAt,
-        },
+      let won = false;
+      update(input.id, (row) => {
+        if (row.status !== "running" || row.providerVmId !== input.providerVmId || !fenced(row, input.epoch)) return row;
+        won = true;
+        return {
+          ...row,
+          providerMetadata: bumped(row, {
+            ...withoutObservation(row.providerMetadata ?? {}),
+            ...(input.observation ? { cmuxIdleObservation: input.observation } : {}),
+            cmuxIdleProbedAt: input.probedAt,
+          }),
+        };
       });
-      return true;
+      return won;
+    }),
+    claimIdlePause: (input: { id: string; providerVmId: string; epoch: number }) => Effect.sync(() => {
+      let claimed: number | null = null;
+      update(input.id, (row) => {
+        if (row.status !== "running" || row.providerVmId !== input.providerVmId || epochOf(row) !== input.epoch) return row;
+        claimed = input.epoch + 1;
+        return { ...row, providerMetadata: bumped(row) };
+      });
+      return claimed;
     }),
     recordVmApiActivity: (input: { id: string; providerVmId: string; at: number }) => Effect.sync(() => {
       recorded.apiActivity.push({ id: input.id, at: input.at });
-      update(input.id, (row) => ({ ...row, providerMetadata: { ...(row.providerMetadata ?? {}), cmuxLastApiActivityAt: input.at } }));
+      update(input.id, (row) => ({ ...row, providerMetadata: bumped(row, { ...(row.providerMetadata ?? {}), cmuxLastApiActivityAt: input.at }) }));
       return true;
+    }),
+    reservePausedResume: (input: { id: string }) => Effect.sync(() => {
+      update(input.id, (row) => row.status !== "paused" ? row : {
+        ...row,
+        status: "running",
+        updatedAt: new Date(row.updatedAt.getTime() + 1),
+        providerMetadata: bumped(row, withoutObservation(row.providerMetadata ?? {})),
+      });
+      return rows.find((r) => r.id === input.id) ?? null;
     }),
     findUserVm: (input: { providerVmId: string }) => Effect.sync(() => {
       const row = rows.find((r) => r.providerVmId === input.providerVmId && r.status !== "destroyed") ?? null;
       return row && fakeOptions.reread ? fakeOptions.reread(row) : row;
     }),
-    markProviderObservedStatus: (input: ObservedStatusInput) => Effect.sync(() => {
+    markProviderObservedStatus: (input: ObservedStatusInput & { expectIdleEpoch?: number }) => Effect.sync(() => {
+      const row = rows.find((r) => r.id === input.id);
+      if (!row || row.providerVmId !== input.providerVmId || row.status === "destroyed") return false;
+      if (input.expectIdleEpoch !== undefined && (row.status !== "running" || epochOf(row) !== input.expectIdleEpoch)) return false;
       recorded.statuses.push({ id: input.id, status: input.status, ...(input.pauseReason ? { pauseReason: input.pauseReason } : {}) });
-      update(input.id, (row) => ({
-        ...row,
+      update(input.id, (current) => ({
+        ...current,
         status: input.status,
-        updatedAt: new Date(row.updatedAt.getTime() + 1),
-        providerMetadata: observedStatusMetadata(row.providerMetadata ?? {}, input),
+        updatedAt: new Date(current.updatedAt.getTime() + 1),
+        providerMetadata: bumped(current, observedStatusMetadata(current.providerMetadata ?? {}, input)),
       }));
       return true;
     }),
@@ -494,21 +542,29 @@ function cronFakes(
       recorded.events.push(input.metadata ?? {});
       return Effect.void;
     },
-    setIdlePauseMinutes: (input: { id: string; minutes: number }) => {
+    setIdlePauseMinutes: (input: { id: string; minutes: number }) => Effect.sync(() => {
       recorded.minutes.push(input);
-      return Effect.void;
-    },
+      update(input.id, (row) => ({ ...row, providerMetadata: bumped(row, { ...(row.providerMetadata ?? {}), cmuxIdlePauseMinutes: input.minutes }) }));
+    }),
   } as unknown as VmRepositoryShape;
   const provider = {
     exec: (_provider: string, vmId: string, command: string, options?: { asRoot?: boolean }) => {
       recorded.execs.push({ vmId, asRoot: options?.asRoot, command });
+      fakeOptions.duringProbe?.(repo);
       const out = probeOut(vmId);
       return out === "fails" ? Effect.fail(new Error("exec failed")) : Effect.succeed({ ...out, stderr: "" });
     },
-    pause: (_provider: string, vmId: string) => {
+    pause: (_provider: string, vmId: string) => Effect.sync(() => {
       recorded.paused.push(vmId);
-      return Effect.void;
-    },
+      providerState.set(vmId, "paused");
+      fakeOptions.duringPause?.(repo);
+    }),
+    getStatus: (_provider: string, vmId: string) => Effect.sync(() => providerState.get(vmId) ?? "running"),
+    resume: (_provider: string, vmId: string) => Effect.sync(() => {
+      recorded.resumed.push(vmId);
+      providerState.set(vmId, "running");
+      return { id: vmId, status: "running" };
+    }),
   } as unknown as VmProviderGatewayShape;
   // main's access check (requireAccessibleUserVm) also reads the billing gateway.
   const layer = Layer.mergeAll(
@@ -516,14 +572,14 @@ function cronFakes(
     Layer.succeed(VmProviderGateway, provider),
     Layer.succeed(VmBillingGateway, noOpVmBillingGateway()),
   );
-  /** A resume as reservePausedResume writes it: running again, observation dropped, updatedAt moved. */
+  /** A resume as reservePausedResume writes it: running again, observation dropped, fence and updatedAt moved. */
   const resume = (id: string, at: number) => update(id, (row) => ({
     ...row,
     status: "running",
     updatedAt: new Date(at),
-    providerMetadata: withoutObservation(row.providerMetadata ?? {}),
+    providerMetadata: bumped(row, withoutObservation(row.providerMetadata ?? {})),
   }));
-  return { recorded, layer, resume };
+  return { recorded, layer, resume, repo };
 }
 
 function byId<T extends { readonly id: string }>(items: readonly T[]): T[] {
@@ -818,7 +874,7 @@ describe("pause, resume and the idle stretch", () => {
     const runAt = (now: number) => Effect.runPromise(enforceVmIdlePause({ now: () => now }).pipe(Effect.provide(layer)));
     expect(await runAt(T0)).toMatchObject({ paused: 1 });
     expect(rows[0].status).toBe("paused");
-    expect(rows[0].providerMetadata).toEqual({ networkIpv4: "10.192.0.5", cmuxPauseReason: "idle" });
+    expect(omit(rows[0].providerMetadata, "cmuxIdleEpoch")).toEqual({ networkIpv4: "10.192.0.5", cmuxPauseReason: "idle" });
     // Opened a minute later; the next runs see an idle machine.
     resume("row-1", T0 + MIN);
     expect(await runAt(T0 + 5 * MIN)).toMatchObject({ paused: 0, idle: 1 });
@@ -866,6 +922,49 @@ describe("pause, resume and the idle stretch", () => {
   });
 });
 
+describe("overlapping probes", () => {
+  // Run A reads the row, then probes for up to a minute. Anything that lands
+  // meanwhile moved the row's fence, so A's observation is stale and must not
+  // be stored: it would bring back an idle stretch the newer write ended.
+  const carried = { providerVmId: VM, idleSince: T0 - 20 * MIN, observedAt: T0 - 5 * MIN, cpuBusyMs: CPU0 };
+  const stale = () => machineRow({ providerMetadata: { networkIpv4: "10.192.0.5", cmuxIdleObservation: carried } });
+
+  test("another run's newer write wins over this run's stale observation", async () => {
+    const rows = [stale()];
+    const { layer } = cronFakes(rows, () => ({ exitCode: 0, stdout: probeLine() }), {
+      // Run B saw the machine busy and cleared the stretch while A was probing.
+      duringProbe: (repo) => Effect.runSync(repo.recordIdleObservation!({
+        id: "row-1", providerVmId: VM, observation: null, probedAt: T0, epoch: epochOf(rows[0]),
+      } as Parameters<NonNullable<VmRepositoryShape["recordIdleObservation"]>>[0])),
+    });
+    await Effect.runPromise(enforceVmIdlePause({ now: () => T0 }).pipe(Effect.provide(layer)));
+    expect(rows[0].providerMetadata.cmuxIdleObservation).toBeUndefined();
+  });
+
+  test("a probe that straddles a pause and a resume cannot restore the old idleSince", async () => {
+    const rows = [stale()];
+    const { layer, resume } = cronFakes(rows, () => ({ exitCode: 0, stdout: probeLine() }), {
+      duringProbe: (repo) => {
+        Effect.runSync(repo.markProviderObservedStatus({ id: "row-1", providerVmId: VM, status: "paused", pauseReason: "user" }));
+        resume("row-1", T0);
+      },
+    });
+    await Effect.runPromise(enforceVmIdlePause({ now: () => T0 }).pipe(Effect.provide(layer)));
+    expect(rows[0].status).toBe("running");
+    expect(rows[0].providerMetadata.cmuxIdleObservation).toBeUndefined();
+  });
+
+  test("API activity during the probe also fences the observation out", async () => {
+    const rows = [stale()];
+    const { layer } = cronFakes(rows, () => ({ exitCode: 0, stdout: probeLine() }), {
+      // At the throttle's edge the activity write lands but is older than the timeout window cares about.
+      duringProbe: (repo) => Effect.runSync(repo.recordVmApiActivity!({ id: "row-1", providerVmId: VM, at: T0 - 40 * MIN })),
+    });
+    await Effect.runPromise(enforceVmIdlePause({ now: () => T0 }).pipe(Effect.provide(layer)));
+    expect(rows[0].providerMetadata.cmuxIdleObservation).toBeUndefined();
+  });
+});
+
 const dbEnabled = process.env.CMUX_DB_TEST === "1";
 const dbTest = dbEnabled ? test : test.skip;
 
@@ -873,7 +972,9 @@ describe("idle pause SQL", () => {
   const owner = `idle-test-${randomUUID()}`;
   const rowId = randomUUID();
   const otherId = randomUUID();
+  const fenceId = randomUUID();
   const providerVmId = `fs-idle-${rowId}`;
+  const fenceVmId = `fs-idle-${fenceId}`;
   let sql: Sql;
 
   beforeAll(async () => {
@@ -881,7 +982,8 @@ describe("idle pause SQL", () => {
     sql = postgres(process.env.DIRECT_DATABASE_URL ?? process.env.DATABASE_URL!, { max: 2 });
     await sql`insert into cloud_vms (id, user_id, billing_team_id, provider, provider_vm_id, image_id, status, provider_metadata)
       values (${rowId}, ${owner}, ${owner}, 'freestyle', ${providerVmId}, 'sh-test', 'running', '{"networkIpv4":"10.192.0.5"}'::jsonb),
-             (${otherId}, ${owner}, ${owner}, 'freestyle', ${`fs-idle-${otherId}`}, 'sh-test', 'running', '{"cmuxIdleProbedAt":"junk"}'::jsonb)`;
+             (${otherId}, ${owner}, ${owner}, 'freestyle', ${`fs-idle-${otherId}`}, 'sh-test', 'running', '{"cmuxIdleProbedAt":"junk"}'::jsonb),
+             (${fenceId}, ${owner}, ${owner}, 'freestyle', ${fenceVmId}, 'sh-test', 'running', '{"networkIpv4":"10.192.0.9"}'::jsonb)`;
   });
 
   afterAll(async () => {
@@ -926,12 +1028,12 @@ describe("idle pause SQL", () => {
   dbTest("the cron's writes skip updated_at; a pause and a resume drop the observation; candidates rotate", async () => {
     const start = await read();
     const observation = { providerVmId, idleSince: T0, observedAt: T0, cpuBusyMs: 1_000 };
-    expect(await run(repo.recordIdleObservation!({ id: rowId, providerVmId, observation, probedAt: T0 }))).toBe(true);
+    expect(await run(repo.recordIdleObservation!({ id: rowId, providerVmId, observation, probedAt: T0, epoch: 0 }))).toBe(true);
     expect(await run(repo.recordVmApiActivity!({ id: rowId, providerVmId, at: T0 }))).toBe(true);
     // Within a minute of the stored time: skipped.
     expect(await run(repo.recordVmApiActivity!({ id: rowId, providerVmId, at: T0 + 30_000 }))).toBe(false);
     let row = await read();
-    expect(row.metadata).toEqual({ networkIpv4: "10.192.0.5", cmuxIdleObservation: observation, cmuxIdleProbedAt: T0, cmuxLastApiActivityAt: T0 });
+    expect(row.metadata).toEqual({ networkIpv4: "10.192.0.5", cmuxIdleObservation: observation, cmuxIdleProbedAt: T0, cmuxLastApiActivityAt: T0, cmuxIdleEpoch: 2 });
     expect(row.updatedAt.getTime()).toBe(start.updatedAt.getTime());
 
     // Never checked (a malformed time reads as never) comes before checked.
@@ -954,12 +1056,53 @@ describe("idle pause SQL", () => {
     expect(row.metadata.cmuxIdleObservation).toBeUndefined();
 
     // Any other status write drops it too, and the reason with it.
-    expect(await run(repo.recordIdleObservation!({ id: rowId, providerVmId, observation, probedAt: T0 + MIN }))).toBe(true);
+    expect(await run(repo.recordIdleObservation!({ id: rowId, providerVmId, observation, probedAt: T0 + MIN, epoch: 4 }))).toBe(true);
     expect(await run(repo.markProviderObservedStatus({ id: rowId, providerVmId, status: "running" }))).toBe(true);
     row = await read();
     expect(row.metadata.cmuxIdleObservation).toBeUndefined();
     expect(row.metadata.cmuxPauseReason).toBeUndefined();
     expect(row.metadata).toMatchObject({ networkIpv4: "10.192.0.5", cmuxIdleProbedAt: T0 + MIN, cmuxLastApiActivityAt: T0 });
+  });
+
+  dbTest("the idle fence: stale observations and claims lose; activity, settings, pause and resume move it", async () => {
+    const epoch = async () => {
+      const [row] = await sql<{ metadata: Record<string, unknown>; status: string }[]>`
+        select provider_metadata as metadata, status from cloud_vms where id = ${fenceId}`;
+      return { epoch: row.metadata.cmuxIdleEpoch ?? 0, status: row.status, observation: row.metadata.cmuxIdleObservation };
+    };
+    const at = (idleSince: number) => ({ providerVmId: fenceVmId, idleSince, observedAt: idleSince, cpuBusyMs: 1_000 });
+    const observe = (observation: VmIdleObservation | null, fence: number) =>
+      run(repo.recordIdleObservation!({ id: fenceId, providerVmId: fenceVmId, observation, probedAt: T0, epoch: fence }));
+    expect(await epoch()).toMatchObject({ epoch: 0 });
+    expect(await observe(at(T0), 0)).toBe(true);
+    expect(await epoch()).toMatchObject({ epoch: 1, observation: at(T0) });
+    // Two runs read epoch 0; the second write is stale and changes nothing.
+    expect(await observe(at(T0 - 60 * MIN), 0)).toBe(false);
+    expect(await epoch()).toMatchObject({ epoch: 1, observation: at(T0) });
+
+    expect(await run(repo.recordVmApiActivity!({ id: fenceId, providerVmId: fenceVmId, at: T0 }))).toBe(true);
+    expect(await epoch()).toMatchObject({ epoch: 2 });
+    await run(repo.setIdlePauseMinutes!({ id: fenceId, minutes: 60 }));
+    expect(await epoch()).toMatchObject({ epoch: 3 });
+
+    // The claim is the cron's last check before the provider pause.
+    expect(await run(repo.claimIdlePause!({ id: fenceId, providerVmId: fenceVmId, epoch: 2 }))).toBeNull();
+    expect(await run(repo.claimIdlePause!({ id: fenceId, providerVmId: fenceVmId, epoch: 3 }))).toBe(4);
+    // The pause records only if nothing moved the fence after the claim.
+    expect(await run(repo.markProviderObservedStatus({ id: fenceId, providerVmId: fenceVmId, status: "paused", pauseReason: "idle", expectIdleEpoch: 3 }))).toBe(false);
+    expect(await epoch()).toMatchObject({ epoch: 4, status: "running" });
+    expect(await run(repo.markProviderObservedStatus({ id: fenceId, providerVmId: fenceVmId, status: "paused", pauseReason: "idle", expectIdleEpoch: 4 }))).toBe(true);
+    expect(await epoch()).toMatchObject({ epoch: 5, status: "paused" });
+    // A fenced pause never records over a row that is no longer running.
+    expect(await run(repo.markProviderObservedStatus({ id: fenceId, providerVmId: fenceVmId, status: "paused", pauseReason: "idle", expectIdleEpoch: 5 }))).toBe(false);
+
+    const resumed = await run(repo.reservePausedResume({ id: fenceId, userId: owner, billingTeamId: owner, providerVmId: fenceVmId, maxActiveVms: null }));
+    expect(resumed?.status).toBe("running");
+    expect(await epoch()).toMatchObject({ epoch: 6, status: "running" });
+    // An observation from before the resume is stale.
+    expect(await observe(at(T0 - 90 * MIN), 5)).toBe(false);
+    expect(await run(repo.markProviderObservedStatus({ id: fenceId, providerVmId: fenceVmId, status: "running" }))).toBe(true);
+    expect(await epoch()).toMatchObject({ epoch: 7, observation: undefined });
   });
 });
 
