@@ -88,7 +88,7 @@ public final class AgentSessionParents {
 
     private func save() {
         guard let defaults else { return }
-        let entries = order.compactMap { child in
+        let entries = order.compactMap { child -> Saved? in
             guard let parent = parents[child], let childSession = child.session, let parentSession = parent.session else { return nil }
             return Saved(childHost: child.host, childSession: childSession, parentHost: parent.host, parentSession: parentSession)
         }
