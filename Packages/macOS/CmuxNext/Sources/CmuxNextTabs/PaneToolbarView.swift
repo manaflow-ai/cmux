@@ -165,6 +165,7 @@ public final class PaneToolbarView: NSView {
 
     private func menu(for tool: PaneTabRowTool) -> NSMenu? {
         let menu = NSMenu(title: tool.label)
+        menu.autoenablesItems = false
         for item in tool.menu { menu.addItem(menuItem(item, toolID: tool.id)) }
         return menu
     }
@@ -178,6 +179,7 @@ public final class PaneToolbarView: NSView {
         row.representedObject = invoker
         if !item.children.isEmpty {
             let submenu = NSMenu(title: item.label)
+            submenu.autoenablesItems = false
             item.children.forEach { submenu.addItem(self.menuItem($0, toolID: toolID)) }
             row.submenu = submenu
         }
