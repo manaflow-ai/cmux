@@ -4,6 +4,15 @@ use super::*;
 
 mod host_load;
 
+/// Strip the inventory from census rows, including rows supplied by older peers.
+pub(crate) fn without_summary_tools(mut summary: Value) -> Value {
+    if let Some(row) = summary.as_object_mut() {
+        row.remove("tools");
+        row.remove("toolsMutable");
+    }
+    summary
+}
+
 /// The tag naming the session whose agent started this one (`Hub::spawned_by`).
 pub const SPAWNED_BY_TAG: &str = "spawnedBy";
 
@@ -288,6 +297,15 @@ impl Hub {
     }
 
     pub fn session_summary(&self, session: &Session) -> Value {
+        self.summary_with_tools(session, true)
+    }
+
+    /// Census rows omit the inventory; `_acpmux/info` and attach keep it.
+    pub(crate) fn session_list_summary(&self, session: &Session) -> Value {
+        self.summary_with_tools(session, false)
+    }
+
+    fn summary_with_tools(&self, session: &Session, with_tools: bool) -> Value {
         use crate::protocol::session::{
             QueuedImage, QueuedPromptSummary, SessionSummary, TurnSummary,
         };
@@ -409,8 +427,8 @@ impl Hub {
             enforcement: self.session_enforcement(&m),
             rules: m.permission_rules.is_some(),
             // The chat's tools and whether `_acpmux/set_tools` can change them (`hub/tools.rs`).
-            tools: m.tools.rows.iter().map(Into::into).collect(),
-            tools_mutable: m.tools.mutable,
+            tools: with_tools.then(|| m.tools.rows.iter().map(Into::into).collect()),
+            tools_mutable: with_tools.then_some(m.tools.mutable),
             // The MCP servers the harness reported loaded (cx-ncc.105), never guessed from config.
             mcp_servers: crate::protocol::session::McpServerSummary::loaded(&m.tools.rows),
             tags: live_tags(&m),

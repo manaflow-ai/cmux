@@ -106,7 +106,7 @@ impl Snapshot {
     /// immediately after serialization.
     fn build(hub: &Hub) -> Built {
         let mut rows = Rows::default();
-        hub.visit_session_summaries(|row| rows.push(&row));
+        hub.visit_session_summaries(false, |row| rows.push(&row));
         rows.finish()
     }
 
