@@ -192,11 +192,12 @@ export async function runE2E(
     childText.push(r.stdout, r.stderr)
     return r
   }
+  // acpmux prints one pretty-printed JSON object on stdout (cli/output.rs print_json).
   const lastJson = (text: string): any => {
-    const line = text.trim().split("\n").reverse().find((l) => l.trim().startsWith("{"))
-    if (!line) return undefined
+    const start = text.indexOf("{")
+    if (start < 0) return undefined
     try {
-      return JSON.parse(line)
+      return JSON.parse(text.slice(start))
     } catch {
       return undefined
     }
@@ -212,9 +213,12 @@ export async function runE2E(
     const json = (await res.json().catch(() => ({}))) as any
     return { status: res.status, json }
   }
-  // An error names the step, the status and the server's code only, never a body that could echo a value.
-  const refusedBy = (step: string, r: { status: number; json: any }) =>
-    new Failed(`${step}: HTTP ${r.status}${typeof r.json?.code === "string" ? ` ${r.json.code}` : typeof r.json?.error?.code === "string" ? ` ${r.json.error.code}` : ""}`)
+  // An error names the step, the status and the server's code only (a plain identifier), never a body
+  // or message that could echo a value.
+  const refusedBy = (step: string, r: { status: number; json: any }) => {
+    const code = [r.json?.code, r.json?.error?.code].find((c) => typeof c === "string" && /^[A-Za-z0-9._-]{1,64}$/.test(c) && !/cm[jm]_/.test(c))
+    return new Failed(`${step}: HTTP ${r.status}${code ? ` ${code}` : ""}`)
+  }
 
   // Session state, all in memory.
   let stack: { access: string; refresh: string } | undefined

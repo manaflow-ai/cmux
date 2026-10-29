@@ -77,6 +77,7 @@ function world(k: Knobs = {}) {
     if (headers.authorization !== `Bearer ${ACCESS}`) return json(401, { code: "machine.unauthorized" })
     const path = url.slice(DEV_PLATFORM.length)
     if (path === "/v1/machines/join-tokens") {
+      if (k.mintStatus === 400) return json(400, { code: `bad ${TOKEN}`, message: `echo ${TOKEN}` })
       if (k.mintStatus && k.mintStatus !== 200) return json(k.mintStatus, { code: "join.rate_limited", message: `echo ${TOKEN}` })
       return json(200, { token: TOKEN, joinTokenId: "jt_1", expiresAt: "2026-10-29T12:10:00Z", teamId: "team_1", label: parsed.label })
     }
@@ -107,14 +108,15 @@ function world(k: Knobs = {}) {
         credentialPath: CRED_PATH,
         joinIncomplete: false
       }
-      return { code: 0, stdout: `${JSON.stringify(status)}\n`, stderr: "" }
+      // acpmux pretty-prints (cli/output.rs print_json).
+      return { code: 0, stdout: `${JSON.stringify(status, null, 2)}\n`, stderr: "" }
     }
     if (args[0] === "host" && args[1] === "join") {
       if (stdin !== `${TOKEN}\n`) return { code: 2, stdout: "", stderr: "join token is malformed\n" }
       if (k.joinExit) return { code: k.joinExit, stdout: "", stderr: k.joinStderr ?? "this line was used or expired\n" }
       joined = true
       files[CRED_PATH] = JSON.stringify({ credential: CREDENTIAL, machine_id: "m_1" })
-      return { code: 0, stdout: `${JSON.stringify({ joined: true, alreadyJoined: false, machineId: "m_1", teamId: "team_1", name: "ci-join-1", hubOrigin: DEV_PLATFORM })}\n`, stderr: k.joinStderr ?? "" }
+      return { code: 0, stdout: `${JSON.stringify({ joined: true, alreadyJoined: false, machineId: "m_1", teamId: "team_1", name: "ci-join-1", hubOrigin: DEV_PLATFORM }, null, 2)}\n`, stderr: k.joinStderr ?? "" }
     }
     return { code: 64, stdout: "", stderr: "unknown\n" }
   }
@@ -289,6 +291,13 @@ describe("failure paths", () => {
     expect(e.reason).toContain("mint: HTTP 429 join.rate_limited")
     expect(w.runs.filter((r) => r.argv.includes(opts.acpmux))).toEqual([])
     expect(w.calls.some((c) => c.body.includes("install.revoke"))).toBe(true)
+    assertNoSecretEscaped(w)
+  })
+
+  test("a server code that is not a plain identifier is never echoed", async () => {
+    const w = world({ mintStatus: 400 })
+    const e = await runE2E(opts, env, w.deps)
+    expect(e.reason.split("; ")[0]).toBe("mint: HTTP 400")
     assertNoSecretEscaped(w)
   })
 
