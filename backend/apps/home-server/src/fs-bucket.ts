@@ -1,9 +1,9 @@
 import { createHash, randomBytes } from "node:crypto"
-import { basename, closeSync, constants, createReadStream, fstatSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, realpathSync, renameSync, rmSync, statSync } from "node:fs"
+import { closeSync, constants, createReadStream, fstatSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, realpathSync, renameSync, rmSync, statSync } from "node:fs"
 import type { Stats } from "node:fs"
 import { open, opendir } from "node:fs/promises"
 import type { FileHandle } from "node:fs/promises"
-import { dirname, isAbsolute, join, posix, relative, resolve, sep } from "node:path"
+import { basename, dirname, isAbsolute, join, posix, relative, resolve, sep } from "node:path"
 import { Readable } from "node:stream"
 
 /** What the attachment code reads back from a stored object (the R2 subset it uses). */
