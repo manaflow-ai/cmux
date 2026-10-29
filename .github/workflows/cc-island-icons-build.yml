@@ -165,6 +165,19 @@ jobs:
           shasum -a 256 "$RUNNER_TEMP/cc-island-icons/app/cmux-$BUILD_TAG.zip" \
             > "$RUNNER_TEMP/cc-island-icons/app/SHA256SUMS"
 
+      - name: Verify two foreground tabs in one workspace against the built app
+        if: ${{ !cancelled() && steps.archive.outcome == 'success' }}
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/Library/Developer/Xcode/DerivedData"
+          ln -s "$RUNNER_TEMP/cc-island-derived-data" "$HOME/Library/Developer/Xcode/DerivedData/cmux-$BUILD_TAG"
+          ./scripts/launch-tagged-automation.sh "$BUILD_TAG" --wait-socket 30 \
+            2>&1 | tee "$RUNNER_TEMP/cc-island-icons/logs/multi-tab-launch.log"
+          CMUX_SOCKET_PATH="/tmp/cmux-debug-$BUILD_TAG.sock" \
+            python3 -I tests_v2/test_surface_icon_multiple_tabs.py \
+            2>&1 | tee "$RUNNER_TEMP/cc-island-icons/logs/multi-tab-regression.log"
+
       - name: Run focused control-socket icon parser and dispatch tests
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         timeout-minutes: 15

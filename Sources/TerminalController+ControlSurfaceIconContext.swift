@@ -90,12 +90,10 @@ extension TerminalController {
               panel.cloudAttachment == nil,
               workspace.surfaceIdFromPanelId(inputs.surfaceID) != nil else { return nil }
         guard inputs.operation == .set else { return workspace }
+        // Provider PID metadata is workspace-keyed: two Claude tabs can replace
+        // each other's `claude_code` entry. The kernel PTY/foreground relationship
+        // is the per-terminal authority; the worker also verifies process birth.
         guard let evidence,
-              let keys = workspace.agentPIDKeysByPanelId[inputs.surfaceID],
-              keys.contains(where: {
-                  workspace.agentPIDs[$0] == evidence.identity.pid
-                      && workspace.agentPIDProcessIdentitiesByKey[$0] == evidence.identity
-              }),
               let terminalDevice = panel.surface.controllingTTYDeviceIdentifier,
               terminalDevice == Int64(evidence.terminalDevice),
               let foreground = panel.surface.foregroundProcessID(),

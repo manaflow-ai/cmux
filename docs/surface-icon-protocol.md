@@ -10,7 +10,7 @@ Send a v2 request with these parameters:
 
 - `workspace_id`, `surface_id`: explicit UUIDs, never current-focus defaults or short handles.
 - `owner_id`: a nonempty producer/session identity, at most 200 UTF-8 bytes.
-- `expected_agent_pid`, `expected_process_start`: the current agent PID and its UTC, English `ps -o lstart=` timestamp with whitespace normalized. The process must match the panel's live registered generation, terminal device and foreground process group. Inherited environment IDs and saved checkpoints alone are insufficient.
+- `expected_agent_pid`, `expected_process_start`: the current process PID and its UTC, English `ps -o lstart=` timestamp with whitespace normalized. The process must still have that birth identity, belong to the current user, and match the target terminal's actual device and foreground process group. Provider PID metadata is not used as terminal ownership evidence: a workspace-wide provider key can be replaced by another tab. Inherited environment IDs and saved checkpoints alone are insufficient.
 - `ttl_seconds`: 5–120 seconds, default 30.
 - `asset`: an object with `frames`, `loop` and optional `static_frame` (default 0). Each frame is `{ "svg": "<svg ...>...</svg>", "duration_ms": 100 }`.
 
