@@ -343,3 +343,107 @@ async fn a_prompt_waiting_for_the_lock_queues_behind_a_carried_turn() {
     let ended = records(&hub, &id, "turn_result");
     assert_eq!(ended[1]["turnId"], turns[1]["turnId"], "{ended:#?}");
 }
+
+/// Waits until Claude Code's stdin has a line holding `text`.
+async fn on_stdin(hub: &Hub, id: &str, text: &str) {
+    let written = |e: &acpmux::store::EventRecord| {
+        e.kind == "claude.stdin" && e.msg.to_string().contains(text)
+    };
+    for _ in 0..400 {
+        if hub.events(id, 0, 10_000).unwrap().iter().any(written) {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    panic!("{text} never reached Claude Code");
+}
+
+/// Two steers Claude Code reads during its turn join it, and its one end_turn ends the daemon
+/// turn: the turn never waits for an end_turn per steer. Six prompts queued behind it run, each
+/// as its own turn, and the chat ends idle, not running or stuck (a coordinator's chat, 2026-10-29:
+/// "even if im just queueing, your turn should still be ending").
+async fn two_joined_steers_then_one_end_turn(sub_session: bool) {
+    let (hub, mut c, id) = claude_hub().await;
+    let gates = Gates::new();
+    let turn = c.send(method::SESSION_PROMPT, prompt(&id, "p-turn", &gates.text(), false)).await;
+    c.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "gated turn 1").await;
+    let (mut a, first) = steer_in(&hub, &id, "p-1", "FIRST").await;
+    // The second: the person's, or a sub-session's result delivered next_step.
+    let mut second = None;
+    if sub_session {
+        hold_person_key(&hub);
+        let caller = |sid: &str| {
+            let token = acpmux::hub::person::caller_token(sid);
+            json!({"protocolVersion": 1, "_meta": {"acpmux": {"callerSession": {"sessionId": sid, "token": token}}}})
+        };
+        let mut parent = connect(&hub).await;
+        parent.request(method::INITIALIZE, caller(&id)).await.unwrap();
+        let child_gates = Gates::new();
+        let started = parent
+            .request("_acpmux/subsession/start", json!({"prompt": child_gates.text()}))
+            .await
+            .unwrap();
+        let child = started["sessionId"].as_str().unwrap().to_owned();
+        let mut k = connect(&hub).await;
+        k.request(method::INITIALIZE, caller(&child)).await.unwrap();
+        let params = json!({"sessionId": id, "text": "SUB-RESULT", "promptId": "p-sub", "deliver": "next_step"});
+        let sent = k.request("_acpmux/subsession/send", params).await.unwrap();
+        assert_eq!(sent["delivery"], "next_step", "{sent}");
+        on_stdin(&hub, &id, "SUB-RESULT").await;
+    } else {
+        second = Some(steer_in(&hub, &id, "p-2", "SECOND").await);
+    }
+    let mut q = connect(&hub).await;
+    let mut queued = Vec::new();
+    for n in 1..=6 {
+        let pid = format!("p-q{n}");
+        queued.push(
+            q.send(method::SESSION_PROMPT, prompt(&id, &pid, &format!("queued {n}"), false)).await,
+        );
+        let accepted = q.wait_for(method::MUX_PROMPT_ACCEPTED, |p| p["promptId"] == pid).await;
+        assert_eq!(accepted["queued"], true, "{accepted}");
+    }
+    // Claude Code reads both at a tool boundary, then ends its turn once.
+    gates.open(1, "read");
+    let (answer, _) = c.response(turn).await;
+    assert_eq!(answer.unwrap()["stopReason"], "end_turn");
+    let turns = records(&hub, &id, "turn_started");
+    let (read, _) = a.response(first).await;
+    assert_eq!(read.unwrap()["_meta"]["acpmux"]["turnId"], turns[0]["turnId"]);
+    if let Some((mut b, second)) = second {
+        let (read, _) = b.response(second).await;
+        assert_eq!(read.unwrap()["_meta"]["acpmux"]["turnId"], turns[0]["turnId"]);
+    }
+    let ended = records(&hub, &id, "turn_result");
+    assert_eq!(ended[0]["turnId"], turns[0]["turnId"], "{ended:#?}");
+    assert_eq!(ended[0]["status"], "completed", "{ended:#?}");
+    // The queue drains: each queued prompt is a turn of its own.
+    for request in queued {
+        let (ran, _) = q.response(request).await;
+        assert_eq!(ran.unwrap()["stopReason"], "end_turn");
+    }
+    let turns = records(&hub, &id, "turn_started");
+    assert_eq!(turns.len(), 7, "{turns:#?}");
+    for _ in 0..400 {
+        if records(&hub, &id, "turn_result").len() == 7 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    assert_eq!(records(&hub, &id, "turn_result").len(), 7);
+    let now = info(&mut c, &id).await;
+    assert!(now.get("turn").is_none_or(Value::is_null), "{now}");
+    // Idle with its agent still up reads "ready": neither running nor stuck.
+    assert!(matches!(now["state"].as_str(), Some("ready" | "idle")), "{now}");
+    assert_eq!(now["queued"], 0, "{now}");
+}
+
+#[tokio::test]
+async fn two_steers_read_in_the_turn_then_one_end_turn_end_it_and_the_queue_drains() {
+    two_joined_steers_then_one_end_turn(false).await;
+}
+
+#[tokio::test]
+async fn a_sub_sessions_next_step_result_read_in_the_turn_does_not_hold_it_open() {
+    two_joined_steers_then_one_end_turn(true).await;
+}
