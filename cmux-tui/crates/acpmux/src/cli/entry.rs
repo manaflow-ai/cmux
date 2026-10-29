@@ -54,13 +54,19 @@ pub fn main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
     if args.first().is_some_and(|a| a == crate::bg_run::RUN_ARG) {
         return crate::bg_run::main();
     }
+    // Claude Code's PreToolUse hook for background shells (`bg_hook.rs`).
+    if args.first().is_some_and(|a| a == crate::bg_hook::HOOK_ARG) {
+        return crate::bg_hook::main(args.get(1).map(std::path::PathBuf::from));
+    }
     #[cfg(target_os = "linux")]
     if args.first().is_some_and(|a| a == "__remote-sandbox-canary-unix") {
-        return crate::linux_sandbox::keeper::canary_unix(&args[1..]).map_err(anyhow::Error::msg);
+        return crate::linux_sandbox::keeper::canary_unix(args.get(1..).unwrap_or_default())
+            .map_err(anyhow::Error::msg);
     }
     #[cfg(target_os = "linux")]
     if args.first().is_some_and(|a| a == "__remote-sandbox-canary-rename") {
-        return crate::linux_sandbox::keeper::canary_rename(&args[1..]).map_err(anyhow::Error::msg);
+        return crate::linux_sandbox::keeper::canary_rename(args.get(1..).unwrap_or_default())
+            .map_err(anyhow::Error::msg);
     }
     #[cfg(target_os = "linux")]
     if args.first().is_some_and(|a| a == "__remote-sandbox-init") {
@@ -165,7 +171,7 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
                 )
                 .with_target(false)
                 .init();
-            crate::daemon::run(DaemonOptions {
+            let result = crate::daemon::run(DaemonOptions {
                 ws_listen: listen,
                 ws_token: token,
                 memory,
@@ -174,7 +180,24 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
                 dev_origins: allow_dev_origin,
                 dev,
             })
-            .await?;
+            .await;
+            if let Err(error) = result {
+                // A systemd start can race the daemon that is handing over
+                // this home. Keep its lock refusal a distinct, prevented
+                // restart status; detached clients still use the readiness
+                // line and retry through `connect`.
+                if error.to_string().starts_with("another acpmux daemon holds ") {
+                    let error: anyhow::Error = crate::cli::errors::AppError::new(
+                        crate::cli::errors::Code::Runtime,
+                        "daemon_lock_held",
+                        error.to_string(),
+                    )
+                    .with_exit(75)
+                    .into();
+                    crate::cli::errors::exit_with(&error, false);
+                }
+                return Err(error);
+            }
             // The daemon has stopped its agents and synced its store. Exit
             // now rather than wait for the runtime to drain blocking tasks
             // (a launcher `--version` check can take 20 s).
