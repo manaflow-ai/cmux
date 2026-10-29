@@ -56,6 +56,11 @@ public struct TerminalSurfaceDiagnostics: Sendable, Equatable {
     /// The last unpause and the layer's first frame after it (``TerminalShowRecord``); nil in Release
     /// builds and before the first unpause.
     public var showTiming: TerminalShowTiming?
+    /// Output bytes the live surface's lane queued, parsed into the surface, and skipped because it was
+    /// closing; nil without a lane. Beside the attach link's per-stage counts (a stale-view report).
+    public var laneOutput: TerminalLaneOutputCounts?
+    /// The lane the IO's reader feeds live output to is the live surface's (false: another one, or none).
+    public var readerFeedsViewLane: Bool?
 
     /// True when the surface can show terminal content right now.
     public var isPresentable: Bool {
@@ -131,8 +136,23 @@ extension TerminalSession {
             },
             lastFrameHolds: lastFrameHolds,
             holdingFrame: frameHold.isHolding,
-            showTiming: surface.showTiming
+            showTiming: surface.showTiming,
+            laneOutput: surface.lane.map { TerminalLaneOutputCounts($0.outputCounts) },
+            readerFeedsViewLane: outputLane.names(surface.lane)
         )
+    }
+}
+
+/// What one surface's output lane did with output (``TerminalSurfaceDiagnostics/laneOutput``).
+public struct TerminalLaneOutputCounts: Sendable, Equatable {
+    public var queued: Int
+    public var parsed: Int
+    public var skipped: Int
+
+    init(_ counts: (queued: Int, parsed: Int, skipped: Int)) {
+        queued = counts.queued
+        parsed = counts.parsed
+        skipped = counts.skipped
     }
 }
 

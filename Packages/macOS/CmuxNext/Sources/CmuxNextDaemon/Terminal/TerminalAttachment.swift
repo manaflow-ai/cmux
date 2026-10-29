@@ -48,6 +48,21 @@ public actor TerminalAttachment: TerminalByteChannel {
     /// sends before the attach reply, so every later command has it.
     public nonisolated var surface: SurfaceID { sink.resolvedSurface.value.withLock { $0 } }
 
+    /// This link's live output per stage, with its event queue's state (`debug.surfaces`, ``TerminalStreamLedger``).
+    public nonisolated var streamLedger: TerminalStreamLedger {
+        var ledger = router.ledger
+        ledger.queuedBytes = queue.bufferedOutputBytes
+        ledger.queueOverflows = queue.overflowCount
+        ledger.queueDroppedEvents = queue.droppedEventCount
+        ledger.queueResync = switch queue.resyncPhase {
+        case .idle: "idle"
+        case .deferred: "deferred"
+        case .awaitingReady: "awaiting_ready"
+        }
+        ledger.stream = stream?.id
+        return ledger
+    }
+
     final class SurfaceBox: Sendable {
         let value: Mutex<SurfaceID>
         init(_ surface: SurfaceID) { value = Mutex(surface) }

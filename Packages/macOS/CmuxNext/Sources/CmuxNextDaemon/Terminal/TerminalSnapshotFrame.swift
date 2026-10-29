@@ -62,6 +62,8 @@ struct DecodedAttachLine: Sendable, Equatable {
     var flow: UInt64?
     /// That press's daemon stages, for the app's latency slot.
     var keyStamps: TerminalKeyStamps?
+    /// The daemon's PTY offset after an `output` (its `offset`), for ``TerminalStreamLedger`` only.
+    var offset: UInt64?
 }
 
 /// The one owner of snapshot order on an attach stream (runs on the attach

@@ -291,6 +291,49 @@ import Testing
         #expect(lane.chunks.isEmpty)
     }
 
+    /// The per-stage counts `debug.surfaces` reports (``TerminalStreamLedger``): every decoded output byte is
+    /// counted once where the router put it (lane, held, stream) or where the snapshot order dropped it, held
+    /// bytes again where they went, and the last READY's cut. Counting changes no routing.
+    @Test func theLedgerCountsEachOutputByteAtTheStageItReached() async throws {
+        let queue = TerminalEventQueue(recorder: nil)
+        let lane = FakeLane()
+        let router = try await Self.openRoute(queue, to: lane)
+        func output(_ text: String, offset: UInt64, generation: UInt64? = nil) -> DecodedAttachLine {
+            DecodedAttachLine(event: .output(Data(text.utf8), colors: nil), generation: generation, offset: offset)
+        }
+        router.receive(output("aa", offset: 2)) { _, _ in }  // open route: to the lane
+        router.receive(Self.control(1)) { _, _ in }  // a record: the next marker
+        router.receive(output("bbb", offset: 5)) { _, _ in }  // held behind it
+        #expect(await queue.next() == .scrollChanged(offset: 1, atBottom: true))
+        guard case .outputResume(let marker)? = await queue.next() else { throw EchoLaneTestError.noMarker }
+        marker.resume()  // the held bytes go to the lane
+        router.receive(Self.control(2)) { _, _ in }
+        router.receive(output("c", offset: 6)) { _, _ in }  // held again
+        router.receive(Self.control(3)) { _, _ in }  // takes it onto the stream ahead of itself
+        let ready = TerminalSnapshotFrame(phase: .ready, generation: 5, offset: 6, version: 1, cols: 80, rows: 24,
+                                          data: Data("READY".utf8))
+        router.receive(DecodedAttachLine(event: .snapshot(ready))) { _, _ in }
+        router.receive(output("zz", offset: 8, generation: 4)) { _, _ in }  // a replaced screen's: dropped
+
+        var expected = TerminalStreamLedger()
+        expected.daemonOffset = 8
+        expected.decodedBytes = 8
+        expected.droppedBytes = 2
+        expected.laneBytes = 2
+        expected.heldBytes = 4
+        expected.heldToLaneBytes = 3
+        expected.heldToStreamBytes = 1
+        expected.markersSent = 3
+        expected.markersAcknowledged = 2
+        expected.readies = 1
+        expected.readyOffset = 6
+        expected.readyGeneration = 5
+        expected.decodedBytesAtReady = 6
+        expected.hasSink = true
+        #expect(router.ledger == expected)
+        #expect(lane.chunks == [Data("aa".utf8), Data("bbb".utf8)])
+    }
+
     /// A full lane stops the reader on its thread; nothing is dropped, and the lane's wake lets it read on.
     @Test func aFullLaneStopsTheReaderWithoutDrops() async throws {
         let (blocks, blocked) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))

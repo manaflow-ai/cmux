@@ -141,7 +141,7 @@ public final class TerminalSession {
     private let input: TerminalInputSink
     /// The lane the IO's reader feeds live output to (``TerminalIO/setOutputLane(_:)``): the events loop
     /// names it, close names none.
-    private let outputLane: TerminalOutputLaneNamer
+    let outputLane: TerminalOutputLaneNamer
     private let echoStages: TerminalEchoStages
     /// What the events loop changed for the main actor, applied once per frame (``applyEvents()``).
     let events: TerminalEventMailbox
