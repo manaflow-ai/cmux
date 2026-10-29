@@ -1144,6 +1144,83 @@ mod tests {
         );
     }
 
+    /// A restoring owner that drops a parked connection says so: before the
+    /// close it writes one `refused` line with code `server.restoring` (its
+    /// park cap). `server stop` must ask again on a new connection on that
+    /// answer, however soon it comes, and report a close only when the owner
+    /// said nothing. It decided by whether one of its reads had timed out
+    /// first (1 s), so a restoring owner that dropped the stop's connection
+    /// within that second was reported as gone and the stop gave up on it.
+    #[test]
+    fn stop_wait_asks_again_when_a_restoring_owner_says_it_dropped_the_connection() {
+        const RESTORING_DROPS: usize = 3;
+        let dir =
+            std::env::temp_dir().join(format!("cmux-stop-wait-restoring-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let socket = dir.join("s.sock");
+        let listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let stop_accepting = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let accepting = stop_accepting.clone();
+        let served = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let owner_served = served.clone();
+        let owner = std::thread::spawn(move || {
+            while !accepting.load(std::sync::atomic::Ordering::Acquire) {
+                let (stream, _) = match listener.accept() {
+                    Ok(accepted) => accepted,
+                    Err(_) => {
+                        std::thread::sleep(Duration::from_millis(5));
+                        continue;
+                    }
+                };
+                stream.set_nonblocking(false).unwrap();
+                let count = owner_served.fetch_add(1, std::sync::atomic::Ordering::AcqRel) + 1;
+                let mut reader = io::BufReader::new(stream.try_clone().unwrap());
+                let mut line = String::new();
+                if reader.read_line(&mut line).unwrap_or(0) == 0 {
+                    continue;
+                }
+                let mut stream = stream;
+                if count <= RESTORING_DROPS {
+                    // Well inside one read slice: the owner drops it at once.
+                    std::thread::sleep(Duration::from_millis(50));
+                    let _ = writeln!(
+                        stream,
+                        r#"{{"protocol":"cmux.protocol/2","type":"refused","code":"server.restoring","phase":"restoring","pid":1,"message":"restoring"}}"#
+                    );
+                    continue;
+                }
+                let request: Value = serde_json::from_str(&line).unwrap();
+                let _ = writeln!(
+                    stream,
+                    "{}",
+                    json!({"id": request["id"], "ok": true, "data": {"lifecycle_ready": true}})
+                );
+                let _ = reader.read_line(&mut String::new());
+            }
+        });
+        let stop = StopWait {
+            socket: &socket,
+            socket_is_derived: false,
+            session: Some("restoring-drops"),
+            limit: Duration::from_secs(30),
+            retry_flags: (false, true),
+            output: OutputMode::Quiet,
+        };
+        let waited = stop.wait_for_restore();
+        let connections = served.load(std::sync::atomic::Ordering::Acquire);
+        stop_accepting.store(true, std::sync::atomic::Ordering::Release);
+        owner.join().unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(waited, Ok(()));
+        assert_eq!(
+            connections,
+            RESTORING_DROPS + 1,
+            "the stop asks again after each restoring answer and ends once the owner is ready"
+        );
+    }
+
     #[test]
     fn rejects_invalid_session_names_before_socket_resolution() {
         assert!(!valid_session_name(""));

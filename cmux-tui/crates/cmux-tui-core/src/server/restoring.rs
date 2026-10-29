@@ -142,3 +142,45 @@ impl Drop for RestoringServer {
         cleanup(&self.path);
     }
 }
+
+#[cfg(all(test, unix))]
+mod tests {
+    use std::io::{BufRead, BufReader};
+    use std::time::Duration;
+
+    use super::*;
+
+    /// A restoring owner that drops its oldest parked connection at the park
+    /// cap says why before the close: one `refused` line, code
+    /// `server.restoring`, with its pid. A client (`server stop`) then knows
+    /// the owner lives and restores, and asks again, instead of inferring it
+    /// from how long its reads waited.
+    #[test]
+    fn a_connection_dropped_at_the_park_cap_reads_the_restoring_phase() {
+        let dir =
+            std::env::temp_dir().join(format!("cmux-restoring-park-cap-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("mux.sock");
+        let restoring = super::super::bind_session_socket("park-cap", Some(path.clone()))
+            .unwrap()
+            .serve_restoring()
+            .unwrap();
+        let mut clients = Vec::new();
+        for _ in 0..=MAX_PARKED_CONNECTIONS {
+            let client = std::os::unix::net::UnixStream::connect(&path).unwrap();
+            client.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+            clients.push(client);
+        }
+        let mut line = String::new();
+        BufReader::new(&clients[0]).read_line(&mut line).unwrap();
+        drop(restoring);
+        let _ = std::fs::remove_dir_all(&dir);
+        let refused: serde_json::Value = serde_json::from_str(&line)
+            .unwrap_or_else(|_| panic!("the dropped connection read no phase line: {line:?}"));
+        assert_eq!(refused["type"], "refused", "{refused}");
+        assert_eq!(refused["code"], "server.restoring", "{refused}");
+        assert_eq!(refused["phase"], "restoring", "{refused}");
+        assert_eq!(refused["pid"], std::process::id(), "{refused}");
+    }
+}
