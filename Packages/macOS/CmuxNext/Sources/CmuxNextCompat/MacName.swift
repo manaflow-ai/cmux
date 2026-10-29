@@ -8,11 +8,26 @@ import SystemConfiguration
 public struct MacName: Sendable {
     public init() {}
 
+    /// The name a run under PR capture shows for this Mac, the showcase Mac's: a capture slot
+    /// (cmuxterm-hq capture-host) names its neutral shell home in `CMUX_CAPTURE_SHELL_HOME`, and
+    /// every still it takes goes through a privacy check that refuses the capture host's own name.
+    public static let captureName = "Studio Mac"
+
+    /// ``captureName`` when this process runs under PR capture, else nil. Every name this type
+    /// shows answers it then, and so do the few views that read the computer name themselves.
+    public static let captureOverride: String? = captureOverride(environment: ProcessInfo.processInfo.environment)
+
+    /// ``captureName`` when `environment` names a capture slot's shell home (an absolute path).
+    nonisolated static func captureOverride(environment: [String: String]) -> String? {
+        environment["CMUX_CAPTURE_SHELL_HOME"]?.hasPrefix("/") == true ? captureName : nil
+    }
+
     /// The user-visible computer name (System Settings > General > Sharing),
     /// from the local configuration store, read off the main actor. Falls
     /// back to the host name, then "Mac".
     public func computerName() async -> String {
-        await Self.resolve {
+        if let name = Self.captureOverride { return name }
+        return await Self.resolve {
             SCDynamicStoreCopyComputerName(nil, nil) as String?
         }
     }
@@ -22,6 +37,7 @@ public struct MacName: Sendable {
     /// then the host name ("cosmic-gray"), so machines that kept the default
     /// name are told apart by the name their owner gave them.
     public func displayName() async -> String {
+        if let name = Self.captureOverride { return name }
         let computer = await computerName()
         return Self.displayName(computer: computer, localHost: await Self.localHostName(), kernel: kernelHostName())
     }
@@ -61,6 +77,7 @@ public struct MacName: Sendable {
     /// host name a read off the main actor cached, and the kernel's until that
     /// read is done. The first call starts the read; `displayName()` renews it.
     public nonisolated func hostName() -> String {
+        if let name = Self.captureOverride { return name }
         let (cached, start) = Self.localHost.withLock { state -> (String?, Bool) in
             defer { state.started = true }
             return (state.name, !state.started)

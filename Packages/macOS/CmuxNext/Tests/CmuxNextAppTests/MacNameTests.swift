@@ -38,3 +38,18 @@ struct MacNameHostTests {
         #expect(MacName().hostName() == MacName.hostName(localHost: local, kernel: MacName().kernelHostName()))
     }
 }
+
+/// A run under PR capture (`CMUX_CAPTURE_SHELL_HOME`, a capture slot's neutral shell home) names the
+/// showcase Mac wherever it shows this Mac's name, never the capture host's: the privacy check refuses
+/// every still that shows it. A person's run (no such variable, or a relative path) keeps the real name.
+struct MacNameCaptureTests {
+    @Test func aCaptureSlotNamesTheShowcaseMac() {
+        #expect(MacName.captureOverride(environment: ["CMUX_CAPTURE_SHELL_HOME": "/lease/home"]) == MacName.captureName)
+        #expect(MacName.captureName == "Studio Mac")
+    }
+
+    @Test(arguments: [[:], ["CMUX_CAPTURE_SHELL_HOME": ""], ["CMUX_CAPTURE_SHELL_HOME": "lease/home"]] as [[String: String]])
+    func aPersonsRunKeepsThisMacsName(_ environment: [String: String]) {
+        #expect(MacName.captureOverride(environment: environment) == nil)
+    }
+}
