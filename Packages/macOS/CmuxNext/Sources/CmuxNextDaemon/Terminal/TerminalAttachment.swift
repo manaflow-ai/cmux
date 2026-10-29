@@ -71,6 +71,8 @@ public actor TerminalAttachment: TerminalByteChannel {
         var lease: String?
         var lastReported: CellSize?
         var detached = false
+        /// How keys go out (``InputPath``): set once by the attach reply, then only to `closed`.
+        var input: InputPath
         /// The daemon takes `set-size-counts` for this lease (`shared-sizing-v1`).
         var hidesInPlace = false
         /// This view's sizing participant (the attach reply's `participant`); nil until then.
@@ -85,7 +87,8 @@ public actor TerminalAttachment: TerminalByteChannel {
 
     /// A class box, so the reader thread's closure can share the mutex (a `Mutex` cannot be copied).
     final class ControlBox: Sendable {
-        let value = Mutex(Control())
+        let value: Mutex<Control>
+        init(input: InputPath) { value = Mutex(Control(input: input)) }
     }
 
     private nonisolated var control: ControlBox { sink.control }
@@ -153,7 +156,8 @@ public actor TerminalAttachment: TerminalByteChannel {
         let backpressure = Self.backpressure(for: delivery, transport: transport,
                                              surface: { resolvedSurface.value.withLock { $0 } })
         let queue = TerminalEventQueue(backpressure: backpressure, recorder: transport.recorder)
-        sink = ViewSink(queue: queue, router: TerminalEchoRouter(queue: queue), control: ControlBox(),
+        sink = ViewSink(queue: queue, router: TerminalEchoRouter(queue: queue),
+                        control: ControlBox(input: stream == nil ? .lines : .opening),
                         resolvedSurface: resolvedSurface, decoder: transport.decoder, keyStamps: keyStamps)
         events = AsyncStream(unfolding: { await queue.next() }, onCancel: { queue.cancel() })
     }
@@ -196,7 +200,10 @@ public actor TerminalAttachment: TerminalByteChannel {
                target: SurfaceID, createIntent: UInt64) async throws {
         NewTerminalTrace.shared.attachEvent(.attachReplied, surface: target.rawValue, intent: createIntent)
         let queue = queue
+        let input = adoptedInputPath
         control.value.withLock { control in
+            // A channel that ended before its reply was adopted stays closed.
+            if control.input == .opening { control.input = input }
             control.lease = response.lease
             control.lastReported = size
             control.hidesInPlace = sharedSizing
@@ -228,26 +235,26 @@ public actor TerminalAttachment: TerminalByteChannel {
         enqueueInput(data)
     }
 
-    /// Synchronous, ordered input path for Ghostty's `io_write_cb` thread.
-    /// Writes from one thread reach the PTY in call order.
+    /// Synchronous, ordered input path for Ghostty's `io_write_cb` thread. Writes from one thread reach the PTY
+    /// in call order, on the one path the attach reply fixed (``InputPath``): INPUT frames on a framed stream
+    /// (TerminalAttachment+InputFrames.swift), else `send` lines. A key after the view's channel ended
+    /// (``detachNow()``; its stream's end, overflow or loss) is dropped: it never follows the view's
+    /// `cancel-stream`, and never goes as a line behind an INPUT frame the daemon dropped.
     ///
     /// - Parameter keyFlow: the latency slot flow of the key press the bytes encode (0: none). The
-    ///   send carries it, so the daemon stamps the press's stages and echoes them; while the typing probe traces
-    ///   presses, its flow goes instead (``TypingLatencyProbe/openFlow``) and the slot gets no daemon stages.
+    ///   send or INPUT frame carries it, so the daemon stamps the press's stages and echoes them; while the typing
+    ///   probe traces presses, its flow goes instead (``TypingLatencyProbe/openFlow``) and the slot gets no daemon
+    ///   stages.
     public nonisolated func enqueueInput(_ data: Data, keyFlow: UInt64 = 0) {
         guard !data.isEmpty else { return }
-        let surface = surface
-        let logger = logger
         let flow = TypingLatencyProbe.shared.openFlow ?? (keyFlow == 0 ? nil : keyFlow)
-        do {
-            try transport.sendNoReply(cmd: SendInputRequest.command, onError: { error in
-                logger.error("send failed: \(error.description, privacy: .public)")
-            }) { id in
-                try WireCoding.encodeRequest(SendInputRequest(surface: surface, bytes: data, flow: flow), id: id)
-            }
-            if let flow { TypingLatencyProbe.shared.mark(.socketSubmit, flow: flow) }
-        } catch {
-            logger.debug("input dropped after close: \(String(describing: error), privacy: .public)")
+        switch control.value.withLock({ $0.input }) {
+        case .lines:
+            sendInputLine(data, flow: flow)
+        case .frames(let stream):
+            sendInputFrames(data, stream: stream, flow: flow)
+        case .opening, .closed:
+            return
         }
     }
 
@@ -383,6 +390,7 @@ public actor TerminalAttachment: TerminalByteChannel {
         let lease = control.value.withLock { control -> String?? in
             guard !control.detached else { return .none }
             control.detached = true
+            control.input = .closed
             return .some(control.lease)
         }
         guard case .some(let lease) = lease else { return }
