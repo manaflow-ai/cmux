@@ -54,8 +54,12 @@ public final class MacScreenHubHost {
     /// apply to Mac Screen since the app serves it), read when the ticket arrives; a refused ticket is
     /// ended unserved. Nil: every ticket serves at once.
     @ObservationIgnored public var consentGate: (@MainActor (SessionTicket) async -> Bool)?
-    /// Tickets whose consent read is in flight; an end or Stop Sharing meanwhile drops them.
-    @ObservationIgnored private var awaitingConsent: Set<String> = []
+    /// Tickets whose consent read is in flight, by arrival; an end or Stop Sharing meanwhile drops them.
+    @ObservationIgnored private var awaitingConsent: [String: Int] = [:]
+    /// The arrival number of the last ticket, and of the last one served: an older ticket whose read
+    /// answers later never replaces a newer one.
+    @ObservationIgnored private var ticketArrivals = 0
+    @ObservationIgnored private var servedArrival = 0
     /// Makes a session's signaling from its ticket; tests replace it.
     @ObservationIgnored var makeSignaling: @MainActor (SessionTicket, DeviceHub) throws -> any ScreenSignaling = MacScreenHubViewer.ticketSignaling
 
@@ -100,16 +104,24 @@ public final class MacScreenHubHost {
     func serve(_ ticket: SessionTicket) {
         guard ticket.role == .host, hub() != nil else { return }
         guard let consentGate else { return start(ticket) }
-        awaitingConsent.insert(ticket.sessionId)
+        ticketArrivals += 1
+        let arrival = ticketArrivals
+        awaitingConsent[ticket.sessionId] = arrival
         // task-owner: one consent read per ticket; the ticket serves after it or is ended
         Task { [weak self] in
             let allowed = await consentGate(ticket)
-            guard let self, awaitingConsent.remove(ticket.sessionId) != nil, let hub = hub() else { return }
+            guard let self, awaitingConsent.removeValue(forKey: ticket.sessionId) != nil, let hub = hub() else { return }
             guard allowed else {
                 logger.info("session ticket refused: this Mac's consent does not allow it")
                 end(ticket.sessionId, reason: .failed, hub: hub)
                 return
             }
+            // One viewer at a time, the newest: a ticket that arrived before the one serving is replaced.
+            guard arrival > servedArrival else {
+                end(ticket.sessionId, reason: .replaced, hub: hub)
+                return
+            }
+            servedArrival = arrival
             start(ticket)
         }
     }
@@ -157,7 +169,7 @@ public final class MacScreenHubHost {
 
     /// `session.revoked` or `session.ended`: the session ends now.
     func sessionOver(_ id: String) {
-        awaitingConsent.remove(id)
+        awaitingConsent.removeValue(forKey: id)
         guard session?.id == id else { return }
         closeLocal()
     }
@@ -227,10 +239,10 @@ public final class MacScreenHubHost {
 
     /// Tickets still waiting for their consent read end unserved, with `reason`.
     private func dropAwaitingConsent(reason: MacScreenHubReason) {
-        let waiting = awaitingConsent
+        let waiting = awaitingConsent.keys.sorted()
         awaitingConsent.removeAll()
         guard let hub = hub() else { return }
-        for id in waiting.sorted() { end(id, reason: reason, hub: hub) }
+        for id in waiting { end(id, reason: reason, hub: hub) }
     }
 
     /// Signed out, or the hub went away: end the session here (the caller told the hub first, when it could).

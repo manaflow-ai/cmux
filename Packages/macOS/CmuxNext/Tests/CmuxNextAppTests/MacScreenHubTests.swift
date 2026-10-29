@@ -750,6 +750,34 @@ struct MacScreenHubHostOrderTests {
         hubAnswers.open()
     }
 
+    /// Consent reads that answer out of order: the newer ticket serves and the older one is replaced,
+    /// never the other way around.
+    @Test func anOlderTicketWhoseReadAnswersLaterNeverReplacesANewerOne() async {
+        let file = FileManager.default.temporaryDirectory.appending(path: "mac-screen-\(UUID().uuidString)/mac-screen.json")
+        let pages = MacScreenPages(store: MacScreenStore(file: file), work: BackgroundWork())
+        let hub = testHub()
+        let host = pages.hubHost
+        host.hub = { hub }
+        host.makeSignaling = { _, _ in OpenSignaling() }
+        let ends = CallLog()
+        host.endSession = { _, id, reason in ends.items.append("\(id) \(reason)") }
+        let first = JoinConsentTests.Gate(), second = JoinConsentTests.Gate()
+        host.consentGate = { ticket in
+            await (ticket.sessionId == "s1" ? first : second).wait()
+            return true
+        }
+        host.serve(ticket("s1", role: .host, scope: .view, peer: "v1"))
+        host.serve(ticket("s2", role: .host, scope: .view, peer: "v2"))
+        second.open()
+        for _ in 0..<1000 where host.session == nil { await Task.yield() }
+        #expect(host.session?.id == "s2")
+        first.open()
+        for _ in 0..<1000 where ends.items.isEmpty { await Task.yield() }
+        #expect(host.session?.id == "s2", "the newer session keeps serving")
+        #expect(ends.items == ["s1 replaced"])
+        host.sessionOver("s2")
+    }
+
     @Test func stopSharingEndsATicketStillWaitingForConsent() async {
         let (host, _) = serving()
         let ends = CallLog()

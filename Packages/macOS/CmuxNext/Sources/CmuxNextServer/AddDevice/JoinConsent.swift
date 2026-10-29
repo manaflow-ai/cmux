@@ -249,10 +249,10 @@ public final class JoinConsentModel {
     }
 
     private static func permits(_ reading: Reading, control: Bool) -> Bool {
-        guard reading.supported == true else { return false }
-        if (reading.consent?.consentRequired ?? reading.status?.credentialPresent) == false { return true }
-        guard let consent = reading.consent, consent.screen else { return false }
-        return !control || consent.control
+        // SECURITY: no record read from acpmux (a failed read included), nothing allowed, not even "not joined".
+        guard reading.supported == true, let consent = reading.consent else { return false }
+        if (consent.consentRequired ?? reading.status?.credentialPresent) == false { return true }
+        return consent.screen && (!control || consent.control)
     }
 
     /// Mac Screen asks before it serves a session: the app owns it, so acpmux's gate never sees it. It

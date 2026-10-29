@@ -28,7 +28,7 @@ import Testing
             supportsConsent = owner.capable
             takes = owner.takes
         }
-        func read() async -> JoinConsentRecord? { owner.record }
+        func read() async -> JoinConsentRecord? { owner.readFails ? nil : owner.record }
         func set(_ surface: JoinConsentSurface, granted: Bool) async -> Bool {
             writes.append("\(surface.rawValue) \(granted)")
             // acpmux takes a grant and a revoke only from the person's connection.
@@ -52,6 +52,8 @@ import Testing
         var takes = true
         /// acpmux's consent record.
         var record = JoinConsentRecord()
+        /// `_acpmux/machine_consent_get` fails.
+        var readFails = false
         var enabled = true
         var askShown = false
         var lines: [FakeLine] = []
@@ -273,6 +275,17 @@ import Testing
         #expect(!(await ticket.value), "its own read says joined, with nothing allowed")
         laterRead.open()
         await later.value
+        #expect(!model.permitsMacScreen(control: false))
+    }
+
+    /// A join between the status read and a consent read that fails: the stale "not joined" never allows.
+    @Test func aFailedConsentReadAllowsNothingEvenOnAMacThatReadsNotJoined() async {
+        let fake = Fake()
+        fake.status = JoinStatus(credentialPresent: false)
+        let model = JoinConsentModel(services: fake.services())
+        #expect(await model.allowsMacScreen(control: false, requester: "Studio"), "not joined, record read: as before")
+        fake.readFails = true
+        #expect(!(await model.allowsMacScreen(control: false, requester: "Studio")))
         #expect(!model.permitsMacScreen(control: false))
     }
 
