@@ -32,6 +32,13 @@ def main():
     created = False
     try:
         root.chmod(0o755)
+        # Runner caches are private. Copy only the binaries this invocation built;
+        # never widen cache permissions or grant the account runner credentials.
+        for name, binary in list(binaries.items()):
+            artifact = root / name
+            shutil.copy2(binary, artifact)
+            artifact.chmod(0o755)
+            binaries[name] = str(artifact)
         home = root / "home"
         home.mkdir()
         subprocess.run(["sudo", "-n", "useradd", "--home-dir", str(home),
@@ -46,7 +53,7 @@ def main():
                 # The selected tests start no agents. Avoid the harness's compiled
                 # runner-owned scratch dir; children still use daemon_env's clean
                 # per-process fixtures. No real CLI accounts enter the environment.
-                "ACPMUX_TEST_HERMETIC=1", binaries[name], *filters,
+                "ACPMUX_TEST_HERMETIC=1", f"ACPMUX_TEST_BINARY={binaries['acpmux']}", binaries[name], *filters,
                 "--include-ignored", "--test-threads=1", "--nocapture",
             ], check=True)
     finally:

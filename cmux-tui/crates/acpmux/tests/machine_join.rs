@@ -22,7 +22,9 @@ const TOKEN: &str = "cmj_test_secret_never_print";
 const CREDENTIAL: &str = "cmm_test_secret_never_print";
 
 fn cli(home: &std::path::Path) -> Command {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_acpmux"));
+    let mut command = Command::new(machine_consent_home::binary(std::path::Path::new(env!(
+        "CARGO_BIN_EXE_acpmux"
+    ))));
     command
         .env("ACPMUX_HOME", home)
         .env_remove("CMUX_JOIN")

@@ -164,7 +164,8 @@ impl Daemon {
         )
         .unwrap();
         let socket = dir.join("s.sock");
-        let mut cmd = daemon_env::command(&dir, daemon_env::Agents::StandIn, &[]);
+        let mut cmd = std::process::Command::new(machine_consent_home::binary(daemon_env::bin()));
+        daemon_env::apply(&mut cmd, &dir, daemon_env::Agents::StandIn, &[]);
         cmd.args(["daemon", "run", "--memory", "--ready-fd", "1", "--log", "warn"])
             .env("ACPMUX_HOME", &dir)
             .env("ACPMUX_SOCKET", &socket)

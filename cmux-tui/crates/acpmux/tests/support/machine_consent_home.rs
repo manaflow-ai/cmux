@@ -49,3 +49,9 @@ impl Drop for ConsentHome {
         }
     }
 }
+
+/// A relocated build artifact readable by the disposable UID. This override
+/// exists only in test code and never changes production state resolution.
+pub fn binary(default: &std::path::Path) -> PathBuf {
+    std::env::var_os("ACPMUX_TEST_BINARY").map(PathBuf::from).unwrap_or_else(|| default.to_owned())
+}
