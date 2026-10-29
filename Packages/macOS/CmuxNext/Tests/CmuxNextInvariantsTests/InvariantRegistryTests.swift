@@ -115,6 +115,63 @@ struct InvariantRegistryTests {
         #expect(registry.ledger.lastSeq == 1)
     }
 
+    @Test func aTurnThatChecksAnotherSubjectNeitherClearsNorReportsAgain() {
+        let clock = InvariantTestClock()
+        let registry = clock.registry()
+        let world = InvariantTestWorld()
+        registry.declare(world.stripRule())
+        world.strips["p1"] = .init(pane: "p1", shown: 1, held: 2)
+        world.strips["p2"] = .init(pane: "p2", shown: 0, held: 1)
+        for pane in ["p1", "p2", "p1"] {
+            registry.touch(.tabs, .pane(pane))
+            registry.runTurn()
+        }
+        let reported = registry.ledger.since(0).violations.map(\.subject)
+        #expect(reported == [.pane("p1"), .pane("p2")], "p1 stays reported while a turn checks only p2: \(reported)")
+    }
+
+    @Test func aTurnThatTouchesACleanSubjectKeepsTheOthersReported() {
+        let clock = InvariantTestClock()
+        let registry = clock.registry()
+        let world = InvariantTestWorld()
+        registry.declare(world.stripRule())
+        world.strips["p1"] = .init(pane: "p1", shown: 1, held: 2)
+        world.strips["p3"] = .init(pane: "p3", shown: 1, held: 1)
+        registry.touch(.tabs, .pane("p1"))
+        registry.runTurn()
+        registry.touch(.tabs, .pane("p3"))
+        registry.runTurn()
+        registry.touch(.tabs, .pane("p1"))
+        registry.runTurn()
+        #expect(registry.ledger.lastSeq == 1, "a clean p3 does not clear p1's report")
+    }
+
+    @Test func aSlowSharedReadIsThePassesViolation() {
+        let clock = InvariantTestClock()
+        let registry = clock.registry()
+        registry.declare(InvariantRule(id: "S2", statement: "reads a slow memo", owner: "Tests", reads: [.tabs], points: .afterTurn,
+                                       cost: .walk, read: { (pass: InvariantPass) -> [Int]? in
+                                           pass.memo("slow") { () -> [Int] in
+                                               clock.now += .milliseconds(2)
+                                               return [0]
+                                           }
+                                       }, check: { (_: [Int]) -> [InvariantFinding] in [] }))
+        for _ in 0..<Int(InvariantRegistry.costMinimumRuns) {
+            registry.touch(.tabs, .app)
+            registry.runTurn()
+        }
+        #expect(registry.ledger.since(0).violations.map(\.id) == ["INV-COST@pass"],
+                "the shared walk is charged to no rule, so the pass's own budget reports it")
+    }
+
+    @Test func anUnarmedRegistryStillListsWhatACallSiteCheckCaught() {
+        let clock = InvariantTestClock()
+        let registry = clock.registry(mode: .off)
+        registry.noteAction("pane.split", origin: "key")
+        InvariantProbe(registry: registry).fail("M1", .machine("local"), "mirror written outside apply")
+        #expect(registry.ledger.since(0).violations.map(\.id) == ["M1"], "a bench build's M1 is not dropped")
+    }
+
     @Test func aLivenessRuleReportsAtItsLimitWithNoInputToRunIt() {
         let clock = InvariantTestClock()
         let registry = clock.registry()

@@ -8,7 +8,8 @@ import Testing
 /// world check finds, and each finds only its own id.
 struct InputInvariantRulesTests {
     private func window(_ id: String, _ resolved: FocusState.Resolved, isKey: Bool, responder: FocusEvent.Responder,
-                        ghostty: [String] = [], presented: [String: String] = ["pane_a": "tab_t"]) -> InputObservation.Window {
+                        ghostty: [String] = [], presented: [String: String] = ["pane_a": "tab_t"],
+                        owed: [String]? = nil) -> InputObservation.Window {
         var model = FocusState()
         model.resolved = resolved
         model.underlying = resolved
@@ -17,7 +18,7 @@ struct InputInvariantRulesTests {
         model.topology = FocusTopology(workspace: "ws", panes: [FocusTopology.Pane(id: "pane_a", tabs: [FocusTopology.Tab(id: "tab_t", kind: .terminal)],
                                                                                    selected: "tab_t")], screens: [])
         return InputObservation.Window(id: id, model: model, responder: responder, isKey: isKey, layoutFocus: "pane_a",
-                                       ghosttyFocused: ghostty, presented: presented, visible: true)
+                                       ghosttyFocused: ghostty, presented: presented, visible: true, owed: owed)
     }
 
     private var observations: [InputObservation] {
@@ -61,5 +62,19 @@ struct InputInvariantRulesTests {
                                        context: FocusState.Context(terminal: true), appActive: true)
         #expect(InputInvariants.unsettledWindows(pending) == ["w1"])
         #expect(InputInvariants.violations(of: .responderMatches, in: pending).isEmpty, "W1 waits for the presentation (W9)")
+    }
+
+    @Test func aPaneWhoseContentIsOwedIsWaitedOnNotChecked() {
+        // A Ctrl-` stand-in's page comes after its first frame commits: the pane presents the tab, its page is owed.
+        let page = FocusState.Resolved.browserPage(pane: "pane_a", tab: "tab_t")
+        let owed = InputObservation(windows: [window("w1", page, isKey: true, responder: .windowOrNone, owed: ["pane_a"])],
+                                    keyWindow: .window("w1"), paletteOpen: false, activeWindow: "w1",
+                                    context: FocusState.Context(browser: true), appActive: true)
+        let result = InputInvariants.world(owed)
+        #expect(result.unsettled == ["w1"], "an owed page is level state: the window is unsettled, W9 bounds the wait")
+        #expect(!result.violations.contains { [.responderMatches, .presentedMatchesSelection].contains($0.invariant) })
+        var landed = owed
+        landed.windows[0].owed = nil
+        #expect(InputInvariants.world(landed).unsettled.isEmpty, "once the page is made, the window is checked")
     }
 }

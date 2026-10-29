@@ -47,11 +47,15 @@ public nonisolated struct InputObservation: Hashable, Sendable, Codable {
         /// The window is on screen (`NSWindow.isVisible`; a minimized or ordered-out window is not). Optional
         /// for old journals.
         public var visible: Bool?
+        /// Panes whose shown tab's content is owed: made after the frame commits (a Ctrl-` stand-in's page) or
+        /// waiting for its engine (`TabContentCache.pendingBrowsers`). Level state: such a pane presents nothing to
+        /// check yet, so its window is unsettled (W9 bounds the wait). Optional for old journals.
+        public var owed: [String]?
 
         public init(id: String, model: FocusState, responder: FocusEvent.Responder, responderClass: String? = nil,
                     isKey: Bool, layoutFocus: String? = nil, ghosttyFocused: [String], childPage: String? = nil,
                     presented: [String: String], childWindowTabs: [String] = [], hasSheet: Bool = false,
-                    topPage: Bool? = nil, visible: Bool? = nil) {
+                    topPage: Bool? = nil, visible: Bool? = nil, owed: [String]? = nil) {
             self.id = id
             self.model = model
             self.responder = responder
@@ -65,6 +69,7 @@ public nonisolated struct InputObservation: Hashable, Sendable, Codable {
             self.hasSheet = hasSheet
             self.topPage = topPage
             self.visible = visible
+            self.owed = owed
         }
     }
 
