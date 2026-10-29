@@ -22,7 +22,10 @@
 //! program as a script, then exactly its args (`runs`). The argv is read word by word
 //! (`tree::argv`), never split from the line `ps` prints, so a server whose path has a space in it
 //! (acpmux's own, from `/Applications/cmux NIGHTLY.app`) matches, and one process's words can
-//! never pass for another's. A child whose argv cannot be read is not a server. What runs under a
+//! never pass for another's. Argv is the process's own to rewrite (`exec -a`, `process.title`), so
+//! the executable the kernel says it runs (`tree::exe`) must be the server's program too, or for
+//! a script the interpreter its argv names. A child whose executable or argv cannot be read is not
+//! a server. What runs under a
 //! server is the server's. The configs, and `ps` with the argv reads, each get [`CENSUS_BUDGET`];
 //! past it the harness stays up, so the leases the pass holds are never held longer.
 
@@ -73,7 +76,7 @@ impl Hub {
             // The listing, each candidate's argv and the match all run in the bounded task.
             let census = tokio::task::spawn_blocking(move || {
                 let found = crate::agent_host::tree::under(pid)?;
-                Some(classify(&found, pid, &sidecars, crate::agent_host::tree::argv))
+                Some(classify(&found, pid, &sidecars, crate::agent_host::tree::identity))
             });
             return match tokio::time::timeout(CENSUS_BUDGET, census).await {
                 Ok(Ok(Some(census))) => census,
@@ -301,46 +304,70 @@ fn from_toml(text: &str) -> Vec<Sidecar> {
         .collect()
 }
 
-/// Whether `argv`, a process's exact argv, is `s`: its program is the server's command (as
-/// configured, or the program `PATH` runs for a command given by name), or one of
-/// [`INTERPRETERS`] runs that program as a script (a `#!` line: `node /usr/local/bin/npx`), and
-/// then exactly the server's args. A server that is a bare interpreter with no args says nothing
-/// about what it runs, so it never matches.
-fn runs(argv: &[String], s: &Sidecar) -> bool {
-    let interpreter = |w: &str| {
-        let name = Path::new(w).file_name().map(|n| n.to_string_lossy().into_owned());
-        INTERPRETERS.iter().any(|i| {
-            name.as_deref()
-                .and_then(|n| n.strip_prefix(i))
-                .is_some_and(|rest| rest.chars().all(|c| c.is_ascii_digit() || c == '.'))
+/// Whether `who`, a process's executable and exact argv, is `s`: its argv's program is the
+/// server's command (as configured, or the program `PATH` runs for a command given by name) and
+/// its executable is that same file; or its argv's program is one of [`INTERPRETERS`] running the
+/// server's program as a script (a `#!` line: `node /usr/local/bin/npx`) and its executable is
+/// that interpreter. Then exactly the server's args. A server that is a bare interpreter with no
+/// args says nothing about what it runs, so it never matches.
+fn runs(who: &crate::agent_host::tree::Identity, s: &Sidecar) -> bool {
+    let name = |w: &Path| w.file_name().map(|n| n.to_string_lossy().into_owned());
+    let interpreter_name = |n: Option<String>| {
+        n.is_some_and(|n| {
+            INTERPRETERS.iter().any(|i| {
+                n.strip_prefix(i)
+                    .is_some_and(|rest| rest.chars().all(|c| c.is_ascii_digit() || c == '.'))
+            })
         })
     };
+    let interpreter = |w: &str| interpreter_name(name(Path::new(w)));
     if s.args.is_empty() && interpreter(&s.command) {
         return false;
     }
     let program = |w: &str| w == s.command || s.resolved.as_deref() == Some(w);
-    let at = match argv {
-        [first, ..] if program(first) => 1,
-        [first, second, ..] if interpreter(first) && second.contains('/') && program(second) => 2,
+    // The executable is the program: the same path, or the same file once both are canonical (a
+    // symlinked install, `/private/var` for `/var`).
+    let is_exe = |w: &str| {
+        let w = Path::new(w);
+        let canonical = |p: &Path| std::fs::canonicalize(p).ok();
+        w == who.exe || canonical(w).is_some_and(|a| canonical(&who.exe) == Some(a))
+    };
+    let runs_program = |first: &str| {
+        program(first)
+            && [first.contains('/').then_some(first), s.resolved.as_deref()]
+                .into_iter()
+                .flatten()
+                .any(is_exe)
+    };
+    let at = match who.argv.as_slice() {
+        [first, ..] if runs_program(first) => 1,
+        [first, second, ..]
+            if interpreter(first)
+                && interpreter_name(name(&who.exe))
+                && second.contains('/')
+                && program(second) =>
+        {
+            2
+        }
         _ => return false,
     };
-    argv[at..] == s.args[..]
+    who.argv[at..] == s.args[..]
 }
 
-/// `Busy` with the first process that is neither a server (a child of `leader` whose exact argv,
-/// from `argv_of`, is one) nor under one.
+/// `Busy` with the first process that is neither a server (a child of `leader` whose identity,
+/// from `identity_of`, is one) nor under one.
 #[cfg(unix)]
 fn classify(
     found: &[crate::agent_host::tree::Under],
     leader: u32,
     sidecars: &[Sidecar],
-    argv_of: impl Fn(u32) -> Option<Vec<String>>,
+    identity_of: impl Fn(u32) -> Option<crate::agent_host::tree::Identity>,
 ) -> Census {
     // The harness starts its servers itself: only its own children can be one.
     let servers: Vec<u32> = found
         .iter()
         .filter(|p| p.ppid == leader)
-        .filter(|p| argv_of(p.pid).is_some_and(|argv| sidecars.iter().any(|s| runs(&argv, s))))
+        .filter(|p| identity_of(p.pid).is_some_and(|who| sidecars.iter().any(|s| runs(&who, s))))
         .map(|p| p.pid)
         .collect();
     let mut allowed = servers;
@@ -367,17 +394,24 @@ fn classify(
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
-    use crate::agent_host::tree::Under;
+    use crate::agent_host::tree::{Identity, Under};
 
     fn under(pid: u32, ppid: u32, args: &str) -> Under {
         Under { pid, ppid, args: args.into() }
+    }
+
+    /// A process running `argv`, its executable argv[0] (a name as if from `/usr/local/bin`).
+    fn identity(argv: Vec<String>) -> Identity {
+        let first = argv.first().cloned().unwrap_or_default();
+        let exe = if first.contains('/') { first } else { format!("/usr/local/bin/{first}") };
+        Identity { exe: exe.into(), argv }
     }
 
     /// [`classify`] with harness 10, each process's argv its `ps` line split on spaces.
     fn census(found: &[Under], servers: &[Sidecar]) -> Census {
         let split = |pid| {
             let p = found.iter().find(|p| p.pid == pid)?;
-            Some(p.args.split(' ').map(str::to_owned).collect())
+            Some(identity(p.args.split(' ').map(str::to_owned).collect()))
         };
         classify(found, 10, servers, split)
     }
@@ -513,12 +547,13 @@ mod tests {
             (15, &["/Applications/cmux", "NIGHTLY.app/Contents/Resources/bin/acpmux", "forum-mcp"]),
             (16, &[acpmux, "offer-mcp"]),
         ];
-        let lookup = |pid: u32| {
+        let words = |pid: u32| -> Option<Vec<String>> {
             argv.iter()
                 .find(|(p, _)| *p == pid)
                 .map(|(_, a)| a.iter().map(|w| w.to_string()).collect())
         };
-        let line = |pid: u32| lookup(pid).map(|a: Vec<String>| a.join(" ")).unwrap_or_default();
+        let lookup = |pid: u32| words(pid).map(identity);
+        let line = |pid: u32| words(pid).map(|a| a.join(" ")).unwrap_or_default();
         let found: Vec<Under> = [11, 12, 13].into_iter().map(|p| under(p, 10, &line(p))).collect();
         assert!(matches!(classify(&found, 10, &servers, lookup), Census::Clear));
         for pid in [14, 15, 16] {
@@ -529,5 +564,32 @@ mod tests {
         // A child whose argv cannot be read is never a server.
         let found = [under(11, 10, &line(11))];
         assert!(matches!(classify(&found, 10, &servers, |_| None), Census::Busy { pid: 11, .. }));
+    }
+
+    /// Argv is the process's own to rewrite: the executable the kernel says it runs must be the
+    /// server's program, or for a script an interpreter.
+    #[test]
+    fn a_rewritten_argv_does_not_make_a_server() {
+        let servers = from_json(Some(&json!({
+            "cmux": {"command": "/opt/cmux/bin/cmux", "args": ["mcp", "serve"]},
+            "fetch": {"command": "/opt/fetch/server.js", "args": ["--stdio"]},
+        })));
+        let who = |exe: &str, argv: &[&str]| Identity {
+            exe: exe.into(),
+            argv: argv.iter().map(|w| w.to_string()).collect(),
+        };
+        let cases = [
+            (who("/opt/cmux/bin/cmux", &["/opt/cmux/bin/cmux", "mcp", "serve"]), true),
+            (who("/usr/bin/node", &["node", "/opt/fetch/server.js", "--stdio"]), true),
+            // `exec -a`: a dev server that names itself the cmux server.
+            (who("/usr/bin/python3", &["/opt/cmux/bin/cmux", "mcp", "serve"]), false),
+            // A script's argv, but the executable is no interpreter.
+            (who("/opt/devserver", &["node", "/opt/fetch/server.js", "--stdio"]), false),
+        ];
+        for (identity, server) in cases {
+            let found = [under(11, 10, &identity.argv.join(" "))];
+            let census = classify(&found, 10, &servers, |_| Some(identity.clone()));
+            assert_eq!(matches!(census, Census::Clear), server, "{identity:?}");
+        }
     }
 }

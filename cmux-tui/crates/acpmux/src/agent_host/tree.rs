@@ -141,6 +141,45 @@ pub fn argv(_pid: u32) -> Option<Vec<String>> {
     None
 }
 
+/// The executable `pid` runs, from the kernel (`proc_pidpath`), which the process cannot change
+/// the way it can its argv. `None` when it cannot be read.
+#[cfg(target_os = "macos")]
+pub fn exe(pid: u32) -> Option<std::path::PathBuf> {
+    let pid = libc::c_int::try_from(pid).ok()?;
+    let mut buffer = vec![0u8; libc::PROC_PIDPATHINFO_MAXSIZE as usize];
+    let size = u32::try_from(buffer.len()).ok()?;
+    // SAFETY: the buffer is writable for its whole length, which is passed.
+    let written = unsafe { libc::proc_pidpath(pid, buffer.as_mut_ptr().cast(), size) };
+    buffer.truncate(usize::try_from(written).ok().filter(|n| *n > 0)?);
+    Some(std::path::PathBuf::from(String::from_utf8(buffer).ok()?))
+}
+
+/// The executable `pid` runs (`/proc/<pid>/exe`); `None` when it cannot be read.
+#[cfg(target_os = "linux")]
+pub fn exe(pid: u32) -> Option<std::path::PathBuf> {
+    std::fs::read_link(format!("/proc/{pid}/exe")).ok()
+}
+
+/// Other unix systems: no executable is read, so no process passes for a server.
+#[cfg(all(unix, not(any(target_os = "macos", target_os = "linux"))))]
+pub fn exe(_pid: u32) -> Option<std::path::PathBuf> {
+    None
+}
+
+/// What the idle census knows of a process to tell whether it is an MCP server: the executable
+/// the kernel says it runs, and its exact argv.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Identity {
+    pub exe: std::path::PathBuf,
+    pub argv: Vec<String>,
+}
+
+/// [`exe`] and [`argv`] of `pid`; `None` when either cannot be read.
+#[cfg(unix)]
+pub fn identity(pid: u32) -> Option<Identity> {
+    Some(Identity { exe: exe(pid)?, argv: argv(pid)? })
+}
+
 /// The argv in a `KERN_PROCARGS2` answer: `argc` (i32), the exec path, NUL padding, then `argc`
 /// NUL-terminated words. `None` when it is cut short or a word is not UTF-8.
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
@@ -258,6 +297,11 @@ mod census_tests {
         assert_eq!(cmdline_argv(b"srv\0\0x\0").unwrap(), ["srv", "", "x"]);
         assert!(cmdline_argv(b"").is_none());
         assert!(cmdline_argv(b"node server.js --title").is_none(), "rewritten, no NUL");
+        // `process.title` writes one string and pads the area with NULs: one word, then empties.
+        assert_eq!(
+            cmdline_argv(b"node /x/server.js --stdio\0\0\0").unwrap(),
+            ["node /x/server.js --stdio", "", ""]
+        );
     }
 
     #[cfg(any(target_os = "macos", target_os = "linux"))]
@@ -268,6 +312,24 @@ mod census_tests {
         let _ = child.kill();
         let _ = child.wait();
         assert_eq!(got.unwrap(), ["/bin/sleep", "30"]);
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[test]
+    fn exe_is_what_the_kernel_runs_whatever_argv0_says() {
+        use std::os::unix::process::CommandExt;
+        let mut child = std::process::Command::new("/bin/sleep")
+            .arg0("/opt/fake-server")
+            .arg("30")
+            .spawn()
+            .unwrap();
+        let got = super::identity(child.id());
+        let _ = child.kill();
+        let _ = child.wait();
+        let got = got.unwrap();
+        assert_eq!(got.argv, ["/opt/fake-server", "30"]);
+        let real = std::fs::canonicalize("/bin/sleep").unwrap();
+        assert_eq!(std::fs::canonicalize(&got.exe).unwrap(), real);
     }
 
     #[test]
