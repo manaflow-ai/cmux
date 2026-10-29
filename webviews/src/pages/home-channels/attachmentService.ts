@@ -8,7 +8,13 @@
 // from a short-lived URL on the daemon's listener, which answers byte ranges (seeking); a page
 // whose policy has no `media-src` for that origin (the app's page scheme today) cannot play it.
 import type { PageClient } from "../shared/pageClient";
-import { HomeOps, MESSAGE_PARTS, type HomeAttachment, type HomeAttachmentSupport, type HomeDerivedImage } from "./types";
+import {
+  HomeOps,
+  MESSAGE_PARTS,
+  type HomeAttachment,
+  type HomeAttachmentSupport,
+  type HomeDerivedImage,
+} from "./types";
 
 export type AttachmentClass = "image" | "video" | "audio" | "file";
 

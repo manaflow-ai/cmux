@@ -598,18 +598,16 @@ export class HomeChannelsStore {
     const trimmed = text.trim();
     if (!this.client || !conversation || (!trimmed && !attachments?.length)) return false;
     const createdAt = Date.now();
-    const sends = messageGroups(trimmed, attachments ?? []).map(
-      (group): PendingSend => ({
-        key: this.key("send"),
-        conversation,
-        text: group.text,
-        createdAt,
-        failed: false,
-        ...(group.files.length ? { attachments: group.files } : {}),
-        ...(thread ? { threadRoot: thread } : {}),
-        ...(parent ? { replyTo: parent } : {}),
-      }),
-    );
+    const sends = messageGroups(trimmed, attachments ?? []).map((group): PendingSend => ({
+      key: this.key("send"),
+      conversation,
+      text: group.text,
+      createdAt,
+      failed: false,
+      ...(group.files.length ? { attachments: group.files } : {}),
+      ...(thread ? { threadRoot: thread } : {}),
+      ...(parent ? { replyTo: parent } : {}),
+    }));
     this.set({ pending: [...this.snapshot.pending, ...sends] });
     void this.deliverInOrder(sends);
     return true;

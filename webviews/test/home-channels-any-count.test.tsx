@@ -93,7 +93,8 @@ test("any number of files splits into messages within the owner's part limit, in
       const groups = messageGroups(text, files);
       expect(groups.flatMap((group) => group.files)).toEqual(files);
       expect(groups.map((group) => group.text)).toEqual(groups.map((_, index) => (index === 0 ? text : "")));
-      for (const group of groups) expect(group.files.length + (group.text ? 1 : 0)).toBeLessThanOrEqual(OWNER_MAX_PARTS);
+      for (const group of groups)
+        expect(group.files.length + (group.text ? 1 : 0)).toBeLessThanOrEqual(OWNER_MAX_PARTS);
       expect(groups.every((group, index) => index === 0 || group.files.length > 0)).toBe(true);
     }
   }
@@ -159,7 +160,9 @@ test("a send with 65 files over 4 GiB each reaches the owner, every file once an
   expect(store.getSnapshot().pending.filter((entry) => entry.failed)).toEqual([]);
   expect(sent.map((message) => message.parts.length)).toEqual([16, 16, 16, 16, 2]);
   expect(sent[0]!.parts[0]).toEqual({ type: "text", text: "here they are" });
-  const hashes = sent.flatMap((message) => message.parts.filter((part) => part.type === "attachment").map((part) => part.hash));
+  const hashes = sent.flatMap((message) =>
+    message.parts.filter((part) => part.type === "attachment").map((part) => part.hash),
+  );
   expect(hashes).toEqual(files.map((file) => file.hash));
   expect(new Set(sent.map((message) => message.key)).size).toBe(sent.length);
   stop();
