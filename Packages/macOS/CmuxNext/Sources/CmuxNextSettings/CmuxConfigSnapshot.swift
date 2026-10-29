@@ -141,7 +141,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var newWorkspacePlacement: NewWorkspacePlacement = CmuxConfigSnapshot.newWorkspacePlacementFallback
     /// `layout.closeFocus`; "previousNeighbor" when unset or invalid.
     public var closeFocus: CloseFocusPolicy = CloseFocusSetting.fallback
-    /// `layout.defaultColumnWidth`; 0.5 when unset or invalid.
+    /// `layout.defaultColumnWidth`; two thirds when unset or invalid.
     public var defaultColumnWidth: Double = DefaultColumnWidthSetting.fallback
     /// `focusRing.*`.
     public var focusRing = FocusRingSettings()

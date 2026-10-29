@@ -69,8 +69,8 @@ The seeded state, all named `rj-*` (earlier rj-* workspaces are closed first):
             frame;
   window 2: rj-w2 (a terminal with a marker line and a browser tab zoomed in three Cmd-+ steps
             from 100%), at another frame;
-  window 3: rj-w3 (a terminal with a marker line, pinned to its own space rj-room-<run>, opened
-            with Open Space in New Window), at a third frame with its sidebar hidden;
+  window 3: rj-w3 (the new workspace Open Space in New Window opens on a new space rj-room-<run>,
+            renamed, a terminal with a marker line), at a third frame;
   agents:   rj-chats (agent chats with the test agent as a Claude Code harness, a non-default
             model picked, and as a Codex harness: two turns and an unsent draft each) and
             rj-tagents (terminal tabs running `claude` and `codex` stand-ins,
@@ -518,12 +518,20 @@ def acpmux_socket_of(home):
 
 
 def acpmux_home():
-    """The app's acpmux home: <account home>/.acpmux/builds/<build key> (the account's real home,
-    not a slot HOME; build_names.py has the app's rule), or, for a build from before per-build
+    """The app's acpmux home: <the app's HOME>/.acpmux/builds/<build key> (a slot's home on a capture
+    slot), else <account home>/.acpmux/builds/<build key> (build_names.py has the app's rule), or, for a build from before per-build
     isolation, builds/com.cmuxterm.app.debug.<tag slug>. Never /tmp/acpmux-<uid> as such: other
     apps' daemons live there."""
     slug = re.sub(r"[^a-z0-9]+", "-", (APP.tag or "").lower()).strip("-")
-    homes = [APP.names()["acpmux_home"]] if APP.names() else []
+    homes = []
+    # A capture slot launches the app with the slot's home as HOME (capture-host since hq#4961): its
+    # acpmux home is under that home, by the same build key.
+    if APP.bundle and APP.env.get("HOME"):
+        try:
+            homes.append(build_names.of_app(APP.bundle, APP.env["HOME"])["acpmux_home"])
+        except ValueError:
+            pass
+    homes += [APP.names()["acpmux_home"]] if APP.names() else []
     for base in {os.path.expanduser("~"), APP.env.get("HOME", "")}:
         if base:
             homes.append(os.path.join(base, ".acpmux", "builds", "com.cmuxterm.app.debug." + re.sub(r"[^a-z0-9]+", ".", slug).strip(".")))
@@ -1292,24 +1300,39 @@ def seed_w2(base):
 
 
 def seed_w3():
-    """A third window on its own space (New Window makes one; Open Space in New Window's path), sidebar hidden."""
+    """A third window on its own space, as a person makes one: a new space, then Open Space in New
+    Window, which opens a window on the space with a new workspace there (rj-w3). (Its sidebar stays:
+    `toggleSidebar` acts on the key window, and a no-activate slot has none; MultiWindowRestoreTests
+    covers a hidden sidebar.)"""
     answer = cli("room", "create", "--name", f"rj-room-{RUN}")
     room = answer.get("value", answer) if isinstance(answer, dict) else {}
     room_id = room.get("id") or room.get("room_id") or (room.get("room") or {}).get("id")
-    ws = new_workspace("rj-w3")
-    if not ws.get("workspace_id") or not room_id:
-        say(f"  w3: room {json.dumps(room)[:160]} workspace {json.dumps(ws)[:160]}")
+    if not room_id:
+        say(f"  w3: no room: {json.dumps(answer)[:160]}")
         return
-    write(ws["terminal_id"], f"echo rj-w3-marker-{RUN}\n")
-    cli("room", room_id, "pin", "--workspace", ws["workspace_id"])
-    # The new window takes the space's workspaces no window showing the space lists: rj-w3.
-    action("space.openInNewWindow", space=room_id)
-    window = wait(lambda: next((w for w in (topology() or {}).get("windows", []) if w.get("workspace") == ws["workspace_id"]), None), 20)
-    if window:
-        rpc("debug.window_frame", {"window": window.get("key"), "frame": FRAMES[2]})
-        rpc("debug.window.focus", {"window": window.get("key")})
-        # Its sidebar hidden, as Cmd-B does in the key window it just became.
-        action("toggleSidebar")
+    # The app learns of the room through the daemon's personal-changed event: wait for the action to accept it.
+    wait(lambda: not (action("space.openInNewWindow", args={"space": room_id}) or {}).get("error"), 15, 1)
+    def space_window():
+        report = rpc("debug.windows")
+        for entry in (report or {}).get("windows", []) if isinstance(report, dict) else []:
+            if entry.get("profile") == room_id and entry.get("open") is not False:
+                return entry
+        return None
+    entry = wait(space_window, 20)
+    topo = topology() or {}
+    window = entry and next((w for w in topo.get("windows", []) if w.get("key") == entry.get("id") and w.get("workspace")), None)
+    if not window:
+        say(f"  w3: no window on the space: {json.dumps(rpc('debug.windows'))[:300]}")
+        return
+    ws_id = window["workspace"]
+    cli("workspace", ws_id, "rename", "rj-w3")
+    workspace = next((w for w in topo.get("workspaces", []) if w.get("id") == ws_id), {})
+    term = next((t.get("terminal") for s_ in workspace.get("screens", []) for p in s_.get("panes", []) for t in p.get("tabs", [])
+                 if t.get("kind") == "terminal" and t.get("terminal")), None)
+    if term:
+        write(term, f"echo rj-w3-marker-{RUN}\n")
+    rpc("debug.window_frame", {"window": window.get("key"), "frame": FRAMES[2]})
+    say(f"  w3: window {window.get('key')} workspace {ws_id} terminal {term}")
 
 
 # Window frames (AppKit points, bottom-left origin), inside a 1080p screen's visible frame (above
@@ -1852,8 +1875,10 @@ def seeded(before):
                      for t in TAGENTS],
                    (f"{AGENTS_N} chats per harness", len(CHATS) == AGENTS_N * len(CHAT_PROFILES)),
                    (f"{AGENTS_N} terminal agents per CLI", len(TAGENTS) == AGENTS_N * len(CLI_AGENTS))],
-        "w2": [("second window", before.get("windows.count") == 2), ("w2 page", before.get("page[w2page].path") == "/w2page"),
+        "w2": [("second window", before.get("windows.count") == (2 if "w3" in SKIP else 3)), ("w2 page", before.get("page[w2page].path") == "/w2page"),
                ("w2 page zoomed in by three Cmd-+ steps from 100%", W2.get("steps") == 3 and (before.get("page[w2page].zoom") or 0) > 1.15)],
+        "w3": [("third window, on its own space", before.get("window[rj-w3].space") not in (None, "default")),
+               ("third window shows rj-w3", before.get("window[rj-w3].selected_workspace") == "rj-w3")],
         "cloud": [("two moved chats", len(before.get("cloud.moved_chats") or []) == 2),
                   ("three move Retries (move, show, update)",
                    sorted(r.get("kind") for r in before.get("cloud.move_retries") or []) == ["move", "show", "update"]),
