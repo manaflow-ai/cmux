@@ -46,6 +46,10 @@ pub struct Session {
     pub(super) log_load: StdMutex<bool>,
     pub(super) log_loaded: AtomicBool,
     pub(super) turn_lock: Mutex<()>,
+    /// Serializes the handoff of a turn's prompt and a session-wide cancel. A compacting Stop
+    /// settles the logical turn before its cancel reaches the harness; keeping this lock until
+    /// that cancel is handed to the child prevents the next turn's prompt from overtaking it.
+    pub(super) input_handoff: std::sync::Arc<Mutex<()>>,
     pub(super) turn: StdMutex<Option<TurnInfo>>,
     pub(super) queued: AtomicU64,
     pub(super) queue: StdMutex<Vec<QueuedPrompt>>,
@@ -134,6 +138,16 @@ pub struct Session {
     /// How many times its turn was stopped (`cancel.rs`): a prompt whose model-sized copies were
     /// made meanwhile is not written (`turns.rs`).
     pub(super) cancels: AtomicU64,
+    /// The turn id whose forced cancellation was already published. A second
+    /// Stop for the same turn must not publish another forced answer.
+    pub(super) cancel_forced_turn: StdMutex<Option<String>>,
+    /// The forced `turn_result` already written for a turn, if any. This is
+    /// separate from `cancel_forced_turn`: several prompt waiters can observe
+    /// the same forced answer, but only one may append the result.
+    pub(super) cancel_forced_result_turn: StdMutex<Option<String>>,
+    /// Claude Code reported that its active turn is compacting. This is kept
+    /// on the session as hosted agents have their translator in the host.
+    pub(super) compacting: AtomicBool,
     /// Status writes under way: each sets the status, then logs it (`Hub::write_status`). Log
     /// retention leaves a chat alone while one is (`retention.rs` `untouched`).
     pub(super) status_writes: AtomicU64,
