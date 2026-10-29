@@ -21,6 +21,16 @@ use std::os::fd::RawFd;
 
 /// How long the host waits for the display's first frame before it gives up on a session.
 const FIRST_FRAME_TIMEOUT_NS: u64 = 3_000_000_000;
+/// H.264 level 5.2's macroblock rate (ITU-T H.264 Table A-1), the most the viewer decodes.
+const LEVEL_52_MACROBLOCKS_PER_S: u64 = 2_073_600;
+
+/// The highest frame rate H.264 level 5.2 allows at this size, at most `fps`: VideoToolbox
+/// refuses a session above it (-12902), for example a 120 Hz display at 3342x2160.
+fn encoder_fps(width: u32, height: u32, fps: u32) -> u32 {
+    let macroblocks = u64::from(width.div_ceil(16)) * u64::from(height.div_ceil(16));
+    let limit = (LEVEL_52_MACROBLOCKS_PER_S / macroblocks.max(1)).max(1);
+    fps.min(limit as u32)
+}
 
 pub struct MacDesktop {
     capture: Capture,
@@ -38,13 +48,13 @@ impl MacDesktop {
             )
             .into());
         }
-        let capture = Capture::start(&cfg.display, cfg.max_fps)?;
+        let capture = Capture::start(&cfg.display, cfg.max_fps, cfg.max_width)?;
         capture.wait_first_frame(FIRST_FRAME_TIMEOUT_NS)?;
         let (width, height) = capture.size();
         let encoder = VideoToolbox::new(
             width,
             height,
-            cfg.max_fps,
+            encoder_fps(width, height, cfg.max_fps),
             cfg.start_kbps,
             cfg.profile == "baseline",
         )?;

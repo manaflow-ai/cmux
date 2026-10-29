@@ -39,6 +39,14 @@ struct Shared {
 /// One end of the wake pipe, closed on drop.
 struct Fd(RawFd);
 
+impl Fd {
+    /// One byte into the pipe; a full pipe already holds a wake-up, so nothing is lost.
+    fn wake(&self) {
+        // SAFETY: writing one byte from a local to the pipe end this value owns.
+        unsafe { libc::write(self.0, [1u8].as_ptr().cast(), 1) };
+    }
+}
+
 impl Drop for Fd {
     fn drop(&mut self) {
         // SAFETY: closing a descriptor this value owns, once.
@@ -54,9 +62,11 @@ pub struct Capture {
     bounds: Bounds,
 }
 
-/// The display's size in pixels fitted into [`MAX_SIZE`]; even, as 4:2:0 needs.
-fn fit(width: u32, height: u32) -> (u32, u32) {
-    let scale = (MAX_SIZE.0 / f64::from(width)).min(MAX_SIZE.1 / f64::from(height)).min(1.0);
+/// The display's size in pixels fitted into [`MAX_SIZE`] and `max_width`, keeping its aspect;
+/// even, as 4:2:0 needs.
+fn fit(width: u32, height: u32, max_width: Option<u32>) -> (u32, u32) {
+    let limit = max_width.map_or(MAX_SIZE.0, |w| f64::from(w).min(MAX_SIZE.0));
+    let scale = (limit / f64::from(width)).min(MAX_SIZE.1 / f64::from(height)).min(1.0);
     let even = |value: f64| (value.round() as u32) & !1;
     (even(f64::from(width) * scale), even(f64::from(height) * scale))
 }
@@ -108,7 +118,7 @@ fn pick(displays: &[SCDisplay], which: &str) -> Res<SCDisplay> {
 }
 
 impl Capture {
-    pub fn start(which: &str, fps: u32) -> Res<Self> {
+    pub fn start(which: &str, fps: u32, max_width: Option<u32>) -> Res<Self> {
         let content = SCShareableContent::get()
             .map_err(|e| format!("screen capture is not allowed or failed: {e:?}"))?;
         let mut displays = content.displays();
@@ -125,7 +135,7 @@ impl Capture {
             Some(mode) => (mode.pixel_width() as u32, mode.pixel_height() as u32),
             None => (display.width(), display.height()),
         };
-        let size = fit(native.0, native.1);
+        let size = fit(native.0, native.1, max_width);
         let scale = f64::from(size.0) / bounds.width.max(1.0);
         let filter = SCContentFilter::create()
             .with_display(&display)
@@ -173,9 +183,9 @@ impl Capture {
                             shared.dirty.push(Rect { x: 0, y: 0, width: size.0, height: size.1 });
                         }
                     }
-                    // A full pipe already holds a wake-up; nothing is lost.
-                    // SAFETY: writing one byte from a local to the pipe's write end.
-                    unsafe { libc::write(wake_write.0, [1u8].as_ptr().cast(), 1) };
+                    // A method call, so the closure owns the whole `Fd` (a field access would
+                    // capture only the number and close the pipe when `start` returns).
+                    wake_write.wake();
                 },
                 SCStreamOutputType::Screen,
             )

@@ -73,6 +73,12 @@ struct Viewer {
     want_snapshot: bool,
     /// `--record PATH`: every received access unit (Annex-B), the stream the viewer decoded.
     record: Option<std::fs::File>,
+    /// `--marker-origin X,Y`: the marker's top-left in stream pixels (default 0,0).
+    marker_origin: (usize, usize),
+    /// macOS: the hardware decoder the viewer pane uses (`--decoder videotoolbox`, the
+    /// default there); OpenH264 decodes constrained baseline only.
+    #[cfg(target_os = "macos")]
+    vt: Option<crate::vtdecode::VtDecoder>,
 }
 
 fn pct(xs: &mut [f64]) -> serde_json::Value {
@@ -109,6 +115,33 @@ impl Viewer {
                         let _ = io::Write::write_all(file, &frame.body.access_unit);
                     }
                     let t0 = now_ns();
+                    #[cfg(target_os = "macos")]
+                    if let Some(vt) = self.vt.as_mut() {
+                        let decoded = vt.decode(&frame.body.access_unit);
+                        let t1 = now_ns();
+                        self.decode_ms.push((t1 - t0) as f64 / 1e6);
+                        match decoded {
+                            Ok(Some(picture)) => {
+                                if self.want_snapshot {
+                                    self.snapshot = Some(picture.rgb());
+                                }
+                                let origin = self.marker_origin;
+                                let read = picture.with_luma(|y, stride| {
+                                    marker::decode_luma_at(y, stride, true, origin)
+                                });
+                                if let Some(v) = read {
+                                    if self.marker != Some(v) {
+                                        self.marker = Some(v);
+                                        self.marker_at_ns = t1;
+                                        self.marker_capture_us = frame.body.t_capture_us;
+                                    }
+                                }
+                            }
+                            Ok(None) => {}
+                            Err(_) => self.decode_errors += 1,
+                        }
+                        continue;
+                    }
                     let decoded = self.decoder.decode(&frame.body.access_unit);
                     let t1 = now_ns();
                     self.decode_ms.push((t1 - t0) as f64 / 1e6);
@@ -120,7 +153,12 @@ impl Viewer {
                                 yuv.write_rgb8(&mut rgb);
                                 self.snapshot = Some((w, h, rgb));
                             }
-                            if let Some(v) = marker::decode_luma(yuv.y(), yuv.strides().0, true) {
+                            if let Some(v) = marker::decode_luma_at(
+                                yuv.y(),
+                                yuv.strides().0,
+                                true,
+                                self.marker_origin,
+                            ) {
                                 if self.marker != Some(v) {
                                     self.marker = Some(v);
                                     self.marker_at_ns = t1;
@@ -442,6 +480,19 @@ pub fn run(opts: &Opts) -> Res<()> {
         snapshot: None,
         want_snapshot: opts.get("snapshot").is_some(),
         record: opts.get("record").map(std::fs::File::create).transpose()?,
+        #[cfg(target_os = "macos")]
+        vt: match opts.str_or("decoder", "videotoolbox").as_str() {
+            "videotoolbox" => Some(crate::vtdecode::VtDecoder::new()),
+            "openh264" => None,
+            other => return Err(format!("--decoder {other}: use videotoolbox or openh264").into()),
+        },
+        marker_origin: match opts.get("marker-origin") {
+            Some(at) => {
+                let (x, y) = at.split_once(',').ok_or("--marker-origin takes X,Y")?;
+                (x.trim().parse()?, y.trim().parse()?)
+            }
+            None => (0, 0),
+        },
     };
     // `--at X,Y`: where click and scroll input lands, in stream pixels.
     let (at_x, at_y) = match opts.get("at") {

@@ -4,7 +4,9 @@
 // Every key down, mouse down and scroll event increments the counter and redraws at once.
 // Cells are sized in the pixels the host streams (the display fitted to 3840x2160, as
 // src/mac/capture.rs does), so the bench reads them on any display. The window takes the first
-// click even when another app is in front, so click input never reaches another app.
+// click even when another app is in front, so click input never reaches another app. Clicks
+// go to the gray pad right of cell 19 (cells 20 to 23, never read): the host draws the cursor
+// into its frames, and over a read cell it would change the counter the viewer reads.
 //
 //   swiftc -O -o cmux-rd-marker main.swift
 //   ./cmux-rd-marker [--motion]     --motion: animate the rest of the display every refresh
@@ -14,7 +16,16 @@
 import AppKit
 
 let cells = 20
+/// Cells of gray click pad after the read cells.
+let padCells = 4
 let guardBits = [true, false, true, false]
+/// `--verbose`: log every counted event.
+let verbose = CommandLine.arguments.contains("--verbose")
+
+/// Unbuffered, so a log file shows each line at once.
+func log(_ line: String) {
+    FileHandle.standardError.write(Data((line + "\n").utf8))
+}
 
 final class MarkerView: NSView {
     var counter: UInt16 = 0
@@ -31,18 +42,21 @@ final class MarkerView: NSView {
             (on ? NSColor.white : NSColor.black).setFill()
             NSRect(x: CGFloat(i) * cell, y: 0, width: cell, height: cell).fill()
         }
+        NSColor.gray.setFill()
+        NSRect(x: CGFloat(cells) * cell, y: 0, width: CGFloat(padCells) * cell, height: cell).fill()
     }
 
-    func bump() {
+    func bump(_ what: String) {
         counter &+= 1
+        if verbose { log("\(what) -> \(counter)") }
         // Draw now, not at the next run-loop pass, so the change reaches the screen first.
         display()
     }
 
-    override func keyDown(with event: NSEvent) { bump() }
-    override func mouseDown(with event: NSEvent) { bump() }
-    override func rightMouseDown(with event: NSEvent) { bump() }
-    override func scrollWheel(with event: NSEvent) { bump() }
+    override func keyDown(with event: NSEvent) { bump("key") }
+    override func mouseDown(with event: NSEvent) { bump("click") }
+    override func rightMouseDown(with event: NSEvent) { bump("right click") }
+    override func scrollWheel(with event: NSEvent) { bump("scroll") }
 }
 
 /// Moving bars over the rest of the display, redrawn every display refresh.
@@ -98,16 +112,29 @@ func streamWidth(of screen: NSScreen) -> CGFloat {
     return CGFloat(Int((w * scale).rounded()) & ~1)
 }
 
+/// `--stream-width N`: the host's `--max-width` (the stream is narrower than the display).
+func argument(_ name: String) -> String? {
+    CommandLine.arguments.firstIndex(of: name).flatMap { i in
+        i + 1 < CommandLine.arguments.count ? CommandLine.arguments[i + 1] : nil
+    }
+}
+let streamed = min(streamWidth(of: screen), argument("--stream-width").flatMap(Double.init).map { CGFloat($0) } ?? .infinity)
 let marker = MarkerView(frame: .zero)
-marker.cell = 32 * frame.width / streamWidth(of: screen)
+marker.cell = 32 * frame.width / streamed
+// Just below the menu bar (on a display with a camera housing the menu bar would cover it).
+let top = screen.visibleFrame.maxY
 let window = KeyWindow(
-    contentRect: NSRect(x: frame.minX, y: frame.maxY - marker.cell,
-                        width: marker.cell * CGFloat(cells), height: marker.cell),
+    contentRect: NSRect(x: frame.minX, y: top - marker.cell,
+                        width: marker.cell * CGFloat(cells + padCells), height: marker.cell),
     styleMask: [.borderless], backing: .buffered, defer: false)
-print("marker: stream width \(streamWidth(of: screen)) px, cell \(marker.cell) pt, display \(frame.size)")
+let pixelsPerPoint = streamed / frame.width
+// The marker's top-left in stream pixels: the bench's --marker-origin.
+let originY = Int(((frame.maxY - top) * pixelsPerPoint).rounded())
+log("marker-origin 0,\(originY) click-at \(32 * (cells + padCells / 2)),\(originY + 16)")
+log("marker: stream width \(streamed) px, cell \(marker.cell) pt, display \(frame.size)")
 marker.frame = NSRect(origin: .zero, size: window.frame.size)
 window.contentView = marker
-// Above the menu bar, so pixel (0,0) is the marker.
+// Above every app window, so test clicks land only on the marker.
 window.level = .screenSaver
 window.makeKeyAndOrderFront(nil)
 window.makeFirstResponder(marker)

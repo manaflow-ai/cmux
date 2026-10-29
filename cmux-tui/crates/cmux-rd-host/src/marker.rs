@@ -18,15 +18,20 @@ pub fn cells(counter: u32) -> [bool; CELLS] {
     out
 }
 
-/// Reads the marker from a luma plane. `video_range` selects the threshold (125 vs 128).
-/// Only the bench viewer (and the tests) decode markers.
+/// Reads the marker whose top-left is at `origin` (pixels) from a luma plane. `video_range`
+/// selects the threshold (125 vs 128). Only the bench viewer (and the tests) decode markers.
 #[cfg(feature = "bench")]
-pub fn decode_luma(y: &[u8], stride: usize, video_range: bool) -> Option<u16> {
+pub fn decode_luma_at(
+    y: &[u8],
+    stride: usize,
+    video_range: bool,
+    origin: (usize, usize),
+) -> Option<u16> {
     let threshold = if video_range { 125 } else { 128 };
     let center = (CELL / 2) as usize;
     let mut bits = [false; CELLS];
     for (i, b) in bits.iter_mut().enumerate() {
-        let idx = center * stride + center + CELL as usize * i;
+        let idx = (origin.1 + center) * stride + origin.0 + center + CELL as usize * i;
         *b = *y.get(idx)? > threshold;
     }
     if bits[16..] != GUARD {
