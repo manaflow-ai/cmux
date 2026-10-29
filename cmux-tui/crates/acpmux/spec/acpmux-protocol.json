@@ -153,6 +153,30 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/tailnet/login",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/tailnet/logout",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/tailnet/start",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/tailnet/state",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/status",
       "params": true,
       "result": true
@@ -355,6 +379,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/github_action",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/bookmark_get",
       "params": true,
       "result": true
@@ -413,6 +443,16 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/session/auth",
+      "params": {
+        "$ref": "#/types/SessionAuthParams"
+      },
+      "result": {
+        "$ref": "#/types/SessionAuthResult"
+      }
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/process/list",
       "params": true,
       "result": true
@@ -426,6 +466,30 @@
     {
       "kind": "request",
       "name": "_acpmux/process/kill",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/bg/start",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/bg/list",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/bg/output",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/bg/stop",
       "params": true,
       "result": true
     },
@@ -1394,6 +1458,13 @@
     },
     {
       "kind": "notification",
+      "name": "_acpmux/peer_state_changed",
+      "params": {
+        "$ref": "#/types/PeerStateChanged"
+      }
+    },
+    {
+      "kind": "notification",
       "name": "_acpmux/harnesses_changed",
       "params": true
     },
@@ -2141,7 +2212,7 @@
           "type": "integer"
         },
         "errorKind": {
-          "description": "What kind of failure a failed turn was (`recovery.rs`): `disk.full`, `disk.low`,\n`peer.unreachable`, `daemon.restarting`, `spawn.failed` or `agent.exited`. A client\ntreats a kind it does not know as a plain error. The same key is on a request's error\n`data` and on the `turn_error` and `turn_result` records.",
+          "description": "What kind of failure a failed turn was (`recovery.rs`): `disk.full`, `disk.low`,\n`peer.unreachable`, `daemon.restarting`, `spawn.failed`, `agent.exited`,\n`auth.signed_out` or `auth.expired`. A client treats a kind it does not know as a plain\nerror. The same key is on a request's error `data` and on the `turn_error` and\n`turn_result` records.",
           "type": [
             "string",
             "null"
@@ -2538,6 +2609,78 @@
         "name",
         "typing",
         "viewing"
+      ],
+      "type": "object"
+    },
+    "PeerLinkState": {
+      "description": "A peer link's state (`peer_link.rs` `PeerState`; `state` in `_acpmux/peers`).",
+      "oneOf": [
+        {
+          "const": "connecting",
+          "description": "Not reached yet, this run or a saved one.",
+          "type": "string"
+        },
+        {
+          "const": "connected",
+          "description": "The handshake finished and the peer answers.",
+          "type": "string"
+        },
+        {
+          "const": "degraded",
+          "description": "The WebSocket is open and the handshake runs, or a ping went unanswered.",
+          "type": "string"
+        },
+        {
+          "const": "reconnecting",
+          "description": "Down after it was reached; its last-known sessions stay listed. Attempts go on.",
+          "type": "string"
+        },
+        {
+          "const": "offline",
+          "description": "Never reached and attempts failed, or removed (`error: \"removed\"`, its last note).",
+          "type": "string"
+        }
+      ]
+    },
+    "PeerStateChanged": {
+      "description": "`_acpmux/peer_state_changed`, to every watching connection (`_acpmux/watch`) when a peer's\nstate changes, never twice for the same state: a peer that is added sends its first state,\nand one that is removed a last `offline` with `error: \"removed\"`. Listed as the\n`peerStateEvents` feature.",
+      "properties": {
+        "at": {
+          "description": "When the state changed, ms since the epoch.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "error": {
+          "description": "Why the link is down, when it is.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "lastSeen": {
+          "description": "The last frame from the peer, ms since the epoch.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "peer": {
+          "description": "The peer's name, as in `_acpmux/peers`.",
+          "type": "string"
+        },
+        "state": {
+          "$ref": "#/types/PeerLinkState"
+        }
+      },
+      "required": [
+        "at",
+        "error",
+        "lastSeen",
+        "peer",
+        "state"
       ],
       "type": "object"
     },
@@ -3234,6 +3377,181 @@
       ],
       "type": "object"
     },
+    "SessionAuthLogin": {
+      "description": "`terminal`: run `command` in a terminal on `host` (null: this machine). `route`: edit or\nsign in again to the route `routeId`.",
+      "properties": {
+        "command": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "host": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "kind": {
+          "$ref": "#/types/SessionAuthLoginKind"
+        },
+        "routeId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "type": "object"
+    },
+    "SessionAuthLoginKind": {
+      "enum": [
+        "terminal",
+        "route"
+      ],
+      "type": "string"
+    },
+    "SessionAuthParams": {
+      "description": "A chat by `sessionId`, or by `target` before it has a session (a new tab before its first\nsend). Exactly one of the two. `refresh`: probe the route and run the harness's own sign-in\ncheck that reads no keychain, when no newer evidence answers.",
+      "properties": {
+        "refresh": {
+          "default": false,
+          "type": "boolean"
+        },
+        "sessionId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "target": {
+          "anyOf": [
+            {
+              "$ref": "#/types/SessionAuthTarget"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "SessionAuthResult": {
+      "description": "What `_acpmux/session/auth` answers. A client blocks a send only on `signedOut`, `expired`\nor `routeAuthNeeded`; `unknown` never blocks.",
+      "properties": {
+        "detail": {
+          "description": "One sentence: the probe's status, the turn's error, or the check that ran.",
+          "type": "string"
+        },
+        "evidenceAt": {
+          "description": "When the evidence was observed (ms since the epoch); null when `source` is `none`.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "fromSessionId": {
+          "description": "The chat whose turn is the evidence (`source` `turn`): for a `target`, a chat on this\ndaemon with the same harness, account home and route.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "harness": {
+          "type": "string"
+        },
+        "host": {
+          "description": "The peer the chat runs on; null on this daemon.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "login": {
+          "anyOf": [
+            {
+              "$ref": "#/types/SessionAuthLogin"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "How to sign in: only for `signedOut`, `expired` and `routeAuthNeeded`."
+        },
+        "routeId": {
+          "description": "The route the chat is bound to; null when it is not routed.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "source": {
+          "$ref": "#/types/SessionAuthSource"
+        },
+        "state": {
+          "$ref": "#/types/SessionAuthState"
+        }
+      },
+      "required": [
+        "state",
+        "source",
+        "detail",
+        "harness"
+      ],
+      "type": "object"
+    },
+    "SessionAuthSource": {
+      "enum": [
+        "peerLink",
+        "routeProbe",
+        "turn",
+        "authCheck",
+        "none"
+      ],
+      "type": "string"
+    },
+    "SessionAuthState": {
+      "enum": [
+        "ready",
+        "signedOut",
+        "expired",
+        "routeAuthNeeded",
+        "routeUnreachable",
+        "peerUnreachable",
+        "unknown"
+      ],
+      "type": "string"
+    },
+    "SessionAuthTarget": {
+      "description": "The chat a send would start: its harness, the peer it runs on (`host`, a peer name; absent:\nthis daemon) and the route the picker selected (absent: the harness's default route, as at\nspawn).",
+      "properties": {
+        "harness": {
+          "type": "string"
+        },
+        "host": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "routeId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "harness"
+      ],
+      "type": "object"
+    },
     "SessionChanged": {
       "description": "To watchers when a session changed: its new summary (only its id when\npurged), the coarse `kind` and the log record behind it.",
       "properties": {
@@ -3320,6 +3638,13 @@
           "format": "uint32",
           "minimum": 0,
           "type": "integer"
+        },
+        "effort": {
+          "description": "The harness's current reasoning effort, when it reports one.\nAdditive for older clients and peers.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "enforcement": {
           "$ref": "#/types/Enforcement"
@@ -3801,6 +4126,13 @@
           "format": "uint32",
           "minimum": 0,
           "type": "integer"
+        },
+        "effort": {
+          "description": "The harness's current reasoning effort, when it reports one.\nAdditive for older clients and peers.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "enforcement": {
           "$ref": "#/types/Enforcement"

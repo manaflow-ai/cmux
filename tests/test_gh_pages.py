@@ -19,8 +19,6 @@ spec.loader.exec_module(gh_pages)
 # Files that still pass the flag, each with the reason. The list only shrinks: an entry whose file
 # no longer has the flag fails too, so it is removed when the file is converted.
 ALLOWED = {
-    # Seven reads whose test fakes answer the paginated shape; converted in its own change.
-    "scripts/gh-merge-green": "converted separately with its test fakes",
 }
 
 

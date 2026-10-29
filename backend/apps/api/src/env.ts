@@ -126,6 +126,9 @@ export interface Env {
   readonly CLOUD_VM_API_IMAGE_REVISION?: string
   /** The https API origin written into each VM's bind file (the image's bind agent calls it). */
   readonly CLOUD_API_ORIGIN?: string
+  /** Prepaid credits top-up range in USD (paid-plans-DESIGN.md §6.2); defaults 5 and 2500. */
+  readonly CREDITS_TOPUP_MIN_USD?: string
+  readonly CREDITS_TOPUP_MAX_USD?: string
   /** Secret: the operator key for /v1/admin/cloud/abandoned/clear (also needs a person's session token). */
   readonly CLOUD_ADMIN_KEY?: string
   /** Comma-separated user ids who may use the Cloud admin routes (with CLOUD_ADMIN_KEY and their own verified session). */
@@ -141,6 +144,8 @@ export interface Env {
   readonly CLOUD_ALLOWED_TEAMS?: string
   /** Var: "on" = Cloud machine limits follow the team's paid plan (cloud-entitlements.ts); anything else = off (stub plan only). Production stays off until go-live. */
   readonly CLOUD_PLAN_ENTITLEMENTS?: string
+  /** Var: "on" = PlatformMachines (platform-machines.ts) answers bound Workers; anything else refuses every call. Development only today. */
+  readonly PLATFORM_MACHINES?: string
   /**
    * Secret: link-token signing keys (LINK-TOKEN-FORMAT) as JSON {active: kid, keys: {kid: private Ed25519 JWK}}, at most 2 kids.
    * Per environment; never logged, never in a response, error, event or storage. Without it bind and link_token refuse.
@@ -483,6 +488,6 @@ export interface Env {
   readonly PROJECTION_PRIMARY?: string
   /** Projection shadow during dual write: "mysql" or "postgres"; unset = none. */
   readonly PROJECTION_SHADOW?: string
-  /** Where projection reads (home.search, feed sweep) go: "postgres" (default) or "mysql". */
+  /** Where projection reads (home.search, feed sweep) go: "postgres" (default), "shadow" (Postgres answers, MySQL compared per read) or "mysql". */
   readonly PROJECTION_READS?: string
 }
