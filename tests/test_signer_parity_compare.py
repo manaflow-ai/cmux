@@ -387,10 +387,10 @@ class Signer:
         self.issuer_serial = seq(spc.der(tbs[3]), spc.der(tbs[1]))
 
     def cms(self, cd: bytes, *, time: str = "261028120000Z", extra_signed=b"", unsigned=None,
-            cdhash: bytes | None = None, cdhashes_plist=None, reorder: bool = False) -> bytes:
+            cdhash: bytes | None = None, cdhashes_plist=None, reorder: bool = False, time_extra: bytes = b"") -> bytes:
         """A detached CMS SignedData over a CodeDirectory, as a code signature carries it."""
         signed = [attribute("1.2.840.113549.1.9.3", der_oid("1.2.840.113549.1.7.1")),
-                  attribute(spc.SIGNING_TIME, tlv(0x17, time.encode())),
+                  seq(der_oid(spc.SIGNING_TIME), der_set(tlv(0x17, time.encode()), *([time_extra] if time_extra else []))),
                   attribute("1.2.840.113549.1.9.4", tlv(0x04, hashlib.sha256(cd).digest())),
                   attribute(spc.APPLE_CDHASHES_PLIST,
                             tlv(0x04, (cdhashes_plist or plistlib.dumps)({"cdhashes": [cdhash or hashlib.sha256(cd).digest()[:20]]})))]
@@ -931,6 +931,12 @@ class StrictFifthReviewTests(StrictFixture):
         self.assertEqual(proc.returncode, 1)
         self.assertIn("Contents/Current: symlink mode differs", proc.stdout)
 
+
+    def test_signing_time_holds_one_time_only(self):
+        a, b = self.app("a"), self.app("b", time="261028130500Z", time_extra=tlv(0x04, b"extra"))
+        proc, _ = self.strict(a, b)
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("signingTime is not one UTCTime or GeneralizedTime", proc.stdout)
 
 if __name__ == "__main__":
     unittest.main()

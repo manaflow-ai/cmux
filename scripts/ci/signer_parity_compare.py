@@ -783,6 +783,10 @@ def cms_side_errors(cms: dict, raw: bytes, cds: dict, label: str) -> list:
             out.append(f"CMS ({label}): unsigned attributes other than one timestamp token "
                        f"({', '.join(o for o, _ in unsigned)})")
         signed = attributes(signer["signed"])
+        for attr_oid, values in signed:
+            if attr_oid == SIGNING_TIME and (len(values.children) != 1 or values.children[0].cls != 0
+                                             or values.children[0].number not in (23, 24)):
+                out.append(f"CMS ({label}): signingTime is not one UTCTime or GeneralizedTime")
         if MESSAGE_DIGEST not in [o for o, _ in signed]:
             out.append(f"CMS ({label}): no messageDigest")
         out += [f"CMS ({label}): {e}" for e in cd_hash_attribute_errors(signed, names, len(cds))]
