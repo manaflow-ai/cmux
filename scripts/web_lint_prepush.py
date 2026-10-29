@@ -67,6 +67,7 @@ import contextlib
 import hashlib
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -86,6 +87,8 @@ LIGHT_COMMANDS = (("vp", "fmt", "--check"), ("python3",))
 LIGHT_BUN_SCRIPT_DIR = "scripts/"
 # `bun run NAME`: a piece that runs another script of the same package.json; resolved, never run as a whole.
 SCRIPT_RUNNER = ("bun", "run")
+# Characters that make a piece more than one plain command: such a piece is never light.
+SHELL_SYNTAX = frozenset(";|&$`()<>*?[]{}~!#'\"\\\n\r\t")
 MAX_SCRIPT_DEPTH = 8
 # Outside CI every spawned command runs at lower priority with these caps, each only when the caller set none:
 # Go threads (tsgolint's checkers run one per thread) and its soft heap goal, and Node's old-space heap.
@@ -307,9 +310,24 @@ def package_scripts(repo: Path, package: ScriptPackage, read=None) -> dict[str, 
     return scripts if isinstance(scripts, dict) else {}
 
 
+def light_argv(piece: str) -> list[str] | None:
+    """PIECE as an argument list, or None when it holds anything a shell would read as more than one plain
+    command (`;`, `|`, `&`, `$`, backticks, redirections, globs, quotes, escapes, newlines). An allowlisted piece
+    runs as this list with no shell, so nothing after its leading words can start another command."""
+    if any(ch in SHELL_SYNTAX for ch in piece):
+        return None
+    try:
+        return shlex.split(piece)
+    except ValueError:
+        return None
+
+
 def is_light(piece: str) -> bool:
-    """PIECE is on the allowlist a host that runs no heavy checks runs (LIGHT_COMMANDS)."""
-    words = tuple(piece.split())
+    """PIECE is on the allowlist a host that runs no heavy checks runs (LIGHT_COMMANDS), as one plain command."""
+    argv = light_argv(piece)
+    if argv is None:
+        return False
+    words = tuple(argv)
     if any(words[:len(prefix)] == prefix for prefix in LIGHT_COMMANDS):
         return True
     return (len(words) >= 2 and words[0] == "bun" and words[1].startswith(LIGHT_BUN_SCRIPT_DIR)
@@ -559,8 +577,12 @@ def run_plan(repo: Path, plan: Plan, fix: bool, cache: bool = True, heavy: bool 
         # a package already has; a package with none is left to CI, named.
         plan = light_plan(repo, plan, mode)
 
-    def pieces(package: ScriptPackage, script: str) -> list[str]:
-        return check_pieces(repo, package, script) if heavy else light_pieces(repo, package, script, mode)
+    def pieces(package: ScriptPackage, script: str) -> list:
+        """The commands to run: shell strings, or with heavy checks off the allowlisted pieces as argument lists
+        (no shell)."""
+        if heavy:
+            return check_pieces(repo, package, script)
+        return [light_argv(piece) for piece in light_pieces(repo, package, script, mode)]
 
     if fix:
         for package in plan.script_packages:

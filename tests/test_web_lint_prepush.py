@@ -647,6 +647,49 @@ class WebLintPrePushTests(unittest.TestCase):
                                 "vp check --no-fmt --no-lint", "tsc -p .", "sh check.sh", "bun run no-such-script",
                                 "bun ../escape.ts", "bun scripts/../x.ts", "bun run loop", "node x.js", "bun install"])
 
+    def test_a_light_prefix_cannot_carry_another_command(self):
+        lint = load_lint(self.repo)
+        for piece in ("python3 noop.py ; vp lint", "python3 a.py | vp lint", "python3 $(vp lint)", "python3 `vp lint`",
+                      "python3 a.py || vp lint", "python3 a.py & vp lint", "python3 a.py\nvp lint",
+                      "vp fmt --check > /dev/null; vp check", "python3 'a.py' ; tsc", "bun scripts/a.ts;tsc"):
+            with self.subTest(piece=piece):
+                self.assertFalse(lint.is_light(piece))
+                self.assertEqual(lint.light_leaves([piece], {}), ([], [piece]))
+
+    def test_a_shell_bypass_runs_nothing_heavy_on_a_host_that_runs_no_heavy_checks(self):
+        # The reviewer's repro: an allowlisted prefix followed by `; vp lint`. Light pieces run as argument lists,
+        # never through a shell, so the second command cannot start.
+        env, log = self.heavy_fixture()
+        package = (self.repo / "webviews/package.json").read_text().replace(
+            '"python3 check_lanes.py && ', '"python3 check_lanes.py ; vp lint && python3 check_lanes.py && ')
+        self.write("webviews/package.json", package)
+        self.commit("a shell bypass in the check script")
+        head = self.git("rev-parse", "HEAD").stdout.strip()
+        code, seen = self.spawned(["--base", "HEAD~1", "--head", head], heavy=False)
+        self.assertNotIn("vp lint", " ".join(seen))
+        self.assertIn("python3 check_lanes.py", seen)
+
+    def test_light_pieces_spawn_with_no_shell(self):
+        self.heavy_fixture()
+        lint = load_lint(self.repo)
+        real = subprocess.run
+        shells = []
+
+        def spy(command, *args, **kwargs):
+            words = command.split() if isinstance(command, str) else [str(w) for w in command]
+            if Path(words[0]).name == "git":
+                return real(command, *args, **kwargs)
+            shells.append((isinstance(command, str) or kwargs.get("shell", False), " ".join(words)))
+            return subprocess.CompletedProcess(command, 0, "", "")
+
+        head = self.git("rev-parse", "HEAD").stdout.strip()
+        with mock.patch.dict(os.environ, {"CMUX_LOCAL_HEAVY_CHECKS": "0", "GITHUB_ACTIONS": "", "CI": ""}), \
+                mock.patch.object(lint.subprocess, "run", spy), \
+                mock.patch("sys.stderr", new_callable=lambda: open(os.devnull, "w")):
+            lint.main(["--repo", str(self.repo), "--base", "HEAD~1", "--head", head])
+        self.assertTrue(shells)
+        self.assertEqual([c for shell, c in shells if shell], [], "a light piece must never run through a shell")
+
     def test_ci_spawns_as_is_and_a_caller_cap_is_kept(self):
         lint = load_lint(self.repo)
         with mock.patch.object(lint.subprocess, "run") as run, \
