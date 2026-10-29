@@ -120,6 +120,10 @@ if grep '^::error' <<<"$out" | grep -q 'aPasses'; then fail "the error names a f
 # "Test run started." is the run, not a test.
 grep '^::error' <<<"$out" | grep -q ' 2 tests started and never finished: hangsForever()' || fail "the error counts the run itself as an unfinished test" "$out"
 grep -q 'hangsForever()' <<<"$summary" || fail "the step summary does not name hangsForever()" "$summary"
+# A cut-short run reports itself as incomplete, never as a pass or a plain red.
+grep -q '^::error title=cmux-next swift test incomplete::' <<<"$out" || fail "a cut-short run is not titled incomplete" "$out"
+if grep -q '^::error title=cmux-next swift test ended early' <<<"$out"; then fail "a cut-short run still says ended early, not incomplete" "$out"; fi
+grep -q '^### Incomplete: ' <<<"$summary" || fail "the step summary does not say the run is incomplete" "$summary"
 
 # A crash exit without a summary keeps its status and names the unfinished test.
 run cut 139
@@ -194,7 +198,7 @@ cat > "$TMP/short.out" <<'EOF'
 EOF
 run short 0
 [[ "$status" != 0 ]] || fail "a truncated run with a summary line exited 0" "$out"
-short_error=$(grep '^::error title=cmux-next swift test reported fewer' <<<"$out" || true)
+short_error=$(grep '^::error title=cmux-next swift test incomplete::reported fewer' <<<"$out" || true)
 [[ -n "$short_error" ]] || fail "no short-run ::error line" "$out"
 grep -q 'summaries count 1 tests in total but 3 started and 2 of those never finished' <<<"$short_error" \
   || fail "the error does not give the three counts" "$short_error"
