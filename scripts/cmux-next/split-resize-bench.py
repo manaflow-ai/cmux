@@ -20,7 +20,10 @@ pointer event rate (events a drag sends per second), each in its own launch. Eve
 out and back (debug.window_record JPEG frames under its folder's record/).
 
 Usage: split-resize-bench.py --app APP --out DIR [--json PATH] [--tag TAG] [--variants=live,hold,synced,resizeSync]
-                             [--pages=probe,heavy] [--drag-hz=120,480]
+                             [--pages=probe,heavy] [--drag-hz=120,480] [--cpu-load=N]
+
+--cpu-load=N keeps N busy processes (one core each) running through every launch, the way a loaded
+Mac with many agents, renderers and builds runs; they are this script's own children and end with it.
 """
 
 from __future__ import annotations
@@ -45,6 +48,7 @@ parser.add_argument("--tag")
 parser.add_argument("--variants", default="")
 parser.add_argument("--pages", default="probe")
 parser.add_argument("--drag-hz", default="120")
+parser.add_argument("--cpu-load", type=int, default=0)
 opts, _ = parser.parse_known_args()
 VARIANTS = ("live", "hold", "synced", "resizeSync")
 variants = [v for v in opts.variants.split(",") if v] or [None]
@@ -129,9 +133,19 @@ def measure(variant: str | None, folder: Path, page: str = "probe", hz: float = 
     return report
 
 
-reports = [measure(variant, out / ((variant or "default") + ("" if page == "probe" else f"-{page}")
-                                   + ("" if hz == 120 else f"-{hz:g}hz")), page, hz)
-           for variant in variants for page in pages for hz in rates]
+load = [subprocess.Popen([sys.executable, "-c", "while True: pass"], stdin=subprocess.DEVNULL)
+        for _ in range(max(0, opts.cpu_load))]
+try:
+    reports = [measure(variant, out / ((variant or "default") + ("" if page == "probe" else f"-{page}")
+                                       + ("" if hz == 120 else f"-{hz:g}hz")), page, hz)
+               for variant in variants for page in pages for hz in rates]
+finally:
+    for busy in load:
+        busy.kill()
+    for busy in load:
+        busy.wait()
+for report in reports:
+    report["cpu_load"] = opts.cpu_load
 result = reports[0] if len(reports) == 1 else {"variants": reports}
 if opts.json:
     Path(opts.json).parent.mkdir(parents=True, exist_ok=True)
