@@ -157,10 +157,12 @@ pub struct SessionSummary {
     pub attached: u64,
     /// Some attached client shows the chat.
     pub shown: bool,
-    /// The chat's tools (`hub/tools.rs`).
-    pub tools: Vec<ToolSummary>,
-    /// `_acpmux/set_tools` can change them.
-    pub tools_mutable: bool,
+    /// The chat's tools (`hub/tools.rs`), present on per-session reads and attachments.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tools: Option<Vec<ToolSummary>>,
+    /// `_acpmux/set_tools` can change them; omitted from census rows.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tools_mutable: Option<bool>,
     /// The MCP servers the harness says it loaded, from its own report (Claude
     /// Code's system/init); null when it reports none (every ACP harness).
     pub mcp_servers: Option<Vec<McpServerSummary>>,
@@ -357,6 +359,12 @@ pub struct QueuedPromptSummary {
     /// The sending agent's name when it is another agent's message, null for the person's: an
     /// app draws it as a received message waiting for the turn, not as a composer row.
     pub from_agent: Option<String>,
+    /// What another agent's message asks of this chat (`_meta.acpmux.class`, `prompt_class.rs`):
+    /// `result` when it named none; null for the person's own prompt and from a peer on an older
+    /// acpmux.
+    #[serde(default)]
+    #[schemars(default)]
+    pub class: Option<crate::prompt_class::PromptClass>,
     /// The teammate who queued it in a shared chat (`_meta.provenance` `person_message`,
     /// `author.rs`), null for the owner's and for an agent's message: an app shows it under their
     /// name and offers none of its own actions on it (only they change it, `queue.not_author`).
@@ -547,6 +555,9 @@ pub enum RetryKind {
 #[serde(rename_all = "camelCase")]
 #[schemars(deny_unknown_fields)]
 pub struct SessionsParams {
+    /// Include tool inventories explicitly; default census rows omit them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub with_tools: Option<bool>,
     /// Page size, at least 1. Without it the reply is the whole list.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(range(min = 1))]
@@ -562,6 +573,15 @@ pub struct SessionsParams {
     /// (`running`, `ready`, `idle`, `waiting`, `closed`). Empty is no filter.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub status: Option<String>,
+    /// `_acpmux/sessions` only: exclude peer sessions before pagination.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub local_only: Option<bool>,
+    /// `_acpmux/sessions` only: `sessionId` orders by immutable ID for complete scans.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub order_by: Option<String>,
+    /// `_acpmux/sessions` only: exclude these statuses before pagination.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exclude_status: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, JsonSchema)]

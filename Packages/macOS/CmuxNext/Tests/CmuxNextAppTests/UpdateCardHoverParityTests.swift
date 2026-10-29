@@ -119,7 +119,7 @@ import Testing
         #expect(update == workspace.played, "the update card enters with \(update), a workspace card with \(workspace.played)")
     }
 
-    @Test func theUpdateCardSitsAtTheWorkspaceCardsGap() async throws {
+    @Test func theUpdateCardKeepsItsPixelGapWhileWorkspaceCardsTouch() async throws {
         let h = try await make()
         defer { h.tearDown() }
         try #require(!h.card.isHidden, "the staged update shows no card")
@@ -131,8 +131,12 @@ import Testing
         let popup = try #require(h.window.childWindows?.first { $0 !== workspace.panel }, "no update hover card")
         let card = h.window.convertToScreen(h.card.convert(h.card.bounds, to: nil))
         let surface = Self.surface(of: popup)
-        #expect(abs((surface.minX - card.maxX) - workspace.gap) <= 0.5,
-                "the update card sits \(surface.minX - card.maxX) pt from its card, a workspace card \(workspace.gap) pt from its row")
+        let pixel = 1 / max(h.window.backingScaleFactor, 1)
+        let updateGap = surface.minX - card.maxX
+        #expect(updateGap > 0 && updateGap <= pixel + 0.001,
+                "the non-sidebar update card keeps its one-device-pixel gap, rounded toward its target")
+        #expect(workspace.gap <= 0.001 && workspace.gap > -pixel,
+                "the workspace preview touches its row, with less than one device pixel of inward snapping")
         #expect(abs(surface.maxY - card.maxY) <= 1, "the update card is not top-aligned with its card")
     }
 

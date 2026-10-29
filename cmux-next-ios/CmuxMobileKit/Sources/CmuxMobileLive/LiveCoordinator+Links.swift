@@ -61,6 +61,18 @@ extension LiveCoordinator {
             guard let self, let session else { return }
             self.apply(tree, session: session)
         }
+        session.workspaces.onRows = { [weak self, weak session] tree, ids, agentChanged in
+            guard let self, let session, self.sessions[session.macID] === session else { return }
+            session.tree = tree
+            self.store.updateWorkspaces(macID: session.macID, rows: tree.workspaces.filter { ids.contains($0.id) })
+            if agentChanged {
+                session.terminalFeed.treeChanged(tree, macID: session.macID,
+                                                connection: session.workspaces.connectionSerial, changedWorkspaceIDs: ids)
+            } else {
+                session.terminalFeed.updateTreeMetadata(tree)
+            }
+            self.scheduleSnapshotSave()
+        }
         session.terminalFeed.send = { [weak session] surface, text, expectForeground, agentSession, connection in
             guard let agentSession else { throw LinkError(code: "no-session", message: "The agent session is not known") }
             // A Feed reply into a terminal agent: this connection's channel only, pasted and
@@ -887,14 +899,10 @@ extension LiveCoordinator {
             everConnected = true
             if let macID = session.link.target?.macID { connectedMacIDs.insert(macID) }
         case .connecting(let transport, let attempt):
-            // Blips heal silently: the reconnecting banner waits 1.5 s.
             if attempt == 1, !everConnected {
                 banner = .connecting(to: "\(name) over \(transport.displayName)")
-            } else if banner == nil || banner == .connected {
-                bannerTask = Task { [weak self, clock] in
-                    do { try await clock.sleep(for: .milliseconds(1500)) } catch { return }
-                    self?.banner = .reconnecting(to: name)
-                }
+            } else {
+                banner = .reconnecting(to: name)
             }
         case .waiting(let transport, let attempt, let reason, _):
             banner = Self.waitingBanner(

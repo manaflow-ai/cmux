@@ -41,8 +41,10 @@ workspace at `$HOME/Projects/leo-workspace`, then `$HOME/src/leo-workspace`;
 registry; the merge helper carries no host list. A no-build or unknown host
 (including a missing policy helper) skips only this heavy local web check and
 prints the exact merged tree, base and head as **not checked**. Run any needed
-web validation through `cmux-ci test` on a supported remote worker. A failed or
-malformed policy response refuses the merge. GitHub checks, freezes, merge
+web validation through `cmux-ci test` on a supported remote worker. Only exit 0
+with a well-formed allow response permits heavy local work. Every other result,
+including a crash, usage error or malformed response, skips the heavy local
+check with a named warning rather than adding a merge gate. GitHub checks, freezes, merge
 conflict detection and the scoped Swift check retain their existing behavior.
 
 `ci-status` is an aggregate verdict, not a useful build step. On the feature
