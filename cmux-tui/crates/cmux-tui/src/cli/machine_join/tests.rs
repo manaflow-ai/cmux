@@ -739,3 +739,13 @@ fn a_list_read_still_running_at_expiry_ends_the_wait_at_expiry() {
     assert_eq!(ran.code, Ok(3));
     assert!(started.elapsed() < Duration::from_secs(3), "{:?}", started.elapsed());
 }
+
+#[test]
+fn quiet_revoke_without_yes_refuses_before_any_call() {
+    let (origin, requests) = listed_platform();
+    let ran = run_with(&["machine", "revoke", "lane-vm-3"], &origin, OutputMode::Quiet, false, true, never());
+    assert_eq!(ran.code.unwrap_err().exit, 2);
+    assert!(ran.asked.is_empty(), "quiet never asks");
+    assert!(ran.out.is_empty());
+    assert!(requests.try_recv().is_err(), "nothing was read or revoked");
+}

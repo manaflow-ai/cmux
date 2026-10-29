@@ -561,7 +561,13 @@ pub(super) fn run(
             let add = Add { name: name.as_deref(), ttl: *ttl, wait, every: options.every };
             add_machine(platform, &add, output, out, interrupt)
         }
-        Verb::Revoke { machine, yes } => revoke(platform, machine, *yes, output, out, confirm),
+        Verb::Revoke { machine, yes } => {
+            if !yes && output == OutputMode::Quiet {
+                // Quiet cannot ask: refuse before reading or revoking anything.
+                return Err(Failure::usage("--quiet cannot ask; pass --yes"));
+            }
+            revoke(platform, machine, *yes, output, out, confirm)
+        }
         Verb::Rotate { machine } => rotate(platform, machine, output, out),
     }
 }
@@ -1095,14 +1101,13 @@ pub(crate) fn rows_for_devices(
 /// The daemon's `machine.list` result with the joined machines added. Fails
 /// open: a platform that cannot be read leaves the list as it was, with a
 /// note on stderr.
-pub(super) fn merge(global: &GlobalArgs, result: Value) -> Value {
+pub(super) fn merge(_global: &GlobalArgs, result: Value) -> Value {
     let Some(rows) = rows_with(LIST_AUTH.get().unwrap_or(&Auth::default())) else {
         return result;
     };
     let (merged, note) = merge_rows(result, rows);
-    if let Some(reason) = note
-        && global.output != OutputMode::Quiet
-    {
+    // On stderr in every mode, quiet included: a list that left them out says so.
+    if let Some(reason) = note {
         eprintln!("cmux: the joined machines are not in this list: {reason}");
     }
     merged
