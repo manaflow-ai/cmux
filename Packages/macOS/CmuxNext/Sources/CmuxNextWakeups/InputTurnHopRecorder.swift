@@ -155,6 +155,10 @@ public final class InputTurnHopRecorder: Sendable {
     ///   - entry: The image that calls ``recordEnqueue(turn:origin:priority:)``'s caller (the hook's
     ///     caller, libswift_Concurrency; tests: libdispatch, through `DispatchQueue.sync`).
     init(folding: Folding, entry: String) {
+        // concurrency-allow: CmuxNextCompat's Mutex, the repo's lock primitive; never taken on the main thread (fold on
+        // `foldQueue`, snapshot through @concurrent `resolvedSnapshot`, reset on the control socket's async lane), held only
+        // to drain at most `pendingLimit` ring records into the tables or to copy them: no await and no I/O under it,
+        // only `dladdr`'s brief dyld lock while a new return address resolves.
         folded = Mutex(HopSites(entry: entry))
         switch folding {
         case .background: foldQueue = DispatchQueue.global(qos: .utility)
