@@ -6,8 +6,8 @@ import os
 
 /// One attached terminal view: on a connection of its own, or as a client-minted stream on the app's control
 /// connection when that connection streams terminals (TerminalAttachment+Stream.swift). Streams
-/// are the default in DEV and NIGHTLY (feature `terminalStreams`; Release after its benches); for
-/// one release `CMUX_DISABLE_FEATURES=terminalStreams` keeps a connection per view, then that path goes (app-daemon-connection-DESIGN.md section 6). Events flow
+/// are opt-in (feature `terminalStreams`, off in every channel until its redesign is judged PRINCIPLED (principled-optimization audit, 2026-10-29);
+/// `CMUX_ENABLE_FEATURES=terminalStreams` turns them on); the default is a connection per view (app-daemon-connection-DESIGN.md section 6). Events flow
 /// through a bounded `TerminalEventQueue`; live output goes from the reader thread straight to the view's lane
 /// once one is set (``setOutputSink(_:)``, ``TerminalEchoRouter``). After the attach every command here is
 /// fire-and-forget, so a consumer that stops draining can never deadlock against a blocked reader.

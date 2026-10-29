@@ -5,8 +5,8 @@ import CmuxNextFeatures
 import Testing
 
 /// The production wiring of `terminalStreams`: on, the local daemon's connection streams its
-/// terminal views, echoes the grant and joins shared sizing as this Mac; off (`CMUX_DISABLE_FEATURES`, and Release
-/// by default), it asks for none.
+/// terminal views, echoes the grant and joins shared sizing as this Mac; off (the default in every channel, and
+/// `CMUX_DISABLE_FEATURES`), it asks for none.
 struct TerminalStreamsWiringTests {
     private static func features(enabling names: Set<String>, disabling disabled: Set<String> = []) -> FeatureList {
         FeatureList(registry: FeatureRegistry(), channel: .dev,

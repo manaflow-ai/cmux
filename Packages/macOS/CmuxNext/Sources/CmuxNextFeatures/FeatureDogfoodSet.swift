@@ -8,7 +8,9 @@
 /// pinned fork has the first-tab load (fork API 41): on a fork without it the feature runs no built-in ad blocker.
 public nonisolated struct FeatureDogfoodSet: Sendable, Equatable {
     /// The chrome-parity dogfood builds (`chrome-parity-v2-1`, ...): every switch the chrome-parity work added that is
-    /// off by default in DEV, less the ones above. Names this build's registry does not declare are ignored, as
+    /// off by default in DEV, less the ones above, and less every switch the principled-optimization audit has not judged
+    /// PRINCIPLED and that was turned off for that reason (`drainCauseSplit`, `terminalStreams`, 2026-10-29): a dogfood build
+    /// must not turn on what the audit holds off. Names this build's registry does not declare are ignored, as
     /// ``FeatureList`` ignores unknown names in any input.
     public static let chromeParity = FeatureDogfoodSet(tagPrefix: "chrome-parity-", names: [
         "agentChromium",

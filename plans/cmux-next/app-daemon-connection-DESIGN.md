@@ -341,8 +341,9 @@ the size is raised with that number as its reason.
 
 - Old app, new daemon: no capability, today's per-view connections and JSON.
 - New app, old daemon: the daemon does not advertise the capabilities; the app uses per-view connections.
-- Terminal streams are the default in Dev and Nightly: the app feature `terminalStreams` (schemas/features/features.d)
-  is on there (p05-ipc-094, feature-switch-policy.md); Release stays off until the B1 benches below pass on an
+- Terminal streams are off in every channel (2026-10-29): the principled-optimization audit judged `terminalStreams`
+  REDESIGN (R4, on/off parity, unproven), so it stays off until its redesign is PRINCIPLED. Before that it was on in
+  Dev and Nightly (p05-ipc-094, feature-switch-policy.md); Release stays off until the B1 benches below pass on an
   optimized build and Nightly has run it for 7 days (feature-switch-policy.md rule 5). It applies on local connections and, once p05-ipc-151 lands, bridged ones. For
   one release `CMUX_DISABLE_FEATURES=terminalStreams` (or managed policy `DisabledFeatures`) keeps the per-view
   path, then slice 4 deletes it.

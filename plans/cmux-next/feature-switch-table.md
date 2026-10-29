@@ -1,5 +1,7 @@
 # Feature switch table, 2026-10-28
 
+> 2026-10-29: `drainCauseSplit` and `terminalStreams` are off in every channel again (principled-optimization audit: REDESIGN, R4 unproven; branch cp/switch-off-unproven). The rows below are a dated snapshot from before that.
+
 The table of [feature-switch-policy.md](feature-switch-policy.md). Rebuilt at each policy pass; this is the first one.
 
 Source: `schemas/features/features.d/` at perf/chrome-parity `cd5d3a245f8` (150 switches), the task ids in each feature's git log,
