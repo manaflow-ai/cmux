@@ -643,8 +643,15 @@ impl HostShared {
             write.set_end_args(outcome.bytes_written(payload), outcome as u8);
             outcome != InputWrite::Failed
         };
-        // Interactive input has always been best-effort. Only a nonzero
-        // request id asks the authoritative host to certify delivery.
+        // A write its client's end cut ends the client, interactive or not:
+        // a cut bracketed paste (the TUI sends one as an Input that carries
+        // `ESC[200~`) leaves the program in paste mode, so no later frame of
+        // that client may reach it.
+        if !delivered && cancel.is_some_and(ClientCancel::is_cancelled) {
+            return false;
+        }
+        // Interactive input has always been best-effort otherwise. Only a
+        // nonzero request id asks the authoritative host to certify delivery.
         if request_id == 0 {
             return true;
         }

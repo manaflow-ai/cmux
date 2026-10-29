@@ -641,7 +641,7 @@ impl ClientFrames {
                     pasted.extend_from_slice(b"\x1b[201~");
                 }
                 // A paste the client's end cut (or that failed) ends the
-                // client, as a failed Input does: a bracketed paste cut after
+                // client, as a cut Input does (`write_input`): a bracketed paste cut after
                 // `ESC[200~` leaves the program in paste mode, so no later
                 // frame of this client may reach it as pasted text.
                 if ctx.host.write_pty(&mut **writer, &pasted, Some(&ctx.cancel)).is_err() {
