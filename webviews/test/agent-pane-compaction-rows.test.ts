@@ -95,10 +95,13 @@ function fakeDaemon(history: ReturnType<typeof record>, page = history.length, o
       });
     }
   };
-  return { open, push, sent };
+  const lag = () => socket.onmessage?.({
+    data: JSON.stringify({ jsonrpc: "2.0", method: "_acpmux/lagged", params: { sessionIds: [CHAT] } }),
+  });
+  return { open, push, sent, lag };
 }
 
-async function connect(daemon: ReturnType<typeof fakeDaemon>) {
+async function connect(daemon: ReturnType<typeof fakeDaemon>, onConnection?: (connection: string) => void) {
   let rows: AcpmuxRow[] = [];
   let working = false;
   const client = await AcpmuxDirectClient.connect(
@@ -112,6 +115,7 @@ async function connect(daemon: ReturnType<typeof fakeDaemon>) {
     (snapshot: any) => {
       rows = snapshot.rows;
       working = snapshot.isWorking === true;
+      onConnection?.(snapshot.connection);
     },
     undefined,
     daemon.open,
@@ -579,6 +583,50 @@ for (const terminal of ["turn_end", "turn_result"])
       client.close();
     }
   });
+
+for (const mode of ["loadOlder", "lag"])
+  for (const expired of [false, true])
+    test(`historical turn starts preserve ${expired ? "expired" : "pending"} Stop grace during ${mode}`, async () => {
+      const history = record([
+        ["mux", "user_message", { text: "historical prompt", turnId: "turn-history" }],
+        ["mux", "turn_started", { turnId: "turn-history" }],
+        ["mux", "turn_result", { status: "completed", turnId: "turn-history" }],
+        ["mux", "user_message", { text: "current prompt", turnId: "turn-current" }],
+        ["mux", "turn_started", { turnId: "turn-current" }],
+      ]);
+      const daemon = fakeDaemon(history, mode === "loadOlder" ? 2 : history.length);
+      let resynced: (() => void) | undefined;
+      const { client, rows, working } = await connect(daemon, (connection) => {
+        if (connection === "resynced") resynced?.();
+      });
+      const notices = () => rows().filter((row) => row.id === "notice-stop-turn-current");
+      jest.useFakeTimers();
+      try {
+        await client.cancel();
+        if (expired) jest.advanceTimersByTime(5_001);
+        expect(working()).toBe(!expired);
+        if (mode === "loadOlder") await client.loadOlder();
+        else {
+          const settled = new Promise<void>((resolve) => { resynced = resolve; });
+          daemon.lag();
+          await settled;
+        }
+        expect(working()).toBe(!expired);
+        // The folded history must restore the current identity: a second Stop is still deduped.
+        await client.cancel();
+        expect(daemon.sent.filter((raw) => JSON.parse(raw).method === "session/cancel")).toHaveLength(1);
+        if (!expired) {
+          jest.advanceTimersByTime(5_001);
+          expect(notices()).toHaveLength(1);
+        }
+        expect(working()).toBe(false);
+        daemon.push(record([["mux", "turn_result", { status: "cancelled", turnId: "turn-current", cancelForced: true }]], 6));
+        expect(notices()).toHaveLength(1);
+      } finally {
+        client.close();
+        jest.useRealTimers();
+      }
+    });
 
 for (const oldTurnId of ["turn-old", undefined])
   for (const action of ["stop", "send-now"])
