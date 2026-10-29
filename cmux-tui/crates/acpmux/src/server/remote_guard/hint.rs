@@ -259,8 +259,7 @@ fn change_option(words: &mut Vec<String>, option: &str, value: Option<&str>) -> 
     let new = crate::cli::command::NewArgs::augment_args(clap::Command::new("new"));
     let args: Vec<_> = new.get_arguments().collect();
     let mut i = 0;
-    while i < words.len() {
-        let word = &words[i];
+    while let Some(word) = words.get(i) {
         if word == "--" {
             break;
         }

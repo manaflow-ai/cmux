@@ -353,7 +353,7 @@ const PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
 fn probe(runner: &std::path::Path, properties: &[String], env: &BTreeMap<String, String>) -> bool {
     let mut argv = scope_argv("", None, "acpmux scope probe", properties);
     argv.push("true".to_owned());
-    run_bounded(runner, &argv[1..], env, false).is_some()
+    run_bounded(runner, argv.get(1..).unwrap_or_default(), env, false).is_some()
 }
 
 /// Runs `program args` with `env` on top of the daemon's and no input; its
