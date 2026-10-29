@@ -365,7 +365,7 @@ async fn wait_match(
             return Err(client.closed("following the session events"));
         }
         let p = params.unwrap_or(Value::Null);
-        let sid = p.get("sessionId").and_then(Value::as_str).unwrap_or("").to_owned();
+        let Ok(sid) = crate::cli::resolve::routed_id(&p) else { continue };
         let Some(i) = transcripts.iter().position(|(_, id, _)| *id == sid) else {
             continue;
         };
