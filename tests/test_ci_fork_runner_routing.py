@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import itertools
 import json
 import re
 import unittest
@@ -125,18 +126,148 @@ TRUSTED_RUNNER_JOBS = (
 # A job that holds a GitHub App private key (a `create-github-app-token` step or a
 # `private-key:`) must run where no repository variable can move it to a reused machine,
 # where the key could outlive the job; and such a job, with a token that can write
-# variables, must not pick its own runner. So its runs-on is a literal Blacksmith label
-# (behind the fork branch at most) or the exact CI_TRUSTED_RUNNER selector, which admits
-# only ephemeral labels. #27022 let CI_CONTROL_RUNNER move the overflow watch, which
-# mints GLAEDA_ROUTE_APP_KEY; LINUX_RUNNER moved a dozen more such jobs.
+# variables, must not pick its own runner onto one. So whatever any variable holds, its
+# runs-on must yield an ephemeral label the expression itself names: a Blacksmith label
+# (a fork outside manaflow-ai may get a hosted one), or the exact CI_TRUSTED_RUNNER
+# selector. #27022 let CI_CONTROL_RUNNER move the overflow watch, which mints
+# GLAEDA_ROUTE_APP_KEY; LINUX_RUNNER moved a dozen more such jobs (#27540, #27557).
 APP_KEY_MARKER = re.compile(r"create-github-app-token@|^\s*private-key:", re.MULTILINE)
-APP_KEY_LITERAL_RUNNER = re.compile(
-    r"^(?:blacksmith-[a-z0-9-]+"
-    r"|\$\{\{ github\.repository_owner != 'manaflow-ai' && '(?:ubuntu-24\.04|macos-\d+)' \|\| "
-    # While the overflow switch's record exists, a larger literal Blacksmith size: the variable
-    # only chooses between two literal labels.
-    r"(?:vars\.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-[a-z0-9-]+' \|\| )?'blacksmith-[a-z0-9-]+' \}\})$"
+# The one selector a key-holding Linux job may read a variable through: LINUX_RUNNER only
+# when it names one of these Blacksmith Linux sizes (.github/runners.json), else 4 vCPU.
+# So a 4 vCPU stall can move these jobs (the overflow switch or a person sets LINUX_RUNNER),
+# and no value reaches a reused machine. The bound is in the expression, not the variable.
+BOUNDED_LINUX_LABELS = ("blacksmith-4vcpu-ubuntu-2404", "blacksmith-16vcpu-ubuntu-2404",
+                        "blacksmith-32vcpu-ubuntu-2404")
+BOUNDED_LINUX_SELECTOR = (
+    "contains(fromJSON('" + json.dumps(list(BOUNDED_LINUX_LABELS), separators=(",", ":"))
+    + "'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404'"
 )
+# The key-holding Linux jobs that follow LINUX_RUNNER through it (#27557 pinned them to 4 vCPU,
+# so a 4 vCPU stall left them queued). nightly-next-launch-smoke's pick keeps its own literal
+# pair (16 vCPU, 32 vCPU while the overflow record exists); nightly jobs read no shared variable.
+BOUNDED_SELECTOR_JOBS = {
+    ("ci-cla-quota-rerun.yml", "cla-quota-rerun"), ("ci-compile-attribution.yml", "analyze"),
+    ("ci-guard-attribution.yml", "analyze"), ("ci-hosted-queue-rescue.yml", "rescue"),
+    ("ci-macos.yml", "admission-placement"), ("ci-macos.yml", "late-placement"),
+    ("ci-queue-janitor.yml", "sweep"), ("ci.yml", "changes"), ("cmux-next-dev-daily-dispatch.yml", "dispatch"),
+    ("dogfood-artifact-publish.yml", "capture-inputs"), ("dogfood-artifact-publish.yml", "capture-report"),
+    ("iroh-release-gate.yml", "runner"), ("nightly-next-train.yml", "pick-train-runner"),
+    ("sdk-release-cut.yml", "cut-tags"), ("test-e2e.yml", "runner"), ("test-ios.yml", "runner"),
+}
+EPHEMERAL_LITERAL = re.compile(r"blacksmith-[a-z0-9-]+|ubuntu-\d{2}\.\d{2}|macos-\d+")
+# What each context a runs-on may read is tried with. A repository variable gets every
+# value below and every label the expression names: no value may yield a label the
+# expression does not name, or a non-Blacksmith one inside manaflow-ai.
+RUNNER_CONTEXT_VALUES = {
+    "github.repository_owner": ("manaflow-ai", "someone"),
+    "github.repository": ("manaflow-ai/cmux",),
+    "github.event_name": ("pull_request", "push", "schedule", "workflow_dispatch", "workflow_run"),
+    "github.event.pull_request.head.repo.full_name": ("manaflow-ai/cmux", "someone/cmux"),
+    "inputs.owned_head_repos": ("[]", '["someone/cmux"]'),
+}
+ADVERSARIAL_VARIABLE_VALUES = (
+    "", "glaeda-std-xcode-26.6", "glaeda-gui-xcode-26.6", "self-hosted", "cmux-lawrence", "ubuntu-24.04",
+    "macos-26", "BLACKSMITH-32VCPU-UBUNTU-2404", "blacksmith-4vcpu-ubuntu-2404-arm", "blacksmith-6vcpu-macos-26",
+    "blacksmith-4vcpu-ubuntu-2404,glaeda-std-xcode-26.6", "1", "true", '["glaeda-std-xcode-26.6"]',
+)
+
+
+class _Unsupported(ValueError):
+    pass
+
+
+def _truthy(value: object) -> bool:
+    return value not in ("", None, False, 0)
+
+
+def evaluate_runs_on(node: tuple, context: dict[str, str]) -> object:
+    """GitHub Actions expression semantics for the subset runs-on uses (|| and && return operands)."""
+    kind = node[0]
+    if kind == "or":
+        value: object = None
+        for child in node[1]:
+            value = evaluate_runs_on(child, context)
+            if _truthy(value):
+                return value
+        return value
+    if kind == "and":
+        for child in node[1]:
+            value = evaluate_runs_on(child, context)
+            if not _truthy(value):
+                return value
+        return value
+    if kind == "not":
+        return not _truthy(evaluate_runs_on(node[1], context))
+    if kind == "literal":
+        text = node[1]
+        if text.startswith("'"):
+            return text[1:-1].replace("''", "'")
+        return {"true": True, "false": False, "null": None}.get(text, text)
+    if kind == "ref":
+        path = re.sub(r"\['([A-Za-z_][A-Za-z0-9_-]*)'\]", r".\1", node[1])
+        if path not in context:
+            raise _Unsupported(path)
+        return context[path]
+    if kind == "cmp" and node[1] in ("==", "!="):
+        left, right = (str(evaluate_runs_on(side, context)).lower() for side in (node[2], node[3]))
+        return (left == right) == (node[1] == "==")
+    if kind == "call" and node[1] == "fromJSON" and len(node[2]) == 1:
+        return json.loads(str(evaluate_runs_on(node[2][0], context)))
+    if kind == "call" and node[1] in ("contains", "startsWith") and len(node[2]) == 2:
+        haystack, needle = (evaluate_runs_on(arg, context) for arg in node[2])
+        if isinstance(haystack, list):
+            if node[1] != "contains":
+                raise _Unsupported("startsWith on an array")
+            return any(str(item).lower() == str(needle).lower() for item in haystack)
+        haystack, needle = str(haystack).lower(), str(needle).lower()
+        return haystack.startswith(needle) if node[1] == "startsWith" else needle in haystack
+    raise _Unsupported(repr(node))
+
+
+def runner_label_errors(runs_on: str) -> list[str]:
+    """Why a runs-on could put a key on a machine it does not name; [] when it never can."""
+    if runs_on == TRUSTED_RUNNER_EXPRESSION:
+        return []
+    expression = re.fullmatch(r"\$\{\{(.*)\}\}", runs_on.strip(), re.DOTALL)
+    if expression is None:
+        return [] if re.fullmatch(r"blacksmith-[a-z0-9-]+", runs_on) else [f"{runs_on!r} is not a Blacksmith label"]
+    try:
+        tree = parse_expression(expression.group(1))
+    except ExpressionSyntaxError as error:
+        return [f"cannot parse {runs_on!r}: {error}"]
+    literals: set[str] = set()
+    for kind, text in _TOKENS(expression.group(1)):
+        if kind != "string":
+            continue
+        value = text[1:-1].replace("''", "'")
+        literals.add(value.lower())
+        # The labels of a fromJSON('[...]') list are named by the expression too.
+        if value.startswith("["):
+            literals.update(str(item).lower() for item in json.loads(value))
+    named = {label for label in literals if EPHEMERAL_LITERAL.fullmatch(label)}
+    refs = sorted(set(_refs(tree)))
+    choices = []
+    for ref in refs:
+        if ref in RUNNER_CONTEXT_VALUES:
+            choices.append(RUNNER_CONTEXT_VALUES[ref])
+        elif ref.lower().startswith("vars."):
+            choices.append(tuple(dict.fromkeys((*ADVERSARIAL_VARIABLE_VALUES, *sorted(literals)))))
+        else:
+            return [f"{runs_on!r} reads {ref}, which this check cannot enumerate"]
+    errors: list[str] = []
+    for values in itertools.product(*choices):
+        context = dict(zip(refs, values))
+        try:
+            label = str(evaluate_runs_on(tree, context) or "").lower()
+        except _Unsupported as error:
+            return [f"{runs_on!r} uses {error}, which this check cannot evaluate"]
+        inside = context.get("github.repository_owner", "manaflow-ai") == "manaflow-ai"
+        if label not in named or (inside and not label.startswith("blacksmith-")):
+            errors.append(f"{runs_on!r} yields {label!r} when {context}")
+            break
+    return errors
+
+
 # (workflow, job) -> why its runner may come from elsewhere. Exact jobs only.
 APP_KEY_RUNNER_EXCEPTIONS = {
     ("nightly.yml", "generate-nightly-deltas"):
@@ -366,6 +497,10 @@ class _Parser:
                 self._take("]")
                 path += f"[{inner[1]}]"
         return path
+
+
+def _TOKENS(source: str) -> list[tuple[str, str]]:
+    return _tokenize(source)
 
 
 def parse_expression(source: str) -> tuple:
@@ -1092,25 +1227,58 @@ class ForkRunnerRoutingTests(unittest.TestCase):
         self.assertIn(("ci-queue-janitor.yml", "sweep"), names)
         for key in APP_KEY_RUNNER_EXCEPTIONS:
             self.assertIn(key, names, f"stale exception {key}")
+        bounded = 0
         for workflow, job, runs_on in jobs:
             if (workflow, job) in APP_KEY_RUNNER_EXCEPTIONS:
                 continue
+            bounded += BOUNDED_LINUX_SELECTOR in runs_on
             with self.subTest(workflow=workflow, job=job):
-                self.assertTrue(APP_KEY_LITERAL_RUNNER.match(runs_on) or runs_on == TRUSTED_RUNNER_EXPRESSION,
-                                f"{workflow}:{job} holds an App key on a movable runner: {runs_on}")
+                self.assertEqual(runner_label_errors(runs_on), [], f"{workflow}:{job} holds an App key")
+        self.assertGreater(bounded, 0)
+
+    def test_key_holding_linux_jobs_follow_linux_runner_through_the_bounded_selector(self) -> None:
+        runs_on = {(workflow, job): line for workflow, job, line in app_key_jobs()}
+        for key in sorted(BOUNDED_SELECTOR_JOBS):
+            with self.subTest(job=key):
+                self.assertIn(key, runs_on)
+                self.assertIn(BOUNDED_LINUX_SELECTOR + " }}", runs_on[key])
+
+    def test_the_bounded_selector_yields_only_its_labels_for_any_value(self) -> None:
+        fork = "github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
+        selector = f"${{{{ {fork}{BOUNDED_LINUX_SELECTOR} }}}}"
+        self.assertEqual(runner_label_errors(selector), [])
+        tree = parse_expression(selector[3:-2])
+        seen = set()
+        for value in (*ADVERSARIAL_VARIABLE_VALUES, *BOUNDED_LINUX_LABELS):
+            seen.add(str(evaluate_runs_on(tree, {"github.repository_owner": "manaflow-ai",
+                                                 "vars.LINUX_RUNNER": value})).lower())
+        # A stall of one size can move the jobs to each other size, and nothing else.
+        self.assertEqual(seen, set(BOUNDED_LINUX_LABELS))
+        self.assertEqual(evaluate_runs_on(tree, {"github.repository_owner": "manaflow-ai",
+                                                 "vars.LINUX_RUNNER": "glaeda-std-xcode-26.6"}),
+                         "blacksmith-4vcpu-ubuntu-2404")
+        for label in BOUNDED_LINUX_LABELS:
+            self.assertIn(label, (ROOT / ".github/runners.json").read_text(encoding="utf-8"))
 
     def test_the_app_key_runner_rule_refuses_a_variable(self) -> None:
         fork = "github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
+        widened = BOUNDED_LINUX_SELECTOR.replace('"blacksmith-4vcpu-ubuntu-2404",', '"blacksmith-4vcpu-ubuntu-2404","glaeda-std-xcode-26.6",')
+        unbounded = BOUNDED_LINUX_SELECTOR.replace("contains(fromJSON(", "startsWith(vars.LINUX_RUNNER, 'blacksmith-') || contains(fromJSON(")
         for refused in (f"${{{{ {fork}vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}}}",
                         "${{ vars.CI_CONTROL_RUNNER || 'blacksmith-6vcpu-macos-26' }}",
                         f"${{{{ {fork}vars.CI_CLOUD_OVERFLOW_SAVED && vars.LINUX_RUNNER || "
                         "'blacksmith-4vcpu-ubuntu-2404' }}",
-                        "glaeda-std-xcode-26.6", "ubuntu-24.04"):
-            self.assertIsNone(APP_KEY_LITERAL_RUNNER.match(refused), refused)
+                        f"${{{{ {fork}startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || "
+                        "'blacksmith-4vcpu-ubuntu-2404' }}",
+                        f"${{{{ {fork}{widened} }}}}", f"${{{{ {fork}{unbounded} }}}}",
+                        "${{ needs.pick.outputs.runner || 'blacksmith-4vcpu-ubuntu-2404' }}",
+                        "${{ 'ubuntu-24.04' }}", "glaeda-std-xcode-26.6", "ubuntu-24.04"):
+            self.assertNotEqual(runner_label_errors(refused), [], refused)
         for allowed in ("blacksmith-6vcpu-macos-26", f"${{{{ {fork}'blacksmith-4vcpu-ubuntu-2404' }}}}",
                         f"${{{{ {fork}vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || "
-                        "'blacksmith-4vcpu-ubuntu-2404' }}"):
-            self.assertIsNotNone(APP_KEY_LITERAL_RUNNER.match(allowed), allowed)
+                        "'blacksmith-4vcpu-ubuntu-2404' }}",
+                        f"${{{{ {fork}{BOUNDED_LINUX_SELECTOR} }}}}", TRUSTED_RUNNER_EXPRESSION):
+            self.assertEqual(runner_label_errors(allowed), [], allowed)
 
     def test_trusted_runner_selector_admits_only_ephemeral_labels(self) -> None:
         self.assertEqual(outsider_runner_errors("x.yml", f"jobs:\n  a:\n    runs-on: {TRUSTED_RUNNER_EXPRESSION}\n"), [])
