@@ -976,6 +976,10 @@ final class LongTextStore: Sendable {
     /// The lineage of a text if it is indexed.
     func lineage(_ text: String) -> Int? { index(for: text, create: false)?.lineage }
 
+    /// cmux: lineages this store issued, one per index built from a text's start (tests: unlike the
+    /// process-wide LongTextStats, other stores on other threads never move it).
+    var lineagesIssued: Int { state.withLock { $0.lineageSerial } }
+
     private static func print(_ p: UnsafeBufferPointer<UInt8>) -> Print {
         var h = Hasher(), t = Hasher()
         // SAFETY: p is the caller's buffer, valid for this call; prefix(k) and suffix(k) are clamped to it, so each
