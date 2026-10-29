@@ -1039,8 +1039,20 @@ struct PumpTicket {
 /// Requests one pump item runs before it yields its worker: the next
 /// runnable request runs in the same item, so a connection's burst takes one
 /// lane worker, not a new item (and worker) per request; past the bound the
-/// connection goes behind the lane's other items (the line sequence's
-/// `TURN_MESSAGES`, Chrome's re-enqueue after a task).
+/// connection goes behind the lane's other items (Chrome re-enqueues a
+/// sequence after its task).
+///
+/// Why 16: the same turn as a connection's line sequence (`TURN_MESSAGES`
+/// in line_connection.rs), which cuts and routes these requests, so one
+/// connection's turn is the same size on both sides.
+///
+/// A turn never puts the person's request behind automation's. A pump
+/// item runs one connection's requests only; the person's connection pumps
+/// on the User lane, which no automation request takes, so automation's
+/// turns on System never reach it. On one lane a turn only defers other
+/// connections' pumps, and only while every slot is taken: the item runs
+/// inside `will_block`, so it stops counting against the lane's limits and
+/// another connection's pump is admitted beside it.
 const PUMP_TURN_REQUESTS: usize = 16;
 
 impl PumpTicket {

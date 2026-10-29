@@ -151,11 +151,13 @@ fn fifty_idle_local_terminals_child() {
     }
 
     // At idle: the loop thread and one parked worker, whatever the count.
-    // The terminals' registry publications run on the owner's one Files
-    // lane (`mux-files-*`, every terminal's publication sequence shares
-    // it): its workers are bounded by the lane's width, not by the number
-    // of terminals, and are reclaimed after its idle timeout, so they are
-    // the owner's shared pool, not threads these terminals add.
+    // What this test protects is that the thread cost of idle terminals is
+    // O(1) in their number, never O(n). The terminals' registry
+    // publications run on the owner's one Files lane (`mux-files-*`, every
+    // terminal's publication sequence shares it): its workers are bounded by
+    // the lane's width (4) however many terminals publish, and are
+    // reclaimed after its idle timeout. So they are counted apart, with that
+    // bound: a constant cost, not threads these 50 terminals add each.
     let (added, waits, shared, os_added) = loop {
         let added = before.added();
         let waits = added
