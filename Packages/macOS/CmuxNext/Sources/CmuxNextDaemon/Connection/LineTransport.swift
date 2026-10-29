@@ -57,7 +57,7 @@ final class LineTransport: Sendable {
 
     /// The transport's routing state (LineTransport+State.swift); the reader's routing reads it
     /// (LineTransport+Route.swift).
-    let state = Mutex(State(), rank: .daemonLineTransportState)
+    let state = Mutex(State())
     private let socket: Mutex<Socket>
     /// Nonblocking, ordered writes (never parks the calling actor's thread).
     private let writer: SocketWriter
@@ -115,7 +115,7 @@ final class LineTransport: Sendable {
             child = nil
         }
         Self.sizeBuffers(fd)
-        socket = Mutex(Socket(fd: fd), rank: .daemonLineTransportSocket)
+        socket = Mutex(Socket(fd: fd))
         writer = SocketWriter(fd: fd, label: "com.cmuxterm.next.daemon.write", qos: role.writerQoS, target: writerTarget, hangs: hangs)
         recorder?.connectionOpened(role, bridged: opened != nil)
         // After the last throw: a transport that never opened registers nothing (its deinit does not run).
