@@ -59,6 +59,22 @@ import Testing
         #expect(left.backdropSelection == app.backdropSelection)
     }
 
+    @Test func namedObserversUsePostingQueueAndBackgroundNotificationsReturn() async {
+        let center = NotificationCenter()
+        var registrations: [(Notification.Name, AnyObject?, OperationQueue?)] = []
+        var removals = 0
+        let binding = DisplayBackdropBinding(window: NSWindow(), scope: ThemeScope(level: .room), center: center,
+                                             displayID: { nil }, recordObserver: { registrations.append(($0, $1, $2)) },
+                                             recordRemoval: { removals += 1 })
+        #expect(registrations.map(\.0) == [NSWindow.didChangeScreenNotification, .NSSystemClockDidChange,
+                                           .NSCalendarDayChanged, .NSSystemTimeZoneDidChange])
+        #expect(registrations.allSatisfy { $0.2 == nil })
+        let posting = Task.detached { center.post(name: .NSSystemClockDidChange, object: nil) }
+        await posting.value
+        binding.stop()
+        #expect(removals == 4, "stop removes every named observer")
+    }
+
     @Test func folderListingRunsOffMainActor() async {
         let scope = ThemeScope(level: .room)
         let binding = DisplayBackdropBinding(window: NSWindow(), scope: scope, displayID: { first }, listFolder: { Self.folderFixture($0) })

@@ -14,6 +14,8 @@ public final class DisplayBackdropBinding {
     private let now: () -> Date
     private let calendar: () -> Calendar
     private let listFolder: @Sendable (String) async -> [BackdropSelection]
+    private let recordObserver: ((Notification.Name, AnyObject?, OperationQueue?) -> Void)?
+    private let recordRemoval: (() -> Void)?
     private let timer = DemandTimer(owner: "display-backdrop")
     private var observers: [NSObjectProtocol] = []
     private var root: JSONValue = [:]
@@ -25,9 +27,13 @@ public final class DisplayBackdropBinding {
     public init(window: NSWindow, scope: ThemeScope, center: NotificationCenter = .default,
                 displayID: @escaping () -> String?, now: @escaping () -> Date = Date.init,
                 calendar: @escaping () -> Calendar = { .current },
-                listFolder: @escaping @Sendable (String) async -> [BackdropSelection] = DisplayBackdropBinding.readFolder) {
+                listFolder: @escaping @Sendable (String) async -> [BackdropSelection] = DisplayBackdropBinding.readFolder,
+                recordObserver: ((Notification.Name, AnyObject?, OperationQueue?) -> Void)? = nil,
+                recordRemoval: (() -> Void)? = nil) {
         self.scope = scope; self.center = center; self.displayID = displayID; self.now = now; self.calendar = calendar
         self.listFolder = listFolder
+        self.recordObserver = recordObserver
+        self.recordRemoval = recordRemoval
         inheritedScope = scope.parent ?? .app
         displayScope = ThemeScope(level: .room, parent: inheritedScope)
         scope.setParent(displayScope)
@@ -35,6 +41,7 @@ public final class DisplayBackdropBinding {
                                          .NSCalendarDayChanged, .NSSystemTimeZoneDidChange]
         for name in names {
             // Never make a notification's posting thread wait for the UI actor (SwiftUI can hold its render lock).
+            recordObserver?(name, name == NSWindow.didChangeScreenNotification ? window : nil, nil)
             observers.append(center.addObserver(forName: name, object: name == NSWindow.didChangeScreenNotification ? window : nil,
                                                 queue: nil) { [weak self] _ in
                 Task { @MainActor [weak self] in self?.refresh() }
@@ -42,7 +49,7 @@ public final class DisplayBackdropBinding {
         }
     }
 
-    deinit {
+    nonisolated deinit {
         teardown()
     }
 
@@ -76,7 +83,7 @@ public final class DisplayBackdropBinding {
         folderRefresh = nil
         for folder in folders.values { folder.task.cancel() }
         folders.removeAll()
-        observers.forEach(center.removeObserver)
+        observers.forEach { center.removeObserver($0); recordRemoval?() }
         observers.removeAll()
         displayScope.pinBackdrop(.inherit)
         if scope.parent === displayScope { scope.setParent(inheritedScope) }
