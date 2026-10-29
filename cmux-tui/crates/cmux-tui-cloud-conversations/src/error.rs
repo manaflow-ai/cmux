@@ -70,12 +70,18 @@ impl CloudError {
 impl fmt::Display for CloudError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Rejected { code, message, .. } => {
+            Self::Rejected { code, message, retryable } => {
                 write!(formatter, "cmux Cloud conversation request failed ({code})")?;
                 if !message.is_empty() && message != code {
                     write!(formatter, ": {message}")?;
                 }
-                formatter.write_str("; run `cmux cloud diagnostics`")
+                if *retryable {
+                    formatter.write_str(
+                        "; retry the request; if it keeps failing, run `cmux cloud diagnostics`",
+                    )
+                } else {
+                    formatter.write_str("; run `cmux cloud diagnostics`")
+                }
             }
             Self::SignedOut => formatter.write_str(
                 "cmux Cloud conversation request failed: not signed in; run `cmux cloud sign-in`",
@@ -88,7 +94,7 @@ impl fmt::Display for CloudError {
             ),
             Self::Unavailable(detail) => write!(
                 formatter,
-                "cmux Cloud conversation request failed: {detail}; run `cmux cloud diagnostics`",
+                "cmux Cloud conversation request failed: {detail}; retry the request; if it keeps failing, run `cmux cloud diagnostics`",
             ),
             Self::BadRequest(detail) => write!(
                 formatter,
@@ -105,7 +111,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn display_names_the_next_step_without_retrying_permanent_rejections() {
+    fn display_names_the_next_step_and_retries_only_retryable_failures() {
         for error in
             [CloudError::SignedOut, CloudError::SessionExpired, CloudError::Unauthenticated]
         {
@@ -120,13 +126,17 @@ mod tests {
             let message = error.to_string();
             assert!(message.contains("scope is missing"));
             assert!(message.contains("cmux cloud diagnostics"));
-            assert!(!message.contains("retry"));
+            assert_eq!(message.contains("retry"), retryable, "{message}");
         }
-        assert!(
-            CloudError::Unavailable("timeout".into())
-                .to_string()
-                .contains("cmux cloud diagnostics")
-        );
+        let rate_limited = CloudError::Rejected {
+            code: "rate_limited".into(),
+            message: "HTTP 429".into(),
+            retryable: true,
+        };
+        assert!(rate_limited.to_string().contains("retry the request"));
+        let unavailable = CloudError::Unavailable("timeout".into()).to_string();
+        assert!(unavailable.contains("retry the request"));
+        assert!(unavailable.contains("cmux cloud diagnostics"));
         assert!(CloudError::BadRequest("missing id".into()).to_string().contains("cmux --help"));
     }
 }
