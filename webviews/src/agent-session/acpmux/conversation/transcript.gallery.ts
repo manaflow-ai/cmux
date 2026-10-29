@@ -774,6 +774,23 @@ const messageSurfaceComputedStyle = async (ctx: PlayContext) => {
   const peerStyle = view.getComputedStyle(peer);
   if (promptStyle.getPropertyValue("--glass-edge").trim() !== "transparent")
     throw new Error("the selected user bubble still has a glass edge");
+  // Every glass mode: Lens and Spectrum draw a specular line, a lower shade and fringes from
+  // --glass-rim, so the bubble's whole rim shadow must be clear under each, not only Plain's edge.
+  const root = ctx.document.documentElement;
+  const savedGlass = root.getAttribute("data-glass");
+  try {
+    for (const mode of ["plain", "lens", "spectrum"]) {
+      root.setAttribute("data-glass", mode);
+      const shadow = view.getComputedStyle(prompt).boxShadow;
+      const opaque = (shadow.match(/rgba?\([^)]*\)|color\([^)]*\)/g) ?? []).filter(
+        (color) => !/,\s*0\)$|\/\s*0\)$/.test(color),
+      );
+      if (opaque.length) throw new Error(`the user bubble draws a rim under ${mode} glass: ${shadow}`);
+    }
+  } finally {
+    if (savedGlass === null) root.removeAttribute("data-glass");
+    else root.setAttribute("data-glass", savedGlass);
+  }
   if (peerStyle.boxShadow !== "none" || peerStyle.borderRadius !== "0px")
     throw new Error(`the selected peer body is still boxed: ${peerStyle.boxShadow} / ${peerStyle.borderRadius}`);
   const assistantStyle = view.getComputedStyle(assistant);
