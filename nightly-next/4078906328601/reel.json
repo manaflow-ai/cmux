@@ -1,0 +1,101 @@
+{
+  "version": 1,
+  "build": "4078906328601",
+  "notes": "notes/4078906328601.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 27033,
+      "title": "ci(nightly-next): an unsigned resume's title names the run it resumes",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27040,
+      "title": "acpmux: autoResumeDelaysMs sets the retry loop's attempts, not only its waits",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27039,
+      "title": "ci(nightly-next): the signer Mac sends only the unsigned DMG over the office uplink",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26903,
+      "title": "acpmux: harden tailnet retirement lifecycle",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27085,
+      "title": "fix(webviews): update the workflow card test for #27019",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26934,
+      "title": "Swift Linux packages: add CmuxChiefVoiceCore",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27020,
+      "title": "acpmux: Linux sandbox accepts nsfs mounts in mountinfo",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26939,
+      "title": "cmux-api: PlatformMachines, a service-binding entrypoint for the platform's environment setups (development only)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26970,
+      "title": "cmux-config: settings.snapshot shows a secret policy value as present only",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26993,
+      "title": "agent pane: retain sub-session agent fields",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27019,
+      "title": "feat(agent-pane): show workflow progress in transcript card",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27046,
+      "title": "acpmux: confine workflow transcript reads to the requesting chat",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26946,
+      "title": "ci: PR size warns instead of failing",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26902,
+      "title": "acpmux: add tailnet controller lifecycle foundation",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26917,
+      "title": "acpmux: the GitHub broker's fixed actions and the Mac's checked gh runner",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
