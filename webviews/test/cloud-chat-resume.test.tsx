@@ -104,7 +104,7 @@ test("Resume uses native attach, then rereads the missing chat; disposal stops r
 });
 
 
-test("Resume keeps polling through incomplete and failed inventories without attaching twice", async () => {
+test("Resume retries incomplete reads and refuses a same-tick double attach", async () => {
   const { useCloudChatRecovery } = await import("../src/agent-session/acpmux/useCloudChatRecovery");
   let listReads = 0;
   let attaches = 0;
@@ -154,7 +154,7 @@ test("Resume keeps polling through incomplete and failed inventories without att
     });
     return (
       <div>
-        <button data-action="test-wake" onClick={recovery.resume}>Resume</button>
+        <button data-action="test-wake" onClick={() => { recovery.resume(); recovery.resume(); }}>Resume</button>
         <span data-action="test-state">{JSON.stringify({
           state: recovery.state, resuming: recovery.resuming, error: recovery.error,
         })}</span>
