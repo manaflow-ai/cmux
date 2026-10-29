@@ -23,7 +23,7 @@ public import CmuxNextWakeups
 /// while hidden says why with ``Policy/optOut(reason:)``; it still counts its bodies.
 ///
 /// ```swift
-/// let gate = VisibilityGatedHostingView(owner: "Tasks") { TasksView(model: model, layout: layout()) }
+/// let gate = VisibilityGatedHostingView(owner: "Tasks", hosting: NSHostingView(rootView: TasksView(model: model)))
 /// gate.follow(cache.node(for: key), observations: services.observations)
 /// ```
 @MainActor public final class VisibilityGatedHostingView: NSView, VisibilityGatedContent {
@@ -61,15 +61,15 @@ public import CmuxNextWakeups
     /// The view inside the hosting view that had the keyboard when it left.
     private weak var focused: NSView?
 
-    /// Gates a hosting view made elsewhere (an `NSHostingView` subclass that measures itself). Its bodies
-    /// count only where its views read `\.hostingBodyCounter`.
+    /// Gates `hosting` (the page's `NSHostingView`, made by the page) with a counter of its own; its bodies
+    /// count only where the page records them (``init(owner:policy:counter:hosting:)``).
     public convenience init(owner: String, policy: Policy = .gated, hosting: NSView) {
         self.init(owner: owner, policy: policy, counter: HostingBodyCounter(), hosting: hosting)
     }
 
-    /// The designated init: the SwiftUI convenience init (HostingBodyCounter+SwiftUI.swift) passes the
-    /// counter its root records into.
-    init(owner: String, policy: Policy, counter: HostingBodyCounter, hosting: NSView) {
+    /// Gates `hosting`, whose SwiftUI records each body evaluation into `counter` (``bodyEvaluations``,
+    /// `debug.observations`): the page passes the same counter to its root view.
+    public init(owner: String, policy: Policy = .gated, counter: HostingBodyCounter, hosting: NSView) {
         self.owner = owner
         self.policy = policy
         self.counter = counter

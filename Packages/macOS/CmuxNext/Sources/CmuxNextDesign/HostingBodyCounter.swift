@@ -8,7 +8,7 @@ import CmuxNextWakeups
     private(set) var total = 0
     private(set) var hidden = 0
 
-    init() {}
+    public init() {}
 
     /// One body ran. Call it first in a body, which then returns its view: `bodyCounter?.record(); return content`.
     public func record() {

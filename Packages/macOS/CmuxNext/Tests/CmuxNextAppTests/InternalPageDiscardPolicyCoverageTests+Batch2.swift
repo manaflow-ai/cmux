@@ -9,7 +9,6 @@ import CmuxNextHistory
 @testable import CmuxNextTasks
 import CmuxNextWakeupsTestSupport
 import Foundation
-import SwiftUI
 import Testing
 
 /// Page policies batch 2: history, bookmarks, passwords, stashed, tasks and
@@ -107,7 +106,7 @@ import Testing
         let model = TasksModel(source: MockTasksSource())
         model.newTaskDraft = "Write the release notes"
         model.focusNewTask()
-        let (window, root) = Self.host(NewTaskField(model: model))
+        let (window, root) = Self.host(NewTaskField.hostingView(model: model, size: CGSize(width: 520, height: 80)))
         defer { window.contentView = nil; window.close() }
         let field = try #require(HomeSheetThemeTests.editableFields(in: root).first)
         #expect(field.stringValue == "Write the release notes", "a field made again shows the draft")
@@ -361,9 +360,8 @@ import Testing
         return window
     }
 
-    static func host(_ view: some View) -> (NSWindow, NSView) {
+    static func host(_ hosting: NSView) -> (NSWindow, NSView) {
         let window = Self.window()
-        let hosting = NSHostingView(rootView: view.frame(width: 520, height: 80))
         window.contentView = hosting
         hosting.layoutSubtreeIfNeeded()
         return (window, hosting)

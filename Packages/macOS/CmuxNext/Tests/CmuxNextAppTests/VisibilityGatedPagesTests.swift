@@ -8,7 +8,6 @@ import CmuxNextDesign
 import CmuxNextHistory
 import CmuxNextWakeups
 import Foundation
-import SwiftUI
 import Testing
 
 /// The page tabs that put their SwiftUI in a `VisibilityGatedHostingView` keep
@@ -64,7 +63,9 @@ import Testing
     // MARK: Focus
 
     @Test func aFocusedGatedPageTabGivesItsSwiftUITheKeyboard() throws {
-        let gate = VisibilityGatedHostingView(owner: "WorkspaceTodoPage") { Text(verbatim: "page") }
+        let item = WorkspaceChecklistItem(id: "item-1", text: "page")
+        let gate = VisibilityGatedHostingView(owner: "WorkspaceTodoPage", hosting: WorkspaceTodoRow.hostingView(
+            item: item, isEditing: false, actions: Self.noRowActions()))
         let page = InternalPageView(key: "gated-focus", page: .workspaceTodo, content: gate)
         let shown = Self.show(page, gate: gate)
         defer { shown.close() }
@@ -105,6 +106,12 @@ import Testing
 
     // MARK: State kept across a hide and show
 
+    /// Row actions that do nothing.
+    private static func noRowActions() -> WorkspaceTodoRowActions {
+        WorkspaceTodoRowActions(toggle: { _ in }, setState: { _, _ in }, beginEdit: { _ in }, commitEdit: { _, _ in },
+                                cancelEdit: {}, attachImages: { _ in }, remove: { _ in })
+    }
+
     /// The edits a Todo row committed.
     @MainActor private final class Commits {
         var texts: [String] = []
@@ -116,9 +123,8 @@ import Testing
             toggle: { _ in }, setState: { _, _ in }, beginEdit: { _ in },
             commitEdit: { _, text in committed.texts.append(text) }, cancelEdit: {}, attachImages: { _ in }, remove: { _ in })
         let item = WorkspaceChecklistItem(id: "item-1", text: "Buy milk")
-        let gate = VisibilityGatedHostingView(owner: "WorkspaceTodoPage") {
-            WorkspaceTodoRow(item: item, isEditing: true, actions: actions)
-        }
+        let gate = VisibilityGatedHostingView(owner: "WorkspaceTodoPage",
+                                              hosting: WorkspaceTodoRow.hostingView(item: item, isEditing: true, actions: actions))
         let shown = Self.show(gate, gate: gate)
         defer { shown.close() }
         let field = try #require(HomeSheetThemeTests.editableFields(in: gate.hosting).first)
@@ -144,7 +150,8 @@ import Testing
         let dispatches = Dispatches()
         model.interaction = dispatches
         model.apply([.create(id: "name", type: "TextField", props: ["text": .string("start"), "onEdit": .bool(true)]), .root(id: "name")])
-        let gate = VisibilityGatedHostingView(owner: "AppPanePage") { AppSceneNodeView(model: model, id: "name") }
+        let gate = VisibilityGatedHostingView(owner: "AppPanePage", hosting: AppSceneHostingView(
+            model: model, bundleDirectory: nil, bundleImages: AppBundleImageCache()))
         let shown = Self.show(gate, gate: gate)
         defer { shown.close() }
         #expect(dispatches.edits == 0, "making the field sends no edit")

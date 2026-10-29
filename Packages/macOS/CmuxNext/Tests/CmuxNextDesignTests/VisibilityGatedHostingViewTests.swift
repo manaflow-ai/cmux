@@ -1,17 +1,29 @@
 import AppKit
 @testable import CmuxNextDesign
 import CmuxNextWakeups
-import Observation
-import SwiftUI
 import Testing
 
-/// A tab page's SwiftUI leaves the window while its node is hidden and comes back in the show turn:
-/// no body runs while hidden, one runs on show, and the keyboard and accessibility
-/// come back with it.
+/// A tab page's hosting view leaves the window while its node is hidden and comes back in the show
+/// turn, with the keyboard and accessibility; the gate's counter attributes the page's body evaluations
+/// to the node's state. The SwiftUI side (no body while hidden, one on show, typed state kept) is tested
+/// with real pages: TasksHostViewGateTests and VisibilityGatedPagesTests (CmuxNextAppTests).
 @MainActor
 struct VisibilityGatedHostingViewTests {
-    @Observable final class Probe {
-        var value = 0
+    /// A page that draws one solid color.
+    final class SolidView: NSView {
+        let color: NSColor
+        init(_ color: NSColor) {
+            self.color = color
+            super.init(frame: .zero)
+        }
+
+        @available(*, unavailable)
+        required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+        override func draw(_ dirtyRect: NSRect) {
+            color.setFill()
+            bounds.fill()
+        }
     }
 
     /// A view that takes the keyboard and is one accessibility element.
@@ -54,31 +66,22 @@ struct VisibilityGatedHostingViewTests {
         return fixture
     }
 
-    @Test func aHiddenPageRunsNoBodyAndOneOnShow() throws {
-        let probe = Probe()
-        // The root reads the model, so each change it sees is one root body.
-        let gate = VisibilityGatedHostingView(owner: "Probe") { Text(verbatim: "\(probe.value)") }
+    @Test func theCounterAttributesBodiesToTheNodeAndTheLedger() throws {
+        let counter = HostingBodyCounter()
+        let gate = VisibilityGatedHostingView(owner: "Probe", counter: counter, hosting: NSView())
         let fixture = Self.fixture(gate)
         defer { fixture.close() }
-        let shown = gate.bodyEvaluations.total
-        #expect(shown >= 1, "the root ran once shown")
         _ = fixture.ledger.snapshot(matching: "Hosting.Probe", resetting: true)
 
+        counter.record()
+        #expect(gate.bodyEvaluations == (1, 0), "a body while shown: \(gate.bodyEvaluations)")
         fixture.tab.set(.hidden)
         #expect(gate.isGated && gate.hosting.superview == nil, "the hosting view left the window in the hide turn")
-        for _ in 0..<100 {
-            probe.value += 1
-            fixture.pass()
-        }
-        #expect(gate.bodyEvaluations.total == shown, "no body while hidden: \(gate.bodyEvaluations)")
-
-        fixture.tab.set(.visible)
-        #expect(!gate.isGated && gate.hosting.superview === gate, "back in the show turn")
-        fixture.pass()
-        #expect(gate.bodyEvaluations.total == shown + 1, "one body on show: \(gate.bodyEvaluations)")
+        counter.record()
+        #expect(gate.bodyEvaluations == (2, 1), "a body while hidden counts as hidden: \(gate.bodyEvaluations)")
 
         let entry = try #require(fixture.ledger.snapshot(matching: "Hosting.Probe").first)
-        #expect(entry.bodyEvaluations == 1 && entry.hiddenBodyEvaluations == 0, "debug.observations: \(entry)")
+        #expect(entry.bodyEvaluations == 2 && entry.hiddenBodyEvaluations == 1, "debug.observations: \(entry)")
     }
 
     @Test func theKeyboardComesBackToTheViewThatHadIt() throws {
@@ -118,7 +121,7 @@ struct VisibilityGatedHostingViewTests {
     }
 
     @Test func anOccludedOrCapturedPageKeepsItsHostingView() {
-        let gate = VisibilityGatedHostingView(owner: "Kept") { Text(verbatim: "kept") }
+        let gate = VisibilityGatedHostingView(owner: "Kept", hosting: NSView())
         let fixture = Self.fixture(gate)
         defer { fixture.close() }
 
@@ -135,17 +138,15 @@ struct VisibilityGatedHostingViewTests {
     }
 
     @Test func anOptedOutPageStaysAndCountsItsHiddenBodies() throws {
-        let probe = Probe()
-        let gate = VisibilityGatedHostingView(owner: "OptOut", policy: .optOut(reason: "test: runs while hidden")) {
-            Text(verbatim: "\(probe.value)")
-        }
+        let counter = HostingBodyCounter()
+        let gate = VisibilityGatedHostingView(owner: "OptOut", policy: .optOut(reason: "test: runs while hidden"),
+                                              counter: counter, hosting: NSView())
         let fixture = Self.fixture(gate)
         defer { fixture.close() }
 
         fixture.tab.set(.hidden)
         #expect(!gate.isGated && gate.hosting.superview === gate)
-        probe.value += 1
-        fixture.pass()
+        counter.record()
         #expect(gate.bodyEvaluations.hidden >= 1, "the opted-out page ran while hidden: \(gate.bodyEvaluations)")
         let entry = try #require(fixture.ledger.snapshot(matching: "Hosting.OptOut").first)
         #expect(entry.hiddenBodyEvaluations >= 1)
@@ -165,7 +166,7 @@ struct VisibilityGatedHostingViewTests {
     }
 
     @Test func unfollowingBringsTheHostingViewBack() {
-        let gate = VisibilityGatedHostingView(owner: "Unfollow") { Text(verbatim: "page") }
+        let gate = VisibilityGatedHostingView(owner: "Unfollow", hosting: NSView())
         let fixture = Self.fixture(gate)
         defer { fixture.close() }
 
@@ -177,7 +178,7 @@ struct VisibilityGatedHostingViewTests {
     }
 
     @Test func aHideDrawsNothingAndKeepsNoPicture() {
-        let gate = VisibilityGatedHostingView(owner: "NoPicture") { Color(red: 1, green: 0, blue: 0) }
+        let gate = VisibilityGatedHostingView(owner: "NoPicture", hosting: SolidView(NSColor(srgbRed: 1, green: 0, blue: 0, alpha: 1)))
         let fixture = Self.fixture(gate)
         defer { fixture.close() }
 
@@ -189,7 +190,7 @@ struct VisibilityGatedHostingViewTests {
     }
 
     @Test func aSnapshotOfAHiddenPageDrawsItAndLeavesItOut() throws {
-        let gate = VisibilityGatedHostingView(owner: "Snapshot") { Color(red: 1, green: 0, blue: 0) }
+        let gate = VisibilityGatedHostingView(owner: "Snapshot", hosting: SolidView(NSColor(srgbRed: 1, green: 0, blue: 0, alpha: 1)))
         let fixture = Self.fixture(gate)
         defer { fixture.close() }
 
@@ -199,47 +200,6 @@ struct VisibilityGatedHostingViewTests {
         #expect(center.redComponent > 0.8 && center.greenComponent < 0.25 && center.blueComponent < 0.25 && center.alphaComponent > 0.8,
                 "the page, not a blank: \(center)")
         #expect(gate.isGated && gate.hosting.superview == nil, "the hosting view left again after the drawing")
-    }
-
-    @Test func textTypedInAHiddenPageStaysWhenItShows() throws {
-        let gate = VisibilityGatedHostingView(owner: "Seeded") { SeededField(seed: "start") }
-        let fixture = Self.fixture(gate)
-        defer { fixture.close() }
-        let field = try #require(Self.textFields(in: gate.hosting).first)
-        #expect(field.stringValue == "start")
-        #expect(fixture.window.makeFirstResponder(field))
-        let editor = try #require(field.currentEditor() as? NSTextView)
-        editor.selectAll(nil)
-        editor.insertText("typed", replacementRange: NSRange(location: NSNotFound, length: 0))
-        fixture.pass()
-
-        fixture.tab.set(.hidden)
-        fixture.pass()
-        fixture.tab.set(.visible)
-        fixture.pass()
-        let shown = try #require(Self.textFields(in: gate.hosting).first)
-        #expect(shown.stringValue == "typed", "the appear on show does not seed it again: \(shown.stringValue)")
-    }
-
-    /// A field whose text is seeded where the view is made, as gated pages do.
-    struct SeededField: View {
-        @State private var text: String
-
-        init(seed: String) {
-            _text = State(initialValue: seed)
-        }
-
-        var body: some View {
-            TextField("", text: $text)
-        }
-    }
-
-    /// The editable text fields under `view`, depth first.
-    static func textFields(in view: NSView) -> [NSTextField] {
-        var found: [NSTextField] = []
-        if let field = view as? NSTextField, field.isEditable { found.append(field) }
-        for subview in view.subviews { found += textFields(in: subview) }
-        return found
     }
 
     /// One pixel of `image` (top-left origin), in sRGB.

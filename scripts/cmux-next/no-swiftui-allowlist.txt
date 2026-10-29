@@ -51,7 +51,6 @@ Packages/macOS/CmuxNext/Sources/CmuxNextChiefMemory/ChiefMemoryLineRow.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Dialog/CmuxDialogActionButton.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextDesign/GlassButtonStyle.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextDesign/HairlineDivider.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextDesign/HostingBodyCounter+SwiftUI.swift  # SwiftUI hosting glue for the gated SwiftUI pages; product views stay AppKit
 Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/Motion+AppKit.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/Motion+SwiftUI.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionInFlight.swift
@@ -154,12 +153,7 @@ Packages/macOS/CmuxNext/Sources/CmuxNextUiLayerPreview/UiLayerPreviewView.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/UpdateSheetController.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/UpdateSheetView.swift
 Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/FirstFrameColorsTests.swift
-Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/InternalPageDiscardPolicyCoverageTests+Batch2.swift  # hosts SwiftUI views (a List's scroll view) to test the discard policy's page state
-Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/InternalPageDiscardPolicyCoverageTests.swift  # hosts the SwiftUI Task Manager page to test its discard policy
 Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/ThemedNoticeControlsTests.swift
 Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/ThemedPlainFieldsTests.swift
 Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/ThemedSwiftUIControlsTests.swift
-Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/VisibilityGatedPagesTests.swift  # tests the gated SwiftUI pages (todo, app pane) through their hosting views
 Packages/macOS/CmuxNext/Tests/CmuxNextDesignTests/ThinSwiftUIScrollersTests.swift
-Packages/macOS/CmuxNext/Tests/CmuxNextDesignTests/VisibilityGatedHostingViewTests.swift  # tests the gate's SwiftUI hosting (body counts, appear and focus while gated)
-Packages/macOS/CmuxNext/Tests/CmuxNextInputTests/ScrollViewAuditTests.swift  # tests that the scroll view audit names a SwiftUI-hosted scroll view (NSHostingView)

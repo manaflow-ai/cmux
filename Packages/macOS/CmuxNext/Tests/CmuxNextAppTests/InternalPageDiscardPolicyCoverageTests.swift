@@ -8,7 +8,6 @@ import CmuxNextResources
 @testable import CmuxNextSettings
 import CmuxNextWakeups
 import Foundation
-import SwiftUI
 import Testing
 
 /// Page policies, batch 1 (`memoryDiscardInternalPages`): Settings, Debug Settings,
@@ -271,7 +270,7 @@ struct InternalPageDiscardPolicyCoverageTests {
         let model = TaskManagerModel(source: source, deadlines: MainDeadlineScheduler(work: MainWorkScheduler(budget: MainFrameBudget())),
                                      kill: { _ in })
         let table = TaskManagerTableState(scrollTarget: ProcessKey(pid: 2040))
-        let host = NSHostingView(rootView: TaskManagerView(model: model, table: table))
+        let host = TaskManagerView.hostingView(model: model, table: table)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 500, height: 300), styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentView = host
