@@ -295,4 +295,34 @@ struct CommandScrollColumnsTests {
         #expect(arbiter.asks.isEmpty)
         #expect(page.received.isEmpty)
     }
+
+    /// While a page is asked, a scroll over a terminal (the layout's own window) is routed at once,
+    /// never held for the page or sent to it.
+    @Test func aScrollElsewhereDuringTheAskIsNotHeldForThePage() async throws {
+        let arbiter = FakeArbiter(answer: true, waits: true)
+        let h = Harness(model: Base.columnsModel(modifier: .command), arbiter: arbiter)
+        let page = try h.page(over: "p2")
+        #expect(Base.scroll(h.root, from: page, at: try h.center("p2"), dy: -1, units: .line, command: true), "held")
+        #expect(!Base.scroll(h.root, at: try h.center("p3"), dy: -1, units: .line), "a plain notch over a terminal goes on now")
+        arbiter.release()
+        await h.answered()
+        #expect(page.received.count == 1, "only the page's own notch reached it")
+    }
+
+    /// A wheel ask the deadline decided is not kept for the spin: the next notch asks again.
+    @Test func aTimedOutWheelAskIsNotKeptForTheSpin() async throws {
+        let arbiter = FakeArbiter(answer: true, waits: true)
+        let h = Harness(model: Base.columnsModel(modifier: .command), arbiter: arbiter)
+        let page = try h.page(over: "p2")
+        let point = try h.center("p2")
+        #expect(Base.scroll(h.root, from: page, at: point, dy: -1, units: .line, command: true))
+        try await h.clock.waitForSleeper()
+        h.clock.advance(by: h.root.pageProbeDeadline)
+        for _ in 0..<100 where h.root.pageProbe != nil { await Task.yield() }
+        #expect(h.root.pageProbe == nil, "the deadline let the columns take it")
+        #expect(Base.scroll(h.root, from: page, at: point, dy: -1, units: .line, command: true), "held again")
+        #expect(arbiter.asks.count == 2, "asked again")
+        arbiter.release()
+        await h.answered()
+    }
 }
