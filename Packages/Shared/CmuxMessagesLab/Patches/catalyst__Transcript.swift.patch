@@ -259,25 +259,26 @@
          let cx = x + r, cy = top + r
          let w = spec?.width ?? 628
          let p = UIBezierPath()
-@@ -1566,6 +1632,8 @@
+@@ -1566,6 +1632,9 @@
              a.isRemovedOnCompletion = false
              a.calculationMode = .linear
              if let p = Springs.typingStillPhase { a.speed = 0; a.timeOffset = p }
-+            // cmux: under Reduce Motion the dots stand at the first dot's peak, played once (cx-sya4n: nothing loops).
-+            else if MessagesLabHomeView.reducesMotion { a.speed = 0; a.timeOffset = Self.typingDotPeak; a.repeatCount = 1 }
++            // cmux: under Reduce Motion or the host's Home motion gate the dots stand at the first dot's peak, played
++            // once (cx-sya4n: nothing loops; RowCell.typingLoopsHeld).
++            else if RowCell.typingLoopsHeld { a.speed = 0; a.timeOffset = Self.typingDotPeak; a.repeatCount = 1 }
              hi.add(a, forKey: "dots")
          }
      }
-@@ -1576,6 +1644,8 @@
+@@ -1576,6 +1645,8 @@
      func startTypingBreath(insert: CFTimeInterval) {
  #if !os(iOS) || targetEnvironment(macCatalyst)
          guard Springs.typingStillPhase == nil else { return }
-+        // cmux: no breathing under Reduce Motion, and a running breath stops (cx-sya4n).
-+        if MessagesLabHomeView.reducesMotion { stopTypingBreath(); return }
++        // cmux: no breathing under Reduce Motion or the host's Home motion gate, and a running breath stops (cx-sya4n).
++        if RowCell.typingLoopsHeld { stopTypingBreath(); return }
          let a = RowDraw.typingAnchor, b = Springs.typingBreathAnchor
          // The container scales about RowDraw.typingAnchor; the opposite offset of a scale e about it moves the
          // fixed point to b: e x (a - b).
-@@ -1610,8 +1680,10 @@
+@@ -1610,8 +1681,10 @@
          // 0 after snapTyping), read from the window's layer tree.
          let o = typingContainer.convert(CGPoint(x: r.minX, y: r.minY), to: nil)
          let o1 = typingContainer.convert(CGPoint(x: r.minX + 1, y: r.minY + 1), to: nil)
@@ -289,7 +290,7 @@
              guard g.isFinite, k.isFinite, abs(k) > 1e-6 else { return 0 }
              let f = (g - (g + 1e-6).rounded()) * (k < 0 ? -1 : 1)
              return abs(f) > 1e-6 ? f : 0
-@@ -1674,7 +1746,8 @@
+@@ -1674,7 +1747,8 @@
      /// The typing row should breathe but does not (macOS, not a still scene): its breathing was stopped or never started.
      var needsTypingBreath: Bool {
  #if !os(iOS) || targetEnvironment(macCatalyst)
