@@ -149,17 +149,17 @@ import Testing
         #expect(NewTabInputCoordinator.mayTakeKey(a, keyWindow: nil))
     }
 
-    /// Keys the daemon gives back from a creation in window A wait for a terminal of window A; a
-    /// focus settle in window B never takes them.
-    @Test func givenBackKeysGoOnlyToTheirOwnWindow() {
+    /// Keys the daemon gives back (`terminal-input-unclaimed`) were typed for a terminal whose creation failed: they drop
+    /// with a reason (targetFailed) and never go to another terminal, of window A or of any other window (principled
+    /// audit, lagFirstKey step 4: a late command in another terminal is worse than a lost key). No timer decides it.
+    @Test func givenBackKeysNeverGoToAnotherTerminal() {
         let input = GivenBackInput(limit: .seconds(60))
         var inA = Data(), inB = Data()
         input.deliver(adding: Data("ls\r".utf8), window: "A", to: nil)
         input.deliver(window: "B", to: { inB.append($0) })
-        #expect(inB.isEmpty, "keys typed in window A reached a terminal of window B")
         input.deliver(window: "A", to: { inA.append($0) })
-        #expect(inA == Data("ls\r".utf8))
-        // Keys of no known window are never typed anywhere.
+        #expect(inA.isEmpty, "keys typed for a failed terminal ran in another terminal of their window")
+        #expect(inB.isEmpty, "keys typed in window A reached a terminal of window B")
         input.deliver(adding: Data("rm".utf8), window: nil, to: { inB.append($0) })
         #expect(inB.isEmpty)
     }
