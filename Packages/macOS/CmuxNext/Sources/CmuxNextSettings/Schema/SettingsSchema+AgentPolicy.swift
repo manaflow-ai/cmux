@@ -48,6 +48,10 @@ extension SettingsSchema {
 
     private static let agentSettableTable: Set<String> = [
         "window.titlebar",
+        // The model new chats on the cmux model router start on, one of the router's own models (the schema
+        // refuses any other id, and the backend allowlist serves only those): `cmux settings set` and MCP
+        // `settings.set` choose it (875769994377). It grants no access and widens no approval.
+        "agents.modelRouter.model",
         // Whether a chat shows the live view of the app its agent uses: looks only.
         "computerUse.livePreview",
         "shortcuts.showModifierHoldHints",
@@ -348,9 +352,6 @@ extension SettingsSchema {
         // On, cmux starts a helper that sees and controls other apps; only the person turns it on.
         // What a new chat may do without asking: an agent must not widen its own approvals.
         "agents.defaultPermissionMode": .userOnly,
-        // The model new chats on the cmux model router start on (the router's models, its cost and what a
-        // chat sends to it): the person's call. An agent must not move every future chat to another model.
-        "agents.modelRouter.model": .userOnly,
         "computerUse.enabled": .userOnly,
         "computerUse.driver": .userOnly,
         // How hard cmux pulls the person back from another app: theirs to pick, not an agent's.
