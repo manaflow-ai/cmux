@@ -147,6 +147,20 @@ impl Mux {
         spawn: TerminalSpawnOptions,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<PaneSurfaceCreation> {
+        self.new_column_with_options_as(actor, target, width, false, spawn, size)
+    }
+
+    /// A viewport column of `width` beside the target's column: before it
+    /// when `before` (`column-left-v1`, New Column Left), else after it.
+    pub fn new_column_with_options_as(
+        self: &Arc<Self>,
+        actor: &Actor,
+        target: PaneId,
+        width: f32,
+        before: bool,
+        spawn: TerminalSpawnOptions,
+        size: Option<(u16, u16)>,
+    ) -> anyhow::Result<PaneSurfaceCreation> {
         let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
         if !width.is_finite()
             || !(MIN_VIEWPORT_PANE_WIDTH..=MAX_VIEWPORT_PANE_WIDTH).contains(&width)
@@ -157,7 +171,7 @@ impl Mux {
             .ordinary_pane_selectors(target)
             .with_context(|| format!("unknown pane {target}"))?;
         let mut fields = Map::from_iter([
-            ("direction".into(), Value::String("right".into())),
+            ("direction".into(), Value::String(if before { "left" } else { "right" }.into())),
             ("viewport_width".into(), Value::from(width)),
         ]);
         Self::insert_cell_size(&mut fields, size);

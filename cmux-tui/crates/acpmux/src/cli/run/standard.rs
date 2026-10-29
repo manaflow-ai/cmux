@@ -269,6 +269,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                     let st = s.get("status").and_then(Value::as_str).unwrap_or("");
                     let status_ok = match status.as_deref() {
                         None => true,
+                        Some("stuck") => s["state"] == "stuck",
                         Some("waiting") => pend,
                         Some(want) => st == want,
                     };
@@ -331,7 +332,8 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             );
             for s in sessions {
                 let g = |k: &str| s.get(k).and_then(Value::as_str).unwrap_or("").to_owned();
-                let mut status = g("status");
+                let mut status =
+                    s["state"].as_str().map(str::to_owned).unwrap_or_else(|| g("status"));
                 if s.get("pendingPermissions").and_then(Value::as_u64).unwrap_or(0) > 0 {
                     status = "waiting!".into();
                 }
@@ -683,6 +685,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             });
             let (relay_session, relay_text, attaching) =
                 (session.clone(), text.clone(), !attach.is_empty());
+            // A send that waits, to a name nobody here resolves, goes to this daemon's outbox once
+            // more when config.json names a mesh hub: the hub delivers it (`server/mesh_send.rs`).
+            let (mesh_prompt, mesh_steer) = (prompt_id.clone(), steer);
             let sent = async move {
                 let client = connect(true).await?;
                 // Any size and number: inline when they fit one message with the text, else uploaded
@@ -786,6 +791,24 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                         attaching,
                         json_out,
                     )
+                }
+                (Err(e), None)
+                    if !no_wait
+                        && !attaching
+                        && crate::cli::send_relay::no_such_session(&e)
+                        && crate::mesh_http::configured() =>
+                {
+                    let client = connect(true).await?;
+                    super::send_async::queue(
+                        &client,
+                        &relay_session,
+                        &relay_text,
+                        mesh_steer,
+                        &mesh_prompt,
+                        superseding,
+                        json_out,
+                    )
+                    .await
                 }
                 (sent, _) => sent,
             }
