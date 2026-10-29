@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxNextWakeups
 import CmuxNextWakeupsTestSupport
 import Dispatch
@@ -65,15 +66,20 @@ import Testing
     /// frame reveals before the deadline's main hop runs: the stale deadline must not settle.
     @Test func aRevealDeadlineClaimedBeforeTheFirstFrameDoesNotSettle() async throws {
         let clock = ManualClock()
-        // The ledger records the fire right after the timer claims it: that is the claim signal.
-        let (claims, claimed) = AsyncStream.makeStream(of: Void.self)
-        let startup = StartupPhase(clock: clock, ledger: WakeupLedger(uptime: { claimed.yield(); return 0 }))
+        // The ledger reads its clock when it records the fire, right after the timer claims it: that is the
+        // claim signal. It resumes the test's main-actor continuation from the timer's thread before the timer
+        // hops to main, so the main queue runs the test first (an AsyncStream reader resumed off main and came
+        // back to main after the hop).
+        let claim = Claim()
+        let startup = StartupPhase(clock: clock, ledger: WakeupLedger(uptime: { claim.signal(); return 0 }))
         var settledAt: Duration?
         startup.whenReached(.settled) { settledAt = clock.now.offset }
         startup.noteLaunch(.window)
         try await clock.waitForSleeper()
-        clock.advance(by: .milliseconds(1_500))
-        _ = await claims.first { @Sendable _ in true }
+        await withCheckedContinuation { (claimed: CheckedContinuation<Void, Never>) in
+            claim.arm(claimed)
+            clock.advance(by: .milliseconds(1_500))
+        }
         // Main resumes here before the claimed deadline's hop: the frame comes first.
         startup.noteFirstFrame()
         #expect(startup.revealCause == .firstFrame)
@@ -368,5 +374,19 @@ private struct LaneSignal<Value: Sendable>: Sendable {
     func next() async -> Value? {
         for await value in stream { return value }
         return nil
+    }
+}
+
+/// The first clock read after ``arm(_:)`` resumes its continuation, once; reads before it (the timer's arm)
+/// and after it do nothing.
+private nonisolated final class Claim: Sendable {
+    private let waiting = Mutex<CheckedContinuation<Void, Never>?>(nil)
+
+    func arm(_ continuation: CheckedContinuation<Void, Never>) {
+        waiting.withLock { $0 = continuation }
+    }
+
+    func signal() {
+        waiting.withLock { $0.take() }?.resume()
     }
 }
