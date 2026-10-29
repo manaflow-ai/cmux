@@ -150,7 +150,7 @@ test("input acknowledgment survives delayed delivery and deduplicates sequence n
     editSequence: 2,
   };
   h.receive(edit);
-  expect(h.updates.at(-1)!.search).toMatchObject({ value: "", editSequence: 2 });
+  expect(h.updates.at(-1)!.search).toMatchObject({ value: "", editSequence: 0 });
   h.receive({ ...edit, value: "old", editSequence: 1 });
   h.receive(edit);
   expect(h.events).toEqual([edit]);
@@ -161,4 +161,16 @@ test("input acknowledgment survives delayed delivery and deduplicates sequence n
   expect(h.shows.at(-1)!.model.search?.editSequence).toBe(0);
   h.receive(edit);
   expect(h.events).toHaveLength(1);
+});
+
+test("explicit applied acknowledgments preserve normalized and rejected values", () => {
+  const h = harness();
+  const search = { id: "query", value: "", placeholder: "Search", editSequence: 7 };
+  h.render(true, "Initial", { search });
+  const first = h.shows[0]!.model;
+  expect(first.search?.editSequence).toBe(7);
+  h.receive({ type: "search", popupId: first.id, revision: first.revision, id: "query", value: "raw", editSequence: 8 });
+  expect(h.updates.at(-1)!.search).toMatchObject({ value: "", editSequence: 7 });
+  h.render(true, "Normalized", { search: { ...search, value: "RAW", editSequence: 8 } });
+  expect(h.updates.at(-1)!.search).toMatchObject({ value: "RAW", editSequence: 8 });
 });

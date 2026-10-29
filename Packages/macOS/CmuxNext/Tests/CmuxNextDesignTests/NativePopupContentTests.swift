@@ -213,8 +213,13 @@ import Testing
         if kind == .toggle { model.rows[0].checked = true }
         content.update(model)
         let replacement = try #require(Self.descendants(of: content).first { $0 is NSSegmentedControl || $0 is NSSlider || $0 is NSSwitch })
-        #expect(replacement !== original)
+        if kind == .slider { #expect(replacement === original, "a value echo must preserve slider tracking") }
+        else { #expect(replacement !== original) }
         #expect(window.firstResponder === replacement, "the descriptor update dropped control focus")
+        model.rows[0].label = "Structurally changed"
+        content.update(model)
+        let rebuilt = try #require(Self.descendants(of: content).first { $0 is NSSegmentedControl || $0 is NSSlider || $0 is NSSwitch })
+        #expect(rebuilt !== replacement && window.firstResponder === rebuilt)
     }
 
     @Test func sliderStepRoundingStaysWithinItsBounds() throws {

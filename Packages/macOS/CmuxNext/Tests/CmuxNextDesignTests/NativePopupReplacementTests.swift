@@ -270,4 +270,34 @@ import Testing
         #expect(events.count == 1)
     }
 
+    @Test(.enabled("needs an awake display") { !NSScreen.screens.isEmpty })
+    func actionEchoStillDismissesTheSameOpening() throws {
+        let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 500, height: 400),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        let page = NSView(frame: NSRect(x: 0, y: 0, width: 500, height: 400))
+        window.contentView = page
+        window.makeKeyAndOrderFront(nil)
+        defer { window.orderOut(nil) }
+        var model = NativePopupModel(schemaVersion: 1, id: "same", revision: 1,
+                                     anchor: NativePopupAnchor(left: 0, top: 0, right: 20, bottom: 20),
+                                     side: .bottom, align: .start, width: 320,
+                                     rows: [NativePopupRow(id: "action", kind: .action, label: "Action")])
+        var events: [String] = []
+        var host: DeclarativePopupHost!
+        host = DeclarativePopupHost(webView: page, zoom: { 1 }, send: { event in
+            if let type = event["type"] as? String { events.append(type) }
+            if event["type"] as? String == "pick" { model.revision += 1; host.update(model) }
+        }, isAppActive: { true })
+        defer { host.hide() }
+        #expect(host.show(model)["shown"] as? Bool == true)
+        let panel = try #require(window.childWindows?.compactMap { $0 as? NativePopupPanel }.first)
+        func descendants(_ view: NSView) -> [NSView] { view.subviews.flatMap { [$0] + descendants($0) } }
+        let rootView = try #require(panel.contentView)
+        let content = try #require(descendants(rootView).compactMap { $0 as? NativePopupContent }.first)
+        let action = try #require(content.rowView(id: "action") as? PopupRowView)
+        action.onActivate?()
+        #expect(events == ["pick", "dismiss"])
+        #expect(host.activeID == nil)
+    }
+
 }
