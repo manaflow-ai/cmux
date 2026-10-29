@@ -15,6 +15,7 @@ interface Rpc {
   exec(c: unknown, machine: string, command: string, stdin: string | null, timeoutMs: number): Promise<Reply>
   snapshot(c: unknown, machine: string, name: string): Promise<Reply>
   destroy(c: unknown, machine: string): Promise<Reply>
+  deleteSnapshot(c: unknown, snapshot: string): Promise<Reply>
 }
 const rpc = (exports as unknown as { PlatformMachines: Rpc }).PlatformMachines
 const inDO = runInDurableObject as unknown as <T>(stub: unknown, cb: (instance: any) => Promise<T>) => Promise<T>
@@ -128,6 +129,34 @@ describe("PlatformMachines (workerd)", { timeout: 60_000 }, () => {
     expect((await stub.readOp(c.team, owner, "cloud.machine.get", { machine })).ok).toBe(false)
   })
 
+  it("deletes only its own platform snapshot and retries idempotently", async () => {
+    const c = caller()
+    const { machine, stub } = await bootAndBind(c)
+    const saved = await rpc.snapshot(c, machine, nameOf())
+    expect(saved).toMatchObject({ ok: true, value: { id: expect.stringMatching(/^snap_[a-z0-9]{20}$/) } })
+    const id = saved.value.id as string
+    expect(await rpc.deleteSnapshot(c, id)).toEqual({ ok: true, value: { deleted: true } })
+    expect(await rpc.deleteSnapshot(c, id)).toEqual({ ok: true, value: { deleted: true } })
+    expect(((await stub.fakeControl({})) as any).snapshot_deletes).toBe(1)
+
+    const other = caller()
+    const beforeRefused = (await stub.fakeControl({})) as any
+    expect(await rpc.deleteSnapshot(other, id)).toMatchObject({ ok: false, code: "cloud.snapshot.not_found" })
+    expect(((await stub.fakeControl({})) as any).snapshot_deletes).toBe(beforeRefused.snapshot_deletes)
+    expect(await rpc.deleteSnapshot(c, "snap_bad")).toMatchObject({ ok: false, code: "validation.invalid" })
+  })
+
+  it("refuses a non-platform snapshot without calling its provider", async () => {
+    const c = caller()
+    const { machine, stub } = await bootAndBind(c)
+    const ordinary = reply(await stub.submit(c.team, { identity: `user:${c.user}`, kind: "session", user: c.user, team: c.team }, frame("cloud.snapshot.create", { machine, name: "ordinary" })))
+    // The machine must be running before the regular snapshot can be created.
+    expect(ordinary).toMatchObject({ t: "result", value: { snapshot: { id: expect.any(String) } } })
+    const before = (await stub.fakeControl({})) as any
+    expect(await rpc.deleteSnapshot(c, ordinary.value.snapshot.id)).toMatchObject({ ok: false, code: "cloud.snapshot.not_found" })
+    expect(((await stub.fakeControl({})) as any).snapshot_deletes).toBe(before.snapshot_deletes)
+  })
+
   it("a user who left the team can no longer boot, exec or snapshot, but its cleanup still deletes the builder", async () => {
     const c = { user: caller().user, team: SHARED_TEAM }
     const stub = cloudStub(SHARED_TEAM)
@@ -176,6 +205,7 @@ describe("PlatformMachines (workerd)", { timeout: 60_000 }, () => {
     const c = caller()
     expect(await off.boot(c, nameOf())).toMatchObject({ ok: false, code: "platform.machines_off", retryable: false })
     expect(await off.destroy(c, `vm_${"a".repeat(20)}`)).toMatchObject({ ok: false, code: "platform.machines_off" })
+    expect(await off.deleteSnapshot(c, `snap_${"a".repeat(20)}`)).toMatchObject({ ok: false, code: "platform.machines_off" })
   })
 
   it("is not reachable over HTTP", async () => {

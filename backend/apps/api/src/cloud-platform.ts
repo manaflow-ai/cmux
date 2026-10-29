@@ -31,6 +31,7 @@ export type PlatformCall =
   | { readonly op: "exec"; readonly machine: string; readonly command: string; readonly stdin: string | null; readonly timeoutMs: number }
   | { readonly op: "snapshot"; readonly machine: string; readonly name: string }
   | { readonly op: "destroy"; readonly machine: string }
+  | { readonly op: "deleteSnapshot"; readonly snapshot: string }
 
 /** `retryable`: the same call later may succeed (a provider call still running, a machine still binding). */
 export type PlatformReply<T = unknown> = { readonly ok: true; readonly value: T } | { readonly ok: false; readonly code: string; readonly message: string; readonly retryable: boolean }
@@ -44,6 +45,8 @@ export interface PlatformHost {
   machine(id: string): MachineRow | undefined
   ledger(key: string): LedgerRow | undefined
   snapshot(id: string): SnapshotRow | undefined
+  /** True only when this user created the snapshot through the platform snapshot operation. */
+  platformSnapshot(user: string, id: string): boolean
   tombstoned(machine: string): boolean
   /** One command on the machine's VM as root; null when the provider did not answer. */
   exec(row: MachineRow, command: string, stdin: Uint8Array | null, timeoutMs: number): Promise<GuestExecResult | null>
@@ -51,7 +54,7 @@ export interface PlatformHost {
 }
 
 export const platformPrincipal = (team: string, user: string): Principal => ({ identity: `${PLATFORM_IDENTITY_PREFIX}${user}`, kind: "session", user, team })
-const key = (kind: "boot" | "snapshot" | "destroy", name: string) => `platform-env:${kind}:${name}`
+const key = (kind: "boot" | "snapshot" | "destroy" | "deleteSnapshot", name: string) => `platform-env:${kind}:${name}`
 const ok = <T>(value: T): PlatformReply<T> => ({ ok: true, value })
 export const refused = (code: string, message: string, retryable: boolean): PlatformReply<never> => ({ ok: false, code, message, retryable })
 type Reply = { t: "result"; value?: any } | { t: "reject"; code: string; message: string; retryable?: boolean }
@@ -139,6 +142,18 @@ export const platformCall = async (host: PlatformHost, user: string, call: Platf
       if (host.tombstoned(m.id) || !host.machine(m.id)) return ok({ deleted: true })
       if (r?.t === "result") return deleting
       return r?.t === "reject" ? refused(r.code, r.message, true) : fromReject(r)
+    }
+    case "deleteSnapshot": {
+      const k = key("deleteSnapshot", call.snapshot)
+      const prior = host.ledger(ledgerKey(p.identity, k))
+      // A completed delete has removed the snapshot row; replay its own ledger key as success.
+      if (prior?.op === "snapshot_delete" && prior.snapshot === call.snapshot && prior.state === "done") return ok({ deleted: true })
+      // The source snapshot ledger is the durable platform marker. A public/user snapshot, a
+      // snapshot from another platform user, and a snapshot in another team are all not found.
+      if (!host.platformSnapshot(user, call.snapshot)) return refused("cloud.snapshot.not_found", "no such platform snapshot in this team", false)
+      const r = await submit("cloud.snapshot.delete", { snapshot: call.snapshot }, k)
+      if (r?.t === "result") return ok({ deleted: true })
+      return fromReject(r)
     }
   }
 }
