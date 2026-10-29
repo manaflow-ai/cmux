@@ -151,8 +151,6 @@ pub mod terminal_host;
 pub mod terminal_host_protocol;
 pub mod terminal_host_runtime;
 pub mod thread_qos;
-/// VT worker shard choice by trust class (p01-process task 142).
-pub mod vt_trust_shards;
 #[cfg(unix)]
 pub use cmux_tui_platform::unix_process_scope;
 pub use cmux_tui_util::user_settings;

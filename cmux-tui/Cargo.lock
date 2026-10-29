@@ -2012,19 +2012,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "cmux-vt-worker"
-version = "0.1.0"
-dependencies = [
- "cmux-holder",
- "cmux-ipc",
- "cmux-kitty-media",
- "cmux-process",
- "cmux-vt-stream",
- "ghostty-vt",
- "libc",
-]
-
-[[package]]
 name = "cmux-wake"
 version = "0.1.0"
 dependencies = [
