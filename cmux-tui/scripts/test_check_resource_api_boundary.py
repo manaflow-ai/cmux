@@ -461,6 +461,29 @@ const HELP: &str = "cmux surface list";
 
             self.assertEqual([(item.code, item.line) for item in diagnostics], [("boundary.surface", 5)])
 
+    def test_cli_test_module_braces_in_comments_after_a_char_literal_do_not_count(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            tui = Path(directory)
+            write(
+                tui / "crates/cmux-tui/src/cli/catalog.rs",
+                """\
+const QUOTE: char = 'q';
+const DOC: &str = "#[cfg(test)] mod fake {";
+#[cfg(test)]
+mod tests {
+    // An open brace in a comment: {
+    fn f() {}
+}
+const HELP: &str = "cmux surface list";
+""",
+            )
+
+            diagnostics, _ = CHECKER.scan_public_boundaries(tui)
+
+            # The test module ends at its own brace; the string that looks like
+            # one opens nothing; the help text after both is scanned.
+            self.assertEqual([(item.code, item.line) for item in diagnostics], [("boundary.surface", 8)])
+
     def test_cli_allows_relay_transport_slot_but_rejects_resource_slot(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             tui = Path(directory)

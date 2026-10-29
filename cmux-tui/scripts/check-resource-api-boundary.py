@@ -415,7 +415,7 @@ def _blank_rust_comments(text: str) -> str:
             i = j + 1
         elif c == "'":
             char = _RUST_CHAR_LITERAL_RE.match(text, i)
-            i += char.end() if char else 1
+            i = char.end() if char else i + 1
         else:
             i += 1
     return "".join(out)
@@ -3506,8 +3506,9 @@ def _rust_test_module_spans(text: str) -> list[tuple[int, int]]:
     code = _blank_rust_comments(text)
     string_ends = dict(_rust_string_regions(code))
     spans: list[tuple[int, int]] = []
+    strings = list(string_ends.items())
     for match in _RUST_TEST_MODULE_RE.finditer(code):
-        if any(start <= match.start() < end for start, end in spans):
+        if any(start <= match.start() < end for start, end in [*spans, *strings]):
             continue
         depth = 1
         index = match.end()
