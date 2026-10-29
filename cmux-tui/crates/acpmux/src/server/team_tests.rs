@@ -40,6 +40,8 @@ struct FakeHub {
     browsed: Mutex<Vec<(bool, Option<String>, Option<u64>)>>,
     reads: Mutex<Vec<String>>,
     acknowledgements: Mutex<Vec<String>>,
+    session_only_receipt: std::sync::atomic::AtomicBool,
+    omit_start_work: std::sync::atomic::AtomicBool,
 }
 
 impl MeshHub for FakeHub {
@@ -75,7 +77,16 @@ impl MeshHub for FakeHub {
     }
 
     fn receipt<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<Receipt, HubError>> {
-        Box::pin(async move { Ok(receipt(id, "delivered")) })
+        Box::pin(async move {
+            let mut receipt = receipt(id, "delivered");
+            if self.session_only_receipt.load(std::sync::atomic::Ordering::SeqCst) {
+                receipt.to.team_address = None;
+            }
+            if self.omit_start_work.load(std::sync::atomic::Ordering::SeqCst) {
+                receipt.start_work = None;
+            }
+            Ok(receipt)
+        })
     }
 
     fn read<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<Receipt, HubError>> {
@@ -283,7 +294,7 @@ async fn team_legacy_routes_share_authorization_and_status_is_scoped() {
     assert_eq!(reply["result"]["status"], "delivered", "{reply}");
     let mut recipient = Rpc::connect(&hub, Origin::Local, Some((OWN, true))).await;
     let reply = recipient.call(method::MUX_SEND_STATUS, status.clone()).await;
-    assert_eq!(reply["result"]["target"], "@member/coordinator", "{reply}");
+    assert_eq!(reply["error"]["data"]["reason"], "team.forbidden", "{reply}");
     let mut owner = Rpc::connect(&hub, Origin::Local, None).await;
     assert!(owner.call(method::MUX_SEND_STATUS, status.clone()).await.get("error").is_none());
     hub.config.write().await.mesh_relay.as_mut().unwrap().team_messaging = false;
@@ -380,4 +391,104 @@ async fn legacy_team_send_records_sender_ownership_for_status_after_reconnection
     }
     assert!(fake.reads.lock().unwrap().is_empty());
     assert!(fake.acknowledgements.lock().unwrap().is_empty());
+}
+
+async fn resolved_team_status_is_refused(enabled: bool) {
+    let (hub, fake) = setup(true);
+    // The sender and recipient are OWN. OTHER must never read this receipt.
+    let mut sender = Rpc::connect(&hub, Origin::Local, Some((OWN, true))).await;
+    let sent = sender
+        .call(
+            method::MUX_TEAM_SEND,
+            json!({"to": "@team/reviewer", "body": "private team message"}),
+        )
+        .await;
+    assert!(sent.get("error").is_none(), "{sent}");
+    fake.session_only_receipt.store(true, std::sync::atomic::Ordering::SeqCst);
+    hub.config.write().await.mesh_relay.as_mut().unwrap().team_messaging = enabled;
+    let mut unrelated = Rpc::connect(&hub, Origin::Local, Some((OTHER, true))).await;
+    let reply = unrelated
+        .call(method::MUX_SEND_STATUS, json!({"deliveryId": format!("mesh:{OWN_MESSAGE}")}))
+        .await;
+    assert_eq!(
+        reply["error"]["data"]["reason"],
+        if enabled { "team.forbidden" } else { "team_messaging_disabled" },
+        "{reply}"
+    );
+    if enabled {
+        // A missing marker must not erase the locally recorded origin either.
+        fake.omit_start_work.store(true, std::sync::atomic::Ordering::SeqCst);
+        let reply = sender
+            .call(method::MUX_SEND_STATUS, json!({"deliveryId": format!("mesh:{OWN_MESSAGE}")}))
+            .await;
+        assert_eq!(reply["result"]["target"], "@team/reviewer", "{reply}");
+        fake.omit_start_work.store(false, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+#[tokio::test]
+async fn resolved_team_status_refuses_unrelated_caller_with_labs_off() {
+    resolved_team_status_is_refused(false).await;
+}
+
+#[tokio::test]
+async fn resolved_team_status_refuses_unrelated_caller_with_labs_on() {
+    resolved_team_status_is_refused(true).await;
+}
+
+#[tokio::test]
+async fn team_receipt_origin_survives_restart_and_gates_owner_sends_without_wire_markers() {
+    let (hub, fake) = setup(true);
+    let dir = std::env::temp_dir().join(format!("team-origin-{}", uuid::Uuid::now_v7()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("outbox.json");
+    assert!(hub.outbox.open(&path).is_empty());
+    let mut owner = Rpc::connect(&hub, Origin::Local, None).await;
+    assert!(
+        owner
+            .call(method::MUX_TEAM_SEND, json!({"to": "@team/reviewer", "body": "owner sent"}))
+            .await
+            .get("error")
+            .is_none()
+    );
+    fake.session_only_receipt.store(true, std::sync::atomic::Ordering::SeqCst);
+    fake.omit_start_work.store(true, std::sync::atomic::Ordering::SeqCst);
+    let (restarted, restarted_fake) = setup(true);
+    assert!(restarted.outbox.open(&path).is_empty(), "receipt metadata never resumes as a prompt");
+    let origin = restarted.outbox.team_receipt(OWN_MESSAGE).unwrap();
+    assert_eq!(origin.target, "@team/reviewer");
+    assert!(origin.caller.is_none());
+    assert!(restarted.outbox.get(&format!("mesh:{OWN_MESSAGE}")).is_none());
+    // Prompt retry ids are caller-controlled and must never resolve to receipt metadata.
+    let delivery = restarted.outbox.add(crate::hub::outbox::Delivery {
+        id: "ordinary-delivery".into(),
+        target: OTHER.into(),
+        request: json!({"_meta": {"acpmux": {"promptId": format!("mesh:{OWN_MESSAGE}")}}}),
+        caller: Some(OTHER.into()),
+        state: crate::hub::outbox::State::Delivered,
+        attempts: 0,
+        error: None,
+        accepted: None,
+        created_at: crate::store::now_ms(),
+        updated_at: crate::store::now_ms(),
+    });
+    assert_eq!(delivery.id, "ordinary-delivery");
+    assert_eq!(delivery.target, OTHER);
+    restarted_fake.session_only_receipt.store(true, std::sync::atomic::Ordering::SeqCst);
+    restarted_fake.omit_start_work.store(true, std::sync::atomic::Ordering::SeqCst);
+    // The resolved OWN sessionId grants no authority: the owner sent with no caller journal.
+    for id in [OWN, OTHER] {
+        let mut caller = Rpc::connect(&restarted, Origin::Local, Some((id, true))).await;
+        let reply = caller
+            .call(method::MUX_SEND_STATUS, json!({"deliveryId": format!("mesh:{OWN_MESSAGE}")}))
+            .await;
+        assert_eq!(reply["error"]["data"]["reason"], "team.forbidden", "{reply}");
+    }
+    restarted.config.write().await.mesh_relay.as_mut().unwrap().team_messaging = false;
+    let mut owner = Rpc::connect(&restarted, Origin::Local, None).await;
+    let reply = owner
+        .call(method::MUX_SEND_STATUS, json!({"deliveryId": format!("mesh:{OWN_MESSAGE}")}))
+        .await;
+    assert_eq!(reply["error"]["data"]["reason"], "team_messaging_disabled", "{reply}");
+    std::fs::remove_dir_all(dir).unwrap();
 }

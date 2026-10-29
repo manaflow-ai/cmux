@@ -76,7 +76,7 @@ async fn send(
     let caller = conn.caller().filter(|_| !conn.is_person());
     let receipt = mesh
         .send(&OutMessage {
-            to: Target { team_address: Some(wire_address), ..Target::default() },
+            to: Target { team_address: Some(wire_address.clone()), ..Target::default() },
             from: Sender {
                 name: caller.map(|id| hub.session_name(id)),
                 session_id: caller.map(str::to_owned),
@@ -91,7 +91,7 @@ async fn send(
         })
         .await
         .map_err(|e| RpcError::invalid_params(format!("the mesh hub refused team message: {e}")))?;
-    remember_sender(hub, conn, &receipt.message_id)?;
+    remember_sender(hub, conn, &receipt.message_id, &wire_address)?;
     Ok(serde_json::to_value(receipt).unwrap_or(Value::Null))
 }
 
@@ -186,7 +186,16 @@ fn required(params: &Value, name: &str) -> Result<String, RpcError> {
 mod tests;
 
 /// Ownership comes from the proven connection and a local journal entry, never sender hints.
-pub(super) fn remember_sender(hub: &Hub, conn: &Conn, id: &str) -> Result<(), RpcError> {
+pub(super) fn remember_sender(
+    hub: &Hub,
+    conn: &Conn,
+    id: &str,
+    address: &str,
+) -> Result<(), RpcError> {
+    if !hub.outbox.record_team_receipt(id, address, conn.caller().filter(|_| !conn.is_person())) {
+        return Err(RpcError::internal("team message sent, but its origin could not be persisted")
+            .with_data(json!({"messageId": id})));
+    }
     if let Some(caller) = conn.caller().filter(|_| !conn.is_person()) {
         let session = hub.resolve(caller).map_err(|_| forbidden())?;
         if !hub.record_team_send(&session, id) {

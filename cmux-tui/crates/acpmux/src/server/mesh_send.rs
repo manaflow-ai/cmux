@@ -108,7 +108,7 @@ pub(super) async fn send(
     };
     let receipt = mesh.send(&message).await.map_err(|e| refusal(target, e))?;
     if target.starts_with('@') {
-        super::team::remember_sender(hub, conn, &receipt.message_id)?;
+        super::team::remember_sender(hub, conn, &receipt.message_id, target)?;
     }
     Ok(status_of(&receipt, target))
 }
@@ -132,20 +132,29 @@ pub(super) async fn status(
             )
         }
     })?;
-    if receipt.to.team_address.is_some() {
+    let origin = hub.outbox.team_receipt(message);
+    // Stored origin is authoritative even when resolution strips teamAddress/startWork.
+    // Hub markers also protect receipts created before this daemon recorded their origin.
+    if origin.is_some() || receipt.to.team_address.is_some() || receipt.start_work.is_some() {
         super::team::authorize(hub, conn).await?;
-        if !super::team::may_read(conn, &receipt.to)
-            && !conn.caller().is_some_and(|caller| hub.sent_team_message(caller, message))
+        if !conn.is_person()
+            && let Some(caller) = conn.caller()
         {
-            return Err(super::team::forbidden());
+            let sent_here = origin.as_ref().is_some_and(|d| d.caller.as_deref() == Some(caller))
+                || hub.sent_team_message(caller, message);
+            // A resolved recipient session id is routing data, not sender authority.
+            if !sent_here {
+                return Err(super::team::forbidden());
+            }
         }
     }
-    let target = receipt.to.team_address.clone().unwrap_or_else(|| {
-        match (&receipt.to.host, &receipt.to.name) {
-            (Some(host), Some(name)) => format!("{host}/{name}"),
-            (_, name) => name.clone().unwrap_or_default(),
-        }
-    });
+    let target =
+        receipt.to.team_address.clone().or_else(|| origin.map(|d| d.target)).unwrap_or_else(|| {
+            match (&receipt.to.host, &receipt.to.name) {
+                (Some(host), Some(name)) => format!("{host}/{name}"),
+                (_, name) => name.clone().unwrap_or_default(),
+            }
+        });
     Ok(status_of(&receipt, &target))
 }
 
