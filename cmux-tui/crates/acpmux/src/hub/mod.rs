@@ -375,6 +375,9 @@ pub(super) struct StreamState {
     pub(super) trailing_overflow: bool,
 }
 
+/// An inline `/btw` side session's transcript owner: its family and the parent chat's env.
+pub(super) type InlineBtwOwner = (String, std::collections::BTreeMap<String, String>);
+
 pub struct Hub {
     pub config: RwLock<Config>,
     pub(crate) wireguard: Option<Arc<crate::wireguard::Transport>>,
@@ -385,6 +388,10 @@ pub struct Hub {
     pub(super) sessions: StdMutex<HashMap<String, Arc<Session>>>,
     /// Where adopt looks for harness sessions.
     pub(super) harness_homes: StdMutex<crate::adopt::HarnessHomes>,
+    /// Inline `/btw` side sessions being created, by their request-unique name: the family and
+    /// parent env their transcript cleanup reads (`btw.rs` `InlineOwned`). A creation that fails
+    /// and is discarded inside `new_session` or `fork` removes that harness transcript too.
+    pub(super) inline_btw: StdMutex<HashMap<String, InlineBtwOwner>>,
     /// Every change watchers hear of, counted for the session list guard (`list_guard.rs`).
     pub(super) events: list_guard::Events,
     /// The shared, paced full session list (`list_guard.rs`).
@@ -649,6 +656,7 @@ impl Hub {
             forum: std::sync::OnceLock::new(),
             sessions: StdMutex::new(HashMap::new()),
             harness_homes: StdMutex::new(crate::adopt::HarnessHomes::from_env()),
+            inline_btw: StdMutex::new(HashMap::new()),
             events,
             list_guard: Default::default(),
             models_fanouts: std::sync::atomic::AtomicUsize::new(0),

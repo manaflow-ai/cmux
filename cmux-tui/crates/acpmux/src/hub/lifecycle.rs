@@ -553,7 +553,19 @@ impl Hub {
         let reopened_since = session.stops.load(Ordering::SeqCst) != created_stops
             && session.status() != SessionStatus::Closed;
         if !reopened_since {
-            let _ = self.kill(session, true).await;
+            // An inline /btw's session takes its harness transcript with it (`btw.rs`).
+            let inline = self
+                .inline_btw
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .get(&session.meta().name)
+                .cloned();
+            match inline {
+                Some((family, env)) => Box::pin(self.btw_cleanup(session, &family, &env)).await,
+                None => {
+                    let _ = self.kill(session, true).await;
+                }
+            }
         }
     }
 

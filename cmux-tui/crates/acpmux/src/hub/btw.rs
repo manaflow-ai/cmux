@@ -71,6 +71,38 @@ const REFUSED_KINDS: &[&str] = &["edit", "delete", "move", "execute", "switch_mo
 /// Words in a model id or name that mark a small, fast model, best first.
 const SMALL_MODEL_WORDS: &[&str] = &["nano", "mini", "flash", "lite", "small", "fast"];
 
+/// Registers an inline side session's request-unique name for its request's lifetime
+/// (`Hub::inline_btw`), so `discard_failed_creation` cleans its harness transcript.
+struct InlineOwned {
+    hub: Arc<Hub>,
+    name: String,
+}
+
+impl InlineOwned {
+    fn new(
+        hub: &Arc<Hub>,
+        name: &str,
+        family: &str,
+        harness_env: &std::collections::BTreeMap<String, String>,
+    ) -> Self {
+        hub.inline_btw
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .insert(name.to_owned(), (family.to_owned(), harness_env.clone()));
+        Self { hub: hub.clone(), name: name.to_owned() }
+    }
+}
+
+impl Drop for InlineOwned {
+    fn drop(&mut self) {
+        self.hub
+            .inline_btw
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .remove(&self.name);
+    }
+}
+
 /// Run setup and answer work under one inline deadline; legacy side sessions have no deadline.
 async fn with_inline_deadline<T, F>(
     deadline: Option<tokio::time::Instant>,
@@ -273,6 +305,9 @@ impl Hub {
         // unique_name check races when two inline requests start together, which could make
         // timeout cleanup identify and purge the other request's session too.
         let name = self.unique_name(&format!("{}-btw-{}", meta.name, uuid::Uuid::now_v7()));
+        // While this request runs, a creation that fails and is discarded inside `new_session`
+        // or `fork` (out of this request's sight) removes this session's transcript too.
+        let _owned = inline.then(|| InlineOwned::new(self, &name, &family, &harness_env));
         let (side, context) = match with_inline_deadline(
             inline_deadline,
             Box::pin(self.btw_fork_point(session, &meta)),
@@ -531,7 +566,7 @@ impl Hub {
     /// Purge the temporary acpmux fork and, for Claude forks, its separate
     /// conversation file. Claude indexes those files independently of the
     /// acpmux store, so deleting only the session log leaves a ghost chat.
-    async fn btw_cleanup(
+    pub(super) async fn btw_cleanup(
         &self,
         side: &Arc<Session>,
         family: &str,
@@ -978,6 +1013,56 @@ mod tests {
         assert_eq!(homes.with_env(&[&env]).claude, home.join("isolated-claude"));
         assert_ne!(homes.with_env(&[&raw]).claude, home.join("isolated-claude"));
         hub.shutdown_all().await;
+    }
+
+    /// A creation that fails after its harness wrote a transcript is discarded inside
+    /// `new_session`/`fork`, out of the request's sight: an inline /btw's session takes its
+    /// transcript with it, and any other discarded session keeps its harness's files.
+    #[tokio::test]
+    async fn discarded_inline_creation_removes_its_transcript_and_only_its_own() {
+        let root =
+            std::env::temp_dir().join(format!("acpmux-btw-discard-{}", uuid::Uuid::now_v7()));
+        let projects = root.join("projects").join("p");
+        std::fs::create_dir_all(&projects).unwrap();
+        let mut cfg = Config::default();
+        cfg.harnesses.insert(
+            "claude-iso".into(),
+            claude_profile(&[("CLAUDE_CONFIG_DIR", &root.to_string_lossy())]),
+        );
+        let hub = Hub::new(cfg, Box::new(crate::store::MemoryStore::default()));
+        let env = std::collections::BTreeMap::from([(
+            "CLAUDE_CONFIG_DIR".to_owned(),
+            root.to_string_lossy().into_owned(),
+        )]);
+        let publish = |name: &str, sid: &str| {
+            let mut meta = side_meta("claude-iso", &root);
+            meta.id = format!("id-{name}");
+            meta.name = name.to_owned();
+            meta.agent_session_id = Some(sid.to_owned());
+            std::fs::write(projects.join(format!("{sid}.jsonl")), sid).unwrap();
+            let session = hub.make_session(meta);
+            hub.sessions.lock().unwrap().insert(session.id.clone(), session.clone());
+            session
+        };
+        let inline = publish("chat-btw-1", "inline-transcript");
+        let other = publish("chat", "other-transcript");
+        let owned = InlineOwned::new(&hub, "chat-btw-1", "claude", &env);
+        hub.discard_failed_creation(&inline, 0).await;
+        hub.discard_failed_creation(&other, 0).await;
+        drop(owned);
+        assert!(hub.resolve(&inline.id).is_err(), "the inline session is discarded");
+        assert!(hub.resolve(&other.id).is_err(), "the other session is discarded");
+        assert!(
+            !projects.join("inline-transcript.jsonl").exists(),
+            "the inline session's transcript goes with it"
+        );
+        assert!(
+            projects.join("other-transcript.jsonl").exists(),
+            "a session no inline request owns keeps its transcript"
+        );
+        assert!(hub.inline_btw.lock().unwrap().is_empty(), "the request's mark is gone");
+        hub.shutdown_all().await;
+        let _ = std::fs::remove_dir_all(root);
     }
 
     /// A family default's store (here `${cwd}`-relative) is where cleanup looks,
