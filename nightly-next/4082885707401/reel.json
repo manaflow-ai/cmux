@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "build": "4082885707401",
+  "notes": "notes/4082885707401.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 27227,
+      "title": "fix(acpmux): pairing tickets reach host join on stdin, never argv",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
