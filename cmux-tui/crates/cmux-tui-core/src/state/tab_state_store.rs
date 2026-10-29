@@ -710,10 +710,13 @@ mod attention_tests {
         let transaction = connection.transaction().unwrap();
         update_tab_state(&transaction, "tab_a", &mark).unwrap();
         transaction.commit().unwrap();
-        let second_at: u64 = connection
+        let second_at: i64 = connection
             .query_row("SELECT json_extract(attention_json, '$.at_ms') FROM tab_state WHERE tab_id = 'tab_a'", [], |row| row.get(0))
             .unwrap();
-        assert!(second_at > first_at, "repeated requests have a unique monotonic identity");
+        assert!(
+            u64::try_from(second_at).unwrap() > first_at,
+            "repeated requests have a unique monotonic identity"
+        );
         let transaction = connection.transaction().unwrap();
         let clear = TabStateUpdate { attention: Some(None), ..Default::default() };
         update_tab_state(&transaction, "tab_a", &clear).unwrap();
@@ -742,13 +745,13 @@ mod attention_tests {
         let transaction = connection.transaction().unwrap();
         update_tab_state(&transaction, "tab_a", &mark).unwrap();
         transaction.commit().unwrap();
-        let old_at: u64 = connection
+        let old_at: i64 = connection
             .query_row("SELECT json_extract(attention_json, '$.at_ms') FROM tab_state WHERE tab_id = 'tab_a'", [], |row| row.get(0))
             .unwrap();
         let transaction = connection.transaction().unwrap();
         let clear = TabStateUpdate {
             attention: Some(None),
-            attention_clear_at_ms: Some(old_at),
+            attention_clear_at_ms: Some(u64::try_from(old_at).unwrap()),
             ..Default::default()
         };
         update_tab_state(&transaction, "tab_a", &clear).unwrap();
@@ -764,7 +767,7 @@ mod attention_tests {
         )
         .unwrap();
         transaction.commit().unwrap();
-        let newer_at: u64 = connection
+        let newer_at: i64 = connection
             .query_row("SELECT json_extract(attention_json, '$.at_ms') FROM tab_state WHERE tab_id = 'tab_a'", [], |row| row.get(0))
             .unwrap();
         assert!(newer_at > old_at, "a re-mark after clear gets a fresh identity");
