@@ -52,6 +52,11 @@ on:
         required: false
         default: false
         type: boolean
+      image:
+        description: "Existing snapshot to verify and derive instead of baking again"
+        required: false
+        default: ""
+        type: string
       confirm:
         description: "Type PROMOTE when promote is true"
         required: false
@@ -137,12 +142,14 @@ jobs:
           FREESTYLE_API_KEY: ${{ secrets.FREESTYLE_API_KEY }}
           PROMOTION_OUT: ${{ runner.temp }}/devbox-promotion.json
           SLUG: cmux-devbox-${{ github.run_id }}
+          EXISTING_IMAGE: ${{ inputs.image }}
         run: |
           set -euo pipefail
-          bun run devbox:promote -- freestyle \
-            --slug "$SLUG" \
-            --pointer-slug none \
-            --out "$PROMOTION_OUT"
+          args=(freestyle --slug "$SLUG" --pointer-slug none --out "$PROMOTION_OUT")
+          if [ -n "$EXISTING_IMAGE" ]; then
+            args+=(--image "$EXISTING_IMAGE")
+          fi
+          bun run devbox:promote -- "${args[@]}"
           bun run devbox:manifest:check
           cp services/vms/images/manifest.json "$RUNNER_TEMP/devbox-manifest.json"
 
