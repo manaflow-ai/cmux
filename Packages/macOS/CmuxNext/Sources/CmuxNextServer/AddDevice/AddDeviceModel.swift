@@ -21,14 +21,23 @@ public final class AddDeviceModel {
     public var platform: AddDevicePlatform = .macOrLinux
     /// The line was copied (the button says so until the platform or way changes).
     public private(set) var copied = false
+    /// The "Any machine: one line" way's state; nil while Labs `labs.machineJoin` is off.
+    public private(set) var joinLine: MachineJoinLineModel?
 
     @ObservationIgnored private let services: AddDeviceServices
     /// The person picked a way: a late listing never moves them.
     @ObservationIgnored private var chosenByHand = false
     @ObservationIgnored private var generation = 0
 
-    public init(services: AddDeviceServices) {
+    @ObservationIgnored private let joinClock: @Sendable () -> Date
+    @ObservationIgnored private let joinSleep: @Sendable (Duration) async throws -> Void
+
+    /// `joinClock` and `joinSleep` drive the join line's countdown (tests move time by hand).
+    public init(services: AddDeviceServices, joinClock: @escaping @Sendable () -> Date = { Date() },
+                joinSleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }) {
         self.services = services
+        self.joinClock = joinClock
+        self.joinSleep = joinSleep
     }
 
     /// The card opens: back to the network way, and the network's computers read again.
@@ -36,14 +45,21 @@ public final class AddDeviceModel {
     public func begin(way: AddDeviceWay? = nil) async {
         generation += 1
         let mine = generation
-        self.way = way ?? .network
-        chosenByHand = way != nil
+        joinLine?.close()
+        joinLine = services.machineJoin().map { MachineJoinLineModel(service: $0, clock: joinClock, sleep: joinSleep) }
+        self.way = way.flatMap { ways.contains($0) ? $0 : nil } ?? .network
+        chosenByHand = self.way == way
         copied = false
         candidates = .loading
         let listing = await services.list()
         guard mine == generation else { return }
         candidates = listing.map(Candidates.loaded) ?? .unavailable
         if !chosenByHand, available.isEmpty { self.way = .newDevice }
+    }
+
+    /// The ways the card offers: the three, plus "Any machine: one line" with Labs `labs.machineJoin` on.
+    public var ways: [AddDeviceWay] {
+        AddDeviceWay.allCases.filter { $0 != .joinLine || joinLine != nil }
     }
 
     /// The computers the network way lists, the person's own first.
@@ -60,6 +76,7 @@ public final class AddDeviceModel {
     }
 
     public func choose(_ way: AddDeviceWay) {
+        guard ways.contains(way) else { return }
         chosenByHand = true
         copied = false
         self.way = way
@@ -80,6 +97,8 @@ public final class AddDeviceModel {
             [AddDeviceButton(action: .cancel, key: .escape), AddDeviceButton(action: .enterCode, key: .return)]
         case .newDevice where platform == .phone:
             [AddDeviceButton(action: .done, key: .return)]
+        case .joinLine:
+            joinLineButtons
         case .newDevice:
             // A computer: New Cloud VM… stays at hand, as on the network way (the card opens here
             // when the network lists nothing to add).
@@ -109,9 +128,44 @@ public final class AddDeviceModel {
             services.copy(line)
             copied = true
             return false
+        case .copyJoinLine:
+            guard let line = joinLine?.line else { return false }
+            services.copyConcealed(line.line)
+            joinLine?.markCopied()
+            return false
+        case .makeJoinLine, .newJoinLine:
+            mintJoinLine()
+            return false
+        case .showMachines:
+            services.showMachines()
+            closeCard()
+            return true
         case .done, .cancel:
-            generation += 1
+            closeCard()
             return true
         }
+    }
+
+    /// The card closes: a late listing or mint is dropped, and the join line's countdown and mesh
+    /// watch stop (``MachineJoinLineModel/close()``).
+    public func closeCard() {
+        generation += 1
+        joinLine?.close()
+    }
+
+    private var joinLineButtons: [AddDeviceButton] {
+        switch joinLine?.phase {
+        case .showing: [AddDeviceButton(action: .cancel, key: .escape), AddDeviceButton(action: .copyJoinLine, key: .return)]
+        case .joined: [AddDeviceButton(action: .showMachines, key: nil), AddDeviceButton(action: .done, key: .return)]
+        case .expired, .failed: [AddDeviceButton(action: .cancel, key: .escape), AddDeviceButton(action: .newJoinLine, key: .return)]
+        case .idle: [AddDeviceButton(action: .cancel, key: .escape), AddDeviceButton(action: .makeJoinLine, key: .return)]
+        case .minting, nil: [AddDeviceButton(action: .cancel, key: .escape)]
+        }
+    }
+
+    private func mintJoinLine() {
+        guard let joinLine else { return }
+        // task-owner: one mint per click; a newer mint or close() supersedes it (its generation).
+        Task { await joinLine.mint() }
     }
 }
