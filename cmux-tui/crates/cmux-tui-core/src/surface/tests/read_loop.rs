@@ -213,7 +213,10 @@ fn warm_process_threads() {
 
 /// The process's threads at one point, to name the ones started later.
 struct ThreadCount {
-    registered: std::collections::HashSet<u64>,
+    /// [`cmux_threads::start_mark`]: a thread the Mux started before it (its
+    /// `mux-reaper`, `image-paste-expiry`, `mux-launch`) is not counted even
+    /// when it registers itself after it, as a loaded host can delay.
+    mark: u64,
     #[cfg(target_os = "linux")]
     os: usize,
 }
@@ -221,7 +224,7 @@ struct ThreadCount {
 impl ThreadCount {
     fn now() -> Self {
         Self {
-            registered: cmux_threads::snapshot().into_iter().filter_map(|row| row.tid).collect(),
+            mark: cmux_threads::start_mark(),
             #[cfg(target_os = "linux")]
             os: Self::os_threads(),
         }
@@ -232,7 +235,7 @@ impl ThreadCount {
     fn added(&self) -> Vec<String> {
         cmux_threads::snapshot()
             .into_iter()
-            .filter(|row| row.tid.is_none_or(|tid| !self.registered.contains(&tid)))
+            .filter(|row| row.id >= self.mark)
             .map(|row| row.name)
             .collect()
     }

@@ -123,3 +123,39 @@ fn a_thread_that_starts_after_a_request_applies_it_at_its_first_pass() {
     assert_eq!(change, Some(QosChange::Applied));
     assert_eq!(after, LiveQos::Class(ThreadQos::Utility));
 }
+
+/// A thread starts registering only when it first runs, which a loaded host
+/// can delay past a caller's next step. Its row id is the spawn call's, so a
+/// [`crate::start_mark`] taken after the spawn and before the registration
+/// still counts the thread as started before the mark (the read loop's
+/// idle-thread test counted a Mux's own `mux-reaper` as a terminal's thread).
+#[test]
+fn a_thread_spawned_before_a_start_mark_is_before_it_even_when_it_registers_after() {
+    let (registered_tx, registered_rx) = mpsc::channel::<&'static str>();
+    let (end_tx, end_rx) = mpsc::channel::<()>();
+    let end_rx = std::sync::Arc::new(std::sync::Mutex::new(end_rx));
+    let start = |name: &'static str| {
+        let registered_tx = registered_tx.clone();
+        let end_rx = end_rx.clone();
+        crate::spawn(name, ThreadQos::Utility, move || {
+            registered_tx.send(name).unwrap();
+            let _ = end_rx.lock().unwrap().recv();
+        })
+        .expect("spawns")
+    };
+    // Holding the registry's rows keeps both threads from registering.
+    let rows = super::rows();
+    let early = start("cmux-threads-test-mark-early");
+    let mark = crate::start_mark();
+    let late = start("cmux-threads-test-mark-late");
+    drop(rows);
+    for _ in 0..2 {
+        registered_rx.recv().expect("both threads register");
+    }
+    let id = |name| row(name).expect("a registered thread has a row").id;
+    assert!(id("cmux-threads-test-mark-early") < mark, "started before the mark");
+    assert!(id("cmux-threads-test-mark-late") >= mark, "started after the mark");
+    drop(end_tx);
+    early.join().unwrap();
+    late.join().unwrap();
+}

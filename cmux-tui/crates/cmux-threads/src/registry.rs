@@ -160,7 +160,24 @@ impl Row {
     }
 }
 
+/// Row ids, in start order: [`crate::spawn`] takes its thread's id on the
+/// spawning thread, before the OS thread exists, so a thread started before
+/// a [`start_mark`] has a lower id even when it registers after the mark
+/// (a new thread registers itself when it first runs, which a loaded host
+/// can delay). A thread that registers itself takes its id then.
 static NEXT_ID: AtomicU64 = AtomicU64::new(1);
+
+/// Takes the row id of a thread [`crate::spawn`] is about to start.
+pub(crate) fn reserve_id() -> u64 {
+    NEXT_ID.fetch_add(1, Ordering::SeqCst)
+}
+
+/// The lowest row id a thread started after this call can have: the rows of
+/// [`snapshot`] with `id >= start_mark()` are the threads started since,
+/// whether or not they had registered when it was taken.
+pub fn start_mark() -> u64 {
+    NEXT_ID.load(Ordering::SeqCst)
+}
 
 /// A handle to a registered thread's desired-QoS slot. Another thread stores
 /// the QoS it wants the owner to run at; the owner reads it at a point of its
@@ -223,6 +240,8 @@ pub struct ThreadInfo {
     /// The object the thread works for ([`QosSlot::work_for`]), `None` when
     /// it was never set.
     pub owner: Option<u64>,
+    /// The registry id, in start order (compare with [`start_mark`]).
+    pub id: u64,
 }
 
 static ROWS: Mutex<Vec<Arc<Row>>> = Mutex::new(Vec::new());
@@ -282,7 +301,7 @@ pub(crate) fn current_qos() -> Option<ThreadQos> {
 /// [`deregister_current`] or when the thread exits. Returns `false`, and
 /// changes nothing, when the thread is registered already.
 pub fn register_current(name: impl Into<String>, qos: ThreadQos) -> bool {
-    register(name.into(), qos, DesiredQos::new(qos))
+    register(None, name.into(), qos, DesiredQos::new(qos))
 }
 
 /// [`register_current`] for a thread that follows `desired`: its row's
@@ -293,17 +312,25 @@ pub fn register_current_following(
     qos: ThreadQos,
     desired: DesiredQos,
 ) -> bool {
-    register(name.into(), qos, desired)
+    register(None, name.into(), qos, desired)
 }
 
-fn register(name: String, qos: ThreadQos, desired: DesiredQos) -> bool {
+/// Registers the calling thread, which [`crate::spawn`] started, under the
+/// id it took for it ([`reserve_id`]).
+pub(crate) fn register_spawned(id: u64, name: String, qos: ThreadQos, desired: DesiredQos) -> bool {
+    register(Some(id), name, qos, desired)
+}
+
+/// `id` is the one [`crate::spawn`] took; a thread that registers itself takes
+/// its id here, once it is known to be new.
+fn register(id: Option<u64>, name: String, qos: ThreadQos, desired: DesiredQos) -> bool {
     let registered = CURRENT.try_with(|current| {
         let mut current = current.borrow_mut();
         if current.is_some() {
             return false;
         }
         let row = Arc::new(Row {
-            id: NEXT_ID.fetch_add(1, Ordering::Relaxed),
+            id: id.unwrap_or_else(reserve_id),
             name,
             declared: qos,
             desired,
@@ -380,6 +407,7 @@ pub fn snapshot() -> Vec<ThreadInfo> {
                 NO_OWNER => None,
                 owner => Some(owner),
             },
+            id: row.id,
         })
         .collect()
 }

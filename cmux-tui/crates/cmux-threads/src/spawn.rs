@@ -80,13 +80,14 @@ where
     F: FnOnce() -> T + Send + 'static,
     T: Send + 'static,
 {
+    // Its row id is taken here, on the spawning thread, so the id order is
+    // the start order (`registry::start_mark`).
+    let id = registry::reserve_id();
     // The one std spawn every cmux thread goes through.
     #[allow(clippy::disallowed_methods)]
     let started = builder.name(name.clone()).spawn(move || {
-        match desired {
-            Some(desired) => registry::register_current_following(name, qos, desired),
-            None => registry::register_current(name, qos),
-        };
+        let desired = desired.unwrap_or_else(|| DesiredQos::new(qos));
+        registry::register_spawned(id, name, qos, desired);
         let _deregister = Deregister;
         f()
     });
@@ -124,9 +125,10 @@ impl<'scope> Scope<'scope, '_> {
         T: Send + 'scope,
     {
         let name = name.into();
+        let id = registry::reserve_id();
         #[allow(clippy::disallowed_methods)]
         let started = Builder::new().name(name.clone()).spawn_scoped(self.inner, move || {
-            registry::register_current(name, qos);
+            registry::register_spawned(id, name, qos, DesiredQos::new(qos));
             let _deregister = Deregister;
             f()
         });
