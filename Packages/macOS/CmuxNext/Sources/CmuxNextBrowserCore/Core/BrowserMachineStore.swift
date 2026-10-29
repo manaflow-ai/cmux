@@ -32,4 +32,21 @@ public nonisolated enum BrowserNavigationGuard: Int32, Hashable, Sendable {
     /// No loopback web URLs (a normal store in a remote workspace), so this
     /// Mac's localhost is never reached silently.
     case noLoopback = 2
+    /// Any URL but an Open Desktop page (`*.cloud-desktop.localhost`): a tab of
+    /// this Mac that goes there reroutes to that machine's store, never this Mac's
+    /// loopback.
+    case exceptCloudDesktop = 3
+
+    /// The host suffix of an Open Desktop page: `<machine id>.cloud-desktop.localhost`.
+    public static let cloudDesktopHostSuffix = ".cloud-desktop.localhost"
+
+    /// Whether `url` is an Open Desktop page. Only a Chromium tab can show one (through the app's
+    /// Cloud tunnel); anywhere else it would be this Mac's own loopback, so WebKit refuses it.
+    /// Matches the CEF shim's `IsCloudDesktopHost` (any case, a trailing dot dropped), so the two
+    /// never disagree about a page.
+    public static func isCloudDesktop(_ url: URL) -> Bool {
+        guard var host = url.host(percentEncoded: false)?.lowercased() else { return false }
+        if host.hasSuffix(".") { host.removeLast() }
+        return host.count > cloudDesktopHostSuffix.count && host.hasSuffix(cloudDesktopHostSuffix)
+    }
 }

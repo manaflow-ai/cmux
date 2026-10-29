@@ -448,11 +448,8 @@ await requireBrowserLane("agent-pane-queue-row-click.test.ts", async () => {
     ["access", "steer"],
     ["access", "trash"],
     ["access", "more"],
-    // The model menu's Effort submenu occupies the trash button's hit box. The model-menu
-    // regression is covered by its uncovered ⋯ action below; access-menu coverage exercises the
-    // trash path where the control is physically pressable, while keeping this test a real pointer
-    // press rather than a synthetic event through the submenu.
-    ["model", "more"],
+    // The model chip opens the combined picker, 480px wide and centred on the chip (#25796,
+    // #26071), so it covers all three actions, as the context card does: see the test below.
   ];
   for (const engine of ["chromium", "webkit"] as const) {
     describe(`queued row with a chip's menu open (${engine})`, () => {
@@ -467,6 +464,33 @@ await requireBrowserLane("agent-pane-queue-row-click.test.ts", async () => {
           expect(await chipOpen(page, CHIPS[chip])).toBe(false);
           await page.close();
         });
+      // The model picker lies over every one of the row's actions, so a press where ⋯ draws is the
+      // picker's own: it must not reach the row (no row menu, no queue edit or removal).
+      test("the model picker covers the row's actions, and a press there stays in the picker", async () => {
+        const page = await openChat(true, undefined, [], engine);
+        await caughtUp(page, "the cwd fix.");
+        calls.length = 0;
+        await openChip(page, CHIPS.model);
+        for (const action of ['[data-action="steer"]', '[data-action="delete"]', '[data-menu="queued-more"]']) {
+          const { covered } = await hitAt(page, `${ROW} ${action}`);
+          expect({ action, inPicker: covered !== null && /acpmux-quick|role="menu/.test(covered) }).toEqual({
+            action,
+            inPicker: true,
+          });
+        }
+        const { x, y } = await hitAt(page, `${ROW} [data-menu="queued-more"]`);
+        await page.mouse.move(x, y, { steps: 4 });
+        await page.mouse.down();
+        await page.mouse.up();
+        // Two painted frames: a press that reached the row has opened its menu and sent its edit.
+        for (let frame = 0; frame < 2; frame++)
+          await page.evaluate(() => (window as unknown as { cmuxPaintFrame(): Promise<number> }).cmuxPaintFrame());
+        expect({
+          rowMenu: await page.getByRole("menuitem", { name: /Edit message/ }).count(),
+          queueCalls: calls.filter((call) => call.method.startsWith("_acpmux/queue")).length,
+        }).toEqual({ rowMenu: 0, queueCalls: 0 });
+        await page.close();
+      });
     });
   }
 });
