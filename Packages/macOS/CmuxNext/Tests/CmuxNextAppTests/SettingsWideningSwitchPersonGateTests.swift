@@ -40,7 +40,9 @@ import Testing
         /// source pid (0: the HID system; the poster's: a process that posted it, as the cmux-cua helper does).
         func click(_ pid: Int64) throws -> NSEvent {
             second += 1
-            let cgEvent = try #require(CGEvent(mouseEventSource: CGEventSource(stateID: .hidSystemState), mouseType: .leftMouseUp,
+            // No CGEventSource: making a HID-state source can deadlock inside SkyLight on a mini with no
+            // console session. The fields the check reads are set by hand below.
+            let cgEvent = try #require(CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp,
                                                mouseCursorPosition: .zero, mouseButton: .left))
             cgEvent.setIntegerValueField(.eventSourceUnixProcessID, value: pid)
             cgEvent.setIntegerValueField(.eventSourceStateID, value: Int64(CGEventSourceStateID.hidSystemState.rawValue))
