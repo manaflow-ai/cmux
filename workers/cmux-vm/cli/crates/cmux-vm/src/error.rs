@@ -89,18 +89,34 @@ impl CliError {
         self
     }
 
-    /// Add the resource and command needed to recover a VM operation. The
-    /// HTTP error body does not contain the CLI's original path, so callers
-    /// add this at the VM operation boundary.
-    pub fn for_vm(mut self, vm_id: &str, verb: &str) -> Self {
-        self.message = format!("VM {vm_id} {verb} failed: {}", self.message);
-        let next = if self.status == Some(404) {
-            "cmux-vm list".to_owned()
-        } else {
-            format!("cmux-vm get {vm_id}")
+    pub fn with_recovery(mut self, recovery: &str) -> Self {
+        self.message.push_str("; ");
+        self.message.push_str(recovery);
+        self
+    }
+
+    /// Add the VM and operation to an error from a VM-scoped command.
+    pub fn for_vm(mut self, vm_id: &str, operation: &str) -> Self {
+        let next = match operation {
+            "client-session create" => format!("cmux-vm client-session list {vm_id}"),
+            "client-session list" | "client-session revoke" => {
+                format!("cmux-vm client-session list {vm_id}")
+            }
+            // A 404 means the VM itself is gone, so `get` would fail too.
+            _ if self.status == Some(404) => "cmux-vm list".to_owned(),
+            _ => format!("cmux-vm get {vm_id}"),
         };
-        self.message
-            .push_str(&format!("; inspect with `{next}` before retrying"));
+        self.message = format!(
+            "VM {vm_id} {operation} failed: {}; next: `{next}`",
+            self.message
+        );
+        // A 4xx means the server refused before minting; any other failure
+        // (network, 5xx, a cut-off body) may have minted a session.
+        let refused = matches!(self.status, Some(400..=499));
+        if operation == "client-session create" && !refused {
+            self.message
+                .push_str("; revoke any newly created session before retrying");
+        }
         self
     }
 

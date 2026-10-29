@@ -18,6 +18,7 @@
 use serde_json::{Value, json};
 
 use super::{GlobalArgs, OutputMode, parse_globals, wire};
+use cmux_json::JsonSet as _;
 
 mod browser_import;
 mod cloud_machine;
@@ -62,23 +63,25 @@ fn run(global: &GlobalArgs, args: &[String]) -> i32 {
         print!("{HELP}");
         return 0;
     }
+    let after_verb = args.get(1..).unwrap_or_default();
     let result = match args.first().map(String::as_str) {
-        Some("list") if args[1..] == ["--prompts-md"] => {
+        Some("list") if after_verb == ["--prompts-md"] => {
             print!("{}", prompts_markdown());
             return 0;
         }
-        None | Some("list") => no_arguments(&args[args.len().min(1)..])
-            .map(|()| Outcome { report: list(), failed: false }),
-        Some("status") => no_arguments(&args[1..]).and_then(|()| status(global)),
-        Some("trust") => trust::run(&args[1..]),
-        Some("machine") => machine::run(&args[1..]),
-        Some("harness") => harness::run(&args[1..]),
-        Some("mcp") => mcp::run(&args[1..]),
-        Some("computer-use" | "computer_use") => computer_use::run(global, &args[1..]),
-        Some("cloud-machine" | "cloud_machine") => cloud_machine::run(global, &args[1..]),
-        Some("notifications") => notifications::run(global, &args[1..]),
-        Some("browser-import" | "browser_import") => browser_import::run(global, &args[1..]),
-        Some("tailnet") => tailnet::run(&args[1..]),
+        None | Some("list") => {
+            no_arguments(after_verb).map(|()| Outcome { report: list(), failed: false })
+        }
+        Some("status") => no_arguments(after_verb).and_then(|()| status(global)),
+        Some("trust") => trust::run(after_verb),
+        Some("machine") => machine::run(after_verb),
+        Some("harness") => harness::run(after_verb),
+        Some("mcp") => mcp::run(after_verb),
+        Some("computer-use" | "computer_use") => computer_use::run(global, after_verb),
+        Some("cloud-machine" | "cloud_machine") => cloud_machine::run(global, after_verb),
+        Some("notifications") => notifications::run(global, after_verb),
+        Some("browser-import" | "browser_import") => browser_import::run(global, after_verb),
+        Some("tailnet") => tailnet::run(after_verb),
         Some(other) => Err(Refusal::Usage(format!(
             "cmux: setup: unknown task {other:?}; `cmux setup list` names every task"
         ))),
@@ -376,8 +379,8 @@ fn enrich_status(mut check: Value) -> Value {
         [one] => one.clone(),
         many => Value::Array(many.to_vec()),
     };
-    check["check_status"] = json!(status);
-    check["recovery"] = recovery;
+    check.set("check_status", json!(status));
+    check.set("recovery", recovery);
     check
 }
 

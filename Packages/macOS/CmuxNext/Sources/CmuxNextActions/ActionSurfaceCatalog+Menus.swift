@@ -132,8 +132,9 @@ nonisolated extension ActionSurfaceCatalog {
         // name, theme color, browser profile; New Group; Delete. The rest of
         // the space actions stay in the palette and the CLI (`.minimalMenu`).
         "space.new": [p(.sidebarBackground, .create, 6, folder: .new)],
+        "space.newIncognito": [p(.sidebarBackground, .create, 6, folder: .new)],
         "space.newWorkspace": [p(.profile, .create, 0, label: SpaceMenuLabels.newWorkspace)],
-        "space.newWindow": [p(.profile, .create, 1, label: SpaceMenuLabels.newWindow)],
+        "space.openInNewWindow": [p(.profile, .create, 1, label: SpaceMenuLabels.openInNewWindow)],
         "space.setIcon": [p(.profile, .identity, 100, label: IconMenuLabels.setIcon)],
         "space.clearIcon": [p(.profile, .identity, 100, label: IconMenuLabels.removeIcon)],
         "space.rename": [p(.profile, .identity, 101)],
@@ -162,6 +163,7 @@ nonisolated extension ActionSurfaceCatalog {
         "terminal.clearTheme": [p(.tab, .identity, 206, folder: .options)],
         "splitRight": [p(.pane, .create, 0), p(.terminalSelection, .create, 100, folder: .split)],
         "newColumn": [p(.pane, .create, 0, folder: .new)],
+        "newColumnLeft": [p(.pane, .create, 0, folder: .new)],
         "newRow": [p(.pane, .create, 1, folder: .new)],
         "splitDown": [p(.pane, .create, 1), p(.terminalSelection, .create, 101, folder: .split)],
         "newPaneAutoLayout": [p(.pane, .create, 8, folder: .new)],

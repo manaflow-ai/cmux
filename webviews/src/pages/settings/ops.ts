@@ -313,6 +313,8 @@ export type ComputerUseState = {
   screen_recording: boolean | null;
   /** The helper app's name, null when this build has no signed helper. */
   helper: string | null;
+  /** Legacy Computer Use is off: its helper can't verify this cmux build (not team-signed). */
+  host_unverified?: boolean;
 };
 
 /** One button of the Accounts part; the host localizes every text. */
