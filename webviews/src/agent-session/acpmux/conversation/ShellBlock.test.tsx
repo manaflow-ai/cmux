@@ -171,7 +171,7 @@ test("the command draws in its colors, one Find run, its prompt skipped", async 
   expect(command.textContent).toBe("rg");
   expect(command.style.color).toContain("--agent-ansi-4");
   expect(container.querySelector('.cv-shell__command [data-role="string"]')?.textContent).toBe(`"todo"`);
-  expect(container.querySelector(".cv-shell__output")?.textContent).toBe("src/a.ts:1:todo");
+  expect(container.querySelector(".cv-shell__output")?.textContent).toBe("src/a.ts:1:todo\n");
 });
 
 test("streaming output tokenizes the command once, and a sibling step's not at all", async () => {
