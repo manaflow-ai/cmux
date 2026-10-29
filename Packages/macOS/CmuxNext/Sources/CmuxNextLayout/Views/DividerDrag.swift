@@ -130,7 +130,7 @@ struct DividerDrag {
             case let .width(column, width): model.setColumnWidth(column, width: width, transaction: drag.transaction, phase: phase)
             }
         }
-        if phase != .ended { present(targets) }
+        _ = targets // bisect: the model's observation shows the drag, as on the base
     }
 
     /// Shows the drag's `values` in this turn, as a window resize lays out: one geometry and one presentation

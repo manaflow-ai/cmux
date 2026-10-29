@@ -403,7 +403,7 @@ public final class LayoutModel {
     /// observed (one layout sync): the drag shows its live values itself (`DividerDrag`), and readers see them.
     public func setSplitRatio(_ split: SplitID, ratio: Double, transaction: LayoutTransactionID, phase: LayoutGesturePhase) {
         let ratio = min(max(ratio, SplitRatio.range.lowerBound), SplitRatio.range.upperBound)
-        updateScreen(where: { $0.ratio(of: split) != nil }, notify: phase == .ended) { $0.settingRatio(ratio, for: split) }
+        updateScreen(where: { $0.ratio(of: split) != nil }) { $0.settingRatio(ratio, for: split) }
         splitOverrides[split] = Override(value: ratio, transaction: transaction, ended: phase == .ended)
         if phase == .ended { emit(.setSplitRatio(split, ratio: ratio, transaction: transaction, phase: phase)) }
     }
@@ -436,7 +436,7 @@ public final class LayoutModel {
     public func setColumnWidth(_ column: ColumnID, width: Double, transaction: LayoutTransactionID, phase: LayoutGesturePhase) {
         let width = min(max(width, ColumnWidthPreset.widthRange.lowerBound), ColumnWidthPreset.widthRange.upperBound)
         guard let anyPane = screens.lazy.compactMap({ $0.layout.columns.first { $0.id == column }?.root.panes.first }).first else { return }
-        updateScreen(where: { layout in layout.columns.contains { $0.id == column } }, notify: phase == .ended) { $0.settingWidth(width, for: column) }
+        updateScreen(where: { layout in layout.columns.contains { $0.id == column } }) { $0.settingWidth(width, for: column) }
         widthOverrides[column] = Override(value: width, transaction: transaction, ended: phase == .ended)
         if phase == .ended { emit(.setColumnWidth(column, anyPane: anyPane, width: width, transaction: transaction, phase: phase)) }
     }
