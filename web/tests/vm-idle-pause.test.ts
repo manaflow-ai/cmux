@@ -1073,8 +1073,6 @@ describe("pause, resume and the idle stretch", () => {
   test("a pause is skipped when the row moved since the candidate read", async () => {
     const observation = { providerVmId: VM, idleSince: T0 - 31 * MIN, observedAt: T0 - 5 * MIN, cpuBusyMs: CPU0 };
     const rereads: Array<(row: CloudVmRow) => CloudVmRow | null> = [
-      // An attach or a resume moved updatedAt.
-      (row) => ({ ...row, updatedAt: new Date(row.updatedAt.getTime() + 1) }),
       // An exec landed.
       (row) => ({ ...row, providerMetadata: { ...row.providerMetadata, cmuxLastApiActivityAt: T0 } }),
       // Paused or replaced meanwhile.
@@ -1088,8 +1086,42 @@ describe("pause, resume and the idle stretch", () => {
       const summary = await Effect.runPromise(enforceVmIdlePause({ now: () => T0 }).pipe(Effect.provide(layer)));
       expect(summary).toMatchObject({ checked: 1, paused: 0, claim_refused: 1, errors: 0 });
       expect(recorded.paused).toEqual([]);
-      expect(recorded.observations).toEqual([{ id: "row-1", observation: null }]);
+      expect(recorded.observations).toEqual([]);
     }
+  });
+
+  test("an updatedAt-only write does not block an otherwise fenced idle pause", async () => {
+    const observation = { providerVmId: VM, idleSince: T0 - 31 * MIN, observedAt: T0 - 5 * MIN, cpuBusyMs: CPU0 };
+    const row = machineRow({ providerMetadata: { networkIpv4: "10.192.0.5", cmuxIdleObservation: observation } });
+    const rows = [row];
+    const { recorded, layer } = cronFakes(rows, () => ({ exitCode: 0, stdout: probeLine() }), {
+      // A display rename, resource retry, or provider metadata merge can move
+      // updatedAt without changing the idle fence or the probe's address.
+      reread: (current) => ({ ...current, updatedAt: new Date(current.updatedAt.getTime() + 1) }),
+    });
+    const summary = await Effect.runPromise(enforceVmIdlePause({ now: () => T0 }).pipe(Effect.provide(layer)));
+    expect(summary).toMatchObject({ checked: 1, paused: 1, active: 0 });
+    expect(recorded.paused).toEqual([VM]);
+  });
+
+  test("a changed probe address refuses the claim without clearing the idle stretch", async () => {
+    const observation = { providerVmId: VM, idleSince: T0 - 31 * MIN, observedAt: T0 - 5 * MIN, cpuBusyMs: CPU0 };
+    const row = machineRow({ providerMetadata: { networkIpv4: "10.192.0.5", cmuxIdleObservation: observation } });
+    const rows = [row];
+    const { recorded, layer } = cronFakes(rows, () => ({ exitCode: 0, stdout: probeLine() }), {
+      reread: (current) => ({
+        ...current,
+        updatedAt: new Date(current.updatedAt.getTime() + 1),
+        providerMetadata: { ...current.providerMetadata, networkIpv4: "10.192.0.6" },
+      }),
+    });
+    const summary = await Effect.runPromise(enforceVmIdlePause({ now: () => T0 }).pipe(Effect.provide(layer)));
+    expect(summary).toMatchObject({ checked: 1, paused: 0, claim_refused: 1 });
+    expect(recorded.paused).toEqual([]);
+    expect(rows[0].providerMetadata?.cmuxIdleObservation).toEqual(observation);
+    expect(epochOf(rows[0])).toBe(epochOf(row));
+    expect(recorded.observations).toEqual([]);
+    expect(rows[0].providerMetadata?.cmuxIdleLastDecision).toMatchObject({ outcome: "claim_refused", reason: "private_address_changed" });
   });
 });
 
