@@ -548,7 +548,10 @@ def setup_steps(repo: Path, plan: Plan, state: TreeState | None = None) -> list[
                 continue
             digests[build] = build_digest(repo, build)
             if not state.build_current(build):
-                steps += [(build.directory, step) for step in build_commands()]
+                commands = build_commands()
+                if not commands:  # ensure_build() fails here and the run stops: nothing after it runs
+                    return [(build.directory, f"{NO_BUILD_TOOL}: refused, no check runs")]
+                steps += [(build.directory, step) for step in commands]
     for directory in [p.directory for p in plan.script_packages] + list(plan.eslint_files):
         package = next((p for p in plan.script_packages if p.directory == directory), None)
         stale = package is not None and any(state.installed(directory, build) != digests[build]
@@ -557,6 +560,9 @@ def setup_steps(repo: Path, plan: Plan, state: TreeState | None = None) -> list[
         if command:
             steps.append((directory, command))
     return steps
+
+
+NO_BUILD_TOOL = "neither npm nor bun is on PATH"
 
 
 def ensure_build(repo: Path, build: LocalBuild, dependents: list[str]) -> tuple[str | None, Result | None]:
@@ -571,7 +577,7 @@ def ensure_build(repo: Path, build: LocalBuild, dependents: list[str]) -> tuple[
     steps = build_commands()
     if not steps:
         return None, Result(build.directory, "npm ci && npm run build", 127,
-                             f"neither npm nor bun is on PATH, so {build.directory} can't be built.\n{held}", 0)
+                             f"{NO_BUILD_TOOL}, so {build.directory} can't be built.\n{held}", 0)
     stamp.unlink(missing_ok=True)
     started = time.monotonic()
     env = package_env(repo, build.directory)
@@ -693,6 +699,8 @@ def plan_steps(repo: Path, plan: Plan, fix: bool, cache: bool, heavy: bool, mode
         setup = setup_steps(repo, plan, state)
     else:
         plan, setup = light_plan(repo, plan, mode, state.has_modules), []
+    if any(isinstance(step[1], str) for step in setup):  # a build that can't run stops the run (ensure_build)
+        return plan, setup, [], []
     fixes = check_jobs(repo, plan, "check:fix", True, cache, heavy, mode, read) if fix else []
     return plan, setup, fixes, check_jobs(repo, plan, "check", False, cache, heavy, mode, read)
 
@@ -708,7 +716,9 @@ def run_plan(repo: Path, plan: Plan, fix: bool, cache: bool = True, heavy: bool 
     # With heavy checks off: no install or build (the bindings build is `npm ci` plus tsc), only the allowlist,
     # against the node_modules a package already has; a package with none is left to CI, named.
     plan, setup, fixes, jobs = plan_steps(repo, plan, fix, cache, heavy, mode)
-    if setup:  # the steps setup_steps() listed, run with their stamp bookkeeping
+    # Always, with heavy checks on, even when setup_steps() spawns nothing: prepare_builds() is the build-freshness
+    # check, and a stale build that can't be rebuilt must fail here, not let the checks see the old build.
+    if heavy:  # the steps setup_steps() listed, run with their stamp bookkeeping
         stale, failures = prepare_builds(repo, plan.script_packages)
         if failures:
             return failures

@@ -988,6 +988,34 @@ class TuiBindingsTests(unittest.TestCase):
                                 text=True, capture_output=True)
         return result, self.tool_log.read_text().splitlines()
 
+    def test_a_stale_build_with_no_build_tool_stops_the_run_even_when_nothing_else_needs_setup(self):
+        # Review of 9fee5123: with neither npm nor bun, a stale bindings build spawns nothing, and a frontend that has
+        # node_modules and no bun.lock installs nothing, so setup_steps() was empty and run_plan() skipped
+        # prepare_builds(): the check ran against the old bindings. ensure_build()'s failure must stop the run, and
+        # the dry run must say so instead of listing checks the run never reaches.
+        self.add_tui_packages(npm=False)
+        (self.repo / "cmux-tui/frontends/web/node_modules/cmux").mkdir(parents=True)
+        lint = load_lint(self.repo)
+        # The frontend's copy came from these very inputs, so it needs no install; the build output is gone.
+        stamp = lint.installed_stamp(self.repo, "cmux-tui/frontends/web", lint.TUI_BINDINGS)
+        stamp.parent.mkdir(parents=True)
+        stamp.write_text(lint.build_digest(self.repo, lint.TUI_BINDINGS))
+        plan = lint.make_plan(self.repo, ["cmux-tui/frontends/web/src/main.ts"], guard_executed=False)
+        real = shutil.which
+        no_tools = lambda name, *a, **k: None if name in ("npm", "bun") else real(name, *a, **k)
+        with mock.patch.object(lint.shutil, "which", no_tools), \
+                mock.patch.dict(os.environ, {"TOOL_LOG": str(self.tool_log), "CI": "", "GITHUB_ACTIONS": ""}):
+            self.tool_log.write_text("")
+            _, setup, fixes, jobs = lint.plan_steps(self.repo, plan, False, True, True, "web-lint")
+            results = lint.run_plan(self.repo, plan, fix=False)
+
+        self.assertEqual([(r.label, r.returncode) for r in results], [("cmux-tui/bindings/typescript", 127)])
+        self.assertIn("neither npm nor bun is on PATH", results[0].output)
+        self.assertNotIn("check web", self.tool_log.read_text(), "the check must not run against stale bindings")
+        self.assertEqual((fixes, jobs), ([], []))
+        self.assertEqual(len(setup), 1)
+        self.assertIn("neither npm nor bun is on PATH", lint.shown(setup[0]))
+
     def test_an_all_run_builds_the_bindings_before_the_frontend_check_and_is_clean(self):
         self.add_tui_packages()
 
