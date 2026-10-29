@@ -110,7 +110,7 @@ impl WorkspaceCache {
         let old = {
             let Ok(mut views) = published.views.lock() else { return };
             published.generation.fetch_add(1, Ordering::SeqCst);
-            std::mem::replace(&mut *views, [None, None, None])
+            std::mem::take(&mut *views)
         };
         drop(old);
         published.changed.send_replace(());
