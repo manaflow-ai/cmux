@@ -736,6 +736,7 @@ struct MacScreenHubHostOrderTests {
 struct MacScreenApprovalPanelTests {
     @Test func everyPromptHasAVisibleFrame() throws {
         let prompt = MacScreenApprovalPrompt()
+        defer { prompt.update([]) }
         let first = SessionRequest(id: "s1", viewerId: "v1", viewerName: "Laptop", viewerKeyFingerprint: String(repeating: "ab", count: 32), scope: .view)
         let second = SessionRequest(id: "s2", viewerId: "v1", viewerName: "Laptop", scope: .full)
         prompt.update([first])
