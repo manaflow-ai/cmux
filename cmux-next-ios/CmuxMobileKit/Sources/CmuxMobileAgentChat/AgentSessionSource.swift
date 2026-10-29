@@ -56,8 +56,12 @@ public enum AgentSessionEvent: Hashable, Sendable {
     /// A permission request that maps to a question (AskUserQuestion, Codex user input).
     case question(AgentQuestion)
     /// `permission_decision`: the prompt was resolved (here or by another client).
-    case permissionDecision(permissionId: String, optionId: String?)
+    /// `answers`: a question's answers as the owner recorded them (harness-shaped).
+    case permissionDecision(permissionId: String, optionId: String?, answers: AgentQuestionJSON? = nil)
     case questionAnswered(questionId: String, answer: AgentQuestionAnswer)
+    /// The history a chat opened on leaves out older records (the attach's cap): its first
+    /// turn is not where the session started.
+    case earlierHistory(Bool)
     case modelsAvailable([ACPModelInfo], current: String?)
     case modesAvailable([ACPMode], current: String?)
     /// Whether this phone's Full-access setting on the Mac covers it (acpmux `initialize`

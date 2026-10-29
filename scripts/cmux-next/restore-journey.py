@@ -9,7 +9,7 @@ same environment, waits for restore to settle, snapshots again and prints a PASS
 item.
 
   scripts/cmux-next/restore-journey.py --socket /tmp/cmux-debug-<tag>-capslot<N>.sock \\
-      [--variants quit,update] [--out DIR] [--fake-agent PATH] [--src STAGED_APP]
+      [--variants quit,update] [--out DIR] [--fake-agent PATH] [--src STAGED_APP] [--update-to STAGED_APP_B]
 
 Run it on the GUI host where the app already runs: a capture slot started by `capture-host
 launch` (scripts/cmux-next/restore-journey-slot.sh does the whole slot run), or another tagged DEV
@@ -26,6 +26,10 @@ Variants:
           default is pressed, as Return does, and the row records whether that keeps sessions);
   update  what Sparkle does before it relaunches into an update
           (`debug.updater {action: "relaunch"}`: the updater's relaunch hook, then terminate);
+          with --update-to STAGED_APP_B the relaunch opens build B: once the app has ended, B is
+          put at the installed copy's path with its identity (bundle id, tag, lease environment),
+          as an update installs it (rj_update.py), so the state seeded on build A must come back
+          on B (restore-journey-slot.sh JOB_A --update-to JOB_B OUT -- --variants update);
   crash   the app's exact pid is killed (SIGKILL), so none of its quit path runs;
   daemon  the app keeps running and its cmux-tui daemon is killed (SIGKILL) while an agent chat
           turn is in flight, as a daemon crash: the app must start a new one, reconnect and
@@ -108,6 +112,7 @@ from urllib.parse import parse_qs, urlparse
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import build_names  # noqa: E402  (next to this script; restore-journey-slot.sh copies both)
 import rj_rows  # noqa: E402  (next to this script, copied the same way)
+import rj_update  # noqa: E402  (next to this script, copied the same way)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 parser = argparse.ArgumentParser()
@@ -120,6 +125,9 @@ parser.add_argument("--continuity", action="store_true",
 parser.add_argument("--out", default="/tmp/restore-journey")
 parser.add_argument("--fake-agent", default=os.path.join(HERE, "../../cmux-tui/crates/acpmux/tests/fake_agent.py"))
 parser.add_argument("--src", help="staged app to re-clone from when the slot's app copy is gone after a quit")
+parser.add_argument("--update-to", metavar="STAGED_APP_B",
+                    help="the update variant installs this build in place of the app's copy before it relaunches "
+                         "(build A's state, restored by build B); needs --src (build A, staged)")
 parser.add_argument("--settle", type=float, default=90, help="seconds restore may take to settle")
 parser.add_argument("--skip", default="", help="comma list of seed parts to skip: term,split,web,agent,w2,w3,cloud,agents")
 parser.add_argument("--agents-per-kind", type=int, default=2,
@@ -142,6 +150,11 @@ if opts.continuity:
     opts.variants = opts.variants or "quit,crash,daemon,daemon-stop,reboot"
     opts.skip, opts.agents_per_kind = "web,w2,cloud,split", 1
 opts.variants = opts.variants or "quit,update,crash"
+if opts.update_to:
+    if "update" not in [v.strip() for v in opts.variants.split(",")]:
+        sys.exit("--update-to needs the update variant (--variants update)")
+    if not os.path.isdir(opts.update_to) or not opts.src:
+        sys.exit("--update-to needs a staged build B and --src, the staged build A the slot's copy was made from")
 os.makedirs(opts.out, exist_ok=True)
 SKIP = {s.strip() for s in opts.skip.split(",") if s.strip()}
 AGENTS_N = max(1, opts.agents_per_kind)
@@ -433,6 +446,11 @@ class App:
     def ensure_bundle(self):
         if os.path.isdir(self.bundle):
             return True
+        if UPDATED.get("identity"):
+            # After the update the copy is build B with the copy's identity (tag, lease environment), not a bare clone.
+            say(f"  re-installing {opts.update_to} -> {self.bundle} (the updated copy's identity)")
+            rj_update.reinstall(self.bundle, opts.update_to, opts.src, UPDATED["identity"])
+            return True
         if not opts.src:
             say(f"  the app copy {self.bundle} is gone and no --src was given")
             return False
@@ -470,6 +488,43 @@ class App:
         self.refresh()
         say(f"  relaunched: pid {self.pid}")
         return True
+
+
+UPDATED = {}  # --update-to: what rj_update.install reported, once build B is in place
+
+
+def update_build():
+    """--update-to: build B in place of the ended app's copy, as an update installs it (rj_update.py).
+    Rows: B is installed with the copy's identity (same names, so A's saved state is B's), and it is
+    another build than A. False stops the journey (the copy is left as it was)."""
+    answer = rpc("system.identify", timeout=5)
+    if APP.alive() or (isinstance(answer, dict) and answer.get("pid")):
+        RESULTS.append(("update: build B is installed in place", False, f"an app still runs (pid {APP.pid}, socket {answer})", "update"))
+        return False
+    UPDATED["from_version"] = [APP.info.get("version"), APP.info.get("build")]
+    try:
+        report = rj_update.install(APP.bundle, opts.update_to, opts.src)
+    except (OSError, RuntimeError, ValueError, subprocess.CalledProcessError) as error:
+        RESULTS.append(("update: build B is installed in place", False, str(error)[:300], "update"))
+        return False
+    UPDATED.update(report)
+    dump("update-install.json", {k: v for k, v in UPDATED.items() if k != "identity"})
+    say(f"  update: {report['from_commit']} -> {report['to_commit']} at {APP.bundle}; {'; '.join(report['notes']) or 'same identity'}")
+    RESULTS.append(("update: build B is installed in place with the copy's names", report["names_before"] == report["names_after"],
+                    f"{report['names_after']['session']}; {'; '.join(report['notes']) or 'same identity'}", "update"))
+    RESULTS.append(("update: build B is another build than A", rj_update.different_builds(report["from_commit"], report["to_commit"]),
+                    f"{report['from_commit']} -> {report['to_commit']}", "update"))
+    return True
+
+
+def updated_rows():
+    """After the relaunch into B: the running app is a new process of B's version, at the same path."""
+    want = UPDATED.get("to_version") or [None, None]
+    got = [APP.info.get("version"), APP.info.get("build")]
+    same_place = APP.info.get("app_bundle_path") == APP.bundle and APP.info.get("bundle_id") == APP.bundle_id
+    RESULTS.append(("update: the relaunched app runs build B", same_place and got == want,
+                    f"version {UPDATED.get('from_version')} -> {got} (B ships {want}), pid {APP.pid}, {APP.info.get('app_bundle_path')}",
+                    "update"))
 
 
 # ---- the tag's daemon (bundled CLI) and acpmux ----------------------------------------------
@@ -2020,34 +2075,30 @@ def compare(variant, before, after):
             detail = (f"{len(a)} records, as seeded" if ok and isinstance(a, list)
                       else f"seeded {json.dumps(seeded_value)[:160]} -> {json.dumps(a)[:160]}")
         elif item.endswith(".scrollback.history_sha") and a in HISTORY_BY_SHA and b in HISTORY_BY_SHA:
-            # Every row's text as before, in order; rows only after them (a respawned shell's
-            # marker line and prompt push the old screen's top rows into the history). A history
-            # replay draws each row with its own line break, so a line soft-wrapped at an older
-            # width comes back wrapped at that width (re-wrapped rows: same text, other breaks).
+            # Every row exactly as before, in order; rows only after them (a respawned shell's
+            # marker line and prompt push the old screen's top rows into the history). Soft
+            # wraps must survive the replay too: a line wrapped at an older width re-flows at
+            # the new one, so the same text with other row breaks fails ("re-wrapped").
             rows_b, rows_a = HISTORY_BY_SHA[b], HISTORY_BY_SHA[a]
-            text_b, text_a = "".join(rows_b), "".join(rows_a)
-            ok = bool(rows_b) and text_a.startswith(text_b)
+            ok = bool(rows_b) and rows_a[:len(rows_b)] == rows_b
             if a == b:
                 detail = json.dumps(a)
             elif ok:
-                same = rows_a[:len(rows_b)] == rows_b
-                kept = next((i for i in range(1, len(rows_a) + 1) if "".join(rows_a[:i]).startswith(text_b)
-                             and len("".join(rows_a[:i])) >= len(text_b)), len(rows_a))
-                rewrapped = sum(1 for x, y in zip(rows_b, rows_a) if x != y)
-                detail = (f"{json.dumps(b)} -> {json.dumps(a)}: text kept"
-                          + ("" if same else f", {rewrapped} rows re-wrapped")
-                          + f", {len(rows_a) - kept} rows after the old ones {json.dumps(rows_a[kept:])[:80]}")
+                detail = (f"{json.dumps(b)} -> {json.dumps(a)}: rows kept, {len(rows_a) - len(rows_b)} rows"
+                          f" after them {json.dumps(rows_a[len(rows_b):])[:80]}")
             else:
-                at = next((i for i, (x, y) in enumerate(zip(text_b, text_a)) if x != y), min(len(text_b), len(text_a)))
-                detail = f"{json.dumps(b)} -> {json.dumps(a)}: the text changed at {json.dumps(text_b[at:at + 40])} -> {json.dumps(text_a[at:at + 40])}"
+                row = next((i for i, (x, y) in enumerate(zip(rows_b, rows_a)) if x != y), min(len(rows_b), len(rows_a)))
+                text_b, text_a = "".join(rows_b), "".join(rows_a)
+                rewrapped = bool(rows_b) and text_a.startswith(text_b)
+                detail = (f"{json.dumps(b)} -> {json.dumps(a)}: row {row} "
+                          f"{json.dumps(rows_b[row] if row < len(rows_b) else None)[:50]} -> "
+                          f"{json.dumps(rows_a[row] if row < len(rows_a) else None)[:50]}"
+                          + (f" (re-wrapped: same text, {sum(1 for x, y in zip(rows_b, rows_a) if x != y)}"
+                             " rows with other breaks)" if rewrapped else " (the text changed)"))
         elif item.endswith(".scrollback.history_rows") and isinstance(a, int) and isinstance(b, int):
-            # A view re-attaching may add a prompt line, never drop rows; re-wrapped rows (see
-            # history_sha) may be fewer with the same text.
-            sha_b, sha_a = (d.get(item.replace(".history_rows", ".history_sha")) for d in (before, after))
-            rewrapped = sha_b in HISTORY_BY_SHA and sha_a in HISTORY_BY_SHA and bool(HISTORY_BY_SHA[sha_b]) \
-                and "".join(HISTORY_BY_SHA[sha_a]).startswith("".join(HISTORY_BY_SHA[sha_b]))
-            ok = a >= b or rewrapped
-            detail = f"{b} -> {a}" + (" (re-wrapped, text kept)" if a < b and rewrapped else "")
+            # A view re-attaching may add a prompt line, never drop rows (see history_sha).
+            ok = a >= b
+            detail = f"{b} -> {a}"
         else:
             ok = a == b
             detail = json.dumps(a)[:100] if ok else f"{json.dumps(b)[:100]} -> {json.dumps(a)[:100]}"
@@ -2445,6 +2496,8 @@ def journey(base):
             sampler.killed = time.time() - started
         # Reports count from here: the old app's pages keep reporting until its process ends, and
         # one of those would pass for a reopened page that has not reported yet (cx-p1xs5).
+        if variant == "update" and opts.update_to and not UPDATED and not update_build():
+            return
         launched = SINCE = time.time()
         if variant in DAEMON_VARIANTS:
             # No relaunch: the running app must bring a new daemon and every view back.
@@ -2452,6 +2505,9 @@ def journey(base):
         elif not APP.relaunch({"CMUX_NEXT_DEBUG_SLOW_ATTACH": SLOW_ATTACH} if variant == "slow" else None):
             RESULTS.append((f"{variant}: app relaunches", False, "no socket", "app quit"))
             return
+        if variant == "update" and UPDATED and "relaunched" not in UPDATED:
+            UPDATED["relaunched"] = True
+            updated_rows()
         if variant == "slow":
             # No input from here on: the terminals must come back by themselves.
             links = set()
