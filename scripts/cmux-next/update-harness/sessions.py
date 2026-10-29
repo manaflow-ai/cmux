@@ -198,12 +198,17 @@ class Terminal:
 
     def check(self, root, click_unix, relaunched_unix, handoff=True):
         """After the relaunch: the same terminal, the same process, counting through the swap."""
-        # The handed-off daemon exits; the new one adopts the terminal hosts after it starts.
+        # The handed-off daemon exits; the new one adopts the terminal hosts after it starts. A handoff passes only
+        # through a replacement daemon: never fall back to the original socket (a daemon that never handed off would
+        # still list the terminal).
+        socket_before = self.socket
         if handoff:
-            self.socket = wait_path("/", lambda _: self.daemon_socket(root, exclude=self.daemon_pids), 60) or self.socket
-        listed = wait_path("/", lambda _: (lambda out: out if self.term in out else None)(self.list_quietly()), 30)
+            self.socket = wait_path("/", lambda _: self.daemon_socket(root, exclude=self.daemon_pids), 60)
+        listed = None
+        if self.socket:
+            listed = wait_path("/", lambda _: (lambda out: out if self.term in out else None)(self.list_quietly()), 30)
         same_terminal = listed is not None
-        listed = listed or self.list_quietly()
+        listed = listed or (self.list_quietly() if self.socket else "no replacement terminal daemon")
         pid_after = self.process_pid() if same_terminal else None
         values = self.samples()
         window = [v for v in values if click_unix - 1 <= v <= relaunched_unix + 1]
@@ -211,7 +216,9 @@ class Terminal:
         return {
             "terminal": self.term, "same_terminal_listed": same_terminal,
             "daemons_before": self.daemon_pids, "daemons_after": [pid for pid, _ in self.daemons(root)],
-            "socket_after": self.socket, "list_after": listed[:2000],
+            "socket_before": socket_before, "socket_after": self.socket,
+            "replacement_daemon": bool(handoff and self.socket and self.socket != socket_before),
+            "list_after": listed[:2000],
             "pid_before": self.pid, "pid_after": pid_after, "pid_alive": bool(self.pid and alive(self.pid)),
             "samples_during_swap": len(window), "max_gap_s": round(max(gaps), 3) if gaps else None,
             "last_sample_after_relaunch": bool(values and values[-1] > relaunched_unix),

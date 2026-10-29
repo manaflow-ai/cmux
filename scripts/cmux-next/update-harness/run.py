@@ -180,6 +180,14 @@ def sessions_alive(pid):
         return False
 
 
+def terminal_survived(r, handoff):
+    """A terminal survival record (Terminal.check) passes: the same terminal and process counted through the swap. With
+    a handoff, the terminal was found through a replacement cmux-tui daemon; without, the daemons stayed the same."""
+    return bool(r["same_terminal_listed"] and r["pid_alive"] and r["pid_before"] == r["pid_after"]
+                and r["last_sample_after_relaunch"] and r["samples_during_swap"] > 0
+                and (r.get("replacement_daemon") if handoff else r["daemons_before"] == r["daemons_after"]))
+
+
 def end_tag(teardowns, owned, acp_home, remove_home, log):
     """Ends the tag with the TagTeardowns kept for the whole run (they remembered every daemon and state root, old and
     relaunched, so they find hosts and holders whose daemon already exited), then each session process this run
@@ -835,10 +843,7 @@ def main():
             # Keep the original single-session keys for existing receipt consumers.
             result["terminal_survival"] = result["terminal_survivals"][0]
             result["agent_survival"] = result["agent_survivals"][0]
-            terminal_ok = all(r["same_terminal_listed"] and r["pid_alive"] and r["pid_before"] == r["pid_after"]
-                              and r["last_sample_after_relaunch"] and r["samples_during_swap"] > 0
-                              and (a.handoff or r["daemons_before"] == r["daemons_after"])
-                              for r in result["terminal_survivals"])
+            terminal_ok = all(terminal_survived(r, a.handoff) for r in result["terminal_survivals"])
             agent_ok = all(r["harness_alive_after_swap"] and r["same_host"] and r["transcript_prefix_preserved"]
                            and r["gate_released"] and r["turn_results"] == 1 and r["turn_status"] == "completed"
                            and not r["outcome_unknown"]
