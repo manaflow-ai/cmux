@@ -432,6 +432,13 @@
           "mcpTool": "app_run_command"
         },
         {
+          "command": "cmux app settings",
+          "title": "Settings…",
+          "id": "openSettings",
+          "mcp": true,
+          "mcpTool": "app_settings"
+        },
+        {
           "command": "cmux app show-pane",
           "title": "Show Pane",
           "id": "pane.focus",
