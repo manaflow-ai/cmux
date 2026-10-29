@@ -25,6 +25,7 @@ import {
   type VmIdleProbe,
 } from "../services/vms/idlePause";
 import { VmBillingGateway, noOpVmBillingGateway } from "../services/vms/billingGateway";
+import { pauseBudgetVm, pauseGoVm } from "../services/vms/goPause";
 import { enforceVmIdlePause } from "../services/vms/idlePauseJob";
 import { parseCreateIdlePause, parseIdlePauseBody } from "../services/vms/idlePauseRoute";
 import { VmProviderGateway, type VmProviderGatewayShape } from "../services/vms/providerGateway";
@@ -626,6 +627,9 @@ function cronFakes(
       recorded.events.push(input.metadata ?? {});
       return Effect.void;
     },
+    mergeProviderMetadata: (input: { id: string; patch: Record<string, unknown> }) => Effect.sync(() => {
+      update(input.id, (row) => ({ ...row, providerMetadata: { ...(row.providerMetadata ?? {}), ...input.patch } }));
+    }),
     setIdlePauseMinutes: (input: { id: string; minutes: number }) => Effect.sync(() => {
       recorded.minutes.push(input);
       update(input.id, (row) => ({ ...row, providerMetadata: bumped(row, { ...(row.providerMetadata ?? {}), cmuxIdlePauseMinutes: input.minutes }) }));
@@ -1380,6 +1384,41 @@ describe("the pause's other races", () => {
     expect(fakes.providerState.get(VM)).toBe("paused");
   });
 
+  /** The allowance enforcer's pause (goPause.ts): Plus through pauseGoVm, Pro and Max through pauseBudgetVm. */
+  const allowancePause = (plan: "go" | "pro") => (repo: VmRepositoryShape) => Effect.gen(function* () {
+    const providers = yield* VmProviderGateway;
+    const row = (yield* repo.findUserVm({ userId: "user-1", billingTeamId: "team-1", providerVmId: VM, provider: "freestyle" }))!;
+    yield* plan === "go" ? pauseGoVm(repo, providers, row, VM, 0) : pauseBudgetVm(repo, providers, row, VM, 0);
+  });
+
+  for (const plan of ["go", "pro"] as const) {
+    test(`an allowance pause (${plan}) after a claim the cron left: a later run does not resume it`, async () => {
+      const rows = [machineRow({ billingPlanId: plan, providerMetadata: overdue().providerMetadata })];
+      const fakes = cronFakes(rows, () => ({ exitCode: 0, stdout: probeLine() }), { pauseFails: "refused" });
+      const runAt = (now: number) => Effect.runPromise(enforceVmIdlePause({ now: () => now }).pipe(Effect.provide(fakes.layer)));
+      await runAt(T0);
+      expect(rows[0].providerMetadata.cmuxIdlePauseClaim).toBeDefined();
+      // The allowance runs out before the next cron run.
+      await Effect.runPromise(allowancePause(plan)(fakes.repo).pipe(Effect.provide(fakes.layer)));
+      expect(rows[0].status).toBe("paused");
+      await runAt(T0 + 5 * MIN);
+      expect(fakes.recorded.resumed).toEqual([]);
+      expect(fakes.providerState.get(VM)).toBe("paused");
+      expect(rows[0].status).toBe("paused");
+      expect(rows[0].providerMetadata.cmuxIdlePauseClaim).toBeUndefined();
+    });
+
+    test(`an allowance pause (${plan}) while the cron's provider pause is under way: kept, not resumed`, async () => {
+      const rows = [machineRow({ billingPlanId: plan, providerMetadata: overdue().providerMetadata })];
+      const fakes = cronFakes(rows, () => ({ exitCode: 0, stdout: probeLine() }), { duringPause: allowancePause(plan) });
+      const summary = await Effect.runPromise(enforceVmIdlePause({ now: () => T0 }).pipe(Effect.provide(fakes.layer)));
+      expect(summary).toMatchObject({ paused: 0, aborted: 1, errors: 0 });
+      expect(fakes.recorded.resumed).toEqual([]);
+      expect(rows[0].status).toBe("paused");
+      expect(rows[0].providerMetadata.cmuxIdlePauseClaim).toBeUndefined();
+    });
+  }
+
   test("a person's Pause on a row the reconciler already marked paused is still theirs: not undone", async () => {
     // Off moves the fence, the reconciler records the provider's pause, then the person presses Pause:
     // pauseVm's already-paused path must still record their decision.
@@ -1863,7 +1902,7 @@ describe("legacy daemon fallback", () => {
       expect((await runProbeScript(idleFiles, "ERR", { acpmuxStatusError })).acpmux).toBeNull();
     }
     for (const acpmuxStatusError of [
-      JSON.stringify({ code: "usage.invalid", message: `${refusal} Did you mean \`app\`?`, details: {}, retryable: false }) + "\n",
+      JSON.stringify({ code: "usage.invalid", message: `${refusal} Did you mean `app`?`, details: {}, retryable: false }) + "\n",
       `cmux: ${refusal}\n`,
     ]) {
       expect((await runProbeScript(idleFiles, "ERR", { acpmuxStatusError })).acpmux).toEqual({ busy_sessions: 0, last_updated_at_ms: null });
