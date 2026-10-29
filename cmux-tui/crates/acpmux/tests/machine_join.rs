@@ -149,3 +149,43 @@ async fn cloud_argv_is_refused_even_with_status_and_hub() {
         assert!(!String::from_utf8_lossy(&result.stdout).contains(TOKEN));
     }
 }
+
+#[tokio::test]
+async fn joined_machine_still_reads_legacy_ticket_from_stdin() {
+    let home = tempfile::tempdir().unwrap();
+    let path = home.path().join("machine-credential.json");
+    std::fs::write(&path, json!({"credential":CREDENTIAL,"machine_id":"machine_test","team_id":"team_test","name":"test","hub_origin":"https://example.com","last_heartbeat":null,"revoked":false,"wgPublicKey":"key"}).to_string()).unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let ticket = acpmux::pairing::Ticket {
+        url: "wss://example.com/acp".to_owned(),
+        minter: "minter".to_owned(),
+        role: acpmux::pairing::Role::Client,
+        expires_ms: acpmux::store::now_ms() - 1000,
+        secret: "ab".repeat(32),
+    }
+    .encode();
+    let mut child = cli(home.path()).args(["host", "join"]).stdin(Stdio::piped()).spawn().unwrap();
+    let mut input = child.stdin.take().unwrap();
+    input.write_all(ticket.as_bytes()).await.unwrap();
+    drop(input);
+    let result = tokio::time::timeout(Duration::from_secs(8), child.wait_with_output())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(!result.status.success());
+    assert!(String::from_utf8_lossy(&result.stderr).contains("this ticket expired"));
+}
+
+#[tokio::test]
+async fn unfinished_pipe_cannot_hold_the_join_lock_forever() {
+    let home = tempfile::tempdir().unwrap();
+    let mut child = cli(home.path()).args(["host", "join"]).stdin(Stdio::piped()).spawn().unwrap();
+    let mut input = child.stdin.take().unwrap();
+    input.write_all(b"cmj_incomplete").await.unwrap();
+    let result = tokio::time::timeout(Duration::from_secs(8), child.wait_with_output())
+        .await
+        .expect("join stdin must have a fixed deadline")
+        .unwrap();
+    assert_eq!(result.status.code(), Some(2));
+    assert!(!String::from_utf8_lossy(&result.stderr).contains("cmj_incomplete"));
+}
