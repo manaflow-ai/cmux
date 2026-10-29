@@ -487,17 +487,20 @@ def main(argv: list[str] | None = None, now: dt.datetime | None = None,
         except SpentBudget as spent:
             now = clock.now()
             resume = spent.resume_at(now)
-            if spent.app:
+            if spent.app and spent.exhausted and spent.reset is not None:
                 # Said plainly: on main CLA policy guard reads on this budget too, so its rejects
                 # until the reset are the spent budget, not a policy (validate-cla-policy.rb hides why).
+                # Only an exhausted primary budget (X-RateLimit-Remaining 0) with its known
+                # X-RateLimit-Reset bounds the App hour.
                 print(f"::warning title=glaeda-route App budget spent::{APP_BUDGET} is spent until "
                       f"{resume:%H:%M:%SZ} ({spent}); CLA policy guard reads on it, so its rejects in "
                       "this hour are the spent budget, not a policy. They are re-run after the reset.")
-                # Only an exhausted primary budget (X-RateLimit-Remaining 0) with its known
-                # X-RateLimit-Reset bounds the App hour. A secondary limit, a permission refusal,
-                # Retry-After or the fallback wait says nothing about that hour.
-                if spent.exhausted and spent.reset is not None:
-                    app_spent.append(spent.reset)
+                app_spent.append(spent.reset)
+            elif spent.app:
+                # A secondary limit, a refusal, or no X-RateLimit-Remaining 0 with a reset: no claim
+                # about the hour.
+                print(f"cla-quota-rerun: {spent} on the glaeda-route App token is not a spent hourly "
+                      "budget (a secondary limit or a refusal); the pass waits and tries again")
             late = resume > deadline - PASS_TIME
             if late or attempt == SPENT_RETRIES:
                 why = "past this pass's deadline" if late else f"after {SPENT_RETRIES} retries"
