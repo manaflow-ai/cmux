@@ -289,23 +289,21 @@ where
             }
             "tools/call" => {
                 if let Err(error) = crate::cli::cloud_join::require_joined_consent("control") {
-                    return write_line(
-                        &mut output,
-                        &json!({"jsonrpc": "2.0", "id": id, "error": {"code": -32020, "message": error.to_string()}}),
-                    ).await.map_err(Into::into);
+                    Ok(json!({"content": [{"type": "text", "text": error.to_string()}], "isError": true}))
+                } else {
+                    let name = message["params"]["name"].as_str().unwrap_or_default().to_owned();
+                    let arguments =
+                        message["params"].get("arguments").cloned().unwrap_or_else(|| json!({}));
+                    Ok(
+                        match forward(&mut helper, &connect, "tools/call", Some(&name), arguments).await
+                        {
+                            Ok(result) => call_result(result),
+                            Err((_, text)) => {
+                                json!({"content": [{"type": "text", "text": text}], "isError": true})
+                            }
+                        },
+                    )
                 }
-                let name = message["params"]["name"].as_str().unwrap_or_default().to_owned();
-                let arguments =
-                    message["params"].get("arguments").cloned().unwrap_or_else(|| json!({}));
-                Ok(
-                    match forward(&mut helper, &connect, "tools/call", Some(&name), arguments).await
-                    {
-                        Ok(result) => call_result(result),
-                        Err((_, text)) => {
-                            json!({"content": [{"type": "text", "text": text}], "isError": true})
-                        }
-                    },
-                )
             }
             _ => Err((-32601, format!("method not found: {method}"))),
         };
