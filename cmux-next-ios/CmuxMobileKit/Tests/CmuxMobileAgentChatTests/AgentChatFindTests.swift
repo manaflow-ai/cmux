@@ -92,6 +92,24 @@ import Testing
         #expect(find.matches.last?.block.hasPrefix("m-b") == true)
     }
 
+    @Test func chunksWhileARefreshRunsCollapseIntoOneSearchOfTheNewest() async {
+        let find = AgentChatFind()
+        find.query = "build"
+        find.search(Self.turns())
+        await find.pending?.value
+        var turns = Self.turns()
+        for text in ["build", "build build", "build build build"] {
+            turns[1].items[1] = .message(id: "b", markdown: text)
+            find.refresh(turns)
+        }
+        let first = find.pending
+        await first?.value
+        // The first refresh ran; the two after it became one run of the newest transcript.
+        #expect(find.pending != nil)
+        await find.pending?.value
+        #expect(find.matches.count == 7)
+    }
+
     @Test func aMatchNamesTheRenderedBlockThatHoldsIt() {
         // A long answer: the match in its last paragraph scrolls to that paragraph, not to a
         // share of the whole message (a code card and a table above it draw taller than their text).

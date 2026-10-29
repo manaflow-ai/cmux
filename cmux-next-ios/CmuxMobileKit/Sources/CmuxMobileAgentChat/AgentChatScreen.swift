@@ -761,7 +761,7 @@ struct TurnView: View {
             // holds a match, never a guess inside the whole message.
             StreamingMarkdown(markdown: markdown, isStreaming: turn.status == .running && isLastRow,
                               animatesBlocks: !store.isReplayed(row.id),
-                              findMarks: surface.map { MessageFindMarks(row: row.id, surface: $0) })
+                              findMarks: surface.map { MessageFindMarks(row: row.id, surface: $0) as any MarkdownBlockMarks })
         case .thought(_, let text):
             ThoughtRow(text: text, isLive: turn.status == .running && isLastRow)
         case .tool(let call):
@@ -830,7 +830,7 @@ struct StreamingMarkdown: View {
     let isStreaming: Bool
     var animatesBlocks = true
     /// Find in Chat's marks on this message's blocks.
-    var findMarks: MessageFindMarks?
+    var findMarks: (any MarkdownBlockMarks)?
 
     var body: some View {
         // While streaming, an emphasis or code marker that has not closed yet is hidden (the
