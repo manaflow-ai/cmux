@@ -32,6 +32,7 @@ import { wakeFire } from "../chief-brain-cc/wake.ts"
 import { chiefJobWake, type ChiefJob, type JobDelivery } from "../chief-brain-cc/jobs.ts"
 import { githubCall, githubDump, type GithubHost, githubPoll, type GithubStatus, githubTurn } from "../chief-brain-cc/github.ts"
 import { ccSandbox, ccSandboxPurge, ccSandboxRetire } from "../chief-brain-cc/sandbox.ts"
+import type { MemoryExport } from "../chief-durable/durable-do.ts"
 import { type AppendBody, type AppendResult, type UndoBody, type UndoResult, IMPORT_SCHEMA, type ImportBody, type ImportFail, type ImportStatus, appendBatch, undoBatch, importBatch, importing, importStatus } from "./memory-import.ts"
 
 /**
@@ -434,6 +435,24 @@ export class ChiefBrainDO extends DurableObject<Env> {
       writeConfig(this.sql, { agent: ag ?? undefined, owner: ow ?? undefined, enabled: enabled ? "1" : "0", chiefs: chiefs ? "1" : "0", ...rest })
     }
     return a
+  }
+
+  /**
+   * Read only: this conversation brain's OptChat memory, for Cloud Chief D's one-time copy when the Chief moves
+   * to `brain_impl: "durable"` (chief-durable/durable-do.ts importFromP). Messages page by index (`after`, `limit`);
+   * the first page (`after` < 0) also carries the summaries, the logged keys, the checkpoint and the read cursor,
+   * read in one synchronous step so they agree with `count`.
+   */
+  async memoryExport(after: number, limit: number): Promise<MemoryExport> {
+    const one = <T,>(q: string, ...b: Array<SqlStorageValue>) => this.sql.exec<Record<string, SqlStorageValue>>(q, ...b).toArray() as unknown as Array<T>
+    const count = Number(this.sql.exec<{ n: number }>(`SELECT COUNT(*) AS n FROM oc_message`).one().n)
+    const messages = one<{ i: number; kind: string; text: string; size: number; date: string }>(`SELECT i, kind, text, size, date FROM oc_message WHERE i > ? ORDER BY i LIMIT ?`, after, Math.max(1, Math.min(limit, 1000)))
+    if (after >= 0) return { count, messages, nodes: [], logged: [], checkpoint: null, cursor: null }
+    const nodes = one<{ l: number; i: number; text: string; size: number }>(`SELECT l, i, text, size FROM oc_node`)
+    const logged = one<{ key: string }>(`SELECT key FROM oc_logged`).map((r) => String(r.key))
+    const checkpoint = one<{ json: string }>(`SELECT json FROM oc_checkpoint WHERE id = 1`)[0]?.json ?? null
+    const cursor = one<{ seq: number }>(`SELECT MAX(seq) AS seq FROM cb_cursor`)[0]?.seq ?? null
+    return { count, messages, nodes, logged, checkpoint, cursor: cursor === null ? null : Number(cursor) }
   }
 
   /** A run with its steps after `afterSeq`, or null. The Worker checked the caller is a member of this brain's conversation first. */

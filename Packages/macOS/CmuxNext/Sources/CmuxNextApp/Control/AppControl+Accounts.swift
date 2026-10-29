@@ -89,6 +89,7 @@ extension AppControl {
     nonisolated private static func code(_ error: CodeRouterError) -> String {
         switch error {
         case .notSignedIn: "not_signed_in"
+        case .scopeChanged: "scope_changed"
         case .timedOut: "timeout"
         case .http(let status, let code, _): code ?? "http_\(status)"
         case .transport: "unavailable"

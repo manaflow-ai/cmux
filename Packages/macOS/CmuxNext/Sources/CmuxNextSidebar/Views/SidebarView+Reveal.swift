@@ -1,12 +1,12 @@
 import AppKit
 import CmuxNextDesign
 
-// The pointer over the sidebar reveals its titlebar buttons, the spaces
-// strip (`sidebar.spacesVisibility` hover, cx-5k3r), in minimal mode
-// (`sidebar.minimalMode`, R54) the chosen pinned bands and, with the thin
-// scrollers' opt-in auto-hide, the scrollers.
+// The pointer over the sidebar reveals, with Show Sidebar Controls Only on Hover (`sidebar.controlsOnHover`,
+// Lawrence 2026-10-27), its New Workspace button, spaces strip, profile control and Search
+// button; in Hide Bands Until Hover (`sidebar.minimalMode`, R54) the chosen pinned bands; and,
+// with the thin scrollers' opt-in auto-hide, the scrollers. By default the controls always show.
 extension SidebarViewComponents {
-    /// Fades the titlebar buttons in or out. Keyboard and VoiceOver users
+    /// Fades the hover chrome in or out (``SidebarChromeReveal``). Keyboard and VoiceOver users
     /// reach the same actions through the palette and the registry menus.
     /// Minimal mode's bands hide with the buttons; they stay in the view and
     /// accessibility tree (a fade), so VoiceOver still reaches their items. The
@@ -23,30 +23,34 @@ extension SidebarViewComponents {
                 (scroll.verticalScroller as? ThinScroller)?.flash()
             }
         }
-        let alpha: CGFloat = revealed ? 1 : 0
-        let mode = design.sidebarSections.minimalMode
-        let above: CGFloat = revealed || !mode.hidesTop ? 1 : 0
-        let below: CGFloat = revealed || !mode.hidesBottom ? 1 : 0
-        let hidden = (top: above == 0, bottom: below == 0)
-        guard changed || hidden != minimalHiddenBands else { return }
-        minimalHiddenBands = hidden
+        let target = chromeReveal(revealed: revealed)
+        guard changed || target != appliedChromeReveal else { return }
+        appliedChromeReveal = target
+        minimalHiddenBands = (top: target.topBand == 0, bottom: target.bottomBand == 0)
+        // A fade only, under Reduce Motion at once (the gate snaps): every piece keeps its frame.
         Motion.feedback.animate(.hover, in: self) {
-            if changed {
-                newButton.animator().alphaValue = alpha
-                profileBar.animator().alphaValue = spacesAlpha(revealed: revealed)
-            }
-            aboveFade.animator().alphaValue = above
-            belowFade.animator().alphaValue = belowRegion.restAlpha(hiddenByMode: below == 0)
-            footerRegion.animator().alphaValue = below
-            searchButton.animator().alphaValue = below
+            newButton.animator().alphaValue = target.newButton
+            profileBar.animator().alphaValue = target.spaces
+            aboveFade.animator().alphaValue = target.topBand
+            belowFade.animator().alphaValue = belowRegion.restAlpha(hiddenByMode: target.bottomBand == 0)
+            footerRegion.animator().alphaValue = target.footer
+            searchButton.animator().alphaValue = target.footer
         }
-        fadeLine(aboveLine, to: above)
+        fadeLine(aboveLine, to: target.topBand)
     }
 
-    /// The spaces strip's opacity: shown while the sidebar is hovered, or
-    /// always. A fade only: the strip stays in the accessibility tree.
+    /// What each piece of the hover chrome shows with the pointer over the sidebar (`revealed`) or
+    /// away, under the current settings (``SidebarChromeReveal``).
+    func chromeReveal(revealed: Bool) -> SidebarChromeReveal {
+        let sections = design.sidebarSections
+        return SidebarChromeReveal(revealed: revealed, minimalMode: sections.minimalMode,
+                                   controlsOnHover: sections.controlsOnHover, spacesVisibility: spacesVisibility)
+    }
+
+    /// The spaces strip's opacity: shown unless controls-on-hover hides it with the pointer away
+    /// (``SidebarChromeReveal``). A fade only: the strip stays in the accessibility tree.
     func spacesAlpha(revealed: Bool) -> CGFloat {
-        revealed || spacesVisibility == .always ? 1 : 0
+        chromeReveal(revealed: revealed).spaces
     }
 
     /// A band hairline (a layer) to `alpha` with the hover fade, at once in a

@@ -7,6 +7,7 @@ import {
   type ComposerAttachment,
   type PromptBlock,
 } from "./attachments";
+import { translate } from "./i18n";
 import type { AcpmuxRow, PromptContentPart } from "./model";
 import { parseVideoInfo } from "./composer/videoAttachments";
 type DisplayPart = {
@@ -83,7 +84,7 @@ export function normalizePromptContentPart(value: unknown): PromptContentPart | 
   const kind = raw.kind ?? raw.type;
   if (kind === "text" && typeof raw.text === "string")
     return raw.pasted === true
-      ? { kind: "pasted", name: "Pasted text", text: raw.text }
+      ? { kind: "pasted", name: translate("composer.pastedText"), text: raw.text }
       : { kind: "text", text: raw.text };
   if (kind === "image" && typeof raw.mimeType === "string" && typeof raw.id === "string")
     return {
@@ -204,7 +205,7 @@ export async function restoreInline(
     let attachment: ComposerAttachment;
     if (part.kind === "image") {
       const data = await read(part.id);
-      if (!data) throw new Error(`Attachment unavailable: ${part.name ?? part.id}`);
+      if (!data) throw new Error(translate("attachment.unavailable", { name: part.name ?? part.id }));
       const companion =
         part.blockIndex === undefined
           ? undefined
@@ -238,7 +239,7 @@ export async function restoreInline(
         size: part.text.length,
         text: part.text,
       };
-    else throw new Error(`Attachment unavailable: ${part.name}`);
+    else throw new Error(translate("attachment.unavailable", { name: part.name }));
     attachments.push(attachment);
     input += inlineToken(id);
   }
@@ -248,7 +249,7 @@ export async function restoreInline(
 function localPath(value: string): string {
   const uri = new URL(value);
   if (uri.protocol !== "file:" || (uri.hostname && uri.hostname !== "localhost"))
-    throw new Error("Attachment is not a local file");
+    throw new Error(translate("attachment.notLocal"));
   return decodeURIComponent(uri.pathname);
 }
 

@@ -168,6 +168,23 @@ enum WorkspaceBulkClose {
         return await prompt(members, warn: warn, askWithoutUndo: window == nil, incognito: incognito)
     }
 
+    /// Whether `prompt` will likely ask about `members`, read from the store without the daemon: two
+    /// or more close with nothing to undo it, or (`warn`) one has a live terminal on a connected
+    /// machine that is not known to sit at its shell prompt (OSC 133, `TabModel.promptSinceMs`).
+    /// True: the rows stay until the answer. False: they leave at the press, and the terminals are
+    /// still asked behind them (a prompt can show while ssh or a nested shell runs, `WorkspaceCloseFlow`).
+    static func mayAsk(_ members: [Member], warn: Bool, askWithoutUndo: Bool = false) -> Bool {
+        if askWithoutUndo, members.count > 1 { return true }
+        return warn && members.contains { workspace, daemon in
+            daemon.isLive && workspace.screens.flatMap(\.panes).flatMap(\.tabs).contains(where: mayRunProgram)
+        }
+    }
+
+    /// A live terminal whose shell may be running a program: a command runs, or no prompt was seen.
+    static func mayRunProgram(_ tab: TabModel) -> Bool {
+        tab.kind == .pty && !tab.dead && (tab.commandSinceMs != nil || tab.promptSinceMs == nil)
+    }
+
     /// Asks when a terminal in `members` runs a program (`warn`), or when two
     /// or more close and nothing can undo it (`askWithoutUndo`).
     static func prompt(_ members: [Member], warn: Bool, askWithoutUndo: Bool = false, incognito: Bool = false,
