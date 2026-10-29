@@ -49,9 +49,10 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     let surface: AgentChatSurface
     var topInset: CGFloat? { didSet { if oldValue != topInset { view.setNeedsLayout() } } }
     var onUserScroll: ((CGFloat) -> Void)?
-    /// iOS 26 does not draw a top edge container for a workspace chat whose
-    /// navigation bar is hidden. Keep a gradient scrim over the status bar so
-    /// transcript text remains legible while it scrolls beneath the clock.
+    /// Workspace chats have no navigation bar to provide a native top edge.
+    private let topShelf = UIView()
+    /// Like the embedded terminal, iOS 26 also needs a gradient fallback:
+    /// a bare top edge container alone does not obscure text under the clock.
     private let topFade = TopFadeView()
 
     private let scrollView = ChatTranscriptScrollView()
@@ -191,12 +192,18 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         view.addSubview(scrollView)
         setContentScrollView(scrollView, for: .top)
 
-        topFade.isUserInteractionEnabled = false
-        topFade.isAccessibilityElement = false
-        if #available(iOS 27.0, *) {
-            topFade.isHidden = true
-        } else {
-            view.addSubview(topFade)
+        if placement == .external {
+            topShelf.isUserInteractionEnabled = false
+            view.addSubview(topShelf)
+            let topEdge = UIScrollEdgeElementContainerInteraction()
+            topEdge.scrollView = scrollView
+            topEdge.edge = .top
+            topShelf.addInteraction(topEdge)
+            if #unavailable(iOS 27) {
+                topFade.isUserInteractionEnabled = false
+                topFade.isAccessibilityElement = false
+                view.addSubview(topFade)
+            }
         }
 
         for host in [contentHost, emptyHost] + [dockHost, jumpHost].compactMap({ $0 }) {
@@ -349,9 +356,10 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         let top = headerBottom
         if openAreaTop?.constant != top { openAreaTop?.constant = top }
         scrollView.edgeTopInset = top
-        if topFade.superview != nil {
-            let fadeFrame = CGRect(x: 0, y: 0, width: view.bounds.width, height: top + TopFadeView.tail)
-            if topFade.frame != fadeFrame { topFade.frame = fadeFrame }
+        if placement == .external {
+            let chromeFrame = CGRect(x: 0, y: 0, width: view.bounds.width, height: top)
+            if topShelf.frame != chromeFrame { topShelf.frame = chromeFrame }
+            if topFade.superview != nil, topFade.frame != chromeFrame { topFade.frame = chromeFrame }
         }
 
         // As in Messages, a transcript drag takes the keyboard once the finger
@@ -850,11 +858,11 @@ final class ChatKeyboardTrace {
 #endif
 
 #if os(iOS)
-/// A gradient from the screen background to clear: solid over the status bar,
-/// fading below it so transcript text softens instead of cutting hard.
+/// Solid over the status bar, then fades to clear at the content inset so the
+/// first row at rest is unobscured. Matches the embedded terminal's fallback.
 @MainActor
-final class TopFadeView: UIView {
-    static let tail: CGFloat = 24
+private final class TopFadeView: UIView {
+    private static let tail: CGFloat = 18
 
     override class var layerClass: AnyClass { CAGradientLayer.self }
 
@@ -873,16 +881,16 @@ final class TopFadeView: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        let solid = max(0, bounds.height - Self.tail * 2) / max(bounds.height, 1)
+        let solid = max(0, bounds.height - Self.tail) / max(bounds.height, 1)
         gradient.locations = [0, NSNumber(value: Double(solid)), 1]
     }
 
     private func updateColors() {
         let color = UIColor(Color.cmuxMobileBackground).resolvedColor(with: traitCollection)
-        gradient.colors = [color.withAlphaComponent(0.92).cgColor, color.withAlphaComponent(0.85).cgColor, color.withAlphaComponent(0).cgColor]
+        gradient.colors = [color.cgColor, color.cgColor, color.withAlphaComponent(0).cgColor]
     }
 }
-#endif
+
 /// Gives the native top scroll edge the same boundary as the transcript content.
 @MainActor
 final class ChatTranscriptScrollView: UIScrollView {
