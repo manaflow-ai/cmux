@@ -76,7 +76,8 @@ await requireBrowserLane("new-tab-gallery-reached.test.ts", async () => {
         expect(receipt.ready).toBe("1");
         expect(receipt.report?.error).toBeUndefined();
         const steps = receipt.report?.steps ?? [];
-        expect(steps.length).toBeGreaterThan(0);
+        // State fixtures wait for their content; only interaction plays record input steps.
+        if (variant !== "empty" && variant !== "chats-loading") expect(steps.length).toBeGreaterThan(0);
         for (const step of steps) {
           expect(step.popupProblems ?? []).toEqual([]);
           expect(step.anchorMoves ?? []).toEqual([]);
