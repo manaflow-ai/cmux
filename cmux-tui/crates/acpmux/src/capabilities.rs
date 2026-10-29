@@ -75,6 +75,9 @@ pub const CAPABILITIES: &[Capability] = &[
             method::MUX_SECRET_SUBMIT,
         ],
     },
+    // Server-side local/non-closed session-list filters used by native quit
+    // census callers. Older daemons keep serving the unfiltered list.
+    Capability { id: "session-list-filters-v1", wire: &[method::MUX_SESSIONS] },
     Capability { id: "machine.join.stdin.v1", wire: &[] },
     Capability {
         id: "machine-consent-v1",

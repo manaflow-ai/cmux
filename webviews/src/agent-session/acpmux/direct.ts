@@ -2806,6 +2806,19 @@ export class AcpmuxDirectClient {
     return this.request(MCP_RECONNECT_METHOD, { sessionId, server }, 35_000);
   }
 
+  /// Reads only this pane's selected chat; the native relay enforces the same scope.
+  readWorkflowAgent(params: {
+    sessionId: string;
+    runId: string;
+    agentId: string;
+    before?: number;
+    after?: number;
+  }): Promise<unknown> {
+    // l10n-allow: internal selection race; the transcript surface renders its own localized state.
+    if (params.sessionId !== this.selectedSessionId) return Promise.reject(new Error("Session changed"));
+    return this.request("_acpmux/subagent_transcript", params, 15_000);
+  }
+
   /// Asks the local daemon to retry the configured peer and wait for its doctor result.
   /// The daemon returns the refreshed peer list; a settled state other than `connected` is a
   /// doctor refusal, which the offline banner renders as its failure detail.
