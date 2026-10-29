@@ -85,6 +85,10 @@ impl Hub {
                     if rec.msg.get("promptId").and_then(Value::as_str) == Some(prompt_id) =>
                 {
                     turn_id = rec.msg.get("turnId").and_then(Value::as_str).map(str::to_owned);
+                    // A steer is accepted into an already-running parent turn and
+                    // therefore has no turn_started of its own. Its user_message is
+                    // the durable execution record for duplicate suppression.
+                    started |= rec.msg.get("steer") == Some(&Value::Bool(true));
                 }
                 ("turn_started", Some(id))
                     if rec.msg.get("turnId").and_then(Value::as_str) == Some(id)

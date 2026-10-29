@@ -478,12 +478,14 @@ impl Hub {
                 false
             },
         );
-        let had_scheduled_retry = waiting_mark || journal_scheduled;
+        let active_turn = session.turn().map(|turn| turn.turn_id);
+        let had_scheduled_retry = waiting_mark || journal_scheduled || active_turn.is_some();
         if session.status() != SessionStatus::Closed
             && !session.replaced.load(std::sync::atomic::Ordering::SeqCst)
             && had_scheduled_retry
         {
-            self.append(session, "mux", "auto_resume_stopped", json!({}));
+            let marker = active_turn.map_or_else(|| json!({}), |turn_id| json!({"turnId": turn_id}));
+            self.append(session, "mux", "auto_resume_stopped", marker);
         }
         let settles = settled_by_stop(pending.as_ref());
         let (ending, fired) = match pending.as_ref() {

@@ -46,6 +46,12 @@ impl Hub {
         {
             return;
         }
+        let configured_attempts = self
+            .config
+            .try_read()
+            .ok()
+            .and_then(|cfg| cfg.auto_resume_delays_ms.as_ref().map(Vec::len))
+            .unwrap_or(MAX_ATTEMPTS);
         let (mut retry, mut from) = (None::<RetrySummary>, None::<String>);
         let mut has_retry_marker = false;
         let (mut control, mut trust_gate) = (Control::Web, true);
@@ -111,6 +117,7 @@ impl Hub {
         // that small window, synthesize its first retry now instead of losing the transient
         // failure forever.
         if retry.is_none()
+            && configured_attempts > 0
             && !has_retry_marker
             && last.msg["status"] == "failed"
             && let Some(reason) = super::super::turn_errors::resume_cause(&error, &error)
@@ -120,7 +127,7 @@ impl Hub {
             if done < MAX_ATTEMPTS {
                 let recovered = RetrySummary {
                     attempt: (done + 1) as u64,
-                    of: MAX_ATTEMPTS as u64,
+                    of: configured_attempts as u64,
                     reason,
                     next_at: crate::hub::now_ms(),
                     prompt_id: root.to_owned(),
@@ -138,16 +145,7 @@ impl Hub {
                 retry = Some(recovered);
             }
         }
-        let Some(retry) = retry.filter(|r| {
-            scanned.is_ok()
-                && r.attempt > 0
-                && r.attempt <= MAX_ATTEMPTS as u64
-                && !r.prompt_id.is_empty()
-        }) else {
-            return;
-        };
-        // Restore the durable summary before any blocked/skip decision. Manual retry and
-        // session rows must still describe the failed turn after a crash with stale metadata.
+        // Refresh the durable last-turn summary before any retry/configuration decision.
         let mut summary = serde_json::Map::new();
         for key in super::super::views::LAST_TURN_KEYS {
             if let Some(value) = last.msg.get(key) {
@@ -158,6 +156,14 @@ impl Hub {
         session.meta.lock().unwrap_or_else(|e| e.into_inner()).last_turn =
             Some(Value::Object(summary));
 
+        let Some(retry) = retry.filter(|r| {
+            scanned.is_ok()
+                && r.attempt > 0
+                && r.attempt <= MAX_ATTEMPTS as u64
+                && !r.prompt_id.is_empty()
+        }) else {
+            return;
+        };
         if control == Control::Web && (ended || floor_cancelled) {
             let skipped =
                 if floor_cancelled { "remote_floor_cancel" } else { "remote_control_ended" };
