@@ -7,6 +7,8 @@
 // `steer_withdrawn` record. A steer read already has no X, and one the agent read first stays.
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { CHAT, connect, fakeDaemon, record } from "./support/agentPairDaemon";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
@@ -70,11 +72,13 @@ const takeBackButtons = () =>
   );
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
 
-async function waitingSteer() {
+/// A chat whose steer `promptId` waits; `refuses` makes acpmux answer the X's withdraw false (the
+/// agent took the steer already, or its harness cannot drop one).
+async function waitingSteer({ promptId = "p-steer", refuses = false } = {}) {
   const daemon = fakeDaemon(
     record([
       ["mux", "user_message", { promptId: "p-turn", text: "Add retries" }],
-      ["mux", "user_message", { promptId: "p-steer", text: "Also keep the old flag working", steer: true }],
+      ["mux", "user_message", { promptId, text: "Also keep the old flag working", steer: true }],
     ]),
   );
   const { client, rows } = await connect(daemon);
@@ -82,7 +86,8 @@ async function waitingSteer() {
   const actions = {
     unsteer: (row: Parameters<typeof takeBackSteer>[0]) =>
       takeBackSteer(row, {
-        withdraw: (promptId) => client.editQueued(promptId, { op: "withdraw" }).then((reply) => reply?.ok === true),
+        withdraw: (promptId) =>
+          client.editQueued(promptId, { op: "withdraw" }).then((reply) => !refuses && reply?.ok === true),
         attachments: (rowId) => client.promptAttachments(rowId),
         restore: (text) => restored.push(text),
       }),
@@ -180,4 +185,80 @@ test("a steer with an image acpmux could not give back stays", async () => {
     restore: () => {},
   });
   expect([took, withdrawn]).toEqual([false, []]);
+});
+
+const sendNow = () =>
+  [...dom.window.document.querySelectorAll<HTMLButtonElement>("button.cv-user__send-now")].filter(
+    (button) => button.textContent === translate("steer.sendNow"),
+  );
+const say = (text: string) => ({
+  method: "session/update",
+  params: { update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text } } },
+});
+
+// Leo, 2026-10-29: "Plus this fucking edit message thing. It doesn't even fucking work. And it fucking
+// blinks with the fucking send now text." The X (its tooltip "Edit message") that acpmux refuses never
+// sits there doing nothing: the row says the agent reads it after this step, and Send now beside it is
+// the same element throughout, enabled again.
+test("an X acpmux refuses gives way to Read after this step; Send now stays the same element", async () => {
+  const { daemon, restored, root, render } = await waitingSteer({ promptId: "p-refused", refuses: true });
+  try {
+    await render();
+    const [before] = sendNow();
+    const [x] = takeBackButtons();
+    expect(before).toBeDefined();
+    await act(async () => {
+      x!.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+      await settle();
+    });
+    expect(daemon.requests.filter((request) => request.method === "_acpmux/queue_edit")).toHaveLength(1);
+    expect(restored).toEqual([]);
+    expect(takeBackButtons()).toEqual([]);
+    const pending = dom.window.document.querySelector(".cv-user__pending")!;
+    expect(pending.querySelector(".cv-user__kept")?.textContent).toBe(translate("message.readAfterStep"));
+    const [after] = sendNow();
+    expect(after).toBe(before);
+    expect(after!.disabled).toBe(false);
+    // Drawn again (scrolled away and back) while acpmux still says it waits: still no dead X.
+    await act(async () => root.render(<></>));
+    await render();
+    expect(takeBackButtons()).toEqual([]);
+    expect(dom.window.document.querySelector(".cv-user__kept")).not.toBeNull();
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+// The running turn goes on under a waiting steer: its reply streams in, row after row. Send now is
+// never drawn again for it (a remount restarted its reveal: the blink).
+test("Send now keeps its element through 50 transcript events", async () => {
+  const { daemon, root, render } = await waitingSteer({ promptId: "p-streaming" });
+  try {
+    await render();
+    const [first] = sendNow();
+    expect(first).toBeDefined();
+    for (let index = 0; index < 50; index += 1) {
+      await act(async () => {
+        daemon.push(record([["in", "agent_message_chunk", say(`word ${index} `)]], 3 + index));
+        await settle();
+      });
+      await render();
+      const [now, ...others] = sendNow();
+      expect(others).toEqual([]);
+      expect(now).toBe(first!);
+    }
+    expect(first!.isConnected).toBe(true);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+// The waiting steer's footer is drawn while it waits: no hover fade to restart and no dimming while
+// the X or Send now is answered, either of which read as the blink.
+test("a waiting steer's Send now and X are drawn with no fade and no dimming", () => {
+  const css = readFileSync(join(import.meta.dir, "../src/agent-session/acpmux/conversation/conversation.css"), "utf8");
+  const shown = css.match(/\.cv-user__actions:has\(\.cv-user__pending\)\s*\{([^}]*)\}/)?.[1] ?? "";
+  expect(shown).toMatch(/opacity:\s*1\s*;/);
+  expect(shown).toMatch(/transition:\s*none\s*;/);
+  expect(css).not.toMatch(/\.cv-user__(send-now|take-back):disabled\s*\{[^}]*opacity/);
 });
