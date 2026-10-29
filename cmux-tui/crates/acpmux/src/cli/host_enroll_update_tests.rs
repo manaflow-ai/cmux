@@ -506,8 +506,7 @@ mod probe_in_a_shell {
         let manager = root.join(u.manager_dir);
         if u.no_sed {
             for tool in ["sed", "tr"] {
-                fs::write(bin.join(tool), "#!/bin/sh\nexit 127\n").unwrap();
-                fs::set_permissions(bin.join(tool), fs::Permissions::from_mode(0o755)).unwrap();
+                crate::test_exec::write_executable(bin.join(tool), "#!/bin/sh\nexit 127\n");
             }
         }
         let loginctl = bin.join("loginctl");
@@ -516,9 +515,10 @@ mod probe_in_a_shell {
         } else {
             "echo yes;; enable-linger) exit 0"
         };
-        fs::write(&loginctl, format!("#!/bin/sh\ncase \"$1\" in show-user) {linger};; esac\n"))
-            .unwrap();
-        fs::set_permissions(&loginctl, fs::Permissions::from_mode(0o755)).unwrap();
+        crate::test_exec::write_executable(
+            &loginctl,
+            format!("#!/bin/sh\ncase \"$1\" in show-user) {linger};; esac\n"),
+        );
         if let Some(name) = u.dangling {
             std::os::unix::fs::symlink(root.join("nowhere"), units.join(name)).unwrap();
         }
@@ -556,8 +556,7 @@ mod probe_in_a_shell {
         } else {
             format!("printf '%s\\n' '{}'", listed.replace('\n', "' '"))
         };
-        fs::write(&analyze, format!("#!/bin/sh\n{analyzed}\n")).unwrap();
-        fs::set_permissions(&analyze, fs::Permissions::from_mode(0o755)).unwrap();
+        crate::test_exec::write_executable(&analyze, format!("#!/bin/sh\n{analyzed}\n"));
         let frag = if u.frag == "own" { units.display().to_string() } else { u.frag.into() };
         let fake = format!(
             r#"#!/bin/sh
@@ -586,8 +585,7 @@ esac
             unit_path = unit_path,
         );
         let systemctl = bin.join("systemctl");
-        fs::write(&systemctl, fake).unwrap();
-        fs::set_permissions(&systemctl, fs::Permissions::from_mode(0o755)).unwrap();
+        crate::test_exec::write_executable(&systemctl, fake);
         let path = format!("{}:{}", bin.display(), std::env::var("PATH").unwrap_or_default());
         let mut sh = Command::new("sh");
         sh.arg("-c").arg(script).env("HOME", &home).env("PATH", path).env_remove("XDG_CONFIG_HOME");
