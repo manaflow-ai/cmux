@@ -352,7 +352,9 @@ function activeReasons(probe: KnownVmIdleProbe, cpuCores: number | "reset" | nul
  *   and established TCP connections into a listening port, counted when they
  *   reach the machine's private address ($CMUX_IDLE_PRIVATE_ADDRESSES) or sshd,
  *   except the daemon's own port ($CMUX_IDLE_DAEMON_PORT: the app's link, whose
- *   input the daemon already reports; the link alone is not activity),
+ *   input the daemon already reports; the link alone is not activity), plus
+ *   each stream the daemon (a `cmux-tui` process, by its socket inodes) holds to
+ *   a listening loopback port: a port the app forwards over that link,
  *   and the aggregate `cpu` line of /proc/stat (busy CPU time since boot).
  * $CMUX_IDLE_PROC_ROOT, $CMUX_IDLE_DAEMON_SOCKET_FILE and
  * $CMUX_IDLE_DAEMON_SOCKET_ROOTS exist for tests.
@@ -512,7 +514,26 @@ def address(hexaddr):
         return ipaddress.ip_address(raw[::-1])
     return ipaddress.ip_address(b"".join(raw[i:i + 4][::-1] for i in range(0, 16, 4)))
 
-def inbound_connections():
+def daemon_socket_inodes(procs):
+    inodes = set()
+    for pid, (comm, _, _, _) in procs.items():
+        if comm != "cmux-tui":
+            continue
+        fd_dir = os.path.join(proc, str(pid), "fd")
+        try:
+            names = os.listdir(fd_dir)
+        except Exception:
+            continue
+        for fd in names:
+            try:
+                target = os.readlink(os.path.join(fd_dir, fd))
+            except Exception:
+                continue
+            if target.startswith("socket:[") and target.endswith("]"):
+                inodes.add(target[8:-1])
+    return inodes
+
+def inbound_connections(procs):
     private = set()
     for a in os.environ.get("CMUX_IDLE_PRIVATE_ADDRESSES", "").split(","):
         try:
@@ -536,14 +557,22 @@ def inbound_connections():
             p = line.split()
             try:
                 lhex, lport = p[1].split(":")
-                rows.append((address(lhex), int(lport, 16), p[3]))
+                rport = int(p[2].split(":")[1], 16)
+                rows.append((address(lhex), int(lport, 16), p[3], rport, p[9]))
             except Exception:
                 pass
-    listening = {port for _, port, state in rows if state == "0A"}
+    listening = {port for _, port, state, _, _ in rows if state == "0A"}
     daemon_port = os.environ.get("CMUX_IDLE_DAEMON_PORT", "")
+    daemon_inodes = daemon_socket_inodes(procs)
     n = 0
-    for local, port, state in rows:
-        if state != "01" or port not in listening or str(port) == daemon_port:
+    for local, port, state, rport, inode in rows:
+        if state != "01":
+            continue
+        # A stream the daemon opened to a local service for the app (loopback-forward-v1 over its link).
+        if inode in daemon_inodes and local.is_loopback and rport in listening and str(rport) != daemon_port:
+            n += 1
+            continue
+        if port not in listening or str(port) == daemon_port:
             continue
         mapped = local.ipv4_mapped if local.version == 6 else None
         if port == 22 or local in private or (mapped is not None and mapped in private):
@@ -574,7 +603,7 @@ print(json.dumps({
     "acpmux": acpmux(),
     "busy_terminals": busy_terminals(procs),
     "ssh_sessions": ssh_sessions(procs),
-    "inbound_connections": inbound_connections(),
+    "inbound_connections": inbound_connections(procs),
     "cpu_busy_ms": cpu_busy_ms(),
 }))
 `;
@@ -595,7 +624,7 @@ export function vmIdleProbeCommand(privateAddresses: readonly string[]): string 
     // LC_ALL=C keeps an unknown-subcommand refusal in English for acp_missing().
     `s=$(${cmuxTuiAsDaemonUser(`LC_ALL=C "$CMUX_TUI_BIN" acp --json daemon status`)} </dev/null 2>"$t.err")`,
     `case "$s" in *'"pid":'[0-9]*|*'"pid": '[0-9]*) ${acp("ls")} </dev/null >"$t" 2>/dev/null || printf ERR >"$t" ;; *'"running":false'*|*'"running": false'*) printf NONE >"$t" ;; *) printf ERR >"$t" ;; esac`,
-    `CMUX_IDLE_ACPMUX="$t" CMUX_IDLE_ACPMUX_ERR="$t.err" CMUX_IDLE_DAEMON_UID="$(id -u "$CMUX_TUI_USER")" CMUX_IDLE_DAEMON_PORT=${CMUX_TUI_PORT} CMUX_IDLE_PRIVATE_ADDRESSES='${addresses}' python3 - <<'CMUX_IDLE_PY'\n${VM_IDLE_PROBE_SCRIPT}\nCMUX_IDLE_PY`,
+    `CMUX_IDLE_ACPMUX="$t" CMUX_IDLE_ACPMUX_ERR="$t.err" CMUX_IDLE_DAEMON_UID="$(id -u "$CMUX_TUI_USER")" CMUX_IDLE_DAEMON_PORT=${CMUX_TUI_PORT} CMUX_IDLE_PRIVATE_ADDRESSES='${addresses}' python3 -I - <<'CMUX_IDLE_PY'\n${VM_IDLE_PROBE_SCRIPT}\nCMUX_IDLE_PY`,
     `rc=$?; rm -f "$t" "$t.err"; exit $rc`,
   ].join("\n");
 }

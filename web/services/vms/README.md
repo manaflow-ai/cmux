@@ -578,7 +578,8 @@ a machine whose agent is mid-turn and quiet). The server pauses idle machines in
 (`services/vms/idlePause.ts`, `idlePauseJob.ts`):
 
 - The `vm-idle-pause` cron runs every 5 minutes. On each running Freestyle machine it runs one
-  read-only probe as root through the provider exec: the session daemon's `subscribe-activity`
+  read-only probe as root through the provider exec (`python3 -I`, so nothing in its working
+  directory or environment is imported): the session daemon's `subscribe-activity`
   snapshot, acpmux's session list (read as the daemon user, only when its daemon already runs),
   and `/proc` (each pseudo-terminal's foreground process group, sshd session processes,
   established TCP connections into the machine's private address or into sshd, and the busy CPU
@@ -592,7 +593,7 @@ a machine whose agent is mid-turn and quiet). The server pauses idle machines in
   app that is only attached does not count: the Mac app stays attached for days), no live agent or acpmux session with
   a turn or a pending permission, no terminal running a command (anything but a shell at its
   prompt is a command: a build, a hand-started server, vim, an agent CLI), no ssh session, no
-  inbound connection on its private address (the app's own link to the daemon port does not count), and CPU use since the previous probe below
+  inbound connection on its private address (the app's own link to the daemon port does not count, but a port the app forwards over that link counts while the daemon holds a stream to it, in legacy mode too), and CPU use since the previous probe below
   `VM_IDLE_CPU_BUSY_CORES` (0.05 cores; a `nohup make`, a container or a systemd unit doing work
   is over it). A CPU counter that went back (a reboot) restarts the idle stretch. A probe without
   a CPU sample, or a `/proc/net/tcp` (or an existing `tcp6`) it cannot read, is unknown; a missing
