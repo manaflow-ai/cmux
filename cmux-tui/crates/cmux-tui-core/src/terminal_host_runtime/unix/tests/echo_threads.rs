@@ -413,10 +413,30 @@ fn blocking_cascade_input_queued_before_a_half_close_is_written() {
 /// pastes into a program that is not reading, half-closes (its end cuts the
 /// blocked paste), and its next Input waits behind a cell-metric commit
 /// until the program has drained the pipe and the parser runs. That Input
-/// must never be written: a cut paste ends the client, as a failed Input does.
+/// must never be written: a cut paste ends the client, as a cut Input does.
 #[test]
 fn blocking_cascade_nothing_reaches_the_program_after_a_cut_paste() {
-    use std::io::Read as _;
+    nothing_reaches_the_program_after_a_cut(MessageKind::Paste, b"\x1b[200~");
+}
+
+/// The TUI sends a bracketed paste as one interactive Input frame (request
+/// id 0) that carries `ESC[200~ ... ESC[201~` itself. Cut by its client's
+/// end, it leaves the program in paste mode just as a Paste frame does, so
+/// it ends the client too: interactive input stays best-effort for every
+/// other write failure, but a cut one is never followed by the client's
+/// later frames.
+#[test]
+fn blocking_cascade_nothing_reaches_the_program_after_a_cut_interactive_paste() {
+    nothing_reaches_the_program_after_a_cut(MessageKind::Input, b"\x1b[200~");
+}
+
+/// A large `kind` frame (a Paste, or an Input that starts with `ESC[200~`)
+/// blocks on a program that does not read; behind it a cell-metric commit
+/// (waits for the parser, started later) and an Input; the client
+/// half-closes, which cuts the large write. The program then drains the
+/// pipe, so a later write has room, and the parser runs, so the Input is
+/// reached. Nothing may reach the program after the cut.
+fn nothing_reaches_the_program_after_a_cut(kind: MessageKind, starts: &[u8]) {
     let (host, parser_commands) = exited_host_fixture_with_parser();
     host.term.lock().unwrap().vt_write(b"\x1b[?2004h");
     let (pty, program) = UnixStream::pair().unwrap();
@@ -436,7 +456,13 @@ fn blocking_cascade_nothing_reaches_the_program_after_a_cut_paste() {
         read_required_frame(&mut client_stream, label).unwrap();
     }
     const PASTE: usize = 8 << 20;
-    write_frame(&mut client_stream, &Frame::new(MessageKind::Paste, vec![b'p'; PASTE])).unwrap();
+    let mut large = vec![b'p'; PASTE];
+    if kind == MessageKind::Input {
+        // The TUI's bracketed paste: the markers are in the input itself.
+        large.splice(..0, b"\x1b[200~".iter().copied());
+        large.extend_from_slice(b"\x1b[201~");
+    }
+    write_frame(&mut client_stream, &Frame::new(kind, large)).unwrap();
     let deadline = Instant::now() + Duration::from_secs(10);
     while host.writer.try_lock().is_ok() {
         assert!(Instant::now() < deadline, "the paste write never started");
@@ -488,7 +514,7 @@ fn blocking_cascade_nothing_reaches_the_program_after_a_cut_paste() {
     let _ = server.join();
     host.parser_commands.send(ParserCommand::Drain).unwrap();
     parser.join().unwrap();
-    assert!(received.starts_with(b"\x1b[200~"), "the paste was bracketed");
+    assert!(received.starts_with(starts), "the large write was bracketed");
     assert!(cut_at < PASTE + 12, "the paste was not cut ({cut_at} bytes): the test proves nothing");
     let after = &received[cut_at..];
     assert!(
