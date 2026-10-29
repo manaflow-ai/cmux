@@ -10,6 +10,8 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { McpCallDetails } from "./McpCallRows";
+import { paintFindHighlights } from "./chatFind";
+import { splitToolLabel } from "./ToolVerb";
 import { ToolRows } from "./TurnRows";
 import { ToolRow } from "./ToolRow";
 import { ToolVerbColumn } from "./ToolVerb";
@@ -19,7 +21,18 @@ let dom: JSDOM | undefined;
 let root: Root | undefined;
 const scope = globalThis as Record<string, unknown>;
 const saved = new Map<string, unknown>();
-const GLOBALS = ["window", "document", "navigator", "Node", "HTMLElement", "Element", "IS_REACT_ACT_ENVIRONMENT"];
+const GLOBALS = [
+  "window",
+  "document",
+  "navigator",
+  "Node",
+  "NodeFilter",
+  "HTMLElement",
+  "Element",
+  "CSS",
+  "Highlight",
+  "IS_REACT_ACT_ENVIRONMENT",
+];
 
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
@@ -42,6 +55,7 @@ async function render(node: ReactNode): Promise<HTMLElement> {
     document: dom.window.document,
     navigator: dom.window.navigator,
     Node: dom.window.Node,
+    NodeFilter: dom.window.NodeFilter,
     HTMLElement: dom.window.HTMLElement,
     Element: dom.window.Element,
     IS_REACT_ACT_ENVIRONMENT: true,
@@ -167,6 +181,36 @@ test("under StrictMode's double effects each verb counts once and leaves with it
     ),
   );
   expect(column.style.getPropertyValue("--cv-tool-verbs")).toBe('"Read"');
+});
+
+test("a Find match spanning a row's verb and its subject highlights as one range", async () => {
+  const container = await render(
+    <div data-row-id="row1">
+      <ToolRows row={turn([call("Read App.tsx", "read"), thought("Then."), call("Searched for x", "search")])} />
+    </div>,
+  );
+  // CSS custom highlights, as WebKit has them; jsdom has none.
+  const highlights = new Map<string, unknown>();
+  Object.assign(scope, {
+    CSS: { highlights },
+    Highlight: class {
+      ranges: Range[];
+      constructor(...ranges: Range[]) {
+        this.ranges = ranges;
+      }
+    },
+  });
+  const range = paintFindHighlights(container, "read app", { rowId: "row1", card: false, occurrence: 0 });
+  expect(range?.toString()).toBe("Read App");
+  expect(range?.startContainer).not.toBe(range?.endContainer);
+});
+
+test("a label is split only at one plain space, so its words stay as they were", () => {
+  expect(splitToolLabel("Read App.tsx")).toEqual({ verb: "Read", subject: "App.tsx" });
+  expect(splitToolLabel("Read  App.tsx")).toBeUndefined();
+  expect(splitToolLabel("Read\tApp.tsx")).toBeUndefined();
+  expect(splitToolLabel("TodoWrite")).toBeUndefined();
+  expect(splitToolLabel("./run.sh now")).toBeUndefined();
 });
 
 test("the verb column and the bottom fade are in the transcript's styles", () => {

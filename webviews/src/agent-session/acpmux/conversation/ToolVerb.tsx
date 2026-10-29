@@ -27,7 +27,8 @@ const VerbColumnContext = createContext<VerbColumn | undefined>(undefined);
 /// A label's verb and the rest, split at its first space ("Ran git status": "Ran", "git status").
 /// Undefined when it does not start with a word and a space.
 export function splitToolLabel(text: string): { verb: string; subject: string } | undefined {
-  const match = /^(\p{L}+)\s+(\S[\s\S]*)$/u.exec(text);
+  // One plain space only: the split draws one, so any other gap would change the words.
+  const match = /^(\p{L}+) (\S[\s\S]*)$/u.exec(text);
   return match ? { verb: match[1]!, subject: match[2]! } : undefined;
 }
 
@@ -120,13 +121,14 @@ export function ToolLabel({
   const split = column && !whole && verb === undefined && text !== undefined ? splitToolLabel(text) : undefined;
   const head = verb ?? split?.verb;
   if (!column || !head) return <>{children ?? text}</>;
+  // One run for Find's highlights (chatFind.ts findRuns): a match may span the verb and the subject.
   return (
-    <>
+    <span data-find-join="">
       <ToolVerb column={column} skip={skip}>
         {head}
       </ToolVerb>
       {skip ? <span data-find-skip> </span> : " "}
       {subject ?? split?.subject}
-    </>
+    </span>
   );
 }

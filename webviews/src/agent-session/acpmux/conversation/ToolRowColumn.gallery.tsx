@@ -97,7 +97,7 @@ export default componentEntry<Props>({
   height: 560,
   widths: { narrow: 420, normal: 640, wide: 900 },
   anchors: [{ selector: "[data-tool-row-column] .cv-tools > :first-child" }],
-  covers: ["agent-session/acpmux/conversation/ToolVerb.tsx", "agent-session/acpmux/conversation/moreBelow.ts"],
+  covers: ["agent-session/acpmux/conversation/ToolVerb.tsx", "agent-session/acpmux/conversation/McpCallRows.tsx"],
   styles: () => import("./ToolRowColumn.gallery.css"),
   load: async () => ToolRowColumnGallery,
   keywords: ["align", "aligned", "fade", "codex", "ran", "verb"],
