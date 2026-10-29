@@ -367,6 +367,47 @@ class EveryTier(unittest.TestCase):
 
 
 class PushAttribution(unittest.TestCase):
+    def test_repeated_push_failures_edit_the_shared_status_comment(self):
+        import cmux_next_push_attribution as attribution
+        import pr_status
+
+        comments = [{"id": 1, "user": {"login": pr_status.BOT},
+                     "body": pr_status.render({"checks": "Existing check evidence"})},
+                    {"id": 2, "user": {"login": pr_status.BOT},
+                     "body": "<!-- cmux-next-push-attribution:10 -->\nOld failure"}]
+        writes = []
+
+        def api(method, path, payload):
+            if method == "GET":
+                return comments
+            writes.append((method, path))
+            number = int(path.rsplit("/", 1)[-1])
+            if method == "PATCH":
+                next(c for c in comments if c["id"] == number)["body"] = payload["body"]
+            elif method == "DELETE":
+                comments[:] = [c for c in comments if c["id"] != number]
+            else:
+                self.fail(f"unexpected timeline comment: {method} {path}")
+
+        real_upsert = pr_status.upsert
+        def upsert(*args, **kwargs):
+            return real_upsert(*args, **kwargs, api=api, sleep=None)
+
+        with mock.patch.object(attribution, "run_jobs", return_value={"check": "failure"}), \
+             mock.patch.object(attribution, "gh_api", side_effect=lambda path: comments if "/comments" in path else {"workflow_runs": []}), \
+             mock.patch.object(attribution, "never_passed", return_value=[]), \
+             mock.patch.object(attribution, "last_green", return_value="good"), \
+             mock.patch.object(attribution, "pull_requests", return_value=[7]), \
+             mock.patch.object(pr_status, "upsert", side_effect=upsert):
+            for run_id in (11, 12, 12):
+                self.assertEqual(attribution.main(["--repo", "o/r", "--run-id", str(run_id),
+                                                   "--sha", "head"]), 0)
+        self.assertEqual([method for method, _ in writes], ["PATCH", "DELETE", "PATCH"])
+        self.assertEqual(len(comments), 1)
+        sections = pr_status.parse(comments[0]["body"])
+        self.assertEqual(sections["checks"], "Existing check evidence")
+        self.assertIn("<!-- cmux-next-push-attribution:12 -->", sections["push-attribution"])
+
     def test_skipped_jobs_do_not_end_the_range(self):
         earlier = [
             ("c3", {"cmux-next swift test": "skipped"}),
