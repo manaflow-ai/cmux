@@ -300,4 +300,40 @@ import Testing
         #expect(host.activeID == nil)
     }
 
+    @Test(.enabled("needs an awake display") { !NSScreen.screens.isEmpty })
+    func legacyReplacementCannotOverwriteAReentrantDeclaration() throws {
+        let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 500, height: 400),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        let page = NSView(frame: NSRect(x: 0, y: 0, width: 500, height: 400))
+        window.contentView = page
+        window.makeKeyAndOrderFront(nil)
+        defer { window.orderOut(nil) }
+        func declaration(_ id: String) throws -> WebPopupHost.Model {
+            try #require(WebPopupHost.Model([
+                "schemaVersion": 1, "id": id, "revision": 1,
+                "anchor": ["left": 0, "top": 0, "right": 20, "bottom": 20],
+                "side": "bottom", "align": "start", "width": 320, "rows": []
+            ]))
+        }
+        let newest = try declaration("newest")
+        var count = 0
+        var host: WebPopupHost!
+        host = WebPopupHost(webView: page, zoom: { 1 }, send: { _ in
+            count += 1
+            if count == 1 { _ = host.show(newest) }
+        })
+        defer { host.hide() }
+        let legacy = try #require(WebPopupHost.Model([
+            "items": [["id": "old", "label": "Old"]],
+            "anchor": ["left": 0, "top": 0, "right": 20, "bottom": 20]
+        ]))
+        #expect(host.show(legacy)["shown"] as? Bool == true)
+        _ = host.show(try declaration("outer"))
+        let panel = try #require(window.childWindows?.compactMap { $0 as? NativePopupPanel }.first)
+        func descendants(_ view: NSView) -> [NSView] { view.subviews.flatMap { [$0] + descendants($0) } }
+        let rootView = try #require(panel.contentView)
+        let content = try #require(descendants(rootView).compactMap { $0 as? NativePopupContent }.first)
+        #expect(content.model?.id == "newest" && count == 1)
+    }
+
 }
