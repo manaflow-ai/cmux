@@ -152,22 +152,27 @@ extension LiveWorkspaceCreationBackend: AgentChatsBackend {
         }
     }
 
+    nonisolated static let remoteChatFolder = WorkspaceCreationError(
+        "This chat runs on another computer, so its folder isn't on this Mac.", isForPerson: true)
+
     nonisolated static let untypableFolder = "This chat's folder has characters that can't be typed safely into a terminal. Open a terminal and change to it yourself."
 
     /// The chat's folder on this Mac: the watched session's, else `_acpmux/info`'s. A chat that
     /// runs on another machine (an acpmux peer's) has its folder there, never typed here.
     private func chatFolder(session: String, macID: String) async throws -> String {
         let acpmux = try readyAcpmux(macID)
-        if let cwd = acpmux.sessions[session]?.cwd, !cwd.isEmpty { return cwd }
+        // `_acpmux/watch` lists peers' sessions too: a cached one is checked as `_acpmux/info`'s.
+        if let watched = acpmux.sessions[session] {
+            if watched.peer != nil { throw Self.remoteChatFolder }
+            if !watched.cwd.isEmpty { return watched.cwd }
+        }
         let info: JSONValue
         do {
             info = try await acpmux.request("_acpmux/info", .object(["sessionId": .string(session)]), timeout: .seconds(15))
         } catch let error as AcpmuxConnection.RPCError {
             throw WorkspaceCreationError(error.message, isForPerson: true)
         }
-        if let peer = info["peer"]?.stringValue, !peer.isEmpty {
-            throw WorkspaceCreationError("This chat runs on another computer, so its folder isn't on this Mac.", isForPerson: true)
-        }
+        if let peer = info["peer"]?.stringValue, !peer.isEmpty { throw Self.remoteChatFolder }
         guard let cwd = info["cwd"]?.stringValue, !cwd.isEmpty else {
             throw WorkspaceCreationError("The Mac didn't say which folder this chat is in.", isForPerson: true)
         }

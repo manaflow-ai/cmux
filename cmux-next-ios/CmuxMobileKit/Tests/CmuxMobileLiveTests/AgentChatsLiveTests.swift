@@ -29,14 +29,15 @@ import Testing
     }
 
     /// wk1: s10 a terminal, s11 the chat `sess-a` (folder /Users/me/src/app), s12 a terminal with
-    /// an unread notification, s13 one with a read notification.
+    /// an unread notification, s13 one with a read notification, s14 the chat `sess-p` (a peer's).
     nonisolated static let tree = #"""
     {"workspaces":[
       {"id":1,"key":"wk1","name":"main","screens":[{"active":true,"active_pane":4,"panes":[{"id":4,"active_tab":0,"tabs":[
         {"surface":10,"kind":"pty","title":"zsh","dead":false,"terminal_id":"t10","cwd":"/Users/me/src/app"},
         {"surface":11,"kind":"conversation","title":"","conversation":{"agent_session":{"host":"install:x","session":"sess-a","harness":"claude"}}},
         {"surface":12,"kind":"pty","title":"zsh","dead":false,"terminal_id":"t12","notification":{"notification":5,"unread":true}},
-        {"surface":13,"kind":"pty","title":"zsh","dead":false,"terminal_id":"t13","notification":{"notification":4,"unread":false}}]}]}]}
+        {"surface":13,"kind":"pty","title":"zsh","dead":false,"terminal_id":"t13","notification":{"notification":4,"unread":false}},
+        {"surface":14,"kind":"conversation","title":"","conversation":{"agent_session":{"host":"install:x","session":"sess-p","harness":"claude"}}}]}]}]}
     ]}
     """#
 
@@ -66,7 +67,8 @@ import Testing
         }
     }
 
-    /// acpmux: `sess-a` in /Users/me/src/app (plus `sess-q`, whose folder could edit a shell line).
+    /// acpmux: `sess-a` in /Users/me/src/app (plus `sess-q`, whose folder could edit a shell line,
+    /// and `sess-p`, which runs on a peer: its folder is that machine's).
     nonisolated static func acpmux(_ seen: Seen) -> MockMacLink {
         MockMacLink { _, data in
             guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -78,7 +80,7 @@ import Testing
             switch method {
             case "initialize": return [reply(#"{"protocolVersion":1}"#)]
             case "_acpmux/watch":
-                return [reply(#"{"sessions":[{"sessionId":"sess-a","harness":"claude","cwd":"/Users/me/src/app","status":"idle"},{"sessionId":"sess-q","harness":"claude","cwd":"/Users/me/a\u0007b","status":"idle"}]}"#)]
+                return [reply(#"{"sessions":[{"sessionId":"sess-a","harness":"claude","cwd":"/Users/me/src/app","status":"idle"},{"sessionId":"sess-q","harness":"claude","cwd":"/Users/me/a\u0007b","status":"idle"},{"sessionId":"sess-p","harness":"claude","cwd":"/Users/them/src/app","peer":"other-mac","status":"idle"}]}"#)]
             case "_acpmux/sessions":
                 return [reply(#"""
                 {"sessions":[
@@ -198,6 +200,19 @@ import Testing
         #expect(Set(lines[0].keys) == ["id", "cmd", "pane"])
         #expect(lines[1]["surface"] as? Int == 10)
         #expect(lines[1]["text"] as? String == "cd '/Users/me/src/app' && clear\n")
+    }
+
+    @Test func aPeersChatFolderIsNeverTypedHereEvenWhenWatched() async throws {
+        let seen = Seen()
+        let (backend, sync) = try await connected(seen)
+        // `_acpmux/watch` listed it, folder and all: the peer, not the cached folder, decides.
+        #expect(hold.hub?.sessions["sess-p"]?.peer == "other-mac")
+        let ws = try workspace(sync)
+        let chat = try #require(ws.tabs.first { $0.id == "s14" })
+        await #expect(throws: LiveWorkspaceCreationBackend.remoteChatFolder) {
+            try await backend.openChatFolderInTerminal(chat, in: ws)
+        }
+        #expect(seen.mutations.isEmpty)
     }
 
     @Test func aFolderThatCouldEditTheShellLineIsNeverTyped() async throws {

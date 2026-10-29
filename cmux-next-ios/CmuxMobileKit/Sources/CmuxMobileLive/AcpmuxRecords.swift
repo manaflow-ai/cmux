@@ -115,6 +115,8 @@ public struct AcpmuxSession: Hashable, Sendable {
     public var name: String
     public var harness: String
     public var cwd: String
+    /// `peer`: the acpmux peer (another machine) the session runs on; nil for this Mac's own.
+    public var peer: String?
     public var status: String
     public var indicator: String?
     public var preview: String?
@@ -136,6 +138,7 @@ public struct AcpmuxSession: Hashable, Sendable {
         name = value["name"]?.stringValue ?? ""
         harness = value["harness"]?.stringValue ?? "agent"
         cwd = value["cwd"]?.stringValue ?? ""
+        peer = value["peer"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
         status = value["status"]?.stringValue ?? "idle"
         indicator = value["indicator"]?.stringValue
         preview = value["preview"]?.stringValue
