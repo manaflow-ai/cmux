@@ -226,6 +226,18 @@
       "title" : "Permission Mode for New Chats",
       "type" : "string"
     },
+    "agents.modelRouter.model" : {
+      "default" : "deepseek/deepseek-v4.1-flash-1017",
+      "description" : "The model a new chat on the cmux model router starts on. A model you pick in a chat applies to that chat only.",
+      "enum" : [
+        "deepseek/deepseek-v4.1-flash-1017",
+        "deepseek/deepseek-v4.1-flash",
+        "deepseek/deepseek-v4-flash",
+        "deepseek/deepseek-v4-pro"
+      ],
+      "title" : "cmux Model Router Model",
+      "type" : "string"
+    },
     "agents.subsessions.answerQuestions" : {
       "default" : false,
       "description" : "When an agent in a sub-session asks a question, the session that started it can answer, and the answer shows who gave it. Permission requests always wait for you. Off: only you answer.",
@@ -2385,6 +2397,26 @@
       "title" : "Keep Location in Photos and Videos",
       "type" : "boolean"
     },
+    "home.bubbleColors.received" : {
+      "description" : "Every chat starts with these colors. Right-click a chat and choose Chat Colors to set its own. Unset text colors are picked to stay readable.",
+      "title" : "Their Bubble Color",
+      "type" : "string"
+    },
+    "home.bubbleColors.receivedText" : {
+      "description" : "Every chat starts with these colors. Right-click a chat and choose Chat Colors to set its own. Unset text colors are picked to stay readable.",
+      "title" : "Their Text Color",
+      "type" : "string"
+    },
+    "home.bubbleColors.sent" : {
+      "description" : "Every chat starts with these colors. Right-click a chat and choose Chat Colors to set its own. Unset text colors are picked to stay readable.",
+      "title" : "My Bubble Color",
+      "type" : "string"
+    },
+    "home.bubbleColors.sentText" : {
+      "description" : "Every chat starts with these colors. Right-click a chat and choose Chat Colors to set its own. Unset text colors are picked to stay readable.",
+      "title" : "My Text Color",
+      "type" : "string"
+    },
     "home.channelsEnabled" : {
       "default" : false,
       "description" : "Show Channels below Home in the sidebar. You can also turn it on or off from the command palette.",
@@ -2491,7 +2523,7 @@
       "type" : "string"
     },
     "layout.defaultColumnWidth" : {
-      "default" : 0.5,
+      "default" : 0.6666666666666666,
       "description" : "A share of the window width, for Fixed Width new columns.",
       "maximum" : 1,
       "minimum" : 0.1,
@@ -2575,7 +2607,7 @@
       "type" : "number"
     },
     "layout.newColumnWidth" : {
-      "default" : "matchCurrent",
+      "default" : "fixed",
       "description" : "layout.newColumnWidth",
       "enum" : [
         "matchCurrent",
@@ -2594,6 +2626,12 @@
       ],
       "title" : "New Terminals and Browsers",
       "type" : "string"
+    },
+    "layout.pagesHandleCommandScroll" : {
+      "default" : true,
+      "description" : "A web page that uses Command + Scroll itself, such as Figma or Excalidraw zooming, keeps it. Over any other page, Command + Scroll moves columns. Off, Command + Scroll always moves columns.",
+      "title" : "Web Pages Get Command + Scroll First",
+      "type" : "boolean"
     },
     "layout.paneBorder" : {
       "default" : "subtle",
@@ -3498,7 +3536,7 @@
     },
     "sidebar.controlsOnHover" : {
       "default" : false,
-      "description" : "The sidebar's New Workspace button, spaces, profile button and Search button show only while the pointer is over the sidebar. Off, they always show.",
+      "description" : "The sidebar's New Workspace button, spaces, profile button and Search button, and the sidebar button, Back and Forward above it, show only while the pointer is over the sidebar. Off, they always show.",
       "title" : "Show Sidebar Controls Only on Hover",
       "type" : "boolean"
     },
@@ -4365,7 +4403,7 @@
     },
     "tabs.barPosition" : {
       "default" : "top",
-      "description" : "Where each pane's tab bar sits. Bottom also shows the standard title bar, so the window buttons never cover a pane.",
+      "description" : "Where each pane's tab bar sits. At the bottom, the panes reach the top of the window; the window buttons never cover a pane.",
       "enum" : [
         "top",
         "bottom"
@@ -4846,7 +4884,7 @@
     },
     "window.titlebarButtons" : {
       "default" : "hover",
-      "description" : "On Hover hides Back and Forward until the pointer is over the top row. The sidebar button always shows.",
+      "description" : "With the sidebar hidden, On Hover hides the sidebar button, Back and Forward until the pointer is over the top row. With the sidebar open, they always show.",
       "enum" : [
         "hover",
         "always"
@@ -4897,7 +4935,7 @@
     },
     "workspaces.newPlacement" : {
       "default" : "top",
-      "description" : "Where Cmd-N, the + button and the CLI put a new workspace in the sidebar. Pinned workspaces stay above it.",
+      "description" : "Where Cmd-N, the + button and the CLI put a new workspace in the sidebar. A workspace made in a group goes to the same place inside that group. Pinned workspaces stay above it.",
       "enum" : [
         "top",
         "afterCurrent",

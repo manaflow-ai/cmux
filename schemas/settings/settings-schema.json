@@ -80,6 +80,7 @@
               "layout.focusFollowsMouse",
               "layout.scrollAreas",
               "layout.scrollModifier",
+              "layout.pagesHandleCommandScroll",
               "layout.minimumPaneWidth",
               "layout.minimumPaneHeight",
               "layout.newPanePlacement",
@@ -836,6 +837,7 @@
               "agentPane.scrollToBottomOnSend",
               "agentPane.zoom",
               "agents.defaultPermissionMode",
+              "agents.modelRouter.model",
               "app.warnBeforeClosingAgentSession"
             ],
             "title" : {
@@ -931,7 +933,11 @@
           {
             "key" : "settings.group.chiefChat",
             "rows" : [
-              "home.chiefBubbleStyle"
+              "home.chiefBubbleStyle",
+              "home.bubbleColors.sent",
+              "home.bubbleColors.sentText",
+              "home.bubbleColors.received",
+              "home.bubbleColors.receivedText"
             ],
             "title" : {
               "key" : "settings.group.chiefChat",
@@ -2165,7 +2171,7 @@
       },
       "help" : {
         "key" : "settings.window.titlebarButtons.help",
-        "text" : "On Hover hides Back and Forward until the pointer is over the top row. The sidebar button always shows."
+        "text" : "With the sidebar hidden, On Hover hides the sidebar button, Back and Forward until the pointer is over the top row. With the sidebar open, they always show."
       },
       "kept_on_reset_all" : false,
       "key" : "window.titlebarButtons",
@@ -2763,7 +2769,7 @@
       },
       "help" : {
         "key" : "settings.tabs.barPosition.help",
-        "text" : "Where each pane's tab bar sits. Bottom also shows the standard title bar, so the window buttons never cover a pane."
+        "text" : "Where each pane's tab bar sits. At the bottom, the panes reach the top of the window; the window buttons never cover a pane."
       },
       "kept_on_reset_all" : false,
       "key" : "tabs.barPosition",
@@ -3699,7 +3705,7 @@
         "cmux-browser",
         "cmux-next"
       ],
-      "default" : 0.5,
+      "default" : 0.6666666666666666,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.columns",
@@ -6279,7 +6285,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "matchCurrent",
+      "default" : "fixed",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.columns",
@@ -6744,6 +6750,62 @@
     },
     {
       "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.columns",
+        "text" : "Columns"
+      },
+      "help" : {
+        "key" : "settings.layout.pagesHandleCommandScroll.help",
+        "text" : "A web page that uses Command + Scroll itself, such as Figma or Excalidraw zooming, keeps it. Over any other page, Command + Scroll moves columns. Off, Command + Scroll always moves columns."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "layout.pagesHandleCommandScroll",
+      "keywords" : [
+        "scroll",
+        "command",
+        "zoom",
+        "figma",
+        "excalidraw",
+        "browser",
+        "web",
+        "page",
+        "columns",
+        "pan"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "layout",
+        "pagesHandleCommandScroll"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : {
+        "key" : "settings.layout.pagesHandleCommandScroll.summary",
+        "text" : "Figma and Excalidraw keep Command + Scroll zoom"
+      },
+      "title" : {
+        "key" : "settings.layout.pagesHandleCommandScroll",
+        "text" : "Web Pages Get Command + Scroll First"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         80,
         800,
         440
@@ -7147,7 +7209,7 @@
       },
       "help" : {
         "key" : "settings.workspaces.newPlacement.help",
-        "text" : "Where Cmd-N, the + button and the CLI put a new workspace in the sidebar. Pinned workspaces stay above it."
+        "text" : "Where Cmd-N, the + button and the CLI put a new workspace in the sidebar. A workspace made in a group goes to the same place inside that group. Pinned workspaces stay above it."
       },
       "kept_on_reset_all" : false,
       "key" : "workspaces.newPlacement",
@@ -23103,7 +23165,7 @@
       },
       "help" : {
         "key" : "settings.sidebar.controlsOnHover.help",
-        "text" : "The sidebar's New Workspace button, spaces, profile button and Search button show only while the pointer is over the sidebar. Off, they always show."
+        "text" : "The sidebar's New Workspace button, spaces, profile button and Search button, and the sidebar button, Back and Forward above it, show only while the pointer is over the sidebar. Off, they always show."
       },
       "kept_on_reset_all" : false,
       "key" : "sidebar.controlsOnHover",
@@ -33846,6 +33908,238 @@
     },
     {
       "accepts" : [
+        "#1a2B3c",
+        "#1A2B3C80",
+        "1a2b3c"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.home.bubbleColors.default",
+        "text" : "Bubble Style"
+      },
+      "group" : {
+        "key" : "settings.group.chiefChat",
+        "text" : "Chief Chat"
+      },
+      "help" : {
+        "key" : "settings.home.bubbleColors.help",
+        "text" : "Every chat starts with these colors. Right-click a chat and choose Chat Colors to set its own. Unset text colors are picked to stay readable."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "home.bubbleColors.sent",
+      "keywords" : [
+        "bubble",
+        "color",
+        "text",
+        "imessage",
+        "chat",
+        "messages",
+        "background",
+        "home"
+      ],
+      "kind" : "color",
+      "page_hidden" : false,
+      "path" : [
+        "home",
+        "bubbleColors",
+        "sent"
+      ],
+      "refuses" : [
+        "red",
+        "#12345",
+        "#1234567",
+        "#12345g",
+        0
+      ],
+      "section" : "home",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.home.bubbleColors.sent",
+        "text" : "My Bubble Color"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "#1a2B3c",
+        "#1A2B3C80",
+        "1a2b3c"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.home.bubbleColors.default",
+        "text" : "Bubble Style"
+      },
+      "group" : {
+        "key" : "settings.group.chiefChat",
+        "text" : "Chief Chat"
+      },
+      "help" : {
+        "key" : "settings.home.bubbleColors.help",
+        "text" : "Every chat starts with these colors. Right-click a chat and choose Chat Colors to set its own. Unset text colors are picked to stay readable."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "home.bubbleColors.sentText",
+      "keywords" : [
+        "bubble",
+        "color",
+        "text",
+        "imessage",
+        "chat",
+        "messages",
+        "background",
+        "home"
+      ],
+      "kind" : "color",
+      "page_hidden" : false,
+      "path" : [
+        "home",
+        "bubbleColors",
+        "sentText"
+      ],
+      "refuses" : [
+        "red",
+        "#12345",
+        "#1234567",
+        "#12345g",
+        0
+      ],
+      "section" : "home",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.home.bubbleColors.sentText",
+        "text" : "My Text Color"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "#1a2B3c",
+        "#1A2B3C80",
+        "1a2b3c"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.home.bubbleColors.default",
+        "text" : "Bubble Style"
+      },
+      "group" : {
+        "key" : "settings.group.chiefChat",
+        "text" : "Chief Chat"
+      },
+      "help" : {
+        "key" : "settings.home.bubbleColors.help",
+        "text" : "Every chat starts with these colors. Right-click a chat and choose Chat Colors to set its own. Unset text colors are picked to stay readable."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "home.bubbleColors.received",
+      "keywords" : [
+        "bubble",
+        "color",
+        "text",
+        "imessage",
+        "chat",
+        "messages",
+        "background",
+        "home"
+      ],
+      "kind" : "color",
+      "page_hidden" : false,
+      "path" : [
+        "home",
+        "bubbleColors",
+        "received"
+      ],
+      "refuses" : [
+        "red",
+        "#12345",
+        "#1234567",
+        "#12345g",
+        0
+      ],
+      "section" : "home",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.home.bubbleColors.received",
+        "text" : "Their Bubble Color"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "#1a2B3c",
+        "#1A2B3C80",
+        "1a2b3c"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.home.bubbleColors.default",
+        "text" : "Bubble Style"
+      },
+      "group" : {
+        "key" : "settings.group.chiefChat",
+        "text" : "Chief Chat"
+      },
+      "help" : {
+        "key" : "settings.home.bubbleColors.help",
+        "text" : "Every chat starts with these colors. Right-click a chat and choose Chat Colors to set its own. Unset text colors are picked to stay readable."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "home.bubbleColors.receivedText",
+      "keywords" : [
+        "bubble",
+        "color",
+        "text",
+        "imessage",
+        "chat",
+        "messages",
+        "background",
+        "home"
+      ],
+      "kind" : "color",
+      "page_hidden" : false,
+      "path" : [
+        "home",
+        "bubbleColors",
+        "receivedText"
+      ],
+      "refuses" : [
+        "red",
+        "#12345",
+        "#1234567",
+        "#12345g",
+        0
+      ],
+      "section" : "home",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.home.bubbleColors.receivedText",
+        "text" : "Their Text Color"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         true,
         false
       ],
@@ -38028,6 +38322,91 @@
       "title" : {
         "key" : "settings.agents.defaultPermissionMode",
         "text" : "Permission Mode for New Chats"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "deepseek/deepseek-v4.1-flash-1017",
+        "deepseek/deepseek-v4.1-flash",
+        "deepseek/deepseek-v4-flash",
+        "deepseek/deepseek-v4-pro"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : false,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.modelRouterDeepSeekV41Flash1017",
+            "text" : "DeepSeek V4.1 Flash 1017 (Images)"
+          },
+          "value" : "deepseek/deepseek-v4.1-flash-1017"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.modelRouterDeepSeekV41Flash",
+            "text" : "DeepSeek V4.1 Flash"
+          },
+          "value" : "deepseek/deepseek-v4.1-flash"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.modelRouterDeepSeekV4Flash",
+            "text" : "DeepSeek V4 Flash"
+          },
+          "value" : "deepseek/deepseek-v4-flash"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.modelRouterDeepSeekV4Pro",
+            "text" : "DeepSeek V4 Pro"
+          },
+          "value" : "deepseek/deepseek-v4-pro"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "deepseek/deepseek-v4.1-flash-1017",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agents.modelRouter.model.help",
+        "text" : "The model a new chat on the cmux model router starts on. A model you pick in a chat applies to that chat only."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agents.modelRouter.model",
+      "keywords" : [
+        "model",
+        "router",
+        "cmux router",
+        "deepseek",
+        "vision",
+        "images",
+        "inference",
+        "default model",
+        "new chat"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "agents",
+        "modelRouter",
+        "model"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.agents.modelRouter.model",
+        "text" : "cmux Model Router Model"
       },
       "validation" : "portable"
     },

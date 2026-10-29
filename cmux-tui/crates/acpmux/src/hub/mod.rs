@@ -557,6 +557,9 @@ pub struct Hub {
     /// Messages `send --no-wait` handed over, and forwarded prompts waiting for a peer's
     /// acceptance (`outbox.rs`).
     pub(crate) outbox: outbox::Outbox,
+    /// The team hub a send to a name nobody here resolves goes through, once the mesh relay
+    /// started (`server/mesh_relay.rs`); unset without one, or in a hub a test builds.
+    pub mesh: std::sync::OnceLock<Arc<dyn crate::mesh::MeshHub>>,
     pub(crate) watches: watches::Watches,
     pub(crate) peer_accepts: outbox::PeerAccepts,
     /// Agent message pairs and their runaway guard (`agent_pairs.rs`).
@@ -693,6 +696,7 @@ impl Hub {
             secrets: Default::default(),
             trust_waits: Default::default(),
             outbox: Default::default(),
+            mesh: Default::default(),
             watches: Default::default(),
             peer_accepts: Default::default(),
             agent_pairs: Default::default(),
@@ -861,6 +865,30 @@ impl Hub {
         if session.caught_up.swap(true, Ordering::SeqCst) {
             return;
         }
+        let after =
+            session.meta.lock().unwrap_or_else(|e| e.into_inner()).harness_failures.through_seq;
+        let mut results = Vec::new();
+        let restored = self.store.scan_back(
+            &session.id,
+            after,
+            u64::MAX,
+            &|dir, kind| dir != b"mux" || kind != b"turn_result",
+            &mut |record| {
+                let success =
+                    record.msg["status"] == "completed" && record.msg["stopReason"] != "cancelled";
+                results.push(record);
+                // A success settles everything before it; the bounded window settles the rest
+                // (a streak older than it reads as starting at the window's oldest result).
+                !success && results.len() < crate::session_liveness::RESTORE_RESULTS
+            },
+        );
+        let rebuilt = restored.is_ok() && !results.is_empty();
+        if rebuilt {
+            let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+            for record in results.into_iter().rev() {
+                meta.harness_failures.observe(&record.msg, record.seq, record.at);
+            }
+        }
         let last_seq = session.meta.lock().unwrap().last_seq;
         if let Ok((extra, last)) = self.store.tail_after(&session.id, last_seq)
             && extra > 0
@@ -872,6 +900,10 @@ impl Hub {
             // in that tail, so a client reads the log for it instead of trusting the saved one.
             meta.available_commands = None;
             session.seq.fetch_max(last, Ordering::SeqCst);
+        }
+        // Kept, so the next start scans only past what this one read.
+        if rebuilt {
+            self.save_meta(session);
         }
     }
 
@@ -1110,6 +1142,9 @@ impl Hub {
             m.last_seq = seq;
             m.event_count += 1;
             m.updated_at = record.at;
+            if record.dir == "mux" && record.kind == "turn_result" {
+                m.harness_failures.observe(&record.msg, record.seq, record.at);
+            }
         }
         if matches!(
             kind,
