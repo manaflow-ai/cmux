@@ -5,7 +5,7 @@ import React, { act, useRef, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { OnNewTab } from "./newTabComposer";
-import type { QuickFamily } from "./QuickModelMenu";
+import type { QuickFamily, QuickModel } from "./QuickModelMenu";
 
 let QuickModelMenu: typeof import("./QuickModelMenu").QuickModelMenu;
 const loadQuickModelMenu = async () => {
@@ -316,11 +316,12 @@ test("inline effort picks a different model and its level together; model names 
   expect(labels(list())).toContain("Effort");
 });
 
-test("current-model inline effort pick preserves a searched Fast request", async () => {
+test("current-model inline effort pick sends a searched Fast request as one combo", async () => {
   const container = installDom();
   await loadQuickModelMenu();
   const effortPicks: string[] = [];
   const fastPicks: boolean[] = [];
+  const combos: QuickModel[] = [];
   function InlineFastHarness() {
     const trigger = useRef<HTMLButtonElement | null>(null);
     const [open, setOpen] = useState(false);
@@ -347,7 +348,7 @@ test("current-model inline effort pick preserves a searched Fast request", async
           fast: { checked: false, onChange: (value) => fastPicks.push(value) },
           families: {
             current: "claude",
-            onPick() {},
+            onPick: (model) => combos.push(model),
             list: [
               {
                 id: "claude",
@@ -370,8 +371,12 @@ test("current-model inline effort pick preserves a searched Fast request", async
   await act(async () => container.querySelector<HTMLButtonElement>("button[data-menu='model']")!.click());
   await settle();
   await act(async () => (document.querySelector('[aria-label="Model A · Low"]') as HTMLElement).click());
-  expect(effortPicks).toEqual(["low"]);
-  expect(fastPicks).toEqual([true]);
+  // The combo maps Fast onto the option's plain tier; the toggle would restore a remembered ultrafast.
+  expect(combos.map(({ id, effort, fast }) => ({ id, effort, fast }))).toEqual([
+    { id: "a", effort: "low", fast: true },
+  ]);
+  expect(effortPicks).toEqual([]);
+  expect(fastPicks).toEqual([]);
 });
 
 test("provider submenu and expanded rows keep the current model's Effort fallback", async () => {
