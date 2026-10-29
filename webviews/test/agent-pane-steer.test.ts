@@ -419,6 +419,7 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
       await until(() => cancels.length > 0, "Stop's session/cancel");
       record("turn_end", { stopReason: "cancelled", turnId: "turn-1" });
       record("turn_result", { status: "cancelled", stopReason: "cancelled", turnId: "turn-1", cancelForced: true });
+      record("status", { status: "idle" });
       await page.getByText("The agent didn't answer Stop, so cmux ended its turn.").waitFor({ timeout: 5_000 });
       expect(await page.getByRole("button", { name: "Continue", exact: true }).count()).toBe(1);
       // The cancelled compaction can report its boundary after a new explicit prompt. It must not
