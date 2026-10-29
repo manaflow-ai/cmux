@@ -40,9 +40,7 @@ export function softBreaks(text: string, key: string): ReactNode[] {
 
 /// `nodes` with each string's long tokens given break points (softBreaks).
 export function softBreakNodes(nodes: ReactNode[], key: string): ReactNode[] {
-  return nodes.flatMap((node, index) =>
-    typeof node === "string" ? softBreaks(node, `${key}-${index}`) : [node],
-  );
+  return nodes.flatMap((node, index) => (typeof node === "string" ? softBreaks(node, `${key}-${index}`) : [node]));
 }
 
 /// A code span's or typed text's long tokens with break points, as one node.
