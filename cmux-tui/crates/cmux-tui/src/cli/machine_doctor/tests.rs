@@ -158,3 +158,24 @@ fn the_mesh_step_degrades_without_a_mesh_id_or_a_mesh() {
     let lines: Vec<Value> = text.lines().map(|l| serde_json::from_str(l).unwrap()).collect();
     assert_eq!(lines.last().unwrap()["report"]["ok"], true);
 }
+
+#[test]
+fn fixes_name_the_listed_machine_and_never_echo_a_secret_key() {
+    let now = machine_join::now_ms();
+    let mut revoked = entry(5_000, now);
+    revoked["revoked"] = json!(true);
+    let checked = remote_steps(ORIGIN, "m_1", Some(Ok(vec![revoked])), None, now);
+    assert_eq!(
+        state(&checked, "listed").fix.as_deref(),
+        Some("Not joined (or revoked): cmux machine add --name lane-vm-3")
+    );
+    for key in ["cmj_0123456789abcdefghij", "cmm_secret", "a b; rm -rf ~", "x\u{1b}[2J"] {
+        let checked = remote_steps(ORIGIN, key, Some(Ok(vec![])), None, now);
+        let text = format!("{checked:?}");
+        assert!(!text.contains("cmj_") && !text.contains("cmm_") && !text.contains("rm -rf"), "{text}");
+        assert_eq!(
+            state(&checked, "listed").fix.as_deref(),
+            Some("Not joined (or revoked): cmux machine add --name NAME")
+        );
+    }
+}

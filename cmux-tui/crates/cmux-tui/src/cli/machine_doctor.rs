@@ -219,8 +219,16 @@ pub(super) fn remote_steps(
         }
         return steps;
     };
-    let on_it = format!("Run cmux machine doctor (or acpmux host doctor --here) on {key}");
-    let machine = match machine_join::find(&entries, key) {
+    let found = machine_join::find(&entries, key);
+    // The name a fix prints: the listed machine's, else what was typed when it is a plain
+    // name (never a pasted secret or terminal controls).
+    let name = match &found {
+        Ok(machine) => machine.name.clone(),
+        Err(_) if plain_name(key) => key.to_owned(),
+        Err(_) => "NAME".to_owned(),
+    };
+    let on_it = format!("Run cmux machine doctor (or acpmux host doctor --here) on {name}");
+    let machine = match found {
         Ok(machine) if !machine.revoked => machine,
         found => {
             let detail = match found {
@@ -230,7 +238,7 @@ pub(super) fn remote_steps(
             steps.push(JoinStep::fail(
                 "listed",
                 detail,
-                format!("Not joined (or revoked): cmux machine add --name {key}"),
+                format!("Not joined (or revoked): cmux machine add --name {name}"),
             ));
             steps.push(skip("heartbeat", "not listed"));
             steps.push(skip("mesh", "not listed"));
@@ -268,6 +276,14 @@ pub(super) fn remote_steps(
         }
     });
     steps
+}
+
+/// A machine name safe to print in a fix: letters, digits, `.`, `-`, `_`, and no secret prefix.
+fn plain_name(text: &str) -> bool {
+    (1..=63).contains(&text.len())
+        && text.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b'_'))
+        && !text.contains("cmj_")
+        && !text.contains("cmm_")
 }
 
 #[cfg(test)]

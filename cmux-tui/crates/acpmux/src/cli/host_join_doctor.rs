@@ -128,6 +128,13 @@ fn origin(facts: &Facts) -> String {
     }
 }
 
+/// `text` as one shell word: as is when it is only `A-Za-z0-9/._-~+`, else single-quoted.
+fn shell_word(text: &str) -> String {
+    let bare = !text.is_empty()
+        && text.bytes().all(|b| b.is_ascii_alphanumeric() || b"/._-~+".contains(&b));
+    if bare { text.to_owned() } else { format!("'{}'", text.replace('\'', "'\\''")) }
+}
+
 /// Text from the status that is safe to print: no control characters and no join token or
 /// machine credential.
 fn plain(text: &str) -> bool {
@@ -244,19 +251,29 @@ fn credential_step(facts: &Facts) -> JoinStep {
     match &facts.status {
         Status::Json(v) if v["credentialPresent"].as_bool() == Some(true) => {
             let mode = v["credentialMode"].as_str().map(|m| m.trim_start_matches('0'));
-            match (mode, v["credentialPath"].as_str()) {
-                (Some(mode), Some(path)) if mode != "600" && plain(path) && plain(mode) => {
-                    JoinStep::fail(
-                        "credential",
-                        format!("the credential file is mode {mode}, readable by others"),
-                        format!("chmod 600 {path}"),
-                    )
-                }
-                _ => {
-                    let id = v["machineId"].as_str().unwrap_or("this machine");
-                    JoinStep::new("credential", StepState::Ok, format!("joined as {id}"))
-                }
+            let loose = mode.is_some_and(|mode| mode != "600");
+            if loose {
+                let shown = mode.filter(|m| m.len() <= 4 && m.bytes().all(|b| b.is_ascii_digit()));
+                let fix = match v["credentialPath"].as_str().filter(|p| plain(p)) {
+                    Some(path) => format!("chmod 600 {}", shell_word(path)),
+                    None => "chmod 600 the file acpmux host join --status --json names as credentialPath"
+                        .to_owned(),
+                };
+                return JoinStep::fail(
+                    "credential",
+                    format!(
+                        "the credential file is mode {}, readable by others",
+                        shown.unwrap_or("not 600")
+                    ),
+                    fix,
+                );
             }
+            let id = v["machineId"].as_str().filter(|id| plain(id) && id.len() <= 128);
+            JoinStep::new(
+                "credential",
+                StepState::Ok,
+                format!("joined as {}", id.unwrap_or("this machine")),
+            )
         }
         Status::Json(v) if v.get("credentialPresent").is_none() => JoinStep::new(
             "credential",
@@ -483,8 +500,8 @@ fn launchd_service(home: &Path) -> Service {
     }
 }
 
-/// The local repairs for `facts`: start the installed service, then the
-/// daemon. True when one ran.
+/// The local repairs for `facts`: reinstall a missing binary (the join script, no token),
+/// start the installed service, turn linger on, then start the daemon. True when one ran.
 #[cfg(unix)]
 fn repair(facts: &Facts) -> bool {
     let mut ran = false;
@@ -507,6 +524,14 @@ fn repair(facts: &Facts) -> bool {
         if !user.is_empty() {
             let _ = output(Path::new("loginctl"), &["enable-linger", &user]);
         }
+    }
+    if !matches!(facts.binary, Binary::Ok(_)) {
+        // The one install path: the join script with no token installs and repairs only
+        // (checked download, service, daemon), and never redeems.
+        ran = true;
+        let script = format!("curl --proto '=https' --tlsv1.2 -fsSL {}/v1/machines/join.sh | sh", origin(facts));
+        let _ = output(Path::new("sh"), &["-c", &script]);
+        return ran;
     }
     if !facts.daemon_running
         && let Binary::Ok(binary) = &facts.binary
