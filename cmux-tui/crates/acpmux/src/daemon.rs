@@ -1002,7 +1002,7 @@ fn lock_held(ready: &str) -> bool {
 fn unit_started(ready: &str) -> bool {
     #[cfg(target_os = "linux")]
     {
-        return ready.trim() == UNIT_STARTED_LINE;
+        ready.trim() == UNIT_STARTED_LINE
     }
     #[cfg(not(target_os = "linux"))]
     {

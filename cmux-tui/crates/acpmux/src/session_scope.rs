@@ -190,6 +190,7 @@ pub(crate) fn tasks_max(get: &dyn Fn(&str) -> Option<String>) -> Option<u64> {
 /// `-p` pairs for the scope's limits on a machine with `memory` and `swap`
 /// bytes; empty when every one is off. The two argument form is kept for
 /// deterministic tests and callers that do not know the host's swap.
+#[cfg(test)]
 fn properties(get: &dyn Fn(&str) -> Option<String>, memory: u64) -> Vec<String> {
     properties_with_swap(get, memory, 0)
 }
@@ -252,6 +253,7 @@ fn without_swap(properties: &[String]) -> Vec<String> {
 /// default. Values are absolute (bytes, counts), as `systemctl show` prints
 /// them, so a slice already set is never written again ([`slice_changes`]).
 /// A percentage on a machine of unknown memory leaves that property as it is.
+#[cfg(test)]
 fn slice_settings(
     get: &dyn Fn(&str) -> Option<String>,
     memory: u64,
