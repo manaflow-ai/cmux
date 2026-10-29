@@ -33,6 +33,31 @@ struct StandInTerminalAdoptionTests {
         for key in [made.id, other.id] { services.cache.release(key) }
     }
 
+    /// The adopted terminal hangs under the node the cache gives the daemon's tab, in either order (felt 1e): the
+    /// pane selects its new tab, making that tab's node, before it asks for the content that adopts the stand-in. The
+    /// move kept that earlier node, and the adopted terminal stayed under the stand-in's node, which the pane hid as
+    /// its old selection: on screen, drawing, never sized (resize-fuzz-ctrl-backtick 16 of 16 on v2.2.7-opt).
+    @Test(arguments: [true, false])
+    func theAdoptedTerminalHangsUnderTheDaemonTabsNode(nodeMadeFirst: Bool) throws {
+        _ = NSApplication.shared
+        GhosttyRuntime.startedForTests()
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        let terminal = TerminalID.generate()
+        let standIn = TabModel(ProvisionalTab().terminal(terminal, cwd: nil))
+        let entry = services.cache.terminal(for: standIn, daemon: services.daemon)
+        let made = TabModel(TabSnapshot(surface: SurfaceID(rawValue: 77), tabResourceID: ResourceID(rawValue: "tab_adopted77"),
+                                        terminalID: terminal, kind: .pty))
+        // The pane's selection of the daemon's tab (PaneController.selectTabNode) before or after the adoption.
+        let early = nodeMadeFirst ? services.cache.node(for: made.id) : nil // held, as the pane holds its selected node
+        let adopted = services.cache.terminal(for: made, daemon: services.daemon)
+        #expect(adopted === entry)
+        let node = services.cache.node(for: made.id)
+        #expect(entry.session.surfaceView.visibilityNode.parent === node,
+                "the adopted terminal hangs under \(entry.session.surfaceView.visibilityNode.parent?.name ?? "nil"), not the daemon tab's node \(node.name)")
+        _ = early
+        services.cache.release(made.id)
+    }
+
     private final class Presenter: SurfacePresenter {
         var displaced: [String] = []
         func surfaceWasDisplaced(_ key: String) { displaced.append(key) }

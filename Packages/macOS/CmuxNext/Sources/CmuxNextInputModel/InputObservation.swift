@@ -148,6 +148,7 @@ public nonisolated enum InputInvariant: String, Hashable, Sendable, Codable, Cas
     // Geometry (after settle).
     case chromiumGeometry = "G1"
     case terminalGridFits = "G2"
+    case terminalUnderSelectedNode = "G3"
     // Terminal drawing (principled-audit restoreFrameHold).
     case terminalDrawsIffShown = "D1"
     case terminalHoldUntilPresented = "D2"
@@ -198,6 +199,7 @@ public nonisolated enum InputInvariant: String, Hashable, Sendable, Codable, Cas
         case .mirrorSingleWriter: "only daemon events, snapshots and the intent overlay write the mirror, and the overlay keeps every tab"
         case .hoverCardSingle: "at most one hover card exists and shows, and it shows the coordinator's target"
         case .terminalGridFits: "a shown terminal at rest renders and reports the grid its bounds fit"
+        case .terminalUnderSelectedNode: "the terminal a pane presents hangs under the node the pane selected for it"
         case .terminalDrawsIffShown: "a terminal draws iff its node and its window's node are shown, and its node follows AppKit's hidden state"
         case .terminalHoldUntilPresented: "a held frame is on screen iff the terminal has not presented the content parsed at its swap or attach"
         }
