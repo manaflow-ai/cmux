@@ -38,11 +38,12 @@ await requireBrowserLane("transcript-glyph-alignment-browser.test.ts", async () 
   const measure = async (page: Page) =>
     page.evaluate(() =>
       [...document.querySelectorAll<HTMLElement>("[data-glyph-row]")].map((row) => {
-        const rowBox = row.getBoundingClientRect();
+        const text = row.querySelector<HTMLElement>(".cv-tool__text, .cv-worked__label, .cv-received__name, .acpmux-chat-inspector-row__name");
         const glyph = row.querySelector<HTMLElement>(".cv-tool__icon, .cv-worked__glyph, .cv-received__icon, .acpmux-row-glyph");
         if (!glyph) throw new Error(`missing glyph for ${row.dataset.glyphRow}`);
         const glyphBox = glyph.getBoundingClientRect();
-        return { kind: row.dataset.glyphRow, delta: Math.abs((rowBox.top + rowBox.bottom) / 2 - (glyphBox.top + glyphBox.bottom) / 2) };
+        const lineBox = (text ?? row).getBoundingClientRect();
+        return { kind: row.dataset.glyphRow, delta: Math.abs((lineBox.top + lineBox.bottom) / 2 - (glyphBox.top + glyphBox.bottom) / 2) };
       }),
     );
 

@@ -4,34 +4,30 @@ import "../../src/agent-session/acpmux/styles.css";
 import "../../src/agent-session/acpmux/conversation/conversation.css";
 import "../../src/agent-session/acpmux/inspector/inspector.css";
 import type { CSSProperties } from "react";
+import { Icon } from "../../src/agent-session/acpmux/icons/Icon";
+import { Check, ChevronRight, Copy, Retry, TerminalSquare } from "../../src/agent-session/acpmux/conversation/icons";
 
 const themes = {
   dark: { page: "#202124", text: "#f5f5f1", muted: "#c9c9c4", soft: "#95958f" },
   light: { page: "#f7f7f2", text: "#242420", muted: "#55554f", soft: "#77776f" },
 } as const;
 
-const mark = (label: string) => (
-  <svg aria-label={label} viewBox="0 0 16 16" width="14" height="14" className="fixture-glyph" role="img">
-    <circle cx="8" cy="8" r="5" fill="currentColor" />
-  </svg>
-);
-
 function FixtureRow({ kind, height }: { kind: string; height: number }) {
   const rowStyle = { height: `${height}px` };
   if (kind === "tool") {
     return (
       <div className="cv-tool" data-glyph-row={kind} style={rowStyle}>
-        <span className="cv-tool__icon">{mark("tool")}</span>
-        <span className="cv-tool__text">Run focused checks</span>
-        <span className="cv-tool__detail">done</span>
-        <span className="cv-tool__chevron" aria-hidden="true">›</span>
+        <span className="cv-tool__icon"><TerminalSquare size={16} /></span>
+        <span className="cv-tool__text">Ran echo focused checks</span>
+        <span className="cv-command__meta" data-footer-glyph="check"><Check size={14} className="cv-command__ok" /><span className="cv-command__time">6.0s</span></span>
+        <span className="cv-tool__chevron" aria-hidden="true"><ChevronRight size={14} /></span>
       </div>
     );
   }
   if (kind === "worked") {
     return (
       <div className="cv-worked" data-glyph-row={kind} style={rowStyle}>
-        <span className="cv-worked__glyph">{mark("worked")}</span>
+          <span className="cv-worked__glyph"><TerminalSquare size={16} /></span>
         <span className="cv-worked__label">Worked for</span>
       </div>
     );
@@ -40,7 +36,7 @@ function FixtureRow({ kind, height }: { kind: string; height: number }) {
     return (
       <div className="cv-received" data-glyph-row={kind}>
         <div className="cv-received__line" style={rowStyle}>
-          <span className="cv-received__icon">{mark("received")}</span>
+          <span className="cv-received__icon"><Check size={16} /></span>
           <span className="cv-received__name">Received 3</span>
           <span className="cv-received__toggle">Peer update</span>
         </div>
@@ -49,9 +45,7 @@ function FixtureRow({ kind, height }: { kind: string; height: number }) {
   }
   return (
     <div className="acpmux-chat-inspector-row" data-glyph-row={kind} style={rowStyle}>
-      <svg aria-label="session info" className="acpmux-row-glyph" viewBox="0 0 24 24" role="img">
-        <circle cx="12" cy="12" r="7" fill="currentColor" />
-      </svg>
+      <Icon name="status.warning" size={16} className="acpmux-row-glyph" />
       <span className="acpmux-chat-inspector-row__name">Session Info</span>
       <span className="acpmux-chat-inspector-row__detail">secondary detail</span>
     </div>
@@ -59,22 +53,17 @@ function FixtureRow({ kind, height }: { kind: string; height: number }) {
 }
 
 function FooterRow({ height }: { height: number }) {
-  const icon = (label: string) => (
-    <svg aria-label={label} viewBox="0 0 16 16" width="16" height="16" role="img">
-      <circle cx="8" cy="8" r="5" fill="currentColor" />
-    </svg>
-  );
   return (
     <div className="cv-message-footer-row" data-footer-row="true" style={{ height: `${height}px` }}>
       <time className="cv-user__time" data-footer-time="true">12s</time>
       <button type="button" className="cv-iconbtn" data-footer-glyph="copy" aria-label="Copy">
-        {icon("Copy")}
+        <Copy size={16} />
       </button>
       <button type="button" className="cv-iconbtn" data-footer-glyph="retry" aria-label="Retry">
-        {icon("Retry")}
+        <Retry size={16} />
       </button>
       <button type="button" className="cv-iconbtn cv-turn-retry-menu" data-footer-glyph="chevron" aria-label="More models">
-        {icon("Chevron")}
+        <ChevronRight size={16} />
       </button>
     </div>
   );
