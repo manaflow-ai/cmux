@@ -290,7 +290,8 @@ final class CreationInputCoordinator {
         // A pending creation's early view has the keyboard: held keys first, then this one.
         if let controller, takesKeysEarly(buffer, controller: controller, window: shell) {
             guard deliverEarly(buffer, in: shell, router: router) else {
-                // A key run again started another creation: this one waits for it, in order, if the hold keeps it.
+                // A key run again started another creation or moved the keyboard away from the early view: this one
+                // waits behind the rest, in order, if the hold keeps it.
                 guard buffer.holds(event, limit: holdLimit, expiring: false, closes: closes) else { return false }
                 buffer.capture(event)
                 return true
@@ -332,12 +333,14 @@ final class CreationInputCoordinator {
     }
 
     /// Runs the held keys into the early view that has the keyboard, in order, at once. False when a key run again
-    /// started another creation: the rest wait for it, in order.
+    /// started another creation or moved the keyboard away from that view (a Ctrl-1…9 onto a cold tab, which keeps this
+    /// hold): the rest wait, in order, and none goes into the view that has the keyboard now.
     private func deliverEarly(_ buffer: CreationInputBuffer, in window: NSWindow, router: KeyRouter) -> Bool {
         let held = buffer.take(), opened = buffer.openedCount
         for (index, key) in held.enumerated() {
             runAgain(key, in: window, router: router)
-            if buffer.openedCount != opened {
+            let stillEarly = router.focus(for: window).0.map { takesKeysEarly(buffer, controller: $0, window: window) } ?? false
+            if buffer.openedCount != opened || !stillEarly {
                 buffer.prepend(held.dropFirst(index + 1))
                 return false
             }
