@@ -29,11 +29,15 @@ Run on a GUI fleet host, never a laptop:
   nx-remote --needs gui --app-from-fleet cmux --tag T --ref SHA -- \\
     python3 scripts/cmux-next/cef-layer-ab.py --app "$NX_APP" --tag "$NX_APP_TAG" --out "$NX_ARTIFACTS"
 Not a gate: it never fails on a number. Exit 1 when a mode is not what it says, or a bench left no report (a
-launch failure or a crash exits 1 too, so the exit code alone does not tell a budget miss from no result).
+launch failure or a crash exits 1 too, so the exit code alone does not tell a budget miss from no result). Exit 3
+(cef_track_a.SKIP_EXIT) when no mode failed and mode on was skipped: the pin is below the fork API of every Track A
+call, so no page can host (summary.json validity has the `skipped` line).
 """
 import argparse, json, os, subprocess, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+import cef_track_a  # noqa: E402
 # The tunables cef-layer-verify.py sets per mode (features' local overrides), removed from the build's file at the end.
 KEYS = ("browserResize.layerHosting",)
 
@@ -68,8 +72,10 @@ def check_mode(mode):
         code = subprocess.call(command, stdout=log, stderr=subprocess.STDOUT)
     report = load(os.path.join(out, f"verify-{mode}.json")) or {}
     rows = report.get("rows") or []
-    ok = code == 0 and bool(rows) and all(r.get("ok") for r in rows)
-    return ok, {"exit": code, "rows": rows, **(report.get("facts") or {})}
+    facts = {"exit": code, "rows": rows, **(report.get("facts") or {})}
+    if code == cef_track_a.SKIP_EXIT:
+        return None, {**facts, "skipped": report.get("skipped") or "skipped: the pin lacks the Track A calls"}
+    return code == 0 and bool(rows) and all(r.get("ok") for r in rows), facts
 
 
 def bench_command(bench, out):
@@ -104,7 +110,7 @@ def headline(bench, out):
     return load(os.path.join(out, "report.json"))
 
 
-failures = 0
+failures = skips = 0
 summary = {"tag": opts.tag, "app": opts.app, "modes": {}, "validity": {}}
 tunables_file = None
 for mode in opts.modes.split(","):
@@ -112,6 +118,10 @@ for mode in opts.modes.split(","):
     summary["validity"][mode] = {"ok": ok, **facts}
     tunables_file = facts.get("tunables_file") or tunables_file
     summary["modes"][mode] = {}
+    if ok is None:
+        print(f"== {mode}: {facts['skipped']}, no benches", flush=True)
+        skips += 1
+        continue
     if not ok:
         print(f"== {mode}: not a valid {mode} run, no benches: {json.dumps(facts)[:400]}", flush=True)
         failures += 1
@@ -143,4 +153,4 @@ with open(os.path.join(opts.out, "summary.json"), "w") as f:
     json.dump(summary, f, indent=2, sort_keys=True)
 print(json.dumps({"validity": {m: v["ok"] for m, v in summary["validity"].items()},
                   "exit": {m: {b: v["exit"] for b, v in r.items()} for m, r in summary["modes"].items()}}))
-sys.exit(1 if failures else 0)
+sys.exit(1 if failures else cef_track_a.SKIP_EXIT if skips else 0)

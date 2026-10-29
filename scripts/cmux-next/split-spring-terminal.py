@@ -308,7 +308,8 @@ if "--suite=perf-gate" in sys.argv:
 # the step's app: cef-layer-verify.py --mode on and --mode off (debug input; hosted.fork, show.again, pixels, input),
 # then cef-resize-sync-bench.py (off, on, on0; light and STRESS). `--label=NAME` names the bench run (api26, api27),
 # `--no-bench` runs only the verify. Every part runs; <out>/cef-resize-sync.json records each part's exit, and the
-# step fails when a part failed.
+# step fails when a part failed. A part that exits 3 (cef_track_a.SKIP_EXIT: layer hosting on, on a pin below the fork
+# API of every Track A call) is a skip: it is listed under "skipped" and does not fail the step.
 if "--suite=cef-resize-sync" in sys.argv:
     here = os.path.dirname(os.path.abspath(__file__))
     argv = sys.argv[1:]
@@ -327,9 +328,14 @@ if "--suite=cef-resize-sync" in sys.argv:
         results[name] = subprocess.call([sys.executable, os.path.join(here, script), "--app", app, "--tag", tag,
                                          "--out", part_out] + verify_input + extra)
         print(f"== cef-resize-sync {name} exit {results[name]}", flush=True)
+    sys.path.insert(0, here)
+    from cef_track_a import SKIP_EXIT as skip_exit
+    skipped = sorted(name for name, code in results.items() if code == skip_exit)
     with open(os.path.join(out, "cef-resize-sync.json"), "w") as f:
-        json.dump(results, f, indent=1)
-    sys.exit(0 if all(code == 0 for code in results.values()) else 1)
+        json.dump({**results, "skipped": skipped}, f, indent=1)
+    if skipped:
+        print(f"== cef-resize-sync skipped (pin below the Track A fork API): {', '.join(skipped)}", flush=True)
+    sys.exit(0 if all(code in (0, skip_exit) for code in results.values()) else 1)
 # `--suite=launch`: launch time, scripts/cmux-next/bench-startup.py (the launch-time budget that left the pull request
 # CI, 2026-10-23). bench-startup.py takes the app's tag from --app, so --tag and --out are dropped; --json stays.
 # The step passes whenever the JSON was written (an over-budget launch is in it).

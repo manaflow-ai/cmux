@@ -27,7 +27,10 @@ layer hosting and deadline tunables removed, and a bench of one counts as valid 
 summary.json records the features, the tunables file reset and each bench's host_resize.
 
 The feature `cefLayerHosting` hosts a pane's page only where the app makes every Track A call (resize fence,
-embedder visibility), so modes on and on0 fail their check on a fork without every Track A call.
+embedder visibility). On a pin below that fork API (cef_track_a.py) modes on and on0 are skipped, not failed: their
+check exits 3, the mode runs no benches, records no series, and summary.json has its `skipped` line ("skipped: needs
+CEF API >= 34, pin has N"). Exit: 1 when a mode failed, else 3 (cef_track_a.SKIP_EXIT) when a mode was skipped, else 0;
+under the perf-lab runner a skip also marks the run not-measurable (cef_track_a.report_lab_skip).
 
 Benches per mode: `light` (pane-perf-terminal.py --browser 1x2,4x2: the top-left pane is a Chromium page) and `stress`
 (pane-perf-terminal.py --layouts stress --stress-selected chromium: the STRESS session, every pane a Chromium page),
@@ -51,6 +54,7 @@ import argparse, json, os, subprocess, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)  # its siblings, also under `python3 -I`
+import cef_track_a  # noqa: E402
 import drag_layout_bench_report as results  # noqa: E402
 from bench_launch import RecordError  # noqa: E402
 from new_tab_bench_report import perf_result, write_all  # noqa: E402
@@ -118,7 +122,10 @@ def check_mode(mode, hosting):
         code = subprocess.call(command, stdout=log, stderr=subprocess.STDOUT)
     report = load(os.path.join(out, f"verify-{hosting}.json")) or {}
     rows = report.get("rows") or []
-    return code == 0 and bool(rows) and all(r.get("ok") for r in rows), {"exit": code, "rows": rows, **(report.get("facts") or {})}
+    facts = {"exit": code, "rows": rows, **(report.get("facts") or {})}
+    if code == cef_track_a.SKIP_EXIT:
+        return None, {**facts, "skipped": report.get("skipped") or "skipped: the pin lacks the Track A calls"}
+    return code == 0 and bool(rows) and all(r.get("ok") for r in rows), facts
 
 
 def bench_command(bench, out, mode=None):
@@ -187,7 +194,7 @@ def record_results(series):
 def main(argv=None):
     global opts
     opts = parse(argv)
-    failures = 0
+    failures = skips = 0
     summary = {"tag": opts.tag, "app": opts.app, "label": opts.label, "validity": {}, "modes": {}}
     series = []
     tunables_file = None
@@ -204,6 +211,11 @@ def main(argv=None):
             ok, facts = check_mode(mode, hosting)
             summary["validity"][mode] = {"ok": ok, **facts}
             tunables_file = facts.get("tunables_file") or tunables_file
+            if ok is None:
+                # The pin cannot host a page with this mode's feature: no benches and no series, not a failure.
+                print(f"== {mode}: {facts['skipped']}", flush=True)
+                skips += 1
+                continue
             if not ok or not facts.get("tunables_file"):
                 print(f"== {mode}: not a valid {mode} run, no benches: {json.dumps(facts)[:400]}", flush=True)
                 failures += 1
@@ -252,7 +264,12 @@ def main(argv=None):
                       f"{r['frames_max_ms']}  layout p95 {r['layout_p95_ms']}", flush=True)
     if not record_results(series):
         failures += 1
-    return 1 if failures else 0
+    if failures:
+        return 1
+    if skips:
+        cef_track_a.report_lab_skip()
+        return cef_track_a.SKIP_EXIT
+    return 0
 
 
 if __name__ == "__main__":

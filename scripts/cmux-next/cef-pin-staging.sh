@@ -24,6 +24,8 @@
 #     or through the allowlisted fleet entry: split-spring.sh --arg=--suite=cef-pin-staging.
 #     STAGING_PARTS=verify,api,internal,restore picks parts (a baseline of the current pin runs internal,restore);
 #     VERIFY_INPUT=debug sends debug.mouse/debug.key instead (proves nothing about the page window's input).
+#     A part that exits 3 (cef_track_a.SKIP_EXIT: layer hosting on, on a pin below the fork API of every Track A
+#     call) prints SKIP and does not fail the check; the fork-api part still reads that run's fork API.
 set -u
 here="$(cd "$(dirname "$0")" && pwd)"
 case "${1:-check}" in
@@ -35,12 +37,14 @@ esac
 out="$NX_ARTIFACTS/staging"; mkdir -p "$out"
 parts=",${STAGING_PARTS:-verify,api,internal,restore},"
 rc=0
-run() { # <name> <command...>: its log in $out/<name>.log, the PASS/FAIL rows, and its last lines when it fails
+skip_exit=3 # cef_track_a.SKIP_EXIT
+run() { # <name> <command...>: its log in $out/<name>.log, the PASS/FAIL/SKIP rows, and its last lines when it fails
   local name=$1; shift
   echo "== $name: $*"
   "$@" > "$out/$name.log" 2>&1; local c=$?
-  grep -E "^(PASS|FAIL|ok  |FAIL )" "$out/$name.log" | cut -c1-220
+  grep -E "^(PASS|FAIL|SKIP|ok  |FAIL )" "$out/$name.log" | cut -c1-220
   echo "   exit $c"
+  if [ $c -eq $skip_exit ]; then echo "   skipped, not failed"; return 0; fi
   if [ $c -ne 0 ]; then echo "   -- last lines of $name.log:"; tail -n 25 "$out/$name.log" | cut -c1-220 | sed 's/^/   | /'; rc=1; fi
 }
 if [[ "$parts" == *",verify,"* ]]; then

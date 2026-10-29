@@ -10,6 +10,10 @@ in a Chromium tab and checks:
                   (`valid`: hosting_without_track_a)
   --mode off      the feature off: no page hosts
 
+On a pin below the fork API of every Track A call (cef_track_a.py: 34) mode on cannot host a page, so it measures
+nothing: once the probe page loads, the check stops, prints "skipped: needs CEF API >= 34, pin has N", records it as
+`skipped` in verify-on.json and exits 3 (cef_track_a.SKIP_EXIT), never 1. A failed row before that still exits 1.
+
 The tunable is the feature's local override (p12-perf-process-100): the app reads it from its debug-tunables.json
 once, at launch, before its features resolve, so a mode is set in the file before the app starts, never live. The
 environment lists (`CMUX_ENABLE_FEATURES`) do not reach the app: its launch strips inherited `CMUX_*` variables.
@@ -63,6 +67,9 @@ Run on a GUI fleet host, never a laptop:
 """
 import argparse, ctypes, glob, json, os, pathlib, signal, socket, struct, subprocess, sys, tempfile, time
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import cef_track_a  # noqa: E402
+
 parser = argparse.ArgumentParser()
 parser.add_argument("--app", required=True)
 parser.add_argument("--tag", required=True)
@@ -96,6 +103,7 @@ HOSTED = opts.mode != "off"
 WINDOW = (80, 80, 1400, 900)
 LAYER_HOSTING_FORK_API = 26
 ROWS, TAB, FACTS = [], {}, {}
+SKIPPED = []  # the skip line when mode on cannot apply to this pin (cef_track_a.skip_reason)
 
 PAGE = """<!doctype html><meta charset=utf-8><title>layer probe</title>
 <style>html,body{margin:0;height:100%;background:#20a040;font:16px system-ui}
@@ -465,6 +473,14 @@ def main():
         if not wait(lambda: page("document.readyState === 'complete' && document.title === 'layer probe'"), 60, 0.5):
             row("page", False, f"the probe never loaded: {json.dumps(opened)[:200]} cef {json.dumps(rpc('debug.cef'))[:300]}")
             return
+        # Mode on on a pin without every Track A call: no page can host, so nothing below measures anything.
+        fork_api = ((rpc("debug.cef") or {}).get("windows") or {}).get("fork_api") or 0
+        FACTS["fork_api"] = fork_api
+        reason = cef_track_a.skip_reason(opts.mode, fork_api)
+        if reason:
+            SKIPPED.append(reason)
+            print(f"SKIP | track-a | {reason}", flush=True)
+            return
         # Right after the first page of the new pane loaded, before anything shows a tab again.
         check_valid_and_hosted()
         check_fork_hosted()
@@ -569,6 +585,7 @@ try:
     main()
 finally:
     os.makedirs(opts.out, exist_ok=True)
-    json.dump({"tag": TAG, "mode": opts.mode, "rows": ROWS, "facts": FACTS},
+    json.dump({"tag": TAG, "mode": opts.mode, "rows": ROWS, "facts": FACTS,
+               "skipped": SKIPPED[0] if SKIPPED else None},
               open(os.path.join(opts.out, f"verify-{opts.mode}.json"), "w"), indent=2)
-sys.exit(0 if ROWS and all(r["ok"] for r in ROWS) else 1)
+sys.exit(cef_track_a.exit_code(ROWS, SKIPPED[0] if SKIPPED else None))
