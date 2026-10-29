@@ -23,9 +23,6 @@ struct PageRouterSubscribeEndTests {
 
         init(_ ending: Ending) { self.ending = ending }
 
-        /// PROBE: a @MainActor closure made here, with no router in it.
-        lazy var directCall: @MainActor (JSONValue) -> Void = { [weak self] data in _ = self?.ending; _ = data }
-
         func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue { .object([:]) }
 
         func subscribe(_ stream: String, filter: JSONValue, context: PageCallContext,
@@ -61,7 +58,8 @@ struct PageRouterSubscribeEndTests {
         withExtendedLifetime(router) {}
     }
 
-    /// PROBE BRANCH ONLY: prints the stack of the first allocations a dropped event makes.
+    /// PROBE BRANCH ONLY: what one dropped event costs, split by step (counts only: the stack capture of the
+    /// last probe crashed inside the allocation hook). Each line counts 10 000 iterations of the same loop.
     @Test func whereADroppedEventAllocates() async throws {
         let provider = KeepingProvider(.throwing)
         let router = PageRouter(descriptor: Self.descriptor, routes: [PageRoute(prefix: "cmux.end.", provider: provider)])
@@ -70,14 +68,24 @@ struct PageRouterSubscribeEndTests {
         _ = await router.handle(["t": "sub", "id": 1, "stream": "cmux.end.feed"])
         let onEvent = try #require(provider.onEvent)
         let event: JSONValue = ["n": 1]
-        onEvent(event)
-        let stacks = allocationStacks(limit: 3) { for _ in 0..<4 { onEvent(event) } }
-        for (index, stack) in stacks.enumerated() {
-            print("S7ALLOC stack \(index):")
-            for line in stack { print("S7ALLOC   \(line)") }
+        let released = PageEarlyEvents()
+        _ = released.release()
+        let plain: @MainActor (JSONValue) -> Void = { _ in }
+        let weakly: @MainActor (JSONValue) -> Void = { [weak router] data in _ = router; _ = data }
+        let existential: any PageProvider = provider
+        // Warm every path once outside the counts.
+        onEvent(event); plain(event); weakly(event); _ = released.hold(event); _ = existential.eventsAfterSubscribeReply
+        let n = 10_000
+        func line(_ name: String, _ body: () -> Void) {
+            print("S7ALLOC \(name): \(mainThreadAllocations(body).map(String.init) ?? "no hook") allocations for \(n)")
         }
-        let plain = allocationStacks(limit: 2) { for _ in 0..<4 { provider.directCall(event) } }
-        print("S7ALLOC a plain @MainActor closure call allocations: \(plain.count)")
+        line("empty loop") { for _ in 0..<n {} }
+        line("plain @MainActor closure") { for _ in 0..<n { plain(event) } }
+        line("closure with weak router") { for _ in 0..<n { weakly(event) } }
+        line("released PageEarlyEvents.hold") { for _ in 0..<n { _ = released.hold(event) } }
+        line("existential eventsAfterSubscribeReply") { for _ in 0..<n { _ = existential.eventsAfterSubscribeReply } }
+        line("existential eventDeliveryID") { for _ in 0..<n { _ = existential.eventDeliveryID } }
+        line("the kept onEvent (whole drop path)") { for _ in 0..<n { onEvent(event) } }
         withExtendedLifetime(router) {}
     }
 }
@@ -116,46 +124,4 @@ private func mainThreadAllocations(_ body: () -> Void) -> Int? {
     hook.pointee = previous
     PageEndMallocTally.thread.store(0, ordering: .relaxed)
     return PageEndMallocTally.allocations.load(ordering: .relaxed)
-}
-
-// MARK: PROBE: allocation stacks
-
-nonisolated private enum PageEndAllocStacks {
-    static let thread = Atomic<UInt32>(0)
-    static let taken = Atomic<Int>(0)
-    static let limit = Atomic<Int>(0)
-    // Frames of up to 8 stacks, 48 frames each; filled by the hook with no allocation.
-    nonisolated(unsafe) static let frames = UnsafeMutablePointer<UnsafeMutableRawPointer?>.allocate(capacity: 8 * 48)
-    nonisolated(unsafe) static let depths = UnsafeMutablePointer<Int32>.allocate(capacity: 8)
-}
-
-nonisolated private func recordAllocationStack(type: UInt32, arg1: UInt, arg2: UInt, arg3: UInt, result: UInt, skip: UInt32) {
-    let allocate: UInt32 = 2
-    guard type & allocate != 0, pthread_mach_thread_np(pthread_self()) == PageEndAllocStacks.thread.load(ordering: .relaxed) else { return }
-    let index = PageEndAllocStacks.taken.load(ordering: .relaxed)
-    guard index < PageEndAllocStacks.limit.load(ordering: .relaxed) else { return }
-    PageEndAllocStacks.taken.store(index + 1, ordering: .relaxed)
-    PageEndAllocStacks.depths[index] = backtrace(PageEndAllocStacks.frames + index * 48, 48)
-}
-
-/// The stacks of the first `limit` allocations the calling thread makes in `body`.
-private func allocationStacks(limit: Int, _ body: () -> Void) -> [[String]] {
-    guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "malloc_logger") else { return [["no malloc_logger"]] }
-    let hook = symbol.assumingMemoryBound(to: MallocLogger?.self)
-    PageEndAllocStacks.taken.store(0, ordering: .relaxed)
-    PageEndAllocStacks.limit.store(min(limit, 8), ordering: .relaxed)
-    PageEndAllocStacks.thread.store(pthread_mach_thread_np(pthread_self()), ordering: .relaxed)
-    let previous = hook.pointee
-    hook.pointee = recordAllocationStack
-    body()
-    hook.pointee = previous
-    PageEndAllocStacks.thread.store(0, ordering: .relaxed)
-    var stacks: [[String]] = []
-    for index in 0..<PageEndAllocStacks.taken.load(ordering: .relaxed) {
-        let depth = PageEndAllocStacks.depths[index]
-        guard let symbols = backtrace_symbols(PageEndAllocStacks.frames + index * 48, depth) else { continue }
-        stacks.append((0..<Int(depth)).compactMap { symbols[$0].map { String(cString: $0) } })
-        free(symbols)
-    }
-    return stacks
 }
