@@ -34,8 +34,7 @@ export function PendingSteer({
   const [sentNow, setSentNow] = useState(false);
   const promptId = row.steerPromptId;
   // The transcript virtualizes rows: a remount must not offer an accepted send again.
-  if (!waiting || sentNow || (promptId && sentNowIds.has(promptId)))
-    return children ?? null;
+  if (!waiting || sentNow || (promptId && sentNowIds.has(promptId))) return children ?? null;
   if (!promptId) return null;
   const busy = sending;
   return (
@@ -93,10 +92,7 @@ const sentNowIds = new Set<string>();
 /// Whether the chat's X takes a waiting steer back (`_acpmux/steer_withdraw`): only acpmux's Claude
 /// Code adapter does. acpmux's `backgroundsWork` marks a chat that runs it, whatever its family is
 /// named (Leo's claude-sr2); `steering` alone does not, as other ACP agents steer too.
-export function takesSteersBack(
-  summary: { backgroundsWork?: boolean } | undefined,
-  connected: boolean,
-): boolean {
+export function takesSteersBack(summary: { backgroundsWork?: boolean } | undefined, connected: boolean): boolean {
   return connected && summary?.backgroundsWork === true;
 }
 
@@ -110,10 +106,7 @@ export async function takeBackSteer(
   io: {
     withdraw: (promptId: string) => Promise<boolean>;
     attachments: (rowId: string) => Promise<ComposerAttachment[]>;
-    draft?: (
-      rowId: string,
-      text: string,
-    ) => Promise<{ input: string; attachments: ComposerAttachment[] }>;
+    draft?: (rowId: string, text: string) => Promise<{ input: string; attachments: ComposerAttachment[] }>;
     restore: (text: string, attachments: ComposerAttachment[]) => void;
   },
 ): Promise<boolean> {
@@ -121,23 +114,12 @@ export async function takeBackSteer(
   if (!promptId || row.steer !== "waiting") return false;
   const text = row.resend ?? row.text ?? "";
   const draft = await (
-    io.draft
-      ? io.draft(row.id, text)
-      : io
-          .attachments(row.id)
-          .then((attachments) => ({ input: text, attachments }))
+    io.draft ? io.draft(row.id, text) : io.attachments(row.id).then((attachments) => ({ input: text, attachments }))
   ).catch(() => undefined);
   const attachments = draft?.attachments;
   // An image acpmux could not give back is left out of what it read: the steer stays then too.
-  const images =
-    attachments?.filter((attachment) => attachment.kind === "image").length ??
-    0;
-  if (
-    !draft ||
-    images < (row.images?.length ?? 0) ||
-    !(await io.withdraw(promptId))
-  )
-    return false;
+  const images = attachments?.filter((attachment) => attachment.kind === "image").length ?? 0;
+  if (!draft || images < (row.images?.length ?? 0) || !(await io.withdraw(promptId))) return false;
   io.restore(draft.input, draft.attachments);
   return true;
 }

@@ -129,7 +129,7 @@ test("a reply with its row keeps the height the browser measured when it resizes
     // The reply wraps taller than its estimate (a font that loads, a narrower pane).
     drawn.set("a1", 900);
     await act(async () => {
-      for (const observer of [...observers])
+      for (const observer of observers)
         if (observer.targets.has(rowOf("a1"))) observer.notify([{ target: rowOf("a1") }]);
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
