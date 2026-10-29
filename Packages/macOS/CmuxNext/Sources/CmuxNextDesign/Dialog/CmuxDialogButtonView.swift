@@ -36,7 +36,8 @@ public final class CmuxDialogButtonView: NSButton {
         heightAnchor.constraint(equalToConstant: CmuxDialogMetrics.buttonHeight).isActive = true
         focusRing.borderWidth = 2
         focusRing.isHidden = true
-        layer?.addSublayer(focusRing)
+        // The ring sits outside the fill: nothing may clip it.
+        clipsToBounds = false
         refresh()
     }
 
@@ -107,6 +108,11 @@ public final class CmuxDialogButtonView: NSButton {
 
     public override func layout() {
         super.layout()
+        // AppKit may replace a button's backing layer after init: the ring follows the current one.
+        if let layer, focusRing.superlayer !== layer {
+            layer.masksToBounds = false
+            layer.addSublayer(focusRing)
+        }
         let outset = Self.focusRingOutset
         CATransaction.begin()
         CATransaction.setDisableActions(true)
