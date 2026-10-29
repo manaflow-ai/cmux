@@ -172,9 +172,7 @@ pub(super) fn parse(args: &[String], surface: super::Surface) -> Result<CommandP
         "client" => parse_client(words, &mut selectors, &mut tokens.flags)?,
         "workspace" => parse_workspace(words, &mut selectors, &mut tokens.flags, tokens.argv)?,
         "screen" => parse_screen(words, &mut selectors, &mut tokens.flags, tokens.argv)?,
-        "settings" | "config" => {
-            settings::parse(words, &mut tokens.flags, tokens.argv.as_deref())?
-        }
+        "settings" | "config" => settings::parse(words, &mut tokens.flags, tokens.argv.as_deref())?,
         "pane" => parse_pane(words, &mut selectors, &mut tokens.flags, tokens.argv)?,
         "tab" => parse_tab(words, &mut selectors, &mut tokens.flags, tokens.argv)?,
         "terminal" => parse_terminal(words, &mut selectors, &mut tokens.flags)?,
