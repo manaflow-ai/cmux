@@ -680,9 +680,11 @@ def _trusted_fork_exclusion(node: tuple) -> bool:
     return (
         node[0] == "not"
         and node[1][0] == "call"
+        and len(node[1]) == 3  # no index after contains() or fromJSON() (review of #27631)
         and node[1][1] == "contains"
         and len(node[1][2]) == 2
         and node[1][2][0][0] == "call"
+        and len(node[1][2][0]) == 3
         and node[1][2][0][1] == "fromJSON"
         and _refs(node[1][2][0][2][0])
         and _refs(node[1][2][0][2][0])[0].endswith("owned_head_repos")
@@ -1361,6 +1363,12 @@ class ForkRunnerRoutingTests(unittest.TestCase):
         self.assertNotEqual(job_runner_errors("x.yml", computed), [])
         self.assertNotEqual(job_runner_errors("x.yml", {"uses": "org/repo/.github/workflows/x.yml@v1"}), [])
         self.assertEqual(runner_label_errors("ubuntu-latest"), [])
+        # An index after fromJSON turns the trusted fork exclusion into a substring test.
+        indexed = parse_expression("!contains(fromJSON(inputs.owned_head_repos)[0], "
+                                   "github.event.pull_request.head.repo.full_name)")
+        self.assertFalse(_trusted_fork_exclusion(indexed))
+        self.assertTrue(_trusted_fork_exclusion(parse_expression(
+            "!contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name)")))
         self.assertNotEqual(runner_label_errors("self-hosted"), [])
 
     def test_key_holding_linux_jobs_follow_linux_runner_through_the_bounded_selector(self) -> None:
