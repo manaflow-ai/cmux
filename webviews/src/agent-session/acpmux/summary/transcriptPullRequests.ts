@@ -114,7 +114,8 @@ const MUTATING = new Set("merge close edit comment review ready reopen lock unlo
 const succeeded = (tool: Tool) => tool.status === "completed" && (tool.exitCode ?? 0) === 0;
 const urlOf = (repo: string, number: number) => `https://github.com/${repo}/pull/${number}`;
 const issueUrlOf = (repo: string, number: number) => `https://github.com/${repo}/issues/${number}`;
-/// Keep a quoted GitHub target available to call parsing, while dropping quoted bodies and titles.
+/// Keep quoted targets available, and retain a harmless word for other quoted data so
+/// a nonempty loop iterable or command argument never disappears during sanitization.
 const quotedTarget = (value: string) =>
   new RegExp(`^${PR_URL.source}(?:[/?#]\\S*)?$`).test(value) ||
   new RegExp(`^${ISSUE_URL.source}(?:[/?#]\\S*)?$`).test(value) ||
@@ -127,7 +128,7 @@ const callText = (command: string) =>
     .replace(HEREDOC, "$3\n")
     .replace(QUOTED, (quoted) => {
       const value = quoted.slice(1, -1);
-      return quotedTarget(value) ? value : " ";
+      return quotedTarget(value) ? value : "__quoted_data__";
     })
     .replace(/(^|[ \t;&|])#.*$/gm, "$1");
 
