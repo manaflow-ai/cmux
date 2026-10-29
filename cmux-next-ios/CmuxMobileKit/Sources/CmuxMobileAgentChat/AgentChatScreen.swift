@@ -503,6 +503,7 @@ public struct AgentChatBottomStack: View {
     @State private var reportedHeight: CGFloat = 0
     /// The composer field's focus (a UITextView that follows it both ways).
     @State private var composerFocused = false
+    @State private var retryCount = 0
 
     public init(store: AgentChatStore, surface: AgentChatSurface) {
         self.store = store
@@ -525,9 +526,11 @@ public struct AgentChatBottomStack: View {
                                 .font(.footnote.weight(.semibold))
                                 .foregroundStyle(.primary)
                             Button("Retry", systemImage: "arrow.clockwise") {
-                                store.send(prompt: surface.text, attachments: surface.attachments)
+                                retryCount += 1
                             }
                             .font(.footnote.weight(.semibold))
+                            .buttonStyle(.plain)
+                            .disabled(surface.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && surface.attachments.isEmpty)
                         }
                         .padding(.horizontal, 14)
                         .padding(.vertical, 9)
@@ -574,7 +577,7 @@ public struct AgentChatBottomStack: View {
                     ChatComposer(store: store, text: $surface.text, attachments: $surface.attachments, focus: $composerFocused, collapsible: !store.turns.isEmpty,
                                  expandOnAppear: surface.replyInsteadOfPermission,
                                  placeholderOverride: replying ? "Tell \(store.summary.agentName) what to do instead" : nil,
-                                 denyingPermission: replying)
+                                 denyingPermission: replying, retryCount: retryCount)
                         .transition(.opacity)
                 }
             }

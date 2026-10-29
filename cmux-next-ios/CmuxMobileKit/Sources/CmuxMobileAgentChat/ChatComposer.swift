@@ -24,6 +24,8 @@ struct ChatComposer: View {
     var placeholderOverride: String?
     /// Sending answers the pending permission with a denial plus this message.
     var denyingPermission = false
+    /// A Retry uses the same send path, including queue/steer and draft clearing.
+    var retryCount = 0
     @State private var showPhotos = false
     @State private var showFiles = false
     @State private var showCamera = false
@@ -32,6 +34,9 @@ struct ChatComposer: View {
     @State private var preview: FilePreviewRequest?
     @State private var sendCount = 0
     @State private var planMode = false
+    #if DEBUG
+    @State private var ranOfflineSendDemo = false
+    #endif
     /// Set by a tap on the collapsed capsule: the text field only exists
     /// when expanded, so focus can only move into it after it is built.
     @State private var expandRequested = false
@@ -83,10 +88,22 @@ struct ChatComposer: View {
             Task { await loadPhotos(items) }
         }
         .sensoryFeedback(.impact(weight: .light), trigger: sendCount)
+        .onChange(of: retryCount) { _, _ in sendFromKeyboard() }
         .onChange(of: focus.wrappedValue) { _, focused in
             if focused { expandRequested = false }
         }
         .onAppear { if expandOnAppear { expand() } }
+        #if DEBUG
+        .task {
+            let arguments = ProcessInfo.processInfo.arguments
+            guard let index = arguments.firstIndex(of: "-cmux-mobile-demo"),
+                  arguments.indices.contains(index + 1), arguments[index + 1] == "offline-send",
+                  !ranOfflineSendDemo else { return }
+            ranOfflineSendDemo = true
+            text = "Run the tests and summarize the results."
+            send(steer: false)
+        }
+        #endif
         // A returned prompt the Mac turned out to have run: out of the composer again,
         // unless the person already changed it.
         .onChange(of: store.withdrawnDraft) { _, draft in
