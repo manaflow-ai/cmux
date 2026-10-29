@@ -77,7 +77,10 @@ await requireBrowserLane("summary-nested-dismiss.test.ts", async () => {
               await mkdir(process.env.CMUX_CAPTURE_DIR, { recursive: true });
               await page.screenshot({
                 type: "jpeg",
-                quality: 50,
+                quality: 45,
+                // Keep the evidence focused on the nested layers and small enough for the
+                // broker receipt; the full gallery frame is still available from the test route.
+                clip: { x: 440, y: 24, width: 310, height: 180 },
                 path: path.join(
                   process.env.CMUX_CAPTURE_DIR,
                   `summary-${engine}-${theme.replaceAll(" ", "-")}-${action}.jpg`,
