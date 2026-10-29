@@ -221,3 +221,36 @@ fn a_repaired_failure_shows_fixed() {
     assert_eq!(step(&after, "daemon").state, StepState::Fixed);
     assert_eq!(step(&after, "binary").state, StepState::Ok);
 }
+
+#[test]
+fn absent_fields_skip_and_a_null_heartbeat_fails() {
+    let mut v = status(json!({}));
+    let object = v.as_object_mut().unwrap();
+    object.remove("revoked");
+    object.remove("lastHeartbeat");
+    let checked = steps(&Facts { status: Status::Json(v), ..healthy() }, NOW);
+    assert_eq!(step(&checked, "revoked").state, StepState::Skip);
+    assert_eq!(step(&checked, "heartbeat").state, StepState::Skip);
+    let checked = with_status(json!({"lastHeartbeat": null}));
+    assert_eq!(step(&checked, "heartbeat").state, StepState::Fail);
+    let unsaid = steps(&Facts { status: Status::Json(json!({"hubReachable": true})), ..healthy() }, NOW);
+    assert_eq!(step(&unsaid, "credential").state, StepState::Skip);
+}
+
+#[test]
+fn an_unsafe_hub_origin_or_path_is_never_printed() {
+    for hub in [
+        "https://platform.example/?t=cmj_0123456789abcdef",
+        "https://user:cmm_x@platform.example",
+        "https://platform.example/path",
+        "https://platform.example#frag",
+        "http://platform.example",
+    ] {
+        let checked = with_status(json!({"hubOrigin": hub, "hubReachable": false}));
+        let text = format!("{checked:?}");
+        assert!(!text.contains("cmj_") && !text.contains("cmm_"), "{text}");
+        assert!(step(&checked, "hub").detail.contains(DEV_ORIGIN), "{hub}");
+    }
+    let loose = with_status(json!({"credentialMode": "0644", "credentialPath": "/h/cmm_secret"}));
+    assert_eq!(step(&loose, "credential").state, StepState::Ok, "an unsafe path is not printed");
+}

@@ -105,16 +105,28 @@ pub struct Facts {
 }
 
 /// The join line's origin for fix text: the hub the status names, else development.
+/// Only a bare `https://host[:port]` is printed: no user, path, query or fragment (a pasted
+/// secret could hide in any of them).
 fn origin(facts: &Facts) -> String {
+    let bare = |o: &&str| {
+        o.strip_prefix("https://").is_some_and(|rest| {
+            let host = rest.strip_suffix('/').unwrap_or(rest);
+            !host.is_empty()
+                && host.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b':'))
+        }) && plain(o)
+    };
     match &facts.status {
-        Status::Json(v) => v["hubOrigin"]
-            .as_str()
-            .filter(|o| o.starts_with("https://") && !o.contains(char::is_whitespace))
-            .unwrap_or(DEV_ORIGIN)
-            .trim_end_matches('/')
-            .to_owned(),
+        Status::Json(v) => {
+            v["hubOrigin"].as_str().filter(bare).unwrap_or(DEV_ORIGIN).trim_end_matches('/').to_owned()
+        }
         _ => DEV_ORIGIN.to_owned(),
     }
+}
+
+/// Text from the status that is safe to print: no control characters and no join token or
+/// machine credential.
+fn plain(text: &str) -> bool {
+    !text.chars().any(char::is_control) && !text.contains("cmj_") && !text.contains("cmm_")
 }
 
 fn rejoin(facts: &Facts) -> String {
@@ -148,10 +160,10 @@ pub fn steps(facts: &Facts, now_ms: u64) -> Vec<JoinStep> {
         return steps;
     };
     let revoked = status["revoked"].as_bool() == Some(true);
-    steps.push(if revoked {
-        JoinStep::fail("revoked", "your team revoked this machine", NEW_LINE)
-    } else {
-        JoinStep::new("revoked", StepState::Ok, "not revoked")
+    steps.push(match status["revoked"].as_bool() {
+        Some(true) => JoinStep::fail("revoked", "your team revoked this machine", NEW_LINE),
+        Some(false) => JoinStep::new("revoked", StepState::Ok, "not revoked"),
+        None => skip("revoked", "acpmux did not say whether this machine is revoked"),
     });
     let hub = origin(facts);
     steps.push(match status["hubReachable"].as_bool() {
@@ -166,7 +178,11 @@ pub fn steps(facts: &Facts, now_ms: u64) -> Vec<JoinStep> {
     steps.push(if revoked {
         skip("heartbeat", "this machine is revoked")
     } else {
-        heartbeat_step(&status["lastHeartbeat"], now_ms)
+        match status.get("lastHeartbeat") {
+            // A field this acpmux does not report; `null` is "none yet", a failure.
+            None => skip("heartbeat", "acpmux did not report the last heartbeat"),
+            Some(at) => heartbeat_step(at, now_ms),
+        }
     });
     steps.push(consent_step(Some(status)));
     steps
@@ -183,7 +199,7 @@ fn binary_step(facts: &Facts) -> JoinStep {
         Binary::NotExecutable(path) => JoinStep::fail(
             "binary",
             format!("{} is not executable", path.display()),
-            format!("chmod 755 {}", path.display()),
+            rejoin(facts),
         ),
     }
 }
@@ -226,7 +242,7 @@ fn credential_step(facts: &Facts) -> JoinStep {
         Status::Json(v) if v["credentialPresent"].as_bool() == Some(true) => {
             let mode = v["credentialMode"].as_str().map(|m| m.trim_start_matches('0'));
             match (mode, v["credentialPath"].as_str()) {
-                (Some(mode), Some(path)) if mode != "600" => JoinStep::fail(
+                (Some(mode), Some(path)) if mode != "600" && plain(path) && plain(mode) => JoinStep::fail(
                     "credential",
                     format!("the credential file is mode {mode}, readable by others"),
                     format!("chmod 600 {path}"),
@@ -237,6 +253,11 @@ fn credential_step(facts: &Facts) -> JoinStep {
                 }
             }
         }
+        Status::Json(v) if v.get("credentialPresent").is_none() => JoinStep::new(
+            "credential",
+            StepState::Skip,
+            "acpmux did not say whether this machine joined",
+        ),
         Status::Json(_) => {
             JoinStep::fail("credential", "this machine has not joined a team", NEW_LINE)
         }
@@ -386,6 +407,9 @@ fn output(program: &Path, args: &[&str]) -> Option<(i32, String)> {
     use wait_timeout::ChildExt as _;
     let mut child = Command::new(program)
         .args(args)
+        // The caller's cmux credential and any join token stay out of the children.
+        .env_remove("CMUX_CLOUD_ACCESS_TOKEN")
+        .env_remove("CMUX_JOIN")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
@@ -470,6 +494,13 @@ fn repair(facts: &Facts) -> bool {
             let plist = home.join("Library/LaunchAgents").join(format!("{LAUNCHD_LABEL}.plist"));
             let plist = plist.display().to_string();
             let _ = output(Path::new("launchctl"), &["bootstrap", &format!("gui/{uid}"), &plist]);
+        }
+    }
+    if facts.service == (Service::Active { linger: Some(false) }) {
+        ran = true;
+        let user = std::env::var("USER").unwrap_or_default();
+        if !user.is_empty() {
+            let _ = output(Path::new("loginctl"), &["enable-linger", &user]);
         }
     }
     if !facts.daemon_running
