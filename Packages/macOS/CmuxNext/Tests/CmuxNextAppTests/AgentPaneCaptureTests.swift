@@ -93,6 +93,7 @@ struct AgentPaneCaptureTests {
     /// The native model can persist another chat while the system picker is open. Both the
     /// source route and its session (including a fresh chat's nil) belong to the original click.
     @Test func aPendingPickKeepsItsSourceRouteAndSession() async throws {
+        let png = Self.png
         for session: String? in ["s1", nil] {
             let source = Rig(session: session)
             let destination = Rig(session: "s2")
@@ -102,7 +103,7 @@ struct AgentPaneCaptureTests {
                 // changes the chat and its route; no staging has started yet.
                 _ = await source.model.respond(to: .persistSession("s2"))
                 await MainActor.run { source.model.onUploadStage = destination.model.onUploadStage }
-                return (try? Self.png.write(to: file)) != nil
+                return (try? png.write(to: file)) != nil
             }
             let answer = try #require(Self.value(reply))
             #expect((answer["original"] as? [String: Any])?["path"] as? String == Self.saved)
