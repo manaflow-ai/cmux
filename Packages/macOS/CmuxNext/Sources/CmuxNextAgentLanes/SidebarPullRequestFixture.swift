@@ -7,11 +7,11 @@ import Foundation
 /// before the sidebar feed starts, so the capture never starts or queues its GitHub reads.
 /// Rows still follow `sidebar.workspaceRow.pullRequest` (off by default).
 @MainActor
-enum SidebarPullRequestFixture {
+public enum SidebarPullRequestFixture {
     #if DEBUG || CMUX_BENCH_HOOKS
-    static let enabled = ProcessInfo.processInfo.arguments.contains("--sidebar-pull-request-fixture")
+    public static let enabled = ProcessInfo.processInfo.arguments.contains("--sidebar-pull-request-fixture")
     #else
-    static let enabled = false
+    public static let enabled = false
     #endif
 
     static let picks: [[SidebarPullRequestItem.State]] = [
