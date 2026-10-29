@@ -226,7 +226,7 @@ def ensure_terminal():
         reply = rpc("debug.key", {"key": "`", "modifiers": ["control"]})
     else:
         reply = rpc("action.run", {"action": "newTab", "args": {"focus": True, "name": "instant-bench"}, "wait": True})
-    print("newTab:", json.dumps(reply)[:300], flush=True)
+    print(("Ctrl-` (debug.key):" if opts.activate else "newTab:"), json.dumps(reply)[:300], flush=True)
     ok = wait(lambda: (focused() or {}).get("kind") == "terminal", 30)
     time.sleep(1)  # test harness: shell prompt
     return ok

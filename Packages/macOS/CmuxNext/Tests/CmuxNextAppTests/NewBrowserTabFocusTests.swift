@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
+import CmuxNextDaemon
 import CmuxNextFocus
 import Testing
 
@@ -36,10 +37,16 @@ struct NewBrowserTabFocusTests {
             #expect(onBar && state.expectation == nil,
                     "in the key's turn the keys go to \(state.resolved), not the new tab's address bar (expectation \(String(describing: state.expectation)))")
 
-            // And it stays there once the daemon's tab replaced the stand-in.
+            // The daemon's reply lands: its tab (a daemon surface, not the stand-in's) is the pane's selected tab. Only
+            // then does the check below say anything: before the reply the stand-in's bar already passes it.
+            let store = services.daemon.store
+            try await Self.until({ Self.daemonTabSelected(content, store) != nil }, "the daemon's tab never replaced the stand-in", content)
+            let real = try #require(Self.daemonTabSelected(content, store))
+            #expect(!ProvisionalTab.isProvisional(real) && real != selected, "the selected tab \(real) is still the stand-in \(selected)")
+            // And the daemon's tab has the keys in its address bar, with nothing left waiting.
             try await Self.until({
-                if case .addressBar = content.focus.state.resolved { content.focus.state.expectation == nil } else { false }
-            }, "the address bar never had the keys", content)
+                if case .addressBar(_, let tab) = content.focus.state.resolved { tab == real && content.focus.state.expectation == nil } else { false }
+            }, "the daemon's tab \(real) never had the keys in its address bar", content)
         }
     }
 
@@ -67,13 +74,24 @@ struct NewBrowserTabFocusTests {
             #expect(onIt && state.expectation == nil,
                     "in the key's turn the keys go to \(state.resolved), not the new terminal (expectation \(String(describing: state.expectation)))")
 
-            // After the reply the daemon's terminal has them, with nothing left waiting.
+            // The daemon's reply lands: the selected tab's surface is the daemon's (the terminal stand-in keeps its tab id
+            // for good, so its surface is what changes). Before the reply the check below already passes on the stand-in.
+            let store = services.daemon.store
+            try await Self.until({ Self.daemonTabSelected(content, store) != nil }, "the daemon's terminal never replaced the stand-in", content)
+            let real = try #require(Self.daemonTabSelected(content, store))
+            // And the daemon's terminal has the keys, with nothing left waiting.
             try await Self.until({
-                if case .terminal(_, let tab) = content.focus.state.resolved {
-                    !before.contains(tab) && content.focus.state.expectation == nil
-                } else { false }
-            }, "the new terminal never kept the keys", content)
+                if case .terminal(_, let tab) = content.focus.state.resolved { tab == real && content.focus.state.expectation == nil } else { false }
+            }, "the daemon's terminal \(real) never kept the keys", content)
         }
+    }
+
+    /// The focused pane's selected tab once it is the daemon's (its id is not a stand-in's and the store lists it with a
+    /// daemon surface), else nil.
+    private static func daemonTabSelected(_ content: WorkspaceContentController, _ store: DaemonStore) -> String? {
+        guard let id = content.focusedPane?.stripModel.selectedID?.rawValue, !ProvisionalTab.isProvisional(id),
+              let tab = store.tab(id: id), !ProvisionalTab.isProvisional(surface: tab.surface) else { return nil }
+        return id
     }
 
     /// Polls `condition` for up to 60 s; on a time-out records `what` with the focus state, so a set-up failure is
