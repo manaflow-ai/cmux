@@ -105,7 +105,10 @@ struct CrossMachineTabMoveTests {
 
         /// The other machine's tab matching `match` in the target workspace, once its store shows it.
         func machineTab(_ match: (TabModel) -> Bool) async throws -> TabModel {
-            try await poll("no matching tab on the other machine") {
+            // A move's reply can precede the store applying its rename. Read after the
+            // daemon's barrier so the creation event alone cannot satisfy this lookup.
+            try await machine.daemon.appliedThroughSyncBarrier()
+            return try await poll("no matching tab on the other machine") {
                 self.machine.daemon.store.workspaces.first { $0.id == self.target.id }?.screens.flatMap(\.panes).flatMap(\.tabs).first(where: match)
             }
         }
