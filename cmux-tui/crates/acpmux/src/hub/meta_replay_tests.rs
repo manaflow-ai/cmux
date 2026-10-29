@@ -2,6 +2,8 @@
 
 use serde_json::json;
 
+use crate::store::Store as _;
+
 use super::*;
 
 fn meta() -> SessionMeta {
