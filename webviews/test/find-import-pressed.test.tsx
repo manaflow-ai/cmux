@@ -80,7 +80,7 @@ await requireBrowserLane("find-import-pressed.test.tsx", async () => {
       const setup = async (canStep = true) => {
         const page = await browser.newPage({ colorScheme: theme, reducedMotion: "reduce" });
         await page.setContent(`<style>${css}
-          :root { --cmux-text: CanvasText; --cmux-accent: CanvasText; --cmux-app-danger: MarkText; }
+          :root { --cmux-text: CanvasText; --cmux-accent: LinkText; --cmux-app-danger: MarkText; }
           body { margin: 24px; color: CanvasText; background: Canvas; }
         </style>${fixture(canStep)}`);
         await installPaintedFrames(page);
@@ -106,6 +106,23 @@ await requireBrowserLane("find-import-pressed.test.tsx", async () => {
             const box = await button.boundingBox();
             await page.mouse.down();
             expect(await paint(button)).not.toEqual(hovered);
+            if (name === "Match case") {
+              const selected = await button.evaluate((element) => {
+                const probe = document.createElement("span");
+                probe.style.backgroundColor = "color-mix(in srgb, var(--cmux-accent) 30%, transparent)";
+                probe.style.color = "var(--cmux-accent)";
+                element.append(probe);
+                const expected = getComputedStyle(probe);
+                const actual = getComputedStyle(element);
+                const result = {
+                  actual: { background: actual.backgroundColor, color: actual.color },
+                  expected: { background: expected.backgroundColor, color: expected.color },
+                };
+                probe.remove();
+                return result;
+              });
+              expect(selected.actual).toEqual(selected.expected);
+            }
             expect(await button.boundingBox()).toEqual(box);
             await page.mouse.up();
             expect(await paint(button)).toEqual(hovered);
