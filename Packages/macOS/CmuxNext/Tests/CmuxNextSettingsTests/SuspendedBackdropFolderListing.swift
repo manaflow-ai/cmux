@@ -2,18 +2,27 @@ import CmuxNextDesign
 
 /// A deliberately suspended filesystem substitute: tests release each read without sleeps or polling.
 actor SuspendedBackdropFolderListing {
+    private var immediatePaths: Set<String> = []
     private var reads: [String: Int] = [:]
     private var pending: [String: CheckedContinuation<[BackdropSelection], Never>] = [:]
     private var waiting: [String: (count: Int, continuation: CheckedContinuation<Void, Never>)] = [:]
 
     func list(_ path: String) async -> [BackdropSelection] {
-        await withCheckedContinuation { continuation in
+        if immediatePaths.contains(path) { return immediateList(path) }
+        return await withCheckedContinuation { continuation in
             pending[path] = continuation
             reads[path, default: 0] += 1
             if let waiter = waiting[path], reads[path, default: 0] >= waiter.count {
                 waiting.removeValue(forKey: path)?.continuation.resume()
             }
         }
+    }
+
+    func useImmediateResults(for path: String) { immediatePaths.insert(path) }
+
+    func immediateList(_ path: String) -> [BackdropSelection] {
+        reads[path, default: 0] += 1
+        return [.art(reads[path] == 1 ? .munchScream : .hokusaiGreatWave)]
     }
 
     func started(_ path: String, count: Int) async {

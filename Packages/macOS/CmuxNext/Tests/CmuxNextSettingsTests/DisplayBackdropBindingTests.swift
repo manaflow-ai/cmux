@@ -129,6 +129,52 @@ import Testing
         await pending?.value
     }
 
+    @Test func shorteningCadenceExpiresTheFolderListingAtTheNextTurn() async {
+        let loader = SuspendedBackdropFolderListing()
+        let scope = ThemeScope(level: .room)
+        var date = Date(timeIntervalSince1970: 1_791_938_451)
+        let binding = DisplayBackdropBinding(window: NSWindow(), scope: scope, displayID: { first }, now: { date },
+                                            listFolder: { await loader.immediateList($0) })
+        defer { binding.stop() }
+        var root: JSONValue = ["appearance": ["displayBackgrounds": .object([first: "folder:/changing"])]]
+        binding.apply(root)
+        await binding.folderRefresh?.value
+        #expect(scope.backdropSelection == .art(.munchScream))
+        root = ["appearance": ["displayBackgrounds": .object([first: "folder:/changing"]),
+                               "displayBackgroundRotations": .object([first: "15m"])]]
+        binding.apply(root)
+        date = date.addingTimeInterval(900)
+        binding.apply(root)
+        await binding.folderRefresh?.value
+        #expect(await loader.count("/changing") == 2)
+        #expect(scope.backdropSelection == .art(.hokusaiGreatWave), "New folder contents appear at the shortened cadence")
+    }
+
+    @Test func inactiveReadKeepsItsOriginalExpiry() async {
+        let loader = SuspendedBackdropFolderListing()
+        let scope = ThemeScope(level: .room)
+        var display = first
+        var date = Date(timeIntervalSince1970: 1_791_938_451)
+        let binding = DisplayBackdropBinding(window: NSWindow(), scope: scope, displayID: { display }, now: { date },
+                                            listFolder: { await loader.list($0) })
+        defer { binding.stop() }
+        let root: JSONValue = ["appearance": ["displayBackgrounds": .object([first: "folder:/inactive", second: "none"])]]
+        binding.apply(root)
+        await loader.started("/inactive", count: 1)
+        let stale = binding.folderRefresh
+        display = second
+        binding.apply(root)
+        await loader.finish("/inactive", pictures: [.art(.munchScream)])
+        await stale?.value
+        date = date.addingTimeInterval(86_400)
+        await loader.useImmediateResults(for: "/inactive")
+        display = first
+        binding.apply(root)
+        await binding.folderRefresh?.value
+        #expect(await loader.count("/inactive") == 2)
+        #expect(scope.backdropSelection == .art(.hokusaiGreatWave), "Returning to an inactive display must not renew stale folder contents")
+    }
+
     @Test func defaultsOptOutWorkspacePriorityAndCleanup() async {
         let app = ThemeScope(level: .room)
         app.setBackdropSelection(.art(.munchScream))
