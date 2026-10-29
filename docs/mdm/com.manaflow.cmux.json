@@ -922,6 +922,11 @@
       "title" : "Glass Transparency",
       "type" : "number"
     },
+    "appearance.highlightColor" : {
+      "description" : "The color of selected text everywhere: terminals, Markdown, editors, the address bar and text fields. Unset, it is the terminal theme's selection color.",
+      "title" : "Highlight Color",
+      "type" : "string"
+    },
     "appearance.hue" : {
       "default" : 0.5,
       "description" : "Shift the tint color around the hue wheel.",
@@ -1757,6 +1762,12 @@
       "default" : false,
       "description" : "Lets agents see and use your apps through the signed cmux Computer Use helper. macOS asks for Accessibility and Screen Recording when you first allow them.",
       "title" : "Computer Use",
+      "type" : "boolean"
+    },
+    "computerUse.livePreview" : {
+      "default" : true,
+      "description" : "While an agent uses an app, its chat shows a small live view of that app. Click the view to open Agent Activity.",
+      "title" : "Live Preview in Chat",
       "type" : "boolean"
     },
     "deviceHub.url" : {

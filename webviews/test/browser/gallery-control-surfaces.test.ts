@@ -18,6 +18,12 @@ await requireBrowserLane("gallery-control-surfaces.test.ts", async () => {
   const ALLOW: { selector: string; kind: "plate" | "hover"; control?: string; reason: string }[] = [
     { selector: ".pw-row", kind: "hover", control: ".pw-row-button", reason: "fixed by #27086" },
     {
+      selector: ".acpmux-running-tray .acpmux-agent-line:has(> .acpmux-agent-line__button:enabled)",
+      kind: "hover",
+      control: ".acpmux-agent-line > :is(.cv-subagent__stop, .acpmux-chat-inspector-stop)",
+      reason: "The tray line is one full-width control; its embedded Stop shares its wash, never a second box.",
+    },
+    {
       selector: '.diff-pill[role="toolbar"]',
       kind: "plate",
       reason: "The standalone floating diff toolbar is its own glass surface, not trailing tools on a row.",
