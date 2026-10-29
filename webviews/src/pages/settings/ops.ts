@@ -148,6 +148,8 @@ export type DevicesJoinState = {
   busy: boolean;
   /** acpmux's record is known: without it both switches are disabled (an off nobody confirmed). */
   known: boolean;
+  /** The label of the action that turns both off while the record is unknown; null while it is known. */
+  revoke_all: string | null;
   switches: Array<{ surface: "screen" | "control"; title: string; help: string; on: boolean }>;
 };
 

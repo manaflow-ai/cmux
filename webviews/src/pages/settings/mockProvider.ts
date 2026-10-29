@@ -85,6 +85,7 @@ export const mockDevicesJoin: DevicesJoinState = {
   error: null,
   busy: false,
   known: true,
+  revoke_all: null,
   switches: [
     { surface: "screen", title: "Screen sharing", help: "Your team's machines can see this screen", on: false },
     {

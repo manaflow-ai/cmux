@@ -39,6 +39,7 @@ extension JoinConsentServices {
                 return JoinConsentPersonLine(line)
             },
             enabled: { [weak services] in services?.settings?.snapshot.machineJoin == true },
+            settingsEpoch: { [weak services] in services?.settings?.loadCount ?? -1 },
             askShown: { UserDefaults.standard.bool(forKey: askShownKey) },
             markAskShown: { UserDefaults.standard.set(true, forKey: askShownKey) })
     }
@@ -160,7 +161,9 @@ extension JoinConsentModel {
 /// (the folder made at the first join, a file made, replaced, rewritten or removed) is one element, so the
 /// app asks acpmux again (`machine_consent_get`); the files are never read for a decision. Event-driven:
 /// the folder through ``FolderChanges`` (through a parent until it exists) and each file through its own
-/// vnode watch, armed again after each folder change. Ends when the consumer stops iterating.
+/// vnode watch, armed again after each folder change. The folder watch is armed first, then the files',
+/// then the stream yields once, so a change made while they armed is either seen or read by that first
+/// ask. Ends when the consumer stops iterating.
 nonisolated struct MachineConsentChanges: Sendable {
     static let files = ["enrolled.json", "consent.json", "refusal.json"]
 
@@ -177,11 +180,16 @@ nonisolated struct MachineConsentChanges: Sendable {
     func events() -> AsyncStream<Void> {
         let (stream, continuation) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
         let folder = folder
+        // Armed here, in this order: the folder (FolderChanges arms in events()), then the files, then one
+        // element, so nothing made or replaced while they armed is missed.
+        let folderChanges = FolderChanges(folders: [folder]).events()
+        let first = Self.watchFiles(in: folder, continuation)
+        continuation.yield()
         // task-owner: the stream's watch loop; cancelled when the consumer stops iterating
         let loop = Task.detached(priority: .utility) {
-            var watches = Self.watchFiles(in: folder, continuation)
+            var watches = first
             // wakeup-allow: each pass waits for one file-system event in the consent folder, never polls
-            for await _ in FolderChanges(folders: [folder]).events() {
+            for await _ in folderChanges {
                 watches.forEach { $0.cancel() }
                 watches = Self.watchFiles(in: folder, continuation)
                 continuation.yield()

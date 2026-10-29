@@ -111,16 +111,21 @@ public struct JoinConsentServices {
     public var openLine: @MainActor () async -> (any JoinConsentLine)?
     /// `labs.machineJoin`.
     public var enabled: @MainActor () -> Bool
+    /// Moves on every settings load (`SettingsController.loadCount`): a grant is sent only when no load
+    /// came since it started, so the Labs switch turned off and on again in between (which no observer
+    /// may see, since observation coalesces) drops it.
+    public var settingsEpoch: @MainActor () -> Int
     /// The one-time sheet already showed on this Mac (kept across launches).
     public var askShown: @MainActor () -> Bool
     public var markAskShown: @MainActor () -> Void
 
     public init(status: @escaping @MainActor () async -> JoinStatus?, openLine: @escaping @MainActor () async -> (any JoinConsentLine)?,
-                enabled: @escaping @MainActor () -> Bool, askShown: @escaping @MainActor () -> Bool,
-                markAskShown: @escaping @MainActor () -> Void) {
+                enabled: @escaping @MainActor () -> Bool, settingsEpoch: @escaping @MainActor () -> Int = { 0 },
+                askShown: @escaping @MainActor () -> Bool, markAskShown: @escaping @MainActor () -> Void) {
         self.status = status
         self.openLine = openLine
         self.enabled = enabled
+        self.settingsEpoch = settingsEpoch
         self.askShown = askShown
         self.markAskShown = markAskShown
     }
@@ -274,8 +279,9 @@ public final class JoinConsentModel {
         generation += 1
         askedDuringWrite = false
         // Nothing but the Labs switch moves the generation while a write is in flight (reads then take
-        // none, tickets are refused, another write is busy): a grant is sent only at its own.
-        let mine = generation
+        // none, tickets are refused, another write is busy): a grant is sent only at its own, and only
+        // when no settings load came since it started.
+        let mine = generation, epoch = services.settingsEpoch()
         if !on {
             // SECURITY: a revoke narrows at once, before acpmux answers: a running session stops now, and
             // no read that started before it (which may say granted) is applied. Its "not joined" goes too
@@ -285,7 +291,7 @@ public final class JoinConsentModel {
             changed()
         }
         let written: JoinConsentRecord?
-        (lastError, written) = await write(surface, on: on, generation: mine)
+        (lastError, written) = await write(surface, on: on, generation: mine, epoch: epoch)
         // What acpmux holds now, whichever way the write went; reads made meanwhile are never applied,
         // and when one was asked for, this reads again (until none was), so its news is not lost.
         var (reading, current) = await read(.afterWrite)
@@ -310,7 +316,7 @@ public final class JoinConsentModel {
     }
 
     /// The write itself: the error to show (nil when acpmux took it) and the record acpmux answered with.
-    private func write(_ surface: JoinConsentSurface, on: Bool, generation mine: Int) async -> (String?, JoinConsentRecord?) {
+    private func write(_ surface: JoinConsentSurface, on: Bool, generation mine: Int, epoch: Int) async -> (String?, JoinConsentRecord?) {
         let failed = on ? JoinConsentStrings.onFailed : JoinConsentStrings.offFailed
         if on {
             // An on only for a joined, unrevoked Mac with the Labs switch on, as this read finds it (acpmux
@@ -325,8 +331,8 @@ public final class JoinConsentModel {
         if on, !line.isPerson { return (failed, nil) }
         guard line.supportsConsent else { return (on ? JoinConsentStrings.unsupported : failed, nil) }
         // The Labs switch may have turned off (and on again) while the line opened: a grant is sent only
-        // at its own generation, with the switch on.
-        if on, !enabled || generation != mine { return (failed, nil) }
+        // at its own generation, with the switch on and no settings load since it started.
+        if on, !enabled || generation != mine || services.settingsEpoch() != epoch { return (failed, nil) }
         let written = await line.set(surface, granted: on)
         return (written == nil ? failed : nil, written)
     }
@@ -419,6 +425,7 @@ public final class JoinConsentModel {
             error: lastError ?? (consentSupported == false ? JoinConsentStrings.unsupported : consent == nil ? JoinConsentStrings.unread : nil),
             busy: writing,
             known: consentSupported == true && consent != nil,
+            revokeAll: consentSupported == true && consent != nil ? nil : JoinConsentStrings.revokeAll,
             switches: JoinConsentSurface.allCases.map {
                 JoinConsentPage.Switch(surface: $0.rawValue, title: JoinConsentStrings.title($0), help: JoinConsentStrings.switchHelp($0),
                                        on: consent?.allows($0) == true)
@@ -443,6 +450,9 @@ private nonisolated struct JoinConsentPage: Encodable {
     /// acpmux's record is known (read, or a write's answer): without it the page disables the switches,
     /// which would otherwise show an off nobody confirmed.
     var known: Bool
+    /// While the record is unknown, the label of the action that turns both off (off always works); nil
+    /// while it is known.
+    var revokeAll: String?
     var switches: [Switch]
 }
 
@@ -478,6 +488,7 @@ public nonisolated struct JoinConsentStrings {
         s("devices.join.unread", "This Mac could not read what it allows, so Mac Screen is refused until it can. The switches come back when it reads again.")
     }
     static var busy: String { s("devices.join.busy", "Still saving the last change. Try again in a moment.") }
+    static var revokeAll: String { s("devices.join.revokeAll", "Turn Off Screen Sharing and Control") }
     static var unsupported: String { s("devices.join.unsupported", "Still off: this Mac's cmux needs an update before you can allow this") }
     /// Who asked, when acpmux recorded only the refusal.
     static var teamMachine: String { s("devices.join.ask.teamMachine", "A machine on your team") }

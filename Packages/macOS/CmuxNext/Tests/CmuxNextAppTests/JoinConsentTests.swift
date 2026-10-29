@@ -702,7 +702,13 @@ import Testing
         let data = try #require(model.pageData())
         let page = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
         #expect(page["error"] as? String == JoinConsentStrings.unread)
+        #expect(page["known"] as? Bool == false && page["revoke_all"] as? String == JoinConsentStrings.revokeAll,
+                "unknown: the switches are disabled and one action turns both off")
         #expect(!model.permitsMacScreen(control: false), "unread: refused")
+        // Off always works, with the record unknown too: both revokes reach acpmux.
+        #expect(await model.set(.screen, on: false) == nil)
+        #expect(await model.set(.control, on: false) == nil)
+        #expect(fake.writes == ["screen true", "screen false", "control false"])
     }
 
     /// The Labs switch turned off while a grant's line opens: the grant is never sent.
@@ -731,6 +737,49 @@ import Testing
         held.open()
         #expect(await grant.value == JoinConsentStrings.onFailed)
         #expect(fake.writes.isEmpty)
+    }
+
+    /// Through the real settings path: the Labs switch turned off and on again in the settings file while a
+    /// grant's line opens. Observation may coalesce the two changes and see only "on", so nothing but the
+    /// settings load count tells the grant a change came: it is never sent.
+    @Test func aGrantIsNeverSentAfterTheLabsSwitchTurnsOffAndOnInTheSettingsFile() async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "cn-join-labs-epoch-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appending(path: "cmux.json")
+        let labs = { (on: Bool) throws in try Data(#"{"labs": {"machineJoin": \#(on)}}"#.utf8).write(to: url) }
+        try labs(true)
+        let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
+            managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
+        await settings.reload()
+        #expect(settings.snapshot.machineJoin)
+        let fake = Fake()
+        let base = fake.services()
+        let held = Gate()
+        var opens = 0
+        let model = JoinConsentModel(services: JoinConsentServices(
+            status: base.status,
+            openLine: {
+                opens += 1
+                if opens == 3 { await held.wait() } // the grant's line
+                return await base.openLine()
+            },
+            enabled: { settings.snapshot.machineJoin }, settingsEpoch: { settings.loadCount },
+            askShown: base.askShown, markAskShown: base.markAskShown))
+        await model.refresh()
+        let grant = Task { await model.set(.screen, on: true) }
+        for _ in 0..<1000 where opens < 3 { await Task.yield() }
+        try labs(false)
+        await settings.reload()
+        try labs(true)
+        await settings.reload()
+        #expect(settings.snapshot.machineJoin, "on again before the grant's line opens")
+        held.open()
+        #expect(await grant.value == JoinConsentStrings.onFailed)
+        #expect(fake.writes.isEmpty)
+        // With no settings change in between, the person's grant goes through.
+        #expect(await model.set(.screen, on: true) == nil)
+        #expect(fake.writes == ["screen true"])
     }
 
     /// A join status that fails to read leaves an open sheet up; only the Labs switch off, a join gone or
@@ -857,9 +906,11 @@ import Testing
         #expect(sets.values == ["screen false", "screen true"])
     }
 
-    /// The machine consent folder comes from the user's password entry, never HOME or ACPMUX_HOME; its
-    /// watch yields when the folder is made at the first join, when a file is made, and when one is
-    /// rewritten in place.
+    /// The machine consent folder comes from the user's password entry, never HOME or ACPMUX_HOME. Its
+    /// watch asks once as soon as it is armed (so nothing made while it armed is missed), then once per
+    /// change: the folder made at the first join, a file made, rewritten in place, replaced by a rename,
+    /// and the folder removed and made again. Each step waits for its own element, counted from a quiet
+    /// point, so an earlier duplicate never stands in for it.
     @Test func theMachineConsentWatchFollowsTheUsersFolderAndItsFiles() async throws {
         let entry = try #require(getpwuid(geteuid()))
         let home = String(cString: try #require(entry.pointee.pw_dir))
@@ -873,25 +924,40 @@ import Testing
             for await _ in MachineConsentChanges(folder: folder).events() { changes.values.append("change") }
         }
         defer { watching.cancel() }
-        let settle = { (count: Int) async in
+        /// Lets earlier events land, then does `change` and waits for an element after it.
+        let step = { (what: String, change: () throws -> Void) async throws in
+            try await Task.sleep(for: .milliseconds(300))
+            let seen = changes.values.count
+            try change()
             let deadline = ContinuousClock.now + .seconds(10)
-            while changes.values.count < count, ContinuousClock.now < deadline { try? await Task.sleep(for: .milliseconds(20)) }
+            while changes.values.count == seen, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(20)) }
+            #expect(changes.values.count > seen, "\(what)")
         }
-        try await Task.sleep(for: .milliseconds(200))
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        await settle(1)
-        #expect(changes.values.count >= 1, "the folder made at the first join")
+        let deadline = ContinuousClock.now + .seconds(10)
+        while changes.values.isEmpty, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(20)) }
+        #expect(!changes.values.isEmpty, "one ask as soon as the watch is armed")
         let file = folder.appending(path: "consent.json")
-        try Data("{}".utf8).write(to: file)
-        await settle(2)
-        #expect(changes.values.count >= 2, "a file made")
-        try await Task.sleep(for: .milliseconds(200))
-        let seen = changes.values.count
-        let handle = try FileHandle(forWritingTo: file)
-        try handle.seekToEnd()
-        try handle.write(contentsOf: Data(" ".utf8))
-        try handle.close()
-        await settle(seen + 1)
-        #expect(changes.values.count > seen, "a file rewritten in place")
+        try await step("the folder made at the first join") { try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true) }
+        try await step("a file made") { try Data("{}".utf8).write(to: file) }
+        try await step("a file rewritten in place") {
+            let handle = try FileHandle(forWritingTo: file)
+            try handle.seekToEnd()
+            try handle.write(contentsOf: Data(" ".utf8))
+            try handle.close()
+        }
+        try await step("a file replaced by a rename") {
+            let next = folder.appending(path: ".consent.json.tmp")
+            try Data("{\"screen\":1}".utf8).write(to: next)
+            _ = try FileManager.default.replaceItemAt(file, withItemAt: next)
+        }
+        try await step("a file rewritten in place after its replacement") {
+            let handle = try FileHandle(forWritingTo: file)
+            try handle.seekToEnd()
+            try handle.write(contentsOf: Data(" ".utf8))
+            try handle.close()
+        }
+        try await step("the folder removed") { try FileManager.default.removeItem(at: folder) }
+        try await step("the folder made again") { try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true) }
+        try await step("a file made in the new folder") { try Data("{}".utf8).write(to: file) }
     }
 }

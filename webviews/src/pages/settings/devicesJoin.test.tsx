@@ -67,10 +67,17 @@ test("while a consent write is in flight both switches are disabled", async () =
   page.unmount();
 });
 
-test("while acpmux's record is unknown both switches are disabled", async () => {
+test("while acpmux's record is unknown both switches are disabled and one action turns both off", async () => {
   const page = await renderPage({
     path: "/settings/devices",
-    mock: { devicesJoin: { ...mockDevicesJoin, known: false, error: "This Mac could not read what it allows." } },
+    mock: {
+      devicesJoin: {
+        ...mockDevicesJoin,
+        known: false,
+        revoke_all: "Turn both off",
+        error: "This Mac could not read what it allows.",
+      },
+    },
   });
   await settle();
   expect(toggle(page.container, "screen").hasAttribute("disabled")).toBe(true);
@@ -78,5 +85,24 @@ test("while acpmux's record is unknown both switches are disabled", async () => 
   await act(async () => toggle(page.container, "screen").click());
   await settle();
   expect(page.provider.log.filter((entry) => entry.op === "cmux.settings.devices.join_consent")).toEqual([]);
+  const revoke = page.container.querySelector<HTMLButtonElement>('[data-devices-join-action="revokeAll"]');
+  expect(revoke?.textContent).toBe("Turn both off");
+  await act(async () => revoke?.click());
+  await settle();
+  expect(
+    page.provider.log
+      .filter((entry) => entry.op === "cmux.settings.devices.join_consent")
+      .map((entry) => entry.params),
+  ).toEqual([
+    { surface: "screen", on: false },
+    { surface: "control", on: false },
+  ]);
+  page.unmount();
+});
+
+test("with acpmux's record known there is no turn-both-off action", async () => {
+  const page = await renderPage({ path: "/settings/devices", mock: { devicesJoin: mockDevicesJoin } });
+  await settle();
+  expect(page.container.querySelector('[data-devices-join-action="revokeAll"]')).toBeNull();
   page.unmount();
 });
