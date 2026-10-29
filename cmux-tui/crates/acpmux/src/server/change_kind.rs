@@ -33,6 +33,7 @@ pub(super) fn session_change_kind(record_kind: &str) -> Option<&str> {
         // The row's `retry` came or went (`hub/auto_resume.rs`).
         | "auto_resume_scheduled"
         | "auto_resume_restored"
+        | "auto_resume_stopped"
         | "auto_resume_skipped"
         | "auto_resume_exhausted"
         // A turn the row showed `retryDeciding` for gets no retry.
@@ -55,5 +56,6 @@ mod tests {
             super::session_change_kind("auto_resume_restored"),
             Some("auto_resume_restored")
         );
+        assert_eq!(super::session_change_kind("auto_resume_stopped"), Some("auto_resume_stopped"));
     }
 }
