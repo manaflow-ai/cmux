@@ -645,6 +645,8 @@ export async function runE2E(
     const before = await credentialStat()
     if (!before.own) throw new Failed("credential file is not the disposable user's own regular file, with one link, in its own state directory")
     evidence.credentialFileMode = before.mode
+    // 600 from the join itself, not only once the daemon has rewritten the file: a failure here stands.
+    expect(before.mode === "600", "credential file mode is not 600 after the join")
     const file = await deps.run(asUserTool(["cat", "--", credentialPath]), { env: childEnv, timeoutMs: 10_000 })
     let record: any
     try {

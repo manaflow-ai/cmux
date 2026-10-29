@@ -85,6 +85,8 @@ interface Knobs {
   statusCredentialPath?: string
   /** What `stat -c %F|%U|%h|%a` says of the credential file. */
   credentialStat?: string
+  /** What stat says of the credential file before the daemon starts, when it differs from after. */
+  credentialStatBeforeDaemon?: string
   /** What `stat -c %F|%U|%h|%a` says of the state directory. */
   stateDirStat?: string
   /** Each kill command takes this long to return. */
@@ -348,7 +350,7 @@ function world(k: Knobs = {}) {
       if (cmd[0] === "stat")
         return {
           code: 0,
-          stdout: `${HOME}/.acpmux|${k.stateDirStat ?? `directory|${opts.user}|2|700`}\n${CRED_PATH}|${k.credentialStat ?? `regular file|${opts.user}|1|600`}\n`,
+          stdout: `${HOME}/.acpmux|${k.stateDirStat ?? `directory|${opts.user}|2|700`}\n${CRED_PATH}|${(!daemonUp && k.credentialStatBeforeDaemon) || k.credentialStat || `regular file|${opts.user}|1|600`}\n`,
           stderr: ""
         }
       if (cmd[0] === "tar") {
@@ -646,6 +648,14 @@ describe("failure paths", () => {
     expect(e.result).toBe("fail")
     expect(e.reason).toContain("credential path is not the disposable home's credential file")
     expect(w.runs.filter((r) => r.argv.some((a) => a.includes("shadow")))).toEqual([])
+    assertNoSecretEscaped(w)
+  })
+
+  test("a credential file written 644 by the join fails the run even if the daemon later narrows it to 600", async () => {
+    const w = world({ credentialStatBeforeDaemon: `regular file|${opts.user}|1|644` })
+    const e = await runE2E(opts, env, w.deps)
+    expect(e.result).toBe("fail")
+    expect(e.reason).toContain("credential file mode is not 600 after the join")
     assertNoSecretEscaped(w)
   })
 
