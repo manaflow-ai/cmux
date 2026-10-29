@@ -26,7 +26,7 @@
 
 use super::{MAX_ATTEMPTS, SUFFIX, split_attempt};
 use crate::hub::{Hub, Session};
-use crate::store::RecordHead;
+use crate::store::{EventRecord, RecordHead};
 use serde_json::{Value, json};
 use std::sync::Arc;
 
