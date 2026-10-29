@@ -201,7 +201,7 @@ function WorkflowPhaseRow({
       <button type="button" className="acpmux-workflow-phase__head" aria-expanded={open} onClick={() => setOpen(!open)}>
         <span className="acpmux-workflow-phase__name">{phase.name || t("workflow.unassigned")}</span>
         <span className="acpmux-chat-inspector-task__time">{label}</span>
-        <Icon name={open ? "disclosure.expanded" : "disclosure.collapsed"} size={10} />
+        <Icon name={open ? "disclosure.expanded" : "disclosure.collapsed"} size={ROW_ICON} row />
       </button>
       {/* A dot per agent says at a glance what the counts beside the name say in words. */}
       <span className="acpmux-workflow-dots" aria-hidden="true">

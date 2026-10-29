@@ -491,7 +491,7 @@ export function QuickModelMenu({
                 <Submenu
                   key={value}
                   className="acpmux-quick-item acpmux-quick-sub"
-                  popupClassName="acpmux-quick-menu"
+                  popupClassName="acpmux-quick-menu acpmux-quick-submenu"
                   label={
                     <>
                       {label}
@@ -636,7 +636,7 @@ export function QuickModelMenu({
           <MenuSeparator />
           <Submenu
             className="acpmux-quick-item acpmux-quick-sub"
-            popupClassName="acpmux-quick-menu"
+            popupClassName="acpmux-quick-menu acpmux-quick-submenu"
             label={<QuickRowLabel label={t("effort.title")} value={level?.name} />}
           >
             {effort.slider ? (
@@ -669,7 +669,7 @@ export function QuickModelMenu({
       {!query && runningRow?.offers && providerLook === "row" && (
         <Submenu
           className="acpmux-quick-item acpmux-quick-sub"
-          popupClassName="acpmux-quick-menu"
+          popupClassName="acpmux-quick-menu acpmux-quick-submenu"
           label={<QuickRowLabel label={t("picker.provider")} value={runningProvider} />}
         >
           <MenuRadioGroup
@@ -688,7 +688,7 @@ export function QuickModelMenu({
         <Submenu
           align="start"
           className="acpmux-quick-item acpmux-quick-sub"
-          popupClassName="acpmux-quick-menu acpmux-quick-more"
+          popupClassName="acpmux-quick-menu acpmux-quick-submenu acpmux-quick-more"
           label={<span className="acpmux-menu-label">{t("picker.moreModels")}</span>}
         >
           {shown && shown.more.length > 0 && (
@@ -754,7 +754,7 @@ export function QuickModelMenu({
         ) : (
           <Submenu
             className="acpmux-quick-item acpmux-quick-sub"
-            popupClassName="acpmux-quick-menu"
+            popupClassName="acpmux-quick-menu acpmux-quick-submenu"
             label={<QuickRowLabel label={t("picker.provider")} value={accountValue} />}
           >
             {routeRows}
