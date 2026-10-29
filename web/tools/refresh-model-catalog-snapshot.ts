@@ -34,7 +34,9 @@ async function main(): Promise<void> {
         undefined,
         "snapshot",
       );
-  const catalog = validateCatalog(withCurrentFamilyFallbacks(previous));
+  const catalog = validateCatalog(
+    withCurrentFamilyFallbacks(previous, new Date(argument("--generated-at") ?? Date.now())),
+  );
   const body = `${JSON.stringify(catalog)}\n`;
   for (const path of [SNAPSHOT_PATH, BUNDLED_CATALOG_PATH]) {
     await mkdir(dirname(path), { recursive: true });

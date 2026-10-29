@@ -41,3 +41,12 @@ test("refreshing identities preserves feed capabilities and defaults without inv
   expect(terra.fast).toBeUndefined();
   expect(codex.models).toEqual([original, custom]);
 });
+
+test("changed fallback content advances the revision and unchanged content is stable", () => {
+  const snapshot = validateCatalog(JSON.parse(readFileSync(SNAPSHOT_PATH, "utf8")));
+  const codex = snapshot.harnesses.find((entry) => entry.id === "codex")!;
+  codex.models = codex.models.filter((model) => model.id !== "gpt-6.1-terra");
+  const refreshed = withCurrentFamilyFallbacks(snapshot, new Date(snapshot.generatedAt));
+  expect(Date.parse(refreshed.generatedAt)).toBeGreaterThan(Date.parse(snapshot.generatedAt));
+  expect(withCurrentFamilyFallbacks(refreshed, new Date("2030-01-01"))).toBe(refreshed);
+});

@@ -132,6 +132,26 @@ test("a live profile owns its reported list even while the host catalog is provi
   }
 });
 
+for (const provisional of [true, false]) {
+  test(`host provisional=${provisional}: no profile keeps offline identities; an empty profile does not`, () => {
+    const offline = buildPickerCatalog({ catalog: BUNDLED_MODEL_CATALOG, acpmux: [], provisional });
+    expect(ids(offline.harnesses.find((entry) => entry.id === "codex")!.models)).toContain("gpt-6.1-terra");
+    const joined = buildPickerCatalog({
+      catalog: BUNDLED_MODEL_CATALOG,
+      acpmux: [
+        { id: "codex", name: "Codex", family: "codex", models: [] },
+        { id: "codex-sr", name: "Codex profile", family: "codex-sr", models: [] },
+      ],
+      provisional,
+    });
+    for (const id of ["codex", "codex-sr"]) {
+      const models = joined.harnesses.find((entry) => entry.id === id)!.models;
+      expect(ids(models)).not.toContain("gpt-6.1-terra");
+      expect(ids(models)).not.toContain("gpt-6.1-luna");
+    }
+  });
+}
+
 test("a reported current release keeps its catalog family metadata", () => {
   const catalog = buildPickerCatalog({
     catalog: BUNDLED_MODEL_CATALOG,

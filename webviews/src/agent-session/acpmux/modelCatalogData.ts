@@ -301,7 +301,6 @@ export function buildPickerCatalog({
   const join: Join = {
     catalog: layered,
     sourceCatalog: catalog,
-    provisional,
     session,
     worked,
     overrides: userOverrides(user),
@@ -328,7 +327,6 @@ type Join = {
   catalog: ModelCatalog;
   /** The unlayered catalog keeps alias declarations that hidden overrides remove from `catalog`. */
   sourceCatalog: ModelCatalog;
-  provisional: boolean;
   session: PickerInputs["session"];
   worked: string[];
   overrides: Record<string, Record<string, unknown>>;
@@ -407,7 +405,7 @@ function catalogHarness(harness: CatalogHarness, members: AcpmuxHarness[], join:
   const runs = chosen?.id === session?.harness ? runningModel(session, live) : undefined;
   const listed =
     harness.modelSource === "catalog"
-      ? harness.models.filter((model) => includeCatalogIdentity(model, probed, runs, join))
+      ? harness.models.filter((model) => includeCatalogIdentity(model, chosen, runs))
       : [];
   const reported = reportedNames(probed, live);
   const hiddenReleases = hiddenReleaseIds(harness.id, harness.id, reported, join);
@@ -459,7 +457,7 @@ function uncataloguedHarness(entry: AcpmuxHarness, join: Join): PickerHarness {
   // is not one of this profile's releases (applyUserLayer drops it so from its own harness).
   const listed = (kin?.models ?? []).filter(
     (model) =>
-      includeCatalogIdentity(model, entry.models, runs, join) &&
+      includeCatalogIdentity(model, entry, runs) &&
       ![...(model.aliases ?? []), model.id].some((id) => isHiddenByUser(entry.id, id, join)) &&
       ![...reported].some(([id, name]) => isHiddenByUser(entry.id, id, join) && namesRelease(name, model, join)),
   );
@@ -739,17 +737,16 @@ function probedModel(probe: AcpmuxModel, harnessId: string, join: Join, identity
   return pickerModel(layeredModel(base, harnessId, probe, join), join.catalog, probe.unavailable);
 }
 
-/** A live profile owns its reported model list. Bundled identity-only releases are a fallback only
- * until that profile has answered; a running model remains reachable through an empty probe. */
+/** Once a profile is present, its models own availability. With no profile, the catalog remains
+ * an offline fallback; the session's running model remains reachable through an empty probe. */
 function includeCatalogIdentity(
   model: HarnessModel,
-  probed: readonly AcpmuxModel[],
+  profile: AcpmuxHarness | undefined,
   runs: string | undefined,
-  join: Join,
 ): boolean {
   if (!isIdentityOnlyCurrentModel(model)) return true;
   if (model.id === runs) return true;
-  return join.provisional && probed.length === 0 && runs === undefined;
+  return profile === undefined;
 }
 
 /** Recover family/provider metadata for a reported release that was filtered from `listed`. */
