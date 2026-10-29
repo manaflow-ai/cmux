@@ -138,6 +138,13 @@ function groupNode(
       return <AcpmuxSendLine key={group.item.tool!.id || index} tool={group.item.tool!} send={group.send} />;
     case "subsession":
       return <SubsessionCallCard key={group.item.tool!.id || index} call={group.call} tool={group.item.tool!} />;
+    case "subsessionGroup":
+      return (
+        <SubsessionCallCard
+          key={group.items[0]!.tool!.id || index}
+          group={group.calls.map((call, i) => ({ call, tool: group.items[i]!.tool! }))}
+        />
+      );
     case "item":
       // A short interim note folded into the run (turns.ts mergeShortNotes).
       if (group.item.kind === "note")
@@ -220,7 +227,13 @@ export function thoughtIds(groups: readonly ToolGroup[]): number[] {
 /// the rest of the work and the line names them (Leo 2026-10-22: "this is pretty good ui: … the
 /// collapsing i mean"); the turn's edited-files card lists them once it ends.
 function staysInSight(group: ToolGroup): boolean {
-  if (group.type === "message" || group.type === "send" || group.type === "subsession" || group.type === "dispatch")
+  if (
+    group.type === "message" ||
+    group.type === "send" ||
+    group.type === "subsession" ||
+    group.type === "subsessionGroup" ||
+    group.type === "dispatch"
+  )
     return true;
   // A pending change draws as its own item (toolGroups.ts `toolGroupKind`); any entry holding one
   // stays in sight all the same.

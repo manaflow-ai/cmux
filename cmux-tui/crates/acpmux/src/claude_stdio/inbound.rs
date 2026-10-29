@@ -12,6 +12,7 @@ impl Translator {
         let kind = line.get("type").and_then(Value::as_str).unwrap_or("");
         let sub = line.get("subtype").and_then(Value::as_str).unwrap_or("");
         let main_line = line.get("parent_tool_use_id").and_then(Value::as_str).is_none();
+        let compaction_fenced = self.compaction_metadata_fenced.load(Ordering::SeqCst);
         if main_line && kind == "system" && sub == "status" {
             if line.get("status").and_then(Value::as_str) == Some("compacting") {
                 // A new prompt has begun its own compaction. The stopped one may
@@ -28,13 +29,14 @@ impl Translator {
                 // to deliver; the boundary below is the point at which Claude
                 // can take another prompt. Failed compactions end at result.
                 if line.get("compact_result").and_then(Value::as_str) != Some("success") {
-                    // Failed compaction has no boundary. Its failure status is
-                    // nevertheless the old compaction's terminal output, not
-                    // evidence that an echoed replacement produced an answer.
+                    // Failed compaction has no boundary. Attribute its terminal
+                    // result separately from the fence on untagged GUI metadata.
                     if self.cancelled_compaction.load(Ordering::SeqCst) {
                         self.cancelled_compaction_boundary.store(true, Ordering::SeqCst);
                     }
-                    self.compacting.store(false, Ordering::SeqCst);
+                    if !compaction_fenced {
+                        self.compacting.store(false, Ordering::SeqCst);
+                    }
                 }
             }
         } else if main_line && ((kind == "system" && sub == "compact_boundary") || kind == "result")
@@ -45,7 +47,9 @@ impl Translator {
             {
                 self.cancelled_compaction_boundary.store(true, Ordering::SeqCst);
             }
-            self.compacting.store(false, Ordering::SeqCst);
+            if kind == "result" || !compaction_fenced {
+                self.compacting.store(false, Ordering::SeqCst);
+            }
         }
         // A subagent's lines stream under its own session, ended or not (`subagent_route`).
         let parent = line.get("parent_tool_use_id").and_then(Value::as_str);
@@ -205,6 +209,7 @@ impl Translator {
                             // A subagent's usage is its own context, not the chat's.
                             if parent.is_none() {
                                 self.context_used.store(used, Ordering::SeqCst);
+                                self.context_from_compaction.store(false, Ordering::SeqCst);
                             }
                             let size = self.context_window.load(Ordering::SeqCst);
                             // One model call's own usage, marked so a client can add a turn's
@@ -369,7 +374,7 @@ impl Translator {
                     && compaction_summary_text(line).is_some()
                     && self.awaiting_summary.swap(false, Ordering::SeqCst) =>
             {
-                if let Some(text) = compaction_summary_text(line) {
+                if !compaction_fenced && let Some(text) = compaction_summary_text(line) {
                     out.push(upd(json!({"sessionUpdate": "compaction_summary", "text": text})));
                 }
             }
@@ -681,9 +686,12 @@ impl Translator {
                     self.context_window.store(window, Ordering::SeqCst);
                     let used = self.context_used.load(Ordering::SeqCst);
                     if used > 0 && parent.is_none() {
-                        out.push(upd(
-                            json!({"sessionUpdate": "usage_update", "used": used, "size": window}),
-                        ));
+                        let mut usage =
+                            json!({"sessionUpdate": "usage_update", "used": used, "size": window});
+                        if self.context_from_compaction.load(Ordering::SeqCst) {
+                            usage.set("_meta", json!({"acpmux": {"compactionDerived": true}}));
+                        }
+                        out.push(upd(usage));
                     }
                 }
                 // The result of a turn acpmux already ended (a Stop Claude Code
@@ -805,8 +813,16 @@ impl Translator {
             // A compaction left the context smaller than the last message held:
             // the ring waits for the next message rather than refill (cx-ncc.79).
             "system" if sub == "compact_boundary" && parent.is_none() => {
+                // There is no source turn id. Neither a fresh running status nor a
+                // boundary count proves that this is not the stopped compaction's tail.
+                // Keep turn-result attribution separate from GUI/context metadata.
+                if compaction_fenced {
+                    self.awaiting_summary.store(false, Ordering::SeqCst);
+                    return out;
+                }
                 let after = line.pointer("/compact_metadata/post_tokens").and_then(Value::as_u64);
                 self.context_used.store(after.unwrap_or(0), Ordering::SeqCst);
+                self.context_from_compaction.store(true, Ordering::SeqCst);
                 self.awaiting_summary.store(true, Ordering::SeqCst);
                 // Keep the cancelled boundary marker until its result; consuming it
                 // here would let that zero-turn result answer the next echoed prompt.
@@ -820,7 +836,7 @@ impl Translator {
                 let result = line.get("compact_result").and_then(Value::as_str);
                 match (line.get("status").and_then(Value::as_str), result) {
                     (Some("compacting"), _) => out.push(upd(compaction_update("running", line))),
-                    (None, Some(result)) if result != "success" => {
+                    (None, Some(result)) if result != "success" && !compaction_fenced => {
                         out.push(upd(compaction_update("failed", line)))
                     }
                     _ => {}
