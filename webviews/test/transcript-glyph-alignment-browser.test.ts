@@ -86,6 +86,7 @@ await requireBrowserLane("transcript-glyph-alignment-browser.test.ts", async () 
             return {
               rows,
               footer,
+              versionFooter,
               retryHidden: retry("nonretryable"),
               retryShown: retry("retryable"),
             };
