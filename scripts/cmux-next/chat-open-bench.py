@@ -63,6 +63,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import bench_memory as bm  # noqa: E402
 import idle_cost_load as icl  # noqa: E402
+from bench_power import wipe_state  # noqa: E402  (the tagged app's saved state under the real ~/Library)
 
 parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
 parser.add_argument("--app", required=True)
@@ -391,6 +392,8 @@ def main():
         home, sessions, seeded = seed(root)
         results["seed"] = seeded
         say("chat-open: seeded", json.dumps(seeded))
+        # A worker's earlier run of this tag would otherwise restore its workspaces into this one.
+        wipe_state(APP)
         run = Run(root, home)
         run.launch()
         time.sleep(5)  # test script: let launch work end before the first measured open
