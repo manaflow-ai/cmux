@@ -83,7 +83,7 @@ import Testing
     /// column edge in a strip beside a right dock: each event's model writes and syncs, geometry computes
     /// (reconciles), presentation passes, pane chrome updates, host frames, strip clips and ring masks, catcher
     /// area changes, page update requests and display link starts. A drag moves its panes in the event's own
-    /// turn, writes the model once (on release), and leaves the catcher panels where they are until it lands.
+    /// turn through the model's observation, and leaves the catcher panels where they are until it lands.
     @Test func dividerDragWorkPerEvent() async throws {
         let layout = ScreenLayout.columns([
             LayoutColumn(id: "c0", width: 0.4, root: .split("x", axis: .horizontal, ratio: 0.5, a: .leaf("p1"), b: .leaf("p2"))),
@@ -98,32 +98,21 @@ import Testing
             let start = probe.screen.convert(CGPoint(x: handle.frame.midX, y: handle.frame.midY), to: nil)
             _ = await probe.measure { handle.mouseDown(with: probe.event(.leftMouseDown, start)) }
             var moves = LayoutWorkProbe.Counts()
-            // 60 display frames of 4 drag events each (a fast mouse sends several per frame): the frame's tick shows the
-            // latest values in one pass (`displayFrameBegan`).
-            let steps = 60, perFrame = 4
+            let steps = 60
             var point = start
             for step in 1...steps {
-                moves = moves + (await probe.measure(tick: true) {
-                    for sub in 1...perFrame {
-                        let t = (Double(step - 1) + Double(sub) / Double(perFrame)) / Double(steps)
-                        point = CGPoint(x: start.x + 80 * CGFloat(sin(t * 2 * .pi)), y: start.y)
-                        handle.mouseDragged(with: probe.event(.leftMouseDragged, point))
-                    }
-                })
+                point = CGPoint(x: start.x + 80 * CGFloat(sin(Double(step) / Double(steps) * 2 * .pi)), y: start.y)
+                moves = moves + (await probe.measure { handle.mouseDragged(with: probe.event(.leftMouseDragged, point)) })
             }
-            // A still pointer: the drag keeps the ticks a short tail (`panTickTail`), then none.
-            let still = probe.settle()
             let release = await probe.measure { handle.mouseUp(with: probe.event(.leftMouseUp, point)) }
             probe.settle()
             let name = if case .split = kind { "split" } else { "column" }
-            print(moves.line("drag-\(name)-move", steps: steps * perFrame))
+            print(moves.line("drag-\(name)-move", steps: steps))
             print(release.line("drag-\(name)-release", steps: 1))
-            print("drag-\(name)-still frames=\(still)")
-            #expect(moves.modelWrites == 0, "\(name): \(moves.modelWrites) model writes over \(steps * perFrame) moves")
-            #expect(moves.reconciles <= steps, "\(name): \(moves.reconciles) layout passes over \(steps) frames of \(perFrame) moves")
-            #expect(moves.presentations <= steps, "\(name): \(moves.presentations) presentation passes over \(steps) frames")
-            #expect(moves.catcherChanges == 0, "\(name): the catcher areas moved on \(moves.catcherChanges) of \(steps) frames")
-            #expect(still <= ScreenContentView.panTickTail, "\(name): \(still) frame ticks with the pointer still")
+            #expect(moves.presentations <= steps, "\(name): \(moves.presentations) presentation passes over \(steps) moves")
+            #expect(moves.catcherChanges == 0, "\(name): the catcher areas moved on \(moves.catcherChanges) of \(steps) moves")
+            // A column edge may spring the camera to its anchor; a split divider's drag moves nothing on a spring.
+            if case .split = kind { #expect(moves.ticks == 0, "\(name): \(moves.ticks) frame ticks for \(steps) moves with nothing on a spring") }
             #expect(probe.window.overlayLayer.catcherAreas == probe.window.overlayLayer.dividerAreas,
                     "\(name): at rest the catchers cover the dividers")
         }

@@ -41,7 +41,6 @@ struct DividerDrag {
             screen.activeDrag?.lastWindowPoint = windowPoint
             screen.activeDrag?.sample(contentPoint(fromWindow: windowPoint, kind: kind), at: CACurrentMediaTime())
             screen.resizeGestureMoved()
-            // The pointer drives the layout (`present`): once per display frame, and a still pointer stops the ticks.
             apply(at: windowPoint, phase: .changed)
         case let .modifiersChanged(flags):
             let modifiers = DividerDragModifiers(flags)
@@ -62,7 +61,6 @@ struct DividerDrag {
                 // The layout this release makes springs on from the pointer's velocity.
                 screen.releasedDivider = (kind, drag.releaseVelocity(at: CACurrentMediaTime()), CACurrentMediaTime())
             }
-            screen.dragPresentationPending = false
             apply(at: windowPoint, phase: .ended)
             screen.activeDrag?.hintToast?.dismiss()
             screen.activeDrag = nil
@@ -79,9 +77,8 @@ struct DividerDrag {
         guard let drag = screen.activeDrag else { return }
         drag.hintToast?.dismiss()
         screen.activeDrag = nil
-        screen.dragPresentationPending = false
-        if screen.dragPreview.rows != nil {
-            screen.dragPreview.rows = nil
+        if screen.rowDragPreview != nil {
+            screen.rowDragPreview = nil
             if redraw { screen.reconcile(animated: false) }
         }
         model.cancelGesture(drag.transaction)
@@ -103,8 +100,8 @@ struct DividerDrag {
     }
 
     /// Writes this frame's values. A split or column the drag set before and does not set now goes
-    /// back to its start first. A live value shows from the drag's preview in this turn and is stored in the
-    /// model without a sync; the release's values are the model's one observed write (its layout springs on).
+    /// back to its start first. The model's observation lays each value out (one sync per turn: events that arrive
+    /// together show once); a still pointer asks for no frames.
     func apply(at windowPoint: NSPoint, phase: LayoutGesturePhase) {
         guard var drag = screen.activeDrag else { return }
         let point = drag.effective(contentPoint(fromWindow: windowPoint, kind: drag.kind))
@@ -130,33 +127,6 @@ struct DividerDrag {
             case let .width(column, width): model.setColumnWidth(column, width: width, transaction: drag.transaction, phase: phase)
             }
         }
-        if phase != .ended { present(targets) }
-    }
-
-    /// Shows the drag's `values` in this turn, as a window resize lays out: one geometry and one presentation
-    /// pass, the camera kept on the dragged column (`syncScroll`, its drag anchor). The model stores the live
-    /// values without a sync (`LayoutModel.updateScreen`), so a drag event costs no observation turn, no snapshot
-    /// compare and no chrome pass.
-    /// The values show at the next display frame's tick (`displayFrameBegan`), the latest of the events since the
-    /// last one, in one pass: input aligned to the begin-frame, as Chrome does. Each pass resizes the panes' pages,
-    /// so two in one frame (the event's own turn and the tick) cost a Chromium page more than it gives (pane-perf
-    /// drag, 120 Hz with a page: 22 missed frames on the base, 37 with a pass in the event's turn).
-    private func present(_ values: [DividerDragValue]) {
-        screen.dragPreview.values = values
-        screen.dragTicksLeft = ScreenContentView.panTickTail
-        screen.dragPresentationPending = true
-        screen.context.requestFrames()
-    }
-
-    static func presentPreview(on screen: ScreenContentView) { // perf-hot: 4ms motion-frame
-        let model = screen.context.model
-        screen.dragPresentationPending = false
-        screen.reconcile(animated: false, presents: false)
-        let needsFrames = screen.syncScroll(focused: screen.lastFocused, source: .programmatic, mode: model.centerFocusedColumn,
-                                            animated: screen.context.animatesScroll(), reveals: false, showsScrollbarOnSnap: screen.window != nil)
-        screen.context.dragPreviewShown()
-        // A camera spring the preview started (the strip keeps the dragged column in place) steps on frame ticks.
-        if needsFrames { screen.context.requestFrames() }
     }
 
     private func splitTargets(_ id: SplitID, drag: inout DividerDragState, point: CGPoint, phase: LayoutGesturePhase) -> [DividerDragValue] {
@@ -216,7 +186,7 @@ struct DividerDrag {
         let pointer = screen.convert(windowPoint, from: nil).y + screen.rowOffset(of: drag.kind) - drag.grabOffset
         let heights = RowResize.heights(start.rows, stack: start.stack, upper: upper, pointerY: pointer,
                                         minimums: start.minimums, fits: !screen.context.style.rowsEnabled)
-        screen.dragPreview.rows = (column, heights)
+        screen.rowDragPreview = (column, heights)
         screen.reconcile(animated: false)
         if phase == .ended {
             // One intent on release; the preview stays until the next

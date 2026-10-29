@@ -399,11 +399,12 @@ public final class LayoutModel {
 
     // MARK: Divider and column gestures
 
-    /// Sets a divider ratio locally. Only the `.ended` value is reported (one daemon command per drag) and
-    /// observed (one layout sync): the drag shows its live values itself (`DividerDrag`), and readers see them.
+    /// Sets a divider ratio locally. Only the `.ended` value is reported (one
+    /// daemon command per drag): a live value moves the layout here and
+    /// nowhere else, so a drag costs the daemon nothing until it ends.
     public func setSplitRatio(_ split: SplitID, ratio: Double, transaction: LayoutTransactionID, phase: LayoutGesturePhase) {
         let ratio = min(max(ratio, SplitRatio.range.lowerBound), SplitRatio.range.upperBound)
-        updateScreen(where: { $0.ratio(of: split) != nil }, notify: phase == .ended) { $0.settingRatio(ratio, for: split) }
+        updateScreen(where: { $0.ratio(of: split) != nil }) { $0.settingRatio(ratio, for: split) }
         splitOverrides[split] = Override(value: ratio, transaction: transaction, ended: phase == .ended)
         if phase == .ended { emit(.setSplitRatio(split, ratio: ratio, transaction: transaction, phase: phase)) }
     }
@@ -436,7 +437,7 @@ public final class LayoutModel {
     public func setColumnWidth(_ column: ColumnID, width: Double, transaction: LayoutTransactionID, phase: LayoutGesturePhase) {
         let width = min(max(width, ColumnWidthPreset.widthRange.lowerBound), ColumnWidthPreset.widthRange.upperBound)
         guard let anyPane = screens.lazy.compactMap({ $0.layout.columns.first { $0.id == column }?.root.panes.first }).first else { return }
-        updateScreen(where: { layout in layout.columns.contains { $0.id == column } }, notify: phase == .ended) { $0.settingWidth(width, for: column) }
+        updateScreen(where: { layout in layout.columns.contains { $0.id == column } }) { $0.settingWidth(width, for: column) }
         widthOverrides[column] = Override(value: width, transaction: transaction, ended: phase == .ended)
         if phase == .ended { emit(.setColumnWidth(column, anyPane: anyPane, width: width, transaction: transaction, phase: phase)) }
     }
@@ -456,14 +457,13 @@ public final class LayoutModel {
         emit(.cancelGesture(transaction))
     }
 
-    /// Rewrites the one screen whose layout matches `owns` (a split or a column belongs to one screen). A live drag
-    /// value (`notify` false) is stored without telling the observers; the release (written while the gesture is on)
-    /// tells them even when its value is the live one already in place. Nothing else writes an unchanged layout.
-    func updateScreen(where owns: (ScreenLayout) -> Bool, notify: Bool = true, _ transform: (ScreenLayout) -> ScreenLayout) {
+    /// Rewrites the one screen whose layout matches `owns` (a split or a
+    /// column belongs to one screen): a drag frame touches only the screen
+    /// it drags, and writes nothing when the value is already in place.
+    func updateScreen(where owns: (ScreenLayout) -> Bool, _ transform: (ScreenLayout) -> ScreenLayout) {
         guard let index = screens.firstIndex(where: { owns($0.layout) }) else { return }
-        let layout = transform(screens[index].layout), changed = layout != screens[index].layout
-        guard changed || (notify && isGestureActive) else { return }
-        if notify { screens[index].layout = layout } else { _screens[index].layout = layout }
+        let layout = transform(screens[index].layout)
+        if layout != screens[index].layout { screens[index].layout = layout }
     }
 
     // MARK: Structure
