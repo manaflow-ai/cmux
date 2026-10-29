@@ -3,7 +3,7 @@ import CmuxNextIcons
 
 /// Native rows and editable controls. Domain mutations leave through the typed event callback.
 @MainActor
-final class NativePopupContent: NSView, NSTextFieldDelegate {
+final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelegate {
     var emit: (NativePopupEventType, String?, String?) -> Void = { _, _, _ in }
     var openSubmenu: (NativePopupRow, NSView) -> Void = { _, _ in }
     var dismiss: () -> Void = {}
