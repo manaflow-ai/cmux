@@ -8,7 +8,7 @@ mod common;
 
 use std::path::Path;
 use std::sync::mpsc::channel;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
 use common::*;
@@ -22,6 +22,7 @@ use optchat_chief::workspaces::{WorkspaceRef, Workspaces};
 struct Recorder {
     opened: Mutex<Vec<(String, String, String)>>,
     closed: Mutex<Vec<String>>,
+    closed_changed: Condvar,
 }
 
 impl Workspaces for Recorder {
@@ -44,6 +45,7 @@ impl Workspaces for Recorder {
     }
     fn close(&self, key: &str) -> Result<(), String> {
         self.closed.lock().unwrap().push(key.to_owned());
+        self.closed_changed.notify_all();
         Ok(())
     }
     fn place(&self) -> String {
@@ -262,6 +264,65 @@ fn the_setting_opts_back_into_a_workspace_per_subagent() {
     assert_eq!(recorder.opened.lock().unwrap().len(), 1);
     assert!(workspace(&h, "a1").is_some());
     assert_eq!(workspace(&h, "a2"), None);
+}
+
+#[test]
+fn a_late_automatic_workspace_open_cannot_undo_hide() {
+    for (policy, show) in [("approve-all", Some("true")), ("ask", None)] {
+        let recorder = Arc::new(Recorder::default());
+        let (mut h, sp) = setup_with(&recorder, show, policy);
+        let worker = std::thread::spawn(move || {
+            sp.spawn(vec!["Title: Delayed helper\nsay hello".into()], None)
+        });
+        // Hold the real automatic-open completion at the brain's event
+        // boundary while the Chief handles a later show/hide request.
+        let until = Instant::now() + Duration::from_secs(10);
+        let delayed = loop {
+            let input =
+                h.rx.recv_timeout(until.saturating_duration_since(Instant::now()))
+                    .expect("automatic workspace open never completed");
+            if matches!(&input, Input::SubagentWorkspace { .. }) {
+                break input;
+            }
+            h.brain.step(input);
+        };
+        assert!(
+            control(&mut h, "show", "a1")
+                .unwrap()
+                .starts_with("outcome: done.")
+        );
+        let old_key = workspace(&h, "a1").unwrap();
+        assert!(
+            control(&mut h, "hide", "a1")
+                .unwrap()
+                .starts_with("outcome: done.")
+        );
+        assert_eq!(workspace(&h, "a1"), None);
+
+        h.brain.step(delayed);
+        assert_eq!(workspace(&h, "a1"), None, "{policy}: hide must win");
+        // The stale completion closes its old key again: hide may have
+        // reached the daemon before the automatic open created the tab.
+        let (closed, timeout) = recorder
+            .closed_changed
+            .wait_timeout_while(
+                recorder.closed.lock().unwrap(),
+                Duration::from_secs(10),
+                |closed| closed.len() < 2,
+            )
+            .unwrap();
+        assert!(!timeout.timed_out(), "stale workspace was not closed");
+        assert_eq!(*closed, vec![old_key.clone(), old_key.clone()]);
+        drop(closed);
+        assert!(
+            control(&mut h, "show", "a1")
+                .unwrap()
+                .starts_with("outcome: done.")
+        );
+        assert_ne!(workspace(&h, "a1").unwrap(), old_key);
+        drain(&mut h);
+        worker.join().unwrap().unwrap();
+    }
 }
 
 #[test]

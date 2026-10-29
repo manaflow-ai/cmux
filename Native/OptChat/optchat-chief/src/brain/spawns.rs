@@ -694,15 +694,19 @@ impl Brain {
         name: String,
         at_start: bool,
     ) {
-        // A `control show` whose workspace a later `hide` (or failure)
-        // already gave up: the record no longer names it, so it is closed,
-        // not shown (the hide's close may have run before it existed).
-        if !at_start
-            && self
-                .state
-                .sub(id)
-                .is_some_and(|(_, s)| s.workspace.as_deref() != Some(key.as_str()))
-        {
+        // A later hide or failure can supersede an automatic open too.
+        // Its slot's key fences startup; a manual show also reserves the
+        // visible key. Close a stale result even if hide reached the daemon
+        // before the open created the workspace.
+        if self.state.sub(id).is_some_and(|(_, s)| {
+            if at_start {
+                s.workspace_slot
+                    .as_ref()
+                    .is_some_and(|slot| slot.key != key)
+            } else {
+                s.workspace.as_deref() != Some(key.as_str())
+            }
+        }) {
             if let Some(workspaces) = self.workspaces.clone() {
                 let (log, id) = (self.log.clone(), id.to_owned());
                 std::thread::spawn(move || {
