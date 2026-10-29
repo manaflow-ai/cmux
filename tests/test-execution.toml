@@ -1158,6 +1158,10 @@ path = "tests/test_cmux_next_prepush_gate.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_attachment_caps_guard.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_leo_bans.py"
 lane = "linux-guard"
 
