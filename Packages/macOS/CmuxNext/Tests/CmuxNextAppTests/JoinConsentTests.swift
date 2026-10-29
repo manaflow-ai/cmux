@@ -383,6 +383,32 @@ import Testing
         #expect(!model.permitsMacScreen(control: true))
     }
 
+    /// A revoke also drops a cached "not joined": a join may have come since that read, so the session
+    /// stops at once, before the read that confirms the revoke answers.
+    @Test func aRevokeDropsACachedNotJoinedAtOnce() async {
+        let fake = Fake()
+        fake.record = JoinConsentRecord(screen: true, consentRequired: false)
+        let base = fake.services()
+        let held = Gate()
+        var holdReads = false
+        let model = JoinConsentModel(services: JoinConsentServices(
+            status: {
+                if holdReads { await held.wait() }
+                return await base.status()
+            },
+            openLine: base.openLine, enabled: base.enabled, askShown: base.askShown, markAskShown: base.markAskShown))
+        await model.refresh()
+        #expect(model.permitsMacScreen(control: true))
+        holdReads = true
+        fake.record.consentRequired = true
+        let revoke = Task { await model.set(.screen, on: false) }
+        for _ in 0..<1000 where !model.writing { await Task.yield() }
+        #expect(!model.permitsMacScreen(control: false))
+        held.open()
+        #expect(await revoke.value == nil)
+        #expect(!model.permitsMacScreen(control: false))
+    }
+
     #if DEBUG
     @Test func aCaptureFixtureNeverAuthorizesALiveMacScreenSession() async {
         let fake = Fake()
@@ -507,6 +533,24 @@ import Testing
         #expect(ids.contains("cmux.joinConsentAsk.allow") && ids.contains("cmux.joinConsentAsk.deny"))
         let image = try AddMachineShotsTests.render(view)
         #expect(image.size.width >= 300 && image.size.height >= 80)
+    }
+
+    /// An agent's Accessibility press, or any press outside the person's own click on the sheet, grants
+    /// nothing, even with the app's person check answering yes.
+    @Test func anAccessibilityOrPostedPressOnAllowGrantsNothing() async throws {
+        _ = NSApplication.shared
+        let fake = Fake()
+        let model = JoinConsentModel(services: fake.services())
+        await model.refresh()
+        model.refused(JoinConsentRefusal(requester: "lane-vm-3", surface: .screen))
+        let view = JoinConsentAskView(model: model)
+        let allow = try #require(AddDeviceShotsTests.find(view, id: "cmux.joinConsentAsk.allow") as? NSButton)
+        _ = allow.accessibilityPerformPress()
+        allow.performClick(nil)
+        model.isPersonInput = { true }
+        view.allowPressed()
+        for _ in 0..<50 { await Task.yield() }
+        #expect(fake.writes.isEmpty && model.ask != nil && model.consent?.screen == false)
     }
 
     @Test func pageScriptAloneNeverTurnsAConsentOnAndOffNeedsNoClick() async throws {

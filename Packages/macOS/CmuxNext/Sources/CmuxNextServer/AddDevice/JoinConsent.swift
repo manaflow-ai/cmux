@@ -157,6 +157,9 @@ public final class JoinConsentModel {
     @ObservationIgnored public var present: @MainActor (Bool) -> Void = { _ in }
     /// Redraws a showing sheet (its buttons follow ``writing``).
     @ObservationIgnored public var redraw: @MainActor () -> Void = {}
+    /// Whether the event AppKit is dispatching now is the person's own (the app's check of its source:
+    /// a click another process posts is not). The sheet's Allow needs it; with none set, nothing is.
+    @ObservationIgnored public var isPersonInput: @MainActor () -> Bool = { false }
     /// After each change applied: the app stops a Mac Screen session the consent no longer allows.
     @ObservationIgnored public var changed: @MainActor () -> Void = {}
     @ObservationIgnored private let services: JoinConsentServices
@@ -223,8 +226,10 @@ public final class JoinConsentModel {
         generation += 1
         if !on, var record = consent {
             // SECURITY: a revoke narrows at once, before acpmux answers: a running session stops now, and
-            // no read that started before it (which may say granted) is applied.
+            // no read that started before it (which may say granted) is applied. Its "not joined" goes too
+            // (a join may have come since that read).
             if surface == .screen { record.screen = false } else { record.control = false }
+            record.consentRequired = nil
             consent = record
             changed()
         }

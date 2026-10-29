@@ -46,3 +46,11 @@ enum AgentPanePersonInput {
         return String(cString: buffer)
     }
 }
+
+/// ``AgentPanePersonInput``'s check for code outside the agent pane (the join consent sheet's Allow): a
+/// click or key another process posts, or an Accessibility press, is not the person's.
+public struct PersonInputCheck: Sendable {
+    public nonisolated init() {}
+    /// Whether the event AppKit is dispatching now is the person's.
+    @MainActor public var currentIsPerson: Bool { AgentPanePersonInput.currentIsPerson }
+}

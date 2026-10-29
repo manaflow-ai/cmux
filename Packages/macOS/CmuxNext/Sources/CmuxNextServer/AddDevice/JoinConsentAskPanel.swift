@@ -111,7 +111,13 @@ public final class JoinConsentAskView: NSView {
     }
 
     // task-owner: one answer per press; the sheet hides at once and the write ends on its own
-    @objc private func allowPressed() { Task { [weak model] in await model?.answer(allow: true) } }
+    @objc func allowPressed() {
+        // SECURITY: only the person's own click or key on this sheet allows. An Accessibility press, a
+        // click another process posts, or a call from outside an event grants nothing.
+        guard let model, let event = NSApp.currentEvent, event.window === window,
+              [.leftMouseUp, .leftMouseDown, .keyDown].contains(event.type), model.isPersonInput() else { return }
+        Task { [weak model] in await model?.answer(allow: true) }
+    }
     @objc private func denyPressed() { Task { [weak model] in await model?.answer(allow: false) } }
 
     private func label(_ text: String, font: NSFont, color: NSColor, width: CGFloat) -> NSTextField {

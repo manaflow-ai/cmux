@@ -77,6 +77,8 @@ extension JoinConsentModel {
             if shown, panel == nil { panel = JoinConsentAskPanel(model: model) }
             panel?.setShown(shown)
         }
+        let person = PersonInputCheck()
+        model.isPersonInput = { person.currentIsPerson }
         model.redraw = { [weak model] in
             guard let model, model.ask != nil else { return }
             panel?.setShown(true)
