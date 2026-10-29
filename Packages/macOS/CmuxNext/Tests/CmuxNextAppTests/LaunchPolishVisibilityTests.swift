@@ -1,3 +1,4 @@
+import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextPages
@@ -89,6 +90,8 @@ struct LaunchPolishVisibilityTests {
 
     /// The update toast (the Updated surface island) asks for the same span.
     @Test func updatedToastSeeWhatsNewOpensTheUpdatesSpan() async throws {
+        // AppServices reads NSApp (its key window source); without the app object it is nil.
+        _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
         let opens = Self.recordOpens(services.updater)
         let provider = UpdateSurfaceProvider(kind: .updated, services: services)
