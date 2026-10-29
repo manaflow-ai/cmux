@@ -23,9 +23,9 @@ impl Translator {
                     self.compacting.store(false, Ordering::SeqCst);
                 }
             }
-        } else if main_line && kind == "system" && sub == "compact_boundary" {
-            self.compacting.store(false, Ordering::SeqCst);
-        } else if main_line && kind == "result" {
+        } else if main_line
+            && ((kind == "system" && sub == "compact_boundary") || kind == "result")
+        {
             self.compacting.store(false, Ordering::SeqCst);
         }
         // A subagent's lines stream under its own session, ended or not (`subagent_route`).

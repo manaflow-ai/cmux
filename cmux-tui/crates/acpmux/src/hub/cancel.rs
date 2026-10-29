@@ -23,7 +23,7 @@ impl Hub {
         // The cancel may have waited for the child writer. If that turn ended
         // while the request was in flight, never publish a stale answer into
         // the next turn.
-        if !session.turn().is_some_and(|current| current.turn_id == turn.turn_id) {
+        if session.turn().is_none_or(|current| current.turn_id != turn.turn_id) {
             return;
         }
         let already_forced = {
