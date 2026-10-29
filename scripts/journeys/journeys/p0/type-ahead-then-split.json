@@ -20,6 +20,7 @@
     {"do": "retarget_pane", "as": "first", "title": "the first pane's selected tab is the new tab"},
     {"do": "expect", "title": "the new tab's shell ran the text typed for it, in order, though the focus is in the split", "since": "typed", "timeout": 10,
      "all": [{"daemon_line": "ahead-${nonce}-42"}, {"daemon_contains": "echo ahead-${nonce}-$((6*7))"}, {"pane_frame_text": "ahead-${nonce}-42"}]},
+    {"do": "rpc", "title": "evidence: creation_hold.replayed_direct > 0 means the held keys went straight to the new tab's view while the focus was in the split (a run with 0 did not test that path)", "method": "debug.focus", "params": {}},
     {"do": "use", "name": "old"},
     {"do": "expect", "title": "the old tab's shell got none of it", "timeout": 5,
      "all": [{"daemon_lacks": "ahead-"}]}
