@@ -195,6 +195,9 @@ import CmuxNextServer
             defer { close(fd) }
             var timeout = timeval(tv_sec: 10, tv_usec: 0)
             setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
+            // A reply to a client that closed fails, never kills the test process (SIGPIPE).
+            var noSignal: Int32 = 1
+            setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &noSignal, socklen_t(MemoryLayout<Int32>.size))
             lock.withLock { log.connections += 1 }
             var person = false
             var buffer = Data()
