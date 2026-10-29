@@ -82,6 +82,11 @@
   outline: none;
   contain: layout paint;
 }
+.acpmux-minimap__tick:focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: -1.5px;
+  border-radius: var(--acpmux-inspector-row-radius, 4px);
+}
 .acpmux-minimap__bar,
 .acpmux-minimap__dot {
   position: absolute;
