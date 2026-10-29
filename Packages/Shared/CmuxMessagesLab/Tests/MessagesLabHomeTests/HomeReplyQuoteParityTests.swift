@@ -87,6 +87,21 @@ import Testing
         #expect(two.box.height == 34.5, "a two-line quote is \(two.box.height) pt tall; Messages' is 34.5 pt (11 pt line pitch)")
     }
 
+    /// User, Oct 28 (second screenshot): a wrapped quote left a wide empty band right of its text. Messages' quote hugs
+    /// its widest line (2-line reference: line 1 ends 12 pt before the quote's right end, the outline + 9 pt pad), at every
+    /// transcript width.
+    @Test(arguments: [CGFloat(420), 628, 1000, 1600])
+    func aWrappedQuoteHugsItsWidestLine(width: CGFloat) {
+        let text = "make sure the highlight color across everything in the app can be customized (and is consistent) based on the user's terminal theme"
+        let pv = Fixture.withRenderScale(2) {
+            ThreadPreview.make(root: PartRef(messageId: "root", partIndex: 0), part: .text(text, runs: []), count: 2,
+                               outgoing: true, width: width)
+        }
+        let widest = pv.textLines.map { TextDraw.width($0, font: ThreadPreview.textFont) }.max() ?? 0
+        let slack = pv.box.width - ThreadPreview.textPadX - widest
+        #expect(slack >= -0.01 && slack <= 1, "at \(width) pt the quote is \(pv.box.width) pt for a \(widest) pt line: \(slack) pt of empty space")
+    }
+
     @Test func myQuoteIsOutlinedInMessagesDimBlue() {
         let (bmp, box) = render(preview())
         let edge = bmp.rgb(CGPoint(x: box.minX + 0.5, y: box.midY))
