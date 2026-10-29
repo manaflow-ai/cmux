@@ -45,9 +45,10 @@ pub(crate) const MAX_INPUT_ROWS: u32 = 32;
 pub(crate) enum ShellMark {
     PromptStart,
     /// A primary `A` with a `redraw=` option (Ghostty's bash, zsh and fish
-    /// integrations): the shell prints it again when it redraws the same
-    /// prompt (`redraw=1`, `redraw=last`), and marks a new prompt with a `D`
-    /// first (`terminal_activity`).
+    /// integrations): such a shell may print it again for the same prompt
+    /// (zsh `redraw=1` on reset-prompt or a resize), and marks a new prompt with
+    /// a `D` first (`terminal_activity`). Any `redraw=` value matches, `0`
+    /// included: a shell that sends it with no `D` only leaves lines owed.
     RedrawablePromptStart,
     /// `A` with `k=s` or `k=c`: a secondary prompt, either a later line of a
     /// multi-line primary prompt (kitty marks them so) or a continuation

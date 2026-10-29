@@ -160,8 +160,8 @@ pub(crate) struct ShellActivity {
     /// been (state taken from a terminal host), or an `A` came while input
     /// may still wait unread for the shell (typed ahead, see `owed_prompts`).
     input_after_prompt: bool,
-    /// Lines submitted at the shell's prompt (a Return or Ctrl-C written while
-    /// no command runs) whose prompt has not come yet: an `A` answers one of
+    /// Lines submitted at the shell's prompt (a Return, Ctrl-C or Ctrl-O written
+    /// while no command runs) whose prompt has not come yet: an `A` answers one of
     /// them. Any still owed at an `A` may be a line typed ahead that waits
     /// unread for the line editor, so that prompt is not idle. A Return no
     /// prompt answers (a `read`, a password, a continuation line, fish's
@@ -175,7 +175,7 @@ pub(crate) struct ShellActivity {
     /// only `A` and `B` has no such mark, so there an `A` after a line typed
     /// at the prompt pays ([`Self::line_since_prompt`]).
     owed_prompts: u32,
-    /// A line was submitted at the prompt (a Return or Ctrl-C), or a command
+    /// A line was submitted at the prompt (a Return, Ctrl-C or Ctrl-O), or a command
     /// started, since the last `A` (an `A`/`B`-only shell's new prompt).
     line_since_prompt: bool,
     /// A `C` or `D` came since the last `A`: the next `A` is a new prompt.
@@ -381,12 +381,18 @@ impl ShellActivity {
                         self.unsubmitted = true;
                     }
                 }
-                // Ctrl-O at the prompt accepts the line in bash
-                // (operate-and-get-next) and zsh (accept-line-and-down-history):
-                // a line. Counted where it does not accept, it only keeps the
-                // shell not idle (fails safe). To a running program it is a byte.
-                0x0f if !self.in_paste && !running => {
-                    self.note_line_at_prompt();
+                // Ctrl-O accepts the line in bash (operate-and-get-next) and zsh
+                // (accept-line-and-down-history): a line, at the prompt, or typed
+                // ahead while a command runs (the program may read it as a byte
+                // instead: counted anyway, as a Return typed into a program,
+                // which only keeps the shell not idle: fails safe).
+                0x0f if !self.in_paste => {
+                    if running {
+                        self.typed_while_running = self.typed_while_running.saturating_add(1);
+                        self.unsubmitted = false;
+                    } else {
+                        self.note_line_at_prompt();
+                    }
                 }
                 _ => self.unsubmitted = true,
             }
