@@ -40,6 +40,7 @@ public final class GitHubConnections {
     public var currentConnections: [JSONValue] { loadedScope == scope() ? connections : [] }
     public var connected: Bool { currentConnections.contains { $0["status"]?.stringValue == "active" && (canDisconnect($0) || $0["sharing"]?.stringValue == "team") } }
     public var ready: Bool { scope() != nil && loadedScope == scope() && configured }
+    public var canConnect: Bool { ready && !busy && !connected && (!pending || scope().map { authorizations[$0] != nil } == true) }
 
     public func canDisconnect(_ row: JSONValue) -> Bool {
         scope() != nil && row["created_by"]?.stringValue == scope()?.user
@@ -64,7 +65,9 @@ public final class GitHubConnections {
         do {
             switch action {
             case "githubConnect":
-                guard ready else { return }
+                // A pending flow from another launch has no resumable URL here.
+                // Keep it pending until refresh or disconnect resolves that flow.
+                guard ready, !connected, !pending || authorizations[bound] != nil else { return }
                 if let authorization = authorizations[bound], authorization.expires <= now() {
                     authorizations[bound] = nil
                     connectKeys[bound] = nil
@@ -100,6 +103,11 @@ public final class GitHubConnections {
                 connectKeys[bound] = nil
             }
         } catch {
+            if action == "githubConnect", let failure = error as? GitHubFailure, case .refused = failure {
+                // A definitive API refusal is replayed under its mutation key.
+                // Transport failures keep the key because the mutation may have succeeded.
+                connectKeys[bound] = nil
+            }
             if scope() == bound, generation == ticket { errorScope = bound }
         }
     }

@@ -15,7 +15,7 @@ extension GitHubConnections {
             "title": "GitHub", "detail": .string(note), "busy": .bool(busy),
             "connect": .string(Self.connect), "disconnect": .string(Self.disconnect),
             "confirm": .string(Self.confirm), "cancel": .string(Self.cancel),
-            "refresh": .string(Self.refresh), "canConnect": .bool(ready && !busy && !connected),
+            "refresh": .string(Self.refresh), "canConnect": .bool(canConnect),
             "connections": .array(currentConnections.map { row in
                 ["id": row["id"] ?? .null,
                  "account": row["account"]?["name"] ?? "GitHub",

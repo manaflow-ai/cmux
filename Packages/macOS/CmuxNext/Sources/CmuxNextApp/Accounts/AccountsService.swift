@@ -198,8 +198,12 @@ extension GitHubConnections {
             if let team = backendTeam(project: auth.configuration.stackProjectID, stackTeam: bound.team) { headers["x-cmux-team"] = team }
             let response = try await transport.post(mutationKey != nil ? "v1/ops" : "v1/read", json: Data(JSONValue.object(body).compactText.utf8), bearer: access, headers: headers)
             guard current() == bound else { throw GitHubFailure.changedAccount }
+            // A timeout, throttling response or server failure does not prove that
+            // the mutation was refused. Keep its key for a safe retry.
+            guard response.status < 500, response.status != 408, response.status != 429 else { throw URLError(.badServerResponse) }
+            guard (200..<300).contains(response.status) else { throw GitHubFailure.refused }
             let reply = try JSONValue.parse(response.body)
-            guard (200..<300).contains(response.status), (reply["error"] == nil || reply["error"] == .null), reply["ok"] != .bool(false), let value = reply["value"] else { throw GitHubFailure.refused }
+            guard (reply["error"] == nil || reply["error"] == .null), reply["ok"] != .bool(false), let value = reply["value"] else { throw GitHubFailure.refused }
             return value
         }, open: { url in LinkRouter.shared.open(url) })
     }
