@@ -10,7 +10,14 @@ import { renderToStaticMarkup } from "react-dom/server";
 import * as messageActions from "../src/agent-session/acpmux/conversation/MessageActions";
 import { PendingSteer } from "../src/agent-session/acpmux/conversation/PendingSteer";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
-import { layoutConversation, type AcpmuxActivity, type AcpmuxRow } from "../src/agent-session/acpmux/model";
+import * as model from "../src/agent-session/acpmux/model";
+import {
+  isBeforeFooter,
+  layoutConversation,
+  nextDrawnRow,
+  type AcpmuxActivity,
+  type AcpmuxRow,
+} from "../src/agent-session/acpmux/model";
 
 const row = (id: string, kind: string, at: number, fields: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
   id,
@@ -42,8 +49,18 @@ const BEFORE_STEER =
 const ANSWER =
   "The review of the Stop fix is still running and has no verdict yet; I told the lane it need not ask again.";
 
-const marked = (rows: readonly AcpmuxRow[]) =>
-  Object.fromEntries(rows.filter((one) => one.kind === "assistant").map((one) => [one.id, one.replyActions === true]));
+// Read off the module, so the file runs (and these tests fail) where the rule does not exist yet.
+const { hasReplyActions } = model as { hasReplyActions?: (row: AcpmuxRow, beforeFooter: boolean) => boolean };
+/// Which drawn replies have their own row, decided as the transcript draws each: from the row and
+/// the row after it.
+const marked = (rows: readonly AcpmuxRow[]) => {
+  expect(hasReplyActions).toBeDefined();
+  return Object.fromEntries(
+    rows.flatMap((one, index) =>
+      one.kind === "assistant" ? [[one.id, hasReplyActions!(one, isBeforeFooter(one, nextDrawnRow(rows, index)))]] : [],
+    ),
+  );
+};
 
 test("a reply followed by a steer keeps its row; the turn's answer keeps the footer", () => {
   const rows = turnView(
@@ -78,12 +95,12 @@ test("a reply followed by another agent's message keeps its row", () => {
   expect(marked(rows)).toEqual({ a1: true, a2: false });
 });
 
-test("in a running turn a reply followed by a sent message keeps its row; the latest one waits", () => {
+test("in a running turn a reply followed by a sent message keeps its row; the streaming one waits", () => {
   const source = [
     row("u1", "user", 0, { text: "Report the merge." }),
     reply("a1", 1_000, BEFORE_STEER),
     row("t1", "activity", 2_000, { items: [send], toolCount: 1 }),
-    reply("a2", 3_000, ANSWER),
+    row("a2", "assistant", 3_000, { text: ANSWER, streaming: true }),
   ];
   for (const options of [
     { working: true },
@@ -93,10 +110,28 @@ test("in a running turn a reply followed by a sent message keeps its row; the la
     const rows = turnView(source, new Set(), { now: 10_000, ...options });
     expect(marked(rows)).toEqual({ a1: true, a2: false });
   }
-  // Shaped again with nothing new, the reply is the same row: its height and memo stand.
-  const once = turnView(source, new Set(), { now: 10_000, working: true });
-  const again = turnView(source, new Set(), { now: 10_000, working: true });
-  expect(again.find((one) => one.id === "a1")).toBe(once.find((one) => one.id === "a1"));
+  // The rule marks no row: a running turn's replies stay the objects they were, token after token.
+  expect(turnView(source, new Set(), { now: 10_000, working: true }).find((one) => one.id === "a1")).toBe(source[1]);
+});
+
+test("a finished reply under a running tool keeps its row, with the tool folded into the running line", () => {
+  const running: AcpmuxActivity = { ...send, tool: { ...send.tool!, id: "send-2", status: "in_progress" } };
+  const source = [
+    row("u1", "user", 0, { text: "Report the merge." }),
+    reply("a1", 1_000, BEFORE_STEER),
+    row("t1", "activity", 2_000, { items: [running], toolCount: 1 }),
+  ];
+  for (const options of [{ working: true }, { working: true, liveRuns: true, lineBelow: true }]) {
+    const rows = turnView(source, new Set(), { now: 10_000, ...options });
+    expect(marked(rows)).toEqual({ a1: true });
+  }
+});
+
+test("the last reply of a finished turn with no footer keeps its row", () => {
+  const rows = turnView([row("u1", "user", 0, { text: "What changed?" }), reply("a1", 1_000, ANSWER)], new Set(), {
+    now: 10_000,
+  });
+  expect(marked(rows)).toEqual({ a1: true });
 });
 
 test("the row draws Copy and the reply's age, and the layout reserves its line", () => {
@@ -108,9 +143,10 @@ test("the row draws Copy and the reply's age, and the layout reserves its line",
   expect(html).toContain('class="cv-turn-actions cv-reply-actions"');
   expect(html).toContain('aria-label="Copy"');
   expect(html).toContain('class="cv-turn-time"');
-  const plain = reply("a1", 1_000, BEFORE_STEER);
+  // The same reply before another agent's message, finished and still streaming.
+  const done = reply("a1", 1_000, BEFORE_STEER);
   const height = (one: AcpmuxRow) => layoutConversation([one, row("m1", "user", 2_000)], 600).heights[0]!;
-  expect(height({ ...plain, replyActions: true }) - height(plain)).toBe(28);
+  expect(height(done) - height({ ...done, streaming: true })).toBe(28);
 });
 
 test("a steer that waits for the agent offers Copy beside Send now", () => {

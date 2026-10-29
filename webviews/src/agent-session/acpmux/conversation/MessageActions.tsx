@@ -304,7 +304,7 @@ export function ReceivedActions({ row, text }: { row: AcpmuxRow; text: string })
   );
 }
 
-/// The row under a reply that its turn's footer does not serve (turns.ts `withReplyActions`: a
+/// The row under a reply that its turn's footer does not serve (model.ts `hasReplyActions`: a
 /// steer, another agent's message, a sent message or a tool row follows it): the footer's look and
 /// buttons for this reply, Copy, Pin, Read aloud and More, then its age, as Claude desktop draws
 /// under every reply. Its line is reserved; it shows on hover or keyboard focus (conversation.css).

@@ -41,6 +41,7 @@ import {
   type QueueEdit,
   nextDrawnRow,
   isBeforeFooter,
+  hasReplyActions,
   isLastFooter,
   isContinuationFooter,
   QUEUED_MESSAGE,
@@ -516,6 +517,8 @@ type NativeRegistry = Record<string, MeasurableRenderer>;
 type OpenDiff = (rowId: string, path?: string, opener?: HTMLElement) => void;
 type RowProps = {
   row: AcpmuxRow;
+  /// Whether the row sits right over its turn's footer (model.ts `isBeforeFooter`).
+  beforeFooter?: boolean;
   sessionId?: string;
   onToggleActivity: (id: string) => void;
   expanded: boolean;
@@ -928,7 +931,7 @@ const openChangedFile = (path: string, where: "tab" | "editor") => callNative("f
 
 /// A prompt draws as the user typed it, in a bubble at the right; a reply as Markdown.
 const MessageRow = memo(
-  function MessageRow({ row, githubRepository }: RowProps) {
+  function MessageRow({ row, beforeFooter, githubRepository }: RowProps) {
     const t = useT();
     // A started task's result, which acpmux sent as a prompt: one line, never the person's bubble.
     if (row.kind === "user" && row.received) return <ReceivedResult result={row.received} onOpen={openOfferChat} />;
@@ -1049,9 +1052,9 @@ const MessageRow = memo(
         messageAt={row.at}
       />
     );
-    // A reply its turn's footer does not serve (a steer, another agent's message or a tool row
-    // follows it) keeps its own action row (turns.ts withReplyActions).
-    if (!row.replyActions) return reply;
+    // A finished reply its turn's footer does not serve keeps its own action row, whatever follows
+    // it (model.ts hasReplyActions).
+    if (!hasReplyActions(row, beforeFooter === true)) return reply;
     return (
       <>
         {reply}
@@ -1062,6 +1065,7 @@ const MessageRow = memo(
   (previous, next) =>
     previous.row.id === next.row.id &&
     previous.row.version === next.row.version &&
+    previous.beforeFooter === next.beforeFooter &&
     previous.githubRepository === next.githubRepository,
 );
 
@@ -4160,6 +4164,7 @@ export function VirtualTranscript({
                     >
                       <Component
                         row={row}
+                        beforeFooter={isBeforeFooter(row, next)}
                         sessionId={sessionId}
                         onToggleActivity={toggleRow}
                         onOpenDiff={onOpenDiff}

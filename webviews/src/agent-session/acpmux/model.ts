@@ -265,9 +265,6 @@ export type AcpmuxRow = {
   retryRowId?: string;
   /// A turn footer's answer row (turns.ts), whose right-click menu the footer's More opens.
   answerId?: string;
-  /// A reply that draws its own action row under it (turns.ts `withReplyActions`): something other
-  /// than its turn's footer follows it, a steer, another agent's message or a tool row.
-  replyActions?: boolean;
   retryAttachments?: ComposerAttachment[];
   status?: string;
   error?: string;
@@ -926,14 +923,14 @@ const userMetaHeight = (row: AcpmuxRow) => {
 };
 /// The author line over a shared chat's prompt (multiplayer/multiplayer.css `.cv-author`).
 const AUTHOR_HEIGHT = 22;
-const chromeHeight = (row: AcpmuxRow) =>
+const chromeHeight = (row: AcpmuxRow, beforeFooter: boolean) =>
   row.kind === "user"
     ? USER_BUBBLE_PADDING +
       userMetaHeight(row) +
       (row.status ? USER_STATUS_HEIGHT : 0) +
       (row.author ? AUTHOR_HEIGHT : 0)
     : // A reply's own action row (MessageActions.tsx ReplyActions): the meta gap, then its line.
-      row.replyActions
+      hasReplyActions(row, beforeFooter)
       ? META_GAP + META_ROW
       : 0;
 /// The bubble's share of its row and its side padding, which sits inside that share (border-box).
@@ -1040,6 +1037,18 @@ const messageBelow = (beforeFooter: boolean) => (beforeFooter ? META_GAP : MESSA
 /// (`below`), which the footer takes the place of at its height when the turn ends: the reply keeps
 /// the one gap, so the end moves nothing (the message gap there slid the reply down 4px at every
 /// turn's end). App.tsx marks the same rows `acpmux-row--before-footer`.
+/// Whether a reply draws its own action row (MessageActions.tsx ReplyActions; Leo, 2026-10-29: "i
+/// feel like im frequently missing the copy/whatever buttons on these steers... but claude code
+/// allows those buttons in these situations. let's have those"): every finished reply with text,
+/// whatever follows it (a steer, another agent's message, a sent message, a tool or the running
+/// line), except the one right over its turn's footer, whose row the footer is. Read from the row and
+/// the row after it alone, as the transcript draws and estimates each row: no pass over the turn.
+export const hasReplyActions = (row: AcpmuxRow, beforeFooter: boolean) =>
+  row.kind === "assistant" &&
+  !beforeFooter &&
+  row.streaming !== true &&
+  row.settled !== true &&
+  (row.text ?? "").trim().length > 0;
 export const isBeforeFooter = (row: AcpmuxRow, next: AcpmuxRow | undefined) =>
   row.kind === "assistant" &&
   (next?.kind === "turnSummary" || ((next?.kind === WORKING || next?.kind === THINKING) && next.below === true));
@@ -1183,7 +1192,7 @@ function fallbackRowHeight(row: AcpmuxRow, width: number, beforeFooter = false, 
     row.kind === "typing"
   )
     return finish(37);
-  return finish(8 + messageBelow(beforeFooter) + chromeHeight(row) + textLines * metrics().lineHeight);
+  return finish(8 + messageBelow(beforeFooter) + chromeHeight(row, beforeFooter) + textLines * metrics().lineHeight);
 }
 
 /// A link target the page opens: absolute http and https only (replyHref.ts).
@@ -1445,7 +1454,7 @@ function measuredRowHeight(
   // Chief's draws its own bubble (ChiefPromptBubble.tsx).
   if (row.kind === "user" && row.from !== "chief" && !chiefEnvelope(row.text))
     contentHeight = collapsedPromptHeight(contentHeight, metrics().lineHeight);
-  const height = messageBelow(beforeFooter) + chromeHeight(row) + contentHeight;
+  const height = messageBelow(beforeFooter) + chromeHeight(row, beforeFooter) + contentHeight;
   return finish(beforeFooter ? height : Math.max(34, height));
 }
 
