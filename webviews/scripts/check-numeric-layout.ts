@@ -17,7 +17,7 @@ const scenes: Scene[] = [
   {
     entry: "agent-pane.chat-inspector",
     variant: "full",
-    selectors: [".acpmux-chat-inspector-fold"],
+    selectors: [".acpmux-chat-inspector-fold", ".acpmux-chat-inspector-subagents__ended .acpmux-summary-text"],
   },
   {
     entry: "agent-pane.chat-inspector",
