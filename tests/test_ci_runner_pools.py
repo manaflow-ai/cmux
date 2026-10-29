@@ -148,7 +148,8 @@ class Evidence(unittest.TestCase):
 
     def test_old_or_unreadable_health_decides_nothing(self) -> None:
         old = health({"blacksmith-32vcpu-ubuntu-2404": "stalled"}, checked=NOW - dt.timedelta(hours=1))
-        for value in (old, {"labels": []}, {"checked": "2026-10-28T22:00:00", "labels": {}}):
+        future = health({"blacksmith-32vcpu-ubuntu-2404": "stalled"}, checked=NOW + dt.timedelta(hours=1))
+        for value in (old, future, {"labels": []}, {"checked": "2026-10-28T22:00:00", "labels": {}}):
             dead, started, notes = runner_pools.label_evidence(value, None, now=NOW)
             self.assertEqual((dead, started), (set(), set()))
             self.assertTrue(notes)
