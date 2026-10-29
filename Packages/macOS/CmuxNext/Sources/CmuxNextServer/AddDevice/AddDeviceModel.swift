@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 public import Observation
 
 /// The Add Device card's state (plans/cmux-next/add-device-DESIGN.md 2.3): which of the three ways

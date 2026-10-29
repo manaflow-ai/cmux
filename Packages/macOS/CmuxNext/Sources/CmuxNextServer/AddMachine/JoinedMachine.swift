@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// A machine that joined the team with a one-line join token: one `kind: "joined"` row of
 /// `cmux machine list --json` (the platform's `GET /v1/machines/credentials`, merged by the CLI).
