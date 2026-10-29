@@ -80,6 +80,23 @@ test("live child replies stay unsettled and keep the producer revision stable", 
   expect(sessionSummary(resumed, "acme/app").sources.map((source) => source.label)).toContain("acme/app#7");
 });
 
+test("post-completion child reply chunks invalidate the summary revision", () => {
+  const fold = new SubagentFold();
+  feed(fold, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "a", parent: null }] });
+  feed(fold, { sessionUpdate: "subagent_state_update" }, { subagents: [{ id: "a", state: "completed" }] });
+  const sayWithId = (text: string) =>
+    feed(fold, { ...say(text), messageId: "post-completion-reply" }, { subagent: "a" });
+  sayWithId("See https://example.com/first");
+  const first = sessionSummary(fold.views().a!);
+  sayWithId(" and https://example.com/second");
+  const second = sessionSummary(fold.views().a!);
+  expect(second).not.toBe(first);
+  expect(second.sources.map((source) => source.url)).toEqual([
+    "https://example.com/first",
+    "https://example.com/second",
+  ]);
+});
+
 test("the first nonempty child thought settles reply Sources without rescanning later chunks", () => {
   const fold = new SubagentFold();
   feed(fold, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "a", parent: null }] });
@@ -163,11 +180,7 @@ test("a known titleless tool completion settles a child reply", () => {
 test("a child messageId change settles the prior reply Sources", () => {
   const fold = new SubagentFold();
   feed(fold, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "a", parent: null }] });
-  feed(
-    fold,
-    { ...say("See https://github.com/acme/app/pull/41"), messageId: "msg-1" },
-    { subagent: "a" },
-  );
+  feed(fold, { ...say("See https://github.com/acme/app/pull/41"), messageId: "msg-1" }, { subagent: "a" });
   feed(fold, { ...say("Continue here"), messageId: "msg-2" }, { subagent: "a" });
   const rows = fold.views().a!;
   expect(rows.filter((row) => row.kind === "assistant")).toMatchObject([
@@ -234,6 +247,27 @@ test("nested renaming and completion invalidate the parent summary revision", ()
   const after = sessionSummary(fold.views().a!, "acme/app");
   expect(after).not.toBe(before);
   expect(after.subagents).toEqual([{ id: "b", title: "Renamed", state: "done" }]);
+});
+
+test("running nested tool metadata invalidates the child summary", () => {
+  const fold = new SubagentFold();
+  feed(fold, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "parent", parent: null }] });
+  feed(fold, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "child", parent: "parent" }] });
+  const child = (update: object) => feed(fold, update, { subagent: "child" });
+  child({ sessionUpdate: "tool_call", toolCallId: "live", title: "Before", kind: "think", status: "in_progress" });
+  expect(sessionSummary(fold.views().child!).subagents).toEqual([{ id: "live", title: "Before", state: "running" }]);
+  child({ sessionUpdate: "tool_call_update", toolCallId: "live", name: "After", status: "in_progress" });
+  expect(sessionSummary(fold.views().child!).subagents).toEqual([{ id: "live", title: "After", state: "running" }]);
+  child({
+    sessionUpdate: "tool_call_update",
+    toolCallId: "live",
+    kind: "execute",
+    title: "npm run dev",
+    rawInput: { command: "npm run dev", description: "Preview", run_in_background: true },
+  });
+  expect(sessionSummary(fold.views().child!).backgroundTasks).toMatchObject([
+    { command: "npm run dev", description: "Preview", state: "running" },
+  ]);
 });
 
 test("mixed child activity and nested streams reuse summaries until completion", () => {
@@ -516,5 +550,30 @@ describe("lineage from a Codex chat's records", () => {
     );
     expect(at(fold, chat, say("Still on it."), { subagent: chat })).toBe(false);
     expect(lineage(fold)).toEqual([["needs_you_prior_art", null]]);
+  });
+
+  test("native subagent progress keeps optional model, effort and lastMessage fields", () => {
+    const fold = new SubagentFold();
+    const update = { sessionUpdate: "subagent_progress" };
+    const meta = {
+      subagents: [
+        {
+          id: "native-worker",
+          parent: null,
+          state: "running",
+          model: "gpt-6-astra",
+          effort: "high",
+          lastMessage: "Reviewing the changed files.",
+          tokens: 321,
+        },
+      ],
+    };
+    fold.reduce({ seq: 1, at: 1000, msg: { params: { update, _meta: { acpmux: meta } } } }, update);
+    expect(fold.all().find((agent) => agent.id === "native-worker")).toMatchObject({
+      model: "gpt-6-astra",
+      effort: "high",
+      lastMessage: "Reviewing the changed files.",
+      tokens: 321,
+    });
   });
 });

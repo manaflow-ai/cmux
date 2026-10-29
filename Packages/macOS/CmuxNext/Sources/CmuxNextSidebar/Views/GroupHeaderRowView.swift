@@ -29,7 +29,8 @@ final class GroupHeaderRowView: SidebarRowView {
     let name = SidebarRowView.label(font: SidebarStyle.headerFont)
     /// A collapsed group's member count, after the name.
     private let count = SidebarRowView.label(font: SidebarStyle.headerFont)
-    private let chevron = DecorativeImageView()
+    /// The disclosure chevron: one glyph that turns as the group opens and closes (Lawrence msg 15763).
+    private let chevron = DisclosureChevronView()
     /// The members' roll-up, in the sidebar's status colors (Lawrence msg 11983).
     private let activity: StatusIndicatorView = { let view = StatusIndicatorView(); view.usesStatusColors = true; return view }()
     /// The spinner's slot: it fades and collapses its width as loading starts and stops (u-group-header-detail).
@@ -67,6 +68,8 @@ final class GroupHeaderRowView: SidebarRowView {
     private var collapsed = false
     private var chevronFrame: CGRect = .zero
     private var chevronIcon: IconName = .disclosureExpanded
+    /// The header has shown a group since it was made or recycled: its first show takes the chevron's angle at once.
+    private var configuredOnce = false
     var isDropTarget = false { didSet { if isDropTarget != oldValue { needsDisplay = true } } }
     /// Arrow keys stopped here (`SidebarListView+GroupKeys`): a focus ring, not a selection.
     var isKeyboardFocused = false { didSet { if isKeyboardFocused != oldValue { needsLayout = true; needsDisplay = true } } }
@@ -117,6 +120,8 @@ final class GroupHeaderRowView: SidebarRowView {
         isKeyboardFocused = false
         isEditing = false
         collapsed = false
+        configuredOnce = false
+        chevron.setOpen(true, animated: false)
         activityEnding = false
         activity.configure(.idle)
         onMore = nil
@@ -154,7 +159,10 @@ final class GroupHeaderRowView: SidebarRowView {
         collapsed = row.isCollapsed
         count.stringValue = details.memberCount && collapsed && row.childCount > 0 ? "\(row.childCount)" : ""
         chevronIcon = Self.disclosureIcon(collapsed: collapsed)
-        chevron.image = NSImage.icon(chevronIcon, size: .iconRowSize(forLabelPointSize: Metrics.smallIconSize - Metrics.space2))
+        // One right-pointing glyph turned a quarter turn when open: a user's fold turns it as the rows slide.
+        chevron.setImage(NSImage.icon(.disclosureCollapsed, size: .iconRowSize(forLabelPointSize: Metrics.smallIconSize - Metrics.space2)))
+        chevron.setOpen(!collapsed, animated: animated && configuredOnce)
+        configuredOnce = true
         // Lawrence 2026-10-20: "All we care about is the loading"; msg 11983: and blue, orange and red.
         let status = collapsed && details.otherStates ? group.aggregateActivity : rollUp ?? group.statusRollUp(collapsed: collapsed)
         if status.isVisible {
@@ -357,9 +365,13 @@ final class GroupHeaderRowView: SidebarRowView {
         // up, so the spinner sits by the chevron at rest and moves aside for
         // the buttons.
         let showsActions = (isHovered || isKeyboardFocused || isEditing) && !renaming
+        // A loading spinner takes the column back when the hover ends: the controls clear at once, so it never draws
+        // beside them as they fade (Leo 2026-10-28: "just don't show the spinner" while hovering).
+        let loading = activity.showsGlyph && !activityEnding && !renaming
+        let onColumn = loading && !showsActions
         // Lawrence 2026-10-19 (u2397): a hover fades them in and out (opacity
         // only); focus, the editor and Reduce Motion show them at once.
-        let fades = fadesNextHover
+        let fades = fadesNextHover && !onColumn
         setHoverShown(moreButton, showsActions, fades: fades, token: .hoverReveal)
         moreButton.setAccessibilityElement(showsActions)
         addButton.frame = moreButton.frame.offsetBy(dx: -(control + Metrics.space1), dy: 0)
@@ -368,11 +380,10 @@ final class GroupHeaderRowView: SidebarRowView {
         setHoverShown(addButton, offersAdd && showsActions, fades: fades, token: .hoverReveal)
         addButton.setAccessibilityElement(offersAdd && showsActions)
         // Lawrence 2026-10-20: at rest a loading spinner takes the chevron's place, on the trailing
-        // column every row's dot and spinner share (a296); a hover brings the chevron back and
-        // slides the spinner left beside the + and more (a translation, instant under Reduce Motion).
-        let loading = activity.showsGlyph && !activityEnding && !renaming
-        let onColumn = loading && !showsActions
-        setHoverShown(chevron, !onColumn, fades: fades || fadesNextActivity, token: .hoverReveal)
+        // column every row's dot and spinner share (a296). Leo 2026-10-28: "If you're hovering over a
+        // workspace or whatever, just don't show the spinner": a hover hides it at once and brings the
+        // chevron back on the column, with the + and more left of it; never the spinner beside them.
+        setHoverShown(chevron, !onColumn, fades: !onColumn && (fades || fadesNextActivity), token: .hoverReveal)
         var trailing = (showsActions ? (offersAdd ? addButton.frame.minX : moreButton.frame.minX) : chevronFrame.minX) - Metrics.space2
         if badge.state.isUnread {
             badge.isHidden = false
@@ -385,14 +396,12 @@ final class GroupHeaderRowView: SidebarRowView {
         // The spinner fades and its slot collapses as loading stops (grows as it starts): the
         // items around it close up with no hole (`setHoverSlotShown`, instant under Reduce Motion).
         let ind = SidebarStyle.indicatorSize
-        let slotFrame = onColumn ? SidebarStyle.trailingColumnFrame(rowWidth: b.width, centerY: b.height / 2, side: ind)
-            : NSRect(x: trailing - ind, y: (b.height - ind) / 2, width: ind, height: ind)
-        setHoverSlotShown(activitySlot, loading, frame: slotFrame, fades: fadesNextActivity || fades) { [weak self] in
+        let slotFrame = SidebarStyle.trailingColumnFrame(rowWidth: b.width, centerY: b.height / 2, side: ind)
+        setHoverSlotShown(activitySlot, onColumn, frame: slotFrame, fades: (fadesNextActivity || fades) && !showsActions) { [weak self] in
             guard let self, self.activityEnding else { return }
             self.activityEnding = false
             self.activity.configure(.idle)
         }
-        if loading, !onColumn { trailing -= ind + Metrics.space2 }
         let glyphSide = min(SidebarStyle.iconBox, barHeight)
         glyph.isHidden = !hasIcon
         // A pinned group's pin leads the bar, its ink at the rows' leading inset, and its icon and name take the one

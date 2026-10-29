@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "verbs": 720,
-    "mcp": 638
+    "verbs": 749,
+    "mcp": 667
   },
   "nouns": [
     {
@@ -986,6 +986,13 @@
     {
       "noun": "chat",
       "verbs": [
+        {
+          "command": "cmux chat colors",
+          "title": "Chat Colors…",
+          "id": "home.chatColors",
+          "mcp": true,
+          "mcpTool": "app_chat_colors"
+        },
         {
           "command": "cmux chat create",
           "title": "New Group Chat…",
@@ -2163,10 +2170,17 @@
         },
         {
           "command": "cmux pane new-column",
-          "title": "New Column",
+          "title": "New Column Right",
           "id": "newColumn",
           "mcp": true,
           "mcpTool": "app_pane_new_column"
+        },
+        {
+          "command": "cmux pane new-column-left",
+          "title": "New Column Left",
+          "id": "newColumnLeft",
+          "mcp": true,
+          "mcpTool": "app_pane_new_column_left"
         },
         {
           "command": "cmux pane new-row",
@@ -3504,6 +3518,13 @@
           "mcpTool": "app_sidebar_hide_controls_until_hover"
         },
         {
+          "command": "cmux sidebar hide-spaces",
+          "title": "Hide Spaces",
+          "id": "sidebar.spaces.hide",
+          "mcp": true,
+          "mcpTool": "app_sidebar_hide_spaces"
+        },
+        {
           "command": "cmux sidebar mark-checklist-item-in-progress",
           "title": "Mark Checklist Item In Progress",
           "id": "checklistMarkInProgress",
@@ -3658,6 +3679,13 @@
           "mcpTool": "app_sidebar_show_controls_always"
         },
         {
+          "command": "cmux sidebar show-spaces",
+          "title": "Show Spaces",
+          "id": "sidebar.spaces.show",
+          "mcp": true,
+          "mcpTool": "app_sidebar_show_spaces"
+        },
+        {
           "command": "cmux sidebar toggle-item-archive",
           "title": "Archive/Unarchive Item",
           "id": "sidebar.item.toggleArchive",
@@ -3726,6 +3754,69 @@
           "mcpTool": "app_space_clear_theme"
         },
         {
+          "command": "cmux space color-blue",
+          "title": "Space Color: Blue",
+          "id": "space.color.blue",
+          "mcp": true,
+          "mcpTool": "app_space_color_blue"
+        },
+        {
+          "command": "cmux space color-cyan",
+          "title": "Space Color: Cyan",
+          "id": "space.color.cyan",
+          "mcp": true,
+          "mcpTool": "app_space_color_cyan"
+        },
+        {
+          "command": "cmux space color-green",
+          "title": "Space Color: Green",
+          "id": "space.color.green",
+          "mcp": true,
+          "mcpTool": "app_space_color_green"
+        },
+        {
+          "command": "cmux space color-grey",
+          "title": "Space Color: Grey",
+          "id": "space.color.grey",
+          "mcp": true,
+          "mcpTool": "app_space_color_grey"
+        },
+        {
+          "command": "cmux space color-orange",
+          "title": "Space Color: Orange",
+          "id": "space.color.orange",
+          "mcp": true,
+          "mcpTool": "app_space_color_orange"
+        },
+        {
+          "command": "cmux space color-pink",
+          "title": "Space Color: Pink",
+          "id": "space.color.pink",
+          "mcp": true,
+          "mcpTool": "app_space_color_pink"
+        },
+        {
+          "command": "cmux space color-purple",
+          "title": "Space Color: Purple",
+          "id": "space.color.purple",
+          "mcp": true,
+          "mcpTool": "app_space_color_purple"
+        },
+        {
+          "command": "cmux space color-red",
+          "title": "Space Color: Red",
+          "id": "space.color.red",
+          "mcp": true,
+          "mcpTool": "app_space_color_red"
+        },
+        {
+          "command": "cmux space color-yellow",
+          "title": "Space Color: Yellow",
+          "id": "space.color.yellow",
+          "mcp": true,
+          "mcpTool": "app_space_color_yellow"
+        },
+        {
           "command": "cmux space delete",
           "title": "Delete Space…",
           "id": "space.delete",
@@ -3775,6 +3866,13 @@
           "mcpTool": "app_space_new_group"
         },
         {
+          "command": "cmux space new-incognito",
+          "title": "New Incognito Space",
+          "id": "space.newIncognito",
+          "mcp": true,
+          "mcpTool": "app_space_new_incognito"
+        },
+        {
           "command": "cmux space new-window",
           "title": "New Window in Space…",
           "id": "space.newWindow",
@@ -3789,11 +3887,39 @@
           "mcpTool": "app_space_new_workspace"
         },
         {
+          "command": "cmux space next",
+          "title": "Next Space",
+          "id": "space.next",
+          "mcp": true,
+          "mcpTool": "app_space_next"
+        },
+        {
+          "command": "cmux space open-in-new-window",
+          "title": "Open Space in New Window",
+          "id": "space.openInNewWindow",
+          "mcp": true,
+          "mcpTool": "app_space_open_in_new_window"
+        },
+        {
+          "command": "cmux space previous",
+          "title": "Previous Space",
+          "id": "space.previous",
+          "mcp": true,
+          "mcpTool": "app_space_previous"
+        },
+        {
           "command": "cmux space rename",
           "title": "Rename Space…",
           "id": "space.rename",
           "mcp": true,
           "mcpTool": "app_space_rename"
+        },
+        {
+          "command": "cmux space select-1-9",
+          "title": "Select Space 1…9",
+          "id": "space.selectByNumber",
+          "mcp": true,
+          "mcpTool": "app_space_select_1_9"
         },
         {
           "command": "cmux space set-color",
@@ -4503,6 +4629,41 @@
           "id": "window.stash",
           "mcp": true,
           "mcpTool": "app_window_stash"
+        },
+        {
+          "command": "cmux window toggle-dock-bottom",
+          "title": "Toggle Bottom Dock",
+          "id": "window.toggleDockBottom",
+          "mcp": true,
+          "mcpTool": "app_window_toggle_dock_bottom"
+        },
+        {
+          "command": "cmux window toggle-dock-left",
+          "title": "Toggle Left Dock",
+          "id": "window.toggleDockLeft",
+          "mcp": true,
+          "mcpTool": "app_window_toggle_dock_left"
+        },
+        {
+          "command": "cmux window toggle-dock-orientation",
+          "title": "Toggle Dock Corners",
+          "id": "window.toggleDockOrientation",
+          "mcp": true,
+          "mcpTool": "app_window_toggle_dock_orientation"
+        },
+        {
+          "command": "cmux window toggle-dock-right",
+          "title": "Toggle Right Dock",
+          "id": "window.toggleDockRight",
+          "mcp": true,
+          "mcpTool": "app_window_toggle_dock_right"
+        },
+        {
+          "command": "cmux window toggle-dock-top",
+          "title": "Toggle Top Dock",
+          "id": "window.toggleDockTop",
+          "mcp": true,
+          "mcpTool": "app_window_toggle_dock_top"
         }
       ]
     },
@@ -4613,6 +4774,34 @@
           "id": "disconnectWorkspace",
           "mcp": true,
           "mcpTool": "app_workspace_disconnect"
+        },
+        {
+          "command": "cmux workspace dock-bottom",
+          "title": "Dock Workspace Bottom",
+          "id": "workspace.dockBottom",
+          "mcp": true,
+          "mcpTool": "app_workspace_dock_bottom"
+        },
+        {
+          "command": "cmux workspace dock-left",
+          "title": "Dock Workspace Left",
+          "id": "workspace.dockLeft",
+          "mcp": true,
+          "mcpTool": "app_workspace_dock_left"
+        },
+        {
+          "command": "cmux workspace dock-right",
+          "title": "Dock Workspace Right",
+          "id": "workspace.dockRight",
+          "mcp": true,
+          "mcpTool": "app_workspace_dock_right"
+        },
+        {
+          "command": "cmux workspace dock-top",
+          "title": "Dock Workspace Top",
+          "id": "workspace.dockTop",
+          "mcp": true,
+          "mcpTool": "app_workspace_dock_top"
         },
         {
           "command": "cmux workspace duplicate",
@@ -4979,6 +5168,13 @@
           "mcpTool": "app_workspace_toggle_checklist_item_complete"
         },
         {
+          "command": "cmux workspace toggle-dock-floating",
+          "title": "Float Docked Workspace",
+          "id": "workspace.toggleDockFloating",
+          "mcp": true,
+          "mcpTool": "app_workspace_toggle_dock_floating"
+        },
+        {
           "command": "cmux workspace toggle-keep-awake",
           "title": "Keep Workspace Awake",
           "id": "workspace.toggleKeepAwake",
@@ -4991,6 +5187,13 @@
           "id": "workspace.toggleTop",
           "mcp": true,
           "mcpTool": "app_workspace_toggle_top"
+        },
+        {
+          "command": "cmux workspace undock",
+          "title": "Undock Workspace",
+          "id": "workspace.undock",
+          "mcp": true,
+          "mcpTool": "app_workspace_undock"
         }
       ]
     },

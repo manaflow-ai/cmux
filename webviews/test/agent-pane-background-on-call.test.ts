@@ -290,3 +290,109 @@ test("a shell whose call is not in the transcript is one row, and joins its call
   expect(callOf(rows(), "bg3").tool?.background?.state).toBe("completed");
   expect(notes()).toEqual([]);
 });
+
+test("message ID changes preserve the preceding reply Sources after completion", async () => {
+  const say = (messageId: string, text: string): Step => [
+    "in",
+    "agent_message_chunk",
+    update({ sessionUpdate: "agent_message_chunk", messageId, content: { type: "text", text } }),
+  ];
+  const daemon = fakeDaemon(
+    record([
+      ["mux", "user_message", { text: "Find the PR" }],
+      ["mux", "turn_started", {}],
+      say("msg-1", "See https://github.com/acme/app/pull/41"),
+    ]),
+  );
+  const { client, rows } = await connect(daemon);
+  try {
+    expect(sessionSummary(rows(), "acme/app").sources).toEqual([]);
+    daemon.push(record([say("msg-2", "Continue here")], 4));
+    daemon.push(record([["mux", "turn_result", { status: "completed" }]], 5));
+    expect(rows().filter((row) => row.kind === "assistant")).toMatchObject([
+      { text: "See https://github.com/acme/app/pull/41", streaming: false },
+      { text: "Continue here", streaming: false },
+    ]);
+    expect(sessionSummary(rows(), "acme/app").sources).toMatchObject([
+      { url: "https://github.com/acme/app/pull/41", kind: "pullRequest" },
+    ]);
+  } finally {
+    client.close();
+  }
+});
+
+test("running tool metadata refreshes the summary without rescanning output chunks", async () => {
+  const call = {
+    sessionUpdate: "tool_call",
+    toolCallId: "live",
+    title: "Before",
+    kind: "think",
+    status: "in_progress",
+  };
+  const daemon = fakeDaemon(record([["in", "tool_call", update(call)]]));
+  const { client, rows } = await connect(daemon);
+  try {
+    expect(sessionSummary(rows()).subagents).toContainEqual({ id: "live", title: "Before", state: "running" });
+    daemon.push(
+      record(
+        [
+          [
+            "in",
+            "tool_call_update",
+            update({
+              sessionUpdate: "tool_call_update",
+              toolCallId: "live",
+              title: "After",
+              status: "in_progress",
+            }),
+          ],
+        ],
+        2,
+      ),
+    );
+    expect(sessionSummary(rows()).subagents).toContainEqual({ id: "live", title: "After", state: "running" });
+    daemon.push(
+      record(
+        [
+          [
+            "in",
+            "tool_call_update",
+            update({
+              sessionUpdate: "tool_call_update",
+              toolCallId: "live",
+              kind: "execute",
+              title: "npm run dev",
+              rawInput: { command: "npm run dev", description: "Preview", run_in_background: true },
+            }),
+          ],
+        ],
+        3,
+      ),
+    );
+    const summary = sessionSummary(rows());
+    expect(summary.backgroundTasks[0]).toMatchObject({
+      command: "npm run dev",
+      description: "Preview",
+      state: "running",
+    });
+    daemon.push(
+      record(
+        [
+          [
+            "in",
+            "tool_call_update",
+            update({
+              sessionUpdate: "tool_call_update",
+              toolCallId: "live",
+              content: [{ type: "content", content: { type: "text", text: "output" } }],
+            }),
+          ],
+        ],
+        4,
+      ),
+    );
+    expect(sessionSummary(rows())).toBe(summary);
+  } finally {
+    client.close();
+  }
+});

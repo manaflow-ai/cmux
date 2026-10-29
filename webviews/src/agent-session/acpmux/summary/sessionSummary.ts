@@ -4,7 +4,7 @@
 import { turnFiles, type TurnFile } from "../diff";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { isSubagentGroup } from "../subagents/subagentRows";
-import { mcpCall, mcpPlainName } from "../conversation/mcpCalls";
+import { mcpCall, mcpIsObservational, mcpPlainName } from "../conversation/mcpCalls";
 import { editedPaths } from "../toolPaths";
 import {
   pullRequestSourceCommand,
@@ -165,7 +165,8 @@ function sources(rows: readonly AcpmuxRow[], pullRequests: readonly SummaryPullR
         const canonical = `https://github.com/${owner}/${repo}/${path}/${number}`;
         const identity = `${owner}/${repo}`.toLowerCase() + `#${number}`;
         const known =
-          knownPullRequests.get(canonical) ?? knownPullRequests.get(`https://github.com/${owner}/${repo}/pull/${number}`);
+          knownPullRequests.get(canonical) ??
+          knownPullRequests.get(`https://github.com/${owner}/${repo}/pull/${number}`);
         if (known?.changed || known?.opened || (path === "issues" && changedIdentities.has(identity))) continue;
         const pr = path === "pull" || known?.kind === "pullRequest";
         add(
@@ -189,6 +190,8 @@ function sources(rows: readonly AcpmuxRow[], pullRequests: readonly SummaryPullR
       if (!tool.tool) continue;
       const item = tool.tool;
       if (item.status !== "completed" || (item.exitCode ?? 0) !== 0) continue;
+      const call = mcpCall(item);
+      if (call && !mcpIsObservational(call)) continue;
       const inputFields = input(item);
       const inputCommandValue = inputFields.command;
       const inputCommandArray = Array.isArray(inputCommandValue);
@@ -200,18 +203,20 @@ function sources(rows: readonly AcpmuxRow[], pullRequests: readonly SummaryPullR
               .map((part) => (/\s/.test(part) ? JSON.stringify(part) : part))
               .join(" ")
           : undefined);
-      const command = item.command ? pullRequestSourceCommand(item.command) : inputCommandArray ? "" : inputCommand ?? "";
-      const title =
-        item.command ? pullRequestSourceCommand(item.command) : inputCommandArray ? "" : inputCommand ? pullRequestSourceCommand(inputCommand) : item.title;
+      const command = item.command
+        ? pullRequestSourceCommand(item.command)
+        : inputCommandArray
+          ? ""
+          : pullRequestSourceCommand(inputCommand ?? "");
+      const title = item.command || inputCommand ? command : item.title;
       // When raw input carries a shell command, scanning the JSON would reintroduce URLs from
       // --body/--body-file payloads that the command sanitizer intentionally removed.
-      const inputText = inputCommand ? "" : item.inputSummary ?? "";
+      const inputText = inputCommand ? "" : (item.inputSummary ?? "");
       const text = `${title} ${command} ${inputText} ${item.output ?? ""}`;
       const order = rowIndex + toolIndex / 1000;
       addUrls(text, order);
       if (item.kind === "fetch" && !/https?:\/\//.test(text)) add({ label: item.title }, order);
       if (item.kind === "read") for (const path of editedPaths(item)) add({ label: path, kind: "file" }, order);
-      const call = mcpCall(item);
       if (call) add({ label: mcpPlainName(call), kind: "mcp" }, order);
     }
   }
@@ -227,15 +232,7 @@ function sources(rows: readonly AcpmuxRow[], pullRequests: readonly SummaryPullR
           label: pr.title ?? (ambiguous ? `${pr.repo}#${pr.number}` : `${pr.repo} #${pr.number}`),
           kind: ambiguous ? "url" : (pr.kind ?? "pullRequest"),
         },
-        (() => {
-          const order = pr.firstTouched ?? pr.touched ?? Number.MAX_SAFE_INTEGER;
-          const sourceKeyValue = sourceKey({
-            url: ambiguous ? `https://github.com/${pr.repo}/issues/${pr.number}` : pr.url,
-            label: pr.title ?? (ambiguous ? `${pr.repo}#${pr.number}` : `${pr.repo} #${pr.number}`),
-            kind: ambiguous ? "url" : (pr.kind ?? "pullRequest"),
-          });
-          return order;
-        })(),
+        pr.firstTouched ?? pr.touched ?? Number.MAX_SAFE_INTEGER,
       );
     }
   return [...seen.values()].sort((a, b) => a.order - b.order || a.sequence - b.sequence).map(({ source }) => source);

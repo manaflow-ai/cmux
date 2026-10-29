@@ -18,6 +18,7 @@
 // Changes lists the most recent first. A row's findings are kept per row object, so a transcript
 // that grows re-reads only its new and changed rows.
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
+import { shellCommands, isPullRequestCommand } from "./shellCommands";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
 
@@ -53,8 +54,6 @@ const ISSUE_CALL = /\bgh\s+issue\s+([a-z][\w-]*)(?=\s|$)([^\n;&|]*)/g;
 /// Writes sent through glaeda's broker are mutations even though they do not use `gh pr`.
 const BROKER_CALL =
   /\bglaeda-gh\s+(?:[a-z][\w-]*\s+)*(pr-(?:comment|edit|close|reopen|merge|review|approve|request-changes|update-branch)|issue-(?:comment|edit|close|reopen|create|lock|unlock|delete|pin|unpin|transfer))(?=\s|$)([^\n;&|]*)/g;
-const EXECUTED_PR_COMMAND =
-  /^\s*(?:(?:[A-Za-z_]\w*=\S*|env|command|nohup|time)\s+|timeout(?:\s+(?:--\S+|-\S+|\S+))*\s+)*(?:[\w./~-]*\/)?(?:gh|glaeda-gh|gh-merge-green)(?:\s|$)/;
 /// One call that acts on a single pull request: a `gh pr` verb, `gh-merge-green`, or `glaeda-gh`
 /// with a `pr` argument (`wait pr`, `status pr`, `checks pr`), up to the end of the call.
 const CALL =
@@ -68,7 +67,8 @@ const NAMED_REF = /(?<![\w/.#-])([\w][\w.-]*)( ?)#(\d+)\b/g;
 /// A bare `#N` in a reply.
 const BARE_REF = /(?<![\w/.#&-])#(\d+)\b/g;
 const QUOTED = /"(?:[^"\\]|\\.)*"|'[^']*'/g;
-const BODY_VALUE = /(?:--body(?:-file)?|-b)(?:=|\s+)(?:"(?:[^"\\]|\\.)*"|'(?:[^']|\\'\\')*'|\S+)/g;
+const SHELL_WORD = String.raw`(?:\\[\s\S]|"(?:[^"\\]|\\.)*"|'[^']*'|[^\s\\;&|()"'])+`;
+const PAYLOAD_VALUE = new RegExp(String.raw`(?<!\S)(?:--body(?:-file)?|--title|-b|-t)(?:=|\s+)(${SHELL_WORD})`, "g");
 /// A heredoc's body (`<<EOF` … `EOF`, `<<'EOF'`, `<<-EOF`), up to its terminator line; the rest
 /// of the opening line stays (it is often the command that reads it). Never `<<<` or a shift.
 const HEREDOC = /(?<!<)<<-?[ \t]*(['"]?)([A-Za-z_]\w*)\1([^\n]*)\n[\s\S]*?\n[ \t]*\2(?=[ \t]*(?:\n|$))/g;
@@ -114,22 +114,16 @@ const MUTATING = new Set("merge close edit comment review ready reopen lock unlo
 const succeeded = (tool: Tool) => tool.status === "completed" && (tool.exitCode ?? 0) === 0;
 const urlOf = (repo: string, number: number) => `https://github.com/${repo}/pull/${number}`;
 const issueUrlOf = (repo: string, number: number) => `https://github.com/${repo}/issues/${number}`;
-/// A command without the text it carries as data.
-const bare = (command: string) =>
-  command
-    .replace(HEREDOC, "$3\n")
-    .replace(QUOTED, " ")
-    .replace(/(^|[ \t;&|])#.*$/gm, "$1");
-
 /// Keep a quoted GitHub target available to call parsing, while dropping quoted bodies and titles.
 const quotedTarget = (value: string) =>
   new RegExp(`^${PR_URL.source}(?:[/?#]\\S*)?$`).test(value) ||
   new RegExp(`^${ISSUE_URL.source}(?:[/?#]\\S*)?$`).test(value) ||
   OWNER_REPO_REF.test(value) ||
-  /^#\d+$/.test(value);
+  /^#?\d+$/.test(value) ||
+  /^[\w.-]+\/[\w.-]+$/.test(value);
 const callText = (command: string) =>
   command
-    .replace(BODY_VALUE, " ")
+    .replace(PAYLOAD_VALUE, " ")
     .replace(HEREDOC, "$3\n")
     .replace(QUOTED, (quoted) => {
       const value = quoted.slice(1, -1);
@@ -137,9 +131,8 @@ const callText = (command: string) =>
     })
     .replace(/(^|[ \t;&|])#.*$/gm, "$1");
 
-/// Command text suitable for Sources scanning: payloads such as PR comment bodies are data, not
-/// activity or external references.
-export const pullRequestSourceCommand = (command: string): string => callText(command);
+/// Both consumers use the same executed branches and exclude quoted payloads.
+export const pullRequestSourceCommand = (command: string): string => shellCommands(callText(command)).join("\n");
 
 /// Only explicit JSON title fields or a `.title` query are title evidence.
 function outputTitle(tool: Tool): string | undefined {
@@ -202,112 +195,107 @@ function toolFindings(tool: Tool): Finding[] {
   if (!succeeded(tool)) return [];
   const command = tool.command ?? "";
   // Strip body/title payloads before URL and shorthand scans; those are data, not activity.
-  const plain = callText(command);
-  const scanPlain = plain
-    .replace(/\bif\s+false\b[\s\S]*?\bfi\b/g, "")
-    .replace(/\btrue\s*\|\|\s*([^;\n]+)/g, "true")
-    .replace(/\bfalse\s*\|\|\s*/g, "")
-    .replace(/\bfalse\s*&&\s*([^;\n]+)/g, "false");
-  const parts = callText(command)
-    .replace(/\btrue\s*\|\|\s*([^;\n]+)/g, "true")
-    .replace(/\bfalse\s*\|\|\s*/g, "")
-    .replace(/\btrue\s*&&\s*/g, "")
-    .replace(/\bfalse\s*&&\s*([^;\n]+)/g, "false")
-    .replace(/(?<!\\)\$\(([^()]*)\)/g, "\n$1\n")
-    .split(/[\n;&|]+/);
-  let skipFalseBranch = false;
-  const calls = parts
-    .flatMap((part) => {
-      const trimmed = part.trim();
-      if (/^(?:if|elif)\s+false\s*$/.test(trimmed)) {
-        skipFalseBranch = true;
-        return [];
-      }
-      if (/^(?:else|elif)\b/.test(trimmed)) skipFalseBranch = false;
-      if (/^fi\b/.test(trimmed)) {
-        skipFalseBranch = false;
-        return [];
-      }
-      if (skipFalseBranch) return [];
-      const normalized = part
-        .replace(/^\s*[({]\s*/, "")
-        .replace(/\s*[)}]\s*$/, "")
-        .replace(/^\s*(?:(?:if|then|do|else|elif)\s+)+/, "")
-        .replace(/^\s*!\s*/, "! ");
-      return EXECUTED_PR_COMMAND.test(normalized) && !/(?:^|\s)(?:--help|-h)(?=\s|$)/.test(normalized)
-        ? [normalized]
-        : [];
-    })
-    .join("\n");
+  const scanPlain = pullRequestSourceCommand(command);
+  const calls = scanPlain
+    .split("\n")
+    .filter((part) => isPullRequestCommand(part) && !/(?:^|\s)(?:--help|-h)(?=\s|$)/.test(part));
   const found: Finding[] = [];
-  if (CREATE.test(calls)) {
-    const title = TITLE.exec(command);
+  const createCount = calls.filter((call) => CREATE.test(call)).length;
+  if (createCount > 0) {
+    const title = createCount === 1 ? TITLE.exec(command) : null;
     const text = title ? (title[1] ?? title[2] ?? title[3])?.replace(/\\(.)/g, "$1") : undefined;
-    for (const match of (tool.output ?? "").matchAll(PR_URL))
-      found.push({
-        how: "opened",
-        repo: match[1]!,
-        number: Number(match[2]),
-        ...(text ? { title: text } : {}),
-      });
+    // Shell output has no per-command boundary. Exclude explicit targets of other
+    // calls, then require one distinct remaining URL per create. Ambiguous output
+    // stays unclassified instead of attributing every viewed PR to a create.
+    const otherTargets = calls.flatMap((call) =>
+      CREATE.test(call) ? [] : [...call.matchAll(CALL)].flatMap((match) => callTarget(match[3] ?? "") ?? []),
+    );
+    const candidates = new Map<string, RegExpMatchArray>();
+    for (const match of (tool.output ?? "").matchAll(PR_URL)) {
+      if (
+        otherTargets.some(
+          (target) =>
+            target.number === Number(match[2]) &&
+            (target.ref.kind !== "full" || target.ref.repo.toLowerCase() === match[1]!.toLowerCase()),
+        )
+      )
+        continue;
+      candidates.set(`${match[1]!.toLowerCase()}#${match[2]}`, match);
+    }
+    if (candidates.size === createCount)
+      for (const match of candidates.values())
+        found.push({
+          how: "opened",
+          repo: match[1]!,
+          number: Number(match[2]),
+          ...(text ? { title: text } : {}),
+        });
     // Continue scanning the same successful shell for later commands separated by &&/;.
   }
-  let issueCall = false;
-  for (const match of calls.matchAll(ISSUE_CALL)) {
-    issueCall = true;
-    const action = match[1]!;
-    const target = callTarget(match[2] ?? "");
-    const targets = target
-      ? [target]
-      : action === "create"
-        ? [...(tool.output ?? "").matchAll(ISSUE_URL)].map((match) => ({
-            ref: { kind: "full" as const, repo: match[1]! },
-            number: Number(match[2]),
-          }))
-        : [];
-    for (const target of targets)
+  // Preserve execution order across gh and broker lifecycle commands.
+  for (const call of calls) {
+    for (const match of call.matchAll(ISSUE_CALL)) {
+      const action = match[1]!;
+      const target = callTarget(match[2] ?? "");
+      const targets = target
+        ? [target]
+        : action === "create"
+          ? [...(tool.output ?? "").matchAll(ISSUE_URL)].map((match) => ({
+              ref: { kind: "full" as const, repo: match[1]! },
+              number: Number(match[2]),
+            }))
+          : [];
+      for (const target of targets)
+        found.push({
+          how: ISSUE_MUTATING.has(action) ? "touched" : "mentioned",
+          ...target,
+          ...(ISSUE_MUTATING.has(action) ? { changed: true } : {}),
+          kind: "issue",
+          title: outputTitle(tool),
+        });
+    }
+    for (const match of call.matchAll(BROKER_CALL)) {
+      const target = callTarget(match[2] ?? "");
+      if (!target) continue;
+      const issue = match[1]!.startsWith("issue-");
       found.push({
-        how: ISSUE_MUTATING.has(action) ? "touched" : "mentioned",
-        ...target,
-        ...(ISSUE_MUTATING.has(action) ? { changed: true } : {}),
-        kind: "issue",
-        title: outputTitle(tool),
+        how: "touched",
+        ref: target.ref,
+        number: target.number,
+        changed: true,
+        kind: issue ? "issue" : "pullRequest",
+        ...(outputTitle(tool) ? { title: outputTitle(tool) } : {}),
       });
-  }
-  for (const match of calls.matchAll(BROKER_CALL)) {
-    const target = callTarget(match[2] ?? "");
-    if (!target) continue;
-    const issue = match[1]!.startsWith("issue-");
-    issueCall ||= issue;
-    found.push({
-      how: "touched",
-      ref: target.ref,
-      number: target.number,
-      changed: true,
-      kind: issue ? "issue" : "pullRequest",
-      ...(outputTitle(tool) ? { title: outputTitle(tool) } : {}),
-    });
-    const state = !issue && SETTLES[match[1]!.slice(3)];
-    if (state) found.push({ how: "settle", ...target, state, at: tool.endedAt ?? tool.startedAt });
-  }
-  for (const match of calls.matchAll(CALL)) {
-    const action = match[1] ?? match[2];
-    const target = callTarget(match[3] ?? "");
-    if (!target) continue;
-    const titleMatch = action === "edit" ? TITLE.exec(tool.command ?? "") : undefined;
-    const title =
-      outputTitle(tool) ??
-      (titleMatch ? (titleMatch[1] ?? titleMatch[2] ?? titleMatch[3])?.replace(/\\(.)/g, "$1") : undefined);
-    found.push({
-      how: "touched",
-      ref: target.ref,
-      number: target.number,
-      ...(match[0].startsWith("gh-merge-green") || (action && MUTATING.has(action)) ? { changed: true } : {}),
-      ...(title ? { title } : {}),
-    });
-    const state = match[0].startsWith("gh-merge-green") ? "merged" : SETTLES[action ?? ""];
-    if (state)
-      found.push({ how: "settle", ref: target.ref, number: target.number, state, at: tool.endedAt ?? tool.startedAt });
+      const state = !issue && SETTLES[match[1]!.slice(3)];
+      if (state) found.push({ how: "settle", ...target, state, at: tool.endedAt ?? tool.startedAt });
+    }
+    for (const match of call.matchAll(CALL)) {
+      const action = match[1] ?? match[2];
+      const target = callTarget(match[3] ?? "");
+      if (!target) continue;
+      const titleMatch = action === "edit" ? TITLE.exec(command) : undefined;
+      const title = (action === "edit" && calls.length === 1 ? titleMatch : undefined)
+        ? (titleMatch![1] ?? titleMatch![2] ?? titleMatch![3])?.replace(/\\(.)/g, "$1")
+        : action === "view" && calls.length === 1
+          ? outputTitle(tool)
+          : undefined;
+      found.push({
+        how: "touched",
+        ref: target.ref,
+        number: target.number,
+        ...(match[0].startsWith("gh-merge-green") || (action && MUTATING.has(action)) ? { changed: true } : {}),
+        ...(title ? { title } : {}),
+      });
+      const state = match[0].startsWith("gh-merge-green") ? "merged" : SETTLES[action ?? ""];
+      if (state)
+        found.push({
+          how: "settle",
+          ref: target.ref,
+          number: target.number,
+          state,
+          at: tool.endedAt ?? tool.startedAt,
+        });
+    }
   }
   for (const match of scanPlain.matchAll(PR_URL))
     found.push({ how: "touched", ref: { kind: "full", repo: match[1]! }, number: Number(match[2]) });

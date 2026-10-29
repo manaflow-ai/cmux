@@ -529,7 +529,9 @@ test("shell substitutions and conditions retain executed mutations", () => {
     const rows = toolsRows(shell(command, "https://github.com/acme/app/pull/41"));
     expect(transcriptPullRequests(rows)[0]?.changed).toBe(true);
   }
-  expect(transcriptPullRequests(toolsRows(shell("if false; then gh pr merge 45 -R acme/app --squash; fi")))).toEqual([]);
+  expect(transcriptPullRequests(toolsRows(shell("if false; then gh pr merge 45 -R acme/app --squash; fi")))).toEqual(
+    [],
+  );
   expect(transcriptPullRequests(toolsRows(shell("( gh pr merge 46 -R acme/app --squash )")))).toMatchObject([
     { number: 46, changed: true, state: "merged" },
   ]);
@@ -546,6 +548,91 @@ test("short-circuit and negated shell forms reflect executed mutations", () => {
     number: 44,
     changed: true,
   });
+  expect(
+    transcriptPullRequests(toolsRows(shell("false && echo no || gh pr merge 48 -R acme/app --squash")))[0],
+  ).toMatchObject({ number: 48, changed: true, state: "merged" });
+  expect(
+    transcriptPullRequests(
+      toolsRows(
+        shell(
+          "if false; then echo https://github.com/acme/app/pull/49; else echo https://github.com/acme/app/pull/50; fi",
+        ),
+      ),
+    ),
+  ).toMatchObject([{ number: 50, kind: "pullRequest" }]);
+  expect(
+    sessionSummary(
+      toolsRows(
+        shell(
+          "if false; then echo https://github.com/acme/app/pull/49; else echo https://github.com/acme/app/pull/50; fi",
+        ),
+      ),
+      "acme/app",
+    ).sources,
+  ).toEqual([{ url: "https://github.com/acme/app/pull/50", label: "acme/app #50", kind: "pullRequest" }]);
+  expect(
+    transcriptPullRequests(
+      toolsRows(shell("if test -f missing; then true; fi || gh pr merge 51 -R acme/app --squash")),
+    ),
+  ).toEqual([]);
+});
+
+test("a create followed by a view only opens the created PR", () => {
+  const rows = toolsRows(
+    shell(
+      "gh pr create -R acme/app --title created && gh pr view 7 -R acme/app --json url --jq .url",
+      "https://github.com/acme/app/pull/8\nhttps://github.com/acme/app/pull/7\n",
+    ),
+  );
+  expect(transcriptPullRequests(rows)).toMatchObject([
+    { repo: "acme/app", number: 8, opened: true },
+    { repo: "acme/app", number: 7, opened: false },
+  ]);
+});
+
+test("a view followed by a create attributes the later output URL to the create", () => {
+  const rows = toolsRows(
+    shell(
+      "gh pr view 7 -R acme/app --json url --jq .url && gh pr create -R acme/app --title created",
+      "https://github.com/acme/app/pull/7\nhttps://github.com/acme/app/pull/8\n",
+    ),
+  );
+  expect(transcriptPullRequests(rows).sort((a, b) => a.number - b.number)).toMatchObject([
+    { repo: "acme/app", number: 7, opened: false },
+    { repo: "acme/app", number: 8, opened: true },
+  ]);
+});
+
+test("mutating MCP payloads are not Sources", () => {
+  const rows = [
+    activity(
+      [
+        tool("mcp__slack__send_message", "other", "completed", {
+          inputSummary: JSON.stringify({ message: "See https://example.com/payload" }),
+          output: "sent",
+          exitCode: 0,
+        }),
+      ],
+      1,
+    ),
+  ];
+  expect(sessionSummary(rows, "acme/app").sources).toEqual([]);
+});
+
+test("mutating MCP output URLs are not Sources", () => {
+  const rows = [
+    activity(
+      [
+        tool("mcp__slack__send_message", "other", "completed", {
+          inputSummary: JSON.stringify({ message: "sent" }),
+          output: "permalink https://example.com/result",
+          exitCode: 0,
+        }),
+      ],
+      1,
+    ),
+  ];
+  expect(sessionSummary(rows, "acme/app").sources).toEqual([]);
 });
 
 test("issue commands do not hide unrelated references on the same shell line", () => {
@@ -557,13 +644,13 @@ test("issue commands do not hide unrelated references on the same shell line", (
 
 test("PR body payloads do not become separate activity", () => {
   const rows = toolsRows(shell("gh pr comment 41 -R acme/app --body 'see https://github.com/acme/other/pull/9'"));
-  expect(
-    transcriptPullRequests(rows),
-  ).toMatchObject([{ repo: "acme/app", number: 41, changed: true }]);
+  expect(transcriptPullRequests(rows)).toMatchObject([{ repo: "acme/app", number: 41, changed: true }]);
   expect(sessionSummary(rows, "acme/app").sources).toEqual([]);
   const argv = toolsRows(
     tool("execute", "execute", "completed", {
-      inputSummary: JSON.stringify({ command: ["gh", "pr", "comment", "41", "-R", "acme/app", "--body", "see https://github.com/acme/other/pull/9"] }),
+      inputSummary: JSON.stringify({
+        command: ["gh", "pr", "comment", "41", "-R", "acme/app", "--body", "see https://github.com/acme/other/pull/9"],
+      }),
     }),
   );
   expect(sessionSummary(argv, "acme/app").sources).toEqual([]);
@@ -608,5 +695,237 @@ test("mutated PR URLs with fragments stay out of Sources", () => {
 test("a PR mutation target with a comment fragment is marked changed", () => {
   const rows = [activity([shell("gh pr comment https://github.com/acme/app/pull/41#issuecomment-123 --body x")], 1)];
   expect(transcriptPullRequests(rows)).toMatchObject([{ number: 41, changed: true, kind: "pullRequest" }]);
+  expect(sessionSummary(rows, "acme/app").sources).toEqual([]);
+});
+
+const shellRegressionCases: [string, string, number[]][] = [
+  ["POSIX left associative and-or", "true || gh pr view 1 -R acme/app && gh pr merge 2 -R acme/app", [2]],
+  ["all unknown arms succeed", "if test -f x; then true; else true; fi || gh pr merge 41 -R acme/app", []],
+  ["all unknown arms fail", "if test -f x; then false; else false; fi && gh pr merge 41 -R acme/app; true", []],
+  [
+    "earlier unknown arm can fail",
+    "if test -f x; then false; elif true; then true; fi || gh pr merge 41 -R acme/app",
+    [41],
+  ],
+  ["unknown and fallback", "test -f missing && true || gh pr merge 41 -R acme/app --squash", [41]],
+  ["unknown or continuation", "test -f exists || false && gh pr merge 41 -R acme/app", [41]],
+  ["unknown and false is false", "test -f exists && false && gh pr merge 41 -R acme/app; true", []],
+  ["unknown or true is true", "test -f missing || true || gh pr merge 41 -R acme/app", []],
+  ["unknown conditional success", "if test -f exists; then true; else false; fi && gh pr merge 41 -R acme/app", [41]],
+  ["unknown conditional failure", "if test -f exists; then false; else true; fi || gh pr merge 41 -R acme/app", [41]],
+  ["negated pipeline skips", "! true | true && gh pr merge 41 -R acme/app; true", []],
+  ["negated pipeline fallback", "! true | true || gh pr merge 41 -R acme/app", [41]],
+  ["skipped substitution", "false && echo $(gh pr merge 41 -R acme/app); true", []],
+  ["active substitution", "echo $(gh pr merge 41 -R acme/app)", [41]],
+  ["and continuation", "false &&\ngh pr merge 41 -R acme/app; true", []],
+  ["or continuation", "true ||\ngh pr merge 41 -R acme/app", []],
+  ["skipped pipeline", "true || echo no | gh pr merge 41 -R acme/app", []],
+  ["active pipeline", "false || echo no | gh pr merge 41 -R acme/app", [41]],
+  ["unmatched if succeeds", "if false; then true; fi || gh pr merge 41 -R acme/app", []],
+  ["unmatched if continuation", "if false; then true; fi && gh pr merge 41 -R acme/app", [41]],
+  ["conditional merge", "if true; then gh pr merge 41 -R acme/app --squash; fi", [41]],
+  ["subshell merge", "(gh pr merge 41 -R acme/app --squash)", [41]],
+  [
+    "payload preserves closing parenthesis",
+    "false && (gh pr edit 41 -R acme/app --title x); gh pr merge 42 -R acme/app",
+    [42],
+  ],
+  [
+    "concatenated quoted payload stays one word",
+    'gh pr edit 41 -R acme/app --title prefix"x; gh pr close 42 -R acme/app;"',
+    [41],
+  ],
+  ["brace group merge", "true && { gh pr merge 41 -R acme/app; }", [41]],
+  ["brace argument is not a group", "echo {gh pr merge 41 -R acme/app}", []],
+  ["brace-prefixed argument stays literal", "{gh pr merge 41 -R acme/app; true", []],
+  ["attached brace is not a group", "{gh pr merge 41 -R acme/app}; true", []],
+  ["fallback after skipped and", "false && echo no || gh pr merge 41 -R acme/app", [41]],
+  ["false and chain", "false && echo skipped && gh pr merge 41 -R acme/app; true", []],
+  ["false and true fallback", "false && true || gh pr merge 41 -R acme/app", [41]],
+  ["negated true", "! true && gh pr merge 41 -R acme/app; true", []],
+  ["negated false", "! false || gh pr merge 41 -R acme/app", []],
+  ["independent newline", "true || gh pr close 41 -R acme/app\ngh pr merge 42 -R acme/app", [42]],
+  ["independent background", "false && echo skipped & gh pr merge 42 -R acme/app", [42]],
+  ["multiple then commands", "if true; then gh pr merge 41 -R acme/app; gh pr close 42 -R acme/app; fi", [41, 42]],
+  [
+    "false elif",
+    "if false; then true; elif false; then gh pr merge 41 -R acme/app; else gh pr view 42 -R acme/app; fi",
+    [42],
+  ],
+  [
+    "true elif",
+    "if false; then true; elif true; then gh pr merge 41 -R acme/app; else gh pr close 42 -R acme/app; fi",
+    [41],
+  ],
+  [
+    "newline elif",
+    "if false\nthen\ntrue\nelif true\nthen\ngh pr merge 41 -R acme/app\nelse\ngh pr close 42 -R acme/app\nfi",
+    [41],
+  ],
+  [
+    "later command condition",
+    "if false; then true; elif false; then true; elif gh pr merge 43 -R acme/app; then true; fi",
+    [43],
+  ],
+  [
+    "nested false",
+    "if true; then if false; then gh pr merge 41 -R acme/app; else gh pr view 42 -R acme/app; fi; fi",
+    [42],
+  ],
+  ["compound false condition", "if true && false; then gh pr merge 41 -R acme/app; fi", []],
+  ["timeout short signal", "timeout -s TERM 60 gh pr merge 41 -R acme/app", [41]],
+  ["timeout preserve status", "timeout -p 60 gh pr merge 41 -R acme/app", [41]],
+  ["timeout path", "/usr/bin/timeout 60 gh pr merge 41 -R acme/app", [41]],
+  ["timeout duration", "timeout 60s gh pr merge 41 -R acme/app", [41]],
+  ["timeout signal", "timeout --signal=TERM 60 gh pr merge 41 -R acme/app", [41]],
+  ["timeout split signal", "timeout --signal TERM 60 gh pr merge 41 -R acme/app", [41]],
+  ["timeout echo payload", "/usr/bin/timeout 60 echo gh pr merge 41 -R acme/app", []],
+];
+for (const [name, command, numbers] of shellRegressionCases) {
+  test(`shell execution regression: ${name}`, () => {
+    const rows = toolsRows(shell(command));
+    expect(transcriptPullRequests(rows).map((pr) => pr.number)).toEqual(numbers);
+  });
+}
+for (const separator of ["; ", "\n"]) {
+  test(`Sources and Changes share conditional branches with ${JSON.stringify(separator)}`, () => {
+    const command = [
+      "if false",
+      "then echo https://github.com/acme/app/pull/41",
+      "elif true",
+      "then echo https://github.com/acme/app/pull/42",
+      "else echo https://github.com/acme/app/pull/43",
+      "fi",
+    ].join(separator);
+    const rows = toolsRows(shell(command));
+    expect(transcriptPullRequests(rows).map((pr) => pr.number)).toEqual([42]);
+    expect(sessionSummary(rows, "acme/app").sources.map((source) => source.url)).toEqual([
+      "https://github.com/acme/app/pull/42",
+    ]);
+  });
+}
+test("timeout arguments cannot trigger exponential command matching", () => {
+  const started = performance.now();
+  expect(transcriptPullRequests(toolsRows(shell(`timeout 60 echo ${"--flag ".repeat(10000)}`)))).toEqual([]);
+  expect(transcriptPullRequests(toolsRows(shell("timeout ".repeat(1000))))).toEqual([]);
+  expect(performance.now() - started).toBeLessThan(1000);
+});
+
+test("raw shell input uses the same executed Sources branches", () => {
+  const rows = toolsRows(
+    tool("execute", "execute", "completed", {
+      inputSummary: JSON.stringify({
+        command: "if false; then echo https://example.com/skipped; else echo https://example.com/read; fi",
+      }),
+    }),
+  );
+  expect(sessionSummary(rows, "acme/app").sources.map((source) => source.url)).toEqual(["https://example.com/read"]);
+});
+
+for (const command of [
+  "false && echo $(echo https://github.com/acme/app/pull/41); true",
+  "true || echo no | echo https://github.com/acme/app/pull/41",
+]) {
+  test(`Sources exclude skipped shell expansions: ${command}`, () => {
+    expect(sessionSummary(toolsRows(shell(command)), "acme/app").sources).toEqual([]);
+  });
+}
+
+for (const [command, state] of [
+  ["gh pr close 41 -R acme/app && glaeda-gh post pr-reopen acme/app#41", "open"],
+  ["glaeda-gh post pr-reopen acme/app#41 && gh pr close 41 -R acme/app", "closed"],
+  [
+    "glaeda-gh post pr-close acme/app#41 && gh pr reopen 41 -R acme/app && glaeda-gh post pr-merge acme/app#41",
+    "merged",
+  ],
+] as const) {
+  test(`mixed lifecycle commands preserve execution order: ${command}`, () => {
+    expect(transcriptPullRequests(toolsRows(shell(command)))).toMatchObject([{ number: 41, state, changed: true }]);
+  });
+}
+
+for (const command of [
+  'gh pr merge 41 -R "acme/other"',
+  "gh pr merge '41' --repo='acme/other'",
+  "time -p gh pr merge 41 -R acme/other",
+  "env -i gh pr merge 41 -R acme/other",
+  "env --ignore-environment --unset TOKEN command -p gh pr merge 41 -R acme/other",
+  "env -u TOKEN -C /tmp gh pr merge 41 -R acme/other",
+]) {
+  test(`quoted targets and wrapper options retain mutation identity: ${command}`, () => {
+    expect(transcriptPullRequests(toolsRows(shell(command)), { folder: "acme/app" })).toMatchObject([
+      { repo: "acme/other", number: 41, changed: true, state: "merged" },
+    ]);
+  });
+}
+test("broker mutation targets remain actionable without live status", () => {
+  const [pr] = transcriptPullRequests(toolsRows(shell("glaeda-gh post pr-merge acme/app#41")));
+  expect(pr).toMatchObject({ repo: "acme/app", number: 41, changed: true, state: "merged" });
+  expect(pr?.mentioned).toBeUndefined();
+});
+
+test("create attribution excludes read targets on both sides and repeated output", () => {
+  const rows = toolsRows(
+    shell(
+      "gh pr view 7 -R acme/app --json url && gh pr create -R acme/app && gh pr view 9 -R acme/app --json url",
+      "https://github.com/acme/app/pull/7\nhttps://github.com/acme/app/pull/8\nhttps://github.com/acme/app/pull/8\nhttps://github.com/acme/app/pull/9",
+    ),
+  );
+  expect(sessionPullRequests(rows).map((pr) => pr.number)).toEqual([8]);
+});
+test("ambiguous create output never invents opened PRs", () => {
+  const rows = toolsRows(
+    shell(
+      "gh pr create -R acme/app && cat report.txt",
+      "https://github.com/acme/app/pull/8\nhttps://github.com/acme/app/pull/9",
+    ),
+  );
+  expect(sessionPullRequests(rows)).toEqual([]);
+});
+test("brace group create attributes its output", () => {
+  const rows = toolsRows(
+    shell("true && { gh pr create -R acme/app --title created; }", "https://github.com/acme/app/pull/8\n"),
+  );
+  expect(sessionPullRequests(rows)).toMatchObject([{ repo: "acme/app", number: 8, opened: true, changed: true }]);
+});
+test("payload option requires a shell word boundary", () => {
+  const rows = toolsRows(shell("echo x--body https://github.com/acme/app/pull/9"));
+  expect(sessionSummary(rows, "acme/app").sources.map((source) => source.url)).toEqual([
+    "https://github.com/acme/app/pull/9",
+  ]);
+});
+
+test("escaped payload separators stay inside one shell command", () => {
+  const rows = [activity([shell("gh pr edit 41 -R acme/app --title x\\; gh pr close 42 -R acme/app")], 1)];
+  expect(transcriptPullRequests(rows).map((pr) => pr.number)).toEqual([41]);
+});
+
+test("title payload stripping preserves separators and later mutations", () => {
+  const rows = [activity([shell("gh pr edit 41 -R acme/app --title x; gh pr close 42 -R acme/app")], 1)];
+  expect(transcriptPullRequests(rows)).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ repo: "acme/app", number: 41, changed: true }),
+      expect.objectContaining({ repo: "acme/app", number: 42, state: "closed", changed: true }),
+    ]),
+  );
+});
+
+test("title payload URLs are data, not pull request activity or Sources", () => {
+  for (const title of [
+    '--title "https://github.com/acme/app/pull/99"',
+    "--title='https://github.com/acme/app/pull/99'",
+    "-t https://github.com/acme/app/pull/99",
+  ]) {
+    const rows = [activity([shell(`gh pr create -R acme/app ${title}`, "https://github.com/acme/app/pull/100\n")], 1)];
+    expect(refs(rows)).toEqual(["acme/app#100"]);
+    expect(refs(rows)).not.toContain("acme/app#99");
+    expect(sessionSummary(rows).sources.some((source) => source.url?.includes("/99"))).toBe(false);
+  }
+});
+test("escaped whitespace keeps the whole title payload out of Sources", () => {
+  const rows = toolsRows(
+    shell(String.raw`gh pr edit 41 -R acme/app --title prefix\ https://github.com/acme/app/pull/99`),
+  );
+  expect(transcriptPullRequests(rows).map((pr) => pr.number)).toEqual([41]);
   expect(sessionSummary(rows, "acme/app").sources).toEqual([]);
 });

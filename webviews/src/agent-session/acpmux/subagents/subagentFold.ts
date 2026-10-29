@@ -86,13 +86,18 @@ export type Subagent = {
   /// xhigh". It has no `prompt`: Restart and Stop are a Claude subagent's.
   harness?: string;
   model?: string;
+  effort?: string;
   command?: string;
   session?: string;
   host?: string;
   result?: string;
+  lastMessage?: string;
   /// The acpmux sub-session it is (`acpmux run --parent`), by id: Open chat opens it, and its
   /// records (``reduceChild``) say its state and reply.
   child?: string;
+  /// The acpmux session that started this sub-session. This is session lineage, not pane nesting;
+  /// direct children keep `parent: null` so retry and automatic pane opening still apply.
+  startedBySession?: string;
   /// acpmux's retry while one waits, whether acpmux can retry it, and the retry it gave up on
   /// (retryState.ts).
   retry?: RetryState;
@@ -138,6 +143,7 @@ export class SubagentFold {
   private readonly viewRevisions = new Map<string, ViewRevisions>();
   private readonly settledViews = new Map<string, { state: string; name: string }>();
   private readonly viewTools = new Map<string, Map<string, boolean>>();
+  private readonly viewToolSummaries = new Map<string, Map<string, string>>();
   private readonly pendingReplySummaries = new Set<string>();
   /// The latest assistant message id per child, so a steer's new stream settles the prior reply.
   private readonly replyMessageIds = new Map<string, string>();
@@ -345,6 +351,7 @@ export class SubagentFold {
       command,
       ...(run.harness && { harness: run.harness }),
       ...(model && { model }),
+      ...(run.effort && { effort: run.effort }),
       ...(run.session && { session: run.session }),
       ...(run.host && { host: run.host }),
       ...(update.rawInput.run_in_background === true && { background: true }),
@@ -380,10 +387,22 @@ export class SubagentFold {
     if (record.event === "started") return this.startChild(record, child);
     const agent = record.event === "turn_ended" ? this.agents.get(this.children.get(child) ?? "") : undefined;
     if (!agent) return undefined;
+    // Each turn repeats the child's current model and effort. Keep the previous value when the
+    // producer omits a field, but honor an explicit null as acpmux's deletion signal.
+    for (const key of ["model", "effort"] as const) {
+      if (!Object.prototype.hasOwnProperty.call(record, key)) continue;
+      if (record[key] === null) delete agent[key];
+      else if (typeof record[key] === "string") agent[key] = record[key];
+    }
     // Each turn's end says the whole of it: a turn that said nothing has no reply, not the last one's.
     const said = text(record.result?.reply) ?? text(record.result?.error);
-    if (said) agent.result = said;
-    else delete agent.result;
+    if (said) {
+      agent.result = said;
+      agent.lastMessage = said;
+    } else {
+      delete agent.result;
+      delete agent.lastMessage;
+    }
     this.recorded.add(agent.id);
     agent.state = record.state === "done" ? "completed" : record.state === "cancelled" ? "cancelled" : "failed";
     agent.endedAt = event.at;
@@ -425,6 +444,8 @@ export class SubagentFold {
     };
     const agent = this.startRun(call, pending.first, run, pending.command);
     agent.child = child;
+    const startedBy = text(record.startedBy);
+    if (startedBy) agent.startedBySession = startedBy;
     if (!promptTitle(prompt)) agent.name = text(record.title) ?? agent.name;
     this.children.set(child, agent.id);
     if (pending.last) this.updateRun(agent, pending.last.event, pending.last.update);
@@ -444,7 +465,10 @@ export class SubagentFold {
       } else {
         const reply = runReply(output);
         // What acpmux recorded it said is its reply, not what the shell printed of it.
-        if (reply && !this.recorded.has(agent.id)) agent.result = reply;
+        if (reply && !this.recorded.has(agent.id)) {
+          agent.result = reply;
+          agent.lastMessage = reply;
+        }
         this.endRun(agent, status === "failed" ? "failed" : "completed", event.at);
         return;
       }
@@ -486,6 +510,7 @@ export class SubagentFold {
     const reply = runReply(withoutLineNumbers(outputOf(update)));
     if (reply && reply !== agent.result && !this.recorded.has(agent.id)) {
       agent.result = reply;
+      agent.lastMessage = reply;
       this.touch(agent);
     }
     // Read once the run ended, its file says nothing more.
@@ -572,7 +597,10 @@ export class SubagentFold {
     entries.push(entry);
     this.own.set(id, entries);
     const update = entry.update;
-    let streaming = update?.sessionUpdate === "agent_message_chunk" || update?.sessionUpdate === "agent_thought_chunk";
+    const state = this.agents.get(id)?.state;
+    const active = state === undefined || state === "running";
+    let streaming =
+      active && (update?.sessionUpdate === "agent_message_chunk" || update?.sessionUpdate === "agent_thought_chunk");
     let replySettled = false;
     const messageId = typeof update?.messageId === "string" ? update.messageId : undefined;
     const messageChanged =
@@ -580,7 +608,7 @@ export class SubagentFold {
       !!messageId &&
       this.replyMessageIds.has(id) &&
       this.replyMessageIds.get(id) !== messageId;
-    if (messageChanged) {
+    if (messageChanged && textFromContent(update?.content)) {
       this.pendingReplySummaries.delete(id);
       this.bumpViewRevision(id);
     }
@@ -598,6 +626,23 @@ export class SubagentFold {
       // the marker until a rendered tool or thought actually follows it.
       const hidden = hiddenCall(this.hiddenCalls, `${id}\u0000${call}`, update);
       const tools = this.viewTools.get(id) ?? new Map<string, boolean>();
+      const summaries = this.viewToolSummaries.get(id) ?? new Map<string, string>();
+      const summaryKey = JSON.stringify({
+        title: update.title,
+        name: update.name,
+        description: update.description ?? update.rawInput?.description,
+        command: update.command ?? update.rawInput?.command,
+        inputSummary: update.inputSummary,
+        kind: update.kind,
+        status: update.status,
+        exitCode: update.exitCode,
+        startedAt: update.startedAt,
+        background: update.background ?? update.rawInput?.run_in_background,
+        rawInput: update.rawInput,
+      });
+      const metadataChanged = summaries.has(call) && summaries.get(call) !== summaryKey;
+      summaries.set(call, summaryKey);
+      this.viewToolSummaries.set(id, summaries);
       // A page opened after a ToolSearch started has only its title-less result. Treat a result
       // with no renderable content as hidden too, matching direct transcript folding.
       const unknownHiddenResult =
@@ -615,6 +660,7 @@ export class SubagentFold {
       streaming = tools.has(call) && !settled && !replySettled;
       tools.set(call, settled ?? false);
       this.viewTools.set(id, tools);
+      if (metadataChanged) this.bumpViewRevision(id);
     }
     if (replySettled) streaming = false;
     if (!streaming) this.bumpViewRevision(id);
@@ -702,6 +748,9 @@ export class SubagentFold {
     }
     agent.tokens = count(change.tokens) ?? agent.tokens;
     agent.toolUses = count(change.toolUses) ?? agent.toolUses;
+    agent.model = text(change.model) ?? agent.model;
+    agent.effort = text(change.effort) ?? agent.effort;
+    agent.lastMessage = text(change.lastMessage) ?? agent.lastMessage;
     if (change.background === true) agent.background = true;
     const done = count(change.agents?.done);
     const started = count(change.agents?.started);
