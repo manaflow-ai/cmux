@@ -250,6 +250,9 @@
 /* A tab's chat that is not here (ChatUnavailableState.tsx): the hero's place and type, a muted line
    under it and one quiet button. */
 .acpmux-unavailable{gap:10px}
+/* Loading has no transcript under the dock. Keep the existing dock height/shrink rules, but let
+   its actual height reserve the stage's room (including a growing draft in a short pane). */
+.acpmux-main[data-dock="float"]:has(>.acpmux-stage>.acpmux-unavailable[data-unavailable="connecting"])>.acpmux-dock{position:relative;flex:none}
 /* Equal upper/lower tracks keep the spinner centered. Its 28px square needs 40px while rotating.
    Copy stretches to its track instead of overflowing an intrinsically sized, centered grid item. */
 .acpmux-unavailable[data-unavailable="connecting"]{display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr) 40px minmax(0,1fr);gap:8px;padding-bottom:0}
@@ -257,7 +260,7 @@
 .acpmux-unavailable[data-unavailable="connecting"] .acpmux-unavailable-spinner{grid-row:2;align-self:center;justify-self:center}
 .acpmux-unavailable-copy{display:contents}
 .acpmux-unavailable[data-unavailable="connecting"] .acpmux-unavailable-title{grid-row:1;min-height:0;max-width:none;overflow:auto;align-self:stretch;align-content:end}
-.acpmux-unavailable[data-unavailable="connecting"] .acpmux-unavailable-copy{grid-row:3;min-height:0;overflow:auto;align-self:stretch;display:flex;flex-direction:column;align-items:center;gap:10px}
+.acpmux-unavailable[data-unavailable="connecting"] .acpmux-unavailable-copy{grid-row:3;min-height:0;overflow:auto;align-self:stretch;display:flex;flex-direction:column;align-items:center;gap:var(--ds-space-2)}
 .acpmux-unavailable[data-unavailable="connecting"] .acpmux-unavailable-copy>*{flex-shrink:0}
 .acpmux-reconnecting{display:flex;align-items:center;justify-content:center;color:var(--agent-muted);font-size:var(--text-body);line-height:var(--text-body--line-height);letter-spacing:var(--text-body--letter-spacing)}
 .acpmux-reconnecting-spinner{flex:none;margin-right:6px}
