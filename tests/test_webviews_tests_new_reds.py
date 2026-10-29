@@ -363,6 +363,29 @@ class Workflow(unittest.TestCase):
         shard = text[text.index("  react-apps-check-shard:"):text.index("  react-doctor:")]
         self.assertIn("fetch-depth: ${{ github.event_name == 'pull_request' && '2' || '1' }}", shard)
 
+    def test_the_base_job_replays_on_the_merge_parent(self):
+        """pull_request.base.sha lags the merge commit's first parent once the base moves: #27045's
+        base job replayed on a base 12 commits older than the one its head shards merged onto, where
+        agent-pane-no-capsules still passed, and charged the change with the merge parent's own red."""
+        text = WORKFLOW.read_text(encoding="utf-8")
+        base = text[text.index("  react-apps-base-check:"):text.index("  runners:")]
+        self.assertNotIn("github.event.pull_request.base.sha", base)
+        checkout = base[base.index("      - name: Checkout the merge commit\n"):]
+        checkout = checkout[: checkout.index("\n      - name:", 10)]
+        self.assertIn("fetch-depth: 2", checkout)
+        self.assertNotIn("ref:", checkout)
+        detach = base.index("run: git checkout -q --detach HEAD^1")
+        self.assertLess(detach, base.index("run: scripts/cmux-next/private-bun.sh"))
+        self.assertLess(detach, base.index("bun install --frozen-lockfile"))
+
+    def test_head_shards_leave_room_for_a_slow_files_retry(self):
+        """#27045's shard 1: a 60 s retry used half the runner's 120 s default, so
+        attach-huge-files' 130 s retry was cut short and its contended first run stood."""
+        text = WORKFLOW.read_text(encoding="utf-8")
+        step = text[text.index("      - name: Test webviews\n"):]
+        step = step[: step.index("\n      - name:", 10)]
+        self.assertIn('CMUX_WEB_TEST_RETRY_BUDGET: "300"', step)
+
 
 if __name__ == "__main__":
     unittest.main()

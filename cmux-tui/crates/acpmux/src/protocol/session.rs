@@ -113,6 +113,9 @@ pub struct SessionSummary {
     #[schemars(with = "Option<String>")]
     pub current_mode_id: Value,
     pub model: Option<String>,
+    /// The harness's current reasoning effort, when it reports one.
+    /// Additive for older clients and peers.
+    pub effort: Option<String>,
     pub policy: Option<String>,
     #[schemars(with = "Enforcement")]
     pub enforcement: Value,
