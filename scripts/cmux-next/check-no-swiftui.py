@@ -29,7 +29,8 @@ this change's: a file that imported SwiftUI at REF outside REF's allowlist
 file that did not import SwiftUI at REF. It is printed as a warning (a
 GitHub `::warning` on CI) and does not fail, so one red on the base does not
 fail every pull request. The same holds for an allowlist REF already had
-unsorted. Without --base every finding fails.
+unsorted, while the change leaves the list as REF had it. Without --base
+every finding fails.
 
 The allowlist is scripts/cmux-next/no-swiftui-allowlist.txt, one
 repo-relative path per line, sorted; `#` starts a comment.
@@ -154,8 +155,8 @@ def main() -> int:
         return entries != sorted(entries) or len(entries) != len(set(entries))
 
     if unsorted(allowed):
-        finding(f"{ALLOWLIST}: keep it sorted with no duplicates",
-                old_list is not None and unsorted(old_list))
+        # A base red only while the change leaves the list as the base had it; a change that edits it sorts it.
+        finding(f"{ALLOWLIST}: keep it sorted with no duplicates", old_list is not None and allowed == old_list)
 
     importing = {f for f in swift_files(root) if imports_swiftui(root / f)}
     for f in sorted(importing - allowed_set):
@@ -189,7 +190,7 @@ def main() -> int:
                 name = pathlib.PurePosixPath(f).name
                 if moves.get(f) in old_allowed or (len(dropped.get(name, [])) == 1 and len(added_names[name]) == 1):
                     continue
-                if imported_at(root, args.base, f):
+                if imported_at(root, args.base, moves.get(f, f)):
                     # Not new SwiftUI: the file already imported it at the base (a base red this
                     # entry acknowledges). Shown, so the review sees the list grow.
                     print(f"note: {f} is new in {ALLOWLIST} but already imported SwiftUI at {args.base}",

@@ -145,4 +145,21 @@ git -C "$repo" add -A
 code=0; python3 -I "$CHECK" --base "$base4" "$repo" >/dev/null 2>"$tmp/err" || code=$?
 [[ $code -eq 1 ]] && grep -q "^NO-SWIFTUI: $SRC/B/One.swift: imports SwiftUI" "$tmp/err" \
   || { echo "FAIL: must fail: an importer whose base entry the change deleted (got $code)" >&2; cat "$tmp/err" >&2; exit 1; }
+# A base red the change moves and lists under its new path is an acknowledged base red, not growth.
+mkdir -p "$repo/$SRC/G"; git -C "$repo" mv "$SRC/D/Red.swift" "$SRC/G/Red.swift"
+printf '%s\n' "$SRC/B/One.swift" "$SRC/C/Two.swift" "$SRC/G/Red.swift" > "$repo/$LIST"
+git -C "$repo" add -A
+python3 -I "$CHECK" --base "$base4" "$repo" >/dev/null 2>"$tmp/err" && grep -q "G/Red.swift is new in .* but already imported SwiftUI" "$tmp/err" \
+  || { echo "FAIL: must pass with a note: a moved base red listed under its new path" >&2; cat "$tmp/err" >&2; exit 1; }
+git -C "$repo" mv "$SRC/G/Red.swift" "$SRC/D/Red.swift"
+# An allowlist already unsorted on the base warns while the change leaves it alone, and fails once the change edits it.
+printf '%s\n' "$SRC/C/Two.swift" "$SRC/B/One.swift" > "$repo/$LIST"
+commit base5-unsorted
+base5=$(git -C "$repo" rev-parse HEAD)
+python3 -I "$CHECK" --base "$base5" "$repo" >/dev/null 2>"$tmp/err" && grep -q "base red, already on .*keep it sorted" "$tmp/err" \
+  || { echo "FAIL: must pass with a warning: an allowlist already unsorted on the base" >&2; cat "$tmp/err" >&2; exit 1; }
+printf '%s\n' "$SRC/C/Two.swift" "$SRC/B/One.swift" "$SRC/B/One.swift" > "$repo/$LIST"
+code=0; python3 -I "$CHECK" --base "$base5" "$repo" >/dev/null 2>"$tmp/err" || code=$?
+[[ $code -eq 1 ]] && grep -q "^NO-SWIFTUI: $LIST: keep it sorted" "$tmp/err" \
+  || { echo "FAIL: must fail: a duplicate added to an allowlist already unsorted (got $code)" >&2; cat "$tmp/err" >&2; exit 1; }
 echo "check-no-swiftui: ok"
