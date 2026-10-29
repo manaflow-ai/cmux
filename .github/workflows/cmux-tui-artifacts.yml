@@ -2774,6 +2774,10 @@ jobs:
           # binaries, and the next call must start from this run's again.
           rm -rf assets/run
           cp -R assets/tree assets/run
+          # fetch's read-once copies of write-once commit objects (below): a new
+          # directory for each run of this step, so nothing read by another run
+          # (or another step on a reused runner) is ever served from it.
+          r2_read="$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/r2-read.XXXXXX")"
           # Publishes the tree under KEY, which must be this checkout's key
           # of that version (CMUX-TUI-TREE-KEY-V2: v2, then v1 until B2).
           publish_tree() {
@@ -2794,8 +2798,39 @@ jobs:
           # at once, with no retry.
           fetch() {
             [[ "$1" == https://files.cmux.com/* ]] || { echo "fetch: $1 is not a files.cmux.com object" >&2; return 2; }
+            local object="${1#https://files.cmux.com/}"
+            # A commit prefix (cmux-tui/<sha>/, cmux-tui-windows/<sha>/) is
+            # write-once, so its objects are read once per job: the v1 pass
+            # below reads the same commit's companions the v2 pass just read
+            # (2.5 min of the 5 in run 40804446248). Tree objects are not kept.
+            if [[ "$object" =~ ^cmux-tui(-windows)?/[0-9a-f]{40}/[^/]+$ ]]; then
+              local kept="$r2_read/$object"
+              if [[ ! -f "$kept" ]]; then
+                mkdir -p "${kept%/*}"
+                CMUX_R2_DOWNLOAD_ATTEMPT_SECONDS=120 python3 scripts/ci/upload-r2-object.py --endpoint-url "$R2_ENDPOINT" \
+                  --bucket cmux-binaries --key "$object" --download-to "$kept" || return $?
+              fi
+              cp "$kept" "$2"
+              return 0
+            fi
             CMUX_R2_DOWNLOAD_ATTEMPT_SECONDS=120 python3 scripts/ci/upload-r2-object.py --endpoint-url "$R2_ENDPOINT" \
-              --bucket cmux-binaries --key "${1#https://files.cmux.com/}" --download-to "$2"
+              --bucket cmux-binaries --key "$object" --download-to "$2"
+          }
+          # Each companion of one commit prefix at once (they were read one
+          # after another: 1.6 min a key in run 40804446248). Every read is
+          # waited on, and the step fails on the first one that failed.
+          fetch_each() {
+            local prefix="$1" asset pid status=0
+            shift
+            local pids=()
+            for asset in "$@"; do
+              fetch "$prefix/$asset" "assets/tree/$asset" &
+              pids+=("$!")
+            done
+            for pid in "${pids[@]}"; do
+              wait "$pid" || status=$?
+            done
+            return "$status"
           }
           # An object whose absence is an answer (source.json decides whether
           # this is a first publication): a 404 reads as absent at once. Any
@@ -2819,17 +2854,15 @@ jobs:
             source_commit="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["commit"])' tree/source.json)"
             [[ "$source_commit" =~ ^[0-9a-f]{40}$ ]] || { echo "malformed tree source commit; see cmuxterm-hq REPAIR.md#cmux-tui-tree-publication" >&2; exit 1; }
             fetch "https://files.cmux.com/cmux-tui/$source_commit/manifest.json" manifest.json
-            for asset in $(python3 scripts/ci/publish-cmux-tui-tree.py --list-companions); do
-              fetch "https://files.cmux.com/cmux-tui/$source_commit/$asset" "assets/tree/$asset"
-            done
+            # shellcheck disable=SC2046 # one companion name per line, no spaces
+            fetch_each "https://files.cmux.com/cmux-tui/$source_commit" $(python3 scripts/ci/publish-cmux-tui-tree.py --list-companions)
           else
             source_commit="$GITHUB_SHA"
             # The commit's published binaries, not this run's: an earlier run
             # may have published this commit (the publish job keeps that
             # publication), and a rebuild's bytes differ from its manifest.
-            for asset in $(python3 scripts/ci/publish-cmux-tui-tree.py --list-companions); do
-              fetch "https://files.cmux.com/cmux-tui/$GITHUB_SHA/$asset" "assets/tree/$asset"
-            done
+            # shellcheck disable=SC2046 # one companion name per line, no spaces
+            fetch_each "https://files.cmux.com/cmux-tui/$GITHUB_SHA" $(python3 scripts/ci/publish-cmux-tui-tree.py --list-companions)
             python3 - "$KEY" "$GITHUB_SHA" manifest.json > tree/source.json <<'PY'
           import json, os, re, subprocess, sys
           key, commit, manifest_path = sys.argv[1:]
@@ -2867,13 +2900,15 @@ jobs:
           # in a republication of a tree whose completion.json exists: that
           # file is write-once, so the helper lists its names again and a tree
           # published before acpmux gets none.
+          acpmux=()
           for asset in $(python3 scripts/ci/publish-cmux-tui-tree.py --list-acpmux-companions); do
             if python3 -c 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1])).get("binaries", {}).get(sys.argv[2]) is not None else 1)' manifest.json "$asset"; then
-              fetch "https://files.cmux.com/cmux-tui/$source_commit/$asset" "assets/tree/$asset"
+              acpmux+=("$asset")
             else
               echo "::warning title=tree without $asset::the manifest of $source_commit attests no $asset; tree $KEY is published without it"
             fi
           done
+          fetch_each "https://files.cmux.com/cmux-tui/$source_commit" "${acpmux[@]}"
           completion_args=()
           if fetch_optional "$base/completion.json" tree/existing-completion.json; then
             completion_args=(--existing-completion-file tree/existing-completion.json)

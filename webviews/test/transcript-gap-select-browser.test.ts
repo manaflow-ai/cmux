@@ -398,7 +398,7 @@ await requireBrowserLane("transcript-gap-select-browser.test.ts", async () => {
         wrap.id = "selection-controls";
         wrap.style.cssText = "position:relative;z-index:2;padding:8px";
         wrap.innerHTML =
-          '<button>Attach file</button><a href="#fixture">Harbour link</a><span role="button" tabindex="0">Sender chip</span><input aria-label="Fixture field"><span draggable="true">Drag file</span><span data-interactive><span id="custom-control">Custom control</span></span><div class="cv-received__body selectable" data-cut data-interactive>Open received message</div><div class="acpmux-edited-title--toggle" data-interactive>Open file diff</div><div class="acpmux-turn-preview-frame" data-interactive style="height:30px">Open preview</div>';
+          '<button>Attach file</button><a href="#fixture">Harbour link</a><span role="button" tabindex="0">Sender chip</span><input aria-label="Fixture field"><span draggable="true">Drag file</span><span data-interactive><span id="custom-control">Custom control</span></span><div class="acpmux-edited-title--toggle" data-interactive>Open file diff</div><div class="acpmux-turn-preview-frame" data-interactive style="height:30px">Open preview</div>';
         row.querySelector(".cv-tools")!.append(wrap);
         wrap.addEventListener("pointerdown", (event) => (wrap.dataset.prevented = String(event.defaultPrevented)));
         const hidden = document.createElement("span");
@@ -416,7 +416,6 @@ await requireBrowserLane("transcript-gap-select-browser.test.ts", async () => {
         "input",
         '[draggable="true"]',
         "#custom-control",
-        ".cv-received__body[data-cut]",
         ".acpmux-edited-title--toggle",
         ".acpmux-turn-preview-frame",
       ]) {

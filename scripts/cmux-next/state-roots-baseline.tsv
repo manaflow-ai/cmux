@@ -24,6 +24,7 @@ Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Managed/ManagedStatusReport.swi
 Packages/macOS/CmuxNext/Sources/CmuxNextTasks/SocketTasksSource.swift	1	move	unreviewed at S7 (cx-is1kf.8)
 cmux-tui/crates/acpmux/src/chats/sources.rs	3	move	unreviewed at S7 (cx-is1kf.8)
 cmux-tui/crates/acpmux/src/cli/hosts.rs	3	keep	~/.acpmux on a remote SSH host
+cmux-tui/crates/acpmux/src/cli/machine_consent.rs	1	keep	machine-wide per-OS-user consent authority, shared across app tags by design
 cmux-tui/crates/acpmux/src/config.rs	1	keep	resolver: acpmux default home
 cmux-tui/crates/acpmux/src/config/folder_profiles.rs	1	move	unreviewed at S7 (cx-is1kf.8)
 cmux-tui/crates/acpmux/src/config/profiles.rs	1	move	unreviewed at S7 (cx-is1kf.8)
