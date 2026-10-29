@@ -1,6 +1,399 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "devices.join.confirmUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Still off: this Mac can't ask for Touch ID or your login password, so it can't confirm it's you."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يزال متوقفًا: لا يمكن لهذا الـ Mac طلب Touch ID أو كلمة سر تسجيل الدخول، لذا لا يمكنه التأكد من أنك أنت."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Još je isključeno: ovaj Mac ne može tražiti Touch ID ni vašu lozinku za prijavu, pa ne može potvrditi da ste to vi."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Stadig slået fra: Denne Mac kan ikke bede om Touch ID eller din login-adgangskode, så den kan ikke bekræfte, at det er dig."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Weiterhin aus: Dieser Mac kann nicht nach Touch ID oder deinem Anmeldepasswort fragen und daher nicht bestätigen, dass du es bist."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sigue desactivado: este Mac no puede pedir Touch ID ni tu contraseña de inicio de sesión, así que no puede confirmar que eres tú."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Toujours désactivé : ce Mac ne peut pas demander Touch ID ni votre mot de passe de session, il ne peut donc pas confirmer que c'est vous."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ancora disattivato: questo Mac non può chiedere Touch ID né la password di login, quindi non può confermare che sei tu."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "オフのままです：この Mac は Touch ID やログインパスワードを求められないため、本人であることを確認できません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "នៅតែបិទ៖ Mac នេះមិនអាចស្នើ Touch ID ឬពាក្យសម្ងាត់ចូលរបស់អ្នកបានទេ ដូច្នេះវាមិនអាចបញ្ជាក់ថាជាអ្នកបានទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "여전히 꺼져 있음: 이 Mac은 Touch ID나 로그인 암호를 요청할 수 없어 본인인지 확인할 수 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fortsatt av: Denne Mac-en kan ikke be om Touch ID eller påloggingspassordet ditt, så den kan ikke bekrefte at det er deg."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nadal wyłączone: ten Mac nie może poprosić o Touch ID ani hasło logowania, więc nie może potwierdzić, że to Ty."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ainda desativado: este Mac não pode pedir o Touch ID nem sua senha de login, então não pode confirmar que é você."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Всё ещё выключено: этот Mac не может запросить Touch ID или пароль входа, поэтому не может подтвердить, что это вы."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ยังปิดอยู่: Mac เครื่องนี้ขอ Touch ID หรือรหัสผ่านเข้าสู่ระบบไม่ได้ จึงยืนยันไม่ได้ว่าเป็นคุณ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hâlâ kapalı: Bu Mac, Touch ID veya giriş parolanızı isteyemediği için siz olduğunuzu doğrulayamıyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Досі вимкнено: цей Mac не може запитати Touch ID або пароль входу, тож не може підтвердити, що це ви."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vẫn tắt: máy Mac này không thể yêu cầu Touch ID hoặc mật khẩu đăng nhập nên không thể xác nhận đó là bạn."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "仍为关闭：这台 Mac 无法请求触控 ID 或登录密码，因此无法确认是你本人。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "仍為關閉：這台 Mac 無法要求 Touch ID 或登入密碼，因此無法確認是你本人。"
+          }
+        }
+      }
+    },
+    "devices.join.confirm.screen": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "allow your team's machines to see this Mac's screen"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "السماح لأجهزة فريقك برؤية شاشة هذا الـ Mac"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "dozvoli računarima vašeg tima da vide ekran ovog Maca"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "tillade dit teams maskiner at se denne Macs skærm"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "den Geräten deines Teams erlauben, den Bildschirm dieses Mac zu sehen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "permitir que las máquinas de tu equipo vean la pantalla de este Mac"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "autoriser les machines de votre équipe à voir l'écran de ce Mac"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "consentire alle macchine del tuo team di vedere lo schermo di questo Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "チームのマシンにこの Mac の画面を見ることを許可"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "អនុញ្ញាតឱ្យម៉ាស៊ីនរបស់ក្រុមអ្នកមើលអេក្រង់របស់ Mac នេះ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "팀의 컴퓨터가 이 Mac의 화면을 보도록 허용"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "la maskinene i teamet ditt se skjermen på denne Mac-en"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "zezwolić komputerom Twojego zespołu na widok ekranu tego Maca"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "permitir que as máquinas da sua equipe vejam a tela deste Mac"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "разрешить компьютерам вашей команды видеть экран этого Mac"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "อนุญาตให้เครื่องในทีมของคุณเห็นหน้าจอของ Mac เครื่องนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ekibinizin makinelerinin bu Mac'in ekranını görmesine izin vermek"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "дозволити комп'ютерам вашої команди бачити екран цього Mac"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cho phép các máy trong nhóm của bạn xem màn hình của máy Mac này"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "允许你团队的机器查看这台 Mac 的屏幕"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "允許你團隊的機器查看這台 Mac 的螢幕"
+          }
+        }
+      }
+    },
+    "devices.join.confirm.control": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "allow your team's machines to control this Mac"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "السماح لأجهزة فريقك بالتحكم في هذا الـ Mac"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "dozvoli računarima vašeg tima da upravljaju ovim Macom"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "tillade dit teams maskiner at styre denne Mac"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "den Geräten deines Teams erlauben, diesen Mac zu steuern"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "permitir que las máquinas de tu equipo controlen este Mac"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "autoriser les machines de votre équipe à contrôler ce Mac"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "consentire alle macchine del tuo team di controllare questo Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "チームのマシンにこの Mac の操作を許可"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "អនុញ្ញាតឱ្យម៉ាស៊ីនរបស់ក្រុមអ្នកគ្រប់គ្រង Mac នេះ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "팀의 컴퓨터가 이 Mac을 제어하도록 허용"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "la maskinene i teamet ditt styre denne Mac-en"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "zezwolić komputerom Twojego zespołu na sterowanie tym Makiem"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "permitir que as máquinas da sua equipe controlem este Mac"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "разрешить компьютерам вашей команды управлять этим Mac"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "อนุญาตให้เครื่องในทีมของคุณควบคุม Mac เครื่องนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ekibinizin makinelerinin bu Mac'i denetlemesine izin vermek"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "дозволити комп'ютерам вашої команди керувати цим Mac"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cho phép các máy trong nhóm của bạn điều khiển máy Mac này"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "允许你团队的机器控制这台 Mac"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "允許你團隊的機器控制這台 Mac"
+          }
+        }
+      }
+    },
     "devices.join.revokeAll": {
       "extractionState": "manual",
       "localizations": {

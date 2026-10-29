@@ -9,6 +9,7 @@ import CmuxNextServer
 import CmuxNextSettings
 import CmuxNextWakeups
 import Foundation
+import LocalAuthentication
 
 /// This Mac's join consent in the app (contract §5): the join status from the bundled cmux-tui's acpmux
 /// (`acp host join --status --json`), and the consent record over a person-proof acpmux line
@@ -40,6 +41,13 @@ extension JoinConsentServices {
             },
             enabled: { [weak services] in services?.settings?.snapshot.machineJoin == true },
             settingsEpoch: { [weak services] in services?.settings?.loadCount ?? -1 },
+            confirmOwner: { surface in
+                // Touch ID or the login password, every grant (LocalDeviceOwnerAuthenticator, as the
+                // password store's reveal); a Mac that can't ask grants nothing.
+                var unavailable: NSError?
+                guard LAContext().canEvaluatePolicy(.deviceOwnerAuthentication, error: &unavailable) else { return .unavailable }
+                return await LocalDeviceOwnerAuthenticator().authenticate(reason: JoinConsentStrings.confirmReason(surface)) ? .confirmed : .cancelled
+            },
             askShown: { UserDefaults.standard.bool(forKey: askShownKey) },
             markAskShown: { UserDefaults.standard.set(true, forKey: askShownKey) })
     }

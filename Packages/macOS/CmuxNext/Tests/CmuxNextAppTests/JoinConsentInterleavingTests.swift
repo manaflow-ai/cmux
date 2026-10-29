@@ -21,7 +21,9 @@ import Testing
 ///   read are done (the app can't know before a read).
 /// - A ticket serves only on its own read, at the current generation, that got through and grants its
 ///   scope, with no write in flight; otherwise it is refused.
-/// - One write at a time: a second one is refused as busy; a grant is never sent with the Labs switch off.
+/// - One write at a time: a second one is refused as busy; a grant is never sent with the Labs switch off,
+///   nor without the device owner's confirm (which the scheduler answers confirmed, cancelled or
+///   unavailable, seeded, and releases like any other boundary).
 /// - A press during a write does nothing: a Deny never closes the sheet over it, an Allow never writes.
 /// - When all is done, no write is in flight and one more read brings the model to what acpmux holds.
 @MainActor @Suite(.serialized) struct JoinConsentInterleavingTests {
@@ -69,6 +71,9 @@ import Testing
         var early: () -> Bool = { false }
         /// acpmux changed on its own and the reads that may not have seen it are not all done.
         var changedOnItsOwn = false
+        /// The device owner's answer to each grant's confirm (seeded), and how many confirmed.
+        var confirmAnswer: () -> JoinConsentConfirm = { .confirmed }
+        var confirmed = 0
         private(set) var model: JoinConsentModel!
 
         init(truth: Truth) {
@@ -83,6 +88,12 @@ import Testing
                     return Line(world: self)
                 },
                 enabled: { [unowned self] in enabled },
+                confirmOwner: { [unowned self] _ in
+                    await boundary()
+                    let answer = confirmAnswer()
+                    if case .confirmed = answer { confirmed += 1 }
+                    return answer
+                },
                 askShown: { [unowned self] in askShown },
                 markAskShown: { [unowned self] in askShown = true }))
         }
@@ -168,6 +179,9 @@ import Testing
         let world = World(truth: truth)
         var timing = Seeded(state: seed &+ 0x5EED)
         world.early = { Bool.random(using: &timing) }
+        // The device owner confirms most grants, cancels some, and on some Macs can't be asked.
+        var owner = Seeded(state: seed &+ 0x0A11)
+        world.confirmAnswer = { [JoinConsentConfirm.confirmed, .confirmed, .confirmed, .cancelled, .unavailable].randomElement(using: &owner)! }
         let model = world.model!
         await model.refresh()
         model.refused(JoinConsentRefusal(requester: "Studio", surface: .screen))
@@ -230,6 +244,7 @@ import Testing
         world.gating = false
         #expect(!model.writing, "no write left in flight: \(label)")
         #expect(world.sends.allSatisfy { !$0.write.hasSuffix("true") || $0.enabled }, "a grant sent with Labs off: \(label)")
+        #expect(world.sends.filter { $0.write.hasSuffix("true") }.count <= world.confirmed, "a grant sent without the owner's confirm: \(label)")
         if world.enabled {
             await model.refresh()
             #expect(model.permitsMacScreen(control: false) == world.truth.allows(full: false), "converges (View Only): \(label)")

@@ -59,6 +59,10 @@ import Testing
         var enabled = true
         var askShown = false
         var lines: [FakeLine] = []
+        /// The device owner's answer to a grant's confirm (Touch ID or the login password).
+        var confirm = JoinConsentConfirm.confirmed
+        /// Each confirm asked, by surface.
+        var confirms: [String] = []
 
         func services() -> JoinConsentServices {
             JoinConsentServices(
@@ -69,6 +73,10 @@ import Testing
                     return line
                 },
                 enabled: { [self] in enabled },
+                confirmOwner: { [self] surface in
+                    confirms.append(surface.rawValue)
+                    return confirm
+                },
                 askShown: { [self] in askShown },
                 markAskShown: { [self] in askShown = true })
         }
@@ -268,7 +276,8 @@ import Testing
                 if read == 3 { await laterRead.wait() }
                 return await base.status()
             },
-            openLine: base.openLine, enabled: base.enabled, askShown: base.askShown, markAskShown: base.markAskShown))
+            openLine: base.openLine, enabled: base.enabled, confirmOwner: base.confirmOwner, askShown: base.askShown,
+            markAskShown: base.markAskShown))
         await model.refresh()
         #expect(model.permitsMacScreen(control: false), "not joined: serves as before")
         fake.status = JoinStatus(credentialPresent: true, machineId: "m_1")
@@ -313,7 +322,7 @@ import Testing
                 }
                 return await base.openLine()
             },
-            enabled: base.enabled, askShown: base.askShown, markAskShown: base.markAskShown))
+            enabled: base.enabled, confirmOwner: base.confirmOwner, askShown: base.askShown, markAskShown: base.markAskShown))
         await model.refresh()
         model.refused(JoinConsentRefusal(requester: "Studio", surface: .screen))
         hold = true
@@ -346,7 +355,8 @@ import Testing
                 }
                 return await base.status()
             },
-            openLine: base.openLine, enabled: base.enabled, askShown: base.askShown, markAskShown: base.markAskShown))
+            openLine: base.openLine, enabled: base.enabled, confirmOwner: base.confirmOwner, askShown: base.askShown,
+            markAskShown: base.markAskShown))
         await model.refresh()
         #expect(model.permitsMacScreen(control: false))
         holdNext = true
@@ -371,7 +381,8 @@ import Testing
                 if holdReads { await held.wait() }
                 return await base.status()
             },
-            openLine: base.openLine, enabled: base.enabled, askShown: base.askShown, markAskShown: base.markAskShown))
+            openLine: base.openLine, enabled: base.enabled, confirmOwner: base.confirmOwner, askShown: base.askShown,
+            markAskShown: base.markAskShown))
         await model.refresh()
         let changes = Recorder()
         model.changed = { [weak model] in changes.values.append("\(model?.permitsMacScreen(control: true) ?? false)") }
@@ -398,7 +409,8 @@ import Testing
                 if holdReads { await held.wait() }
                 return await base.status()
             },
-            openLine: base.openLine, enabled: base.enabled, askShown: base.askShown, markAskShown: base.markAskShown))
+            openLine: base.openLine, enabled: base.enabled, confirmOwner: base.confirmOwner, askShown: base.askShown,
+            markAskShown: base.markAskShown))
         await model.refresh()
         #expect(model.permitsMacScreen(control: true))
         holdReads = true
@@ -426,7 +438,8 @@ import Testing
                 if held { await read.wait() }
                 return await base.status()
             },
-            openLine: base.openLine, enabled: base.enabled, askShown: base.askShown, markAskShown: base.markAskShown))
+            openLine: base.openLine, enabled: base.enabled, confirmOwner: base.confirmOwner, askShown: base.askShown,
+            markAskShown: base.markAskShown))
         let ticket = SessionTicket(sessionId: "s1", ticket: "a.b.c", signalURL: URL(string: "wss://hub.invalid/v1/sessions/s1/ws")!,
                                    ice: [], peer: .init(id: "v1", name: "Studio", signingKey: "key"), role: .host, scope: .view)
         #expect(await model.macScreenGate(ticket), "an unjoined Mac serves as before")
@@ -461,9 +474,55 @@ import Testing
         #expect(model.ask == nil && fake.writes.isEmpty, "once")
     }
 
+    /// SECURITY: the device owner confirms every grant (Touch ID or the login password) before it is
+    /// sent, from the Settings switch and the sheet's Allow alike, whatever input asked for it. A cancel
+    /// or a failure sends nothing and leaves the sheet up to try again; a Mac that can't ask grants
+    /// nothing and says why; a success sends exactly one set. A revoke and a Deny never ask.
+    @Test(arguments: [JoinConsentConfirm.cancelled, .unavailable])
+    func aGrantIsSentOnlyAfterTheDeviceOwnerConfirms(refusal: JoinConsentConfirm) async {
+        let fake = Fake()
+        fake.confirm = refusal
+        let model = JoinConsentModel(services: fake.services())
+        await model.refresh()
+        let error = refusal == .unavailable ? JoinConsentStrings.confirmUnavailable : JoinConsentStrings.onFailed
+        #expect(await model.set(.screen, on: true) == error)
+        #expect(fake.writes.isEmpty && fake.confirms == ["screen"], "the switch: asked, nothing sent")
+        model.refused(JoinConsentRefusal(requester: "lane-vm-3", surface: .control))
+        #expect(await model.answer(allow: true) == error)
+        #expect(fake.writes.isEmpty && fake.confirms == ["screen", "control"], "the sheet's Allow: asked, nothing sent")
+        #expect(model.ask != nil && model.askError == error, "the sheet stays up to try again")
+        #expect(!model.permitsMacScreen(control: false))
+        fake.confirm = .confirmed
+        #expect(await model.answer(allow: true) == nil)
+        #expect(fake.writes == ["control true"] && model.ask == nil, "confirmed: exactly one set")
+        #expect(await model.set(.screen, on: true) == nil)
+        #expect(fake.writes == ["control true", "screen true"] && fake.confirms == ["screen", "control", "control", "screen"])
+        // Off and Deny never ask.
+        #expect(await model.set(.screen, on: false) == nil)
+        #expect(await model.set(.control, on: false) == nil)
+        fake.askShown = false
+        model.refused(JoinConsentRefusal(requester: "lane-vm-3", surface: .screen))
+        #expect(model.ask != nil)
+        _ = await model.answer(allow: false)
+        #expect(model.ask == nil && fake.confirms.count == 4, "a revoke and a Deny never ask")
+        #expect(fake.writes == ["control true", "screen true", "screen false", "control false"])
+    }
+
+    /// With no confirm wired, nothing is granted (the default fails closed).
+    @Test func withNoConfirmWiredNothingIsGranted() async {
+        let fake = Fake()
+        let base = fake.services()
+        let model = JoinConsentModel(services: JoinConsentServices(status: base.status, openLine: base.openLine, enabled: base.enabled,
+                                                                   askShown: base.askShown, markAskShown: base.markAskShown))
+        await model.refresh()
+        #expect(await model.set(.screen, on: true) == JoinConsentStrings.confirmUnavailable)
+        #expect(fake.writes.isEmpty)
+    }
+
     @Test func noAcpmuxIsAFailureNeverAnOn() async {
         let model = JoinConsentModel(services: JoinConsentServices(status: { JoinStatus(credentialPresent: true) }, openLine: { nil },
-                                                                   enabled: { true }, askShown: { false }, markAskShown: {}))
+                                                                   enabled: { true }, confirmOwner: { _ in .confirmed },
+                                                                   askShown: { false }, markAskShown: {}))
         #expect(await model.set(.screen, on: true) == JoinConsentStrings.onFailed)
         #expect(await model.set(.screen, on: false) == JoinConsentStrings.offFailed)
     }
@@ -664,7 +723,7 @@ import Testing
                 if opens == 4 { await held.wait() }
                 return await base.openLine()
             },
-            enabled: base.enabled, askShown: base.askShown, markAskShown: base.markAskShown))
+            enabled: base.enabled, confirmOwner: base.confirmOwner, askShown: base.askShown, markAskShown: base.markAskShown))
         await model.refresh()
         let grant = Task { await model.set(.screen, on: true) }
         for _ in 0..<1000 where opens < 4 { await Task.yield() }
@@ -689,7 +748,7 @@ import Testing
                 if opens == 4 { await held.wait() } // the grant's read after its write
                 return await base.openLine()
             },
-            enabled: base.enabled, askShown: base.askShown, markAskShown: base.markAskShown))
+            enabled: base.enabled, confirmOwner: base.confirmOwner, askShown: base.askShown, markAskShown: base.markAskShown))
         await model.refresh()
         let grant = Task { await model.set(.screen, on: true) }
         for _ in 0..<1000 where opens < 4 { await Task.yield() }
@@ -724,7 +783,7 @@ import Testing
                 if opens == 3 { await held.wait() }
                 return await base.openLine()
             },
-            enabled: base.enabled, askShown: base.askShown, markAskShown: base.markAskShown))
+            enabled: base.enabled, confirmOwner: base.confirmOwner, askShown: base.askShown, markAskShown: base.markAskShown))
         await model.refresh()
         let grant = Task { await model.set(.screen, on: true) }
         for _ in 0..<1000 where opens < 3 { await Task.yield() }
@@ -764,7 +823,7 @@ import Testing
                 if opens == 3 { await held.wait() } // the grant's line
                 return await base.openLine()
             },
-            enabled: { settings.snapshot.machineJoin }, settingsEpoch: { settings.loadCount },
+            enabled: { settings.snapshot.machineJoin }, settingsEpoch: { settings.loadCount }, confirmOwner: base.confirmOwner,
             askShown: base.askShown, markAskShown: base.markAskShown))
         await model.refresh()
         let grant = Task { await model.set(.screen, on: true) }

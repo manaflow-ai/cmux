@@ -103,6 +103,15 @@ public nonisolated struct JoinConsentRefusal: Equatable, Sendable {
     }
 }
 
+/// The device owner's answer to a grant's confirm (Touch ID or the login password).
+public enum JoinConsentConfirm: Sendable {
+    case confirmed
+    /// The person cancelled, or the check failed.
+    case cancelled
+    /// This Mac can't ask (no login password, a policy error): nothing is granted.
+    case unavailable
+}
+
 /// What the consent gate asks of the app, so tests run it with fakes. Every call runs on the main actor.
 public struct JoinConsentServices {
     /// `acpmux host join --status --json`; nil when this Mac is not joined or the run failed.
@@ -115,17 +124,22 @@ public struct JoinConsentServices {
     /// came since it started, so the Labs switch turned off and on again in between (which no observer
     /// may see, since observation coalesces) drops it.
     public var settingsEpoch: @MainActor () -> Int
+    /// SECURITY: the device owner confirms a grant of `surface` (LocalAuthentication
+    /// `deviceOwnerAuthentication`) before it is sent. Default: unavailable, so nothing is granted.
+    public var confirmOwner: @MainActor (JoinConsentSurface) async -> JoinConsentConfirm
     /// The one-time sheet already showed on this Mac (kept across launches).
     public var askShown: @MainActor () -> Bool
     public var markAskShown: @MainActor () -> Void
 
     public init(status: @escaping @MainActor () async -> JoinStatus?, openLine: @escaping @MainActor () async -> (any JoinConsentLine)?,
                 enabled: @escaping @MainActor () -> Bool, settingsEpoch: @escaping @MainActor () -> Int = { 0 },
+                confirmOwner: @escaping @MainActor (JoinConsentSurface) async -> JoinConsentConfirm = { _ in .unavailable },
                 askShown: @escaping @MainActor () -> Bool, markAskShown: @escaping @MainActor () -> Void) {
         self.status = status
         self.openLine = openLine
         self.enabled = enabled
         self.settingsEpoch = settingsEpoch
+        self.confirmOwner = confirmOwner
         self.askShown = askShown
         self.markAskShown = markAskShown
     }
@@ -323,6 +337,16 @@ public final class JoinConsentModel {
             // checks the person itself; this keeps a grant off a Mac that shows no switches).
             let (reading, _) = await read(.writeCheck)
             guard enabled, reading.status?.credentialPresent == true, reading.status?.revoked != true else { return (failed, nil) }
+            // SECURITY: the device owner confirms every grant (Touch ID or the login password), whatever the
+            // input that asked for it: an event's source fields can be forged by a process allowed to post
+            // events, and a posted event can't pass this. The person-input checks before it only refuse
+            // early; they never grant on their own. A Labs change or settings load meanwhile still drops
+            // the grant (checked again below).
+            switch await services.confirmOwner(surface) {
+            case .confirmed: break
+            case .cancelled: return (failed, nil)
+            case .unavailable: return (JoinConsentStrings.confirmUnavailable, nil)
+            }
         }
         guard let line = await services.openLine() else { return (failed, nil) }
         defer { line.close() }
@@ -483,6 +507,16 @@ public nonisolated struct JoinConsentStrings {
         }
     }
     static var onFailed: String { s("devices.join.onFailed", "Still off: this Mac could not confirm it was you") }
+    static var confirmUnavailable: String {
+        s("devices.join.confirmUnavailable", "Still off: this Mac can't ask for Touch ID or your login password, so it can't confirm it's you.")
+    }
+    /// The confirm's reason (LocalAuthentication shows it after the app's name).
+    public static func confirmReason(_ surface: JoinConsentSurface) -> String {
+        switch surface {
+        case .screen: s("devices.join.confirm.screen", "allow your team's machines to see this Mac's screen")
+        case .control: s("devices.join.confirm.control", "allow your team's machines to control this Mac")
+        }
+    }
     static var offFailed: String { s("devices.join.offFailed", "It could not be turned off. Try again.") }
     static var unread: String {
         s("devices.join.unread", "This Mac could not read what it allows, so Mac Screen is refused until it can. The switches come back when it reads again.")
