@@ -93,6 +93,39 @@ struct ChiefSidebarItemTests {
         #expect(picture("not-a-mascot") == orb)
     }
 
+    /// Leo 2026-10-21: the Chief dragged into a group or a machine list is still the Chief there: the list
+    /// draws its picture, status and badge (no band holds it).
+    @Test func aChiefListedInAGroupKeepsItsLook() {
+        let shown = ChiefSidebar.shared.status
+        defer { ChiefSidebar.shared.status = shown }
+        ChiefSidebar.shared.status = ChiefSidebar.Status(activity: .waiting, badge: 2)
+        let model = SidebarModel()
+        let listed = SidebarListItem(id: "itm_chief", ref: .builtIn(.chief), title: SidebarBuiltIn.chief.title)
+        let link = SidebarListItem(id: "itm_link", ref: .url("https://cmux.dev"), title: "cmux")
+        model.sections = [SidebarSection(kind: .custom(SidebarCustomSection(id: "sec_pinned")), nodes: [.item(listed), .item(link)])]
+        #expect(model.listedBuiltIns.map(\.id) == [Self.chiefItem.id])
+        let info = SidebarBridge.itemInfo(for: SidebarLayoutDocument(sections: []), registered: { _ in true },
+                                          chiefMascot: "fox", listed: model.listedBuiltIns)[Self.chiefItem.id]
+        #expect(info?.activity == .waiting)
+        #expect(info?.badge == 2)
+        #expect(info?.favicon != nil)
+    }
+
+    /// An unread Chief conversation shows a dot on the item, unless a badge already counts subagents that need you.
+    @Test func anUnreadChiefConversationShowsADotWhereNoBadgeCounts() {
+        var info = SidebarBuiltIn.chief.defaultInfo
+        ChiefSidebar(lanes: AgentLaneStore()).decorate(&info)
+        #expect(!info.unreadDot)
+        let chief = ChiefSidebar(lanes: AgentLaneStore())
+        chief.status = ChiefSidebar.Status(unread: true)
+        chief.decorate(&info)
+        #expect(info.unreadDot)
+        chief.status = ChiefSidebar.Status(activity: .waiting, badge: 1, unread: true)
+        chief.decorate(&info)
+        #expect(!info.unreadDot)
+        #expect(info.badge == 1)
+    }
+
     @Test func foldedHidesOnlyIdleSubagentsInNumberOrder() {
         let lanes = [Self.lane("optchat-sub-6b68ac4a-a10", .working, title: "Inspector"),
                      Self.lane("optchat-sub-6b68ac4a-a2", .idle),

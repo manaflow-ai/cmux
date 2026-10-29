@@ -27,6 +27,10 @@ extension SidebarController {
                     guard beginPinDrag(at: start) else { return false }
                     dragging = true
                 }
+                if handsOff(e, from: view) {
+                    cancelPinDrag()
+                    return true
+                }
                 _ = view.autoscroll(with: e)
                 movePinDrag(to: view.convert(e.locationInWindow, from: nil))
             case .leftMouseUp:
@@ -40,6 +44,17 @@ extension SidebarController {
             }
         }
         return dragging
+    }
+
+    /// The pointer of `event` is beside the list (past its sides) and the host took the drag over
+    /// (`SidebarDragOutHandling`).
+    private func handsOff(_ event: NSEvent, from view: NSView) -> Bool {
+        guard let id = pinDragState.drag?.id, let host = delegate as? SidebarDragOutHandling, let window = view.window else { return false }
+        let list = view.enclosingScrollView ?? view
+        let frame = list.convert(list.bounds, to: nil)
+        let slack: CGFloat = 8
+        guard event.locationInWindow.x > frame.maxX + slack || event.locationInWindow.x < frame.minX - slack else { return false }
+        return host.sidebar(self, dragOut: id, at: window.convertPoint(toScreen: event.locationInWindow))
     }
 
     /// Lifts the tile or row under `p` (document coordinates). False: nothing to drag there.

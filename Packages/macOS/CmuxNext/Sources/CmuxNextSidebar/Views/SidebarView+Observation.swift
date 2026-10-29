@@ -164,6 +164,8 @@ extension SidebarViewComponents {
             if !rows.isEmpty { list.patchRows(rows) }
         }
         if lastState?.onScreen != state.onScreen { list.syncRowStates() }
+        // A built-in listed as a row (the Chief in a group) draws its info there: its status or unread change reloads nothing.
+        if let old = lastState?.itemInfo, old != state.itemInfo { list.patchItemInfo(from: old, to: state.itemInfo) }
         if listChanged || lastState?.tree != state.tree { refreshNeedsYou() }
         if lastState?.cards != state.cards { cardSlot.show(state.cards); needsLayout = true }
         if chromeChanged || profilesChanged { bandsDirty = true; needsLayout = true }

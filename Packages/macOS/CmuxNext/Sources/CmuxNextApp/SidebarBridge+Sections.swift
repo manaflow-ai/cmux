@@ -94,11 +94,13 @@ extension SidebarBridge {
         sectionsObservation = Task { [weak self] in
             // Also observed: the apps client (installs, hides), the unread count, Home's unread conversations, the built-ins' shortcuts (tooltips) and
             // the workspaces tiles and top rows name. The selected item comes from the one selection.
-            for await (layout, unread, homeUnread, shortcuts, workspaces, picture, previewFeatures) in ObservationStream({
-                () -> (SidebarLayoutDocument, Int, Int, [ActionID: String], [LayoutItemRef: SidebarItemInfo], URL?, Bool) in
+            // The built-ins listed in a group or a machine list (a Chief dragged there) draw their band look too.
+            for await (layout, unread, homeUnread, shortcuts, workspaces, picture, previewFeatures, listed) in ObservationStream({
+                () -> (SidebarLayoutDocument, Int, Int, [ActionID: String], [LayoutItemRef: SidebarItemInfo], URL?, Bool, [LayoutItem]) in
                 _ = (apps.apps, ChiefSidebar.shared.status)
                 return (service.document, NotificationCenterService.unreadCount(store), home.unreadConversations.count,
-                        Self.builtInShortcuts(registry), SidebarWorkspaceItems.workspaceInfos(service.document, refs: refs), chiefPicture(), settings?.snapshot.previewFeatures == true)
+                        Self.builtInShortcuts(registry), SidebarWorkspaceItems.workspaceInfos(service.document, refs: refs), chiefPicture(),
+                        settings?.snapshot.previewFeatures == true, model.listedBuiltIns)
             }) {
                 // The window closed: the bridge is gone, stop observing.
                 guard self != nil else { return }
@@ -108,7 +110,7 @@ extension SidebarBridge {
                                           unread: unread, homeUnread: homeUnread,
                                           app: { SidebarAppItemInfo.info($0, client: apps) }, shortcut: { shortcuts[$0] },
                                           workspace: { workspaces[$0] }, chiefPicture: picture,
-                                          chiefImage: picture.flatMap(uploads.image(at:)))
+                                          chiefImage: picture.flatMap(uploads.image(at:)), listed: listed)
                 if model.itemInfo != infos { model.itemInfo = infos }
                 let suppressed = AppPresence(apps.apps).suppressed
                 if model.suppressedApps != suppressed { model.suppressedApps = suppressed }
@@ -139,29 +141,28 @@ extension SidebarBridge {
                          shortcut: (ActionID) -> String? = { _ in nil },
                          workspace: (LayoutItemRef) -> SidebarItemInfo? = { _ in nil },
                          chiefMascot: String? = nil, chiefPicture: URL? = nil,
-                         chiefImage: CGImage? = nil) -> [LayoutItemID: SidebarItemInfo] {
+                         chiefImage: CGImage? = nil, listed: [LayoutItem] = []) -> [LayoutItemID: SidebarItemInfo] {
         var infos: [LayoutItemID: SidebarItemInfo] = [:]
-        for section in layout.sections {
-            for item in section.items {
-                if item.ref.kind == LayoutItemRef.workspaceKind { infos[item.id] = workspace(item.ref) ?? closedWorkspaceInfo(item); continue }
-                if item.ref.kind == LayoutItemRef.appKind {
-                    var info = app(item.ref.value)
-                    if SidebarBuiltIn.firstParty(appID: item.ref.value) == .home { Self.markHomeUnread(&info, homeUnread) }
-                    infos[item.id] = info
-                    continue
-                }
-                guard let builtIn = item.ref.builtIn else { continue }
-                var info = builtIn.defaultInfo
-                info.isMissing = !(builtInActions[builtIn].map(registered) ?? false)
-                info.shortcut = builtInActions[builtIn].flatMap(shortcut)
-                if builtIn == .notifications { info.badge = unread > 0 ? unread : nil } else if builtIn == .home {
-                    Self.markHomeUnread(&info, homeUnread)
-                } else if builtIn == .chief {
-                    ChiefSidebar.shared.decorate(&info)
-                    info.favicon = ChiefSidebarPicture.favicon(mascot: chiefMascot, picture: chiefPicture, image: chiefImage)
-                }
+        // `listed`: the built-ins the list draws in a group or a machine list, described as the bands' are.
+        for item in layout.sections.flatMap(\.items) + listed {
+            if item.ref.kind == LayoutItemRef.workspaceKind { infos[item.id] = workspace(item.ref) ?? closedWorkspaceInfo(item); continue }
+            if item.ref.kind == LayoutItemRef.appKind {
+                var info = app(item.ref.value)
+                if SidebarBuiltIn.firstParty(appID: item.ref.value) == .home { Self.markHomeUnread(&info, homeUnread) }
                 infos[item.id] = info
+                continue
             }
+            guard let builtIn = item.ref.builtIn else { continue }
+            var info = builtIn.defaultInfo
+            info.isMissing = !(builtInActions[builtIn].map(registered) ?? false)
+            info.shortcut = builtInActions[builtIn].flatMap(shortcut)
+            if builtIn == .notifications { info.badge = unread > 0 ? unread : nil } else if builtIn == .home {
+                Self.markHomeUnread(&info, homeUnread)
+            } else if builtIn == .chief {
+                ChiefSidebar.shared.decorate(&info)
+                info.favicon = ChiefSidebarPicture.favicon(mascot: chiefMascot, picture: chiefPicture, image: chiefImage)
+            }
+            infos[item.id] = info
         }
         return infos
     }

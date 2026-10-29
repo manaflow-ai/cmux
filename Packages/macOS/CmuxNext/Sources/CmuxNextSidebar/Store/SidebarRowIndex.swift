@@ -165,6 +165,20 @@ extension SidebarListView {
         return heightChanged
     }
 
+    /// Shows band look changes (`SidebarModel.itemInfo`) of the built-ins listed as rows (the Chief in a group
+    /// or a machine list): no info change reloads the list, so their realized views are configured again.
+    /// Only the changed infos are visited.
+    func patchItemInfo(from old: [LayoutItemID: SidebarItemInfo], to new: [LayoutItemID: SidebarItemInfo]) {
+        for id in Self.changedItemInfo(from: old, to: new) where listItems[id.rawValue]?.ref.builtIn != nil {
+            reconfigure(.item(id.rawValue))
+        }
+    }
+
+    /// The items whose info `new` adds, changes or drops from `old`.
+    static func changedItemInfo(from old: [LayoutItemID: SidebarItemInfo], to new: [LayoutItemID: SidebarItemInfo]) -> [LayoutItemID] {
+        new.compactMap { old[$0.key] == $0.value ? nil : $0.key } + old.keys.filter { new[$0] == nil }
+    }
+
     /// Configures `key`'s realized view from the shown layout; a row with no view is drawn when it scrolls in.
     private func reconfigure(_ key: SidebarRowKey) {
         guard let view = rowViews[key], let row = displayed.row(for: key) else { return }

@@ -237,6 +237,13 @@ extension SidebarModel {
         }
         return nil
     }
+
+    /// The built-ins the list draws as rows (in a group or a machine list), as layout items the App
+    /// describes with their band look (`itemInfo`).
+    public var listedBuiltIns: [LayoutItem] {
+        sections.flatMap { $0.nodes.flatMap(\.listedItems) }.filter { $0.ref.builtIn != nil }
+            .map { LayoutItem(id: LayoutItemID($0.id), ref: $0.ref, label: $0.title) }
+    }
 }
 
 extension SidebarDocStore {
