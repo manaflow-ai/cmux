@@ -80,27 +80,41 @@ import Testing
         }
     }
 
-    /// Host writes whose on is held until the test lands it; an off lands at once.
+    /// Host writes whose on is held until the test lands it; an off lands at once. Every wait here ends:
+    /// ``arrived(_:)`` also returns when its request ends first or is cancelled.
     @MainActor final class Landing {
         private var held: [CheckedContinuation<Void, Never>] = []
-        private var waiting: CheckedContinuation<Void, Never>?
+        private var waiting: (wait: Int, continuation: CheckedContinuation<Void, Never>)?
+        private var waits = 0
 
         func write(_ name: String, _ on: Bool, _ recorder: Recorder) async -> String? {
             if on {
                 await withCheckedContinuation {
                     held.append($0)
-                    waiting?.resume()
-                    waiting = nil
+                    wake()
                 }
             }
             recorder.sets.append("\(name) \(on)")
             return nil
         }
 
-        /// Returns once an on's write is held.
-        func arrived() async {
-            guard held.isEmpty else { return }
-            await withCheckedContinuation { waiting = $0 }
+        /// Whether an on's write is held: returns once one is, or once `request` ended without one.
+        func arrived(_ request: Task<JSONValue, any Error>) async -> Bool {
+            if held.isEmpty {
+                waits += 1
+                let wait = waits
+                // task-owner: wakes this wait (only this one) when the request ends first; ends with the request.
+                Task { @MainActor in
+                    _ = try? await request.value
+                    self.wake(wait)
+                }
+                await withTaskCancellationHandler {
+                    await withCheckedContinuation { waiting = (wait, $0) }
+                } onCancel: {
+                    Task { @MainActor in self.wake() }
+                }
+            }
+            return !held.isEmpty
         }
 
         /// Lands the oldest held on.
@@ -112,8 +126,13 @@ import Testing
         /// Lands every held write and wakes any wait (cleanup).
         func release() {
             while !held.isEmpty { land() }
-            waiting?.resume()
-            waiting = nil
+            wake()
+        }
+
+        private func wake(_ wait: Int? = nil) {
+            guard let waiting, wait == nil || wait == waiting.wait else { return }
+            waiting.continuation.resume()
+            self.waiting = nil
         }
     }
 
@@ -348,8 +367,10 @@ import Testing
     @Test(.timeLimit(.minutes(1))) func writesLandInTheOrderAskedAndAnOffDropsQueuedOns() async throws {
         let h = try await make(owner: AlwaysConfirms())
         let landing = Landing(), recorder = h.recorder
+        var requests: [Task<JSONValue, any Error>] = []
         defer {
             landing.release()
+            for request in requests { request.cancel() }
             h.cleanUp()
         }
         h.page.setDeviceFullAccess = { _, on in await landing.write("device", on, recorder) }
@@ -358,28 +379,33 @@ import Testing
             // on, then off while the on is in flight, then on again: on, off, on.
             let key = op.widening.key("m1"), offs = h.page.offs[key, default: 0]
             let first = try h.heldOn(op, pid: 0)
-            await landing.arrived()
+            requests.append(first)
+            try #require(await landing.arrived(first))
             let off = Task { [h] in try await h.refused(op, on: false, h.posted()) }
             try await Self.until { h.page.offs[key, default: 0] == offs + 1 }
             let second = try h.heldOn(op, pid: 0)
+            requests.append(second)
             let afterOff = h.page.writes[key]
             try await Self.until { h.page.writes[key] != afterOff }
             landing.land()
             _ = try await first.value
             #expect(try await !off.value)
-            await landing.arrived()
+            try #require(await landing.arrived(second))
             landing.land()
             _ = try await second.value
         }
         #expect(h.recorder.sets == ["device true", "device false", "device true", "vm true", "vm false", "vm true"])
         // on in flight, a second on queued, then an off: the queued on is dropped and off lands last.
-        let key = Switch.fullAccess.widening.key("m1")
+        let key = Switch.fullAccess.widening.key("m1"), offs = h.page.offs[key, default: 0]
         let first = try h.heldOn(.fullAccess, pid: 0)
-        await landing.arrived()
+        requests.append(first)
+        try #require(await landing.arrived(first))
         let tail = h.page.writes[key]
         let queued = try h.heldOn(.fullAccess, pid: 0)
+        requests.append(queued)
         try await Self.until { h.page.writes[key] != tail }
         let off = Task { [h] in try await h.refused(.fullAccess, on: false, h.posted()) }
+        try await Self.until { h.page.offs[key, default: 0] == offs + 1 }
         landing.land()
         _ = try await first.value
         do {
