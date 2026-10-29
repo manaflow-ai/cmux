@@ -153,11 +153,10 @@ for (let height = 96; height <= 336; height += 16)
           const from = list.hasAttribute("data-fade-top") ? fade : 0;
           const to = railHeight - (list.hasAttribute("data-fade-bottom") ? fade : 0);
           // The transcript's faded edges, where the pane has room for the rail clear of them.
-          const roomy = railHeight <= viewport - 18 - 56 - 8;
+          const roomy = railHeight <= viewport - 18 - 18 - 8;
           const maskFrom = scroller.hasAttribute("data-fade-top") ? 18 : 0;
           const maskTo =
-            viewport -
-            (scroller.hasAttribute("data-fade-bottom") ? (scroller.hasAttribute("data-jump-shown") ? 56 : 18) : 0);
+            viewport - (scroller.hasAttribute("data-fade-bottom") ? 18 : 0);
           for (const index of lit) {
             const y = index * 10 - list.scrollTop;
             if (y < from || y + 10 > to)
