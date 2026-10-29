@@ -124,11 +124,13 @@ export default agentPaneEntry({
       snapshot: chat([
         user("Generate a notification sound", 4),
         activity(
-          [tool("render-audio", "execute", "completed", {
-            command: "render-audio",
-            output: `Saved ${AUDIO}\n`,
-            exitCode: 0,
-          })],
+          [
+            tool("render-audio", "execute", "completed", {
+              command: "render-audio",
+              output: `Saved ${AUDIO}\n`,
+              exitCode: 0,
+            }),
+          ],
           3.8,
         ),
         assistant("The sound is ready to preview.", 3.6),

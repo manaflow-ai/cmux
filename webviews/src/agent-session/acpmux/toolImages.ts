@@ -18,7 +18,7 @@ const mediaExtensions = MEDIA_EXTENSIONS.join("|");
 const IMAGE_FILE = new RegExp(`\\.(png|jpe?g|gif|webp|svg|heic|tiff?|bmp|pdf|${mediaExtensions})$`, "i");
 /// An absolute image or media path in output text, ended by space, a quote or a bracket.
 const IMAGE_PATH = new RegExp(
-  '(?<![\\w./:~-])/[^\\s"\'`()<>[\\]]+\\.(?:png|jpe?g|gif|webp|svg|pdf|' + mediaExtensions + ")(?![\\w-])",
+  "(?<![\\w./:~-])/[^\\s\"'`()<>[\\]]+\\.(?:png|jpe?g|gif|webp|svg|pdf|" + mediaExtensions + ")(?![\\w-])",
   "gi",
 );
 

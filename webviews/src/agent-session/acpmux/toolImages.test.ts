@@ -45,12 +45,14 @@ test("unfinished calls do not expose audio paths before completion", () => {
 test("one audio file reported through every source appears once", () => {
   const path = "/project/out/voice.wav";
   expect(
-    toolImages(completed({
-      images: [path],
-      inputSummary: JSON.stringify({ file_path: path }),
-      locations: [{ path }],
-      output: `Saved ${path}\nAgain: ${path}`,
-    })),
+    toolImages(
+      completed({
+        images: [path],
+        inputSummary: JSON.stringify({ file_path: path }),
+        locations: [{ path }],
+        output: `Saved ${path}\nAgain: ${path}`,
+      }),
+    ),
   ).toEqual([path]);
 });
 
@@ -89,5 +91,7 @@ test("quoted and bracketed audio output paths retain their absolute path", () =>
 
 test("audio files share the existing per-tool media limit", () => {
   const paths = Array.from({ length: MAX_TOOL_IMAGES + 2 }, (_, index) => `/project/voice-${index}.wav`);
-  expect(toolImages(completed({ locations: paths.map((path) => ({ path })) }))).toEqual(paths.slice(0, MAX_TOOL_IMAGES));
+  expect(toolImages(completed({ locations: paths.map((path) => ({ path })) }))).toEqual(
+    paths.slice(0, MAX_TOOL_IMAGES),
+  );
 });
