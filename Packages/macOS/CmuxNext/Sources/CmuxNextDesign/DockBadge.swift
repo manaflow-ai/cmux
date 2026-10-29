@@ -51,8 +51,8 @@ public final class DockBadge {
             // then release it even if the stream itself remains retained by a cancelled task.
             let lifetime = ActivationPolicyObservationLifetime(app)
             // crash-allow: the token is never mutated; it is only invalidated (thread-safe), once, when the stream ends.
-            nonisolated(unsafe) let token = app.observe(keyPath, options: [.new]) { _, change in
-                if let policy = change.newValue { continuation.yield(policy) }
+            nonisolated(unsafe) let token = app.observe(keyPath, options: [.new]) { source, _ in
+                continuation.yield(source[keyPath: keyPath])
             }
             continuation.onTermination = { _ in
                 token.invalidate()
