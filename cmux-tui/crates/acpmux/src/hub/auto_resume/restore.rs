@@ -10,6 +10,7 @@ impl Hub {
         }
         let mut pending = session.auto_resume.lock();
         if pending.is_some()
+            || session.replaced.load(std::sync::atomic::Ordering::SeqCst)
             || session.status() == SessionStatus::Closed
             || session.turn().is_some()
             || session.queue().iter().any(|q| !q.held)
@@ -320,6 +321,24 @@ mod tests {
         )
         .await;
         assert_eq!(hub.session_summary(&imported)["retry"], before);
+        // A task already inside prompt_with can return after replacement too. Its
+        // refused result and a late exhaustion decision must not settle the incoming retry.
+        hub.finish_auto_resume(
+            &old,
+            &CutTurn {
+                from: None,
+                prompt_id: "later-prompt",
+                turn_id: "later-turn",
+                control: Control::Local,
+                trust_gate: false,
+                error: "stream disconnected",
+            },
+            1,
+            &[],
+            Err(RpcError::invalid_params("folder disappeared")),
+            false,
+        );
+        hub.append_retry(&old, "auto_resume_exhausted", json!({"turnId": "later-turn"}));
         assert_eq!(hub.events(&imported.id, 0, 100).unwrap().len(), records);
         // Off/exhaustion and cleanup paths from old tasks also own only the old mark.
         assert!(!hub.take_pending(&old, "later-turn"));

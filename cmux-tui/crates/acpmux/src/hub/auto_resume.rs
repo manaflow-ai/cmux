@@ -365,7 +365,7 @@ impl Hub {
                 let ours = hub.take_pending(&session, &turn_id);
                 if done > 0 {
                     let msg = json!({"promptId": root, "attempts": done, "turnId": turn_id, "reason": reason.as_str()});
-                    hub.append(&session, "mux", "auto_resume_exhausted", msg);
+                    hub.append_retry(&session, "auto_resume_exhausted", msg);
                 } else if ours {
                     hub.settled_unretried(&session, &turn_id, "off");
                 }
@@ -402,6 +402,15 @@ impl Hub {
         });
     }
 
+    /// Transfer replacement takes this lock in Stop before installing its incoming log.
+    /// A late retry event must either finish before that boundary or leave the new log alone.
+    fn append_retry(&self, session: &Session, kind: &str, msg: Value) {
+        let _pending = session.auto_resume.lock();
+        if !session.replaced.load(std::sync::atomic::Ordering::SeqCst) {
+            self.append(session, "mux", kind, msg);
+        }
+    }
+
     /// Records `auto_resume_settled` `{turnId, why}` when the chat's last turn `turn_id` is one a
     /// row could have shown `retryDeciding` for and it gets no retry: watchers, and peers that
     /// keep its row, hear the decision (Codex review: a peer's row kept saying deciding).
@@ -416,7 +425,7 @@ impl Hub {
         });
         if deciding {
             let msg = json!({"turnId": turn_id, "why": why});
-            self.append(session, "mux", "auto_resume_settled", msg);
+            self.append_retry(session, "auto_resume_settled", msg);
         }
     }
 
@@ -438,7 +447,9 @@ impl Hub {
         // this record are stopped, never a later turn after an earlier idle Stop.
         // The first close records this boundary while the chat is still open. A closed
         // chat cannot restore a retry, and stopping it again must not refresh its age.
-        if session.status() != SessionStatus::Closed {
+        if session.status() != SessionStatus::Closed
+            && !session.replaced.load(std::sync::atomic::Ordering::SeqCst)
+        {
             self.append(session, "mux", "auto_resume_stopped", json!({}));
         }
         let settles = settled_by_stop(pending.as_ref());
@@ -522,7 +533,10 @@ impl Hub {
     /// session row's `retry` shows.
     fn set_retry(&self, session: &Session, cut_turn: &str, wait: RetrySummary, msg: Value) -> bool {
         match session.auto_resume.lock().as_mut() {
-            Some(Mark::Waiting { turn, retry, .. }) if turn == cut_turn => {
+            Some(Mark::Waiting { turn, retry, .. })
+                if turn == cut_turn
+                    && !session.replaced.load(std::sync::atomic::Ordering::SeqCst) =>
+            {
                 *retry = Some(wait);
                 // Before Stop can clear the mark and record its terminal decision: recovery
                 // must never find the schedule after the cancellation it superseded.
@@ -629,17 +643,17 @@ impl Hub {
         let skipped = |why: &str| json!({"promptId": root, "attempt": attempt, "turnId": cut_turn, "skipped": why});
         if let Err(why) = self.fire_pending(session, cut_turn) {
             // Stop or close took it, or a newer turn replaced it.
-            self.append(session, "mux", "auto_resume_skipped", skipped(why));
+            self.append_retry(session, "auto_resume_skipped", skipped(why));
             return;
         }
         if session.status() == SessionStatus::Closed || session.moving().is_some() {
             self.clear_fired(session, cut_turn);
-            self.append(session, "mux", "auto_resume_skipped", skipped("closed"));
+            self.append_retry(session, "auto_resume_skipped", skipped("closed"));
             return;
         }
         if !still_cut(session, cut_turn) {
             self.clear_fired(session, cut_turn);
-            self.append(session, "mux", "auto_resume_skipped", skipped("superseded"));
+            self.append_retry(session, "auto_resume_skipped", skipped("superseded"));
             return;
         }
         let held = self.held_by(session, root, cut_turn);
@@ -667,10 +681,37 @@ impl Hub {
         let reason = super::turn_errors::resume_cause(cut.error, cut.error).unwrap_or("transport");
         let blocks = vec![json!({"type": "text", "text": continue_text(cut.error, reason)})];
         let result = self.prompt_with(session, blocks, "acpmux", false, opts).await;
+        self.finish_auto_resume(
+            session,
+            &cut,
+            attempt,
+            &held,
+            result,
+            accepted.load(std::sync::atomic::Ordering::SeqCst),
+        );
+    }
+
+    /// A prompt can finish after its session was replaced. Serialize its terminal records
+    /// and held-queue release with replacement's Stop, just like a waiting timer's records.
+    fn finish_auto_resume(
+        &self,
+        session: &Arc<Session>,
+        cut: &CutTurn<'_>,
+        attempt: usize,
+        held: &[String],
+        result: Result<Value, RpcError>,
+        accepted: bool,
+    ) {
+        let (root, cut_turn) = (cut.prompt_id, cut.turn_id);
         self.clear_fired(session, cut_turn);
+        let _pending = session.auto_resume.lock();
+        if session.replaced.load(std::sync::atomic::Ordering::SeqCst) {
+            return;
+        }
+        let skipped = |why: &str| json!({"promptId": root, "attempt": attempt, "turnId": cut_turn, "skipped": why});
         match result {
             Ok(v) if v.get("stopReason").and_then(Value::as_str) != Some("cancelled") => {
-                self.resume_held(session, &held);
+                self.resume_held(session, held);
             }
             Ok(_) => {}
             Err(e) => match e.data.as_ref().and_then(|d| d.get("reason")).and_then(Value::as_str) {
@@ -679,7 +720,7 @@ impl Hub {
                     self.append(session, "mux", "auto_resume_skipped", skipped(why));
                 }
                 // Refused before its turn: the row's retry went when it fired.
-                _ if !accepted.load(std::sync::atomic::Ordering::SeqCst) => {
+                _ if !accepted => {
                     tracing::warn!(session = %session.id, attempt, "auto resume refused: {}", e.message);
                     let mut msg = skipped("refused");
                     msg["error"] = json!(e.message);
