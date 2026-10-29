@@ -1572,11 +1572,11 @@ test("a cold open whose attach fails keeps none of the records that came before 
   expect(opening.lastSeq).toBe(0);
   expect(text(drawn.at(-1))).not.toContain("stray");
   expect(drawn.at(-1)?.commands?.map((command) => command.name)).not.toContain("stray-command");
-  // The next open reads the chat from nothing: no gap is read after 41 and 42 as if they were.
+  // The next open reads from nothing, not after the failed attempt's last streamed record (43).
   await opening.open();
   await flush();
   const asked = second.asked.filter((message) => message.method === "_acpmux/events");
-  expect(asked.some((message) => message.params?.afterSeq === 42)).toBe(false);
+  expect(asked.some((message) => message.params?.afterSeq === 43)).toBe(false);
   const shown = text(drawn.at(-1));
   expect(shown).not.toContain("stray");
   for (const seq of [48, 49, 50]) expect(count(shown, ` ${seq}. `)).toBe(1);
