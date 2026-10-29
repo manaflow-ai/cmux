@@ -7,6 +7,22 @@ use anyhow::{Result, anyhow};
 use serde_json::{Value, json};
 use std::io::{Read, Write};
 use std::sync::Arc;
+use std::time::Duration;
+
+const UPDATE_RECONNECT_BUDGET: Duration = Duration::from_secs(20);
+
+pub(crate) async fn reconnect_after_update() -> Result<Arc<Client>> {
+    tokio::time::timeout(UPDATE_RECONNECT_BUDGET, crate::daemon::connect(true))
+        .await
+        .map_err(|_| anyhow!("daemon did not come back within {UPDATE_RECONNECT_BUDGET:?}"))?
+}
+
+pub(crate) fn daemon_closed_error(error: &anyhow::Error) -> bool {
+    error
+        .downcast_ref::<crate::cli::errors::AppError>()
+        .is_some_and(|app| app.detail == "daemon_closed")
+        || error.to_string().contains("daemon connection closed")
+}
 
 pub(crate) fn arg_or_stdin(words: &[String]) -> Result<String> {
     let joined = words.join(" ");
@@ -115,6 +131,26 @@ impl PromptId {
 /// started), signalled by `_acpmux/prompt_accepted` for this prompt id.
 /// The turn keeps running in the daemon after this process exits.
 pub(crate) async fn queue_prompt(
+    client: Arc<Client>,
+    id: &str,
+    text: &str,
+    steer: bool,
+    provenance: Option<&Value>,
+    prompt: &PromptId,
+) -> Result<Value> {
+    match queue_prompt_once(client, id, text, steer, provenance, prompt).await {
+        Ok(value) => Ok(value),
+        Err(error) if daemon_closed_error(&error) => {
+            let client = reconnect_after_update().await?;
+            let mut retry = prompt.clone();
+            retry.resend = true;
+            queue_prompt_once(client, id, text, steer, provenance, &retry).await
+        }
+        Err(error) => Err(error),
+    }
+}
+
+async fn queue_prompt_once(
     client: Arc<Client>,
     id: &str,
     text: &str,
@@ -615,6 +651,8 @@ pub(crate) async fn collect_reply(
     prompt: &PromptId,
 ) -> Result<CollectResult> {
     let mut attempt = 0u32;
+    let mut client = client;
+    let mut update_retry = false;
     // A retry after an agent error is a new turn on purpose, so it gets a
     // new prompt id; the daemon would otherwise answer with the failure.
     let mut prompt = prompt.clone();
@@ -622,6 +660,12 @@ pub(crate) async fn collect_reply(
         match collect_once(client.clone(), id, text, opts, &prompt).await {
             Ok(r) => return Ok(r),
             Err(e) => {
+                if !update_retry && daemon_closed_error(&e) {
+                    update_retry = true;
+                    client = reconnect_after_update().await?;
+                    prompt.resend = true;
+                    continue;
+                }
                 let retryable = e
                     .downcast_ref::<crate::cli::errors::AppError>()
                     // A closed connection is retryable for the caller (resend

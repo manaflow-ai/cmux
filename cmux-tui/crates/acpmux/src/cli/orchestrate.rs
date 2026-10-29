@@ -118,7 +118,14 @@ pub(crate) async fn wait(client: Arc<Client>, opts: WaitOpts, json_out: bool) ->
         "all": opts.all,
         "timeoutMs": opts.timeout.map(|s| s * 1000),
     });
-    let v = client.request(method::MUX_WAIT, params).await?;
+    let v = match client.request(method::MUX_WAIT, params.clone()).await {
+        Ok(value) => value,
+        Err(error) if crate::cli::output::daemon_closed_error(&error) => {
+            let replacement = crate::cli::output::reconnect_after_update().await?;
+            replacement.request(method::MUX_WAIT, params).await?
+        }
+        Err(error) => return Err(error),
+    };
     let sessions = v.get("sessions").and_then(Value::as_array).cloned().unwrap_or_default();
     let resolved = v.get("resolved").and_then(Value::as_array).cloned().unwrap_or_default();
     let timed_out = v.get("timedOut").and_then(Value::as_bool).unwrap_or(false);

@@ -17,6 +17,27 @@ pub(super) async fn queue(
     superseding: bool,
     json_out: bool,
 ) -> Result<()> {
+    match queue_once(client, session, text, steer, prompt_id, superseding, json_out).await {
+        Ok(()) => Ok(()),
+        Err(error) if super::super::output::daemon_closed_error(&error) => {
+            let replacement = super::super::output::reconnect_after_update().await?;
+            let mut retry = prompt_id.clone();
+            retry.resend = true;
+            queue_once(&replacement, session, text, steer, &retry, superseding, json_out).await
+        }
+        Err(error) => Err(error),
+    }
+}
+
+async fn queue_once(
+    client: &std::sync::Arc<crate::client::Client>,
+    session: &str,
+    text: &str,
+    steer: bool,
+    prompt_id: &PromptId,
+    superseding: bool,
+    json_out: bool,
+) -> Result<()> {
     let key = orchestrate::expand_session_key(session)?;
     let request = prompt_id.params(&key, text, steer, None);
     let queued = match client.request(method::MUX_SEND_QUEUE, json!({"request": request})).await {
