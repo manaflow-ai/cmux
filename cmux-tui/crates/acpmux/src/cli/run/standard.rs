@@ -870,7 +870,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                         && crate::cli::send_relay::no_such_session(&e)
                         && crate::mesh_http::configured() =>
                 {
-                    let client = connect(true).await?;
+                    let client = before_deadline(deadline, &relay_session, connect(true)).await?;
                     super::send_async::queue(
                         &client,
                         &relay_session,
@@ -879,6 +879,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                         &mesh_prompt,
                         superseding,
                         json_out,
+                        deadline,
                     )
                     .await
                 }
