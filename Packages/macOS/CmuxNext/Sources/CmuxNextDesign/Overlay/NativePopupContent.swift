@@ -12,7 +12,7 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
     private var rowViews: [(NativePopupRow, NSView)] = []
     private var targets: [NativePopupControlTarget] = []
     private var fields: [String: NSTextField] = [:]
-    fileprivate var localFieldValues: [String: (sequence: Int, value: String)] = [:]
+    var localFieldValues: [String: (sequence: Int, value: String)] = [:]
     private var nextEditSequence = 0
     private(set) var lastEditSequence: Int?
     private var editableControls: [String: NSControl] = [:]
@@ -42,7 +42,7 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
     }
 
     func update(_ incoming: NativePopupModel) {
-        let next = preservingLocalEdits(incoming)
+        let next = preservingLocalEdits(in: incoming)
         let focused = fields.first { $0.value.currentEditor() != nil }
         let focusedID = focused?.key ?? editableControls.first(where: { $0.value === window?.firstResponder })?.key
         if let editor = focused?.value.currentEditor() as? NSTextView, editor.hasMarkedText() {
@@ -75,7 +75,7 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
         }
         model = next
         let policy = next.search?.autoHighlight
-        let auto = policy == nil || policy == .always || (policy == .first && searchHasInput && next.search?.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false)
+        let auto = policy == nil || policy == .always || (policy == .first && searchHasInput && next.search?.value.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines).isEmpty == false)
         selected = next.highlighted ?? priorSelection
         if next.highlighted == nil, selectionReason == "none", !auto { selected = nil }
         if selected != priorSelection { selectionReason = "none" }
