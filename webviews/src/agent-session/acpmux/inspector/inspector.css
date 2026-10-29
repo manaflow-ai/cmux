@@ -247,6 +247,52 @@
   border-radius: var(--acpmux-inspector-row-radius);
   background: none;
 }
+/* The six-dot handle that moves a section (InspectorGroup.tsx): in the body's left padding, beside the
+   section's first row, and seen only on hover, keyboard focus or while it drags, so before a drag the
+   panel draws as it did. It takes no room in the section. */
+.acpmux-chat-inspector-section {
+  position: relative;
+}
+.acpmux-chat-inspector-section__handle {
+  position: absolute;
+  z-index: var(--layer-raised);
+  top: 0;
+  left: -10px;
+  width: 10px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: none;
+  color: var(--agent-muted);
+  cursor: grab;
+  opacity: 0;
+  touch-action: none;
+  appearance: none;
+}
+.acpmux-chat-inspector-section:hover > .acpmux-chat-inspector-section__handle,
+.acpmux-chat-inspector-section__handle:focus-visible,
+.acpmux-chat-inspector-section[data-dragging] > .acpmux-chat-inspector-section__handle {
+  opacity: 1;
+}
+.acpmux-chat-inspector-section__handle:hover,
+.acpmux-chat-inspector-section[data-dragging] > .acpmux-chat-inspector-section__handle {
+  color: var(--agent-text);
+}
+.acpmux-chat-inspector-section[data-dragging] > .acpmux-chat-inspector-section__handle {
+  cursor: grabbing;
+}
+.acpmux-chat-inspector-section__handle:focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: -1.5px;
+}
+.acpmux-chat-inspector-section[data-dragging] {
+  background: var(--acpmux-inspector-row-hover);
+}
 /* The three blocks (ChatInspector.tsx RAIL_LAYOUT): where it runs, what it made, what it runs. Shipped
    (glance), a hairline between blocks and none around them; the top block's rows run together. The
    body's sides are the head's, so a row's text lines up under the panel's title. */
