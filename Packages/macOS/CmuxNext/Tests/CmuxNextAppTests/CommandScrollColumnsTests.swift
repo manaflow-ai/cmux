@@ -30,6 +30,8 @@ struct CommandScrollColumnsTests {
         let waits: Bool
         var asks: [NSPoint] = []
         private var pending: [CheckedContinuation<Bool, Never>] = []
+        /// Set by ``release``: an ask that starts after it answers at once.
+        private var released = false
 
         init(answer: Bool, waits: Bool = false) {
             self.answer = answer
@@ -38,11 +40,12 @@ struct CommandScrollColumnsTests {
 
         func pageHandlesCommandScroll(in window: NSWindow, at locationInWindow: NSPoint) async -> Bool {
             asks.append(locationInWindow)
-            guard waits else { return answer }
+            guard waits, !released else { return answer }
             return await withCheckedContinuation { pending.append($0) }
         }
 
         func release() {
+            released = true
             for continuation in pending { continuation.resume(returning: answer) }
             pending = []
         }
@@ -321,8 +324,8 @@ struct CommandScrollColumnsTests {
         for _ in 0..<100 where h.root.pageProbe != nil { await Task.yield() }
         #expect(h.root.pageProbe == nil, "the deadline let the columns take it")
         #expect(Base.scroll(h.root, from: page, at: point, dy: -1, units: .line, command: true), "held again")
-        #expect(arbiter.asks.count == 2, "asked again")
         arbiter.release()
         await h.answered()
+        #expect(arbiter.asks.count == 2, "asked again")
     }
 }
