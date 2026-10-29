@@ -4,7 +4,7 @@ import Testing
 
 @Suite(.timeLimit(.minutes(1))) struct LinkDeadlineTests {
     @Test func preCancelledRunDoesNotStartOperation() async throws {
-        let starts = Counter()
+        let starts = DeadlineInvocationCounter()
         let task = Task {
             withUnsafeCurrentTask { $0?.cancel() }
             return try await LinkDeadline.run(timeout: .seconds(1), operation: {
@@ -67,7 +67,7 @@ import Testing
     }
 }
 
-private final class Counter: @unchecked Sendable {
+private final class DeadlineInvocationCounter: @unchecked Sendable {
     private let lock = NSLock()
     private var count = 0
     func increment() { lock.withLock { count += 1 } }
