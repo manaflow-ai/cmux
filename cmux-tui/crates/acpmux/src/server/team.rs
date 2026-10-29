@@ -74,21 +74,12 @@ async fn send(
         .map(ToOwned::to_owned)
         .unwrap_or_else(|| uuid::Uuid::now_v7().to_string());
     let caller = conn.caller().filter(|_| !conn.is_person());
-    let caller_session = caller.and_then(|id| hub.resolve(id).ok());
     let receipt = mesh
         .send(&OutMessage {
             to: Target { team_address: Some(wire_address), ..Target::default() },
             from: Sender {
                 name: caller.map(|id| hub.session_name(id)),
                 session_id: caller.map(str::to_owned),
-                team_address: caller_session.as_ref().and_then(|session| {
-                    session
-                        .meta()
-                        .tags
-                        .get("teamAddress")
-                        .filter(|tag| tag.expires_at.is_none_or(|at| at > crate::store::now_ms()))
-                        .map(|tag| tag.value.clone())
-                }),
                 host: Some(crate::pairing::machine_name()),
                 ..Sender::default()
             },

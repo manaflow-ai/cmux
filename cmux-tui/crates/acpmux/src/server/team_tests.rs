@@ -183,7 +183,10 @@ async fn team_send_checks_labs_and_uses_proven_sender_without_start_work() {
     assert_eq!(wire["from"]["sessionId"], OWN);
     assert_eq!(wire["from"]["name"], OWN);
     assert!(wire["from"].get("user").is_none());
-    assert_ne!(wire["from"]["teamAddress"], "@owner/coordinator");
+    assert!(
+        wire["from"].get("teamAddress").is_none(),
+        "the hub derives the canonical sender from the proven session id"
+    );
 }
 
 #[tokio::test]
@@ -331,6 +334,10 @@ async fn retry_keys_are_stable_per_proven_sender_and_shared_by_both_send_routes(
             assert!(legacy.get("error").is_none(), "{legacy}");
             let sent = fake.sent.lock().unwrap();
             assert_eq!(sent.len(), start + 3);
+            assert!(
+                sent[start..].iter().all(|message| message.from.team_address.is_none()),
+                "a bare heartbeat suffix is not a sender address"
+            );
             let assigned = &sent[start].idempotency_key;
             assert_ne!(assigned, key, "a raw caller-selected key is not namespaced");
             assert_eq!(assigned, &sent[start + 1].idempotency_key);
