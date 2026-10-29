@@ -201,7 +201,8 @@ import Testing
                 var chunk = [UInt8](repeating: 0, count: 4096)
                 let count = Darwin.read(descriptor, &chunk, chunk.count)
                 guard count > 0 else { throw ToolError("the socket closed or timed out") }
-                pending += try #require(buffer.append(Data(chunk.prefix(count))))
+                let lines = buffer.append(Data(chunk.prefix(count)))
+                pending += try #require(lines)
             }
             return try #require(HelperWire.object(pending.removeFirst()))
         }
