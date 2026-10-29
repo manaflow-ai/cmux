@@ -34,10 +34,15 @@ public struct NewRowCommand: Sendable {
         let intent = Intent.splitPane(pane: pane, direction: .down, ratio: 0.5, provisional: provisional)
         // The target at send time (see ``NewColumnCommand``): a stand-in has become the daemon's pane.
         let target: @MainActor @Sendable () -> PaneID = { daemon.store.daemonHandle(showing: pane) ?? pane }
+        // Older row daemons take client keys but do not replay them; those must send once.
+        let canReplay = daemon.supports(DaemonCapability.rowClientReplay.rawValue)
         // A late reply is sent again under the same client keys, never taken back (#26689); the
         // target is read once, so every send is the same creation (its fingerprint names it).
         let send = daemon.intendNow("new-row", intent, transaction: transaction) { connection in
             let target = await target()
+            guard canReplay else {
+                return try await RowCommands(connection).newRow(below: target, height: height, options: sent)
+            }
             return try await connection.creatingShown("new-row", sent) {
                 try await RowCommands(connection).newRow(below: target, height: height, options: $0)
             }
