@@ -1093,7 +1093,12 @@ export default agentPaneEntry({
         Object.defineProperty(paste, "clipboardData", { value: { files, types: ["Files"] } });
         ctx.find({ selector: ".acpmux-md" }).dispatchEvent(paste);
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-image img"));
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-pending .acpmux-attachment-spinner"));
+        // Inline (the default) spins in the text at the caret; the strip spins in its chip.
+        await ctx.waitFor(() =>
+          ctx.document.querySelector(
+            ".acpmux-md-inline-chip[data-state='loading'] .acpmux-md-inline-spinner, .acpmux-attachment-pending .acpmux-attachment-spinner",
+          ),
+        );
       },
     },
     "attachment-inline-caret": {
