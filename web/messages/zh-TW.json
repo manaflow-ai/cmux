@@ -3169,7 +3169,19 @@
       "accountsDesc": "為團隊上傳代理帳號並檢查模型路由。",
       "preflightTitle": "腳本檢查清單",
       "preflightDesc": "在腳本建立或使用機器之前，請先執行以下唯讀檢查。它們會確認你已登入，顯示你的機器和方案限制，並顯示某個目錄使用的是哪台機器。",
-      "coderouterLink": "完整的 CodeRouter 指令參考"
+      "coderouterLink": "完整的 CodeRouter 指令參考",
+      "nextTitle": "Cloud CLI 參考（NEXT）",
+      "nextIntro": "以下是 cmux NEXT CLI 提供的 Cloud 動作。某個指令即使已提供，也可能無法在特定機器映像檔上使用。2026-10-29 檢查的映像檔尚不支援原生代理聊天分頁、開啟開發伺服器瀏覽器分頁、本機連接埠轉送、分叉機器或閒置時自動暫停。",
+      "nextTargets": "從 list-machines 複製 machine:<id> 格式的 target，並在機器指令中明確傳入 --target，即使只有一台機器也一樣。使用 --help 查看指令語法，使用 cmux action describe 加上動作 ID 查看引數和傳回欄位。",
+      "nextCatalog": "提供的動作",
+      "nextCatalogBody": "此清單由 NEXT 動作目錄產生，不包含僅限 GUI 的動作。它列出可用的指令名稱，並不保證每台機器都支援這些指令。",
+      "nextCommand": "指令",
+      "nextAction": "動作 ID",
+      "nextSecrets": "此 Mac 上的機密資料",
+      "nextSecretsBody": "secret set 從隱藏輸入提示或 stdin 讀取值，並將其儲存在此 Mac 的鑰匙圈中。切勿將機密值放入指令引數。set 和 rm 接受 --repo OWNER/NAME；ls 列出已儲存的名稱和範圍。傳送機密資料前，必須已完成套用宣告了機密名稱的機器設定。在 2026-10-29 檢查的映像檔上，套用設定並傳送機密資料的完整流程尚未經過端對端驗證。",
+      "nextHandoff": "交接與移動聊天",
+      "nextHandoffBody": "hand-off-machine 傳回描述機器的文字，不會移動聊天。move 和 bring-back 在此 Mac 與 Cloud 機器之間移動聊天分頁。它們需要相容的聊天功能支援；請勿將其用作不支援代理聊天分頁的映像檔的替代方案，應改在遠端終端機中執行代理。",
+      "nextHelp": "快速入門與目前限制"
     },
     "cloudTroubleshooting": {
       "title": "Cloud 安全性與疑難排解",

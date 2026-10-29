@@ -3170,7 +3170,19 @@
       "accountsDesc": "Przesyłaj konta agentów dla swojego zespołu i sprawdzaj routing modeli.",
       "preflightTitle": "Lista kontrolna dla skryptów",
       "preflightDesc": "Zanim skrypt utworzy maszyny lub zacznie z nich korzystać, uruchom te sprawdzenia tylko do odczytu. Potwierdzają, że jesteś zalogowany, pokazują Twoje maszyny i limity planu oraz pokazują, której maszyny używa dany katalog.",
-      "coderouterLink": "Pełna dokumentacja poleceń CodeRouter"
+      "coderouterLink": "Pełna dokumentacja poleceń CodeRouter",
+      "nextTitle": "Dokumentacja CLI Cloud (NEXT)",
+      "nextIntro": "Oto działania Cloud udostępniane przez CLI cmux NEXT. Udostępnione polecenie może mimo to być niedostępne w konkretnym obrazie maszyny. Obraz sprawdzony 2026-10-29 nie obsługuje jeszcze natywnych kart czatu agentów, otwierania kart przeglądarki serwera deweloperskiego, lokalnego przekierowywania portów, tworzenia forków ani automatycznego wstrzymywania po okresie bezczynności.",
+      "nextTargets": "Skopiuj cel machine:<id> z list-machines i jawnie podawaj --target w poleceniach dotyczących maszyn, nawet jeśli masz tylko jedną. Użyj --help, aby poznać składnię polecenia, oraz cmux action describe z identyfikatorem działania, aby poznać argumenty i zwracane pola.",
+      "nextCatalog": "Udostępnione działania",
+      "nextCatalogBody": "Ta lista jest generowana z katalogu działań NEXT i pomija działania dostępne wyłącznie w GUI. Zawiera nazwy dostępnych poleceń, ale nie gwarantuje, że każda maszyna je obsługuje.",
+      "nextCommand": "Polecenie",
+      "nextAction": "Identyfikator działania",
+      "nextSecrets": "Sekrety na tym Macu",
+      "nextSecretsBody": "secret set odczytuje wartość z ukrytego monitu lub stdin i zapisuje ją w pęku kluczy tego Maca. Nigdy nie umieszczaj wartości sekretu w argumentach polecenia. set i rm przyjmują --repo OWNER/NAME; ls wyświetla zapisane nazwy i zakresy. Dostarczenie wymaga ukończonej konfiguracji maszyny deklarującej nazwy sekretów. Zastosowanie konfiguracji i dostarczenie sekretów nie zostały jeszcze sprawdzone od początku do końca na obrazie sprawdzonym 2026-10-29.",
+      "nextHandoff": "Przekazanie informacji i przenoszenie czatów",
+      "nextHandoffBody": "hand-off-machine zwraca tekst o maszynie; nie przenosi czatu. move i bring-back przenoszą karty czatu między tym Makiem a maszyną Cloud. Wymagają zgodnej obsługi czatu; nie używaj ich jako obejścia dla obrazu bez kart czatu agentów. Zamiast tego uruchom agenta w zdalnym terminalu.",
+      "nextHelp": "Szybki start i obecne ograniczenia"
     },
     "cloudTroubleshooting": {
       "title": "Bezpieczeństwo i problemy w Cloud",

@@ -3170,7 +3170,19 @@
       "accountsDesc": "Carica account degli agenti per il tuo team e controlla l'instradamento dei modelli.",
       "preflightTitle": "Checklist per gli script",
       "preflightDesc": "Prima che uno script crei o usi macchine, esegui questi controlli di sola lettura. Confermano che hai effettuato l'accesso, mostrano le tue macchine e i limiti del piano e indicano quale macchina usa una directory.",
-      "coderouterLink": "Riferimento completo dei comandi di CodeRouter"
+      "coderouterLink": "Riferimento completo dei comandi di CodeRouter",
+      "nextTitle": "Riferimento della CLI Cloud (NEXT)",
+      "nextIntro": "Queste sono le azioni Cloud offerte dalla CLI di cmux NEXT. Un comando offerto può comunque non essere disponibile su una determinata immagine della macchina. L’immagine verificata il 2026-10-29 non supporta ancora le schede di chat native degli agenti, l’apertura di schede del browser per i server di sviluppo, l’inoltro locale delle porte, i fork o la pausa automatica per inattività.",
+      "nextTargets": "Copia la destinazione machine:<id> da list-machines e passa esplicitamente --target ai comandi per le macchine, anche se ne hai una sola. Usa --help per la sintassi dei comandi e cmux action describe con l’ID dell’azione per gli argomenti e i campi restituiti.",
+      "nextCatalog": "Azioni offerte",
+      "nextCatalogBody": "Questo elenco viene generato dal catalogo delle azioni NEXT ed esclude le azioni disponibili solo nell’interfaccia grafica. Elenca i nomi dei comandi disponibili, senza garantire che ogni macchina li supporti.",
+      "nextCommand": "Comando",
+      "nextAction": "ID dell’azione",
+      "nextSecrets": "Segreti su questo Mac",
+      "nextSecretsBody": "secret set legge il valore da un prompt con input nascosto o da stdin e lo salva nel Portachiavi di questo Mac. Non inserire mai il valore di un segreto negli argomenti di un comando. set e rm accettano --repo OWNER/NAME; ls elenca i nomi e gli ambiti memorizzati. L’invio richiede una configurazione della macchina completamente applicata che dichiari i nomi dei segreti. L’applicazione di una configurazione e l’invio dei segreti non sono ancora stati verificati dall’inizio alla fine sull’immagine controllata il 2026-10-29.",
+      "nextHandoff": "Passaggio di consegne e spostamento delle chat",
+      "nextHandoffBody": "hand-off-machine restituisce del testo su una macchina; non sposta una chat. move e bring-back spostano le schede di chat tra questo Mac e una macchina Cloud. Richiedono un supporto chat compatibile; non usarli come soluzione alternativa per un’immagine priva di schede di chat degli agenti. Esegui invece l’agente in un terminale remoto.",
+      "nextHelp": "Guida rapida e limitazioni attuali"
     },
     "cloudTroubleshooting": {
       "title": "Sicurezza e risoluzione dei problemi di Cloud",

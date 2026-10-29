@@ -3169,7 +3169,19 @@
       "accountsDesc": "Sube cuentas de agentes para tu equipo y comprueba el enrutamiento de modelos.",
       "preflightTitle": "Lista de comprobación para scripts",
       "preflightDesc": "Antes de que un script cree o use máquinas, ejecuta estas comprobaciones de solo lectura. Confirman que has iniciado sesión, muestran tus máquinas y los límites de tu plan, y muestran qué máquina usa un directorio.",
-      "coderouterLink": "Referencia completa de comandos de CodeRouter"
+      "coderouterLink": "Referencia completa de comandos de CodeRouter",
+      "nextTitle": "Referencia de la CLI de Cloud (NEXT)",
+      "nextIntro": "Estas son las acciones de Cloud que ofrece la CLI de cmux NEXT. Un comando ofrecido puede no estar disponible en una imagen de máquina concreta. La imagen verificada el 2026-10-29 aún no admite pestañas de chat nativas de agentes, la apertura de pestañas del navegador para servidores de desarrollo, el reenvío local de puertos, las bifurcaciones ni la pausa automática por inactividad.",
+      "nextTargets": "Copia el destino machine:<id> de list-machines y pasa --target explícitamente en los comandos de máquinas, aunque solo tengas una. Usa --help para consultar la sintaxis y cmux action describe con el ID de la acción para ver los argumentos y los campos devueltos.",
+      "nextCatalog": "Acciones ofrecidas",
+      "nextCatalogBody": "Esta lista se genera a partir del catálogo de acciones de NEXT y excluye las acciones exclusivas de la interfaz gráfica. Enumera los nombres de los comandos disponibles, sin garantizar que todas las máquinas los admitan.",
+      "nextCommand": "Comando",
+      "nextAction": "ID de la acción",
+      "nextSecrets": "Secretos en este Mac",
+      "nextSecretsBody": "secret set lee el valor mediante una entrada oculta o stdin y lo guarda en el Llavero de este Mac. Nunca incluyas el valor de un secreto en los argumentos de un comando. set y rm aceptan --repo OWNER/NAME; ls enumera los nombres y ámbitos almacenados. La entrega requiere una configuración de máquina completamente aplicada que declare los nombres de los secretos. La aplicación de una configuración y la entrega de secretos aún no se han verificado de principio a fin en la imagen comprobada el 2026-10-29.",
+      "nextHandoff": "Entrega y traslado de chats",
+      "nextHandoffBody": "hand-off-machine devuelve texto sobre una máquina; no traslada un chat. move y bring-back trasladan pestañas de chat entre este Mac y una máquina Cloud. Requieren compatibilidad con chats; no los uses como solución para una imagen sin pestañas de chat de agentes. Ejecuta el agente en un terminal remoto en su lugar.",
+      "nextHelp": "Inicio rápido y limitaciones actuales"
     },
     "cloudTroubleshooting": {
       "title": "Seguridad y solución de problemas de Cloud",

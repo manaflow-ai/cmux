@@ -3167,7 +3167,19 @@
       "accountsDesc": "Upload agentkonti til dit team, og tjek modelrouting.",
       "preflightTitle": "Tjekliste til scripts",
       "preflightDesc": "Før et script opretter eller bruger maskiner, skal du køre disse skrivebeskyttede kontroller. De bekræfter, at du er logget ind, viser dine maskiner og abonnementsgrænser og viser, hvilken maskine en mappe bruger.",
-      "coderouterLink": "Fuld CodeRouter-kommandoreference"
+      "coderouterLink": "Fuld CodeRouter-kommandoreference",
+      "nextTitle": "Cloud-CLI-reference (NEXT)",
+      "nextIntro": "Dette er de Cloud-handlinger, som cmux NEXT CLI tilbyder. En tilbudt kommando kan stadig være utilgængelig på et bestemt maskinimage. Det image, der blev kontrolleret den 2026-10-29, understøtter endnu ikke integrerede agentchatfaner, åbning af browserfaner til udviklingsservere, lokal portvideresendelse, forks eller automatisk pause ved inaktivitet.",
+      "nextTargets": "Kopiér destinationen machine:<id> fra list-machines, og angiv --target udtrykkeligt ved maskinkommandoer, også hvis du kun har én maskine. Brug --help til kommandosyntaks og cmux action describe med handlingens ID til argumenter og returnerede felter.",
+      "nextCatalog": "Tilbudte handlinger",
+      "nextCatalogBody": "Denne liste genereres fra NEXT-handlingskataloget og udelader handlinger, der kun findes i den grafiske brugerflade. Den viser tilgængelige kommandonavne uden at garantere, at alle maskiner understøtter dem.",
+      "nextCommand": "Kommando",
+      "nextAction": "Handlings-ID",
+      "nextSecrets": "Hemmeligheder på denne Mac",
+      "nextSecretsBody": "secret set læser værdien via en prompt med skjult indtastning eller stdin og gemmer den i denne Macs nøglering. Angiv aldrig en hemmelig værdi i kommandoargumenter. set og rm accepterer --repo OWNER/NAME; ls viser gemte navne og anvendelsesområder. Overførsel kræver en færdiganvendt maskinkonfiguration, der angiver hemmelighedernes navne. Anvendelse af en konfiguration og overførsel af hemmeligheder er endnu ikke kontrolleret fra ende til anden på det image, der blev kontrolleret den 2026-10-29.",
+      "nextHandoff": "Overdragelse og flytning af chats",
+      "nextHandoffBody": "hand-off-machine returnerer tekst om en maskine; den flytter ikke en chat. move og bring-back flytter chatfaner mellem denne Mac og en Cloud-maskine. De kræver kompatibel chatunderstøttelse; brug dem ikke som en omvej for et image uden agentchatfaner. Kør i stedet agenten i en fjernterminal.",
+      "nextHelp": "Kom hurtigt i gang og aktuelle begrænsninger"
     },
     "cloudTroubleshooting": {
       "title": "Cloud-sikkerhed og fejlfinding",

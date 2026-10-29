@@ -3170,7 +3170,19 @@
       "accountsDesc": "Otpremite račune agenata za svoj tim i provjerite rutiranje modela.",
       "preflightTitle": "Kontrolna lista za skripte",
       "preflightDesc": "Prije nego što skripta kreira ili koristi mašine, pokrenite ove provjere koje samo čitaju. One potvrđuju da ste prijavljeni, prikazuju vaše mašine i ograničenja plana te pokazuju koju mašinu koristi određeni direktorij.",
-      "coderouterLink": "Potpuna referenca CodeRouter komandi"
+      "coderouterLink": "Potpuna referenca CodeRouter komandi",
+      "nextTitle": "Referenca za Cloud CLI (NEXT)",
+      "nextIntro": "Ovo su Cloud radnje koje nudi cmux NEXT CLI. Ponuđena komanda ipak može biti nedostupna na određenoj slici mašine. Slika provjerena 2026-10-29 još ne podržava ugrađene kartice razgovora s agentima, otvaranje kartica preglednika za razvojne servere, lokalno prosljeđivanje portova, pravljenje forkova ni automatsko pauziranje pri neaktivnosti.",
+      "nextTargets": "Kopirajte cilj machine:<id> iz list-machines i izričito navedite --target za komande za mašine, čak i kada imate samo jednu. Koristite --help za sintaksu komande i cmux action describe s ID-jem radnje za argumente i povratna polja.",
+      "nextCatalog": "Ponuđene radnje",
+      "nextCatalogBody": "Ova lista se generiše iz kataloga radnji NEXT i isključuje radnje dostupne samo u GUI-ju. Navodi dostupne nazive komandi, ali ne garantuje da ih svaka mašina podržava.",
+      "nextCommand": "Komanda",
+      "nextAction": "ID radnje",
+      "nextSecrets": "Tajne na ovom Macu",
+      "nextSecretsBody": "secret set čita vrijednost iz skrivenog unosa ili stdin i pohranjuje je u privjesak ključeva ovog Maca. Nikada ne stavljajte vrijednost tajne u argumente komande. set i rm prihvataju --repo OWNER/NAME; ls ispisuje pohranjene nazive i opsege. Dostava zahtijeva dovršenu konfiguraciju mašine koja navodi nazive tajni. Primjena konfiguracije i dostava tajni još nisu provjerene od početka do kraja na slici provjerenoj 2026-10-29.",
+      "nextHandoff": "Predaja informacija i premještanje razgovora",
+      "nextHandoffBody": "hand-off-machine vraća tekst o mašini; ne premješta razgovor. move i bring-back premještaju kartice razgovora između ovog Maca i Cloud mašine. Zahtijevaju kompatibilnu podršku za razgovore; nemojte ih koristiti kao zaobilazno rješenje za sliku bez kartica razgovora s agentima. Umjesto toga pokrenite agenta u udaljenom terminalu.",
+      "nextHelp": "Brzi početak i trenutna ograničenja"
     },
     "cloudTroubleshooting": {
       "title": "Cloud sigurnost i rješavanje problema",
