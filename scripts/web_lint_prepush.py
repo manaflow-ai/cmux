@@ -390,8 +390,11 @@ def spawn(command: list[str] | str, cwd: Path, env: dict[str, str] | None):
         env = capped_env(env)
         nice = shutil.which("nice")
         if nice:
-            command = f"{nice} -n {HEAVY_NICE} {command}" if isinstance(command, str) else \
-                [nice, "-n", str(HEAVY_NICE), *command]
+            # A shell string runs as `nice sh -c STRING`: the shell itself is niced, so a leading VAR=value and every
+            # command of a compound string keep their meaning and inherit the priority.
+            argv = ["/bin/sh", "-c", command] if isinstance(command, str) else list(command)
+            return subprocess.run([nice, "-n", str(HEAVY_NICE), *argv], cwd=cwd, env=env, text=True,
+                                  capture_output=True)
     return subprocess.run(command, cwd=cwd, env=env, text=True, capture_output=True,
                           shell=isinstance(command, str))
 

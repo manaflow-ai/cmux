@@ -690,6 +690,23 @@ class WebLintPrePushTests(unittest.TestCase):
         self.assertTrue(shells)
         self.assertEqual([c for shell, c in shells if shell], [], "a light piece must never run through a shell")
 
+    def test_a_niced_shell_string_keeps_its_meaning_and_every_command_is_niced(self):
+        # `nice` in front of a shell string read `VAR=1` as the program (exit 127), and niced only the first
+        # command of `a; b`. The whole shell runs niced instead.
+        lint = load_lint(self.repo)
+        probe = self.root / "probe.py"
+        probe.write_text("import os, sys\nprint(os.environ.get('CHECK_MODE', '-'), os.nice(0))\n")
+        env = {"PATH": os.environ["PATH"]}
+        with mock.patch.dict(os.environ, {"GITHUB_ACTIONS": "", "CI": ""}):
+            assigned = lint.spawn(f"CHECK_MODE=1 {sys.executable} {probe}", self.root, env)
+            compound = lint.spawn(f"true; {sys.executable} {probe}", self.root, env)
+        self.assertEqual(assigned.returncode, 0, assigned.stderr)
+        mode, nice = assigned.stdout.split()
+        floor = min(19, os.nice(0) + 10)  # relative to this process, which may itself run niced
+        self.assertEqual(mode, "1")
+        self.assertGreaterEqual(int(nice), floor)
+        self.assertGreaterEqual(int(compound.stdout.split()[1]), floor, compound.stdout)
+
     def test_ci_spawns_as_is_and_a_caller_cap_is_kept(self):
         lint = load_lint(self.repo)
         with mock.patch.object(lint.subprocess, "run") as run, \
@@ -839,7 +856,7 @@ class TuiBindingsTests(unittest.TestCase):
                                         'echo "npm $* @ $(basename "$PWD") nice=$(nice) GOMAXPROCS=$GOMAXPROCS" '
                                         '>> "$TOOL_LOG"'))
 
-        result, calls = self.lint_all()
+        result, calls = self.lint_all(GITHUB_ACTIONS="", CI="")  # outside CI, even on a CI runner
 
         self.assertEqual(result.returncode, 0, result.stderr)
         built = [c for c in calls if c.startswith("npm")]
