@@ -1,0 +1,130 @@
+// l10n-allow-file: test fixture tool titles and commands, not shipped UI.
+// Codex-style tool rows (Leo 2026-10-29: "fade is nice ish too on these tool calls... having stuff
+// aligned is nice"): a turn's tool rows put their verbs ("Ran", "Read", "Edited") in one column, so
+// every subject starts at one x, and a tool output box that scrolls at a fixed height fades its
+// bottom edge while more lies under it instead of cutting a line in half.
+import { afterEach, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { act, type ReactNode } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { JSDOM } from "jsdom";
+import type { AcpmuxActivity, AcpmuxRow } from "../model";
+import { McpCallDetails } from "./McpCallRows";
+import { ToolRows } from "./TurnRows";
+import { resetTranscriptDisclosure } from "./transcriptDisclosure";
+
+let dom: JSDOM | undefined;
+let root: Root | undefined;
+const scope = globalThis as Record<string, unknown>;
+const saved = new Map<string, unknown>();
+const GLOBALS = ["window", "document", "navigator", "Node", "HTMLElement", "Element", "IS_REACT_ACT_ENVIRONMENT"];
+
+afterEach(async () => {
+  if (root) await act(async () => root!.unmount());
+  resetTranscriptDisclosure();
+  root = undefined;
+  dom?.window.close();
+  dom = undefined;
+  for (const [key, value] of saved) {
+    if (value === undefined) delete scope[key];
+    else scope[key] = value;
+  }
+  saved.clear();
+});
+
+async function render(node: ReactNode): Promise<HTMLElement> {
+  dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>", { url: "http://localhost/" });
+  for (const key of GLOBALS) saved.set(key, scope[key]);
+  Object.assign(scope, {
+    window: dom.window,
+    document: dom.window.document,
+    navigator: dom.window.navigator,
+    Node: dom.window.Node,
+    HTMLElement: dom.window.HTMLElement,
+    Element: dom.window.Element,
+    IS_REACT_ACT_ENVIRONMENT: true,
+  });
+  const container = dom.window.document.getElementById("root")!;
+  await act(async () => {
+    root = createRoot(container);
+    root.render(node);
+  });
+  return container;
+}
+
+let ids = 0;
+const call = (title: string, kind: string, fields: Record<string, unknown> = {}): AcpmuxActivity => ({
+  kind: "tool",
+  text: title,
+  tool: { id: `t${++ids}`, title, kind, status: "completed", ...fields },
+});
+const thought = (text: string): AcpmuxActivity => ({ kind: "thought", text });
+
+/// One turn's tool rows, each call on its own line (a thought between calls keeps them apart).
+const turn = (items: AcpmuxActivity[]): AcpmuxRow => ({ id: "row1", version: 1, at: 0, kind: "activity", items });
+
+test("a turn's tool rows put their verbs in one column as wide as the widest", async () => {
+  const container = await render(
+    <ToolRows
+      row={turn([
+        call("git status", "execute", { command: "git status" }),
+        thought("Looking at the row."),
+        call("Read App.tsx", "read"),
+        thought("And its styles."),
+        call("Searched for cv-tool", "search"),
+      ])}
+    />,
+  );
+  const verbs = [...container.querySelectorAll(".cv-tool__verb")].map((verb) => verb.textContent);
+  expect(verbs).toEqual(["Ran", "Read", "Searched"]);
+  // Each subject follows its verb on the row: the words read as they did.
+  const rows = [...container.querySelectorAll(".cv-tool, .cv-command")].map((row) =>
+    row.querySelector(".cv-tool__text, .cv-command__text")!.textContent!.trim(),
+  );
+  expect(rows).toEqual(["Ran git status", "Read App.tsx", "Searched for cv-tool"]);
+  // The turn's element carries every verb, so each verb's box is as wide as the widest.
+  const column = container.querySelector<HTMLElement>(".cv-tools")!;
+  expect(column.getAttribute("data-tool-verbs")).toBe("3");
+  expect(column.style.getPropertyValue("--cv-tool-verbs")).toBe('"Ran\\A Read\\A Searched"');
+});
+
+test("a row that leaves takes its verb out of the column", async () => {
+  const items = [call("Read App.tsx", "read"), thought("Then."), call("Edited notes.md", "delete")];
+  const container = await render(<ToolRows row={turn(items)} />);
+  expect(container.querySelector(".cv-tools")!.getAttribute("data-tool-verbs")).toBe("2");
+  await act(async () => root!.render(<ToolRows row={{ ...turn(items.slice(0, 1)), version: 2 }} />));
+  expect(container.querySelector<HTMLElement>(".cv-tools")!.style.getPropertyValue("--cv-tool-verbs")).toBe('"Read"');
+});
+
+test("the verb column and the bottom fade are in the transcript's styles", () => {
+  const css = readFileSync(new URL("./conversation.css", import.meta.url), "utf8");
+  expect(css).toMatch(/\.cv-tool__verb::after\s*\{[^}]*content:\s*var\(--cv-tool-verbs/);
+  expect(css).toMatch(/\.cv-tool__verb::after\s*\{[^}]*height:\s*0/);
+  expect(css).toMatch(
+    /:is\(\.cv-mcp-call__body, \.cv-tool-output__markdown\)\[data-more-below\]\s*\{[^}]*mask-image:\s*linear-gradient\(to bottom/,
+  );
+});
+
+test("an MCP response that scrolls fades its bottom edge until it is scrolled to the end", async () => {
+  const output = Array.from({ length: 40 }, (_, line) => `line ${line}`).join("\n");
+  const container = await render(
+    <McpCallDetails
+      id="call"
+      call={{ server: "hub", tool: "read_chat", args: undefined }}
+      raw="mcp__hub__read_chat"
+      output={output}
+      strip={false}
+      reveal={0}
+    />,
+  );
+  const box = container.querySelector<HTMLElement>(".cv-mcp-call__body")!;
+  // jsdom lays nothing out: the box is 240px tall over 720px of text.
+  Object.defineProperty(box, "clientHeight", { value: 240 });
+  Object.defineProperty(box, "scrollHeight", { value: 720 });
+  Object.defineProperty(box, "scrollTop", { value: 0, writable: true });
+  await act(async () => box.dispatchEvent(new dom!.window.Event("scroll")));
+  expect(box.hasAttribute("data-more-below")).toBe(true);
+  box.scrollTop = 480;
+  await act(async () => box.dispatchEvent(new dom!.window.Event("scroll")));
+  expect(box.hasAttribute("data-more-below")).toBe(false);
+});
