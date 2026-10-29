@@ -38,16 +38,20 @@ enum AgentPaneCapture {
         // The screen goes to the agent: only a click in the pane starts a capture. This is the
         // capture's only gesture; saving the original below uses none.
         guard model.transport.gestures.consume() else { return AgentPaneModel.transportFailure(.gestureRequired) }
+        // A tab may persist another chat while the system picker or preview is pending.
+        // Bind both the route and the optional session to this click before either suspension.
+        let stager = model.onUploadStage?()
+        let session = model.sessionId
         let file = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-capture-\(UUID().uuidString).png")
         var result = AgentPaneReply.success(["cancelled": true])
-        if await pick(mode == "window", file) { result = await Self.answer(file, taken: taken ?? Date(), in: model) }
+        if await pick(mode == "window", file) { result = await Self.answer(file, taken: taken ?? Date(), stager: stager, session: session) }
         // task-owner: one delete of the capture's temporary file once it is answered; nothing waits for it
         Task.detached(priority: .utility) { try? FileManager.checked.removeItem(at: file) }
         return result
     }
 
     /// The reply for the capture `screencapture` wrote at `file`, taken at `taken`.
-    @MainActor private static func answer(_ file: URL, taken: Date, in model: AgentPaneModel) async -> [String: Any] {
+    @MainActor private static func answer(_ file: URL, taken: Date, stager: AgentPaneUploadStager?, session: String?) async -> [String: Any] {
         let name = Self.name(taken: taken)
         // A person waits for the attachment: the file is read and the preview made at userBlocking's
         // priority, off the main actor.
@@ -57,7 +61,7 @@ enum AgentPaneCapture {
         }.value
         // Esc: `screencapture` wrote nothing.
         guard size > 0 else { return AgentPaneReply.success(["cancelled": true]) }
-        let original = await stage(file, name: name, size: size, in: model)
+        let original = await stage(file, name: name, size: size, stager: stager, session: session)
         guard preview != nil || original != nil else {
             return AgentPaneReply.failure(code: "capture_failed", message: "The capture could not be attached.")
         }
@@ -85,9 +89,8 @@ enum AgentPaneCapture {
     /// (AgentChatUploads) saves a new chat's upload under Chat Uploads itself; one that needs a
     /// session refuses, and the capture keeps its preview alone. The saved path, nil when the
     /// chat's host saves nothing or the save failed (what it staged is cancelled).
-    @MainActor static func stage(_ file: URL, name: String, size: Int, in model: AgentPaneModel) async -> String? {
-        guard let stager = model.onUploadStage?() else { return nil }
-        let session = model.sessionId
+    @MainActor private static func stage(_ file: URL, name: String, size: Int, stager: AgentPaneUploadStager?, session: String?) async -> String? {
+        guard let stager else { return nil }
         let begun = value(await stager(.begin(name: name, size: size, batchToken: nil, batch: nil), session))
         guard let token = begun?["token"] as? String, !token.isEmpty, (begun?["size"] as? NSNumber)?.intValue == size else { return nil }
         let chunk = min((begun?["chunkSize"] as? NSNumber)?.intValue ?? chunkBytes, chunkBytes)
@@ -137,7 +140,7 @@ enum AgentPaneCapture {
     /// The model's preview of the PNG at `file` (`size` bytes): the PNG itself within
     /// ``previewMaxBytes``, else scaled to ``previewMaxSide`` as PNG, else as JPEG at falling
     /// quality, the smallest try when none fits (the page fits it further). Never the original's
-    /// stand-in: the original is saved as taken (``stage(_:name:size:in:)``). Nil for bytes that
+    /// stand-in: the original is saved as taken (``stage(_:name:size:stager:session:)``). Nil for bytes that
     /// are no image.
     nonisolated static func preview(of file: URL, size: Int) -> (data: Data, mimeType: String)? {
         if size <= previewMaxBytes, let png = try? Data(blockingContentsOf: file) { return (png, "image/png") }
