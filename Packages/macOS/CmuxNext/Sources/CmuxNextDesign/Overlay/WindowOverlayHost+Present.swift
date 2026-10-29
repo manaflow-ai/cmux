@@ -7,6 +7,13 @@ public extension WindowOverlayHost {
     func present(_ content: NSView, options: OverlayOptions) -> OverlayHandle {
         let handle = OverlayHandle(id: nextID, content: content, options: options, host: self)
         nextID += 1
+        // The window closed (a late caller got its torn-down host): nothing shows, and no view,
+        // observer, modal state or Escape monitor is installed for a window that is gone.
+        if isTearingDown {
+            handle.host = nil
+            handle.dismiss()
+            return handle
+        }
         if content.frame.size == .zero { content.setFrameSize(content.fittingSize) }
         let container = panel.container(for: options.effectiveLayer)
         var scrim: OverlayScrimView?

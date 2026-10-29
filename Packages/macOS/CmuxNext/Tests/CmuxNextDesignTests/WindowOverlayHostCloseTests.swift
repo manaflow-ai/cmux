@@ -56,6 +56,32 @@ import Testing
         #expect(window.childWindows?.contains { $0 === late.panel } != true)
     }
 
+    /// A dialog presented late on a closed window's host shows nothing and takes no input: no
+    /// handle, no modal state, no Escape monitor that would outlive the window or catch keys meant
+    /// for its fresh host once it shows again.
+    @Test func aLateDialogOnAClosedWindowInstallsNothing() {
+        let window = Self.window(onScreen: true)
+        defer { window.close() }
+        let host = WindowOverlayHost.host(for: window)
+        window.close()
+
+        let late = WindowOverlayHost.host(for: window)
+        let dialog = NSView(frame: NSRect(x: 0, y: 0, width: 160, height: 90))
+        let handle = late.present(dialog, options: OverlayOptions(kind: .dialog, isModal: true, dismissOnEscape: true,
+                                                                  dimsContent: true, passesThroughClicks: false))
+        #expect(late === host)
+        #expect(handle.isDismissed)
+        #expect(late.presentedHandles.isEmpty)
+        #expect(!late.blocksWholeWindow)
+        #expect(late.escapeMonitor == nil)
+        #expect(dialog.superview == nil)
+
+        window.orderFrontRegardless()
+        let again = WindowOverlayHost.host(for: window)
+        #expect(again !== host)
+        #expect(host.escapeMonitor == nil, "the closed host still watches Escape for the shown window")
+    }
+
     /// A host made while the window closes (its controller's teardown makes the overlay layer)
     /// came after the close notification: `windowIsClosing` tears it down too.
     @Test func aHostMadeDuringTheCloseClosesWithIt() throws {
