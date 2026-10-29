@@ -23,10 +23,10 @@
 //! - Computer use: when the cmux app exported its tag's helper socket
 //!   (`CMUX_NEXT_CUA_SOCKET`, `cua_socket.rs`), `cmux-cua mcp` gets it as
 //!   `--socket` plus the agent token in its env; this daemon starts no
-//!   helper. The tools refuse the user's cmux and other terminals; a profile
-//!   or preset env with `CMUX_CUA_ALLOWED_TARGET_BUNDLE_IDS` (for example
-//!   the session's own tagged `com.cmuxterm.app.debug.<tag>`) unlocks exact
-//!   bundle ids for that session only.
+//!   helper. The tools refuse the user's cmux and other terminals. The legacy
+//!   server accepts exact bundle ids from `CMUX_CUA_ALLOWED_TARGET_BUNDLE_IDS`
+//!   in a profile or preset env. Helper v2 ignores session scope. The cmux app
+//!   sets its policy at launch, with only its own tagged DEV bundle allowed.
 //! - Per-workspace displays (`agent_displays.rs`, a Linux cloud machine
 //!   with `CMUX_AGENT_DISPLAYS=per-workspace`): `cmux-cua mcp` gets its
 //!   workspace's `CMUX_CUA_DISPLAY`, and a session without a workspace gets
@@ -57,6 +57,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+use cmux_json::JsonSet as _;
 use serde_json::{Map, Value, json};
 
 mod cua_helper;
@@ -494,7 +495,11 @@ pub fn remove_mcp_config(home: &Path, session_id: &str) {
 }
 
 pub fn resolve(inputs: &Inputs) -> AgentTools {
-    resolve_with_cua_helper(inputs, cua_helper::installed)
+    let mut tools = resolve_with_cua_helper(inputs, cua_helper::installed);
+    if crate::cli::cloud_join::require_joined_consent("control").is_err() {
+        tools.servers.retain(|server| server.name != "cmux-cua");
+    }
+    tools
 }
 
 fn resolve_with_cua_helper(
@@ -630,8 +635,9 @@ fn resolve_with_cua_helper(
 
 impl AgentTools {
     /// The tools for one session: its env's [`CUA_SCOPE_ENV`] reaches only
-    /// the computer use server. Without one the server gets the key empty,
-    /// so a value inherited from the daemon's env never widens the guard.
+    /// the computer use server. The legacy server uses it; helper v2 ignores it.
+    /// Without one the server gets the key empty, so a value inherited from
+    /// the daemon's env never widens the legacy guard.
     ///
     /// In per-workspace display mode the env's
     /// [`crate::agent_displays::WORKSPACE_KEY`] picks the server's display;
@@ -815,7 +821,7 @@ impl AgentTools {
                     json!({"name": s.name, "command": s.command, "args": s.args, "env": env});
                 // The secret card waits for the person, not for a timer.
                 if s.name == crate::secret_mcp::SERVER_NAME {
-                    spec["callTimeoutSecs"] = json!(3600);
+                    spec.set("callTimeoutSecs", json!(3600));
                 }
                 spec
             })

@@ -158,6 +158,9 @@ public final class AgentChatStore {
     private var fullAccess = false
     public private(set) var currentModeID: String?
     public private(set) var usage: (used: Int, size: Int)?
+    /// The chat opened on its newest history only: older records stay on the Mac, so the
+    /// first turn shown is not where the session started (``AgentSessionEvent/earlierHistory(_:)``).
+    public private(set) var hasEarlierHistory = false
     /// The title the agent gave the session (`session_info_update`).
     public private(set) var sessionTitle: String?
 
@@ -333,6 +336,20 @@ public final class AgentChatStore {
     }
 
     public func setModel(_ id: String) { source.send(.setModel(id)) }
+
+    /// Retry with another model (the Mac's turn menu): the chat moves to `model`, then `turn`'s
+    /// prompt goes again; the model the chat runs retries as Retry does. When the Mac refuses
+    /// the model, the prompt is not sent and the chat shows the Mac's reason.
+    public func retry(_ turn: AgentTurn, model: String) {
+        let text = turn.prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        guard model != currentModelID else { return send(prompt: text) }
+        clientError = nil
+        source.send(.retryWithModel(model: model, text: text, promptID: UUID().uuidString.lowercased()))
+    }
+
+    /// The models Retry with another model offers (the Mac shows it only with two or more).
+    public var retryModels: [ACPModelInfo] { models.count > 1 ? models : [] }
     public func setMode(_ id: String) { source.send(.setMode(id)) }
     public func setConfig(_ id: String, value: String) { source.send(.setConfigOption(id: id, value: value)) }
     public func removeQueued(_ id: String) { source.send(.removeQueued(promptId: id)) }
@@ -454,14 +471,19 @@ public final class AgentChatStore {
             guard takeOpenAsk(question.id) else { return }
             appendItem(.question(question))
             summary.status = .waiting
-        case .permissionDecision(let permissionId, let optionId):
+        case .permissionDecision(let permissionId, let optionId, let answers):
             approvingOptionID = nil
             decidedAsks.insert(permissionId)
             updateItems { item in
                 // A question resolves through the same decision: its answer option, or a decline.
                 if case .question(var question) = item, question.id == permissionId, question.isPending {
-                    let answered = optionId != nil && optionId == question.source.answerOption
-                    question.state = answered ? .answered(AgentQuestionAnswer(selections: [:])) : .cancelled
+                    // An ACP question's choices are the permission options themselves: any one
+                    // chosen is its answer, but its reject option (Decline) is a decline.
+                    // Other harnesses answer through `answerOption`.
+                    let answered = optionId != nil && (question.source.harness == .acp
+                        ? optionId != question.source.rejectOption
+                        : optionId == question.source.answerOption)
+                    question.state = answered ? .answered(question.recordedAnswer(answers, optionId: optionId)) : .cancelled
                     return .question(question)
                 }
                 guard case .permission(var record) = item, record.request.id == permissionId else { return nil }
@@ -488,6 +510,8 @@ public final class AgentChatStore {
             offeredModes = modes
             self.modes = ACPMode.phoneChoices(modes, current: current, fullAccess: fullAccess)
             currentModeID = current
+        case .earlierHistory(let earlier):
+            hasEarlierHistory = earlier
         case .fullAccess(let on):
             fullAccess = on
             modes = ACPMode.phoneChoices(offeredModes, current: currentModeID, fullAccess: on)
