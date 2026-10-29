@@ -234,8 +234,9 @@ def _bounded_pick(conditions: list[tuple], picked: tuple) -> list[str]:
     (ignoring case) one of the listed labels. [] when no such contains() guards R."""
     name = _refs(picked)[0] if picked[0] == "ref" else None
     for condition in conditions:
-        if (name and condition[0] == "call" and condition[1] == "contains" and len(condition[2]) == 2
-                and condition[2][0][0] == "call" and condition[2][0][1] == "fromJSON"
+        if (name and condition[0] == "call" and len(condition) == 3 and condition[1] == "contains"
+                and len(condition[2]) == 2
+                and condition[2][0][0] == "call" and len(condition[2][0]) == 3 and condition[2][0][1] == "fromJSON"
                 and len(condition[2][0][2]) == 1 and _string(condition[2][0][2][0]) is not None
                 and condition[2][1][0] == "ref" and _refs(condition[2][1]) == [name]):
             try:
@@ -278,8 +279,9 @@ def runner_label_errors(runs_on: str) -> list[str]:
             continue
         if (label is not None and index == 0 and HOSTED_LITERAL_LABEL.fullmatch(label) and len(conditions) == 1
                 and conditions[0][0] == "cmp" and conditions[0][1] == "!="
-                and {_refs(side)[0] if side[0] == "ref" else _string(side) for side in conditions[0][2:]}
-                == {"github.repository_owner", "manaflow-ai"}):
+                and sorted((side[0], _refs(side)[0] if side[0] == "ref" else _string(side))
+                           for side in conditions[0][2:])
+                == [("literal", "manaflow-ai"), ("ref", "github.repository_owner")]):
             continue
         picked = _bounded_pick(conditions, result) if label is None else []
         if picked and all(blacksmith.fullmatch(item) for item in picked):
@@ -500,9 +502,10 @@ class _Parser:
             if self._peek() not in (".", "["):
                 return call
             # e.g. fromJSON(x)[0]: an index into a call's result. Its refs are
-            # the call's, so keep the call and drop the index.
-            self._path("")
-            return call
+            # the call's, so keep the call; the index rides along as a fourth
+            # element, so a check that needs the bare call (a bounded pick's
+            # label list) can refuse it.
+            return (*call, self._path(""))
         return ("ref", self._path(text))
 
     def _path(self, path: str) -> str:
@@ -1036,7 +1039,9 @@ class ForkRunnerRoutingTests(unittest.TestCase):
             ),
         )
         # An index into a call's result keeps the call's refs.
-        self.assertEqual(parse_expression("fromJSON(a.b)[0]"), ("call", "fromJSON", [("ref", "a.b")]))
+        # The index is kept as a fourth element: refs are the call's, and a bounded pick refuses it.
+        self.assertEqual(parse_expression("fromJSON(a.b)[0]"), ("call", "fromJSON", [("ref", "a.b")], "[0]"))
+        self.assertEqual(_refs(parse_expression("fromJSON(a.b)[0]")), ["a.b"])
         # A quoted `||` is a string, not an operator; `''` escapes a quote.
         self.assertEqual(parse_expression("'a || b' || 'it''s'"), ("or", [("literal", "'a || b'"), ("literal", "'it''s'")]))
         for broken in ("a ||", "(a", "a b", "'open"):
@@ -1339,6 +1344,13 @@ class ForkRunnerRoutingTests(unittest.TestCase):
                         f"${{{{ {fork}contains(fromJSON('[\"glaeda-std-xcode-26.6\"]'), vars.X) && vars.X || "
                         "'blacksmith-4vcpu-ubuntu-2404' }}",
                         f"${{{{ {fork}contains(fromJSON('[\"blacksmith-4vcpu-ubuntu-2404\"]'), vars.X) && vars.Y || "
+                        "'blacksmith-4vcpu-ubuntu-2404' }}",
+                        # Fourth review: an index after fromJSON turns contains() into a substring test.
+                        f"${{{{ {fork}contains(fromJSON('[\"blacksmith-self-hosted\"]')[0], vars.X) && vars.X || "
+                        "'blacksmith-4vcpu-ubuntu-2404' }}",
+                        f"${{{{ {fork}contains(fromJSON('{{\"a\": [\"blacksmith-x\"]}}').a, vars.X) && vars.X || "
+                        "'blacksmith-4vcpu-ubuntu-2404' }}",
+                        "${{ 'github.repository_owner' != 'manaflow-ai' && 'ubuntu-24.04' || "
                         "'blacksmith-4vcpu-ubuntu-2404' }}",
                         "${{ 'ubuntu-24.04' }}", "glaeda-std-xcode-26.6", "self-hosted"):
             self.assertNotEqual(runner_label_errors(refused), [], refused)
