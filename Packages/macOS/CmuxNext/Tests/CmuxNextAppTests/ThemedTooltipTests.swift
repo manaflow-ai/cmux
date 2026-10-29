@@ -37,7 +37,7 @@ import CmuxNextTestSupport
         #expect(button.accessibilityHelp() == "New Tab")
 
         let presenter = Self.instantPresenter()
-        defer { presenter.timing = nil }
+        defer { Self.putAway(presenter) }
         let tracker = try #require(TooltipTracker.whole(of: button))
         presenter.dismiss()
         // The hover delay is TooltipHoverIntentTests'; here it is zero, so the tooltip shows on enter.
@@ -77,6 +77,7 @@ import CmuxNextTestSupport
         header.themedToolTip = "This Mac"
         add.themedToolTip = "New Workspace"
         let presenter = Self.instantPresenter()
+        defer { Self.putAway(presenter) }
         presenter.dismiss()
 
         // The pointer comes straight onto the button: whichever enter arrives last, the button's shows.
@@ -94,7 +95,6 @@ import CmuxNextTestSupport
         #expect(presenter.shown?.text == "Default")
         presenter.dismiss()
         #expect(presenter.shown == nil)
-        presenter.timing = nil
         window.orderOut(nil)
     }
 
@@ -113,8 +113,7 @@ import CmuxNextTestSupport
         let presenter = Self.instantPresenter()
         presenter.dismiss()
         defer {
-            presenter.dismiss()
-            presenter.timing = nil
+            Self.putAway(presenter)
             window.orderOut(nil)
         }
 
@@ -145,6 +144,15 @@ import CmuxNextTestSupport
         timing.tooltipDelay = .zero
         presenter.timing = timing
         return presenter
+    }
+
+    /// Hides the shared tooltip, closes its panel and restores the tunables' timing. The shared
+    /// presenter keeps its panel for the process and only orders it out, so a test that showed it
+    /// closes it (`.closesItsWindows`); the next show orders the same panel back in.
+    static func putAway(_ presenter: TooltipPresenter) {
+        presenter.dismiss()
+        presenter.timing = nil
+        presenter.panel.close()
     }
 
     static func near(_ lhs: NSPoint, _ rhs: NSPoint) -> Bool {
