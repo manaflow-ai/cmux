@@ -190,7 +190,25 @@ fn read_sources(notes: &mut Vec<String>) -> Sources {
         },
         _ => Value::Null,
     };
-    Sources { peers, pairing, remote, ssh_hosts: crate::machine_runtime::ssh_config_targets() }
+    // The team's joined machines, when a cmux credential is set (cmux machine add).
+    #[cfg(unix)]
+    let joined = match crate::cli::joined_machine_rows() {
+        Some(Ok(rows)) => Value::Array(rows),
+        Some(Err(e)) => {
+            notes.push(format!("joined machines: {e}"));
+            Value::Null
+        }
+        None => Value::Null,
+    };
+    #[cfg(not(unix))]
+    let joined = Value::Null;
+    Sources {
+        peers,
+        pairing,
+        remote,
+        ssh_hosts: crate::machine_runtime::ssh_config_targets(),
+        joined,
+    }
 }
 
 fn choice(flags: &Flags) -> anyhow::Result<Choice> {

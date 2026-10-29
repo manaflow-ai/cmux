@@ -592,12 +592,16 @@ fn run_response(
                         }
                         WireOperation::Raw { .. } => result,
                     };
-                    // The app's Cloud machines join the daemon's machine list.
+                    // The app's Cloud machines and the team's joined machines join the
+                    // daemon's machine list.
                     #[cfg(unix)]
                     let result = match &plan.operation {
                         WireOperation::Typed(
                             cmux_tui_core::resource::ResourceOperation::MachineList,
-                        ) => super::cloud_machines::merge(global, result),
+                        ) => super::machine_join::merge(
+                            global,
+                            super::cloud_machines::merge(global, result),
+                        ),
                         _ => result,
                     };
                     let result = agent_roster::with_terminals(reader, plan, result);

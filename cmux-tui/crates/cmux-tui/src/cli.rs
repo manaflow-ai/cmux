@@ -69,6 +69,10 @@ pub(crate) use host_mount::early_unix_scope;
 pub(crate) fn remote_host_requested(raw_args: &[String]) -> bool {
     Surface::current() == Surface::Cmux && crate::remote_host::handles(raw_args)
 }
+#[cfg(unix)]
+mod machine_join;
+#[cfg(unix)]
+pub(crate) use machine_join::rows_for_devices as joined_machine_rows;
 mod machine_server;
 #[cfg(test)]
 use machine_server::ServerRoute;
@@ -409,6 +413,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| vm::run_if_requested(args))
         .or_else(|| cloud_secret::run_if_requested(args))
         .or_else(|| cloud_client_session::run_if_requested(args))
+        .or_else(|| machine_join::run_if_requested(args))
         .or_else(|| apps_run::run_if_requested(args))
         .or_else(|| script::run_if_requested(args))
         .or_else(|| setup::run_if_requested(args))
