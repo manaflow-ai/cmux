@@ -78,7 +78,7 @@ impl Client {
     }
 
     async fn until(&mut self, pred: impl Fn(&Value) -> bool) -> Value {
-        if let Some(i) = self.3.iter().position(|reply| pred(reply)) {
+        if let Some(i) = self.3.iter().position(&pred) {
             return self.3.remove(i);
         }
         loop {
