@@ -106,45 +106,38 @@ export function AgentCard({
       </DisclosureRow>
     );
   }
+  const head = (
+    <>
+      <span className="cv-agent-card__icon" aria-hidden>
+        {avatar ? (
+          <img className="cv-agent-avatar" src={avatar} alt="" width={16} height={16} />
+        ) : mark ? (
+          <AgentMark agent={mark} size={14} />
+        ) : (
+          <Icon name="agent.session" size={16} />
+        )}
+      </span>
+      <span className="cv-agent-card__name">{name}</span>
+      {model && <span className="cv-agent-card__model">{model}</span>}
+      {state && (
+        <span className="cv-agent-card__state" data-state={slot ? "slot" : state}>
+          {state === "working" && <Spinner size={12} loading />}
+          {slot ? t("subsession.state.slot") : (stateLabel ?? t(SUBSESSION_STATE_LABEL[state]))}
+          {queued ? ` · ${t("subsession.queued", { n: queued })}` : ""}
+          {time ? ` · ${time}` : ""}
+        </span>
+      )}
+    </>
+  );
   return (
     <div className="cv-agent-card" data-state={state}>
-      <div
-        className="cv-agent-card__head"
-        role={onOpen ? "button" : undefined}
-        tabIndex={onOpen ? 0 : undefined}
-        aria-label={onOpen ? t("subagents.open", { name }) : undefined}
-        onClick={onOpen}
-        onKeyDown={
-          onOpen
-            ? (event) => {
-                if (event.key === "Enter" || event.key === " ") {
-                  event.preventDefault();
-                  onOpen();
-                }
-              }
-            : undefined
-        }
-      >
-        <span className="cv-agent-card__icon" aria-hidden>
-          {avatar ? (
-            <img className="cv-agent-avatar" src={avatar} alt="" width={16} height={16} />
-          ) : mark ? (
-            <AgentMark agent={mark} size={14} />
-          ) : (
-            <Icon name="agent.session" size={16} />
-          )}
-        </span>
-        <span className="cv-agent-card__name">{name}</span>
-        {model && <span className="cv-agent-card__model">{model}</span>}
-        {state && (
-          <span className="cv-agent-card__state" data-state={slot ? "slot" : state}>
-            {state === "working" && <Spinner size={12} loading />}
-            {slot ? t("subsession.state.slot") : (stateLabel ?? t(SUBSESSION_STATE_LABEL[state]))}
-            {queued ? ` · ${t("subsession.queued", { n: queued })}` : ""}
-            {time ? ` · ${time}` : ""}
-          </span>
-        )}
-      </div>
+      {onOpen ? (
+        <button type="button" className="cv-agent-card__head" onClick={onOpen}>
+          {head}
+        </button>
+      ) : (
+        <div className="cv-agent-card__head">{head}</div>
+      )}
       {doing && <div className="cv-agent-card__doing">{doing}</div>}
       {children}
     </div>
