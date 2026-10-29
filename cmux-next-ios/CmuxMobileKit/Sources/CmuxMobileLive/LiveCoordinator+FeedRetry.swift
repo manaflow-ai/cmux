@@ -1,5 +1,8 @@
 #if os(iOS)
+import CmuxMobileDesign
+import CmuxMobileFeed
 import CmuxMobileTransport
+import Foundation
 
 extension LiveCoordinator {
     /// Recover the Feed's application channel without redialing a healthy Mac link.
