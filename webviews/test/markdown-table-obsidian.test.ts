@@ -3,8 +3,10 @@
 // transparency mode on ... the border and the tables intersect ... the color looks kind of
 // different"). The real markdown page (gallery entry pages.markdown, variant table-editing):
 //
-// - a drag across cells selects whole cells and draws one even highlight on each, with no stray
-//   text highlight; Shift-click extends the cell selection;
+// - a click places the caret where it lands; a drag across cells and Shift-click from a caret
+//   select text, as in Safari and the rest of the document (user 2026-10-28: whole-cell snapping
+//   was "extremely unintuitive"); Cmd-A selects whole cells, drawn with one even highlight on
+//   each and no stray text highlight, and Shift-click extends a cell selection;
 // - every column has a resize handle on its right edge: a drag sets the width, the width is kept
 //   across a reload without touching the file, and a double-click fits the column to its content;
 // - with translucent border and header colors (transparency mode) every border pixel has the same
@@ -110,16 +112,105 @@ await requireBrowserLane("markdown-table-obsidian.test.ts", async () => {
 
   for (const [engine] of engines)
     describe(`markdown tables (${engine})`, () => {
-      test("a drag across cells selects whole cells, each drawn with one even highlight", async () => {
+      // User 2026-10-28 ("this behavior is extremely unintuitive; fix table behavior thing"): a drag
+      // across cells snapped to whole cells (prosemirror-tables' cell selection) instead of
+      // selecting the words under the pointer. Tables now select text as Safari and the rest of
+      // the document do; whole cells come only from Cmd-A and from Shift-click on a cell selection.
+      test("a drag across cells selects text from the press to the pointer, not whole cells", async () => {
         const page = await open(engine);
         const from = await cell(page, "Ada");
         const to = await cell(page, "Navy");
-        await page.mouse.move(from.x, from.y);
+        await page.mouse.move(from.box.x + 4, from.y);
         await page.mouse.down();
         await page.mouse.move((from.x + to.x) / 2, (from.y + to.y) / 2, { steps: 4 });
         await page.mouse.move(to.x, to.y, { steps: 4 });
         await page.mouse.up();
-        expect(await selectedTexts(page)).toEqual(["Ada", "Engineer", "Core", "Grace", "Admiral", "Navy"]);
+        expect(await selectedTexts(page)).toEqual([]);
+        const native = await page.evaluate(() => ({
+          text: window.getSelection()?.toString() ?? "",
+          hidesNative: document.querySelector(".md-prose")!.classList.contains("ProseMirror-hideselection"),
+        }));
+        expect(native.hidesNative).toBe(false);
+        expect(native.text).toContain("da");
+        expect(native.text).toContain("Engineer");
+        expect(native.text).toContain("Grace");
+        expect(native.text).not.toContain("Linus");
+        await page.context().close();
+      });
+
+      test("a click in a cell places the caret where it lands", async () => {
+        const page = await open(engine);
+        const target = await cell(page, "Engineer");
+        const word = await page.evaluate(() => {
+          const cellElement = [...document.querySelectorAll(".md-prose td")].find(
+            (element) => element.textContent?.trim() === "Engineer",
+          )!;
+          const walker = document.createTreeWalker(cellElement, NodeFilter.SHOW_TEXT);
+          const text = walker.nextNode() as Text;
+          const range = document.createRange();
+          range.setStart(text, 3);
+          range.setEnd(text, 4);
+          const box = range.getBoundingClientRect();
+          return { x: box.left + 1, y: box.top + box.height / 2 };
+        });
+        await page.mouse.click(word.x, word.y);
+        const caret = await page.evaluate(() => {
+          const selection = window.getSelection()!;
+          return {
+            collapsed: selection.isCollapsed,
+            text: selection.anchorNode?.textContent ?? "",
+            offset: selection.anchorOffset,
+          };
+        });
+        expect(await selectedTexts(page)).toEqual([]);
+        expect(caret.collapsed).toBe(true);
+        expect(caret.text).toBe("Engineer");
+        expect(caret.offset).toBe(3);
+        expect(target.box.width).toBeGreaterThan(0);
+        await page.context().close();
+      });
+
+      test("Shift-click from a caret in a cell extends a text selection to the click", async () => {
+        const page = await open(engine);
+        const from = await cell(page, "Ada");
+        const to = await cell(page, "Kernel");
+        await page.mouse.click(from.box.x + 4, from.y);
+        await page.keyboard.down("Shift");
+        await page.mouse.click(to.x, to.y);
+        await page.keyboard.up("Shift");
+        expect(await selectedTexts(page)).toEqual([]);
+        const text = await page.evaluate(() => window.getSelection()?.toString() ?? "");
+        expect(text).toContain("Grace");
+        expect(text).toContain("Linus");
+        await page.context().close();
+      });
+
+      /** A cell selection from the header to `to`: Cmd-A twice selects the table, Shift-click narrows it. */
+      const selectCells = async (page: Page, to: string) => {
+        const start = await cell(page, "Ada");
+        await page.mouse.click(start.x, start.y);
+        await page.keyboard.press("Meta+a");
+        await page.keyboard.press("Meta+a");
+        const end = await cell(page, to);
+        await page.keyboard.down("Shift");
+        await page.mouse.click(end.x, end.y);
+        await page.keyboard.up("Shift");
+      };
+
+      test("a cell selection draws one even highlight on each cell", async () => {
+        const page = await open(engine);
+        await selectCells(page, "Navy");
+        expect(await selectedTexts(page)).toEqual([
+          "Name",
+          "Role",
+          "Team",
+          "Ada",
+          "Engineer",
+          "Core",
+          "Grace",
+          "Admiral",
+          "Navy",
+        ]);
 
         // The highlight is the same in every selected cell, also over its text: no native text
         // highlight on top (it would double the tint over the words) and none on unselected cells.
@@ -154,14 +245,8 @@ await requireBrowserLane("markdown-table-obsidian.test.ts", async () => {
         await page.evaluate((rgb) => {
           document.documentElement.style.setProperty("--cmux-text-selection", `rgb(${rgb.join(", ")})`);
         }, opaque);
-        const from = await cell(page, "Ada");
-        const to = await cell(page, "Navy");
-        await page.mouse.move(from.x, from.y);
-        await page.mouse.down();
-        await page.mouse.move((from.x + to.x) / 2, (from.y + to.y) / 2, { steps: 4 });
-        await page.mouse.move(to.x, to.y, { steps: 4 });
-        await page.mouse.up();
-        expect((await selectedTexts(page)).length).toBe(6);
+        await selectCells(page, "Navy");
+        expect((await selectedTexts(page)).length).toBe(9);
 
         const shot = PNG.sync.read(await page.screenshot());
         const ada = (await cell(page, "Ada")).box;
@@ -185,15 +270,12 @@ await requireBrowserLane("markdown-table-obsidian.test.ts", async () => {
         await page.context().close();
       });
 
-      test("Shift-click extends the cell selection", async () => {
+      test("Shift-click extends a cell selection", async () => {
         const page = await open(engine);
-        const from = await cell(page, "Ada");
-        const to = await cell(page, "Kernel");
-        await page.mouse.click(from.x, from.y);
-        await page.keyboard.down("Shift");
-        await page.mouse.click(to.x, to.y);
-        await page.keyboard.up("Shift");
-        expect((await selectedTexts(page)).length).toBe(9);
+        await selectCells(page, "Kernel");
+        expect((await selectedTexts(page)).length).toBe(12);
+        await selectCells(page, "Admiral");
+        expect((await selectedTexts(page)).length).toBe(6);
         await page.context().close();
       });
 
