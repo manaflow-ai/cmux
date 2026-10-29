@@ -35,9 +35,11 @@
 //! lane (`Mux::work`), not on the control sequence and not on a thread of its
 //! own, so a later Send for another surface answers while it runs.
 //!
-//! Request threads (the WebSocket connection thread) start through
-//! [`spawn_request_thread`]: UserInitiated, blocking disallowed (p02-threads
-//! task 211); the pool's control workers run the same way. A request task
+//! Request threads start through [`spawn_request_thread`]: UserInitiated,
+//! blocking disallowed (p02-threads task 211); the pool's control workers
+//! run the same way. A WebSocket connection thread starts through
+//! [`spawn_connection_thread`] and disallows blocking once its connection
+//! is admitted (websocket_listener.rs). A request task
 //! then rests at its connection's class (connection_qos.rs, task 224). A
 //! clear-history request runs as a `Mux::work` item at its cause's
 //! priority, blocking disallowed (task 230).
@@ -111,13 +113,32 @@ where
     F: FnOnce() -> T + Send + 'static,
     T: Send + 'static,
 {
+    spawn_connection_thread(name, move || {
+        cmux_threads::disallow_blocking();
+        f()
+    })
+}
+
+/// Starts connection thread `name` as [`spawn_request_thread`] does, but
+/// with blocking allowed until `f` disallows it: a connection that must
+/// admit itself first (a WebSocket's request head, a page file or download
+/// answer, its handshake, token and the person's pairing decision, which
+/// wait on its peer, the disk and the person) runs its requests inside
+/// `cmux_threads::blocking::with_blocking_disallowed` once admitted.
+pub(super) fn spawn_connection_thread<F, T>(
+    name: &str,
+    f: F,
+) -> std::io::Result<SupervisedThread<T>>
+where
+    F: FnOnce() -> T + Send + 'static,
+    T: Send + 'static,
+{
     supervised::spawn_at(name, REQUEST_THREAD_QOS, Fatal, ShutdownBehavior::Continue, move || {
         let thread = std::thread::current();
         let _hang_watch = cmux_hang_watch::register_thread(
             cmux_hang_watch::ThreadKind::Control,
             thread.name().unwrap_or("mux-request"),
         );
-        cmux_threads::disallow_blocking();
         f()
     })
 }
