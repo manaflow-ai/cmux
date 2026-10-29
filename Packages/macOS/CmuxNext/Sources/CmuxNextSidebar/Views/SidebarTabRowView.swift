@@ -161,7 +161,7 @@ final class SidebarTabRowView: SidebarRowView {
         // under the workspace label instead of pulling them back to the shared leading inset.
         let parentTitleX: CGFloat = {
             guard case let .tab(workspaceID, _) = key,
-                  let list = sequence(first: superview, next: { $0?.superview }).compactMap({ $0 as? SidebarListView }).first else {
+                  let list = sequence(first: self as NSView, next: \.superview).lazy.compactMap({ $0 as? SidebarListView }).first else {
                 return SidebarStyle.titleLeading
             }
             return self.parentTitleX(in: list, workspaceID: workspaceID)

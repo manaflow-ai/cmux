@@ -116,9 +116,10 @@ struct SidebarWorkspaceTabHierarchyTests {
                 let tabTitle = try Self.tabTitle(tab, text)
                 let workspaceX = Self.listX(list, workspace, workspace.titleFrame.minX)
                 let tabX = Self.listX(list, tab, tabTitle.frame.minX)
-                let expectedInset = text == "browser"
-                    ? CGFloat(16) + SidebarStyle.labelCellPadding + SidebarStyle.tabIconSize + Metrics.space2
-                    : CGFloat(16)
+                // Both the browser favicon and the agent brand occupy the child icon well;
+                // the shell has no glyph and starts directly at the 16 pt child column.
+                let expectedInset = text == "shell" ? CGFloat(16)
+                    : CGFloat(16) + SidebarStyle.labelCellPadding + SidebarStyle.tabIconSize + Metrics.space2
                 #expect(abs((tabX - workspaceX) - expectedInset) < 0.5,
                         "\(c.testDescription): tab \(tab.key) anchor is \(tabX - workspaceX)pt, expected \(expectedInset)pt")
                 #expect(tabTitle.font?.pointSize ?? 0 < workspace.title.font.pointSize,

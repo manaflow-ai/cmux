@@ -259,7 +259,7 @@ extension WorkspaceRowView {
         if titleX != lastTabAnchorTitleX {
             lastTabAnchorTitleX = titleX
             if case let .workspace(workspaceID) = key,
-               let list = sequence(first: superview, next: { $0?.superview })
+               let list = sequence(first: self as NSView, next: \.superview).lazy
                    .compactMap({ $0 as? SidebarListView }).first {
                 for tab in lastConfiguration?.0.tabs ?? [] {
                     list.rowViews[.tab(workspaceID, tab.id)]?.needsLayout = true
