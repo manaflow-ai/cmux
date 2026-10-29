@@ -473,6 +473,21 @@ impl Hub {
         summary
     }
 
+    /// Census notices intentionally omit tools. Keep an already captured inventory in the
+    /// remote cache so `_acpmux/wait` and other per-session reads do not lose it on a change.
+    fn retain_summary_tools(mut summary: Value, previous: Option<&Value>) -> Value {
+        if summary.get("tools").is_none()
+            && let Some(previous) = previous
+        {
+            for key in ["tools", "toolsMutable"] {
+                if let Some(value) = previous.get(key) {
+                    summary[key] = value.clone();
+                }
+            }
+        }
+        summary
+    }
+
     /// Tell watching clients that a peer session appeared, changed or left.
     fn announce_remote(&self, peer: &str, summary: Value, kind: &str) {
         let Some(id) = summary.get("sessionId").and_then(Value::as_str).map(str::to_owned) else {
@@ -577,6 +592,8 @@ impl Hub {
                                 continue;
                             }
                             let id = receipt.qualified_id();
+                            let previous = old.get(&id);
+                            let summary = Self::retain_summary_tools(summary, previous);
                             if old.remove(&id).as_ref() != Some(&summary) {
                                 changed.push(summary.clone());
                             }
@@ -656,6 +673,9 @@ impl Hub {
                             .iter()
                             .find(|(_, r)| r.peer == peer && r.receipt.mux_session_id == mux_id)
                             .map(|(key, _)| key.clone());
+                        let previous =
+                            old_id.as_ref().and_then(|key| map.get(key).map(|r| r.summary.clone()));
+                        let summary = Self::retain_summary_tools(summary, previous.as_ref());
                         if let Some(old_id) = old_id {
                             map.take(&old_id);
                         }
