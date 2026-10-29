@@ -11,6 +11,10 @@ struct CmxIrohIPLiteral: Equatable, Sendable {
     /// Parses `text` strictly as `family`: dotted quads or standard IPv6 text,
     /// never `127.1`, a hex quad or a `%scope` suffix.
     init?(_ text: String, family: CmxIrohLANSocketAddress.Family) {
+        // Darwin's inet_pton accepts a `%zone` suffix (`fe80::1%en0`) and drops
+        // it. Refuse it here so the parse is strict; a caller that takes a scoped
+        // literal (CmxIrohIPAddressScope) strips the zone first.
+        guard !text.utf8.contains(UInt8(ascii: "%")) else { return nil }
         var parsed = [UInt8](repeating: 0, count: family == .ipv4 ? 4 : 16) // byteCount(family)
         // SAFETY: inet_pton writes sizeof(struct in_addr) (4) bytes for AF_INET and
         // sizeof(struct in6_addr) (16) for AF_INET6, exactly parsed.count. It reads
