@@ -11,14 +11,14 @@ export function Inline({ fixture }: Props) {
       controls={<Controls api={api} />}
     >
       <section className="tc-card tc-inline">
-        <div className="tc-view-toggle" role="group" aria-label="Preview view">
+        <fieldset className="tc-view-toggle" aria-label="Preview view">
           <button type="button" aria-pressed={view === "chart"} onClick={() => setView("chart")}>
             Show chart
           </button>
           <button type="button" aria-pressed={view === "table"} onClick={() => setView("table")}>
             Show source
           </button>
-        </div>
+        </fieldset>
         {view === "chart" ? (
           <div className="tc-chart-pane">
             <Chart rows={api.rows} series={api.series} kind={api.kind} />

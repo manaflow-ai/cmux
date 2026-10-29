@@ -1,5 +1,5 @@
 // l10n-allow-file: gallery fixture data and controls, not shipped UI.
-import { useId, useMemo, useState, type MouseEvent, type ReactNode } from "react";
+import { useEffect, useId, useMemo, useState, type MouseEvent, type ReactNode } from "react";
 
 export type NumericSeries = "sessions" | "errors" | "rate";
 export type Row = {
@@ -88,17 +88,22 @@ export function Chart({
   title?: string;
 }) {
   const id = useId();
+  const [plot, setPlot] = useState<SVGSVGElement | null>(null);
+  const [plotWidth, setPlotWidth] = useState(560);
+  useEffect(() => {
+    if (!plot) return;
+    const measure = () => setPlotWidth(Math.max(200, plot.getBoundingClientRect().width));
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(plot);
+    return () => observer.disconnect();
+  }, [plot]);
   const values = rows.map((row) =>
     typeof row[series] === "number" && Number.isFinite(row[series]) ? row[series] : null,
   );
   const finite = values.filter((value): value is number => value !== null);
-  if (!finite.length)
-    return (
-      <div className="tc-chart-empty" role="status">
-        Add numeric rows to preview a chart.
-      </div>
-    );
-  const width = 560,
+  if (!finite.length) return <output className="tc-chart-empty">Add numeric rows to preview a chart.</output>;
+  const width = plotWidth,
     height = 260,
     pad = { left: 42, right: 18, top: 26, bottom: 42 };
   const max = Math.max(...finite, 0),
@@ -120,7 +125,7 @@ export function Chart({
     <svg
       className="tc-chart"
       viewBox={"0 0 " + width + " " + height}
-      role="img"
+      ref={setPlot}
       aria-labelledby={`${id}-title ${id}-desc`}
     >
       <title id={`${id}-title`}>
@@ -276,9 +281,7 @@ export function ExportButtons({ rows, chartVisible = true }: { rows: Row[]; char
       >
         Export SVG
       </button>
-      <span role="status" aria-live="polite">
-        {status}
-      </span>
+      <output aria-live="polite">{status}</output>
     </div>
   );
 }

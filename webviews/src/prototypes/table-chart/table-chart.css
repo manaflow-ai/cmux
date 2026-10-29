@@ -12,7 +12,8 @@
 .tc-shell {
   max-width: 1080px;
   margin: 0 auto;
-  padding: var(--ds-space-6, 32px) var(--ds-space-6, 32px) calc(var(--ds-control-row, 28px) + 2 * var(--ds-space-6, 32px));
+  padding: var(--ds-space-6, 32px) var(--ds-space-6, 32px)
+    calc(var(--ds-control-row, 28px) + 2 * var(--ds-space-6, 32px));
 }
 .tc-eyebrow {
   margin: 0 0 4px;
@@ -24,6 +25,7 @@
 .tc-shell h1 {
   margin: 0;
   font-size: var(--text-heading);
+  line-height: var(--text-heading--line-height);
   letter-spacing: -0.02em;
 }
 .tc-description {
@@ -126,6 +128,7 @@
   white-space: nowrap;
 }
 .tc-table thead th {
+  white-space: normal;
   color: var(--cmux-text-secondary, GrayText);
   font-size: var(--text-detail);
   font-weight: 500;
@@ -141,7 +144,7 @@
   gap: 8px;
   margin-top: 12px;
 }
-.tc-export span {
+.tc-export output {
   color: var(--cmux-text-secondary, GrayText);
   font-size: var(--text-detail);
 }
@@ -167,6 +170,9 @@
   border-bottom: 1px solid var(--tc-border);
 }
 .tc-view-toggle {
+  border: 0;
+  margin: 0;
+  min-width: 0;
   display: flex;
   gap: 4px;
   padding: 12px 16px 0;
@@ -184,7 +190,8 @@
 }
 @media (max-width: 620px) {
   .tc-shell {
-    padding: var(--ds-space-4, 16px) var(--ds-space-4, 16px) calc(var(--ds-control-row, 28px) + 2 * var(--ds-space-6, 32px));
+    padding: var(--ds-space-4, 16px) var(--ds-space-4, 16px)
+      calc(var(--ds-control-row, 28px) + 2 * var(--ds-space-6, 32px));
   }
   .tc-split {
     display: block;
