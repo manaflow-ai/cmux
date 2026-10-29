@@ -109,6 +109,8 @@ fn seed(home: &Path) {
             "lastPrompt": "Review the implementation, verify edge cases, and report the result.",
             "preview": "Verified the request path and checked the regression coverage.",
             "tools": {"rows": rows, "mutable": true}});
+        let parsed: acpmux::store::SessionMeta = serde_json::from_value(meta.clone()).unwrap();
+        assert_eq!(parsed.tools.rows.len(), TOOLS, "seeded tool inventory must survive metadata decode");
         write_private(&dir.join("session.json"), meta.to_string());
         // Closed sessions without an event log are purged tombstones. Keep a real
         // record so this fixture measures retained history, not an open-only list.
