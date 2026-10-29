@@ -377,7 +377,12 @@ fn hold(upload: &str) -> std::sync::MutexGuard<'static, ()> {
     let canonical = upload_id(upload).unwrap_or_else(|| upload.to_owned());
     let stripe =
         canonical.bytes().fold(0usize, |h, b| h.wrapping_mul(31).wrapping_add(usize::from(b)));
-    LOCKS[stripe % LOCKS.len()].lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    let [first, ..] = &LOCKS;
+    LOCKS
+        .get(stripe % LOCKS.len())
+        .unwrap_or(first)
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 /// The declared `{fileName, size}` of unfinished upload `upload`.
@@ -485,7 +490,7 @@ fn sha256_of(path: &Path) -> std::io::Result<String> {
         if n == 0 {
             break;
         }
-        hash.update(&buf[..n]);
+        hash.update(buf.get(..n).unwrap_or_default());
     }
     Ok(hash.finalize().iter().map(|b| format!("{b:02x}")).collect())
 }

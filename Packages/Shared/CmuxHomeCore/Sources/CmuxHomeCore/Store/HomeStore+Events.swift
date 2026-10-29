@@ -16,6 +16,7 @@ extension HomeStore {
             log.acknowledge(intent.key, rev: result.rev)
             uploads[intent.key] = nil
             leaveSendQueue(intent.key)
+            advanceSendChain(committed: intent.key)
             settle()
             afterLogChange(intent.op)
             return result
@@ -49,6 +50,7 @@ extension HomeStore {
                 cancelBackoff(intent.key)
                 endOfflineDeadline(intent.key)
                 leaveSendQueue(intent.key)
+                holdSendChain(after: intent.key)
                 if case .sendMessage = intent.op {
                     log.fail(intent.key, rejection)
                 } else {
@@ -138,6 +140,9 @@ extension HomeStore {
             for op in log.revoke(keys) {
                 if let id = op.conversation { bumpTranscript(id) }
             }
+            // Their uploads, queue places and turn waits go with them, and a split send goes on
+            // past a revoked message (`advanceSendChains`).
+            dropOrphanUploadJobs()
             rebuildRows()
         case .typing(let id, let who, let on):
             var set = typing[id] ?? []

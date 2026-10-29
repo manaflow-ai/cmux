@@ -79,11 +79,14 @@ struct CmdNRowSlotTests {
 /// new workspace first below Home; the app then moved it into the group, right below the current one:
 /// two orders, two animations. Every layout the list applies must show the new row only below the
 /// current workspace, inside its group (the app's one move into the group lands under the pending row).
+/// Lawrence 2026-10-28: under `top` the slot is the top of the group (the window shows the group's first
+/// member, so right above it); `afterCurrent` keeps the slot right below the current one.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
 struct CmdNInGroupRowSlotTests {
     /// `instantPage`: a person's Cmd-N on a Mac that hosts the New Tab page, which shows a stand-in workspace at the
     /// press (`WorkspaceSpawner.shown`); else the create waits for the daemon (a terminal).
-    @Test(arguments: [false, true]) func cmdNInAGroupDrawsTheNewRowOnlyBelowTheCurrentOne(instantPage: Bool) async throws {
+    @Test(arguments: [false, true], [NewWorkspacePlacement.top, .afterCurrent])
+    func cmdNInAGroupDrawsTheNewRowOnlyAtItsSlotInTheGroup(instantPage: Bool, placement: NewWorkspacePlacement) async throws {
         let launched = try await RapidWorkspaceCreateTests.launch(sessionEvents: true)
         let services = launched.services
         if instantPage {
@@ -91,12 +94,12 @@ struct CmdNInGroupRowSlotTests {
             try #require(services.agentTabs.canHostChat, "this build has no New Tab page")
         }
         let url = launched.root.appendingPathComponent("cmux.json")
-        try Data(#"{"workspaces":{"newPlacement":"top"}}"#.utf8).write(to: url)
+        try Data(#"{"workspaces":{"newPlacement":"\#(placement.rawValue)"}}"#.utf8).write(to: url)
         let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         await settings.reload()
         services.settings = settings
-        try #require(services.settings?.snapshot.newWorkspacePlacement == .top)
+        try #require(services.settings?.snapshot.newWorkspacePlacement == placement)
         let window = try #require(services.windows.active?.state.id)
         let controller = try #require(services.windows.controller(for: window))
         let state = controller.state
@@ -185,9 +188,13 @@ struct CmdNInGroupRowSlotTests {
         await launched.stop()
 
         let created = try #require(after.first { !before.contains($0) }, "the new row: \(after)")
-        print("cmd-n-group instantPage=\(instantPage): anchor @\(at), frames \(frames.count): \(tags.joined(separator: " | ")); refused \(refused); sent \(doc.lastIntentKey != intentBefore)")
-        #expect(after == Array(before[...at]) + [created] + before[(at + 1)...], "rows \(before) became \(after)")
-        let elsewhere = frames.filter { frame in frame.contains(created) && frame.firstIndex(of: created) != frame.firstIndex(of: anchor).map { $0 + 1 } }
-        #expect(elsewhere.isEmpty, "frames that drew the new row away from its slot below \(anchor): \(elsewhere.count) of \(frames.count): \(tags)")
+        print("cmd-n-group instantPage=\(instantPage) \(placement): anchor @\(at), frames \(frames.count): \(tags.joined(separator: " | ")); refused \(refused); sent \(doc.lastIntentKey != intentBefore)")
+        // The anchor is the group's first member: `top` puts the new row right above it, `afterCurrent` right below.
+        let offset = placement == .top ? 0 : 1
+        #expect(after == Array(before[..<(at + offset)]) + [created] + before[(at + offset)...], "rows \(before) became \(after)")
+        let elsewhere = frames.filter { frame in
+            frame.contains(created) && frame.firstIndex(of: created) != frame.firstIndex(of: anchor).map { $0 + (placement == .top ? -1 : 1) }
+        }
+        #expect(elsewhere.isEmpty, "frames that drew the new row away from its slot by \(anchor): \(elsewhere.count) of \(frames.count): \(tags)")
     }
 }
