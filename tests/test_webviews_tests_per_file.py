@@ -51,6 +51,11 @@ if grep -q -e '"dev",' -e 'createServer(' -e 'vite.config.gallery-dev.ts' -e 'vi
   rmdir "$DEV_RUNNING/$$"
 fi
 case "$file" in
+  *contended*)
+    # Times out beside the others on its first run and passes alone, as composer-footer-plain did.
+    stamp="$BUN_CALLS.$(basename "$file")"
+    if [ ! -f "$stamp" ]; then touch "$stamp"; sleep 60; fi
+    echo "(pass) $file alone"; exit 0 ;;
   *retry-hang*)
     if [ -f "$BUN_CALLS.retry" ]; then sleep 60; fi
     touch "$BUN_CALLS.retry"
@@ -169,14 +174,61 @@ class PerFileRunner(unittest.TestCase):
         self.assertIn("TIMEOUT test/slow.test.ts", output)
         self.assertEqual(calls, ["./test/slow.test.ts"])
 
-    def test_a_timed_out_file_reports_once_without_a_serial_retry(self):
+    def test_a_timeout_on_its_retry_stays_a_timeout(self):
+        """A file that times out again alone is a TIMEOUT: never a pass, never a named failure."""
+        results_path = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory())) / "results.json"
         result, _, calls = self.run_runner(
-            ["test/hang.test.ts"], extra_env={"CMUX_WEB_TEST_RETRIES": "1"}
+            ["test/hang.test.ts"],
+            extra_env={"CMUX_WEB_TEST_RETRIES": "1", "CMUX_WEB_TEST_RESULTS": str(results_path)},
         )
         output = result.stdout + result.stderr
         self.assertNotEqual(result.returncode, 0, output)
-        self.assertEqual(calls, ["./test/hang.test.ts"], output)
-        self.assertIn("TIMEOUT test/hang.test.ts", output)
+        self.assertEqual(calls, ["./test/hang.test.ts"] * 2, output)
+        self.assertIn("RETRY test/hang.test.ts after its timeout", output)
+        self.assertIn("TIMEOUT test/hang.test.ts (limit 2s)", output)
+        self.assertNotIn("passed only when run alone", output)
+        self.assertEqual(json.loads(results_path.read_text()), {"test/hang.test.ts": False})
+
+    def test_each_timed_out_file_gets_its_own_retry_outside_the_shared_budget(self):
+        """#27130's shard 4: two files timed out beside the others and were never retried, while
+        failed files spent the shared retry budget. Each timed-out file now gets one retry alone,
+        whatever the failed files' budget and retry count left."""
+        files = ["test/0-fail-slow.test.ts", "test/1-fail-slow.test.ts",
+                 "test/a-contended.test.ts", "test/b-contended.test.ts"]
+        result, _, calls = self.run_runner(
+            files,
+            extra_env={"CMUX_WEB_TEST_RETRIES": "1", "CMUX_WEB_TEST_RETRY_BUDGET": "1",
+                       "CMUX_WEB_TEST_TIMEOUT_RETRY_BUDGET": "10"},
+        )
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)  # the fail-slow files stay red
+        self.assertEqual(calls.count("./test/a-contended.test.ts"), 2, output)
+        self.assertEqual(calls.count("./test/b-contended.test.ts"), 2, output)
+        self.assertIn("passed only when run alone", output)
+        self.assertIn("  test/a-contended.test.ts (first run: TIMEOUT)", output)
+        self.assertIn("  test/b-contended.test.ts (first run: TIMEOUT)", output)
+        self.assertNotRegex(output, r"(FAIL|TIMEOUT) test/[ab]-contended\.test\.ts \(limit")
+        for file in files[:2]:
+            self.assertRegex(output, rf"FAIL {file} \(limit")
+
+    def test_timeout_retries_start_only_when_their_whole_limit_fits_their_budget(self):
+        result, _, calls = self.run_runner(
+            ["test/a-hang.test.ts", "test/b-hang.test.ts"],
+            extra_env={"CMUX_WEB_TEST_RETRIES": "1", "CMUX_WEB_TEST_TIMEOUT_RETRY_BUDGET": "3"},
+        )
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        # The first retry uses its whole 2 s limit of the 3 s budget; the second no longer fits.
+        self.assertEqual(len(calls), 3, output)
+        self.assertEqual(output.count("RETRY "), 1, output)
+        self.assertIn("cannot fit", output)
+        self.assertIn("TIMEOUT test/a-hang.test.ts (limit 2s)", output)
+        self.assertIn("TIMEOUT test/b-hang.test.ts (limit 2s)", output)
+
+    def test_no_retries_means_no_timeout_retry(self):
+        result, _, calls = self.run_runner(["test/a-contended.test.ts"], extra_env={"CMUX_WEB_TEST_RETRIES": "0"})
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(calls, ["./test/a-contended.test.ts"])
 
     def test_serial_retries_have_a_shared_time_budget(self):
         files = [f"test/{index}-fail-slow.test.ts" for index in range(4)]
