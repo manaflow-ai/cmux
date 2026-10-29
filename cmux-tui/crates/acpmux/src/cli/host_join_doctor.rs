@@ -341,9 +341,8 @@ fn consent_step(facts: &Facts, status: Option<&Value>) -> JoinStep {
         .into_iter()
         .flatten()
         .find(|r| r.is_object());
-    if let Some(surface) = refusal
-        .and_then(|r| r["surface"].as_str())
-        .filter(|s| matches!(*s, "screen" | "control"))
+    if let Some(surface) =
+        refusal.and_then(|r| r["surface"].as_str()).filter(|s| matches!(*s, "screen" | "control"))
     {
         detail.push_str(&format!("; a {surface} request was last refused here"));
     }
