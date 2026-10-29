@@ -3019,7 +3019,7 @@
       "nextSignInBody": "Gardez cmux NEXT ouvert sur votre Mac. Exécutez cette commande, terminez la connexion dans le navigateur, puis consultez la liste des machines.",
       "nextCreate": "2. Créez une machine",
       "nextCreateBody": "Une machine medium dispose de 4 CPU, de 8 Go de mémoire et d’un disque de 32 Go. Elle inclut claude, codex, gh, git, node, bun et python3. La connexion aux outils est distincte de la connexion à cmux.",
-      "nextPending": "La création peut renvoyer pending: true après 30 secondes et se poursuivre en arrière-plan. Consultez list-machines avant d’en créer une autre. Copiez la cible renvoyée (machine:<id>) dans les commandes ci-dessous ; la plupart des commandes de machine l’exigent même si vous n’avez qu’une seule machine.",
+      "nextPending": "La création peut renvoyer pending: true après 30 secondes et se poursuivre en arrière-plan. Consultez list-machines avant d’en créer une autre. Copiez la cible renvoyée ({machineTarget}) dans les commandes ci-dessous ; la plupart des commandes de machine l’exigent même si vous n’avez qu’une seule machine.",
       "nextTerminal": "3. Ouvrez un terminal",
       "nextTerminalBody": "Utilisez --focus pour afficher le terminal dans votre fenêtre. Sans cette option, l’espace de travail s’ouvre en arrière-plan. Exécutez gh auth login, clonez votre dépôt et lancez claude ou codex dans ce terminal. Les onglets de chat natifs des agents ne sont pas encore disponibles sur les machines issues de l’image vérifiée le 2026-10-29.",
       "nextDesktop": "4. Ouvrez le bureau",

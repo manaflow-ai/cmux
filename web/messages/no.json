@@ -3014,7 +3014,7 @@
       "nextSignInBody": "Hold cmux NEXT åpen på Macen. Kjør denne kommandoen, fullfør innloggingen i nettleseren, og sjekk deretter maskinlisten.",
       "nextCreate": "2. Opprett en maskin",
       "nextCreateBody": "En medium-maskin har 4 CPU-er, 8 GB minne og en disk på 32 GB. Den har claude, codex, gh, git, node, bun og python3 installert. Innlogging i verktøyene er separat fra innlogging i cmux.",
-      "nextPending": "Opprettelsen kan returnere pending: true etter 30 sekunder og fortsette i bakgrunnen. Sjekk list-machines før du oppretter en til. Kopier det returnerte målet (machine:<id>) inn i kommandoene nedenfor; de fleste maskinkommandoer krever det selv når du bare har én maskin.",
+      "nextPending": "Opprettelsen kan returnere pending: true etter 30 sekunder og fortsette i bakgrunnen. Sjekk list-machines før du oppretter en til. Kopier det returnerte målet ({machineTarget}) inn i kommandoene nedenfor; de fleste maskinkommandoer krever det selv når du bare har én maskin.",
       "nextTerminal": "3. Åpne en terminal",
       "nextTerminalBody": "Bruk --focus for å vise terminalen i vinduet. Uten dette åpnes arbeidsområdet i bakgrunnen. Kjør gh auth login, klon repositoriet, og start claude eller codex i denne terminalen. Innebygde agentchatfaner er ennå ikke tilgjengelige på maskiner fra avbildningen som ble kontrollert 2026-10-29.",
       "nextDesktop": "4. Åpne skrivebordet",

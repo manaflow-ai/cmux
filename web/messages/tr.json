@@ -3015,7 +3015,7 @@
       "nextSignInBody": "Mac’inizde cmux NEXT’i açık tutun. Bu komutu çalıştırın, tarayıcıda oturum açmayı tamamlayın ve ardından makine listesini kontrol edin.",
       "nextCreate": "2. Bir makine oluşturun",
       "nextCreateBody": "medium boyutundaki bir makinede 4 CPU, 8 GB bellek ve 32 GB disk bulunur. claude, codex, gh, git, node, bun ve python3 içerir. Araçlarda oturum açma, cmux oturum açma işleminden ayrıdır.",
-      "nextPending": "Oluşturma işlemi 30 saniye sonra pending: true döndürüp arka planda devam edebilir. Başka bir makine oluşturmadan önce list-machines sonucunu kontrol edin. Döndürülen hedefi (machine:<id>) aşağıdaki komutlara kopyalayın; çoğu makine komutu, yalnızca tek makineniz olsa bile bunu gerektirir.",
+      "nextPending": "Oluşturma işlemi 30 saniye sonra pending: true döndürüp arka planda devam edebilir. Başka bir makine oluşturmadan önce list-machines sonucunu kontrol edin. Döndürülen hedefi ({machineTarget}) aşağıdaki komutlara kopyalayın; çoğu makine komutu, yalnızca tek makineniz olsa bile bunu gerektirir.",
       "nextTerminal": "3. Bir terminal açın",
       "nextTerminalBody": "Terminali pencerenizde göstermek için --focus kullanın. Bu seçenek olmadan çalışma alanı arka planda açılır. Bu terminalde gh auth login çalıştırın, deponuzu klonlayın ve claude veya codex başlatın. Yerleşik ajan sohbet sekmeleri, 2026-10-29 tarihinde kontrol edilen imajdan oluşturulan makinelerde henüz kullanılamıyor.",
       "nextDesktop": "4. Masaüstünü açın",

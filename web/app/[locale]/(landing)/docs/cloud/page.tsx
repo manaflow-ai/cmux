@@ -40,7 +40,7 @@ cmux cloud list-machines`}</CodeBlock>
       <p>{t("nextCreateBody")}</p>
       <CodeBlock lang="bash">{`cmux cloud new-machine --name work --size medium
 cmux cloud list-machines`}</CodeBlock>
-      <p>{t("nextPending")}</p>
+      <p>{t("nextPending", { machineTarget: "machine:<id>" })}</p>
 
       <DocsHeading level={2} id="terminal">{t("nextTerminal")}</DocsHeading>
       <p>{t("nextTerminalBody")}</p>

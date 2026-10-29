@@ -3017,7 +3017,7 @@
       "nextSignInBody": "Držite cmux NEXT otvoren na Macu. Pokrenite ovu komandu, dovršite prijavu u pregledniku, a zatim provjerite listu mašina.",
       "nextCreate": "2. Kreirajte mašinu",
       "nextCreateBody": "Mašina medium ima 4 procesora, 8 GB memorije i disk od 32 GB. Uključuje claude, codex, gh, git, node, bun i python3. Prijava u alate odvojena je od prijave u cmux.",
-      "nextPending": "Kreiranje može nakon 30 sekundi vratiti pending: true i nastaviti se u pozadini. Provjerite list-machines prije kreiranja još jedne mašine. Kopirajte vraćeni cilj (machine:<id>) u komande ispod; većina komandi za mašine zahtijeva ga čak i kada imate samo jednu mašinu.",
+      "nextPending": "Kreiranje može nakon 30 sekundi vratiti pending: true i nastaviti se u pozadini. Provjerite list-machines prije kreiranja još jedne mašine. Kopirajte vraćeni cilj ({machineTarget}) u komande ispod; većina komandi za mašine zahtijeva ga čak i kada imate samo jednu mašinu.",
       "nextTerminal": "3. Otvorite terminal",
       "nextTerminalBody": "Koristite --focus da prikažete terminal u prozoru. Bez toga se radni prostor otvara u pozadini. Pokrenite gh auth login, klonirajte repozitorij i pokrenite claude ili codex u ovom terminalu. Ugrađene kartice razgovora s agentima još nisu dostupne na mašinama iz slike provjerene 2026-10-29.",
       "nextDesktop": "4. Otvorite radnu površinu",

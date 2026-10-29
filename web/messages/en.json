@@ -4557,7 +4557,7 @@
       "nextSignInBody": "Keep cmux NEXT open on your Mac. Run this command, complete sign-in in the browser, then check the machine list.",
       "nextCreate": "2. Create a machine",
       "nextCreateBody": "A medium machine has 4 CPUs, 8 GB of memory and a 32 GB disk. It includes claude, codex, gh, git, node, bun and python3. Tool sign-in is separate from cmux sign-in.",
-      "nextPending": "Creation may return pending: true after 30 seconds and continue in the background. Check list-machines before creating another. Copy the returned target (machine:<id>) into the commands below; most machine commands require it even when you have only one machine.",
+      "nextPending": "Creation may return pending: true after 30 seconds and continue in the background. Check list-machines before creating another. Copy the returned target ({machineTarget}) into the commands below; most machine commands require it even when you have only one machine.",
       "nextTerminal": "3. Open a terminal",
       "nextTerminalBody": "Use --focus to show the terminal in your window. Without it, the workspace opens in the background. Run gh auth login, clone your repository and launch claude or codex in this terminal. Native agent chat tabs are not yet available on machines from the image checked on 2026-10-29.",
       "nextDesktop": "4. Open the desktop",

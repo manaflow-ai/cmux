@@ -4469,7 +4469,7 @@
       "nextSignInBody": "Mac で cmux NEXT を開いたままにします。このコマンドを実行し、ブラウザでサインインを完了してから、マシン一覧を確認します。",
       "nextCreate": "2. マシンを作成する",
       "nextCreateBody": "medium マシンには CPU 4 個、メモリ 8 GB、ディスク 32 GB があり、claude、codex、gh、git、node、bun、python3 が含まれます。各ツールへのサインインは cmux へのサインインとは別です。",
-      "nextPending": "作成処理は 30 秒後に pending: true を返し、バックグラウンドで続くことがあります。別のマシンを作成する前に list-machines を確認してください。返された target（machine:<id>）を以下のコマンドにコピーします。ほとんどのマシンコマンドでは、マシンが 1 台だけでも指定が必要です。",
+      "nextPending": "作成処理は 30 秒後に pending: true を返し、バックグラウンドで続くことがあります。別のマシンを作成する前に list-machines を確認してください。返された target（{machineTarget}）を以下のコマンドにコピーします。ほとんどのマシンコマンドでは、マシンが 1 台だけでも指定が必要です。",
       "nextTerminal": "3. ターミナルを開く",
       "nextTerminalBody": "ウインドウにターミナルを表示するには --focus を指定します。指定しない場合、ワークスペースはバックグラウンドで開きます。このターミナルで gh auth login を実行し、リポジトリをクローンして、claude または codex を起動します。2026-10-29 に確認したイメージから作成したマシンでは、ネイティブのエージェントチャットタブはまだ利用できません。",
       "nextDesktop": "4. デスクトップを開く",

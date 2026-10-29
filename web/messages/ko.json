@@ -3014,7 +3014,7 @@
       "nextSignInBody": "Mac에서 cmux NEXT를 열어 둡니다. 이 명령을 실행하고 브라우저에서 로그인을 완료한 다음 머신 목록을 확인하세요.",
       "nextCreate": "2. 머신 만들기",
       "nextCreateBody": "medium 머신에는 CPU 4개, 메모리 8 GB, 디스크 32 GB가 있으며 claude, codex, gh, git, node, bun, python3이 포함됩니다. 도구 로그인은 cmux 로그인과 별개입니다.",
-      "nextPending": "생성 작업은 30초 후 pending: true를 반환하고 백그라운드에서 계속될 수 있습니다. 다른 머신을 만들기 전에 list-machines를 확인하세요. 반환된 target(machine:<id>)을 아래 명령에 복사하세요. 대부분의 머신 명령은 머신이 하나뿐이어도 이 값이 필요합니다.",
+      "nextPending": "생성 작업은 30초 후 pending: true를 반환하고 백그라운드에서 계속될 수 있습니다. 다른 머신을 만들기 전에 list-machines를 확인하세요. 반환된 target({machineTarget})을 아래 명령에 복사하세요. 대부분의 머신 명령은 머신이 하나뿐이어도 이 값이 필요합니다.",
       "nextTerminal": "3. 터미널 열기",
       "nextTerminalBody": "창에 터미널을 표시하려면 --focus를 사용하세요. 지정하지 않으면 워크스페이스가 백그라운드에서 열립니다. 이 터미널에서 gh auth login을 실행하고 저장소를 복제한 다음 claude 또는 codex를 실행하세요. 2026-10-29에 확인한 이미지로 만든 머신에서는 네이티브 에이전트 채팅 탭을 아직 사용할 수 없습니다.",
       "nextDesktop": "4. 데스크톱 열기",

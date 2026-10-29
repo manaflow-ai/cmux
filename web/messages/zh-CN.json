@@ -3017,7 +3017,7 @@
       "nextSignInBody": "在 Mac 上保持 cmux NEXT 开启。运行此命令，在浏览器中完成登录，然后查看机器列表。",
       "nextCreate": "2. 创建机器",
       "nextCreateBody": "medium 机器配备 4 个 CPU、8 GB 内存和 32 GB 磁盘，包含 claude、codex、gh、git、node、bun 和 python3。工具登录与 cmux 登录相互独立。",
-      "nextPending": "创建操作可能在 30 秒后返回 pending: true，并在后台继续。再次创建前请先查看 list-machines。将返回的 target（machine:<id>）复制到下面的命令中；即使只有一台机器，大多数机器命令也需要指定它。",
+      "nextPending": "创建操作可能在 30 秒后返回 pending: true，并在后台继续。再次创建前请先查看 list-machines。将返回的 target（{machineTarget}）复制到下面的命令中；即使只有一台机器，大多数机器命令也需要指定它。",
       "nextTerminal": "3. 打开终端",
       "nextTerminalBody": "使用 --focus 在窗口中显示终端。不指定时，工作区会在后台打开。在此终端中运行 gh auth login，克隆仓库并启动 claude 或 codex。使用 2026-10-29 检查的镜像创建的机器尚不支持原生智能体聊天标签页。",
       "nextDesktop": "4. 打开桌面",
