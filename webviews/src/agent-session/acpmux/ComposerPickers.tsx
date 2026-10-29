@@ -264,6 +264,7 @@ export function ComposerPickers({
             id: entry.acpmuxHarness ?? entry.id,
             name: entry.name,
             models: entry.models,
+            ...(entry.family ? { family: entry.family } : {}),
             ...(entry.unavailable ? { unavailable: entry.unavailable } : {}),
             pickable: entry.pickable && entry.acpmuxHarness !== null,
             ...(entry.topModels ? { top: entry.topModels } : {}),
@@ -935,6 +936,9 @@ export function ComposerPickers({
           harness={harness}
           model={shown}
           label={modelName ?? t(PICKER_LABELS.model)}
+          sessionAuth={signIn?.sessionAuth}
+          onSessionLogin={signIn?.loginSession}
+          onSessionAuthRefresh={signIn?.recheckSession}
           {...(modelChip ? { chip: modelChip } : {})}
           switching={snapshot.switching?.phase === "failed" ? undefined : snapshot.switching}
           efforts={efforts}
