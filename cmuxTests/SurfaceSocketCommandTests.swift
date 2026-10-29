@@ -200,7 +200,7 @@ struct SurfaceSocketCommandTests {
     }
 
     /// A cloud provider whose daemon is a notebook: every verb records what it was asked.
-    private final class FakeCloudProvider: SurfaceProvider {
+    final class FakeCloudProvider: SurfaceProvider {
         let machine: SurfaceMachineID
         var info: SurfaceMachineInfo
         unowned let catalog: SurfaceCatalog
@@ -273,7 +273,7 @@ struct SurfaceSocketCommandTests {
 
     /// One registered fake machine with two workspaces: `ws_a` holds `term_a1` and
     /// `term_a2` (plus a daemon browser); `ws_b` holds `term_b`; `ws_empty` holds nothing.
-    private struct Fixture {
+    struct Fixture {
         let machineID: String
         let machine: SurfaceMachineID
         let provider: FakeCloudProvider
@@ -342,7 +342,7 @@ struct SurfaceSocketCommandTests {
         }
     }
 
-    private static func withFixture(device: Bool = false, _ body: (Fixture) async throws -> Void) async throws {
+    static func withFixture(device: Bool = false, _ body: (Fixture) async throws -> Void) async throws {
         try await AppContextSerialGate.withExclusiveAppContext {
             let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
             let betaKey = RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey
@@ -373,7 +373,7 @@ struct SurfaceSocketCommandTests {
     /// Sends one request the way a socket client does: off the main thread (the
     /// surface/vm verbs run on the socket-worker lane and park it while the catalog
     /// works on the main actor).
-    private nonisolated static func call(_ method: String, _ params: [String: Any]) async throws -> [String: Any] {
+    nonisolated static func call(_ method: String, _ params: [String: Any]) async throws -> [String: Any] {
         let request: [String: Any] = ["jsonrpc": "2.0", "id": UUID().uuidString, "method": method, "params": params]
         let line = String(decoding: try JSONSerialization.data(withJSONObject: request), as: UTF8.self)
         return try await withCheckedThrowingContinuation { continuation in
@@ -389,7 +389,7 @@ struct SurfaceSocketCommandTests {
         }
     }
 
-    private static func ok(_ response: [String: Any]) throws -> [String: Any] {
+    static func ok(_ response: [String: Any]) throws -> [String: Any] {
         #expect(response["ok"] as? Bool == true, "expected success, got \(response)")
         return try #require(response["result"] as? [String: Any])
     }
@@ -409,7 +409,7 @@ struct SurfaceSocketCommandTests {
         defaultValue: "Could not create a workspace on this Cloud VM. Wake the machine or retry `cmux vm workspace new`."
     )
 
-    private static func error(_ response: [String: Any]) throws -> [String: Any] {
+    static func error(_ response: [String: Any]) throws -> [String: Any] {
         #expect(response["ok"] as? Bool == false, "expected an error, got \(response)")
         return try #require(response["error"] as? [String: Any])
     }

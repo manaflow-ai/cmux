@@ -23,10 +23,12 @@ final class RefreshTestClock: Clock, @unchecked Sendable {
     private let lock = NSLock()
     private var currentInstant = Instant(offset: .zero)
     private var sleepers: [UUID: Sleeper] = [:]
+    private var activeSleeps = 0
     /// Sleeps cancelled before their continuation was parked (the
     /// `withTaskCancellationHandler` handler can run first).
     private var cancelledSleeperIDs: Set<UUID> = []
     private var parkWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
+    private var drainedWaiters: [CheckedContinuation<Void, Never>] = []
 
     var now: Instant {
         lock.lock()
@@ -38,6 +40,7 @@ final class RefreshTestClock: Clock, @unchecked Sendable {
 
     func sleep(until deadline: Instant, tolerance: Duration?) async throws {
         let id = UUID()
+        defer { markSleepFinished() }
         try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
                 lock.lock()
@@ -52,6 +55,7 @@ final class RefreshTestClock: Clock, @unchecked Sendable {
                     return
                 }
                 sleepers[id] = Sleeper(deadline: deadline, continuation: continuation)
+                activeSleeps += 1
                 let satisfied = takeSatisfiedParkWaitersLocked()
                 lock.unlock()
                 for waiter in satisfied { waiter.resume() }
@@ -62,6 +66,20 @@ final class RefreshTestClock: Clock, @unchecked Sendable {
             if sleeper == nil { cancelledSleeperIDs.insert(id) }
             lock.unlock()
             sleeper?.continuation.resume(throwing: CancellationError())
+        }
+    }
+
+    /// Suspends until all virtual sleepers have returned to their callers.
+    func waitUntilSleepsFinished() async {
+        await withCheckedContinuation { continuation in
+            lock.lock()
+            if activeSleeps == 0 {
+                lock.unlock()
+                continuation.resume()
+                return
+            }
+            drainedWaiters.append(continuation)
+            lock.unlock()
         }
     }
 
@@ -105,5 +123,18 @@ final class RefreshTestClock: Clock, @unchecked Sendable {
             return true
         }
         return satisfied
+    }
+
+    private func markSleepFinished() {
+        lock.lock()
+        activeSleeps = max(0, activeSleeps - 1)
+        guard activeSleeps == 0 else {
+            lock.unlock()
+            return
+        }
+        let waiters = drainedWaiters
+        drainedWaiters = []
+        lock.unlock()
+        for waiter in waiters { waiter.resume() }
     }
 }

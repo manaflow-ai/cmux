@@ -11,6 +11,7 @@ public actor FallbackTokenStore: StackAuthTokenStoreProtocol {
     private let file: FileStackTokenStore
     private let log = AuthDebugLog()
     private var keychainWorks: Bool = true
+    private var tokenReadOccurred = false
 
     /// Creates the composite store.
     /// - Parameters:
@@ -22,6 +23,8 @@ public actor FallbackTokenStore: StackAuthTokenStoreProtocol {
     }
 
     public func getStoredAccessToken() async -> String? {
+        if !tokenReadOccurred { await keychain.resetLastReadStatus() }
+        tokenReadOccurred = true
         if keychainWorks, let value = await keychain.getStoredAccessToken() {
             return value
         }
@@ -34,6 +37,8 @@ public actor FallbackTokenStore: StackAuthTokenStoreProtocol {
     }
 
     public func getStoredRefreshToken() async -> String? {
+        if !tokenReadOccurred { await keychain.resetLastReadStatus() }
+        tokenReadOccurred = true
         if keychainWorks, let value = await keychain.getStoredRefreshToken() {
             return value
         }
@@ -52,6 +57,15 @@ public actor FallbackTokenStore: StackAuthTokenStoreProtocol {
     /// ``AuthCoordinator``'s `isTokenStorageAvailable`.
     public func isTokenStorageAvailable() async -> Bool {
         guard keychainWorks else { return true }
+        if tokenReadOccurred {
+            tokenReadOccurred = false
+            let readWasDefinitive = await keychain.wasLastReadDefinitive()
+            if !readWasDefinitive {
+                await keychain.resetLastReadStatus()
+                return false
+            }
+            return true
+        }
         return await keychain.isReadable()
     }
 

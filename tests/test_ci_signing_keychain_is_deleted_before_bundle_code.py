@@ -37,7 +37,8 @@ statically, so a reordered step fails in review and not on a release day:
    exception is OWNED_VERIFY_JOBS: exactly the job and runs-on named there,
    which may take an owned Mac free now, holding no secret, outside any
    environment, not continue-on-error, in a fresh work directory it removes
-   in an always() step.
+   in an always() step. PICKED_EPHEMERAL_VERIFY_JOBS lets a verify job read a
+   Blacksmith-only pick (exactly the runs-on named there).
    The notarization scripts run in such jobs only
    with their launch smokes deferred (CMUX_DEFER_LAUNCH_SMOKES) or skipped.
    STEP_LEVEL_ONLY lists the jobs that still rely on rule 1 alone.
@@ -112,13 +113,29 @@ SCRIPT_MADE_KEYCHAINS = {
 # Jobs that sign on Linux (rule 8), each with the script that gets the certificate.
 LINUX_PEM_SIGNERS = {
     ("cmux-next-dev-daily.yml", "sign"): "scripts/ci/rcodesign-sign-bundle-dev.sh",
+    ("cmux-next-dev-daily.yml", "tip-dmg"): "scripts/ci/rcodesign-notarize-dmg-dev.sh",
+    # The one-off proof that the nightly's Mac signing and Linux rcodesign agree.
+    ("rcodesign-parity-proof.yml", "sign-rcodesign"): "scripts/ci/rcodesign-sign-bundle-dev.sh",
+    ("rcodesign-parity-proof.yml", "notarize-dmg"): "scripts/ci/rcodesign-notarize-dmg-dev.sh",
 }
 # Rule 6's one exception: a secret-free verify job that attempt 1 may run on the
 # owned Mac its placement job picked (Leo, 2026-10-24: owned Macs before
 # Blacksmith), with exactly this runs-on.
 OWNED_VERIFY_JOBS = {
     ("cmux-next-dev-daily.yml", "verify"): "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || "
-    "(github.run_attempt == 1 && needs.runner.outputs.label || 'blacksmith-6vcpu-macos-26') }}",
+    "(github.run_attempt == 1 && needs.runner.outputs.label || github.run_attempt > 1 && "
+    "needs.runner.outputs.attempt != github.run_attempt && needs.runner.outputs.alternate || needs.runner.outputs.cloud || 'blacksmith-6vcpu-macos-26') }}",
+}
+# Rule 6's other exception: a verify job whose runs-on reads only a Blacksmith pick (exactly this
+# runs-on), from a job that runs scripts/ci/classic_nightly_build_runner.py with ENABLED '0', which can
+# emit only its CANDIDATES (both blacksmith-*), never an owned label.
+PICKED_EPHEMERAL_VERIFY_JOBS = {
+    ("nightly.yml", "verify-signed-nightly"): (
+        "pick-classic-sign-runner",
+        "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt > 1 && "
+        "needs.pick-classic-sign-runner.outputs.attempt != github.run_attempt && "
+        "needs.pick-classic-sign-runner.outputs.alternate || needs.pick-classic-sign-runner.outputs.runner || "
+        "'blacksmith-6vcpu-macos-26' }}"),
 }
 LITERAL_EPHEMERAL_RUNNER = re.compile(
     r"(?:macos|ubuntu)-[0-9.]+(?:-arm)?|blacksmith-[0-9]+vcpu-(?:macos|ubuntu)-[0-9a-z]+"
@@ -266,6 +283,13 @@ def check_verify_runners(workflow: str, jobs: dict, failures: list[str]) -> None
             continue
         runs_on = str(job.get("runs-on", ""))
         allowed = OWNED_VERIFY_JOBS.get((workflow, name))
+        picked = PICKED_EPHEMERAL_VERIFY_JOBS.get((workflow, name))
+        if picked is not None:
+            picker, picked_runs_on = picked
+            if runs_on != picked_runs_on or not picks_only_blacksmith(jobs.get(picker)):
+                failures.append(f"{workflow} {name}: runs on exactly {picked_runs_on}, and {picker} runs "
+                                "classic_nightly_build_runner.py with ENABLED '0' (Blacksmith labels only)")
+            continue
         if allowed is None:
             if not LITERAL_EPHEMERAL_RUNNER.fullmatch(runs_on):
                 failures.append(f"{workflow} {name}: runs bundle code on a release job's output; "
@@ -282,6 +306,28 @@ def check_verify_runners(workflow: str, jobs: dict, failures: list[str]) -> None
             failures.append(f"{workflow} {name}: the owned verify job runs on exactly {allowed}, holds no secret, "
                             "token or environment, works in a fresh $RUNNER_TEMP directory it removes in an "
                             "always() step, and is not continue-on-error")
+
+
+def picks_only_blacksmith(job: object) -> bool:
+    """Whether `job` is a Blacksmith-only pick: classic_nightly_build_runner.py, ENABLED '0', and every
+    candidate it can print is a blacksmith-* label."""
+    sys.path.insert(0, str(ROOT / "scripts" / "ci"))
+    import classic_nightly_build_runner as picker  # noqa: PLC0415
+
+    if not isinstance(job, dict):
+        return False
+    steps = [step for step in job.get("steps") or [] if isinstance(step, dict)]
+    # Exactly the helper, nothing appended that could write another label to the step's outputs.
+    pick = [step for step in steps if str(step.get("run", "")).strip() == "python3 scripts/ci/classic_nightly_build_runner.py"]
+    if any("classic_nightly_build_runner.py" in str(step.get("run", "")) for step in steps) and len(pick) != 1:
+        return False
+    outputs = job.get("outputs") or {}
+    return (len(pick) == 1 and str((pick[0].get("env") or {}).get("ENABLED")) == "0"
+            and outputs.get("runner") == f"${{{{ steps.{pick[0].get('id')}.outputs.cloud }}}}"
+            and outputs.get("alternate") == f"${{{{ steps.{pick[0].get('id')}.outputs.alternate }}}}"
+            and outputs.get("attempt") == f"${{{{ steps.{pick[0].get('id')}.outputs.attempt }}}}"
+            and all(label.startswith("blacksmith-") for label in picker.CANDIDATES)
+            and picker.SMALL in picker.CANDIDATES and picker.LARGE in picker.CANDIDATES)
 
 
 def self_test_verify_runners() -> list[str]:
@@ -308,6 +354,36 @@ def self_test_verify_runners() -> list[str]:
     }
     for what, (where, jobs) in mutations.items():
         if not failures_of(where, jobs):
+            problems.append(f"rule 6 self-test: {what} was allowed")
+    return problems
+
+
+def self_test_picked_runners() -> list[str]:
+    """Mutations the Blacksmith-pick exception must refuse."""
+    (workflow, name), (picker, allowed) = next(iter(PICKED_EPHEMERAL_VERIFY_JOBS.items()))
+    pick = {"outputs": {"runner": "${{ steps.pick.outputs.cloud }}", "alternate": "${{ steps.pick.outputs.alternate }}",
+                       "attempt": "${{ steps.pick.outputs.attempt }}"},
+            "steps": [{"id": "pick", "env": {"ENABLED": "0"}, "run": "python3 scripts/ci/classic_nightly_build_runner.py"}]}
+    good = {
+        "sign": {"environment": "release", "steps": [{"run": "sign"}]},
+        picker: pick,
+        name: {"needs": ["sign", picker], "runs-on": allowed,
+               "steps": [{"run": "./scripts/verify-diff-sidecar-artifact.sh app --require-signed"}]},
+    }
+    problems = []
+    if failures_of(workflow, good):
+        problems.append(f"the picked verify job itself was refused: {failures_of(workflow, good)}")
+    trusted = {**pick, "steps": [{**pick["steps"][0], "env": {"ENABLED": "1"}}]}
+    mutations = {
+        "another runs-on": {**good, name: {**good[name], "runs-on": allowed.replace("alternate", "owned")}},
+        "a pick that may name the trusted mini": {**good, picker: trusted},
+        "another output behind runner": {**good, picker: {**pick, "outputs": {**pick["outputs"], "runner": "${{ vars.X }}"}}},
+        "no picker job": {key: value for key, value in good.items() if key != picker},
+        "a label appended to the pick's outputs": {**good, picker: {**pick, "steps": [{**pick["steps"][0], "run":
+            pick["steps"][0]["run"] + '\necho cloud=glaeda-std-xcode-26.6 >> "$GITHUB_OUTPUT"'}]}},
+    }
+    for what, jobs in mutations.items():
+        if not failures_of(workflow, jobs):
             problems.append(f"rule 6 self-test: {what} was allowed")
     return problems
 
@@ -423,11 +499,12 @@ def main() -> int:
                 signing_jobs += 1
             check_job(f"{path.name} {job_name}", job, failures)
         check_verify_runners(path.name, document.get("jobs") or {}, failures)
-    for (workflow, name) in OWNED_VERIFY_JOBS:
+    for (workflow, name) in [*OWNED_VERIFY_JOBS, *PICKED_EPHEMERAL_VERIFY_JOBS]:
         document = yaml.safe_load((WORKFLOWS / workflow).read_text(encoding="utf-8")) or {}
         if name not in (document.get("jobs") or {}):
-            failures.append(f"{workflow} {name}: OWNED_VERIFY_JOBS names a job that does not exist")
+            failures.append(f"{workflow} {name}: a rule 6 exception names a job that does not exist")
     failures += self_test_verify_runners()
+    failures += self_test_picked_runners()
     check_scripts(failures)
     if signing_jobs < 5:
         failures.append(f"found only {signing_jobs} keychain jobs; this guard is reading the wrong tree")

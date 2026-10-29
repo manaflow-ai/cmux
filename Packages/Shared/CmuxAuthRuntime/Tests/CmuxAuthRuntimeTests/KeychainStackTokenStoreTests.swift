@@ -44,17 +44,20 @@ struct KeychainStackTokenStoreTests {
         #expect(result as? Data == unrelatedToken)
     }
 
-    /// https://github.com/manaflow-ai/cmux/issues/25628: a Keychain read that
-    /// fails for a moment is not an empty store, so session restore must not
-    /// sign out on it; a permanent failure must still reach sign-in.
+    /// https://github.com/manaflow-ai/cmux/issues/25628: a locked or busy
+    /// Keychain is not an empty store, so session restore preserves the cached
+    /// session until it can answer. A failure that never clears (a missing
+    /// entitlement, a corrupt item, a failed access check) is final: treating
+    /// it as unavailable would keep a session with no usable token forever.
     @Test func onlyTemporaryReadFailuresCountAsUnreadable() {
-        #expect(KeychainStackTokenStore.isTemporaryReadFailure(errSecInteractionNotAllowed))
-        #expect(KeychainStackTokenStore.isTemporaryReadFailure(errSecNotAvailable))
-        #expect(!KeychainStackTokenStore.isTemporaryReadFailure(errSecSuccess))
-        #expect(!KeychainStackTokenStore.isTemporaryReadFailure(errSecItemNotFound))
-        #expect(!KeychainStackTokenStore.isTemporaryReadFailure(errSecMissingEntitlement))
-        #expect(!KeychainStackTokenStore.isTemporaryReadFailure(errSecDecode))
-        #expect(!KeychainStackTokenStore.isTemporaryReadFailure(errSecParam))
+        #expect(KeychainStackTokenStore.isDefinitiveReadStatus(errSecSuccess))
+        #expect(KeychainStackTokenStore.isDefinitiveReadStatus(errSecItemNotFound))
+        #expect(!KeychainStackTokenStore.isDefinitiveReadStatus(errSecInteractionNotAllowed))
+        #expect(!KeychainStackTokenStore.isDefinitiveReadStatus(errSecNotAvailable))
+        #expect(KeychainStackTokenStore.isDefinitiveReadStatus(errSecMissingEntitlement))
+        #expect(KeychainStackTokenStore.isDefinitiveReadStatus(errSecDecode))
+        #expect(KeychainStackTokenStore.isDefinitiveReadStatus(errSecAuthFailed))
+        #expect(KeychainStackTokenStore.isDefinitiveReadStatus(errSecParam))
     }
 
     @Test func fileFallbackStoreIsAlwaysReadable() async {

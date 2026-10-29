@@ -10,6 +10,8 @@ lists cannot drift apart.
 
 from __future__ import annotations
 
+import json
+
 import re
 import sys
 import unittest
@@ -36,7 +38,10 @@ def env(**overrides: str) -> dict[str, str]:
 
 
 def runner_block(workflow: str) -> list[str]:
+    """The CMUX_CI_RUNNER_VARIABLES lines (ci-repo-variables.yml also passes runs_on_values.py its own block)."""
     text = (WORKFLOWS / workflow).read_text(encoding="utf-8")
+    text = text[text.index("CMUX_CI_RUNNER_VARIABLES: |"):]
+    text = text[:text.index("run:")]
     return re.findall(r"^\s+([A-Z0-9_]+=\$\{\{ vars\.[^\n]*)$", text, re.M)
 
 
@@ -115,6 +120,14 @@ class Values(unittest.TestCase):
         # Empties are ignored: no pin pool and no light lane is not a match.
         self.assertEqual(check.problems(env(CMUX_CI_RUNNER_VARIABLES=GOOD_RUNNERS + "CI_LIGHT_LANE_RUNNER=\n",
                                             CI_PIN_DAEMON_POOL="", CI_NEXT_DAEMON_POOL="")), [])
+
+    def test_a_recorded_failover_never_excuses_a_hosted_mac(self) -> None:
+        # The overflow switch's record excuses its own failover values, but a
+        # GitHub-hosted Mac is never one (tests/test_ci_no_github_hosted_macos.py).
+        record = json.dumps({"changed": {"MACOS_RUNNER_15": {"before": None, "after": "macos-15"}}})
+        found = check.problems(env(CMUX_CI_RUNNER_VARIABLES=GOOD_RUNNERS + "MACOS_RUNNER_15=macos-15\n",
+                                   CI_CLOUD_OVERFLOW_SAVED=record))
+        self.assertTrue(any("MACOS_RUNNER_15" in problem for problem in found), found)
 
     def test_nothing_to_check_is_a_failure_not_a_pass(self) -> None:
         self.assertTrue(check.problems(env(CMUX_CI_RUNNER_VARIABLES="")))
