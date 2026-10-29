@@ -78,6 +78,46 @@ describe("native popup DOM observations", () => {
     expect(f.inspect()[0]?.element).toBe(shadow.firstElementChild ?? undefined);
   });
 
+  test("compatibility policy observes pending, shown and rejected escape mirrors", () => {
+    const f = fixture('<div id="shell" data-escaped style="opacity:0;pointer-events:none"><div id="popup" role="menu">Model</div></div>');
+    const expected = identity();
+    const semantics = new Map<Element, SurfaceSemantics>();
+    const observe = (state: "pending" | "shown" | "rejected") => {
+      semantics.set(f.element("popup"), { kind: "escape-mirror", shell: f.element("shell"), expected,
+        presentation: { ...shown(expected), state } });
+      return f.inspect({ lifecycle: "escape-compatible", semantics });
+    };
+    expect(observe("pending")).toEqual([]);
+    expect(observe("shown")).toEqual([]);
+    // A declaration is not a blanket exemption under the migration's native-only policy.
+    expect(f.inspect({ semantics }).some((item) => item.kind === "dom-popup")).toBe(true);
+    f.element("shell").removeAttribute("data-escaped");
+    f.element("shell").removeAttribute("style");
+    expect(observe("rejected")).toEqual([]);
+    expect(observe("shown").some((item) => item.kind === "dom-popup")).toBe(true);
+    semantics.set(f.element("popup"), { kind: "escape-mirror", shell: f.element("shell"), expected,
+      presentation: { ...shown(expected), state: "rejected", owner: {} } });
+    expect(f.inspect({ lifecycle: "escape-compatible", semantics }).some((item) => item.kind === "native-presentation")).toBe(true);
+  });
+
+  test("inspects supplied closed roots, including nested roots, once and within scope", () => {
+    const f = fixture('<div id="host"></div><div id="unrelated"></div>');
+    const closed = f.element("host").attachShadow({ mode: "closed" });
+    closed.innerHTML = '<div id="nested"></div>';
+    const inner = closed.querySelector("#nested")!.attachShadow({ mode: "closed" });
+    inner.innerHTML = '<div role="menu">Closed menu</div>';
+    const unrelated = f.element("unrelated").attachShadow({ mode: "closed" });
+    unrelated.innerHTML = '<div role="menu">Unrelated</div>';
+    expect(f.element("host").shadowRoot).toBeNull();
+    expect(f.inspect({ shadowRoots: new Set([inner, closed]) }).map((item) => item.element)).toEqual([inner.firstElementChild]);
+    expect(inspectNativePopups(f.element("host"), { adapter: "native", shadowRoots: new Set([unrelated, inner, closed]) }).map((item) => item.element)).toEqual([inner.firstElementChild]);
+    const open = f.element("unrelated").ownerDocument.createElement("span");
+    closed.append(open);
+    const openRoot = open.attachShadow({ mode: "open" });
+    openRoot.innerHTML = '<div role="menu">Open nested</div>';
+    expect(f.inspect({ shadowRoots: new Set([closed, inner, openRoot]) })).toHaveLength(2);
+  });
+
   test("reports one frame for a popup with raised internal decoration", () => {
     const f = fixture('<div id="popup" role="menu"><span style="position:absolute;z-index:1">Decoration</span></div>');
     expect(f.inspect()).toHaveLength(1);
