@@ -22,6 +22,17 @@ import Testing
         #expect(abs((shadow.shadowColor?.alphaComponent ?? 0) - elevation.alpha) < 0.001)
     }
 
+    @Test func theActionsMenuOpensInOneFrame() {
+        _ = NSApplication.shared
+        let content = PaletteContentView(model: PaletteModel())
+        content.animateActionsMenu(appearing: true)
+
+        #expect(!content.actionsMenuView.isHidden)
+        #expect(content.actionsMenuView.alphaValue == 1)
+        #expect(content.actionsMenuView.layer?.animation(forKey: "opacity") == nil)
+        #expect(content.actionsMenuView.layer?.animation(forKey: "sublayerTransform") == nil)
+    }
+
     private static func shadows(in view: NSView) -> [NSShadow] {
         (view.shadow.map { [$0] } ?? []) + view.subviews.flatMap(shadows(in:))
     }

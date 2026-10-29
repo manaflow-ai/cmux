@@ -8,6 +8,8 @@
 mod daemon_env;
 #[path = "durable_agents/grant_cleared.rs"]
 mod grant_cleared;
+#[path = "durable_agents/idle_adopted.rs"]
+mod idle_adopted;
 #[path = "durable_agents/queue_edit_parts.rs"]
 mod queue_edit_parts;
 #[path = "durable_agents/queue_restore.rs"]
@@ -735,12 +737,32 @@ async fn backgrounds_work(daemon: &Daemon, session: &str) -> Value {
     entry["_meta"]["acpmux"]["backgroundsWork"].clone()
 }
 
-/// A Claude Code host that streamed a long backlog while no daemon ran: the next daemon adopts it
-/// at once, still moves its work, and does not wait out the host's state query behind the replay.
-/// Asked before the session read the replay, the query's answer sat behind 8,000 entries nothing
-/// drained: adoption waited the query's 5 s budget, and the chat read `backgroundsWork` false.
+/// With the daemon down: the chat as a build that never saved its agent left it (no `agentInfo`),
+/// and the `cmux` profile now of `kind`. A `kind` other than Claude Code's, with no saved agent,
+/// leaves only the host's own answer to say the chat moves its work.
+fn forget_agent_and_set_router_kind(daemon: &Daemon, session: &str, kind: &str) {
+    let path = daemon.home.join("sessions").join(session).join("session.json");
+    let mut meta: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    meta.as_object_mut().unwrap().remove("agentInfo");
+    std::fs::write(&path, serde_json::to_vec_pretty(&meta).unwrap()).unwrap();
+    set_router_kind(daemon, kind);
+}
+
+/// Rewrites the `cmux` profile's `kind` in config.json.
+fn set_router_kind(daemon: &Daemon, kind: &str) {
+    let path = daemon.home.join("config.json");
+    let mut config: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    config["harnesses"]["cmux"]["kind"] = json!(kind);
+    std::fs::write(&path, config.to_string()).unwrap();
+}
+
+/// A Claude Code host that streamed a long backlog while no daemon ran: the next daemon adopts it,
+/// its state query answers, and the chat still moves its work. Asked before the session read the
+/// replay, the query's answer sat behind 8,000 entries nothing drained and adoption waited out the
+/// query's 5 s budget. The chat has no saved agent and its profile reads as ACP here, so only that
+/// answer can say the host runs Claude Code: a query that timed out leaves Ctrl-B hidden.
 #[tokio::test]
-async fn a_claude_host_with_a_long_backlog_is_adopted_at_once_and_still_moves_its_work() {
+async fn a_claude_host_with_a_long_backlog_is_adopted_and_its_state_query_answers() {
     let gate_dir = flood_gate_dir("bg-flood");
     let gate = gate_dir.join("gate");
     let gate_env = gate.to_string_lossy().into_owned();
@@ -760,13 +782,15 @@ async fn a_claude_host_with_a_long_backlog_is_adopted_at_once_and_still_moves_it
     daemon.sigterm();
     drop(client);
     flood_while_down(&gate);
-    let started = Instant::now();
+    forget_agent_and_set_router_kind(&daemon, &session, "acp");
     daemon.start();
     daemon.wait_event(&session, "host_adopted", |e| e["kind"] == "host_adopted");
-    let adopted = started.elapsed();
-    assert!(adopted < Duration::from_secs(4), "adoption took {adopted:?}");
     until_turn_restored(&daemon, &session).await;
-    assert_eq!(backgrounds_work(&daemon, &session).await, true, "the adopted chat hides Ctrl-B");
+    assert_eq!(
+        backgrounds_work(&daemon, &session).await,
+        true,
+        "the adopted host's state query went unanswered: the chat hides Ctrl-B"
+    );
     let mut rpc = daemon.rpc().await;
     let moved = rpc.call("_acpmux/process/background", json!({"sessionId": session})).await;
     assert_eq!(moved, json!({"backgrounded": true}));
@@ -776,29 +800,44 @@ async fn a_claude_host_with_a_long_backlog_is_adopted_at_once_and_still_moves_it
 
 /// A prompt that finds an adopted Claude Code chat's link lost reaches its host again
 /// (`ensure_child` -> `readopt`, which returns the reattached agent before any start) and the chat
-/// still moves its work. The host was adopted behind a long backlog, whose state query waited out
-/// its budget, so the chat read `backgroundsWork` false from adoption on, and the reattach kept it.
+/// still moves its work. Adoption could not tell what the host runs: its state query went
+/// unanswered (the host's query-stall seam), the chat had no saved agent and its profile read as
+/// ACP, so the chat read `backgroundsWork` false until the reattach asked the host again.
 #[tokio::test]
 async fn a_reattached_claude_host_still_moves_its_work() {
-    let gate_dir = flood_gate_dir("bg-reattach");
-    let gate = gate_dir.join("gate");
-    let gate_env = gate.to_string_lossy().into_owned();
-    let mut daemon = Daemon::claude_router("bg-reattach", &[("FAKE_CLAUDE_FLOOD_GATE", &gate_env)]);
+    // The seam's folder, empty until adoption: the host reads it from its harness's environment.
+    let stall_dir =
+        std::env::temp_dir().join(format!("amd-bg-reattach-stall-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&stall_dir);
+    std::fs::create_dir_all(&stall_dir).unwrap();
+    let stall_env = stall_dir.to_string_lossy().into_owned();
+    let mut daemon =
+        Daemon::claude_router("bg-reattach", &[("ACPMUX_TEST_HOST_QUERY_STALL_DIR", &stall_env)]);
     let session = new_session(&daemon).await;
-    let mut client = daemon.rpc().await;
-    client
-        .send(
+    let reply = daemon
+        .rpc()
+        .await
+        .call(
             "session/prompt",
-            json!({"sessionId": session, "prompt": [{"type": "text", "text": "flood"}]}),
+            json!({"sessionId": session, "prompt": [{"type": "text", "text": "hello"}]}),
         )
         .await;
-    daemon.wait_event(&session, "before-flood chunk", |e| chunk(e, "before-flood"));
+    assert_eq!(reply["stopReason"], "end_turn", "{reply}");
     daemon.sigterm();
-    drop(client);
-    flood_while_down(&gate);
+    forget_agent_and_set_router_kind(&daemon, &session, "acp");
+    let stall = stall_dir.join("stall-adoption");
+    std::fs::write(&stall, b"").unwrap();
     daemon.start();
     daemon.wait_event(&session, "host_adopted", |e| e["kind"] == "host_adopted");
-    daemon.wait_event(&session, "the backlog's turn_result", |e| e["kind"] == "turn_result");
+    assert!(!stall.exists(), "adoption never asked the host what it runs");
+    assert_eq!(
+        backgrounds_work(&daemon, &session).await,
+        false,
+        "adoption learned what the host runs: the reattach below proves nothing"
+    );
+    // The profile is Claude Code's again (a later config edit); nothing reads it before the reattach.
+    set_router_kind(&daemon, "claude-stdio");
+    daemon.rpc().await.call("_acpmux/reload_config", json!({})).await;
 
     // Another owner takes the host over, which closes the daemon's link.
     let record: acpmux::agent_host::HostRecord =
@@ -830,7 +869,7 @@ async fn a_reattached_claude_host_still_moves_its_work() {
     let mut rpc = daemon.rpc().await;
     let moved = rpc.call("_acpmux/process/background", json!({"sessionId": session})).await;
     assert_eq!(moved, json!({"backgrounded": true}));
-    let _ = std::fs::remove_dir_all(&gate_dir);
+    let _ = std::fs::remove_dir_all(&stall_dir);
 }
 
 #[tokio::test]

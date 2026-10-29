@@ -75,6 +75,17 @@ def none_placed(**jobs: tuple) -> dict:
     return {LARGE: (), SMALL: (), **jobs}
 
 
+
+# The DEV daily placement (dev-daily-place) hands cmux-scheme-compile a runs-on that may be a label list
+# ([a pool label, glaeda-runner-<name>]); the job's label copy reads that list's first label instead.
+DAILY_PICK = ("needs.dev-daily-place.outputs.runs_on != '' && fromJSON(needs.dev-daily-place.outputs.runs_on)",
+              "needs.dev-daily-place.outputs.runner_label != '' && needs.dev-daily-place.outputs.runner_label")
+
+
+def label_copy(runs_on: str) -> str:
+    """runs-on as the job's own CMUX_NEXT_RUNNER copy states it."""
+    return runs_on.replace(*DAILY_PICK)
+
 class Counts(unittest.TestCase):
     GROUPS = [{"id": 15, "name": f"Blacksmith scale sets - {LARGE}"},
               {"id": 10, "name": f"Blacksmith scale sets - {SMALL}"},
@@ -1363,7 +1374,7 @@ class Wiring(unittest.TestCase):
         for name in CASCADED:
             job_env = self.jobs[name].get("env") or {}
             if "CMUX_NEXT_RUNNER" in job_env and name != "release-compile":
-                self.assertEqual(job_env["CMUX_NEXT_RUNNER"], self.jobs[name]["runs-on"], name)
+                self.assertEqual(job_env["CMUX_NEXT_RUNNER"], label_copy(self.jobs[name]["runs-on"]), name)
 
     def test_the_placement_job_reads_the_snapshot_and_exports_the_cascade(self):
         job = self.jobs["macos-placement"]

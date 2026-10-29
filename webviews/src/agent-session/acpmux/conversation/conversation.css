@@ -50,11 +50,12 @@
      bands). A message's meta row (a prompt's age, ticks and actions; a reply's footer) is one
      compact line right under it; messages in a turn sit one message gap apart, turns one turn gap.
      model.ts (fallbackRowHeight, chromeHeight) estimates rows with the same numbers. */
-  --cv-meta-gap: 4px; /* a message to its meta row */
+  --cv-meta-gap: var(--ds-space-1, 4px); /* a message to its meta row */
   --cv-meta-row: 24px; /* the meta row's line */
-  --cv-message-gap: 8px; /* a message (or its meta row) to the next row in its turn */
+  --cv-message-gap: var(--ds-space-2, 8px); /* a message (or its meta row) to the next row in its turn */
   --cv-live-gap: 10px; /* over the running turn's live line, inside its row: 16px under a reply */
-  --cv-turn-gap: 16px; /* a paragraph gap (14px) plus a small separator to the next message */
+  --cv-turn-gap: var(--ds-space-4, 16px); /* a speaker change or the end of the transcript */
+  --cv-continuation-gap: var(--cv-message-gap); /* the same assistant's next turn */
   /* Tool rows follow Codex's compact transcript rhythm: a 22px line with a small, quiet gap
      after the run before the next reply. Gallery-only attributes compare this against the prior
      roomier rhythm without adding a product setting. */
@@ -105,6 +106,26 @@
   display: flex;
   flex-direction: column;
   align-items: flex-end;
+}
+/* Waiting controls belong beside their bubble. Delivered prompts keep their usual footer. */
+.cv-user__body {
+  display: contents;
+}
+.cv-user__body:has(.cv-user__pending) {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2, 8px);
+  max-width: 100%;
+  min-width: 0;
+}
+.cv-user__body:has(.cv-user__pending) > .cv-user__bubble {
+  min-width: 0;
+  max-width: 100%;
+}
+.cv-user__body:has(.cv-user__pending) > .cv-user__actions {
+  flex: none;
+  margin-top: 0;
+  padding-right: 0;
 }
 /* A prompt's bubble: a small radius, and text inset evenly, 12px from each side (8px of padding
    plus the line's half-leading above and below). model.ts measures it. Its look is the glass rule
@@ -473,7 +494,7 @@
    pane's right edge, its own width (data-enter, ui/presence.ts). */
 .acpmux-artifact {
   --ui-enter-distance: 100%;
-  flex: 0 0 clamp(320px, 46%, 760px);
+  flex: 0 0 var(--acpmux-artifact-width, clamp(320px, 46vw, 760px));
   min-width: 0;
   display: flex;
   flex-direction: column;
@@ -482,12 +503,26 @@
   color: var(--agent-text);
   font-family: var(--cv-font);
 }
+/* A shell sibling must leave the offered native tab row clear, including when the narrow
+   preview covers the chat. Its background belongs below the row, never in its tools hole. */
+.acpmux-shell[data-tab-row] > .acpmux-artifact {
+  margin-top: var(--acpmux-tab-row-height);
+  max-height: calc(100% - var(--acpmux-tab-row-height));
+}
+/* The header lives in the chat column while Preview is a shell sibling. Keep its tools at the
+   pane edge, across the Preview column, just as the inline Summary does. */
+.acpmux-shell[data-tab-row]:has(> .acpmux-artifact) .acpmux-header[data-tab-row] {
+  width: calc(100% + var(--acpmux-artifact-width, clamp(320px, 46vw, 760px)));
+}
 @media (max-width: 720px) {
   .acpmux-artifact {
     position: absolute;
     inset: 0;
     z-index: var(--layer-overlay);
     box-shadow: none;
+  }
+  .acpmux-shell[data-tab-row]:has(> .acpmux-artifact) .acpmux-header[data-tab-row] {
+    width: 100%;
   }
 }
 .acpmux-artifact-bar {
@@ -788,22 +823,22 @@
   color: var(--cv-text);
 }
 .cv-h1 {
-  font-size: 21px;
-  line-height: 28px;
+  font-size: calc(var(--cv-font-size) * 1.5);
+  line-height: calc(var(--cv-font-size) * 2);
   margin: 20px 0 12px;
 }
 .cv-h2 {
-  font-size: 17.5px;
-  line-height: 24px;
+  font-size: calc(var(--cv-font-size) * 1.25);
+  line-height: calc(var(--cv-font-size) * 24 / 14);
   margin: 15px 0 3.5px;
 }
 .cv-h3 {
-  font-size: 15.75px;
-  line-height: 22px;
+  font-size: calc(var(--cv-font-size) * 1.125);
+  line-height: calc(var(--cv-font-size) * 22 / 14);
   margin: 15px 0 5px;
 }
 .cv-h4 {
-  font-size: 14px;
+  font-size: var(--cv-font-size);
   margin: 16px 0 4px;
 }
 .cv-md strong {
@@ -983,9 +1018,9 @@
    between a label and its value); long-text columns are 256px at least (TableBlock.tsx). */
 .cv-table {
   border-collapse: collapse;
-  font-size: var(--cv-table-size, 12.25px);
+  font-size: var(--cv-table-size, calc(var(--cv-font-size) * 0.875));
   letter-spacing: var(--cv-table-tracking, 0px);
-  line-height: var(--cv-table-line-height, 23px);
+  line-height: var(--cv-table-line-height, calc(var(--cv-font-size) * 23 / 14));
   width: max-content;
 }
 .cv-table th,
@@ -1210,6 +1245,10 @@ pre.cv-math-source {
    that frame, and the offset clamped short of the end and stayed there. */
 .acpmux-spacer {
   transition: none;
+  /* A row's entrance (`cv-enter`) slides it up 4px into place; its translate must not make the
+     scroller taller than the layout, or a view at its end rests 2-4px short of it until the motion
+     ends (transcript-pinned-bottom). The 4px falls in the row's own bottom padding. */
+  overflow-y: clip;
 }
 /* The thread is drawn up by a followed view's composer growth (VirtualTranscript `lift`) in the frame
    the card grows: under Reduce Motion's 0.01ms transitions it would keep its old position for that
@@ -1217,15 +1256,35 @@ pre.cv-math-source {
 .acpmux-thread {
   transition: none;
 }
+/* --cv-inset-end: the column's end, moved in while the computer use live preview shows beside it
+   (computerUse/computerUsePreview.css). */
 .acpmux-row {
   left: var(--cv-inset);
-  right: var(--cv-inset);
+  right: var(--cv-inset-end, var(--cv-inset));
+}
+.acpmux-row__gap {
+  position: absolute;
+  z-index: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 0;
+  /* Inherit the actual row padding: step rows and live lines use smaller or zero gaps. */
+  padding-bottom: inherit;
+  pointer-events: auto;
+  background: transparent;
 }
 /* Keyboard transcript selection uses a roving article tab stop. The fill is deliberately on the
    row rather than the prose so a range remains visible while its rows virtualize in and out. */
 .acpmux-row[data-transcript-selected="true"] {
   border-radius: 8px;
   background: color-mix(in srgb, var(--agent-accent) 8%, transparent);
+}
+/* Response focus rings are opt-in (focusRing.enabled, #23745): the shared desktop ring leaves the
+   row out (desktop.css), so without the setting the row draws nothing, not the engine's own
+   `outline: auto`. */
+.acpmux-row:focus-visible {
+  outline: none;
 }
 [data-focus-ring-enabled="true"] .acpmux-row[data-transcript-active="true"]:focus-visible {
   outline: 1.5px solid color-mix(in srgb, var(--agent-accent) 55%, transparent);
@@ -1242,29 +1301,9 @@ pre.cv-math-source {
 .acpmux-row:focus:not(:focus-visible) {
   outline: none;
 }
-/* Scoped to the row so it outranks .cv-iconbtn's `all: unset`, which comes later in this file and
-   otherwise put the button back in the flow, shown at rest. */
-.acpmux-row .acpmux-row__copy {
-  position: absolute;
-  z-index: var(--layer-raised);
-  top: 0;
-  right: 0;
-  opacity: 0;
-}
-/* Not on hover: a prompt has Copy under its bubble and an answer in its turn's footer, so a hover
-   showed two or three Copy buttons per turn. Keyboard focus and a selected range still show it. */
-.acpmux-row:focus-within .acpmux-row__copy,
-.acpmux-row[data-transcript-selected="true"] .acpmux-row__copy {
-  opacity: 1;
-}
-@media (prefers-reduced-motion: no-preference) {
-  .acpmux-row .acpmux-row__copy {
-    transition: opacity 120ms ease-out;
-  }
-}
 .acpmux-permission {
   padding-left: var(--cv-inset);
-  padding-right: var(--cv-inset);
+  padding-right: var(--cv-inset-end, var(--cv-inset));
 }
 
 /* A tool permission ask (permissions/Panel.tsx, Leo 2026-10-14): the transcript's tool row (its
@@ -1508,6 +1547,19 @@ pre.cv-math-source {
   color: var(--cv-text-dim);
   font-variant-numeric: tabular-nums;
 }
+/* Split, output first and what the model read second (TurnTokens.tsx): "↓ 12.4K out ↑ 3.9M in". */
+.cv-worked__tokens.is-split {
+  display: inline-flex;
+  gap: 8px;
+}
+/* The turn's time is quieter than its words too, as its tokens are (Leo, 2026-10-21: "shouldnt the
+   token text and maybe time tho be less prominent? darker?"): beside "Thinking" or a call, and
+   inside "Working for 35s" and "Worked for 1m 16s" (TurnTokens.tsx `TimedLabel`). */
+.cv-worked__time,
+.cv-worked__label-time {
+  color: var(--cv-text-dim);
+  font-variant-numeric: tabular-nums;
+}
 .cv-worked__open {
   all: unset;
   min-width: 0;
@@ -1568,10 +1620,6 @@ pre.cv-math-source {
 .cv-worked.is-below {
   height: calc(var(--cv-meta-row) + var(--cv-turn-gap));
   padding-top: calc(var(--cv-live-gap) + 2px);
-}
-/* Its time is quieter than its words, as the tool rows' time is. */
-.cv-worked.is-below .cv-worked__time {
-  color: var(--cv-text-dim);
 }
 /* Its "⌃B to run in background" shows only while the pointer is on the line, on every live line. */
 :is(.cv-worked, .cv-activity) .cv-command__bg {
@@ -1760,20 +1808,6 @@ pre.cv-math-source {
   margin-left: 0;
   color: var(--cv-text-dim);
 }
-/* A transcript row's Copy is an absolute sibling of its tool button. Reserve one
-   action slot before the chevron so the hover actions read duration, Copy, expand
-   at every width; the Shell card has its own in-flow actions and is unaffected. */
-.acpmux-row[data-floating-copy="true"] > .cv-tools > .cv-tool,
-.acpmux-row[data-floating-copy="true"] > .cv-tools > .cv-tool-run > .cv-tool {
-  padding-right: 8px;
-}
-.acpmux-row[data-floating-copy="true"] > .cv-tools > .cv-tool > .cv-tool__chevron,
-.acpmux-row[data-floating-copy="true"] > .cv-tools > .cv-tool-run > .cv-tool > .cv-tool__chevron {
-  margin-inline-start: 0;
-}
-.acpmux-row[data-floating-copy="true"] > .acpmux-row__copy {
-  right: 24px;
-}
 /* A thought in full (while it streams, or with a Debug choice that folds only long ones): a muted
    "Thinking" (or "Thought for 12s" once done) on its own line, then its text under the opened
    fold's left rule, so the label and the first words never read as one sentence (Leo 2026-10-21:
@@ -1786,6 +1820,8 @@ pre.cv-math-source {
 }
 /* The folded label uses the same row height as tools; full thought text keeps its padding. */
 .cv-thought.is-toggle {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
   align-items: center;
   padding-block: 0;
 }
@@ -2244,15 +2280,12 @@ pre.cv-math-source {
   letter-spacing: var(--cv-tracking, 0.045px);
   -webkit-font-smoothing: antialiased;
 }
-/* Clear of the row's Copy button (28 px at its top right, which takes the pointer even while
-   hidden), so a long name ends in an ellipsis before it instead of under it. */
 .cv-received__line {
   display: flex;
   align-items: center;
   gap: 8px;
   min-width: 0;
   height: 26px;
-  padding-right: 28px;
   color: var(--cv-text-dim);
   white-space: nowrap;
   user-select: none;
@@ -2461,11 +2494,23 @@ a.cv-sha:focus-visible {
 /* The card's box holds the fill and ring, so the output's fades (below) cut the text, not them. */
 .cv-tool-output__box {
   position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   border-radius: 12px;
   background: var(--cv-card-fill);
   box-shadow: inset 0 0 0 1px var(--cv-card-ring);
 }
+/* Reserve the corner outside the text scroller, so even unwrapped lines stay clear of the buttons. */
+.cv-tool-output__box:has(> .cv-tool-output__actions) {
+  padding-right: 32px;
+}
+.cv-tool-output__box:has(> .cv-tool-output__actions > :nth-child(2)) {
+  padding-right: calc(2 * 32px);
+}
 .cv-tool-output__box > .cv-tool-output {
+  grid-column: 1;
+  grid-row: 1;
+  min-width: 0;
   margin: 0;
   max-height: none;
   overflow: auto hidden;
@@ -2481,6 +2526,7 @@ a.cv-sha:focus-visible {
 /* A result whose text is Markdown (toolResult.ts) reads as a reply does, a little smaller, and
    scrolls past the height a plain output stops at. */
 .cv-tool-output__markdown {
+  display: block;
   max-height: 320px;
   overflow: auto;
   padding: 6px 12px;
@@ -2490,15 +2536,15 @@ a.cv-sha:focus-visible {
 }
 /* Wrap lines (and the hover-actions experiment's Copy) in its corner, on hover or focus. */
 .cv-tool-output__actions {
-  position: absolute;
-  z-index: var(--layer-raised);
-  top: 4px;
-  right: 6px;
+  grid-column: 2;
+  grid-row: 1;
+  align-self: start;
+  margin: 4px 6px 0 0;
   display: flex;
   gap: 2px;
-  border-radius: 7px;
   color: var(--cv-text-muted);
-  background: var(--cv-card-fill);
+  /* No plate behind the actions (Leo 2026-10-28): each button keeps its own hover. */
+  background: none;
   opacity: 0;
 }
 .cv-tool-output__box:hover .cv-tool-output__actions,
@@ -2849,10 +2895,10 @@ a.cv-sha:focus-visible {
   }
 }
 
-/* cx-2lv1k: a row from a page of older history fades in once, the first time the reader scrolls it
- * into view at the top edge (OlderRowFade in App.tsx). It waits at a soft 0.35 until then, out of
- * view, so the fade starts from ink already there and never from a blank band. Opacity only: no
- * row moves or changes height, so the anchoring that holds the reader's place is untouched. Reduce
+/* A row from older history fades on its first mounted copy (OlderRowFade in App.tsx), including
+ * a warm copy outside the view. Its layout effect starts the fade before paint, so intersection
+ * never defers opacity and a remount draws in full ink. Opacity only: no row moves or changes
+ * height, so the anchoring that holds the reader's place is untouched. Reduce
  * Motion draws it in full ink at once; ui.animationSpeed off makes the fade instant (the token is 0). */
 @keyframes acpmux-older-in {
   from {
@@ -3503,10 +3549,8 @@ a.cv-sha:focus-visible {
 .acpmux-scroll[data-fade-bottom] {
   --acpmux-fade-bottom: 18px;
 }
-/* Jump to latest (12px up, 32px tall) stands in the bottom band: the fade runs a gap past its top. */
-.acpmux-scroll[data-fade-bottom][data-jump-shown] {
-  --acpmux-fade-bottom: 56px;
-}
+/* Jump to latest keeps its own glass. It does not widen the transcript's soft edge: a 56px band
+   washed out almost three lines above the composer (Leo, 2026-10-27). */
 /* Find in Chat's bar sits in the top band: it keeps full ink, and rows pass under it. */
 .acpmux-scroll[data-fade-top]:has(> .acpmux-find) {
   --acpmux-fade-top: 0px;
@@ -3884,6 +3928,9 @@ article.acpmux-row:empty {
 /* The chat's last footer keeps the normal turn gap above the composer. */
 .acpmux-row.acpmux-turnSummary.acpmux-row--last-footer {
   padding-bottom: var(--cv-turn-gap);
+}
+.acpmux-row.acpmux-turnSummary.acpmux-row--continuation-footer {
+  padding-bottom: var(--cv-continuation-gap);
 }
 /* A legacy/history turn can end without a footer. Mark only its latest row so the composer keeps
    the normal turn rhythm without a permanent runway below every turn. */
