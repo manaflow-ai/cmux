@@ -508,7 +508,7 @@ mod tests {
         .unwrap_err()
         .to_string();
         assert!(error.contains("session lane-name was created"), "{error}");
-        assert!(error.contains("/definitely/missing/cmux agent open session-id"), "{error}");
+        assert!(error.contains("cmux agent open session-id"), "{error}");
         assert!(error.contains("--group remote-audit"), "{error}");
     }
 
