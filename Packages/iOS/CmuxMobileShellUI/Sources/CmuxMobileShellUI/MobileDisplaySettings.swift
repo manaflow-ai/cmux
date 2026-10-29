@@ -117,8 +117,10 @@ public final class MobileDisplaySettings {
     }
 
     /// Whether an inactive iPhone releases its terminal viewport so a Mac can
-    /// take the grid. Defaults to `false`, preserving the host policy and the
-    /// last confirmed grid across a background/foreground transition.
+    /// take the grid. Defaults to `true`: under the default "iPhone First"
+    /// size policy the phone owns the whole grid while it views a terminal,
+    /// and the Mac gets it back once the app goes to the background. A stored
+    /// choice (either value) is kept.
     public var handoffTerminalSizingWhenInactive: Bool {
         didSet {
             defaults.set(
@@ -253,7 +255,7 @@ public final class MobileDisplaySettings {
         self.useLegacyTerminalSizing = defaults.object(forKey: Self.useLegacyTerminalSizingKey) as? Bool ?? false
         self.handoffTerminalSizingWhenInactive = defaults.object(
             forKey: Self.handoffTerminalSizingWhenInactiveKey
-        ) as? Bool ?? false
+        ) as? Bool ?? true
         self.hapticFeedbackEnabled = haptics.isEnabled
         self.terminalScrollbackRows = MobileTerminalScrollbackPreference.resolve(from: defaults)
         let storedPreviewLines = defaults.object(forKey: Self.workspacePreviewLineCountKey) as? Int

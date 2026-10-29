@@ -89,9 +89,11 @@ keys.
 `handheld_first` ("iPhone First", on in the default policy): while a phone or
 tablet counts, the newest active one sets the whole grid (reason `latest`,
 that device the only owner) and `mode` waits. A phone counts while it views
-the terminal: it reports its viewport when the terminal is on screen in the
-foreground and clears it when the terminal leaves the screen or the app goes
-to the background, so the grid returns to `mode` over the other participants.
+the terminal: it reports its viewport while the terminal is on screen in the
+foreground and clears it when it closes the terminal, disconnects, or (with
+the iPhone setting "Hand Off Terminal Sizing When Inactive", on by default)
+goes to the background, so the grid returns to `mode` over the other
+participants.
 `fixed` with a grid still wins. A policy sent without the key has it off, so
 an explicit choice from an older client stays as chosen.
 
@@ -115,8 +117,9 @@ With no counting participant the grid keeps its last size (reason `held`). An
 owner detach selects the next owner in the same step. The grid never freezes
 waiting for a departed owner.
 
-The default policy is `{"mode":"smallest","handheld_first":true}`. Size panels
-list "iPhone First" above the five modes; picking a mode turns
+The default policy is `{"mode":"smallest","handheld_first":true}`. The Mac and
+iPhone size panels list "iPhone First" above the five modes (the cmux-tui
+menu lists only the modes); picking a mode turns
 `handheld_first` off, and "Size to My Window" on a Mac or TUI does too.
 
 Policy scope is a workspace default plus an optional per-terminal override. Any
