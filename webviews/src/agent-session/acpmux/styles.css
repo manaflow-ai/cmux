@@ -295,7 +295,7 @@
 /* The project pill chooses: a button drawn as the other pills, with the project menu above the tray. */
 .acpmux-project{position:relative;display:flex;min-width:0}
 .acpmux-project-button{display:inline-flex;align-items:center;gap:5px;min-width:0;height:24px;max-width:220px;padding:0;border:0;border-radius:3px;background:none;color:var(--agent-muted);font:inherit;cursor:pointer;white-space:nowrap}
-.acpmux-project-button>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.acpmux-project-button>span:not(.acpmux-project-badge){min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .acpmux-project-button:hover,.acpmux-project-button[aria-expanded="true"]{color:var(--agent-text);background:none}
 .acpmux-project-button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}@media (prefers-reduced-motion:no-preference){.acpmux-project-button{transition:background-color var(--agent-motion-hover) var(--agent-ease-out)}}.acpmux-project-button:active{background:color-mix(in srgb,var(--agent-text) 20%,transparent)}
 .ui-popup.acpmux-project-menu{position:relative;inset:auto;width:300px;max-width:calc(100vw - 32px);max-height:none;overflow:visible;font-size:13px;--acpmux-project-menu-edge:4px}

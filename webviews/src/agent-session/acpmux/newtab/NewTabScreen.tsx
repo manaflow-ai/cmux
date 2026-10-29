@@ -448,15 +448,13 @@ export function NewTabScreen(props: Props) {
         ? project
         : (props.startCwd ?? project ?? props.cwd);
   // The project chip names the folder a prompt starts in (screenActions onAsk): a real pick, else
-  // the host's start folder, as a new chat's hero does; never the home ~ a fresh workspace's tab
-  // inherits, nor the private agent-home folder a chat with neither starts in (cx-7fje0, cx-nn3e).
-  // Before the host's handshake names the start folder, a tab that inherits a project names that
-  // project (the handshake starts its chat there), so the first frame shows it.
+  // the host's start folder, as a new chat's hero does. A fresh workspace inherits its last
+  // project; keep that value visible in the established location slot rather than forcing a pick.
   const askFolder = none
     ? undefined
     : project && project !== props.cwd
       ? project
-      : (props.startCwd ?? (props.startPending && !folderless && !homeOrAbove(props.cwd) ? props.cwd : undefined));
+      : (props.startCwd ?? (!folderless && !homeOrAbove(props.cwd) ? props.cwd : undefined));
   // The environment card checks the project the chat starts in: the chip's folder, else the tab's
   // own project (never the home ~ or a private agent-home folder it inherited).
   const envFolder = none

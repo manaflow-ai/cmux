@@ -366,6 +366,29 @@ export default agentPaneEntry({
           throw new Error("Add harness shows on the page with a harness installed");
       },
     },
+    "inherited-project": {
+      note: "A fresh workspace inherits its last project: the machine/project controls keep their established slots and the inherited project stays selected without requiring a new pick.",
+      ready: newTab({ template: "minimal", cwd: "/Users/you", startedProject: CWD }),
+      snapshot: noChat(),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-field") !== null);
+        const location = ctx.document.querySelector<HTMLElement>(".nt-location");
+        const project = ctx.document.querySelector<HTMLElement>(".acpmux-project-button");
+        if (!location || !project || !project.textContent?.includes("atlas-web"))
+          throw new Error("the inherited project is not shown in the established location slot");
+        const before = location.getBoundingClientRect();
+        if (before.width <= 0 || before.height <= 0) throw new Error("the location slot is not mounted");
+        const field = ctx.document.querySelector<HTMLTextAreaElement>(".nt-field")!;
+        field.value = "keep this project";
+        field.dispatchEvent(
+          new InputEvent("input", { bubbles: true, inputType: "insertText", data: "keep this project" }),
+        );
+        await ctx.waitFor(() => !(ctx.document.querySelector<HTMLButtonElement>(".nt-send")?.disabled ?? true));
+        const after = location.getBoundingClientRect();
+        if (Math.abs(after.left - before.left) > 1 || Math.abs(after.top - before.top) > 1)
+          throw new Error("the inherited location slot moved after hydration/input");
+      },
+    },
     // The model button opens its one menu (Leo 2026-10-20), whole: the card does not clip it
     // (Lawrence 2026-10-13). Points near its top and bottom edges hit the menu, not the page. On New
     // Tab More models shows its models in place, under its row (newTabComposer.ts), then Add harness….

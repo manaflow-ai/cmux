@@ -18,9 +18,9 @@ await requireBrowserLane("newtab-project-chip-fit.test.ts", async () => {
     });
     await vite.listen();
     browser = await chromium.launch({ headless: true });
-    await warmGalleryFrame(vite, "agent-pane.new-tab-page", {
+    await warmGalleryFrame(vite, "agent-pane.new-tab", {
       browser,
-      params: { variant: "idle", theme: "Apple System Colors" },
+      params: { variant: "inherited-project", theme: "Apple System Colors" },
     });
   });
   afterAll(async () => {
@@ -34,11 +34,11 @@ await requireBrowserLane("newtab-project-chip-fit.test.ts", async () => {
         const page = await browser!.newPage({ viewport: { width, height: 560 } });
         const port = (vite!.httpServer!.address() as { port: number }).port;
         await page.goto(
-          `http://127.0.0.1:${port}${galleryFrame("agent-pane.new-tab-page", { variant: "idle", theme })}`,
+          `http://127.0.0.1:${port}${galleryFrame("agent-pane.new-tab", { variant: "inherited-project", theme })}`,
         );
         await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
         const result = await page.locator(".acpmux-project-button").evaluate((button) => {
-          const label = button.querySelector<HTMLElement>(":scope > span")!;
+          const label = button.querySelector<HTMLElement>(":scope > span:not(.acpmux-project-badge)")!;
           const chevron = button.querySelector<HTMLElement>(":scope > .acpmux-icon:last-child")!;
           const buttonRect = button.getBoundingClientRect();
           const labelRect = label.getBoundingClientRect();
@@ -48,11 +48,11 @@ await requireBrowserLane("newtab-project-chip-fit.test.ts", async () => {
             labelRight: labelRect.right,
             chevronLeft: chevronRect.left,
             buttonRight: buttonRect.right,
-            labelOverflow: label.scrollWidth > label.clientWidth,
             gap: chevronRect.left - labelRect.right,
           };
         });
         expect(result.labelText).toContain("atlas-web");
+        expect(result.labelRight).toBeLessThanOrEqual(result.chevronLeft + 0.5);
         expect(result.chevronLeft).toBeLessThanOrEqual(result.buttonRight + 0.5);
         expect(result.gap).toBeGreaterThanOrEqual(0);
         expect(result.gap).toBeLessThanOrEqual(8);
