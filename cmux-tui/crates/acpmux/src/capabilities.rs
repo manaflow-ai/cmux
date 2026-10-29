@@ -71,6 +71,11 @@ pub const CAPABILITIES: &[Capability] = &[
             method::MUX_SECRET_SUBMIT,
         ],
     },
+    Capability { id: "machine.join.stdin.v1", wire: &[] },
+    Capability {
+        id: "machine-consent-v1",
+        wire: &[method::MUX_MACHINE_CONSENT_SET, method::MUX_MACHINE_CONSENT_GET],
+    },
     // Inline `/btw` answers: the pane may send `inline: true` and receive `{text}`;
     // older daemons treat that field as legacy side-session input, so this id gates the shape.
     Capability { id: "btw-inline-v1", wire: &[method::MUX_BTW] },
@@ -196,12 +201,16 @@ mod tests {
     fn every_id_is_stable_shaped_and_listed_once() {
         let mut seen = BTreeSet::new();
         for id in ids() {
-            let (name, version) = id.rsplit_once("-v").unwrap_or_else(|| panic!("{id} has no -vN"));
+            let (name, version) = id
+                .rsplit_once("-v")
+                .or_else(|| id.rsplit_once(".v"))
+                .unwrap_or_else(|| panic!("{id} has no version suffix"));
             assert!(
                 !name.is_empty()
-                    && name
-                        .bytes()
-                        .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+                    && name.bytes().all(|b| b.is_ascii_lowercase()
+                        || b.is_ascii_digit()
+                        || b == b'-'
+                        || b == b'.')
                     && !version.is_empty()
                     && version.bytes().all(|b| b.is_ascii_digit()),
                 "{id} is not a lowercase-kebab id ending in -vN"
@@ -218,6 +227,11 @@ mod tests {
         let registry: BTreeSet<&str> =
             crate::protocol::registry().iter().map(|decl| decl.name).collect();
         for capability in CAPABILITIES {
+            // Machine onboarding is CLI-only and has no daemon wire method.
+            if capability.id == "machine.join.stdin.v1" {
+                assert!(capability.wire.is_empty());
+                continue;
+            }
             assert!(!capability.wire.is_empty(), "{} covers nothing", capability.id);
             for name in capability.wire {
                 assert!(

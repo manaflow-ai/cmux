@@ -1031,6 +1031,12 @@
       "result": true
     },
     {
+      "kind": "request",
+      "name": "_acpmux/chat_fork",
+      "params": true,
+      "result": true
+    },
+    {
       "kind": "notification",
       "name": "_acpmux/chat_changed",
       "params": true

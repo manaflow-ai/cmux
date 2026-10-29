@@ -462,7 +462,7 @@ function cronFakes(
   fakeOptions: { readonly reread?: (row: CloudVmRow) => CloudVmRow | null } = {},
 ) {
   const recorded = {
-    execs: [] as Array<{ vmId: string; asRoot: boolean | undefined; command: string }>,
+    execs: [] as Array<{ vmId: string; asRoot: boolean | undefined; command: string; cancelOnInterrupt?: boolean }>,
     paused: [] as string[],
     statuses: [] as Array<{ id: string; status: string; pauseReason?: string }>,
     observations: [] as Array<{ id: string; observation: VmIdleObservation | null }>,
@@ -520,8 +520,8 @@ function cronFakes(
     },
   } as unknown as VmRepositoryShape;
   const provider = {
-    exec: (_provider: string, vmId: string, command: string, options?: { asRoot?: boolean }) => {
-      recorded.execs.push({ vmId, asRoot: options?.asRoot, command });
+    exec: (_provider: string, vmId: string, command: string, options?: { asRoot?: boolean; cancelOnInterrupt?: boolean }) => {
+      recorded.execs.push({ vmId, asRoot: options?.asRoot, command, cancelOnInterrupt: options?.cancelOnInterrupt });
       const out = probeOut(vmId);
       return out === "fails" ? Effect.fail(new Error("exec failed")) : Effect.succeed({ ...out, stderr: "" });
     },
@@ -635,6 +635,14 @@ describe("idle pause cron", () => {
     expect(recorded.paused).toEqual([VM]);
     expect(recorded.statuses).toEqual([{ id: "row-1", status: "paused", pauseReason: "idle" }]);
     expect(recorded.events).toEqual([{ source: "idle", automated: true }]);
+  });
+
+  test("the probe's exec is cancelled at the provider when its budget runs out", async () => {
+    // Effect.timeout only interrupts the fiber; the gateway aborts the provider request only with cancelOnInterrupt.
+    const { recorded, layer } = cronFakes([machineRow()], () => ({ exitCode: 0, stdout: probeLine() }));
+    await Effect.runPromise(enforceVmIdlePause({ now: () => T0 }).pipe(Effect.provide(layer)));
+    expect(recorded.execs.length).toBeGreaterThan(0);
+    expect(recorded.execs.map((e) => e.cancelOnInterrupt)).toEqual(recorded.execs.map(() => true));
   });
 
   test("a machine running an agent turn is not paused and its stretch is cleared", async () => {

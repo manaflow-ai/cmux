@@ -4006,7 +4006,7 @@ jobs:
       # `alternate`). Outside attempt 1 of a push (the rescue's workflow_run watch) it stands only once
       # the owned-pool-watch marker is uploaded, as pick-nightly-build-runner's does.
       owned: ${{ (github.event_name == 'push' && github.run_attempt == 1 || steps.upload-marker.outcome == 'success') && steps.owned.outputs.owned || '' }}
-      # A drained owned Mac for the release signing jobs (sign-nightly-identity-legacy), as the JSON runs-on
+      # A drained (or draining) owned Mac for the release signing jobs (sign-nightly-identity-legacy), as the JSON runs-on
       # array scripts/ci/signing_runner.py prints, or empty. Attempt 1 only, under the same marker rule as `owned`.
       sign_owned: ${{ github.run_attempt == 1 && (github.event_name == 'push' || steps.upload-marker.outcome == 'success') && steps.sign-owned.outputs.owned || '' }}
       attempt: ${{ github.run_attempt }}
@@ -4081,9 +4081,11 @@ jobs:
           CANDIDATE: ${{ vars.MACOS_RUNNER_26 }}
         run: python3 .publish-tooling/scripts/ci/nightly_build_runner.py verify
 
-      # Leo, 2026-10-28: the release signing jobs may run on owned Macs ("we can just read the code"). Only a
-      # mini that runs no job now is offered, pinned by its runner label; glaeda gives a signing job the whole
-      # mini (the exclusive class) and the job's first step checks that claim (scripts/ci/signing-runner-claim.sh).
+      # Leo, 2026-10-28: the release signing jobs may run on owned Macs ("we can just read the code"). A mini
+      # that runs no job now is offered, pinned by its runner label, else an idle nightly slot on the least busy
+      # mini, which glaeda drains for the job (no new job starts there while it waits, 600 s at most, then the
+      # Blacksmith twin signs); glaeda gives a signing job the whole mini (the exclusive class) and the job's
+      # first step checks that claim (scripts/ci/signing-runner-claim.sh).
       # Off unless vars.CI_SIGN_OWNED is 1; any failure leaves it empty and the signing jobs take Blacksmith.
       - name: Pick a drained owned Mac for the signing jobs
         id: sign-owned
@@ -6911,11 +6913,17 @@ jobs:
               echo "::error title=Signing runner::This owned Mac did not give the job the whole mini; this run's Blacksmith job signs instead."
               exit 1
             fi
-            case "${GLAEDA_HOOK_SHA256:-}" in
-              2695209c13db5fe7514daf76d3e8e547b9569ad9a545225e52f7e07dd83d69e4|41e29cd9dca8cdee88ce069b61956674bb79c2c3da90af5520e3e397bfbedeef) ;;
-              *) echo "::error title=Signing runner::glaeda hook ${GLAEDA_HOOK_SHA256:-unnamed} is not one scripts/ci/glaeda-signing-hooks.txt lists; this run's Blacksmith job signs instead."
-                 exit 1 ;;
-            esac
+            hooks=$(curl -fsS --proto '=https' --retry 3 --max-time 20 \
+              "https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${GITHUB_SHA}/scripts/ci/glaeda-signing-hooks.txt") || hooks=""
+            hook="${GLAEDA_HOOK_SHA256:-}"
+            listed=""
+            if [[ "$hook" =~ ^[0-9a-f]{64}$ ]]; then
+              while read -r sha _; do if [ "$sha" = "$hook" ]; then listed=1; fi; done <<< "$hooks"
+            fi
+            if [ -z "$listed" ]; then
+              echo "::error title=Signing runner::glaeda hook ${hook:-unnamed} is not one scripts/ci/glaeda-signing-hooks.txt lists; this run's Blacksmith job signs instead."
+              exit 1
+            fi
             echo "claim=owned" >> "$GITHUB_OUTPUT"
           fi
 
