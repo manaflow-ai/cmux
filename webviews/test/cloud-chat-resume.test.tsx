@@ -206,10 +206,11 @@ test("a nonretryable inventory refusal ends recovery without repeated polls", as
       },
     },
   });
+  const recheck = async () => {};
   function Recovery() {
     const recovery = useCloudChatRecovery({
       cloud: { id: "vm-demo", account: ["user", null] },
-      session: "chat-demo", active: true, recheck: async () => {},
+      session: "chat-demo", active: true, recheck,
     });
     return (
       <div>
