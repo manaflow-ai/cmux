@@ -89,6 +89,8 @@ impl Hub {
                 {
                     turn_id = rec.msg.get("turnId").and_then(Value::as_str).map(str::to_owned);
                     ended = None;
+                    // Out of an inbox digest that failed too (`inbox_digest.rs`).
+                    digest = None;
                 }
                 ("queue_removed", Some(id))
                     if rec.msg.get("turnId").and_then(Value::as_str) == Some(id) =>

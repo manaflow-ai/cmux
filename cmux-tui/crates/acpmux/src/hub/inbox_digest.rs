@@ -11,7 +11,9 @@
 //!   (`digestPromptId`, `digestTurnId`); its full text stays in the log under its own promptId,
 //!   in its `queued` record. Its waiting `session/prompt` answers with the digest's answer
 //!   (`digest.rs` `Joined`), and a resend of it answers from the digest's turn
-//!   (`prompt_ledger.rs`). The digest's own `queued` record is logged first and names every
+//!   (`prompt_ledger.rs`). A digest refused or failed puts them back first (`requeue_joined`,
+//!   their `queued` records marked `requeued`), so none is lost: they wait again, held when a
+//!   failed turn held them or when the digest's own turn failed. The digest's own `queued` record is logged first and names every
 //!   original, so a restart runs the digest and never the originals again, even one whose
 //!   `dequeued` record the stop cut off (`queue.rs` `restore_queue`, `lost_start.rs`).
 //! - When the chat's turn runs and its agent steers, the digest goes into that turn as ONE
@@ -43,7 +45,7 @@
 
 use super::super::queue::{PromptRun, QueuedPrompt};
 use super::super::*;
-use super::{DIGEST_MAX_BYTES, Joined};
+use super::{DIGEST_MAX_BYTES, DigestTurn, Joined};
 use crate::prompt_class::PromptClass as Class;
 use std::sync::atomic::Ordering;
 
@@ -339,10 +341,19 @@ impl Hub {
         // A peer's message goes in under a peer's rules, as it came (`queue_edit.rs` `stricter`).
         let peer = queue.iter().any(|q| takes(q) && q.run.control == Control::Peer);
         let control = if peer { Control::Peer } else { Control::Local };
-        let (answer, answered) = tokio::sync::watch::channel(None);
+        // Its answer, and the messages it took, which go back if it fails (`requeue_joined`).
+        let digest = Arc::new(DigestTurn::default());
         let (taken, rest): (Vec<QueuedPrompt>, Vec<QueuedPrompt>) =
             std::mem::take(&mut *queue).into_iter().partition(|q| takes(q));
         *queue = rest;
+        let held = taken.iter().any(|q| q.held);
+        // All of them go back: a message a failed turn put back once is not dropped for the
+        // digest's failure (`requeue_joined` puts a message back once).
+        let back = taken.iter().cloned().map(|mut q| {
+            q.requeued = false;
+            q
+        });
+        *digest.taken.lock().unwrap_or_else(|e| e.into_inner()) = back.collect();
         // At the head of the agent messages: behind the person's prompts and a prompt sent now.
         let at = queue
             .iter()
@@ -397,7 +408,7 @@ impl Hub {
             *q.joined.lock().unwrap_or_else(|e| e.into_inner()) = Some(Joined {
                 prompt_id: digest_id.clone(),
                 turn_id: turn_id.clone(),
-                answer: answered.clone(),
+                answer: digest.answer.subscribe(),
             });
         }
         let order: Vec<String> = queue.iter().map(|q| q.prompt_id.clone()).collect();
@@ -430,15 +441,23 @@ impl Hub {
         };
         tokio::spawn(async move {
             let result = hub.run_prompt(&s, blocks, &who, false, opts).await;
-            // Refused before its turn (as a restored prompt is, `resume_restored`): it leaves the
-            // queue, so the prompts behind it still run, and the log says why.
-            if let Err(e) = &result
-                && hub.remove_queued(&s, &id)
-            {
-                let msg = json!({"promptId": id, "turnId": turn, "client": who, "error": e.message, "data": e.data});
-                hub.append(&s, "mux", "prompt_refused", msg);
+            if let Err(e) = &result {
+                // Refused before its turn (as a restored prompt is, `resume_restored`): it leaves
+                // the queue, so the prompts behind it still run, and the log says why.
+                let unstarted = hub.remove_queued(&s, &id);
+                if unstarted {
+                    let msg = json!({"promptId": id, "turnId": turn, "client": who, "error": e.message, "data": e.data});
+                    hub.append(&s, "mux", "prompt_refused", msg);
+                }
+                // The messages it took go back, before its answer, so their waiting tasks wait
+                // again (`queue_slot`) and a restart restores them (their `requeued` records
+                // follow the digest's). Refused before its turn, they go back as they were (held
+                // when a failed turn held them); after a turn that took it, held, as messages
+                // that joined a failed turn are (`requeue_joined`).
+                let hold = !unstarted || held;
+                hub.requeue_joined(&s, &digest, hold);
             }
-            answer.send_replace(Some(result));
+            digest.answer.send_replace(Some(result));
         });
         Ok(json!({
             "sessionId": session.id,
