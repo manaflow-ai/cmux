@@ -234,6 +234,9 @@ impl Hub {
         opts: PromptOptions,
         joined: &super::digest::DigestTurn,
     ) -> Result<Value, RpcError> {
+        // Stop can arrive during dispatch setup, before session.turn is installed. Keep
+        // that epoch through the write checks instead of sampling it after startup.
+        let mut cancels = session.cancels.load(Ordering::SeqCst);
         let prompt_id = opts.prompt_id.unwrap_or_else(|| uuid::Uuid::now_v7().to_string());
         // A held agent message released, or a queued one sent now, may still name its uploads.
         let mut blocks = blocks;
@@ -312,6 +315,19 @@ impl Hub {
             Ok(slot) => slot,
             Err(done) => return done,
         };
+        // A normal Stop releases the next queued prompt. Its cancellation epoch starts
+        // when it acquires the turn; an immediately admitted prompt keeps its entry epoch.
+        if waiting {
+            cancels = session.cancels.load(Ordering::SeqCst);
+        }
+        #[cfg(test)]
+        {
+            let seam = self.prompt_start_seam.lock().unwrap_or_else(|e| e.into_inner()).take();
+            if let Some((arrived, release)) = seam {
+                let _ = arrived.send(());
+                let _ = release.await;
+            }
+        }
         // Debug builds only: a test stops the daemon between a queued prompt's `dequeued` and
         // its turn (`durable_agents.rs`). Release builds have no seam.
         #[cfg(debug_assertions)]
@@ -368,6 +384,12 @@ impl Hub {
         // never waits: `start_turn` refuses it then.
         if !no_queue {
             self.hold_retry_start(session, &prompt_id).await;
+        }
+        if session.cancels.load(Ordering::SeqCst) != cancels {
+            let e = stopped_before_prompt();
+            self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
+            drop(guard);
+            return Err(e);
         }
         // A continuation Stop overtook since it fired is refused here (`auto_resume.rs`).
         let turn = TurnInfo::prompted(client, &text, &turn_id, &prompt_id, control);
@@ -511,7 +533,6 @@ impl Hub {
             .seq;
         // The prompt as the agent gets it, before the checks below: making its model-sized copies
         // may take a moment, in which a Stop or a remote device may come (`model_copies.rs`).
-        let cancels = session.cancels.load(Ordering::SeqCst);
         let wire = agent_blocks(self, session, &blocks).await;
         let stopped = session.cancels.load(Ordering::SeqCst) != cancels
             || session.stops.load(Ordering::SeqCst) != stops;

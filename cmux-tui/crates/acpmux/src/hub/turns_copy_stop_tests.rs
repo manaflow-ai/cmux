@@ -283,6 +283,33 @@ async fn a_delayed_remote_floor_cancel_cannot_cancel_the_next_turn() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_stop_during_prompt_startup_cancels_only_that_prompt() {
+    let (hub, s) = chat(&["FAKE_RESET_CANCEL_ON_PROMPT=1"], false).await;
+    let (arrived_tx, arrived) = tokio::sync::oneshot::channel();
+    let (release, release_rx) = tokio::sync::oneshot::channel();
+    *hub.prompt_start_seam.lock().unwrap() = Some((arrived_tx, release_rx));
+    let starting = {
+        let (hub, s) = (hub.clone(), s.clone());
+        tokio::spawn(async move {
+            hub.prompt(&s, vec![json!({"type": "text", "text": "starting prompt"})], "test", false)
+                .await
+        })
+    };
+    tokio::time::timeout(WAIT, arrived).await.unwrap().unwrap();
+    assert!(s.turn().is_none(), "Stop arrives before the turn is installed");
+    hub.cancel(&s).await.unwrap();
+    release.send(()).unwrap();
+    stopped(tokio::time::timeout(WAIT, starting).await.unwrap().unwrap());
+    assert_eq!(written(&hub, &s, "starting prompt"), 0);
+
+    // Stop applies to work already admitted, not the next explicit user request.
+    let next = hub.prompt(&s, vec![json!({"type": "text", "text": "slow"})], "test", false);
+    let result = tokio::time::timeout(WAIT, next).await.unwrap().unwrap();
+    assert_eq!(result["stopReason"], "end_turn");
+    assert_eq!(written(&hub, &s, "slow"), 1);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_stop_while_a_turns_copies_are_made_keeps_its_prompt_from_the_agent() {
     let (hub, s) = chat(&[], false).await;
     let (arrived, release) = arm(&hub);
