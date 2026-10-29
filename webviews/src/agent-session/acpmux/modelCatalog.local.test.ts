@@ -6,7 +6,7 @@ test("model routers are not harness choices, while cmux-prefixed launchers remai
   const catalog = mergeModelCatalog(
     {
       harnesses: [
-        { id: "cmux", name: "Cmux", kind: "cmux-router" },
+        { id: "cmux", name: "Cmux", kind: "cmux-router", family: "codex" },
         { id: "local-router", name: "Local router", kind: "local-coderouter" },
         { id: "cmux-codex", name: "cmux Codex", family: "codex", kind: "acp" },
       ],
