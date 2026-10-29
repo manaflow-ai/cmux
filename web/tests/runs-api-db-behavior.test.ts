@@ -171,8 +171,12 @@ describe("durable Run API database behavior", () => {
     expect(await readRunArtifact({ ...otherOwner, runId: first.snapshot.run.id, artifactId: artifactId! })).toBeNull();
     expect(await readRunArtifact({ ...originalOwner, runId: second.snapshot.run.id, artifactId: artifactId! })).toBeNull();
     expect(await readRunArtifact({ ...originalOwner, runId: first.snapshot.run.id, artifactId: randomUUID() })).toBeNull();
-    // A run's artifact is still readable after its executor's attach window closes.
-    expect(await readRunArtifact({ ...originalOwner, runId: first.snapshot.run.id, artifactId: artifactId! })).toMatchObject({ id: artifactId });
+    // Provider teardown and terminal attach expiry must leave retained artifact bytes addressable.
+    await cloudDb().update(runAttempts)
+      .set({ cleanupState: "deleted", providerVmId: null, retainedUntil: null })
+      .where(and(eq(runAttempts.runId, first.snapshot.run.id), eq(runAttempts.id, attemptId)));
+    expect(await readRunArtifact({ ...originalOwner, runId: first.snapshot.run.id, artifactId: artifactId! }))
+      .toMatchObject({ id: artifactId });
   });
 
   dbTest("requires the owning identity for attach tickets, enforces TTL, and allows one redemption", async () => {
