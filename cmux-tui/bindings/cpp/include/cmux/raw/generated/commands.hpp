@@ -124,6 +124,7 @@ public:
     [[nodiscard]] Result<ProviderWorkspaceMutationResult> close_provider_managed_workspace(const CloseProviderManagedWorkspaceRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> close_screen(const CloseScreenRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> close_screen_group(const CloseScreenGroupRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<CloseStreamResult> close_stream(const CloseStreamRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> close_surface(const CloseSurfaceRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<CloseTabGroupResult> close_tab_group(const CloseTabGroupRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> close_tabs(const CloseTabsRequest& request, RequestOptions options = {});
@@ -202,6 +203,8 @@ public:
     [[nodiscard]] Result<JsonValue> delete_workspace_group(const DeleteWorkspaceGroupRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<AttachedViewOutcomeResult> detach_attached_view(const DetachAttachedViewRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> detach_client(const DetachClientRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<EnergySetResult> energy_set(const EnergySetRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<EnergyStatus> energy_status(const EnergyStatusRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<ExportLayoutResult> export_layout(const ExportLayoutRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> feed_local_handoff_abort(const FeedLocalHandoffAbortRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> feed_local_handoff_begin(const FeedLocalHandoffBeginRequest& request, RequestOptions options = {});
@@ -211,6 +214,7 @@ public:
     [[nodiscard]] Result<FocusDirectionResult> focus_direction(const FocusDirectionRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> focus_pane(const FocusPaneRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> forget_session(const ForgetSessionRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<FrontendVisibilitySetResult> frontend_visibility_set(const FrontendVisibilitySetRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<FsDeleteResult> fs_delete(const FsDeleteRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<FsPage> fs_list(const FsListRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<FsEntryResult> fs_mkdir(const FsMkdirRequest& request, RequestOptions options = {});
@@ -255,6 +259,7 @@ public:
     [[nodiscard]] Result<MachineUsageResult> machine_usage(const MachineUsageRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> mark_workspaces_provider_managed(const MarkWorkspacesProviderManagedRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<MemoryReportResult> memory_report(const MemoryReportRequest& request = {}, RequestOptions options = {});
+    [[nodiscard]] Result<MemoryLimitResult> memory_limit(const MemoryLimitRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<MintTerminalRendererResult> mint_terminal_renderer(const MintTerminalRendererRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<MintTerminalRendererResult> mint_terminal_renderer_by_terminal(const MintTerminalRendererByTerminalRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<BookmarkChangeResult> move_bookmark(const MoveBookmarkRequest& request, RequestOptions options = {});
@@ -289,6 +294,7 @@ public:
     [[nodiscard]] Result<SurfaceResult> new_workspace(const NewWorkspaceRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<NoteSizeActivityResult> note_size_activity(const NoteSizeActivityRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<NotifyResult> notify(const NotifyRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<OpenStreamResult> open_stream(const OpenStreamRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> page_credential(const PageCredentialRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> pairing_response(const PairingResponseRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<PaneNeighborResult> pane_neighbor(const PaneNeighborRequest& request, RequestOptions options = {});

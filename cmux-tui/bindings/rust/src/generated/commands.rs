@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR d60b4d9a4e2b29ec10b92b01dff8f04e076911755afc8c218f2d85410be831e3.
+// cmux-tui mux protocol 12, IR ee51444323390a000bdca12a806fb88329d85c65fda2e5e78181306c44747122.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -1139,6 +1139,8 @@ pub struct ClientHelloRequest {
     pub proof: Option<String>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub role: Option<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub streams: Optional<bool>,
 }
 
 #[rustfmt::skip]
@@ -1184,6 +1186,12 @@ pub struct CloseScreenGroupRequest {
 
 #[rustfmt::skip]
 pub type CloseScreenGroupResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloseStreamRequest {
+    pub stream: u16,
+}
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -2486,6 +2494,24 @@ pub struct DetachClientRequest {
 pub type DetachClientResult = T::EmptyResult;
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EnergySetRequest {
+    #[serde(rename = "offForNow", default, skip_serializing_if = "Optional::is_missing")]
+    pub off_for_now: Optional<bool>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub reason: Optional<T::EnergySaverReason>,
+    pub saver: Nullable<bool>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct EnergyStatusRequest {
+}
+
+#[rustfmt::skip]
+pub type EnergyStatusResult = T::EnergyStatus;
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct ExportLayoutRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -2570,6 +2596,12 @@ pub struct ForgetSessionRequest {
 
 #[rustfmt::skip]
 pub type ForgetSessionResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FrontendVisibilitySetRequest {
+    pub visible: Nullable<Vec<u64>>,
+}
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -3035,6 +3067,15 @@ pub struct MemoryReportRequest {
 
 #[rustfmt::skip]
 pub type MemoryReportResult = serde_json::Value;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MemoryLimitRequest {
+    pub level: T::MemoryPressureLevel,
+    pub mode: T::MemorySaverMode,
+    #[serde(rename = "override", default, skip_serializing_if = "Optional::is_missing")]
+    pub override_: Optional<T::MemoryPressureLevel>,
+}
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -3651,6 +3692,13 @@ pub struct NotifyRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub surface: Optional<T::Id>,
     pub title: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct OpenStreamRequest {
+    pub page: String,
+    pub stream: u16,
 }
 
 #[rustfmt::skip]
@@ -5587,6 +5635,10 @@ impl CmuxClient {
         self.execute(&CLOSE_SCREEN_GROUP_METADATA, &request)
     }
 
+    pub fn close_stream(&mut self, request: CloseStreamRequest) -> Result<T::CloseStreamResult> {
+        self.execute(&CLOSE_STREAM_METADATA, &request)
+    }
+
     pub fn close_surface(&mut self, request: CloseSurfaceRequest) -> Result<CloseSurfaceResult> {
         self.execute(&CLOSE_SURFACE_METADATA, &request)
     }
@@ -5970,6 +6022,14 @@ impl CmuxClient {
         self.execute(&DETACH_CLIENT_METADATA, &request)
     }
 
+    pub fn energy_set(&mut self, request: EnergySetRequest) -> Result<T::EnergySetResult> {
+        self.execute(&ENERGY_SET_METADATA, &request)
+    }
+
+    pub fn energy_status(&mut self, request: EnergyStatusRequest) -> Result<EnergyStatusResult> {
+        self.execute(&ENERGY_STATUS_METADATA, &request)
+    }
+
     pub fn export_layout(&mut self, request: ExportLayoutRequest) -> Result<T::ExportLayoutResult> {
         self.execute(&EXPORT_LAYOUT_METADATA, &request)
     }
@@ -6004,6 +6064,10 @@ impl CmuxClient {
 
     pub fn forget_session(&mut self, request: ForgetSessionRequest) -> Result<ForgetSessionResult> {
         self.execute(&FORGET_SESSION_METADATA, &request)
+    }
+
+    pub fn frontend_visibility_set(&mut self, request: FrontendVisibilitySetRequest) -> Result<T::FrontendVisibilitySetResult> {
+        self.execute(&FRONTEND_VISIBILITY_SET_METADATA, &request)
     }
 
     pub fn fs_delete(&mut self, request: FsDeleteRequest) -> Result<FsDeleteResult> {
@@ -6191,6 +6255,10 @@ impl CmuxClient {
 
     pub fn memory_report(&mut self, request: MemoryReportRequest) -> Result<MemoryReportResult> {
         self.execute(&MEMORY_REPORT_METADATA, &request)
+    }
+
+    pub fn memory_limit(&mut self, request: MemoryLimitRequest) -> Result<T::MemoryLimitResult> {
+        self.execute(&MEMORY_LIMIT_METADATA, &request)
     }
 
     pub fn mint_terminal_renderer(&mut self, request: MintTerminalRendererRequest) -> Result<T::MintTerminalRendererResult> {
@@ -6491,6 +6559,10 @@ impl CmuxClient {
             self.require_capability_field("notify", "notification-source-v1")?;
         }
         self.execute(&NOTIFY_METADATA, &request)
+    }
+
+    pub fn open_stream(&mut self, request: OpenStreamRequest) -> Result<T::OpenStreamResult> {
+        self.execute(&OPEN_STREAM_METADATA, &request)
     }
 
     pub fn page_credential(&mut self, request: PageCredentialRequest) -> Result<PageCredentialResult> {

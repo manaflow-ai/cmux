@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "d60b4d9a4e2b29ec10b92b01dff8f04e076911755afc8c218f2d85410be831e3";
+inline constexpr std::string_view kProtocolIrSha256 = "ee51444323390a000bdca12a806fb88329d85c65fda2e5e78181306c44747122";
 
 enum class AccessRequestKind;
 struct AccessRequestPending;
@@ -96,6 +96,7 @@ struct ClientInfo;
 struct ClientSize;
 enum class ClientTransport;
 enum class CloseReason;
+struct CloseStreamResult;
 struct CloseTerminalResult;
 struct ColorHex;
 enum class ColumnMoveDirection;
@@ -125,6 +126,11 @@ struct DeclarativeLayout;
 struct DetachClientTarget;
 enum class DetachReason;
 struct EmptyResult;
+enum class EnergySaverReason;
+enum class EnergySaverSetting;
+struct EnergySetResult;
+enum class EnergySource;
+struct EnergyStatus;
 enum class EventCause;
 struct ExportLayoutResult;
 struct ExportedPane;
@@ -132,6 +138,7 @@ struct FocusDirectionResult;
 enum class FrontendFocusTarget;
 struct FrontendJournalEvent;
 struct FrontendProjection;
+struct FrontendVisibilitySetResult;
 struct FsEntry;
 enum class FsEntryKind;
 struct FsEntryResult;
@@ -184,6 +191,9 @@ struct MachineListeningTcpResult;
 struct MachinePlatform;
 struct MachineUsage;
 struct MachineUsageResult;
+struct MemoryLimitResult;
+enum class MemoryPressureLevel;
+enum class MemorySaverMode;
 struct MintTerminalRendererResult;
 struct MoveTerminalResult;
 enum class NameSource;
@@ -193,6 +203,7 @@ enum class NotificationLevel;
 struct NotificationMarker;
 enum class NotificationSource;
 struct NotifyResult;
+struct OpenStreamResult;
 struct Pane;
 enum class PaneDirection;
 enum class PaneKind;
@@ -438,6 +449,7 @@ struct ClosePaneRequest;
 struct CloseProviderManagedWorkspaceRequest;
 struct CloseScreenRequest;
 struct CloseScreenGroupRequest;
+struct CloseStreamRequest;
 struct CloseSurfaceRequest;
 struct CloseTabGroupRequest;
 struct CloseTabGroupResult;
@@ -543,6 +555,8 @@ struct DeleteTerminalCommandsRequest;
 struct DeleteWorkspaceGroupRequest;
 struct DetachAttachedViewRequest;
 struct DetachClientRequest;
+struct EnergySetRequest;
+struct EnergyStatusRequest;
 struct ExportLayoutRequest;
 struct FeedLocalHandoffAbortRequest;
 struct FeedLocalHandoffBeginRequest;
@@ -552,6 +566,7 @@ struct FeedLocalReadRequest;
 struct FocusDirectionRequest;
 struct FocusPaneRequest;
 struct ForgetSessionRequest;
+struct FrontendVisibilitySetRequest;
 struct FsDeleteRequest;
 struct FsDeleteResult;
 struct FsListRequest;
@@ -606,6 +621,7 @@ struct MachineUsageRequest;
 struct MarkWorkspacesProviderManagedRequest;
 struct MemoryReportRequest;
 struct MemoryReportResult;
+struct MemoryLimitRequest;
 struct MintTerminalRendererRequest;
 struct MintTerminalRendererByTerminalRequest;
 struct MoveBookmarkRequest;
@@ -641,6 +657,7 @@ struct NewTabRequest;
 struct NewWorkspaceRequest;
 struct NoteSizeActivityRequest;
 struct NotifyRequest;
+struct OpenStreamRequest;
 struct PageCredentialRequest;
 struct PairingResponseRequest;
 struct PaneNeighborRequest;
@@ -2600,6 +2617,7 @@ struct ClientHelloRequest {
     Field<std::string> page{};
     std::optional<std::string> proof{};
     std::optional<std::string> role{};
+    Field<bool> streams{};
     friend bool operator==(const ClientHelloRequest&, const ClientHelloRequest&) = default;
 };
 
@@ -2611,6 +2629,7 @@ struct ClientHelloResult {
     std::optional<std::string> page{};
     std::optional<std::vector<std::string>> page_events{};
     std::optional<ClientHelloPageOperations> page_operations{};
+    std::optional<bool> page_streams{};
     bool user_origin_allowed{};
     std::optional<bool> verified{};
     friend bool operator==(const ClientHelloResult&, const ClientHelloResult&) = default;
@@ -2674,6 +2693,17 @@ struct CloseScreenRequest {
     std::optional<bool> end_terminals{};
     Id screen{};
     friend bool operator==(const CloseScreenRequest&, const CloseScreenRequest&) = default;
+};
+
+struct CloseStreamRequest {
+    std::uint16_t stream{};
+    friend bool operator==(const CloseStreamRequest&, const CloseStreamRequest&) = default;
+};
+
+struct CloseStreamResult {
+    bool closed{};
+    std::uint16_t stream{};
+    friend bool operator==(const CloseStreamResult&, const CloseStreamResult&) = default;
 };
 
 struct CloseSurfaceRequest {
@@ -3975,6 +4005,53 @@ struct EmptyEvent {
     friend bool operator==(const EmptyEvent&, const EmptyEvent&) = default;
 };
 
+enum class EnergySaverReason {
+    low_power_mode,
+    battery,
+    thermal,
+    setting,
+};
+
+enum class EnergySaverSetting {
+    auto_,
+    on_battery,
+    always,
+    off,
+};
+
+struct EnergySetRequest {
+    Field<bool> off_for_now{};
+    Field<EnergySaverReason> reason{};
+    std::optional<bool> saver{};
+    friend bool operator==(const EnergySetRequest&, const EnergySetRequest&) = default;
+};
+
+struct EnergySetResult {
+    bool changed{};
+    bool saver{};
+    friend bool operator==(const EnergySetResult&, const EnergySetResult&) = default;
+};
+
+enum class EnergySource {
+    app,
+    daemon,
+};
+
+struct EnergyStatus {
+    bool off_for_now{};
+    std::optional<bool> override{};
+    bool reading{};
+    std::optional<EnergySaverReason> reason{};
+    bool saver{};
+    std::optional<EnergySaverSetting> setting{};
+    EnergySource source{};
+    friend bool operator==(const EnergyStatus&, const EnergyStatus&) = default;
+};
+
+struct EnergyStatusRequest {
+    friend bool operator==(const EnergyStatusRequest&, const EnergyStatusRequest&) = default;
+};
+
 struct ExportLayoutRequest {
     Field<Id> screen{};
     friend bool operator==(const ExportLayoutRequest&, const ExportLayoutRequest&) = default;
@@ -4154,6 +4231,17 @@ struct FrontendProjectionChangedEvent {
     std::string scope{};
     std::string subject_key{};
     friend bool operator==(const FrontendProjectionChangedEvent&, const FrontendProjectionChangedEvent&) = default;
+};
+
+struct FrontendVisibilitySetRequest {
+    std::optional<std::vector<std::uint64_t>> visible{};
+    friend bool operator==(const FrontendVisibilitySetRequest&, const FrontendVisibilitySetRequest&) = default;
+};
+
+struct FrontendVisibilitySetResult {
+    std::uint64_t released{};
+    std::optional<std::uint64_t> visible{};
+    friend bool operator==(const FrontendVisibilitySetResult&, const FrontendVisibilitySetResult&) = default;
 };
 
 struct FsDeleteRequest {
@@ -5192,6 +5280,32 @@ struct MarkWorkspacesProviderManagedRequest {
     friend bool operator==(const MarkWorkspacesProviderManagedRequest&, const MarkWorkspacesProviderManagedRequest&) = default;
 };
 
+enum class MemoryPressureLevel {
+    normal,
+    warning,
+    critical,
+};
+
+enum class MemorySaverMode {
+    off,
+    conservative,
+    medium,
+    aggressive,
+};
+
+struct MemoryLimitRequest {
+    MemoryPressureLevel level{};
+    MemorySaverMode mode{};
+    Field<MemoryPressureLevel> override{};
+    friend bool operator==(const MemoryLimitRequest&, const MemoryLimitRequest&) = default;
+};
+
+struct MemoryLimitResult {
+    bool changed{};
+    MemoryPressureLevel level{};
+    friend bool operator==(const MemoryLimitResult&, const MemoryLimitResult&) = default;
+};
+
 struct MemoryReportRequest {
     friend bool operator==(const MemoryReportRequest&, const MemoryReportRequest&) = default;
 };
@@ -5634,6 +5748,20 @@ struct NotifyRequest {
 struct NotifyResult {
     Id notification{};
     friend bool operator==(const NotifyResult&, const NotifyResult&) = default;
+};
+
+struct OpenStreamRequest {
+    std::string page{};
+    std::uint16_t stream{};
+    friend bool operator==(const OpenStreamRequest&, const OpenStreamRequest&) = default;
+};
+
+struct OpenStreamResult {
+    std::string page{};
+    ClientHelloPageOperations page_operations{};
+    std::string relay_id{};
+    std::uint16_t stream{};
+    friend bool operator==(const OpenStreamResult&, const OpenStreamResult&) = default;
 };
 
 struct TerminalColors {
@@ -8389,6 +8517,12 @@ struct Codec<CloseReason> {
 };
 
 template <>
+struct Codec<CloseStreamResult> {
+    static Result<Json> encode(const CloseStreamResult& value);
+    static Result<CloseStreamResult> decode(const Json& value);
+};
+
+template <>
 struct Codec<CloseTerminalResult> {
     static Result<Json> encode(const CloseTerminalResult& value);
     static Result<CloseTerminalResult> decode(const Json& value);
@@ -8563,6 +8697,36 @@ struct Codec<EmptyResult> {
 };
 
 template <>
+struct Codec<EnergySaverReason> {
+    static Result<Json> encode(const EnergySaverReason& value);
+    static Result<EnergySaverReason> decode(const Json& value);
+};
+
+template <>
+struct Codec<EnergySaverSetting> {
+    static Result<Json> encode(const EnergySaverSetting& value);
+    static Result<EnergySaverSetting> decode(const Json& value);
+};
+
+template <>
+struct Codec<EnergySetResult> {
+    static Result<Json> encode(const EnergySetResult& value);
+    static Result<EnergySetResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<EnergySource> {
+    static Result<Json> encode(const EnergySource& value);
+    static Result<EnergySource> decode(const Json& value);
+};
+
+template <>
+struct Codec<EnergyStatus> {
+    static Result<Json> encode(const EnergyStatus& value);
+    static Result<EnergyStatus> decode(const Json& value);
+};
+
+template <>
 struct Codec<EventCause> {
     static Result<Json> encode(const EventCause& value);
     static Result<EventCause> decode(const Json& value);
@@ -8602,6 +8766,12 @@ template <>
 struct Codec<FrontendProjection> {
     static Result<Json> encode(const FrontendProjection& value);
     static Result<FrontendProjection> decode(const Json& value);
+};
+
+template <>
+struct Codec<FrontendVisibilitySetResult> {
+    static Result<Json> encode(const FrontendVisibilitySetResult& value);
+    static Result<FrontendVisibilitySetResult> decode(const Json& value);
 };
 
 template <>
@@ -8917,6 +9087,24 @@ struct Codec<MachineUsageResult> {
 };
 
 template <>
+struct Codec<MemoryLimitResult> {
+    static Result<Json> encode(const MemoryLimitResult& value);
+    static Result<MemoryLimitResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<MemoryPressureLevel> {
+    static Result<Json> encode(const MemoryPressureLevel& value);
+    static Result<MemoryPressureLevel> decode(const Json& value);
+};
+
+template <>
+struct Codec<MemorySaverMode> {
+    static Result<Json> encode(const MemorySaverMode& value);
+    static Result<MemorySaverMode> decode(const Json& value);
+};
+
+template <>
 struct Codec<MintTerminalRendererResult> {
     static Result<Json> encode(const MintTerminalRendererResult& value);
     static Result<MintTerminalRendererResult> decode(const Json& value);
@@ -8968,6 +9156,12 @@ template <>
 struct Codec<NotifyResult> {
     static Result<Json> encode(const NotifyResult& value);
     static Result<NotifyResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<OpenStreamResult> {
+    static Result<Json> encode(const OpenStreamResult& value);
+    static Result<OpenStreamResult> decode(const Json& value);
 };
 
 template <>
@@ -10441,6 +10635,12 @@ struct Codec<CloseScreenGroupRequest> {
 };
 
 template <>
+struct Codec<CloseStreamRequest> {
+    static Result<Json> encode(const CloseStreamRequest& value);
+    static Result<CloseStreamRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<CloseSurfaceRequest> {
     static Result<Json> encode(const CloseSurfaceRequest& value);
     static Result<CloseSurfaceRequest> decode(const Json& value);
@@ -11071,6 +11271,18 @@ struct Codec<DetachClientRequest> {
 };
 
 template <>
+struct Codec<EnergySetRequest> {
+    static Result<Json> encode(const EnergySetRequest& value);
+    static Result<EnergySetRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<EnergyStatusRequest> {
+    static Result<Json> encode(const EnergyStatusRequest& value);
+    static Result<EnergyStatusRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<ExportLayoutRequest> {
     static Result<Json> encode(const ExportLayoutRequest& value);
     static Result<ExportLayoutRequest> decode(const Json& value);
@@ -11122,6 +11334,12 @@ template <>
 struct Codec<ForgetSessionRequest> {
     static Result<Json> encode(const ForgetSessionRequest& value);
     static Result<ForgetSessionRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<FrontendVisibilitySetRequest> {
+    static Result<Json> encode(const FrontendVisibilitySetRequest& value);
+    static Result<FrontendVisibilitySetRequest> decode(const Json& value);
 };
 
 template <>
@@ -11449,6 +11667,12 @@ struct Codec<MemoryReportResult> {
 };
 
 template <>
+struct Codec<MemoryLimitRequest> {
+    static Result<Json> encode(const MemoryLimitRequest& value);
+    static Result<MemoryLimitRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<MintTerminalRendererRequest> {
     static Result<Json> encode(const MintTerminalRendererRequest& value);
     static Result<MintTerminalRendererRequest> decode(const Json& value);
@@ -11656,6 +11880,12 @@ template <>
 struct Codec<NotifyRequest> {
     static Result<Json> encode(const NotifyRequest& value);
     static Result<NotifyRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<OpenStreamRequest> {
+    static Result<Json> encode(const OpenStreamRequest& value);
+    static Result<OpenStreamRequest> decode(const Json& value);
 };
 
 template <>

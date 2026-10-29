@@ -93,6 +93,7 @@ public final class Commands {
     public static final CommandMetadata CLOSE_PROVIDER_MANAGED_WORKSPACE = new CommandMetadata("close-provider-managed-workspace", Authority.PROVIDER_AUTHORITY, 9, "provider-managed-workspace-authority-v2", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLOSE_SCREEN = new CommandMetadata("close-screen", Authority.CONTROL, 5, null, StreamKind.NONE, Map.ofEntries(Map.entry("end_terminals", 12L)), Map.ofEntries(Map.entry("end_terminals", "batch-close-v1")));
     public static final CommandMetadata CLOSE_SCREEN_GROUP = new CommandMetadata("close-screen-group", Authority.CONTROL, 12, "screen-groups-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata CLOSE_STREAM = new CommandMetadata("close-stream", Authority.LOCAL_ADMIN, 12, "page-streams-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLOSE_SURFACE = new CommandMetadata("close-surface", Authority.CONTROL, 5, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLOSE_TAB_GROUP = new CommandMetadata("close-tab-group", Authority.CONTROL, 12, "tab-groups-v1", StreamKind.NONE, Map.ofEntries(Map.entry("end_terminals", 12L)), Map.ofEntries(Map.entry("end_terminals", "batch-close-v1")));
     public static final CommandMetadata CLOSE_TABS = new CommandMetadata("close-tabs", Authority.CONTROL, 12, "batch-close-v1", StreamKind.NONE, Map.of(), Map.ofEntries(Map.entry("reason", "close-reason-v1")));
@@ -171,6 +172,8 @@ public final class Commands {
     public static final CommandMetadata DELETE_WORKSPACE_GROUP = new CommandMetadata("delete-workspace-group", Authority.CONTROL, 12, "workspace-groups-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata DETACH_ATTACHED_VIEW = new CommandMetadata("detach-attached-view", Authority.FRONTEND, 10, "view-attachment-detach-v1", StreamKind.NONE, Map.ofEntries(Map.entry("stream", 12L), Map.entry("view", 12L)), Map.ofEntries(Map.entry("stream", "attach-streams-v1"), Map.entry("view", "shared-sizing-v1")));
     public static final CommandMetadata DETACH_CLIENT = new CommandMetadata("detach-client", Authority.CONTROL, 6, null, StreamKind.NONE, Map.ofEntries(Map.entry("by", 12L), Map.entry("surface", 12L)), Map.ofEntries(Map.entry("by", "shared-sizing-v1"), Map.entry("surface", "shared-sizing-v1")));
+    public static final CommandMetadata ENERGY_SET = new CommandMetadata("energy.set", Authority.LOCAL_ADMIN, 12, "energy-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata ENERGY_STATUS = new CommandMetadata("energy.status", Authority.LOCAL_ADMIN, 12, "energy-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata EXPORT_LAYOUT = new CommandMetadata("export-layout", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata FEED_LOCAL_HANDOFF_ABORT = new CommandMetadata("feed-local-handoff-abort", Authority.LOCAL_ADMIN, 12, "feed-local-owner-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata FEED_LOCAL_HANDOFF_BEGIN = new CommandMetadata("feed-local-handoff-begin", Authority.LOCAL_ADMIN, 12, "feed-local-owner-v1", StreamKind.NONE, Map.of(), Map.of());
@@ -180,6 +183,7 @@ public final class Commands {
     public static final CommandMetadata FOCUS_DIRECTION = new CommandMetadata("focus-direction", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata FOCUS_PANE = new CommandMetadata("focus-pane", Authority.CONTROL, 5, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata FORGET_SESSION = new CommandMetadata("forget-session", Authority.CONTROL, 12, "profiles-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata FRONTEND_VISIBILITY_SET = new CommandMetadata("frontend.visibility.set", Authority.LOCAL_ADMIN, 12, "frontend-visibility-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata FS_DELETE = new CommandMetadata("fs.delete", Authority.CONTROL, 12, "fs-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata FS_LIST = new CommandMetadata("fs.list", Authority.CONTROL, 12, "fs-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata FS_MKDIR = new CommandMetadata("fs.mkdir", Authority.CONTROL, 12, "fs-v1", StreamKind.NONE, Map.of(), Map.of());
@@ -224,6 +228,7 @@ public final class Commands {
     public static final CommandMetadata MACHINE_USAGE = new CommandMetadata("machine-usage", Authority.CONTROL, 12, "machine-usage-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata MARK_WORKSPACES_PROVIDER_MANAGED = new CommandMetadata("mark-workspaces-provider-managed", Authority.PROVIDER_AUTHORITY, 9, "provider-managed-workspace-authority-v2", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata MEMORY_REPORT = new CommandMetadata("memory-report", Authority.LOCAL_ADMIN, 12, null, StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata MEMORY_LIMIT = new CommandMetadata("memory.limit", Authority.LOCAL_ADMIN, 12, "memory-limit-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata MINT_TERMINAL_RENDERER = new CommandMetadata("mint-terminal-renderer", Authority.FRONTEND, 9, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata MINT_TERMINAL_RENDERER_BY_TERMINAL = new CommandMetadata("mint-terminal-renderer-by-terminal", Authority.FRONTEND, 11, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata MOVE_BOOKMARK = new CommandMetadata("move-bookmark", Authority.CONTROL, 12, "bookmarks-v1", StreamKind.NONE, Map.of(), Map.of());
@@ -258,6 +263,7 @@ public final class Commands {
     public static final CommandMetadata NEW_WORKSPACE = new CommandMetadata("new-workspace", Authority.CONTROL, 5, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata NOTE_SIZE_ACTIVITY = new CommandMetadata("note-size-activity", Authority.CONTROL, 12, "shared-sizing-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata NOTIFY = new CommandMetadata("notify", Authority.CONTROL, 6, null, StreamKind.NONE, Map.ofEntries(Map.entry("source", 12L)), Map.ofEntries(Map.entry("source", "notification-source-v1")));
+    public static final CommandMetadata OPEN_STREAM = new CommandMetadata("open-stream", Authority.LOCAL_ADMIN, 12, "page-streams-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata PAGE_CREDENTIAL = new CommandMetadata("page-credential", Authority.LOCAL_ADMIN, 12, "page-credential-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata PAIRING_RESPONSE = new CommandMetadata("pairing-response", Authority.LOCAL_ADMIN, 7, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata PANE_NEIGHBOR = new CommandMetadata("pane-neighbor", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
@@ -463,6 +469,7 @@ public final class Commands {
         values.put("close-provider-managed-workspace", CLOSE_PROVIDER_MANAGED_WORKSPACE);
         values.put("close-screen", CLOSE_SCREEN);
         values.put("close-screen-group", CLOSE_SCREEN_GROUP);
+        values.put("close-stream", CLOSE_STREAM);
         values.put("close-surface", CLOSE_SURFACE);
         values.put("close-tab-group", CLOSE_TAB_GROUP);
         values.put("close-tabs", CLOSE_TABS);
@@ -541,6 +548,8 @@ public final class Commands {
         values.put("delete-workspace-group", DELETE_WORKSPACE_GROUP);
         values.put("detach-attached-view", DETACH_ATTACHED_VIEW);
         values.put("detach-client", DETACH_CLIENT);
+        values.put("energy.set", ENERGY_SET);
+        values.put("energy.status", ENERGY_STATUS);
         values.put("export-layout", EXPORT_LAYOUT);
         values.put("feed-local-handoff-abort", FEED_LOCAL_HANDOFF_ABORT);
         values.put("feed-local-handoff-begin", FEED_LOCAL_HANDOFF_BEGIN);
@@ -550,6 +559,7 @@ public final class Commands {
         values.put("focus-direction", FOCUS_DIRECTION);
         values.put("focus-pane", FOCUS_PANE);
         values.put("forget-session", FORGET_SESSION);
+        values.put("frontend.visibility.set", FRONTEND_VISIBILITY_SET);
         values.put("fs.delete", FS_DELETE);
         values.put("fs.list", FS_LIST);
         values.put("fs.mkdir", FS_MKDIR);
@@ -594,6 +604,7 @@ public final class Commands {
         values.put("machine-usage", MACHINE_USAGE);
         values.put("mark-workspaces-provider-managed", MARK_WORKSPACES_PROVIDER_MANAGED);
         values.put("memory-report", MEMORY_REPORT);
+        values.put("memory.limit", MEMORY_LIMIT);
         values.put("mint-terminal-renderer", MINT_TERMINAL_RENDERER);
         values.put("mint-terminal-renderer-by-terminal", MINT_TERMINAL_RENDERER_BY_TERMINAL);
         values.put("move-bookmark", MOVE_BOOKMARK);
@@ -628,6 +639,7 @@ public final class Commands {
         values.put("new-workspace", NEW_WORKSPACE);
         values.put("note-size-activity", NOTE_SIZE_ACTIVITY);
         values.put("notify", NOTIFY);
+        values.put("open-stream", OPEN_STREAM);
         values.put("page-credential", PAGE_CREDENTIAL);
         values.put("pairing-response", PAIRING_RESPONSE);
         values.put("pane-neighbor", PANE_NEIGHBOR);

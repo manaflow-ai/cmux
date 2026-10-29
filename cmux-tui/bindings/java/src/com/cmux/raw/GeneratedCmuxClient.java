@@ -428,6 +428,11 @@ public abstract class GeneratedCmuxClient {
         return Wire.immutableJson(result);
     }
 
+    public final CloseStreamResult closeStream(CloseStreamRequest request) throws CmuxException {
+        Object result = execute(Commands.CLOSE_STREAM, request.toWire());
+        return CloseStreamResult.fromWire(result);
+    }
+
     public final EmptyResult closeSurface(CloseSurfaceRequest request) throws CmuxException {
         Object result = execute(Commands.CLOSE_SURFACE, request.toWire());
         return EmptyResult.fromWire(result);
@@ -818,6 +823,16 @@ public abstract class GeneratedCmuxClient {
         return EmptyResult.fromWire(result);
     }
 
+    public final EnergySetResult energySet(EnergySetRequest request) throws CmuxException {
+        Object result = execute(Commands.ENERGY_SET, request.toWire());
+        return EnergySetResult.fromWire(result);
+    }
+
+    public final EnergyStatus energyStatus() throws CmuxException {
+        Object result = execute(Commands.ENERGY_STATUS, Map.of());
+        return EnergyStatus.fromWire(result);
+    }
+
     public final ExportLayoutResult exportLayout(ExportLayoutRequest request) throws CmuxException {
         Object result = execute(Commands.EXPORT_LAYOUT, request.toWire());
         return ExportLayoutResult.fromWire(result);
@@ -861,6 +876,11 @@ public abstract class GeneratedCmuxClient {
     public final Object forgetSession(ForgetSessionRequest request) throws CmuxException {
         Object result = execute(Commands.FORGET_SESSION, request.toWire());
         return Wire.immutableJson(result);
+    }
+
+    public final FrontendVisibilitySetResult frontendVisibilitySet(FrontendVisibilitySetRequest request) throws CmuxException {
+        Object result = execute(Commands.FRONTEND_VISIBILITY_SET, request.toWire());
+        return FrontendVisibilitySetResult.fromWire(result);
     }
 
     public final FsDeleteResult fsDelete(FsDeleteRequest request) throws CmuxException {
@@ -1087,6 +1107,11 @@ public abstract class GeneratedCmuxClient {
         return Wire.immutableJson(result);
     }
 
+    public final MemoryLimitResult memoryLimit(MemoryLimitRequest request) throws CmuxException {
+        Object result = execute(Commands.MEMORY_LIMIT, request.toWire());
+        return MemoryLimitResult.fromWire(result);
+    }
+
     public final MintTerminalRendererResult mintTerminalRenderer(MintTerminalRendererRequest request) throws CmuxException {
         Object result = execute(Commands.MINT_TERMINAL_RENDERER, request.toWire());
         return MintTerminalRendererResult.fromWire(result);
@@ -1255,6 +1280,11 @@ public abstract class GeneratedCmuxClient {
     public final NotifyResult notify(NotifyRequest request) throws CmuxException {
         Object result = execute(Commands.NOTIFY, request.toWire());
         return NotifyResult.fromWire(result);
+    }
+
+    public final OpenStreamResult openStream(OpenStreamRequest request) throws CmuxException {
+        Object result = execute(Commands.OPEN_STREAM, request.toWire());
+        return OpenStreamResult.fromWire(result);
     }
 
     public final Object pageCredential(PageCredentialRequest request) throws CmuxException {

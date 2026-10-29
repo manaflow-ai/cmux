@@ -688,7 +688,13 @@
       "machine-catalog-publish",
       "agent-inventory",
       "agent-inventory-refresh",
-      "agent-inventory-watch"
+      "agent-inventory-watch",
+      "energy.set",
+      "energy.status",
+      "memory.limit",
+      "frontend.visibility.set",
+      "open-stream",
+      "close-stream"
     ],
     "provider-authority": [
       "mark-workspaces-provider-managed",

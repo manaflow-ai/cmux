@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR d60b4d9a4e2b29ec10b92b01dff8f04e076911755afc8c218f2d85410be831e3. */
+/* cmux-tui mux protocol 12, IR ee51444323390a000bdca12a806fb88329d85c65fda2e5e78181306c44747122. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "d60b4d9a4e2b29ec10b92b01dff8f04e076911755afc8c218f2d85410be831e3" as const;
+export const SDK_IR_SHA256 = "ee51444323390a000bdca12a806fb88329d85c65fda2e5e78181306c44747122" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -1142,6 +1142,17 @@ export const COMMAND_METADATA = {
       "See spec/commands.md for the result object."
     ]
   },
+  "close-stream": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "page-streams-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Only on stream 0 of a streamed page relay; every other connection gets origin.forbidden {reason: page_stream_not_here}. Local (Unix) connections only; a WebSocket, a remote relay (remote_denied by its frame gate) or any other transport is refused.",
+      "Idempotent; drops every confirmation token issued for the stream."
+    ]
+  },
   "close-surface": {
     "authority": "control",
     "since": 5,
@@ -2006,6 +2017,28 @@ export const COMMAND_METADATA = {
       "A participant that is the own view of a client with sizing-view-detach-v1 detaches that view only; the client stays connected."
     ]
   },
+  "energy.set": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "energy-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "The verified app on its trusted local connection only (energy.not_trusted otherwise). Local (Unix) connections only; a WebSocket, a remote relay (remote_denied by its frame gate) or any other transport is refused.",
+      "The override ends with the control connection that set it."
+    ]
+  },
+  "energy.status": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "energy-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Any trusted local connection (energy.not_trusted otherwise; cmux energy status). Local (Unix) connections only; a WebSocket, a remote relay (remote_denied by its frame gate) or any other transport is refused.",
+      "Read only; takes no fields (energy.bad_request otherwise)."
+    ]
+  },
   "export-layout": {
     "authority": "control",
     "since": 6,
@@ -2096,6 +2129,17 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "See spec/commands.md for the result object."
+    ]
+  },
+  "frontend.visibility.set": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "frontend-visibility-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "The verified app on its trusted local connection only (frontend_visibility.not_trusted otherwise). Local (Unix) connections only; a WebSocket, a remote relay (remote_denied by its frame gate) or any other transport is refused.",
+      "Scopes only this connection's subscribe streams: field events of other surfaces flush together once per aligned second, or at once when the surface shows. Ends with the connection."
     ]
   },
   "fs.delete": {
@@ -2564,6 +2608,17 @@ export const COMMAND_METADATA = {
     "constraints": [
       "Owner-only (trusted local connection); a WebSocket or remote relay client is refused before anything is read.",
       "Read only, never journaled; names no title, path, URL or command."
+    ]
+  },
+  "memory.limit": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "memory-limit-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "The verified app on its trusted local connection only (memory.not_trusted otherwise). Local (Unix) connections only; a WebSocket, a remote relay (remote_denied by its frame gate) or any other transport is refused.",
+      "The app's vote lasts as long as the connection that sent it; under pressure the daemon's consumers release before the reply."
     ]
   },
   "mint-terminal-renderer": {
@@ -3097,6 +3152,17 @@ export const COMMAND_METADATA = {
     },
     "stream": null,
     "constraints": []
+  },
+  "open-stream": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "page-streams-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Only on stream 0 of a streamed page relay (client-hello role page_relay with streams true); every other connection gets origin.forbidden {reason: page_stream_not_here}. Local (Unix) connections only; a WebSocket, a remote relay (remote_denied by its frame gate) or any other transport is refused.",
+      "An open stream id is page_stream.in_use; at most 64 streams per relay (page_stream.limit)."
+    ]
   },
   "page-credential": {
     "authority": "local-admin",
@@ -8033,6 +8099,17 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "ClientHelloPageOperations"
         }
       },
+      "page_streams": {
+        "constraints": [
+          "Step 1 of a page relay with streams true."
+        ],
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "literal",
+          "value": true
+        }
+      },
       "user_origin_allowed": {
         "constraints": [
           "Whether a request with origin user is accepted on this connection now."
@@ -8186,6 +8263,34 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     "values": [
       "session_end"
     ]
+  },
+  "CloseStreamResult": {
+    "additional_properties": false,
+    "fields": {
+      "closed": {
+        "constraints": [
+          "false for a stream that was not open (idempotent)."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "stream": {
+        "constraints": [
+          "The stream named."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint16"
+        }
+      }
+    },
+    "kind": "object"
   },
   "CloseTerminalResult": {
     "additional_properties": false,
@@ -9507,6 +9612,142 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     "fields": {},
     "kind": "object"
   },
+  "EnergySaverReason": {
+    "kind": "enum",
+    "values": [
+      "lowPowerMode",
+      "battery",
+      "thermal",
+      "setting"
+    ]
+  },
+  "EnergySaverSetting": {
+    "kind": "enum",
+    "values": [
+      "auto",
+      "onBattery",
+      "always",
+      "off"
+    ]
+  },
+  "EnergySetResult": {
+    "additional_properties": false,
+    "fields": {
+      "changed": {
+        "constraints": [
+          "Whether the daemon's Energy Saver mode flipped."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "saver": {
+        "constraints": [
+          "Energy Saver for the daemon after the change."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "EnergySource": {
+    "kind": "enum",
+    "values": [
+      "app",
+      "daemon"
+    ]
+  },
+  "EnergyStatus": {
+    "additional_properties": false,
+    "fields": {
+      "offForNow": {
+        "constraints": [
+          "Turn Off for Now holds, as the app last told it."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "override": {
+        "constraints": [
+          "The app's override; null while it holds none."
+        ],
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "reading": {
+        "constraints": [
+          "The daemon's own reading by the app's rule: false until it read energy.saver and follows the power inputs."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "reason": {
+        "constraints": [
+          "Why the saver is on, from the source that decides; null while it is off."
+        ],
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "EnergySaverReason"
+        }
+      },
+      "saver": {
+        "constraints": [
+          "Energy Saver is on for the daemon."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "setting": {
+        "constraints": [
+          "energy.saver as the daemon read it; null until it is read."
+        ],
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "EnergySaverSetting"
+        }
+      },
+      "source": {
+        "constraints": [
+          "app while the app's override holds, else daemon (its own reading)."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "EnergySource"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "EventCause": {
     "kind": "enum",
     "values": [
@@ -9884,6 +10125,34 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "FrontendVisibilitySetResult": {
+    "additional_properties": false,
+    "fields": {
+      "released": {
+        "constraints": [
+          "Held field events the change flushed at once."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "visible": {
+        "constraints": [
+          "How many surfaces the scope names; null when the request cleared it."
+        ],
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
         }
       }
     },
@@ -12059,6 +12328,51 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "MemoryLimitResult": {
+    "additional_properties": false,
+    "fields": {
+      "changed": {
+        "constraints": [
+          "Whether the app's vote changed."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "level": {
+        "constraints": [
+          "The level the daemon's memory consumers hear now: the worse of the app's vote and the daemon's own source."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "MemoryPressureLevel"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "MemoryPressureLevel": {
+    "kind": "enum",
+    "values": [
+      "normal",
+      "warning",
+      "critical"
+    ]
+  },
+  "MemorySaverMode": {
+    "kind": "enum",
+    "values": [
+      "off",
+      "conservative",
+      "medium",
+      "aggressive"
+    ]
+  },
   "MintTerminalRendererResult": {
     "additional_properties": false,
     "fields": {
@@ -12405,6 +12719,56 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "ref",
           "name": "Id"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "OpenStreamResult": {
+    "additional_properties": false,
+    "fields": {
+      "page": {
+        "constraints": [
+          "The stream's page for its whole life."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "page_operations": {
+        "constraints": [
+          "The page's allow list (page-router-v1)."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "ClientHelloPageOperations"
+        }
+      },
+      "relay_id": {
+        "constraints": [
+          "The stream's relay_connection_id for origin.confirmation.issue; a reopened stream gets a new one."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "stream": {
+        "constraints": [
+          "The stream opened, 1-65535."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint16"
         }
       }
     },
@@ -22392,6 +22756,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "kind": "scalar",
             "name": "string"
           }
+        },
+        "streams": {
+          "constraints": [
+            "page-streams-v1: true only with role page_relay and no page (client_hello.bad_request {field: streams} otherwise): one relay connection carries every page, a stream per page (open-stream)."
+          ],
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
         }
       },
       "kind": "object"
@@ -22529,6 +22904,29 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "JsonValue"
+    }
+  },
+  "close-stream": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "stream": {
+          "constraints": [
+            "1-65535 (page_stream.bad_request {field: stream} otherwise)."
+          ],
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint16"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "CloseStreamResult"
     }
   },
   "close-surface": {
@@ -26945,6 +27343,64 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "EmptyResult"
     }
   },
+  "energy.set": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "offForNow": {
+          "constraints": [
+            "energy-v2: Turn Off for Now holds; absent or null leaves it. It outlives the connection until the battery -> AC edge or the app's next word."
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "reason": {
+          "constraints": [
+            "With saver true only (energy.bad_request otherwise): why the app turned the saver on."
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "EnergySaverReason"
+          }
+        },
+        "saver": {
+          "constraints": [
+            "Required. true or false overrides the daemon's own reading; null clears the override."
+          ],
+          "nullable": true,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "EnergySetResult"
+    }
+  },
+  "energy.status": {
+    "request": {
+      "additional_properties": false,
+      "fields": {},
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "EnergyStatus"
+    }
+  },
   "export-layout": {
     "request": {
       "additional_properties": false,
@@ -27172,6 +27628,32 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "JsonValue"
+    }
+  },
+  "frontend.visibility.set": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "visible": {
+          "constraints": [
+            "Required. The surfaces the app shows, at most 4096 (frontend_visibility.bad_request otherwise); null clears the scope."
+          ],
+          "nullable": true,
+          "presence": "required",
+          "type": {
+            "items": {
+              "kind": "scalar",
+              "name": "uint64"
+            },
+            "kind": "array"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "FrontendVisibilitySetResult"
     }
   },
   "fs.delete": {
@@ -28511,6 +28993,52 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "opaque_json",
       "reason": "A diagnostic report whose per-terminal rows follow libghostty-vt's memory usage struct and whose consumer rows follow the daemon's memory registry; see spec/commands.md memory-report."
+    }
+  },
+  "memory.limit": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "level": {
+          "constraints": [
+            "The app's memory pressure level."
+          ],
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "MemoryPressureLevel"
+          }
+        },
+        "mode": {
+          "constraints": [
+            "The app's Memory Saver mode (memory.saver)."
+          ],
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "MemorySaverMode"
+          }
+        },
+        "override": {
+          "constraints": [
+            "The app's debug pressure override; null or absent for none."
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "MemoryPressureLevel"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "MemoryLimitResult"
     }
   },
   "mint-terminal-renderer": {
@@ -30955,6 +31483,40 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "NotifyResult"
+    }
+  },
+  "open-stream": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "page": {
+          "constraints": [
+            "A page id as in client-hello (page_stream.bad_request {field: page} otherwise)."
+          ],
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "stream": {
+          "constraints": [
+            "1-65535 (page_stream.bad_request {field: stream} otherwise)."
+          ],
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint16"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "OpenStreamResult"
     }
   },
   "page-credential": {

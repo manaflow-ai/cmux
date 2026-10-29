@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR d60b4d9a4e2b29ec10b92b01dff8f04e076911755afc8c218f2d85410be831e3. */
+/* cmux-tui mux protocol 12, IR ee51444323390a000bdca12a806fb88329d85c65fda2e5e78181306c44747122. */
 
 
 import type * as T from "./types.js";

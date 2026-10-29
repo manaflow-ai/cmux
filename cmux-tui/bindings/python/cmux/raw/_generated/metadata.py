@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = 'd60b4d9a4e2b29ec10b92b01dff8f04e076911755afc8c218f2d85410be831e3'
+IR_SHA256 = 'ee51444323390a000bdca12a806fb88329d85c65fda2e5e78181306c44747122'
 
 
 @dataclass(frozen=True)
@@ -1062,6 +1062,7 @@ COMMANDS = {
             'page': CommandFieldMetadata(None, None),
             'proof': CommandFieldMetadata(None, None),
             'role': CommandFieldMetadata(None, None),
+            'streams': CommandFieldMetadata(None, None),
         },
     ),
     'close-pane': CommandMetadata(
@@ -1111,6 +1112,17 @@ COMMANDS = {
         {
             'end_terminals': CommandFieldMetadata(None, None),
             'group': CommandFieldMetadata(None, None),
+        },
+    ),
+    'close-stream': CommandMetadata(
+        'close-stream',
+        'local-admin',
+        12,
+        'page-streams-v1',
+        ('local-admin',),
+        None,
+        {
+            'stream': CommandFieldMetadata(None, None),
         },
     ),
     'close-surface': CommandMetadata(
@@ -2175,6 +2187,29 @@ COMMANDS = {
             'surface': CommandFieldMetadata(12, 'shared-sizing-v1'),
         },
     ),
+    'energy.set': CommandMetadata(
+        'energy.set',
+        'local-admin',
+        12,
+        'energy-v1',
+        ('local-admin',),
+        None,
+        {
+            'offForNow': CommandFieldMetadata(None, None),
+            'reason': CommandFieldMetadata(None, None),
+            'saver': CommandFieldMetadata(None, None),
+        },
+    ),
+    'energy.status': CommandMetadata(
+        'energy.status',
+        'local-admin',
+        12,
+        'energy-v1',
+        ('local-admin',),
+        None,
+        {
+        },
+    ),
     'export-layout': CommandMetadata(
         'export-layout',
         'control',
@@ -2277,6 +2312,17 @@ COMMANDS = {
         {
             'force': CommandFieldMetadata(None, None),
             'session_id': CommandFieldMetadata(None, None),
+        },
+    ),
+    'frontend.visibility.set': CommandMetadata(
+        'frontend.visibility.set',
+        'local-admin',
+        12,
+        'frontend-visibility-v1',
+        ('local-admin',),
+        None,
+        {
+            'visible': CommandFieldMetadata(None, None),
         },
     ),
     'fs.delete': CommandMetadata(
@@ -2786,6 +2832,19 @@ COMMANDS = {
         ('local-admin',),
         None,
         {
+        },
+    ),
+    'memory.limit': CommandMetadata(
+        'memory.limit',
+        'local-admin',
+        12,
+        'memory-limit-v1',
+        ('local-admin',),
+        None,
+        {
+            'level': CommandFieldMetadata(None, None),
+            'mode': CommandFieldMetadata(None, None),
+            'override': CommandFieldMetadata(None, None),
         },
     ),
     'mint-terminal-renderer': CommandMetadata(
@@ -3324,6 +3383,18 @@ COMMANDS = {
             'source': CommandFieldMetadata(12, 'notification-source-v1'),
             'surface': CommandFieldMetadata(None, None),
             'title': CommandFieldMetadata(None, None),
+        },
+    ),
+    'open-stream': CommandMetadata(
+        'open-stream',
+        'local-admin',
+        12,
+        'page-streams-v1',
+        ('local-admin',),
+        None,
+        {
+            'page': CommandFieldMetadata(None, None),
+            'stream': CommandFieldMetadata(None, None),
         },
     ),
     'page-credential': CommandMetadata(

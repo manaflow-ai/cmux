@@ -1289,6 +1289,7 @@ Params:
 | `install_id` | `string` | optional | 1-128 characters of `A-Z a-z 0-9 _ -`; with role `main` it asks for a nonce (step 2 proves it) |
 | `page` | `string` or null | optional | role `page_relay` only (`page-router-v1`): the page the relay serves |
 | `features` | `object{hash?:string, values:object<string,bool>}` or null | optional | role `main` only: the app's values of its `daemon` and `both` features (at most 512) |
+| `streams` | `bool` or null | optional | `page-streams-v1`: `true` only with role `page_relay` and no `page`; the reply adds `page_streams:true` and the connection carries every page, a stream per page (`open-stream`) |
 
 Step 2 sends `install_id` and `proof` (both required strings). Other members
 are ignored. spec/sdk-schema.json types both steps as one command whose
@@ -1333,7 +1334,7 @@ Errors (`error_code`; none changes state, and each closes the hello window):
 | Code | When |
 | --- | --- |
 | `client_hello.local_only` | the connection is not a local Unix socket connection |
-| `client_hello.bad_request` | `error_details {field: "role"}`: role missing or unknown; `{field: "install_id"}`: install_id malformed; `{field: "features"}`: features malformed or not on role `main` |
+| `client_hello.bad_request` | `error_details {field: "role"}`: role missing or unknown; `{field: "install_id"}`: install_id malformed; `{field: "features"}`: features malformed or not on role `main`; `{field: "streams"}`: streams not a bool, or true without role `page_relay` or with a `page` |
 | `client_hello.window_closed` | after any other line, after two `identify` lines, or a second `client-hello` |
 | `client_hello.refused` | step 2 with a wrong or missing proof or install id (the connection stays unverified) |
 
@@ -1346,6 +1347,123 @@ Example:
 {"id":1,"cmd":"client-hello","role":"page_relay"}
 {"id":1,"ok":true,"data":{"connection_id":"42","user_origin_allowed":false}}
 ```
+
+### open-stream, close-stream
+
+| Field | Value |
+| --- | --- |
+| name | `open-stream`, `close-stream` |
+| status | implemented |
+| since | protocol 12, capability `page-streams-v1` |
+
+Page streams (plans/cmux-next/request-origin.md, "Page streams"): a page relay
+connection whose `client-hello` sent `streams:true` carries every page, a
+stream per page. Its own lines (stream 0) are only these two commands and
+`cmux.protocol/2` requests, which name their stream in `origin.stream`. Every
+other connection (main, legacy, a one-page relay, a WebSocket) refuses both
+with `error_code:"origin.forbidden"`, `error_details {reason:
+"page_stream_not_here", derived}`; a remote relay client is refused earlier by
+its frame gate (`remote_denied`). `client-hello` itself needs a local Unix
+socket connection, so no other transport can open a streamed relay.
+
+`open-stream` params: `stream` (`uint16`, 1-65535, required) and `page`
+(`string`, a page id as in `client-hello`, required). Any other member is
+`page_stream.bad_request {field}`. The page is the stream's for its whole
+life: opening an open id is `page_stream.in_use`, and at most 64 streams are
+open per relay (`page_stream.limit`). Result:
+`object{stream:uint16, page:string, relay_id:string,
+page_operations:object{read:[string], gesture:[string], confirm:[string]}}`;
+`relay_id` is the stream's `relay_connection_id` for
+`origin.confirmation.issue` (a reopened stream gets a new one).
+
+`close-stream` params: `stream` (required). It is idempotent and drops every
+confirmation token issued for the stream. Result:
+`object{stream:uint16, closed:bool}` (`closed:false` for a stream that was not
+open).
+
+### energy.set, energy.status
+
+| Field | Value |
+| --- | --- |
+| name | `energy.set`, `energy.status` |
+| status | implemented |
+| since | protocol 12, capability `energy-v1` (`offForNow`: `energy-v2`) |
+
+The daemon's Energy Saver (server/energy_op.rs). The app sends `energy.set` on
+each edge of its own resolver; that overrides the daemon's own reading, which
+follows the app's rule from `energy.saver` and the Mac's power inputs. The
+override ends with the control connection that set it.
+
+`energy.set` is accepted only from the verified app on its local Unix
+connection; `energy.status` from any trusted local Unix connection (`cmux
+energy status`). Anything else gets `error_code:"energy.not_trusted"`, and a
+remote relay client is refused earlier by its frame gate (`remote_denied`).
+Neither is journaled.
+
+`energy.set` params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `saver` | `bool` or null | required | true or false overrides the daemon's reading; null clears the override |
+| `reason` | `"lowPowerMode"`, `"battery"`, `"thermal"`, `"setting"` or null | optional | with `saver:true` only |
+| `offForNow` | `bool` or null | optional | `energy-v2`: "Turn Off for Now" holds; absent or null leaves it |
+
+Result: `object{changed:bool, saver:bool}`.
+
+`energy.status` takes no params. Result: `object{saver:bool,
+source:"app"|"daemon", reason:string|null, override:bool|null, reading:bool,
+setting:"auto"|"onBattery"|"always"|"off"|null, offForNow:bool}`.
+
+Errors: `energy.not_trusted`; `energy.bad_request` (a missing or malformed
+field, a reason without `saver:true`, or any field on `energy.status`).
+
+### memory.limit
+
+| Field | Value |
+| --- | --- |
+| name | `memory.limit` |
+| status | implemented |
+| since | protocol 12, capability `memory-limit-v1` |
+
+The app's memory pressure level, Memory Saver mode and debug override
+(server/memory_limit.rs). The app's level votes in the daemon's memory
+registry beside the daemon's own kernel source, so the level its consumers
+hear is the worse of the two; under pressure they release before the reply.
+The vote lasts as long as the connection that sent it. Accepted only from the
+verified app on its local Unix connection (`memory.not_trusted` otherwise); a
+remote relay client is refused by its frame gate (`remote_denied`). Not
+journaled.
+
+Params: `level` (`"normal"|"warning"|"critical"`, required), `mode`
+(`"off"|"conservative"|"medium"|"aggressive"`, required), `override` (a level
+or null, optional). Result: `object{changed:bool,
+level:"normal"|"warning"|"critical"}`.
+
+Errors: `memory.not_trusted`; `memory.bad_request`.
+
+### frontend.visibility.set
+
+| Field | Value |
+| --- | --- |
+| name | `frontend.visibility.set` |
+| status | implemented |
+| since | protocol 12, capability `frontend-visibility-v1` |
+
+The surfaces the verified app shows, which scope that connection's own
+`subscribe` streams (server/frontend_visibility.rs): field events of every
+other surface (title, agent, program status, output and scroll) wait in their
+coalesced slots and flush together once per aligned second, or at once when
+the surface shows. Structural events, exits and the app's own changes never
+wait, and no other connection is affected. The scope ends with the
+connection. Accepted only from the verified app on its local Unix connection
+(`frontend_visibility.not_trusted` otherwise); a remote relay client is
+refused by its frame gate (`remote_denied`). Not journaled.
+
+Params: `visible` (array of surface ids, at most 4096, or null to clear;
+required). Result: `object{visible:uint64|null, released:uint64}`: how many
+surfaces the scope names, and how many held events the change flushed.
+
+Errors: `frontend_visibility.not_trusted`; `frontend_visibility.bad_request`.
 
 ### set-client-info
 

@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR d60b4d9a4e2b29ec10b92b01dff8f04e076911755afc8c218f2d85410be831e3.
+// cmux-tui mux protocol 12, IR ee51444323390a000bdca12a806fb88329d85c65fda2e5e78181306c44747122.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -836,6 +836,8 @@ pub struct ClientHelloResult {
     pub page_events: Option<Vec<String>>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub page_operations: Option<ClientHelloPageOperations>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub page_streams: Option<bool>,
     pub user_origin_allowed: bool,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub verified: Option<bool>,
@@ -880,6 +882,13 @@ pub enum ClientTransport {
 pub enum CloseReason {
     #[serde(rename = "session_end")]
     SessionEnd,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloseStreamResult {
+    pub closed: bool,
+    pub stream: u16,
 }
 
 #[rustfmt::skip]
@@ -1283,6 +1292,62 @@ pub struct EmptyResult {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum EnergySaverReason {
+    #[serde(rename = "lowPowerMode")]
+    LowPowerMode,
+    #[serde(rename = "battery")]
+    Battery,
+    #[serde(rename = "thermal")]
+    Thermal,
+    #[serde(rename = "setting")]
+    Setting,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum EnergySaverSetting {
+    #[serde(rename = "auto")]
+    Auto,
+    #[serde(rename = "onBattery")]
+    OnBattery,
+    #[serde(rename = "always")]
+    Always,
+    #[serde(rename = "off")]
+    Off,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EnergySetResult {
+    pub changed: bool,
+    pub saver: bool,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum EnergySource {
+    #[serde(rename = "app")]
+    App,
+    #[serde(rename = "daemon")]
+    Daemon,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EnergyStatus {
+    #[serde(rename = "offForNow")]
+    pub off_for_now: bool,
+    #[serde(rename = "override")]
+    pub override_: Nullable<bool>,
+    pub reading: bool,
+    pub reason: Nullable<EnergySaverReason>,
+    pub saver: bool,
+    pub setting: Nullable<EnergySaverSetting>,
+    pub source: EnergySource,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum EventCause {
     #[serde(rename = "frontend")]
     Frontend,
@@ -1380,6 +1445,13 @@ pub struct FrontendProjection {
     pub schema_version: u32,
     pub scope: String,
     pub subject_key: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FrontendVisibilitySetResult {
+    pub released: u64,
+    pub visible: Nullable<u64>,
 }
 
 #[rustfmt::skip]
@@ -1962,6 +2034,37 @@ pub struct MachineUsageResult {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MemoryLimitResult {
+    pub changed: bool,
+    pub level: MemoryPressureLevel,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum MemoryPressureLevel {
+    #[serde(rename = "normal")]
+    Normal,
+    #[serde(rename = "warning")]
+    Warning,
+    #[serde(rename = "critical")]
+    Critical,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum MemorySaverMode {
+    #[serde(rename = "off")]
+    Off,
+    #[serde(rename = "conservative")]
+    Conservative,
+    #[serde(rename = "medium")]
+    Medium,
+    #[serde(rename = "aggressive")]
+    Aggressive,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MintTerminalRendererResult {
     pub endpoint: String,
     pub incarnation: String,
@@ -2063,6 +2166,15 @@ pub enum NotificationSource {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NotifyResult {
     pub notification: Id,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct OpenStreamResult {
+    pub page: String,
+    pub page_operations: ClientHelloPageOperations,
+    pub relay_id: String,
+    pub stream: u16,
 }
 
 #[rustfmt::skip]

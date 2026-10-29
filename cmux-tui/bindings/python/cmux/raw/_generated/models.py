@@ -153,6 +153,22 @@ class DetachReason(str, Enum):
     HOST_SHUTDOWN = 'host-shutdown'
     SUPERSEDED = 'superseded'
 
+class EnergySaverReason(str, Enum):
+    LOWPOWERMODE = 'lowPowerMode'
+    BATTERY = 'battery'
+    THERMAL = 'thermal'
+    SETTING = 'setting'
+
+class EnergySaverSetting(str, Enum):
+    AUTO = 'auto'
+    ONBATTERY = 'onBattery'
+    ALWAYS = 'always'
+    OFF = 'off'
+
+class EnergySource(str, Enum):
+    APP = 'app'
+    DAEMON = 'daemon'
+
 class EventCause(str, Enum):
     FRONTEND = 'frontend'
     AUTOMATION = 'automation'
@@ -208,6 +224,17 @@ class MachineCatalogStatus(str, Enum):
     UNAVAILABLE = 'unavailable'
     SLEEPING = 'sleeping'
     STOPPED = 'stopped'
+
+class MemoryPressureLevel(str, Enum):
+    NORMAL = 'normal'
+    WARNING = 'warning'
+    CRITICAL = 'critical'
+
+class MemorySaverMode(str, Enum):
+    OFF = 'off'
+    CONSERVATIVE = 'conservative'
+    MEDIUM = 'medium'
+    AGGRESSIVE = 'aggressive'
 
 class NameSource(str, Enum):
     USER = 'user'
@@ -975,6 +1002,7 @@ class ClientHelloResult:
     page: Union[str, MissingType] = field(default=MISSING)
     page_events: Union[List[str], MissingType] = field(default=MISSING)
     page_operations: Union[ClientHelloPageOperations, MissingType] = field(default=MISSING)
+    page_streams: Union[Literal[True], MissingType] = field(default=MISSING)
     verified: Union[Literal[True], MissingType] = field(default=MISSING)
 
 
@@ -998,6 +1026,13 @@ class ClientSize:
     cols: Union[int, None]
     rows: Union[int, None]
     size_participating: bool
+
+
+@dataclass(frozen=True)
+class CloseStreamResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/CloseStreamResult'
+    closed: bool
+    stream: int
 
 
 @dataclass(frozen=True)
@@ -1259,6 +1294,25 @@ class EmptyResult:
 
 
 @dataclass(frozen=True)
+class EnergySetResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/EnergySetResult'
+    changed: bool
+    saver: bool
+
+
+@dataclass(frozen=True)
+class EnergyStatus:
+    __cmux_schema_path__: ClassVar[str] = 'types/EnergyStatus'
+    offForNow: bool
+    override: Union[bool, None]
+    reading: bool
+    reason: Union[EnergySaverReason, None]
+    saver: bool
+    setting: Union[EnergySaverSetting, None]
+    source: EnergySource
+
+
+@dataclass(frozen=True)
 class ExportLayoutResult:
     __cmux_schema_path__: ClassVar[str] = 'types/ExportLayoutResult'
     layout: Layout
@@ -1329,6 +1383,13 @@ class FrontendProjection:
     scope: str
     subject_key: str
     replayed: Union[bool, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class FrontendVisibilitySetResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/FrontendVisibilitySetResult'
+    released: int
+    visible: Union[int, None]
 
 
 @dataclass(frozen=True)
@@ -1747,6 +1808,13 @@ class MachineUsageResult:
 
 
 @dataclass(frozen=True)
+class MemoryLimitResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/MemoryLimitResult'
+    changed: bool
+    level: MemoryPressureLevel
+
+
+@dataclass(frozen=True)
 class MintTerminalRendererResult:
     __cmux_schema_path__: ClassVar[str] = 'types/MintTerminalRendererResult'
     terminal_id: str
@@ -1809,6 +1877,15 @@ class NotificationMarker:
 class NotifyResult:
     __cmux_schema_path__: ClassVar[str] = 'types/NotifyResult'
     notification: Id
+
+
+@dataclass(frozen=True)
+class OpenStreamResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/OpenStreamResult'
+    page: str
+    page_operations: ClientHelloPageOperations
+    relay_id: str
+    stream: int
 
 
 @dataclass(frozen=True)
@@ -3825,6 +3902,7 @@ class ClientHelloRequest:
     page: Union[str, None, MissingType] = field(default=MISSING)
     proof: Union[str, MissingType] = field(default=MISSING)
     role: Union[str, MissingType] = field(default=MISSING)
+    streams: Union[bool, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -3854,6 +3932,12 @@ class CloseScreenGroupRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/close-screen-group/request'
     group: str
     end_terminals: Union[bool, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class CloseStreamRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/close-stream/request'
+    stream: int
 
 
 @dataclass(frozen=True)
@@ -4802,6 +4886,20 @@ class DetachClientRequest:
 
 
 @dataclass(frozen=True)
+class EnergySetRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/energy.set/request'
+    saver: Union[bool, None]
+    offForNow: Union[bool, None, MissingType] = field(default=MISSING)
+    reason: Union[EnergySaverReason, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class EnergyStatusRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/energy.status/request'
+    pass
+
+
+@dataclass(frozen=True)
 class ExportLayoutRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/export-layout/request'
     screen: Union[Id, None, MissingType] = field(default=MISSING)
@@ -4858,6 +4956,12 @@ class ForgetSessionRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/forget-session/request'
     session_id: str
     force: Union[bool, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class FrontendVisibilitySetRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/frontend.visibility.set/request'
+    visible: Union[List[int], None]
 
 
 @dataclass(frozen=True)
@@ -5219,6 +5323,14 @@ class MarkWorkspacesProviderManagedRequest:
 class MemoryReportRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/memory-report/request'
     pass
+
+
+@dataclass(frozen=True)
+class MemoryLimitRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/memory.limit/request'
+    level: MemoryPressureLevel
+    mode: MemorySaverMode
+    override: Union[MemoryPressureLevel, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -5598,6 +5710,13 @@ class NotifyRequest:
     level: Union[NotificationLevel, None, MissingType] = field(default=MISSING)
     surface: Union[Id, None, MissingType] = field(default=MISSING)
     source: Union[NotificationSource, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class OpenStreamRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/open-stream/request'
+    page: str
+    stream: int
 
 
 @dataclass(frozen=True)
@@ -7787,6 +7906,9 @@ __all__ = [
     'ConversationThreadStatus',
     'CursorStyle',
     'DetachReason',
+    'EnergySaverReason',
+    'EnergySaverSetting',
+    'EnergySource',
     'EventCause',
     'FrontendFocusTarget',
     'FsEntryKind',
@@ -7797,6 +7919,8 @@ __all__ = [
     'HostSizeMode',
     'MachineCatalogOrigin',
     'MachineCatalogStatus',
+    'MemoryPressureLevel',
+    'MemorySaverMode',
     'NameSource',
     'NotificationLevel',
     'NotificationSource',
@@ -7882,6 +8006,7 @@ __all__ = [
     'ClientHelloResult',
     'ClientInfo',
     'ClientSize',
+    'CloseStreamResult',
     'CloseTerminalResult',
     'ColumnPin',
     'ConversationChange',
@@ -7907,6 +8032,8 @@ __all__ = [
     'DeclarativeLayoutSplit',
     'DeclarativeLayoutStack',
     'EmptyResult',
+    'EnergySetResult',
+    'EnergyStatus',
     'ExportLayoutResult',
     'ExportedPane',
     'FocusDirectionResult',
@@ -7914,6 +8041,7 @@ __all__ = [
     'FrontendJournalEventResize',
     'FrontendJournalEventViewport',
     'FrontendProjection',
+    'FrontendVisibilitySetResult',
     'FsEntry',
     'FsEntryResult',
     'FsFilter',
@@ -7958,12 +8086,14 @@ __all__ = [
     'MachinePlatform',
     'MachineUsage',
     'MachineUsageResult',
+    'MemoryLimitResult',
     'MintTerminalRendererResult',
     'MoveTerminalResult',
     'NewRowResult',
     'NoteSizeActivityResult',
     'NotificationMarker',
     'NotifyResult',
+    'OpenStreamResult',
     'PaneNeighborResult',
     'PaneSurfaceResult',
     'PingResult',
@@ -8192,6 +8322,7 @@ __all__ = [
     'CloseProviderManagedWorkspaceRequest',
     'CloseScreenRequest',
     'CloseScreenGroupRequest',
+    'CloseStreamRequest',
     'CloseSurfaceRequest',
     'CloseTabGroupRequest',
     'CloseTabGroupResult',
@@ -8302,6 +8433,8 @@ __all__ = [
     'DeleteWorkspaceGroupRequest',
     'DetachAttachedViewRequest',
     'DetachClientRequest',
+    'EnergySetRequest',
+    'EnergyStatusRequest',
     'ExportLayoutRequest',
     'FeedLocalHandoffAbortRequest',
     'FeedLocalHandoffBeginRequest',
@@ -8311,6 +8444,7 @@ __all__ = [
     'FocusDirectionRequest',
     'FocusPaneRequest',
     'ForgetSessionRequest',
+    'FrontendVisibilitySetRequest',
     'FsDeleteRequest',
     'FsDeleteResult',
     'FsListRequest',
@@ -8363,6 +8497,7 @@ __all__ = [
     'MachineUsageRequest',
     'MarkWorkspacesProviderManagedRequest',
     'MemoryReportRequest',
+    'MemoryLimitRequest',
     'MintTerminalRendererRequest',
     'MintTerminalRendererByTerminalRequest',
     'MoveBookmarkRequest',
@@ -8398,6 +8533,7 @@ __all__ = [
     'NewWorkspaceRequest',
     'NoteSizeActivityRequest',
     'NotifyRequest',
+    'OpenStreamRequest',
     'PageCredentialRequest',
     'PairingResponseRequest',
     'PaneNeighborRequest',

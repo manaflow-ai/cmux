@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "d60b4d9a4e2b29ec10b92b01dff8f04e076911755afc8c218f2d85410be831e3";
+pub const ir_sha256 = "ee51444323390a000bdca12a806fb88329d85c65fda2e5e78181306c44747122";
 
 pub const AccessRequestKind = enum {
     file,
@@ -976,6 +976,7 @@ pub const ClientHelloResult = struct {
     page: ?[]const u8 = null,
     page_events: ?[]const []const u8 = null,
     page_operations: ?ClientHelloPageOperations = null,
+    page_streams: ?bool = null,
     user_origin_allowed: bool,
     verified: ?bool = null,
 
@@ -986,6 +987,7 @@ pub const ClientHelloResult = struct {
         "page",
         "page_events",
         "page_operations",
+        "page_streams",
         "verified",
     };
 };
@@ -1042,6 +1044,11 @@ pub const CloseReason = enum {
             .session_end => "session_end",
         };
     }
+};
+
+pub const CloseStreamResult = struct {
+    closed: bool,
+    stream: u16,
 };
 
 pub const CloseTerminalResult = struct {
@@ -1496,6 +1503,87 @@ pub const DetachReason = enum {
 
 pub const EmptyResult = struct {};
 
+pub const EnergySaverReason = enum {
+    low_power_mode,
+    battery,
+    thermal,
+    setting,
+
+    pub fn fromWire(value: []const u8) !@This() {
+        if (std.mem.eql(u8, value, "lowPowerMode")) return .low_power_mode;
+        if (std.mem.eql(u8, value, "battery")) return .battery;
+        if (std.mem.eql(u8, value, "thermal")) return .thermal;
+        if (std.mem.eql(u8, value, "setting")) return .setting;
+        return error.UnknownEnumValue;
+    }
+
+    pub fn toWire(self: @This()) []const u8 {
+        return switch (self) {
+            .low_power_mode => "lowPowerMode",
+            .battery => "battery",
+            .thermal => "thermal",
+            .setting => "setting",
+        };
+    }
+};
+
+pub const EnergySaverSetting = enum {
+    auto,
+    on_battery,
+    always,
+    off,
+
+    pub fn fromWire(value: []const u8) !@This() {
+        if (std.mem.eql(u8, value, "auto")) return .auto;
+        if (std.mem.eql(u8, value, "onBattery")) return .on_battery;
+        if (std.mem.eql(u8, value, "always")) return .always;
+        if (std.mem.eql(u8, value, "off")) return .off;
+        return error.UnknownEnumValue;
+    }
+
+    pub fn toWire(self: @This()) []const u8 {
+        return switch (self) {
+            .auto => "auto",
+            .on_battery => "onBattery",
+            .always => "always",
+            .off => "off",
+        };
+    }
+};
+
+pub const EnergySetResult = struct {
+    changed: bool,
+    saver: bool,
+};
+
+pub const EnergySource = enum {
+    app,
+    daemon,
+
+    pub fn fromWire(value: []const u8) !@This() {
+        if (std.mem.eql(u8, value, "app")) return .app;
+        if (std.mem.eql(u8, value, "daemon")) return .daemon;
+        return error.UnknownEnumValue;
+    }
+
+    pub fn toWire(self: @This()) []const u8 {
+        return switch (self) {
+            .app => "app",
+            .daemon => "daemon",
+        };
+    }
+};
+
+pub const EnergyStatus = struct {
+    off_for_now: bool,
+    override: wire.Nullable(bool),
+    reading: bool,
+    reason: wire.Nullable(EnergySaverReason),
+    saver: bool,
+    setting: wire.Nullable(EnergySaverSetting),
+    source: EnergySource,
+};
+
 pub const EventCause = enum {
     frontend,
     automation,
@@ -1629,6 +1717,11 @@ pub const FrontendProjection = struct {
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "replayed",
     };
+};
+
+pub const FrontendVisibilitySetResult = struct {
+    released: u64,
+    visible: wire.Nullable(u64),
 };
 
 pub const FsEntry = struct {
@@ -2299,6 +2392,56 @@ pub const MachineUsageResult = struct {
     usage: wire.Nullable(MachineUsage),
 };
 
+pub const MemoryLimitResult = struct {
+    changed: bool,
+    level: MemoryPressureLevel,
+};
+
+pub const MemoryPressureLevel = enum {
+    normal,
+    warning,
+    critical,
+
+    pub fn fromWire(value: []const u8) !@This() {
+        if (std.mem.eql(u8, value, "normal")) return .normal;
+        if (std.mem.eql(u8, value, "warning")) return .warning;
+        if (std.mem.eql(u8, value, "critical")) return .critical;
+        return error.UnknownEnumValue;
+    }
+
+    pub fn toWire(self: @This()) []const u8 {
+        return switch (self) {
+            .normal => "normal",
+            .warning => "warning",
+            .critical => "critical",
+        };
+    }
+};
+
+pub const MemorySaverMode = enum {
+    off,
+    conservative,
+    medium,
+    aggressive,
+
+    pub fn fromWire(value: []const u8) !@This() {
+        if (std.mem.eql(u8, value, "off")) return .off;
+        if (std.mem.eql(u8, value, "conservative")) return .conservative;
+        if (std.mem.eql(u8, value, "medium")) return .medium;
+        if (std.mem.eql(u8, value, "aggressive")) return .aggressive;
+        return error.UnknownEnumValue;
+    }
+
+    pub fn toWire(self: @This()) []const u8 {
+        return switch (self) {
+            .off => "off",
+            .conservative => "conservative",
+            .medium => "medium",
+            .aggressive => "aggressive",
+        };
+    }
+};
+
 pub const MintTerminalRendererResult = struct {
     endpoint: []const u8,
     incarnation: []const u8,
@@ -2427,6 +2570,13 @@ pub const NotificationSource = enum {
 
 pub const NotifyResult = struct {
     notification: Id,
+};
+
+pub const OpenStreamResult = struct {
+    page: []const u8,
+    page_operations: ClientHelloPageOperations,
+    relay_id: []const u8,
+    stream: u16,
 };
 
 pub const Pane = union(enum) {
@@ -6343,6 +6493,7 @@ pub const ClientHelloRequest = struct {
     page: wire.Field([]const u8) = .absent,
     proof: ?[]const u8 = null,
     role: ?[]const u8 = null,
+    streams: wire.Field(bool) = .absent,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "install_id",
@@ -6458,6 +6609,23 @@ pub fn closeScreenGroup(client: anytype, request: CloseScreenGroupRequest) !wire
             .authority = "control",
             .since = 12,
             .capability = "screen-groups-v1",
+        },
+        request,
+    );
+}
+
+pub const CloseStreamRequest = struct {
+    stream: u16,
+};
+
+pub fn closeStream(client: anytype, request: CloseStreamRequest) !wire.Decoded(CloseStreamResult) {
+    return client.callTyped(
+        CloseStreamResult,
+        .{
+            .name = "close-stream",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "page-streams-v1",
         },
         request,
     );
@@ -8385,6 +8553,42 @@ pub fn detachClient(client: anytype, request: DetachClientRequest) !wire.Decoded
     );
 }
 
+pub const EnergySetRequest = struct {
+    off_for_now: wire.Field(bool) = .absent,
+    reason: wire.Field(EnergySaverReason) = .absent,
+    saver: wire.Nullable(bool),
+};
+
+pub fn energySet(client: anytype, request: EnergySetRequest) !wire.Decoded(EnergySetResult) {
+    return client.callTyped(
+        EnergySetResult,
+        .{
+            .name = "energy.set",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "energy-v1",
+        },
+        request,
+    );
+}
+
+pub const EnergyStatusRequest = struct {};
+
+pub const EnergyStatusResult = EnergyStatus;
+
+pub fn energyStatus(client: anytype, request: EnergyStatusRequest) !wire.Decoded(EnergyStatusResult) {
+    return client.callTyped(
+        EnergyStatusResult,
+        .{
+            .name = "energy.status",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "energy-v1",
+        },
+        request,
+    );
+}
+
 pub const ExportLayoutRequest = struct {
     screen: wire.Field(Id) = .absent,
 };
@@ -8560,6 +8764,23 @@ pub fn forgetSession(client: anytype, request: ForgetSessionRequest) !wire.Decod
             .authority = "control",
             .since = 12,
             .capability = "profiles-v1",
+        },
+        request,
+    );
+}
+
+pub const FrontendVisibilitySetRequest = struct {
+    visible: wire.Nullable([]const u64),
+};
+
+pub fn frontendVisibilitySet(client: anytype, request: FrontendVisibilitySetRequest) !wire.Decoded(FrontendVisibilitySetResult) {
+    return client.callTyped(
+        FrontendVisibilitySetResult,
+        .{
+            .name = "frontend.visibility.set",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "frontend-visibility-v1",
         },
         request,
     );
@@ -9464,6 +9685,25 @@ pub fn memoryReport(client: anytype, request: MemoryReportRequest) !wire.Decoded
             .authority = "local-admin",
             .since = 12,
             .capability = null,
+        },
+        request,
+    );
+}
+
+pub const MemoryLimitRequest = struct {
+    level: MemoryPressureLevel,
+    mode: MemorySaverMode,
+    override: wire.Field(MemoryPressureLevel) = .absent,
+};
+
+pub fn memoryLimit(client: anytype, request: MemoryLimitRequest) !wire.Decoded(MemoryLimitResult) {
+    return client.callTyped(
+        MemoryLimitResult,
+        .{
+            .name = "memory.limit",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "memory-limit-v1",
         },
         request,
     );
@@ -10392,6 +10632,24 @@ pub fn notify(client: anytype, request: NotifyRequest) !wire.Decoded(NotifyResul
             .fields = &.{
                 .{ .name = "source", .since = 12, .capability = "notification-source-v1" },
             },
+        },
+        request,
+    );
+}
+
+pub const OpenStreamRequest = struct {
+    page: []const u8,
+    stream: u16,
+};
+
+pub fn openStream(client: anytype, request: OpenStreamRequest) !wire.Decoded(OpenStreamResult) {
+    return client.callTyped(
+        OpenStreamResult,
+        .{
+            .name = "open-stream",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "page-streams-v1",
         },
         request,
     );
@@ -15149,7 +15407,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 366;
+pub const command_count: usize = 372;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "access-request", .authority = "local-admin", .since = 12, .capability = "access-request-v1", .stream = null },
     .{ .name = "access-request-answer", .authority = "local-admin", .since = 12, .capability = "access-request-v1", .stream = null },
@@ -15234,6 +15492,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "close-provider-managed-workspace", .authority = "provider-authority", .since = 9, .capability = "provider-managed-workspace-authority-v2", .stream = null },
     .{ .name = "close-screen", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "close-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
+    .{ .name = "close-stream", .authority = "local-admin", .since = 12, .capability = "page-streams-v1", .stream = null },
     .{ .name = "close-surface", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "close-tab-group", .authority = "control", .since = 12, .capability = "tab-groups-v1", .stream = null },
     .{ .name = "close-tabs", .authority = "control", .since = 12, .capability = "batch-close-v1", .stream = null },
@@ -15312,6 +15571,8 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "delete-workspace-group", .authority = "control", .since = 12, .capability = "workspace-groups-v1", .stream = null },
     .{ .name = "detach-attached-view", .authority = "frontend", .since = 10, .capability = "view-attachment-detach-v1", .stream = null },
     .{ .name = "detach-client", .authority = "control", .since = 6, .capability = null, .stream = null },
+    .{ .name = "energy.set", .authority = "local-admin", .since = 12, .capability = "energy-v1", .stream = null },
+    .{ .name = "energy.status", .authority = "local-admin", .since = 12, .capability = "energy-v1", .stream = null },
     .{ .name = "export-layout", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "feed-local-handoff-abort", .authority = "local-admin", .since = 12, .capability = "feed-local-owner-v1", .stream = null },
     .{ .name = "feed-local-handoff-begin", .authority = "local-admin", .since = 12, .capability = "feed-local-owner-v1", .stream = null },
@@ -15321,6 +15582,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "focus-direction", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "focus-pane", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "forget-session", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },
+    .{ .name = "frontend.visibility.set", .authority = "local-admin", .since = 12, .capability = "frontend-visibility-v1", .stream = null },
     .{ .name = "fs.delete", .authority = "control", .since = 12, .capability = "fs-v1", .stream = null },
     .{ .name = "fs.list", .authority = "control", .since = 12, .capability = "fs-v1", .stream = null },
     .{ .name = "fs.mkdir", .authority = "control", .since = 12, .capability = "fs-v1", .stream = null },
@@ -15365,6 +15627,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "machine-usage", .authority = "control", .since = 12, .capability = "machine-usage-v1", .stream = null },
     .{ .name = "mark-workspaces-provider-managed", .authority = "provider-authority", .since = 9, .capability = "provider-managed-workspace-authority-v2", .stream = null },
     .{ .name = "memory-report", .authority = "local-admin", .since = 12, .capability = null, .stream = null },
+    .{ .name = "memory.limit", .authority = "local-admin", .since = 12, .capability = "memory-limit-v1", .stream = null },
     .{ .name = "mint-terminal-renderer", .authority = "frontend", .since = 9, .capability = null, .stream = null },
     .{ .name = "mint-terminal-renderer-by-terminal", .authority = "frontend", .since = 11, .capability = null, .stream = null },
     .{ .name = "move-bookmark", .authority = "control", .since = 12, .capability = "bookmarks-v1", .stream = null },
@@ -15399,6 +15662,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "new-workspace", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "note-size-activity", .authority = "control", .since = 12, .capability = "shared-sizing-v1", .stream = null },
     .{ .name = "notify", .authority = "control", .since = 6, .capability = null, .stream = null },
+    .{ .name = "open-stream", .authority = "local-admin", .since = 12, .capability = "page-streams-v1", .stream = null },
     .{ .name = "page-credential", .authority = "local-admin", .since = 12, .capability = "page-credential-v1", .stream = null },
     .{ .name = "pairing-response", .authority = "local-admin", .since = 7, .capability = null, .stream = null },
     .{ .name = "pane-neighbor", .authority = "control", .since = 6, .capability = null, .stream = null },

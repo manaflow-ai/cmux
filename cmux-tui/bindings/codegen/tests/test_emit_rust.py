@@ -56,6 +56,15 @@ class RustEmitterTests(unittest.TestCase):
                     )
                 self.assertNotIn("#![rustfmt::skip]", source)
 
+    def test_reserved_keywords_are_never_field_names(self) -> None:
+        from codegen import emit_rust
+
+        # `override` (memory.limit, EnergyStatus) is reserved for future use:
+        # rustc refuses it as an identifier like a strict keyword.
+        for word in ("override", "type", "abstract", "final", "gen", "box"):
+            self.assertEqual(emit_rust._snake(word), f"{word}_")
+        self.assertEqual(emit_rust._snake("overrides"), "overrides")
+
     def test_wire_enum_modules_allow_large_enum_variant(self) -> None:
         # A union with one large payload variant (AgentCLIJobResolution's
         # receipt) failed `clippy -D warnings`; the wire modules allow it.

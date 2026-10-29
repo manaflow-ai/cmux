@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR d60b4d9a4e2b29ec10b92b01dff8f04e076911755afc8c218f2d85410be831e3. */
+/* cmux-tui mux protocol 12, IR ee51444323390a000bdca12a806fb88329d85c65fda2e5e78181306c44747122. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -482,6 +482,7 @@ export type ClientHelloResult = {
   "page"?: string;
   "page_events"?: Array<string>;
   "page_operations"?: ClientHelloPageOperations;
+  "page_streams"?: true;
   "user_origin_allowed": boolean;
   "verified"?: true;
 };
@@ -507,6 +508,11 @@ export type ClientSize = {
 export type ClientTransport = "local" | "unix" | "ws";
 
 export type CloseReason = "session_end";
+
+export type CloseStreamResult = {
+  "closed": boolean;
+  "stream": number;
+};
 
 export type CloseTerminalResult = {
   "already_closed": boolean;
@@ -757,6 +763,27 @@ export type DetachReason = "network" | "disconnected-by" | "host-shutdown" | "su
 export type EmptyResult = {
 };
 
+export type EnergySaverReason = "lowPowerMode" | "battery" | "thermal" | "setting";
+
+export type EnergySaverSetting = "auto" | "onBattery" | "always" | "off";
+
+export type EnergySetResult = {
+  "changed": boolean;
+  "saver": boolean;
+};
+
+export type EnergySource = "app" | "daemon";
+
+export type EnergyStatus = {
+  "offForNow": boolean;
+  "override": (boolean) | null;
+  "reading": boolean;
+  "reason": (EnergySaverReason) | null;
+  "saver": boolean;
+  "setting": (EnergySaverSetting) | null;
+  "source": EnergySource;
+};
+
 export type EventCause = "frontend" | "automation";
 
 export type ExportLayoutResult = {
@@ -814,6 +841,11 @@ export type FrontendProjection = {
   "schema_version": number;
   "scope": string;
   "subject_key": string;
+};
+
+export type FrontendVisibilitySetResult = {
+  "released": bigint;
+  "visible": (bigint) | null;
 };
 
 export type FsEntry = {
@@ -1159,6 +1191,15 @@ export type MachineUsageResult = {
   "usage": (MachineUsage) | null;
 };
 
+export type MemoryLimitResult = {
+  "changed": boolean;
+  "level": MemoryPressureLevel;
+};
+
+export type MemoryPressureLevel = "normal" | "warning" | "critical";
+
+export type MemorySaverMode = "off" | "conservative" | "medium" | "aggressive";
+
 export type MintTerminalRendererResult = {
   "endpoint": string;
   "incarnation": string;
@@ -1216,6 +1257,13 @@ export type NotificationSource = "cli" | "terminal" | "agent" | "daemon";
 
 export type NotifyResult = {
   "notification": Id;
+};
+
+export type OpenStreamResult = {
+  "page": string;
+  "page_operations": ClientHelloPageOperations;
+  "relay_id": string;
+  "stream": number;
 };
 
 export type Pane = (LivePane) | (DeadPane);

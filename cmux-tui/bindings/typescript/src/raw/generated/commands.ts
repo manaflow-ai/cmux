@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR d60b4d9a4e2b29ec10b92b01dff8f04e076911755afc8c218f2d85410be831e3. */
+/* cmux-tui mux protocol 12, IR ee51444323390a000bdca12a806fb88329d85c65fda2e5e78181306c44747122. */
 
 
 import type * as T from "./types.js";
@@ -845,6 +845,7 @@ export interface ClientHelloRequest extends CmuxRequestBase {
   "page"?: (string) | null;
   "proof"?: string;
   "role"?: string;
+  "streams"?: (boolean) | null;
 }
 
 /** Protocol v5; authority: control. */
@@ -879,6 +880,12 @@ export interface CloseScreenGroupRequest extends CmuxRequestBase {
   "group": string;
 }
 export type CloseScreenGroupResult = T.JsonValue;
+
+/** Protocol v12; authority: local-admin. */
+export interface CloseStreamRequest extends CmuxRequestBase {
+  cmd: "close-stream";
+  "stream": number;
+}
 
 /** Protocol v5; authority: control. */
 export interface CloseSurfaceRequest extends CmuxRequestBase {
@@ -1768,6 +1775,20 @@ export interface DetachClientRequest extends CmuxRequestBase {
 }
 export type DetachClientResult = T.EmptyResult;
 
+/** Protocol v12; authority: local-admin. */
+export interface EnergySetRequest extends CmuxRequestBase {
+  cmd: "energy.set";
+  "offForNow"?: (boolean) | null;
+  "reason"?: (T.EnergySaverReason) | null;
+  "saver": (boolean) | null;
+}
+
+/** Protocol v12; authority: local-admin. */
+export interface EnergyStatusRequest extends CmuxRequestBase {
+  cmd: "energy.status";
+}
+export type EnergyStatusResult = T.EnergyStatus;
+
 /** Protocol v6; authority: control. */
 export interface ExportLayoutRequest extends CmuxRequestBase {
   cmd: "export-layout";
@@ -1833,6 +1854,12 @@ export interface ForgetSessionRequest extends CmuxRequestBase {
   "session_id": string;
 }
 export type ForgetSessionResult = T.JsonValue;
+
+/** Protocol v12; authority: local-admin. */
+export interface FrontendVisibilitySetRequest extends CmuxRequestBase {
+  cmd: "frontend.visibility.set";
+  "visible": (Array<bigint>) | null;
+}
 
 /** Protocol v12; authority: control. */
 export interface FsDeleteRequest extends CmuxRequestBase {
@@ -2180,6 +2207,14 @@ export interface MemoryReportRequest extends CmuxRequestBase {
   cmd: "memory-report";
 }
 export type MemoryReportResult = T.JsonValue;
+
+/** Protocol v12; authority: local-admin. */
+export interface MemoryLimitRequest extends CmuxRequestBase {
+  cmd: "memory.limit";
+  "level": T.MemoryPressureLevel;
+  "mode": T.MemorySaverMode;
+  "override"?: (T.MemoryPressureLevel) | null;
+}
 
 /** Protocol v9; authority: frontend. */
 export interface MintTerminalRendererRequest extends CmuxRequestBase {
@@ -2586,6 +2621,13 @@ export interface NotifyRequest extends CmuxRequestBase {
   "source"?: (T.NotificationSource) | null;
   "surface"?: (T.Id) | null;
   "title": string;
+}
+
+/** Protocol v12; authority: local-admin. */
+export interface OpenStreamRequest extends CmuxRequestBase {
+  cmd: "open-stream";
+  "page": string;
+  "stream": number;
 }
 
 /** Protocol v12; authority: local-admin. */
@@ -3765,6 +3807,7 @@ export type CmuxRequest =
   | CloseProviderManagedWorkspaceRequest
   | CloseScreenRequest
   | CloseScreenGroupRequest
+  | CloseStreamRequest
   | CloseSurfaceRequest
   | CloseTabGroupRequest
   | CloseTabsRequest
@@ -3843,6 +3886,8 @@ export type CmuxRequest =
   | DeleteWorkspaceGroupRequest
   | DetachAttachedViewRequest
   | DetachClientRequest
+  | EnergySetRequest
+  | EnergyStatusRequest
   | ExportLayoutRequest
   | FeedLocalHandoffAbortRequest
   | FeedLocalHandoffBeginRequest
@@ -3852,6 +3897,7 @@ export type CmuxRequest =
   | FocusDirectionRequest
   | FocusPaneRequest
   | ForgetSessionRequest
+  | FrontendVisibilitySetRequest
   | FsDeleteRequest
   | FsListRequest
   | FsMkdirRequest
@@ -3896,6 +3942,7 @@ export type CmuxRequest =
   | MachineUsageRequest
   | MarkWorkspacesProviderManagedRequest
   | MemoryReportRequest
+  | MemoryLimitRequest
   | MintTerminalRendererRequest
   | MintTerminalRendererByTerminalRequest
   | MoveBookmarkRequest
@@ -3930,6 +3977,7 @@ export type CmuxRequest =
   | NewWorkspaceRequest
   | NoteSizeActivityRequest
   | NotifyRequest
+  | OpenStreamRequest
   | PageCredentialRequest
   | PairingResponseRequest
   | PaneNeighborRequest
@@ -4715,6 +4763,14 @@ export interface CmuxCommandDefinitionMap {
     capability: "screen-groups-v1";
     stream: null;
   };
+  "close-stream": {
+    request: CloseStreamRequest;
+    result: T.CloseStreamResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "page-streams-v1";
+    stream: null;
+  };
   "close-surface": {
     request: CloseSurfaceRequest;
     result: CloseSurfaceResult;
@@ -5339,6 +5395,22 @@ export interface CmuxCommandDefinitionMap {
     capability: null;
     stream: null;
   };
+  "energy.set": {
+    request: EnergySetRequest;
+    result: T.EnergySetResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "energy-v1";
+    stream: null;
+  };
+  "energy.status": {
+    request: EnergyStatusRequest;
+    result: EnergyStatusResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "energy-v1";
+    stream: null;
+  };
   "export-layout": {
     request: ExportLayoutRequest;
     result: T.ExportLayoutResult;
@@ -5409,6 +5481,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 12;
     capability: "profiles-v1";
+    stream: null;
+  };
+  "frontend.visibility.set": {
+    request: FrontendVisibilitySetRequest;
+    result: T.FrontendVisibilitySetResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "frontend-visibility-v1";
     stream: null;
   };
   "fs.delete": {
@@ -5763,6 +5843,14 @@ export interface CmuxCommandDefinitionMap {
     capability: null;
     stream: null;
   };
+  "memory.limit": {
+    request: MemoryLimitRequest;
+    result: T.MemoryLimitResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "memory-limit-v1";
+    stream: null;
+  };
   "mint-terminal-renderer": {
     request: MintTerminalRendererRequest;
     result: T.MintTerminalRendererResult;
@@ -6033,6 +6121,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 6;
     capability: null;
+    stream: null;
+  };
+  "open-stream": {
+    request: OpenStreamRequest;
+    result: T.OpenStreamResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "page-streams-v1";
     stream: null;
   };
   "page-credential": {

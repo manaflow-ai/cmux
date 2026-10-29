@@ -1047,13 +1047,13 @@
     },
     {
       "path": "ClientHelloRequest.java",
-      "sha256": "a6f469c1a79b1dcfc8f48f051b97da01109d6e59dbea2754fc6ac39f3de3f58b",
-      "size": 4430
+      "sha256": "c302cba5872a7787b65b9e692772522f280a7f5cb6106a0f07d30fbf5e9ca1b0",
+      "size": 5082
     },
     {
       "path": "ClientHelloResult.java",
-      "sha256": "9da9b4e940c66c392f9b6bf2239355074561873c0de08c99f227f684b3021476",
-      "size": 7796
+      "sha256": "87209e0dcaeab8e5afb5055dad742a85b5e34514fe101b7d5b74746cb998ebbe",
+      "size": 8594
     },
     {
       "path": "ClientInfo.java",
@@ -1099,6 +1099,16 @@
       "path": "CloseScreenRequest.java",
       "sha256": "bb52afd1aaf301dd7e6a8eb23679d502e2d5b0838834579345b4d5e8a238de36",
       "size": 2727
+    },
+    {
+      "path": "CloseStreamRequest.java",
+      "sha256": "1ad7e6d9b2963c037abcdae3b8a02c36844be99f6a204b9b49329be8d004bf6d",
+      "size": 1986
+    },
+    {
+      "path": "CloseStreamResult.java",
+      "sha256": "facb23882a86fd273fd2cbe7150035aa0a5c0d25601dcc3bc63b0d2673b6635e",
+      "size": 2551
     },
     {
       "path": "CloseSurfaceRequest.java",
@@ -1392,8 +1402,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "d39aadfa0e70009e1ddda145db9491288f77427bce3c9bf9c4cb7a67093ae405",
-      "size": 98908
+      "sha256": "a34660ee2918614a2a2181515ecaffdb8b713e0b754fa338188844195b39b0fc",
+      "size": 100289
     },
     {
       "path": "ConfigReloadRequestedEvent.java",
@@ -1941,6 +1951,41 @@
       "size": 1221
     },
     {
+      "path": "EnergySaverReason.java",
+      "sha256": "74767429bc2bc909e565a18c4acaedb4dd81c06daaeba8404b9dfbd3a6422ab1",
+      "size": 973
+    },
+    {
+      "path": "EnergySaverSetting.java",
+      "sha256": "7165591f0c892758007daceab06da72c00d10cab20dcf28c6710b5d1ecd73c3d",
+      "size": 955
+    },
+    {
+      "path": "EnergySetRequest.java",
+      "sha256": "82d6d322036dd4813379d999d0d9f6906c6b033d7545236027adbf1300b6421d",
+      "size": 3330
+    },
+    {
+      "path": "EnergySetResult.java",
+      "sha256": "608b9a6d49733c39ae62aafa67eb251d8db4d95e8b5d3433524af9d66fdf77ac",
+      "size": 2541
+    },
+    {
+      "path": "EnergySource.java",
+      "sha256": "42da3d6ab79de3e068d18f7e39b65a6794f821f2b7434671afeeca41e06ea472",
+      "size": 878
+    },
+    {
+      "path": "EnergyStatus.java",
+      "sha256": "60b575a0cadf1ac06d5110f18c9053ff3891c2ee31412c31afcfa9748e36aefc",
+      "size": 6062
+    },
+    {
+      "path": "EnergyStatusRequest.java",
+      "sha256": "50f6184d600912a27549d20820a056c878720a94db89d8073fcaf459b315eb04",
+      "size": 1363
+    },
+    {
       "path": "EventCause.java",
       "sha256": "fc1689bb8f01b5ac6a68b3b89fc0c3f5300bd89479d581c64f5e63e48808f04b",
       "size": 886
@@ -2056,6 +2101,16 @@
       "size": 7236
     },
     {
+      "path": "FrontendVisibilitySetRequest.java",
+      "sha256": "5ec54a9c71ac074c412a748b3d3edbfe9757c966a963eb090f220efde4e947eb",
+      "size": 2286
+    },
+    {
+      "path": "FrontendVisibilitySetResult.java",
+      "sha256": "40ac4daa9903d27e1efbd4b0f31f0f79010c7fa1dab0b483475a816df2c88b2c",
+      "size": 2777
+    },
+    {
       "path": "FsDeleteRequest.java",
       "sha256": "b01e782a38785718486221c6bfbf593e574e3f35c552fc392053bfe7d7207040",
       "size": 2705
@@ -2157,8 +2212,8 @@
     },
     {
       "path": "GeneratedCmuxClient.java",
-      "sha256": "b2afb657c8adc7f40e88dc9fd616ff631c6c361bd2843b7c0b86df284aedf5d5",
-      "size": 87224
+      "sha256": "1ec55a9a9194cf26c19c9671667d064fb84dc4666fcf82baa7a469ce3c86cfcc",
+      "size": 88598
     },
     {
       "path": "GetBlobRequest.java",
@@ -2666,9 +2721,29 @@
       "size": 2275
     },
     {
+      "path": "MemoryLimitRequest.java",
+      "sha256": "7b1faff29d8ae77b7e00d22be88e0068772e3fd474a94ac8c05592041549d3a6",
+      "size": 3394
+    },
+    {
+      "path": "MemoryLimitResult.java",
+      "sha256": "552735a7c9527ffa4330714566f4d19ee58011953c588cbeec4a3cdac2af6897",
+      "size": 2624
+    },
+    {
+      "path": "MemoryPressureLevel.java",
+      "sha256": "6fad038521bd0e6545d762180296f875c50d98fbb65bf3bb9051730e442ab188",
+      "size": 947
+    },
+    {
       "path": "MemoryReportRequest.java",
       "sha256": "de2a2340b0e27bac1d3354d8f463a45ad3f4e6b225fb11a8f0f74d271728acb1",
       "size": 1363
+    },
+    {
+      "path": "MemorySaverMode.java",
+      "sha256": "88f06098df709d1f630cefe4a69625063f0bf2bf29222ef724a151d4e396be1f",
+      "size": 957
     },
     {
       "path": "MintTerminalRendererByTerminalRequest.java",
@@ -2896,6 +2971,16 @@
       "size": 2025
     },
     {
+      "path": "OpenStreamRequest.java",
+      "sha256": "defcb8ef47c90c87742f9f8376c7a236ba6b9b0bac4e79f53da7111a5673775f",
+      "size": 2603
+    },
+    {
+      "path": "OpenStreamResult.java",
+      "sha256": "87fa2337a7068d5943c9fb6bde3ba9d0eb4af7efa5af28b598ccf4815d36b95c",
+      "size": 4141
+    },
+    {
       "path": "OutputEvent.java",
       "sha256": "dc501e8edc96e96f41d4d0f3fe0289638b096fa091dfcfdc639cdba71fb0a360",
       "size": 3417
@@ -3027,7 +3112,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "50cccefc2f2cfcf01ce3fb162857f370e7b015658d96144bdadad917e72b2561",
+      "sha256": "bb11aa5ee4a843d93c4d388a068919cbeaab68c201cdebb6afeb500ddf8a45b1",
       "size": 8063
     },
     {
@@ -4542,7 +4627,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "d60b4d9a4e2b29ec10b92b01dff8f04e076911755afc8c218f2d85410be831e3",
+  "ir_sha256": "ee51444323390a000bdca12a806fb88329d85c65fda2e5e78181306c44747122",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

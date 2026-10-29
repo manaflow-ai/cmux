@@ -112,6 +112,32 @@
             "features": {
               "type": "Option<HelloFeatures>",
               "presence": "optional"
+            },
+            "streams": {
+              "type": "Option<bool>",
+              "presence": "optional"
+            }
+          },
+          "handler": "observe"
+        },
+        "open-stream": {
+          "fields": {
+            "stream": {
+              "type": "u16",
+              "presence": "required"
+            },
+            "page": {
+              "type": "String",
+              "presence": "required"
+            }
+          },
+          "handler": "observe"
+        },
+        "close-stream": {
+          "fields": {
+            "stream": {
+              "type": "u16",
+              "presence": "required"
             }
           },
           "handler": "observe"
@@ -132,6 +158,36 @@
             }
           },
           "handler": "handle"
+        }
+      },
+      "authority": "local-admin"
+    },
+    "energy_op": {
+      "literals": {
+        "energy.set": {
+          "request": "SetRequest",
+          "handler": "handle_set"
+        },
+        "energy.status": {
+          "handler": "handle_status"
+        }
+      },
+      "authority": "local-admin"
+    },
+    "frontend_visibility": {
+      "literals": {
+        "frontend.visibility.set": {
+          "request": "SetRequest",
+          "handler": "set"
+        }
+      },
+      "authority": "local-admin"
+    },
+    "memory_limit": {
+      "literals": {
+        "memory.limit": {
+          "request": "LimitRequest",
+          "handler": "set"
         }
       },
       "authority": "local-admin"

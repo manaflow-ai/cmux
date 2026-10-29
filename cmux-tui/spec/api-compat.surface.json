@@ -8788,6 +8788,10 @@
       },
       "/role": {
         "ty": "string"
+      },
+      "/streams": {
+        "ty": "boolean",
+        "nullable": true
       }
     },
     "request:close-pane": {
@@ -8828,6 +8832,12 @@
       },
       "/group": {
         "ty": "string",
+        "required": true
+      }
+    },
+    "request:close-stream": {
+      "/stream": {
+        "ty": "uint16",
         "required": true
       }
     },
@@ -10345,6 +10355,28 @@
         "nullable": true
       }
     },
+    "request:energy.set": {
+      "/offForNow": {
+        "ty": "boolean",
+        "nullable": true
+      },
+      "/reason": {
+        "ty": "enum",
+        "nullable": true,
+        "values": [
+          "battery",
+          "lowPowerMode",
+          "setting",
+          "thermal"
+        ]
+      },
+      "/saver": {
+        "ty": "boolean",
+        "required": true,
+        "nullable": true
+      }
+    },
+    "request:energy.status": {},
     "request:export-layout": {
       "/screen": {
         "ty": "uint64",
@@ -10424,6 +10456,16 @@
       "/session_id": {
         "ty": "string",
         "required": true
+      }
+    },
+    "request:frontend.visibility.set": {
+      "/visible": {
+        "ty": "array",
+        "required": true,
+        "nullable": true
+      },
+      "/visible/*": {
+        "ty": "uint64"
       }
     },
     "request:fs.delete": {
@@ -10983,6 +11025,36 @@
       }
     },
     "request:memory-report": {},
+    "request:memory.limit": {
+      "/level": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "critical",
+          "normal",
+          "warning"
+        ]
+      },
+      "/mode": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "aggressive",
+          "conservative",
+          "medium",
+          "off"
+        ]
+      },
+      "/override": {
+        "ty": "enum",
+        "nullable": true,
+        "values": [
+          "critical",
+          "normal",
+          "warning"
+        ]
+      }
+    },
     "request:mint-terminal-renderer": {
       "/surface": {
         "ty": "uint64",
@@ -11994,6 +12066,16 @@
       },
       "/title": {
         "ty": "string",
+        "required": true
+      }
+    },
+    "request:open-stream": {
+      "/page": {
+        "ty": "string",
+        "required": true
+      },
+      "/stream": {
+        "ty": "uint16",
         "required": true
       }
     },
@@ -15698,6 +15780,12 @@
       "/data/page_operations/read/*": {
         "ty": "string"
       },
+      "/data/page_streams": {
+        "ty": "literal",
+        "values": [
+          "true"
+        ]
+      },
       "/data/user_origin_allowed": {
         "ty": "boolean",
         "required": true
@@ -15728,6 +15816,16 @@
     "response:close-screen-group": {
       "/data": {
         "ty": "json",
+        "required": true
+      }
+    },
+    "response:close-stream": {
+      "/data/closed": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/stream": {
+        "ty": "uint16",
         "required": true
       }
     },
@@ -19306,6 +19404,65 @@
       }
     },
     "response:detach-client": {},
+    "response:energy.set": {
+      "/data/changed": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/saver": {
+        "ty": "boolean",
+        "required": true
+      }
+    },
+    "response:energy.status": {
+      "/data/offForNow": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/override": {
+        "ty": "boolean",
+        "required": true,
+        "nullable": true
+      },
+      "/data/reading": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/reason": {
+        "ty": "enum",
+        "required": true,
+        "nullable": true,
+        "values": [
+          "battery",
+          "lowPowerMode",
+          "setting",
+          "thermal"
+        ]
+      },
+      "/data/saver": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/setting": {
+        "ty": "enum",
+        "required": true,
+        "nullable": true,
+        "values": [
+          "always",
+          "auto",
+          "off",
+          "onBattery"
+        ]
+      },
+      "/data/source": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "app",
+          "daemon"
+        ]
+      }
+    },
     "response:export-layout": {
       "/data/layout": {
         "ty": "tagged_union|object",
@@ -19425,6 +19582,17 @@
       "/data": {
         "ty": "json",
         "required": true
+      }
+    },
+    "response:frontend.visibility.set": {
+      "/data/released": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/visible": {
+        "ty": "uint64",
+        "required": true,
+        "nullable": true
       }
     },
     "response:fs.delete": {},
@@ -21320,6 +21488,21 @@
         "required": true
       }
     },
+    "response:memory.limit": {
+      "/data/changed": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/level": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "critical",
+          "normal",
+          "warning"
+        ]
+      }
+    },
     "response:mint-terminal-renderer": {
       "/data/endpoint": {
         "ty": "string",
@@ -22014,6 +22197,45 @@
     "response:notify": {
       "/data/notification": {
         "ty": "uint64",
+        "required": true
+      }
+    },
+    "response:open-stream": {
+      "/data/page": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/page_operations": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/page_operations/confirm": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/page_operations/confirm/*": {
+        "ty": "string"
+      },
+      "/data/page_operations/gesture": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/page_operations/gesture/*": {
+        "ty": "string"
+      },
+      "/data/page_operations/read": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/page_operations/read/*": {
+        "ty": "string"
+      },
+      "/data/relay_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/stream": {
+        "ty": "uint16",
         "required": true
       }
     },

@@ -277,6 +277,21 @@ class SnifferNameTests(unittest.TestCase):
         )
         self.assertEqual(self.names(source), {"by-const", "literal", "listed"})
 
+    def test_a_route_over_a_const_list_serves_its_names(self) -> None:
+        source = (
+            'const SET: &str = "energy.set";\n'
+            'const COMMANDS: [&str; 2] = [SET, "energy.status"];\n'
+            "const ROUTES: &[Route] = &[Route {\n"
+            "    names: &[crate::server::routes::RouteName::OneOf(&COMMANDS)],\n"
+            "    stage: FrameStage::Route,\n"
+            "    entry: handle,\n"
+            "}];\n"
+        )
+        self.assertEqual(self.names(source), {"energy.set", "energy.status"})
+        # A list the module does not declare cannot be read: it fails.
+        with self.assertRaisesRegex(SNIFFERS.SnifferNameError, "not a const"):
+            self.names("const ROUTES: &[Route] = &[Route { names: &[RouteName::OneOf(&ELSEWHERE)] }];\n")
+
     def test_guard_arms_matches_and_command_expressions(self) -> None:
         self.assertEqual(
             self.names('fn f() { match cmd { "a" if ok => 1, "b" => 2, _ => 0 } }'), {"a", "b"}
@@ -554,6 +569,17 @@ class LiveSchemaTests(unittest.TestCase):
         fields["keep"].pop("default")
         self.validate(document, self.inventory)
 
+    def test_struct_fields_take_their_serde_rename(self) -> None:
+        fields = CHECKER._parse_rust_fields(
+            '    #[serde(default, rename = "offForNow")]\n'
+            "    off_for_now: Option<bool>,\n"
+            '    #[serde(rename_all = "camelCase")]\n'
+            "    plain: bool,\n",
+            "Rust struct Fixture",
+        )
+        self.assertEqual(set(fields), {"offForNow", "plain"})
+        self.assertEqual(fields["offForNow"].rust_type, "Option<bool>")
+
     def test_struct_fields_accept_restricted_visibility(self) -> None:
         fields = CHECKER._parse_rust_fields(
             "    pub(super) conversation: String,\n"
@@ -800,7 +826,17 @@ struct SurfaceParams {
         self.assertEqual(set(fields["loopback-open"]), {"stream", "host", "port", "window"})
         self.assertEqual(set(fields["loopback-data"]), {"stream", "data"})
         self.assertEqual(set(fields["loopback-status"]), set())
-        self.assertEqual(set(fields["client-hello"]), {"role", "install_id", "page", "proof"})
+        self.assertEqual(
+            set(fields["client-hello"]),
+            {"role", "install_id", "page", "proof", "features", "streams"},
+        )
+        # Page streams and the route modules the table lists by request struct.
+        self.assertEqual(set(fields["open-stream"]), {"stream", "page"})
+        self.assertEqual(set(fields["close-stream"]), {"stream"})
+        self.assertEqual(set(fields["energy.set"]), {"saver", "reason", "offForNow"})
+        self.assertEqual(set(fields["energy.status"]), set())
+        self.assertEqual(set(fields["memory.limit"]), {"level", "mode", "override"})
+        self.assertEqual(set(fields["frontend.visibility.set"]), {"visible"})
         # The owner fence and the publication struct in client_registry/.
         self.assertEqual(
             set(fields["machine-catalog-publish"]),

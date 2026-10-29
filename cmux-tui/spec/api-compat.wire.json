@@ -431,6 +431,10 @@
         "id": 2314,
         "priority": "control"
       },
+      "close-stream": {
+        "id": 521,
+        "priority": "control"
+      },
       "close-surface": {
         "id": 1797,
         "priority": "control"
@@ -743,6 +747,14 @@
         "id": 514,
         "priority": "control"
       },
+      "energy.set": {
+        "id": 278,
+        "priority": "control"
+      },
+      "energy.status": {
+        "id": 279,
+        "priority": "control"
+      },
       "export-layout": {
         "id": 1536,
         "priority": "control"
@@ -777,6 +789,10 @@
       },
       "forget-session": {
         "id": 3337,
+        "priority": "control"
+      },
+      "frontend.visibility.set": {
+        "id": 519,
         "priority": "control"
       },
       "fs.delete": {
@@ -955,6 +971,10 @@
         "id": 277,
         "priority": "background"
       },
+      "memory.limit": {
+        "id": 280,
+        "priority": "control"
+      },
       "mint-terminal-renderer": {
         "id": 778,
         "priority": "control"
@@ -1089,6 +1109,10 @@
       },
       "notify": {
         "id": 1793,
+        "priority": "control"
+      },
+      "open-stream": {
+        "id": 520,
         "priority": "control"
       },
       "page-credential": {

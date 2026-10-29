@@ -246,8 +246,8 @@ class GeneratedClientMixin:
     def client_focus(self, client_id: str) -> ClientFocusResult:
         return self._invoke_command('client-focus', ClientFocusRequest(client_id=client_id))
 
-    def client_hello(self, *, features: Union[ClientHelloFeatures, None, MissingType] = MISSING, install_id: Union[str, MissingType] = MISSING, page: Union[str, None, MissingType] = MISSING, proof: Union[str, MissingType] = MISSING, role: Union[str, MissingType] = MISSING) -> ClientHelloResult:
-        return self._invoke_command('client-hello', ClientHelloRequest(features=features, install_id=install_id, page=page, proof=proof, role=role))
+    def client_hello(self, *, features: Union[ClientHelloFeatures, None, MissingType] = MISSING, install_id: Union[str, MissingType] = MISSING, page: Union[str, None, MissingType] = MISSING, proof: Union[str, MissingType] = MISSING, role: Union[str, MissingType] = MISSING, streams: Union[bool, None, MissingType] = MISSING) -> ClientHelloResult:
+        return self._invoke_command('client-hello', ClientHelloRequest(features=features, install_id=install_id, page=page, proof=proof, role=role, streams=streams))
 
     def close_pane(self, pane: Id, *, end_terminals: Union[bool, MissingType] = MISSING) -> EmptyResult:
         return self._invoke_command('close-pane', ClosePaneRequest(pane=pane, end_terminals=end_terminals))
@@ -260,6 +260,9 @@ class GeneratedClientMixin:
 
     def close_screen_group(self, group: str, *, end_terminals: Union[bool, MissingType] = MISSING) -> JsonValue:
         return self._invoke_command('close-screen-group', CloseScreenGroupRequest(group=group, end_terminals=end_terminals))
+
+    def close_stream(self, stream: int) -> CloseStreamResult:
+        return self._invoke_command('close-stream', CloseStreamRequest(stream=stream))
 
     def close_surface(self, surface: Id) -> EmptyResult:
         return self._invoke_command('close-surface', CloseSurfaceRequest(surface=surface))
@@ -495,6 +498,12 @@ class GeneratedClientMixin:
     def detach_client(self, client: DetachClientTarget, *, surface: Union[Id, None, MissingType] = MISSING, by: Union[SizeDetachActor, None, MissingType] = MISSING) -> EmptyResult:
         return self._invoke_command('detach-client', DetachClientRequest(client=client, surface=surface, by=by))
 
+    def energy_set(self, saver: Union[bool, None], *, offForNow: Union[bool, None, MissingType] = MISSING, reason: Union[EnergySaverReason, None, MissingType] = MISSING) -> EnergySetResult:
+        return self._invoke_command('energy.set', EnergySetRequest(saver=saver, offForNow=offForNow, reason=reason))
+
+    def energy_status(self) -> EnergyStatus:
+        return self._invoke_command('energy.status', EnergyStatusRequest())
+
     def export_layout(self, screen: Union[Id, None, MissingType] = MISSING) -> ExportLayoutResult:
         return self._invoke_command('export-layout', ExportLayoutRequest(screen=screen))
 
@@ -521,6 +530,9 @@ class GeneratedClientMixin:
 
     def forget_session(self, session_id: str, *, force: Union[bool, MissingType] = MISSING) -> JsonValue:
         return self._invoke_command('forget-session', ForgetSessionRequest(session_id=session_id, force=force))
+
+    def frontend_visibility_set(self, visible: Union[List[int], None]) -> FrontendVisibilitySetResult:
+        return self._invoke_command('frontend.visibility.set', FrontendVisibilitySetRequest(visible=visible))
 
     def fs_delete(self, paths: List[str], *, permanent: Union[bool, MissingType] = MISSING) -> FsDeleteResult:
         return self._invoke_command('fs.delete', FsDeleteRequest(paths=paths, permanent=permanent))
@@ -654,6 +666,9 @@ class GeneratedClientMixin:
     def memory_report(self) -> Any:
         return self._invoke_command('memory-report', MemoryReportRequest())
 
+    def memory_limit(self, level: MemoryPressureLevel, mode: MemorySaverMode, *, override: Union[MemoryPressureLevel, None, MissingType] = MISSING) -> MemoryLimitResult:
+        return self._invoke_command('memory.limit', MemoryLimitRequest(level=level, mode=mode, override=override))
+
     def mint_terminal_renderer(self, surface: Id, *, ttl_ms: Union[int, MissingType] = MISSING) -> MintTerminalRendererResult:
         return self._invoke_command('mint-terminal-renderer', MintTerminalRendererRequest(surface=surface, ttl_ms=ttl_ms))
 
@@ -755,6 +770,9 @@ class GeneratedClientMixin:
 
     def notify(self, title: str, body: str, *, level: Union[NotificationLevel, None, MissingType] = MISSING, surface: Union[Id, None, MissingType] = MISSING, source: Union[NotificationSource, None, MissingType] = MISSING) -> NotifyResult:
         return self._invoke_command('notify', NotifyRequest(title=title, body=body, level=level, surface=surface, source=source))
+
+    def open_stream(self, page: str, stream: int) -> OpenStreamResult:
+        return self._invoke_command('open-stream', OpenStreamRequest(page=page, stream=stream))
 
     def page_credential(self, *, page: Union[str, None, MissingType] = MISSING) -> JsonValue:
         return self._invoke_command('page-credential', PageCredentialRequest(page=page))
@@ -1194,6 +1212,7 @@ GeneratedClientMixin.close_pane.__cmux_command__ = COMMANDS['close-pane']
 GeneratedClientMixin.close_provider_managed_workspace.__cmux_command__ = COMMANDS['close-provider-managed-workspace']
 GeneratedClientMixin.close_screen.__cmux_command__ = COMMANDS['close-screen']
 GeneratedClientMixin.close_screen_group.__cmux_command__ = COMMANDS['close-screen-group']
+GeneratedClientMixin.close_stream.__cmux_command__ = COMMANDS['close-stream']
 GeneratedClientMixin.close_surface.__cmux_command__ = COMMANDS['close-surface']
 GeneratedClientMixin.close_tab_group.__cmux_command__ = COMMANDS['close-tab-group']
 GeneratedClientMixin.close_tabs.__cmux_command__ = COMMANDS['close-tabs']
@@ -1272,6 +1291,8 @@ GeneratedClientMixin.delete_terminal_commands.__cmux_command__ = COMMANDS['delet
 GeneratedClientMixin.delete_workspace_group.__cmux_command__ = COMMANDS['delete-workspace-group']
 GeneratedClientMixin.detach_attached_view.__cmux_command__ = COMMANDS['detach-attached-view']
 GeneratedClientMixin.detach_client.__cmux_command__ = COMMANDS['detach-client']
+GeneratedClientMixin.energy_set.__cmux_command__ = COMMANDS['energy.set']
+GeneratedClientMixin.energy_status.__cmux_command__ = COMMANDS['energy.status']
 GeneratedClientMixin.export_layout.__cmux_command__ = COMMANDS['export-layout']
 GeneratedClientMixin.feed_local_handoff_abort.__cmux_command__ = COMMANDS['feed-local-handoff-abort']
 GeneratedClientMixin.feed_local_handoff_begin.__cmux_command__ = COMMANDS['feed-local-handoff-begin']
@@ -1281,6 +1302,7 @@ GeneratedClientMixin.feed_local_read.__cmux_command__ = COMMANDS['feed-local-rea
 GeneratedClientMixin.focus_direction.__cmux_command__ = COMMANDS['focus-direction']
 GeneratedClientMixin.focus_pane.__cmux_command__ = COMMANDS['focus-pane']
 GeneratedClientMixin.forget_session.__cmux_command__ = COMMANDS['forget-session']
+GeneratedClientMixin.frontend_visibility_set.__cmux_command__ = COMMANDS['frontend.visibility.set']
 GeneratedClientMixin.fs_delete.__cmux_command__ = COMMANDS['fs.delete']
 GeneratedClientMixin.fs_list.__cmux_command__ = COMMANDS['fs.list']
 GeneratedClientMixin.fs_mkdir.__cmux_command__ = COMMANDS['fs.mkdir']
@@ -1325,6 +1347,7 @@ GeneratedClientMixin.machine_listening_tcp.__cmux_command__ = COMMANDS['machine-
 GeneratedClientMixin.machine_usage.__cmux_command__ = COMMANDS['machine-usage']
 GeneratedClientMixin.mark_workspaces_provider_managed.__cmux_command__ = COMMANDS['mark-workspaces-provider-managed']
 GeneratedClientMixin.memory_report.__cmux_command__ = COMMANDS['memory-report']
+GeneratedClientMixin.memory_limit.__cmux_command__ = COMMANDS['memory.limit']
 GeneratedClientMixin.mint_terminal_renderer.__cmux_command__ = COMMANDS['mint-terminal-renderer']
 GeneratedClientMixin.mint_terminal_renderer_by_terminal.__cmux_command__ = COMMANDS['mint-terminal-renderer-by-terminal']
 GeneratedClientMixin.move_bookmark.__cmux_command__ = COMMANDS['move-bookmark']
@@ -1359,6 +1382,7 @@ GeneratedClientMixin.new_tab.__cmux_command__ = COMMANDS['new-tab']
 GeneratedClientMixin.new_workspace.__cmux_command__ = COMMANDS['new-workspace']
 GeneratedClientMixin.note_size_activity.__cmux_command__ = COMMANDS['note-size-activity']
 GeneratedClientMixin.notify.__cmux_command__ = COMMANDS['notify']
+GeneratedClientMixin.open_stream.__cmux_command__ = COMMANDS['open-stream']
 GeneratedClientMixin.page_credential.__cmux_command__ = COMMANDS['page-credential']
 GeneratedClientMixin.pairing_response.__cmux_command__ = COMMANDS['pairing-response']
 GeneratedClientMixin.pane_neighbor.__cmux_command__ = COMMANDS['pane-neighbor']

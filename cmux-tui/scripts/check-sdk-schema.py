@@ -53,6 +53,12 @@ RUNTIME_NAMED_REQUEST_REFS = {
     "SortDirection": "FsSortDirection",
     "Filter": "FsFilter",
     "EntryKind": "FsEntryKind",
+    # energy.set's reason (server/energy_op.rs SaverReason).
+    "SaverReason": "EnergySaverReason",
+    # memory.limit's level and Memory Saver mode (server/memory_limit.rs
+    # WireLevel, memory.rs SaverMode).
+    "WireLevel": "MemoryPressureLevel",
+    "SaverMode": "MemorySaverMode",
 }
 
 # Named request types whose server struct is the authority for their fields:
@@ -227,6 +233,11 @@ def _parse_rust_fields(body: str, label: str) -> dict[str, RuntimeField]:
         if not field:
             fail(f"cannot parse {label} line {line!r}")
         name, rust_type = field.groups()
+        # `#[serde(rename = "...")]` names the field on the wire.
+        for attribute_text in attributes:
+            renamed = re.search(r'(?<![\w])rename\s*=\s*"([^"]+)"', attribute_text)
+            if renamed:
+                name = renamed.group(1)
         if name in fields:
             fail(f"duplicate {label} field {name!r}")
         fields[name] = RuntimeField(rust_type, tuple(attributes))

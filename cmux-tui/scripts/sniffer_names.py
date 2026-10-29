@@ -12,7 +12,9 @@ client_hello.rs's HelloGate. SNIFFER_MODULES lists them. Each one serves:
   expression that reads `"cmd"` (`cmd` or `command`, also as `&*cmd`,
   `cmd.as_str()` or `command.as_deref()`, is the command name);
 - each name its feature route lists (server/routes.rs): `RouteName::Exact(x)`
-  and the names of `RouteName::OneOf(&[x, y])`, `x` a literal or a `&str` const;
+  and the names of `RouteName::OneOf(&[x, y])` or of `RouteName::OneOf(&LIST)`
+  with `LIST` the module's own `const LIST: [&str; N] = [x, y]`, `x` a literal
+  or a `&str` const;
 - the names of the list it matches by, for the modules in NAME_LISTS.
 
 The scan reads source text, so it can miss a form it does not know. Two rules
@@ -106,6 +108,7 @@ _GUARD = re.compile(r"\bif\b")
 # The names a module's feature route lists (server/routes.rs).
 _ROUTE_EXACT = re.compile(rf"\bRouteName::Exact\(\s*({_VALUE})\s*\)")
 _ROUTE_ONE_OF = re.compile(rf"\bRouteName::OneOf\(\s*&\s*\[([^\]]*)\]\s*\)")
+_ROUTE_ONE_OF_CONST = re.compile(r"\bRouteName::OneOf\(\s*&\s*([A-Z][A-Z0-9_]*)\s*\)")
 
 
 class SnifferNameError(ValueError):
@@ -283,6 +286,17 @@ def literal_names(
         names.add(found.group(1))
     for found in _ROUTE_ONE_OF.finditer(code):
         names.add_all(found.group(1))
+    for found in _ROUTE_ONE_OF_CONST.finditer(code):
+        array = re.search(
+            rf"\bconst\s+{found.group(1)}\s*:\s*\[&(?:'static\s+)?str;\s*\d+\]\s*=\s*\[([^\]]*)\]",
+            code,
+        )
+        if array is None:
+            raise SnifferNameError(
+                f"{label}: its route lists {found.group(1)}, which is not a const [&str; N] "
+                "of this module"
+            )
+        names.add_all(array.group(1))
     for found in _MATCH.finditer(code):
         scrutinee = found.group(1)
         if not _CMD_SCRUTINEE.fullmatch(scrutinee) and '"cmd"' not in scrutinee:

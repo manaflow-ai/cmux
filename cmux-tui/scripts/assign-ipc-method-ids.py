@@ -74,11 +74,11 @@ FAMILIES: dict[str, tuple[int, str, tuple[str, ...]]] = {
         "debug-daemon-locks", "server-threads", "server-blocking",
         "subscribe-activity", "ws-listen", "page-credential", "pairing-response",
         "set-default-colors", "set-window-title", "clear-window-title", "trace-*",
-        "memory-report",
+        "memory-report", "energy.*", "memory.limit",
     )),
     "clients": (0x02, "Connected clients and their focus.", (
         "set-client-info", "list-clients", "detach-client", "client-focus", "report-focus",
-        "client-hello", "bridge-hello",
+        "client-hello", "bridge-hello", "open-stream", "close-stream", "frontend.visibility.set",
     )),
     "terminal-io": (0x03, "Terminal input, output streams, screen reads and terminal requests to the frontend.", (
         "send", "send-key", "paste-image", "read-screen", "read-scrollback", "wait-for", "copy",
@@ -306,7 +306,7 @@ READ_ONLY = (
     "cloud-conversation-snapshot", "cloud-conversation-history",
     "cloud-conversation-thread", "cloud-conversation-runs", "cloud-conversation-run",
     "cloud-participant-avatar-get", "cloud-attachment-read", "feed-local-list", "trace-status",
-    "memory-report",
+    "memory-report", "energy.status",
     "agent-cli-intents-list", "agent-cli-update-job-resolve",
     "agent-session-events", "agent-session-media",
     "loopback-status", "browser-runtime-status",
@@ -344,7 +344,7 @@ MEMORY = (
     # Connection state that ends with the connection: its role and proof, its
     # bridge kind, its loopback streams, its browser hosts and its machine
     # catalog lease.
-    "client-hello", "bridge-hello", "loopback-open", "loopback-data", "loopback-credit",
+    "client-hello", "bridge-hello", "open-stream", "close-stream", "loopback-open", "loopback-data", "loopback-credit",
     "loopback-shutdown", "loopback-close", "browser-runtime-start", "browser-runtime-stop", "machine-catalog-publish",
     # Writes the lease's account, bumps its generation and reconnects sockets.
     "cloud-selfhost-info",
@@ -377,6 +377,10 @@ MEMORY = (
     "agent-transfer-commit", "agent-transfer-abort",
     "access-request", "access-request-status", "access-request-answer",
     "script-*", "agent-update-apply",
+    # The app's Energy Saver override and memory vote, and its visible
+    # surfaces: each lasts as long as the connection that set it ("Turn Off
+    # for Now" outlives it, in daemon memory only); nothing is journaled.
+    "energy.set", "memory.limit", "frontend.visibility.set",
 )
 # apps-set and the App Store mutations of apps-store write apps.json before
 # they apply and reply (apps/supervisor.rs `set`). The agent CLI update ledger
@@ -453,6 +457,8 @@ CLI_CALL_HELPER_SENDS: dict[str, str] = {
     "agent-transfer-abort": _MOVE_PUMP,
     "access-request": _ACCESS_CLI, "access-request-status": _ACCESS_CLI,
     "access-request-list": _ACCESS_CLI, "access-request-answer": _ACCESS_CLI,
+    # `cmux energy status` sends the name it reads from a const.
+    "energy.status": "cli/energy.rs",
 }
 
 COMMAND_KEY_ORDER = (

@@ -68,6 +68,20 @@ _RUST_KEYWORDS = {
     "where",
     "while",
     "yield",
+    # Reserved for future use: also not identifiers (a field named
+    # `override`, as memory.limit and EnergyStatus have, must be renamed).
+    "abstract",
+    "become",
+    "box",
+    "do",
+    "final",
+    "gen",
+    "macro",
+    "override",
+    "priv",
+    "typeof",
+    "unsized",
+    "virtual",
 }
 
 
