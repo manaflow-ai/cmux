@@ -36,7 +36,12 @@ enum WorkspaceSetVerbs {
             var facts: ActionContext = []
             // A pane on a canvas screen brings the canvas actions (CanvasHandlers).
             if let pane, pane.workspace?.layoutModel.canvasScreenID(containing: pane.layoutPaneID) != nil { facts.insert(.canvasLayout) }
-            if let key = pane?.currentTabKey, services.agentTabs.existingView(key) != nil { facts.insert(.agentPaneFocused) }
+            // A pane target brings the chat it shows; a tab target only its own chat, shown in its
+            // pane or not (`agent set-model --target tab:…`), never another tab's its pane shows.
+            // Either needs a pane a window shows, as the handlers' `ActionScope.pane` does: a parked
+            // workspace's cached chat is not one.
+            let chatKey = pane == nil ? nil : target.kind == .tab ? target.id : pane?.currentTabKey
+            if let chatKey, services.agentTabs.existingView(chatKey) != nil { facts.insert(.agentPaneFocused) }
             return facts
         }
     }
