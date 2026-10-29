@@ -12,7 +12,9 @@ enum RecentTextFileLines {
     /// With `endingAt`, the window ends at that byte offset instead of the
     /// file's end: for an append-only file such as a Claude transcript, exactly
     /// what it held when its size was `endingAt`. A file now shorter than that
-    /// was truncated or replaced, and gives `nil`.
+    /// was truncated or replaced, and gives `nil`. A record is whole only with
+    /// its newline: the bytes after the window's last newline, a record cut
+    /// mid-write (maybe inside a multi-byte character), are left out.
     static func read(path: String, maxBytes: UInt64, endingAt end: UInt64? = nil) -> [String]? {
         let expandedPath = NSString(string: path).expandingTildeInPath
         guard let handle = try? FileHandle(forReadingFrom: URL(fileURLWithPath: expandedPath)) else {
@@ -28,6 +30,12 @@ enum RecentTextFileLines {
             guard readStart > 0 else { return true }
             guard let newline = data.firstIndex(of: 0x0A) else { return false }
             return data[data.index(after: newline)...].contains { !isASCIIWhitespace($0) }
+        }
+
+        func completeRecords(_ data: Data) -> Data {
+            guard end != nil else { return data }
+            guard let lastNewline = data.lastIndex(of: 0x0A) else { return Data() }
+            return Data(data[...lastNewline])
         }
 
         func readWindow(from start: UInt64, to stop: UInt64) throws -> Data? {
@@ -47,7 +55,7 @@ enum RecentTextFileLines {
             }
             let maxWindowBytes = maxBytes > UInt64.max / 8 ? UInt64.max : maxBytes * 8
 
-            while !hasCompleteLineAfterLeadingBoundary(data, readStart: readStart), readStart > 0 {
+            while !hasCompleteLineAfterLeadingBoundary(completeRecords(data), readStart: readStart), readStart > 0 {
                 let currentWindowBytes = size - readStart
                 guard currentWindowBytes < maxWindowBytes else { break }
                 let remainingWindowBytes = maxWindowBytes - currentWindowBytes
@@ -61,6 +69,7 @@ enum RecentTextFileLines {
                 data = expandedData
             }
 
+            data = completeRecords(data)
             if readStart > 0, let newline = data.firstIndex(of: 0x0A) {
                 data.removeSubrange(data.startIndex...newline)
             }
@@ -73,11 +82,12 @@ enum RecentTextFileLines {
         }
     }
 
-    /// The byte size of the file at `path`, from its metadata, without reading
-    /// it; `nil` when it cannot be read.
+    /// The byte size of the file ``read(path:maxBytes:endingAt:)`` reads at
+    /// `path`, following a symlink as it does, from `stat(2)` without reading
+    /// the content; `nil` when it cannot be read.
     static func byteSize(path: String) -> UInt64? {
-        let expandedPath = NSString(string: path).expandingTildeInPath
-        guard let attributes = try? FileManager.default.attributesOfItem(atPath: expandedPath) else { return nil }
-        return (attributes[.size] as? NSNumber)?.uint64Value
+        var info = stat()
+        guard stat(NSString(string: path).expandingTildeInPath, &info) == 0 else { return nil }
+        return UInt64(exactly: info.st_size)
     }
 }

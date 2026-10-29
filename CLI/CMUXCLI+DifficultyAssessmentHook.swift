@@ -2,9 +2,10 @@ import CMUXAgentLaunch
 import Foundation
 
 /// What the difficulty pass notes about the turn when the `Stop` hook starts,
-/// before auto-naming's call, which can run a minute. It reads no transcript
-/// content: the hook runs for every cmux Claude user, session priority on or
-/// off.
+/// right after it parses its input: before the session store's lock, which
+/// the sync `Stop` hook can hold at turn end, and before auto-naming's call,
+/// which can run a minute. It reads no transcript content: the hook runs for
+/// every cmux Claude user, session priority on or off.
 struct ClaudeDifficultyTurnStart {
     /// The reply the `Stop` input carries; `nil` when it carries none, and the
     /// pass then waits for the reply in the transcript.
@@ -14,21 +15,31 @@ struct ClaudeDifficultyTurnStart {
     /// disk then; a prompt the user sends during naming's call lies past them.
     var transcriptPath: String?
     var transcriptSize: UInt64?
+
+    /// With a reply but no transcript path in the input: `path`, the session
+    /// record's, measured now, as soon as it is known.
+    func withTranscriptFallback(_ path: String?) -> ClaudeDifficultyTurnStart {
+        guard stopReply != nil, transcriptPath == nil, let path else { return self }
+        return ClaudeDifficultyTurnStart(
+            stopReply: stopReply,
+            transcriptPath: path,
+            transcriptSize: RecentTextFileLines.byteSize(path: path)
+        )
+    }
 }
 
 extension CMUXCLI {
-    /// Notes what the difficulty pass needs from the turn before auto-naming
-    /// runs: with the `Stop` input's reply, the transcript's path and size,
-    /// from its metadata.
-    func claudeDifficultyTurnStart(
-        parsedInput: ClaudeHookParsedInput,
-        mappedSession: ClaudeHookSessionRecord?
-    ) -> ClaudeDifficultyTurnStart {
+    /// Notes what the difficulty pass needs from the turn as soon as the hook
+    /// input is parsed: with the `Stop` input's reply, the input's transcript
+    /// path and its size, from `stat(2)`. Without a path in the input, the
+    /// session record's is measured once it is looked up
+    /// (``ClaudeDifficultyTurnStart/withTranscriptFallback(_:)``).
+    func claudeDifficultyTurnStart(parsedInput: ClaudeHookParsedInput) -> ClaudeDifficultyTurnStart {
         // The raw input: the parsed `object` cuts `last_assistant_message` to 240 characters.
         guard let reply = DifficultyAssessmentEngine.stopReply(fromHookInput: parsedInput.rawObject) else {
             return ClaudeDifficultyTurnStart()
         }
-        let transcriptPath = parsedInput.transcriptPath ?? mappedSession?.transcriptPath
+        let transcriptPath = parsedInput.transcriptPath
         return ClaudeDifficultyTurnStart(
             stopReply: reply,
             transcriptPath: transcriptPath,
@@ -40,8 +51,7 @@ extension CMUXCLI {
     /// end. Independent of auto-naming: it probes the app on its own, never
     /// throws, and every failure path is silent so it cannot affect the hook's
     /// exit status or the naming pass that runs before it. `turnStart` is what
-    /// ``claudeDifficultyTurnStart(parsedInput:mappedSession:)`` read before
-    /// that pass.
+    /// ``claudeDifficultyTurnStart(parsedInput:)`` noted when the hook started.
     func runClaudeDifficultyAssessmentHook(
         parsedInput: ClaudeHookParsedInput,
         mappedSession: ClaudeHookSessionRecord?,

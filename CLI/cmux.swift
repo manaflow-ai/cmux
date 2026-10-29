@@ -31272,6 +31272,11 @@ struct CMUXCLI {
         hookRouting.allowsPidProbe = liveProcessIdentityAllowed
         let rawInput = String(data: FileHandle.standardInput.readDataToEndOfFile(), encoding: .utf8) ?? ""
         let parsedInput = parseClaudeHookInput(rawInput: rawInput)
+        // The difficulty rating's prompt is the transcript as it was when the turn ended: note its
+        // size before anything below waits on the session store's lock.
+        let difficultyTurnStart = subcommand == "auto-name"
+            ? claudeDifficultyTurnStart(parsedInput: parsedInput)
+            : ClaudeDifficultyTurnStart()
         let hookCwd = relayOrigin ? nil : parsedInput.cwd
         let hookTranscriptPath = relayOrigin ? nil : parsedInput.transcriptPath
         let sessionStore = ClaudeHookSessionStore()
@@ -31940,9 +31945,7 @@ struct CMUXCLI {
             didSendFeedTelemetry = true
             do {
                 let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
-                // Before naming's call, which can run a minute: a prompt the user sends
-                // meanwhile must not be taken for this turn's.
-                let difficultyTurnStart = claudeDifficultyTurnStart(parsedInput: parsedInput, mappedSession: mappedSession)
+                let difficultyTurn = difficultyTurnStart.withTranscriptFallback(mappedSession?.transcriptPath)
                 guard let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
                     preferred: mappedSession?.workspaceId,
                     fallback: workspaceArg,
@@ -31976,7 +31979,7 @@ struct CMUXCLI {
                 runClaudeDifficultyAssessmentHook(
                     parsedInput: parsedInput,
                     mappedSession: mappedSession,
-                    turnStart: difficultyTurnStart,
+                    turnStart: difficultyTurn,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
                     sessionStore: sessionStore,
