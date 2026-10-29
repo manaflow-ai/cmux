@@ -3,7 +3,8 @@ import { readFileSync } from "node:fs";
 import { JSDOM } from "jsdom";
 
 const css = readFileSync(
-  new URL("../src/agent-session/acpmux/conversation/conversation.css", import.meta.url),
+  process.env.TRANSCRIPT_HOVER_CSS ??
+    new URL("../src/agent-session/acpmux/conversation/conversation.css", import.meta.url),
   "utf8",
 );
 const dom = new JSDOM("<!doctype html>");
