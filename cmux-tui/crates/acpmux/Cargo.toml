@@ -28,6 +28,7 @@ cmux-chat-index.workspace = true
 cmux-coderouter.workspace = true
 cmux-local-auth.workspace = true
 cmux-link.workspace = true
+cmux-wg.workspace = true
 cmux-git.workspace = true
 cmux-worktree-care.workspace = true
 anyhow = "1"
@@ -57,6 +58,7 @@ tokio-util = { version = "0.7", features = ["codec"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 uuid = { version = "1.20", features = ["v7"] }
+x25519-dalek.workspace = true
 libc = "0.2"
 notify.workspace = true
 # Session tokens and secrets (the OS generator on every platform).
