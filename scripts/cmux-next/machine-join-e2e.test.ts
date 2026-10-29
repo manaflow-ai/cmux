@@ -757,21 +757,23 @@ describe("cancellation, the sweep, masking and the scan", () => {
     let cancelled: Promise<void> | undefined
     let cancelAt = 0
     let readsBefore = 0
+    let cleanedAt = 0
     const w = world({
       holdJoin: true,
       launcherOnly: true,
       joinLingersMs: 60_000,
-      duringJoin: () => queueMicrotask(() => ((cancelAt = w.now()), (readsBefore = w.listAt.length), (cancelled = cancel!())))
+      duringJoin: () => queueMicrotask(() => ((cancelAt = w.now()), (readsBefore = w.listAt.length), (cancelled = cancel!().then(() => void (cleanedAt = w.now())))))
     })
+    // The run itself returns only once the stuck join ends; in production main() has exited 9 s after
+    // the signal. What must hold is that cleanup, revoke search included, is done within the budget.
     const e = await runE2E(opts, env, w.deps, (c) => (cancel = c))
-    const end = w.now()
     await cancelled
     expect(e.reason).toContain("the join process had not stopped before the search for its machine")
     const searches = w.listAt.slice(readsBefore)
     for (const t of searches) expect(t - cancelAt).toBeLessThanOrEqual(CANCEL_BUDGET_MS - REVOKE_RESERVE_MS)
     // Paced reads, never back to back as the deadline nears.
     for (let i = 1; i < searches.length; i++) expect(searches[i]! - searches[i - 1]!).toBeGreaterThanOrEqual(100)
-    expect(end - cancelAt).toBeLessThanOrEqual(CANCEL_BUDGET_MS)
+    expect(cleanedAt - cancelAt).toBeLessThanOrEqual(CANCEL_BUDGET_MS)
     assertNoSecretEscaped(w)
   })
 
