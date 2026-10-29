@@ -53,8 +53,7 @@ Sessions (--sessions):
            Chromium pages elsewhere); its 10 busy terminals are stopped (Ctrl-C) before the settle, so the
            terminals are quiet
   tabs-static   the launch pane with 5 WebKit and 10 Chromium tabs hidden behind 1 shown static Chromium tab,
-                every page tab_pages' static page; the settle lasts past `browser.freezeHiddenTabs`; after the
-                window one hidden Chromium tab is shown and the roles read again (Reshow, below)
+                every page tab_pages' static page; the settle lasts past `browser.freezeHiddenTabs`
   minimized     the light session with its window minimized (action minimizeWindow)
   occluded      the light session with benchhelper's opaque full-screen window over it (`benchhelper cover`: another
                 app that activates and shows its key window in front; debug.window_list must report every main window
@@ -134,17 +133,11 @@ rows.
 Roles (D16 of plans/cmux-next/chrome-parity/p14-energy.md, task 106): at the window's end each task's base priority
 (proc_pidinfo pti_priority) and the kernel's darwinbg bit give its observed role (darwinbg, suppressed, default:
 observed_role). The app and the Chromium Host (task 128) are napped while no window shows; renderers the debug.webui census marks hidden (or every
-renderer while no window shows) and the extension process are best-effort (Chrome's kBestEffort); in tabs-static
-(`judge_shown_renderers`) a renderer it marks shown is not backgrounded (kUserBlocking, task 107); the daemon and
+renderer while no window shows) and the extension process are best-effort (Chrome's kBestEffort); the daemon and
 terminal hosts are never backgrounded while a terminal shows; pooled acpmux agents are PRIO_DARWIN_BG. A budget
 `role` (napped, best-effort, background, not-background; null: not judged) overrides the default. Each mismatch is
 one `IDLE-BUDGET-OVER <session> <kind> role owner=role pids=... observed=... expected=...` line; a role that could not
 be read and a renderer of unknown visibility are IDLE-BUDGET-NOT-JUDGED.
-Reshow (task 107, tabs-static's `reshow`): after the window and its samples, a hidden Chromium tab whose renderer was
-read best-effort is selected (action tab.focus, as a click does) and the roles are read again until its renderer is
-not backgrounded and the tab shown before is best-effort, or RESHOW_WAIT_S passes (reshow_tab, IDLE-BUDGET-RESHOW).
-Each renderer that does not change is one `IDLE-BUDGET-OVER tabs-static cef-renderer role owner=role pids=...
-observed=... expected=... phase=reshow` line (reshow_audit); a reshow that could not run is IDLE-BUDGET-NOT-JUDGED.
 
 A session that fails (STRESS refuses a window under the Dock, a launch fails) is recorded with its exit
 code (`session_exits` in the report) and the others still run; the script exits 0 unless --gate.
@@ -547,7 +540,6 @@ def measure(app, instance, seconds, read_anim=None, attribute=False, shown_tab=N
     if helper is not None:
         coalition = coalition_without(coalition, helper0, helper1, elapsed)
     result = {"seconds": round(elapsed, 1), "processes": rows, "ends": {"start": start, "end": end},
-              "browser_tabs": census_tab_pids(census),
               "exited": exited_rows(first, last, WindowKinds(pids.rows, census, shown_tab), network=network, logs=logs),
               "coalition": coalition,
               "readers": {"network": network is not NOT_MEASURED, "log": logs is not NOT_MEASURED},
@@ -1738,8 +1730,6 @@ def summarize(session, result, budget):
         entry["over"], entry["not_judged"] = [], []
         return entry
     roles, role_notes = role_audit(session, result["processes"], budget)
-    reshown, reshow_notes = reshow_audit(session, result.get("reshow"))
-    roles, role_notes = roles + reshown, role_notes + reshow_notes
     entry["role_mismatches"] = roles
     entry["over"] = [list(o) for o in over_budget(session, kinds, budget, window_facts(entry))]
     entry["over"] += [[m["kind"], "role", m["observed"], m["expected"]] for m in roles]
@@ -2117,8 +2107,7 @@ def ratio_over(of, field, kinds, vs, reference, max_ratio, suffix, floor=None):
 #
 # Chrome's model (base/process/process_mac.cc `Process::SetPriority`; RenderProcessHostImpl::UpdateProcessPriority
 # in content/browser/renderer_host/render_process_host_impl.cc): a hidden or spare renderer is kBestEffort
-# (TASK_BACKGROUND_APPLICATION + TASK_SUPPRESSION_POLICY: low CPU priority), a shown one kUserBlocking
-# (TASK_FOREGROUND_APPLICATION; kUserVisible maps to it while kUserVisibleProcessPriority is off, its default). App Nap suppresses a
+# (TASK_BACKGROUND_APPLICATION + TASK_SUPPRESSION_POLICY: low CPU priority), a shown one is not. App Nap suppresses a
 # hidden app the same way. The audit reads each task's role at the window's end (procs.priorities: its base priority
 # and darwinbg bit, never its busiest thread's priority) and compares it with D16 or the budget's `role`.
 
@@ -2216,10 +2205,7 @@ def renderer_visibility(row):
 def expected_role(session, row, budget=None, sessions=None):
     """The role D16 expects of one process in `session`, or None when it is not judged: the budget's `role` wins (an
     explicit null: not judged); a busy kind or a reference session is not judged; a renderer is best-effort when the
-    census marks it hidden or no window shows; in a session with `judge_shown_renderers` (tabs-static) it is not
-    backgrounded when a window shows and the census marks it shown (Chrome's kUserBlocking for a visible widget:
-    RenderProcessPriority::GetProcessPriority in content/browser/child_process_launcher.cc); otherwise a shown
-    renderer, or one of unknown visibility, is not judged."""
+    census marks it hidden or no window shows, and not judged when it is shown or its visibility is unknown."""
     budget = budget or {}
     name = row["kind"]
     limit = budget_role(budget, session, name)
@@ -2232,9 +2218,6 @@ def expected_role(session, row, budget=None, sessions=None):
         return "best-effort"
     if name == "cef-renderer" and (facts.get("shown") is False or renderer_visibility(row) == "hidden"):
         return "best-effort"
-    if (name == "cef-renderer" and facts.get("judge_shown_renderers") and facts.get("shown")
-            and renderer_visibility(row) == "shown"):
-        return "not-background"
     # The Chromium Host holds its App Nap activity only while a page shows (host_page_activity.h, task 128).
     if facts.get("shown") is False and name in ("app", "cef-host"):
         return "napped"
@@ -2275,130 +2258,8 @@ def role_audit(session, rows, budget=None, sessions=None):
 def role_over_line(session, mismatch):
     """One Q9 work item: `IDLE-BUDGET-OVER <session> <kind> role owner=role pids=... observed=... expected=...`."""
     pids = ",".join(str(pid) for pid in mismatch["pids"])
-    phase = f" phase={mismatch['phase']}" if mismatch.get("phase") else ""
     return (f"IDLE-BUDGET-OVER {session} {mismatch['kind']} role owner=role pids={pids} "
-            f"observed={mismatch['observed']} expected={mismatch['expected']}{phase}")
-
-
-# The reshow step (task 107). Chrome changes a renderer's priority on every visibility change of its widgets
-# (RenderWidgetHostImpl::WasShown / WasHidden -> RenderProcessHostImpl::UpdateProcessPriority in
-# content/browser/renderer_host/render_process_host_impl.cc): a renderer that went to kBestEffort while its tab was
-# hidden comes back to kUserBlocking when the tab is shown, and the tab hidden by that switch goes to kBestEffort.
-# The window's own role read sees only the steady state, so tabs-static shows a hidden tab after its window and reads
-# the roles again.
-RESHOW_WAIT_S = 10
-
-
-def census_tab_pids(census):
-    """{census name: sorted renderer pids} of the Chromium browser tabs in a debug.webui reply."""
-    return {tab.get("tab"): sorted(host_pids(tab)) for tab in census_rows(census, "browser_tabs")
-            if isinstance(tab.get("tab"), str)}
-
-
-def reshow_candidate(rows, browser_tabs, shown_tab):
-    """(tab, its renderer pids, None) of the first Chromium browser tab (census name order) that is not the shown
-    one, shares no renderer with it, and whose every renderer the window read hidden and best-effort; (None, None,
-    why) when there is none."""
-    previous = set((shown_tab or {}).get("tabs") or [])
-    if not browser_tabs or not previous:
-        return None, None, "no census browser_tabs or no shown tab"
-    by_pid = {row["pid"]: row for row in rows}
-    previous_pids = {pid for name in previous for pid in browser_tabs.get(name, [])}
-    for name in sorted(browser_tabs):
-        pids = browser_tabs[name]
-        if name in previous or not pids or previous_pids & set(pids):
-            continue
-        if all(by_pid.get(pid, {}).get("kind") == "cef-renderer" and by_pid[pid].get("hidden") is True
-               and by_pid[pid].get("role") in ROLE_EXPECTATIONS["best-effort"] for pid in pids):
-            return name, pids, None
-    return None, None, "no hidden Chromium tab was read best-effort at the window's end"
-
-
-def tab_selected(app, tab):
-    """Whether browser.page.tabs reports the tab `tab` selected in its pane."""
-    reply = read_rpc(app, "browser.page.tabs", {"all": True})
-    tabs = reply.get("tabs") if isinstance(reply.get("tabs"), list) else []
-    return any(isinstance(t, dict) and t.get("id") == tab and t.get("selected") is True for t in tabs)
-
-
-def reshow_settled(after, priority):
-    """Whether, in one priority read, every renderer of the shown tab is not backgrounded and every renderer of the
-    tab shown before is best-effort."""
-    want = {"tab": ROLE_EXPECTATIONS["not-background"], "previous": ROLE_EXPECTATIONS["best-effort"]}
-    return all(observed_role(priority.get(item["pid"])) in want[item["of"]] for item in after)
-
-
-def reshow_tab(app, rows, browser_tabs, shown_tab, read_priorities=procs.priorities, clock=time.monotonic,
-               sleep=time.sleep, wait_s=RESHOW_WAIT_S):
-    """Shows a hidden Chromium tab (reshow_candidate) through the action path a click takes (tab.focus) and reads
-    the roles again. Waits up to `wait_s` for browser.page.tabs to report it selected, takes the renderer pids of it
-    and of the tab shown before from a fresh census, then reads their priorities until reshow_settled or `wait_s`
-    passes. Returns {tab, previous, before: [{pid, of, role}] from the window's read, selected, after: [{pid, of,
-    priority}], waited_s} for reshow_audit, or {"skipped": why} (no candidate, or the app refused the switch)."""
-    tab, pids, why = reshow_candidate(rows, browser_tabs, shown_tab)
-    if tab is None:
-        return {"skipped": why}
-    previous = sorted((shown_tab or {}).get("tabs") or [])
-    roles = {row["pid"]: row.get("role") for row in rows}
-    before_previous = sorted({pid for name in previous for pid in browser_tabs.get(name, [])})
-    record = {"tab": tab, "previous": previous,
-              "before": [{"pid": pid, "of": "tab", "role": roles.get(pid)} for pid in pids]
-                        + [{"pid": pid, "of": "previous", "role": roles.get(pid)} for pid in before_previous]}
-    try:
-        run_action(app, "tab.focus", target=f"tab:{tab}", focus=True)
-    except SessionShapeError as error:  # the window is measured; a refused switch skips only the reshow
-        return {"skipped": str(error)}
-    began = clock()
-    while not tab_selected(app, tab) and clock() - began < wait_s:
-        sleep(0.2)  # bench: bounded wait for the selection to land
-    record["selected"] = tab_selected(app, tab)
-    after_tabs = census_tab_pids(read_rpc(app, "debug.webui"))
-    shown_pids = after_tabs.get(tab, [])
-    hidden_after = sorted({pid for name in previous for pid in after_tabs.get(name, [])} - set(shown_pids))
-    after = [{"pid": pid, "of": "tab"} for pid in shown_pids] + [{"pid": pid, "of": "previous"} for pid in hidden_after]
-    priority = read_priorities([item["pid"] for item in after])
-    while not reshow_settled(after, priority) and clock() - began < wait_s:
-        sleep(0.2)  # bench: bounded wait for Chromium's priority change on show and hide (proc_pidinfo wakes no one)
-        priority = read_priorities([item["pid"] for item in after])
-    record["after"] = [{**item, "priority": priority.get(item["pid"])} for item in after]
-    record["waited_s"] = round(clock() - began, 1)
-    return record
-
-
-def reshow_audit(session, reshow):
-    """([mismatch with phase "reshow"], [not-judged note]) of a reshow_tab record: after the switch every renderer
-    of the shown tab must be not-background and every renderer of the tab shown before best-effort. The before half
-    is the window's own role read (role_audit). A skipped reshow, a tab that was not selected, an unread role, a tab
-    with no renderer after the switch and a tab that runs a new renderer (no return measured) are notes."""
-    if not reshow:
-        return [], []
-    prefix = f"{session} cef-renderer reshow: not judged:"
-    if reshow.get("skipped"):
-        return [], [f"{prefix} {reshow['skipped']}"]
-    tab = reshow["tab"]
-    if not reshow.get("selected"):
-        return [], [f"{prefix} tab {tab} was not reported selected in {RESHOW_WAIT_S:g} s"]
-    want = {"tab": "not-background", "previous": "best-effort"}
-    out, unread, notes = [], [], []
-    for item in reshow["after"]:
-        role = observed_role(item["priority"])
-        if role is None:
-            unread.append(item["pid"])
-        elif role not in ROLE_EXPECTATIONS[want[item["of"]]]:
-            out.append({"kind": "cef-renderer", "pids": [item["pid"]], "observed": role, "expected": want[item["of"]],
-                        "phase": "reshow"})
-    before = sorted(item["pid"] for item in reshow["before"] if item["of"] == "tab")
-    after = sorted(item["pid"] for item in reshow["after"] if item["of"] == "tab")
-    if not after:
-        notes.append(f"{prefix} tab {tab} has no renderer in the census after the switch")
-    elif before != after:
-        notes.append(f"{prefix} tab {tab} runs a new renderer after the switch (pids before="
-                     f"{','.join(map(str, before))} after={','.join(map(str, after))}): its return is not measured")
-    if not any(item["of"] == "previous" for item in reshow["after"]):
-        notes.append(f"{prefix} the tab shown before ({','.join(reshow['previous'])}) has no renderer of its own")
-    if unread:
-        notes.append(f"{prefix} unread pids={','.join(map(str, sorted(unread)))}")
-    return out, notes
+            f"observed={mismatch['observed']} expected={mismatch['expected']}")
 
 
 def acpmux_homes(env=None, user_home=None):
@@ -2962,15 +2823,12 @@ class SessionShapeError(RuntimeError):
     """The session could not be built as its table entry says (a tab that never opened, a window not minimized)."""
 
 
-def run_action(app, action, args=None, focus=False, timeout=30, target=None):
+def run_action(app, action, args=None, focus=False, timeout=30):
     """action.run from a script; raises SessionShapeError on the app's refusal. A reply that times out is no
     refusal (a cold CefInitialize can outlast the reply while the tab still opens): the caller checks the result.
-    `focus` selects what the action opens, as STRESS and browser-idle-cost-live open their tabs; `target` is the
-    action's target (`tab:<id>`)."""
-    params = {"action": action, "args": args or {}, "focus": focus, "origin": "script"}
-    if target is not None:
-        params["target"] = target
-    reply = app.rpc("action.run", params, timeout=timeout)
+    `focus` selects what the action opens, as STRESS and browser-idle-cost-live open their tabs."""
+    reply = app.rpc("action.run", {"action": action, "args": args or {}, "focus": focus, "origin": "script"},
+                    timeout=timeout)
     error = reply.get("error") if isinstance(reply, dict) else None
     code = error.get("code") if isinstance(error, dict) else None
     if error and code != "timeout" and not (isinstance(reply, dict) and reply.get("unreachable")):
@@ -3464,9 +3322,7 @@ HISTORY_PERIOD_S = 5
 # agents (build_agents's plan, in the session's own acpmux home: AgentHome), busy_terminal (the hidden terminal's
 # print period: build_busy_hidden), cover (benchhelper's full-screen window over the app), home (Home selected),
 # sign_in (the agent test account), display_sleep (`pmset displaysleepnow` after the activation), quit
-# (quitKeepSessions after the settle; the window measures what is left), churn (external-churn's writers),
-# judge_shown_renderers (role_audit: a renderer the census marks shown must be not-background) and reshow (after the
-# window, show a hidden tab and read the roles again: reshow_tab).
+# (quitKeepSessions after the settle; the window measures what is left), churn (external-churn's writers).
 SESSIONS = {
     "light": {"shown": True},
     "light-webkit": {"config": {"browser": {"defaultEngine": "webkit"}}, "shown": True},
@@ -3481,7 +3337,7 @@ SESSIONS = {
     "stress": {"stress": True, "shown": True},
     "stress-static": {"stress": True, "static": True, "shown": True},
     "tabs-static": {"config": TABS_CONFIG, "tabs": TABS_STATIC, "settle_min": FREEZE_HIDDEN_TABS_S + FREEZE_GRACE_S,
-                    "shown": True, "judge_shown_renderers": True, "reshow": True},
+                    "shown": True},
     "energy-saver": {"config": {**TABS_CONFIG, **saver_launch(True)[0]}, "env": saver_launch(True)[1],
                      "tabs": {**TABS_STATIC, "shown": "anim"}, "settle_min": FREEZE_HIDDEN_TABS_S + FREEZE_GRACE_S,
                      "saver": True, "anim": True, "shown": True},
@@ -4531,11 +4387,6 @@ def main(argv=None):
                 result["main_callouts"] = main_callouts_from_samples(texts)
             if trace is not None:
                 result["wake_trace"] = name_trace(trace, app.process.pid, texts[0] if texts else None)
-            if spec.get("reshow") and measured_app:
-                # After the window and its samples (input would be counted), before the WindowServer reference hides
-                # the app.
-                result["reshow"] = reshow_tab(app, result["processes"], result.get("browser_tabs") or {}, shown_tab)
-                print(f"IDLE-BUDGET-RESHOW {session} " + json.dumps(result["reshow"]), flush=True)
             if result.get("power"):
                 # Named while the app runs: the app's first sample above, and one sample of each other process with an
                 # unnamed owner over the floor.

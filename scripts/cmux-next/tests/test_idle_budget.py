@@ -1004,30 +1004,6 @@ TABS_CENSUS = {"pages": [{"page": "cmux.home", "state": "visible", "webkit_pid":
 TABS_SHOWN = {"engine": "chromium", "tabs": ["t1"]}
 
 
-class ReshowApp:
-    """An app for reshow_tab: tab.focus selects its target (unless `selects` is false), browser.page.tabs reports
-    the selection and debug.webui answers `browser_tabs` (the census after the switch); `selects` None refuses the
-    switch."""
-
-    def __init__(self, browser_tabs, selects=True):
-        self.browser_tabs, self.selects, self.focused, self.selected = browser_tabs, selects, [], "t1"
-
-    def rpc(self, method, params=None, timeout=30):
-        params = params or {}
-        if method == "action.run" and params.get("action") == "tab.focus":
-            self.focused.append(params["target"])
-            if self.selects is None:
-                return {"error": {"code": "refused", "message": "no such tab"}}
-            if self.selects:
-                self.selected = params["target"].removeprefix("tab:")
-            return {"ok": True}
-        if method == "browser.page.tabs":
-            return {"tabs": [{"id": tab["tab"], "selected": tab["tab"] == self.selected} for tab in self.browser_tabs]}
-        if method == "debug.webui":
-            return {"pages": [], "spares": [], "browser_tabs": self.browser_tabs}
-        return {}
-
-
 class RoleAuditTests(unittest.TestCase):
     """Task 106: each task's role from its base priority and darwinbg bit, checked against D16."""
 
@@ -1060,9 +1036,8 @@ class RoleAuditTests(unittest.TestCase):
         self.assertEqual(ib.role_audit("light", daemons, budget), ([], []))
 
     def test_hidden_renderer_at_foreground_priority_is_flagged(self):
-        """With 104's census: in tabs-static Home's visible renderer and the shown tab's are judged not-background
-        and pass at the default priority (energy-saver does not judge them); the hidden tab's renderer at the default
-        priority is the one mismatch."""
+        """With 104's census: Home's visible renderer and the shown tab's run above best-effort and are not judged;
+        the hidden tab's renderer at the default priority is the one mismatch."""
         budget = ib.load_budget(ib.BUDGET_FILE)
         rows = census_rows_of(TABS_KINDS, TABS_CENSUS, TABS_SHOWN)
         for session in ("tabs-static", "energy-saver"):
@@ -1076,113 +1051,6 @@ class RoleAuditTests(unittest.TestCase):
         # Suppressed, the hidden tab passes.
         fixed = census_rows_of(TABS_KINDS, TABS_CENSUS, TABS_SHOWN, base={605: 4})
         self.assertEqual(ib.role_audit("tabs-static", fixed, budget), ([], []))
-
-    def test_a_shown_renderer_left_at_best_effort_is_flagged(self):
-        """Task 107, steady state: in tabs-static (judge_shown_renderers) the shown tab's and Home's renderers are
-        foreground (Chrome's kUserBlocking); backgrounded, each is a mismatch. The other shown sessions do not judge
-        a shown renderer (nobody measured them for it), and with no window shown every renderer is best-effort."""
-        budget = ib.load_budget(ib.BUDGET_FILE)
-        backgrounded = census_rows_of(TABS_KINDS, TABS_CENSUS, TABS_SHOWN, base={605: 4, 601: 4, 602: 28})
-        mismatches, notes = ib.role_audit("tabs-static", backgrounded, budget)
-        self.assertEqual(mismatches, [
-            {"kind": "cef-renderer", "pids": [601], "observed": "suppressed", "expected": "not-background"},
-            {"kind": "cef-renderer", "pids": [602], "observed": "suppressed", "expected": "not-background"}])
-        self.assertEqual(notes, [])
-        self.assertEqual(ib.role_over_line("tabs-static", mismatches[1]),
-                         "IDLE-BUDGET-OVER tabs-static cef-renderer role owner=role pids=602 observed=suppressed "
-                         "expected=not-background")
-        for session in ("energy-saver", "light"):
-            self.assertEqual(ib.role_audit(session, backgrounded, budget), ([], []), session)
-        self.assertTrue(ib.SESSIONS["tabs-static"]["judge_shown_renderers"])
-        self.assertEqual([name for name, spec in ib.SESSIONS.items() if spec.get("judge_shown_renderers")],
-                         ["tabs-static"])
-        self.assertEqual([m["pids"] for m in ib.role_audit("minimized", backgrounded, budget)[0]
-                          if m["kind"] == "cef-renderer"], [])
-
-    def reshow(self, after_reads, after_tabs=None, selects=True, rows=None, wait_s=1.0):
-        """reshow_tab on tabs-static's window rows (t2's renderer 605 best-effort, t1's 602 foreground) with
-        `after_reads`: the priority reads after the switch, in order (the last repeats)."""
-        rows = rows if rows is not None else census_rows_of(TABS_KINDS, TABS_CENSUS, TABS_SHOWN, base={605: 4})
-        app = ReshowApp(after_tabs if after_tabs is not None else TABS_CENSUS["browser_tabs"], selects)
-        now, reads = [0.0], list(after_reads)
-
-        def read(pids):
-            reading = reads.pop(0) if len(reads) > 1 else reads[0]
-            return {pid: {"base": reading[pid], "darwinbg": False, "nice": 0} for pid in pids if pid in reading}
-
-        def sleep(seconds):
-            now[0] += seconds
-
-        record = ib.reshow_tab(app, rows, ib.census_tab_pids(TABS_CENSUS), TABS_SHOWN, read_priorities=read,
-                               clock=lambda: now[0], sleep=sleep, wait_s=wait_s)
-        return record, app
-
-    def test_reshow_shows_the_hidden_tab_and_reads_its_return(self):
-        """Task 107, the transition: t2 was hidden and best-effort; shown through tab.focus, its renderer comes back
-        to the default priority and t1's goes to best-effort. The first read after the switch has not changed yet
-        (Chromium sets it on its launcher thread), the second has."""
-        record, app = self.reshow([{605: 4, 602: 31}, {605: 31, 602: 4}])
-        self.assertEqual(app.focused, ["tab:t2"])
-        self.assertEqual((record["tab"], record["previous"], record["selected"]), ("t2", ["t1"], True))
-        self.assertEqual(record["before"], [{"pid": 605, "of": "tab", "role": "suppressed"},
-                                            {"pid": 602, "of": "previous", "role": "default"}])
-        self.assertEqual([(item["pid"], item["of"], item["priority"]["base"]) for item in record["after"]],
-                         [(605, "tab", 31), (602, "previous", 4)])
-        self.assertEqual(ib.reshow_audit("tabs-static", record), ([], []))
-        self.assertEqual(json.loads(json.dumps(record)), record)  # the report's JSON keeps it as is
-
-    def test_a_renderer_that_does_not_come_back_is_an_over(self):
-        """CEF lowering a renderer on hide but not raising it on show: after RESHOW_WAIT_S t2's renderer is still
-        best-effort and t1's still foreground, two reshow overs (and the window's own read passed)."""
-        record, _app = self.reshow([{605: 4, 602: 31}], wait_s=1.0)
-        self.assertGreaterEqual(record["waited_s"], 1.0)
-        mismatches, notes = ib.reshow_audit("tabs-static", record)
-        self.assertEqual(mismatches, [
-            {"kind": "cef-renderer", "pids": [605], "observed": "suppressed", "expected": "not-background",
-             "phase": "reshow"},
-            {"kind": "cef-renderer", "pids": [602], "observed": "default", "expected": "best-effort",
-             "phase": "reshow"}])
-        self.assertEqual(notes, [])
-        self.assertEqual(ib.role_over_line("tabs-static", mismatches[0]),
-                         "IDLE-BUDGET-OVER tabs-static cef-renderer role owner=role pids=605 observed=suppressed "
-                         "expected=not-background phase=reshow")
-        window = census_rows_of(TABS_KINDS, TABS_CENSUS, TABS_SHOWN, base={605: 4})
-        rows = [{**row(r["kind"], 10, 0.0), **r} for r in window]
-        entry = ib.summarize("tabs-static", {"processes": rows, "ends": ends(False, False), "reshow": record},
-                             ib.load_budget(ib.BUDGET_FILE))
-        self.assertEqual(entry["role_mismatches"], mismatches)
-        self.assertIn(["cef-renderer", "role", "suppressed", "not-background"], entry["over"])
-
-    def test_a_reshow_that_cannot_run_or_measure_a_return_says_so(self):
-        # No hidden tab was read best-effort: nothing to show, a note (the window's read already flagged 605).
-        record, app = self.reshow([{}], rows=census_rows_of(TABS_KINDS, TABS_CENSUS, TABS_SHOWN))
-        self.assertEqual(app.focused, [])
-        self.assertEqual(ib.reshow_audit("tabs-static", record),
-                         ([], ["tabs-static cef-renderer reshow: not judged: no hidden Chromium tab was read "
-                               "best-effort at the window's end"]))
-        self.assertEqual(ib.reshow_candidate([], {}, TABS_SHOWN)[2], "no census browser_tabs or no shown tab")
-        # The selection never landed.
-        record, _app = self.reshow([{605: 31, 602: 4}], selects=False)
-        self.assertEqual(ib.reshow_audit("tabs-static", record)[1],
-                         [f"tabs-static cef-renderer reshow: not judged: tab t2 was not reported selected in "
-                          f"{ib.RESHOW_WAIT_S:g} s"])
-        # The app refused the switch: the window stays measured, only the reshow is skipped.
-        record, _app = self.reshow([{}], selects=None)
-        self.assertEqual(ib.reshow_audit("tabs-static", record)[1],
-                         ["tabs-static cef-renderer reshow: not judged: tab.focus refused: "
-                          "{'code': 'refused', 'message': 'no such tab'}"])
-        # The tab came back in a new renderer (discarded while hidden): judged, but no return is measured.
-        moved = [{"tab": "t1", "renderer_pids": [602]}, {"tab": "t2", "renderer_pids": [606]}]
-        record, _app = self.reshow([{606: 31, 602: 4}], after_tabs=moved)
-        self.assertEqual(ib.reshow_audit("tabs-static", record),
-                         ([], ["tabs-static cef-renderer reshow: not judged: tab t2 runs a new renderer after the "
-                               "switch (pids before=605 after=606): its return is not measured"]))
-        # A renderer gone before its read.
-        record, _app = self.reshow([{605: 31}])
-        self.assertEqual(ib.reshow_audit("tabs-static", record),
-                         ([], ["tabs-static cef-renderer reshow: not judged: unread pids=602"]))
-        self.assertEqual(ib.reshow_audit("light", None), ([], []))
-        self.assertEqual([name for name, spec in ib.SESSIONS.items() if spec.get("reshow")], ["tabs-static"])
 
     def test_a_build_without_a_census_judges_no_renderer_of_a_shown_session(self):
         """No debug.webui: every renderer is of unknown visibility. A shown session reports them not judged (no false

@@ -1590,32 +1590,6 @@ repositories.
   same run.
 - Test phase: fork CI (136); tabs-static role rows.
 - Size M. Depends: 106. Queue fork.
-- Status: open. The acceptance is not met yet: no tabs-static run has given role rows. The note below is an
-  unverified source reading, not evidence, and it does not close the task.
-- Unverified source finding (2026-10-26, Chromium 154.0.8037.58, manaflow-ai/cef `cmux/8037`): the source suggests that
-  no fork patch is needed. The task port is wired in content for every child, with no embedder seam:
-  `RenderProcessHostImpl::OnChannelConnected` calls `ChildProcessTaskPortProvider::OnChildProcessLaunched`, the helper
-  answers `GetTaskPort` with its own task (`content/child/child_thread_impl.cc`), and
-  `ChildProcessLauncherHelper::SetProcessPriorityOnLauncherThread` (`child_process_launcher_helper_mac.cc`) calls
-  `Process::SetPriority` with that provider (`CanSetPriority()` is true on Mac). cmux helpers run `CefExecuteProcess`
-  (`helper_main.mm`). CEF does not override `IsRendererProcessPriorityEnabled` and neither CEF nor `CEFSwitches` passes
-  `--disable-renderer-backgrounding`. `kUserVisibleProcessPriority` is off, so the Mac roles would be kBestEffort
-  (hidden) and kUserBlocking (shown). Visibility comes from the native view (Chrome style:
-  `ChromeBrowserHostImpl::WasHidden` is NOTIMPLEMENTED). `idle-wakeups.md` sec. 7 measured `document.visibilityState`
-  and wakeups of hidden tabs, not task roles or base priority, so it does not show that hidden renderers are
-  kBestEffort. Two known causes can leave a hidden renderer in the foreground: AMFI allow-everything on the host
-  (Chromium then logs "will not collect child process task ports"; check `nvram boot-args`), and a page that does not
-  report hidden (048).
-- What the bench now measures (idle-budget.py): in tabs-static only (`judge_shown_renderers`), the window's role read
-  judges hidden renderers best-effort and the renderers the census marks shown (Home, the shown tab) `not-background`.
-  After the window, the `reshow` step selects a hidden Chromium tab that was read best-effort (tab.focus), reads the
-  roles again until its renderer is `not-background` and the tab shown before is best-effort (10 s at most), and
-  prints `IDLE-BUDGET-OVER tabs-static cef-renderer role ... phase=reshow` for each renderer that does not change.
-- To close: one fleet run of `scripts/measure/split-spring.sh --suite=idle-budget --vdisplay=120 -- --sessions
-  tabs-static,minimized`, attached here with `nvram boot-args` from the same host. It must show the hidden renderer
-  pids with observed `suppressed` or `darwinbg`, the shown ones with observed `default`, the `IDLE-BUDGET-RESHOW` record
-  with the reshown tab back at `default`, and no role over. If a hidden renderer stays in the foreground with neither
-  known cause, or the reshown one does not come back, this task gets the fork patch.
 
 #### p14-energy-108 Built-in uBlock Origin idle cost
 - Files: `scripts/cmux-next/bundle-ublock.sh`, `scripts/cmux-next/fetch-ublock.sh`,
