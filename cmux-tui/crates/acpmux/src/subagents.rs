@@ -119,10 +119,9 @@ impl SubagentTree {
                     }
                 }
                 Some("usage_update") => {
-                    preview.tokens = update
-                        .get("totalTokens")
-                        .and_then(Value::as_u64)
-                        .or_else(|| update.get("used").and_then(Value::as_u64));
+                    // Claude's `used` is context-window occupancy, not token usage.
+                    // Only `totalTokens` is a cumulative token total suitable for display.
+                    preview.tokens = update.get("totalTokens").and_then(Value::as_u64);
                 }
                 Some("agent_thought_chunk" | "config_option_update" | "session_info_update") => {}
                 _ => preview.streaming = false,
@@ -608,6 +607,32 @@ mod codex_tests {
         );
         assert_eq!(activity[0]["state"], json!("running"));
         assert_eq!(activity[0]["background"], json!(true));
+    }
+
+    #[test]
+    fn claude_context_occupancy_is_not_reported_as_tokens() {
+        let mut tree = SubagentTree::default();
+        subagents(
+            &mut tree,
+            json!({"sessionUpdate": "subagent_spawned", "subagentSessionId": "claude-child"}),
+        );
+        let mut usage = json!({
+            "sessionId": "claude-child",
+            "update": {"sessionUpdate": "usage_update", "used": 100, "size": 200000}
+        });
+        tree.annotate(&mut usage);
+        let completed = subagents(
+            &mut tree,
+            json!({
+                "sessionUpdate": "subagent_state_update",
+                "subagentSessionId": "claude-child",
+                "state": "completed"
+            }),
+        );
+        assert!(
+            completed[0].get("tokens").is_none(),
+            "context occupancy leaked as tokens: {completed:?}"
+        );
     }
 
     #[test]
