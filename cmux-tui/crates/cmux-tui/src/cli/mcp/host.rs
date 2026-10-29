@@ -40,6 +40,7 @@ use super::super::caller_env::{self, CallerEnv};
 use super::super::{GlobalArgs, OutputMode};
 use super::catalog::SharedCatalog;
 use super::{Backend, client_server, watch};
+use crate::cli::json_fields::JsonFields;
 
 /// `cmux mcp __host-start PATH`: starts the host in its own session
 /// and exits, so the host is no child of an agent's relay.
@@ -306,12 +307,12 @@ fn greet(stream: &mut UnixStream, hello: &str) -> Result<(), Greeting> {
     }
     let _ = stream.set_read_timeout(None);
     let answer: Value = serde_json::from_slice(&answer).map_err(|error| Lost(error.to_string()))?;
-    if answer["ok"] == true {
+    if answer.field("ok") == true {
         return Ok(());
     }
     Err(Refused(format!(
         "the MCP host refused: {}",
-        answer["error"].as_str().unwrap_or("no reason")
+        answer.field("error").as_str().unwrap_or("no reason")
     )))
 }
 
@@ -396,15 +397,15 @@ struct Hello {
 
 fn parse_hello(line: &[u8]) -> Result<Hello, String> {
     let value: Value = serde_json::from_slice(line).map_err(|error| error.to_string())?;
-    if value["hello"] != HELLO {
+    if value.field("hello") != HELLO {
         return Err(format!("this host speaks {HELLO}"));
     }
     let bad = |field: &str| format!("the hello has no valid {field}");
     Ok(Hello {
-        global: global_from_json(&value["global"]).ok_or_else(|| bad("global"))?,
-        config: value["config"].as_str().map(PathBuf::from).ok_or_else(|| bad("config"))?,
-        code_mode: value["code_mode"].as_bool().ok_or_else(|| bad("code_mode"))?,
-        caller: CallerEnv::from_json(&value["caller"]).ok_or_else(|| bad("caller"))?,
+        global: global_from_json(value.field("global")).ok_or_else(|| bad("global"))?,
+        config: value.field("config").as_str().map(PathBuf::from).ok_or_else(|| bad("config"))?,
+        code_mode: value.field("code_mode").as_bool().ok_or_else(|| bad("code_mode"))?,
+        caller: CallerEnv::from_json(value.field("caller")).ok_or_else(|| bad("caller"))?,
     })
 }
 
@@ -437,7 +438,7 @@ pub(super) fn start_detached(socket: &Path) -> i32 {
 pub(super) fn run(socket: &Path) -> i32 {
     let _ = crate::restore_default_termination_signals();
     // The host serves every relayed client, so its panics go to the same
-    // `mcp-panics.jsonl` as an in-process `serve` (p09-observability-099).
+    // `mcp-panics.jsonl` as an in-process `serve`.
     super::panic_log::install();
     let _lock = match take_lock(socket) {
         Ok(Some(lock)) => lock,
@@ -493,14 +494,11 @@ fn take_lock(socket: &Path) -> io::Result<Option<std::fs::File>> {
     if error.kind() == io::ErrorKind::WouldBlock { Ok(None) } else { Err(error) }
 }
 
-/// Listens on `socket` (the lock holder removes a stale file first), read
-/// and write for this user only.
+/// Listens on `socket` (the lock holder replaces a stale file), read and
+/// write for this user only from the moment it exists (cmux-unix-socket
+/// `bind_private`).
 fn bind(socket: &Path) -> io::Result<UnixListener> {
-    use std::os::unix::fs::PermissionsExt;
-    let _ = cmux_blocking::fs::remove_file(socket);
-    let listener = UnixListener::bind(socket)?;
-    crate::blocking::fs::set_permissions(socket, std::fs::Permissions::from_mode(0o600))?;
-    Ok(listener)
+    crate::blocking::fs::bind_private_socket(socket)
 }
 
 fn say(line: &str) {
@@ -615,7 +613,7 @@ fn serve_client(stream: UnixStream, seat: &mut Seat) {
             Ok(()) => json!({"ok": true}),
             Err(why) => json!({"ok": false, "error": why}),
         };
-        if writeln!(&stream, "{answer}").is_err() || answer["ok"] != true {
+        if writeln!(&stream, "{answer}").is_err() || answer.field("ok") != true {
             return;
         }
         let output = watch::Output::new(stream);

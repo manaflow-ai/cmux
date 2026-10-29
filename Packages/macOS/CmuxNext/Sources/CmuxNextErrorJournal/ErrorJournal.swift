@@ -15,6 +15,14 @@ import CmuxNextWakeups
 /// let newest = await journal.entries(ErrorQuery(limit: 10))
 /// ```
 public actor ErrorJournal {
+    /// The queue this actor runs on (threading-model.md, `com.cmuxterm.next.error-journal`): its segment and cursor reads and writes block a thread of
+    /// its own, never a cooperative pool thread (the HomeCache pattern).
+    // executor: com.cmuxterm.next.error-journal
+    private nonisolated let queue = DispatchSerialQueue(label: "com.cmuxterm.next.error-journal", qos: .utility)
+
+    /// Runs the actor on ``queue``.
+    public nonisolated var unownedExecutor: UnownedSerialExecutor { queue.asUnownedSerialExecutor() }
+
     /// The folder of the segment files and harvest cursors.
     public nonisolated let directory: URL
     private let limits: ErrorJournalLimits

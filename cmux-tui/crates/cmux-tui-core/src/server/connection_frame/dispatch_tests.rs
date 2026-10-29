@@ -1,4 +1,4 @@
-//! Single-parse dispatch (p05-ipc-062): a line's head is read once and the
+//! Single-parse dispatch: a line's head is read once and the
 //! line goes to the one handler the head names, which parses it once more.
 //! Parses are counted where they start (crate::line_parses), so these
 //! counts are the real ones. No route name is a `Command`'s and no

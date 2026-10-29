@@ -4,7 +4,7 @@ import CmuxNextDesign
 import CmuxNextWakeups
 import Testing
 
-/// The motion backend seam on the real hosts (p03-rendering-019). With `motion.renderServer` off a
+/// The motion backend seam on the real hosts. With `motion.renderServer` off a
 /// change calls no variant and moves exactly as before; on, each host's variants run once per change
 /// turn, after the turn started its motions and before it lays anything out, and a motion a variant
 /// takes gets no CPU first frame and no display frames.
@@ -75,9 +75,9 @@ import Testing
         #expect(LayoutTunables.motionRenderServer.defaultValue == false)
         #expect(LayoutTunables.motionRenderServer.key == "motion.renderServer")
         #expect(LayoutTunables.all.contains { $0.key == "motion.renderServer" })
-        // A kind registers in the task that moves it, behind the switch: the split (p03-rendering-022a).
+        // A kind registers in the task that moves it, behind the switch: the split.
         #expect(ScreenContentView.renderServerMotions.map(\.kind) == [.splitClose, .zoom])
-        // The drop highlight (p03-rendering-032).
+        // The drop highlight.
         #expect(LayoutRootView.renderServerMotions.map(\.kind) == [.dropHighlight])
     }
 

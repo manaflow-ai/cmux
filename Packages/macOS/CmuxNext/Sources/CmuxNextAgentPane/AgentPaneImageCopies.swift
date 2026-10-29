@@ -1,7 +1,7 @@
 import AppKit
+import CmuxNextCompat
 import CryptoKit
 import Foundation
-import CmuxNextCompat
 
 /// The image viewer's Show in Finder and Open in Browser Pane (cx-ncc.39). The viewer holds each
 /// image as a `data:` URL, so the host keeps a copy as a file named for the image with its type's
@@ -56,7 +56,13 @@ nonisolated enum AgentPaneImageCopies {
     /// only as its rebuilt form (``AgentPaneSVGSanitizer``): a `data:` SVG comes from the reply as
     /// the agent wrote it, and its copy is shown in Finder, saved, dragged out and Quick Looked
     /// outside the pane's `<img>`, where its script and links would count (media-safety R7).
-    @concurrent static func copy(_ src: String, name: String, in folder: URL) async -> Result<URL, AgentPaneReplyError> {
+    /// The decode and the write run on `runner`'s files lane at userBlocking (the person waits for the action).
+    static func copy(_ src: String, name: String, in folder: URL, runner: any MayBlockRunner) async -> Result<URL, AgentPaneReplyError> {
+        (try? await runner.runFiles(.userBlocking) { copyNow(src, name: name, in: folder) }) ?? .failure(.imageFailed)
+    }
+
+    /// ``copy(_:name:in:runner:)``'s work, on the lane thread.
+    private static func copyNow(_ src: String, name: String, in folder: URL) -> Result<URL, AgentPaneReplyError> {
         guard var image = decode(src) else { return .failure(.imageRefused) }
         if image.type == "image/svg+xml" {
             guard let clean = AgentPaneSVGSanitizer.sanitize(image.data) else { return .failure(.imageRefused) }
@@ -64,8 +70,8 @@ nonisolated enum AgentPaneImageCopies {
         }
         let file = folder.appendingPathComponent(fileName(name, data: image.data, type: image.type), isDirectory: false)
         do {
-            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-            if (try? Data(contentsOf: file)) != image.data { try image.data.write(to: file, options: .atomic) }
+            try FileManager.checked.createDirectory(at: folder, withIntermediateDirectories: true)
+            if (try? Data(blockingContentsOf: file)) != image.data { try image.data.blockingWrite(to: file, options: .atomic) }
             return .success(file)
         } catch {
             return .failure(.imageFailed)
@@ -90,7 +96,7 @@ extension AgentPaneImageCopies {
         case .openImageInPane(let src, let name): return await openInPane(src, name: name, in: model)
         case .copyImage(let src, let name):
             return await withCopy(src, name: name, in: model) { file in
-                _ = model.replyLinks.copyItem(AgentPaneImageCopies.pasteboardItem(file, image: await AgentPaneImageCopies.pasteboardImage(file)))
+                _ = model.replyLinks.copyItem(AgentPaneImageCopies.pasteboardItem(file, image: await AgentPaneImageCopies.pasteboardImage(file, runner: model.runner)))
             }
         case .saveImage(let src, let name):
             return await withCopy(src, name: name, in: model) { file in
@@ -98,7 +104,7 @@ extension AgentPaneImageCopies {
             }
         case .dragImage(let src, let name):
             guard model.replyLinks.mouseHeld() else { return AgentPaneModel.replyFailure(.gestureRequired) }
-            switch await copy(src, name: name, in: model.replyLinks.imageFolder) {
+            switch await copy(src, name: name, in: model.replyLinks.imageFolder, runner: model.runner) {
             case .success(let file):
                 return model.replyLinks.startDrag(file) ? AgentPaneReply.success() : AgentPaneModel.replyFailure(.openFailed)
             case .failure(let error):
@@ -108,7 +114,7 @@ extension AgentPaneImageCopies {
             guard model.replyLinks.mouseHeld() else { return AgentPaneModel.replyFailure(.gestureRequired) }
             guard let file = draggedFile(path, in: model) else { return AgentPaneModel.replyFailure(.pathInvalid) }
             let out = handedOut(file, in: model.replyLinks.imageFolder)
-            if out != file, await !rebuild(file, to: out) { return AgentPaneModel.replyFailure(.imageRefused) }
+            if out != file, await !rebuild(file, to: out, runner: model.runner) { return AgentPaneModel.replyFailure(.imageRefused) }
             return model.replyLinks.startDrag(out) ? AgentPaneReply.success() : AgentPaneModel.replyFailure(.openFailed)
         case .quickLookImage(let src, let name):
             return await withCopy(src, name: name, in: model) { model.replyLinks.quickLookFile($0) }
@@ -125,7 +131,7 @@ extension AgentPaneImageCopies {
             model.replyLinks.revealFile(file)
             return AgentPaneReply.success()
         }
-        switch await copy(src, name: name, in: model.replyLinks.imageFolder) {
+        switch await copy(src, name: name, in: model.replyLinks.imageFolder, runner: model.runner) {
         case .success(let file):
             model.replyLinks.revealFile(file)
             return AgentPaneReply.success()
@@ -167,18 +173,20 @@ extension AgentPaneImageCopies {
         return folder.appendingPathComponent(hash, isDirectory: true).appendingPathComponent(file.lastPathComponent, isDirectory: false)
     }
 
-    /// Writes `file`'s rebuilt SVG to `copy` (``handedOut(_:in:)``), off the main actor; false when
+    /// Writes `file`'s rebuilt SVG to `copy` (``handedOut(_:in:)``) on `runner`'s files lane; false when
     /// the rebuild cannot read it (it is not handed out).
-    @concurrent static func rebuild(_ file: URL, to copy: URL) async -> Bool {
-        guard let data = regularFileBytes(file, limit: AgentPaneReplyImages.maximumBytes),
-              let clean = AgentPaneSVGSanitizer.sanitize(data) else { return false }
-        do {
-            try FileManager.default.createDirectory(at: copy.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try clean.write(to: copy, options: .atomic)
-            return true
-        } catch {
-            return false
-        }
+    static func rebuild(_ file: URL, to copy: URL, runner: any MayBlockRunner) async -> Bool {
+        (try? await runner.runFiles(.userBlocking) { () -> Bool in
+            guard let data = regularFileBytes(file, limit: AgentPaneReplyImages.maximumBytes),
+                  let clean = AgentPaneSVGSanitizer.sanitize(data) else { return false }
+            do {
+                try FileManager.checked.createDirectory(at: copy.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try clean.blockingWrite(to: copy, options: .atomic)
+                return true
+            } catch {
+                return false
+            }
+        }) ?? false
     }
 
     /// `file`'s bytes when, as it is opened, it is a regular file (not a link, which the agent could
@@ -197,16 +205,16 @@ extension AgentPaneImageCopies {
 
     /// Makes each of `items` (and its submenu's) first write `file`'s rebuilt copy to `copy`, then
     /// act; an SVG the rebuild cannot read does nothing but beep.
-    @MainActor static func rebuildingFirst(_ items: [NSMenuItem], _ file: URL, to copy: URL) -> [NSMenuItem] {
+    @MainActor static func rebuildingFirst(_ items: [NSMenuItem], _ file: URL, to copy: URL, runner: any MayBlockRunner) -> [NSMenuItem] {
         for item in items {
-            if let submenu = item.submenu { _ = rebuildingFirst(submenu.items, file, to: copy) }
+            if let submenu = item.submenu { _ = rebuildingFirst(submenu.items, file, to: copy, runner: runner) }
             guard let action = item.action, let target = item.target as? NSObject else { continue }
             let rebuilt = AgentPaneMenuAction { [weak item] in
                 // task-owner: one rebuild of a local SVG off the main actor; ends when the row acts
                 // main-hop-allow: the person's menu row, userBlocking (p06 rule 2): rebuild runs off main; its one resume
                 // performs the row's action on its NSMenuItem, which is main-only and not Sendable
                 Task { @MainActor in
-                    guard await rebuild(file, to: copy) else { return NSSound.beep() }
+                    guard await rebuild(file, to: copy, runner: runner) else { return NSSound.beep() }
                     _ = target.perform(action, with: item)
                 }
             }
@@ -222,7 +230,7 @@ extension AgentPaneImageCopies {
         guard model.transport.gestures.consume() else { return AgentPaneModel.replyFailure(.gestureRequired) }
         // The type from the header alone: the copy decodes the image off the main actor.
         guard let type = type(of: src), type != "image/svg+xml" else { return AgentPaneModel.replyFailure(.imageRefused) }
-        switch await copy(src, name: name, in: model.replyLinks.imageFolder) {
+        switch await copy(src, name: name, in: model.replyLinks.imageFolder, runner: model.runner) {
         case .success(let file):
             guard let open = model.onOpenPreview, open(file) else { return AgentPaneModel.replyFailure(.openFailed) }
             return AgentPaneReply.success()

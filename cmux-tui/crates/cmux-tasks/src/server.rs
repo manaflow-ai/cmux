@@ -11,7 +11,6 @@ use std::collections::BTreeMap;
 use std::io::{self, BufRead, BufReader, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::sync::mpsc::{self, Receiver, Sender, SyncSender, TrySendError};
-use std::thread;
 
 use cmux_tasks_core::ids::Principal;
 use serde_json::{Value, json};
@@ -129,14 +128,14 @@ pub fn serve(
     let writer_report =
         StopReport { tx: Some(stopped_tx.clone()), stopped: "tasks writer stopped" };
     // supervise-allow: Fatal to serve: StopReport sends an error when the writer unwinds, so serve returns it and the tasks server stops instead of serving nothing.
-    thread::Builder::new()
-        .name("tasks-writer".to_owned())
-        .spawn(move || writer_report.send(writer_loop(engine, rx)))?;
+    cmux_threads::spawn("tasks-writer", cmux_threads::ThreadQos::Utility, move || {
+        writer_report.send(writer_loop(engine, rx));
+    })?;
     let accept_report = StopReport { tx: Some(stopped_tx), stopped: "tasks accept loop stopped" };
     // supervise-allow: Fatal to serve: StopReport sends an error when the accept loop unwinds, so serve returns it and the tasks server stops instead of serving nothing.
-    thread::Builder::new()
-        .name("tasks-accept".to_owned())
-        .spawn(move || accept_report.send(accept_loop(&listener, &tx).map_err(ServeError::Io)))?;
+    cmux_threads::spawn("tasks-accept", cmux_threads::ThreadQos::Utility, move || {
+        accept_report.send(accept_loop(&listener, &tx).map_err(ServeError::Io));
+    })?;
     on_ready();
     stopped_rx
         .recv()
@@ -154,9 +153,11 @@ fn accept_loop(listener: &UnixListener, tx: &SyncSender<Msg>) -> io::Result<()> 
         let conn = next_conn;
         let tx = tx.clone();
         // supervise-allow: one client connection; a panic ends that connection only (its socket closes and the client reconnects).
-        thread::Builder::new()
-            .name(format!("tasks-conn-{conn}"))
-            .spawn(move || connection(conn, stream, tx))?;
+        cmux_threads::spawn(
+            format!("tasks-conn-{conn}"),
+            cmux_threads::ThreadQos::Utility,
+            move || connection(conn, stream, tx),
+        )?;
     }
     Ok(())
 }
@@ -170,21 +171,28 @@ fn connection(conn: u64, stream: UnixStream, tx: SyncSender<Msg>) {
         return;
     }
     // supervise-allow: this connection's writer, joined at the connection's end; a panic drops its queue, so the writer's next send to it fails and drops the connection.
-    let pump = thread::spawn(move || {
-        let mut write_half = write_half;
-        for text in out_rx {
-            if write_half
-                .write_all(text.as_bytes())
-                .and_then(|()| write_half.write_all(b"\n"))
-                .is_err()
-            {
-                break;
+    let Ok(pump) = cmux_threads::spawn(
+        format!("tasks-conn-{conn}-out"),
+        cmux_threads::ThreadQos::Utility,
+        move || {
+            let mut write_half = write_half;
+            for text in out_rx {
+                if write_half
+                    .write_all(text.as_bytes())
+                    .and_then(|()| write_half.write_all(b"\n"))
+                    .is_err()
+                {
+                    break;
+                }
             }
-        }
-        // The writer dropped this connection (too slow) or it hung up: close
-        // the socket so the client sees EOF and reconnects.
-        let _ = write_half.shutdown(std::net::Shutdown::Both);
-    });
+            // The writer dropped this connection (too slow) or it hung up: close
+            // the socket so the client sees EOF and reconnects.
+            let _ = write_half.shutdown(std::net::Shutdown::Both);
+        },
+    ) else {
+        let _ = tx.send(Msg::Hangup { conn });
+        return;
+    };
     // Without a hello the connection acts as the machine's person, never
     // as whatever agent environment the server itself was started in.
     let mut actor = crate::owner::local_person();

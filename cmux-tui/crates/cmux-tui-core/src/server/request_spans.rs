@@ -112,7 +112,9 @@ impl RequestMethod {
             let name = operation.wire_name();
             (Self::of_resource(operation), name.to_owned(), schema.v2_id(name))
         } else {
-            let class = MethodClass::ALL[(slot - routes).min(MethodClass::ALL.len() - 1)];
+            // A slot past the table reads as the last class, as Self::slot never makes one.
+            let [.., last] = MethodClass::ALL;
+            let class = MethodClass::ALL.get(slot - routes).copied().unwrap_or(last);
             let route = Self { id: Self::ROUTED_BASE + class as u16, class };
             (route, format!("route:{}", class.as_str()), None)
         };

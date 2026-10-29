@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
 # linux_run.sh: daemon-side oracle builds and suite runs on the Linux VM, every one through the
-# runnerd.py queue (p15-oracle-007, p15-oracle-024; spec plans/cmux-next/chrome-parity/p15-oracle.md 3F, 3G).
+# runnerd.py queue (spec plans/cmux-next/chrome-parity/p15-oracle.md 3F, 3G).
 #
 #   linux_run.sh build REF [--profile P] [--features F] [--mutant PATCH] [--coverage] [--leaf-rebuild] [--receipt FILE] [--fresh]
 #       Builds cmux-tui at REF. The last stdout line is the binary path.
 #       The build receipt (cmux-oracle-build-v1: sha, every gitlink, rustc, cold or warm, times, binary
 #       sha256) is build.json next to the binary, copied to FILE. --leaf-rebuild also times a rebuild
 #       after touching crates/cmux-tui/src/main.rs (task 201's incremental number). --mutant applies a seeded
-#       fault (tests/oracle/mutants/daemon/<name>.patch, p15-oracle-026) to the job worktree before cargo runs;
+#       fault (tests/oracle/mutants/daemon/<name>.patch) to the job worktree before cargo runs;
 #       the receipt's `mutant` names it, and mutant builds share one target dir per SHA, apart from the clean one.
 #       --coverage builds with `-C instrument-coverage` for the host target only (build scripts and proc
 #       macros stay plain), in its own target dir; the receipt's `coverage` names the llvm-profdata and
-#       llvm-cov of the SHA's own toolchain and the source root to strip from the mapped paths (p15-oracle-190).
+#       llvm-cov of the SHA's own toolchain and the source root to strip from the mapped paths.
 #   linux_run.sh run REF [--suite S] [--arm A] [--side L] [--profile P] [--features F] [--mutant PATCH] [--coverage] [--receipt FILE] [--fresh] [-- ORACLE_RUN_ARGS...]
 #       Builds REF, then `oracle.py run --binary BIN --ref SHA` in the queue. The last stdout line is the
 #       run directory; the exit code is oracle.py's. --arm is NAME=old|new, launch-config or - (default).
@@ -26,8 +26,16 @@
 #       (exact SHAs, every gitlink), both run dirs and the comparison. Exit code is oracle.py diff's.
 #       --mutant builds the head side with the patch: `diff SHA SHA --mutant PATCH` is one mutant's catch check
 #       (exit 1, divergences, means the oracle caught it).
+#       The base side builds `overlay`'s buildSha, both sides run v0 facets when its plan says v0, and the
+#       comparison masks what is not comparable (`oracle.py diff --overlay`); linux-run.json holds the plan.
+#   linux_run.sh overlay BASE HEAD [--product P] [--profile P] [--features F] [--out FILE] [--fresh]
+#       The base build of a base/head diff (overlay.py prepare): head's oracle commits applied
+#       to the base (an overlay commit, built here to prove it builds), the base itself when it has them
+#       (native), or v0 facets on both sides when a commit does not apply or the overlay does not build.
+#       The last stdout line is the plan file (cmux-oracle-overlay-v1; default
+#       /tmp/oracle/overlay/<base12>-<head12>-<product>.json).
 #   linux_run.sh walks REF [--profile P] [--features F] [--timeout SEC] [--fresh] [-- WALKS_OPTIONS...]
-#       The walks profile (p15-oracle-099): builds REF, then one queued job runs walks_scale.py run on that
+#       The walks profile: builds REF, then one queued job runs walks_scale.py run on that
 #       binary: 100,000 seeded walks of length 30 on arm old and arm new of every daemon switch
 #       (oracle.py diff --switch per chunk of 10,000, one build), and every failure minimized (ddmin)
 #       before the report. Once the report is written, the minimized walks are copied into
@@ -45,9 +53,9 @@
 # random seed, which is then part of the key. Builds run in RUNNERD_SCRATCH/wt (a `git clone --shared`
 # of this repo that runnerd removes when the job ends) with the SHA's VT submodule initialized from its own
 # gitlink: ghostty-next, or ghostty for a SHA from before ghostty-next (the cmux-tui tags that
-# gen_upgrades.py builds, p15-oracle-208); CMUX_GHOSTTY_SRC is never used. The cargo target dir is
+# gen_upgrades.py builds); CMUX_GHOSTTY_SRC is never used. The cargo target dir is
 # runnerd's per-SHA, per-feature cache.
-# Defaults: profile and feature `oracle` (p15-oracle-201), cargo -j 240. Linux only.
+# Defaults: profile and feature `oracle`, cargo -j 240. Linux only.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -242,12 +250,15 @@ job_build() {
   [[ -x "$built" ]] || die "cargo finished without $built"
   cp "$built" "$binary"
   git -C "$JOB_WT" ls-tree -r HEAD | awk '$2 == "commit" { print $4 "\t" $3 }' > "$RUNNERD_OUT/gitlinks.tsv"
+  # An overlay commit (overlay.py) names its base, head and oracle commits in its trailers.
+  local overlay_json
+  overlay_json="$(python3 -I "$HERE/overlay.py" describe "$sha" --repo "$JOB_WT")" || die "overlay.py describe $sha failed"
   python3 -I - "$RUNNERD_OUT/build.json" "$sha" "$module" "$gitlink" "$profile" "$features" "$target" "$state" \
     "$build_ms" "$leaf_ms" "$binary" "$RUNNERD_OUT/gitlinks.tsv" "$(cd "$JOB_WT/cmux-tui" && rustc --version)" \
-    "$mutant_copy" "$mutant_json" "$coverage_json" <<'PY'
+    "$mutant_copy" "$mutant_json" "$coverage_json" "$overlay_json" <<'PY'
 import hashlib, json, os, platform, sys
 (out, sha, module, gitlink, profile, features, target_dir, state, build_ms, leaf_ms, binary, gitlinks,
- rustc, mutant, mutant_json, coverage) = sys.argv[1:]
+ rustc, mutant, mutant_json, coverage, overlay_json) = sys.argv[1:]
 def sha256(path):
     digest = hashlib.sha256()
     with open(path, "rb") as handle:
@@ -281,6 +292,7 @@ receipt = {
     "binarySha256": sha256(binary),
     "mutant": mutant_record,
     "coverage": json.loads(coverage) if coverage else None,
+    "overlay": json.loads(overlay_json),
 }
 with open(out, "w", encoding="utf-8") as handle:
     json.dump(receipt, handle, indent=2, sort_keys=True)
@@ -333,10 +345,18 @@ parse_run_options() {
 # then queues the run; prints the run dir; returns oracle.py run's exit code.
 run_one() {
   local sha="$1" side="${2:-}" receipt="${3:-}" mutant="${4:-}" binary dir code=0
-  local receipt_args=() mutant_args=()
+  local receipt_args=() mutant_args=() profile="$OPT_PROFILE" features="$OPT_FEATURES"
   [[ -z "$receipt" ]] || receipt_args=(--receipt "$receipt")
   [[ -z "$mutant" ]] || mutant_args=(--mutant "$mutant")
-  binary="$(cmd_build "$sha" --profile "$OPT_PROFILE" --features "$OPT_FEATURES" "${receipt_args[@]}" \
+  # A SHA from before p15-oracle-201 (a v0 base) has no oracle profile or feature. It builds the dev profile,
+  # which has the debug assertions the daemon driver's per-case isolation needs; its build receipt says so.
+  local cargo_toml
+  cargo_toml="$(git -C "$REPO" show "$sha:cmux-tui/Cargo.toml")" || die "$sha has no cmux-tui/Cargo.toml"
+  if [[ "$profile" == "$DEFAULT_PROFILE" ]] && ! grep -q "^\[profile\.$DEFAULT_PROFILE\]" <<<"$cargo_toml"; then
+    echo "linux_run.sh: $sha has no [profile.$DEFAULT_PROFILE]; it builds --profile dev with no features" >&2
+    profile=dev features=""
+  fi
+  binary="$(cmd_build "$sha" --profile "$profile" --features "$features" "${receipt_args[@]}" \
     "${mutant_args[@]}" "${OPT_COVERAGE[@]}" | tail -n 1)"
   [[ -x "$binary" ]] || die "build of $sha gave no binary"
   local key_args=() extra_args=() arg
@@ -346,7 +366,7 @@ run_one() {
   done
   [[ -z "$side" ]] || extra_args+=(--extra "side=$side")
   [[ -z "$mutant" ]] || extra_args+=(--extra "mutant=$(basename "$mutant" .patch)")
-  dir="$(runnerd submit --sha "$sha" --suite "$OPT_SUITE" --arm "$OPT_ARM" --profile "$OPT_PROFILE" \
+  dir="$(runnerd submit --sha "$sha" --suite "$OPT_SUITE" --arm "$OPT_ARM" --profile "$profile" \
     --timeout "$RUN_TIMEOUT" --hold "$binary" "${key_args[@]}" --extra "binary=$binary" "${extra_args[@]}" \
     "${OPT_FRESH[@]}" -- bash "$SELF" _run "$sha" "$binary" "$OPT_SUITE" "$OPT_ARM" -- "${OPT_PASS[@]}" \
     | tail -n 1)" || code=$?
@@ -406,6 +426,50 @@ print(cov.get("llvmProfdata", ""))' "$(dirname "$binary")/build.json")"
   exit "$code"
 }
 
+# --- overlay ----------------------------------------------------------------------------
+
+plan_field() {
+  python3 -I -c 'import json, sys; print(json.load(open(sys.argv[1], encoding="utf-8")).get(sys.argv[2]) or "")' "$1" "$2"
+}
+
+cmd_overlay() {
+  local refs=() product=daemon profile="$DEFAULT_PROFILE" features="$DEFAULT_FEATURES" out="" fresh=()
+  while (($#)); do
+    case "$1" in
+      --product) product="${2:?--product needs a value}"; shift 2 ;;
+      --profile) profile="${2:?--profile needs a value}"; shift 2 ;;
+      --features) features="${2?--features needs a value}"; shift 2 ;;
+      --out) out="${2:?--out needs a file}"; shift 2 ;;
+      --fresh) fresh=(--fresh); shift ;;
+      -*) die "overlay: unknown option $1" ;;
+      *) refs+=("$1"); shift ;;
+    esac
+  done
+  ((${#refs[@]} == 2)) || die "overlay needs BASE and HEAD"
+  case "$product" in
+    daemon | cli | mcp | tui) ;;
+    *) die "overlay --product $product: the VM builds the cmux-tui products (fleet.py makes the app's overlay)" ;;
+  esac
+  local base head
+  base="$(resolve_sha "${refs[0]}")"
+  head="$(resolve_sha "${refs[1]}")"
+  out="${out:-/tmp/oracle/overlay/${base:0:12}-${head:0:12}-$product.json}"
+  case "$out" in /*) ;; *) out="$PWD/$out" ;; esac
+  case "$out" in "$REPO"/*) die "--out $out: the plan stays outside the checkout" ;; esac
+  local prepare=(python3 -I "$HERE/overlay.py" prepare --repo "$REPO" --base "$base" --head "$head"
+    --product "$product" --out "$out")
+  "${prepare[@]}" >/dev/null || die "overlay.py prepare $base $head failed"
+  local build_sha
+  build_sha="$(plan_field "$out" overlaySha)"
+  # An overlay that does not build is no base at all: both sides fall back to the facets the base has.
+  if [[ -n "$build_sha" ]] && ! (cmd_build "$build_sha" --profile "$profile" --features "$features" "${fresh[@]}") >/dev/null; then
+    echo "linux_run.sh: the overlay commit $build_sha does not build; both sides run v0 facets" >&2
+    "${prepare[@]}" --v0 "the overlay commit $build_sha does not build (linux_run.sh build --profile $profile --features $features)" \
+      >/dev/null || die "overlay.py prepare --v0 $base $head failed"
+  fi
+  echo "$out"
+}
+
 # --- diff -------------------------------------------------------------------------------
 
 cmd_diff() {
@@ -429,13 +493,32 @@ cmd_diff() {
   case "$out/" in "$REPO"/*) die "--out $out: run output stays outside the checkout" ;; esac
   mkdir -p "$out"
   # Nothing from an earlier diff in the same --out may reach this one's receipt.
-  rm -f "$out/linux-run.json" "$out/comparison.json" "$out/builds.json" "$out"/build-{base,head}.json
+  rm -f "$out/linux-run.json" "$out/comparison.json" "$out/builds.json" "$out"/build-{base,head}.json \
+    "$out/overlay.json"
 
   local t0 t1
   t0="$(now)"
+  # The base side builds what the overlay plan says, and a v0 plan puts both sides on v0 facets.
+  local arg product=daemon previous=""
+  for arg in "${OPT_PASS[@]}"; do
+    case "$arg" in
+      --facets | --facets=*) die "$arg: set by linux_run.sh diff from the overlay plan" ;;
+      --product=*) product="${arg#--product=}" ;;
+    esac
+    [[ "$previous" == --product ]] && product="$arg"
+    previous="$arg"
+  done
+  local plan build_sha
+  plan="$(cmd_overlay "$base" "$head" --product "$product" --profile "$OPT_PROFILE" --features "$OPT_FEATURES" \
+    --out "$out/overlay.json" "${OPT_FRESH[@]}" | tail -n 1)"
+  [[ -f "$plan" ]] || die "no overlay plan for $base $head"
+  build_sha="$(plan_field "$plan" buildSha)"
+  [[ "$(plan_field "$plan" facets)" == v0 ]] && OPT_PASS+=(--facets v0)
+  echo "linux_run.sh: base $base builds $build_sha ($(plan_field "$plan" mode), $(plan_field "$plan" facets) facets)" >&2
+
   DIFF_TMP="$(mktemp -d "${TMPDIR:-/tmp}/oracle-linux-diff.XXXXXX")"
   trap 'rm -rf "$DIFF_TMP"' EXIT
-  (run_one "$base" "$base_side" "$out/build-base.json" > "$DIFF_TMP/base" || true) &
+  (run_one "$build_sha" "$base_side" "$out/build-base.json" > "$DIFF_TMP/base" || true) &
   local base_pid=$!
   (run_one "$head" "$head_side" "$out/build-head.json" "$OPT_MUTANT" > "$DIFF_TMP/head" || true) &
   local head_pid=$!
@@ -459,12 +542,13 @@ with open(os.path.join(out, "builds.json"), "w", encoding="utf-8") as handle:
     handle.write("\n")
 PY
   local status=0
-  nice -n 10 python3 -I "$HERE/oracle.py" diff --base-run "$base_dir" --head-run "$head_dir" \
+  nice -n 10 python3 -I "$HERE/oracle.py" diff --base-run "$base_dir" --head-run "$head_dir" --overlay "$plan" \
     --builds "$out/builds.json" --out "$out" || status=$?
   t1="$(now)"
-  python3 -I - "$out" "${OPT_REFS[0]}" "${OPT_REFS[1]}" "$base_dir" "$head_dir" "$status" "$(elapsed_ms "$t0" "$t1")" <<'PY'
+  python3 -I - "$out" "${OPT_REFS[0]}" "${OPT_REFS[1]}" "$base_dir" "$head_dir" "$status" "$(elapsed_ms "$t0" "$t1")" \
+    "$plan" <<'PY'
 import json, os, sys
-out, base_ref, head_ref, base_run, head_run, status, total_ms = sys.argv[1:]
+out, base_ref, head_ref, base_run, head_run, status, total_ms, plan = sys.argv[1:]
 def load(path):
     with open(path, encoding="utf-8") as handle:
         return json.load(handle)
@@ -478,6 +562,7 @@ doc = {
     **sides,
     "sameBuild": sides["base"]["build"]["binarySha256"] == sides["head"]["build"]["binarySha256"],
     "mutant": sides["head"]["build"].get("mutant"),
+    "overlay": load(plan),
     "oracleExit": int(status),
     "comparison": load(comparison) if os.path.isfile(comparison) else None,
     "totalMs": int(total_ms),
@@ -571,6 +656,7 @@ main() {
     build) cmd_build "$@" ;;
     run) cmd_run "$@" ;;
     diff) cmd_diff "$@" ;;
+    overlay) cmd_overlay "$@" ;;
     walks) cmd_walks "$@" ;;
     status | gc) runnerd "$command" "$@" ;;
     _build) job_build "$@" ;;

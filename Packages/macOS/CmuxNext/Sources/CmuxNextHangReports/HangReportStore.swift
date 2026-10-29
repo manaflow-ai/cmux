@@ -30,6 +30,7 @@ public actor HangReportStore {
     /// The folder that holds every hang report file.
     public nonisolated let directory: URL
     /// The actor's executor: its file work blocks this queue, not the pool.
+    // executor: com.cmuxterm.app.next.hang-reports.store
     private nonisolated let queue = DispatchSerialQueue(label: "com.cmuxterm.app.next.hang-reports.store", qos: .utility)
 
     public nonisolated var unownedExecutor: UnownedSerialExecutor { queue.asUnownedSerialExecutor() }

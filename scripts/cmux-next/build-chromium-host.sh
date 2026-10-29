@@ -128,7 +128,8 @@ for src in "$HOST_DIR"/src/*.mm "$HOST_DIR"/src/*.cc; do
 done
 "$CXX" -arch "$ARCH" -isysroot "$SDK" -mmacosx-version-min="$MIN_OS" \
   -o "$OUT_DIR/cmux-chromium-host" "${objects[@]}" \
-  "$SHIM_OUT/libcef_dll_wrapper.a" -framework AppKit -framework Cocoa -framework IOSurface -framework QuartzCore -lobjc
+  "$SHIM_OUT/libcef_dll_wrapper.a" -framework AppKit -framework Cocoa -framework IOSurface -framework QuartzCore \
+  -framework Security -lobjc
 # The remote shim links neither CEF nor the wrapper, so it takes the flags of
 # tests/remote-shim-abi.test.sh, not the wrapper's `common`.
 "$CXX" -arch "$ARCH" -isysroot "$SDK" -mmacosx-version-min="$MIN_OS" -O2 -gline-tables-only \

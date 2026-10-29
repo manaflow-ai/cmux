@@ -5,7 +5,7 @@
 /// (``DaemonConnection/subscribe(filter:limit:)``): a second iteration traps in Debug, since two
 /// iterators would each get part of the events.
 ///
-/// Bounded (p05-ipc-093): the events wait in the route's ``EventInbox`` backlog, so a reader that
+/// Bounded: the events wait in the route's ``EventInbox`` backlog, so a reader that
 /// falls more than 4096 events behind gets one ``DaemonEvent/overflow(_:)`` in place of the ones it
 /// lost and must re-read; the backlog never holds more than 4096 events of any kind (lifecycle
 /// events and what a re-read cannot restore are kept while they fit, then only the newest of each

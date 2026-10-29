@@ -77,7 +77,7 @@ extension VisiblePaneRefs {
     }
 
     /// Every launch window on screen, or kept off screen until its content is installed, with what it shows.
-    /// A restored window that shows and waits for its launch build (p08-startup-062) is one loading window.
+    /// A restored window that shows and waits for its launch build is one loading window.
     func windows(of manager: WindowManager) -> [Window] {
         _ = (manager.services.paneMounts.generation, manager.services.cache.pageInstalls.revision)
         let built = manager.controllers.compactMap { controller -> Window? in
@@ -97,10 +97,29 @@ extension VisiblePaneRefs {
             return .page(Pane(key: "window:\(controller.state.id):\(route)", state: state))
         }
         guard let content = controller.content, !content.isParked else { return .loading }
-        // While the launch holds panes off screen (p08-startup-065), only the panes the layout reports on screen hold startup.
+        return .workspace(onScreen: panesOnScreen(of: controller).map { Pane(key: $0.paneKey, state: state(of: $0)) },
+                          layoutPanes: content.modelPanes.count)
+    }
+
+    /// The shown workspace's panes on screen. While the launch holds panes off screen, only the panes
+    /// the layout reports on screen hold startup.
+    private func panesOnScreen(of controller: WindowController) -> [PaneController] {
+        guard let content = controller.content, !content.isParked else { return [] }
         let onlyVisible = controller.services.launchPanes.holdsPanes
-        let onScreen = content.panes.values.filter { Window.isOnScreen($0.view) && (!onlyVisible || $0.isVisible) }
-        return .workspace(onScreen: onScreen.map { Pane(key: $0.paneKey, state: state(of: $0)) }, layoutPanes: content.modelPanes.count)
+        return content.panes.values.filter { Window.isOnScreen($0.view) && (!onlyVisible || $0.isVisible) }
+    }
+
+    /// The sessions of the live terminals on screen in the launch's windows, each pane's selected tab
+    /// (`launch.visible_terminals_drawn`, ``LaunchTerminalsDrawn``). A window whose top page shows has none.
+    func visibleTerminals(of manager: WindowManager) -> Set<ObjectIdentifier> {
+        var sessions: Set<ObjectIdentifier> = []
+        for controller in manager.controllers where Window.isOnScreen(controller.window) {
+            guard controller.shownTopPage.flatMap({ controller.topPages.views[$0] }) == nil else { continue }
+            for pane in panesOnScreen(of: controller) where pane.stripModel.selectedID != nil && pane.showsLiveTerminal {
+                if case .terminal(let entry)? = pane.currentContent { sessions.insert(ObjectIdentifier(entry.session)) }
+            }
+        }
+        return sessions
     }
 
     /// A pane's content signal: a terminal's first content, a page's first load ended, an agent or page
@@ -134,7 +153,7 @@ extension BrowserTabState {
     var launchLoadEnded: Bool { hasEndedLoad || processExit != nil }
 }
 
-/// One pane of the launch window as its build behind the picture shows it, focused pane first (p08-startup-060).
+/// One pane of the launch window as its build behind the picture shows it, focused pane first.
 extension PaneController: LaunchWindowPane {
     /// The launch window's build behind its picture holds its content until its own slice (`showForLaunch`), so no
     /// turn builds every pane; the build ends when the phase is built.

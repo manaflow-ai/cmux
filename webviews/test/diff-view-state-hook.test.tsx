@@ -1,8 +1,8 @@
-// The diff page's half of a discard (p07-memory-026): it answers `cmux.diff.viewState`, tells the
+// The diff page's half of a discard: it answers `cmux.diff.viewState`, tells the
 // host when it starts or stops holding input a new page would lose (`cmux.diff.input`, which keeps
 // the page), and puts a saved state back once the restored diff has arrived: the files the reader
-// had unfolded first, then the scroll. On the page host it also saves that state on each hide
-// (p13-webui-082), for a discard whose host could not ask.
+// had unfolded first, then the scroll. On the page host it also saves that state on each hide,
+// for a discard whose host could not ask.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";

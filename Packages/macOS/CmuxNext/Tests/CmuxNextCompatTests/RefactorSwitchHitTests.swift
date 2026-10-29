@@ -2,7 +2,7 @@ import CmuxNextCompat
 import Foundation
 import Testing
 
-/// A guarded site's hit counts (p15-oracle-027): the arm it ran lands on that arm only, an uncounted
+/// A guarded site's hit counts: the arm it ran lands on that arm only, an uncounted
 /// hit (Release) counts nothing, and a read with `reset` starts both arms at 0. `nonisolated`: the
 /// concurrent case runs its closure on worker threads (the target's default isolation is MainActor).
 @Suite nonisolated struct RefactorSwitchHitTests {

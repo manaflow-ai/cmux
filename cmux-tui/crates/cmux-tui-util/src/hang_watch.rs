@@ -1,4 +1,4 @@
-//! The daemon's hang count (p12-perf-process-232): every watched scope of a
+//! The daemon's hang count: every watched scope of a
 //! request or mux thread that stays busy past [`HANG_THRESHOLD`] is counted
 //! once, and its span and duration are kept in a bounded ring. `server-stats`
 //! `include: ["hangs"]` reports both; the perf lab's

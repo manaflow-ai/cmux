@@ -4,7 +4,7 @@ import CmuxNextWakeups
 import Foundation
 import Testing
 
-/// The refresh-scaled budget and the budget turn (p06-scheduler-201, plans/cmux-next/chrome-parity/p06-scheduler.md
+/// The refresh-scaled budget and the budget turn (plans/cmux-next/chrome-parity/p06-scheduler.md
 /// "Budget mechanics"): under the after-commit placement the class shares scale with interval / 16.7 ms, the pass
 /// target is interval - 2 ms - the measured render, and the budgeted batch leaves the display tick for a turn of its
 /// own after the tick's commit, whose work ends by the next vsync less the commit estimate. The in-tick placement

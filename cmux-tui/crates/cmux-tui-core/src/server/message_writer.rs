@@ -9,6 +9,11 @@
 //! request's reply is a frame in that same FIFO (`send_reply`). Every other
 //! stream rides a lane (`StreamLane`): input streams before the control FIFO,
 //! bulk and background streams after it (server/outbound_lanes.rs).
+//!
+//! On an idle local connection a send writes its message on the calling
+//! thread with a send that never waits, and the connection's writer thread
+//! sees only what the socket did not take
+//! (server/inline_write.rs).
 
 use super::AttachWireShape;
 use super::BudgetedText;
@@ -50,7 +55,7 @@ pub(super) struct OutboundStream {
     /// The outbound lane of a stream outside the control sequence; read and
     /// changed only under the connection's outbound lock (`set-stream-priority`).
     lane: Arc<LaneCell>,
-    /// The client's `set-stream-priority` for this stream (p05-ipc-142).
+    /// The client's `set-stream-priority` for this stream.
     pub(super) visibility: Arc<StreamVisibility>,
     pub(super) terminal_enqueued: Arc<AtomicBool>,
     pub(super) overflow_text: Arc<Mutex<Arc<BudgetedText>>>,
@@ -60,7 +65,7 @@ pub(super) struct OutboundStream {
     /// item carries it as `"stream"` and the terminal is `stream-end`.
     pub(super) client_stream: Option<ClientStreamId>,
     /// Run when the writer takes an item of this stream while it held its
-    /// backpressure cap: the producer's drain task (p05-ipc-079), which
+    /// backpressure cap: the producer's drain task, which
     /// stopped at the cap instead of waiting for room.
     pub(super) space_hook: Arc<crate::stream_interrupt::ReadyHook>,
 }
@@ -468,6 +473,24 @@ impl MessageWriter {
         result
     }
 
+    /// [`Self::send_stream`] of a value already encoded with
+    /// [`Self::encode`], off the thread that hands it over (a snapshot
+    /// viewer's bulk work encodes its READY and chunks on a utility worker).
+    pub(super) fn send_encoded_stream(
+        &self,
+        encoded: std::io::Result<Arc<BudgetedText>>,
+        stream: &OutboundStream,
+    ) -> std::io::Result<()> {
+        if !self.is_open() {
+            return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
+        }
+        let result = encoded.and_then(|text| self.sink.send_stream(text, stream));
+        if result.as_ref().is_err_and(|error| error.kind() != std::io::ErrorKind::WouldBlock) {
+            stream.close();
+        }
+        result
+    }
+
     /// A frame on `stream` whose payload is `text`: one longer than the
     /// connection's BULK_FRAME_MAX leaves in chunks, so replies and
     /// input-lane items pass it between chunks.
@@ -517,15 +540,23 @@ impl MessageWriter {
         self.render_service.serialize_for(value, stream.client_stream)
     }
 
-    /// [`Self::encode`] of an attach frame in `shape`.
+    /// [`Self::encode`] of an attach frame in `shape`; an output frame that
+    /// echoes a key press carries that press's `key_stages`.
     pub(super) fn encode_attach_frame(
         &self,
         surface: SurfaceId,
         frame: &AttachFrame,
         shape: AttachWireShape,
+        key_stages: Option<crate::input_stages::KeyStages>,
         stream: &OutboundStream,
     ) -> std::io::Result<Arc<BudgetedText>> {
-        self.render_service.serialize_attach_frame_for(surface, frame, shape, stream.client_stream)
+        self.render_service.serialize_attach_frame_for(
+            surface,
+            frame,
+            shape,
+            key_stages,
+            stream.client_stream,
+        )
     }
 
     /// The second half of [`Self::send_stream_backpressured`]: hand the
@@ -583,19 +614,21 @@ impl MessageWriter {
     }
 
     /// An attach frame on `stream` for a producer that checked
-    /// [`MessageSink::stream_has_room`] first: it never waits.
+    /// [`MessageSink::stream_has_room`] first: it never waits. An output
+    /// frame that echoes a key press carries its `key_stages`.
     pub(super) fn send_attach_frame(
         &self,
         surface: SurfaceId,
         frame: &AttachFrame,
         shape: AttachWireShape,
+        key_stages: Option<crate::input_stages::KeyStages>,
         stream: &OutboundStream,
     ) -> std::io::Result<()> {
         if !self.is_open() {
             return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
         }
         let result = self
-            .encode_attach_frame(surface, frame, shape, stream)
+            .encode_attach_frame(surface, frame, shape, key_stages, stream)
             .and_then(|text| self.sink.send_stream(text, stream));
         if result.as_ref().is_err_and(|error| error.kind() != std::io::ErrorKind::WouldBlock) {
             stream.close();

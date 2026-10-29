@@ -2,6 +2,7 @@ import Darwin
 import Foundation
 import Testing
 @testable import CmuxNextAgentPane
+import CmuxNextWakeups
 
 /// A quit whose daemon socket is gone decides from the host locks and leaves out the Home Chief's
 /// sessions it last read (`AcpmuxQuitProof.knownChief`). Those are per daemon home, and an end that
@@ -46,9 +47,10 @@ struct AcpmuxQuitKnownChiefTests {
         #expect(flock(fd, LOCK_EX | LOCK_NB) == 0)
         AcpmuxQuitProof.remember(chief: ["chief-sub"], home: app)
 
-        let nothingKept = await AcpmuxQuit.withoutSocket(app, keep: .nothing, waitForShutdown: false, within: .zero)
+        let work = BackgroundWork(label: "test.quit-known-chief")
+        let nothingKept = await AcpmuxQuit.withoutSocket(app, runner: work, keep: .nothing, waitForShutdown: false, within: .zero)
         #expect(nothingKept == .agentsStillRunning(["chief-sub"]))
-        let chiefKept = await AcpmuxQuit.withoutSocket(app, keep: .chief, waitForShutdown: false, within: .zero)
+        let chiefKept = await AcpmuxQuit.withoutSocket(app, runner: work, keep: .chief, waitForShutdown: false, within: .zero)
         #expect(chiefKept == .noDaemon)
     }
 }

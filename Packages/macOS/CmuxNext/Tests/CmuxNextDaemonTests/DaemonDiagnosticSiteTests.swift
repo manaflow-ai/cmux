@@ -3,7 +3,7 @@ import CmuxNextCompat
 import Foundation
 import Testing
 
-/// The daemon's `server-diagnostic-site` events on the app side (p02-threads-233): the line decodes to a
+/// The daemon's `server-diagnostic-site` events on the app side: the line decodes to a
 /// path-free site and anything else is refused; the relay holds the sites read before its sink exists,
 /// hands each site to it once (a daemon replays its sites on every subscribe), and only the connection
 /// that reports them asks the daemon for them.

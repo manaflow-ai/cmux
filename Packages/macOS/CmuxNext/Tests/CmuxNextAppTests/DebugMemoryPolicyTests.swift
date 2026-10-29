@@ -11,7 +11,7 @@ import Darwin
 import Foundation
 import Testing
 
-/// The socket and relay policy of the memory diagnostics (p07-memory-076): `debug.memory` and
+/// The socket and relay policy of the memory diagnostics: `debug.memory` and
 /// `debug.discards` are read-only automation-class main-actor copies whose parse and encode run off
 /// the main actor; no relay may forward them or the daemon's `memory-report`; only the local owner
 /// gets an answer; and a release router serves both with no URL, title or path in the answer

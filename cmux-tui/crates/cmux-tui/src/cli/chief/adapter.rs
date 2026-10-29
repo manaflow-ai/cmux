@@ -147,22 +147,22 @@ impl Drafts {
             self.drop_turn(&draft.participant, &draft.turn);
             return;
         }
-        let index = match self
+        let existing = self
             .turns
             .iter()
-            .position(|t| t.participant == draft.participant && t.turn == draft.turn)
-        {
-            Some(index) => index,
+            .position(|t| t.participant == draft.participant && t.turn == draft.turn);
+        let turn = match existing.and_then(|index| self.turns.get_mut(index)) {
+            Some(turn) => turn,
             None => {
                 self.turns.push(TurnDraft {
                     participant: draft.participant.clone(),
                     turn: draft.turn.clone(),
                     ..TurnDraft::default()
                 });
-                self.turns.len() - 1
+                let Some(turn) = self.turns.last_mut() else { return };
+                turn
             }
         };
-        let turn = &mut self.turns[index];
         let follows = turn.last_seq != 0 && draft.seq == turn.last_seq + 1;
         turn.last_seq = turn.last_seq.max(draft.seq);
         if draft.fresh {

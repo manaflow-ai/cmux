@@ -3,7 +3,7 @@ import AppKit
 import Testing
 
 /// The window's page update request (`ChildPageGeometryRegistry`) and what the fork's page tracker reads
-/// from a host view (`ChildWindowPageFallback`, p03-rendering-053). Each test makes its own windows, and a
+/// from a host view (`ChildWindowPageFallback`). Each test makes its own windows, and a
 /// request reaches only its window's registry, so no other test's pages hear it.
 @MainActor
 @Suite struct ChildWindowPageFallbackTests {

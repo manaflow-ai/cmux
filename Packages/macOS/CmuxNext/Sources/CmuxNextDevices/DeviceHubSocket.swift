@@ -70,7 +70,7 @@ public struct URLSessionSocketConnection: DeviceHubSocketConnection {
 /// traffic sends no ping at all, and an idle one pings once per ``pingInterval``, at most
 /// ``pingLeeway`` late.
 ///
-/// With the app's Energy Saver policy (p14-energy-120, ``KeepaliveGate``) the ping holds only while the
+/// With the app's Energy Saver policy (``KeepaliveGate``) the ping holds only while the
 /// Mac sleeps (``KeepaliveGate/Hold/systemSleep``): a Mac whose displays sleep is still the Mac Screen
 /// host a phone reaches, and without the ping a dropped stream goes unseen. A wake that finds the
 /// network closes the socket once and opens a new one within ``EnergyPolicy/reconnectJitter`` (a

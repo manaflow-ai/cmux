@@ -7,7 +7,7 @@ import Foundation
 import Testing
 
 /// Chrome's variations safe mode for the remote flags document
-/// (p12-perf-process.md section 3.9, task p12-perf-process-094;
+/// (p12-perf-process.md section 3.9;
 /// components/variations/service/safe_seed_manager.cc).
 struct FeatureSafeModeTests {
     private static let killX = feature(0, "killX", .killSwitch, sticky: true)

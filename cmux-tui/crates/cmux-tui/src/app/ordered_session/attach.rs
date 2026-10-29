@@ -22,7 +22,10 @@ impl OrderedSession {
             && let Some(size) = size
         {
             let promoted = {
-                let mut claims = self.surface_attach_claims.lock().unwrap();
+                let mut claims = self
+                    .surface_attach_claims
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
                 claims.get_mut(&id).is_some_and(|claim| {
                     if claim.retired {
                         return false;
@@ -33,7 +36,12 @@ impl OrderedSession {
                 })
             };
             if promoted {
-                if let Some(executor) = self.remote_surface_attaches.lock().unwrap().as_ref() {
+                if let Some(executor) = self
+                    .remote_surface_attaches
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .as_ref()
+                {
                     executor.promote(id);
                 }
                 return;
@@ -43,11 +51,15 @@ impl OrderedSession {
             return;
         }
         {
-            let retired_surfaces = self.retired_surfaces.lock().unwrap();
+            let retired_surfaces =
+                self.retired_surfaces.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             if retired_surfaces.contains(&id) {
                 return;
             }
-            let mut attach_claims = self.surface_attach_claims.lock().unwrap();
+            let mut attach_claims = self
+                .surface_attach_claims
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             if attach_claims.contains_key(&id) {
                 return;
             }
@@ -85,10 +97,15 @@ impl OrderedSession {
                 #[cfg(test)]
                 after_obsolete_check: attach_after_obsolete_check,
             };
-            let mut executor = self.remote_surface_attaches.lock().unwrap();
-            if executor.is_none() {
+            let mut executor = self
+                .remote_surface_attaches
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let admission = if let Some(running) = executor.as_ref() {
+                running.enqueue(job, size.is_some())
+            } else {
                 match RemoteSurfaceAttachExecutor::new() {
-                    Ok(created) => *executor = Some(created),
+                    Ok(created) => executor.insert(created).enqueue(job, size.is_some()),
                     Err(error) => {
                         drop(executor);
                         job.fail(
@@ -99,8 +116,7 @@ impl OrderedSession {
                         return;
                     }
                 }
-            }
-            let admission = executor.as_ref().unwrap().enqueue(job, size.is_some());
+            };
             drop(executor);
             match admission {
                 RemoteSurfaceAttachAdmission::Enqueued { displaced } => drop(displaced),
@@ -124,9 +140,14 @@ impl OrderedSession {
             move || {
                 let _claim = claim;
                 let retired_before_attach = {
-                    let retired_surfaces = retired_surfaces.lock().unwrap();
+                    let retired_surfaces =
+                        retired_surfaces.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                     retired_surfaces.contains(&id)
-                        || attach_claims.lock().unwrap().get(&id).is_some_and(|claim| claim.retired)
+                        || attach_claims
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner)
+                            .get(&id)
+                            .is_some_and(|claim| claim.retired)
                 };
                 if retired_before_attach {
                     pending.defer(SessionMutationOutcome::Success { tree: None });
@@ -141,29 +162,41 @@ impl OrderedSession {
                 // ordered worker is waiting to attach. In that case the
                 // missing mirror is the expected result of teardown, not a
                 // retryable synchronization failure.
-                let attach_claims = attach_claims.lock().unwrap();
+                let attach_claims =
+                    attach_claims.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                 let retired = attach_claims.get(&id).is_some_and(|claim| claim.retired);
                 match result {
                     Ok(SurfaceAttach::Attached(_)) => {
-                        attach_failures.lock().unwrap().remove(&id);
+                        attach_failures
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner)
+                            .remove(&id);
                         pending.defer(SessionMutationOutcome::Success { tree: None });
                         drop(attach_claims);
                         Ok(())
                     }
                     Ok(SurfaceAttach::Retired | SurfaceAttach::Deferred) => {
-                        attach_failures.lock().unwrap().remove(&id);
+                        attach_failures
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner)
+                            .remove(&id);
                         pending.defer(SessionMutationOutcome::Success { tree: None });
                         drop(attach_claims);
                         Ok(())
                     }
                     Ok(SurfaceAttach::Missing) if retired => {
-                        attach_failures.lock().unwrap().remove(&id);
+                        attach_failures
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner)
+                            .remove(&id);
                         pending.defer(SessionMutationOutcome::Success { tree: None });
                         drop(attach_claims);
                         Ok(())
                     }
                     Ok(SurfaceAttach::Missing) => {
-                        let mut failures = attach_failures.lock().unwrap();
+                        let mut failures = attach_failures
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner);
                         let state =
                             next_surface_sync_failure(failures.get(&id).copied(), false, false);
                         failures.insert(id, state);
@@ -178,7 +211,10 @@ impl OrderedSession {
                         Ok(())
                     }
                     Err(error) if retired && is_remote_surface_unavailable(&error, id) => {
-                        attach_failures.lock().unwrap().remove(&id);
+                        attach_failures
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner)
+                            .remove(&id);
                         pending.defer(SessionMutationOutcome::Success { tree: None });
                         drop(attach_claims);
                         Ok(())
@@ -186,7 +222,9 @@ impl OrderedSession {
                     Err(error) => {
                         let timed_out = is_remote_timeout(&error);
                         let transport_failed = is_remote_transport_failure(&error);
-                        let mut failures = attach_failures.lock().unwrap();
+                        let mut failures = attach_failures
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner);
                         let state = next_surface_sync_failure(
                             failures.get(&id).copied(),
                             transport_failed,
@@ -208,7 +246,8 @@ impl OrderedSession {
         );
         if enqueue_result != PtyInputEnqueueResult::Accepted {
             let transient = enqueue_result != PtyInputEnqueueResult::Failed;
-            let mut failures = enqueue_failures.lock().unwrap();
+            let mut failures =
+                enqueue_failures.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let state = next_surface_sync_failure(failures.get(&id).copied(), transient, false);
             failures.insert(id, state);
         }
@@ -218,14 +257,22 @@ impl OrderedSession {
         let failure_blocks = self
             .surface_attach_failures
             .lock()
-            .unwrap()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .get(&id)
             .copied()
             .is_some_and(surface_sync_failure_blocks);
-        let attach_claimed = self.surface_attach_claims.lock().unwrap().contains_key(&id);
+        let attach_claimed = self
+            .surface_attach_claims
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .contains_key(&id);
         self.inner.cached_surface(id).is_none()
             && self.inner.can_attach_after_overflow(id)
-            && !self.retired_surfaces.lock().unwrap().contains(&id)
+            && !self
+                .retired_surfaces
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .contains(&id)
             && !failure_blocks
             && !attach_claimed
             && (!self.remote || !self.inner.remote_tree_is_stale())
@@ -235,13 +282,15 @@ impl OrderedSession {
         if !self.remote {
             return;
         }
-        self.retired_surfaces.lock().unwrap().retain(|surface| {
-            tree.workspaces()
-                .iter()
-                .flat_map(|workspace| workspace.screens.iter())
-                .flat_map(|screen| screen.panes.iter())
-                .flat_map(|pane| pane.tabs.iter())
-                .any(|tab| tab.surface == *surface)
-        });
+        self.retired_surfaces.lock().unwrap_or_else(std::sync::PoisonError::into_inner).retain(
+            |surface| {
+                tree.workspaces()
+                    .iter()
+                    .flat_map(|workspace| workspace.screens.iter())
+                    .flat_map(|screen| screen.panes.iter())
+                    .flat_map(|pane| pane.tabs.iter())
+                    .any(|tab| tab.surface == *surface)
+            },
+        );
     }
 }

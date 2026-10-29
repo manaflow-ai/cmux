@@ -1,5 +1,5 @@
-// The DEBUG stream run (`debug.agent_pane action=stream`) wakes the page only for its `seconds`
-// (p14-energy-062b). A page that hides mid-run draws no frames (no requestAnimationFrame), so its
+// The DEBUG stream run (`debug.agent_pane action=stream`) wakes the page only for its `seconds`.
+// A page that hides mid-run draws no frames (no requestAnimationFrame), so its
 // delta feeder must stop on its own deadline, not on the next frame.
 import { afterEach, beforeEach, expect, jest, test } from "bun:test";
 import { JSDOM } from "jsdom";

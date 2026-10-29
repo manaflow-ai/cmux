@@ -85,7 +85,7 @@ import Testing
         #expect(decoded.kind == nil)
     }
 
-    // MARK: Wheel (p04-input-063)
+    // MARK: Wheel
 
     /// The same bytes as `kWheelGolden` in chromium_host_wire_test.cpp: a
     /// gesture change (precise, shift held) and the momentum's start.
@@ -172,7 +172,7 @@ import Testing
         #expect(ChromiumHostFrame(.key).wheelFields == nil)
     }
 
-    /// The host's report that an input's frame was presented (task p04-input-066), the same bytes as
+    /// The host's report that an input's frame was presented, the same bytes as
     /// chromium_host_wire_test.cpp's kInputPresentedGolden: event time 0x1122334455, presented at 0x1122a0b0c0, vsync.
     static let inputPresentedGolden = hexBytes("6e00000000000000010000000000000000000000000000000000000000000000"
                                                + "00000000000000005544332211000000c0b0a022110000000000000000000000")

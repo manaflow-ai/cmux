@@ -2,7 +2,7 @@ import CmuxNextDaemon
 import Foundation
 import Testing
 
-/// `ProcessRunner.run` (p02-threads-040): the child spawns on a `ProcessLauncher` queue, never the caller's actor or
+/// `ProcessRunner.run`: the child spawns on a `ProcessLauncher` queue, never the caller's actor or
 /// the cooperative pool (Chromium's launcher thread, content/browser/child_process_launcher_helper.cc), and still
 /// reports its status and output, its launch failure, and a cancel that comes while the launch is in flight.
 @Suite(.timeLimit(.minutes(1)))

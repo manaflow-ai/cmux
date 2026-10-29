@@ -442,9 +442,9 @@ pub(super) struct AttachTapState {
     pub(super) queue: Mutex<AttachTapQueue>,
     ready: Condvar,
     /// The viewer's drain task when it runs on a sequence instead of
-    /// blocking on `ready` (attach streams, p05-ipc-079).
+    /// blocking on `ready` (attach streams).
     ready_hook: crate::stream_interrupt::ReadyHook,
-    /// A hidden snapshot viewer (`set-stream-priority hidden`, p05-ipc-142):
+    /// A hidden snapshot viewer (`set-stream-priority hidden`):
     /// output only marks it dirty and nothing wakes it. Written under the
     /// queue lock; read after it is released by the wakes.
     hidden: AtomicBool,
@@ -585,7 +585,9 @@ impl AttachFrameReceiver {
     }
 
     /// Next event of a snapshot viewer: a pending snapshot comes before any
-    /// frame. Blocks until an event, `deadline`, or `interrupt`.
+    /// frame. Blocks until an event, `deadline`, or `interrupt`. Tests only:
+    /// every viewer is a drain that polls `try_viewer_event`.
+    #[cfg(test)]
     pub(crate) fn recv_viewer_event(
         &self,
         interrupt: &crate::stream_interrupt::StreamInterrupt,

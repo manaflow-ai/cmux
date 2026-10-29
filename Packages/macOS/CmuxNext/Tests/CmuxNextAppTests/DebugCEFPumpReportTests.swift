@@ -4,7 +4,7 @@ import CmuxNextInputCore
 import CmuxNextSettings
 import Testing
 
-/// `debug.cef` section `pump` carries the input policy's counters (p04-input-024; DC2): passes while
+/// `debug.cef` section `pump` carries the input policy's counters (DC2): passes while
 /// input was pending by every input target and by the bound, the holds, and one pass's p99.
 @MainActor @Suite struct DebugCEFPumpReportTests {
     @Test func thePumpReportHasTheInputPolicyKeys() throws {
@@ -24,14 +24,14 @@ import Testing
         #expect(p99 != .number(0), "one 1.5 ms pass was recorded")
     }
 
-    /// split-spring --suite=cef-idle reads `early_passes` (p14-energy-018).
+    /// split-spring --suite=cef-idle reads `early_passes`.
     @Test func thePumpReportHasEarlyPasses() {
         var stats = CEFPumpStats()
         stats.earlyPasses = 4
         #expect(DebugCEF.pumpReport(stats)["early_passes"] == .number(4))
     }
 
-    /// The frame deadline's holds (p03-rendering-116): motion-hitches.py and bench-typing.py read them
+    /// The frame deadline's holds: motion-hitches.py and bench-typing.py read them
     /// next to the pass times.
     @Test func thePumpReportHasTheFrameDeadlineHolds() {
         var stats = CEFPumpStats()

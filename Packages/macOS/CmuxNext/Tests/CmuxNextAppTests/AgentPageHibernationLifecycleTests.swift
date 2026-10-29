@@ -13,7 +13,7 @@ import CmuxNextSettings
 import Foundation
 import Testing
 
-/// p13-webui-038: with `pageLifecycle` on, agent chats and New Tab pages are pages of the page
+/// With `pageLifecycle` on, agent chats and New Tab pages are pages of the page
 /// lifecycle. Its planner freezes and discards them with every exemption AgentPageHibernation kept: a
 /// running turn blocks both, a draft blocks the discard, and an untouched New Tab page is let go at the
 /// planner's 300 s. The lifecycle runs on a deadline scheduler whose uptime only the test moves, and each
@@ -154,7 +154,7 @@ struct AgentPageHibernationLifecycleTests {
         #expect(rig.tabs.existingView("tab_b") == nil)
     }
 
-    /// p13-webui-080: an idle chat that freezes lets its acpmux connection go, and its thaw (a turn started)
+    /// An idle chat that freezes lets its acpmux connection go, and its thaw (a turn started)
     /// hands its page the close it reconnects on. A chat waiting on the person keeps its connection, and so
     /// does one whose hide read did not answer.
     @Test func aFrozenIdleChatClosesItsConnectionAndItsThawHandsOnTheClose() async throws {

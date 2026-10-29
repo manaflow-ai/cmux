@@ -20,7 +20,7 @@ public protocol IntentPrewarmWarming<Target>: AnyObject {
 
 /// Intent prewarm for the sidebar's rows and the tab strip's tabs.
 ///
-/// Pointer down (p04-input-042): a press on a target that commits only on its release (a workspace row
+/// Pointer down: a press on a target that commits only on its release (a workspace row
 /// with `sidebar.multiView`, a row of a multi-selection) reaches ``pointerPressed(on:)`` with that target,
 /// is admitted to the FIFO and counted on the press's turn when it is cold; its work starts on the service's
 /// press deadline, a background-class ``MainDeadline`` at zero, so it waits behind the press, the release and
@@ -32,14 +32,14 @@ public protocol IntentPrewarmWarming<Target>: AnyObject {
 /// A prewarm kept after a release elsewhere stays until evicted, used, or its page sleeps again by the
 /// hibernation's own grace (``cooled(_:)``).
 ///
-/// Hover dwell (p04-input-043): a hover delivery (``pointerHovered(_:)``, from the sidebar's and the tab
+/// Hover dwell: a hover delivery (``pointerHovered(_:)``, from the sidebar's and the tab
 /// strip's hover change) that reaches a cold target arms the service's one ``MainDeadline``; after ``dwell``
 /// the target's prewarm starts. A delivery on another target re-arms it, one on nothing, a press or a commit
 /// cancels it, so the timer is pending only while the pointer rests on a cold target. Chrome's hover
 /// heuristic is the same one-shot timer, restarted per anchor and stopped on pointerout
 /// (anchor_element_interaction_tracker.cc).
 ///
-/// Key steps (p04-input-044): after a person's next/previous key lands, ``stepped(_:toward:)`` arms the
+/// Key steps: after a person's next/previous key lands, ``stepped(_:toward:)`` arms the
 /// service's step deadline, a background-class ``MainDeadline``, so the following item's prewarm runs after
 /// input and frames, never in the key's turn. A step the other way cancels the old direction's held key-step
 /// prewarms. Chrome steps tabs with no prediction; this is the speculation rules' FIFO and gating applied to

@@ -6,7 +6,7 @@ import CmuxNextPagesTestSupport
 import Foundation
 import Testing
 
-/// A renderer crash with the page lifecycle on (p13-webui-039, p13-webui.md 3.C): shown pages reload
+/// A renderer crash with the page lifecycle on (p13-webui.md 3.C): shown pages reload
 /// once, hidden pages are marked and load when they show, and pages that really share a renderer share
 /// its crash budget (3 per 600 s), so one death of a renderer that held 5 pages counts once and a crash
 /// loop stops. A page in a renderer of its own keeps a budget of its own.
@@ -206,7 +206,7 @@ struct PageCrashGroupTests {
     }
 
     /// With `webKitPageProcessGroups` the privileged WebKit pages share a WebContent process, so they
-    /// share its crash budget as the agent pages do; off, each keeps its own (p07-memory-087).
+    /// share its crash budget as the agent pages do; off, each keeps its own.
     @Test(arguments: [false, true])
     func privilegedWebKitPagesShareABudgetOnlyInTheHostsWebKitGroups(grouped: Bool) async throws {
         let rig = LifecycleDeadlineRig(), renderers = Renderers()

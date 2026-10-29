@@ -2,7 +2,7 @@ import AppKit
 @testable import CmuxNextTabs
 import Testing
 
-/// p14-energy-125: a hidden high-energy tab's hover card says "Using high energy" with a Discard button on its own
+/// A hidden high-energy tab's hover card says "Using high energy" with a Discard button on its own
 /// line, and only then takes clicks; a quiet or hibernated tab's card has neither.
 @MainActor @Suite struct HighEnergyTabsCardTests {
     /// The card says it and offers Discard only for a flagged, live tab; the card then takes clicks.

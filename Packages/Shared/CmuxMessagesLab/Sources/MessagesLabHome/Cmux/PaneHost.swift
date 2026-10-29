@@ -55,7 +55,7 @@ final class HostView: NSView {
     let scrollView: TranscriptScrollView = (ProcessInfo.processInfo.arguments.contains("--scroll-trace") || ProcessInfo.processInfo.arguments.contains("--probe-live-scroll"))
         ? TraceableTranscriptScrollView(frame: .zero) : TranscriptScrollView(frame: .zero)
     let fieldChrome = FieldChrome()
-    /// cmux: the compose bar's own controls as layers of one view (p03-rendering-074): the send
+    /// cmux: the compose bar's own controls as layers of one view: the send
     /// button, the voice input's mic, waveform and finish buttons, and "Listening…".
     let composeChrome = ComposeChromeView(frame: .zero)
     /// cmux: the field's send button (the waveform's slot when the field has text; ComposeSendButton).
@@ -125,7 +125,7 @@ final class HostView: NSView {
         // the text view is the scroll view's document, so the clip is what the pane holds.
         addSubview(demo.compose.textView.clip)
         // cmux: above the text view's clip (the text leaves its slot free): one view whose layers
-        // are the send button, the voice controls and "Listening…" (p03-rendering-074).
+        // are the send button, the voice controls and "Listening…".
         addSubview(composeChrome)
         addSubview(paneHeader)
         addSubview(above)
@@ -160,7 +160,7 @@ final class HostView: NSView {
             demo.frame = bounds
             demo.setNeedsLayout()
         }
-        // cmux (p07-memory-030): a released transcript shown again lays its rows out once, here, at the pane's size and
+        // cmux: a released transcript shown again lays its rows out once, here, at the pane's size and
         // its window's scale (a hidden tab's view is out of the window and keeps the size it was hidden at).
         if window != nil { demo?.layOutRestoredRows() }
         // cmux: the window view lays out first, so the compose view's bounds

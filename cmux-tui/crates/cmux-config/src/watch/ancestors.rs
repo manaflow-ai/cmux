@@ -86,7 +86,9 @@ impl Ancestors {
         let kq = unsafe { OwnedFd::from_raw_fd(raw) };
         change(raw, &KEvent::new(STOP, EVFILT_USER, EV_ADD | EV_CLEAR, 0))?;
         // supervise-allow: owned by Ancestors, which keeps the handle and joins it at drop; a panic ends parent-directory change hints only, and the loaded config stays in effect.
-        let thread = std::thread::Builder::new().name("cmux-config-ancestors".to_string()).spawn(
+        let thread = cmux_threads::spawn(
+            "cmux-config-ancestors",
+            cmux_threads::ThreadQos::UserInitiated,
             move || {
                 let mut event = KEvent::new(0, 0, 0, 0);
                 loop {

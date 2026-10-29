@@ -1,5 +1,5 @@
-// Chief Usage keeps the window and grouping the person picked and its scroll across a discard
-// (p13-webui-082): the hide saves them, and the restored document's store reads them first.
+// Chief Usage keeps the window and grouping the person picked and its scroll across a discard:
+// the hide saves them, and the restored document's store reads them first.
 import { describe, expect, test } from "bun:test";
 import { DOCUMENT_SCROLL_KEY, restoredPageInputs } from "../shared/pageState";
 import { pageRoundTrip, scrollOf } from "../shared/pageStateTesting";

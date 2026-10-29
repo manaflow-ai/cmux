@@ -13,6 +13,7 @@ use serde_json::{Map, Value, json};
 
 use super::schema::Generator;
 use super::v2_tools::invalid;
+use crate::cli::json_fields::JsonFields;
 
 const CATALOG_JSON: &str =
     include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../spec/browser-host-operations.json"));
@@ -24,6 +25,10 @@ const MAX_EVAL_MS: u64 = 300_000;
 /// The host answers a request without code within this time.
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 
+#[allow(
+    clippy::expect_used,
+    reason = "INVARIANT: CATALOG_JSON is a checked-in spec file compiled in with include_str!; its tests parse it"
+)]
 pub(super) fn catalog() -> &'static Value {
     static CATALOG: OnceLock<Value> = OnceLock::new();
     CATALOG.get_or_init(|| serde_json::from_str(CATALOG_JSON).expect("the checked-in catalog"))
@@ -67,7 +72,9 @@ pub(super) fn find(name: &str) -> Option<&'static BrowserTool> {
 impl BrowserTool {
     fn fields(&self) -> &'static Map<String, Value> {
         static EMPTY: OnceLock<Map<String, Value>> = OnceLock::new();
-        self.descriptor["params"]["fields"]
+        self.descriptor
+            .field("params")
+            .field("fields")
             .as_object()
             .unwrap_or_else(|| EMPTY.get_or_init(Map::new))
     }

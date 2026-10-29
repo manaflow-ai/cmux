@@ -7,7 +7,7 @@ import CmuxNextTasks
 import Foundation
 import Testing
 
-/// Lazy page tabs (p13-webui-040): a page tab nobody sees costs no page. Its provider makes the
+/// Lazy page tabs: a page tab nobody sees costs no page. Its provider makes the
 /// tab's view the first time a pane shows the tab, as Chrome loads a restored background tab only
 /// when it is activated (chrome/browser/sessions/tab_loader.cc, `NavigationController::LoadIfNecessary`).
 /// The strip still lists the tab, with its title and icon, from the first turn.

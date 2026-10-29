@@ -1,5 +1,6 @@
-//! The byte, render and browser views of attach streams as drains on the
-//! sequenced pool (p05-ipc-079): the work of the legacy `mux-attach-out`,
+//! The byte, render and browser views as drains on the sequenced pool, on a
+//! client-minted attach stream or a legacy one:
+//! the work of the former `mux-attach-out`,
 //! `mux-render-attach-out` and `mux-attach-notifications` threads, without
 //! the threads. The snapshot view's drain is in snapshot_attach_out.rs.
 
@@ -13,6 +14,7 @@ use crate::Mux;
 use crate::RenderAttachFrame;
 use crate::RenderAttachStream;
 use crate::SurfaceId;
+use crate::input_stages::InputStageRing;
 use crate::panic_free::RecoverPoison;
 use crate::server::AttachWireShape;
 use crate::server::MessageWriter;
@@ -25,7 +27,6 @@ use crate::server::attach_lifecycle::attach_pump::{
 use crate::server::attach_lifecycle::{AttachCommit, commit_client_attach_and_start_pump};
 use crate::server::browser_state_message;
 use crate::server::render_messages::browser_frame_json;
-use crate::server::sequenced_pool::SequencePriority;
 use crate::server::stream_priority::follow_visibility;
 use crate::surface::AttachStream;
 
@@ -40,15 +41,17 @@ pub(crate) struct StreamView<'a> {
 }
 
 impl StreamView<'_> {
-    /// Binds `source`'s drain to a pump at `priority`, commits the attach and
-    /// starts the drain. `on_ready` sets the source's ready hook.
+    /// Binds `source`'s drain to a pump at its connection's view priority
+    /// (`ConnectionClass::view_priority`: the person's views on the input
+    /// workers, automation's below them), commits the attach and starts the
+    /// drain. `on_ready` sets the source's ready hook.
     fn start<S: ViewSource>(
         self,
-        priority: SequencePriority,
         notifications: bool,
         on_ready: impl FnOnce(&S, Box<dyn Fn() + Send + Sync>),
         source: S,
     ) -> anyhow::Result<()> {
+        let priority = self.mux.control_clients.connection_class(self.client).get().view_priority();
         let pump = AttachPump::new(&self.mux.sequenced_pool, priority);
         let out = ViewOut::bind(
             &pump,
@@ -73,29 +76,27 @@ impl StreamView<'_> {
         )
     }
 
-    /// A replay byte view: the terminal's output is the echo path, so it
-    /// runs at input priority.
+    /// A replay byte view: the terminal's output is the echo path.
+    /// Each echo goes out with its press's stages from `key_stages`.
     pub(crate) fn start_bytes(
         self,
         attach: AttachStream,
         shape: AttachWireShape,
+        key_stages: Option<Arc<InputStageRing>>,
     ) -> anyhow::Result<()> {
         self.start(
-            SequencePriority::Input,
             true,
             |source: &BytesSource, hook| {
                 source.attach.stream.on_ready(hook);
             },
-            BytesSource { attach, shape },
+            BytesSource { attach, shape, key_stages },
         )
     }
 
-    /// A render view (protocol-v7 frames of a terminal): input priority,
-    /// like the byte view.
+    /// A render view (protocol-v7 frames of a terminal), like the byte view.
     pub(crate) fn start_render(self, attach: RenderAttachStream) -> anyhow::Result<()> {
         let state = RenderClientState::new(self.writer.render_service.clone(), &attach.initial);
         self.start(
-            SequencePriority::Input,
             false,
             |source: &RenderSource, hook| {
                 source.attach.stream.on_ready(hook);
@@ -104,11 +105,10 @@ impl StreamView<'_> {
         )
     }
 
-    /// A browser view: the page the person sees, at input priority like the
-    /// echo thread that served it before.
+    /// A browser view: the page the person sees, like the echo thread that
+    /// served it before.
     pub(crate) fn start_browser(self, frames: BrowserFrameStream) -> anyhow::Result<()> {
         self.start(
-            SequencePriority::Input,
             true,
             |source: &BrowserSource, hook| {
                 source.frames.notify.on_ready(hook);
@@ -121,6 +121,8 @@ impl StreamView<'_> {
 struct BytesSource {
     attach: AttachStream,
     shape: AttachWireShape,
+    /// The terminal's key presses' stages, read as each echo goes out.
+    key_stages: Option<Arc<InputStageRing>>,
 }
 
 impl ViewSource for BytesSource {
@@ -129,8 +131,14 @@ impl ViewSource for BytesSource {
     fn next(&mut self, out: &mut ViewOut, _timer: &PumpTimer<'_>) -> Step {
         match self.attach.stream.try_recv() {
             Ok(frame) => {
-                let sent =
-                    out.writer.send_attach_frame(out.surface, &frame, self.shape, &out.stream);
+                let stages = self.key_stages.as_ref().and_then(|ring| ring.stages(frame.flow()));
+                let sent = out.writer.send_attach_frame(
+                    out.surface,
+                    &frame,
+                    self.shape,
+                    stages,
+                    &out.stream,
+                );
                 if out.sent(sent) { Step::Sent } else { Step::End }
             }
             Err(TryRecvError::Empty) => Step::Empty,

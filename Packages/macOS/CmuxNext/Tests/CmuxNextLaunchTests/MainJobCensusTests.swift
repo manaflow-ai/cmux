@@ -4,7 +4,7 @@
 import Foundation
 import Testing
 
-/// The main-job census (p08-startup-080, queue Q11): the run-loop turns and stretches it cuts, the enqueuer it names,
+/// The main-job census (queue Q11): the run-loop turns and stretches it cuts, the enqueuer it names,
 /// the StartupScheduler task that covers a turn, and the payload `startup-queue.py mainjobs` reads.
 struct MainJobCensusTests {
     private static let ms: UInt64 = 1_000_000

@@ -170,7 +170,7 @@ public struct LaunchSnapshotLocation: Sendable {
 
 /// The launch snapshot's read, begun in `main` on the files lane before AppKit starts (the app: a `LaunchRead`), which
 /// `DaemonService.start` takes over: it applies the snapshot in its own turn when the read has ended, else on the
-/// read's end, so the main thread never reads or decodes the file (p08-startup-074).
+/// read's end, so the main thread never reads or decodes the file.
 public struct LaunchSnapshotPrefetch: Sendable {
     /// The session whose snapshot it reads; a start for another session reads its own.
     public let session: String

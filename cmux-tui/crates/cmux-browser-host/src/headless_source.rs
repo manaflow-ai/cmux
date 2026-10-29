@@ -14,6 +14,7 @@ use crate::cdp::CdpDriver;
 use crate::cdp::pipe::HeadlessChromium;
 use crate::driver::{Driver, EventSink, Reply, RequestFilter, RequestInfo};
 use crate::lease::{LeaseCaller, LeaseError, LeaseOp, LeaseTable};
+use crate::panic_free::JsonFields;
 use crate::protocol::{DriverError, DriverEvent};
 use crate::provider::LeaseState;
 use crate::tab_source::{PolicyLogSink, TabCall, TabRow, TabSource};
@@ -103,7 +104,7 @@ impl HeadlessSource {
             if options.headless { driver.call("tabs.list", &json!({})).ok() } else { None };
         if let Some(Value::Array(tabs)) = start_tabs {
             for tab in tabs {
-                if let Some(target) = tab["targetId"].as_str() {
+                if let Some(target) = tab.field("targetId").as_str() {
                     let _ = driver.call("tabs.close", &json!({"targetId": target}));
                 }
             }
@@ -488,7 +489,7 @@ impl TabSource for SharedHeadless {
         // session (fetch shells, the profile's cookies, downloads).
         let mut params = params.clone();
         if let Some(id) = params.get("fetchId").and_then(Value::as_str) {
-            params["fetchId"] = json!(fetch_id(session, id));
+            params.insert("fetchId", json!(fetch_id(session, id)));
         }
         if method == "session.configure" {
             return Some(self.0.configure(session, &params));
@@ -500,7 +501,7 @@ impl TabSource for SharedHeadless {
         }
         if method.starts_with("cookies.") {
             match self.0.cookie_store_of(session) {
-                Ok(Some(context)) => params["browserContextId"] = json!(context),
+                Ok(Some(context)) => params.insert("browserContextId", json!(context)),
                 Ok(None) => {}
                 Err(error) => return Some(Err(error)),
             }
@@ -690,7 +691,7 @@ impl SharedHeadless {
             fields.remove("browserContextId");
         }
         if let Some(id) = params.get("fetchId").and_then(Value::as_str) {
-            params["fetchId"] = json!(fetch_id(call.session, id));
+            params.insert("fetchId", json!(fetch_id(call.session, id)));
         }
         if call.raw {
             // Script values keep the page's key order (a9 raw_value).
@@ -768,9 +769,11 @@ impl HeadlessSession {
             let browsers = self.browsers.clone();
             let source = Arc::downgrade(&self.source);
             // supervise-allow: one browser's linger timer holding weak references; a panic keeps that one idle browser open until the host exits, and every other browser is unaffected.
-            let spawned = std::thread::Builder::new()
-                .name("headless-linger".into())
-                .spawn(move || release_after_linger(&browsers, &source));
+            let spawned = cmux_threads::spawn(
+                "headless-linger",
+                cmux_threads::ThreadQos::Utility,
+                move || release_after_linger(&browsers, &source),
+            );
             if spawned.is_err() {
                 // No thread: close it now, as before the linger.
                 release_now(&self.browsers, &self.source);

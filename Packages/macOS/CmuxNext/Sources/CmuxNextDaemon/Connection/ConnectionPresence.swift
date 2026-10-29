@@ -2,7 +2,7 @@ import CmuxNextCompat
 
 /// Whether a person can see what the app's daemon connections bring in, as the App reports it: the
 /// Daemon target knows no windows. The composition root makes one, feeds it from its shown windows
-/// and hands it to each machine's ``ConnectionHeartbeat`` (p14-energy-064). With no presence a
+/// and hands it to each machine's ``ConnectionHeartbeat``. With no presence a
 /// heartbeat counts its app as shown. Chrome throttles the timers of a hidden or occluded page the
 /// same way (`content/public/browser/visibility.h`).
 public final class ConnectionPresence: Sendable {

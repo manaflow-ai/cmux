@@ -54,12 +54,12 @@ pub(super) fn invocation(
     let mut chief = None;
     let mut json = json;
     let mut i = 0;
-    while i < args.len() {
-        let (flag, inline) = match args[i].split_once('=') {
+    while let Some(arg) = args.get(i) {
+        let (flag, inline) = match arg.split_once('=') {
             Some((flag, value)) if flag.starts_with("--") => {
                 (flag.to_owned(), Some(value.to_owned()))
             }
-            _ => (args[i].clone(), None),
+            _ => (arg.clone(), None),
         };
         let mut value = || -> Result<String, String> {
             if let Some(value) = &inline {

@@ -58,9 +58,9 @@ nonisolated enum ChromiumHostOp: UInt16, CaseIterable, Sendable {
     case tabCopySurface = 203, tabSendMouseMove = 204
 
     /// The SHA-256 of the cmux_cef_shim.h this table was generated from (`CEFShimABI`).
-    static let abiIdentity = "183b298b198b385c17c2812753a8ae86772b4cd78d9f687f56db9260136a3889"
+    static let abiIdentity = "641e57a19bd827069848e7610171deda12fd58f5576ab72b2afae3083a8203b4"
     /// This generation's op ids, classes and wire types; both HELLOs carry it.
-    static let wireIdentity = "3ec17138f8508529b7b1c105a843a8e60f986ca4a4ec0e02544aa8f75dee4f71"
+    static let wireIdentity = "d7a832720219ab8c5bf90994fa22b3a1107ac48595eaf77da206a33e4d66fe6e"
     /// Ops of fork API symbols the header does not declare yet (`r.optional` in CEFShimLibrary).
     static let optionalOps: Set<ChromiumHostOp> = [
         .addDocumentScript, .addPageChannel, .tabEvaluate, .tabSetFrozen, .tabSendClick, .tabSetColorScheme,
@@ -362,7 +362,7 @@ nonisolated enum ChromiumHostOp: UInt16, CaseIterable, Sendable {
         Row(.async, [.int32, .int32], [.int32]),
         Row(.post, [.int32, .string, .int32, .int32], [.int32]),
         Row(.local, [], []),
-        Row(.async, [.int32, .int32], [.int32, .int32Array]),
+        Row(.mirror, [.int32, .int32], [.int32, .int32Array]),
         Row(.local, [], []),
         Row(.local, [], []),
         Row(.post, [.string, .int32], [.int32]),
@@ -506,6 +506,12 @@ nonisolated enum ChromiumHostOp: UInt16, CaseIterable, Sendable {
         Refresh(-1, -1, .passwordReplaceAvailable),  // attach
         Refresh(-1, -1, .passkeysAvailable),  // attach
         Refresh(-1, -1, .passwordCoreAvailable),  // attach
+        Refresh(2, -1, .rendererClientIDs),  // CMUX_SHIM_AFTER_CREATED
+        Refresh(4, -1, .rendererClientIDs),  // CMUX_SHIM_ADDRESS
+        Refresh(9, -1, .rendererClientIDs),  // CMUX_SHIM_LOAD_END
+        Refresh(23, -1, .rendererClientIDs),  // CMUX_SHIM_RENDER_TERMINATED
+        Refresh(67, -1, .rendererClientIDs),  // CMUX_SHIM_FRAME_RENDERERS
+        Refresh(3, -1, .rendererClientIDs),  // CMUX_SHIM_BEFORE_CLOSE
         Refresh(-1, -1, .extLoadLaterSupported),  // attach
     ]
 
@@ -528,8 +534,9 @@ nonisolated enum ChromiumHostEventKind: Int32, CaseIterable, Sendable {
     case permissionDismissed = 42, passwordPrompt = 43, beforeUnloadDialog = 44, beforeUnloadDismissed = 45
     case pageResource = 46, pageDragEnter = 47, fileDialog = 48, cursor = 54, dragOperation = 55, tooltip = 57
     case popupMenu = 58, popupMenuHide = 59, suggestions = 60, colorChooser = 61, deviceChooser = 62
-    case desktopMedia = 63, subframeRenderer = 64, lock = 65, windowRequestResult = 66, pageMessage = 49
-    case evaluateResult = 50, createFailed = 51, widgetContext = 52, widgetGone = 53, wheelAck = 56
+    case desktopMedia = 63, subframeRenderer = 64, lock = 65, windowRequestResult = 66, frameRenderers = 67
+    case pageMessage = 49, evaluateResult = 50, createFailed = 51, widgetContext = 52, widgetGone = 53
+    case wheelAck = 56, helperExit = 68
 
     /// The mirrors this event refreshes; the host pushes them before the event. `request` is the
     /// event's request (CMUX_SHIM_TAB_EVENT's sub-kind).

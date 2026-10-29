@@ -7,7 +7,7 @@
 # The host is signed last, before the app, with the app's bundle id as its
 # identifier, the hardened runtime and a timestamp for a real identity, and the
 # browser-process subset of the app's entitlements (keychain group, passkey,
-# device.* and personal-information.* keys; no allow-jit) (p01-process-088);
+# device.* and personal-information.* keys; no allow-jit);
 # `sign-cef.sh --verify-host` refuses a host signed any other way.
 # codesign is a stand-in on PATH that logs its arguments and answers -d and
 # --verify from FAKE_* variables, so this needs no signing identity and no

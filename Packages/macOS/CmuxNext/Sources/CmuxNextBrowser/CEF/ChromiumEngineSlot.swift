@@ -1,6 +1,6 @@
 public import CmuxNextWakeups
 
-/// The App's Chromium engine, built on its first read instead of at launch (p08-startup-024, Q1).
+/// The App's Chromium engine, built on its first read instead of at launch (Q1).
 ///
 /// The stores, the wait deadlines and the runtime source both engines and the launch readers need are here
 /// before the engine, so the WebKit engine, the tab service, the page host and the settings followers never
@@ -17,7 +17,7 @@ public final class ChromiumEngineSlot {
     public let waitDeadlines: MainWakeUpQueue
     /// Where the engine's runtime comes from; the engine is built over it.
     public let source: CEFRuntimeSource
-    /// A restored page's launch order (p08-startup-040), over the launch's scheduler while feature `cefLaunchOrigin`
+    /// A restored page's launch order, over the launch's scheduler while feature `cefLaunchOrigin`
     /// is on, else over none (every page `.user`, at once). The engine orders its starts over the same scheduler.
     public let launchOrder: CEFLaunchDeferral
     private let make: (BrowserSharedStores, MainWakeUpQueue, CEFRuntimeSource) -> CEFEngine

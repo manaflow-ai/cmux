@@ -5,7 +5,7 @@ import Testing
 
 /// ``MainThreadWatchdog/onHangEpisode``: each hang episode's tracker reports (began, the doubling
 /// checkpoints, ended with the exact length), not limited by `hangReportInterval` as
-/// ``MainThreadWatchdog/onHang`` is (the app's Sentry app hangs, p14-energy-101).
+/// ``MainThreadWatchdog/onHang`` is (the app's Sentry app hangs).
 struct MainThreadWatchdogHangEpisodeSinkTests {
     private static let second: UInt64 = 1_000_000_000
 

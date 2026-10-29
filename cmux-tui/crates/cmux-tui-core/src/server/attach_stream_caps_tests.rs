@@ -1,4 +1,4 @@
-//! Stream caps (p05-ipc-081): past the connection's or the daemon's cap on
+//! Stream caps: past the connection's or the daemon's cap on
 //! open client-minted streams, only the open fails; the connection, its open
 //! streams and the other connections are unchanged.
 

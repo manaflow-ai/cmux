@@ -49,6 +49,15 @@ verify_pin() {
       CMUX_CUA_ASSET_CACHE_DIR="$CACHE_ROOT/cua" \
         "$SCRIPT_DIR/ensure-cua-pinned-asset.sh" "$ROOT/$relative" >/dev/null
       ;;
+    tests/oracle/corpus-store/*.pin.json)
+      # A generated oracle suite (scripts/cmux-next/oracle/corpus_store.py): the tarball, then its unpacked files.
+      echo "Checking $relative in the controller/R2 store"
+      local tarball
+      tarball="$(CMUX_CUA_ASSET_CACHE_DIR="$CACHE_ROOT/oracle-corpus" \
+        "$SCRIPT_DIR/ensure-cua-pinned-asset.sh" "$ROOT/$relative")"
+      python3 -I "$ROOT/scripts/cmux-next/oracle/corpus_store.py" verify-tarball \
+        "$(basename "$relative" .pin.json)" "$tarball"
+      ;;
     *)
       echo "error: no pinned-asset verifier is registered for $relative" >&2
       return 1

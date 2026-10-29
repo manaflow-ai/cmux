@@ -13,6 +13,7 @@
 //! with an anchor item. A daemon without the capability keeps the old path
 //! (the control protocol's `move-workspace`, no pin).
 
+use crate::json_fields::JsonFields;
 use serde_json::Map;
 
 use cmux_tui_core::resource::{PROTOCOL, StreamPublicId};
@@ -39,9 +40,9 @@ pub(crate) struct SidebarDropAnchors {
 /// in the anchor's section and group.
 fn drop_target(anchor: ItemRow, side: &str) -> Value {
     let mut to = json!({"section": anchor.section});
-    to[side] = Value::String(anchor.id);
+    to.insert(side, Value::String(anchor.id));
     if let Some(parent) = anchor.parent {
-        to["parent"] = Value::String(parent);
+        to.insert("parent", Value::String(parent));
     }
     to
 }
@@ -159,53 +160,56 @@ impl RemoteSession {
         }
         let session = Arc::clone(self);
         // supervise-allow: one sidebar document load; a panic ends that load only.
-        let spawned = std::thread::Builder::new().name("sidebar-doc".into()).spawn(move || {
-            let doc = &session.sidebar_doc;
-            let mut installed = false;
-            let result = loop {
-                doc.dirty.store(false, Ordering::Release);
-                match session.load_sidebar_doc() {
-                    Ok(new) => installed |= new,
+        let spawned =
+            cmux_threads::spawn("sidebar-doc", cmux_threads::ThreadQos::UserInitiated, move || {
+                let doc = &session.sidebar_doc;
+                let mut installed = false;
+                let result = loop {
+                    doc.dirty.store(false, Ordering::Release);
+                    match session.load_sidebar_doc() {
+                        Ok(new) => installed |= new,
+                        Err(error) => {
+                            doc.loading.store(false, Ordering::Release);
+                            break Err(error);
+                        }
+                    }
+                    if doc.dirty.load(Ordering::Acquire) {
+                        continue;
+                    }
+                    doc.loading.store(false, Ordering::Release);
+                    // A gap seen after the check above found no worker running.
+                    if !doc.dirty.load(Ordering::Acquire)
+                        || doc.loading.swap(true, Ordering::AcqRel)
+                    {
+                        break Ok(());
+                    }
+                };
+                match result {
+                    // A new revision: draw its order. The same revision again
+                    // (a reopened stream) draws nothing new.
+                    Ok(()) if installed => session.emit(MuxEvent::TreeChanged),
+                    Ok(()) => {}
+                    Err(_) if session.request_shutdown_error().is_some() => {}
+                    Err(error) if error.downcast_ref::<Protocol2Refused>().is_some() => {
+                        crate::client_log::warn(
+                            "sidebar",
+                            &format!(
+                                "sidebar document unavailable, keeping the session order: {error:#}"
+                            ),
+                        );
+                        doc.unavailable.store(true, Ordering::Release);
+                        let stream = doc.stream().take();
+                        if let Some(stream) = stream {
+                            session.cancel_sidebar_stream(&stream);
+                        }
+                        session.emit(MuxEvent::TreeChanged);
+                    }
+                    // A timeout: the next tree refresh tries again.
                     Err(error) => {
-                        doc.loading.store(false, Ordering::Release);
-                        break Err(error);
+                        crate::client_log::warn("sidebar", &format!("sidebar document: {error:#}"));
                     }
                 }
-                if doc.dirty.load(Ordering::Acquire) {
-                    continue;
-                }
-                doc.loading.store(false, Ordering::Release);
-                // A gap seen after the check above found no worker running.
-                if !doc.dirty.load(Ordering::Acquire) || doc.loading.swap(true, Ordering::AcqRel) {
-                    break Ok(());
-                }
-            };
-            match result {
-                // A new revision: draw its order. The same revision again
-                // (a reopened stream) draws nothing new.
-                Ok(()) if installed => session.emit(MuxEvent::TreeChanged),
-                Ok(()) => {}
-                Err(_) if session.request_shutdown_error().is_some() => {}
-                Err(error) if error.downcast_ref::<Protocol2Refused>().is_some() => {
-                    crate::client_log::warn(
-                        "sidebar",
-                        &format!(
-                            "sidebar document unavailable, keeping the session order: {error:#}"
-                        ),
-                    );
-                    doc.unavailable.store(true, Ordering::Release);
-                    let stream = doc.stream().take();
-                    if let Some(stream) = stream {
-                        session.cancel_sidebar_stream(&stream);
-                    }
-                    session.emit(MuxEvent::TreeChanged);
-                }
-                // A timeout: the next tree refresh tries again.
-                Err(error) => {
-                    crate::client_log::warn("sidebar", &format!("sidebar document: {error:#}"));
-                }
-            }
-        });
+            });
         if spawned.is_err() {
             self.sidebar_doc.loading.store(false, Ordering::Release);
         }
@@ -396,7 +400,7 @@ impl RemoteSession {
             let key = StreamPublicId::random().map_err(|error| {
                 anyhow::anyhow!("cannot allocate an idempotency key: {error:?}")
             })?;
-            request["idempotency_key"] = json!(format!("tui-{}", key.as_str()));
+            request.insert("idempotency_key", json!(format!("tui-{}", key.as_str())));
         }
         let message = serde_json::to_string(&request)?;
         let (tx, rx) = channel();

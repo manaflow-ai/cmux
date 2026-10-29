@@ -1,6 +1,7 @@
 //! Resource topology operation entry: creation resolution, interrupted creation reconcile, empty workspace creation, pane neighbors, the operation dispatcher, receipted creation, the commit path, and legacy event emission.
 
 use super::*;
+use std::sync::PoisonError;
 
 impl Mux {
     #[track_caller]
@@ -9,13 +10,19 @@ impl Mux {
         correlation_key: &str,
     ) -> anyhow::Result<Value> {
         self.reconcile_interrupted_resource_creation(correlation_key)?;
-        self.workspace_registry.lock().unwrap().resolve_resource_creation(correlation_key)
+        self.workspace_registry
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .resolve_resource_creation(correlation_key)
     }
 
     #[track_caller]
     pub(in crate::mux) fn reconcile_interrupted_resource_creations(&self) -> anyhow::Result<bool> {
-        let recoveries =
-            self.workspace_registry.lock().unwrap().interrupted_resource_creation_recoveries()?;
+        let recoveries = self
+            .workspace_registry
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .interrupted_resource_creation_recoveries()?;
         let mut pending = false;
         for recovery in recoveries {
             pending |= matches!(
@@ -31,8 +38,11 @@ impl Mux {
         &self,
         correlation_key: &str,
     ) -> anyhow::Result<()> {
-        let recovery =
-            self.workspace_registry.lock().unwrap().resource_creation_recovery(correlation_key)?;
+        let recovery = self
+            .workspace_registry
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .resource_creation_recovery(correlation_key)?;
         if let Some(recovery) = recovery.filter(|recovery| recovery.interrupted) {
             let _ = self.settle_resource_creation(recovery, None)?;
         }
@@ -51,27 +61,28 @@ impl Mux {
         mark: crate::state::home_store::EmptyWorkspaceMark,
         focus: bool,
     ) -> anyhow::Result<ResourcePatchCommit> {
-        let mut fingerprint = json!({
-            "operation":"workspace.create",
-            "selectors":&selectors,
-            "fields":{
-                "initial_content":"empty",
-                "name":&name,
-            },
-        });
+        let mut fingerprint_fields = Map::from_iter([
+            ("initial_content".to_string(), json!("empty")),
+            ("name".to_string(), json!(&name)),
+        ]);
         if let Some((field, value)) = mark.fingerprint_field() {
-            fingerprint["fields"][field] = value;
+            fingerprint_fields.insert(field.to_string(), value);
         }
         if focus {
-            fingerprint["fields"][WORKSPACE_CREATE_FOCUS_FIELD] = Value::Bool(true);
+            fingerprint_fields.insert(WORKSPACE_CREATE_FOCUS_FIELD.to_string(), Value::Bool(true));
         }
+        let fingerprint = json!({
+            "operation":"workspace.create",
+            "selectors":&selectors,
+            "fields":fingerprint_fields,
+        });
         if let Some(name) = name.as_deref() {
             Self::validate_workspace_name(name)?;
         }
         // Read before the state lock: `surface_notifications` locks state.
         let notifications = self.tree_decorations();
-        let mut registry = self.workspace_registry.lock().unwrap();
-        let mut state = self.lock_state_pinned(&registry).unwrap();
+        let mut registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut state = self.lock_state_pinned(&registry).unwrap_or_else(PoisonError::into_inner);
         self.resolve_resource_path_in_state(&state, &registry, ResourceTarget::Session, &selectors)
             .map_err(anyhow::Error::new)?;
         // A retry carries the same fields (the fingerprint), so the same source.
@@ -94,8 +105,9 @@ impl Mux {
         )?;
         let intent = match preparation {
             ResourceCreationPreparation::Created { created_path, revision, .. } => {
-                let workspace = created_path["workspace_id"]
-                    .as_str()
+                let workspace = created_path
+                    .get("workspace_id")
+                    .and_then(Value::as_str)
                     .context("stored workspace creation omitted its workspace id")?;
                 return Ok(ResourcePatchCommit {
                     revision,
@@ -120,18 +132,21 @@ impl Mux {
         );
         let workspace_slot = self.next_id();
         let public_id = WorkspacePublicId::parse(
-            intent["workspace_public_id"]
-                .as_str()
+            intent
+                .get("workspace_public_id")
+                .and_then(Value::as_str)
                 .context("stored workspace creation omitted its public id")?
                 .to_string(),
         )?;
-        let key = intent["workspace_key"]
-            .as_str()
+        let key = intent
+            .get("workspace_key")
+            .and_then(Value::as_str)
             .context("stored workspace creation omitted its key")?
             .to_string();
         let marked_key = key.clone();
-        let name = intent["name"]
-            .as_str()
+        let name = intent
+            .get("name")
+            .and_then(Value::as_str)
             .context("stored workspace creation omitted its name")?
             .to_string();
         let index = state.workspaces.len();
@@ -161,7 +176,7 @@ impl Mux {
         let active_public_id = if focus {
             public_id.clone()
         } else {
-            state.workspaces[state.active_workspace].public_id.clone()
+            state.workspace_at(state.active_workspace)?.public_id.clone()
         };
         if let Some(previous) = state.workspaces.get(state.active_workspace).filter(|_| focus) {
             deltas.push(workspace_resource_upsert(
@@ -262,13 +277,12 @@ impl Mux {
         // (`emit_committed_workspace_delta` in the legacy create path), so
         // `subscribe` clients see the empty workspace now instead of when
         // the next real change flushes an event.
-        let entity = crate::server::tree_entity_json(
+        let entity = committed_tree_entity(
             &state,
             &notifications,
             TreeDeltaKind::WorkspaceAdded,
             workspace_slot,
-        )
-        .expect("new empty workspace is present in tree snapshot");
+        );
         drop(state);
         self.emit_committed_workspace_delta(
             &registry,
@@ -297,14 +311,14 @@ impl Mux {
         direction: &str,
     ) -> anyhow::Result<Option<PanePublicId>> {
         let direction = parse_direction(direction)?;
-        let registry = self.workspace_registry.lock().unwrap();
-        let state = self.lock_state_pinned(&registry).unwrap();
+        let registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
+        let state = self.lock_state_pinned(&registry).unwrap_or_else(PoisonError::into_inner);
         let resolved = self
             .resolve_resource_path_in_state(&state, &registry, ResourceTarget::Pane, selectors)
             .map_err(anyhow::Error::new)?;
         let pane = resolved.pane.context("pane selector resolved without a live pane")?;
         let (workspace, screen) = state.screen_of(pane).context("resolved pane has no screen")?;
-        let screen = &state.workspaces[workspace].screens[screen];
+        let screen = state.screen_at(workspace, screen)?;
         let (dx, dy) = direction.delta();
         let layout = Self::pane_navigation_layout(screen, pane, direction);
         let neighbor = layout.neighbor(pane, dx, dy);
@@ -362,7 +376,10 @@ impl Mux {
             "{} is not a destination-creating operation",
             operation_name(operation)
         );
-        anyhow::ensure!(!selector_candidates.is_empty(), "creation requires one primary selector");
+        let Some((primary_selectors, fallback_selectors)) = selector_candidates.split_first()
+        else {
+            anyhow::bail!("creation requires one primary selector");
+        };
         anyhow::ensure!(
             selector_candidates.len() <= MAX_CREATION_SELECTOR_FALLBACKS + 1,
             "creation accepts one primary selector and at most \
@@ -379,11 +396,11 @@ impl Mux {
         let fingerprint_fields = semantic_creation_fields(&fields);
         let mut fingerprint = json!({
             "operation": operation_name(operation),
-            "selectors": &selector_candidates[0],
+            "selectors": primary_selectors,
             "fields": fingerprint_fields,
         });
-        if selector_candidates.len() > 1 {
-            fingerprint["selector_fallbacks"] = json!(&selector_candidates[1..]);
+        if !fallback_selectors.is_empty() {
+            set_field(&mut fingerprint, "selector_fallbacks", json!(fallback_selectors))?;
         }
         let commit = self.resource_correlated_creation_operation(
             operation,

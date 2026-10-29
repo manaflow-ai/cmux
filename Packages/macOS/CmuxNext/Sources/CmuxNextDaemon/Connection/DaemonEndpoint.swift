@@ -495,9 +495,15 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// `energy.set {offForNow}`: "Turn Off for Now", kept by the daemon's own reading
     /// (`EnergySetRequest.ruleCapability`; cmux-tui-core server/energy_rule.rs).
     case energyRule = "energy-v2"
+    /// `frontend.visibility.set`: the surfaces this app shows scope its subscription
+    /// (`FrontendVisibilitySetRequest`; cmux-tui-core server/frontend_visibility.rs).
+    case frontendVisibility = "frontend-visibility-v1"
     /// `memory.limit`: the app's memory pressure level, Memory Saver mode and debug override, which the daemon
     /// votes next to its own level (`MemoryLimitRequest.capability`; cmux-tui-core server/memory_limit.rs).
     case memoryLimit = "memory-limit-v1"
+    /// `identify {startup_marks: true}`: the serving daemon's startup timeline, which the app sends as its
+    /// `daemon.*` launch marks (`DaemonStartupMarksRequest.capability`; cmux-tui-core startup_marks.rs).
+    case startupMarks = "startup-marks-v1"
 
     /// Which list a capability is in.
     public enum Tier: Sendable {
@@ -547,7 +553,7 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .terminalSnapshotImages, .terminalClipboardRead, .originClaim, .pageRouter, .sessionJournal,
              .terminalResources, .machineIdentity, .agentCLIAppProvider, .agentCLIAppInvalidation,
              .agentInventoryWatchAdmission, .stash, .stashWorkspaces, .layoutBulk, .eventCause, .energy,
-             .energyRule, .memoryLimit, .diagnosticSites:
+             .energyRule, .memoryLimit, .diagnosticSites, .frontendVisibility, .startupMarks:
             return .optional
         }
     }

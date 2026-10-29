@@ -1,3 +1,4 @@
+public import CmuxNextCompat
 public import Foundation
 
 extension SettingsController {
@@ -34,26 +35,24 @@ extension SettingsController {
 
     /// Writes the `shortcuts` object to `url` as a keymap file
     /// (`{"shortcuts": {...}}`, pretty JSON), atomically.
-    public func exportShortcutKeymap(to url: URL) async throws {
+    /// The write runs on `runner`'s files lane: a user-chosen file can be on a slow volume, and it never holds the
+    /// config file's queue that every setting change waits on.
+    public func exportShortcutKeymap(to url: URL, runner: any MayBlockRunner) async throws {
         let keymap: JSONValue = .object(["shortcuts": try await shortcutKeymap()])
-        try await Self.write(Data(keymap.prettyText().utf8), to: url)
-    }
-
-    /// The keymap file's bytes, read off the main actor (a user-chosen file can be on a slow volume).
-    @concurrent nonisolated private static func read(_ url: URL) async throws -> String {
-        try String(contentsOf: url, encoding: .utf8)
-    }
-
-    /// Writes the keymap file atomically, off the main actor.
-    @concurrent nonisolated private static func write(_ data: Data, to url: URL) async throws {
-        try data.write(to: url, options: .atomic)
+        let data = Data(keymap.prettyText().utf8)
+        try await runner.runFiles(.userBlocking) {
+            try FileManager.checked.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try data.blockingWrite(to: url, options: .atomic)
+        }
     }
 
     /// Reads a keymap file (JSONC) and imports it (``importShortcutKeymap(_:)``),
     /// then reloads so the registry applies it. A file that does not parse
     /// changes nothing.
-    public func importShortcutKeymap(from url: URL) async throws {
-        let value = try JSONC.parse(try await Self.read(url))
+    /// The read runs on `runner`'s files lane, as ``exportShortcutKeymap(to:runner:)``'s write.
+    public func importShortcutKeymap(from url: URL, runner: any MayBlockRunner) async throws {
+        let text = try await runner.runFiles(.userBlocking) { try String(blockingContentsOf: url, encoding: .utf8) }
+        let value = try JSONC.parse(text)
         try await importShortcutKeymap(value)
         await reload()
     }

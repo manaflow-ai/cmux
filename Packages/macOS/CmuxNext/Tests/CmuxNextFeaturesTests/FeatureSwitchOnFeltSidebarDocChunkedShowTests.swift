@@ -2,7 +2,7 @@ import CmuxNextFeatures
 import Testing
 
 /// Feature switch policy (plans/cmux-next/feature-switch-policy.md, rule 2, the measurement window):
-/// `sidebarDocChunkedShow` (p06-scheduler-040) is a felt-queue switch (handoff felt-queue.md), so it is on by
+/// `sidebarDocChunkedShow` is a felt-queue switch (handoff felt-queue.md), so it is on by
 /// default in DEV and NIGHTLY, and so in dogfood builds, while the optimized dogfood build benches it; Release
 /// stays off. With no passing bench in 7 days it goes off again (rule 3).
 struct FeatureSwitchOnFeltSidebarDocChunkedShowTests {

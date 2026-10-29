@@ -2,7 +2,7 @@
 import Foundation
 import Testing
 
-/// The bounded event pipeline (p05-ipc-093): nothing between the daemon socket and the store grows with
+/// The bounded event pipeline: nothing between the daemon socket and the store grows with
 /// a flood. The handshake gate (``EventGate``), the connection's backlog of events no consumer took yet
 /// (``DaemonEventRoute``, which `events` reads) and the store's own inbox are each an ``EventInbox``
 /// (4096 events, coalescing), and a flood past one ends in one resync.

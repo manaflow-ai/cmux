@@ -59,8 +59,9 @@ extension AcpmuxStatusClient {
         }
     }
 
-    /// Streams a staged peer file without loading its whole contents into memory.
-    @concurrent static func putFile(socketPath: String, sessionId: String, name: String, file: URL,
+    /// Streams a staged peer file without loading its whole contents into memory. Runs on the caller's
+    /// executor: ``AcpmuxHost``'s own queue, never the cooperative pool.
+    nonisolated static func putFile(socketPath: String, sessionId: String, name: String, file: URL,
                                     deadline: Duration = .seconds(120)) async throws -> String {
         let size = (try FileManager.default.attributesOfItem(atPath: file.path)[.size] as? NSNumber)?.intValue ?? 0
         guard size <= AgentPaneUpload.maximumPeerFileBytes else { throw AgentPaneFilePutFailure.tooLarge }

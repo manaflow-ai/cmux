@@ -4,7 +4,7 @@ import CmuxNextInputCore
 import Foundation
 import Testing
 
-/// The service and the input latency field report (p04-input-010): sent only in schema 3,
+/// The service and the input latency field report: sent only in schema 3,
 /// recorded only while reports are on, previewed without a take, taken once per send and
 /// committed only once queued, and trimmed before hangs when a report is over the body cap.
 /// Run: `swift test --filter HangReportServiceTests`.

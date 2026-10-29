@@ -13,6 +13,29 @@ impl ActionIndex {
     pub const fn get(self) -> u8 {
         self.0
     }
+
+    /// The index `N`, checked when the program compiles.
+    pub const fn of<const N: u8>() -> Self {
+        const { assert!(N <= 9, "an ActionIndex is 0..=9") };
+        Self(N)
+    }
+
+    /// This index's entry of a ten-entry table (one per index).
+    pub fn pick<T>(self, table: &[T; 10]) -> &T {
+        let [zero, one, two, three, four, five, six, seven, eight, nine] = table;
+        match self.0 {
+            0 => zero,
+            1 => one,
+            2 => two,
+            3 => three,
+            4 => four,
+            5 => five,
+            6 => six,
+            7 => seven,
+            8 => eight,
+            _ => nine,
+        }
+    }
 }
 
 /// The maximum number of configurable user commands. Chords bound past this

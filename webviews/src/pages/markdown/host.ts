@@ -52,7 +52,7 @@ export const MARKDOWN_FLUSH_OP = "cmux.markdown.flush";
 /** Host to page: `{dirty, view}`, asked right before the host discards the hidden page: `view` is
  * `{scroll, anchor?, mode, history}` (viewState.ts), which the next page gets back as the config's
  * `viewState`; `dirty` keeps a page with edits not on disk. An edit not reported yet is reported
- * first (p07-memory-026). */
+ * first. */
 export const MARKDOWN_VIEW_STATE_OP = "cmux.markdown.viewState";
 /** Host to page: the selection's text and source lines, `{text, startLine?, endLine?}`, or null with
  * nothing selected (a viewer comment, viewer-comments-DESIGN.md). */

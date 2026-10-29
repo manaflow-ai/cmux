@@ -1,6 +1,7 @@
 //! Terminal exit waiter state: detach trackers and leases, exit waiter subscriptions, and the exit state query guard.
 
 use super::*;
+use std::sync::PoisonError;
 
 #[derive(Default)]
 pub(super) struct TerminalExitDetachTracker {
@@ -13,14 +14,14 @@ impl TerminalExitDetachTracker {
         self: &Arc<Self>,
         terminal_id: String,
     ) -> Option<TerminalExitDetachLease> {
-        if !self.active.lock().unwrap().insert(terminal_id.clone()) {
+        if !self.active.lock().unwrap_or_else(PoisonError::into_inner).insert(terminal_id.clone()) {
             return None;
         }
         Some(TerminalExitDetachLease { tracker: self.clone(), terminal_id })
     }
 
     pub(super) fn finish(&self, terminal_id: &str) {
-        let mut active = self.active.lock().unwrap();
+        let mut active = self.active.lock().unwrap_or_else(PoisonError::into_inner);
         if active.remove(terminal_id) {
             self.changed.notify_all();
         }
@@ -80,7 +81,7 @@ impl TerminalExitWaiters {
         let wake = Arc::new(ResourceWaitWake::default());
         self.waiters
             .lock()
-            .unwrap()
+            .unwrap_or_else(PoisonError::into_inner)
             .entry(terminal_id.clone())
             .or_default()
             .insert(waiter_id, Arc::downgrade(&wake));
@@ -88,7 +89,12 @@ impl TerminalExitWaiters {
     }
 
     pub(super) fn notify(&self, terminal_id: &TerminalPublicId) {
-        let waiters = self.waiters.lock().unwrap().remove(terminal_id).unwrap_or_default();
+        let waiters = self
+            .waiters
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .remove(terminal_id)
+            .unwrap_or_default();
         for waiter in waiters.into_values().filter_map(|waiter| waiter.upgrade()) {
             waiter.notify();
         }
@@ -112,7 +118,7 @@ impl TerminalExitSubscription<'_> {
 
 impl Drop for TerminalExitSubscription<'_> {
     fn drop(&mut self) {
-        let mut waiters = self.owner.waiters.lock().unwrap();
+        let mut waiters = self.owner.waiters.lock().unwrap_or_else(PoisonError::into_inner);
         let remove_terminal = waiters.get_mut(&self.terminal_id).is_some_and(|terminal_waiters| {
             terminal_waiters.remove(&self.waiter_id);
             terminal_waiters.is_empty()

@@ -2,6 +2,7 @@
 @testable import CmuxNextApp
 import Foundation
 import Testing
+import CmuxNextWakeups
 
 /// Integrate a harness, dismissed on a New Tab page, stays dismissed after a relaunch (Leo
 /// 2026-10-12: the dismissal sticks). An agent page's own storage ends with the launch, so the page
@@ -19,7 +20,7 @@ struct NewTabHarnessHintTests {
         defer { defaults.removePersistentDomain(forName: suite) }
         let memory = NewTabChoiceMemory(defaults: defaults)
         #expect(!memory.harnessHintDismissed)
-        let model = AgentPaneModel(host: NoHost(), allowsTabConversion: true)
+        let model = AgentPaneModel(runner: BackgroundWork(label: "test.agent-pane"), host: NoHost(), allowsTabConversion: true)
         model.onRememberNewTab = { memory.remember($0) }
         _ = await model.respond(to: AgentPaneRequest(body: ["method": "newTab.remember", "params": ["agent": "codex"]]))
         let reply = await model.respond(to: AgentPaneRequest(body: [

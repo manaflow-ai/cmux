@@ -33,8 +33,9 @@ use futures::future::BoxFuture;
 
 pub use cmux_panic_log::{
     ExitProcess, Fatal, Fields, ShutdownBehavior, StopToken, SuperviseError, Supervisor,
-    WorkerHandle,
+    WorkerHandle, WorkerOutcome,
 };
+pub use cmux_threads::ThreadQos;
 
 /// The supervisor of an acpmux process: a fatal failure appends a
 /// `supervised_exit` line to `log` (the process's panic log) and ends the
@@ -142,10 +143,45 @@ impl OwnedThread {
 }
 
 /// Starts `body` on a thread named `name` under `supervisor` with `policy` and
-/// `shutdown`; its owner keeps the [`OwnedThread`] and joins it when it stops it.
+/// `shutdown`, registered with `cmux_threads` at `qos` (its row in the thread
+/// registry, its QoS set before `body` runs; p02-threads tasks 213-218). The
+/// row is gone when `body` returns or unwinds.
+pub fn thread<F, O>(
+    supervisor: &Supervisor,
+    name: &str,
+    qos: ThreadQos,
+    policy: Fatal,
+    shutdown: ShutdownBehavior,
+    body: F,
+) -> Result<WorkerHandle, SuperviseError>
+where
+    F: FnOnce(&StopToken) -> O + Send + 'static,
+    O: WorkerOutcome,
+{
+    let row = name.to_owned();
+    supervisor.supervise_thread(name, policy, shutdown, move |stop| {
+        cmux_threads::register_current(row, qos);
+        let _row = RegistryRow;
+        body(stop)
+    })
+}
+
+/// Removes the thread's `cmux_threads` row when its body returns or unwinds.
+struct RegistryRow;
+
+impl Drop for RegistryRow {
+    fn drop(&mut self) {
+        cmux_threads::deregister_current();
+    }
+}
+
+/// Starts `body` on a thread named `name` under `supervisor` with `policy` and
+/// `shutdown`, at `qos` like [`thread`]; its owner keeps the [`OwnedThread`] and
+/// joins it when it stops it.
 pub fn owned_thread<F>(
     supervisor: &Supervisor,
     name: &str,
+    qos: ThreadQos,
     policy: Fatal,
     shutdown: ShutdownBehavior,
     body: F,
@@ -154,8 +190,12 @@ where
     F: FnOnce() + Send + 'static,
 {
     let (ended, done) = std::sync::mpsc::sync_channel::<()>(0);
+    let row = name.to_owned();
     supervisor.supervise_thread(name, policy, shutdown, move |_stop| {
+        // Dropped last, after the row: a joined thread has no row (cmux_threads::spawn).
         let _ended = ended;
+        cmux_threads::register_current(row, qos);
+        let _row = RegistryRow;
         body();
     })?;
     Ok(OwnedThread { done })
@@ -185,13 +225,20 @@ pub fn blocking<F>(
 /// Starts `body` on a thread named `name`, scoped to one call, child process or
 /// connection: it owns only its pipe or socket ends, and a panic in it drops them,
 /// which ends that scope for whoever reads the other end (or joins the handle).
-pub fn scoped_thread<T, F>(name: &str, body: F) -> std::io::Result<std::thread::JoinHandle<T>>
+/// It is a `cmux_threads` thread at `qos` (named, registered); a helper its
+/// caller joins passes `cmux_threads::caller_qos(..)`, so the join is never a
+/// priority inversion.
+pub fn scoped_thread<T, F>(
+    name: &str,
+    qos: ThreadQos,
+    body: F,
+) -> std::io::Result<std::thread::JoinHandle<T>>
 where
     T: Send + 'static,
     F: FnOnce() -> T + Send + 'static,
 {
     // supervise-allow: scoped: the thread owns only its scope's ends; a panic drops them and ends that scope.
-    std::thread::Builder::new().name(name.to_owned()).spawn(body)
+    cmux_threads::spawn(name, qos, body)
 }
 
 /// Starts `work`, a task scoped to one connection, child process or call that

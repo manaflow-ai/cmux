@@ -18,6 +18,8 @@ use std::path::{Path, PathBuf};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
+use crate::cli::json_fields::JsonFields;
+
 /// Where remembered capabilities are kept; `None` keeps nothing.
 pub(super) struct CapabilityCache {
     directory: Option<PathBuf>,
@@ -48,10 +50,13 @@ impl CapabilityCache {
         let directory = self.trusted_directory()?;
         let bytes = cmux_blocking::fs::read(directory.join(entry_name(socket))).ok()?;
         let entry: Value = serde_json::from_slice(&bytes).ok()?;
-        if entry["socket"].as_str() != socket.to_str() || entry["peer"].as_str() != Some(peer) {
+        if entry.field("socket").as_str() != socket.to_str()
+            || entry.field("peer").as_str() != Some(peer)
+        {
             return None;
         }
-        entry["capabilities"]
+        entry
+            .field("capabilities")
             .as_array()?
             .iter()
             .map(|capability| capability.as_str().map(str::to_owned))

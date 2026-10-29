@@ -15,6 +15,10 @@ pub(super) enum HostedTransition {
     FlowOutput {
         output: Vec<u8>,
         flow: u64,
+        /// The host's PTY write and read of the press (trace clock ns, 0:
+        /// unknown), with `FLAG_INPUT_STAGES`; `None` from a
+        /// host that sends no stages.
+        host_stages: Option<(u64, u64)>,
     },
     OutputWithColors {
         output: Vec<u8>,
@@ -63,6 +67,9 @@ pub(super) struct HostedFrameStager {
     /// The connection negotiated `FLAG_INPUT_FLOW`: an `Output` may carry
     /// a key press's flow.
     input_flow: bool,
+    /// The connection negotiated `FLAG_INPUT_STAGES`: a flow's `Output` also
+    /// carries the host's write and read of the press.
+    input_stages: bool,
     pending: Option<PendingHostedTransition>,
 }
 
@@ -83,6 +90,7 @@ impl HostedFrameStager {
             expected_sequence: sequence_boundary.wrapping_add(1),
             smart_renderer,
             input_flow: false,
+            input_stages: false,
             pending: None,
         }
     }
@@ -91,6 +99,13 @@ impl HostedFrameStager {
     /// connection negotiated `FLAG_INPUT_FLOW`.
     pub(super) fn with_input_flow(mut self, input_flow: bool) -> Self {
         self.input_flow = input_flow;
+        self
+    }
+
+    /// Accept flow `Output` frames that carry the host's key stages: the
+    /// connection negotiated `FLAG_INPUT_STAGES`.
+    pub(super) fn with_input_stages(mut self, input_stages: bool) -> Self {
+        self.input_stages = input_stages;
         self
     }
 
@@ -144,7 +159,17 @@ impl HostedFrameStager {
                     let (output, flow) = split_flow_trailer(frame.flags, &frame.payload)
                         .ok_or("short Output flow trailer")?;
                     let output = output.to_vec();
-                    Ok(Some(HostedTransition::FlowOutput { output, flow }))
+                    Ok(Some(HostedTransition::FlowOutput { output, flow, host_stages: None }))
+                }
+                flags if self.input_stages && flags == FLAG_INPUT_FLOW | FLAG_INPUT_STAGES => {
+                    let (output, flow, written, read) = split_stages_trailer(&frame.payload)
+                        .ok_or("short Output stages trailer")?;
+                    let output = output.to_vec();
+                    Ok(Some(HostedTransition::FlowOutput {
+                        output,
+                        flow,
+                        host_stages: Some((written, read)),
+                    }))
                 }
                 _ => Err("unknown Output flags"),
             },

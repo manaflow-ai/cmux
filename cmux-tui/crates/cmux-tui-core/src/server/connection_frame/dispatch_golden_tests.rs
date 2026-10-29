@@ -1,4 +1,4 @@
-//! Byte-identical replies (p05-ipc-062): every line in
+//! Byte-identical replies: every line in
 //! spec/fixtures/line-dispatch/replies.json gets, through the whole frame
 //! path, exactly the reply text recorded there. The fixture was recorded on
 //! the dispatch before single-parse routing (the ordered sniffer chain, the

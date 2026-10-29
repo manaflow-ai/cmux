@@ -50,8 +50,8 @@ enum SidebarNavigation {
         activate(item, in: window, services)
     }
 
-    /// Next / Previous Sidebar Item (`nextSidebarTab`, `prevSidebarTab`). From a person's key (`directionalPrewarm`,
-    /// p04-input-044), the front page of the item one more step that way prewarms in the background.
+    /// Next / Previous Sidebar Item (`nextSidebarTab`, `prevSidebarTab`). From a person's key (`directionalPrewarm`),
+    /// the front page of the item one more step that way prewarms in the background.
     static func stepAction(by offset: Int, _ invocation: ActionInvocation, _ services: AppServices) -> ActionEffect {
         let scope = invocation["scope"]?.stringValue
         step(by: offset, scope: scope, services)

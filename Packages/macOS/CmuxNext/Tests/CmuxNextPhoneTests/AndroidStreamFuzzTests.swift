@@ -7,7 +7,7 @@ import Testing
 /// The bytes `adb exec-out screenrecord --output-format=h264 -` writes come from
 /// another device, in pipe chunks cut anywhere, and nothing checks them before
 /// ``AnnexBParser`` and ``AndroidFrameAssembler`` do. Seeded property tests on
-/// CmuxFuzzSupport (p10-stability-024; long mode: CMUX_FUZZ_SECONDS):
+/// CmuxFuzzSupport (long mode: CMUX_FUZZ_SECONDS):
 ///
 /// - the parser never traps and cuts the units and drops of ``UnitModel``, which
 ///   reads the whole stream at once (every `00 00 01` starts a unit, ITU-T H.264
@@ -30,7 +30,7 @@ import Testing
     static let tokens: [[UInt8]] = [[0, 0, 1], [0, 0, 0, 1], [0, 0], [0x67], [0x68], [0x65], [0x41], [0x06]]
     static let dictionary: [Data] = tokens.map { Data($0) }
 
-    /// One input of either property, its choices read from `data` (the libFuzzer entry, p10-stability-182).
+    /// One input of either property, its choices read from `data` (the libFuzzer entry).
     static func oneInput(_ data: Data) throws {
         var rng = FuzzRNG(replaying: data)
         let parser = rng.bool()

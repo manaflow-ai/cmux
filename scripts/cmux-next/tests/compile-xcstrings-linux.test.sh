@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# scripts/cmux-next/linux/compile-xcstrings.py (p15-oracle-228), on Linux with Swift:
+# scripts/cmux-next/linux/compile-xcstrings.py, on Linux with Swift:
 # a scratch package holds the real CmuxNextActions ActionCatalog.xcstrings and takes
 # its compiled tables the way the Linux mode of Packages/macOS/CmuxNext/Package.swift
 # does (.process("LinuxStringTables")). Its sources are the real lookup code, copied

@@ -1,7 +1,7 @@
 import AppKit
 public import CmuxNextWakeups
 
-// The row views the list builds while the app starts (`SidebarModel.LaunchRows`, p08-startup-064):
+// The row views the list builds while the app starts (`SidebarModel.LaunchRows`):
 // only the rows the clip shows until startup completes, then the overscan rows in one afterStartup task.
 extension SidebarListViewComponents {
     /// Row views made so far against the rows the clip shows now.
@@ -27,7 +27,7 @@ extension SidebarView {
     /// window made after launch.
     public var launchRowsReport: SidebarModel.LaunchRows.Report? { list.launchRows.report }
 
-    /// Follows the launch's `startup` while it runs (p08-startup-064): the list builds views only for the rows
+    /// Follows the launch's `startup` while it runs: the list builds views only for the rows
     /// its clip shows; at completion it records what it built (`report` gets it too, for `debug.startup` and
     /// the startup bench), and an afterStartup main task gives the overscan rows their views. Call it right
     /// after making the sidebar, before its first layout. Nothing happens for a nil `startup` (tests) or one

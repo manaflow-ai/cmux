@@ -5,7 +5,7 @@ import CmuxNextWakeups
 import Foundation
 import Testing
 
-/// The Files pane renders through a `VisibleObservation` on its own node (p06-scheduler-337, rule 9),
+/// The Files pane renders through a `VisibleObservation` on its own node,
 /// not a main-actor `ObservationStream` task: a hidden pane (an unselected tab, a hidden pane, an
 /// occluded window) applies no model change, and renders once, the current state, when it shows.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(1)))
@@ -19,7 +19,7 @@ struct FilesPaneHiddenRenderTests {
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let mainWork = MainWorkScheduler(budget: MainFrameBudget())
-        let model = FileBrowserModel(folder: folder, work: mainWork, viewMode: .list)
+        let model = FileBrowserModel(folder: folder, work: mainWork, viewMode: .list, lanes: BackgroundWork(label: "test.files-pane"))
         let pane = FilesPaneView(model: model, sidebar: SidebarModel(home: folder, defaults: defaults, volumes: { [] }),
                                  icons: FileIconProvider(queries: nil), home: folder, mainWork: mainWork) { _ in }
         defer { pane.stop() }

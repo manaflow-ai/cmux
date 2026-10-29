@@ -44,7 +44,7 @@ pub const SEATBELT_PROFILE: &str = r#"(version 1)
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SandboxPolicy {
     /// No sandbox: only where the platform's sandbox has not landed yet
-    /// (Linux, p01-process-211). A macOS worker refuses it.
+    /// (Linux). A macOS worker refuses it.
     Unsandboxed,
     /// A compiled Seatbelt profile (the bytes `sandbox_compile_string` made).
     Seatbelt(Vec<u8>),

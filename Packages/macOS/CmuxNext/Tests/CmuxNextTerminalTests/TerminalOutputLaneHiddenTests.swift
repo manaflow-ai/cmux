@@ -5,7 +5,7 @@ import Foundation
 import GhosttyNextKit
 import Testing
 
-/// A hidden surface's output lane (p05-ipc-142): with feature `terminalStreamPriority` on (`lowersHidden`) its
+/// A hidden surface's output lane: with feature `terminalStreamPriority` on (`lowersHidden`) its
 /// parses run at utility, so a hidden printer never competes with the shown terminal's echo, and shown again
 /// they run at user-interactive. Order never changes: hidden and shown chunks parse in the order they were
 /// queued. With the feature off every parse runs at user-interactive, hidden or not.

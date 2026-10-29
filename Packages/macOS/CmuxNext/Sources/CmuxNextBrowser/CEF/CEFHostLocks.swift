@@ -2,7 +2,7 @@ import AppKit
 import CmuxNextCompat
 import CmuxNextWakeups
 
-/// C entry for the fork's lock delegate (`cmux_shim_set_lock_handler`, task p01-process-229), its seam
+/// C entry for the fork's lock delegate (`cmux_shim_set_lock_handler`), its seam
 /// adapter: the in-process shim calls it on the CEF UI thread and the remote shim from its event batch, both
 /// the main thread; off it, the call hops there.
 enum CEFHostLockCallback {

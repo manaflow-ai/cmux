@@ -6,7 +6,7 @@ import QuartzCore
 import Testing
 
 /// Looping indicators ask the render server for only the frames they need while
-/// `DesignSettings.loopsFollowFrameRate` (feature `frameRateClasses`, p03-rendering-013), and never change
+/// `DesignSettings.loopsFollowFrameRate` (feature `frameRateClasses`), and never change
 /// their timing for it.
 @MainActor @Suite(.serialized) struct LoopFrameRateTests {
     private func loops() throws -> [(String, CAAnimation)] {

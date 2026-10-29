@@ -7,7 +7,7 @@ import CmuxNextMemory
 import Foundation
 import Testing
 
-/// `debug.memory`'s source (p07-memory-010): ``MemorySnapshotModel/memorySnapshot(history:)`` over a
+/// `debug.memory`'s source: ``MemorySnapshotModel/memorySnapshot(history:)`` over a
 /// fake app (a real daemon store, faked cache, windows and pages) maps each tab's phase, kind and
 /// processes, each workspace's mount state and terminal counts, an unattached surface as unknown
 /// bytes, and reads no title, URL or path; ``MemoryPressureHistory`` keeps the applied level.

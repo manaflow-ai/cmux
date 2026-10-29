@@ -5,7 +5,7 @@ import Sentry
 import Testing
 @testable import CmuxNextCrashReporting
 
-/// p09-observability-110: the record a run keeps on disk while its main thread hangs, and the one "fatal app hang"
+/// The record a run keeps on disk while its main thread hangs, and the one "fatal app hang"
 /// event the next launch makes of it. The stack is stored as image and offset, so the event's frames and debug_meta
 /// are those of the hung process; the record is read once; a clean or crashed run's record is never reported.
 @Suite(.serialized) struct FatalHangRecordTests {

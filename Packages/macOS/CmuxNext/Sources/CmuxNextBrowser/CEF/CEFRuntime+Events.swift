@@ -115,6 +115,7 @@ extension CEFRuntime {
             hostStart?.popupMenus?.hide(browser: browser, token: token)
         case .subframeRenderer(let browser, let frame, let client, let attached):
             childMonitor?.subframe(frame, browser: browser, client: client, attached: attached)
+        case .helperExit(let exit): childExited(exit) // a helper of the Chromium Host (CEFRuntime+Crashes)
         case .pageDragEnter(let browser, let pathsJSON):
             if let tab = tabsByBrowser[browser], let entered = tab.pageFilesDragged { entered(CEFTab.dragPaths(pathsJSON)) }
         case .fileDialog(let browser, let dialogID, let mode, let acceptTypes, let defaultPath):
@@ -362,6 +363,13 @@ extension CEFRuntime {
     func devTools(_ browser: Int32, method: String, params: [String: Any] = [:],
                   timeout: Duration = CEFRuntime.devToolsTimeout) async throws -> String {
         guard let sent = sendDevTools(browser, method: method, params: params) else { throw BrowserTabError.closed }
+        return try await result(of: sent, method: method, timeout: timeout)
+    }
+
+    /// The JSON result of a DevTools method ``sendDevTools(_:method:params:)`` sent: the answer Chromium gave inside
+    /// the call, else the one it gives later. Throws `timedOut` when none comes within `timeout`, and `closed` when
+    /// the browser closes or the engine stops first (its late answer is then dropped).
+    func result(of sent: CEFDevToolsSend, method: String, timeout: Duration = CEFRuntime.devToolsTimeout) async throws -> String {
         if let result = sent.answered { return try result.get() }
         return try await devToolsCalls.reply(for: sent.key, timeout: timeout) {
             BrowserTabError.timedOut("DevTools \(method) (\(timeout))")
@@ -397,6 +405,9 @@ extension CEFRuntime {
         sequence.begin()
         shutdownSequence = sequence
         noteCrashKeyShuttingDown()
+        // The stopping engine answers no DevTools call (a page picture among them): each waiter ends now with
+        // `closed`, not after the browsers close or the timeout, and a late answer is dropped.
+        devToolsCalls.failAll(where: { _ in true }, with: BrowserTabError.closed)
         shim.closeAll()
         pump?.pumpNow()
         shutdownProgressed()

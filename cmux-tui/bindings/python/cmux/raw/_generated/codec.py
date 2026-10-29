@@ -100,6 +100,7 @@ MODEL_BY_PATH = {
     'types/ConversationThreadState': models.ConversationThreadState,
     'types/ConversationThreadSummary': models.ConversationThreadSummary,
     'types/CopyResult': models.CopyResult,
+    'types/DaemonStartupMarks': models.DaemonStartupMarks,
     'types/DeadPane': models.DeadPane,
     'types/DeclarativeLayout/variants/leaf': models.DeclarativeLayoutLeaf,
     'types/DeclarativeLayout/variants/split': models.DeclarativeLayoutSplit,

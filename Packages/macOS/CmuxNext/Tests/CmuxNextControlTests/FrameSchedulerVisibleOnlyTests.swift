@@ -3,7 +3,7 @@ import Foundation
 import QuartzCore
 import Testing
 
-/// A ``FrameClient`` made with a `visibleOnly` node draws only for someone (p06-scheduler-047): while
+/// A ``FrameClient`` made with a `visibleOnly` node draws only for someone: while
 /// the node is hidden or occluded and no capture vote holds it, the client stays active but is never
 /// ticked, and its window's link drops when it was the only client. Chrome stops a hidden widget's
 /// BeginFrames the same way (`cc::Scheduler`'s `visible` input, cc/scheduler/scheduler_state_machine.cc).

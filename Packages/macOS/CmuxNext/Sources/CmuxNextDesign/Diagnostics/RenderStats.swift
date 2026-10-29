@@ -41,8 +41,8 @@ import QuartzCore
 /// (AppKit sends `setFrameOrigin:` and `setFrameSize:`).
 ///
 /// A producer that presents its frames itself, off the main thread and through no
-/// `setContents:` (a terminal's renderer with renderer-owned frames,
-/// p03-rendering-093), counts each shown frame as a contents set of its owner
+/// `setContents:` (a terminal's renderer with renderer-owned frames),
+/// counts each shown frame as a contents set of its owner
 /// through ``presentedFrames``, from the thread its presentation feedback runs
 /// on, as Chrome counts a frame at its presentation feedback
 /// (`viz::Display::DidReceivePresentationFeedback`, components/viz/service/display/display.cc).

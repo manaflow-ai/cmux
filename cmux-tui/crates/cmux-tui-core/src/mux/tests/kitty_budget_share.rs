@@ -1,4 +1,4 @@
-//! The process Kitty share by viewers and recency (p07-memory-073): fifty
+//! The process Kitty share by viewers and recency: fifty
 //! terminals stay under the total, the most recently shown keep their
 //! images, and a viewed terminal's placements still render after critical
 //! memory pressure clears the pixel maps.
