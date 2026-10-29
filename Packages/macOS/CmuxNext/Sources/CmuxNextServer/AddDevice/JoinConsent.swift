@@ -3,7 +3,7 @@ public import Observation
 
 /// What a joined machine's team may do on this Mac only after the person allows it here (the one-line
 /// join's consent gate, contract §5). The join itself grants mesh membership alone; acpmux blocks
-/// both surfaces until a consent record exists.
+/// both surfaces until its consent record grants them, and the app blocks Mac Screen the same way.
 public nonisolated enum JoinConsentSurface: String, CaseIterable, Equatable, Sendable {
     /// Other team machines see this screen.
     case screen
@@ -11,8 +11,8 @@ public nonisolated enum JoinConsentSurface: String, CaseIterable, Equatable, Sen
     case control
 }
 
-/// `acpmux host join --status --json`: the parts This Mac shows. Consent reads either a bool or
-/// `"granted"`/`"none"` (both shapes were proposed for the status line).
+/// `acpmux host join --status --json`: the parts This Mac shows. The consent comes from acpmux itself
+/// (``JoinConsentRecord``), never from this line.
 public nonisolated struct JoinStatus: Equatable, Sendable, Decodable {
     public var credentialPresent: Bool
     public var machineId: String?
@@ -22,23 +22,18 @@ public nonisolated struct JoinStatus: Equatable, Sendable, Decodable {
     /// The machine's name in the team; else the page shows ``machineId``.
     public var name: String?
     public var revoked: Bool
-    public var screen: Bool
-    public var control: Bool
 
     public init(credentialPresent: Bool, machineId: String? = nil, teamId: String? = nil, teamName: String? = nil,
-                name: String? = nil, revoked: Bool = false, screen: Bool = false, control: Bool = false) {
+                name: String? = nil, revoked: Bool = false) {
         self.credentialPresent = credentialPresent
         self.machineId = machineId
         self.teamId = teamId
         self.teamName = teamName
         self.name = name
         self.revoked = revoked
-        self.screen = screen
-        self.control = control
     }
 
-    private enum Keys: String, CodingKey { case credentialPresent, machineId, teamId, teamName, name, revoked, consent }
-    private enum ConsentKeys: String, CodingKey { case screen, control }
+    private enum Keys: String, CodingKey { case credentialPresent, machineId, teamId, teamName, name, revoked }
 
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: Keys.self)
@@ -48,30 +43,47 @@ public nonisolated struct JoinStatus: Equatable, Sendable, Decodable {
         teamName = try c.decodeIfPresent(String.self, forKey: .teamName)
         name = try c.decodeIfPresent(String.self, forKey: .name)
         revoked = try c.decodeIfPresent(Bool.self, forKey: .revoked) ?? false
-        let consent = try? c.nestedContainer(keyedBy: ConsentKeys.self, forKey: .consent)
-        screen = Self.granted(consent, .screen)
-        control = Self.granted(consent, .control)
-    }
-
-    /// A bool, or the word `granted`; anything else (absent, `none`, malformed) is off.
-    private static func granted(_ c: KeyedDecodingContainer<ConsentKeys>?, _ key: ConsentKeys) -> Bool {
-        guard let c else { return false }
-        if let on = try? c.decode(Bool.self, forKey: key) { return on }
-        return (try? c.decode(String.self, forKey: key)) == "granted"
     }
 
     public static func parse(_ data: Data) -> JoinStatus? { try? JSONDecoder().decode(JoinStatus.self, from: data) }
+}
+
+/// acpmux's consent record (`_acpmux/machine_consent_get`, and `_acpmux/machine_consent_set`'s answer):
+/// `{"consent": {"screen": "none"|"granted", "control": …}, "lastRefusal": {…, "surface": …} | null}`.
+public nonisolated struct JoinConsentRecord: Equatable, Sendable {
+    public var screen: Bool
+    public var control: Bool
+    /// The surface of the last request acpmux refused with `consent_required`; nil when none.
+    public var lastRefusal: JoinConsentSurface?
+
+    public init(screen: Bool = false, control: Bool = false, lastRefusal: JoinConsentSurface? = nil) {
+        self.screen = screen
+        self.control = control
+        self.lastRefusal = lastRefusal
+    }
+
+    /// The record in a result; nil without a `consent` object. Only the word `granted` is on.
+    public static func parse(_ result: [String: Any]) -> JoinConsentRecord? {
+        guard let consent = result["consent"] as? [String: Any] else { return nil }
+        let refusal = (result["lastRefusal"] as? [String: Any])?["surface"] as? String
+        return JoinConsentRecord(screen: consent["screen"] as? String == "granted", control: consent["control"] as? String == "granted",
+                                 lastRefusal: refusal.flatMap(JoinConsentSurface.init(rawValue:)))
+    }
 
     public func allows(_ surface: JoinConsentSurface) -> Bool { surface == .screen ? screen : control }
 }
 
-/// One connection to this Mac's acpmux for consent writes (the app's ``AcpmuxPersonLine``). acpmux
-/// takes an on only from a connection proven as the person, as `_acpmux/pair_set`'s Full access does.
+/// One connection to this Mac's acpmux for the consent record (the app's ``AcpmuxPersonLine``). acpmux
+/// changes it only for a connection proven as the person, as `_acpmux/pair_set`'s Full access does.
 @MainActor
 public protocol JoinConsentLine: AnyObject {
     var isPerson: Bool { get }
-    /// Writes the consent record; true when acpmux took it.
-    func set(_ surface: JoinConsentSurface, on: Bool) async -> Bool
+    /// acpmux announced `machine-consent-v1`: it keeps the record and answers the two calls below.
+    var supportsConsent: Bool { get }
+    /// `_acpmux/machine_consent_get`; nil when it failed.
+    func read() async -> JoinConsentRecord?
+    /// `_acpmux/machine_consent_set`; true when acpmux took it.
+    func set(_ surface: JoinConsentSurface, granted: Bool) async -> Bool
     func close()
 }
 
@@ -109,12 +121,17 @@ public struct JoinConsentServices {
     }
 }
 
-/// This Mac's join consent: the two switches of Settings > Devices and the one-time sheet on the first
-/// refused request. Turning a switch on needs a line acpmux proved as the person (``JoinConsentLine/isPerson``);
-/// off always works. It reads the status only when asked (Settings opening, after a write).
+/// This Mac's join consent: the two switches of Settings > Devices, the one-time sheet on the first
+/// refused request, and Mac Screen's gate. Turning a switch on needs a line acpmux proved as the person
+/// (``JoinConsentLine/isPerson``). It reads only when asked (Settings opening, the app coming forward,
+/// after a write, after a refusal).
 @MainActor @Observable
 public final class JoinConsentModel {
     public private(set) var status: JoinStatus?
+    /// acpmux's record; nil before the first read, when the read failed, or when acpmux has no record.
+    public private(set) var consent: JoinConsentRecord?
+    /// This Mac's acpmux has `machine-consent-v1` (without it nothing is granted); nil when none answered.
+    public private(set) var consentSupported: Bool?
     /// Why the last write failed; nil after a success.
     public private(set) var lastError: String?
     /// The refused request the one-time sheet shows; nil while it is hidden.
@@ -137,11 +154,25 @@ public final class JoinConsentModel {
     public func refresh() async {
         generation += 1
         let mine = generation
-        let next = services.enabled() ? await services.status() : nil
+        var next: JoinStatus?, record: JoinConsentRecord?, supported: Bool?
+        if services.enabled() {
+            next = await services.status()
+            if let line = await services.openLine() {
+                supported = line.supportsConsent
+                if line.supportsConsent { record = await line.read() }
+                line.close()
+            }
+        }
         guard mine == generation else { return }
         status = next
+        consent = record
+        consentSupported = supported
         // The Labs switch went off (or the join went away): an open sheet can no longer allow.
         if !shown, ask != nil { dismissAsk() }
+        // acpmux refused a team machine for a surface still off: the first such refusal shows the sheet.
+        if shown, let surface = record?.lastRefusal, record?.allows(surface) == false {
+            refused(JoinConsentRefusal(requester: JoinConsentStrings.teamMachine, surface: surface))
+        }
     }
 
     /// Turns `surface` on or off on this Mac. Returns the error to show, nil when set.
@@ -165,10 +196,34 @@ public final class JoinConsentModel {
             lastError = JoinConsentStrings.onFailed
             return lastError
         }
-        let ok = await line.set(surface, on: on)
+        guard line.supportsConsent else {
+            lastError = on ? JoinConsentStrings.unsupported : JoinConsentStrings.offFailed
+            return lastError
+        }
+        let ok = await line.set(surface, granted: on)
         lastError = ok ? nil : on ? JoinConsentStrings.onFailed : JoinConsentStrings.offFailed
         await refresh()
         return lastError
+    }
+
+    /// Mac Screen asks before it serves a session: the app owns it, so acpmux's gate never sees it. With
+    /// the Labs switch off nothing changes. With it on, a Mac whose join status says not joined serves as before
+    /// (acpmux's own rule for an unjoined Mac); otherwise it serves only what the person allowed here,
+    /// and a refusal shows the sheet and reads again.
+    /// SECURITY: an acpmux without `machine-consent-v1`, or a record not read yet, never allows.
+    public func allowsMacScreen(control: Bool, requester: String) -> Bool {
+        guard services.enabled() else { return true }
+        let supported = consentSupported == true
+        if supported, status?.credentialPresent == false { return true }
+        let consent = supported ? self.consent : nil
+        if let consent, consent.screen, !control || consent.control { return true }
+        // The sheet once acpmux answered (with or without consent support); nothing to allow before that.
+        if consentSupported != nil {
+            refused(JoinConsentRefusal(requester: requester, surface: consent?.screen == true ? .control : .screen))
+        }
+        // task-owner: one read, so the next request meets what the person allows now
+        Task { await refresh() }
+        return false
     }
 
     /// acpmux refused a team machine's request with `consent_required`: the first one on this Mac
@@ -217,10 +272,10 @@ public final class JoinConsentModel {
         let name = status.name ?? status.machineId ?? ""
         let page = JoinConsentPage(
             title: JoinConsentStrings.section, joined: JoinConsentStrings.joined(team: team, name: name), help: JoinConsentStrings.help,
-            error: lastError,
+            error: lastError ?? (consentSupported == false ? JoinConsentStrings.unsupported : nil),
             switches: JoinConsentSurface.allCases.map {
                 JoinConsentPage.Switch(surface: $0.rawValue, title: JoinConsentStrings.title($0), help: JoinConsentStrings.switchHelp($0),
-                                       on: status.allows($0))
+                                       on: consent?.allows($0) == true)
             })
         let encoder = JSONEncoder()
         encoder.keyEncodingStrategy = .convertToSnakeCase
@@ -268,6 +323,9 @@ public nonisolated struct JoinConsentStrings {
     }
     static var onFailed: String { s("devices.join.onFailed", "Still off: this Mac could not confirm it was you") }
     static var offFailed: String { s("devices.join.offFailed", "It could not be turned off. Try again.") }
+    static var unsupported: String { s("devices.join.unsupported", "Still off: this Mac's cmux needs an update before you can allow this") }
+    /// Who asked, when acpmux recorded only the refusal.
+    static var teamMachine: String { s("devices.join.ask.teamMachine", "A machine on your team") }
 
     // The one-time sheet.
     static func askTitle(_ refusal: JoinConsentRefusal) -> String {

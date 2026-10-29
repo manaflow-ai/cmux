@@ -34,11 +34,14 @@ enum DebugJoinConsent {
         return .object(["joined": .bool(true)])
     }
 
-    /// A line acpmux proved as the person that writes into the fixture status.
+    /// A line acpmux proved as the person, over a fixture record.
     final class FixtureLine: JoinConsentLine {
+        var record = JoinConsentRecord()
         var isPerson: Bool { true }
-        func set(_ surface: JoinConsentSurface, on: Bool) async -> Bool {
-            if surface == .screen { DebugJoinConsent.status?.screen = on } else { DebugJoinConsent.status?.control = on }
+        var supportsConsent: Bool { true }
+        func read() async -> JoinConsentRecord? { record }
+        func set(_ surface: JoinConsentSurface, granted: Bool) async -> Bool {
+            if surface == .screen { record.screen = granted } else { record.control = granted }
             return true
         }
         func close() {}

@@ -50,6 +50,9 @@ public final class MacScreenHubHost {
     @ObservationIgnored var revokePermission: @MainActor (DeviceHub, String) async throws -> Void = { hub, viewer in
         try await hub.setPermission(host: hub.identity.id, viewer: viewer, scope: .none)
     }
+    /// Whether this Mac's local consent allows a session (the one-line join's gate, which acpmux cannot
+    /// apply to Mac Screen since the app serves it); a refused ticket is ended unserved.
+    @ObservationIgnored public var consentGate: @MainActor (SessionTicket) -> Bool = { _ in true }
     /// Makes a session's signaling from its ticket; tests replace it.
     @ObservationIgnored var makeSignaling: @MainActor (SessionTicket, DeviceHub) throws -> any ScreenSignaling = MacScreenHubViewer.ticketSignaling
 
@@ -90,6 +93,11 @@ public final class MacScreenHubHost {
     /// `session.ticket` for the host role: serve it.
     func serve(_ ticket: SessionTicket) {
         guard ticket.role == .host, let hub = hub() else { return }
+        guard consentGate(ticket) else {
+            logger.info("session ticket refused: this Mac's consent does not allow it")
+            end(ticket.sessionId, reason: .failed, hub: hub)
+            return
+        }
         if let current = session, current.id != ticket.sessionId {
             // One viewer at a time: the newer session wins.
             closeLocal()
@@ -209,7 +217,8 @@ public final class MacScreenHubHost {
 
     private func end(_ id: String, reason: MacScreenHubReason, hub: DeviceHub) {
         // task-owner: one /end call; the hub pushes the end to both Macs
-        Task { try? await hub.endSession(id, reason: reason.rawValue) }
+        let endSession = endSession
+        Task { await endSession(hub, id, reason.rawValue) }
     }
 
     private func updateIndicator() {

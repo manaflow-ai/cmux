@@ -1,6 +1,268 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "devices.join.unsupported": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Still off: this Mac's cmux needs an update before you can allow this"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يزال متوقفًا: يحتاج cmux على هذا الـ Mac إلى تحديث قبل أن تتمكن من السماح بذلك"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Još uvijek isključeno: cmux na ovom Macu treba ažuriranje prije nego što ovo dozvolite"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Stadig slået fra: cmux på denne Mac skal opdateres, før du kan tillade dette"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Weiterhin aus: cmux auf diesem Mac braucht ein Update, bevor du das erlauben kannst"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sigue desactivado: el cmux de este Mac necesita una actualización antes de que puedas permitirlo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Toujours désactivé : le cmux de ce Mac doit être mis à jour avant que vous puissiez l'autoriser"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ancora disattivato: cmux su questo Mac deve essere aggiornato prima che tu possa consentirlo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "オフのままです: 許可するには、この Mac の cmux をアップデートする必要があります"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "នៅតែបិទ៖ cmux នៅលើ Mac នេះត្រូវការការធ្វើបច្ចុប្បន្នភាពមុនពេលអ្នកអាចអនុញ្ញាតវាបាន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "아직 꺼져 있음: 허용하려면 이 Mac의 cmux를 업데이트해야 합니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fortsatt av: cmux på denne Mac-en må oppdateres før du kan tillate dette"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nadal wyłączone: cmux na tym Macu wymaga aktualizacji, zanim na to zezwolisz"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ainda desativado: o cmux deste Mac precisa de uma atualização antes que você possa permitir isso"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "По-прежнему выключено: cmux на этом Mac нужно обновить, прежде чем это можно будет разрешить"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ยังปิดอยู่: cmux บน Mac เครื่องนี้ต้องอัปเดตก่อนจึงจะอนุญาตได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hâlâ kapalı: Buna izin verebilmeniz için bu Mac'teki cmux'un güncellenmesi gerekiyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Досі вимкнено: cmux на цьому Mac потрібно оновити, перш ніж це можна буде дозволити"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vẫn tắt: cmux trên máy Mac này cần được cập nhật trước khi bạn có thể cho phép"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "仍处于关闭状态：需要先更新这台 Mac 上的 cmux 才能允许"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "仍為關閉狀態：需要先更新這台 Mac 上的 cmux 才能允許"
+          }
+        }
+      }
+    },
+    "devices.join.ask.teamMachine": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A machine on your team"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "جهاز في فريقك"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Računar u vašem timu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En maskine i dit team"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ein Gerät in deinem Team"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Una máquina de tu equipo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Une machine de votre équipe"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Una macchina del tuo team"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "チームのマシン"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ម៉ាស៊ីនមួយក្នុងក្រុមរបស់អ្នក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "팀의 컴퓨터"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En maskin i teamet ditt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Komputer z Twojego zespołu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uma máquina da sua equipe"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Компьютер вашей команды"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เครื่องหนึ่งในทีมของคุณ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ekibinizdeki bir makine"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Комп'ютер вашої команди"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Một máy trong nhóm của bạn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "你团队中的一台机器"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "你團隊中的一台機器"
+          }
+        }
+      }
+    },
     "devices.join.section": {
       "extractionState": "manual",
       "localizations": {

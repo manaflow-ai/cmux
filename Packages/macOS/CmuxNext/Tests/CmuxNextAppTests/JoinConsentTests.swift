@@ -16,16 +16,23 @@ import Testing
 @MainActor @Suite(.serialized) struct JoinConsentTests {
     final class FakeLine: JoinConsentLine {
         let isPerson: Bool
+        let supportsConsent: Bool
         let takes: Bool
+        let owner: Fake
         var writes: [String] = []
         var closed = false
-        init(isPerson: Bool, takes: Bool = true) {
-            self.isPerson = isPerson
-            self.takes = takes
+        init(_ owner: Fake) {
+            self.owner = owner
+            isPerson = owner.person
+            supportsConsent = owner.capable
+            takes = owner.takes
         }
-        func set(_ surface: JoinConsentSurface, on: Bool) async -> Bool {
-            writes.append("\(surface.rawValue) \(on)")
-            return takes
+        func read() async -> JoinConsentRecord? { owner.record }
+        func set(_ surface: JoinConsentSurface, granted: Bool) async -> Bool {
+            writes.append("\(surface.rawValue) \(granted)")
+            guard takes else { return false }
+            if surface == .screen { owner.record.screen = granted } else { owner.record.control = granted }
+            return true
         }
         func close() { closed = true }
     }
@@ -37,8 +44,12 @@ import Testing
     final class Fake {
         var status: JoinStatus? = JoinStatus(credentialPresent: true, machineId: "m_1", teamId: "t_1", teamName: "Example Team", name: "studio")
         var person = true
-        /// acpmux takes the write (false: the method is missing, as before B7 lands).
+        /// acpmux announces `machine-consent-v1`.
+        var capable = true
+        /// acpmux takes the write.
         var takes = true
+        /// acpmux's consent record.
+        var record = JoinConsentRecord()
         var enabled = true
         var askShown = false
         var lines: [FakeLine] = []
@@ -47,7 +58,7 @@ import Testing
             JoinConsentServices(
                 status: { [self] in status },
                 openLine: { [self] in
-                    let line = FakeLine(isPerson: person, takes: takes)
+                    let line = FakeLine(self)
                     lines.append(line)
                     return line
                 },
@@ -165,6 +176,67 @@ import Testing
         }
     }
 
+    /// sr2's ruling: an acpmux without `machine-consent-v1` has granted nothing. Its switches stay off with
+    /// the reason, an on writes nothing, and Mac Screen (which the app serves) is refused with the sheet.
+    @Test func aDaemonWithoutConsentSupportGrantsNothingAndMacScreenIsRefusedWithTheSheet() async throws {
+        let fake = Fake()
+        fake.capable = false
+        fake.record = JoinConsentRecord(screen: true, control: true)
+        let model = JoinConsentModel(services: fake.services())
+        let shown = Recorder()
+        model.present = { shown.values.append("\($0)") }
+        await model.refresh()
+        #expect(model.consentSupported == false && model.consent == nil, "a record it cannot vouch for is not read")
+        let page = try #require(try JSONSerialization.jsonObject(with: try #require(model.pageData())) as? [String: Any])
+        #expect((page["switches"] as? [[String: Any]])?.map { $0["on"] as? Bool } == [false, false])
+        #expect(page["error"] as? String == JoinConsentStrings.unsupported)
+        #expect(await model.set(.screen, on: true) == JoinConsentStrings.unsupported)
+        #expect(fake.writes.isEmpty)
+        #expect(!model.allowsMacScreen(control: false, requester: "Studio"))
+        #expect(model.ask == JoinConsentRefusal(requester: "Studio", surface: .screen) && shown.values == ["true"])
+        // Not joined changes nothing without consent support: never a fallback to allowing.
+        fake.status = JoinStatus(credentialPresent: false)
+        await model.refresh()
+        #expect(!model.allowsMacScreen(control: false, requester: "Studio"))
+    }
+
+    @Test func macScreenServesOnlyWhatThePersonAllowedOnceJoinedAndNothingChangesWithTheLabsSwitchOff() async {
+        let fake = Fake()
+        let model = JoinConsentModel(services: fake.services())
+        #expect(!model.allowsMacScreen(control: false, requester: "Studio"), "nothing read yet: refused")
+        #expect(model.ask == nil, "and no sheet before acpmux answered")
+        await model.refresh()
+        #expect(!model.allowsMacScreen(control: false, requester: "Studio"))
+        #expect(model.ask == JoinConsentRefusal(requester: "Studio", surface: .screen))
+        #expect(await model.answer(allow: true) == nil)
+        #expect(model.allowsMacScreen(control: false, requester: "Studio"), "View Only needs Screen sharing")
+        #expect(!model.allowsMacScreen(control: true, requester: "Studio"), "Full Control needs Control too")
+        #expect(await model.set(.control, on: true) == nil)
+        #expect(model.allowsMacScreen(control: true, requester: "Studio"))
+        fake.status = JoinStatus(credentialPresent: false)
+        fake.record = JoinConsentRecord()
+        await model.refresh()
+        #expect(model.allowsMacScreen(control: true, requester: "Studio"), "a Mac that is not joined serves as before")
+        fake.enabled = false
+        fake.status = nil
+        await model.refresh()
+        #expect(model.allowsMacScreen(control: true, requester: "Studio"), "the Labs switch off changes nothing")
+    }
+
+    @Test func aRefusalAcpmuxRecordedShowsTheSheetOnceUnlessThatSurfaceIsOn() async {
+        let fake = Fake()
+        fake.record = JoinConsentRecord(screen: false, control: true, lastRefusal: .control)
+        let model = JoinConsentModel(services: fake.services())
+        await model.refresh()
+        #expect(model.ask == nil, "control is already on")
+        fake.record.lastRefusal = .screen
+        await model.refresh()
+        #expect(model.ask == JoinConsentRefusal(requester: JoinConsentStrings.teamMachine, surface: .screen))
+        #expect(await model.answer(allow: false) == nil)
+        await model.refresh()
+        #expect(model.ask == nil && fake.writes.isEmpty, "once")
+    }
+
     @Test func noAcpmuxIsAFailureNeverAnOn() async {
         let model = JoinConsentModel(services: JoinConsentServices(status: { JoinStatus(credentialPresent: true) }, openLine: { nil },
                                                                    enabled: { true }, askShown: { false }, markAskShown: {}))
@@ -172,13 +244,15 @@ import Testing
         #expect(await model.set(.screen, on: false) == JoinConsentStrings.offFailed)
     }
 
-    @Test func statusReadsBoolsOrWordsAndTheSwitchesShowOnlyWhenJoinedAndTheLabsSwitchIsOn() async throws {
-        let words = try #require(JoinStatus.parse(Data(#"{"credentialPresent":true,"machineId":"m_1","teamId":"t_1","revoked":false,"consent":{"screen":"granted","control":"none"}}"#.utf8)))
-        #expect(words.screen && !words.control)
-        let bools = try #require(JoinStatus.parse(Data(#"{"credentialPresent":true,"consent":{"screen":false,"control":true,"grantedAt":"2026-10-29T03:30:00Z"}}"#.utf8)))
-        #expect(!bools.screen && bools.control)
-        let bare = try #require(JoinStatus.parse(Data(#"{"credentialPresent":false}"#.utf8)))
-        #expect(!bare.screen && !bare.control && !bare.credentialPresent)
+    @Test func theRecordReadsOnlyGrantedAsOnAndTheSwitchesShowOnlyWhenJoinedAndTheLabsSwitchIsOn() async throws {
+        let status = try #require(JoinStatus.parse(Data(#"{"credentialPresent":true,"machineId":"m_1","teamId":"t_1","revoked":false,"consent":{"screen":"granted"}}"#.utf8)))
+        #expect(status.credentialPresent && status.machineId == "m_1")
+        let words = try #require(JoinConsentRecord.parse(["consent": ["screen": "granted", "control": "none", "grantedAt": 1] as [String: Any], "lastRefusal": NSNull()]))
+        #expect(words == JoinConsentRecord(screen: true, control: false))
+        let other = try #require(JoinConsentRecord.parse(["consent": ["screen": true, "control": "yes"] as [String: Any],
+                                                          "lastRefusal": ["event": "consent_refused", "code": "consent_required", "surface": "control", "at": 1] as [String: Any]]))
+        #expect(other == JoinConsentRecord(screen: false, control: false, lastRefusal: .control), "only the word granted is on")
+        #expect(JoinConsentRecord.parse([:]) == nil)
 
         let fake = Fake()
         let model = JoinConsentModel(services: fake.services())

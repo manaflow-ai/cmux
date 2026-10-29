@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDevices
 @testable import CmuxNextMacScreen
+import CmuxNextServer
 import CmuxNextWakeups
 import CmuxScreenKit
 import CryptoKit
@@ -703,6 +704,39 @@ struct MacScreenHubHostOrderTests {
         host.makeSignaling = { _, _ in OpenSignaling() }
         host.serve(ticket("s1", role: .host, scope: .full, peer: "v1"))
         return (host, hub)
+    }
+
+    /// The one-line join's consent (app-owned Mac Screen, so acpmux cannot gate it): with the Labs switch
+    /// on and an acpmux without `machine-consent-v1`, a ticket is ended unserved and the one-time sheet shows.
+    @Test func aDaemonWithoutConsentSupportRefusesMacScreenAndShowsTheSheet() async {
+        let file = FileManager.default.temporaryDirectory.appending(path: "mac-screen-\(UUID().uuidString)/mac-screen.json")
+        let pages = MacScreenPages(store: MacScreenStore(file: file), work: BackgroundWork())
+        let hub = testHub()
+        let host = pages.hubHost
+        host.hub = { hub }
+        let made = CallLog(), ends = CallLog()
+        host.makeSignaling = { _, _ in
+            made.items.append("signaling")
+            return OpenSignaling()
+        }
+        host.endSession = { _, id, reason in ends.items.append("\(id) \(reason)") }
+        let fake = JoinConsentTests.Fake()
+        fake.capable = false
+        let consent = JoinConsentModel(services: fake.services())
+        await consent.refresh()
+        host.consentGate = { consent.allowsMacScreen(control: $0.scope == .full, requester: $0.peer.name) }
+        host.serve(ticket("s1", role: .host, scope: .view, peer: "v1"))
+        for _ in 0..<1000 where ends.items.isEmpty { await Task.yield() }
+        #expect(host.session == nil && made.items.isEmpty, "nothing served")
+        #expect(ends.items == ["s1 failed"])
+        #expect(consent.ask == JoinConsentRefusal(requester: "Studio", surface: .screen))
+        // The same Mac with consent support and screen allowed serves the view.
+        fake.capable = true
+        fake.record.screen = true
+        await consent.refresh()
+        host.serve(ticket("s2", role: .host, scope: .view, peer: "v1"))
+        #expect(host.session?.id == "s2" && made.items == ["signaling"])
+        host.sessionOver("s2")
     }
 
     @Test func revokeSetsNoneAndWaitsForTheHubsRevocation() async {

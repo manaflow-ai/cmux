@@ -6,14 +6,11 @@ import CmuxNextRemote
 import CmuxNextServer
 import Foundation
 
-/// This Mac's join consent in the app (contract §5): the status from the bundled cmux-tui's acpmux
-/// (`acp host join --status --json`), and the writes over a person-proof acpmux line, refused by acpmux
-/// for an on from a connection that is not the person (the Full access pattern).
-///
-/// The write method is a stand-in: acpmux has no person-only consent method yet (only the local
-/// `acpmux host consent grant|revoke` command), so ``JoinConsentPersonLine/method`` names the one
-/// asked for. Until it lands acpmux answers it with an error and every write reports failure;
-/// nothing is turned on.
+/// This Mac's join consent in the app (contract §5): the join status from the bundled cmux-tui's acpmux
+/// (`acp host join --status --json`), and the consent record over a person-proof acpmux line
+/// (`_acpmux/machine_consent_get` and `_set`, under `machine-consent-v1`). acpmux changes the record only
+/// for a connection proven as the person on its local socket (the Full access pattern); no command line
+/// can, so the app calls it directly.
 extension JoinConsentServices {
     static let askShownKey = "cmux.join.consentAskShown"
 
@@ -46,8 +43,7 @@ extension JoinConsentServices {
 /// ``JoinConsentLine`` over the app's ``AcpmuxPersonLine``.
 @MainActor
 final class JoinConsentPersonLine: JoinConsentLine {
-    /// The person-only consent write asked of acpmux (not in acpmux yet; see the extension above).
-    static let method = "_acpmux/consent_set"
+    static let capability = "machine-consent-v1"
     private let line: AcpmuxPersonLine
 
     init(_ line: AcpmuxPersonLine) {
@@ -55,16 +51,23 @@ final class JoinConsentPersonLine: JoinConsentLine {
     }
 
     var isPerson: Bool { line.isPerson }
+    var supportsConsent: Bool { line.capabilities.contains(Self.capability) }
 
-    func set(_ surface: JoinConsentSurface, on: Bool) async -> Bool {
-        await line.call(Self.method, ["surface": surface.rawValue, "on": on]) != nil
+    func read() async -> JoinConsentRecord? {
+        (await line.call("_acpmux/machine_consent_get", [:])).flatMap(JoinConsentRecord.parse)
+    }
+
+    func set(_ surface: JoinConsentSurface, granted: Bool) async -> Bool {
+        await line.call("_acpmux/machine_consent_set", ["surface": surface.rawValue, "granted": granted]) != nil
     }
 
     func close() { line.close() }
 }
 
 extension JoinConsentModel {
-    /// The model with its one-time sheet's panel, made on the first show.
+    /// The model with its one-time sheet's panel, made on the first show. It reads again each time the app
+    /// comes forward (a read with the Labs switch off reads nothing), so a refusal acpmux recorded meanwhile
+    /// shows the sheet; the loop ends with the model.
     static func app(_ services: AppServices) -> JoinConsentModel {
         let model = JoinConsentModel(services: .app(services))
         var panel: JoinConsentAskPanel?
@@ -72,6 +75,13 @@ extension JoinConsentModel {
             guard let model else { return }
             if shown, panel == nil { panel = JoinConsentAskPanel(model: model) }
             panel?.setShown(shown)
+        }
+        // task-owner: lives as long as the model; one read per activation
+        Task { [weak model] in
+            for await _ in NotificationCenter.default.notifications(named: NSApplication.didBecomeActiveNotification) {
+                guard let model else { return }
+                await model.refresh()
+            }
         }
         return model
     }

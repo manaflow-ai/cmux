@@ -16,6 +16,8 @@ public final class AcpmuxPersonLine {
     private var closed = false
     /// acpmux took the person proof: this connection may allow.
     public private(set) var isPerson = false
+    /// The surfaces this acpmux serves (`initialize`'s `_meta.acpmux.capabilities`, e.g. `machine-consent-v1`).
+    public private(set) var capabilities: Set<String> = []
 
     private init(environment: AcpmuxEnvironment) {
         line = AcpmuxCheckedLine(environment: environment)
@@ -31,7 +33,9 @@ public final class AcpmuxPersonLine {
             connection.close()
             return nil
         }
-        let challenge = ((initialized["_meta"] as? [String: Any])?["acpmux"] as? [String: Any])?["personChallenge"] as? [String: Any]
+        let meta = (initialized["_meta"] as? [String: Any])?["acpmux"] as? [String: Any]
+        connection.capabilities = Set(meta?["capabilities"] as? [String] ?? [])
+        let challenge = meta?["personChallenge"] as? [String: Any]
         if let nonce = challenge?["nonce"] as? String, let id = challenge?["connection"] as? String,
            let proof = connection.line.personProof(nonce: nonce, connection: id) {
             connection.isPerson = (await connection.call("_acpmux/person_prove", ["proof": proof]))?["person"] as? Bool ?? false
