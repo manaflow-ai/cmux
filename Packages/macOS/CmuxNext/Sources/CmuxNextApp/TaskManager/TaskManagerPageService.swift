@@ -114,7 +114,7 @@ final class TaskManagerPageService: InternalPageProvider {
         tables[key] = table
         liveViews.insert(key)
         model.start()
-        return VisibilityGatedHostingView(owner: "TaskManagerPage", hosting: TaskManagerView.hostingView(model: model, table: table))
+        return VisibilityGatedHostingView(owner: "TaskManagerPage") { TaskManagerView(model: model, table: table) }
     }
 
     func tabClosed(_ key: String) {

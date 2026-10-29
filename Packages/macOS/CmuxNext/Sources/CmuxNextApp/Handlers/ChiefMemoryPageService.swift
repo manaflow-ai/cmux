@@ -180,7 +180,7 @@ final class ChiefMemoryPageService: InternalPageProvider {
         // reload reads the last node and runs its search again.
         if let shown = saved.removeValue(forKey: key) { model.restore(trail: shown.trail, query: shown.query, searched: shown.searched) }
         models[key] = model
-        let view = VisibilityGatedHostingView(owner: "ChiefMemoryPage", hosting: NSHostingView(rootView: ChiefMemoryInspectorView(model: model)))
+        let view = VisibilityGatedHostingView(owner: "ChiefMemoryPage") { ChiefMemoryInspectorView(model: model) }
         anchor.view = view
         return view
     }
