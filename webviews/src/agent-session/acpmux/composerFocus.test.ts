@@ -96,6 +96,19 @@ describe("composer click-away focus", () => {
     expect(shouldBlurComposerOnPress(editor.firstChild, editor)).toBe(false);
   });
 
+  test("a chip in the composer's strip or quiet row keeps its editor focus", () => {
+    const { editor } = fixture();
+    const document = editor.ownerDocument;
+    for (const row of ["acpmux-composer-strip", "acpmux-composer-foot", "acpmux-composer-under"]) {
+      const chip = document.createElement("button");
+      const host = document.createElement("div");
+      host.className = row;
+      host.append(chip);
+      document.querySelector("main")!.append(host);
+      expect({ row, blurs: shouldBlurComposerOnPress(chip, editor) }).toEqual({ row, blurs: false });
+    }
+  });
+
   test("a control outside the composer also releases focus", () => {
     const { button, editor } = fixture();
     expect(shouldBlurComposerOnPress(button, editor)).toBe(true);
