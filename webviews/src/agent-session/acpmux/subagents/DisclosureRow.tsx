@@ -49,10 +49,7 @@ export function DisclosureRow({
   const collapse = useAnchoredCollapse({ defaultOpen, open, onOpenChange, animates });
   const bodyId = useId();
   return (
-    <div
-      className={className ? `cv-disclosure ${className}` : "cv-disclosure"}
-      data-open={collapse.open || undefined}
-    >
+    <div className={className ? `cv-disclosure ${className}` : "cv-disclosure"} data-open={collapse.open || undefined}>
       <div className="cv-disclosure__line">
         <button
           ref={collapse.headerRef}
