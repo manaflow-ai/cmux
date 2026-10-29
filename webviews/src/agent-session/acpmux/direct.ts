@@ -6232,7 +6232,7 @@ export class AcpmuxDirectClient {
     return this.origin === "remote";
   }
   get prewarmSupported(): boolean {
-    return this.localOrigin && this.extensions.includes(PREWARM_METHOD);
+    return !this.host.peer && this.localOrigin && this.extensions.includes(PREWARM_METHOD);
   }
   /// Hints acpmux's session pool that `harness` is likely next, in `cwd` when known. Never
   /// awaited; a refusal (the pool is off, a failed start) is ignored.
@@ -6247,6 +6247,10 @@ export class AcpmuxDirectClient {
   /// inherited one); undefined when acpmux picks it or the chat starts on another machine.
   newChatCwd(): string | undefined {
     return this.startsOnSend ? undefined : this.host.cwd;
+  }
+  /// A seeded peer remains the destination until its first chat starts successfully.
+  newChatPeer(): string | undefined {
+    return this.host.peer;
   }
   /// The typing prewarm of a new chat (newChatPrewarm.ts): hints acpmux's pool like `prewarm`,
   /// without a harness for acpmux's default. Silent: a folder without a Trust answer asks nothing
