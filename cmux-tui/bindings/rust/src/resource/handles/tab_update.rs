@@ -93,7 +93,9 @@ fn tab_update_params(params: Params, options: TabUpdateOptions) -> Result<Params
         ));
     }
     if attention_at_ms.is_some() && !matches!(attention, Update::Clear) {
-        return Err(Error::InvalidArgument("attention_at_ms only applies when clearing attention".to_string()));
+        return Err(Error::InvalidArgument(
+            "attention_at_ms only applies when clearing attention".to_string(),
+        ));
     }
     let mut params = match zoom {
         Update::Unchanged => params,
@@ -138,7 +140,9 @@ fn tab_update_params(params: Params, options: TabUpdateOptions) -> Result<Params
         Update::Unchanged => {}
         Update::Clear => {
             params = params.value("attention", Value::Null);
-            if let Some(at_ms) = attention_at_ms { params = params.u64("attention_at_ms", at_ms); }
+            if let Some(at_ms) = attention_at_ms {
+                params = params.u64("attention_at_ms", at_ms);
+            }
         }
         // The daemon's rule: one readable line (no control character, no
         // U+2028 or U+2029) of at most TAB_ATTENTION_REASON_MAX_BYTES.
