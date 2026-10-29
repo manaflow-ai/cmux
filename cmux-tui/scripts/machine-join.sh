@@ -22,6 +22,12 @@
 #
 # Source: cmux-tui/scripts/machine-join.sh in manaflow-ai/cmux; the
 # platform serves a copy with its own origin written in.
+# Threat model: anyone who can read this machine's processes or files as
+# this user (other users, logs, shell history read later, the network) never
+# sees the token. The caller's own shell environment is trusted: a PATH, an
+# exported bash function or a PS4 the caller set runs as this same user, who
+# can read this process's environ and memory anyway.
+#
 # No tracing and no automatic export, even when bash inherits them through
 # SHELLOPTS: either would put the token on stderr or in children's env.
 set +ax
@@ -244,8 +250,16 @@ if [ -n "$t" ]; then
     set -- "$@" --replace
   fi
   # printf is a shell builtin: the token reaches acpmux on stdin only.
+  # acpmux's stderr is redacted on its way to disk (acpmux redacts its own
+  # errors; anything token-shaped is cut anyway), and its exit status comes
+  # back through a file, since a pipeline's status is its last command's.
   rc=0
-  printf '%s\n' "$t" | "$acpmux" "$@" >"$tmp/join.json" 2>"$tmp/join.err" || rc=$?
+  {
+    rc=0
+    printf '%s\n' "$t" | "$acpmux" "$@" 2>&1 >"$tmp/join.json" || rc=$?
+    printf '%s\n' "$rc" >"$tmp/join.rc"
+  } | sed 's/cmj_[A-Za-z0-9_-]*/[redacted token]/g' >"$tmp/join.err"
+  rc="$(cat "$tmp/join.rc")"
   t=""
   set --
   case "$rc" in
@@ -265,8 +279,7 @@ if [ -n "$t" ]; then
       die 5 "could not store the machine credential in ${store:-$HOME/.acpmux}: free disk / fix permissions, then paste a new line"
       ;;
     *)
-      # acpmux redacts its errors; cut anything token-shaped anyway.
-      sed 's/cmj_[A-Za-z0-9_-]*/[redacted token]/g' "$tmp/join.err" >&2
+      cat "$tmp/join.err" >&2
       die "$rc" "joining failed (acpmux exit $rc); paste a new line, or run: $acpmux host join --status"
       ;;
   esac

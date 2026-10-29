@@ -57,6 +57,15 @@ for tool in awk basename cat chmod cp grep head hostname id install loginctl \
   } >"$shims/$tool"
   chmod 755 "$shims/$tool"
 done
+# rm keeps the script's temp dir, so the tests can read what reached disk.
+real_rm="$(command -v rm)"
+{
+  printf '#!/bin/sh\n'
+  printf '. "%s/record.sh"\n' "$fakes"
+  printf 'case "$*" in *cmux-join.*) exit 0 ;; esac\n'
+  printf 'exec "%s" "$@"\n' "$real_rm"
+} >"$shims/rm"
+chmod 755 "$shims/rm"
 # A printf on PATH would only run if the script exec'd one: it must not.
 cp "$shims/cat" "$shims/printf"
 real_env="$(command -v env)"
@@ -187,7 +196,13 @@ run_join() {
   esac
 }
 
-no_token_in_argv() { ! grep -q cmj_ "$d/log/argv"; }
+no_token_in_argv() { ! grep -q 'cmj_[A-Za-z0-9_-]' "$d/log/argv"; }
+# The token, or the fake's leaked error, anywhere the script wrote (the fake
+# acpmux binary itself holds the leak marker's text, so join.* files only for it).
+no_token_on_disk() {
+  ! grep -rqF -- "$token" "$d/tmp" "$d/home" 2>/dev/null &&
+    ! cat "$d/tmp"/cmux-join.*/join.* 2>/dev/null | grep -q cmj_
+}
 no_env_leak() { [ ! -s "$d/log/env-leak" ]; }
 no_token_in_output() { ! grep -q cmj_ "$d/out"; }
 token_on_stdin_once() { [ "$(cat "$d/log/join-stdin" 2>/dev/null)" = "$token" ]; }
@@ -263,6 +278,7 @@ suite() {
     check "exit $code passes through (got $rc)" rc_is "$code"
     check "one line for $code" test "$(grep -c '^cmux join:' "$d/out")" -ge 1
     check "no token in output" no_token_in_output
+    check "no token on disk" no_token_on_disk
     case "$code" in
       2) check "2 line" out_has "the line was damaged; copy it again from cmux" ;;
       3) check "3 line" out_has "this line was used or expired; make a new one: cmux machine add (or Add Machine in the app)" ;;
@@ -279,6 +295,8 @@ suite() {
   check "acpmux's error is shown" out_has "acpmux: join failed"
   check "the generic line" out_has "joining failed (acpmux exit 7)"
   check "no token in output" no_token_in_output
+  check "the temp dir was kept for the disk check" eval 'ls "$d/tmp"/cmux-join.*/join.err >/dev/null 2>&1'
+  check "acpmux's stderr is redacted before it reaches disk" no_token_on_disk
 
   new_case sha-mismatch
   serve_dir "$d/serve" "0000000000000000000000000000000000000000000000000000000000000000"
@@ -372,7 +390,7 @@ suite() {
 
 # The checks are live: a copy that passes the token in argv must fail them.
 mutant="$root/mutant.sh"
-sed 's/^  printf .%s\\n. "\$t" | "\$acpmux" "\$@"/  "$acpmux" "$@" "$t" <\/dev\/null/' "$script" >"$mutant"
+sed 's/^    printf .%s\\n. "\$t" | "\$acpmux" "\$@"/    "$acpmux" "$@" "$t" <\/dev\/null/' "$script" >"$mutant"
 if cmp -s "$script" "$mutant"; then
   case_name=mutant
   fail "the mutant did not change the redeem line"
