@@ -134,14 +134,15 @@ struct AgentChatDestinationActionTests {
             defer { services.routedDaemon = nil }
             #expect(!services.activeDaemon.isLocal)
             let before = Set(PasswordManagerRouteTests.tabs(services).map(\.id))
-            let invocation = ActionInvocation(arguments: ["host": .string(host), "cwd": .string("/tmp")], origin: .cli)
+            let cwd = host == "dev-box" ? "/tmp" : AgentChatActionFixture.localCwd
+            let invocation = ActionInvocation(arguments: ["host": .string(host), "cwd": .string(cwd)], origin: .cli)
             let result = await AgentHandlers.createOnHost(host, invocation: invocation,
                 destinations: AgentChatDestinationsTests.source, context: AppActionContext(services: services))
             let created = try await AgentChatActionFixture.created(in: services, after: before, fields: result.get())
             let view = try #require(services.agentTabs.view(for: created.id))
             let reply = await view.model.respond(to: AgentPaneRequest(body: ["method": "ready"]))
             let handshake = try #require(reply["value"] as? [String: Any], "\(reply)")
-            #expect(handshake["cwd"] as? String == "/tmp")
+            #expect(handshake["cwd"] as? String == cwd)
             #expect(handshake["peer"] as? String == (host == "dev-box" ? host : nil))
             #expect(remote.daemon.store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).isEmpty)
         }
@@ -157,14 +158,14 @@ struct AgentChatDestinationActionTests {
             let source = AgentChatDestinationsTests.source
             let invocation = ActionInvocation(
                 target: targeted ? ActionTargetRef(kind: .pane, id: pane.paneKey) : nil,
-                arguments: ["host": .string(source.local.title), "cwd": .string("/tmp")], origin: .cli)
+                arguments: ["host": .string(source.local.title), "cwd": .string(AgentChatActionFixture.localCwd)], origin: .cli)
             let result = await AgentHandlers.createOnHost(source.local.title, invocation: invocation,
                 destinations: source, context: AppActionContext(services: services))
             let created = try await AgentChatActionFixture.created(in: services, after: before, fields: result.get())
             let view = try #require(services.agentTabs.view(for: created.id))
             let reply = await view.model.respond(to: AgentPaneRequest(body: ["method": "ready"]))
             let handshake = try #require(reply["value"] as? [String: Any], "\(reply)")
-            #expect(handshake["cwd"] as? String == "/tmp")
+            #expect(handshake["cwd"] as? String == AgentChatActionFixture.localCwd)
             #expect(handshake["peer"] == nil, "a resolved local title is not an acpmux peer")
             #expect(!view.model.remoteChat)
         }

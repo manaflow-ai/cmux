@@ -82,7 +82,7 @@ struct AgentChatInUnshownPaneTests {
             let before = Set(PasswordManagerRouteTests.tabs(services).map(\.id))
             let run = RegistryControlBridge(registry: services.registry).performActionTracked(
                 ControlActionRequest(actionID: "palette.newAgentChat", target: ControlTargetRef(kind: "pane", id: pane.paneKey),
-                                     arguments: ["cwd": .string("/tmp")], origin: ActionOrigin.cli.rawValue)
+                                     arguments: ["cwd": .string(AgentChatActionFixture.localCwd)], origin: ActionOrigin.cli.rawValue)
             )
             let fields = try await AgentChatActionFixture.finish(run)
             let created = try await AgentChatActionFixture.created(in: services, after: before, fields: fields)
@@ -92,8 +92,8 @@ struct AgentChatInUnshownPaneTests {
             let view = try #require(services.agentTabs.view(for: created.id))
             let reply = await view.model.respond(to: AgentPaneRequest(body: ["method": "ready"]))
             let handshake = try #require(reply["value"] as? [String: Any], "\(reply)")
-            #expect(handshake["cwd"] as? String == "/tmp")
-            #expect(view.model.handshakeCwd == "/tmp")
+            #expect(handshake["cwd"] as? String == AgentChatActionFixture.localCwd)
+            #expect(view.model.handshakeCwd == AgentChatActionFixture.localCwd)
         }
     }
 
@@ -103,7 +103,7 @@ struct AgentChatInUnshownPaneTests {
             try #require(services.agentTabs.canHostChat, "this build has no agent page")
             let before = Set(PasswordManagerRouteTests.tabs(services).map(\.id))
             let run = RegistryControlBridge(registry: services.registry).performActionTracked(
-                ControlActionRequest(actionID: "palette.newAgentChat", arguments: ["cwd": .string("/tmp")],
+                ControlActionRequest(actionID: "palette.newAgentChat", arguments: ["cwd": .string(AgentChatActionFixture.localCwd)],
                                      origin: ActionOrigin.cli.rawValue))
             let fields = try await AgentChatActionFixture.finish(run)
             let created = try await AgentChatActionFixture.created(in: services, after: before, fields: fields)
@@ -112,8 +112,8 @@ struct AgentChatInUnshownPaneTests {
             let view = try #require(services.agentTabs.view(for: created.id))
             let reply = await view.model.respond(to: AgentPaneRequest(body: ["method": "ready"]))
             let handshake = try #require(reply["value"] as? [String: Any], "\(reply)")
-            #expect(handshake["cwd"] as? String == "/tmp")
-            #expect(view.model.handshakeCwd == "/tmp")
+            #expect(handshake["cwd"] as? String == AgentChatActionFixture.localCwd)
+            #expect(view.model.handshakeCwd == AgentChatActionFixture.localCwd)
         }
     }
 
