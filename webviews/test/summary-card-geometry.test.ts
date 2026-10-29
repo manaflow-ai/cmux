@@ -36,7 +36,7 @@ test("summary room measurement reruns when the effective page scale changes", ()
     path.join(import.meta.dir, "../src/agent-session/acpmux/summary/cardState.ts"),
     "utf8",
   );
-  expect(source).toContain("const scale = uiScale();");
+  expect(source).toContain("const { width: chatWidth, scale } = useChatSizing();");
   expect(source).toContain("[shell, blocked, chatWidth, scale]");
   expect(source).toContain("inlineChatFloor(chatWidth, scale)");
 });
