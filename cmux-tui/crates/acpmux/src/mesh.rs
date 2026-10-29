@@ -117,6 +117,15 @@ pub enum Kind {
     Unknown,
 }
 
+/// The hub's single start-work decision. The hub overwrites this field; clients
+/// accept only these announced strings and never infer permission from a sender hint.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum StartWork {
+    Allowed,
+    Information,
+}
+
 /// A message this daemon's inbox holds for one of its sessions.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -141,7 +150,7 @@ pub struct InMessage {
     /// The hub's policy decision. Information messages are delivered at a
     /// turn boundary; only `true` may start an idle agent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub start_work: Option<Value>,
+    pub start_work: Option<StartWork>,
     /// Durable hub state (`queued`, `delivered`, `read`, or `acked`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub state: Option<String>,
@@ -188,7 +197,7 @@ pub struct Receipt {
     pub resolution: Option<Value>,
     /// Whether the hub permits this message to start work on an idle agent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub start_work: Option<Value>,
+    pub start_work: Option<StartWork>,
 }
 
 /// How a delivery settled.
@@ -402,6 +411,17 @@ mod tests {
         assert_eq!(ack, json!({"state": "refused", "detail": "no"}));
         let mode = serde_json::to_value(Mode::TurnEnd).unwrap();
         assert_eq!(mode, json!("turn-end"));
+        let allowed: InMessage = serde_json::from_value(json!({
+            "messageId": "m", "kind": "prompt", "startWork": "allowed"
+        }))
+        .unwrap();
+        assert_eq!(allowed.start_work, Some(StartWork::Allowed));
+        assert!(
+            serde_json::from_value::<InMessage>(json!({
+                "messageId": "m", "kind": "prompt", "startWork": true
+            }))
+            .is_err()
+        );
     }
 
     #[test]

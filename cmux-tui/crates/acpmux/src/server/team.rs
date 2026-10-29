@@ -44,6 +44,7 @@ async fn send(
         return Err(RpcError::invalid_params("team address must be @member/agent or @team/role"));
     }
     let body = required(params, "body")?;
+    let wire_address = format!("@{address}");
     let id = params
         .get("idempotencyKey")
         .or_else(|| params.get("id"))
@@ -52,22 +53,24 @@ async fn send(
         .map(ToOwned::to_owned)
         .unwrap_or_else(|| uuid::Uuid::now_v7().to_string());
     let caller = conn.caller().filter(|_| !conn.is_person());
+    let caller_session = caller.and_then(|id| hub.resolve(id).ok());
     let receipt = mesh
         .send(&OutMessage {
-            to: Target { team_address: Some(raw), ..Target::default() },
+            to: Target { team_address: Some(wire_address), ..Target::default() },
             from: Sender {
                 name: caller.map(|id| hub.session_name(id)),
                 session_id: caller.map(str::to_owned),
+                team_address: caller_session
+                    .as_ref()
+                    .and_then(|session| session.meta().tags.get("teamAddress"))
+                    .map(|tag| tag.value.clone()),
                 host: Some(crate::pairing::machine_name()),
                 ..Sender::default()
             },
             kind: Kind::Prompt,
             body,
-            mode: if params.get("startWork") == Some(&Value::Bool(true)) {
-                Mode::Now
-            } else {
-                Mode::TurnEnd
-            },
+            // The hub alone decides whether this message may start work.
+            mode: Mode::TurnEnd,
             idempotency_key: id,
         })
         .await
@@ -86,6 +89,8 @@ async fn inbox(
         .caller()
         .and_then(|id| hub.resolve(id).ok())
         .and_then(|session| session.meta().tags.get("teamAddress").map(|tag| tag.value.clone()));
+    let team_address = team_address
+        .or_else(|| params.get("teamAddress").and_then(Value::as_str).map(str::to_owned));
     let rows = mesh
         .team_inbox_for(unread_only, team_address.as_deref())
         .await

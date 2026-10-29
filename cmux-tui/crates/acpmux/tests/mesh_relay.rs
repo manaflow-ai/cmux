@@ -238,7 +238,7 @@ impl MeshHub for FakeHub {
                     from: m.from.clone(),
                     body: m.body.clone(),
                     attempt: 1,
-                    start_work: Some(serde_json::json!(false)),
+                    start_work: Some(crate::mesh::StartWork::Information),
                     state: Some("queued".into()),
                     subject: None,
                 });

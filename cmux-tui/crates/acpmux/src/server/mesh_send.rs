@@ -95,12 +95,17 @@ pub(super) async fn send(
     // The proven caller names the sender; `fromAgent` (anything a client writes) only when no
     // session is proven, as a display name.
     let caller = conn.caller().filter(|_| !conn.is_person());
+    let caller_session = caller.and_then(|id| hub.resolve(id).ok());
     let named = field("fromAgent").and_then(Value::as_str).map(str::to_owned);
     let message = OutMessage {
         to: recipient(target),
         from: Sender {
             name: caller.map(|id| hub.session_name(id)).or(named),
             session_id: caller.map(str::to_owned),
+            team_address: caller_session
+                .as_ref()
+                .and_then(|session| session.meta().tags.get("teamAddress"))
+                .map(|tag| tag.value.clone()),
             host: Some(crate::pairing::machine_name()),
             ..Sender::default()
         },

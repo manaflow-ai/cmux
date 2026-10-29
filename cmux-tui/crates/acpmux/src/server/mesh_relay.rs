@@ -30,6 +30,7 @@
 use super::*;
 use crate::mesh::{
     Ack, AckState, Backoff, ControlHook, Heartbeat, HubError, InMessage, Kind, MeshHub, Mode,
+    StartWork,
 };
 use std::collections::HashSet;
 use std::sync::Weak;
@@ -455,7 +456,7 @@ pub async fn deliver(
                 "from": message.from.team_address.clone().or(message.from.name.clone()),
                 "text": format!("Team message from {}: {}", sender_name(message), message.body),
                 "information": true,
-                "startWork": false,
+            "startWork": "information",
                 "state": message.state,
             }),
         );
@@ -471,7 +472,7 @@ pub async fn deliver(
         "sessionId": session.id,
         "prompt": [{"type": "text", "text": message.body}],
         "_meta": {"acpmux": {
-            "steer": message.mode == Mode::Now,
+            "steer": message.mode == Mode::Now || start_work_allowed(message),
             "promptId": prompt_id,
             "resend": true,
             "fromAgent": sender_name(message),
@@ -499,11 +500,7 @@ pub async fn deliver(
 }
 
 fn start_work_allowed(message: &InMessage) -> bool {
-    match message.start_work.as_ref() {
-        Some(Value::Bool(value)) => *value,
-        Some(Value::String(value)) => value.eq_ignore_ascii_case("allowed"),
-        _ => false,
-    }
+    matches!(message.start_work, Some(StartWork::Allowed))
 }
 
 #[cfg(test)]
@@ -521,7 +518,7 @@ mod tests {
             attempt: 1,
             kind: Kind::Prompt,
             op: None,
-            start_work: Some(json!(false)),
+            start_work: Some(StartWork::Information),
             state: Some("queued".into()),
             subject: None,
         }
