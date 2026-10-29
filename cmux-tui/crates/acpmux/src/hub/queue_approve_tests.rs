@@ -107,6 +107,7 @@ fn insert(hub: &Hub, session: &Arc<Session>, id: &str, provenance: Option<&Value
         interrupt_turn: None,
         provenance,
         agent: None,
+        class: None,
         supersede: None,
         full_access_device: None,
         replaced: &replaced,
