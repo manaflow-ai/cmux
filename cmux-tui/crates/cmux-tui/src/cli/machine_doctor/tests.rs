@@ -169,14 +169,14 @@ fn the_mesh_step_degrades_without_a_mesh_id_or_a_mesh() {
 
 #[test]
 fn an_unread_joined_list_is_named_when_the_ssh_check_runs_instead() {
-    assert_eq!(super::unread(Some(&Ok(vec![]))), None);
-    assert!(super::unread(None).unwrap().starts_with("not signed in"));
+    assert_eq!(unread(Some(&Ok(vec![]))), None);
+    assert!(unread(None).unwrap().starts_with("not signed in"));
     let off = Err(CallError::Status { status: 404, code: "" });
-    assert!(super::unread(Some(&off)).unwrap().contains("isn't available"));
+    assert!(unread(Some(&off)).unwrap().contains("isn't available"));
     let denied = Err(CallError::Status { status: 401, code: "" });
-    assert_eq!(super::unread(Some(&denied)).unwrap(), "the platform answered 401");
+    assert_eq!(unread(Some(&denied)).unwrap(), "the platform answered 401");
     let down = Err(CallError::Unreachable("tcp".into()));
-    assert_eq!(super::unread(Some(&down)).unwrap(), "the platform did not answer");
+    assert_eq!(unread(Some(&down)).unwrap(), "the platform did not answer");
 }
 
 #[test]
