@@ -114,7 +114,8 @@ struct GeneratedFile {
     /// look-up that blocked forever in a non-GUI fleet session (swift-build waited 95 min, 2026-10-28).
     func write(_ text: String) throws(WireGenError) {
         let path = url.path(percentEncoded: false)
-        var template = Array("\((path as NSString).deletingLastPathComponent)/.\(url.lastPathComponent).XXXXXX".utf8CString)
+        let directory = (path as NSString).deletingLastPathComponent
+        var template = Array("\(directory)/.\(url.lastPathComponent).XXXXXX".utf8CString)
         let descriptor = unsafe template.withUnsafeMutableBufferPointer { buffer -> Int32 in
             guard let base = unsafe buffer.baseAddress else {
                 errno = EINVAL
@@ -123,7 +124,7 @@ struct GeneratedFile {
             return unsafe mkstemp(base)
         }
         guard descriptor >= 0 else {
-            throw WireGenError.unwritable(path: path, reason: Self.reason("create a temporary file", errno))
+            throw WireGenError.unwritable(path: path, reason: Self.reason("create a temporary file in", directory, errno))
         }
         // mkstemp replaced the Xs in place; the last element is the terminating NUL.
         let temporary = String(decoding: template.dropLast().map { UInt8(bitPattern: $0) }, as: UTF8.self)
@@ -134,19 +135,21 @@ struct GeneratedFile {
         } catch {
             problem = "write \(temporary): \(error)"
         }
+        // Each failed call's errno is read before anything else runs: `reason` gets it as an argument
+        // and builds its text (which allocates, and can set errno) only after.
         // mkstemp makes the file 0600; a generated source is readable as any other file is.
-        if problem == nil, fchmod(descriptor, 0o644) != 0 { problem = Self.reason("chmod \(temporary)", errno) }
-        if close(descriptor) != 0, problem == nil { problem = Self.reason("close \(temporary)", errno) }
+        if problem == nil, fchmod(descriptor, 0o644) != 0 { problem = Self.reason("chmod", temporary, errno) }
+        if close(descriptor) != 0, problem == nil { problem = Self.reason("close", temporary, errno) }
         // blocking-allow: host build tool, not the app; the rename that makes the write atomic.
-        if problem == nil, rename(temporary, path) != 0 { problem = Self.reason("rename \(temporary)", errno) }
+        if problem == nil, unsafe rename(temporary, path) != 0 { problem = Self.reason("rename", temporary, errno) }
         if let problem {
             // blocking-allow: host build tool, not the app; removes the temporary file of a failed write.
-            unlink(temporary)
+            unsafe unlink(temporary)
             throw WireGenError.unwritable(path: path, reason: problem)
         }
     }
 
-    private static func reason(_ step: String, _ code: Int32) -> String {
-        "\(step): \(unsafe String(cString: strerror(code)))"
+    private static func reason(_ step: StaticString, _ path: String, _ code: Int32) -> String {
+        "\(step) \(path): \(unsafe String(cString: strerror(code)))"
     }
 }
