@@ -35,7 +35,7 @@ use tokio::sync::{Notify, mpsc};
 
 const FAKE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
 
-fn hub() -> Arc<Hub> {
+fn config() -> Config {
     let mut cfg: Config = serde_json::from_value(json!({
         "harnesses": {"fake": {"argv": ["python3", FAKE], "family": "codex"}},
         "defaultHarness": "fake",
@@ -43,6 +43,11 @@ fn hub() -> Arc<Hub> {
     }))
     .unwrap();
     cfg.store.mode = StoreMode::Memory;
+    cfg
+}
+
+fn hub() -> Arc<Hub> {
+    let cfg = config();
     let store = acpmux::store::open(&cfg.store, Path::new("/nonexistent")).unwrap();
     Hub::new(cfg, store)
 }
@@ -617,7 +622,6 @@ fn control_allowlist() -> Vec<MeshControlFrom> {
 
 #[tokio::test]
 async fn mesh_controls_start_and_stop_through_shared_sender_and_replay_success() {
-    let hub = hub();
     let fake = Arc::new(FakeHub::default());
     let dir = tempfile::tempdir().unwrap();
     let root = std::fs::canonicalize(dir.path()).unwrap();
@@ -625,7 +629,30 @@ async fn mesh_controls_start_and_stop_through_shared_sender_and_replay_success()
     std::fs::create_dir(&cwd).unwrap();
     // The process uses daemon_env's private HOME and the hub's explicit Config above;
     // only this test's root is authorized, regardless of the runner's own config.
-    hub.config.write().await.web_roots = vec![root.to_string_lossy().into_owned()];
+    let mut config = config();
+    config.harnesses.get_mut("fake").unwrap().family = None;
+    config.web_roots = vec![root.to_string_lossy().into_owned()];
+    let unreviewed = Hub::new(config.clone(), Box::new(MemoryStore::default()));
+    let mut request = message("start-unreviewed", "", Kind::Control);
+    request.body = json!({"version": 1, "params": {"cwd": cwd, "mcpServers": [],
+        "_meta":{"acpmux":{"harness":"fake", "name":"unreviewed", "policy":"ask"}}}})
+    .to_string();
+    let ack = MeshControlHook::new(control_allowlist(), None)
+        .control(&unreviewed, &request)
+        .await
+        .unwrap();
+    assert_eq!(ack.state, AckState::Refused, "{ack:?}");
+    assert!(
+        ack.detail.as_deref().is_some_and(|detail| detail.contains(
+            "this harness has no reviewed asking mode for a remote WebSocket connection"
+        )),
+        "{ack:?}"
+    );
+    assert!(unreviewed.resolve("unreviewed").is_err());
+    unreviewed.shutdown_all().await;
+    // Configure the stand-in's actual mode before constructing the successful hub.
+    config.web_asking_modes.insert("fake".into(), vec!["normal".into(), "strict".into()]);
+    let hub = Hub::new(config, Box::new(MemoryStore::default()));
     let path = dir.path().join("controls.json");
     let hook = Arc::new(MeshControlHook::new(control_allowlist(), Some(path.clone())));
     let relay = MeshRelay::start(&hub, fake.clone(), hook.clone(), quick());
