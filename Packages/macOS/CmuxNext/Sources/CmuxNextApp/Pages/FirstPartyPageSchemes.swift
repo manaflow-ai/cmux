@@ -115,7 +115,7 @@ enum FirstPartyPageSchemes {
     /// (the agent page's message menu).
     @MainActor static var hostScripts: [CEFPageSchemes.HostScript] {
         let source = ChromiumPageHostBridge.rendererScript(handlers: PageWebView.chromiumFireAndForget + [AgentPaneView.contextMenuHandler],
-                                                           documentScripts: PageChromiumDocumentScripts.shared,
+                                                           documentScripts: PageChromiumDocumentScripts.everyPage,
                                                            channelEvent: CEFPageSchemes.hostEvent)
         return [CEFPageSchemes.HostScript(world: "", source: source, allFrames: false)]
     }
