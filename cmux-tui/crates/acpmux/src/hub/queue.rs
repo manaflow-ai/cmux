@@ -116,7 +116,8 @@ pub(super) struct Slot<'a> {
     pub(super) agent: Option<&'a str>,
     /// Its class when it is another agent's message (`prompt_class.rs`).
     pub(super) class: Option<crate::prompt_class::PromptClass>,
-    /// Another agent's message to a coordinator: it waits as an inbox item (`coordinator.rs`).
+    /// Another agent's message the person did not send now: it waits as an inbox item
+    /// (`coordinator.rs`) if the chat is a coordinator when it is queued, read then.
     pub(super) inbox: bool,
     /// Its `_meta.acpmux.supersede` key (`supersede.rs`).
     pub(super) supersede: Option<&'a str>,
@@ -209,7 +210,8 @@ impl Hub {
                 // Prompts a failed turn holds (`pause_queue`) do not hold up a new one.
                 // Nor do a coordinator's inbox items (`coordinator.rs`), and one goes there itself.
                 let held = session.queue().iter().filter(|q| q.parked()).count() as u64;
-                let waiting = p.inbox || session.turn().is_some() || session.queued() > held;
+                let inbox = p.inbox && session.is_coordinator();
+                let waiting = inbox || session.turn().is_some() || session.queued() > held;
                 // It never queues: busy when the queue's own test says it would wait. The turn
                 // lock is tried below, and the queue read again under it.
                 if p.no_queue && waiting {
@@ -224,7 +226,15 @@ impl Hub {
                     waits
                 });
                 // In a coordinator's inbox: a block or a question may bring the digest now.
-                if p.inbox {
+                let parked = waiting
+                    && p.inbox
+                    && session
+                        .queue
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .iter()
+                        .any(|q| q.turn_id == turn_id && q.inbox);
+                if parked {
                     self.inbox_arrived(session, p.class);
                 }
                 (turn_id, withdraw)
@@ -357,6 +367,8 @@ impl Hub {
             // An inbox digest whose turn ended first waits at the head of the agent messages,
             // behind the person's prompts (`enqueue`), and stops no turn.
             interrupt: !super::digest::inbox_digest::is_digest(provenance.as_ref()),
+            // The person sent it now: never an inbox item again (`coordinator.rs`).
+            released: true,
             provenance,
             agent: run.agent.clone(),
             class: run.class,
@@ -451,7 +463,9 @@ impl Hub {
                 resume: false,
                 steer: false,
                 held: false,
-                inbox: p.inbox,
+                // Under the queue's lock, which `set_coordinator` takes after it changes the
+                // setting: a message queued as it changes is classed by the new setting.
+                inbox: p.inbox && session.is_coordinator(),
                 sent_now: false,
                 joined: joined.clone(),
                 requeued: false,

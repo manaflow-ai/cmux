@@ -168,6 +168,9 @@ impl Hub {
     /// reviewed (a block or a question that arrived goes in now); refused, the timer waits.
     pub(super) fn coordinator_digest(self: &Arc<Self>, session: &Arc<Session>) {
         if session.inbox_digesting.swap(true, Ordering::SeqCst) {
+            // One is being made: what asked for this one (a block, a capped turn's end) goes in
+            // with another once it is (`digest_done`).
+            session.inbox_again.store(true, Ordering::SeqCst);
             return;
         }
         self.disarm_inbox(session);
@@ -185,12 +188,15 @@ impl Hub {
     /// (a move, a watch) is not retried at once, over and over.
     fn digest_done(self: &Arc<Self>, session: &Arc<Session>, made: bool) {
         session.last_digest_at.store(now_ms(), Ordering::SeqCst);
+        let again = session.inbox_again.swap(false, Ordering::SeqCst);
         session.inbox_digesting.store(false, Ordering::SeqCst);
         let meta = session.meta();
-        if made && meta.coordinator {
-            self.inbox_review(session, &meta, false, now_ms());
-        } else {
+        if !made || !meta.coordinator {
             self.arm_inbox(session);
+        } else if again && inbox_state(session).is_some() && reaches_now(session, &meta, now_ms()) {
+            self.coordinator_digest(session);
+        } else {
+            self.inbox_review(session, &meta, false, now_ms());
         }
     }
 
@@ -267,6 +273,7 @@ impl Hub {
             if let Some(ms) = interval_ms {
                 meta.digest_interval_ms = ms;
             }
+            session.coordinator.store(meta.coordinator, Ordering::SeqCst);
             (was, meta.clone())
         };
         self.save_meta(session);

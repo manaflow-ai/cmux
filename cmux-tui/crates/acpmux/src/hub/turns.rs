@@ -279,11 +279,11 @@ impl Hub {
         let agent = super::digest::agent_sender(opts.provenance.as_ref(), opts.agent.as_deref());
         // Another agent's message to a coordinator waits in its inbox for the digest, never
         // steering in or stopping a turn by itself (`coordinator.rs`).
-        let inbox = super::coordinator::is_inbox_item(
-            session.is_coordinator(),
-            agent.is_some(),
-            opts.provenance.as_ref(),
-        );
+        // Read again under the queue's lock when it is queued (`enqueue`), so a setting changed
+        // meanwhile decides it.
+        let may_wait_in_inbox = !opts.released
+            && super::coordinator::is_inbox_item(true, agent.is_some(), opts.provenance.as_ref());
+        let inbox = may_wait_in_inbox && session.is_coordinator();
         // Another agent's message to a turn past its cap waits for the next turn (`turn_cap.rs`).
         let capped = running.is_some() && self.turn_cap_holds(session, agent.is_some());
         let steer_now = steer
@@ -333,7 +333,7 @@ impl Hub {
             provenance: opts.provenance.as_ref(),
             agent: agent.as_deref(),
             class,
-            inbox,
+            inbox: may_wait_in_inbox,
             supersede: supersede.as_deref(),
             full_access_device: opts.full_access_device.as_deref(),
             replaced: &replaced,

@@ -343,6 +343,9 @@ pub struct PromptOptions {
     /// `_meta.acpmux.class` (`prompt_class.rs`): what another agent's message asks of this chat.
     /// Kept only on another agent's message, where none means `result`.
     pub class: Option<crate::prompt_class::PromptClass>,
+    /// Never a coordinator's inbox item (`coordinator.rs`): the person sent it now
+    /// (`queue_edit.rs` `send_now`), so it steers or runs as it would in any chat.
+    pub released: bool,
     /// An automatic continuation (`auto_resume.rs`): runs only while the chat still ends on
     /// this turn, checked again once it holds the turn lock, else refused unrecorded.
     pub after_turn: Option<String>,
@@ -1016,6 +1019,7 @@ impl Hub {
         let steering = meta.steering;
         // Until it starts, an adopted chat goes by the agent it last ran (its saved `agentInfo`).
         let backgrounds_work = crate::claude_stdio::steers_by_info(meta.agent_info.as_ref());
+        let coordinator = meta.coordinator;
         let session = Arc::new(Session {
             id: meta.id.clone(),
             seq: AtomicU64::new(meta.last_seq),
@@ -1089,6 +1093,8 @@ impl Hub {
             turn_cap_noticed: StdMutex::new(None),
             turn_cap_timer: StdMutex::new(None),
             inbox_timer: StdMutex::new(None),
+            coordinator: std::sync::atomic::AtomicBool::new(coordinator),
+            inbox_again: std::sync::atomic::AtomicBool::new(false),
             last_digest_at: AtomicU64::new(0),
             inbox_digesting: std::sync::atomic::AtomicBool::new(false),
             last_active: AtomicU64::new(self.clock_now()),

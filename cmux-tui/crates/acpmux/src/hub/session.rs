@@ -210,6 +210,11 @@ pub struct Session {
     pub(super) inbox_timer: StdMutex<Option<tokio::task::AbortHandle>>,
     /// Unix ms of a coordinator's last inbox digest (`coordinator.rs`); 0: none since load.
     pub(super) last_digest_at: AtomicU64,
+    /// `SessionMeta::coordinator`, read under the queue's lock without taking the meta's
+    /// (`queue.rs` `enqueue`); `set_coordinator` writes both.
+    pub(super) coordinator: std::sync::atomic::AtomicBool,
+    /// A digest was asked for while one was being made (`coordinator.rs`): another follows it.
+    pub(super) inbox_again: std::sync::atomic::AtomicBool,
     /// A coordinator's digest is being made (`coordinator.rs`): no second one starts meanwhile.
     pub(super) inbox_digesting: std::sync::atomic::AtomicBool,
     /// The hub clock's time (`Hub::clock_now`) of the last record or
@@ -295,9 +300,9 @@ impl Session {
     pub fn moving(&self) -> Option<String> {
         self.moving.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
-    /// Whether the session is a coordinator (`coordinator.rs`), read without copying its meta.
+    /// Whether the session is a coordinator (`coordinator.rs`), read without its meta's lock.
     pub fn is_coordinator(&self) -> bool {
-        self.meta.lock().unwrap_or_else(|e| e.into_inner()).coordinator
+        self.coordinator.load(std::sync::atomic::Ordering::SeqCst)
     }
     /// The other agents' messages waiting in a coordinator's inbox (`coordinator.rs`).
     pub fn inbox_len(&self) -> usize {

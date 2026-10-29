@@ -604,6 +604,7 @@ impl Hub {
             provenance: None,
             agent: None,
             class: None,
+            released: false,
             after_turn: None,
             supersede: None,
             display_parts: None,

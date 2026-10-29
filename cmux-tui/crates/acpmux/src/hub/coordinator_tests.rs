@@ -301,7 +301,8 @@ async fn the_flush_timer_brings_results_to_an_idle_coordinator_and_ends() {
     f.hub.set_coordinator(&f.session, None, Some(Some(1_000)), None);
     let sent = std::time::Instant::now();
     f.send("p-r", "merged", Some("lane-a"), None, true).await;
-    assert!(f.timer_armed());
+    // Armed just after its acceptance.
+    f.until("the flush timer armed", Fixture::timer_armed).await;
     f.until("the flush", |f| f.digests().len() == 1).await;
     assert!(sent.elapsed() >= Duration::from_millis(900), "{:?}", sent.elapsed());
     f.settled().await;
@@ -330,7 +331,7 @@ async fn turning_it_off_stops_the_timer_and_releases_the_inbox_in_order() {
     for id in ["p-1", "p-2", "p-3"] {
         tasks.push(f.send(id, &format!("from {id}"), Some(id), None, true).await.1);
     }
-    assert!(f.timer_armed());
+    f.until("the flush timer armed", Fixture::timer_armed).await;
     f.hub.set_coordinator(&f.session, Some(false), None, None);
     assert!(!f.timer_armed());
     assert_eq!(f.session.inbox_len(), 0);
@@ -453,4 +454,38 @@ fn a_digest_waiting_at_a_restart_holds_its_originals() {
     let held = super::super::digest::inbox_digest::digested_originals(&waiting);
     assert_eq!(held.len(), 1, "{held:?}");
     assert_eq!(held["p-1"], ("t-1".to_owned(), "d".to_owned(), "t-d".to_owned()));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_inbox_item_the_person_sends_now_steers_in_as_itself() {
+    let mut f = fixture().await;
+    let turn = f.gated_turn("g").await;
+    let (_, task) = f.send("p-r", "merged #3", Some("lane-a"), None, true).await;
+    assert_eq!(f.session.inbox_len(), 1);
+    let params = json!({"sessionId": f.session.id, "promptId": "p-r", "op": "send_now"});
+    let sent = f.hub.queue_edit(&f.session, &params, Control::Local, false, None).await.unwrap();
+    assert_eq!(sent["sent"], "steer", "{sent}");
+    f.heard("steer: merged #3").await;
+    tokio::time::timeout(WAIT, task).await.unwrap().unwrap().unwrap();
+    assert!(f.digests().is_empty(), "it went in as itself, never into a digest");
+    assert_eq!(f.session.inbox_len(), 0);
+    f.open("g").await;
+    tokio::time::timeout(WAIT, turn).await.unwrap().unwrap().unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_capped_turn_end_during_a_digest_brings_its_own_digest_after_it() {
+    let mut f = fixture().await;
+    let turn = f.gated_turn("g").await;
+    f.send("p-r", "merged", Some("lane-a"), None, true).await;
+    // A digest is being made as the capped turn ends: the end's digest follows it.
+    f.session.inbox_digesting.store(true, Ordering::SeqCst);
+    f.age_turn(super::super::turn_cap::COORDINATOR_TURN_CAP_MS);
+    f.open("g").await;
+    tokio::time::timeout(WAIT, turn).await.unwrap().unwrap().unwrap();
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert!(f.digests().is_empty());
+    f.hub.digest_done(&f.session, true);
+    f.until("the turn end's digest", |f| f.digests().len() == 1).await;
+    assert_eq!(parts(&f.digests()[0]), ["p-r"]);
 }

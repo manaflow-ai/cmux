@@ -1276,6 +1276,7 @@ async fn dispatch_request(
                 provenance,
                 agent,
                 class,
+                released: false,
                 after_turn: None,
                 supersede,
                 display_parts: {
