@@ -49,6 +49,10 @@ const AUTO_DELETE_SECONDS: i64 = 900;
 const CHUNK_BYTES: usize = 1_000_000;
 /// The largest archive `--sync` uploads.
 const MAX_SYNC_BYTES: u64 = 64 * 1024 * 1024;
+/// The largest archive `--pull` downloads, and the most it may unpack to: the
+/// guest reports both sizes, so neither is trusted past these.
+const MAX_PULL_BYTES: u64 = 256 * 1024 * 1024;
+const MAX_PULL_UNPACKED_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 /// How long one output poll waits in the guest for something new.
 const POLL_WAIT_TENTHS: u32 = 200;
 /// How long to wait for a new VM to reach `running`.
@@ -70,10 +74,25 @@ const SKIPPED_DIRS: &[&str] = &[
     "__pycache__",
     "DerivedData",
     ".build",
+];
+
+/// Directories that hold credentials (cloud, cluster, registry and key
+/// stores). Nothing under them syncs, at any depth, and they are reported.
+const CREDENTIAL_DIRS: &[&str] = &[
     ".ssh",
     ".aws",
     ".gnupg",
+    ".docker",
+    ".kube",
+    ".azure",
+    ".gcloud",
+    ".terraform.d",
+    ".password-store",
+    ".vercel",
 ];
+
+/// Credential directories under `.config` (`.config/gcloud`, `.config/gh`).
+const CREDENTIAL_CONFIG_DIRS: &[&str] = &["gcloud", "gh", "op", "doctl", "hub"];
 
 #[derive(Args, Debug)]
 pub struct RunArgs {
@@ -130,18 +149,32 @@ pub async fn run(
         check_pull_path(path)?;
     }
     let archive = if args.sync {
-        let (bytes, files, skipped) = archive(&local)?;
+        let (bytes, synced) = archive(&local)?;
         note(
             stderr,
-            &format!("syncing {files} files ({} KiB)", bytes.len().div_ceil(1024)),
+            &format!(
+                "syncing {} files ({} KiB)",
+                synced.files.len(),
+                bytes.len().div_ceil(1024)
+            ),
         );
-        if !skipped.is_empty() {
+        if !synced.credentials.is_empty() {
             note(
                 stderr,
                 &format!(
-                    "not syncing {} credential-shaped files: {}",
-                    skipped.len(),
-                    summary(&skipped)
+                    "not syncing {} credential files: {}",
+                    synced.credentials.len(),
+                    summary(&synced.credentials)
+                ),
+            );
+        }
+        if !synced.linked.is_empty() {
+            note(
+                stderr,
+                &format!(
+                    "not syncing {} files under a symlinked directory: {}",
+                    synced.linked.len(),
+                    summary(&synced.linked)
                 ),
             );
         }
@@ -151,11 +184,32 @@ pub async fn run(
     };
     let command = command_line(&args.command);
 
-    let vm_id = create(client, &args, &local).await?;
+    // The signal handlers are in place before the VM exists. A signal while
+    // the create call is in flight does not cancel it (its answer names the
+    // VM to clean up); it only stops the run before any work.
+    let signal = shutdown_signal();
+    tokio::pin!(signal);
+    let mut interrupted = false;
+    let created = create(client, &args, &local);
+    tokio::pin!(created);
+    let vm_id = loop {
+        tokio::select! {
+            result = &mut created => break result?,
+            () = &mut signal, if !interrupted => interrupted = true,
+        }
+    };
     note(stderr, &format!("vm {vm_id} created"));
-    let outcome = tokio::select! {
-        result = work(client, &vm_id, &args, archive.as_deref(), &command, &local, stdout, stderr) => result,
-        () = shutdown_signal() => Ok(Outcome::Interrupted),
+    // From here every exit path ends the VM: a boot failure or timeout too.
+    let outcome = if interrupted {
+        Ok(Outcome::Interrupted)
+    } else {
+        tokio::select! {
+            result = async {
+                wait_running(client, &vm_id).await?;
+                work(client, &vm_id, &args, archive.as_deref(), &command, &local, stdout, stderr).await
+            } => result,
+            () = &mut signal => Ok(Outcome::Interrupted),
+        }
     };
     if matches!(outcome, Ok(Outcome::Interrupted)) {
         note(stderr, "interrupted");
@@ -214,9 +268,6 @@ async fn create(client: &Client, args: &RunArgs, local: &Path) -> Result<String,
         .as_str()
         .ok_or_else(|| CliError::unexpected("the create response named no VM"))?
         .to_owned();
-    if vm["state"] != "running" {
-        wait_running(client, &id).await?;
-    }
     Ok(id)
 }
 
@@ -385,7 +436,14 @@ async fn pull(
         .trim()
         .parse()
         .map_err(|_| CliError::unexpected("--pull could not size its archive"))?;
-    let mut bytes = Vec::with_capacity(usize::try_from(size).unwrap_or(0));
+    if size > MAX_PULL_BYTES {
+        return Err(CliError::usage(format!(
+            "--pull would download {} MiB, over the {} MiB limit; pull less",
+            size / (1024 * 1024),
+            MAX_PULL_BYTES / (1024 * 1024)
+        )));
+    }
+    let mut bytes = Vec::with_capacity(usize::try_from(size.min(MAX_PULL_BYTES)).unwrap_or(0));
     while (bytes.len() as u64) < size {
         let read = format!(
             "tail -c +{} /tmp/cmux-pull.tgz | head -c {CHUNK_BYTES} | base64 -w0",
@@ -398,6 +456,11 @@ async fn pull(
             return Err(CliError::unexpected("--pull ended early"));
         }
         bytes.extend_from_slice(&chunk);
+        if bytes.len() as u64 > size {
+            return Err(CliError::unexpected(
+                "--pull read more than the archive's size",
+            ));
+        }
     }
     unpack_local(&bytes, local)?;
     note(
@@ -606,11 +669,56 @@ pub(crate) fn credential_shaped(name: &str) -> bool {
         )
 }
 
-/// The files `--sync` uploads, relative to `dir`, and the credential-shaped
-/// ones it leaves out.
-pub(crate) fn sync_list(dir: &Path) -> Result<(Vec<PathBuf>, Vec<PathBuf>), CliError> {
+/// Whether a path (relative to the synced directory) is a credential: a
+/// credential-shaped name, or anything under a credential directory.
+pub(crate) fn credential_path(path: &Path) -> bool {
+    let name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or_default();
+    if credential_shaped(name) {
+        return true;
+    }
+    let parts: Vec<&std::ffi::OsStr> = path
+        .parent()
+        .map(|parent| parent.components().map(Component::as_os_str).collect())
+        .unwrap_or_default();
+    parts
+        .iter()
+        .any(|part| CREDENTIAL_DIRS.iter().any(|dir| *part == *dir))
+        || parts.windows(2).any(|pair| {
+            pair[0] == ".config" && CREDENTIAL_CONFIG_DIRS.iter().any(|dir| pair[1] == *dir)
+        })
+}
+
+/// Whether every directory on the way to `path` is a real directory inside
+/// `dir`, not a symlink: tar follows a symlinked directory, so a tracked
+/// `src/a` whose `src` became a link would archive a file outside `dir`.
+fn inside_without_links(dir: &Path, path: &Path) -> bool {
+    let mut at = dir.to_path_buf();
+    let Some(parent) = path.parent() else {
+        return true;
+    };
+    for part in parent.components() {
+        match part {
+            Component::Normal(name) => at.push(name),
+            Component::CurDir => continue,
+            _ => return false,
+        }
+        match std::fs::symlink_metadata(&at) {
+            Ok(meta) if meta.is_dir() => {}
+            _ => return false,
+        }
+    }
+    true
+}
+
+/// The files `--sync` uploads, relative to `dir`, the credential files it
+/// leaves out, and the files it leaves out because a directory on their way
+/// is a symlink.
+pub(crate) fn sync_list(dir: &Path) -> Result<SyncList, CliError> {
     let listed = git_files(dir).map_or_else(|| walk(dir), Ok)?;
-    let (mut files, mut skipped) = (Vec::new(), Vec::new());
+    let mut list = SyncList::default();
     for path in listed {
         let in_skipped_dir = path.parent().is_some_and(|parent| {
             parent
@@ -620,22 +728,31 @@ pub(crate) fn sync_list(dir: &Path) -> Result<(Vec<PathBuf>, Vec<PathBuf>), CliE
         if in_skipped_dir {
             continue;
         }
-        let name = path
-            .file_name()
-            .and_then(|name| name.to_str())
-            .unwrap_or_default();
-        if credential_shaped(name) {
-            skipped.push(path);
+        if credential_path(&path) {
+            list.credentials.push(path);
+            continue;
+        }
+        if !inside_without_links(dir, &path) {
+            list.linked.push(path);
             continue;
         }
         // Only regular files and symlinks: a gitlink (submodule) is a directory.
         match std::fs::symlink_metadata(dir.join(&path)) {
-            Ok(meta) if meta.is_file() || meta.file_type().is_symlink() => files.push(path),
+            Ok(meta) if meta.is_file() || meta.file_type().is_symlink() => list.files.push(path),
             _ => {}
         }
     }
-    files.sort();
-    Ok((files, skipped))
+    list.files.sort();
+    list.credentials.sort();
+    list.linked.sort();
+    Ok(list)
+}
+
+#[derive(Debug, Default)]
+pub(crate) struct SyncList {
+    pub files: Vec<PathBuf>,
+    pub credentials: Vec<PathBuf>,
+    pub linked: Vec<PathBuf>,
 }
 
 fn git_files(dir: &Path) -> Option<Vec<PathBuf>> {
@@ -696,10 +813,10 @@ fn walk(dir: &Path) -> Result<Vec<PathBuf>, CliError> {
 
 /// A gzip tarball of the sync list, the number of files in it and the
 /// credential-shaped files left out.
-fn archive(dir: &Path) -> Result<(Vec<u8>, usize, Vec<PathBuf>), CliError> {
-    let (files, skipped) = sync_list(dir)?;
+fn archive(dir: &Path) -> Result<(Vec<u8>, SyncList), CliError> {
+    let synced = sync_list(dir)?;
     let mut list = Vec::new();
-    for file in &files {
+    for file in &synced.files {
         list.extend_from_slice(file.as_os_str().as_encoded_bytes());
         list.push(0);
     }
@@ -744,12 +861,19 @@ fn archive(dir: &Path) -> Result<(Vec<u8>, usize, Vec<PathBuf>), CliError> {
             MAX_SYNC_BYTES / (1024 * 1024)
         )));
     }
-    Ok((output.stdout, files.len(), skipped))
+    Ok((output.stdout, synced))
 }
 
 /// Unpacks a pulled archive into `dir`, refusing entries that would land
 /// outside it.
 fn unpack_local(bytes: &[u8], dir: &Path) -> Result<(), CliError> {
+    let unpacked = gunzipped_len(bytes, MAX_PULL_UNPACKED_BYTES)?;
+    if unpacked > MAX_PULL_UNPACKED_BYTES {
+        return Err(CliError::usage(format!(
+            "--pull would unpack more than {} MiB; pull less",
+            MAX_PULL_UNPACKED_BYTES / (1024 * 1024)
+        )));
+    }
     let listing = tar_with_stdin(&["-tzf", "-"], bytes, dir)?;
     for entry in String::from_utf8_lossy(&listing).lines() {
         if check_pull_path(entry.trim_end_matches('/')).is_err() {
@@ -759,6 +883,48 @@ fn unpack_local(bytes: &[u8], dir: &Path) -> Result<(), CliError> {
         }
     }
     tar_with_stdin(&["-xzf", "-", "--no-same-owner"], bytes, dir).map(drop)
+}
+
+/// The unpacked size of a gzip stream, counted while it streams and stopped
+/// once it passes `limit` (then a size past `limit` is returned).
+fn gunzipped_len(bytes: &[u8], limit: u64) -> Result<u64, CliError> {
+    use std::io::Read;
+    let mut child = std::process::Command::new("gzip")
+        .arg("-dc")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|e| CliError::usage(format!("--pull needs gzip: {e}")))?;
+    let mut stdin = child
+        .stdin
+        .take()
+        .ok_or_else(|| CliError::unexpected("gzip has no stdin"))?;
+    let data = bytes.to_vec();
+    let writer = std::thread::spawn(move || stdin.write_all(&data));
+    let mut out = child
+        .stdout
+        .take()
+        .ok_or_else(|| CliError::unexpected("gzip has no stdout"))?;
+    let mut total = 0_u64;
+    let mut buffer = vec![0_u8; 64 * 1024];
+    loop {
+        let read = out
+            .read(&mut buffer)
+            .map_err(|e| CliError::unexpected(format!("gzip failed: {e}")))?;
+        if read == 0 {
+            break;
+        }
+        total += read as u64;
+        if total > limit {
+            break;
+        }
+    }
+    drop(out);
+    let _ = child.kill();
+    let _ = child.wait();
+    let _ = writer.join();
+    Ok(total)
 }
 
 fn tar_with_stdin(args: &[&str], bytes: &[u8], dir: &Path) -> Result<Vec<u8>, CliError> {
@@ -884,13 +1050,18 @@ mod tests {
             ".env",
             "nested/.env.example",
             "nested/key.pem",
+            ".docker/config.json",
+            "deploy/.kube/config",
+            "home/.config/gcloud/application_default_credentials.json",
+            ".azure/accessTokens.json",
         ] {
             let full = dir.join(path);
             std::fs::create_dir_all(full.parent().unwrap()).unwrap();
             std::fs::write(&full, "x").unwrap();
         }
-        let (files, skipped) = sync_list(&dir).unwrap();
+        let synced = sync_list(&dir).unwrap();
         let _ = std::fs::remove_dir_all(&dir);
+        let (files, skipped) = (synced.files, synced.credentials);
         assert_eq!(
             files,
             vec![
@@ -898,11 +1069,54 @@ mod tests {
                 PathBuf::from("src/a.ts")
             ]
         );
-        let mut skipped = skipped;
-        skipped.sort();
         assert_eq!(
             skipped,
-            vec![PathBuf::from(".env"), PathBuf::from("nested/key.pem")]
+            vec![
+                PathBuf::from(".azure/accessTokens.json"),
+                PathBuf::from(".docker/config.json"),
+                PathBuf::from(".env"),
+                PathBuf::from("deploy/.kube/config"),
+                PathBuf::from("home/.config/gcloud/application_default_credentials.json"),
+                PathBuf::from("nested/key.pem"),
+            ]
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_file_under_a_symlinked_directory_never_syncs() {
+        let base = std::env::temp_dir().join(format!("cmux-vm-run-link-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let (dir, outside) = (base.join("tree"), base.join("outside"));
+        std::fs::create_dir_all(dir.join("ok")).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::write(dir.join("ok/a.txt"), "x").unwrap();
+        std::fs::write(outside.join("secret.txt"), "s").unwrap();
+        std::os::unix::fs::symlink(&outside, dir.join("src")).unwrap();
+        assert!(inside_without_links(&dir, Path::new("ok/a.txt")));
+        assert!(!inside_without_links(&dir, Path::new("src/secret.txt")));
+        assert!(!inside_without_links(
+            &dir,
+            Path::new("../outside/secret.txt")
+        ));
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn an_oversized_pull_is_counted_and_stopped() {
+        // 1 MiB of zeros gzips to about 1 KiB; the count stops past the limit.
+        let raw = vec![0_u8; 1024 * 1024];
+        let mut child = std::process::Command::new("gzip")
+            .arg("-c")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut stdin = child.stdin.take().unwrap();
+        let writer = std::thread::spawn(move || stdin.write_all(&raw));
+        let gz = child.wait_with_output().unwrap().stdout;
+        writer.join().unwrap().unwrap();
+        assert_eq!(gunzipped_len(&gz, 4 * 1024 * 1024).unwrap(), 1024 * 1024);
+        assert!(gunzipped_len(&gz, 1000).unwrap() > 1000);
     }
 }

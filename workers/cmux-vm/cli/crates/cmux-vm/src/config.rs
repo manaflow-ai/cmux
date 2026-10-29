@@ -30,7 +30,7 @@ impl Settings {
     /// The settings, with the stored agent token (token.rs) as the credential when there is no `CMUX_VM_API_KEY` and no explicit
     /// config file (`--config`, `CMUX_VM_CONFIG`): it comes before the default
     /// config file, so a token minted for agents is what `cmux vm run` uses. An
-    /// expired token is skipped with a warning. Its base URL and team fill in
+    /// expired token is refused, never replaced by the default file's key. Its base URL and team fill in
     /// only what the flags and environment leave unset.
     pub fn resolve_with_token(
         base_url_flag: Option<&str>,
@@ -63,25 +63,12 @@ impl Settings {
                     warnings: Vec::new(),
                 });
             }
-            let mut settings = Self::resolve_with_token(
-                base_url_flag,
-                team_flag,
-                config_flag,
-                &env,
-                None,
-                now_unix,
-            )
-            .map_err(|_| {
-                CliError::unauthenticated(format!(
-                    "the stored VM token {} expired at {}: run `cmux vm token create`",
-                    token.key_id, token.expires_at
-                ))
-            })?;
-            settings.warnings.push(format!(
-                "the stored VM token {} expired at {}; using the config file instead",
+            // Refused, never replaced by the default config file's key,
+            // which may carry far more than the token's scopes and budget.
+            return Err(CliError::unauthenticated(format!(
+                "the stored VM token {} expired at {}: run `cmux vm token create`, or set CMUX_VM_API_KEY",
                 token.key_id, token.expires_at
-            ));
-            return Ok(settings);
+            )));
         }
         let mut warnings = Vec::new();
         let file = match load_config(config_flag, &env) {

@@ -93,10 +93,12 @@ if [[ "$TUI_SOURCE" == pin ]]; then
     exit 1
   fi
   tui_src="$CACHE/cmux-src-$pin"
-  if [[ ! -d "$tui_src" ]]; then
+  # bin/cmux links the cmux VM CLI crates (workers/cmux-vm/cli) by path; a
+  # cache made before they were archived is made again.
+  if [[ ! -d "$tui_src/workers/cmux-vm/cli" ]]; then
     git -C "$ROOT" cat-file -e "$pin^{commit}" 2>/dev/null || git -C "$ROOT" fetch --quiet origin "$pin"
-    rm -rf "$tui_src.partial" && mkdir -p "$tui_src.partial"
-    git -C "$ROOT" archive "$pin" cmux-tui first-party-apps/cloud/server | tar -x -C "$tui_src.partial"
+    rm -rf "$tui_src" "$tui_src.partial" && mkdir -p "$tui_src.partial"
+    git -C "$ROOT" archive "$pin" cmux-tui first-party-apps/cloud/server workers/cmux-vm/cli | tar -x -C "$tui_src.partial"
     mv "$tui_src.partial" "$tui_src"
   fi
   tui_label="at the cmux-tui pin ${pin:0:11}"
@@ -210,8 +212,8 @@ section() {
 
 section rust-cmux-cli "Rust crates: cmux CLI and daemon (bin/cmux)" \
   --lock "$tui_src/cmux-tui/Cargo.lock" --lock-label "cmux-tui/Cargo.lock $tui_label" \
-  --root cmux-tui --root acpmux --workspace "$tui_src/cmux-tui" --repo-root "$tui_src" \
-  --first-party 'cmux-tui/crates/*' --first-party 'cmux-tui/bindings/*'
+  --root cmux-tui --root acpmux --workspace "$tui_src/cmux-tui" --workspace "$tui_src/workers/cmux-vm/cli" --repo-root "$tui_src" \
+  --first-party 'cmux-tui/crates/*' --first-party 'cmux-tui/bindings/*' --first-party 'workers/cmux-vm/cli/crates/*'
 section rust-cmux-app-host "Rust crates: app host (bin/cmux-app-host)" \
   --lock "$tui_src/cmux-tui/Cargo.lock" --lock-label "cmux-tui/Cargo.lock $tui_label" \
   --root cmux-app-host --workspace "$tui_src/cmux-tui" --repo-root "$tui_src" \

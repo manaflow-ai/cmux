@@ -66,11 +66,42 @@ pub(super) fn plan(rest: &[String], output: OutputMode) -> Result<Vec<String>, U
     Ok(plan)
 }
 
+/// The global options before `vm` and the words after it, verbatim. The
+/// words after `vm` are cmux-vm's own (its flags, `--`, the guest command):
+/// the global scanner reads an unknown `--flag` as taking a value, so
+/// `vm run --sync -- echo --json` would lose the `--` and hand `--json` to
+/// cmux. `None` when the command is not `vm`.
+pub(super) fn split_raw(args: &[String]) -> Option<(GlobalArgs, &[String])> {
+    for (index, word) in args.iter().enumerate() {
+        if word == "--" {
+            return None;
+        }
+        if word != "vm" {
+            continue;
+        }
+        let Ok((global, command)) = super::parse_globals(&args[..=index]) else {
+            return None;
+        };
+        if command.len() == 1 {
+            return Some((global, &args[index + 1..]));
+        }
+        if !command.is_empty() {
+            return None;
+        }
+    }
+    None
+}
+
 /// `cmux vm …`. `None` for any other command.
 pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
-    let (global, command_args) = super::parse_globals(args).ok()?;
-    let rest = split(&command_args)?;
-    let plan = match plan(rest, global.output) {
+    let (mut global, rest) = split_raw(args)?;
+    // `--json` after `vm` reaches cmux-vm as its own global flag; the app
+    // mint path reads it too.
+    let prefix_output = global.output;
+    if rest.iter().take_while(|word| *word != "--").any(|word| word == "--json") {
+        global.output = OutputMode::Json;
+    }
+    let plan = match plan(rest, prefix_output) {
         Ok(plan) => plan,
         Err(error) => {
             return Some(super::app::failure(

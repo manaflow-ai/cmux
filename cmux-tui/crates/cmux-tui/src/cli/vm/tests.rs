@@ -113,3 +113,23 @@ fn vm_help_runs_in_process_without_a_cmux_vm_binary() {
     assert_eq!(run_in_process(args(&["run", "--help"]), &env), 0);
     assert_eq!(run_in_process(args(&["token", "--help"]), &env), 0);
 }
+
+#[test]
+fn words_after_vm_reach_cmux_vm_verbatim_through_the_global_scanner() {
+    let all = args(&["vm", "run", "--sync", "--keep", "--", "echo", "--json", "--sync"]);
+    let (global, rest) = split_raw(&all).expect("a vm command");
+    assert!(global.output == OutputMode::Human);
+    assert_eq!(rest, &all[1..]);
+    let plan = plan(rest, global.output).unwrap();
+    assert_eq!(plan, args(&["run", "--sync", "--keep", "--", "echo", "--json", "--sync"]));
+}
+
+#[test]
+fn globals_before_vm_still_apply() {
+    let all = args(&["--json", "vm", "ls"]);
+    let (global, rest) = split_raw(&all).expect("a vm command");
+    assert!(global.output == OutputMode::Json);
+    assert_eq!(plan(rest, global.output).unwrap(), args(&["--json", "list"]));
+    assert!(split_raw(&args(&["workspace", "vm"])).is_none());
+    assert!(split_raw(&args(&["--", "vm", "ls"])).is_none());
+}

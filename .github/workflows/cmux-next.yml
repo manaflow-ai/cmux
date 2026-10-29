@@ -62,6 +62,7 @@ on:
       - scripts/ci/cargo-groups.sh
       - scripts/ci/macos-stubs/**
       - first-party-apps/cloud/server/**
+      - workers/cmux-vm/cli/**
       - scripts/ci/macos_stubs.py
       # cmux-tui tree-key inputs: the crates embed these files.
       - backend/catalog/cloud-operations.json
@@ -329,6 +330,7 @@ on:
       - scripts/ci/cargo-groups.sh
       - scripts/ci/macos-stubs/**
       - first-party-apps/cloud/server/**
+      - workers/cmux-vm/cli/**
       - scripts/ci/macos_stubs.py
       # cmux-tui tree-key inputs: the crates embed these files.
       - backend/catalog/cloud-operations.json

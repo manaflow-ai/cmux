@@ -611,10 +611,26 @@ async fn execute(
                 })?;
             return token_command(command, token, &cli, env, stdout).await;
         }
-        _ => token::load(env).unwrap_or_else(|warning| {
-            error::report_warning(&warning, cli.json, stderr);
-            None
-        }),
+        // A stored token that cannot be read is refused, never skipped: the
+        // default config file's key may carry far more than the token's VM
+        // scopes and budget. An explicit key or config file is the override.
+        _ => match token::load(env) {
+            Ok(token) => token,
+            Err(problem)
+                if cli.config.is_some()
+                    || ["CMUX_VM_API_KEY", "CMUX_VM_CONFIG"]
+                        .iter()
+                        .any(|name| env(name).is_some_and(|value| !value.is_empty())) =>
+            {
+                error::report_warning(&problem, cli.json, stderr);
+                None
+            }
+            Err(problem) => {
+                return Err(CliError::unauthenticated(format!(
+                    "the stored VM token cannot be used: {problem}; fix it, run `cmux vm token create` again, or set CMUX_VM_API_KEY"
+                )));
+            }
+        },
     };
     let settings = Settings::resolve_with_token(
         cli.base_url.as_deref(),

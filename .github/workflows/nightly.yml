@@ -3650,13 +3650,6 @@ jobs:
               fi
             done
           fi
-          # Every CLI command that must work from the bundle alone runs from it
-          # (a subcommand once exec'd a cmux-vm binary no bundle shipped). A
-          # slice this runner cannot execute is checked by the variant that can.
-          if [[ "$CHANNEL_RELEASE_TAG" == "nightly-next" ]] \
-            && [[ "$(lipo -archs "$APP/Contents/Resources/bin/cmux")" == *"$(uname -m)"* ]]; then
-            scripts/cmux-next/check-bundled-cli-commands.sh "$APP"
-          fi
           # bin/cmux is the cmux-tui binary; cmux-tui and acpmux are symlinks to it.
           for alias in cmux-tui acpmux; do
             [ "$(readlink "$APP/Contents/Resources/bin/$alias")" = cmux ] || {
@@ -5120,6 +5113,21 @@ jobs:
       - name: Verify version surfaces
         if: env.TRACK == 'nightly-next'
         run: ./scripts/cmux-next/check-version-surfaces.sh "$CHANNEL_APP_PATH"
+
+      # Every CLI command that must work from the bundle alone runs from the
+      # signed app on this Mac (a subcommand once exec'd a cmux-vm binary no
+      # bundle shipped). A slice this Mac cannot run is checked by the
+      # variant that can.
+      - name: Verify bundled CLI commands run from the bundle alone
+        if: env.TRACK == 'nightly-next' && hashFiles('scripts/cmux-next/check-bundled-cli-commands.sh') != ''
+        run: |
+          set -euo pipefail
+          archs="$(lipo -archs "$CHANNEL_APP_PATH/Contents/Resources/bin/cmux")"
+          if [[ " $archs " == *" $(uname -m) "* ]]; then
+            ./scripts/cmux-next/check-bundled-cli-commands.sh "$CHANNEL_APP_PATH"
+          else
+            echo "bin/cmux is $archs; this runner is $(uname -m): the matching variant checks it"
+          fi
 
 
 
