@@ -33,7 +33,7 @@ extension AppDelegate {
         let rateClasses = services.features.isEnabled(.frameRateClasses)  // links at their clients' rate, loops at 30 Hz
         FrameScheduler.appDisplays.followsClientRates = rateClasses
         DesignSettings.shared.loopsFollowFrameRate = rateClasses
-        services.startEnergy()  // before any tab: WebKit, KeepAwake and the video wallpaper start from the inputs
+        LaunchStart.energy.runNow(on: order.startup) { services.startEnergy() }  // before any tab: WebKit, KeepAwake and the video wallpaper start from the inputs
         // VSyncHub: each display's link on that display's vsync thread, one
         // coalesced main post per vsync. Off until the hop measurement is recorded (threading-model.md).
         if services.features.isEnabled(.vsyncHub) { FrameScheduler.appDisplays.hub = VSyncHub() }
@@ -58,7 +58,7 @@ extension AppDelegate {
         }
         DebugTimings.markReveal(services.launchReveal)
         // Debug Settings overrides (DEV and NIGHTLY only) before any window lays out.
-        services.debugSettings.start()
+        LaunchStart.debugSettings.runNow(on: order.startup) { services.debugSettings.start() }
         return services
     }
 
@@ -74,8 +74,9 @@ extension AppDelegate {
             services.machines.connectionPresence = presence.presence
         }
         // The painted terminal colors first (OSC 10/11/12), and the prompts' side-event subscriptions before the connect.
-        daemonPrompts = services.startLocalDaemon(after: daemonStart)
-        services.lifetimeFollowers.append(FeaturePolicyEnforcer(services: services).start())
+        daemonPrompts = LaunchStart.localDaemon.runNow(on: order.startup) { services.startLocalDaemon(after: daemonStart) }
+        let featurePolicyFollower = LaunchStart.featurePolicy.runNow(on: order.startup) { FeaturePolicyEnforcer(services: services).start() }
+        services.lifetimeFollowers.append(featurePolicyFollower)
         services.postCloudStart(on: order.startup)  // no Cloud restore or connect before the first frame (p08-startup 020)
         services.postNonPaintServices(on: order.startup)
         // Before the first window opens (restoreWhenLoaded opens one at once): its indicators and its first

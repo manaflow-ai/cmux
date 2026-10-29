@@ -394,9 +394,10 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
 
     // MARK: launch, continued (emitter: CmuxNextWakeups `StartupTaskLog`)
     /// One task the launch scheduler (`StartupScheduler`) runs, from its start to its return, on main or on
-    /// its lane. Message: `name=<Domain.step> priority=<critical|afterFirstFrame|afterStartup>`. Ring: B/E
-    /// (it begins and ends in one synchronous call on one thread); arg0 the priority's position + 1 (0 not
-    /// given). About a hundred per launch: never mirrored to MetricKit.
+    /// its lane, and each first-frame launch start the launch turn calls directly (`LaunchStart.runNow`,
+    /// priority `launchTurn`). Message: `name=<Domain.step> priority=<critical|afterFirstFrame|afterStartup|launchTurn>`.
+    /// Ring: B/E (it begins and ends in one synchronous call on one thread); arg0 the priority's position + 1
+    /// (0 not given, and for `launchTurn`). About a hundred per launch: never mirrored to MetricKit.
     case launchStartupTask = 75
     /// Startup completed (`StartupScheduler`'s completion, Chrome's `Startup.BrowserStartupCompleteReason`).
     /// Message: `reason=<reason>`. Ring: instant; arg0 the reason's position + 1, arg1 the afterStartup tasks

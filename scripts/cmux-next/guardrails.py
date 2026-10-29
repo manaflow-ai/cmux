@@ -2707,6 +2707,38 @@ RULES += MAIN_CLASS_RULES
 # ---------------------------------------------------------------- end of main-thread classes (p06-scheduler)
 
 
+# ---------------------------------------------------------------- executor-hook (sequence-manager S6)
+# The Swift runtime's `swift_task_enqueueMainExecutor_hook` is one process-wide word: whoever writes it first sees
+# every main-actor job, and a second writer finds it taken. Sequence-manager S6 (plans/cmux-next/
+# sequence-manager-DESIGN.md 2.7, cmux-ad Q4) deleted the MainJobGate and the priority-ordered MainExecutorHook, which
+# reordered the main queue by origin or priority, and left one owner that only records: CmuxNextCompat's
+# MainJobRing (Debug and bench builds, the main-job census). A new reader or writer of the symbol anywhere else is
+# refused, with no escape: priority belongs at the post site (a runner post), not in a reorder of the main queue.
+EXECUTOR_HOOK = re.compile(r"\bswift_task_enqueueMainExecutor_hook\b")
+EXECUTOR_HOOK_OWNER = SOURCES + "CmuxNextCompat/MainJobRing.swift"
+
+
+def executor_hook_code(text: str) -> str:
+    """TEXT for the executor-hook rule: a comment line reads as empty (docs may name the symbol); code and string
+    literals stay (`dlsym` takes the name as a string)."""
+    return "" if COMMENT_LINE.match(text) else text.split(" //", 1)[0]
+
+
+EXECUTOR_HOOK_RULES = (
+    Rule("executor-hook", "`swift_task_enqueueMainExecutor_hook` outside CmuxNextCompat/MainJobRing.swift",
+         "the main-executor hook is one process-wide word; a second owner either loses it (the first install wins) "
+         "or reorders every main-actor job of the process behind the scheduler's back (sequence-manager-DESIGN.md "
+         "2.7: MainJobGate and MainExecutorHook were deleted in S6; cmux-ad Q4: record-only, one owner)",
+         "post the work on the scheduler with its class (`mainWork.post(_:owner:)`, `.reply(on:class:owner:)`); to "
+         "see main-actor jobs, read the main-job census (`MainJobRing`, `CMUX_NEXT_MAIN_JOB_CENSUS`)",
+         None,
+         scoped_to(Matcher(EXECUTOR_HOOK, None, code=executor_hook_code), lambda path: path != EXECUTOR_HOOK_OWNER),
+         scope=(SOURCES, TESTS)),
+)
+RULES += EXECUTOR_HOOK_RULES
+# ---------------------------------------------------------------- end of executor-hook (sequence-manager S6)
+
+
 # ---------------------------------------------------------------- main-wakeup-owner (sequence-manager S1)
 # The main thread has one wake-up timer: the `MainWakeUpQueue` `main()` makes (CmuxNextApp.swift), which the
 # scheduler (`MainWorkScheduler.wakeUps`, LaunchOrder.swift) and the app's one `MainDeadlineScheduler`
