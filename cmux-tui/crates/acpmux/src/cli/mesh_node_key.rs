@@ -75,34 +75,46 @@ pub fn load_or_create_at(state_dir: &Path) -> Result<NodeKeypair> {
 fn read_key(path: &Path) -> Result<Zeroizing<[u8; 32]>> {
     let mut file = crate::config::private_state_file(path)?;
     let mut key = Zeroizing::new([0u8; 32]);
-    file.read_exact(&mut *key).with_context(|| format!("read node key in {}", path.display()))?;
-    let mut trailing = [0u8; 1];
-    if file.read(&mut trailing)? != 0 {
+    if let Err(error) = file.read_exact(&mut *key) {
+        if error.kind() == std::io::ErrorKind::UnexpectedEof {
+            return Err(anyhow!("node key has invalid length"));
+        }
+        return Err(error).context("read node key");
+    }
+    let mut trailing = Zeroizing::new([0u8; 1]);
+    if file.read(&mut *trailing).context("read node key")? != 0 {
         return Err(anyhow!("node key has invalid length"));
     }
     Ok(key)
 }
 
 fn create_key_if_absent(path: &Path, bytes: &[u8; 32]) -> Result<()> {
-    static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-    let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let temporary = path.with_extension(format!("tmp-{}-{n}", std::process::id()));
-    let result = (|| {
-        let mut file = std::fs::OpenOptions::new();
-        file.write(true).create_new(true);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt;
-            file.mode(0o600).custom_flags(libc::O_NOFOLLOW);
-        }
-        let mut file = file.open(&temporary)?;
+    let temporary = path.with_extension(format!("wg-key-{}", uuid::Uuid::new_v4()));
+    #[cfg(unix)]
+    let mut file = {
+        use std::os::unix::fs::OpenOptionsExt;
+        std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .custom_flags(libc::O_NOFOLLOW)
+            .open(&temporary)?
+    };
+    #[cfg(windows)]
+    let mut file = crate::owner_only::create_new(&temporary)?;
+    // Only remove a temporary file after this invocation created it.
+    let result: Result<()> = (|| {
         file.write_all(bytes)?;
         file.sync_all()?;
+        drop(file);
         match std::fs::hard_link(&temporary, path) {
-            Ok(()) => Ok(()),
-            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => Ok(()),
-            Err(error) => Err(error),
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(error) => return Err(error.into()),
         }
+        #[cfg(unix)]
+        std::fs::File::open(path.parent().expect("key has a state directory"))?.sync_all()?;
+        Ok(())
     })();
     let _ = std::fs::remove_file(&temporary);
     result
@@ -133,30 +145,42 @@ mod tests {
     }
 
     #[test]
-    fn refuses_a_malformed_key_without_echoing_bytes() {
+    fn refuses_a_truncated_key_without_echoing_bytes() {
+        assert_invalid_length(b"too short");
+    }
+
+    #[test]
+    fn refuses_an_oversized_key_without_echoing_bytes() {
+        assert_invalid_length(b"private key fixture longer than thirty-two bytes");
+    }
+
+    fn assert_invalid_length(bytes: &[u8]) {
         let dir = tempfile::tempdir().unwrap();
-        crate::config::private_state_dir(dir.path()).unwrap();
-        std::fs::write(dir.path().join(KEY_FILE), b"too short").unwrap();
-        #[cfg(unix)]
-        std::fs::set_permissions(
-            dir.path().join(KEY_FILE),
-            std::os::unix::fs::PermissionsExt::from_mode(0o600),
-        )
-        .unwrap();
-        let error = load_or_create_at(dir.path()).unwrap_err().to_string();
-        assert_eq!(error, "node key has invalid length");
-        assert!(!error.contains("too short"));
+        // Start with the helper's owner-only file on every supported platform.
+        load_or_create_at(dir.path()).unwrap();
+        std::fs::write(dir.path().join(KEY_FILE), bytes).unwrap();
+        let error = load_or_create_at(dir.path()).unwrap_err();
+        assert_eq!(format!("{error:#}"), "node key has invalid length");
+        assert!(!format!("{error:?}").contains(std::str::from_utf8(bytes).unwrap()));
+        assert_eq!(std::fs::read(dir.path().join(KEY_FILE)).unwrap(), bytes);
     }
 
     #[test]
     fn concurrent_first_use_keeps_one_public_identity() {
         let dir = tempfile::tempdir().unwrap();
         let paths = std::iter::repeat_with(|| dir.path().to_owned()).take(8);
+        let barrier = std::sync::Barrier::new(8);
         let keys = std::thread::scope(|scope| {
-            paths
-                .map(|path| scope.spawn(move || load_or_create_at(&path).unwrap().public_key))
-                .map(|thread| thread.join().unwrap())
-                .collect::<Vec<_>>()
+            let handles = paths
+                .map(|path| {
+                    let barrier = &barrier;
+                    scope.spawn(move || {
+                        barrier.wait();
+                        load_or_create_at(&path).unwrap().public_key
+                    })
+                })
+                .collect::<Vec<_>>();
+            handles.into_iter().map(|thread| thread.join().unwrap()).collect::<Vec<_>>()
         });
         assert!(keys.windows(2).all(|pair| pair[0] == pair[1]));
     }
