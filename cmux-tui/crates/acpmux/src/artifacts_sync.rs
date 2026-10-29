@@ -66,6 +66,12 @@ pub struct Trailers {
 }
 
 #[derive(Debug, Deserialize)]
+struct RepoResponse {
+    #[serde(rename = "headSha")]
+    head_sha: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
 struct SaveResponse {
     #[serde(rename = "headSha")]
     head_sha: String,
@@ -169,20 +175,93 @@ impl ArtifactsClient {
         files: &[(String, Vec<u8>, Option<String>)],
         trailers: Trailers,
     ) -> Result<(String, String)> {
+        let repo_response = self
+            .client
+            .post(self.url("/v1/artifacts/repo"))
+            .bearer_auth(self.token.as_ref())
+            .send()
+            .await?;
+        ensure_success(repo_response.status(), "artifact repo provision")?;
+        let repo: RepoResponse = repo_response.json().await.context("decode artifact repo response")?;
+        let expected_head_sha = repo.head_sha;
+        let (inline, large): (Vec<_>, Vec<_>) = files
+            .iter()
+            .cloned()
+            .partition(|(_, bytes, _)| bytes.len() <= BLOB_THRESHOLD);
         let payload = CreateArtifactRequest {
             title,
             kind,
-            files: files.iter().map(|(name, bytes, content_type)| CreateArtifactFile {
-                name: name.clone(), content_base64: BASE64.encode(bytes), content_type: content_type.clone(),
-            }).collect(),
-            trailers,
-            expected_head_sha: None,
+            files: inline
+                .iter()
+                .map(|(name, bytes, content_type)| CreateArtifactFile {
+                    name: name.clone(),
+                    content_base64: BASE64.encode(bytes),
+                    content_type: content_type.clone(),
+                })
+                .collect(),
+            trailers: trailers.clone(),
+            expected_head_sha,
         };
-        let response = self.client.post(self.url("/v1/artifacts")).bearer_auth(self.token.as_ref()).json(&payload).send().await?;
+        let response = self
+            .client
+            .post(self.url("/v1/artifacts"))
+            .bearer_auth(self.token.as_ref())
+            .json(&payload)
+            .send()
+            .await?;
         ensure_success(response.status(), "artifact create")?;
         let value: serde_json::Value = response.json().await.context("decode artifact create response")?;
-        let id = value.get("id").and_then(|v| v.as_str()).ok_or_else(|| anyhow!("artifact response missing id"))?.to_owned();
-        let head = value.get("headSha").and_then(|v| v.as_str()).ok_or_else(|| anyhow!("artifact response missing headSha"))?.to_owned();
+        let id = value
+            .get("id")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("artifact response missing id"))?
+            .to_owned();
+        let mut head = value
+            .get("headSha")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("artifact response missing headSha"))?
+            .to_owned();
+        if !large.is_empty() {
+            let mut changes = Vec::with_capacity(large.len());
+            for (name, bytes, content_type) in large {
+                let blob_response = self
+                    .client
+                    .post(self.url("/v1/artifacts/blobs"))
+                    .bearer_auth(self.token.as_ref())
+                    .body(bytes.clone())
+                    .send()
+                    .await?;
+                ensure_success(blob_response.status(), "artifact blob upload")?;
+                let blob: BlobResponse = blob_response.json().await.context("decode artifact blob response")?;
+                if blob.size != bytes.len() {
+                    return Err(anyhow!("artifact blob response size mismatch"));
+                }
+                changes.push(Change {
+                    path: format!("artifacts/{id}/{name}"),
+                    op: "put",
+                    content_base64: None,
+                    blob_sha256: Some(blob.sha256),
+                    content_type,
+                });
+            }
+            let save = SaveRequest {
+                expected_head_sha: Some(head),
+                branch: "main",
+                message: format!("Add large files to artifact {id}"),
+                trailers,
+                changes,
+            };
+            let save_response = self
+                .client
+                .post(self.url("/v1/artifacts/save"))
+                .bearer_auth(self.token.as_ref())
+                .json(&save)
+                .send()
+                .await?;
+            ensure_success(save_response.status(), "artifact large-file save")?;
+            let saved: SaveResponse = save_response.json().await.context("decode artifact large-file save response")?;
+            head = saved.head_sha;
+        }
         Ok((id, head))
     }
 
