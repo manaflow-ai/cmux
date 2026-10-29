@@ -1721,6 +1721,8 @@ export function NewTabScreen(props: Props) {
                         role="option"
                         tabIndex={-1}
                         aria-selected={index === current}
+                        aria-label={rowTitle(nt, row)}
+                        title={rowTitle(nt, row)}
                         data-type={row.type}
                         className={index === current ? "nt-create-strip-item is-selected" : "nt-create-strip-item"}
                         onMouseMove={() => {
