@@ -176,8 +176,7 @@ impl Surface {
                     // The write waits while the child does not read: after the
                     // runtime lock, with a descriptor of its own (`LocalWriter`).
                     #[cfg(unix)]
-                    let fd = match master.as_raw_fd().map(super::input::dup_descriptor).transpose()
-                    {
+                    let fd = match master.as_raw_fd().map(input::dup_descriptor).transpose() {
                         Ok(fd) => fd,
                         Err(error) => {
                             drop(runtime);

@@ -414,11 +414,11 @@ pub(crate) struct TerminalJournalGap {
 /// each runs in the terminal's input turn (`InputTurn`). The lock here is a
 /// leaf, never held while the runtime lock is taken.
 #[derive(Clone)]
-pub(crate) struct LocalWriter(Arc<std::sync::Mutex<Box<dyn Write + Send>>>);
+pub(crate) struct LocalWriter(Arc<Mutex<Box<dyn Write + Send>>>);
 
 impl LocalWriter {
     pub(crate) fn new(writer: Box<dyn Write + Send>) -> Self {
-        Self(Arc::new(std::sync::Mutex::new(writer)))
+        Self(Arc::new(Mutex::new(writer)))
     }
 
     /// Writes `bytes` whole and flushes. May block while the child does not read.

@@ -302,7 +302,7 @@ fn clear_history_fallback_write_has_a_deadline_when_pty_input_is_full() {
         let PtyRuntime::Local { writer, master, .. } = &mut *runtime else {
             panic!("test surface unexpectedly uses a terminal host");
         };
-        *writer = Box::new(write_end);
+        writer.replace(Box::new(write_end));
         *master = Some(Box::new(FdMasterPty {
             file: master_file,
             size: Mutex::new(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 }),
