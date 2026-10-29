@@ -10,6 +10,16 @@ export type AllowanceExpiry = "session_stop_or_daemon_restart";
 export interface AnswerMeta {
   /** `{device, feedItem}`, from the person's connection only. */
   answeredBy?: (AnsweredBy | null);
+  /**
+   * An enrolled approver's signed answer beside `decisionNonce`: a phone's
+   * (`hub/approvers.rs`) or a Mac's (`hub/mac_approvers.rs`).
+   */
+  approverDecision?: (ApproverDecision | null);
+  /**
+   * A group's one-time allow from an enrolled Mac (`_acpmux/permission_group_respond`):
+   * one signed allow per pending member of the group, by permission id.
+   */
+  approverDecisions?: (Record<string, MemberApproverDecision> | null);
   decisionNonce?: (string | null);
   personDecision?: (string | null);
   via?: (string | null);
@@ -18,6 +28,17 @@ export interface AnswerMeta {
 export interface AnsweredBy {
   device: string;
   feedItem: string;
+}
+
+/**
+ * `{approver, expiresAt, signature}`: ECDSA P-256 / SHA-256, raw `r || s` as
+ * lowercase hex, over the approver's message for this exact answer.
+ */
+export interface ApproverDecision {
+  approver: string;
+  /** Unix seconds, at most 300 ahead. */
+  expiresAt: number;
+  signature: string;
 }
 
 export interface AttachParams {
@@ -45,6 +66,13 @@ export type AttachResult = {
   /** More records lie beyond this page. */
   hasMore: boolean;
   lastSeq: number;
+  /**
+   * How far the page holds: every record of the kinds asked from the page's first one up to it
+   * is in the page (a peer's copy of the chat, `hub/peer_snapshot.rs`, covers that far). The
+   * log's last seq, read before the page, for the newest page; a page of older records
+   * (`beforeSeq`) or a forward one with more to read holds only to its own last record.
+   */
+  pageThrough: number;
   /** Who has the chat open now, this attachment included (`hub/presence.rs`). */
   presence: PresenceNote;
   session: SessionDetail;
@@ -146,9 +174,20 @@ export interface EventsParams {
 }
 
 export type EventsResult = {
+  /**
+   * The session the page is of (its `createdAt`): a session recreated under the same id while
+   * the page was asked is another journal (`hub/peer_snapshot.rs`).
+   */
+  createdAt: number;
   events: SessionEvent[];
   hasMore: boolean;
   lastSeq: number;
+  /**
+   * How far the page holds: every record of the kinds asked after `afterSeq` up to it is in the
+   * page (`hub/peer_snapshot.rs`). The log's last seq, read before the page, when the page reads
+   * to its end; else (`beforeSeq`, or `hasMore`) the page's own last record.
+   */
+  pageThrough: number;
 } & Record<string, unknown>;
 
 export interface HarnessUpdatePlanParams {
@@ -210,9 +249,10 @@ export type LastTurn = {
   endedAt: number;
   /**
    * What kind of failure a failed turn was (`recovery.rs`): `disk.full`, `disk.low`,
-   * `peer.unreachable`, `daemon.restarting`, `spawn.failed` or `agent.exited`. A client
-   * treats a kind it does not know as a plain error. The same key is on a request's error
-   * `data` and on the `turn_error` and `turn_result` records.
+   * `peer.unreachable`, `daemon.restarting`, `spawn.failed`, `agent.exited`,
+   * `auth.signed_out` or `auth.expired`. A client treats a kind it does not know as a plain
+   * error. The same key is on a request's error `data` and on the `turn_error` and
+   * `turn_result` records.
    */
   errorKind?: (string | null);
   errorSource?: (string | null);
@@ -308,6 +348,12 @@ export type McpServerSummary = {
   status: McpServerStatus;
 } & Record<string, unknown>;
 
+/** One group member's signed one-time allow: the member prompt's nonce and the signature. */
+export interface MemberApproverDecision {
+  approverDecision: ApproverDecision;
+  decisionNonce: string;
+}
+
 export type MessageRole = "agent" | "user";
 
 /**
@@ -321,6 +367,27 @@ export type Participant = {
   name: string;
   typing: boolean;
   viewing: boolean;
+} & Record<string, unknown>;
+
+/** A peer link's state (`peer_link.rs` `PeerState`; `state` in `_acpmux/peers`). */
+export type PeerLinkState = ("connecting" | "connected" | "degraded" | "reconnecting" | "offline");
+
+/**
+ * `_acpmux/peer_state_changed`, to every watching connection (`_acpmux/watch`) when a peer's
+ * state changes, never twice for the same state: a peer that is added sends its first state,
+ * and one that is removed a last `offline` with `error: "removed"`. Listed as the
+ * `peerStateEvents` feature.
+ */
+export type PeerStateChanged = {
+  /** When the state changed, ms since the epoch. */
+  at: number;
+  /** Why the link is down, when it is. */
+  error: (string | null);
+  /** The last frame from the peer, ms since the epoch. */
+  lastSeen: (number | null);
+  /** The peer's name, as in `_acpmux/peers`. */
+  peer: string;
+  state: PeerLinkState;
 } & Record<string, unknown>;
 
 export type PermissionBatching = {
@@ -372,10 +439,22 @@ export type PermissionGroupItem = {
 } & Record<string, unknown>;
 
 export type PermissionGroupList = {
+  /**
+   * Set when this reader's group allows would be refused, with the
+   * refusal's reason (`permission.person_required`: only the person
+   * allows a group, and a peer's link never is one). A deny still counts.
+   */
+  allowRefused?: (string | null);
   batching: PermissionBatching;
   chatAllowance: ChatAllowance;
   coverage: PermissionCoverage;
   groups: PermissionGroup[];
+  /**
+   * Set (true) beside `allowRefused` when this daemon still counts a group's
+   * one-time allow signed by an enrolled Mac for every pending member
+   * (`_meta.acpmux.approverDecisions`, `hub/mac_approvers.rs`).
+   */
+  macAllowOnce?: (boolean | null);
 } & Record<string, unknown>;
 
 export type PermissionGroupReceipt = {
@@ -582,6 +661,70 @@ export type RetrySummary = {
 } & Record<string, unknown>;
 
 /**
+ * `terminal`: run `command` in a terminal on `host` (null: this machine). `route`: edit or
+ * sign in again to the route `routeId`.
+ */
+export type SessionAuthLogin = {
+  command?: (string | null);
+  host?: (string | null);
+  kind: SessionAuthLoginKind;
+  routeId?: (string | null);
+} & Record<string, unknown>;
+
+export type SessionAuthLoginKind = "terminal" | "route";
+
+/**
+ * A chat by `sessionId`, or by `target` before it has a session (a new tab before its first
+ * send). Exactly one of the two. `refresh`: probe the route and run the harness's own sign-in
+ * check that reads no keychain, when no newer evidence answers.
+ */
+export type SessionAuthParams = {
+  refresh?: boolean;
+  sessionId?: (string | null);
+  target?: (SessionAuthTarget | null);
+} & Record<string, unknown>;
+
+/**
+ * What `_acpmux/session/auth` answers. A client blocks a send only on `signedOut`, `expired`
+ * or `routeAuthNeeded`; `unknown` never blocks.
+ */
+export type SessionAuthResult = {
+  /** One sentence: the probe's status, the turn's error, or the check that ran. */
+  detail: string;
+  /** When the evidence was observed (ms since the epoch); null when `source` is `none`. */
+  evidenceAt?: (number | null);
+  /**
+   * The chat whose turn is the evidence (`source` `turn`): for a `target`, a chat on this
+   * daemon with the same harness, account home and route.
+   */
+  fromSessionId?: (string | null);
+  harness: string;
+  /** The peer the chat runs on; null on this daemon. */
+  host?: (string | null);
+  /** How to sign in: only for `signedOut`, `expired` and `routeAuthNeeded`. */
+  login?: (SessionAuthLogin | null);
+  /** The route the chat is bound to; null when it is not routed. */
+  routeId?: (string | null);
+  source: SessionAuthSource;
+  state: SessionAuthState;
+} & Record<string, unknown>;
+
+export type SessionAuthSource = "peerLink" | "routeProbe" | "turn" | "authCheck" | "none";
+
+export type SessionAuthState = "ready" | "signedOut" | "expired" | "routeAuthNeeded" | "routeUnreachable" | "peerUnreachable" | "unknown";
+
+/**
+ * The chat a send would start: its harness, the peer it runs on (`host`, a peer name; absent:
+ * this daemon) and the route the picker selected (absent: the harness's default route, as at
+ * spawn).
+ */
+export type SessionAuthTarget = {
+  harness: string;
+  host?: (string | null);
+  routeId?: (string | null);
+} & Record<string, unknown>;
+
+/**
  * To watchers when a session changed: its new summary (only its id when
  * purged), the coarse `kind` and the log record behind it.
  */
@@ -624,6 +767,11 @@ export type SessionDetail = {
    * its agent started, and so on.
    */
   depth: number;
+  /**
+   * The harness's current reasoning effort, when it reports one.
+   * Additive for older clients and peers.
+   */
+  effort?: (string | null);
   enforcement: Enforcement;
   eventCount: number;
   family?: (string | null);
@@ -818,6 +966,11 @@ export type SessionSummary = {
    * its agent started, and so on.
    */
   depth: number;
+  /**
+   * The harness's current reasoning effort, when it reports one.
+   * Additive for older clients and peers.
+   */
+  effort?: (string | null);
   enforcement: Enforcement;
   eventCount: number;
   family?: (string | null);

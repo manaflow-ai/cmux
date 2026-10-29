@@ -80,7 +80,7 @@ gh variable list --repo manaflow-ai/cmux
 | `LINUX_BUILD_RUNNER` | the cmux-tui tree's Linux musl and macOS-on-Linux build legs (`cmux-tui-build-package.yml`), which run every cargo group at once (`scripts/ci/cargo-groups.sh`) | unset | `blacksmith-32vcpu-ubuntu-2404` (forks: `ubuntu-24.04`) |
 | `CI_TRUSTED_RUNNER` | jobs holding trusted tokens that must run on an ephemeral VM: the required `backend migrations applied` check and `web-complexity-trusted.yml` (`validate-cla-policy.rb` accepts this exact selector for the CLA checks too, with a runner guard step that admits only GitHub-hosted runners and Blacksmith VMs; `cla.yml` and `cla-policy-guard.yml` pin `ubuntu-24.04` until they move to it). Only `ubuntu-24.04`, `blacksmith-2vcpu-ubuntu-2404` or `blacksmith-4vcpu-ubuntu-2404` is accepted; any other value, owned label included, falls back. Set it to `ubuntu-24.04` when Blacksmith stalls, or leave it unset when GitHub-hosted runners stall | unset | `blacksmith-4vcpu-ubuntu-2404` (forks: `ubuntu-24.04`) |
 | `LINUX_ARM64_RUNNER` | native ARM64 package entrypoint verification | `ubuntu-24.04-arm` | `ubuntu-24.04-arm` |
-| `MACOS_RUNNER_15` | the macOS 15 default: `macos-compile-admission`, non-PR `app-host-unit-tests`, nightly helper and test-cache jobs, `iroh-release-gate.yml` streamed validation | `blacksmith-6vcpu-macos-15` | `blacksmith-6vcpu-macos-15` |
+| `MACOS_RUNNER_15` | the macOS 15 default: `macos-compile-admission`, non-PR `app-host-unit-tests`, `iroh-release-gate.yml` streamed validation | `blacksmith-6vcpu-macos-15` | `blacksmith-6vcpu-macos-15` |
 | `MACOS_RUNNER_PR` | **pull-request** macOS jobs in `ci-macos.yml` (the app-host shards and `tests-build-and-lag` follow `macos-compile-admission`), `terminal-hang-diagnostics.yml`, `ci.yml` (`claude-wrapper`) and `nightly.yml` (`refresh-test-compilation-cache`) | unset (see "Lanes" below) | `blacksmith-6vcpu-macos-15` |
 | `MACOS_RUNNER_TESTS` | test-only lanes that pick their Xcode by SDK and sign nothing: `test-e2e.yml`, `test-macos-suite.yml`, `test-ios.yml` (`auto`) and the `iroh-v2.yml` client | unset (see "Lanes" below) | each lane's own variable or Blacksmith label: `blacksmith-6vcpu-macos-26` for `test-e2e.yml`, `blacksmith-6vcpu-macos-15` for `test-macos-suite.yml`, `MACOS_RUNNER_IOS` for `test-ios.yml` and `iroh-v2.yml` |
 | `MACOS_RUNNER_DUAL_XCODE` | `swift-package-tests` (SDK 15 release helper, then SDK 26 package tests) on **every** event, pull requests included, except attempt 1 of a pull request run whose picker placed it on an owned Mac (no helper build in that run; see "Pull request pool preference") | `blacksmith-6vcpu-macos-15` | `blacksmith-6vcpu-macos-15` |
@@ -860,6 +860,9 @@ code and jobs that need an OS or Xcode the minis lack stay off owned machines.
 Everything else routes through a picker, with Blacksmith as the overflow and
 ci-owned-pool-rescue.yml as the way off a busy or refusing mini.
 
+The nightly Ghostty CLI helper (Zig 0.16.0, macOS 26 SDK) takes the same
+owned route as the app build, then Blacksmith macOS 26; it never needs macOS 15.
+
 Nightly NEXT app builds use `CI_SIDE_LANE_RUNNER`, the same
 controller-managed pool label used by dev builds, on initial push/schedule
 attempts. Main cache-writing builds use the trusted `CI_SEED_TRUSTED_POOL`;
@@ -895,7 +898,7 @@ incremental builds without trusting an old bundle stamp.
 | low-volume GUI dispatches: `test-macos-suite`, `tmux-corpus`, `perf-activation`, command palette benchmarks | Blacksmith or the caller's runner input | 0 to 1 runs a week; they drive the app in the runner's own session, which a mini's runner lacks (E2E and the rerun use its console session) |
 | `iroh-release-gate` version skew | Blacksmith macOS 15 | pins the macOS 15 pool's Xcode 26.3 |
 | `relay-tls` `system-keychain` | Blacksmith | edits the System keychain trust store |
-| `plain-paste-worker`, `ci-macos-compat`, `seed-swiftpm-manifests`, release and nightly Ghostty helpers | Blacksmith macOS 15 / 14 | an OS or SDK the minis lack |
+| `plain-paste-worker`, `ci-macos-compat`, `seed-swiftpm-manifests`, the release Ghostty helper | Blacksmith macOS 15 / 14 | an OS or SDK the minis lack |
 | `release.yml`, nightly sign/notarize, `ios-testflight`, `ios-app-store`, `ios-appstore-upload` | trusted Blacksmith macOS pool | signing keys remain in protected GitHub environments; no key is written to a worker |
 | `nightly.yml` `build-nightly-app` | main: trusted `CI_SEED_TRUSTED_POOL`; NEXT initial push/schedule: controller-managed `CI_SIDE_LANE_RUNNER`; retries/dispatches/fast: `MACOS_RUNNER_26` / Blacksmith; unsigned resume uses Blacksmith Linux | no dedicated host tuple; every route has a pooled fallback |
 | `seed-derived-data` trusted pool | trusted owned pool, push to main | the minis' own j14 seed |
@@ -964,18 +967,27 @@ Blacksmith is overflow, so when it stops starting jobs the fix is to stop
 sending overflow there, not to reroute a lane. `ci-cloud-overflow-probe.yml`
 does that automatically (`scripts/ci/cloud_overflow_switch.py`). Every 10
 minutes its `probe` job asks for one Blacksmith label and prints a line, and
-its `watch` job, on GitHub-hosted Linux, waits for the probe:
+its `watch` job, on another Blacksmith pool, waits for the probe:
 
 - **The probe waits `CI_CLOUD_PROBE_MINUTES` (default 5, 2 to 20) with no
   runner.** Overflow goes off. The switch first writes the
   `CI_CLOUD_OVERFLOW_SAVED` record (each variable's value before, its
   failover, when and which run), then points the variables at their
-  failovers: `LINUX_RUNNER` and `CI_TRUSTED_RUNNER` to `ubuntu-24.04`, `MACOS_RUNNER_15`, `_26`,
+  failovers: `LINUX_RUNNER` to `blacksmith-16vcpu-ubuntu-2404` (32 vCPU when it
+  already names 16) and `CI_TRUSTED_RUNNER` to `blacksmith-2vcpu-ubuntu-2404`
+  (4 when it names 2), never GitHub-hosted Ubuntu, `MACOS_RUNNER_15`,
   `_26_LARGE`, `_PR` and `_DUAL_XCODE` to the std owned pool of the lane's
   Xcode pin (`glaeda-std-xcode-<version>` from `CMUX_CI_XCODE_APP_PR`),
   `MACOS_RUNNER_DISPLAY` to its gui label, `MACOS_RUNNER_IOS` to
   `glaeda-ios-sim`, and `CI_PAID_MACOS_OVERFLOW` to `1` so the gated ones are
-  read. That is the lever pulled by hand on 2026-09-29. Only a variable that
+  read. That is the lever pulled by hand on 2026-09-29. `MACOS_RUNNER_26` and
+  `LINUX_RUNNER` are the variables signing jobs read
+  (`scripts/ci/signing_runner_variables.py`), so the switch never writes a
+  label other than `blacksmith-*` or `ubuntu-*` to them: `MACOS_RUNNER_26`
+  has no owned failover, an override naming a reused machine for either is
+  refused, and a stalled probe never re-applies an older record's owned value
+  to one (on 2026-10-28 that turned `signing-runner-variables` red on every
+  pull request). Only a variable that
   is unset or names a `blacksmith-*` label changes; one someone pointed
   elsewhere is left alone. Then up to 25 runs holding a job queued 5 minutes
   or more on a `blacksmith-*` label are force-cancelled (a plain cancel did
@@ -990,17 +1002,26 @@ its `watch` job, on GitHub-hosted Linux, waits for the probe:
 - **The probe starts.** If the record exists, each variable it changed is put
   back (a variable changed by hand since is left alone and named) and the
   record is deleted. While the record exists the probe asks for the label it
-  names, not `LINUX_RUNNER`, which is GitHub-hosted then.
+  names, not `LINUX_RUNNER`, which names the failover size then.
 
-The Linux compile jobs on the 16 and 32 vCPU sizes follow `LINUX_RUNNER` only
-while it is off Blacksmith. Their trusted fallback is
-`!startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || '<size>'`:
-while `LINUX_RUNNER` is unset or names a `blacksmith-*` label (the steady
-4 vCPU value) they take their own size, and once the switch points it at
-`ubuntu-24.04` they run there too, so the switch's rerun does not queue them
-on the stalled pool again. When the switch puts `LINUX_RUNNER` back, they
-return to their size. `tests/test_ci_linux_compile_runners.py` pins each
+The Linux compile jobs on the 16 and 32 vCPU sizes keep their own size. Their
+trusted fallback is
+`!startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && '<other size>' || '<size>'`:
+a non-Blacksmith `LINUX_RUNNER` an operator sets wins; while the switch's
+record exists they take the other size (16 and 32 swap), so the switch's rerun
+does not queue them on the stalled pool again; otherwise their own size. `tests/test_ci_linux_compile_runners.py` pins each
 selector.
+
+A runs-on that names a Blacksmith Linux label literally and reads neither
+variable puts `vars.CI_CLOUD_OVERFLOW_SAVED && '<another Blacksmith size>' ||`
+before that final label, so it moves to another Blacksmith Linux size while
+the record exists, the switch's own pairing (16 and 32 vCPU swap, 2 goes to 4,
+4 and 8 go to 16), never GitHub-hosted Ubuntu; an unset record is falsy and
+the job keeps its own label. On
+2026-10-27 those jobs got no runner for the whole outage.
+`tests/test_ci_blacksmith_linux_failover.py` fails on a new one. Nightly,
+notarization, dev-daily and release or publish workflows are not covered
+yet.
 
 The lane switches (`CI_PR_POOL_OWNED`, `CI_E2E_OWNED_UI`, `CI_IOS_OWNED` and
 the other `CI_OWNED_*`) are never touched: minis first does not change, only

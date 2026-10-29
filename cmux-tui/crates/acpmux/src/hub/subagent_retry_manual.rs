@@ -168,8 +168,13 @@ impl Hub {
             let Some(failure) = sub.failed.as_mut() else { return };
             failure.idle = claim.idle;
             if claim.took_over {
-                let wait =
-                    Wait { wake: Arc::new(Notify::new()), fired: false, ..claim.wait.clone() };
+                let wait = Wait {
+                    wake: Arc::new(Notify::new()),
+                    fired: false,
+                    fired_at: 0,
+                    manual: false,
+                    ..claim.wait.clone()
+                };
                 failure.wait = Some(wait.clone());
                 Some((failure.clone(), wait))
             } else {
@@ -180,7 +185,10 @@ impl Hub {
         let session = session.clone();
         let (hub, id) = (self.clone(), claim.id.clone());
         let Some((failure, wait)) = rearm else {
-            if !claim.idle {
+            if claim.idle {
+                // No attempt comes: its entry says this one is no longer in flight.
+                self.log_entry(&session, &id, &claim.failure, "failed", Value::Null, true);
+            } else {
                 tokio::spawn(async move { hub.schedule_subagent_retry(&session, &id).await });
             }
             return;
@@ -253,9 +261,13 @@ impl Hub {
                     prompt_id: format!("subagent-retry-{tool}-{attempt}-{next_at}"),
                     wake: Arc::new(Notify::new()),
                     fired: false,
+                    fired_at: 0,
+                    manual: false,
                 }
             });
             wait.fired = true;
+            wait.fired_at = crate::store::now_ms();
+            wait.manual = true;
             let wait = wait.clone();
             // In flight, it is no failure a Stop already ended (`stop_subagent_retries`).
             failure.idle = false;
@@ -285,14 +297,19 @@ impl Hub {
             return self.schedule_subagent_retry(session, id).await;
         }
         let _steps = self.subagent_retries.steps();
-        {
+        let failure = {
             let mut all = self.subagent_retries.lock();
             let sub = all.subs.get_mut(&session.id).and_then(|s| s.get_mut(id));
             match sub.and_then(|s| s.failed.as_mut()).filter(|f| f.wait.is_none()) {
-                Some(failure) => failure.idle = true,
+                Some(failure) => {
+                    failure.idle = true;
+                    failure.clone()
+                }
                 None => return,
             }
-        }
+        };
+        // Its attempt is over: its entry says so.
+        self.log_entry(session, id, &failure, "failed", Value::Null, true);
         self.forget_past_limit(session);
     }
 }

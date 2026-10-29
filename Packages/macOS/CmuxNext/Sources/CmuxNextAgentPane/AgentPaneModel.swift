@@ -59,9 +59,18 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onRunAction: ((String, [String: String]) -> Bool)?
     /// Resolves the explicit Browse… fallback in the project picker.
     @ObservationIgnored public var onBrowseProject: (() async -> String?)?
+    /// A new chat's Sandboxed send (`sandbox.run`, hq#3367): the App runs one task on a throwaway
+    /// Cloud VM behind Labs and answers the page's reply (the receipt, or a typed refusal). Nil: no
+    /// sandboxes in this app.
+    @ObservationIgnored public var onSandboxRun: (@MainActor (_ task: String, _ agent: String?, _ key: String) async -> [String: Any])?
+    /// This pane's Sandboxed send, kept across a page reload (``AgentPaneSandboxRuns``).
+    @ObservationIgnored public let sandboxRuns = AgentPaneSandboxRuns()
     /// Agent session avatars (the app's ``ChiefAvatarUploads``, keyed per session): the avatar as a
     /// small data URL, Set Avatar… (an open panel, then the upload; the new data URL, nil when
     /// cancelled or refused, which the app says itself) and Remove Avatar.
+    /// A custom harness's SF Symbol icon for the page (`harness.symbol`); the app may share one
+    /// cache between panes.
+    @ObservationIgnored public var harnessSymbols = HarnessSymbolImages()
     @ObservationIgnored public var onAgentAvatar: ((String) async -> String?)?
     @ObservationIgnored public var onSetAgentAvatar: ((String) async -> String?)?
     @ObservationIgnored public var onRemoveAgentAvatar: ((String) -> Void)?
@@ -197,6 +206,8 @@ public final class AgentPaneModel {
     /// The App's upload for this chat (a chat moved to a Cloud machine), nil when it takes none (``AgentPaneUpload``).
     @ObservationIgnored public var onUpload: (@MainActor () -> AgentPaneUploader?)?
     @ObservationIgnored public var onUploadStage: (@MainActor () -> AgentPaneUploadStager?)?
+    /// App-owned, explicitly confirmed provider credential setup for this pane's Cloud chat.
+    @ObservationIgnored public var onCloudCredentialTransfer: (@MainActor (AgentPaneCloudCredentialTransferRequest) async -> Bool)?
 
     @ObservationIgnored let host: any AgentPaneHostProviding
     /// The page's host is another machine's (cx-k21v): it never becomes this Mac's prewarmed spare.
@@ -215,9 +226,9 @@ public final class AgentPaneModel {
         self.allowsTabConversion = allowsTabConversion
         self.host = host
         self.transport = transport
-        self.sessionId = sessionId
-        self.seed = seed
+        (self.sessionId, self.seed) = (sessionId, seed)
         self.newTab = sessionId == nil ? newTab : nil
+        sandboxRuns.restore(seed?.sandboxResult)
         transport.roots = { [weak self] in self?.roots() ?? [] }
         transport.gestureRoots = { [weak self] in self?.gestureRoots() ?? [] }
         transport.primaryRoot = { [weak self] in self?.primaryRoot() }
@@ -267,12 +278,12 @@ public final class AgentPaneModel {
         newTab = page
     }
     /// The reply for one page request.
-    public func respond(to request: AgentPaneRequest) async -> [String: Any] {
+    public func respond(to request: AgentPaneRequest, userGesture: Bool = false) async -> [String: Any] {
         switch request {
         // Boot traffic, and a request the host refused (it changed nothing), leave it untouched.
         case .ready, .reconnect, .uiPointerReport, .framePacing, .renderRate, .checkpointAvailability, .painted, .newTabInputReady, .newTabContext, .newTabWarm, .unsupported,
              .transportOpen, .transportSend, .transportClose, .transportGesture, .transportGestureRelease, .chatsPage, .quickFloatingState, .quickContext,
-             .tabRowTools, .projectIcon, .agentAvatar, .environment(.list): break
+             .tabRowTools, .projectIcon, .agentAvatar, .harnessSymbol, .environment(.list), .cloudMachine(.list), .sandboxState: break
         case .reply(let reply) where reply.isPassive: break
         default:
             if !userTouched { touchedBy = String(String(describing: request).prefix { $0 != "(" }) }
@@ -361,6 +372,8 @@ public final class AgentPaneModel {
             guard let onSetAgentAvatar else { return Self.unsupported("agent.avatar.set") }
             let src = await onSetAgentAvatar(session)
             return AgentPaneReply.success(src.map { ["src": $0] } ?? [:])
+        case .harnessSymbol(let name):
+            return AgentPaneReply.success(harnessSymbols.dataURL(name).map { ["src": $0] } ?? [:])
         case .removeAgentAvatar(let session):
             onRemoveAgentAvatar?(session)
             return AgentPaneReply.success()
@@ -384,6 +397,46 @@ public final class AgentPaneModel {
         case .watchChat(let key): if let onWatchChat { onWatchChat(key); return AgentPaneReply.success() } else { return Self.unsupported("chats.watch") }
         case .chatsPage(let query): return await respondToChatsPage(query)
         case .environment(let request): return await request.reply(store: startFolders.environments, newTabPage: newTab != nil && sessionId == nil)
+        case .sandboxRun(let task, let agent, let key):
+            // A new chat only, and it spends Cloud time: the Send's own gesture, as a git write.
+            // Not once a chat starts or opens here (it would replace the run's result), and one at a time;
+            // while it runs no chat starts or opens here. The send line drains first, so a start or
+            // open the page handed over before this is counted.
+            guard sessionId == nil, let onSandboxRun else { return Self.unsupported("sandbox.run") }
+            let notNow = AgentPaneReply.failure(code: "unavailable_now", message: "unavailable_now")
+            guard await transport.lineDrained(within: .seconds(5)) else { return notNow }
+            if let refusal = sandboxRuns.refusal { return AgentPaneReply.failure(code: refusal, message: refusal) }
+            let replacements = transport.replacements
+            guard replacements.beginSandbox() else { return notNow }
+            guard transport.gestures.consume() else {
+                replacements.endSandbox()
+                return Self.transportFailure(.gestureRequired)
+            }
+            return await sandboxRuns.run(task: task, key: key) {
+                defer { replacements.endSandbox() }
+                return await onSandboxRun(task, agent, key)
+            }
+        case .sandboxState(let wait):
+            return await sandboxRuns.state(wait: wait)
+        case .cloudMachine(let request): return await request.reply(.shared, gestures: transport.gestures)
+        case .cloudCredentialTransfer(let request):
+            guard remoteChat, newTab == nil, sessionId == request.sessionID else {
+                return AgentPaneReply.failure(code: "unavailable", message: "Credential setup is unavailable for this chat.")
+            }
+            guard let onCloudCredentialTransfer else { return Self.unsupported(AgentPaneCloudCredentialTransferRequest.method) }
+            guard let connection = transport.connection,
+                  let intent = AgentPaneGestureIntent(gestureParams: ["intent": ["method": "session/prompt", "params": [
+                    "promptId": request.retryPromptID, "sessionId": request.sessionID,
+                  ]]]), let ticket = transport.reserveGesture(intent) else { return Self.transportFailure(.gestureRequired) }
+            var released = false
+            defer { if !released { _ = transport.gestures.redeem(ticket, connection: connection, pick: nil) } }
+            guard await onCloudCredentialTransfer(request), !Task.isCancelled,
+                  transport.connection == connection, sessionId == request.sessionID else {
+                return AgentPaneReply.success(["transferred": false])
+            }
+            // Preserve the original click's one-use, session/prompt-scoped grant and expiry.
+            released = true
+            return AgentPaneReply.success(["transferred": true, "promptId": request.retryPromptID, "ticket": ticket])
         case .paneAction, .diffTurn, .preview, .setQuickActions, .tabState, .tabRowTools, .sideChat, .subagentPane, .processTerminal, .chatTab, .offerOpen, .asksOpen, .asksAnswer, .newChatHere: return await respondToHeader(request)
         case .appAction(let id):
             guard newTab?.omnibar.actions.contains(where: { $0.id == id }) == true, let onAppAction else { return Self.unsupported("app.action") }
@@ -412,7 +465,7 @@ public final class AgentPaneModel {
             replyLinks.remoteImageLoader = transport.remoteImageLoader
             return await respond(to: reply)
         case .saveFile(let save): return await saveFile(save)
-        case .composerSetting(let path, let show): return await setComposer(path, show)
+        case .composerSetting(let path, let show): return await setComposer(path, show, userGesture: userGesture)
         case .displaySetting(let path, let value): return await setDisplay(path, value)
         case .toolCard(let card, let action, let value): return AgentPaneToolCard.respond(card: card, action: action, value: value, in: self)
         case .upload(let files): return await AgentPaneUpload.respond(files, in: self)

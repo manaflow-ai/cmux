@@ -79,9 +79,12 @@ struct CloudNewMachineTests {
     }
 
     @Test func everyMachineCommandNamesTheWorkUser() {
-        #expect(CloudMachineBootstrap.prepareCommand.contains("root chown cmux:cmux"))
-        #expect(CloudMachineBootstrap.startCommand.contains(#"--uid="$u""#))
-        #expect(CloudMachineBootstrap.startCommand.contains(#"as_u env HOME="$h" setsid"#), "the fallback runs as the work user too")
+        let staged = CloudMachineBootstrap.stagingDirectory("ab")
+        #expect(CloudMachineBootstrap.prepareCommand(staged).contains("root chown -h cmux:cmux"))
+        let start = CloudMachineBootstrap.startCommand(staged)
+        #expect(start.contains(#"--uid="$u""#))
+        #expect(start.contains(#"as_u env HOME="$h" setsid"#), "the fallback runs as the work user too")
+        #expect(start.contains(#"as_u mv -f "$s/$f" "$d/$f""#), "the files move as the work user, whichever account the exec uses")
     }
 
     @Test func aQuotedTildeScriptIsTheHomeFolders() throws {
@@ -129,7 +132,8 @@ struct CloudNewMachineTests {
                 write: { path, data, mode in self.writes.append((path, data, mode)) },
                 exec: { command in
                     self.commands.append(command)
-                    return command == CloudMachineBootstrap.prepareCommand ? CloudExecResult(exitCode: 0, stdout: "", stderr: "") : self.startAnswer
+                    // The start is the exec that launches the runner; the prepare answers nothing.
+                    return command.contains("systemd-run") ? self.startAnswer : CloudExecResult(exitCode: 0, stdout: "", stderr: "")
                 })
         }
     }
@@ -137,12 +141,16 @@ struct CloudNewMachineTests {
     @Test func theBootstrapUploadsTheScriptItsEnvironmentAndTheRunnerThenStartsIt() async {
         let fake = FakeMachine()
         let script = CloudMachineBootstrap(kind: .lane, contents: Data("#!/bin/sh\necho hi\n".utf8))
-        let outcome = await script.start(name: "lane-vm-1", on: fake.machine)
+        let outcome = await script.start(name: "lane-vm-1", on: fake.machine, startID: "0f-1")
         #expect(outcome == CloudMachineBootstrap.Outcome(status: "started"))
-        #expect(fake.writes.map(\.0) == ["\(CloudMachineBootstrap.directory)/script", "\(CloudMachineBootstrap.directory)/env", "\(CloudMachineBootstrap.directory)/run"])
-        #expect(fake.writes.map(\.2) == [0o700, 0o600, 0o700])
+        let staged = CloudMachineBootstrap.directory + "/in-0f-1"
+        #expect(fake.writes.map(\.0) == ["\(staged)/script", "\(staged)/env", "\(staged)/run", "\(staged)/repo.json", "\(staged)/repo"])
+        #expect(fake.writes.map(\.2) == [0o700, 0o600, 0o700, 0o644, 0o700])
+        #expect(fake.writes[3].1 == Data("null\n".utf8), "no repo: no earlier start's record is left")
+        #expect(fake.writes[4].1 == CloudMachineBootstrap.noScript, "and no earlier start's step")
         #expect(String(decoding: fake.writes[1].1, as: UTF8.self).contains("export LANE_VM_NAME='lane-vm-1'"))
-        #expect(fake.commands == [CloudMachineBootstrap.prepareCommand, CloudMachineBootstrap.startCommand])
+        #expect(fake.commands == [CloudMachineBootstrap.prepareCommand(staged), CloudMachineBootstrap.startCommand(staged)])
+        #expect(CloudMachineBootstrap.stagingDirectory("zz; ~/..") == CloudMachineBootstrap.directory + "/in-", "only an id's own characters")
     }
 
     @Test func aBootstrapAlreadyDoneOrRunningIsNotStartedAgain() async {

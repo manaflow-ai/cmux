@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from pathlib import Path
 import subprocess
 import tempfile
@@ -428,7 +429,9 @@ if m:
     jobs = next(j for i, _, j in runs if str(i) == m.group(1))
     if jobs is None:
         sys.exit(1)
-    print(sum(1 for name, c in jobs if name == "Mac exports deferred" and c == "success"))
+    assert 'all(.jobs[]; .conclusion == "skipped")' in sys.argv[sys.argv.index("--jq") + 1], sys.argv
+    print(sum(1 for name, c in jobs if name == "Mac exports deferred" and c == "success")
+          + (1 if jobs and all(c == "skipped" for _, c in jobs) else 0))
 else:
     assert "status=success" in path and "event=push" in path, path
     for i, sha, _ in runs:
@@ -449,6 +452,14 @@ else:
         # A run with no Mac areas at all made nothing to defer.
         self.assertEqual(self.since([(9, "c" * 40, [("action export areas", "success")])]), "c" * 40 + "\n")
 
+    def test_since_passes_the_run_of_its_own_repair_push(self):
+        # An App-token repair push starts this workflow again; every job skips it (No loop), and that
+        # run must not move "since" past a human push whose run failed or still runs.
+        skipped = [("action export areas", "skipped"), ("CI target graph", "skipped"),
+                   ("autofix feat-cmux-next", "skipped")]
+        made = [("action exports (Mac)", "success"), ("Mac exports deferred", "skipped")]
+        self.assertEqual(self.since([(9, "c" * 40, skipped), (7, "a" * 40, made)]), "a" * 40 + "\n")
+
     def test_since_passes_a_run_whose_jobs_cannot_be_read(self):
         self.assertEqual(self.since([(9, "c" * 40, None), (7, "a" * 40, [])]), "a" * 40 + "\n")
 
@@ -462,6 +473,78 @@ else:
         steps = DOC_NEXT["jobs"]
         runs = "\n".join(step.get("run", "") for job in steps.values() for step in job.get("steps", []))
         self.assertIn("tests/test_cmux_next_base_autofix_finishes.py", runs)
+
+
+
+BRANCH = "feat-cmux-next"
+SELF_COMMIT_PREFIXES = ("chore(next): base autofix at ", "chore(next): pin GhosttyKit for ghostty ")
+
+
+def workflow_docs():
+    for path in sorted((ROOT / ".github/workflows").glob("*.yml")):
+        yield path.name, yaml.safe_load(path.read_text())
+
+
+def pushes_the_branch(step: dict) -> bool:
+    run = step.get("run", "")
+    return f"HEAD:refs/heads/{BRANCH}" in run or ("base-autofix-land.sh" in run and BRANCH in run)
+
+
+class BotPushesStartWorkflows(unittest.TestCase):
+    """A bot push to feat-cmux-next starts the push workflows like any other commit.
+
+    2026-10-26: 60c696be ("chore(next): base autofix at 7f042d4d3741") was pushed with a job's GITHUB_TOKEN,
+    which starts no workflow, so it had no cmux-next.yml push run and the nightly-next promotion passed it
+    over. Every step that pushes the branch pushes with an App token first (GITHUB_TOKEN only when the App
+    token can't be minted), and the workflow that pushes skips its own commits, so the push can't loop."""
+
+    def test_every_push_to_the_branch_uses_an_app_token(self):
+        found = []
+        for name, doc in workflow_docs():
+            for job_id, job in (doc.get("jobs") or {}).items():
+                steps = job.get("steps") or []
+                minted = {s["id"] for s in steps if "create-github-app-token" in str(s.get("uses", "")) and "id" in s}
+                for step in steps:
+                    if not pushes_the_branch(step):
+                        continue
+                    found.append((name, job_id))
+                    token = str((step.get("env") or {}).get("TOKEN", ""))
+                    with self.subTest(workflow=name, job=job_id, step=step.get("name")):
+                        self.assertTrue(any(token.startswith(f"${{{{ steps.{i}.outputs.token") for i in minted), token)
+                        mint = next(s for s in steps if s.get("id") in minted and f"steps.{s['id']}." in token)
+                        self.assertEqual(mint["with"].get("permission-contents"), "write")
+                        self.assertNotIn("permission-workflows", mint["with"])
+        self.assertEqual(sorted(found), sorted([("cmux-next-base-autofix.yml", "target-graph"),
+                                                ("cmux-next-base-autofix.yml", "autofix"),
+                                                ("cmux-next-base-autofix.yml", "ghosttykit-checksum")]))
+
+    def test_the_bot_head_dispatch_is_only_the_fallback(self):
+        # An App push starts cmux-tui-artifacts.yml itself; a dispatch too would race its push run.
+        for job_id in ("target-graph", "autofix", "ghosttykit-checksum"):
+            step = next(s for s in DOC["jobs"][job_id]["steps"] if "publish-bot-head-tree.sh" in s.get("run", ""))
+            with self.subTest(job=job_id):
+                self.assertIn("steps.push-token.outputs.token == ''", step["if"])
+
+    def test_every_job_skips_its_own_repair_push(self):
+        for job_id, job in DOC["jobs"].items():
+            needs = job.get("needs") or []
+            if needs and "!cancelled()" not in str(job.get("if", "")):
+                continue  # skipped with the job it needs
+            with self.subTest(job=job_id):
+                condition = str(job.get("if", ""))
+                self.assertIn("github.event.head_commit.author.name == 'github-actions[bot]'", condition)
+                for prefix in SELF_COMMIT_PREFIXES:
+                    self.assertIn(f"startsWith(github.event.head_commit.message, '{prefix}')", condition)
+
+    def test_its_commits_carry_the_skipped_prefixes(self):
+        # A commit message the guard does not know would start the workflow again on its own push.
+        texts = (ROOT / ".github/workflows/cmux-next-base-autofix.yml").read_text() + (
+            ROOT / "scripts/cmux-next/base-autofix-land.sh").read_text()
+        messages = re.findall(r'git commit[^\n]*?-(?:a?m) "([^"$]*)', texts)
+        self.assertTrue(messages)
+        for message in messages:
+            with self.subTest(message=message):
+                self.assertTrue(message.startswith(SELF_COMMIT_PREFIXES), message)
 
 
 DOC_NEXT = yaml.safe_load((ROOT / ".github/workflows/cmux-next.yml").read_text())

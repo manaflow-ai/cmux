@@ -1,4 +1,4 @@
-//! `_acpmux/harness/add|remove|restore|doctor|secret/set` and `_acpmux/registry`
+//! `_acpmux/harness/add|remove|restore|doctor|secret/set|icon` and `_acpmux/registry`
 //! (BRING-YOUR-OWN-HARNESS H2): the app's Settings, palette and MCP tools add
 //! and check a user's own harness through the daemon. The work is
 //! `crate::harness_admin`, shared with the CLI. Also Update Everything's
@@ -67,6 +67,7 @@ pub(super) const METHODS: &[&str] = &[
     method::MUX_HARNESS_RESTORE,
     method::MUX_HARNESS_DOCTOR,
     method::MUX_HARNESS_SECRET_SET,
+    method::MUX_HARNESS_ICON,
     method::MUX_REGISTRY,
     method::MUX_HARNESS_HEALTH,
     method::MUX_HARNESS_INVENTORY_REFRESH,
@@ -156,6 +157,15 @@ pub(super) async fn handle(
     if origin.web_class() {
         return Err(RpcError::invalid_params(
             "harness profiles are changed only from the local app or the unix socket, never from a remote WebSocket connection or a peer",
+        ));
+    }
+    // A capture fixture's daemon (`harness_fixture.rs`) neither reads the ACP
+    // Registry nor adds a harness: both read this host's PATH and the network.
+    if matches!(m, method::MUX_HARNESS_ADD | method::MUX_REGISTRY)
+        && crate::harness_fixture::active().is_some()
+    {
+        return Err(RpcError::invalid_params(
+            "this daemon serves a capture fixture's harnesses (ACPMUX_HARNESS_FIXTURE)",
         ));
     }
     let sources = hub.config.read().await.profile_sources.clone();
@@ -259,6 +269,40 @@ pub(super) async fn handle(
             hub.reload_and_announce().await;
             serde_json::to_value(&stored).map_err(|e| RpcError::internal(e.to_string()))?
         }
+        method::MUX_HARNESS_ICON => {
+            use crate::harness_icon_set::{IconChange, set_icon};
+            let id =
+                text("id").ok_or_else(|| RpcError::invalid_params("id is required"))?.to_owned();
+            let change = if params.get("clear").and_then(Value::as_bool) == Some(true) {
+                IconChange::Clear
+            } else if let Some(data) = text("data") {
+                use base64::Engine as _;
+                let bytes = base64::engine::general_purpose::STANDARD
+                    .decode(data)
+                    .map_err(|_| RpcError::invalid_params("data must be base64"))?;
+                let ext = text("ext").unwrap_or("png").to_ascii_lowercase();
+                IconChange::Image { bytes, ext }
+            } else if let Some(icon) = text("icon") {
+                // A page never names a file on this Mac: it sends the bytes.
+                if matches!(
+                    crate::config::harness_icon::IconValue::parse(icon),
+                    Ok(crate::config::harness_icon::IconValue::File(_))
+                ) {
+                    return Err(RpcError::invalid_params(
+                        "send an image as {data, ext}, not a file path",
+                    ));
+                }
+                IconChange::Value(icon.to_owned())
+            } else {
+                return Err(RpcError::invalid_params("give icon, data or clear"));
+            };
+            let set = tokio::task::spawn_blocking(move || set_icon(&id, change, &sources))
+                .await
+                .map_err(joined)?
+                .map_err(rpc_error)?;
+            hub.reload_and_announce().await;
+            json!({"id": set.id, "path": set.path, "icon": set.icon})
+        }
         method::MUX_REGISTRY => {
             let refresh = params.get("refresh").and_then(Value::as_bool).unwrap_or(false);
             let reg = crate::cli::harness_registry::registry(refresh)
@@ -286,11 +330,17 @@ pub(super) async fn handle(
 }
 
 /// One payload of the watchers' harness feed to watching connection `conn`:
-/// `_acpmux/harnesses_changed`, or `_acpmux/start_mode_changed {}` when
+/// `_acpmux/harnesses_changed`, `_acpmux/peer_state_changed` when marked a peer
+/// state note (`peer.rs` `report_states`), or `_acpmux/start_mode_changed {}` when
 /// marked a start-mode notice (`hub/start_mode.rs`), which only local
 /// connections get (a remote-origin connection's chats get no start mode).
 pub(super) fn watch_note(conn: &super::Conn, note: Value) {
-    if note.get(crate::hub::start_mode::START_MODE_NOTE).is_none() {
+    if let Some(state) = note.get(crate::peer_states::STATE_NOTE) {
+        conn.send(&crate::rpc::Message::notification(
+            method::MUX_PEER_STATE_CHANGED,
+            state.clone(),
+        ));
+    } else if note.get(crate::hub::start_mode::START_MODE_NOTE).is_none() {
         conn.send(&crate::rpc::Message::notification(method::MUX_HARNESSES_CHANGED, note));
     } else if !conn.origin.web_class() {
         conn.send(&crate::rpc::Message::notification(method::MUX_START_MODE_CHANGED, json!({})));

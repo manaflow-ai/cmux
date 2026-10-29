@@ -1,6 +1,427 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "home.compose.activeAgo": {
+      "comment": "New Message's To: list, under a Chief that reads the same as another: when it was last active. %@ is a relative time such as \"2 hours ago\".",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "translated", "value": "نشط %@"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Aktivan %@"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Aktiv %@"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Aktiv %@"}},
+        "en": {"stringUnit": {"state": "translated", "value": "Active %@"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Activo %@"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Actif %@"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Attivo %@"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "最終アクティブ: %@"}},
+        "km": {"stringUnit": {"state": "translated", "value": "សកម្ម %@"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "%@ 활동"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Aktiv %@"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Aktywny %@"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Ativo %@"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Активен %@"}},
+        "th": {"stringUnit": {"state": "translated", "value": "ใช้งาน %@"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Etkin: %@"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Активний %@"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Hoạt động %@"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "活跃于%@"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "活躍於%@"}}
+      }
+    },
+    "home.compose.noMessagesYet": {
+      "comment": "New Message's To: list, under a Chief that reads the same as another and has no messages yet.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "translated", "value": "لا توجد رسائل بعد"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Još nema poruka"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Ingen beskeder endnu"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Noch keine Nachrichten"}},
+        "en": {"stringUnit": {"state": "translated", "value": "No messages yet"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Aún no hay mensajes"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Aucun message pour l’instant"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Ancora nessun messaggio"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "まだメッセージはありません"}},
+        "km": {"stringUnit": {"state": "translated", "value": "មិនទាន់មានសារ"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "아직 메시지 없음"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Ingen meldinger ennå"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Brak wiadomości"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Nenhuma mensagem ainda"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Сообщений пока нет"}},
+        "th": {"stringUnit": {"state": "translated", "value": "ยังไม่มีข้อความ"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Henüz mesaj yok"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Повідомлень ще немає"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Chưa có tin nhắn"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "还没有消息"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "尚無訊息"}}
+      }
+    },
+    "home.compose.section.team": {
+      "comment": "New Message's To: list: the section title over the user's team members.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "translated", "value": "الفريق"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Tim"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Team"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Team"}},
+        "en": {"stringUnit": {"state": "translated", "value": "Team"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Equipo"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Équipe"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Team"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "チーム"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ក្រុម"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "팀"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Team"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Zespół"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Equipe"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Команда"}},
+        "th": {"stringUnit": {"state": "translated", "value": "ทีม"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Ekip"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Команда"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Nhóm"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "团队"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "團隊"}}
+      }
+    },
+    "home.firstRun.introFocus": {
+      "comment": "Empty Chief conversation of a Chief made while the person has other Chiefs: its first-open message. It asks what the new Chief should focus on so it does not overlap with the others.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "translated", "value": "مرحبًا، أنا Chief جديد. على ماذا يجب أن أركّز؟\nأخبرني بمشروع أو مستودع أو نوع من العمل، وسألتزم به حتى لا أتداخل مع Chiefs الآخرين لديك."}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Zdravo, ja sam novi Chief. Na šta da se fokusiram?\nRecite mi projekat, repozitorij ili vrstu posla i držat ću se toga da se ne preklapam s vašim drugim Chiefovima."}},
+        "da": {"stringUnit": {"state": "translated", "value": "Hej, jeg er en ny Chief. Hvad skal jeg fokusere på?\nFortæl mig et projekt, et repo eller en slags arbejde, så holder jeg mig til det og overlapper ikke med dine andre Chiefs."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Hallo, ich bin ein neuer Chief. Worauf soll ich mich konzentrieren?\nNenn mir ein Projekt, ein Repo oder eine Art von Arbeit, und ich bleibe dabei, damit ich mich nicht mit deinen anderen Chiefs überschneide."}},
+        "en": {"stringUnit": {"state": "translated", "value": "Hi, I'm a new Chief. What should I focus on?\nTell me a project, a repo or a kind of work, and I'll stick to it so I don't overlap with your other Chiefs."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Hola, soy un Chief nuevo. ¿En qué debo centrarme?\nDime un proyecto, un repositorio o un tipo de trabajo y me ceñiré a ello para no solaparme con tus otros Chiefs."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Bonjour, je suis un nouveau Chief. Sur quoi dois-je me concentrer ?\nIndiquez-moi un projet, un dépôt ou un type de travail, et je m’y tiendrai pour ne pas empiéter sur vos autres Chiefs."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Ciao, sono un nuovo Chief. Su cosa devo concentrarmi?\nDimmi un progetto, un repository o un tipo di lavoro e mi atterrò a quello per non sovrappormi agli altri tuoi Chief."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "こんにちは、新しい Chief です。何に集中すればよいですか？\nプロジェクト、リポジトリ、作業の種類を教えてください。ほかの Chief と重ならないよう、それに専念します。"}},
+        "km": {"stringUnit": {"state": "translated", "value": "សួស្តី ខ្ញុំជា Chief ថ្មី។ តើខ្ញុំគួរផ្តោតលើអ្វី?\nប្រាប់ខ្ញុំពីគម្រោង repo ឬប្រភេទការងារ ហើយខ្ញុំនឹងប្រកាន់ខ្ជាប់វា ដើម្បីកុំឱ្យជាន់គ្នាជាមួយ Chief ផ្សេងទៀតរបស់អ្នក។"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "안녕하세요, 새 Chief입니다. 무엇에 집중할까요?\n프로젝트, 저장소 또는 작업 종류를 알려 주세요. 다른 Chief와 겹치지 않도록 그 일에만 집중하겠습니다."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Hei, jeg er en ny Chief. Hva skal jeg fokusere på?\nSi et prosjekt, et repo eller en type arbeid, så holder jeg meg til det og overlapper ikke med de andre Chiefene dine."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Cześć, jestem nowy Chief. Na czym mam się skupić?\nPodaj projekt, repozytorium lub rodzaj pracy, a będę się tego trzymać, żeby nie dublować twoich innych Chiefów."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Oi, eu sou um Chief novo. No que devo me concentrar?\nDiga um projeto, um repositório ou um tipo de trabalho, e vou me manter nele para não me sobrepor aos seus outros Chiefs."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Здравствуйте, я новый Chief. На чём мне сосредоточиться?\nНазовите проект, репозиторий или вид работы, и я буду заниматься только этим, чтобы не пересекаться с вашими другими Chief."}},
+        "th": {"stringUnit": {"state": "translated", "value": "สวัสดี ฉันคือ Chief ตัวใหม่ ควรโฟกัสที่อะไรดี?\nบอกโปรเจกต์ รีโป หรือประเภทงาน แล้วฉันจะทำแค่นั้นเพื่อไม่ให้ซ้ำกับ Chief ตัวอื่นของคุณ"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Merhaba, ben yeni bir Chief. Neye odaklanmalıyım?\nBana bir proje, depo ya da iş türü söyleyin; diğer Chief’lerinizle çakışmamak için ona bağlı kalırım."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Привіт, я новий Chief. На чому мені зосередитися?\nНазвіть проєкт, репозиторій або вид роботи, і я триматимуся цього, щоб не перетинатися з вашими іншими Chief."}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Xin chào, tôi là một Chief mới. Tôi nên tập trung vào việc gì?\nHãy cho tôi biết một dự án, một repo hoặc một loại công việc, tôi sẽ chỉ làm việc đó để không trùng với các Chief khác của bạn."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "你好，我是新的 Chief。我应该专注于什么？\n告诉我一个项目、一个仓库或一类工作，我会专注于它，避免和你的其他 Chief 重叠。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "你好，我是新的 Chief。我應該專注於什麼？\n告訴我一個專案、一個儲存庫或一類工作，我會專注於它，避免和你的其他 Chief 重疊。"}}
+      }
+    },
+    "home.outcome.cloudUnreachable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud didn’t answer. Check your connection and try again."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم تستجب cmux Cloud. تحقق من اتصالك وحاول مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud nije odgovorio. Provjerite vezu i pokušajte ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud svarede ikke. Tjek din forbindelse, og prøv igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud hat nicht geantwortet. Prüfe deine Verbindung und versuche es erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud no respondió. Revisa tu conexión e inténtalo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud n’a pas répondu. Vérifiez votre connexion et réessayez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud non ha risposto. Controlla la connessione e riprova."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud から応答がありません。接続を確認して、もう一度お試しください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud មិនបានឆ្លើយតបទេ។ សូមពិនិត្យការតភ្ជាប់របស់អ្នក ហើយព្យាយាមម្ដងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud가 응답하지 않았습니다. 연결을 확인하고 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud svarte ikke. Sjekk tilkoblingen og prøv igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud nie odpowiedział. Sprawdź połączenie i spróbuj ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O cmux Cloud não respondeu. Verifique sua conexão e tente novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud не ответил. Проверьте подключение и повторите попытку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud ไม่ตอบสนอง ตรวจสอบการเชื่อมต่อแล้วลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud yanıt vermedi. Bağlantınızı kontrol edip tekrar deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud не відповів. Перевірте з’єднання й спробуйте ще раз."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud không phản hồi. Hãy kiểm tra kết nối và thử lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud 没有响应。请检查网络连接后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud 沒有回應。請檢查網路連線後再試一次。"
+          }
+        }
+      }
+    },
+    "home.starter.failure": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Check the failure in %@"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Fehler in %@ prüfen"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Vérifier l’échec dans %@"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "تحقّق من الفشل في %@"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Revisar el fallo en %@"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "檢查 %@ 中的失敗"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "检查 %@ 中的失败"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "%@의 실패 확인"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "%@ の失敗を確認"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Provjeri grešku u %@"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Tjek fejlen i %@"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Controlla l'errore in %@"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ពិនិត្យមើលកំហុសនៅក្នុង %@"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Sjekk feilen i %@"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Sprawdź błąd w %@"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Verifique a falha em %@"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Проверьте ошибку в %@"}},
+        "th": {"stringUnit": {"state": "translated", "value": "ตรวจสอบข้อผิดพลาดใน %@"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "%@ içindeki hatayı kontrol et"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Перевірте помилку в %@"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Kiểm tra lỗi trong %@"}}
+      }
+    },
+    "home.starter.running": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Check on %@"}},
+        "de": {"stringUnit": {"state": "translated", "value": "%@ überprüfen"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Vérifier %@"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "تحقّق من %@"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Comprobar %@"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "查看 %@"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "查看 %@"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "%@ 확인"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "%@ を確認"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Provjeri %@"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Tjek op på %@"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Controlla %@"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ពិនិត្យមើល %@"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Sjekk %@"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Sprawdź %@"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Verifique %@"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Проверьте %@"}},
+        "th": {"stringUnit": {"state": "translated", "value": "ตรวจสอบ %@"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "%@ öğesini kontrol et"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Перевірте %@"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Kiểm tra %@"}}
+      }
+    },
+    "home.starter.review": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Review %@"}},
+        "de": {"stringUnit": {"state": "translated", "value": "%@ prüfen"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Examiner %@"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "راجع %@"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Revisar %@"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "檢閱 %@"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "查看 %@"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "%@ 검토"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "%@ をレビュー"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Pregledaj %@"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Gennemgå %@"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Esamina %@"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ពិនិត្យ %@"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Gå gjennom %@"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Przejrzyj %@"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Revise %@"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Проверьте %@"}},
+        "th": {"stringUnit": {"state": "translated", "value": "ตรวจทาน %@"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "%@ öğesini incele"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Перегляньте %@"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Xem lại %@"}}
+      }
+    },
+    "home.starter.workspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Plan the next step for %@"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Nächsten Schritt für %@ planen"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Planifier la prochaine étape pour %@"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "خطّط للخطوة التالية لـ %@"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Planificar el siguiente paso para %@"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "規劃 %@ 的下一步"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "规划 %@ 的下一步"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "%@의 다음 단계 계획"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "%@ の次のステップを計画"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Isplaniraj sljedeći korak za %@"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Planlæg næste skridt for %@"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Pianifica il prossimo passo per %@"}},
+        "km": {"stringUnit": {"state": "translated", "value": "រៀបចំផែនការជំហានបន្ទាប់សម្រាប់ %@"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Planlegg neste steg for %@"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Zaplanuj następny krok dla %@"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Planeje o próximo passo para %@"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Спланируйте следующий шаг для %@"}},
+        "th": {"stringUnit": {"state": "translated", "value": "วางแผนขั้นตอนถัดไปสำหรับ %@"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "%@ için sonraki adımı planla"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Сплануйте наступний крок для %@"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Lập kế hoạch bước tiếp theo cho %@"}}
+      }
+    },
+    "home.starter.setup": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Help me open a workspace"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Hilf mir, einen Arbeitsbereich zu öffnen"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Aide-moi à ouvrir un espace de travail"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "ساعدني في فتح مساحة عمل"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Ayúdame a abrir un espacio de trabajo"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "幫我開啟工作區"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "帮我打开工作区"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "작업공간을 열 수 있게 도와줘"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "ワークスペースを開くのを手伝って"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Pomozi mi da otvorim radni prostor"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Hjælp mig med at åbne et arbejdsområde"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Aiutami ad aprire uno spazio di lavoro"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ជួយខ្ញុំបើកកន្លែងធ្វើការ"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Hjelp meg med å åpne et arbeidsområde"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Pomóż mi otworzyć obszar roboczy"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Ajude-me a abrir um espaço de trabalho"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Помогите мне открыть рабочее пространство"}},
+        "th": {"stringUnit": {"state": "translated", "value": "ช่วยฉันเปิดพื้นที่ทำงาน"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Bir çalışma alanı açmama yardım et"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Допоможіть мені відкрити робочий простір"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Giúp tôi mở một không gian làm việc"}}
+      }
+    },
+    "home.starter.agent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Help me start an agent"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Hilf mir, einen Agenten zu starten"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Aide-moi à démarrer un agent"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "ساعدني في تشغيل وكيل"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Ayúdame a iniciar un agente"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "幫我啟動代理程式"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "帮我启动代理"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "에이전트를 시작할 수 있게 도와줘"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "エージェントを起動するのを手伝って"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Pomozi mi da pokrenem agenta"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Hjælp mig med at starte en agent"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Aiutami ad avviare un agente"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ជួយខ្ញុំចាប់ផ្តើមភ្នាក់ងារ"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Hjelp meg med å starte en agent"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Pomóż mi uruchomić agenta"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Ajude-me a iniciar um agente"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Помогите мне запустить агента"}},
+        "th": {"stringUnit": {"state": "translated", "value": "ช่วยฉันเริ่มเอเจนต์"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Bir ajanı başlatmama yardım et"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Допоможіть мені запустити агента"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Giúp tôi bắt đầu một tác nhân"}}
+      }
+    },
+    "home.starter.task": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Help me choose my next task"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Hilf mir, meine nächste Aufgabe auszuwählen"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Aide-moi à choisir ma prochaine tâche"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "ساعدني في اختيار مهمتي التالية"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Ayúdame a elegir mi próxima tarea"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "幫我選擇下一個任務"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "帮我选择下一个任务"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "다음 작업을 선택할 수 있게 도와줘"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "次のタスクを選ぶのを手伝って"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Pomozi mi da odaberem svoj sljedeći zadatak"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Hjælp mig med at vælge min næste opgave"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Aiutami a scegliere la mia prossima attività"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ជួយខ្ញុំជ្រើសរើសភារកិច្ចបន្ទាប់របស់ខ្ញុំ"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Hjelp meg med å velge neste oppgave"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Pomóż mi wybrać moje następne zadanie"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Ajude-me a escolher minha próxima tarefa"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Помогите мне выбрать следующую задачу"}},
+        "th": {"stringUnit": {"state": "translated", "value": "ช่วยฉันเลือกงานถัดไป"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Bir sonraki görevimi seçmeme yardım et"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Допоможіть мені вибрати моє наступне завдання"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Giúp tôi chọn tác vụ tiếp theo"}}
+      }
+    },
     "home.list.title": {
       "extractionState": "manual",
       "localizations": {
@@ -14645,6 +15066,138 @@
           "stringUnit": {
             "state": "translated",
             "value": "邀請你加入群組"
+          }
+        }
+      }
+    },
+    "home.firstRun.intro": {
+      "comment": "Empty Chief conversation: the Chief's first-open message, shown once per install above the front page's hero. Three short lines: what Chief is, what it does with agents and workspaces, how to start.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "مرحبًا، أنا Chief، مساعدك في cmux. أخبرني بما تريد إنجازه.\nأتولى المهام السريعة بنفسي. أما الأعمال الأكبر فأسلّمها إلى وكلاء، ولكل منهم مساحة عمل تستطيع متابعتها والانضمام إليها.\nللبدء، اكتب أدناه أو اختر اقتراحًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zdravo, ja sam Chief, vaš asistent u cmuxu. Recite mi šta želite da se uradi.\nBrze stvari radim sam. Veće poslove predajem agentima, svakom u njegovom radnom prostoru koji možete pratiti i kojem se možete pridružiti.\nZa početak upišite ispod ili izaberite prijedlog."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hej, jeg er Chief, din assistent i cmux. Fortæl mig, hvad du vil have gjort.\nJeg klarer hurtige ting selv. Større opgaver går til agenter, hver i sit eget arbejdsområde, som du kan følge og deltage i.\nSkriv nedenfor for at starte, eller vælg et forslag."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hallo, ich bin Chief, dein Assistent in cmux. Sag mir, was erledigt werden soll.\nSchnelle Sachen erledige ich selbst. Größere Aufgaben gehen an Agenten, jeder in einem eigenen Arbeitsbereich, den du verfolgen und betreten kannst.\nZum Start unten schreiben oder einen Vorschlag wählen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hi, I'm Chief, your assistant in cmux. Tell me what you want done.\nI handle quick things myself. Bigger jobs go to agents, each in its own workspace you can watch and join.\nTo start, type below or pick a suggestion."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hola, soy Chief, tu asistente en cmux. Dime qué quieres que se haga.\nYo me encargo de las cosas rápidas. Los trabajos más grandes van a agentes, cada uno en su propio espacio de trabajo que puedes seguir y al que puedes unirte.\nPara empezar, escribe abajo o elige una sugerencia."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bonjour, je suis Chief, votre assistant dans cmux. Dites-moi ce que vous voulez faire.\nJe gère moi-même les petites tâches. Les travaux plus importants sont confiés à des agents, chacun dans son propre espace de travail que vous pouvez suivre et rejoindre.\nPour commencer, écrivez ci-dessous ou choisissez une suggestion."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ciao, sono Chief, il tuo assistente in cmux. Dimmi cosa vuoi fare.\nGestisco io le cose rapide. I lavori più grandi vanno agli agenti, ognuno nel proprio spazio di lavoro che puoi seguire e a cui puoi unirti.\nPer iniziare, scrivi qui sotto o scegli un suggerimento."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "こんにちは、Chief です。cmux のアシスタントです。やりたいことを教えてください。\n簡単なことは自分で処理します。大きな作業はエージェントに任せ、それぞれ専用のワークスペースで進みます。見守ったり参加したりできます。\n始めるには、下に入力するか、候補を選んでください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "សួស្តី ខ្ញុំជា Chief ជំនួយការរបស់អ្នកក្នុង cmux។ ប្រាប់ខ្ញុំអំពីអ្វីដែលអ្នកចង់ធ្វើ។\nខ្ញុំធ្វើកិច្ចការងាយៗដោយខ្លួនឯង។ កិច្ចការធំៗបញ្ជូនទៅភ្នាក់ងារ ម្នាក់ៗមានកន្លែងធ្វើការផ្ទាល់ខ្លួនដែលអ្នកអាចមើល និងចូលរួមបាន។\nដើម្បីចាប់ផ្តើម វាយខាងក្រោម ឬជ្រើសការណែនាំមួយ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "안녕하세요, 저는 cmux의 어시스턴트 Chief입니다. 하고 싶은 일을 말해 주세요.\n간단한 일은 제가 직접 처리합니다. 더 큰 작업은 에이전트에게 맡기며, 각 에이전트는 자신의 워크스페이스에서 진행하고 여러분은 지켜보거나 참여할 수 있습니다.\n시작하려면 아래에 입력하거나 제안을 고르세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hei, jeg er Chief, din assistent i cmux. Si hva du vil ha gjort.\nJeg tar meg selv av raske ting. Større jobber går til agenter, hver i sin egen arbeidsområde som du kan følge og bli med i.\nFor å starte, skriv nedenfor eller velg et forslag."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cześć, jestem Chief, twój asystent w cmux. Powiedz mi, co chcesz zrobić.\nSzybkie rzeczy załatwiam sam. Większe zadania trafiają do agentów, każdy we własnym obszarze roboczym, który możesz obserwować i do którego możesz dołączyć.\nAby zacząć, napisz poniżej lub wybierz sugestię."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oi, eu sou o Chief, seu assistente no cmux. Diga o que você quer fazer.\nEu cuido das coisas rápidas. Trabalhos maiores vão para agentes, cada um no próprio espaço de trabalho que você pode acompanhar e entrar.\nPara começar, digite abaixo ou escolha uma sugestão."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Здравствуйте, я Chief, ваш помощник в cmux. Скажите, что нужно сделать.\nБыстрые дела я делаю сам. Крупные задачи передаю агентам, у каждого из которых своё рабочее пространство: за ним можно следить и присоединиться.\nЧтобы начать, напишите ниже или выберите подсказку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "สวัสดี ฉันคือ Chief ผู้ช่วยของคุณใน cmux บอกฉันสิ่งที่อยากให้ทำ\nงานเล็ก ๆ ฉันทำเอง งานใหญ่จะส่งให้เอเจนต์ แต่ละตัวมีพื้นที่ทำงานของตัวเองที่คุณดูและเข้าร่วมได้\nเริ่มได้โดยพิมพ์ด้านล่าง หรือเลือกคำแนะนำ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Merhaba, ben Chief, cmux'taki asistanınız. Ne yapılmasını istediğinizi söyleyin.\nKüçük işleri kendim hallederim. Daha büyük işler, izleyip katılabileceğiniz kendi çalışma alanında olan ajanlara gider.\nBaşlamak için aşağıya yazın ya da bir öneri seçin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Привіт, я Chief, ваш помічник у cmux. Скажіть, що потрібно зробити.\nШвидкі справи я виконую сам. Більші завдання передаю агентам, кожен у власному робочому просторі, за яким можна стежити й приєднатися.\nЩоб почати, напишіть нижче або виберіть підказку."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Xin chào, tôi là Chief, trợ lý của bạn trong cmux. Hãy nói điều bạn muốn làm.\nTôi tự xử lý các việc nhanh. Việc lớn hơn sẽ giao cho các agent, mỗi agent có không gian làm việc riêng mà bạn có thể theo dõi và tham gia.\nĐể bắt đầu, hãy gõ bên dưới hoặc chọn một gợi ý."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "你好，我是 Chief，你在 cmux 里的助手。告诉我你想做什么。\n简单的事我自己处理。较大的工作交给智能体，每个智能体都有自己的工作区，你可以查看并加入。\n要开始，请在下方输入，或选择一个建议。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "你好，我是 Chief，你在 cmux 裡的助手。告訴我你想做什麼。\n簡單的事我自己處理。較大的工作交給代理，每個代理都有自己的工作區，你可以查看並加入。\n要開始，請在下方輸入，或選擇一個建議。"
           }
         }
       }

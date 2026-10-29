@@ -54,6 +54,7 @@
   text-align: right;
   font-size: var(--text-detail);
   font-variant-numeric: tabular-nums;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 /* A /context breakdown: each used category takes a step of the theme accent, largest first, so the
    bar reads as one color family over the glass; the autocompact buffer is a stronger tint of the text,
@@ -94,6 +95,7 @@
 .acpmux-context-breakdown__items {
   padding-left: 18px;
   font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .acpmux-context-breakdown__items .acpmux-chat-inspector-row {
   height: 24px;

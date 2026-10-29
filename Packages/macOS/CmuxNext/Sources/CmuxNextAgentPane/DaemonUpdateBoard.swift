@@ -17,6 +17,8 @@ public final class DaemonUpdateBoard {
 
     /// The latest event per target id.
     public private(set) var targets: [String: DaemonUpdateEvent] = [:]
+    /// Machines whose Update the person clicked (``update(_:retry:)``), until their update ends.
+    private var clicked: Set<String> = []
 
     /// The one toast of the failures and what closing it or its Details button does.
     struct Notice {
@@ -148,6 +150,7 @@ public final class DaemonUpdateBoard {
     }
 
     public func apply(_ event: DaemonUpdateEvent) {
+        if event.state != .updating, event.state != .retrying { clicked.remove(event.id) }
         guard event.state != .cleared else {
             targets[event.id] = nil
             failures[event.id] = nil
@@ -207,15 +210,62 @@ public final class DaemonUpdateBoard {
     /// Settings > Updates' row of other machines: each that cannot update in place, then each whose
     /// update failed, as one line each; nil when none. Read when the card shows, and watched while
     /// it shows (`cmux.settings.channels.machines.changed`).
-    public var otherMachines: (title: String, lines: [String])? {
+    ///
+    /// A machine that cannot update in place has an Update button (``OtherMachine/canUpdate``,
+    /// the policy's ``DaemonUpdatePolicy/retry(_:)``). Once clicked, its line says it is updating
+    /// until the update ends: updated, it leaves the row; still unable or failed, its line returns.
+    public var otherMachines: (title: String, lines: [String], machines: [OtherMachine])? {
         let events = targets.values.sorted { $0.displayName.localizedStandardCompare($1.displayName) == .orderedAscending }
-        var lines: [String] = []
+        var machines: [OtherMachine] = []
         for event in events {
-            if case .cannotUpdate(let reason) = event.state { lines.append(reason) }
+            switch event.state {
+            case .cannotUpdate(let reason):
+                machines.append(OtherMachine(id: event.id, line: reason, canUpdate: true))
+            case .updating where clicked.contains(event.id), .retrying where clicked.contains(event.id):
+                machines.append(OtherMachine(id: event.id, line: Self.updatingLine(event.displayName), canUpdate: false))
+            default:
+                break
+            }
         }
-        lines += events.compactMap(Self.notice)
-        guard !lines.isEmpty else { return nil }
-        return (String(localized: "agentPane.daemonUpdate.machines.title", defaultValue: "Other machines", bundle: .module), lines)
+        machines += events.compactMap { event in Self.notice(event).map { OtherMachine(id: event.id, line: $0, canUpdate: false) } }
+        guard !machines.isEmpty else { return nil }
+        return (String(localized: "agentPane.daemonUpdate.machines.title", defaultValue: "Other machines", bundle: .module),
+                machines.map(\.line), machines)
+    }
+
+    /// One line of ``otherMachines``: the machine's target id, its text, and whether it has an
+    /// Update button.
+    public struct OtherMachine: Sendable, Equatable {
+        public var id: String
+        public var line: String
+        public var canUpdate: Bool
+    }
+
+    /// The person clicked Update on machine `id` (``otherMachines``): its line says it is updating
+    /// while the policy runs it. False (and no change) when `retry` refused it.
+    @discardableResult
+    public func update(_ id: String, retry: (String) async -> Bool) async -> Bool {
+        guard case .cannotUpdate = targets[id]?.state, await retry(id) else { return false }
+        clicked.insert(id)
+        return true
+    }
+
+    /// The Update button of a machine in ``otherMachines``.
+    public nonisolated static var updateLabel: String {
+        String(localized: "agentPane.daemonUpdate.machines.update", defaultValue: "Update", bundle: .module)
+    }
+
+    /// Why an Update click did not run: the machine is gone from this run, or updates of other
+    /// machines are off.
+    public nonisolated static var updateRefused: String {
+        String(localized: "agentPane.daemonUpdate.machines.updateRefused",
+               defaultValue: "This machine can't be updated now. Try again once it's connected.", bundle: .module)
+    }
+
+    /// The row's "updating" line of machine `name`.
+    nonisolated static func updatingLine(_ name: String) -> String {
+        String(format: String(localized: "agentPane.daemonUpdate.machines.updating", defaultValue: "Updating %@ to this Mac's build…",
+                              bundle: .module), name)
     }
 
     /// The tooltip line of target `id`, nil when it has no update state.

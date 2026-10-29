@@ -10,7 +10,7 @@ public nonisolated enum BrowserURLDisplay {
     /// pass their own), as a shell and the Markdown tab's mock show it.
     public static func displayText(for url: URL?, home: String = NSHomeDirectory()) -> String {
         guard let url else { return "" }
-        if BrowserNewTabPage.isNewTabPage(url) { return "" }
+        if BrowserNewTabPage.isNewTabPage(url) || isRemoteDesktopPage(url) { return "" }
         if url.isFileURL { return tildePath(url.path(percentEncoded: false), home: home) }
 
         guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false),
@@ -71,8 +71,15 @@ public nonisolated enum BrowserURLDisplay {
 
     /// Full text placed in the field when editing starts.
     public static func editingText(for url: URL?) -> String {
-        guard let url, !BrowserNewTabPage.isNewTabPage(url) else { return "" }
+        guard let url, !BrowserNewTabPage.isNewTabPage(url), !isRemoteDesktopPage(url) else { return "" }
         return url.absoluteString
+    }
+
+    /// A remote desktop tab (`cmux://remote-view?…`, the native Swift pane): its address is the
+    /// tab's saved record, not a page, so the field stays empty (the tab title names the machine)
+    /// and typing an address there opens that page instead.
+    static func isRemoteDesktopPage(_ url: URL) -> Bool {
+        url.scheme?.lowercased() == "cmux" && url.host(percentEncoded: false)?.lowercased() == "remote-view"
     }
 
     /// Title for tab strips and window titles: the page title, else the host,

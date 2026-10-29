@@ -340,6 +340,16 @@ class GuardsRunFromTheBase(unittest.TestCase):
         self.assert_let_through(out, "installed landing gate holds nothing")
         self.assertIn("base merge warning base v1", out["hookSpecificOutput"]["additionalContext"])
 
+    def test_a_gate_that_answers_without_reading_the_payload_is_not_a_crash(self):
+        """Red on base under concurrent load: the payload went in through a pipe, so a gate that answered
+        without reading stdin (GATE_HOLD) could make printf die of SIGPIPE, and pipefail's 141 read as
+        "require-cmux-guards.sh exited 141". A payload larger than any pipe buffer makes that certain."""
+        self.install_gate(text=GATE_HOLD)
+        code, out, err = self.hook(f"{MERGE} --body {'x' * 300_000}")
+        self.assertEqual(code, 0, err)
+        self.assert_let_through(out, "installed landing gate holds nothing")
+        self.assertNotIn("exited", out["systemMessage"])
+
     def test_a_refusal_still_wins_over_a_warning(self):
         self.install_gate()
         code, out, err = self.hook(f"{MERGE}; {UPDATE}")

@@ -5,6 +5,7 @@
   min-width: 0;
   font-size: var(--text-body);
   color: var(--page-text);
+  letter-spacing: var(--text-body--letter-spacing);
 }
 
 .ds-empty {
@@ -80,6 +81,7 @@
   font-size: var(--text-caption);
   font-variant-numeric: tabular-nums;
   color: var(--page-text-3);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 .ds-dot {
@@ -135,6 +137,7 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  letter-spacing: var(--text-heading--letter-spacing);
 }
 
 .ds-title-count,
@@ -143,6 +146,7 @@
 .ds-row-default {
   font-size: var(--text-caption);
   color: var(--page-text-2);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 /* Actions on their own row, so a narrow pane never truncates them. */
@@ -190,6 +194,7 @@
   font-size: var(--text-detail);
   font-weight: 600;
   color: var(--page-text-2);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 
 .ds-card-body {
@@ -291,6 +296,7 @@
   min-width: 24px;
   font-size: var(--text-caption);
   color: var(--page-text-3);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 .ds-switch {
@@ -363,11 +369,13 @@
 .ds-spring-label {
   font-size: var(--text-caption);
   color: var(--page-text-2);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 .ds-footer {
   font-size: var(--text-caption);
   color: var(--page-text-3);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 /* Recent hangs: the folder and its button on the title line, then one row per hang file. */

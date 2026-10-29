@@ -36,7 +36,7 @@ struct AppWindowImage {
         // React pages on the Chromium engine (the agent page, Settings) draw the same way.
         for (page, rect) in PageRegistry.shownChromiumPages(in: window) {
             guard let image = await page.chromiumImage() else { continue }
-            layers.append(.page(image, rect))
+            layers.append(.page(image, rect, holes: page.chromiumWindowHoles)) // a chat leaves its pane's tabs uncovered
         }
         // The panel and floating-window captures run off the main actor too; main reads only their window numbers.
         if let panels = await window.childWindowsImage(includeChild: { !WindowOverlayHost.isPageWindow($0) }) {
@@ -64,7 +64,7 @@ struct AppWindowImage {
             var layers: [WindowImageLayer] = []
             for (page, rect) in PageRegistry.shownChromiumPages(in: window) where !ScreenshotMask.isCovered(page, rules: .app) {
                 guard let image = await page.chromiumImage() else { continue }
-                layers.append(.page(image, rect))
+                layers.append(.page(image, rect, holes: page.chromiumWindowHoles)) // a chat leaves its pane's tabs uncovered
             }
             // The last reading follows the last await, so nothing changes before the paint.
             sampler.stop()

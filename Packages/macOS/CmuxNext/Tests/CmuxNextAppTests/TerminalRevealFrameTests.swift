@@ -125,4 +125,67 @@ import Testing
         #expect(held.isEmpty, "\(resync): a held frame was still up over the live surface")
         #expect(Self.shown(session.surfaceView.presentedFrame) == .text, "\(resync): the live surface did not draw the content")
     }
+
+    /// #22282: Copilot sends OSC 11 while a restored surface is still in a background
+    /// workspace. The first frame after that off-window parse must still present the
+    /// terminal, rather than leaving only the host backdrop visible.
+    @Test func aBackgroundCreatedTerminalWithOsc11ShowsTextFromItsFirstFrame() async throws {
+        _ = NSApplication.shared
+        let drew = WindowDrawPolicy.drawsWhenOccluded
+        WindowDrawPolicy.drawsWhenOccluded = true
+        defer { WindowDrawPolicy.drawsWhenOccluded = drew }
+
+        let io = ScriptedTerminalIO()
+        let session = TerminalSession(io: io)
+        try #require(session.surfaceView.surface != nil, "libghostty created no surface")
+        defer { io.finish() }
+
+        let line = String(repeating: "C", count: 40)
+        let screen = "\u{1b}]11;#0D1117\u{7}\u{1b}[?25l\u{1b}[2J\u{1b}[H"
+            + Array(repeating: line, count: 8).joined(separator: "\r\n")
+        io.send(.output(Data(screen.utf8)))
+
+        // Ensure the OSC action was handled while the surface had never joined a window.
+        let actionBy = ContinuousClock.now.advanced(by: .seconds(5))
+        while session.model.backgroundOverride == nil, ContinuousClock.now < actionBy {
+            await Task.yield()
+        }
+        try #require(session.model.backgroundOverride != nil, "OSC 11 was not handled before reveal")
+        // The OSC action lands mid-chunk: wait until the rest of the chunk (the text) is parsed too,
+        // so the reveal below starts from a fully parsed off-window screen.
+        let lane = try #require(session.surfaceView.lane, "the surface has no output lane")
+        await lane.drained()
+        #expect(session.surfaceView.window == nil, "the regression setup must parse off-window")
+
+        let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 480, height: 240), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let host = NSView(frame: NSRect(x: 0, y: 0, width: 480, height: 240))
+        window.contentView = host
+        session.view.frame = host.bounds
+        host.addSubview(session.view)
+        window.orderFrontRegardless()
+        session.view.layoutSubtreeIfNeeded()
+
+        // A never-shown surface has no frame to hold, so the pane shows nothing (`.none`), and on a
+        // slow runner briefly an empty frame (`.blank`), until the renderer draws the parsed screen.
+        // The bug left it there for good, since nothing more arrives after the reveal: the text must
+        // come within the deadline and stay.
+        var samples: [Shown] = []
+        let firstBy = ContinuousClock.now.advanced(by: .seconds(2))
+        while ContinuousClock.now < firstBy, samples.last != .text {
+            samples.append(Self.onScreen(session))
+            try await Task.sleep(for: .milliseconds(4))
+        }
+        try #require(samples.last == .text, "OSC 11 reveal showed no text within 2s: \(samples)")
+        let until = ContinuousClock.now.advanced(by: .milliseconds(500))
+        while ContinuousClock.now < until {
+            samples.append(Self.onScreen(session))
+            try await Task.sleep(for: .milliseconds(4))
+        }
+        let first = try #require(samples.firstIndex(of: .text), "OSC 11 reveal never showed text: \(samples)")
+        #expect(samples[first...].allSatisfy { $0 == .text }, "OSC 11 reveal lost its text: \(samples)")
+        #expect(session.surfaceView.presentedFrame != nil, "OSC 11 reveal never presented an IOSurface")
+    }
 }

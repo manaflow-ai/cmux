@@ -117,6 +117,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         PageDescriptor.registerDiffRoot()
         PageDescriptor.registerFilePageRoots()
         PageDescriptor.registerAgentActivityRoot()
+        // Peer-route approvals: where this Mac's approver key lives, before any pane connects.
+        PeerApprovalsApp.install()
         DebugTimings.markLaunch("dfl.theme")
         let services = AppServices(environment: environment, work: launchReads.work, mainWork: mainWork,
                                    launchImages: launchReads.images, relaunchWake: launchReads.wake)
@@ -207,6 +209,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.browserProfiles.load(directory: profilesDirectory, importStore: services.onboarding.importStore)
         DebugTimings.markLaunch("dfl.first_window_hooks")
         services.home.start()
+        services.harnessIcons.start()
         mouseSideButtons.start { [weak services] in _ = services?.registry.perform($0 == .back ? "focusHistoryBack" : "focusHistoryForward") }
         services.keybindingsFile.start()
         services.bookmarks.start(directory: profilesDirectory, importStore: services.onboarding.importStore)
@@ -309,6 +312,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.projectsImport.start(feed: services.chatsFeed)
         if let feed = services.chatsFeed { AgentPageChats.wire(services.agentTabs, to: feed, opener: services.chatsOpener) }
         AgentPageChats.wirePager(services.agentTabs, environment: acpmux, opener: services.chatsOpener)
+        AgentPageChats.wireSandbox(services.agentTabs, services: services)
         NewTabClosed.wire(services.agentTabs, services: services)
         NewTabPlacesFeed.wire(services.agentTabs, services: services)
         NewTabWeather.wire(services.agentTabs, services: services)
@@ -329,11 +333,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             for await _ in NotificationCenter.default.notifications(named: NSApplication.didBecomeActiveNotification) {
                 settings?.managedPreferencesMayHaveChanged()
                 services?.windows.enterRestoredFullScreens()
+                await services?.paidPlanReturned() // an upgrade's payment page sends the person back here
             }
         }
         services.configActions.start(settings: settings)
         // Agent-launched builds never take system-wide keys from the person's app.
         if !environment.noActivate { services.globalHotKeys.start() }
+        // Nor a menu bar item: a tagged build an agent launches leaves the person's menu bar alone.
+        if !environment.noActivate { services.menuBarExtra.follow(settings, background: services.background) }
         services.cache.browserTabs.preference.follow(settings)
         BrowserLinkClickPreference.follow(settings, webKit: services.cache.webKit, cef: services.cache.cef)
         WorkspaceAutoNameWiring(services: services).start(settings: settings) // `workspaces.autoName.variant` persist (hq#1957)
@@ -347,10 +354,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         })
         services.startHibernation(settings: settings)
         services.autoArchive.start() // workspaces.autoArchive: first pass 30 s after launch
+        services.workspaceHibernation.start() // workspaces.hibernation: first pass 60 s after launch
         services.terminalTheme.follow(settings)
         services.themes.start()
         services.themes.followChromeTheme(settings)
         services.remoteLocalhost.follow(settings)
+        // A Cloud machine's localhost (Open Desktop, or a machine whose cmux-tui has no loopback
+        // forward) goes over the app's own WireGuard tunnel, as in cmux Classic.
+        services.remoteLocalhost.cloudTunnelSocket = services.cloud.tunnelSocket
         services.bookmarks.follow(settings)
         services.apps.start()
         Task {
@@ -483,6 +494,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         services?.crashRecovery.applicationWillTerminate()
+        // The release push's socket closes and nothing reconnects (ReleasePushListener).
+        services?.updater.stopReleasePush()
+        services?.agentTabs.pageChats.runNotices?.stop()
         AppProcessRoot.shared.hangReports?.applicationWillTerminate()
         ComputerUseHelperDaemon.shared.applicationWillTerminate()
         services?.viewers.diffPages.terminate()

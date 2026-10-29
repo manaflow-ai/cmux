@@ -40,7 +40,7 @@ serde_json.workspace = true
 sha2.workspace = true
 subtle.workspace = true
 tokio.workspace = true
-tokio-tungstenite = { workspace = true, features = ["rustls-tls-webpki-roots"] }
+tokio-tungstenite.workspace = true
 x25519-dalek.workspace = true
 zeroize.workspace = true
 

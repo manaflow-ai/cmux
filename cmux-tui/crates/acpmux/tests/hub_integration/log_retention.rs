@@ -191,3 +191,79 @@ async fn retention_never_touches_an_open_or_recent_chat() {
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&root);
 }
+
+#[tokio::test]
+async fn the_daemon_compacts_a_chat_closed_weeks_ago_by_itself() {
+    let root = std::env::temp_dir().join(format!("acpmux-retention-{}", uuid::Uuid::now_v7()));
+    let cfg = config(&root);
+    let day = 86_400_000;
+    let now = acpmux::store::now_ms();
+    let store = acpmux::store::open(&cfg.store, &root.join("acpmux")).unwrap();
+    let chat = |id: &str, age: u64| {
+        let meta = json!({
+            "schema": acpmux::store::META_SCHEMA, "id": id, "name": id, "harness": "claude",
+            "cwd": cwd(), "status": "closed", "createdAt": now - age, "updatedAt": now - age,
+        });
+        store.save(&serde_json::from_value(meta).unwrap()).unwrap();
+        let record = |seq: u64, dir: &str, kind: &str, msg: Value| acpmux::store::EventRecord {
+            seq,
+            at: now - age,
+            dir: dir.into(),
+            kind: kind.into(),
+            msg,
+            host_seq: None,
+        };
+        store.append(id, &record(1, "mux", "created", json!({}))).unwrap();
+        store
+            .append(id, &record(2, "mux", "user_message", json!({"text": "remember pelican"})))
+            .unwrap();
+        store
+            .append(id, &record(3, "in", "claude.assistant", json!({"text": "x".repeat(5000)})))
+            .unwrap();
+        store.append(id, &record(4, "mux", "status", json!({"status": "closed"}))).unwrap();
+        store.close_log(id);
+    };
+    chat("weeks-ago", 30 * day);
+    chat("last-week", 7 * day);
+    drop(store);
+
+    let hub = hub(&cfg, &root);
+    let held = Arc::strong_count(&hub);
+    let worker = hub.retention_worker();
+    let marker = |id: &str| root.join("acpmux/sessions").join(id).join("events/compacted.json");
+    let complete = |id: &str| {
+        std::fs::read(marker(id))
+            .ok()
+            .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
+            .is_some_and(|m| m["complete"] == true)
+    };
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    while !complete("weeks-ago") {
+        assert!(tokio::time::Instant::now() < deadline, "no pass ran");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let raw_text = |id: &str| -> String {
+        let log = hub.events(id, 0, 100).unwrap();
+        let kinds: Vec<&str> = log.iter().map(|e| e.kind.as_str()).collect();
+        assert_eq!(kinds, ["created", "user_message", "claude.assistant", "status"], "{id}");
+        log[2].msg["text"].as_str().unwrap().to_owned()
+    };
+    assert!(raw_text("weeks-ago").ends_with("removed by log retention]"));
+    assert_eq!(raw_text("last-week").len(), 5000);
+    assert!(!marker("last-week").exists(), "a chat closed 7 days ago is kept whole");
+    let listed: Vec<String> = hub.sessions().iter().map(|s| s.id.clone()).collect();
+    assert!(listed.contains(&"weeks-ago".to_owned()), "{listed:?}");
+    // Between passes it holds no strong reference to the hub.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    while Arc::strong_count(&hub) > held {
+        assert!(tokio::time::Instant::now() < deadline, "the worker keeps the hub alive");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    // The daemon's shutdown ends the worker.
+    hub.shutdown_all().await;
+    tokio::time::timeout(Duration::from_secs(5), worker)
+        .await
+        .expect("the worker outlived the shutdown")
+        .unwrap();
+    let _ = std::fs::remove_dir_all(&root);
+}

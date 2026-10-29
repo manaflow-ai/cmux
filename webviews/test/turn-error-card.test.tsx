@@ -9,6 +9,8 @@ import { failureCopy, failureKind, failureRecovery, offersOwnRoute } from "../sr
 import { codeRouterOffer, ownRouteOf, readChatAccounts } from "../src/agent-session/acpmux/chatAccounts";
 import { translatorFor } from "../src/agent-session/acpmux/i18n";
 
+import { cloudCredentialRecovery } from "../src/agent-session/acpmux/cloudCredentialRecovery";
+
 const t = translatorFor("en");
 const claude = { name: "Claude Code", harness: "claude" };
 
@@ -67,6 +69,24 @@ test("every failure reads human, never as the agent's raw words", () => {
   expect(failureCopy(t, "dial tcp mini.tail1.ts.net:4717: i/o timeout", claude)).toContain("Tailscale");
   expect(failureCopy(t, undefined, claude)).toBe("The turn failed");
   expect(failureCopy(t, undefined, claude, "disk.full")).toContain("The disk is full");
+});
+
+test("cloud auth failures explain safe causes without leaking provider output or machine names", () => {
+  const cloud = { name: "Claude Code", harness: "claude", hostKind: "cloud" as const, host: "secret-host.internal" };
+  expect(failureCopy(t, "Claude failed to authenticate: credential is missing", cloud)).toBe(
+    "This Cloud machine has no provider credential for Claude Code. Set it up to continue.",
+  );
+  expect(failureCopy(t, "OAuth token expired (HTTP 401): raw-secret-value", cloud)).toBe(
+    "Claude Code’s provider credential has expired or been revoked on this Cloud machine. Set it up again to continue.",
+  );
+  expect(failureCopy(t, "credential was revoked: raw-secret-value", cloud)).toBe(
+    "Claude Code’s provider credential has expired or been revoked on this Cloud machine. Set it up again to continue.",
+  );
+  expect(failureCopy(t, "HTTP 403 Forbidden: raw-secret-value", cloud)).toBe(
+    "The provider rejected Claude Code’s credentials on this Cloud machine (HTTP 403). Set them up again to continue.",
+  );
+  expect(failureKind("HTTP 401 Unauthorized from https://proxy.tail123.ts.net/v1/messages", cloud)).toBe("proxy-auth");
+  expect(failureKind("needs a team account on this machine; run cr add claude", cloud)).toBe("no-team-account");
 });
 
 test("the way out: Retry for what may pass, Switch model for capacity and keys, none for sign-in", () => {
@@ -171,6 +191,36 @@ test('"agent process closed" draws a card: the cause, Retry first, the raw words
   expect(details.querySelector("summary")!.textContent).toBe("Details");
   expect(details.textContent).toContain("agent process closed");
   expect([...details.querySelectorAll("button")].map((element) => element.textContent)).toEqual(["Copy error"]);
+});
+
+test("cloud credential transfer retries only the failed prompt after a successful transfer", async () => {
+  const calls: string[] = [];
+  await act(async () =>
+    root.render(
+      <TurnActionsContext.Provider
+        value={{
+          route: { name: "Claude Code", harness: "claude", hostKind: "cloud", host: "private.internal" },
+          transferCloudCredentials: async (rowId, prompt) => {
+            calls.push(`transfer:${rowId}:${prompt}`);
+          },
+          retry: (rowId, prompt) => calls.push(`retry:${rowId}:${prompt}`),
+        }}
+      >
+        <TurnFooter row={failed("HTTP 401 Unauthorized")} />
+      </TurnActionsContext.Provider>,
+    ),
+  );
+  expect(card().querySelector(".cv-turn-error__cause")!.textContent).toBe(
+    "The provider rejected Claude Code’s credentials on this Cloud machine (HTTP 401). Set them up again to continue.",
+  );
+  expect(card().textContent).not.toContain("private.internal");
+  const transferButton = [...host.querySelectorAll("button")].find(
+    (element) => element.textContent === "Set up Claude Code credentials",
+  );
+  expect(transferButton).toBeDefined();
+  await act(async () => transferButton!.click());
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(calls).toEqual(["transfer:user-1:Run the sidebar tests and fix what fails"]);
 });
 
 test("capacity puts Switch model first, Retry after it", async () => {
@@ -343,4 +393,104 @@ test("a failed turn with no prompt row to send again offers no Retry", async () 
   );
   expect(card().getAttribute("data-failure-kind")).toBe("agent-exited");
   expect(button("Retry")).toBeUndefined();
+});
+
+test("Cloud recovery reserves its prompt before login and retries once with that ticket", async () => {
+  const calls: Record<string, unknown>[] = [];
+  const sent: unknown[][] = [];
+  let granted = true,
+    current = true,
+    switchDuringRestore = false;
+  const client = {
+    selectedSession: "chat-1",
+    resendPrompt: async (_row: string, input: string) => {
+      if (switchDuringRestore) current = false;
+      return { input, attachments: [] };
+    },
+    send: async (...args: Parameters<import("../src/agent-session/acpmux/direct").AcpmuxDirectClient["send"]>) => {
+      sent.push(args);
+      return undefined;
+    },
+  };
+  const call = async (method: string, params: Record<string, unknown>) => {
+    calls.push({ method, ...params });
+    return { transferred: granted, promptId: params.retryPromptId, ticket: "reserved-ticket" };
+  };
+  const isCurrent = () => current;
+  const getClient = () => client;
+  const recover = cloudCredentialRecovery(true, "provider-vm-1", "chat-1", "claude", call, isCurrent, getClient)!;
+  const pending = recover("row-1", "retry text");
+  // Duplicate clicks while native confirmation is open cannot reserve another prompt.
+  await recover("row-1", "retry text");
+  await pending;
+  expect(calls).toHaveLength(1);
+  expect(calls[0]).toMatchObject({
+    method: "chat.cloudCredentialTransfer",
+    provider: "claude",
+    machineID: "provider-vm-1",
+    sessionId: "chat-1",
+  });
+  expect(sent).toEqual([["retry text", [], calls[0]!.retryPromptId, undefined, "reserved-ticket"]]);
+  granted = false;
+  await recover("row-1", "retry text");
+  expect(sent).toHaveLength(1);
+  granted = true;
+  switchDuringRestore = true;
+  await recover("row-1", "retry text");
+  expect(sent).toHaveLength(1);
+  const count = calls.length;
+  await recover("row-1", "retry text");
+  expect(calls).toHaveLength(count);
+  expect(cloudCredentialRecovery(true, undefined, "chat-1", "claude", call, isCurrent, getClient)).toBeUndefined();
+  expect(cloudCredentialRecovery(false, "vm", "chat-1", "claude", call, isCurrent, getClient)).toBeUndefined();
+  expect(cloudCredentialRecovery(true, "vm", "chat-1", "opencode", call, isCurrent, getClient)).toBeUndefined();
+});
+
+test("Cloud recovery maps named harness profiles to the provider sent to native", async () => {
+  const providers: unknown[] = [];
+  const call = async (_method: string, params: Record<string, unknown>) => {
+    providers.push(params.provider);
+    return { transferred: false };
+  };
+  const client = {
+    selectedSession: "chat-1",
+    resendPrompt: async (_row: string, input: string) => ({ input, attachments: [] }),
+    send: async () => undefined,
+  };
+  for (const id of [
+    "claude",
+    "claude-sr2",
+    "Claude_work",
+    "providers/claude-personal",
+    "codex",
+    "codex-work",
+    "Codex_personal",
+    "providers/codex-team",
+  ]) {
+    const recover = cloudCredentialRecovery(
+      true,
+      "vm",
+      "chat-1",
+      id,
+      call,
+      () => true,
+      () => client,
+    );
+    expect(recover).toBeDefined();
+    await recover!("row-1", "retry");
+  }
+  expect(providers).toEqual(["claude", "claude", "claude", "claude", "codex", "codex", "codex", "codex"]);
+  for (const id of [undefined, "", "opencode", "claudelike", "my-claude", "codex/"]) {
+    expect(
+      cloudCredentialRecovery(
+        true,
+        "vm",
+        "chat-1",
+        id,
+        call,
+        () => true,
+        () => client,
+      ),
+    ).toBeUndefined();
+  }
 });

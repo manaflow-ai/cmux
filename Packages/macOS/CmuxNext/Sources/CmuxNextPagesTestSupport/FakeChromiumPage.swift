@@ -70,8 +70,10 @@ public final class FakeChromiumPage: PageChromiumPage {
 
     /// Records the value in ``seeThrough``.
     public func setSeeThrough(_ seeThrough: Bool) { self.seeThrough = seeThrough }
-    /// Does nothing.
-    public func reload() {}
+    /// How often the page was reloaded.
+    public private(set) var reloads = 0
+    /// Counts the reload in ``reloads``.
+    public func reload() { reloads += 1 }
     /// Records the value in ``zoom``.
     public func setZoom(_ zoom: Double) { self.zoom = zoom }
     /// Does nothing.

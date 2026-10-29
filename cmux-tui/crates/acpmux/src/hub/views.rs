@@ -398,6 +398,7 @@ impl Hub {
                 .cloned()
                 .unwrap_or(Value::Null),
             model: current_model(&m),
+            effort: current_effort(&m).or_else(|| current_option(&m, "reasoning_effort")),
             policy: m.permission_policy.clone(),
             enforcement: self.session_enforcement(&m),
             rules: m.permission_rules.is_some(),
@@ -492,6 +493,7 @@ impl Hub {
                 live += 1;
             }
         }
+        let exe_unstable = crate::daemon::exe_path::current_unstable();
         json!({
             "version": VERSION,
             "build": BUILD,
@@ -503,6 +505,11 @@ impl Hub {
             // processes. Never its command line: `--token` is on it.
             "exe": std::env::current_exe().ok().map(|e| e.to_string_lossy().into_owned()),
             "runsAsCmuxTuiAcp": runs_as_cmux_tui_acp(std::env::args_os()),
+            // Whether that executable is a stable install, and why not (`runner-work`, `temp`,
+            // `build-tree`): reach, lane-place and `host ls` flag a daemon that a runner's
+            // cleanup can delete (`daemon/exe_path.rs`).
+            "exeStable": exe_unstable.is_none(),
+            "exeUnstable": exe_unstable,
             "startedAt": self.started_at,
             // Whether this run holds a person key, and its id (`hub/person.rs`):
             // the app checks that a daemon it started with a key still runs.

@@ -163,6 +163,11 @@ struct CloudMachineUpdateTargetTests {
         }
         #expect(outcome(nil, ok: true, updated: true, build: Self.bundled) == .updated(build: Self.bundled))
         #expect(outcome(nil, ok: true) == .current)
+        // `--if-older`: the machine runs a newer build (or the same tree); left alone, not recorded.
+        let notOlder = CloudMoveCLI.Answer(ok: true, updated: false, build: Self.older, notOlder: true)
+        #expect(CloudMachineUpdateTarget.outcome(notOlder, machine: "Leo VM") == .handledElsewhere)
+        #expect(DaemonUpdatePolicy.recorded(.handledElsewhere) == nil)
+        #expect(!CloudMachineUpdateTarget.mayHaveRestarted(notOlder))
         #expect(outcome("machine_update_busy") == .busy)
         #expect(outcome("machine_unreachable") == .busy)
         #expect(outcome("machine_update_unavailable") == .needsBinary(target: CloudMachineUpdateTarget.cloudTarget))
@@ -181,16 +186,33 @@ struct CloudMachineUpdateTargetTests {
         #expect(DaemonUpdatePolicy.recorded(outcome("machine_update_unsupported")) == "unsupported")
     }
 
-    /// A machine that serves every capability this app uses is never moved automatically, whatever
-    /// its build: a Cloud build has no date, and it may be newer than this app's.
-    @Test func aMachineThatServesEverythingIsLeftAlone() async throws {
+    /// A machine that serves every capability this app uses but runs an older build is updated
+    /// too (2026-10-27: a VM on 8b3b1891 served everything, so no app update ever reached it and
+    /// the app's ledger had no `cloud:` entry). The CLI's `--if-older` decides older.
+    @Test func aMachineThatServesEverythingOnAnOlderBuildIsUpdated() async throws {
         let machine = FakeCloudMachine(build: Self.older, level: .current,
                                        answers: [CloudMoveCLI.Answer(ok: true, updated: true, build: Self.bundled)])
         let fixture = try CloudUpdateFixture()
         defer { fixture.remove() }
         await fixture.run(machine)
-        #expect(machine.updates == 0)
-        #expect(fixture.states.isEmpty)
+        #expect(machine.updates == 1)
+        #expect(fixture.states == [.updating, .updated(build: Self.bundled)])
+        #expect(fixture.ledger.targets == [CloudMachineUpdateTarget.id("vm-1"): "updated"])
+    }
+
+    /// A machine on a newer build than this app's (`not_older` from `--if-older`) is never moved
+    /// back: nothing changes, nothing is recorded, and its line goes.
+    @Test func aMachineOnANewerBuildIsLeftAlone() async throws {
+        let machine = FakeCloudMachine(build: Self.older, level: .current,
+                                       answers: [CloudMoveCLI.Answer(ok: true, updated: false, build: Self.older, notOlder: true)])
+        let fixture = try CloudUpdateFixture()
+        defer { fixture.remove() }
+        await fixture.run(machine)
+        #expect(machine.updates == 1)
+        #expect(machine.reconnectRestarts == [false], "the connection is left as it is")
+        #expect(fixture.states == [.updating, .cleared])
+        #expect(fixture.ledger.targets.isEmpty)
+        #expect(fixture.notices.isEmpty)
     }
 
     /// A toggle turned off after the policy read the machine: the CLI does not run.
@@ -295,18 +317,33 @@ nonisolated final class FakeCloudMachine: @unchecked Sendable {
     private var answers: [CloudMoveCLI.Answer]
     /// The first this many updates run past the CLI's deadline.
     private var timeouts: Int
-    private var counts = (updates: 0, reconnects: 0)
+    /// What each update through the Cloud API's exec answers (``CloudLegacyMachineUpdate``); nil:
+    /// the machine has no exec, so it has none.
+    private var legacyAnswers: [CloudMoveCLI.Answer]?
+    private var counts = (updates: 0, reconnects: 0, legacy: 0)
+    private var judgedBuilds: [String] = []
+    private var restarts: [Bool] = []
 
-    init(build: String?, level: DaemonCompatibility.Level, timeouts: Int = 0, answers: [CloudMoveCLI.Answer] = []) {
+    init(build: String?, level: DaemonCompatibility.Level, timeouts: Int = 0, answers: [CloudMoveCLI.Answer] = [],
+         legacy: [CloudMoveCLI.Answer]? = nil) {
         daemon = CloudMachineUpdateTarget.Daemon(build: build, level: level)
         self.timeouts = timeouts
         self.answers = answers
+        legacyAnswers = legacy
     }
 
     var updates: Int { lock.withLock { counts.updates } }
     var reconnects: Int { lock.withLock { counts.reconnects } }
+    var legacyUpdates: Int { lock.withLock { counts.legacy } }
+    /// The build the CLI judged older, as each exec update got it.
+    var legacyJudged: [String] { lock.withLock { judgedBuilds } }
+    /// Each reconnect's `restarted`.
+    var reconnectRestarts: [Bool] { lock.withLock { restarts } }
 
     func disconnect() { lock.withLock { daemon = nil } }
+
+    /// The machine gets the Cloud API's exec (or this app a pinned build): updates through it answer `answers`.
+    func allowLegacy(_ answers: [CloudMoveCLI.Answer]) { lock.withLock { legacyAnswers = answers } }
 
     /// The machine was reinstalled by hand: it now serves everything this app uses.
     func repair(build: String) { lock.withLock { daemon = CloudMachineUpdateTarget.Daemon(build: build, level: .current) } }
@@ -329,7 +366,24 @@ nonisolated final class FakeCloudMachine: @unchecked Sendable {
                     return answer
                 }
             },
-            reconnect: { _ in self.lock.withLock { self.counts.reconnects += 1 } })
+            reconnect: { restarted in
+                self.lock.withLock {
+                    self.counts.reconnects += 1
+                    self.restarts.append(restarted)
+                }
+            },
+            legacy: { _, judged in
+                self.lock.withLock {
+                    guard var answers = self.legacyAnswers else { return nil }
+                    self.counts.legacy += 1
+                    self.judgedBuilds.append(judged)
+                    guard !answers.isEmpty else { return CloudMoveCLI.Answer(ok: false, errorCode: "machine_update_unresolved") }
+                    let answer = answers.removeFirst()
+                    self.legacyAnswers = answers
+                    if answer.ok, let build = answer.build { self.daemon = CloudMachineUpdateTarget.Daemon(build: build, level: .current) }
+                    return answer
+                }
+            })
     }
 }
 

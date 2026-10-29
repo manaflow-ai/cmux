@@ -1,0 +1,27 @@
+/* Gallery only: the subagent tray's two motion arms that did not ship (trayMotion.experiment.ts), for
+   Compare arms. The app ships the `message` arm alone (subagents.css). */
+.acpmux-running-tray[data-motion="tight"] {
+  --acpmux-tray-enter: acpmux-tray-fade-in var(--cmux-motion-micro, 120ms) var(--agent-ease-out, ease-out) both;
+  --acpmux-tray-leave: acpmux-tray-fade-out var(--cmux-motion-quick, 80ms) var(--ui-exit-ease, ease-in) both;
+}
+.acpmux-running-tray[data-motion="spring"] {
+  --acpmux-tray-enter: acpmux-tray-spring var(--cmux-motion-standard, 180ms) cubic-bezier(0.34, 1.36, 0.64, 1) both;
+  --acpmux-tray-leave: acpmux-tray-leave var(--cmux-motion-quick, 80ms) var(--ui-exit-ease, ease-in) both;
+}
+@keyframes acpmux-tray-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes acpmux-tray-fade-out {
+  to {
+    opacity: 0;
+  }
+}
+@keyframes acpmux-tray-spring {
+  from {
+    opacity: 0;
+    translate: 0 8px;
+    scale: 0.98;
+  }
+}

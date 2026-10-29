@@ -112,7 +112,7 @@ if [[ "$browser_data_import" == compiled-out ]]; then
   swift_import_flags="-DCMUX_NO_PASSWORD_IMPORT -DCMUX_NO_BROWSER_DATA_IMPORT"
   browser_sources_backup="$(mktemp "${TMPDIR:-/tmp}/browser-sources.XXXXXX")"
   cp -f "$browser_sources" "$browser_sources_backup"
-  printf '%s\n' '{"schemaVersion": 1, "engines": {}, "browsers": []}' > "$browser_sources"
+  cp -f "$repo_root/scripts/cmux-next/lib/browser-sources-compiled-out.json" "$browser_sources"
 fi
 echo "check-cmux-scheme-compile: browser-data import ${browser_data_import} (flags: ${swift_import_flags:-none})"
 build_attempt=0
@@ -132,11 +132,20 @@ build() {
     DEBUG_INFORMATION_FORMAT=dwarf
   )
   [[ -n "$bundle_id" ]] && xcode_args+=("PRODUCT_BUNDLE_IDENTIFIER=$bundle_id")
+  # A dev bundle id (the DEV Release app) never claims http/https at Default
+  # rank, whatever the configuration (Resources/Info.plist; tests/test_web_url_handler_rank.py).
+  if [[ -n "$bundle_id" ]]; then
+    web_url_handler_rank=Default
+    case "$bundle_id" in com.cmuxterm.app.debug|com.cmuxterm.app.debug.*|com.cmuxterm.app.staging|com.cmuxterm.app.staging.*) web_url_handler_rank=Alternate ;; esac
+    xcode_args+=("CMUX_WEB_URL_HANDLER_RANK=$web_url_handler_rank")
+  fi
   [[ -n "$code_sign_entitlements" ]] && xcode_args+=("CODE_SIGN_ENTITLEMENTS=$code_sign_entitlements")
   [[ -n "$auth_callback_scheme" ]] && xcode_args+=("CMUX_AUTH_CALLBACK_SCHEME=$auth_callback_scheme")
   # shellcheck disable=SC2016 # $(inherited) is an Xcode build setting, not a shell expansion
   [[ -n "$swift_import_flags" ]] && xcode_args+=("OTHER_SWIFT_FLAGS=\$(inherited) $swift_import_flags")
   [[ -n "$swift_compilation_mode" ]] && xcode_args+=("SWIFT_COMPILATION_MODE=$swift_compilation_mode")
+  # The Linux whole-app build's REF capture (hybrid_ref_capture.py) reads the frontend lines from the log.
+  [[ "${CMUX_NEXT_EMIT_FRONTEND_COMMAND_LINES:-}" == 1 ]] && xcode_args+=(EMIT_FRONTEND_COMMAND_LINES=YES)
   if (( use_cache )); then
     while IFS= read -r setting; do xcode_args+=("$setting"); done < <(cmux_next_cas_settings)
   fi

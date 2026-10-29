@@ -4,6 +4,8 @@ public nonisolated enum AddDeviceAction: Equatable, Sendable {
     case pick(DeviceListing.Available)
     /// Add Machine with an empty field, for a computer the network does not list.
     case otherComputer
+    /// Create a cmux Cloud VM (the app's New Cloud Machine; sign-in first when signed out).
+    case newCloudMachine
     /// Open the code field (way ``AddDeviceWay/code``).
     case enterCode
     /// Copy the setup line of the chosen platform.
