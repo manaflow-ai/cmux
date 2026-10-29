@@ -66,3 +66,17 @@ test("while a consent write is in flight both switches are disabled", async () =
   expect(page.provider.log.filter((entry) => entry.op === "cmux.settings.devices.join_consent")).toEqual([]);
   page.unmount();
 });
+
+test("while acpmux's record is unknown both switches are disabled", async () => {
+  const page = await renderPage({
+    path: "/settings/devices",
+    mock: { devicesJoin: { ...mockDevicesJoin, known: false, error: "This Mac could not read what it allows." } },
+  });
+  await settle();
+  expect(toggle(page.container, "screen").hasAttribute("disabled")).toBe(true);
+  expect(toggle(page.container, "control").hasAttribute("disabled")).toBe(true);
+  await act(async () => toggle(page.container, "screen").click());
+  await settle();
+  expect(page.provider.log.filter((entry) => entry.op === "cmux.settings.devices.join_consent")).toEqual([]);
+  page.unmount();
+});

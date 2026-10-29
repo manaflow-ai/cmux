@@ -245,7 +245,7 @@ import Testing
                 "a status read as not joined, with no word from acpmux, is refused")
         #expect(model.ask == nil, "and shows no sheet: as far as this Mac knows it has nothing to allow")
         let changes = Recorder()
-        model.changed = { changes.values.append("\(model.permitsMacScreen(control: false))") }
+        model.changed = { [weak model] in changes.values.append("\(model?.permitsMacScreen(control: false) ?? false)") }
         fake.record.consentRequired = false
         await model.refresh()
         #expect(changes.values == ["true"], "each read tells the app, which stops a session no longer allowed")
@@ -374,7 +374,7 @@ import Testing
             openLine: base.openLine, enabled: base.enabled, askShown: base.askShown, markAskShown: base.markAskShown))
         await model.refresh()
         let changes = Recorder()
-        model.changed = { changes.values.append("\(model.permitsMacScreen(control: true))") }
+        model.changed = { [weak model] in changes.values.append("\(model?.permitsMacScreen(control: true) ?? false)") }
         holdReads = true
         let revoke = Task { await model.set(.control, on: false) }
         for _ in 0..<1000 where changes.values.isEmpty { await Task.yield() }
@@ -540,32 +540,68 @@ import Testing
         #expect(image.size.width >= 300 && image.size.height >= 80)
     }
 
-    /// Allow answers only inside the sheet's own dispatch of a press its strict check calls the person's:
-    /// not an Accessibility press, not a programmatic click, not a press the check refuses (another
-    /// process's, or DEBUG automation's), not a key, and not an Accessibility press right after a real one.
-    @Test func allowAnswersOnlyThePersonsOwnPressOnTheSheet() async throws {
+    /// Allow answers only the person's own click on Allow itself: the sheet dispatching the person's
+    /// mouse-down on Allow, with the person's mouse-up on Allow current, each click once. Not an
+    /// Accessibility press or a programmatic click (outside any dispatch, or inside the dispatch of the
+    /// person's click on something else, or while Allow is still held), not a click the strict check
+    /// refuses (another process's, or DEBUG automation's), not a nested event the check refuses, and not
+    /// the same click twice.
+    @Test func allowAnswersOnlyThePersonsOwnClickOnAllow() async throws {
         _ = NSApplication.shared
         let fake = Fake()
         let model = JoinConsentModel(services: fake.services())
         await model.refresh()
         model.refused(JoinConsentRefusal(requester: "lane-vm-3", surface: .screen))
         let panel = JoinConsentAskPanel(model: model)
+        panel.content.rebuild()
+        panel.setContentSize(panel.content.fittingSize)
+        panel.contentView?.layoutSubtreeIfNeeded()
         let allow = try #require(AddDeviceShotsTests.find(panel.content, id: "cmux.joinConsentAsk.allow") as? NSButton)
-        let press = try #require(NSEvent.mouseEvent(with: .leftMouseUp, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0,
-                                                    context: nil, eventNumber: 1, clickCount: 1, pressure: 0))
-        let key = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil,
-                                                characters: "\r", charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: 36))
+        let deny = try #require(AddDeviceShotsTests.find(panel.content, id: "cmux.joinConsentAsk.deny") as? NSButton)
+        let center = { (view: NSView) in view.convert(NSPoint(x: view.bounds.midX, y: view.bounds.midY), to: nil) }
+        var number = 0
+        let event = { (type: NSEvent.EventType, at: NSPoint) throws -> NSEvent in
+            number += 1
+            return try #require(NSEvent.mouseEvent(with: type, location: at, modifierFlags: [], timestamp: TimeInterval(number),
+                                                   windowNumber: panel.windowNumber, context: nil, eventNumber: number, clickCount: 1, pressure: 0))
+        }
+        var genuine: Set<Int> = []
+        panel.isPersonEvent = { genuine.contains($0.eventNumber) }
+        var current: NSEvent?
+        panel.currentEvent = { current }
         let settle = { for _ in 0..<50 { await Task.yield() } }
+        /// The person's click: a mouse-down dispatched on `down`'s view, the mouse-up on `up`'s current.
+        let click = { (down: NSView, up: NSView, person: Bool, inside: () -> Void) throws in
+            let pressed = try event(.leftMouseDown, center(down)), released = try event(.leftMouseUp, center(up))
+            if person { genuine.formUnion([pressed.eventNumber, released.eventNumber]) }
+            current = pressed
+            panel.dispatch(pressed) {
+                current = released
+                inside()
+            }
+        }
         _ = allow.accessibilityPerformPress()
         allow.performClick(nil)
-        panel.dispatch(press) { allow.performClick(nil) } // the check refuses it (no check set: none is the person's)
-        panel.isPersonEvent = { _ in true }
-        panel.dispatch(key) { allow.performClick(nil) }
-        panel.dispatch(press) {}
-        _ = allow.accessibilityPerformPress() // right after a real press, outside its dispatch
+        try click(allow, allow, false) { allow.performClick(nil) } // the check refuses it
+        try click(deny, deny, true) { _ = allow.accessibilityPerformPress() } // inside the person's click on Deny
+        try click(allow, deny, true) { allow.performClick(nil) } // pressed on Allow, released on Deny
+        try click(allow, allow, true) { // while Allow is still held
+            current = try? event(.leftMouseDragged, center(allow))
+            _ = allow.accessibilityPerformPress()
+        }
+        try click(allow, allow, true) { // inside a nested event the check refuses
+            guard let nested = try? event(.leftMouseDown, center(allow)) else { return }
+            panel.dispatch(nested) { allow.performClick(nil) }
+        }
         await settle()
         #expect(fake.writes.isEmpty && model.ask != nil)
-        panel.dispatch(press) { allow.performClick(nil) }
+        try click(allow, allow, true) {
+            #expect(panel.takePersonClick(on: allow))
+            #expect(!panel.takePersonClick(on: allow), "the same click twice")
+        }
+        #expect(!panel.takePersonClick(on: allow), "after the click's dispatch, its mouse-up still current")
+        #expect(fake.writes.isEmpty && model.ask != nil)
+        try click(allow, allow, true) { allow.performClick(nil) }
         for _ in 0..<1000 where model.ask != nil { await Task.yield() }
         #expect(fake.writes == ["screen true"] && model.ask == nil)
     }
@@ -591,7 +627,7 @@ import Testing
         let model = JoinConsentModel(services: fake.services())
         await model.refresh()
         let changes = Recorder()
-        model.changed = { changes.values.append("\(model.permitsMacScreen(control: false))") }
+        model.changed = { [weak model] in changes.values.append("\(model?.permitsMacScreen(control: false) ?? false)") }
         fake.enabled = true
         await model.featureChanged()
         #expect(changes.values == ["false", "true"], "stopped at once, then the read allows it")
@@ -654,7 +690,7 @@ import Testing
     }
 
     /// The Labs switch turned off while a grant's line opens: the grant is never sent.
-    @Test func aGrantIsNeverSentAfterTheLabsSwitchTurnsOff() async {
+    @Test(arguments: [false, true]) func aGrantIsNeverSentAfterTheLabsSwitchTurnsOff(onAgain: Bool) async {
         let fake = Fake()
         let base = fake.services()
         let held = Gate()
@@ -671,6 +707,11 @@ import Testing
         let grant = Task { await model.set(.screen, on: true) }
         for _ in 0..<1000 where opens < 3 { await Task.yield() }
         fake.enabled = false
+        model.featureSwitched()
+        if onAgain { // and on again before the line opens: the grant was made before, so it is still never sent
+            fake.enabled = true
+            model.featureSwitched()
+        }
         held.open()
         #expect(await grant.value == JoinConsentStrings.onFailed)
         #expect(fake.writes.isEmpty)

@@ -73,7 +73,7 @@ function JoinGroup({ join }: { join: DevicesJoinState }) {
               <div className="row-control">
                 <Switch
                   checked={item.on}
-                  disabled={join.busy || setting !== null}
+                  disabled={join.busy || !join.known || setting !== null}
                   labelId={`${titleId}-${item.surface}`}
                   onToggle={(on) => {
                     setSetting(item.surface);

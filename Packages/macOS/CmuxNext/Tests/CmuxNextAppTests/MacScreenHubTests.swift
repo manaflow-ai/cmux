@@ -725,7 +725,7 @@ struct MacScreenHubHostOrderTests {
         let consent = JoinConsentModel(services: fake.services())
         await consent.refresh()
         host.consentGate = { await consent.allowsMacScreen(control: $0.scope == .full, requester: $0.peer.name) }
-        consent.changed = { host.consentChanged { consent.permitsMacScreen(control: $0 == .full) } }
+        consent.changed = { [weak consent, weak host] in host?.consentChanged { consent?.permitsMacScreen(control: $0 == .full) ?? false } }
         host.serve(ticket("s1", role: .host, scope: .view, peer: "v1"))
         for _ in 0..<1000 where ends.items.isEmpty { await Task.yield() }
         #expect(host.session == nil && made.items.isEmpty, "nothing served")

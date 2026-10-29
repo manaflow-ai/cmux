@@ -3,16 +3,22 @@ import Foundation
 import Testing
 @testable import CmuxNextApp
 
-/// The consent state machine under a deterministic scheduler. Each run picks two to four requests (with
+/// The consent state machine under a deterministic scheduler. Each run picks two to five requests (with
 /// repeats) from reads, Mac Screen tickets (View Only and Full Control), grants and revokes of either
-/// surface, the sheet's Allow and Deny, and the Labs switch turning off, over a random acpmux state
-/// (granted or not, joined or not, reads failing or not). Every acpmux boundary a request reaches (the
-/// join status, opening the line, the record read, the write) waits until the scheduler releases it, and
-/// the scheduler interleaves starts and releases in a seeded random order. A reply is taken at its
-/// release, so a reply released before a write is the stale one it would be. After every step, once each
-/// started request is again waiting or done, the invariants are checked:
+/// surface, the sheet's Allow and Deny, the Labs switch turning off, and changes acpmux makes on its own
+/// (the Mac joining or leaving, reads starting or stopping to fail, each followed by the read the folder
+/// watch makes), over a random acpmux state (granted or not, joined or not, reads failing or not, the
+/// consent capability or not, the line proved as the person or not). Every acpmux boundary a request
+/// reaches (the join status, opening the line, the record read, the write) waits until the scheduler
+/// releases it, and the scheduler interleaves starts and releases in a seeded random order. A record
+/// read's reply is taken either when it is asked or when it is released (seeded), so a reply taken
+/// before a change and delivered after it is the stale one it would be. The runs are sampled, not every
+/// schedule. After every step, once each started request is again waiting or done, the invariants are
+/// checked:
 /// - What the model allows Mac Screen is never more than a read of acpmux can see (no stale grant, a revoke
-///   narrows the moment it starts, an unread record allows nothing, a write's answer allows nothing).
+///   narrows the moment it starts, an unread record allows nothing, a write's answer allows nothing). After
+///   a change acpmux made on its own this holds again once the reads under way and the folder watch's
+///   read are done (the app can't know before a read).
 /// - A ticket serves only on its own read, at the current generation, that got through and grants its
 ///   scope, with no write in flight; otherwise it is refused.
 /// - One write at a time: a second one is refused as busy; a grant is never sent with the Labs switch off.
@@ -21,6 +27,9 @@ import Testing
 @MainActor @Suite(.serialized) struct JoinConsentInterleavingTests {
     enum Op: CaseIterable {
         case read, ticketView, ticketFull, grantScreen, grantControl, revokeScreen, revokeControl, allow, deny, labsOff
+        /// acpmux on its own: the Mac joins or leaves; reads start or stop failing; the person turns Screen
+        /// sharing off elsewhere.
+        case joinFlip, readFlip, revokeElsewhere
     }
 
     /// What acpmux holds.
@@ -30,10 +39,12 @@ import Testing
         var joined: Bool
         var consentRequired: Bool?
         var readFails: Bool
+        var capable = true
+        var person = true
 
         /// What Mac Screen may serve: a grant a read can see (a failing read sees none).
         func allows(full: Bool) -> Bool {
-            !readFails && (consentRequired == false || (screen && (!full || control)))
+            capable && !readFails && (consentRequired == false || (screen && (!full || control)))
         }
     }
 
@@ -54,6 +65,10 @@ import Testing
         var sends: [(write: String, enabled: Bool)] = []
         /// What each request's latest record read answered (nil: the read failed).
         var reads: [Int: JoinConsentRecord?] = [:]
+        /// Whether a record read takes its reply when asked (else when released).
+        var early: () -> Bool = { false }
+        /// acpmux changed on its own and the reads that may not have seen it are not all done.
+        var changedOnItsOwn = false
         private(set) var model: JoinConsentModel!
 
         init(truth: Truth) {
@@ -90,11 +105,14 @@ import Testing
     @MainActor final class Line: JoinConsentLine {
         unowned let world: World
         init(world: World) { self.world = world }
-        var isPerson: Bool { true }
-        var supportsConsent: Bool { true }
+        var isPerson: Bool { world.truth.person }
+        var supportsConsent: Bool { world.truth.capable }
         func read() async -> JoinConsentRecord? {
+            let reply = { [world] in world.truth.readFails ? nil : world.record }
+            let early = world.early()
+            let taken = early ? reply() : nil
             await world.boundary()
-            let answer = world.truth.readFails ? nil : world.record
+            let answer = early ? taken : reply()
             if let op = Current.op { world.reads[op] = answer }
             return answer
         }
@@ -102,6 +120,8 @@ import Testing
             // The app sends the write here; acpmux takes it at the release.
             world.sends.append(("\(surface.rawValue) \(granted)", world.enabled))
             await world.boundary()
+            // acpmux takes a grant and a revoke only from the person's connection.
+            guard world.truth.person else { return nil }
             if surface == .screen { world.truth.screen = granted } else { world.truth.control = granted }
             return world.record
         }
@@ -125,10 +145,10 @@ import Testing
 
     @Test func everyScheduleKeepsTheInvariants() async {
         Self.servedChecked = 0
-        for seed in 0..<1500 {
+        for seed in 0..<5000 {
             guard await Self.run(seed: UInt64(seed)) else { return }
         }
-        #expect(Self.servedChecked > 100, "the schedules serve tickets, so the serve invariant is exercised")
+        #expect(Self.servedChecked > 150, "the schedules serve tickets, so the serve invariant is exercised")
     }
 
     /// One seeded run; false when it could not finish (the test stops at the first such run).
@@ -137,9 +157,12 @@ import Testing
         let joined = Bool.random(using: &random)
         let truth = Truth(screen: .random(using: &random), control: .random(using: &random), joined: joined,
                           consentRequired: joined ? [true, nil].randomElement(using: &random)! : [false, nil].randomElement(using: &random)!,
-                          readFails: Int.random(in: 0..<6, using: &random) == 0)
-        let ops = (0..<Int.random(in: 2...4, using: &random)).map { _ in Op.allCases.randomElement(using: &random)! }
+                          readFails: Int.random(in: 0..<6, using: &random) == 0,
+                          capable: Int.random(in: 0..<8, using: &random) != 0, person: Int.random(in: 0..<8, using: &random) != 0)
+        let ops = (0..<Int.random(in: 2...5, using: &random)).map { _ in Op.allCases.randomElement(using: &random)! }
         let world = World(truth: truth)
+        var timing = Seeded(state: seed &+ 0x5EED)
+        world.early = { Bool.random(using: &timing) }
         let model = world.model!
         await model.refresh()
         model.refused(JoinConsentRefusal(requester: "Studio", surface: .screen))
@@ -191,6 +214,13 @@ import Testing
                 tasks[index] = nil
                 checkDone(ops[index], result: await task.value, world: world, label: label)
             }
+            // acpmux changed on its own: once every request under way is done (the folder watch's read
+            // among them), the model again allows no more than a read can see, with no further read: a
+            // read dropped meanwhile must not have lost the change.
+            if world.changedOnItsOwn, world.started.allSatisfy(world.done.contains) {
+                world.changedOnItsOwn = false
+                check(world, label: label)
+            }
         }
         world.gating = false
         #expect(!model.writing, "no write left in flight: \(label)")
@@ -231,12 +261,23 @@ import Testing
             world.enabled = false
             await model.featureChanged()
             return "off"
+        case .joinFlip, .readFlip, .revokeElsewhere:
+            switch op {
+            case .joinFlip:
+                world.truth.joined.toggle()
+                world.truth.consentRequired = world.truth.joined ? true : [false, nil][index % 2]
+            case .readFlip: world.truth.readFails.toggle()
+            default: world.truth.screen = false
+            }
+            world.changedOnItsOwn = true
+            await model.refresh() // the folder watch's read
+            return "changed"
         }
     }
 
     /// After every step: the model never allows more than a read of acpmux can see.
     private static func check(_ world: World, label: String) {
-        guard world.enabled else { return }
+        guard world.enabled, !world.changedOnItsOwn else { return }
         for full in [false, true] where world.model.permitsMacScreen(control: full) {
             #expect(world.truth.allows(full: full), "allows more than acpmux (full \(full)): \(label)")
         }
@@ -263,7 +304,7 @@ import Testing
             #expect(result != "set" || world.sends.contains { $0.write.hasSuffix(op == .grantScreen || op == .grantControl ? "true" : "false") },
                     "a write reported set that acpmux never received: \(label)")
         case .ticketView, .ticketFull:
-            if result == "served", world.enabled {
+            if result == "served", world.enabled, !world.changedOnItsOwn {
                 #expect(world.truth.allows(full: op == .ticketFull) && !world.model.writing, "served without acpmux's grant: \(label)")
             }
         default: break

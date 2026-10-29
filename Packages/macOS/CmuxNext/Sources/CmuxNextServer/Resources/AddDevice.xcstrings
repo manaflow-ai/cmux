@@ -7,127 +7,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This Mac could not read what it allows. Your team's machines are refused until it can."
+            "value": "This Mac could not read what it allows, so Mac Screen is refused until it can. The switches come back when it reads again."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "تعذّر على هذا الـ Mac قراءة ما يسمح به. سيتم رفض أجهزة فريقك إلى أن يتمكن من ذلك."
+            "value": "تعذّر على هذا الـ Mac قراءة ما يسمح به، لذلك يُرفض Mac Screen إلى أن يتمكن من ذلك. تعود المفاتيح عندما يقرأ مجددًا."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ovaj Mac nije mogao pročitati šta dozvoljava. Računari vašeg tima se odbijaju dok to ne uspije."
+            "value": "Ovaj Mac nije mogao pročitati šta dozvoljava, pa se Mac Screen odbija dok to ne uspije. Prekidači se vraćaju kada ponovo pročita."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Denne Mac kunne ikke læse, hvad den tillader. Dit teams maskiner afvises, indtil den kan."
+            "value": "Denne Mac kunne ikke læse, hvad den tillader, så Mac Screen afvises, indtil den kan. Kontakterne vender tilbage, når den læser igen."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Dieser Mac konnte nicht lesen, was er erlaubt. Die Geräte deines Teams werden abgewiesen, bis er es kann."
+            "value": "Dieser Mac konnte nicht lesen, was er erlaubt, daher wird Mac Screen abgewiesen, bis er es kann. Die Schalter erscheinen wieder, sobald er erneut lesen kann."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Este Mac no pudo leer lo que permite. Las máquinas de tu equipo se rechazan hasta que pueda hacerlo."
+            "value": "Este Mac no pudo leer lo que permite, así que Mac Screen se rechaza hasta que pueda. Los interruptores vuelven cuando lea de nuevo."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ce Mac n'a pas pu lire ce qu'il autorise. Les machines de votre équipe sont refusées jusqu'à ce qu'il y parvienne."
+            "value": "Ce Mac n'a pas pu lire ce qu'il autorise : Mac Screen est donc refusé jusqu'à ce qu'il y parvienne. Les interrupteurs reviennent dès qu'il peut relire."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Questo Mac non è riuscito a leggere cosa consente. Le macchine del tuo team vengono rifiutate finché non ci riesce."
+            "value": "Questo Mac non è riuscito a leggere cosa consente, quindi Mac Screen viene rifiutato finché non ci riesce. Gli interruttori tornano quando legge di nuovo."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "この Mac が許可している内容を読み取れませんでした。読み取れるまで、チームのマシンは拒否されます。"
+            "value": "この Mac が許可している内容を読み取れなかったため、読み取れるまで Mac Screen は拒否されます。再び読み取れるとスイッチが戻ります。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mac នេះមិនអាចអានអ្វីដែលវាអនុញ្ញាតបានទេ។ ម៉ាស៊ីនរបស់ក្រុមអ្នកត្រូវបានបដិសេធរហូតដល់វាអាចអានបាន។"
+            "value": "Mac នេះមិនអាចអានអ្វីដែលវាអនុញ្ញាតបានទេ ដូច្នេះ Mac Screen ត្រូវបានបដិសេធរហូតដល់វាអាចអានបាន។ កុងតាក់នឹងត្រលប់មកវិញនៅពេលវាអានម្តងទៀត។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "이 Mac이 허용하는 항목을 읽지 못했습니다. 읽을 수 있을 때까지 팀의 컴퓨터는 거부됩니다."
+            "value": "이 Mac이 허용하는 항목을 읽지 못해 읽을 수 있을 때까지 Mac Screen이 거부됩니다. 다시 읽으면 스위치가 돌아옵니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Denne Mac-en kunne ikke lese hva den tillater. Maskinene i teamet ditt avvises til den kan det."
+            "value": "Denne Mac-en kunne ikke lese hva den tillater, så Mac Screen avvises til den kan det. Bryterne kommer tilbake når den leser igjen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ten Mac nie mógł odczytać, na co zezwala. Komputery Twojego zespołu są odrzucane, dopóki mu się to nie uda."
+            "value": "Ten Mac nie mógł odczytać, na co zezwala, więc Mac Screen jest odrzucany, dopóki mu się to nie uda. Przełączniki wrócą, gdy znów odczyta."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Este Mac não conseguiu ler o que permite. As máquinas da sua equipe são recusadas até que ele consiga."
+            "value": "Este Mac não conseguiu ler o que permite, então o Mac Screen é recusado até que ele consiga. As chaves voltam quando ele ler de novo."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Этот Mac не смог прочитать, что он разрешает. Компьютеры вашей команды отклоняются, пока он не сможет."
+            "value": "Этот Mac не смог прочитать, что он разрешает, поэтому Mac Screen отклоняется, пока он не сможет. Переключатели вернутся, когда он снова прочитает."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mac เครื่องนี้อ่านสิ่งที่อนุญาตไม่ได้ เครื่องในทีมของคุณจะถูกปฏิเสธจนกว่าจะอ่านได้"
+            "value": "Mac เครื่องนี้อ่านสิ่งที่อนุญาตไม่ได้ จึงปฏิเสธ Mac Screen จนกว่าจะอ่านได้ สวิตช์จะกลับมาเมื่ออ่านได้อีกครั้ง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bu Mac neye izin verdiğini okuyamadı. Okuyabilene kadar ekibinizin makineleri reddedilir."
+            "value": "Bu Mac neye izin verdiğini okuyamadı, bu yüzden okuyabilene kadar Mac Screen reddedilir. Yeniden okuduğunda anahtarlar geri gelir."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Цей Mac не зміг прочитати, що він дозволяє. Комп'ютери вашої команди відхиляються, доки він не зможе."
+            "value": "Цей Mac не зміг прочитати, що він дозволяє, тому Mac Screen відхиляється, доки він не зможе. Перемикачі повернуться, коли він знову прочитає."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Máy Mac này không đọc được những gì nó cho phép. Các máy trong nhóm của bạn bị từ chối cho đến khi đọc được."
+            "value": "Máy Mac này không đọc được những gì nó cho phép nên Mac Screen bị từ chối cho đến khi đọc được. Các công tắc sẽ trở lại khi nó đọc lại được."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "这台 Mac 无法读取它所允许的内容。在能够读取之前，你团队的机器将被拒绝。"
+            "value": "这台 Mac 无法读取它所允许的内容，因此在能够读取之前 Mac Screen 会被拒绝。再次读取后开关会恢复。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "這台 Mac 無法讀取它所允許的內容。在能夠讀取之前，你團隊的機器將被拒絕。"
+            "value": "這台 Mac 無法讀取它所允許的內容，因此在能夠讀取之前 Mac Screen 會被拒絕。再次讀取後開關會恢復。"
           }
         }
       }

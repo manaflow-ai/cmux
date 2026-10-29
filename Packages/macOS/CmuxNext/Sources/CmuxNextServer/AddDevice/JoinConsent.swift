@@ -166,10 +166,20 @@ public final class JoinConsentModel {
     @ObservationIgnored private let services: JoinConsentServices
     /// The newest request's generation; only its result is applied.
     @ObservationIgnored private(set) var generation = 0
+    /// A read was asked for while a write was in flight (and dropped): the write reads again before it
+    /// ends, so a change acpmux made meanwhile is never lost behind the write's own read.
+    @ObservationIgnored private var askedDuringWrite = false
+
+    /// What the app follows for the model (the Labs switch, acpmux's folder); cancelled with the model.
+    @ObservationIgnored public var following: Task<Void, Never>? {
+        willSet { following?.cancel() }
+    }
 
     public init(services: JoinConsentServices) {
         self.services = services
     }
+
+    nonisolated deinit { following?.cancel() }
 
     /// The Labs switch (`labs.machineJoin`).
     public var enabled: Bool { services.enabled() }
@@ -188,9 +198,16 @@ public final class JoinConsentModel {
         _ = await read()
     }
 
-    /// The Labs switch turned on or off: what was read before no longer counts. Nothing is allowed
-    /// until the next read (a running Mac Screen session stops when the switch turns on), then it reads.
+    /// The Labs switch turned on or off: what was read before no longer counts, then it reads.
     public func featureChanged() async {
+        featureSwitched()
+        await refresh()
+    }
+
+    /// The Labs switch turned on or off, at once and without waiting on acpmux: what was read before no
+    /// longer counts, nothing is allowed until the next read (a running Mac Screen session stops when the
+    /// switch turns on), a grant still on its way is never sent, and with it off an open sheet closes.
+    public func featureSwitched() {
         generation += 1
         status = nil
         consent = nil
@@ -198,15 +215,24 @@ public final class JoinConsentModel {
         consentSupported = nil
         changed()
         if !enabled, ask != nil { dismissAsk() }
-        await refresh()
+    }
+
+    private enum ReadKind {
+        /// A refresh or a ticket's own read.
+        case plain
+        /// The write's check before it sends: never applied.
+        case writeCheck
+        /// The write's own read after it lands.
+        case afterWrite
     }
 
     /// Takes the next generation and reads. The result is applied, and `current` is true, only while no
     /// newer request started meanwhile and no write is in flight (a write's own read after it lands
-    /// excepted, `afterWrite`); the reading comes back either way. A read started during a write takes
-    /// no generation, so it never displaces the write's own read.
-    private func read(afterWrite: Bool = false) async -> (reading: Reading, current: Bool) {
-        let duringWrite = writing && !afterWrite
+    /// excepted); the reading comes back either way. A read started during a write takes no generation,
+    /// so it never displaces the write's own read; the write reads once more for it before it ends.
+    private func read(_ kind: ReadKind = .plain) async -> (reading: Reading, current: Bool) {
+        let duringWrite = writing && kind != .afterWrite
+        if duringWrite, kind == .plain { askedDuringWrite = true }
         if !duringWrite { generation += 1 }
         let mine = generation
         var reading = Reading()
@@ -218,7 +244,7 @@ public final class JoinConsentModel {
                 line.close()
             }
         }
-        guard !duringWrite, mine == generation, afterWrite || !writing else { return (reading, false) }
+        guard !duringWrite, mine == generation, kind == .afterWrite || !writing else { return (reading, false) }
         apply(reading)
         return (reading, true)
     }
@@ -246,6 +272,10 @@ public final class JoinConsentModel {
         setWriting(true)
         defer { setWriting(false) }
         generation += 1
+        askedDuringWrite = false
+        // Nothing but the Labs switch moves the generation while a write is in flight (reads then take
+        // none, tickets are refused, another write is busy): a grant is sent only at its own.
+        let mine = generation
         if !on {
             // SECURITY: a revoke narrows at once, before acpmux answers: a running session stops now, and
             // no read that started before it (which may say granted) is applied. Its "not joined" goes too
@@ -255,12 +285,17 @@ public final class JoinConsentModel {
             changed()
         }
         let written: JoinConsentRecord?
-        (lastError, written) = await write(surface, on: on)
-        // What acpmux holds now, whichever way the write went; reads made meanwhile are never applied.
+        (lastError, written) = await write(surface, on: on, generation: mine)
+        // What acpmux holds now, whichever way the write went; reads made meanwhile are never applied,
+        // and when one was asked for, this reads again (until none was), so its news is not lost.
+        var (reading, current) = await read(.afterWrite)
+        while askedDuringWrite {
+            askedDuringWrite = false
+            (reading, current) = await read(.afterWrite)
+        }
         // When that read fails, the switches show the record acpmux answered the write with; Mac Screen
         // still has nothing it may serve on until a read gets through.
-        let (reading, current) = await read(afterWrite: true)
-        if current, reading.consent == nil, reading.supported == true, let written {
+        if current, enabled, reading.consent == nil, let written {
             consent = written
             changed()
         }
@@ -275,12 +310,12 @@ public final class JoinConsentModel {
     }
 
     /// The write itself: the error to show (nil when acpmux took it) and the record acpmux answered with.
-    private func write(_ surface: JoinConsentSurface, on: Bool) async -> (String?, JoinConsentRecord?) {
+    private func write(_ surface: JoinConsentSurface, on: Bool, generation mine: Int) async -> (String?, JoinConsentRecord?) {
         let failed = on ? JoinConsentStrings.onFailed : JoinConsentStrings.offFailed
         if on {
             // An on only for a joined, unrevoked Mac with the Labs switch on, as this read finds it (acpmux
             // checks the person itself; this keeps a grant off a Mac that shows no switches).
-            let (reading, _) = await read()
+            let (reading, _) = await read(.writeCheck)
             guard enabled, reading.status?.credentialPresent == true, reading.status?.revoked != true else { return (failed, nil) }
         }
         guard let line = await services.openLine() else { return (failed, nil) }
@@ -289,8 +324,9 @@ public final class JoinConsentModel {
         // the person's connection; the page asks no gesture for one, since it narrows).
         if on, !line.isPerson { return (failed, nil) }
         guard line.supportsConsent else { return (on ? JoinConsentStrings.unsupported : failed, nil) }
-        // The Labs switch may have turned off while the line opened: a grant is sent only while it is on.
-        if on, !enabled { return (failed, nil) }
+        // The Labs switch may have turned off (and on again) while the line opened: a grant is sent only
+        // at its own generation, with the switch on.
+        if on, !enabled || generation != mine { return (failed, nil) }
         let written = await line.set(surface, granted: on)
         return (written == nil ? failed : nil, written)
     }
@@ -382,6 +418,7 @@ public final class JoinConsentModel {
             title: JoinConsentStrings.section, joined: JoinConsentStrings.joined(team: team, name: name), help: JoinConsentStrings.help,
             error: lastError ?? (consentSupported == false ? JoinConsentStrings.unsupported : consent == nil ? JoinConsentStrings.unread : nil),
             busy: writing,
+            known: consentSupported == true && consent != nil,
             switches: JoinConsentSurface.allCases.map {
                 JoinConsentPage.Switch(surface: $0.rawValue, title: JoinConsentStrings.title($0), help: JoinConsentStrings.switchHelp($0),
                                        on: consent?.allows($0) == true)
@@ -403,6 +440,9 @@ private nonisolated struct JoinConsentPage: Encodable {
     var error: String?
     /// A write is in flight: the page disables the switches.
     var busy: Bool
+    /// acpmux's record is known (read, or a write's answer): without it the page disables the switches,
+    /// which would otherwise show an off nobody confirmed.
+    var known: Bool
     var switches: [Switch]
 }
 
@@ -435,7 +475,7 @@ public nonisolated struct JoinConsentStrings {
     static var onFailed: String { s("devices.join.onFailed", "Still off: this Mac could not confirm it was you") }
     static var offFailed: String { s("devices.join.offFailed", "It could not be turned off. Try again.") }
     static var unread: String {
-        s("devices.join.unread", "This Mac could not read what it allows. Your team's machines are refused until it can.")
+        s("devices.join.unread", "This Mac could not read what it allows, so Mac Screen is refused until it can. The switches come back when it reads again.")
     }
     static var busy: String { s("devices.join.busy", "Still saving the last change. Try again in a moment.") }
     static var unsupported: String { s("devices.join.unsupported", "Still off: this Mac's cmux needs an update before you can allow this") }

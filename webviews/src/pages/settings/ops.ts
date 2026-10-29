@@ -146,6 +146,8 @@ export type DevicesJoinState = {
   error: string | null;
   /** A consent write is in flight: both switches are disabled until it ends. */
   busy: boolean;
+  /** acpmux's record is known: without it both switches are disabled (an off nobody confirmed). */
+  known: boolean;
   switches: Array<{ surface: "screen" | "control"; title: string; help: string; on: boolean }>;
 };
 
