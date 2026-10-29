@@ -690,6 +690,105 @@ class StarvationGuardTests(unittest.TestCase):
         self.assertEqual(inspect.signature(watch.starvation_dispatch).parameters["minutes"].default, 25.0)
 
 
+class UnstartedRunTests(unittest.TestCase):
+    """A queued run that has not started holds nothing back (cmuxterm-hq#4946 item 2).
+
+    nightly-next run 40738012059 sat 73 minutes with `decide` queued on a Linux label that
+    started nothing, and 40771197361 34 minutes; each counted as active, so the starvation
+    guard dispatched nothing while the feed fell 95 minutes behind.
+    """
+
+    TIP = "f" * 40
+
+    class Gh(StarvationGuardTests.Gh):
+        def __init__(self, outer, runs, jobs):
+            super().__init__(outer, runs)
+            self._jobs = jobs
+
+        def jobs(self, run):
+            if isinstance(self._jobs, Exception):
+                raise self._jobs
+            return self._jobs
+
+    LANDED = NOW - dt.timedelta(minutes=40)
+
+    def guard(self, runs, jobs):
+        gh = self.Gh(self, runs, jobs)
+        return gh, watch.starvation_dispatch(
+            gh, NOW, feed=NOW - dt.timedelta(minutes=45), published_sha="", branch="feat-cmux-next",
+            workflow="nightly-next-tick.yml", ref="main", minutes=watch.NEXT_STARVATION_MINUTES)
+
+    def queued(self, minutes):
+        return {"name": "decide", "status": "queued", "runner_name": None,
+                "created_at": (NOW - dt.timedelta(minutes=minutes)).strftime("%Y-%m-%dT%H:%M:%SZ")}
+
+    def test_a_queued_run_that_never_started_does_not_block(self):
+        live = {"id": 9, "status": "queued", "created_at": at(0.25), "head_sha": self.TIP,
+                "html_url": "https://github.com/o/r/actions/runs/9"}
+        gh, answer = self.guard([live], [self.queued(15)])
+        self.assertEqual(answer, f"dispatched nightly-next-tick.yml for {self.TIP}")
+        self.assertEqual(len(gh.dispatched), 1)
+
+    def test_a_run_queued_less_than_the_grace_still_blocks(self):
+        live = {"id": 10, "status": "queued", "created_at": at(0.1), "head_sha": self.TIP,
+                "html_url": "https://github.com/o/r/actions/runs/10"}
+        gh, answer = self.guard([live], [self.queued(5)])
+        self.assertEqual(answer, "running https://github.com/o/r/actions/runs/10")
+        self.assertEqual(gh.dispatched, [])
+
+    def test_a_running_job_or_an_environment_gate_still_blocks(self):
+        for status in ("in_progress", "waiting"):
+            with self.subTest(status=status):
+                live = {"id": 11, "status": "in_progress", "created_at": at(0.5), "head_sha": self.TIP,
+                        "html_url": "https://github.com/o/r/actions/runs/11"}
+                gh, answer = self.guard([live], [self.queued(25), dict(self.queued(25), status=status, runner_name="r")])
+                self.assertEqual(answer, "running https://github.com/o/r/actions/runs/11")
+
+    def test_an_unreadable_job_list_keeps_the_run(self):
+        """Fail closed: a doubled build is the worse mistake."""
+        live = {"id": 12, "status": "queued", "created_at": at(0.25), "head_sha": self.TIP,
+                "html_url": "https://github.com/o/r/actions/runs/12"}
+        gh, answer = self.guard([live], OSError("boom"))
+        self.assertEqual(answer, "running https://github.com/o/r/actions/runs/12")
+
+    def test_a_tip_older_than_twenty_minutes_is_built_however_fresh_the_feed(self):
+        """A feed published a minute ago may carry a commit from long before the tip."""
+        gh = self.Gh(self, [], [])
+        answer = watch.starvation_dispatch(
+            gh, NOW, feed=NOW - dt.timedelta(minutes=1), published_sha="", branch="feat-cmux-next",
+            workflow="nightly-next-tick.yml", ref="main", minutes=20.0, by_tip_age=True)
+        self.assertEqual(answer, f"dispatched nightly-next-tick.yml for {self.TIP}")
+        young = self.Gh(self, [], [])
+        young._landed = NOW - dt.timedelta(minutes=5)
+        self.assertEqual(watch.starvation_dispatch(
+            young, NOW, feed=NOW - dt.timedelta(minutes=1), published_sha="", branch="feat-cmux-next",
+            workflow="nightly-next-tick.yml", ref="main", minutes=20.0, by_tip_age=True), "fresh")
+        self.assertEqual(young.dispatched, [])
+
+    def test_a_published_run_is_not_building(self):
+        jobs = [{"name": "publish-nightly", "status": "completed", "runner_name": "r", "created_at": at(0.2)}]
+        self.assertFalse(watch.run_is_building({"status": "in_progress"}, jobs, NOW))
+
+    def test_cmux_next_is_dispatched_after_twenty_minutes(self):
+        """The rolling rule: 20 minutes, checked every 10, so the tip is asked for within 30."""
+        self.assertEqual(watch.NEXT_STARVATION_MINUTES, 20.0)
+        seen = []
+        with unittest.mock.patch.object(watch, "read_feeds", lambda urls: (None, [])), \
+                unittest.mock.patch.object(watch, "published_commit", lambda gh: ""), \
+                unittest.mock.patch.object(watch, "published_commit_for_release", lambda gh, tag: ""), \
+                unittest.mock.patch.object(watch, "starvation_dispatch",
+                                           lambda *a, **k: seen.append((k.get("branch"), k.get("minutes"))) or "stubbed"), \
+                unittest.mock.patch.object(watch, "fetch_feed", lambda url: ""), \
+                unittest.mock.patch.dict("os.environ", {"GH_TOKEN": "t"}):
+            watch.main(["--repo", "o/r", "--dry-run", "--legacy-identity", "off"])
+        self.assertIn(("feat-cmux-next", 20.0), seen)
+
+    def test_the_watch_runs_every_ten_minutes(self):
+        """At :07/:37 with a 25-minute trigger the 30-minute bound could not hold."""
+        workflow = (SCRIPT.parents[2] / ".github/workflows/nightly-next-feed-watch.yml").read_text(encoding="utf-8")
+        self.assertIn('- cron: "2-59/10 * * * *"', workflow)
+
+
 class ActiveRunReadTests(unittest.TestCase):
     """A stuck run must be found even when newer runs have buried it.
 

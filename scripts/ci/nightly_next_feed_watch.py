@@ -5,7 +5,7 @@ nightly-next ships feat-cmux-next: a green push is promoted to the
 `nightly-next` branch, whose nightly.yml run publishes appcast-arm64.xml. Any
 stage can stall: a red Release compile or an unpublished cmux-tui tree stops
 promotion, a red nightly stops publication. Lawrence and Leo daily-drive the
-feed, so this checks it every 30 minutes from main (schedule runs only there).
+feed, so this checks it every 10 minutes from main (schedule runs only there).
 The limit is 30 minutes (Leo, 2026-10-24: "it is unacceptable to have nightlies
 >30min out of date"); on 2026-10-26 a 3-hour limit let promotion sit four hours
 behind daemon tests queued on a saturated runner label without an alarm.
@@ -22,8 +22,8 @@ exits 1, so the scheduled run is red rather than green (a stall from 01:44Z on
 latest nightly-next tick's refusal tally (nightly-next-tick.yml).
 
 The alarm is the lesser half. The starvation guards below are the part that
-heals: past 25 minutes without a publication they start a build of the current
-tip, so no feed stays more than 30 minutes behind its branch. They run before
+heals: past 20 minutes (cmux NEXT; 25 for classic) without a publication they
+start a build of the current tip when no started build carries it. They run before
 the alarm and each inside its own boundary, because they are three cheap calls
 each while the alarm pages through runs and jobs and is the first thing a tight
 installation budget refuses.
@@ -207,7 +207,7 @@ def issue_body(stage: Stage, newest: dt.datetime, now: dt.datetime, published_sh
         f"({newest.isoformat(timespec='minutes')}). Installed nightly-next apps report \"Up to Date\".",
         f"Last published commit: {published_sha or '(unknown)'}.",
         " ".join(filter(None, [stage.reason, stage.detail])),
-        f"Checked by {run_url}. This issue is updated in place every 30 minutes, gets a comment when the stuck stage changes, and closes when the feed catches up.",
+        f"Checked by {run_url}. This issue is updated in place every 10 minutes, gets a comment when the stuck stage changes, and closes when the feed catches up.",
     ])
 
 
@@ -334,6 +334,62 @@ def is_active_delivery_run(workflow: str, branch: str | None, run: dict) -> bool
     return True
 
 
+# cmux NEXT's rolling rule: the tip is dispatched once the feed or the tip is
+# this old and no started build carries it. This watch runs every 10 minutes, so the tip is
+# asked for at most 30 minutes after the feed's last publication; the tick
+# dispatches at landing besides (nightly-next-tick.yml), so this is the backstop.
+NEXT_STARVATION_MINUTES = 20.0
+# A queued run that has not started is not building anything. A run counts as
+# started while a job of it runs, waits on an environment gate, or has waited
+# less than this for a runner. On 2026-10-28 and -29 nightly-next runs sat 34
+# and 73 minutes with `decide` queued on a Linux label that started nothing,
+# and every one of them counted as active, so neither this guard nor the tick
+# started a newer build (pattern audit, cmuxterm-hq#4946 item 2).
+UNSTARTED_MINUTES = 10.0
+# The publication job: once it has finished, the run has nothing left that
+# moves the feed (deltas and release names follow it).
+PUBLISH_JOB = "publish-nightly"
+
+
+def run_is_building(run: dict, jobs: list[dict], now: dt.datetime,
+                    unstarted_minutes: float = UNSTARTED_MINUTES) -> bool:
+    """Whether an active run is still on its way to the feed.
+
+    False for a completed run, a run whose publication job has finished, and a
+    run with nothing running whose queued jobs have all waited
+    `unstarted_minutes` or more without a runner (a label that starts nothing).
+    A job `waiting` on an environment is gated, not stuck, so it keeps the run.
+    """
+    if run.get("status") == "completed":
+        return False
+    if any(job.get("name") == PUBLISH_JOB and job.get("status") == "completed" for job in jobs):
+        return False
+
+    def waited(job_or_run: dict) -> float:
+        try:
+            return (now - parse_time(job_or_run.get("created_at") or "")).total_seconds() / 60
+        except (TypeError, ValueError):
+            return 0.0
+
+    if not jobs:
+        # No job yet (a run pending on its concurrency group, or just created).
+        return waited(run) < unstarted_minutes
+    if any(job.get("status") in ("in_progress", "waiting") for job in jobs):
+        return True
+    unserved = [job for job in jobs if job.get("status") in ("queued", "pending", "requested")
+                and not job.get("runner_name")]
+    return not unserved or any(waited(job) < unstarted_minutes for job in unserved)
+
+
+def started(gh: "GitHub", run: dict, now: dt.datetime) -> bool:
+    """run_is_building for one run, reading its jobs. A failed read keeps the run (fail
+    closed: it may be carrying the tip, and a doubled build is the worse mistake)."""
+    try:
+        return run_is_building(run, gh.jobs(run), now)
+    except Exception:  # noqa: BLE001 - fail closed
+        return True
+
+
 def next_delivery_workflows(train: str) -> list[tuple[str, str]]:
     """The (workflow, branch) runs that may still deliver feat-cmux-next.
 
@@ -382,7 +438,7 @@ def starvation_dispatch(gh: GitHub, now: dt.datetime, *, feed: dt.datetime | Non
                         ref: str, inputs: dict[str, str] | None = None,
                         active_workflows: list[tuple[str, str | None]] | None = None,
                         minutes: float = 25.0, tip_input: str | None = None,
-                        feed_unknown: bool = False) -> str:
+                        feed_unknown: bool = False, by_tip_age: bool = False) -> str:
     """Start one build of the branch tip after `minutes` without a publication.
 
     Nothing is ever cancelled: a newer tip builds alongside a running build,
@@ -391,7 +447,9 @@ def starvation_dispatch(gh: GitHub, now: dt.datetime, *, feed: dt.datetime | Non
     run suppressed it, so a build stuck on an old commit held the feed back for
     as long as it hung -- on 2026-10-26 three nightly-next runs created at
     03:27Z, 04:18Z and 04:23Z kept the guard quiet while the tip moved four
-    hours ahead of the feed.
+    hours ahead of the feed. A run that has not started (`started`: nothing
+    running, every queued job waiting UNSTARTED_MINUTES for a runner) does not
+    hold it back either: it is building nothing.
 
     Two scheduled runs cannot race here: the workflow's concurrency group
     `nightly-next-feed-watch` has `cancel-in-progress: false`, so one runs at
@@ -416,6 +474,10 @@ def starvation_dispatch(gh: GitHub, now: dt.datetime, *, feed: dt.datetime | Non
     caller's argument list keeps a `fresh` or `unchanged` answer free of API
     calls, and means the dispatched commit is exactly the one that was
     judged stale.
+
+    `by_tip_age` (cmux NEXT) is the rolling rule: past `minutes` since the
+    feed's newest item OR since the tip landed, the tip is dispatched unless a
+    started build carries it. It costs the tip read on every pass, two calls.
     """
     if feed_unknown:
         # A feed path we could not read is not evidence of freshness. Usually
@@ -426,11 +488,17 @@ def starvation_dispatch(gh: GitHub, now: dt.datetime, *, feed: dt.datetime | Non
         pass
     elif feed is None:
         return "feed unknown, nothing dispatched"
-    elif (now - feed).total_seconds() < minutes * 60:
+    elif (now - feed).total_seconds() < minutes * 60 and not by_tip_age:
         return "fresh"
     tip, tip_landed = gh.ref_commit(branch)
     if not tip:
         return "unchanged"
+    if by_tip_age and not feed_unknown and feed is not None and (now - feed).total_seconds() < minutes * 60:
+        # The rolling rule: a feed published a minute ago can still carry a commit
+        # from long before the tip, so a fresh feed is fresh only while the tip is
+        # younger than `minutes` too.
+        if tip_landed is None or (now - tip_landed).total_seconds() < minutes * 60:
+            return "fresh"
     if tip == published_sha:
         # The branch has not moved past what the release already carries, so a
         # build would be dispatched for a commit the promotion then ignores.
@@ -445,7 +513,8 @@ def starvation_dispatch(gh: GitHub, now: dt.datetime, *, feed: dt.datetime | Non
         return f"unchanged: the tip is published, feed newest {feed.isoformat()}"
     active = [run for name, run_branch in (active_workflows or [(workflow, branch)])
               for run in gh.recent_runs(name, run_branch, now)
-              if is_active_delivery_run(name, run_branch, run) and carries_tip(run, tip, tip_landed)]
+              if is_active_delivery_run(name, run_branch, run) and carries_tip(run, tip, tip_landed)
+              and started(gh, run, now)]
     if active:
         return f"running {active[0].get('html_url', active[0].get('id', '?'))}"
     gh.dispatch(workflow, ref, {**(inputs or {}), tip_input: tip} if tip_input else inputs)
@@ -654,7 +723,7 @@ def main(argv: list[str]) -> int:
     # Heal first, and each guard inside its own boundary: a failure in one, or
     # in the alarm below, must never cost the other its dispatch.
     heal("next", lambda: starvation_dispatch(
-        gh, now, feed=newest, published_sha=published(),
+        gh, now, feed=newest, published_sha=published(), minutes=NEXT_STARVATION_MINUTES, by_tip_age=True,
         branch="feat-cmux-next", workflow="nightly-next-tick.yml", ref="main", tip_input="sha",
         feed_unknown=bool(missing),
         active_workflows=next_delivery_workflows(args.train)))
@@ -712,7 +781,7 @@ def main(argv: list[str]) -> int:
                 stage = dataclasses.replace(stage, detail=" ".join(filter(None, [f"Waiting for a runner: {gates}.", stage.detail])))
         print(f"feed newest {newest.isoformat()}, waited {stage.waited_hours:.1f}h: {stage.reason}")
         print(sync_issue(gh, stage, issue_body(stage, newest, now, published_sha, args.max_lag_hours, args.run_url), args.max_lag_hours, args.run_url))
-    except TRANSPORT as error:  # the next check runs in 30 minutes
+    except TRANSPORT as error:  # the next check runs in 10 minutes
         print(f"::warning::GitHub API error, skipped this check: {error}")
         if legacy_stale:
             print(f"::error title=cmux NIGHTLY feed behind::{legacy}")

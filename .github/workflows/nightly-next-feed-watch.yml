@@ -4,17 +4,20 @@ name: nightly-next feed watch
 # which Lawrence and Leo daily-drive. nightly.yml's own alarm runs only inside
 # nightly-next push runs, so a stall before promotion (a red Release compile,
 # an unpublished cmux-tui tree) never raised it. A schedule runs only from the
-# default branch, so this lives on main. Every 30 minutes it measures how long
+# default branch, so this lives on main. Every 10 minutes it measures how long
 # feat-cmux-next pushes have waited for the feed (limit 30 minutes) and keeps one
 # `nightly-next-feed-stale` issue naming the stuck stage
 # (scripts/ci/nightly_next_feed_watch.py, tested by
 # tests/test_nightly_next_feed_watch.py). It also requests the continuation
 # run that publishes a build Apple accepted after its run stopped waiting, and
-# dispatches a current-tip build after 25 minutes without a publication when
-# no nightly or promotion run is active. The guard covers classic NIGHTLY too.
+# dispatches a current-tip build after 20 minutes without a publication when
+# no started nightly or promotion run carries the tip (a run queued 10 minutes
+# without a runner is not started). The guard covers classic NIGHTLY too. The
+# tick (nightly-next-tick.yml) asks at landing; this is the backstop, and at
+# :07/:37 with a 25-minute trigger it could not meet the 30-minute bound.
 on:
   schedule:
-    - cron: "7,37 * * * *"
+    - cron: "2-59/10 * * * *"
   workflow_dispatch:
 
 permissions: {}

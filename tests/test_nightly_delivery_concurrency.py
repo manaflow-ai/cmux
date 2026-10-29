@@ -251,7 +251,7 @@ def test_newest_wins_jobs_take_no_concurrency_group() -> None:
 
 def test_delivery_coalescers_have_fixed_backstops_and_non_cancelling_groups() -> None:
     tick = (WORKFLOWS / "nightly-next-tick.yml").read_text(encoding="utf-8")
-    assert re.search(r'(?m)^\s+- cron: "7,37 \* \* \* \*"$', tick)
+    assert re.search(r'(?m)^\s+- cron: "4-59/5 \* \* \* \*"$', tick)
     assert "cancel-in-progress: false" in tick
     # One shared job-level group: one tick runs, the newest waits. The tick
     # dispatches no build itself, so replacing a pending tick cancels no work.
@@ -263,19 +263,34 @@ def test_delivery_coalescers_have_fixed_backstops_and_non_cancelling_groups() ->
     assert "cancel-in-progress: false" in dev
 
 
-def test_the_tick_is_the_only_cadence_and_the_only_promoter() -> None:
-    """nightly-next moves at most once per 30-minute tick, so a burst of landings starts one build.
+def test_the_tick_is_the_only_promoter_and_the_rolling_rule_gates_its_events() -> None:
+    """A burst of landings starts one build: the tick runs at landing, but promotes only under the rolling rule.
 
     On 2026-10-28 every finished cmux-next or cmux-tui artifacts run on feat-cmux-next promoted, through
-    this tick's workflow_run trigger and their own request jobs, and six Release builds ran at once."""
+    this tick's workflow_run trigger and their own request jobs, and six Release builds ran at once. A
+    30-minute cron alone then kept the feed 45-50 minutes behind each landing. Now the landing events and
+    the backstop cron run scripts/ci/nightly_next_rolling.py first, and its "wait" skips the request; only
+    a dispatch for one commit skips the rule."""
     tick = yaml.safe_load((WORKFLOWS / "nightly-next-tick.yml").read_text(encoding="utf-8"))
     triggers = tick.get("on", tick.get(True))
-    assert set(triggers) == {"schedule", "workflow_dispatch"}, "a workflow_run trigger promotes on every landing"
-    assert triggers["schedule"] == [{"cron": "7,37 * * * *"}]
-    steps = {step.get("name"): step for step in tick["jobs"]["request"]["steps"]}
-    request = steps["Request nightly-next promotion on main"]
+    assert set(triggers) == {"workflow_run", "schedule", "workflow_dispatch"}
+    assert triggers["schedule"] == [{"cron": "4-59/5 * * * *"}]
+    assert triggers["workflow_run"]["types"] == ["completed"]
+    assert set(triggers["workflow_run"]["workflows"]) == {"cmux-next", "cmux-tui artifacts", "Nightly macOS build"}
+    job = tick["jobs"]["request"]
+    assert "github.event.workflow_run.event == 'push'" in job["if"]
+    assert "head_repository.full_name == github.repository" in job["if"]
+    steps = [step.get("name") for step in job["steps"]]
+    by_name = {step.get("name"): step for step in job["steps"]}
+    rolling = by_name["Apply the rolling rule"]
+    request = by_name["Request nightly-next promotion on main"]
+    assert steps.index("Apply the rolling rule") < steps.index("Request nightly-next promotion on main")
+    assert "inputs.sha == ''" in rolling["if"], "a dispatch for one commit skips the rule"
+    assert rolling.get("continue-on-error") is True, "a failed rule never holds the promotion"
+    assert "nightly_next_rolling.py" in rolling["run"]
+    assert "steps.rolling.outputs.go != 'false'" in request["if"]
     assert request["env"]["NIGHTLY_NEXT_PROMOTE"] == "1", "request-nightly-next.sh promotes only when the tick asks"
-    for name, step in steps.items():
+    for name, step in by_name.items():
         if step is not request:
             assert "NIGHTLY_NEXT_PROMOTE" not in (step.get("env") or {}), name
 
@@ -380,7 +395,7 @@ if __name__ == "__main__":
     test_delivery_coalescers_have_fixed_backstops_and_non_cancelling_groups()
     test_nightly_push_runs_never_share_a_build_group()
     test_classic_publishers_write_only_while_they_hold_the_lease()
-    test_the_tick_is_the_only_cadence_and_the_only_promoter()
+    test_the_tick_is_the_only_promoter_and_the_rolling_rule_gates_its_events()
     test_a_landing_request_never_enters_the_promote_queue()
     import tempfile
     with tempfile.TemporaryDirectory() as scratch:
