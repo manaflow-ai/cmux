@@ -845,6 +845,8 @@ export default agentPaneEntry({
       ready: { draft: "Why does the build fail?" },
       snapshot: chat(finished),
       play: async (ctx) => {
+        // The strip view (Settings): this state shows the strip; inline is the default.
+        ctx.document.defaultView!.cmuxAcpmuxComposer?.({ attachmentView: "strip" });
         const view = ctx.document.defaultView!;
         const data = new view.DataTransfer();
         const log = Array.from(
@@ -954,6 +956,8 @@ export default agentPaneEntry({
         "chat.upload": { nativeError: { code: "unsupported" } },
       },
       play: async (ctx) => {
+        // The strip view (Settings): this state shows the strip; inline is the default.
+        ctx.document.defaultView!.cmuxAcpmuxComposer?.({ attachmentView: "strip" });
         const view = ctx.document.defaultView!;
         const file = new view.File([new Uint8Array([0x50, 0x4b, 0x03, 0x04, 0xff])], "build-logs.zip", {
           type: "application/zip",
@@ -1237,6 +1241,8 @@ export default agentPaneEntry({
       note: "Leo, 2026-10-24: \"we ought to be able to drag and reorder images if we're seeing the non-inline attachment composer\". Three pasted screenshots; the first is being dragged past the second (it lifts and moves as the pointer goes), and the prompt sends them in the strip's order. Option-Left/Right moves a focused chip.",
       snapshot: chat(finished),
       play: async (ctx) => {
+        // The strip view (Settings): this state shows the strip; inline is the default.
+        ctx.document.defaultView!.cmuxAcpmuxComposer?.({ attachmentView: "strip" });
         const view = ctx.document.defaultView!;
         const files = await Promise.all(
           ["#5b8def", "#e0a84f", "#62b67a"].map(async (color, index) => {
@@ -1276,6 +1282,8 @@ export default agentPaneEntry({
       snapshot: chat(finished),
       native: { "chat.upload.begin": { nativeError: { code: "io", userMessage: "The disk is full." } } },
       play: async (ctx) => {
+        // The strip view (Settings): this state shows the strip; inline is the default.
+        ctx.document.defaultView!.cmuxAcpmuxComposer?.({ attachmentView: "strip" });
         const view = ctx.document.defaultView!;
         const files = [
           // Not a picture after all: it goes as a file, and the app refuses it.
