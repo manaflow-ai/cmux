@@ -27957,8 +27957,8 @@
         },
         "de" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Community"
+            "state" : "translated",
+            "value" : "Gemeinschaft"
           }
         },
         "en" : {
@@ -27981,8 +27981,8 @@
         },
         "it" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Community"
+            "state" : "translated",
+            "value" : "Comunità"
           }
         },
         "ja" : {
@@ -29023,8 +29023,8 @@
         },
         "fr" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Notes"
+            "state" : "translated",
+            "value" : "Remarques"
           }
         },
         "it" : {
@@ -30851,8 +30851,8 @@
         },
         "es" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "%@ bytes"
+            "state" : "translated",
+            "value" : "%@ octetos"
           }
         },
         "fr" : {
@@ -30899,8 +30899,8 @@
         },
         "pt-BR" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "%@ bytes"
+            "state" : "translated",
+            "value" : "%@ octetos"
           }
         },
         "ru" : {
