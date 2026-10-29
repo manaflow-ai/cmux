@@ -458,3 +458,135 @@ fn no_wait_lost_acceptance_keeps_the_generated_recovery_identity() {
     assert_eq!(envelope["error"]["retryable"], true);
     fs::remove_dir_all(dir).unwrap();
 }
+
+/// A wire peer can return arbitrary error text; only a real EOF permits replay.
+#[tokio::test]
+async fn a_daemon_error_named_connection_closed_never_replays() {
+    for quiet in [false, true] {
+        let (out, prompts, _) = restart_wire_case("collision", quiet).await;
+        assert!(!out.status.success(), "{}", text(&out));
+        assert_eq!(prompts, 1, "ordinary RPC error replayed a side effect: {}", text(&out));
+        assert!(!String::from_utf8_lossy(&out.stderr).contains("\"detail\":\"daemon_closed\""));
+    }
+}
+
+#[tokio::test]
+async fn replacement_attach_and_reply_reads_share_the_prompt_deadline() {
+    for phase in ["attach", "reply"] {
+        for quiet in [false, true] {
+            let (out, _, elapsed) = restart_wire_case(phase, quiet).await;
+            assert_eq!(out.status.code(), Some(3), "{phase}: {}", text(&out));
+            assert!(elapsed < Duration::from_millis(1800), "{phase} escaped deadline: {elapsed:?}");
+        }
+    }
+}
+
+async fn restart_wire_case(phase: &'static str, quiet: bool) -> (Output, usize, Duration) {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+    let dir = scratch(&format!("wire-{phase}-{quiet}"));
+    let listener = tokio::net::UnixListener::bind(dir.join("acpmux.sock")).unwrap();
+    let prompts = Arc::new(AtomicUsize::new(0));
+    let count = prompts.clone();
+    let server = tokio::spawn(async move {
+        let mut connections = tokio::task::JoinSet::new();
+        let mut generation = 0;
+        loop {
+            let (stream, _) = listener.accept().await.unwrap();
+            generation += 1;
+            let generation = generation;
+            let count = count.clone();
+            connections.spawn(async move {
+                let (read, mut write) = stream.into_split();
+                let mut lines = tokio::io::BufReader::new(read).lines();
+                while let Some(line) = lines.next_line().await.unwrap() {
+                    let msg: serde_json::Value = serde_json::from_str(&line).unwrap();
+                    let Some(id) = msg.get("id") else { continue };
+                    let method = msg["method"].as_str().unwrap();
+                    if generation > 1
+                        && ((phase == "attach" && method == "_acpmux/attach")
+                            || (phase == "reply"
+                                && matches!(method, "_acpmux/events" | "_acpmux/history")))
+                    {
+                        // Bounded so an unfixed CLI eventually exits and the red run finishes.
+                        tokio::time::sleep(Duration::from_secs(3)).await;
+                    }
+                    let mut error = None;
+                    let result = match method {
+                        "initialize" => json!({}),
+                        "_acpmux/info" => {
+                            json!({"sessionId":"lane", "status":"ready", "turnCount":1})
+                        }
+                        "_acpmux/attach" | "_acpmux/events" | "_acpmux/history" => {
+                            json!({"events":[], "hasMore":false})
+                        }
+                        "session/prompt" => {
+                            count.fetch_add(1, Ordering::SeqCst);
+                            if phase == "collision" {
+                                error = Some(
+                                    json!({"code":-32603,"message":"daemon connection closed"}),
+                                );
+                            } else if generation == 1 {
+                                return; // accepted prompt loses its acknowledgement
+                            }
+                            json!({"stopReason":"end_turn","_meta":{"acpmux":{"turnId":"turn"}}})
+                        }
+                        other => panic!("unexpected wire request: {other}"),
+                    };
+                    let response = match error {
+                        Some(error) => json!({"jsonrpc":"2.0","id":id,"error":error}),
+                        None => json!({"jsonrpc":"2.0","id":id,"result":result}),
+                    };
+                    if write.write_all(format!("{response}\n").as_bytes()).await.is_err() {
+                        break;
+                    }
+                }
+            });
+        }
+    });
+    let mut args = vec!["send", "--timeout", "1", "lane", "side effect"];
+    if quiet {
+        args.insert(1, "--quiet");
+    }
+    let started = Instant::now();
+    let out = tokio::process::Command::from(cli_command(&dir, &args)).output().await.unwrap();
+    let elapsed = started.elapsed();
+    server.abort();
+    let _ = server.await;
+    let count = prompts.load(Ordering::SeqCst);
+    fs::remove_dir_all(dir).unwrap();
+    (out, count, elapsed)
+}
+
+#[test]
+fn collected_reply_survives_an_active_turn_restart() {
+    let dir = scratch("collect-restart");
+    let _shutdown = Shutdown(&dir);
+    let mut daemon = start_custom_daemon(&dir, &[]);
+    let made = cli(&dir, &["new", "-d", "-n", "lane", "-m", "fake"]);
+    assert!(made.status.success(), "{}", text(&made));
+    let gate = dir.join("gate");
+    let gate_c = std::ffi::CString::new(gate.as_os_str().as_encoded_bytes()).unwrap();
+    // SAFETY: test-owned path, valid C string.
+    assert_eq!(unsafe { libc::mkfifo(gate_c.as_ptr(), 0o600) }, 0);
+    let writer = fs::OpenOptions::new().read(true).write(true).open(&gate).unwrap();
+    let prompt = format!("gate: {}", gate.display());
+    let send = cli_command(&dir, &["--json", "send", "--timeout", "10", "lane", &prompt])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let waiting = cli(&dir, &["wait", "lane", "--match", "before-gate", "--timeout", "5"]);
+    assert!(waiting.status.success(), "{}", text(&waiting));
+    daemon.stop();
+    let started = cli(&dir, &["daemon", "start"]);
+    assert!(started.status.success(), "{}", text(&started));
+    drop(writer);
+    let out = send.wait_with_output().unwrap();
+    assert!(out.status.success(), "{}", text(&out));
+    let result: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(result["reply"], "before-gateafter-gate");
+}
