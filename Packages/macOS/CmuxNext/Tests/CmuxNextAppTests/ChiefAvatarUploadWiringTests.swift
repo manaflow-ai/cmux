@@ -14,7 +14,7 @@ import UniformTypeIdentifiers
 /// Leo 2026-10-26: "have guys make their own and then, like, upload their own if they have things
 /// from elsewhere for the avatars, the Chief avatars." A Chief's own upload (a still or a moving GIF,
 /// checked against the limits) is its pet character: the Chief Settings popover's grid offers it after
-/// the nine, the pet plays it (still under Reduce Motion), every other surface draws its first frame,
+/// the characters, the pet plays it (still under Reduce Motion), every other surface draws its first frame,
 /// and Remove Upload brings back the character picked before. Every picture here is drawn by the test.
 @MainActor @Suite(.serialized) struct ChiefAvatarUploadWiringTests {
     static let chief = HomeChiefAvatars.defaultChief
@@ -64,7 +64,7 @@ import UniformTypeIdentifiers
         #expect(uploads.uploads[key] == nil)
     }
 
-    @Test func thePopoverOffersTheUploadAfterTheNine() async throws {
+    @Test func thePopoverOffersTheUploadAfterTheCharacters() async throws {
         let folder = try Fixtures.folder()
         defer { try? FileManager.default.removeItem(at: folder) }
         let url = folder.appending(path: "cmux.json")
@@ -79,7 +79,7 @@ import UniformTypeIdentifiers
                                         picks: ChiefMascotPicks(defaults: nil, defaultChief: Self.chief), uploads: uploads)
         rows.install(in: popover, addRow: { popover.addAppearanceRow($0, control: $1) }, open: { false })
         let cell = rows.mascot.uploadCell
-        #expect(rows.mascot.cells.count == 10 && rows.mascot.cells.last === cell)
+        #expect(rows.mascot.cells.count == ChiefPetMascot.allCases.count + 1 && rows.mascot.cells.last === cell)
         #expect(!cell.isHidden && cell.accessibilityLabel() == ChiefAvatarUploads.chooseTitle && cell.image != nil)
         #expect(rows.mascot.selectedID == "orb")
 

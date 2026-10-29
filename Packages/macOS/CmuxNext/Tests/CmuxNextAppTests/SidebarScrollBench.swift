@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Darwin
 import Foundation
 import QuartzCore
@@ -204,13 +205,17 @@ final class SidebarScrollBench {
     }
 
     /// Scrolls top to bottom and back `passes` times, `step` points per frame (a fast trackpad
-    /// flick moves 30-60 pt a frame). The first pass down is a warm-up and is dropped.
-    func run(step: CGFloat = 40, passes: Int = 2) -> [Frame] {
+    /// flick moves 30-60 pt a frame). The first pass down is a warm-up and is dropped. `depth`
+    /// turns each pass back that far below the top (nil: at the bottom), so a run's frame count
+    /// stops growing with the list.
+    func run(step: CGFloat = 40, passes: Int = 2, depth: CGFloat? = nil) -> [Frame] {
         var frames: [Frame] = []
         for pass in 0...max(passes, 0) {
+            // Read each step, as `maxY` follows the list's height (ticks can change it mid-pass).
+            var bottom: CGFloat { min(maxY, depth ?? maxY) }
             var y: CGFloat = 0
             var down: [Frame] = []
-            while y < maxY { y = min(maxY, y + step); down.append(frame(to: y)) }
+            while y < bottom { y = min(bottom, y + step); down.append(frame(to: y)) }
             while y > 0 { y = max(0, y - step); down.append(frame(to: y)) }
             if pass > 0 || passes == 0 { frames += down }
             drain()
@@ -219,25 +224,21 @@ final class SidebarScrollBench {
     }
 
     /// Samples this process with `/usr/bin/sample` while it scrolls and prints the heaviest
-    /// main-thread frames ("SSB" call tree lines, "SSB-TOP" top of stack).
+    /// main-thread frames ("SSB" call tree lines, "SSB-TOP" top of stack). The wait for `sample`
+    /// is bounded and off the main thread (`SelfSampler`).
     func profile(seconds: Int = 6, minimum: Int = 25) async throws {
-        let output = FileManager.default.temporaryDirectory.appendingPathComponent("sidebar-scroll-\(getpid()).sample.txt")
-        let sampler = Process()
-        sampler.executableURL = URL(fileURLWithPath: "/usr/bin/sample")
-        sampler.arguments = [String(getpid()), String(seconds), "1", "-mayDie", "-file", output.path]
-        sampler.standardOutput = FileHandle.nullDevice
-        sampler.standardError = FileHandle.nullDevice
-        try sampler.run()
-        try await Task.sleep(for: .milliseconds(500)) // bounded: lets sample attach before the scroll
-        var rounds = 0
-        let end = Date().addingTimeInterval(TimeInterval(seconds))
-        while Date() < end {
-            _ = run(step: 40, passes: 0)
-            rounds += 1
-            await Task.yield()
+        let (report, rounds) = try await SelfSampler.run(name: "sidebar-scroll", seconds: seconds) { _ in
+            try await Task.sleep(for: .milliseconds(500)) // bounded: lets sample attach before the scroll
+            var rounds = 0
+            let end = Date().addingTimeInterval(TimeInterval(seconds))
+            while Date() < end {
+                _ = run(step: 40, passes: 0)
+                rounds += 1
+                await Task.yield()
+            }
+            return rounds
         }
-        sampler.waitUntilExit()
-        guard let text = try? String(contentsOf: output, encoding: .utf8) else { return print("SIDEBAR-SCROLL-PROFILE no sample output") }
+        guard let text = report else { return print("SIDEBAR-SCROLL-PROFILE no sample output") }
         print("SIDEBAR-SCROLL-PROFILE n=\(count) rounds=\(rounds)")
         let lines = text.components(separatedBy: "\n")
         var inMain = false, printed = 0
@@ -254,17 +255,9 @@ final class SidebarScrollBench {
         }
     }
 
-    static func threadCPU() -> Double {
-        var ts = timespec()
-        clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ts)
-        return Double(ts.tv_sec) + Double(ts.tv_nsec) / 1e9
-    }
+    static func threadCPU() -> Double { FrameBudgetCalibration.threadCPU() }
 
-    static func percentile(_ values: [Double], _ p: Double) -> Double {
-        let sorted = values.sorted()
-        guard !sorted.isEmpty else { return 0 }
-        return sorted[min(sorted.count - 1, Int((Double(sorted.count - 1) * p).rounded()))]
-    }
+    static func percentile(_ values: [Double], _ p: Double) -> Double { FrameBudgetCalibration.percentile(values, p) }
 
     static func summary(_ count: Int, _ frames: [Frame]) -> String {
         let cpu = frames.map(\.cpuMs)

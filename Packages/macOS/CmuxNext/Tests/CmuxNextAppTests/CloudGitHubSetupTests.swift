@@ -65,10 +65,26 @@ struct CloudGitHubSetupTests {
 
     // MARK: Validation
 
-    @Test(arguments: ["Ann\nrm -rf ~", "Ann\0", "Ann\u{1B}[31m", "Ann\rLee", "Ann\u{7F}", String(repeating: "a", count: 257)])
-    func aValueWithAControlCharacterOrTooLongIsRefused(value: String) {
+    /// A value as a test argument, printed escaped. Swift Testing prints a String argument as is
+    /// on its console lines: the NUL ended that line early and lost its newline, so the next
+    /// test's line joined it and the test-run wrapper lost that test's finish (it read as never
+    /// finished, and the run as cut short, on feat-cmux-next 2026-10-28).
+    struct Unsafe: CustomTestStringConvertible, Sendable {
+        let value: String
+        var testDescription: String { value.debugDescription }
+    }
+
+    @Test(arguments: ["Ann\nrm -rf ~", "Ann\0", "Ann\u{1B}[31m", "Ann\rLee", "Ann\u{7F}", String(repeating: "a", count: 257)].map(Unsafe.init))
+    func aValueWithAControlCharacterOrTooLongIsRefused(value: Unsafe) {
         #expect(throws: ActionFailure(message: CloudStrings.gitHubIdentityUnsafe)) {
-            try CloudGitHubSetup.validated(.init(name: value, email: "a@b.c"))
+            try CloudGitHubSetup.validated(.init(name: value.value, email: "a@b.c"))
+        }
+    }
+
+    @Test func aControlCharacterArgumentPrintsEscaped() {
+        for value in ["Ann\nrm -rf ~", "Ann\0", "Ann\u{1B}[31m", "Ann\rLee", "Ann\u{7F}"] {
+            let printed = String(describingForTest: Unsafe(value: value))
+            #expect(!printed.unicodeScalars.contains { $0.properties.generalCategory == .control }, "\(printed.debugDescription)")
         }
     }
 

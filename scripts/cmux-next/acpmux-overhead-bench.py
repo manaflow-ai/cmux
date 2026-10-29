@@ -20,9 +20,29 @@ Per run, milliseconds from the moment the client starts the session:
   end     the turn ended (prompt answered)
   warm_first / warm_end  a second prompt on the same session, from its send
 
+--mode prewarm: the new chat typing prewarm (webviews newChatPrewarm.ts) instead. Both sides run
+through acpmux, each run in a fresh folder, from the moment the person presses Enter (session/new):
+  cold       session/new, then the prompt (today's Enter in a new chat with no hint)
+  prewarmed  `_acpmux/prewarm` {harness, cwd, wait} first (the typing; not timed into Enter), then
+             the same session/new and prompt; `pool_hit` 1 when session/new took the warm session
+  ready / first / end  ms from Enter to session/new's answer, the first answer text, the turn's end
+  warm_start           ms the hint took to have a ready session (the typing time it needs)
+Then the idle cost of typing in 5 new chats in 5 folders and sending none: ready warm sessions
+left and their RSS (`abandoned_ready`, `abandoned_rss_mb`).
+
+--mode hibernate: an idle chat's hibernation (acpmux hub/idle.rs). n chats per harness, each attached
+(the chat on screen), one turn each, then all left idle for --idle-wait seconds (default 135: the
+2 min default and a margin). Per chat:
+  procs / rss_mb   the agent's processes (its host, harness and MCP servers) and their RSS after the turn
+  left             how many of those still run after the idle wait (0: hibernated)
+  first            ms from the next prompt's send to its first answer text (a wake when hibernated);
+                   every other chat first says `_acpmux/typing` on and waits 1 s (`typed` 1), as a
+                   person typing does
+  warm_first       the same for a prompt right after, the agent awake
+
 Usage:
   acpmux-overhead-bench.py --acpmux PATH [--harness claude,codex,opencode] [-n 20]
-                           [--json OUT] [--md OUT]
+                           [--mode overhead|prewarm|hibernate] [--json OUT] [--md OUT]
 """
 
 from __future__ import annotations
@@ -445,8 +465,160 @@ def via_acpmux(daemon: Daemon, harness, cwd):
             pass
 
 
+def pool_entries(daemon: Daemon, cwd=None):
+    _, status = daemon.request("_acpmux/status", {})
+    pool = status.get("pool") or {}
+    entries = [e for e in pool.get("entries", []) if cwd is None or e.get("cwd") == cwd]
+    return entries, pool.get("rssBytes", 0)
+
+
+def via_acpmux_enter(daemon: Daemon, harness, cwd, prewarm):
+    """One new chat's Enter in `cwd`, after the typing hint when `prewarm`."""
+    out = {}
+    if prewarm:
+        t0 = time.perf_counter()
+        _, r = daemon.request("_acpmux/prewarm", {"harness": harness, "cwd": cwd, "wait": True}, timeout=180)
+        out["warm_start"] = ms(t0, time.perf_counter())
+        entries, _ = pool_entries(daemon, cwd)
+        if not any(e.get("state") == "ready" for e in entries):
+            raise RuntimeError(f"the hint pooled nothing: {r}")
+    # Enter: the pane's session/new for a new chat names the harness and the folder only.
+    t0 = time.perf_counter()
+    t_ready, r = daemon.request("session/new", {"cwd": cwd, "mcpServers": [],
+                                                 "_meta": {"acpmux": {"harness": harness}}}, timeout=180)
+    sid = r["sessionId"]
+    out["ready"] = ms(t0, t_ready)
+    if prewarm:
+        entries, _ = pool_entries(daemon, cwd)
+        out["pool_hit"] = 0 if any(e.get("state") == "ready" for e in entries) else 1
+    io = daemon.io
+    try:
+        daemon.next += 1
+        _, tf, te, _ = acp_turn(io, io.mark(), daemon.next, sid, "Reply with ok.")
+        out["first"], out["end"] = ms(t0, tf), ms(t0, te)
+        return out
+    finally:
+        try:
+            daemon.request("session/close", {"sessionId": sid}, timeout=20)
+        except Exception:
+            pass
+
+
+def abandoned_cost(daemon: Daemon, harness, scratch, folders=5):
+    """Typing in `folders` new chats in different folders, sending none: what stays warm."""
+    for i in range(folders):
+        cwd = os.path.realpath(os.path.join(scratch, f"abandon-{harness}-{i}"))
+        os.makedirs(cwd, exist_ok=True)
+        daemon.request("_acpmux/prewarm", {"harness": harness, "cwd": cwd, "wait": True}, timeout=180)
+    rss = 0
+    deadline = time.monotonic() + 5
+    while True:
+        entries, rss = pool_entries(daemon)
+        ready = [e for e in entries if e.get("harness") == harness and e.get("state") == "ready"]
+        if rss or time.monotonic() > deadline:
+            break
+        time.sleep(0.2)
+    return {"abandoned_ready": len(ready), "abandoned_rss_mb": round(rss / (1 << 20), 1)}
+
+
+def proc_table():
+    out = subprocess.run(["ps", "-A", "-o", "pid=,ppid=,rss="], capture_output=True, text=True).stdout
+    rows = {}
+    for line in out.splitlines():
+        f = line.split()
+        if len(f) == 3 and all(x.isdigit() for x in f):
+            rows[int(f[0])] = (int(f[1]), int(f[2]))
+    return rows
+
+
+def agent_procs(home, session):
+    """The pids of `session`'s agent: its host (`hosts/<id>.json`) or the daemon's child, and everything
+    under it (the harness and its MCP servers)."""
+    rows = proc_table()
+    path = os.path.join(home, "hosts", f"{session}.json")
+    if not os.path.exists(path):
+        # Not hosted: its harness is the daemon's child, and nothing names which one is this
+        # session's. Counted as unknown, never as another session's processes.
+        return None, 0
+    rec = json.load(open(path))
+    roots = [p for p in (rec.get("host_pid"), rec.get("harness_pid")) if p]
+    tree = list(dict.fromkeys(roots))
+    i = 0
+    while i < len(tree):
+        tree.extend(pid for pid, (ppid, _) in rows.items() if ppid == tree[i] and pid not in tree)
+        i += 1
+    return [p for p in tree if p in rows], sum(rows[p][1] for p in tree if p in rows)
+
+
+def alive(pid):
+    out = subprocess.run(["ps", "-o", "stat=", "-p", str(pid)], capture_output=True, text=True).stdout.strip()
+    return bool(out) and not out.startswith("Z")
+
+
+def hibernate_main(args, daemon: Daemon, scratch):
+    results = {}
+    chats = []
+    for h in args.harness.split(","):
+        for k in range(args.n):
+            cwd = os.path.realpath(os.path.join(scratch, f"hib-{h}-{k}"))
+            os.makedirs(cwd, exist_ok=True)
+            _, r = daemon.request("session/new", {"cwd": cwd, "mcpServers": [],
+                                                   "_meta": {"acpmux": {"harness": h, "policy": "approve-all",
+                                                                        "model": MODELS[h]}}}, timeout=180)
+            sid = r["sessionId"]
+            daemon.next += 1
+            acp_turn(daemon.io, daemon.io.mark(), daemon.next, sid, "Reply with ok.")
+            pids, rss = agent_procs(daemon.home, sid)
+            chats.append({"harness": h, "sid": sid, "pids": pids or [], "procs": None if pids is None else len(pids),
+                          "rss_mb": round(rss / 1024, 1),
+                          "typed": k % 2})
+    print(f"hibernate: {len(chats)} chats idle for {args.idle_wait} s", file=sys.stderr, flush=True)
+    time.sleep(args.idle_wait)
+    for c in chats:
+        pids = c.pop("pids")
+        c["left"] = sum(1 for p in pids if alive(p)) if c["procs"] is not None else None
+    for c in chats:
+        if c["typed"]:
+            daemon.request("_acpmux/typing", {"sessionId": c["sid"], "on": True})
+            time.sleep(1.0)
+        daemon.next += 1
+        ts, tf, _, _ = acp_turn(daemon.io, daemon.io.mark(), daemon.next, c["sid"], "Again: reply with ok.")
+        c["first"] = ms(ts, tf)
+        daemon.next += 1
+        ts, tf, _, _ = acp_turn(daemon.io, daemon.io.mark(), daemon.next, c["sid"], "Once more: reply with ok.")
+        c["warm_first"] = ms(ts, tf)
+    for h in args.harness.split(","):
+        rows = [c for c in chats if c["harness"] == h]
+        results[h] = {"runs": rows}
+    log = open(os.path.join(daemon.home, "daemon.log"), errors="replace").read()
+    # The hibernations and wakes, and why an idle harness stayed up (`idle_census.rs` `note_refusal`):
+    # with no hibernation, the refusal names the process that kept it.
+    marks = ("hibernated", "woke", "wake failed", "idle harness stays up")
+    results["_log"] = [line for line in log.splitlines() if any(m in line for m in marks)][-40:]
+    results["_meta"] = {"label": args.label, "acpmux": args.acpmux, "n": args.n, "mode": "hibernate",
+                        "idle_wait": args.idle_wait, "host": socket.gethostname(), "load": os.getloadavg()}
+    if args.json:
+        with open(args.json, "w") as f:
+            json.dump(results, f, indent=1)
+    lines = [f"### {args.label or 'run'} hibernate ({socket.gethostname()}, n={args.n}, idle {args.idle_wait} s, "
+             f"load {os.getloadavg()[0]:.1f})", "",
+             "| harness | typed first | agent procs after the turn | RSS MB | still running after idle | "
+             "next prompt to first text (ms) | awake prompt to first text (ms) |", "|---|---|---|---|---|---|---|"]
+    for c in chats:
+        lines.append(f"| {c['harness']} | {'yes' if c['typed'] else 'no'} | {c['procs']} | {c['rss_mb']} | {c['left']} | "
+                     f"{c['first']} | {c['warm_first']} |")
+    text = "\n".join(lines) + "\n"
+    print(text)
+    for line in results["_log"]:
+        print("LOG " + line)
+    if args.md:
+        with open(args.md, "a") as f:
+            f.write(text + "\n")
+
+
 # ---------------------------------------------------------------- main
 
+PREWARM_METRICS = ["ready", "first", "end", "warm_start", "pool_hit"]
 METRICS = ["ready", "first", "end", "warm_first", "warm_end", "requests", "request_kb", "request_ktok"]
 
 
@@ -511,6 +683,8 @@ def main():
     ap.add_argument("--harness", default="claude,codex,opencode")
     ap.add_argument("-n", type=int, default=20)
     ap.add_argument("--warmup", type=int, default=2)
+    ap.add_argument("--mode", choices=["overhead", "prewarm", "hibernate"], default="overhead")
+    ap.add_argument("--idle-wait", type=int, default=135, help="--mode hibernate: seconds the chats sit idle")
     ap.add_argument("--json")
     ap.add_argument("--md")
     ap.add_argument("--label", default="")
@@ -534,6 +708,12 @@ def main():
     if args.no_agent_tools:
         extra["ACPMUX_AGENT_TOOLS"] = "0"
     daemon = Daemon(os.path.abspath(args.acpmux), env, home, extra)
+    if args.mode in ("prewarm", "hibernate"):
+        try:
+            return (prewarm_main if args.mode == "prewarm" else hibernate_main)(args, daemon, scratch)
+        finally:
+            daemon.close()
+            shutil.rmtree(scratch, ignore_errors=True)
     results = {}
     try:
         for h in args.harness.split(","):
@@ -594,6 +774,61 @@ def main():
         with open(args.md, "a") as f:
             f.write(text + "\n")
     shutil.rmtree(scratch, ignore_errors=True)
+
+
+def prewarm_main(args, daemon: Daemon, scratch):
+    results = {}
+    for h in args.harness.split(","):
+        rows = {"cold": [], "prewarmed": [], "errors": []}
+        for k in range(args.warmup + args.n):
+            order = ["cold", "prewarmed"]
+            if k % 2:
+                order.reverse()
+            for side in order:
+                # A fresh folder per run: no earlier session or hint there.
+                cwd = os.path.realpath(os.path.join(scratch, f"enter-{h}-{side}-{k}"))
+                os.makedirs(cwd, exist_ok=True)
+                try:
+                    r = via_acpmux_enter(daemon, h, cwd, side == "prewarmed")
+                except Exception as e:  # noqa: BLE001: a bench reports and goes on
+                    rows["errors"].append(f"{side} run {k}: {e}")
+                    print(f"{h} {side} run {k}: {e}", file=sys.stderr)
+                    continue
+                if k >= args.warmup:
+                    rows[side].append(r)
+            print(f"{h} run {k + 1}/{args.warmup + args.n}", file=sys.stderr, flush=True)
+        summary = {side: {m: {"p50": pct([r[m] for r in rows[side] if m in r], 0.5),
+                              "p95": pct([r[m] for r in rows[side] if m in r], 0.95),
+                              "n": len([r for r in rows[side] if m in r])} for m in PREWARM_METRICS}
+                   for side in ("cold", "prewarmed")}
+        try:
+            summary["abandoned"] = abandoned_cost(daemon, h, scratch)
+        except Exception as e:  # noqa: BLE001
+            summary["abandoned"] = {"error": str(e)}
+        summary["errors"] = rows["errors"]
+        summary["runs"] = rows
+        results[h] = summary
+    results["_meta"] = {"label": args.label, "acpmux": args.acpmux, "n": args.n, "mode": "prewarm",
+                        "host": socket.gethostname(), "load": os.getloadavg()}
+    if args.json:
+        with open(args.json, "w") as f:
+            json.dump(results, f, indent=1)
+    lines = [f"### {args.label or 'run'} prewarm ({socket.gethostname()}, n={args.n}, load {os.getloadavg()[0]:.1f})",
+             "", "| harness | metric | cold p50 | cold p95 | prewarmed p50 | prewarmed p95 |", "|---|---|---|---|---|---|"]
+    for h, s in results.items():
+        if h.startswith("_"):
+            continue
+        for m in PREWARM_METRICS:
+            lines.append(f"| {h} | {m} | {s['cold'][m]['p50']} | {s['cold'][m]['p95']} | "
+                         f"{s['prewarmed'][m]['p50']} | {s['prewarmed'][m]['p95']} |")
+        a = s["abandoned"]
+        lines.append(f"| {h} | typed in 5 folders, sent none | ready {a.get('abandoned_ready')} | "
+                     f"{a.get('abandoned_rss_mb')} MB | {a.get('error', '')} | |")
+    text = "\n".join(lines) + "\n"
+    print(text)
+    if args.md:
+        with open(args.md, "a") as f:
+            f.write(text + "\n")
 
 
 if __name__ == "__main__":

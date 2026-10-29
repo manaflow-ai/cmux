@@ -3,7 +3,7 @@
 // while the steer waits, and a click asks acpmux to stop the agent's current step with
 // `_acpmux/queue_edit` `send_now` for that steer's own promptId, through the page's
 // `chat.queue.edit` action. It never sends session/cancel: Send now does not end the turn.
-import { afterAll, expect, jest, test } from "bun:test";
+import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import { CHAT, connect, fakeDaemon, record } from "./support/agentPairDaemon";
 
@@ -108,21 +108,16 @@ test("Send now on a waiting steer asks queue_edit send_now for its promptId, and
     expect(asked.map((request) => request.params)).toEqual([{ sessionId: CHAT, promptId: "p-steer", op: "send_now" }]);
     expect(daemon.requests.some((request) => request.method === "session/cancel")).toBe(false);
 
-    // The agent read it: Send now folds away (PendingSteer.tsx), then is gone.
+    // This daemon does not accept Send now, so the control stays until the agent reads it.
+    expect(sendNowButtons()).toHaveLength(1);
+    // A later prompt marks this steer read. Its queue controls disappear without a closing timer.
     await act(async () => {
       daemon.push(record([["mux", "user_message", { promptId: "p-next", text: "Then open a PR" }]], 3));
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
-    // The fold's timer is the behavior: it starts on this render, on fake timers that run it out.
-    jest.useFakeTimers();
-    try {
-      await render();
-      expect(sendNowButtons().map((button) => Boolean(button.closest(".cv-user__pending--leaving")))).toEqual([true]);
-      await act(() => void jest.advanceTimersByTime(1_000));
-    } finally {
-      jest.useRealTimers();
-    }
-    expect(sendNowButtons().length).toBe(0);
+    await render();
+    expect(sendNowButtons()).toHaveLength(0);
+    expect(message.querySelector(".cv-user__pending")).toBeNull();
   } finally {
     await act(async () => root.unmount());
   }

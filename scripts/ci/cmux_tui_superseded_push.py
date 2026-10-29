@@ -40,6 +40,14 @@ that run waits for its tree.
 
 Every API failure answers no: the run then does its work as before.
 
+A lane branch's head is read over git (`git ls-remote` on CMUX_TUI_REF_REMOTE,
+which the workflow sets to the repository's clone URL), not the REST API: a
+git ref read spends none of the installation's GITHUB_TOKEN budget, which ran
+out every hour on 2026-10-26 with this workflow at about 260 runs an hour.
+Without CMUX_TUI_REF_REMOTE the REST read is used, as before. For cp/, lane/
+and perf/ branches the head is read first, so a moved branch is superseded
+without the pull request and dispatch lookups.
+
 Usage: cmux_tui_superseded_push.py --event E --ref REF --sha SHA [--key KEY --run-id ID]
 Environment: GH_TOKEN (contents, pull-requests and actions read),
 GITHUB_REPOSITORY, GITHUB_API_URL (default https://api.github.com).
@@ -49,6 +57,7 @@ Prints the reason and writes stale=true|false to $GITHUB_OUTPUT. Exits 0.
 from __future__ import annotations
 
 import argparse
+import base64
 import json
 import os
 import re
@@ -87,14 +96,38 @@ def api(path: str) -> tuple[int, object]:
         raise ApiError(f"GET {path}: {error}") from error
 
 
-def lane_verdict(ref: str, sha: str) -> tuple[bool, str]:
-    branch = ref.removeprefix("refs/heads/")
+def branch_head(branch: str) -> str | None:
+    """BRANCH's head sha, or None when the branch does not exist."""
+    remote = os.environ.get("CMUX_TUI_REF_REMOTE", "")
+    if remote:
+        command = ["git"]
+        token = os.environ.get("GH_TOKEN", "")
+        if token and remote.startswith("https://"):
+            basic = base64.b64encode(f"x-access-token:{token}".encode()).decode()
+            command += ["-c", f"http.extraHeader=Authorization: Basic {basic}"]
+        command += ["ls-remote", "--heads", remote, f"refs/heads/{branch}"]
+        try:
+            listed = subprocess.run(command, capture_output=True, text=True, timeout=20, check=True).stdout
+        except (OSError, subprocess.SubprocessError) as error:
+            raise ApiError(f"git ls-remote {branch}: {type(error).__name__}") from error
+        for line in listed.splitlines():
+            head, _, name = line.partition("\t")
+            if name == f"refs/heads/{branch}" and re.fullmatch(r"[0-9a-f]{40}", head):
+                return head
+        return None
     status, data = api(f"git/ref/heads/{urllib.parse.quote(branch)}")
     if status == 404:
-        return False, f"{branch} no longer exists; keeping the run"
+        return None
     if status != 200 or not isinstance(data, dict):
         raise ApiError(f"GET git/ref/heads/{branch}: HTTP {status}")
-    head = data.get("object", {}).get("sha", "")
+    return data.get("object", {}).get("sha", "")
+
+
+def lane_verdict(ref: str, sha: str) -> tuple[bool, str]:
+    branch = ref.removeprefix("refs/heads/")
+    head = branch_head(branch)
+    if head is None:
+        return False, f"{branch} no longer exists; keeping the run"
     if head == sha:
         return False, f"{sha[:12]} is still the head of {branch}"
     return True, f"{branch} moved to {head[:12]}; its newest push publishes that tree"
@@ -185,9 +218,15 @@ def verdict(event: str, ref: str, sha: str, key: str, run_id: str) -> tuple[bool
         return False, f"a {event} run is never superseded here"
     if ref in PROTECTED or ref.startswith("refs/heads/next-batch/"):
         return False, f"{ref} gates promotion; its runs are kept"
-    unreviewed = unreviewed_verdict(ref, sha) if ref.startswith(UNREVIEWED_PREFIXES) else None
-    if unreviewed is not None:
-        stale, reason = unreviewed
+    if ref.startswith(UNREVIEWED_PREFIXES):
+        # A moved branch is superseded whatever its pull requests say, so its
+        # head (a free git read) goes first and the API lookups only follow
+        # for a current head or a deleted branch.
+        stale, reason = lane_verdict(ref, sha)
+        if not stale:
+            unreviewed = unreviewed_verdict(ref, sha)
+            if unreviewed is not None:
+                stale, reason = unreviewed
     else:
         stale, reason = pin_verdict(sha) if ref.startswith(PIN_PREFIX) else lane_verdict(ref, sha)
     if stale and key:

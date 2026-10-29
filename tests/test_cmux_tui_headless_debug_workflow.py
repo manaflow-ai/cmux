@@ -62,7 +62,7 @@ class HeadlessDebugDaemon(unittest.TestCase):
     def test_it_runs_on_the_runner_a_same_repository_pull_request_uses(self) -> None:
         # The key names RUNNER_OS and RUNNER_ARCH only, so the runner type
         # must be the one conformance picks for a same-repository pull request.
-        trusted = "!startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || 'blacksmith-32vcpu-ubuntu-2404' }}"
+        trusted = "!startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}"
         self.assertTrue(self.consumer["runs-on"].endswith("|| " + trusted), self.consumer["runs-on"])
         self.assertEqual(self.producer["runs-on"], "${{ " + trusted)
 

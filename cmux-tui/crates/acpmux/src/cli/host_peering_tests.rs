@@ -58,7 +58,7 @@ impl Io for Fake {
             "_acpmux/peers" => {}
             "_acpmux/peer_add" => {
                 peers.retain(|p| p["name"] != name);
-                peers.push(json!({"name": name, "url": params["url"], "connected": self.local_connects, "error": (!self.local_connects).then_some("ssh: no route")}));
+                peers.push(json!({"name": name, "url": params["url"], "connected": self.local_connects, "error": (!self.local_connects).then_some("ssh: no route"), "githubBroker": params["githubBroker"]}));
             }
             "_acpmux/peer_reconnect" => {
                 for p in peers.iter_mut().filter(|p| p["name"] == name) {
@@ -380,7 +380,7 @@ async fn a_peer_on_another_port_passes_peer_and_identity_and_fix_adds_it_with_it
     let fake = Fake::default();
     fake.peers
         .borrow_mut()
-        .push(json!({"name": "hb", "url": "ssh://huge-blue:47900", "connected": true}));
+        .push(json!({"name": "hb", "url": "ssh://huge-blue:47900", "connected": true, "githubBroker": true}));
     let t = PeerTarget { port: 47900, ..target(None) };
     let r = peer_with(&fake, &t, true).await;
     assert_eq!(
@@ -402,4 +402,53 @@ async fn a_peer_on_another_port_passes_peer_and_identity_and_fix_adds_it_with_it
     assert_eq!(fake.peers.borrow()[0]["url"], "ssh://huge-blue:47900");
     assert_eq!(peer_with(&fake, &t, false).await.state, StepState::Ok);
     assert_eq!(identity_with(&fake, &t).await.state, StepState::Ok);
+}
+
+/// Add Machine adds the person's own machine with the Mac's GitHub login lent to it
+/// (`github_broker.rs`); one added before that gets it on its next enroll, under its own url.
+#[tokio::test]
+async fn add_machine_lends_github_and_turns_it_on_for_an_older_peer() {
+    let fake = Fake::default();
+    assert_eq!(peer_step(&fake, &target(None), true, true).await.state, StepState::Fixed);
+    assert_eq!(fake.peers.borrow()[0]["githubBroker"], true);
+
+    let fake = Fake::default();
+    fake.peers
+        .borrow_mut()
+        .push(json!({"name": "hb", "url": "ssh://Huge-Blue", "connected": true}));
+    // A check without fix changes nothing.
+    assert_eq!(peer_step(&fake, &target(None), false, true).await.state, StepState::Ok);
+    assert!(!fake.mutated_here());
+    assert_eq!(peer_step(&fake, &target(None), true, true).await.state, StepState::Fixed);
+    let peers = fake.peers.borrow();
+    assert_eq!(
+        (peers.len(), &peers[0]["url"], &peers[0]["githubBroker"]),
+        (1, &json!("ssh://Huge-Blue"), &json!(true))
+    );
+}
+
+/// The review of the Add Machine part at 5e03d7f: `host doctor --fix` lent GitHub to a peer
+/// that was never enrolled, and to one whose lending was turned off.
+#[tokio::test]
+async fn doctor_never_lends_github() {
+    let fake = Fake::default();
+    assert_eq!(peer_with(&fake, &target(None), true).await.state, StepState::Fixed);
+    assert_eq!(fake.peers.borrow()[0]["githubBroker"], Value::Null);
+
+    let fake = Fake::default();
+    fake.peers
+        .borrow_mut()
+        .push(json!({"name": "hb", "url": "ssh://huge-blue", "connected": true}));
+    assert_eq!(peer_with(&fake, &target(None), true).await.state, StepState::Ok);
+    assert!(!fake.mutated_here());
+}
+
+/// Review of part 3 at a51f607: `Alice@host` matched `alice@host`, so enroll could lend GitHub
+/// to another account's saved peer.
+#[test]
+fn a_peer_url_matches_its_user_exactly_and_its_host_in_any_case() {
+    assert!(same_ssh_url("ssh://alice@Host.example", "ssh://alice@host.example"));
+    assert!(!same_ssh_url("ssh://Alice@host.example", "ssh://alice@host.example"));
+    assert!(!same_ssh_url("ssh://alice@host.example", "ssh://host.example"));
+    assert!(!same_ssh_url("ssh://alice@host.example:2222", "ssh://alice@host.example"));
 }

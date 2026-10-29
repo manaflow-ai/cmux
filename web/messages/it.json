@@ -54,7 +54,7 @@
     "recreateRequired": {
       "title": "Ricrea questa macchina",
       "message": "Questa macchina è stata creata prima di un aggiornamento di Cloud e non può essere collegata.",
-      "action": "Crea una nuova macchina, copia i tuoi file con cmux vm pull e cmux vm push, poi elimina questa."
+      "action": "Crea una nuova macchina. Prepara un endpoint SCP con `cmux cloud prepare-scp --target machine:<id> --public-key \"$(cat ~/.ssh/id_ed25519.pub)\"`, poi copia i file tramite SCP prima di eliminare questa macchina."
     },
     "guestUnresponsive": {
       "title": "La macchina non risponde",
@@ -64,7 +64,7 @@
     "inProgress": {
       "title": "Ancora in corso",
       "message": "Il provider cloud non ha ancora completato questa modifica. Potrebbe ancora completarsi.",
-      "action": "Controlla lo stato della macchina con cmux vm ls o nell'elenco delle macchine prima di riprovare."
+      "action": "Controlla lo stato della macchina con cmux cloud list-machines o nell'elenco delle macchine prima di riprovare."
     },
     "providerTimeout": {
       "title": "Il provider cloud è lento",
@@ -79,7 +79,7 @@
     "stateConflict": {
       "title": "La macchina è occupata",
       "message": "Questa macchina si sta avviando, mettendo in pausa o non è in esecuzione, quindi ora non può farlo.",
-      "action": "Attendi un momento e riprova. Controlla lo stato della macchina con cmux vm ls e riprendila prima se è in pausa."
+      "action": "Attendi un momento e riprova. Controlla lo stato della macchina con cmux cloud list-machines e riprendila prima se è in pausa."
     },
     "networkRuleCapacity": {
       "title": "Regole di rete al limite",
@@ -102,15 +102,15 @@
       "action": {
         "snapshot": "Non riprovare. Il lavoro su questo tipo di macchina viene conservato nel volume home persistente.",
         "restore": "Non riprovare. Il lavoro su questo tipo di macchina viene conservato nel volume home persistente.",
-        "fork": "Non riprovare. Crea una nuova VM con `cmux vm new`.",
-        "openPort": "Non riprovare. Accedi al servizio dall’interno della macchina con `cmux vm exec` oppure usa un tipo di macchina che può aprire le porte.",
-        "default": "Non riprovare. Esegui `cmux vm ls` o contatta l’assistenza se ritieni che sia un errore."
+        "fork": "Non riprovare. Crea una nuova VM con `cmux cloud new-machine`.",
+        "openPort": "Non riprovare. Accedi al servizio dall’interno della macchina con `cmux cloud exec --target machine:<id> --command <command>` oppure usa un tipo di macchina che può aprire le porte.",
+        "default": "Non riprovare. Esegui `cmux cloud list-machines` o contatta l’assistenza se ritieni che sia un errore."
       }
     },
     "requiresPro": {
-      "title": "Richiesto cmux Pro",
-      "message": "Le Cloud VM richiedono un piano cmux Pro.",
-      "action": "Passa a cmux Pro su {upgradeUrl} per creare Cloud VM."
+      "title": "Richiesto cmux {plan}",
+      "message": "Le Cloud VM richiedono un piano cmux {plan}.",
+      "action": "Passa a cmux {plan} su {upgradeUrl} per creare Cloud VM."
     },
     "displayName": {
       "title": "Nome macchina non valido",
@@ -120,35 +120,35 @@
     "memoryPlan": {
       "title": "cmux {plan}",
       "message": "Le macchine da {memory} GiB richiedono cmux {plan}. Il tuo piano supporta fino a {max} GiB.",
-      "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}"
+      "action": "{upgradeUrl}"
     },
     "memoryUnknown": {
       "message": "Impossibile verificare la RAM della macchina di origine.",
-      "action": "cmux vm new --size 4g"
+      "action": "cmux cloud new-machine"
     },
     "memoryUnavailable": {
       "message": "Questa dimensione non è disponibile. Scegli fino a {max} GiB.",
-      "action": "cmux vm new --size {max}g"
+      "action": "cmux cloud new-machine"
     },
     "goLimit": {
       "savedMessage": "Go include due VM salvate, compresa quella in esecuzione.",
-      "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
+      "savedAction": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm\nhttps://cmux.com/pricing",
       "activeMessage": "Go consente una VM in esecuzione alla volta.",
-      "activeAction": "cmux vm pause <id>\ncmux billing checkout --plan pro",
+      "activeAction": "cmux cloud pause-machine --target machine:<id>\nhttps://cmux.com/pricing",
       "hoursMessage": "Go ha esaurito le 40 ore di VM di questo mese. Le VM salvate saranno disponibili nel prossimo periodo di fatturazione.",
-      "hoursAction": "cmux billing checkout --plan pro",
+      "hoursAction": "https://cmux.com/pricing",
       "shapeMessage": "Go supporta 2 vCPU, 4 GiB di RAM e 16 GiB di disco.",
-      "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
+      "shapeAction": "cmux cloud new-machine\nhttps://cmux.com/pricing"
     },
     "planBudget": {
       "computeTitle": "Quota di calcolo {plan} esaurita",
       "computeMessage": "Il tuo piano {plan} ha usato le sue {included} ore di calcolo per questo periodo di fatturazione. Un'ora di calcolo corrisponde a 1 vCPU con 2 GB di memoria per un'ora. Le tue macchine potranno ripartire il {resetDate}.",
       "computeAction": "Le macchine in pausa conservano i loro file. Contatta il supporto se ti serve più calcolo prima del {resetDate}.",
-      "computeActionUpgrade": "cmux billing checkout --plan max",
+      "computeActionUpgrade": "https://cmux.com/pricing",
       "storageTitle": "Quota disco {plan} esaurita",
       "storageMessage": "Il tuo piano {plan} include {included} GB di disco per tutte le macchine salvate. Le macchine salvate usano {used} GB e questa richiesta ne richiede {requested}.",
-      "storageAction": "cmux vm ls\ncmux vm rm <id>",
-      "storageActionUpgrade": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan max"
+      "storageAction": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm",
+      "storageActionUpgrade": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm\nhttps://cmux.com/pricing"
     },
     "resourcePool": {
       "title": "Risorse Cloud VM insufficienti",

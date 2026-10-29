@@ -8,6 +8,7 @@
 // is kind of enough sometimes for the ... preview of the message"): the minimal-* variants. A, the
 // chip, the first line and a chevron, ships; B (a fade and "+N lines") and C (the name inline, no
 // chip) are drawn here only, over the shipped line.
+import { avatarsChanged, UPLOADED_AVATAR } from "../../../gallery/fixtures/agentAvatar";
 import { agentPaneEntry, type ChipHostFixture } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
 import { SESSION_ID, assistant, chat, session, summary, user } from "../../../gallery/fixtures/acpmux";
@@ -99,13 +100,25 @@ const minimalChat = chat([
   assistant("Merged cmux/grid-fix into this branch.", 4.5),
   summary(4.5, { status: "completed" }),
 ]);
+/// Three received messages in a row fold into one disclosure (waitingMessages.ts, #26980). The
+/// Minimal Mode plays draw each message's own line, so they open that fold first.
+const RECEIVED_LINE = ".cv-received__toggle:not(.cv-waiting__toggle)";
+const openFold: Play = async (ctx) => {
+  await ctx.waitFor(
+    () =>
+      ctx.document.querySelector(".cv-waiting__toggle") !== null ||
+      ctx.document.querySelectorAll(".cv-received__preview").length >= minimalTexts.length,
+  );
+  ctx.document.querySelector<HTMLButtonElement>('.cv-waiting__toggle[aria-expanded="false"]')?.click();
+  await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-received__preview").length >= minimalTexts.length);
+};
 const ALT_ID = "incoming-minimal-alt";
 /// Draws a gallery-only line over the shipped one: its stylesheet, then `mark` on each line (its
 /// preview span, the message's text and the sender's name).
 const alternate =
   (css: string, mark: (preview: HTMLElement, text: string, name: string) => void): Play =>
   async (ctx) => {
-    await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-received__preview").length >= minimalTexts.length);
+    await openFold(ctx);
     ctx.document.getElementById(ALT_ID)?.remove();
     const style = ctx.document.createElement("style");
     style.id = ALT_ID;
@@ -223,6 +236,30 @@ export default agentPaneEntry({
         ],
         { title: "tests" },
       ),
+    },
+    avatar: {
+      note: "A message from a chat whose person uploaded an avatar (its chat menu's Set Avatar…): the sender line draws it in place of the harness mark (a synthetic picture).",
+      snapshot: chat([
+        user("Run the net tests and report which fail.", 9, {
+          incoming: {
+            kind: "message",
+            message: {
+              name: "claude-sr2/coordinator",
+              sessionId: "parent-1",
+              relation: "parent",
+              text: "Run the net tests and report which fail.",
+              raw: "Run the net tests and report which fail.",
+            },
+          },
+          untyped: true,
+        }),
+        assistant("Running them now.", 8.5),
+      ]),
+      native: { "agent.avatar": { src: UPLOADED_AVATAR } },
+      play: async (ctx) => {
+        avatarsChanged(ctx.document, ["parent-1"]);
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-received__icon img.cv-agent-avatar"));
+      },
     },
     links: {
       note: "A message's card shows its PR, HQ and commit references as links.",
@@ -401,9 +438,10 @@ export default agentPaneEntry({
       display: MINIMAL,
       snapshot: minimalChat,
       play: async (ctx) => {
-        await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-received__toggle").length >= 3);
-        await ctx.click({ selector: '.cv-received__toggle[aria-label*="Landing report"]' });
-        await ctx.waitFor(() => ctx.document.querySelector('.cv-received__toggle[aria-expanded="true"]'));
+        await openFold(ctx);
+        await ctx.waitFor(() => ctx.document.querySelectorAll(RECEIVED_LINE).length >= 3);
+        await ctx.click({ selector: `${RECEIVED_LINE}[aria-label*="Landing report"]` });
+        await ctx.waitFor(() => ctx.document.querySelector(`${RECEIVED_LINE}[aria-expanded="true"]`));
       },
     },
     "minimal-fade-count": {

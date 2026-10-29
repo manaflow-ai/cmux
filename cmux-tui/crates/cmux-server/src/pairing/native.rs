@@ -1,5 +1,5 @@
-//! Finish Native registration using this record's own signer. Network policy,
-//! backend binding confirmation and serving roles are separate operations.
+//! Finish Native registration using this record's own signer. Backend
+//! confirmation precedes link export; current policy and serving roles stay separate.
 use super::{Transport, identity};
 use crate::error::{Error, Result};
 use cmux_server_core::install_key::SystemRandom;
@@ -11,8 +11,15 @@ pub(super) fn status(record: &identity::Identity) -> Result<Option<Value>> {
         Some(identity::NativeState::Pending { .. }) => {
             Ok(Some(record.native_grant()?.ok_or_else(invalid)?.public_pending()))
         }
-        Some(identity::NativeState::Registered { registration }) => {
-            Ok(Some(registration.public_status()))
+        Some(identity::NativeState::Registered { registration, confirmed_at }) => {
+            let mut status = registration.public_status();
+            if let Some(at) = confirmed_at {
+                status["state"] = json!("confirmed");
+                status["confirmed_at"] = json!(at);
+            } else {
+                status["state"] = json!("confirmation_pending");
+            }
+            Ok(Some(status))
         }
         None => Ok(None),
     }
@@ -20,9 +27,10 @@ pub(super) fn status(record: &identity::Identity) -> Result<Option<Value>> {
 pub(super) fn validate(record: &identity::Identity) -> Result<()> {
     match &record.native {
         None => Ok(()),
-        Some(identity::NativeState::Registered { registration }) => {
+        Some(identity::NativeState::Registered { registration, confirmed_at }) => {
             if super::api_origin(&registration.origin)? != registration.origin
                 || !registration.matches_keys(&record.public_jwk, &record.wg_public()?)
+                || confirmed_at.is_some_and(|at| at == 0 || at > 9_007_199_254_740_991)
             {
                 return Err(invalid());
             }
@@ -77,7 +85,9 @@ pub(super) fn finish(
     transport: &dyn Transport,
 ) -> Result<Value> {
     validate(record)?;
-    let Some(grant) = record.native_grant()? else { return public_result(record) };
+    let Some(grant) = record.native_grant()? else {
+        return super::confirmation::finish(record, store, transport);
+    };
     // A reserved locator survives both lost HTTP responses and expired codes.
     // The signed policy read proves the tenant and both key pins independently.
     let registered = match policy(record, &grant, transport)? {
@@ -96,9 +106,11 @@ pub(super) fn finish(
             policy(record, &grant, transport)?.ok_or_else(invalid)?
         }
     };
-    record.native = Some(identity::NativeState::Registered { registration: registered });
-    store.save(record)?; // Drops the private invitation after confirmation.
-    public_result(record)
+    record.schema = 3;
+    record.native =
+        Some(identity::NativeState::Registered { registration: registered, confirmed_at: None });
+    store.save(record)?; // Drop the spent invitation before backend I/O.
+    super::confirmation::finish(record, store, transport)
 }
 
 pub(super) fn public_result(record: &identity::Identity) -> Result<Value> {
@@ -108,7 +120,7 @@ pub(super) fn public_result(record: &identity::Identity) -> Result<Value> {
     )
     .map_err(|_| invalid())?;
     if let Some(network) = status(record)? {
-        if network["state"] == "pending" {
+        if network["state"] == "pending" || network["state"] == "confirmation_pending" {
             value["state"] = json!("network_pending");
         }
         value["network"] = network;
@@ -120,10 +132,13 @@ pub(super) fn public_result(record: &identity::Identity) -> Result<Value> {
 /// before this identity can be exported to a link. Basic legacy pairing works.
 pub(super) fn registration_for_link(record: &identity::Identity) -> Result<Option<Registration>> {
     match &record.native {
-        Some(identity::NativeState::Pending { .. }) => {
-            Err(Error::rejected("server.pair.network_pending"))
+        Some(
+            identity::NativeState::Pending { .. }
+            | identity::NativeState::Registered { confirmed_at: None, .. },
+        ) => Err(Error::rejected("server.pair.network_pending")),
+        Some(identity::NativeState::Registered { registration, confirmed_at: Some(_) }) => {
+            Ok(Some(registration.clone()))
         }
-        Some(identity::NativeState::Registered { registration }) => Ok(Some(registration.clone())),
         None => Ok(None),
     }
 }
