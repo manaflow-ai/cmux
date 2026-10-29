@@ -366,9 +366,9 @@ describe("idle probe guest script", () => {
         // ssh through the link arrives on loopback: counted because it is sshd.
         + tcpRow(`0100007F:0016`, "0100007F:E000", "01"),
       "net/tcp6": TCP_HEADER
-        + tcpRow(`00000000000000000000000000000000:0539`, "00000000000000000000000000000000:0000", "0A")
-        + tcpRow(`${local6}:0539`, `${remote6}:C000`, "01")
-        + tcpRow(`${mapped}:0539`, "0000000000000000FFFF00000900C00A:C001", "01"),
+        + tcpRow(`00000000000000000000000000000000:0BB8`, "00000000000000000000000000000000:0000", "0A")
+        + tcpRow(`${local6}:0BB8`, `${remote6}:C000`, "01")
+        + tcpRow(`${mapped}:0BB8`, "0000000000000000FFFF00000900C00A:C001", "01"),
     }, "NONE");
     expect(out.inbound_connections).toBe(3);
   });
