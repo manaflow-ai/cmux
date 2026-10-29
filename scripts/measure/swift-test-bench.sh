@@ -155,18 +155,29 @@ main() {
   # CmuxMobileKit names a local xcframework (a Package.swift binaryTarget) that
   # SwiftPM needs on disk even for a macOS build; it is built, not checked in.
   local t0=$SECONDS
+  # Build output goes to the step log as it comes: a measurement that prints
+  # nothing for 45 min is stopped as hung (the fleet's measure silence limit),
+  # and a real hang then shows where it stopped.
   if [[ "$package" == cmux-next-ios/CmuxMobileKit ]]; then
-    JOBS="$(sysctl -n hw.ncpu)" bash cmux-next-ios/rust/scripts/build-xcframework.sh >"$work/ffi.log" 2>&1 ||
-      { tail -60 "$work/ffi.log"; echo "swift-test-bench.sh: CmuxMobileLinkFFI.xcframework build failed" >&2; exit 1; }
+    local ffi_status
+    set +e
+    JOBS="$(sysctl -n hw.ncpu)" bash cmux-next-ios/rust/scripts/build-xcframework.sh 2>&1 | tee "$work/ffi.log"
+    ffi_status=${PIPESTATUS[0]}
+    set -e
+    [[ $ffi_status -eq 0 ]] || { echo "swift-test-bench.sh: CmuxMobileLinkFFI.xcframework build failed (exit $ffi_status)" >&2; exit 1; }
     # The script regenerates checked-in bindings; any difference is the tree's, not the run's.
     git diff --stat -- cmux-next-ios/ | tee -a "$report"
     note "- CmuxMobileLinkFFI.xcframework: built in $((SECONDS - t0)) s"
   fi
   t0=$SECONDS
-  if ! swift build --package-path "$package" --build-tests >"$work/build.log" 2>&1; then
+  local build_status
+  set +e
+  swift build --package-path "$package" --build-tests 2>&1 | tee "$work/build.log"
+  build_status=${PIPESTATUS[0]}
+  set -e
+  if [[ $build_status -ne 0 ]]; then
     grep -E "error:" "$work/build.log" | sort -u | head -40 || true
-    tail -40 "$work/build.log"
-    note "- build: failed after $((SECONDS - t0)) s"
+    note "- build: failed (exit $build_status) after $((SECONDS - t0)) s"
     exit 1
   fi
   note "- build: $((SECONDS - t0)) s"
