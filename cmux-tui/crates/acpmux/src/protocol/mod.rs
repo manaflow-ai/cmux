@@ -298,6 +298,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped("_acpmux/chat_settings", Request),
         untyped("_acpmux/chat_settled", Request),
         untyped("_acpmux/chat_transcript", Request),
+        untyped("_acpmux/chat_fork", Request),
         untyped("_acpmux/chat_changed", Notification),
         untyped("_acpmux/chats_lagged", Notification),
         // Moving a chat to another daemon (`transfer_out.rs`).

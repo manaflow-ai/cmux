@@ -32,6 +32,7 @@ pub(crate) mod dispatch;
 pub(crate) mod file_uploads;
 pub use file_uploads::FEATURE as FILE_PUT_FEATURE;
 mod fork;
+pub(crate) use fork::offers_fork;
 mod fork_at;
 mod fork_transcript_auth;
 pub mod forum;
