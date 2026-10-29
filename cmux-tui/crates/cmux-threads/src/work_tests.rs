@@ -368,9 +368,15 @@ fn idle_workers_exit_and_leave_no_thread_and_no_wakeup() {
 }
 
 /// Waits until the workers of `lane` above keep_alive have exited and the
-/// kept one is settled in its wait, then returns the lane's wakeups.
+/// kept one is settled in its wait, then returns the lane's wakeups. Settled
+/// is a level: one worker left and no worker in a timed wait (the kept one
+/// may still be in the timed wait it started above keep_alive; its timeout
+/// wakes it once more, then it waits with no timeout).
 fn settled_keep_alive_wakeups(work: &Work, lane: Lane) -> u64 {
-    until("the workers above keep_alive to exit", || lane_stats(work, lane).workers == 1);
+    until("the workers above keep_alive to exit and the kept one to settle", || {
+        let stats = lane_stats(work, lane);
+        stats.workers == 1 && stats.timed_waits == 0
+    });
     lane_stats(work, lane).wakeups
 }
 
