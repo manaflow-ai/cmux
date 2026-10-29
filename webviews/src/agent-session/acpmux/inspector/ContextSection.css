@@ -20,17 +20,23 @@
 }
 .acpmux-chat-inspector-context__bar {
   display: flex;
-  gap: 2px;
+  gap: 0;
   height: 6px;
   margin: 0 8px 6px;
   border-radius: 3px;
   overflow: hidden;
   background: var(--acpmux-context-free);
 }
+/* Separators live inside each allocation so the visible bar still matches the numeric shares. */
 .acpmux-chat-inspector-context__bar > span {
   flex: none;
   min-width: 2px;
   height: 100%;
+  box-sizing: border-box;
+  border-right: 2px solid var(--acpmux-context-free);
+}
+.acpmux-chat-inspector-context__bar > :last-child {
+  border-right: 0;
 }
 .acpmux-chat-inspector-context__bar > [data-part="used"],
 .acpmux-chat-inspector-context__swatch[data-part="used"] {
