@@ -28,12 +28,14 @@ struct TerminalThemeSettingsRowsTests {
     func noThemeNamesDefaultOnce() {
         let subtitle = TerminalThemeSettingsRows.subtitle(for: CmuxTerminalThemePair(light: nil, dark: nil))
 
-        #expect(subtitle == String(localized: "settings.terminal.themeGallery.default", defaultValue: "Ghostty default colors"))
+        #expect(subtitle == String(localized: "settings.terminal.themeGallery.default", defaultValue: "Ghostty default colors", bundle: .module))
     }
 
+    /// Resolved from the CmuxSettingsUI bundle, as the row does, so the
+    /// expectation holds in any test locale.
     private func pair(_ light: String, _ dark: String) -> String {
         String.localizedStringWithFormat(
-            String(localized: "settings.terminal.themeGallery.pair", defaultValue: "Light: %1$@ · Dark: %2$@"),
+            String(localized: "settings.terminal.themeGallery.pair", defaultValue: "Light: %1$@ · Dark: %2$@", bundle: .module),
             light,
             dark
         )
