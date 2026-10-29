@@ -22,7 +22,7 @@ enum SidebarStyle {
     static var tabIconSize: CGFloat { .iconRowSize(forLabelPointSize: subtitleFont.pointSize) }
     /// The title inset for a disclosed tab, measured from its workspace title column. Tabs are
     /// children of the workspace row, so this is deliberately larger than the old icon well gap.
-    static var tabChildIndent: CGFloat { Metrics.space4 }
+    static var tabChildIndent: CGFloat { Metrics.space6 }
     /// Tab titles stay at the caption scale so the workspace remains the visual root of the list.
     static var tabTitleFont: NSFont { Typography.caption }
     static var tabDetailFont: NSFont { Typography.caption }

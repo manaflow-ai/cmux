@@ -115,7 +115,7 @@ struct SidebarWorkspaceTabHierarchyTests {
                 let tabTitle = try Self.tabTitle(tab, text)
                 let workspaceX = Self.listX(list, workspace, workspace.title.frame.minX)
                 let tabX = Self.listX(list, tab, tabTitle.frame.minX)
-                #expect(tabX - workspaceX >= Metrics.space4,
+                #expect(tabX - workspaceX >= Metrics.space6,
                         "\(c.testDescription): tab \(tab.key) is only \(tabX - workspaceX)pt inside its workspace")
                 #expect(tabTitle.font?.pointSize ?? 0 < workspace.title.font.pointSize,
                         "\(c.testDescription): child typography is not quieter")
