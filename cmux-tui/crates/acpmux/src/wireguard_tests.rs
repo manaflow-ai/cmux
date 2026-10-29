@@ -283,6 +283,131 @@ where
     (ws, rate)
 }
 
+async fn direct_ws(target: SocketAddr) -> tokio_tungstenite::WebSocketStream<TcpStream> {
+    let stream = TcpStream::connect(target).await.unwrap();
+    let mut request = "ws://localhost:4100/".into_client_request().unwrap();
+    request.headers_mut().insert("authorization", format!("Bearer {TOKEN}").parse().unwrap());
+    request
+        .headers_mut()
+        .insert(crate::server::peer_auth::HEADER, "benchmark-peer-token".parse().unwrap());
+    tokio_tungstenite::client_async_with_config(request, stream, Some(crate::server::ws_config()))
+        .await
+        .unwrap()
+        .0
+}
+
+async fn measure_competing<S>(
+    mut bulk: tokio_tungstenite::WebSocketStream<S>,
+    mut interactive: tokio_tungstenite::WebSocketStream<S>,
+    payload: Vec<u8>,
+) -> (f64, f64)
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
+{
+    let payload_len = payload.len();
+    let bulk_started = std::time::Instant::now();
+    let bulk_fut = async move {
+        bulk.send(Frame::Binary(payload.into())).await.unwrap();
+        let echoed = tokio::time::timeout(BOUND, bulk.next()).await.unwrap().unwrap().unwrap();
+        assert_eq!(echoed.into_data().len(), payload_len, "bulk bytes changed in transit");
+        (payload_len * 2) as f64 / (1024.0 * 1024.0) / bulk_started.elapsed().as_secs_f64()
+    };
+    let interactive_fut = async move {
+        let mut samples = Vec::with_capacity(100);
+        for sequence in 0u8..100 {
+            let message = vec![sequence; 64];
+            let started = std::time::Instant::now();
+            interactive.send(Frame::Binary(message.clone().into())).await.unwrap();
+            let echoed =
+                tokio::time::timeout(BOUND, interactive.next()).await.unwrap().unwrap().unwrap();
+            assert_eq!(
+                echoed.into_data().as_ref(),
+                message.as_slice(),
+                "interactive bytes changed"
+            );
+            samples.push(started.elapsed());
+        }
+        samples.sort_unstable();
+        samples[98].as_secs_f64() * 1000.0
+    };
+    tokio::join!(bulk_fut, interactive_fut)
+}
+
+async fn echo_connection(stream: TcpStream) {
+    let callback =
+        |request: &tokio_tungstenite::tungstenite::handshake::server::Request,
+         response: tokio_tungstenite::tungstenite::handshake::server::Response| {
+            let listener = request
+                .headers()
+                .get("authorization")
+                .and_then(|v| v.to_str().ok())
+                .and_then(cmux_local_auth::bearer_token);
+            let peer = request
+                .headers()
+                .get(crate::server::peer_auth::HEADER)
+                .and_then(|v| v.to_str().ok());
+            if cmux_local_auth::check_token(listener, TOKEN).is_ok()
+                && peer.is_some_and(|p| cmux_local_auth::tokens_match(p, "benchmark-peer-token"))
+            {
+                Ok(response)
+            } else {
+                Err(tokio_tungstenite::tungstenite::http::Response::builder()
+                    .status(401)
+                    .body(Some("credential refused".into()))
+                    .unwrap())
+            }
+        };
+    let mut ws = tokio_tungstenite::accept_hdr_async_with_config(
+        stream,
+        callback,
+        Some(crate::server::ws_config()),
+    )
+    .await
+    .unwrap();
+    while let Some(Ok(frame)) = ws.next().await {
+        if frame.is_close() || ws.send(frame).await.is_err() {
+            break;
+        }
+    }
+}
+
+#[test]
+fn loopback_bulk_and_interactive_latency() {
+    runtime().block_on(async {
+        let target = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let target_address = target.local_addr().unwrap();
+        let echo = tokio::spawn(async move {
+            let mut connections = JoinSet::new();
+            for _ in 0..4 {
+                let (stream, _) = target.accept().await.unwrap();
+                connections.spawn(echo_connection(stream));
+            }
+            while connections.join_next().await.is_some() {}
+        });
+        let (a, b, _homes) = pair(target_address, false).await;
+        let payload: Vec<u8> = (0..8 * 1024 * 1024).map(|i| (i % 251) as u8).collect();
+        let direct = measure_competing(
+            direct_ws(target_address).await,
+            direct_ws(target_address).await,
+            payload.clone(),
+        )
+        .await;
+        let wireguard = measure_competing(
+            connect_ws(&a, TOKEN, None).await.unwrap(),
+            connect_ws(&a, TOKEN, None).await.unwrap(),
+            payload,
+        )
+        .await;
+        println!(
+            "WIREGUARD_COMPETING_PERF direct_bulk_mib_s={:.3} direct_interactive_p99_ms={:.3} wg_bulk_mib_s={:.3} wg_interactive_p99_ms={:.3}",
+            direct.0, direct.1, wireguard.0, wireguard.1
+        );
+        a.shutdown().await;
+        b.shutdown().await;
+        tokio::time::timeout(BOUND, echo).await.unwrap().unwrap();
+    });
+}
+
 #[test]
 fn loopback_throughput_and_shutdown() {
     runtime().block_on(async {
