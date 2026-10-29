@@ -424,7 +424,7 @@ Whether a web page that uses Command + Scroll itself keeps it, such as Figma or 
 - `true` (default): when a Command + Scroll begins over a Chromium page, cmux asks the page first. A page that cancels the Command + wheel event (`preventDefault`) gets the whole gesture, momentum included. Over any other page, Command + Scroll moves the columns. If the page does not answer within about two frames, the columns move.
 - `false`: Command + Scroll over a page always moves the columns, as over a terminal.
 
-It applies with `layout.scrollModifier` set to `command`. A page inside a frame from another site counts as not using Command + Scroll. Pages in the WebKit engine are not asked: Command + Scroll moves the columns over them. Change it in **Settings > General > Columns**, in the command palette (Cmd-Shift-P, "Web Pages Get Command + Scroll First"), or with `cmux settings set layout.pagesHandleCommandScroll false`.
+It applies with `layout.scrollModifier` set to `command`. A page inside a frame from another site counts as not using Command + Scroll. A page that cancels every wheel event (some code editors, maps and spreadsheets) also keeps Command + Scroll; turn this setting off to pan the columns over them. Pages in the WebKit engine are not asked: Command + Scroll moves the columns over them. Change it in **Settings > General > Columns**, in the command palette (Cmd-Shift-P, "Web Pages Get Command + Scroll First"), or with `cmux settings set layout.pagesHandleCommandScroll false`.
 
 ## `workspaces.newPlacement`
 
