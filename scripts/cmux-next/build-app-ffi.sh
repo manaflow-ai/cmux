@@ -17,10 +17,6 @@
 # Environment:
 #   CMUX_APP_FFI_ARCHS  macOS architectures, arm64 and/or x86_64 (default: host)
 #   CMUX_APP_FFI_OUT    output directory (default: cmux-tui/target/cmux-app-ffi)
-#   CMUX_RUST_PGO=off   no -Cprofile-use. Otherwise each slice gets the one that
-#                       scripts/cmux-next/pgo/rust-pgo.sh rustflags names for its
-#                       target (cmux-app-ffi/pgo.txt, task 056); without a pinned
-#                       profile for that target it builds as before.
 set -euo pipefail
 REPAIR_URL="https://github.com/manaflow-ai/cmuxterm-hq/blob/main/REPAIR.md"
 trap 'echo "error: app FFI build failed; see $REPAIR_URL" >&2' ERR
@@ -125,9 +121,8 @@ write_headers "$headers"
 mkdir -p "$out_root/slices" "$out_root/macos"
 libs=()
 for target in "${targets[@]}"; do
-  pgo_flags="$("$repo_root/scripts/cmux-next/pgo/rust-pgo.sh" rustflags cmux-app-ffi --target "$target")"
-  echo "==> cargo build cmux-app-ffi ($target${pgo_flags:+, $pgo_flags})" >&2
-  (cd "$crate_dir" && RUSTFLAGS="$RUSTFLAGS${pgo_flags:+ $pgo_flags}" cargo build --locked --release --target "$target")
+  echo "==> cargo build cmux-app-ffi ($target)" >&2
+  (cd "$crate_dir" && cargo build --locked --release --target "$target")
   arch="${target%%-*}"; [[ "$arch" == aarch64 ]] && arch=arm64
   # One prelinked object whose only globals are the C ABIs: every Rust and std
   # symbol, rust_eh_personality included, becomes local (one copy per image).

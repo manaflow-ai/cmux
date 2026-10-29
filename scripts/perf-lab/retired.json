@@ -30,8 +30,6 @@
     "scripts/cmux-next/perf-profile-split.py": {"kind": "not-a-bench", "why": "report: splits a main-thread profile into framework and own work; measures nothing itself"},
     "scripts/cmux-next/perf-signposts.py": {"kind": "not-a-bench", "why": "signpost interval reader that the action benches load; it times what another script drives"},
     "scripts/cmux-next/perf-stress-session.py": {"kind": "not-a-bench", "why": "builds the STRESS session that the stress stories load; lab infrastructure, not a series"},
-    "scripts/cmux-next/pgo/build-profile.sh": {"kind": "not-a-bench", "why": "PGO stage 0: builds and checks the instrumented profile app (p08-startup.md section F)"},
-    "scripts/cmux-next/pgo/run-scenarios.py": {"kind": "not-a-bench", "why": "PGO stage 1: drives the profile build to collect training profiles (p08-startup.md section F)"},
     "scripts/cmux-next/proxy-demo/sizebench.py": {"kind": "not-a-bench", "why": "correctness check of the proxy demo: every layer follows a resize"},
     "scripts/cmux-next/sidebar-perf-validate.py": {"kind": "not-a-bench", "why": "validates receipts that the sidebar harnesses wrote; never launches an app"},
     "scripts/cmux-next/surface-drag-stress.py": {"kind": "not-a-bench", "why": "functional stress: fails when a visible pane is blank after random tab moves"},
