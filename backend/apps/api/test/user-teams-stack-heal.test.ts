@@ -1,8 +1,12 @@
+import { env } from "cloudflare:workers"
 import { describe, expect, it } from "vitest"
 import { userIdFor } from "../src/domains/user.ts"
+import type { Env } from "../src/env.ts"
 import { listUserTeams } from "../src/user-teams.ts"
 import { call, PROJECT, stackWorld, teamIdOf, useStack } from "./team-stack-support.ts"
-import { sessionToken, testEnv } from "./team-ssh-support.ts"
+import { sessionToken } from "./team-ssh-support.ts"
+
+const workerEnv = env as unknown as Env
 
 /**
  * A Stack team whose webhook deliveries never reached cmux (a team made before the mirror existed, or
@@ -32,7 +36,7 @@ describe("user.teams.list mirrors a Stack team the webhook never synced", { time
     const s = await setup("cmux")
     // Before: no delivery ever came, so the team does not know its members.
     expect((await members(s.token, s.team)).status).toBe(403)
-    const r = await listUserTeams(testEnv, s.principal, { stack: s.w.fake, pace: async () => true, now: () => Date.now() })
+    const r = await listUserTeams(workerEnv, s.principal, { stack: s.w.fake, pace: async () => true, now: () => Date.now() })
     expect(r.ok, JSON.stringify(r)).toBe(true)
     const teams = (r as { value: { teams: Array<{ id: string; display_name: string; kind: string }> } }).value.teams
     expect(teams).toContainEqual(expect.objectContaining({ id: s.team, display_name: "cmux", kind: "stack" }))
@@ -44,13 +48,13 @@ describe("user.teams.list mirrors a Stack team the webhook never synced", { time
   it("asks Stack once per person per window, and not at all without a pace token", async () => {
     const s = await setup("Paced")
     const before = s.w.calls()
-    const r = await listUserTeams(testEnv, s.principal, { stack: s.w.fake, pace: async () => false, now: () => 1_000 })
+    const r = await listUserTeams(workerEnv, s.principal, { stack: s.w.fake, pace: async () => false, now: () => 1_000 })
     expect((r as { value: { teams: Array<unknown> } }).value.teams).toHaveLength(1)
     expect(s.w.calls()).toBe(before)
-    await listUserTeams(testEnv, s.principal, { stack: s.w.fake, pace: async () => true, now: () => 2_000 })
+    await listUserTeams(workerEnv, s.principal, { stack: s.w.fake, pace: async () => true, now: () => 2_000 })
     const once = s.w.calls()
     expect(once).toBeGreaterThan(before)
-    await listUserTeams(testEnv, s.principal, { stack: s.w.fake, pace: async () => true, now: () => 3_000 })
+    await listUserTeams(workerEnv, s.principal, { stack: s.w.fake, pace: async () => true, now: () => 3_000 })
     expect(s.w.calls()).toBe(once)
   })
 })
