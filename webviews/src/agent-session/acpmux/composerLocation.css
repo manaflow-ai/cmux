@@ -1142,7 +1142,7 @@
 .acpmux-speed { display: inline-flex; flex: none; align-items: center; font-size: var(--text-detail); letter-spacing: var(--text-detail--letter-spacing); }
 .acpmux-speed-choices { min-width: 16px; width: 16px; height: 28px; border: 0; border-radius: 6px; padding: 0; background: none; color: var(--agent-muted); font: inherit; }
 .acpmux-fast .acpmux-icon { width: 16px; height: 16px; }
-.acpmux-fast:focus-visible { outline: var(--cmux-focus-ring-width) solid var(--agent-text); outline-offset: 2px; }
+.acpmux-fast:focus-visible { outline: 1.5px solid var(--agent-text); outline-offset: 2px; }
 @media (hover: hover) and (pointer: fine) {
   .acpmux-fast:hover { background: var(--acpmux-row-hover, var(--acpmux-composer-hover)); color: var(--agent-text); }
 }

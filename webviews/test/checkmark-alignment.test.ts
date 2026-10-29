@@ -42,7 +42,7 @@ await requireBrowserLane("checkmark-alignment.test.ts", async () => {
         try {
           const port = (vite.httpServer!.address() as { port: number }).port;
           await page.goto(
-            `http://127.0.0.1:${port}${galleryFrame(item.entry, { variant: item.variant, theme, width: 760 })}`,
+            `http://127.0.0.1:${port}${galleryFrame(item.entry, { variant: item.variant, theme: theme === "light" ? "Apple System Colors Light" : "Apple System Colors", width: 760 })}`,
           );
           await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
           const popup = page.locator(item.popup).first();
