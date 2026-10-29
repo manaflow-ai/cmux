@@ -96,6 +96,36 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
         expect(columns.rows.some((row) => row.hasStop)).toBe(true);
         expect(columns.rows.some((row) => !row.hasStop)).toBe(true);
 
+        const clickTargets = await page.evaluate(() => {
+          const tray = document.querySelector<HTMLElement>(".acpmux-running-tray")!;
+          const rows = [...tray.querySelectorAll<HTMLElement>(".acpmux-running-tray__list .acpmux-agent-line")];
+          const noStop = rows.find((row) => !row.querySelector(".acpmux-agent-line__stop-slot > button"));
+          const withStop = rows.find((row) => row.querySelector(".acpmux-agent-line__stop-slot > button"));
+          if (!noStop || !withStop) throw new Error("missing stop and no-stop rows");
+          const clicks = window as typeof window & { __trayClicks?: string[] };
+          clicks.__trayClicks = [];
+          noStop
+            .querySelector(".acpmux-agent-line__button")
+            ?.addEventListener("click", () => clicks.__trayClicks?.push("open"));
+          withStop
+            .querySelector(".acpmux-agent-line__stop-slot > button")
+            ?.addEventListener("click", () => clicks.__trayClicks?.push("stop"));
+          const center = (node: HTMLElement) => {
+            const box = node.getBoundingClientRect();
+            return { x: box.right - 2, y: box.top + box.height / 2 };
+          };
+          const stop = withStop.querySelector<HTMLElement>(".acpmux-agent-line__stop-slot > button");
+          return { noStop: center(noStop), stop: center(stop!) };
+        });
+        await page.mouse.click(clickTargets.noStop.x, clickTargets.noStop.y);
+        expect(await page.evaluate(() => (window as typeof window & { __trayClicks?: string[] }).__trayClicks)).toEqual(
+          ["open"],
+        );
+        await page.mouse.click(clickTargets.stop.x, clickTargets.stop.y);
+        expect(await page.evaluate(() => (window as typeof window & { __trayClicks?: string[] }).__trayClicks)).toEqual(
+          ["open", "stop"],
+        );
+
         const longState = await page.evaluate(() => {
           const row = document.querySelector<HTMLElement>(".acpmux-running-tray__list .acpmux-agent-line");
           const state = row?.querySelector<HTMLElement>(".acpmux-agent-line__status .acpmux-summary-agent__state");

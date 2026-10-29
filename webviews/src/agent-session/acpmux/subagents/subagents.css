@@ -528,6 +528,10 @@ button.cv-subagent > :last-child {
   display: inline-flex;
   align-items: center;
   justify-content: flex-end;
+  pointer-events: none;
+}
+.acpmux-running-tray .acpmux-agent-line__stop-slot > button {
+  pointer-events: auto;
 }
 /* Under the header's divider the first line keeps the tray's 2px gap, as the last keeps its rim's. */
 .acpmux-running-tray__head + .acpmux-running-tray__fold > .acpmux-running-tray__list {
