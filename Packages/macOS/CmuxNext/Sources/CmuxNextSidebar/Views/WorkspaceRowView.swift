@@ -19,7 +19,7 @@ final class WorkspaceRowView: SidebarRowView {
     internal let agentMark = DecorativeImageView() // the row's label says the agent's state
     internal(set) var agentMarkVariant = SidebarAgentMarkVariant.off
     /// A harness mark with no registered icon or brand takes its workspace's stable color (WorkspaceRowView+Rendering).
-    private(set) var agentMarkFallbackColor: NSColor?
+    private(set) var agentMarkFallbackColor: GroupColor?
     /// The last configuration, so a Debug Settings switch of `sidebar.agentMark` redraws the row.
     internal(set) var lastConfiguration: (SidebarWorkspace, SidebarRow, SidebarRowBadgeStyle?)?
     /// Last rendered title column sent to disclosed child rows.

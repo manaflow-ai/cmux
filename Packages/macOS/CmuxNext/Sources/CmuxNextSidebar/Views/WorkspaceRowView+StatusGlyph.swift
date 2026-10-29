@@ -63,12 +63,12 @@ extension WorkspaceRowView {
             ?? workspace.agentBrand.flatMap { AgentBrandCatalog.templateImage(brand: $0, size: side) }
     }
 
-    /// The tint of a harness workspace's fallback mark (its stable per-item colour); nil for a
-    /// registered mark, which keeps its own tint.
-    static func agentMarkFallbackColor(_ workspace: SidebarWorkspace, variant: SidebarAgentMarkVariant) -> NSColor? {
+    /// The tint of a harness workspace's fallback mark (its stable per-item colour, resolved in the
+    /// row's theme scope when drawn); nil for a registered mark, which keeps its own tint.
+    static func agentMarkFallbackColor(_ workspace: SidebarWorkspace, variant: SidebarAgentMarkVariant) -> GroupColor? {
         let side = variant == .replacesStatus ? SidebarStyle.statusGlyphSize : SidebarStyle.indicatorSize
         guard workspace.kind == .harness, registeredAgentMark(workspace, side: side) == nil else { return nil }
-        return SidebarStyle.color(SidebarItemInfo.stableAgentColor(for: workspace.id.rawValue))
+        return SidebarItemInfo.stableAgentColor(for: workspace.id.rawValue)
     }
 
     static func machineMarkImage(_ mark: SidebarMachineMark, side: CGFloat) -> NSImage {
