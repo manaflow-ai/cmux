@@ -107,7 +107,7 @@ pub fn run_git_within(
     max_stdout: usize,
     deadline: Duration,
 ) -> Result<GitOutput, GitFailure> {
-    run(directory, overrides, arguments, max_stdout, deadline, None, &[], None)
+    run(directory, overrides, arguments, max_stdout, deadline, None, &[], None, None)
 }
 
 /// Captures stdout once on an anonymous private file, retaining only `limit`
@@ -120,7 +120,7 @@ pub fn run_git_window_within(
     limit: usize,
     deadline: Duration,
 ) -> Result<GitOutput, GitFailure> {
-    run(directory, overrides, arguments, limit, deadline, None, &[], Some(offset))
+    run(directory, overrides, arguments, limit, deadline, None, &[], None, Some(offset))
 }
 
 /// [`run_git_within`] whose new objects go to `scratch`, an empty folder the
@@ -139,12 +139,40 @@ pub fn run_git_scratch_objects_within(
     objects: &Path,
     scratch: &Path,
 ) -> Result<GitOutput, GitFailure> {
+    run_git_scratch_objects_within_limited(
+        directory, overrides, arguments, max_stdout, deadline, objects, scratch, None,
+    )
+}
+
+/// [`run_git_scratch_objects_within`] with an optional address-space limit for
+/// the child on Linux. Other platforms keep the deadline without this limit.
+#[allow(clippy::too_many_arguments)]
+pub fn run_git_scratch_objects_within_limited(
+    directory: &Path,
+    overrides: &[Override],
+    arguments: &[&str],
+    max_stdout: usize,
+    deadline: Duration,
+    objects: &Path,
+    scratch: &Path,
+    address_space_limit: Option<u64>,
+) -> Result<GitOutput, GitFailure> {
     let alternate = alternate_entry(objects);
     let env = [
         ("GIT_OBJECT_DIRECTORY", scratch.as_os_str()),
         ("GIT_ALTERNATE_OBJECT_DIRECTORIES", alternate.as_os_str()),
     ];
-    run(directory, overrides, arguments, max_stdout, deadline, None, &env, None)
+    run(
+        directory,
+        overrides,
+        arguments,
+        max_stdout,
+        deadline,
+        None,
+        &env,
+        address_space_limit,
+        None,
+    )
 }
 
 /// `path` as one entry of `GIT_ALTERNATE_OBJECT_DIRECTORIES`, a
@@ -188,7 +216,7 @@ pub fn run_git_records_within(
     deadline: Duration,
     keep: fn(&[u8]) -> bool,
 ) -> Result<GitOutput, GitFailure> {
-    run(directory, overrides, arguments, max_kept, deadline, Some(keep), &[], None)
+    run(directory, overrides, arguments, max_kept, deadline, Some(keep), &[], None, None)
 }
 
 thread_local! {
@@ -261,8 +289,11 @@ fn run(
     deadline: Duration,
     keep: Option<fn(&[u8]) -> bool>,
     env: &[(&str, &OsStr)],
+    address_space_limit: Option<u64>,
     window_offset: Option<u64>,
 ) -> Result<GitOutput, GitFailure> {
+    #[cfg(not(target_os = "linux"))]
+    let _ = address_space_limit;
     let deadline = deadline.min(DEADLINE);
     if deadline.is_zero() {
         return Err(GitFailure::TimedOut);
@@ -287,6 +318,30 @@ fn run(
     {
         use std::os::unix::process::CommandExt;
         command.process_group(0);
+    }
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::unix::process::CommandExt;
+        if let Some(limit) = address_space_limit {
+            // SAFETY: this closure only changes the resource limit in the
+            // child, between fork and exec; it touches no shared state.
+            unsafe {
+                command.pre_exec(move || {
+                    let limit = limit as libc::rlim_t;
+                    let mut resource = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
+                    if libc::getrlimit(libc::RLIMIT_AS as _, &mut resource) != 0 {
+                        return Err(std::io::Error::last_os_error());
+                    }
+                    resource.rlim_cur = resource.rlim_cur.min(limit as _);
+                    resource.rlim_max = resource.rlim_max.min(limit as _);
+                    if libc::setrlimit(libc::RLIMIT_AS as _, &resource) == 0 {
+                        Ok(())
+                    } else {
+                        Err(std::io::Error::last_os_error())
+                    }
+                });
+            }
+        }
     }
     let mut child = command.spawn().map_err(|error| GitFailure::Unavailable(error.to_string()))?;
     lower_if_background(child.id());
@@ -324,6 +379,9 @@ fn run(
     let (stdout, truncated, window) = stdout.join().unwrap_or_default();
     let (stderr, _) = stderr.join().unwrap_or_default();
     if !status.success() {
+        if status.code() != Some(1) && address_space_limit.is_some() {
+            return Err(GitFailure::Unavailable(format!("bounded git exited with {status}")));
+        }
         return Err(GitFailure::Exit(explained(String::from_utf8_lossy(&stderr).trim())));
     }
     Ok(GitOutput { stdout, truncated, window })
