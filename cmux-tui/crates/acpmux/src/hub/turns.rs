@@ -217,9 +217,11 @@ impl Hub {
         // wait again when it failed.
         let joined = super::digest::DigestTurn::default();
         let result = self.run_prompt_joined(session, blocks, client, steer, opts, &joined).await;
-        // `finish_turn` put them back already when the turn itself failed; this is any other way.
+        // `finish_turn` put them back already, held, when the turn itself failed. Any other error
+        // ended the turn before its prompt reached the agent (its agent could not start, or the
+        // turn was refused): they go back unheld, and each gets its own try.
         if result.is_err() {
-            self.requeue_joined(session, &joined);
+            self.requeue_joined(session, &joined, false);
         }
         joined.answer.send_replace(Some(result.clone()));
         result
@@ -678,7 +680,9 @@ impl Hub {
                         if let Some(sid2) = session.meta().agent_session_id {
                             // A Stop while its copies were made: not written (as the first).
                             let cancels = session.cancels.load(Ordering::SeqCst);
-                            let wire = agent_blocks(self, session, &blocks).await?;
+                            // A prompt that cannot be put into blocks is the turn's error, so
+                            // `finish_turn` settles the turn rather than leaving it running.
+                            let wire = agent_blocks(self, session, &blocks).await;
                             let stopped = session.cancels.load(Ordering::SeqCst) != cancels
                                 || session.stops.load(Ordering::SeqCst) != stops;
                             let fence = family_gate
@@ -688,19 +692,21 @@ impl Hub {
                             let _unsent = crate::agent::CutOnDrop(fence.as_ref());
                             // Like the first prompt: Stop's and a stalled turn's forced end
                             // (`cancel.rs`, `stalled_turn.rs`) end it too.
-                            result = if stopped {
-                                Err(stopped_before_prompt())
-                            } else {
-                                super::steer_end::agent_prompt_hook(
-                                    session,
-                                    &child2,
-                                    json!({"sessionId": sid2, "prompt": wire}),
-                                    &turn_id,
-                                    false,
-                                    fence.as_ref(),
-                                    || self.watch_stalled_turn(session, None),
-                                )
-                                .await
+                            result = match wire {
+                                Err(e) => Err(e),
+                                Ok(_) if stopped => Err(stopped_before_prompt()),
+                                Ok(wire) => {
+                                    super::steer_end::agent_prompt_hook(
+                                        session,
+                                        &child2,
+                                        json!({"sessionId": sid2, "prompt": wire}),
+                                        &turn_id,
+                                        false,
+                                        fence.as_ref(),
+                                        || self.watch_stalled_turn(session, None),
+                                    )
+                                    .await
+                                }
                             };
                         }
                     }
@@ -829,7 +835,7 @@ impl Hub {
         // The agent messages that went in with it go back before anything here waits, so one sent
         // from now on goes behind them (`digest.rs`).
         if let (Err(_), Some(joined)) = (&result, joined) {
-            self.requeue_joined(session, joined);
+            self.requeue_joined(session, joined, true);
         }
         // A failure on a bound route names the route and its fallback
         // (route_switch.rs), in the error's data and the turn result.
@@ -981,7 +987,9 @@ impl Hub {
     }
 
     /// A recorded prompt whose agent could not start: the turn ends failed, so every client
-    /// sees the prompt settle instead of a turn that never starts.
+    /// sees the prompt settle instead of a turn that never starts. It fails alone: the prompts
+    /// behind it are not held (`pause_queue`), each gets its own try, as after a Stop. Only a turn
+    /// whose prompt reached its agent and failed holds them (`finish_turn`).
     fn fail_unstarted_turn(
         self: &Arc<Self>,
         session: &Arc<Session>,
@@ -991,6 +999,8 @@ impl Hub {
     ) {
         let turn = session.meta().turn_count;
         *session.turn.lock().unwrap() = None;
+        // The prompt behind it waits for no turn now (`queue_turn`).
+        session.queue_moved.notify_waiters();
         let mut e = e.clone();
         crate::recovery::annotate(&mut e, Some(&session.meta().cwd));
         let typed = crate::recovery::fields(&e);
@@ -1000,7 +1010,6 @@ impl Hub {
             o.extend(typed.clone());
         }
         self.append(session, "mux", "turn_error", record);
-        self.pause_queue(session, turn_id);
         // `errorText` as a started turn's failure has it: its `lastTurn` and its parent's
         // `turn_ended` say why.
         let mut msg = json!({"status": "failed", "error": e.message, "errorText": e.message, "code": e.code, "turnSeq": 0, "turnId": turn_id, "promptId": prompt_id});
