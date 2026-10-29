@@ -993,94 +993,56 @@ pub fn shell_holds_foreground(pid: u32) -> bool {
         .is_some_and(|leader| leader == pid || crate::kinfo_proc::login_session_shell(pid, leader))
 }
 
-/// The terminal's own shell, as [`foreground_own_shell`] reads it.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct OwnShell {
-    /// Its pid: the PTY child, or the shell login(1) started for it.
-    pub pid: u32,
-    /// The program it runs, as the kernel exec'd it.
-    pub program: String,
-    /// It sleeps, waiting (in its line editor's read, at a prompt), rather
-    /// than runs: Linux state `S`, macOS no running thread. False when
-    /// unknown.
-    pub asleep: bool,
-}
-
 /// The terminal's own shell when it holds the terminal's foreground: its pid
 /// (the PTY child `pid` itself, or the shell login(1) started as its child,
-/// see [`shell_holds_foreground`]), the program it runs now, so a program
-/// `exec`ed in the shell's place names itself, and whether it sleeps. The
-/// program is the one the kernel exec'd, never argv, which a program can
-/// rewrite (`exec -a zsh ssh host`): macOS reads the image path
-/// (proc_pidpath), Linux the command name the kernel set from the exec'd
-/// file's name (`/proc/<pid>/stat` field 2, at most 15 bytes; only the
-/// program itself can rename it, with prctl). `None` when another process
-/// group holds the foreground (a job the shell started: ssh, a nested
-/// shell), when the shell has more than one thread on Linux (see
-/// [`exec_name`]), or a lookup fails. One PTY query of a known process, never
-/// a process scan. The caller also needs the shell to have no child
-/// (cmux-tui-core `terminal_activity`).
+/// see [`shell_holds_foreground`]) and the program it runs now, so a program
+/// `exec`ed in the shell's place names itself. The program is the one the
+/// kernel exec'd, never argv, which a program can rewrite (`exec -a zsh ssh
+/// host`): macOS reads the image path (proc_pidpath), Linux the command name
+/// the kernel set from the exec'd file's name (`/proc/<pid>/stat` field 2,
+/// at most 15 bytes; only the program itself can rename it, with prctl).
+/// `None` when another process group holds the foreground (a job the shell
+/// started: ssh, a nested shell), when the shell has more than one thread on
+/// Linux (see [`exec_name`]), or a lookup fails. One PTY query of a known
+/// process, never a process scan. The caller also needs the shell to have no
+/// child (cmux-tui-core `terminal_activity`).
 #[track_caller]
-pub fn foreground_own_shell(pid: u32) -> Option<OwnShell> {
+pub fn foreground_own_shell(pid: u32) -> Option<(u32, String)> {
     note_proc_scan();
     let leader = foreground_process_group(pid)?;
     if leader != pid && !crate::kinfo_proc::login_session_shell(pid, leader) {
         return None;
     }
-    let (program, asleep) = exec_name(leader)?;
-    Some(OwnShell { pid: leader, program, asleep })
+    Some((leader, exec_name(leader)?))
 }
 
-/// The program `pid` runs, as the kernel exec'd it (see [`foreground_own_shell`]),
-/// and whether it sleeps.
+/// The program `pid` runs, as the kernel exec'd it (see [`foreground_own_shell`]).
 /// Linux: `None` also for a process with more than one thread. The caller's
 /// no-child test reads the main thread's children list
 /// (`/proc/<pid>/task/<pid>/children`), and a threaded shell (nushell's
 /// `job spawn`, elvish's goroutines, fish's thread pool) forks from any
 /// thread, so its children are unknown: never idle.
 #[cfg(target_os = "linux")]
-fn exec_name(pid: u32) -> Option<(String, bool)> {
+fn exec_name(pid: u32) -> Option<String> {
     single_thread_name(&proc_stat(pid)?)
 }
 
 /// [`exec_name`] from one `/proc/<pid>/stat` line.
 #[cfg(any(target_os = "linux", test))]
-fn single_thread_name(stat: &str) -> Option<(String, bool)> {
+fn single_thread_name(stat: &str) -> Option<String> {
     // Field 2 is the command name in parentheses; it may hold spaces and
     // parentheses itself, so it ends at the last `)`.
     let close = stat.rfind(')')?;
     let name = stat.get(stat.find('(')? + 1..close)?;
-    let mut fields = stat.get(close + 1..)?.split_whitespace();
-    // Field 3 is the state: `S`, an interruptible sleep (a blocking read).
-    let asleep = fields.next()? == "S";
-    // Field 20 is num_threads: 16 fields after the state.
-    let threads = fields.nth(16)?.parse::<u32>().ok()?;
-    (threads == 1 && !name.is_empty()).then(|| (name.to_string(), asleep))
+    // Field 20 is num_threads; after the `)` the fields start at 3 (state).
+    let threads = stat.get(close + 1..)?.split_whitespace().nth(17)?.parse::<u32>().ok()?;
+    (threads == 1 && !name.is_empty()).then(|| name.to_string())
 }
 
-/// macOS: [`process_name`] reads the image path already; it sleeps when no
-/// thread of it runs (`PROC_PIDTASKINFO`).
-#[cfg(target_os = "macos")]
-fn exec_name(pid: u32) -> Option<(String, bool)> {
-    let program = process_name(pid)?;
-    let raw = libc::c_int::try_from(pid).ok()?;
-    let mut info = std::mem::MaybeUninit::<libc::proc_taskinfo>::zeroed();
-    let size = libc::c_int::try_from(size_of::<libc::proc_taskinfo>()).ok()?;
-    // SAFETY: proc_pidinfo writes at most `size` bytes into `info` and
-    // returns the initialized byte count.
-    let written = unsafe {
-        libc::proc_pidinfo(raw, libc::PROC_PIDTASKINFO, 0, info.as_mut_ptr().cast(), size)
-    };
-    // SAFETY: a full write initialized the struct; it was zeroed before, and
-    // every field is an integer.
-    let asleep = written == size && unsafe { info.assume_init() }.pti_numrunning == 0;
-    Some((program, asleep))
-}
-
-/// Windows: [`process_name`] reads the image path; whether it sleeps is unknown.
-#[cfg(not(any(target_os = "linux", target_os = "macos")))]
-fn exec_name(pid: u32) -> Option<(String, bool)> {
-    Some((process_name(pid)?, false))
+/// macOS and Windows: [`process_name`] reads the image path already.
+#[cfg(not(target_os = "linux"))]
+fn exec_name(pid: u32) -> Option<String> {
+    process_name(pid)
 }
 
 /// The foreground lookups read the process table (`/proc`, proc_pidinfo,

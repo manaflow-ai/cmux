@@ -1,12 +1,12 @@
-//! `extra.shell_idle` on the holder (the default terminal model): a Return
-//! the shell does not answer with a prompt of its own must not keep the
-//! terminal not idle for good (review 4 of cp/daemon-foreground-state,
-//! should-fix 1). A password prompt, `read`, a line continued over two
-//! lines and fish's Ctrl-C each take a Return that no new prompt answers;
-//! the shell's next prompt after the next command still reads idle. A line
-//! really typed ahead (still unread when the prompt comes) stays not idle.
-//! The shell is an interactive bash whose prompt is the only integration:
-//! `A` and `B` around `idle> `, no `C` or `D`.
+//! `extra.shell_idle` on the holder (the default terminal model). Only a
+//! prompt the shell draws for a new line answers a typed line: a Return no
+//! prompt answers (a `read`, a password, a line continued over two lines)
+//! keeps the terminal not idle (the close asks), and a line the shell read but
+//! has not run, or that a Return hook holds, is never idle. Review 6 of
+//! cp/daemon-foreground-state refuted every kernel fact that could tell those
+//! apart from a line editor waiting at its prompt. The shell is an interactive
+//! bash whose prompt is the only integration: `A` and `B` around `idle> `, no
+//! `C` or `D`.
 
 use super::*;
 
@@ -108,62 +108,43 @@ fn shell_idle_holder_a_plain_prompt_is_idle() {
     assert_eq!(extra["foreground_check"]["own"], true, "{extra}");
 }
 
+/// Waits for `n` prompts, then asserts the terminal stays not idle for
+/// `hold`: a Return the shell answered with no prompt (a `read`, a password,
+/// a line continued over two lines) stays owed one, and only a prompt pays it
+/// (review 6 of cp/daemon-foreground-state refuted every kernel fact that
+/// could). The close asks: the cost the lead accepted.
+fn assert_stays_not_idle(socket: &Path, surface: u64, n: usize, hold: Duration, what: &str) {
+    wait_for_prompts(socket, surface, n);
+    let until = Instant::now() + hold;
+    while Instant::now() < until {
+        let extra = terminal_extra(socket);
+        assert!(extra.get("shell_idle").is_none(), "{what}: read idle: {extra}");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
 #[test]
-fn shell_idle_holder_the_prompt_after_read_is_idle() {
+fn shell_idle_holder_a_return_read_took_stays_owed() {
     let Some((daemon, surface)) = start_bash("idle-read") else { return };
     type_text(&daemon.socket, surface, "read x\r");
     // `read` takes this Return: no prompt answers it.
     type_text(&daemon.socket, surface, "hello\r");
-    wait_for_prompts(&daemon.socket, surface, 2);
-    wait_for_idle(&daemon.socket, "after read");
+    assert_stays_not_idle(&daemon.socket, surface, 2, Duration::from_millis(1_000), "after read");
 }
 
 #[test]
-fn shell_idle_holder_the_prompt_after_a_password_prompt_is_idle() {
-    let Some((daemon, surface)) = start_bash("idle-password") else { return };
-    type_text(&daemon.socket, surface, "read -s secret\r");
-    type_text(&daemon.socket, surface, "hunter2\r");
-    wait_for_prompts(&daemon.socket, surface, 2);
-    wait_for_idle(&daemon.socket, "after a password prompt");
-}
-
-#[test]
-fn shell_idle_holder_the_prompt_after_a_line_continued_over_two_lines_is_idle() {
+fn shell_idle_holder_a_line_continued_over_two_lines_stays_owed() {
     let Some((daemon, surface)) = start_bash("idle-loop") else { return };
-    // The first Return draws PS2, not a prompt.
+    // The first Return draws an unmarked PS2, not a prompt.
     type_text(&daemon.socket, surface, "for i in 1 2; do\r");
     type_text(&daemon.socket, surface, "echo i$i; done\r");
-    wait_for_prompts(&daemon.socket, surface, 2);
-    wait_for_idle(&daemon.socket, "after a two-line for loop");
-}
-
-/// fish 4's Ctrl-C clears the line and draws no new prompt: the prompt after
-/// the next command reads idle.
-#[test]
-fn shell_idle_holder_the_prompt_after_fishs_ctrl_c_is_idle() {
-    let Some(fish) = ["/usr/bin/fish", "/opt/homebrew/bin/fish", "/usr/local/bin/fish"]
-        .into_iter()
-        .find(|path| Path::new(path).is_file())
-    else {
-        eprintln!("skipped: fish is not installed");
-        return;
-    };
-    let mut daemon = Daemon::start_with_env(&[("CMUX_TUI_SHELL_INTEGRATION", Path::new("none"))]);
-    let created = request(
+    assert_stays_not_idle(
         &daemon.socket,
-        json!({"cmd": "run", "argv": [fish, "--no-config",
-            "--init-command=function fish_prompt; printf '\\e]133;A\\aidle> \\e]133;B\\a'; end"],
-            "new_workspace": true, "name": "idle-fish", "cols": 100, "rows": 12}),
+        surface,
+        2,
+        Duration::from_millis(1_000),
+        "after a two-line for loop",
     );
-    let surface = created["surface"].as_u64().unwrap();
-    daemon.track(surface);
-    screen_contains(&daemon.socket, surface, PROMPT);
-    wait_for_idle(&daemon.socket, "fish's first prompt");
-    type_text(&daemon.socket, surface, "echo abc");
-    type_text(&daemon.socket, surface, "\u{3}");
-    type_text(&daemon.socket, surface, "true\r");
-    std::thread::sleep(Duration::from_millis(500)); // test harness: let fish draw the prompt after `true`
-    wait_for_idle(&daemon.socket, "after fish's Ctrl-C");
 }
 
 /// Guard: a line typed while a command runs waits unread for the shell; the
@@ -184,17 +165,13 @@ fn shell_idle_holder_a_line_typed_ahead_is_never_idle() {
     }
 }
 
-/// The invariant behind paying owed prompts (review 5 of
-/// cp/daemon-foreground-state, item 1), driven without timing: a line the
-/// line editor read but the shell has not run yet never reads as consumed.
+/// A line the line editor read but the shell has not run yet is never idle.
 /// bash's DEBUG trap runs after readline returned the line and before the
 /// command runs; here it blocks on a FIFO no one writes, so the shell sleeps
-/// in that window with no child, no input and no output in flight: the one
-/// state the four reads could mistake for a prompt, but for its terminal
-/// mode, which bash set back to canonical before the trap. The line was typed
+/// in that window with no child, no input and no output in flight. The line was typed
 /// ahead (one write with the line before it), so the prompt after `true`
 /// owes it. For as long as the shell sleeps there, the terminal is never
-/// idle and the check never says every byte was read.
+/// idle.
 #[test]
 fn shell_idle_holder_a_line_read_but_not_run_is_never_idle() {
     let fifo =
@@ -216,20 +193,14 @@ fn shell_idle_holder_a_line_read_but_not_run_is_never_idle() {
     while Instant::now() < until {
         let extra = terminal_extra(&daemon.socket);
         assert!(extra.get("shell_idle").is_none(), "a line read but not run read idle: {extra}");
-        assert_ne!(
-            extra["foreground_check"]["input_read"],
-            json!(true),
-            "the check said every byte was read while a line waits to run: {extra}"
-        );
         std::thread::sleep(Duration::from_millis(20));
     }
     let _ = fs::remove_file(&fifo);
 }
 
-/// Review 6 of cp/daemon-foreground-state refuted the four-read invariant: a
-/// Return hook can sleep after the line editor read a line and before the
-/// shell runs it, while the terminal still reads raw, with no child and
-/// nothing queued. bash's `bind -x` reached through a Return macro runs in
+/// Review 6 of cp/daemon-foreground-state: a Return hook can sleep after the
+/// line editor read a line and before the shell runs it, while the terminal
+/// still reads raw, with no child and nothing queued. bash's `bind -x` reached through a Return macro runs in
 /// readline's prepped (raw) terminal. Here the hook prints a mark (so a
 /// foreground check is due while it sleeps) and blocks 4 s on a FIFO for the
 /// typed-ahead `sleep 600`. A kernel read that pays the prompt that line is
