@@ -269,6 +269,43 @@ fn end_all_terminals_with_a_terminal_host_root_returns() {
     let _ = std::fs::remove_dir_all(root);
 }
 
+/// No thread locks `surface_options` again while it holds it. A re-lock is
+/// the bug class of 9854e03600c (end_terminals locked it inside its own
+/// guard, and `server stop --end-terminals` hung): a plain mutex turns it
+/// into a silent deadlock on whatever path does it. As a ranked lock, a
+/// re-lock panics in debug and test builds and names the lock at the site.
+#[cfg(debug_assertions)]
+#[test]
+fn a_surface_options_re_lock_panics_and_names_the_lock() {
+    let mux = Mux::new_for_test("surface-options-re-lock", SurfaceOptions::default());
+    let (done_tx, done_rx) = std::sync::mpsc::channel();
+    let relocking = Arc::clone(&mux);
+    std::thread::spawn(move || {
+        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            relocking.update_surface_options(|_| relocking.update_surface_options(|_| {}));
+        }));
+        let message = outcome.err().map(|payload| {
+            payload
+                .downcast_ref::<String>()
+                .cloned()
+                .or_else(|| payload.downcast_ref::<&str>().map(|text| (*text).to_string()))
+                .unwrap_or_default()
+        });
+        let _ = done_tx.send(message);
+    });
+    // The timeout only detects the hang; the panic text decides.
+    let message = done_rx
+        .recv_timeout(Duration::from_secs(30))
+        .expect("a re-lock of surface_options deadlocked: the lock is not ranked")
+        .expect("a re-lock of surface_options did not panic");
+    assert!(
+        message.contains(
+            "acquiring mux.surface_options (Leaf) while this thread holds mux.surface_options (Leaf)"
+        ),
+        "{message}"
+    );
+}
+
 #[test]
 fn end_all_terminals_keeps_emptied_workspaces() {
     let mux = Mux::new_for_test("terminal-end-all-layout", SurfaceOptions::default());
