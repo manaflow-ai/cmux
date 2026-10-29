@@ -550,6 +550,37 @@ struct EarlyTerminalKeysTests {
         }
     }
 
+    /// A focus move that is not the person's (a CLI or script `pane.focus`, the app's own) never drops the keys the person
+    /// typed for a new terminal (review finding 4): only the person's own action leaves a target. Before, the hold read
+    /// "the person moved on" from the focus model's generation, which a CLI move also bumps.
+    @Test func aFocusMoveThatIsNotThePersonsKeepsTheirHeldKeys() async throws {
+        try await Self.withTerminal(panes: 2) { h in
+            let (controller, window, tab, entry) = (h.controller, h.window, h.tab, h.entry)
+            let router = h.services.keyRouter
+            let coordinator = router.creationInputCoordinator
+            let otherKey = try #require(controller.focus.state.topology.panes.map(\.id).first { $0 != h.paneKey }, "the harness has no second pane")
+            let mount = try Self.unmount(h)
+            _ = try #require(coordinator.begin(in: window, generation: controller.focus.state.generation, earlyTab: tab, tab: tab))
+            #expect(router.interceptKeyDown(try Self.key("a", keyCode: 0, in: window), in: window), "the key was not held: \(Self.held(h))")
+            let before = coordinator.replayedCount
+
+            // A CLI moves the focus to the other pane and back; the hold reconciles with each state.
+            controller.focus.send(.focusPane(otherKey, source: .cli))
+            coordinator.reconcile(window)
+            controller.focus.send(.focusPane(h.paneKey, source: .cli))
+            coordinator.reconcile(window)
+            #expect(coordinator.heldCount(in: window) == 1, "a CLI focus move dropped the key the person typed: \(Self.held(h))")
+
+            // The new terminal takes the keyboard: the held key runs into it, then the next key goes on.
+            mount()
+            window.makeFirstResponder(entry.session.surfaceView)
+            try await PasswordManagerRouteTests.until({ controller.focus.state.resolved == .terminal(pane: h.paneKey, tab: tab) },
+                                                      within: .seconds(5), report: { "focus never came back: \(Self.held(h))" })
+            #expect(!router.interceptKeyDown(try Self.key("b", keyCode: 11, in: window), in: window), "the next key waited: \(Self.held(h))")
+            #expect(coordinator.replayedCount == before + 1, "the held key did not run into the new terminal: \(Self.held(h))")
+        }
+    }
+
     /// R3 at a failed creation: the daemon refused the new terminal and its pane is gone from the tree. In the same turn
     /// the model names a defined target (the other pane's terminal), never the gone one, so nothing waits for a view
     /// that cannot come. The keys typed for the failed terminal drop (reason targetFailed): they never go to another
