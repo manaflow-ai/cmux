@@ -247,7 +247,7 @@ class SuiteSkipTest(unittest.TestCase):
         self.env = {**{k: v for k, v in os.environ.items() if k not in ("CMUX_TEST_REQUIRE_GUI", "GITHUB_STEP_SUMMARY", "CMUX_CI_DISPLAY_ROUTED")},
                     "PATH": f"{bin_dir}:{os.environ['PATH']}", "FAKE_SWIFT_OUTPUTS": os.fspath(self.outputs),
                     "FAKE_SDK": os.fspath(self.tmp / "sdk"), "DEVELOPER_DIR": os.fspath(self.tmp),
-                    "RUNNER_TEMP": os.fspath(self.tmp)}
+                    "RUNNER_TEMP": os.fspath(self.tmp), "CMUX_PACKAGE_LANE_TEST_OS": "Darwin"}
 
     def suite(self, *filters, **env):
         return subprocess.run(["bash", "scripts/ci/package-test-lane.sh", "suite", "Packages/macOS/Pkg", ",".join(filters)],

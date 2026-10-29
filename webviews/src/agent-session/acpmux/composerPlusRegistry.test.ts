@@ -20,9 +20,9 @@ test("the plus registry exposes the Add and Files sections in command order", ()
     "Attach files or images",
     "Attach Screenshot…",
     "Attach Window…",
-    "Choose a project",
+    "Choose project",
     "Plan mode",
-    "Set a goal",
+    "Goal",
   ]);
   expect(rows.at(-1)?.name).toBe("Search files");
   expect(rows.every((row) => row.icon && row.action)).toBe(true);
