@@ -249,39 +249,54 @@ test.each([
   { location: "footer", keepOpen: true },
   { location: "rail", keepOpen: false },
   { location: "rail", keepOpen: true },
-] as const)("native Return activates an auxiliary $location action with keepOpen=$keepOpen", async ({ location, keepOpen }) => {
-  const container = installDom();
-  const { host, shown, listeners } = nativeHost();
-  const submitted: string[] = [];
-  const picked: string[] = [];
-  const model = comboboxDescription({ suggestions: ["alpha"] });
-  model[location] = [{ id: "add-project", kind: "action", label: "Add project", value: "add", keepOpen }];
-  await act(async () => {
-    root = createRoot(container);
-    root.render(
-      <UiProvider container={container} popupHost={host}>
-        <Combobox
-          inline
-          defaultValue="typed project"
-          label="Projects"
-          suggestions={["alpha"]}
-          onQuery={() => {}}
-          onSubmit={(value) => submitted.push(value)}
-          onCancel={() => {}}
-          native={{ model, onEvent: (event) => { if (event.type === "pick") picked.push(event.id!); } }}
-        />
-      </UiProvider>,
-    );
-  });
-  const sent = shown[0]!;
-  await act(async () => {
-    for (const listener of listeners)
-      listener({ type: "submit", popupId: sent.id, revision: sent.revision, id: "add-project", value: "typed project", reason: "keyboard" });
-  });
-  expect(picked).toEqual(["add-project"]);
-  expect(submitted).toEqual([]);
-  expect(listeners.size).toBe(keepOpen ? 1 : 0);
-});
+] as const)(
+  "native Return activates an auxiliary $location action with keepOpen=$keepOpen",
+  async ({ location, keepOpen }) => {
+    const container = installDom();
+    const { host, shown, listeners } = nativeHost();
+    const submitted: string[] = [];
+    const picked: string[] = [];
+    const model = comboboxDescription({ suggestions: ["alpha"] });
+    model[location] = [{ id: "add-project", kind: "action", label: "Add project", value: "add", keepOpen }];
+    await act(async () => {
+      root = createRoot(container);
+      root.render(
+        <UiProvider container={container} popupHost={host}>
+          <Combobox
+            inline
+            defaultValue="typed project"
+            label="Projects"
+            suggestions={["alpha"]}
+            onQuery={() => {}}
+            onSubmit={(value) => submitted.push(value)}
+            onCancel={() => {}}
+            native={{
+              model,
+              onEvent: (event) => {
+                if (event.type === "pick") picked.push(event.id!);
+              },
+            }}
+          />
+        </UiProvider>,
+      );
+    });
+    const sent = shown[0]!;
+    await act(async () => {
+      for (const listener of listeners)
+        listener({
+          type: "submit",
+          popupId: sent.id,
+          revision: sent.revision,
+          id: "add-project",
+          value: "typed project",
+          reason: "keyboard",
+        });
+    });
+    expect(picked).toEqual(["add-project"]);
+    expect(submitted).toEqual([]);
+    expect(listeners.size).toBe(keepOpen ? 1 : 0);
+  },
+);
 
 function collidingAuxiliaryModel(location: "actions" | "rail" | "footer") {
   const model = comboboxDescription({ suggestions: ["alpha", "beta"] });
@@ -414,42 +429,45 @@ test.each([
   expect(listeners.size).toBe(0);
 });
 
-test.each([[], ["alpha"]])("native combobox supplies its query field for action-only models %j", async (suggestions) => {
-  const container = installDom();
-  const { host, shown, listeners } = nativeHost();
-  const submitted: string[] = [];
-  const model = comboboxDescription({ suggestions });
-  delete model.search;
-  if (model.rows[0]) model.rows[0].id = "query";
-  await act(async () => {
-    root = createRoot(container);
-    root.render(
-      <UiProvider container={container} popupHost={host}>
-        <Combobox
-          inline
-          defaultValue="free text"
-          label="Projects"
-          suggestions={suggestions}
-          onQuery={() => {}}
-          onSubmit={(value) => submitted.push(value)}
-          onCancel={() => {}}
-          native={{ model }}
-        />
-      </UiProvider>,
-    );
-  });
-  const sent = shown[0]!;
-  expect(sent.search?.value).toBe("free text");
-  expect(sent.search?.submitOnReturn).toBe(true);
-  expect(sent.search?.autoHighlight).toBe("none");
-  expect(sent.rows.some((row) => row.id === sent.search?.id)).toBe(false);
-  await act(async () => {
-    for (const listener of listeners)
-      listener({ type: "submit", popupId: sent.id, revision: sent.revision, value: "free text", reason: "none" });
-  });
-  expect(submitted).toEqual(["free text"]);
-  expect(listeners.size).toBe(0);
-});
+test.each([{ suggestions: [] as string[] }, { suggestions: ["alpha"] }])(
+  "native combobox supplies its query field for action-only models %j",
+  async ({ suggestions }) => {
+    const container = installDom();
+    const { host, shown, listeners } = nativeHost();
+    const submitted: string[] = [];
+    const model = comboboxDescription({ suggestions });
+    delete model.search;
+    if (model.rows[0]) model.rows[0].id = "query";
+    await act(async () => {
+      root = createRoot(container);
+      root.render(
+        <UiProvider container={container} popupHost={host}>
+          <Combobox
+            inline
+            defaultValue="free text"
+            label="Projects"
+            suggestions={suggestions}
+            onQuery={() => {}}
+            onSubmit={(value) => submitted.push(value)}
+            onCancel={() => {}}
+            native={{ model }}
+          />
+        </UiProvider>,
+      );
+    });
+    const sent = shown[0]!;
+    expect(sent.search?.value).toBe("free text");
+    expect(sent.search?.submitOnReturn).toBe(true);
+    expect(sent.search?.autoHighlight).toBe("none");
+    expect(sent.rows.some((row) => row.id === sent.search?.id)).toBe(false);
+    await act(async () => {
+      for (const listener of listeners)
+        listener({ type: "submit", popupId: sent.id, revision: sent.revision, value: "free text", reason: "none" });
+    });
+    expect(submitted).toEqual(["free text"]);
+    expect(listeners.size).toBe(0);
+  },
+);
 
 test.each(["none", "keyboard"] as const)(
   "native search Return preserves pinned-action highlight provenance %s",

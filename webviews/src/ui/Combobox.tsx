@@ -10,7 +10,7 @@ import { cx } from "./cx";
 import { ScrollArea } from "./ScrollArea";
 import { useNativePopup, type NativePopupDescription } from "./nativePopup";
 import type { NativePopupEvent } from "./generated/popupProtocol";
-import { popupAction, popupActionByValue } from "./popupDescriptors";
+import { popupAction, popupActionByValue, popupSearchId } from "./popupDescriptors";
 
 type BaseUIKeyEvent = KeyboardEvent<HTMLInputElement> & { preventBaseUIHandler?: () => void };
 
@@ -106,19 +106,15 @@ export function Combobox({
   const [popup, setPopup] = useState<HTMLElement | null>(null);
   const [value, setValue] = useState(defaultValue);
   const [nativeSessionOpen, setNativeSessionOpen] = useState(true);
-  const nativeModel = native && {
+  const nativeModel: NativePopupDescription | undefined = native && {
     ...native.model,
-    ...(native.model.search
-      ? {
-          search: {
-            ...native.model.search,
-            value,
-            submitOnReturn: true,
-            autoHighlight:
-              autoHighlight === "always" ? ("always" as const) : autoHighlight ? ("first" as const) : ("none" as const),
-          },
-        }
-      : {}),
+    search: {
+      ...(native.model.search ?? { id: popupSearchId(native.model), placeholder: placeholder ?? label }),
+      value,
+      submitOnReturn: true,
+      autoHighlight:
+        autoHighlight === "always" ? ("always" as const) : autoHighlight ? ("first" as const) : ("none" as const),
+    },
   };
   const cancel = () => {
     if (native) setNativeSessionOpen(false);
@@ -133,19 +129,27 @@ export function Combobox({
     model: nativeModel ?? { side: "bottom", align: "start", width: 0, rows: [] },
     anchor: native?.anchor ?? (() => field),
     onEvent: (event) => {
-      native?.onEvent?.(event);
       const action = nativeModel && popupAction(nativeModel, event.id);
       // Suggestions carry an explicit domain value. Auxiliary action IDs are protocol
       // identities and may spell the same word without selecting that suggestion.
       const suggestion = action?.value;
-      if (event.type === "pick" && action && !action.keepOpen) setNativeSessionOpen(false);
       const query = nativeModel?.search;
       if (event.type === "submit") {
         if (!query?.submitOnReturn || query.disabled || event.value === undefined) return;
+        if (action && (suggestion === undefined || !suggestions.includes(suggestion))) {
+          // Search owns Return in the native host. A selected auxiliary action still
+          // activates through the same pick callback as its pointer counterpart.
+          native?.onEvent?.({ ...event, type: "pick", value: undefined, reason: undefined });
+          if (!action.keepOpen) setNativeSessionOpen(false);
+          return;
+        }
+        native?.onEvent?.(event);
         if (event.id !== undefined && (suggestion === undefined || !enabledSuggestions.includes(suggestion))) return;
         submit(resolveSubmission(event.value, suggestion, event.reason === "keyboard" || event.reason === "pointer"));
         return;
       }
+      native?.onEvent?.(event);
+      if (event.type === "pick" && action && !action.keepOpen) setNativeSessionOpen(false);
       if (
         (event.type === "search" || event.type === "change") &&
         query &&

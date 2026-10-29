@@ -33,6 +33,19 @@ function optionIds(
   return result;
 }
 
+/** A Combobox always needs a query field, even when its caller supplies action rows only. */
+export function popupSearchId(model: PopupDescription): string {
+  const reserved: string[] = [];
+  const visit = (rows: readonly PopupRow[]) => {
+    for (const row of rows) {
+      reserved.push(row.id, ...(row.actions?.map((action) => action.id) ?? []));
+      if (row.children) visit(row.children);
+    }
+  };
+  visit([...(model.rail ?? []), ...model.rows, ...(model.footer ?? [])]);
+  return optionIds(["query"], "search", reserved).get("query")!;
+}
+
 /** Resolve a current pick through enabled ancestors, using the native host's action rules. */
 export function popupAction(model: PopupDescription, id: string | undefined): ResolvedAction | undefined {
   if (id === undefined) return undefined;
