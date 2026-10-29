@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR fd61e05d62cfab6236a458bf4163151ff9d4326bec7cd1e6c79ec3b633efe517. */
+/* cmux-tui mux protocol 12, IR 2461ff8aeeb5d34f4dd06fbf14db7a02d2e540305fe2174488fd74e38e0b2f8d. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "fd61e05d62cfab6236a458bf4163151ff9d4326bec7cd1e6c79ec3b633efe517" as const;
+export const SDK_IR_SHA256 = "2461ff8aeeb5d34f4dd06fbf14db7a02d2e540305fe2174488fd74e38e0b2f8d" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -2059,6 +2059,10 @@ export const COMMAND_METADATA = {
       "shell_args": {
         "since": 12,
         "capability": "terminal-shell-args-v1"
+      },
+      "side": {
+        "since": 12,
+        "capability": "column-left-v1"
       },
       "tab_id": {
         "since": 12,
@@ -5434,6 +5438,13 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       }
     },
     "kind": "object"
+  },
+  "ColumnSide": {
+    "kind": "enum",
+    "values": [
+      "left",
+      "right"
+    ]
   },
   "ConversationChange": {
     "additional_properties": true,
@@ -22159,6 +22170,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
               "name": "string"
             },
             "kind": "array"
+          }
+        },
+        "side": {
+          "capability": "column-left-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "ref",
+            "name": "ColumnSide"
           }
         },
         "tab_id": {
