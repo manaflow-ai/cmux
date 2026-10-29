@@ -393,6 +393,7 @@ mod tests {
         assert_eq!(select_cli(Some(&stale), None), Path::new("cmux"));
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_failing_bundled_cli_retries_the_path_cli() {
         let root =
