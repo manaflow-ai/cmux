@@ -3,7 +3,8 @@
 // THE EXACT SAME FUCKING SITUTAION AS BEFORE BUT NOW YOU CAN FUCKING FCLICK AND DRAG TO REARRANGE").
 // - Its default layout does not change by accident: the three blocks and their sections, in order,
 //   are pinned here (the gallery's full chat, every section shown). A change to them changes this test.
-// - Dragging a section's six-dot handle past a neighbour's middle moves it there; Up and Down Arrow on
+// - Dragging a section's six-dot handle past a neighbour's middle moves it there (the drag follows the
+//   pointer on the window, so moving the section never drops it); Up and Down Arrow on
 //   the handle move it one place; a section moves only inside its own block.
 // - The order is kept (localStorage) and read again by a fresh panel; another pane's drag reaches
 //   this one through the `storage` event.
@@ -137,13 +138,13 @@ test("dragging a handle past a neighbour's middle moves the section there, and t
   await act(async () => grip.dispatchEvent(pointer("pointerdown", 10)));
   expect(container.querySelector('section[data-section="environment"]')!.hasAttribute("data-dragging")).toBe(true);
   // Past Context's middle (114) only.
-  await act(async () => grip.dispatchEvent(pointer("pointermove", 120)));
+  await act(async () => dom.window.dispatchEvent(pointer("pointermove", 120)));
   expect(layout(container)[0]!.sections).toEqual(["context", "environment", "connectors"]);
   // Past Connectors' middle too.
   stack(container, { context: 28, environment: 100, connectors: 28 });
-  await act(async () => grip.dispatchEvent(pointer("pointermove", 150)));
+  await act(async () => dom.window.dispatchEvent(pointer("pointermove", 150)));
   expect(layout(container)[0]!.sections).toEqual(["context", "connectors", "environment"]);
-  await act(async () => grip.dispatchEvent(pointer("pointerup", 150)));
+  await act(async () => dom.window.dispatchEvent(pointer("pointerup", 150)));
   expect(container.querySelector("[data-dragging]")).toBeNull();
   // The other blocks never moved.
   expect(layout(container).slice(1)).toEqual([
@@ -184,6 +185,16 @@ test("another pane's drag reaches this one", async () => {
   });
   expect(layout(container)[1]!.sections).toEqual(["outputs", "changes"]);
   await act(async () => root.unmount());
+});
+
+test("a panel closed while another pane reorders shows that order when it opens again", async () => {
+  const first = await mount();
+  await act(async () => first.root.unmount());
+  // Another pane's drag, while no panel here listens.
+  dom.window.localStorage.setItem(ORDER_KEY, JSON.stringify({ running: ["tasks", "subagents"] }));
+  const again = await mount();
+  expect(layout(again.container)[2]!.sections).toEqual(["tasks", "subagents"]);
+  await act(async () => again.root.unmount());
 });
 
 test("a saved order with unknown or missing sections keeps every section once", async () => {

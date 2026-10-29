@@ -51,11 +51,8 @@ function ReorderHandle({ id, title }: { id: InspectorSectionId; title: string })
       type="button"
       className="acpmux-chat-inspector-section__handle"
       aria-label={t("chatInspector.reorderSection", { section: title })}
+      aria-keyshortcuts="ArrowUp ArrowDown"
       onPointerDown={(event) => reorder.start(id, event)}
-      onPointerMove={reorder.move}
-      onPointerUp={reorder.end}
-      onPointerCancel={reorder.end}
-      onLostPointerCapture={reorder.end}
       onKeyDown={(event) => {
         if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
         event.preventDefault();

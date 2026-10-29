@@ -249,7 +249,7 @@
 }
 /* The six-dot handle that moves a section (InspectorGroup.tsx): in the body's left padding, beside the
    section's first row, and seen only on hover, keyboard focus or while it drags, so before a drag the
-   panel draws as it did. It takes no room in the section. */
+   panel draws as it did. It takes no room in the section, and a drag lights only the handle. */
 .acpmux-chat-inspector-section {
   position: relative;
 }
@@ -290,9 +290,6 @@
 .acpmux-chat-inspector-section__handle:focus-visible {
   outline: 1.5px solid var(--agent-text);
   outline-offset: -1.5px;
-}
-.acpmux-chat-inspector-section[data-dragging] {
-  background: var(--acpmux-inspector-row-hover);
 }
 /* The three blocks (ChatInspector.tsx RAIL_LAYOUT): where it runs, what it made, what it runs. Shipped
    (glance), a hairline between blocks and none around them; the top block's rows run together. The

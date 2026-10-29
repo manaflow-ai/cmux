@@ -69,7 +69,11 @@ function onStorage(event: StorageEvent) {
 }
 
 function subscribe(listener: () => void) {
-  if (listeners.size === 0) globalThis.addEventListener?.("storage", onStorage);
+  // Unwatched, the page missed other panes' drags: read storage again when it is watched again.
+  if (listeners.size === 0) {
+    loaded = false;
+    globalThis.addEventListener?.("storage", onStorage);
+  }
   listeners.add(listener);
   return () => {
     listeners.delete(listener);

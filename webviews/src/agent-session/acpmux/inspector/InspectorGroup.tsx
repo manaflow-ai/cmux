@@ -4,15 +4,13 @@
 // the one it was, pixel for pixel. Dragging the handle moves the section as the pointer passes the
 // middle of its neighbours; Up and Down Arrow on the focused handle move it one place. Nothing else
 // moves: no drag image, no placeholder, no animation.
-import { createContext, Fragment, useContext, useRef, useState, type ReactNode } from "react";
+import { createContext, Fragment, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { setGroupOrder, useGroupOrder, type InspectorGroupId } from "./sectionOrder";
 import type { InspectorSectionId } from "./inspectorState";
 
 type Reorder = {
   dragging: InspectorSectionId | undefined;
   start: (id: InspectorSectionId, event: React.PointerEvent<HTMLElement>) => void;
-  move: (event: React.PointerEvent<HTMLElement>) => void;
-  end: () => void;
   step: (id: InspectorSectionId, by: -1 | 1) => void;
 };
 
@@ -35,16 +33,12 @@ export function InspectorGroup({
   const shown = order.filter((id) => sections[id]);
   const block = useRef<HTMLDivElement>(null);
   const [dragging, setDragging] = useState<InspectorSectionId>();
-  const reorder: Reorder = {
-    dragging,
-    start: (id, event) => {
-      if (event.button !== 0) return;
-      event.preventDefault();
-      event.currentTarget.setPointerCapture?.(event.pointerId);
-      setDragging(id);
-    },
-    move: (event) => {
-      if (!dragging || !block.current) return;
+  // The drag follows the pointer on the window, not the handle: moving the section moves the handle's
+  // node, which would drop a pointer capture on it after the first swap. The listeners go with the drag.
+  useEffect(() => {
+    if (!dragging) return;
+    const move = (event: PointerEvent) => {
+      if (!block.current) return;
       const others = [...block.current.querySelectorAll<HTMLElement>(":scope > [data-section]")].filter(
         (section) => section.dataset.section !== dragging,
       );
@@ -55,8 +49,26 @@ export function InspectorGroup({
       const next = others.map((section) => section.dataset.section as InspectorSectionId);
       next.splice(at, 0, dragging);
       setGroupOrder(group, next);
+    };
+    const end = () => setDragging(undefined);
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", end);
+    window.addEventListener("pointercancel", end);
+    window.addEventListener("blur", end);
+    return () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", end);
+      window.removeEventListener("pointercancel", end);
+      window.removeEventListener("blur", end);
+    };
+  }, [dragging, group]);
+  const reorder: Reorder = {
+    dragging,
+    start: (id, event) => {
+      if (event.button !== 0) return;
+      event.preventDefault();
+      setDragging(id);
     },
-    end: () => setDragging(undefined),
     step: (id, by) => {
       const at = shown.indexOf(id);
       const to = at + by;
