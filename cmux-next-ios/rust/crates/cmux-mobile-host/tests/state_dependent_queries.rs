@@ -275,13 +275,8 @@ async fn exercise_selection_then_creation(
             .await
             .unwrap();
     }
-    let expected_answers = if terminal_wait {
-        5
-    } else if disconnect_before_reply {
-        3
-    } else {
-        4
-    };
+    // Three input replies plus creation, with optional selection/wait replies.
+    let expected_answers = 4 + usize::from(!disconnect_before_reply) + usize::from(terminal_wait);
     while answers.len() < expected_answers {
         let answer = reply(&mut channel, &mut buffered).await;
         answers.insert(answer["id"].as_str().unwrap().to_owned(), answer);
@@ -295,6 +290,7 @@ async fn exercise_selection_then_creation(
         assert_eq!(answers["select"]["ok"], true);
     }
     assert_eq!(answers["create"]["data"]["cwd"], cwd_b);
+    assert_eq!(answers["input-clear"]["ok"], true);
     assert_eq!(answers["input-key"]["data"]["keys"], json!(["enter"]));
     assert_eq!(answers["input"]["data"]["text"], "x");
     let creation = tokio::time::timeout(Duration::from_secs(3), created_rx.recv())
