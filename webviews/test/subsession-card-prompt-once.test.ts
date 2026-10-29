@@ -4,7 +4,7 @@
 // 2026-10-29: "this doubling up is kinda weird? first line then whatever goes next". The line is left
 // out when it only repeats the prompt's start; any other line (a real step, a wait, an error) stays.
 import { expect, test } from "bun:test";
-import { repeatsPrompt } from "../src/agent-session/acpmux/conversation/SubsessionCallCard";
+import { repeatsPrompt, sessionLine } from "../src/agent-session/acpmux/conversation/SubsessionCallCard";
 
 const prompt =
   "You are ios-remote, the area owner for cmux's iOS app and the remote/mobile client (the cmux-remote code, including its Iroh transport), in example/cmux.";
@@ -49,4 +49,25 @@ test('a prompt that itself starts with "Working on:" is still recognized when th
   // And acpmux's prefix on top of such a prompt.
   expect(repeatsPrompt("Working on: Working on: inspect the parser\u2026", own)).toBe(true);
   expect(repeatsPrompt("Working on: fix the lexer", own)).toBe(false);
+});
+
+test("a failed session's error stays even when it starts like the prompt", () => {
+  // Codex review of #27240: the dedupe hid an error "Run tests" under the prompt "Run tests for parser",
+  // leaving only the bare failed state.
+  expect(sessionLine(undefined, "Run tests", true, "Run tests for parser")).toBe("Run tests");
+  expect(sessionLine(undefined, "Run tests for parser\u2026", true, "Run tests for parser")).toBe(
+    "Run tests for parser\u2026",
+  );
+  // A doing line that repeats the prompt gives way to the error when the session failed.
+  expect(sessionLine("Run tests\u2026", "exit 1: no such target", true, "Run tests for parser")).toBe(
+    "exit 1: no such target",
+  );
+});
+
+test("only a doing line that repeats the prompt is left out", () => {
+  expect(sessionLine("Run tests\u2026", undefined, false, "Run tests for parser")).toBeUndefined();
+  expect(sessionLine("Read src/parser.ts", undefined, false, "Run tests for parser")).toBe("Read src/parser.ts");
+  expect(sessionLine("Run tests\u2026", undefined, false)).toBe("Run tests\u2026");
+  // A working session's error is not its line.
+  expect(sessionLine(undefined, "stale error", false, "Run tests for parser")).toBeUndefined();
 });

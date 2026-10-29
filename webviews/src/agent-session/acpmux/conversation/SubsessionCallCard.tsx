@@ -46,6 +46,19 @@ function RunningLine({ children }: { children: ReactNode }) {
   );
 }
 
+/// The card's line for a session not waiting: what it does now, or, failed, why. Only a `doing` line
+/// that repeats the prompt shown under the card is left out; an error always stays, even one that
+/// starts like the prompt (Codex review of #27240), and stands in for a `doing` line left out.
+export function sessionLine(
+  doing: string | undefined,
+  error: string | undefined,
+  failed: boolean,
+  shown?: string,
+): string | undefined {
+  const step = doing && !(shown && repeatsPrompt(doing, shown)) ? doing : undefined;
+  return step ?? (failed ? error : undefined);
+}
+
 /// Whether a session's `doing` line only repeats the start of the prompt shown under it: acpmux
 /// names a new session from its prompt, so its first line is that prompt's opening words, often cut
 /// with an ellipsis. Compared on words, ignoring whitespace, case and a trailing ellipsis.
@@ -104,8 +117,7 @@ function SessionCard({
   const state = retry ? "working" : (live?.state ?? fallback?.state);
   const waiting = live ? live.waiting : fallback?.waiting;
   // A failed one says why (acpmux's lane error), a retry acpmux refused included.
-  const line = waiting ? waitingLine(t, waiting) : (live?.doing ?? (state === "failed" ? live?.error : undefined));
-  const doing = !waiting && line && shown && repeatsPrompt(line, shown) ? undefined : line;
+  const doing = waiting ? waitingLine(t, waiting) : sessionLine(live?.doing, live?.error, state === "failed", shown);
   return (
     <AgentCard
       name={live?.name ?? name}
