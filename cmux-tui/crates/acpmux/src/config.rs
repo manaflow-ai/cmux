@@ -815,19 +815,13 @@ pub struct TitlesConfig {
 
 /// Experimental transports. Labs switches are deliberately opt-in and keep
 /// the normal peer route unchanged until a caller explicitly enables them.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct TransportConfig {
     /// Enable the userspace WireGuard transport. Disabled by default: when
     /// false no UDP socket is bound by acpmux.
     #[serde(default)]
     pub wireguard: bool,
-}
-
-impl Default for TransportConfig {
-    fn default() -> Self {
-        Self { wireguard: false }
-    }
 }
 
 impl TitlesConfig {

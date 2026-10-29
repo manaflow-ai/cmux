@@ -16,6 +16,8 @@ const KEY_FILE: &str = "node.wg.key";
 /// A node's WireGuard identity. The private key is retained only in a
 /// zeroizing buffer and is never included in `Debug`, JSON or error text.
 pub struct NodeKeypair {
+    // Retained for the separately landing transport; join exposes only the public half.
+    #[allow(dead_code)]
     private_key: Zeroizing<[u8; 32]>,
     pub public_key: [u8; 32],
 }
@@ -28,6 +30,8 @@ impl std::fmt::Debug for NodeKeypair {
 
 impl NodeKeypair {
     /// The private half for the transport in this process only.
+    // This key-helper dependency lands before its transport consumer.
+    #[allow(dead_code)]
     pub(crate) fn private_key(&self) -> Zeroizing<[u8; 32]> {
         self.private_key.clone()
     }
@@ -113,7 +117,10 @@ fn create_key_if_absent(path: &Path, bytes: &[u8; 32]) -> Result<()> {
             Err(error) => return Err(error.into()),
         }
         #[cfg(unix)]
-        std::fs::File::open(path.parent().expect("key has a state directory"))?.sync_all()?;
+        {
+            let parent = path.parent().ok_or_else(|| anyhow!("node key has no state directory"))?;
+            std::fs::File::open(parent)?.sync_all()?;
+        }
         Ok(())
     })();
     let _ = std::fs::remove_file(&temporary);
