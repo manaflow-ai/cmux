@@ -109,7 +109,7 @@
       "do": "use_window",
       "shows": "mw-rs-a-${nonce}",
       "as": "w1",
-      "focus": false,
+      "focus": true,
       "title": "the restored window that shows workspace a"
     },
     {
@@ -158,7 +158,7 @@
       "do": "use_window",
       "shows": "mw-rs-b-${nonce}",
       "as": "w2",
-      "focus": false,
+      "focus": true,
       "title": "the restored window that shows workspace b"
     },
     {
@@ -207,7 +207,7 @@
       "do": "use_window",
       "shows": "mw-rs-c-${nonce}",
       "as": "w3",
-      "focus": false,
+      "focus": true,
       "title": "the restored window that shows workspace c"
     },
     {

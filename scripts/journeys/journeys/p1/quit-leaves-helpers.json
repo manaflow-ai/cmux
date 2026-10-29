@@ -16,11 +16,11 @@
     {"do": "key", "key": "l", "modifiers": ["cmd", "shift"], "mark": "browser"},
     {"do": "expect", "title": "Cmd+Shift+L opens a browser tab in the right pane", "since": "browser", "timeout": 15,
      "all": [{"app_rpc": {"method": "debug.focus", "path": "windows.0.model.resolved", "equals": "addressBar"}}]},
-    {"do": "type", "text": "example.com", "enter": true, "mark": "loaded"},
+    {"do": "type", "text": "${fixture_url}", "enter": true, "mark": "loaded"},
     {"do": "expect", "title": "before the quit: a terminal on the left, a loaded browser tab on the right", "since": "loaded", "timeout": 40,
      "all": [
        {"app_rpc": {"method": "debug.focus", "path": "windows.0.model.resolved", "equals": "browserPage"}},
-       {"frame_text": "Example Domain"}
+       {"frame_text": "${fixture_heading}"}
      ]},
 
     {"do": "relaunch", "how": "quit", "leftovers_after": 10, "mark": "reopened"},
@@ -29,7 +29,8 @@
      "all": [
        {"quit_leftovers": {"allow": [
          {"match": "(^|/)cmux-tui __terminal-host ", "why": "holds a terminal's PTY and shell: the default quit keeps sessions"},
-         {"match": "/Contents/Resources/bin/cmux-tui --headless --session cmux-app-", "why": "the app session's daemon, the owner of those terminal hosts (their --owner)"}
+         {"match": "/Contents/Resources/bin/cmux-tui --headless --session cmux-app-", "why": "the app session's daemon, the owner of those terminal hosts (their --owner)"},
+         {"match": "/Contents/Resources/bin/cmux-agent-screen-detection", "why": "the app session daemon's journal plugin: it exits with that daemon (CMUX_PLUGIN_HOST_PID) and is no client that keeps it (cp/quit-chief-idle)"}
        ]}}
      ]},
 

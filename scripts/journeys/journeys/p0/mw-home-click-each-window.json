@@ -156,7 +156,7 @@
     {
       "do": "use_window",
       "window": "w1",
-      "focus": false
+      "focus": true
     },
     {
       "do": "mouse",
@@ -272,7 +272,7 @@
     {
       "do": "use_window",
       "window": "w2",
-      "focus": false
+      "focus": true
     },
     {
       "do": "mouse",
@@ -388,7 +388,7 @@
     {
       "do": "use_window",
       "window": "w3",
-      "focus": false
+      "focus": true
     },
     {
       "do": "mouse",

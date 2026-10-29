@@ -1,0 +1,178 @@
+{
+  "id": "window-uncover-draws",
+  "priority": "P1",
+  "title": "A window covered by another cmux window, then uncovered by closing it, shows the output that came while it was covered",
+  "why": "An optimized build pauses the terminals of a covered window (energy saving). When the cover goes, the person must see the current text at once, not an empty or stale pane. The frame check reads snapshots about once a second; shown_draws_within measures, from the app's own frame counter sampled every 4 ms, the time from the unpause to the first new frame (bounds, not a single number).",
+  "source": "v2.2.4-opt gate triage (handoff/v224-gate-triage.md); lead 2026-10-28: a window that was occluded and is shown again must draw its current content at once",
+  "budget_seconds": 120,
+  "steps": [
+    {
+      "do": "new_terminal",
+      "name": "jr-uncover"
+    },
+    {
+      "do": "neutral_prompt"
+    },
+    {
+      "do": "name_window",
+      "as": "w1"
+    },
+    {
+      "do": "use_window",
+      "window": "w1",
+      "focus": true
+    },
+    {
+      "do": "window_place",
+      "fraction": [
+        0.02,
+        0.03,
+        0.85,
+        0.85
+      ]
+    },
+    {
+      "do": "type",
+      "text": "echo base-${nonce}-$((6*7))",
+      "enter": true,
+      "mark": "base"
+    },
+    {
+      "do": "expect",
+      "title": "set-up: w1 is in front and draws",
+      "since": "base",
+      "timeout": 8,
+      "all": [
+        {
+          "daemon_line": "base-${nonce}-42"
+        },
+        {
+          "app_text_line": "base-${nonce}-42"
+        },
+        {
+          "frame_text": "base-${nonce}-42"
+        }
+      ]
+    },
+    {
+      "do": "type",
+      "text": "sleep 5; echo late-${nonce}-$((6*7))",
+      "enter": true,
+      "mark": "late"
+    },
+    {
+      "do": "action",
+      "action": "newWindow"
+    },
+    {
+      "do": "await_window",
+      "as": "w2"
+    },
+    {
+      "do": "use_window",
+      "window": "w2",
+      "focus": true
+    },
+    {
+      "do": "window_place",
+      "fraction": [
+        0.02,
+        0.03,
+        0.85,
+        0.85
+      ]
+    },
+    {
+      "do": "wait",
+      "seconds": 1
+    },
+    {
+      "do": "rpc",
+      "title": "w1 is covered by w2 (family_occluded)",
+      "method": "debug.windows",
+      "params": {}
+    },
+    {
+      "do": "rpc",
+      "title": "w1's terminal is paused while covered",
+      "method": "debug.surfaces",
+      "params": {}
+    },
+    {
+      "do": "wait",
+      "seconds": 6
+    },
+    {
+      "do": "rpc",
+      "title": "w1 still covered when the late output has come",
+      "method": "debug.surfaces",
+      "params": {}
+    },
+    {
+      "do": "frame_watch",
+      "as": "w1-frames",
+      "interval_ms": 4,
+      "seconds": 6,
+      "title": "sample w1's terminal (pause, Ghostty frame counter) every 4 ms around the uncover"
+    },
+    {
+      "do": "key",
+      "title": "Ctrl-Cmd-W closes w2, the covering window",
+      "key": "w",
+      "modifiers": [
+        "control",
+        "cmd"
+      ],
+      "window": "w2",
+      "mark": "uncover"
+    },
+    {
+      "do": "use_window",
+      "window": "w1",
+      "focus": false
+    },
+    {
+      "do": "rpc",
+      "title": "w1 after the uncover",
+      "method": "debug.windows",
+      "params": {}
+    },
+    {
+      "do": "rpc",
+      "title": "w1's terminal after the uncover",
+      "method": "debug.surfaces",
+      "params": {}
+    },
+    {
+      "do": "expect",
+      "title": "the output that came while w1 was covered shows as soon as w1 is seen",
+      "since": "uncover",
+      "within": 1,
+      "timeout": 10,
+      "all": [
+        {
+          "window_state": {
+            "window": "w2",
+            "open": false
+          }
+        },
+        {
+          "daemon_line": "late-${nonce}-42"
+        },
+        {
+          "app_text_line": "late-${nonce}-42"
+        },
+        {
+          "frame_text": "late-${nonce}-42"
+        },
+        {
+          "shown_draws_within": {
+            "watch": "w1-frames",
+            "since": "uncover",
+            "frame_ms": 16.7
+          }
+        }
+      ]
+    }
+  ]
+}

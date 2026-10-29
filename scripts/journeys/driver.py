@@ -54,6 +54,10 @@ CLIP_WIDTH = 1280
 FRAME_GRACE = 10.0
 # Evidence a passing journey must have: the user-visible result seen three independent ways.
 REQUIRED_KINDS = ("app", "daemon", "frame")
+# Steps that only set a journey up (or check it): its action starts at the first other step, and
+# the clip must show that action (run.py fails a pass whose clip has fewer than 2 frames of it).
+SETUP_STEPS = {"new_terminal", "neutral_prompt", "name_pane", "window_place", "remember", "remember_value", "file",
+               "clipboard_set", "use", "use_pane", "adopt_pane", "adopt_window", "wait", "expect", "focused_terminal"}
 KIND = {"daemon_line": "daemon", "daemon_contains": "daemon", "daemon_prompt": "daemon",
         "app_text_line": "app", "app_text_contains": "app", "app_prompt": "app", "app_pane": "app",
         "process_present": "process", "process_gone": "process", "frame_text": "frame",
@@ -63,7 +67,9 @@ KIND = {"daemon_line": "daemon", "daemon_contains": "daemon", "daemon_prompt": "
         # App life (journeys/p0/app-life-*.json): layout, working directories, restore and settings.
         "daemon_cwd": "daemon", "daemon_grid": "daemon", "daemon_pane_ready": "daemon",
         "app_cwd": "app", "app_layout": "app", "app_tab_pane": "app", "app_tab_gone": "app", "app_rpc": "app",
-        "app_grid": "app"}
+        "app_grid": "app",
+        # Terminal input (journeys/p0/ctrl-d.json): a shell's exit as the daemon records it.
+        "daemon_terminal_gone": "daemon"}
 # Conditions an extension module adds (ext_*.py beside this file, load_extensions): name -> fn(journey, want, cache).
 EXT_CONDITIONS = {}
 # The extension conditions that are negative (an extension's NEGATIVE): read again every poll, never latched.
@@ -93,6 +99,48 @@ def load_now():
 
 def now():
     return time.monotonic()
+
+
+# The window server's on-screen windows of layer 0, front to back: [{pid, owner, number, bounds}] (ensure_seen).
+WINDOW_LIST_JXA = """
+ObjC.import('CoreGraphics');
+const list = ObjC.deepUnwrap(ObjC.castRefToObject($.CGWindowListCopyWindowInfo($.kCGWindowListOptionOnScreenOnly, 0)));
+JSON.stringify(list.filter(w => w.kCGWindowLayer === 0).map(w => ({pid: w.kCGWindowOwnerPID, owner: w.kCGWindowOwnerName,
+  number: w.kCGWindowNumber, bounds: w.kCGWindowBounds})));
+"""
+
+
+# The page browser journeys load: served by this driver on the mini's loopback, so its text never changes
+# under a journey (example.com's page changed and its frame no longer read "Example Domain": v2.2.4-opt gate,
+# restart-focus-browser and restart-focus-browser-keys). `${fixture_url}` and `${fixture_heading}` in a step.
+FIXTURE_HEADING = "Journey Fixture Page"
+FIXTURE_HTML = (f"<!doctype html><html><head><meta charset=utf-8><title>{FIXTURE_HEADING}</title>"
+                "<style>body{font:32px -apple-system,sans-serif;margin:40px;background:#fff;color:#000}</style></head>"
+                f"<body><h1>{FIXTURE_HEADING}</h1><p>Served by the cmux journeys driver.</p></body></html>").encode()
+_fixture = {}
+
+
+def fixture_url():
+    """http://127.0.0.1:PORT/ of the driver's fixture page server (started once per driver process; it lives as
+    long as the driver, so a page restored after a relaunch loads again)."""
+    if "url" not in _fixture:
+        import http.server
+
+        class Page(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Content-Length", str(len(FIXTURE_HTML)))
+                self.end_headers()
+                self.wfile.write(FIXTURE_HTML)
+
+            def log_message(self, *args):
+                pass
+
+        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Page)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        _fixture["url"] = f"http://127.0.0.1:{server.server_address[1]}/"
+    return _fixture["url"]
 
 
 class StepError(Exception):
@@ -312,22 +360,61 @@ def descendants(table, roots):
 
 
 class Frames(threading.Thread):
-    """The main window every `interval` seconds while a journey runs: the clip."""
+    """The main window every `interval` seconds while a journey runs: the clip. `capture_now` takes one
+    at once (past MAX_FRAMES too): the journey asks for one as its action starts and one as it ends, so
+    a clip has the action even when the action is shorter than the interval."""
 
     def __init__(self, app, directory, interval):
         super().__init__(daemon=True)
         self.app, self.directory, self.interval = app, Path(directory), max(0.25, interval)
-        self.count, self.stopped = 0, threading.Event()
+        self.count, self.stopped, self.wake = 0, threading.Event(), threading.Event()
         self.directory.mkdir(parents=True, exist_ok=True)
+        self.t0 = now()
+        # times[i]: seconds from t0 to the request of frame-<i>.png (a frame shows the window at or after it).
+        self.times = []
+        self.started = self.finished = 0
+        self.done = threading.Condition()
+
+    def at(self):
+        return round(now() - self.t0, 3)
 
     def run(self):
-        while not self.stopped.is_set() and self.count < MAX_FRAMES:
-            try:
-                self.app.snapshot(self.directory / f"frame-{self.count:05d}.png")
-                self.count += 1
-            except (OSError, ValueError, StepError):
-                pass
-            self.stopped.wait(self.interval)
+        while not self.stopped.is_set():
+            # Cleared only when seen set: a capture_now that sets it after this read is seen next turn.
+            forced = self.wake.is_set()
+            if forced:
+                self.wake.clear()
+            if forced or self.count < MAX_FRAMES:
+                self.capture()
+            self.wake.wait(self.interval)
+
+    def capture(self):
+        with self.done:
+            self.started += 1
+        asked = self.at()
+        try:
+            self.app.snapshot(self.directory / f"frame-{self.count:05d}.png")
+            self.times.append(asked)
+            self.count += 1
+        except Exception:  # noqa: BLE001 (a missed frame is not an error; the clip check counts what is there)
+            pass
+        finally:
+            with self.done:
+                self.finished += 1
+                self.done.notify_all()
+
+    def capture_now(self, timeout=SNAPSHOT_TIMEOUT + 5):
+        """Takes a frame now (waits for an attempt that starts after this call); the time it was asked for."""
+        asked = self.at()
+        with self.done:
+            need = self.started + 1
+            self.wake.set()
+            self.done.wait_for(lambda: self.finished >= need or not self.is_alive(), timeout=timeout)
+        return asked
+
+    def stop(self):
+        self.stopped.set()
+        self.wake.set()
 
 
 # ---- text matching -------------------------------------------------------------------------
@@ -343,7 +430,17 @@ def last_line(text):
 
 # Letters text recognition confuses in a monospace terminal font, folded to one form.
 OCR_FOLD = str.maketrans({"O": "0", "o": "0", "D": "0", "I": "1", "l": "1", "L": "1", "|": "1", "i": "1", "S": "5", "s": "5",
-                          "B": "8", "Z": "2", "z": "2", "—": "-", "–": "-", "_": "-"})
+                          "B": "8", "Z": "2", "z": "2", "—": "-", "–": "-", "_": "-",
+                          # Cyrillic and Greek letters drawn like Latin ones: Vision reads a short Latin
+                          # word at a line's start as one (nested-splits on v2.2.1 read pane a's
+                          # "a-N-42" as U+0430 "-N-42" in 3 of 3 runs, the frame showing Latin "a").
+                          **{chr(c): latin for c, latin in (
+                              (0x0430, "a"), (0x0435, "e"), (0x043E, "0"), (0x0440, "p"), (0x0441, "c"), (0x0445, "x"),
+                              (0x0443, "y"), (0x0455, "5"), (0x0456, "1"), (0x0458, "j"), (0x0410, "a"), (0x0412, "8"),
+                              (0x0415, "e"), (0x041A, "k"), (0x041C, "m"), (0x041D, "h"), (0x041E, "0"), (0x0420, "p"),
+                              (0x0421, "c"), (0x0422, "t"), (0x0425, "x"), (0x03B1, "a"), (0x03BF, "0"), (0x0391, "a"),
+                              (0x0392, "8"), (0x0395, "e"), (0x0396, "2"), (0x0397, "h"), (0x0399, "1"), (0x039A, "k"),
+                              (0x039C, "m"), (0x039D, "n"), (0x039F, "0"), (0x03A1, "p"), (0x03A4, "t"), (0x03A7, "x"))}})
 
 
 def ocr_contains(lines, wanted):
@@ -362,7 +459,7 @@ def negative(name, want):
                                        or (name == "app_rows" and bool(want.get("hold"))))
 # The app-life conditions (Journey.evaluate_life).
 LIFE_CONDITIONS = {"daemon_cwd", "daemon_grid", "daemon_pane_ready", "app_cwd", "app_layout", "app_tab_pane",
-                   "app_tab_gone", "app_rpc", "app_grid"}
+                   "app_tab_gone", "app_rpc", "app_grid", "daemon_terminal_gone"}
 
 
 def same_dir(got, wanted):
@@ -399,7 +496,7 @@ class Journey:
         self.frame_interval = frame_interval
         # Digits a text reader cannot confuse with letters: the run's own text, never a fixture's.
         self.nonce = "".join(random.choice("23456789") for _ in range(6))
-        self.vars = {"nonce": self.nonce, "prompt": PROMPT}
+        self.vars = {"nonce": self.nonce, "prompt": PROMPT, "fixture_heading": FIXTURE_HEADING}
         self.marks, self.binds = {}, {}
         self.term = self.pane = self.host_pid = None
         self.steps, self.evidence, self.checks = [], [], 0
@@ -415,6 +512,8 @@ class Journey:
 
     def sub(self, value):
         if isinstance(value, str):
+            if "${fixture_url}" in value and "fixture_url" not in self.vars:
+                self.vars["fixture_url"] = fixture_url()
             return re.sub(r"\$\{(\w+)\}", lambda m: str(self.vars.get(m.group(1), m.group(0))), value)
         if isinstance(value, list):
             return [self.sub(v) for v in value]
@@ -458,6 +557,9 @@ class Journey:
                                         "action_reply": reply}
                         except StepError as error:
                             last = str(error)
+                            # A provisional id (see wait_screen): read the topology again next time.
+                            if "selector.not_found" in last:
+                                self.term = None
                         time.sleep(0.2)
                     raise StepError(f"terminal {self.term}: the daemon's screen never showed a prompt: {last[-400:]}")
             time.sleep(0.2)
@@ -899,6 +1001,9 @@ class Journey:
 
     def adopt(self, term, pane_id, host_pid=None):
         """Makes daemon terminal `term` in pane `pane_id` the journey's current terminal."""
+        if self.term:
+            # The terminal adopted before: a later provisional-id re-read (wait_screen) never goes back to it.
+            self.adopted_terms = getattr(self, "adopted_terms", set()) | {self.term}
         self.term, self.pane = term, pane_id
         view = self.view_of_pane(pane_id) if host_pid is None else None
         if view and view.get("host_pid"):
@@ -907,8 +1012,19 @@ class Journey:
             self.host_pid = host_pid
         return {"terminal": self.term, "pane": self.pane, "host_pid": self.host_pid}
 
+    def selected_terminal(self, pane_id):
+        """The terminal id the topology gives the selected tab of pane `pane_id` now, or None."""
+        for _ws, pane, tab, term in self.places(self.topology()):
+            if pane.get("id") == pane_id and tab.get("id") == pane.get("selected_tab") and term:
+                return term
+        return None
+
     def wait_screen(self, end):
-        """Until the daemon's screen of the current terminal shows any text (the shell's first prompt)."""
+        """Until the daemon's screen of the current terminal shows any text (the shell's first prompt).
+        A tab the app makes at once (Cmd-D, Ctrl-`, a new window) can name the app's own provisional
+        terminal id in the topology until the daemon's terminal exists; the daemon answers selector.not_found
+        for it (v2.2.4-opt gate: mw-new-window-entrypoints, restart-restore). The id is read again from the
+        topology then, and the failure names the id the topology still gives."""
         last = "empty screen"
         while now() < end:
             try:
@@ -916,8 +1032,24 @@ class Journey:
                     return
             except StepError as error:
                 last = str(error)
+                if "selector.not_found" in last and self.pane:
+                    try:
+                        again = self.selected_terminal(self.pane)
+                    except StepError:
+                        again = None
+                    if again and again != self.term and again not in getattr(self, "adopted_terms", set()):
+                        self.term = again
+                        view = self.view_of_pane(self.pane)
+                        if view and view.get("host_pid"):
+                            self.host_pid = int(view["host_pid"])
+                        continue
             time.sleep(0.2)
-        raise StepError(f"terminal {self.term}: the daemon's screen never showed a prompt: {last[-300:]}")
+        try:
+            named = self.selected_terminal(self.pane) if self.pane else None
+        except StepError as error:
+            named = f"unknown ({str(error)[-80:]})"
+        raise StepError(f"terminal {self.term}: the daemon's screen never showed a prompt "
+                        f"(the topology names {named} for pane {self.pane}): {last[-300:]}")
 
     def step_focused_terminal(self, step):
         """After a key that makes a terminal (Ctrl-` New Terminal Tab, Cmd-D split, Home's Open a terminal):
@@ -943,8 +1075,12 @@ class Journey:
                 self.known_views.add(view["terminal_id"])
                 adopted = self.adopt(place[2], view.get("pane"), int(view["host_pid"]) if view.get("host_pid") else None)
                 self.wait_screen(end)
-                # The next key waits out the creation hold (CREATION_HOLD_SECONDS); checks need not.
-                self.hold_from = getattr(self, "last_key_at", now())
+                # The next key waits out this terminal's creation hold (CREATION_HOLD_SECONDS); checks need
+                # not. Counted from now, when the terminal is made and shows its prompt, not from the last
+                # key: keys pressed while a creation is pending wait in its hold and run one creation at a
+                # time, so a burst's last terminal is made, and its hold starts, long after the last key
+                # (app-life-many-tabs on v2.2.1: 19 Ctrl-` presses in 2.8 s, the 20th tab 16 s later).
+                self.hold_from = now()
                 return dict(adopted, workspace=place[0].get("name"))
             time.sleep(0.2)
         raise StepError(f"no new focused terminal pane within {step.get('timeout', 20)} s ({last or 'no focused terminal pane'})")
@@ -1189,11 +1325,23 @@ class Journey:
             while not s["ok"]:
                 time.sleep(0.25)
                 tries += 1
+                try:
+                    seen = self.ensure_seen()
+                except NotRun as error:
+                    # Judged after the other conditions: a real failure elsewhere stays a failure.
+                    s["not_run"] = str(error)
+                    break
+                except (StepError, OSError, ValueError) as error:
+                    seen = {"error": str(error)[-200:]}
                 ok, detail = self.evaluate(s["name"], s["cond"][s["name"]], {})
-                s["detail"] = dict(detail, tries=tries) if isinstance(detail, dict) else detail
+                s["detail"] = dict(detail, tries=tries, seen=seen) if isinstance(detail, dict) else detail
                 if ok:
                     s["ok"], s["at"] = True, now()
                 elif now() >= frame_until and tries >= 2:
+                    try:
+                        self.save_frame_failure()
+                    except OSError:
+                        pass
                     break
         failed = []
         for s in state:
@@ -1209,9 +1357,115 @@ class Journey:
                               + (f" took {elapsed} ms > {limit} ms" if s["ok"]
                                  else " did not hold at the end" if s["negative"] else " never held"))
         result = {"polls": ticks, "since": since, "conditions": len(state)}
+        unjudged = [s["not_run"] for s in frames if s.get("not_run")]
+        if unjudged and len(failed) == len(unjudged):
+            raise NotRun(unjudged[0])
         if failed:
             raise StepError("; ".join(failed))
         return result
+
+    def frame_window(self, panes):
+        """The main window id frame checks read: the one a step chose, else the window of the journey's pane,
+        else the window of the first visible pane (debug.window_snapshot's `kind: main`)."""
+        chosen = getattr(self.app, "snapshot_window", None)
+        if chosen:
+            return chosen
+        mine = next((p for p in panes if self.pane and p.get("pane") == self.pane), None)
+        first = mine or next((p for p in panes if p.get("visible")), None)
+        return ((first or {}).get("grid") or {}).get("window")
+
+    def ensure_seen(self):
+        """Frame checks judge what a person sees, so they read a window on screen. A capture mini's GUI login
+        is shared by its slots, and the app runs in the background: another app's window (another slot's
+        cmux, a browser) can cover ours. AppKit then reports it occluded and an optimized build pauses its
+        terminals by design (energy saving; only Debug automation launches draw anyway,
+        WindowDrawPolicy.isAutomationLaunch), so its snapshot shows the panes empty though the text is live
+        (v2.2.4-opt gate, 15 journeys, handoff/v224-gate-triage.md). Before each frame read: debug.surfaces
+        says whether the frame window's visible panes are in an occluded window. If so, the window server's
+        order says what covers it. Only when every window in front of it that overlaps it belongs to another
+        process does debug.window.focus bring it to the front (orderFrontRegardless, no app activation); a
+        cover by the app's own window, or a window not on screen at all, is the app's state and is left as
+        it is, so the frame check judges it. A window still covered by another app after that is `not run`
+        (NotRun). Returns what the frame evidence keeps: the window, the covers, whether it was brought to
+        the front, and each visible pane's surface pause and drawing state at the read."""
+        report = self.app.rpc("debug.surfaces", {}) or {}
+        windows = [w for w in report.get("windows", []) if isinstance(w, dict)]
+        panes = [p for w in windows for p in w.get("panes", []) if isinstance(p, dict)]
+        wid = self.frame_window(panes)
+        shown = lambda rows: [p for p in rows if p.get("visible") and (p.get("grid") or {}).get("window") == wid]
+        rows = shown(panes)
+        record = {"window": wid, "brought_front": False}
+        if wid and any(p.get("window_occluded") for p in rows):
+            number = next((w.get("window") for w in windows
+                           if any((p.get("grid") or {}).get("window") == wid for p in w.get("panes", []) or [])), None)
+            covers = self.covers_of(number)
+            record["covers"] = covers
+            # None: the window is not on screen at all (minimized, another Space): the app's state, left as it is.
+            foreign = covers is not None and all(c["pid"] != getattr(self.app, "pid", None) for c in covers)
+            if foreign:
+                self.app.rpc("debug.window.focus", {"window": wid})
+                record["brought_front"] = True
+                end = now() + 3
+                while True:
+                    report = self.app.rpc("debug.surfaces", {}) or {}
+                    rows = shown([p for w in report.get("windows", []) for p in w.get("panes", []) if isinstance(p, dict)])
+                    if not any(p.get("window_occluded") for p in rows):
+                        break
+                    if now() >= end:
+                        raise NotRun(f"window {wid} stays occluded on the shared capture host after debug.window.focus "
+                                     f"(covered by {covers[:4]}): frame checks cannot judge it")
+                    time.sleep(0.1)
+        record["panes"] = [{"pane": p.get("pane"), "occluded": p.get("window_occluded"),
+                            "paused": (p.get("surface") or {}).get("paused"),
+                            "drawing": (p.get("surface") or {}).get("drawing")} for p in rows]
+        # The app's own cover judgment (WindowOcclusionFamily: one of its opaque windows in front with a frame that
+        # contains this one), which AppKit's occlusion does not report: a pane paused `window_occluded` with
+        # `occluded` false is covered by the app's own window when this is true, else its pause is stale.
+        record["family_occluded"] = self.family_occluded(wid)
+        return record
+
+    def family_occluded(self, wid):
+        """debug.windows' family_occluded of window WID (None when unknown)."""
+        if not wid:
+            return None
+        try:
+            report = self.app.rpc("debug.windows", {}) or {}
+        except (StepError, OSError, ValueError):
+            return None
+        return next((w.get("family_occluded") for w in report.get("windows", []) if w.get("id") == wid), None)
+
+    def save_frame_failure(self):
+        """A failed frame check keeps the app's full debug.surfaces (every pane's surface, its pause and, in builds
+        that have it, pause_record) and debug.windows as diag-framefail.json: the state behind an empty pane is read,
+        not guessed (v2.2.6-opt gate: ctrl-c failed paused window_occluded with no saved window state)."""
+        dump = {}
+        for name, method in (("surfaces", "debug.surfaces"), ("windows", "debug.windows")):
+            try:
+                dump[name] = self.app.rpc(method, {"text": True} if name == "surfaces" else {}, timeout=30)
+            except (StepError, OSError, ValueError) as error:
+                dump[name] = {"error": str(error)[-300:]}
+        (self.out / "diag-framefail.json").write_text(json.dumps(dump, indent=1, default=str) + "\n")
+
+    def covers_of(self, number):
+        """The on-screen windows in front of window NUMBER (the window server's id, debug.surfaces' `window`)
+        that overlap it, front to back, as {pid, owner, number}; None when NUMBER is not on screen or the
+        order cannot be read (then nothing is moved)."""
+        if number is None:
+            return None
+        try:
+            done = subprocess.run(["/usr/bin/osascript", "-l", "JavaScript", "-e", WINDOW_LIST_JXA],
+                                  capture_output=True, text=True, timeout=20)
+            listed = json.loads(done.stdout or "[]")
+        except (OSError, ValueError, subprocess.TimeoutExpired):
+            return None
+        index = next((i for i, w in enumerate(listed) if str(w.get("number")) == str(number)), None)
+        if index is None:
+            return None
+        mine = listed[index]["bounds"]
+        overlaps = lambda b: (b["X"] < mine["X"] + mine["Width"] and mine["X"] < b["X"] + b["Width"]
+                              and b["Y"] < mine["Y"] + mine["Height"] and mine["Y"] < b["Y"] + b["Height"])
+        return [{"pid": w["pid"], "owner": w.get("owner"), "number": w.get("number")}
+                for w in listed[:index] if overlaps(w["bounds"])]
 
     def evaluate(self, name, want, cache):
         """(holds, detail) of one condition; `cache` keeps one read of each source per poll."""
@@ -1392,6 +1646,19 @@ class Journey:
                 return False, {"error": f"no terminal named {want!r}"}
             place = self.place_of(self.aliases[want]["term"], topo())
             return place is None, {"tab": place[2].get("id") if place else None}
+        if name == "daemon_terminal_gone":
+            # The daemon's terminal list has no live terminal N: it is gone (on_exit close, the default) or
+            # its lifecycle says it ended (on_exit keep).
+            if want not in self.aliases:
+                return False, {"error": f"no terminal named {want!r}"}
+            term = self.aliases[want]["term"]
+            rows = self.app.cmux("terminal", "list")
+            if isinstance(rows, dict):
+                rows = next((rows[k] for k in ("terminals", "value", "result") if isinstance(rows.get(k), list)), [])
+            row = next((r for r in rows or [] if isinstance(r, dict) and r.get("id") == term), None)
+            state = str((row or {}).get("lifecycle") or (row or {}).get("state") or "").lower()
+            return row is None or state in ("exited", "closed", "dead"), {"terminal": term, "row": row,
+                                                                          "terminals": len(rows or [])}
         if name == "app_rpc":
             reply = self.app.rpc(want["method"], want.get("params") or {})
             got = dig(reply, want.get("path", ""))
@@ -1417,10 +1684,14 @@ class Journey:
         frames = Frames(self.app, self.out / "frames", self.frame_interval)
         frames.start()
         status, reason = "pass", ""
+        action = None
         try:
             for index, step in enumerate(self.spec["steps"]):
                 if now() > self.deadline:
                     raise Deadline(f"the lease deadline came before step {index + 1} ({step['do']})")
+                if action is None and step["do"] not in SETUP_STEPS:
+                    # The window as the action starts, whatever the frame interval.
+                    action = {"from_step": index + 1, "do": step["do"], "start": frames.capture_now()}
                 record = {"index": index + 1, "do": step["do"], "title": step.get("title", "")}
                 handler = getattr(self, "step_" + step["do"], None)
                 if handler is None:
@@ -1449,6 +1720,10 @@ class Journey:
         except (StepError, OSError, ValueError, subprocess.TimeoutExpired) as error:
             status, reason = "fail", f"step {len(self.steps)} ({self.steps[-1]['do'] if self.steps else '?'}): {error}"
         finally:
+            if action is not None:
+                # The window as the action ends (before the clean-up steps change it).
+                frames.capture_now()
+                action["end"] = frames.at()
             # `finally` steps put the app back for the next journey (leave full screen, close a second
             # window), whatever happened; their errors are recorded and never change the status.
             for step in self.spec.get("finally") or []:
@@ -1459,7 +1734,7 @@ class Journey:
                 except Exception as error:  # noqa: BLE001 (clean-up: record any error, keep going)
                     record["ok"], record["error"] = False, str(error)[-300:]
                 self.steps.append(record)
-            frames.stopped.set()
+            frames.stop()
             frames.join(timeout=SNAPSHOT_TIMEOUT)
             for path in self.files:
                 try:
@@ -1478,7 +1753,10 @@ class Journey:
                   "status": status, "reason": reason, "started_at": wall, "seconds": round(now() - started, 2),
                   "load": {"start": load_start, "end": load_now()},
                   "nonce": self.nonce, "terminal": self.term, "pane": self.pane, "host_pid": self.host_pid,
-                  "frames": frames.count, "clip_frames": clip, "steps": self.steps, "evidence": self.evidence}
+                  "frames": frames.count, "clip_frames": clip, "frame_times": frames.times, "action": action,
+                  "action_frames": [i for i, t in enumerate(frames.times)
+                                    if action and "end" in action and action["start"] <= t <= action["end"]],
+                  "steps": self.steps, "evidence": self.evidence}
         (self.out / "result.json").write_text(json.dumps(result, indent=1, default=str) + "\n")
         return result
 

@@ -5,6 +5,7 @@
   "why": "Automation never competes with the person (CLAUDE.md, \"Go past Chrome where cmux is scripted\"). Since cp/fix-chief-composer-focus only the person's own newTab (key, menu, click, palette) claims the window's keyboard; a script's newTab (the socket, origin script) makes the workspace without showing it while a text input has the person's keyboard. Before it, a script's newTab took the window from a person typing to Chief and their next keys went to the new shell.",
   "source": "cp/fix-chief-composer-focus (80723559628): a script's newTab never takes a field the person focused",
   "first_in_app": true,
+  "last_in_lease": true,
   "budget_seconds": 90,
   "steps": [
     {"do": "fresh_app"},
@@ -33,7 +34,7 @@
        {"daemon_prompt": true},
        {"daemon_lacks": "keep-"},
        {"daemon_lacks": "more-"},
-       {"frame_text": "keep-${nonce}-more-${nonce}"}
+       {"composer_text": "keep-${nonce}-more-${nonce}"}, {"frame_text": "Your Chief"}
      ]}
   ]
 }

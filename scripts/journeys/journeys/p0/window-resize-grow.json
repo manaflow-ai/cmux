@@ -12,9 +12,9 @@
     {"do": "window_place", "title": "set-up: the window at 55% x 50% of the screen, top left", "fraction": [0.02, 0.03, 0.55, 0.5]},
     {"do": "expect", "title": "the terminal fits the placed window", "timeout": 10, "all": [{"grid_fits": {}}]},
     {"do": "remember", "as": "start"},
-    {"do": "type", "text": "seq 1 3000; echo end-${nonce}", "enter": true, "mark": "filled"},
+    {"do": "type", "text": "seq 1 3000; echo end-${nonce}-$((6*7))", "enter": true, "mark": "filled"},
     {"do": "expect", "title": "a long scrollback, the prompt at the bottom", "since": "filled", "timeout": 20,
-     "all": [{"daemon_line": "end-${nonce}"}, {"daemon_prompt": true}, {"app_prompt": true}, {"at_bottom": {}}]},
+     "all": [{"daemon_line": "end-${nonce}-42"}, {"daemon_prompt": true}, {"app_prompt": true}, {"at_bottom": {}}]},
 
     {"do": "window_drag", "title": "press the bottom-right corner and drag 300 points right (button held)", "edge": "bottom-right", "by": [300, 0], "events": 36, "release": false, "mark": "wider"},
     {"do": "expect", "title": "mid-drag, wider: the grid follows, the prompt stays in view", "since": "wider", "timeout": 10,
@@ -24,7 +24,7 @@
        {"app_prompt": true},
        {"at_bottom": {}},
        {"daemon_prompt": true},
-       {"pane_frame_text": "end-${nonce}"}
+       {"pane_frame_text": "end-${nonce}-42"}
      ]},
     {"do": "window_drag", "title": "keep the button held and drag 220 points down", "press": false, "by": [0, 220], "events": 30, "release": false, "mark": "taller"},
     {"do": "expect", "title": "mid-drag, taller: more rows, the scrollback does not jump into its history", "since": "taller", "timeout": 10,
@@ -33,19 +33,19 @@
        {"grid_fits": {"vs": "start", "cols": "wider", "rows": "taller"}},
        {"app_prompt": true},
        {"at_bottom": {}},
-       {"app_text_line": "end-${nonce}"},
-       {"pane_frame_text": "end-${nonce}"}
+       {"app_text_line": "end-${nonce}-42"},
+       {"pane_frame_text": "end-${nonce}-42"}
      ]},
     {"do": "window_drag", "title": "a last grow step, then release", "press": false, "by": [40, 40], "events": 8, "release": true},
 
-    {"do": "type", "text": "echo pty-${nonce} $(stty size)", "enter": true, "mark": "after"},
+    {"do": "type", "text": "echo pty-${nonce}-$((6*7)) $(stty size)", "enter": true, "mark": "after"},
     {"do": "expect", "title": "after the drag: the PTY has the window's grid, the prompt is at the bottom", "since": "after", "timeout": 10,
      "all": [
-       {"pty_size": "pty-${nonce}"},
+       {"pty_size": "pty-${nonce}-42"},
        {"grid_fits": {"vs": "start", "cols": "wider", "rows": "taller"}},
        {"app_prompt": true},
        {"at_bottom": {}},
-       {"pane_frame_text": "pty-${nonce}"}
+       {"pane_frame_text": "pty-${nonce}-42"}
      ]}
   ],
   "finally": [{"do": "restore_window", "from": "before-place"}]

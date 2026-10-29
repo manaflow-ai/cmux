@@ -1,0 +1,49 @@
+{
+  "id": "ctrl-z-fg",
+  "priority": "P0",
+  "title": "Ctrl+Z stops the foreground job and gives the prompt back; fg resumes it and it reads input again",
+  "why": "Job control needs the PTY child to be a session leader with a controlling tty (the root cause of the dogfood v1 Ctrl+C bug, fix 66d9960c10f): without it Ctrl+Z sends no SIGTSTP, the shell never gets the terminal back and fg has nothing to resume. The shell reports the reader's state as T (stopped) from ps; the reader prints the upper-case line only if fg resumed it in the foreground and it reads the terminal again. The reader is Python (its reads retry after EINTR, PEP 475), not macOS tr: BSD tr and cat end with 'Interrupted system call' when fg continues them on any macOS PTY (checked on cmux19, macOS 27, with a plain pty.fork and no cmux), so they cannot show the app's job control.",
+  "source": "everyday terminal use (holistic-quality.md 1: Ctrl+Z + fg)",
+  "budget_seconds": 75,
+  "steps": [
+    {"do": "new_terminal", "name": "jr-ctrl-z-fg"},
+    {"do": "neutral_prompt"},
+    {"do": "type", "text": "python3 -c \"import sys; [print(l.upper(), end='', flush=True) for l in sys.stdin]\" jr-up", "enter": true},
+    {"do": "expect", "title": "the upper-casing reader runs in the foreground of the terminal's tty", "timeout": 10,
+     "all": [{"process_present": {"match": "-c import sys.* jr-up$", "bind": "reader", "foreground": true}}]},
+    {"do": "type", "text": "before-${nonce}", "enter": true, "mark": "before"},
+    {"do": "expect", "title": "the reader answers before the stop", "since": "before", "within": 2, "timeout": 10,
+     "all": [{"daemon_line": "BEFORE-${nonce}"}]},
+    {"do": "key", "key": "z", "modifiers": ["control"], "mark": "ctrl-z"},
+    {"do": "expect", "title": "Ctrl+Z stops the reader and the prompt returns", "since": "ctrl-z", "within": 1.0, "timeout": 5,
+     "all": [
+       {"daemon_prompt": true},
+       {"app_prompt": true}
+     ]},
+    {"do": "type", "text": "echo state-${nonce}-$(ps -o stat=,command= -t $(tty | cut -c6-) | awk '$NF==\"jr-up\" {print substr($1,1,1)}')", "enter": true, "mark": "stopped"},
+    {"do": "expect", "title": "the shell takes commands while the reader is stopped, and ps reports it stopped (T)", "since": "stopped", "within": 3, "timeout": 10,
+     "all": [
+       {"daemon_line": "state-${nonce}-T"},
+       {"app_text_line": "state-${nonce}-T"},
+       {"daemon_prompt": true},
+       {"process_present": {"match": "-c import sys.* jr-up$", "bind": "reader-stopped"}}
+     ]},
+    {"do": "type", "text": "fg", "enter": true, "mark": "fg"},
+    {"do": "expect", "title": "fg puts the reader back in the foreground", "since": "fg", "within": 2, "timeout": 10,
+     "all": [{"process_present": {"match": "-c import sys.* jr-up$", "bind": "reader-resumed", "foreground": true}}]},
+    {"do": "type", "text": "resumed-${nonce}", "enter": true, "mark": "line"},
+    {"do": "expect", "title": "the resumed reader reads the typed line and prints it in upper case", "since": "line", "within": 2, "timeout": 10,
+     "all": [
+       {"daemon_line": "RESUMED-${nonce}"},
+       {"app_text_line": "RESUMED-${nonce}"},
+       {"frame_text": "RESUMED-${nonce}"}
+     ]},
+    {"do": "key", "key": "d", "modifiers": ["control"], "mark": "eof"},
+    {"do": "expect", "title": "Ctrl+D ends the reader and the prompt returns", "since": "eof", "within": 1.0, "timeout": 5,
+     "all": [
+       {"process_gone": "reader-resumed"},
+       {"daemon_prompt": true},
+       {"app_prompt": true}
+     ]}
+  ]
+}

@@ -286,13 +286,19 @@ def step_remember_windows(j, step):
     return {"windows": [compact(s) for s in state.values()]}
 
 
+# The sidebar items that are Home: (ref_kind, ref) as debug.sidebar_rows reports them.
+HOME_ITEMS = {("built_in", "home"), ("app", "cmux/home")}
+
+
 def sidebar_target(j, wid, step):
     report = j.app.rpc("debug.sidebar_rows") or {}
     side = next((w for w in report.get("windows") or [] if isinstance(w, dict) and w.get("window") == wid), None)
     if side is None:
         raise D.StepError(f"debug.sidebar_rows has no sidebar for window {wid}")
     if step.get("home"):
-        item = next((i for i in side.get("items") or [] if i.get("ref_kind") == "built_in" and i.get("ref") == "home"), None)
+        # Home is the built-in item, or since the sidebar's app items the app `cmux/home` (v2.2.4-opt reports
+        # ('app', 'cmux/home'); mw-home-click-each-window failed there on the matcher, not on the app).
+        item = next((i for i in side.get("items") or [] if (i.get("ref_kind"), i.get("ref")) in HOME_ITEMS), None)
         if not item or not item.get("window_frame"):
             raise D.StepError(f"window {wid}'s sidebar shows no Home item: "
                               f"{[(i.get('ref_kind'), i.get('ref'), bool(i.get('window_frame'))) for i in side.get('items') or []]}")

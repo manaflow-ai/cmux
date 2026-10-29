@@ -1,0 +1,52 @@
+{
+  "id": "tab-completion",
+  "priority": "P0",
+  "title": "Tab completes a file name and a command name on the prompt line",
+  "why": "Tab must reach the shell as a tab (not move focus or be taken as a shortcut). cat prints tab-N-42 only if Tab completed the unique prefix to the file's full name, and the second line runs only if Tab completed the command name.",
+  "source": "everyday terminal use (holistic-quality.md 1: Tab completion)",
+  "budget_seconds": 60,
+  "steps": [
+    {"do": "new_terminal", "name": "jr-tab-completion"},
+    {"do": "neutral_prompt"},
+    {"do": "type", "text": "mkdir -p jr-tab-${nonce} && cd jr-tab-${nonce} && echo tab-${nonce}-$((6*7)) > completeme-${nonce}.txt", "enter": true, "mark": "setup"},
+    {"do": "expect", "title": "the file to complete exists", "since": "setup", "timeout": 10,
+     "all": [{"daemon_prompt": true}]},
+
+    {"do": "type", "text": "cat comp"},
+    {"do": "key", "key": "tab", "mark": "tab"},
+    {"do": "expect", "title": "Tab completes the unique prefix to the full file name", "since": "tab", "within": 1.5, "timeout": 5,
+     "all": [
+       {"daemon_line": "${prompt}cat completeme-${nonce}.txt"},
+       {"app_text_contains": "${prompt}cat completeme-${nonce}.txt"},
+       {"app_pane": {"focused": true}}
+     ]},
+    {"do": "key", "key": "return", "mark": "ran"},
+    {"do": "expect", "title": "the completed command prints the file", "since": "ran", "within": 3, "timeout": 10,
+     "all": [
+       {"daemon_line": "tab-${nonce}-42"},
+       {"app_text_line": "tab-${nonce}-42"},
+       {"daemon_prompt": true},
+       {"frame_text": "tab-${nonce}-42"}
+     ]},
+
+    {"do": "type", "text": "printen"},
+    {"do": "key", "key": "tab", "mark": "tab2"},
+    {"do": "expect", "title": "Tab completes a command name", "since": "tab2", "within": 1.5, "timeout": 5,
+     "all": [{"daemon_line": "${prompt}printenv"}]},
+    {"do": "type", "text": "JRTAB", "enter": true, "mark": "ran2"},
+    {"do": "expect", "title": "the completed command runs (printenv of an unset name prints nothing; the prompt returns)", "since": "ran2", "within": 3, "timeout": 10,
+     "all": [
+       {"daemon_line": "${prompt}printenv JRTAB"},
+       {"app_text_line": "${prompt}printenv JRTAB"},
+       {"daemon_prompt": true},
+       {"app_prompt": true}
+     ]},
+    {"do": "type", "text": "cd /tmp && rm -r jr-tab-${nonce} && echo cmd-${nonce}-$((6*7))", "enter": true, "mark": "after"},
+    {"do": "expect", "title": "the shell takes input again (and removes the journey's directory)", "since": "after", "within": 3, "timeout": 10,
+     "all": [
+       {"daemon_line": "cmd-${nonce}-42"},
+       {"app_text_line": "cmd-${nonce}-42"},
+       {"frame_text": "cmd-${nonce}-42"}
+     ]}
+  ]
+}

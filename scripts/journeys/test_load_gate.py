@@ -145,16 +145,24 @@ class LoadGate(unittest.TestCase):
 class Summary(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
-        self.saved = (RUN.wait_build, RUN.run_lease, RUN.make_clip)
+        self.saved = (RUN.wait_build, RUN.run_lease, RUN.make_clip, getattr(RUN, "clip_check", None))
 
     def tearDown(self):
-        RUN.wait_build, RUN.run_lease, RUN.make_clip = self.saved
+        RUN.wait_build, RUN.run_lease, RUN.make_clip, clip_check = self.saved
+        if clip_check is not None:
+            RUN.clip_check = clip_check
         self.tmp.cleanup()
 
     def summary(self, result):
         RUN.wait_build = lambda job, seconds: {"id": job, "state": "done", "ref": "abc", "tag": "t"}
         RUN.run_lease = lambda specs, build, out, interval: {s["id"]: dict(result) for s in specs}
-        RUN.make_clip = lambda directory, interval: None
+        if hasattr(RUN, "clip_check"):
+            # The gate tree's run.py: a pass needs a clip of its action (not under test here).
+            RUN.make_clip = lambda directory, interval: (directory / "clip.png", {1, 2})
+            RUN.clip_check = lambda directory, result, kept: {"action_frames": 2, "action_distinct": 2, "ok": True}
+        else:
+            RUN.make_clip = lambda directory, interval: None
+        (Path(self.tmp.name) / "ctrl-c").mkdir(exist_ok=True)
         code = RUN.main(["--build", "job", "--journey", "ctrl-c", "--out", self.tmp.name])
         line = json.loads((Path(self.tmp.name) / "results.jsonl").read_text().splitlines()[0])
         return code, line
