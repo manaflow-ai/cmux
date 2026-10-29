@@ -396,7 +396,7 @@ public final class ChiefLiveFeed: @unchecked Sendable {
     private func flush() {
         let (handler, value): ((@Sendable (ChiefLive?) -> Void)?, ChiefLive?) = lock.withLock {
             deliveryTask = nil
-            return (handler, live)
+            return (self.handler, self.live)
         }
         handler?(value)
     }
