@@ -277,7 +277,8 @@ export function PaletteMenu({
                 // Preserve the opening surface while filtering an above-anchored menu, so
                 // the search field stays under the pointer. The anchor's maxHeight still
                 // constrains this height when the pane becomes smaller.
-                if (searchHeight === undefined) setSearchHeight(menu.current?.offsetHeight);
+                if (searchHeight === undefined && menu.current)
+                  setSearchHeight(Number.parseFloat(window.getComputedStyle(menu.current).height));
                 setQuery(event.currentTarget.value);
               }}
               onKeyDown={keyDown}
