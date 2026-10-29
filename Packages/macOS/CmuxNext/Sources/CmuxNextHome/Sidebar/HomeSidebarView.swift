@@ -423,6 +423,13 @@ public final class HomeSidebarView: NSView {
     public func debugLook(width: Double?, select: Int?, unread: Bool?, search: Bool?) -> [String: Any]? {
         if let select, !model.rows.indices.contains(select) { return nil }
         let before = [compose, unreadToggle].map(\.debugState)
+        // The header as it stood before this call lays anything out, and the traffic lights it
+        // used then and sees now (a stale header under the lights shows here).
+        func rect(_ r: CGRect?) -> Any { r.map { [$0.minX, $0.minY, $0.width, $0.height].map(Double.init) } ?? NSNull() }
+        let stale: [String: Any] = ["search": rect(header.search), "used": rect(windowControls),
+                                    "sees": rect(list.headerView.homeWindowControls(band: HomeSidebarHeaderLayout.band)),
+                                    "headerInWindow": rect(list.headerView.convert(list.headerView.bounds, to: nil)),
+                                    "lights": rect(window.flatMap { WindowTitlebar.trafficLightsFrame(in: $0) })]
         let split = superview as? HomeSidebarSplitView
         if let width { split?.setWidth(width) }
         if let select {
@@ -443,6 +450,7 @@ public final class HomeSidebarView: NSView {
                 "header": ["search": frame(h.search), "filter": frame(h.filter), "compose": frame(h.compose),
                            "compact": h.compact, "buttonsCovered": h.buttonsCovered,
                            "chatCompose": frame(chat)] as [String: Any],
+                "beforeLayout": stale,
                 "buttons": ["before": before, "after": [compose, unreadToggle].map(\.debugState)]]
     }
     #endif
