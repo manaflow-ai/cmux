@@ -30,7 +30,8 @@ def generate():
         swift = [f"// {HEADER}", "import Foundation", "", f"/// {name} on the native popup wire."]
         if "enum" in spec:
             line = f"export type {name} = " + " | ".join(json.dumps(v) for v in spec["enum"]) + ";"
-            if len(line) > 110:
+            # Match the shared web formatter width in config/vite-plus/check.ts.
+            if len(line) > 120:
                 ts += [f"export type {name} ="]
                 ts += ["  | " + json.dumps(v) + (";" if index == len(spec["enum"]) - 1 else "") for index, v in enumerate(spec["enum"])]
                 ts += [""]
