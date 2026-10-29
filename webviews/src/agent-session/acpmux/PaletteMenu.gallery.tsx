@@ -12,7 +12,14 @@ const open: Play = async (ctx) => {
 const editSearch: Play = async (ctx) => {
   await open(ctx);
   const input = ctx.find({ role: "combobox" }) as HTMLInputElement;
+  const initial = input.getBoundingClientRect();
+  const assertSearchAnchor = () => {
+    const current = input.getBoundingClientRect();
+    if (["top", "left", "width", "height"].some((key) => current[key as keyof DOMRect] !== initial[key as keyof DOMRect]))
+      throw new Error("Filtering moved or resized the palette search field");
+  };
   await ctx.type("browser", { role: "combobox" });
+  assertSearchAnchor();
   const selected = input.getAttribute("aria-activedescendant");
   await ctx.press("Home");
   await ctx.waitFor(() => input.selectionStart === 0 && input.selectionEnd === 0);
@@ -23,6 +30,10 @@ const editSearch: Play = async (ctx) => {
   await ctx.press("Shift+Home");
   await ctx.waitFor(() => input.selectionStart === 0 && input.selectionEnd === input.value.length);
   await ctx.waitFor(() => input.getAttribute("aria-activedescendant") === selected);
+  await ctx.press("Backspace");
+  assertSearchAnchor();
+  await ctx.type("no matching item", { role: "combobox" });
+  assertSearchAnchor();
 };
 
 function Fixture({ variant }: { variant: string }) {
