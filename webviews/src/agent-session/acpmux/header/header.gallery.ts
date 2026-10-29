@@ -95,7 +95,7 @@ export default agentPaneEntry({
       snapshot: chat(finished, { connection: "disconnected" }),
     },
     reconnecting: {
-      note: "Retrying after a failure; the failure is the tooltip.",
+      note: "Retrying after a failure is quiet: no Reconnecting in the header; a lasting failure is one line above the composer.",
       snapshot: chat(finished, { connection: "connecting: connection refused by the local daemon" }),
     },
     "tab-row": {

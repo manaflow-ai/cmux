@@ -255,11 +255,14 @@
    under it and one quiet button. */
 .acpmux-unavailable{gap:10px}
 .acpmux-unavailable-spinner{color:var(--acpmux-composer-placeholder)}
-.acpmux-reconnecting{display:flex;align-items:center;justify-content:center;color:var(--agent-muted);font-size:var(--text-body);line-height:var(--text-body--line-height);letter-spacing:var(--text-body--letter-spacing)}
-.acpmux-reconnecting-spinner{flex:none;margin-right:6px}
-.acpmux-reconnecting button{margin-left:var(--acpmux-unavailable-actions-gap,8px);border:0;border-radius:var(--acpmux-composer-radius,8px);background:color-mix(in srgb,var(--agent-text) 8%,transparent);color:var(--agent-text);font:inherit;font-size:var(--text-caption);letter-spacing:var(--text-caption--letter-spacing)}
-.acpmux-reconnecting button:hover{background:color-mix(in srgb,var(--agent-text) 13%,transparent)}
-.acpmux-reconnecting button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
+/* A host failure above the composer (HostError.tsx HostUnavailableLine): one muted line cut to the
+   width, and one small quiet button. Nothing shows while the host is still recovering. */
+.acpmux-host-line{display:flex;align-items:center;gap:8px;min-width:0;padding:0 var(--cv-inset,max(18px,calc((100% - 760px)/2))) 6px;color:var(--agent-muted);font-size:var(--text-caption);line-height:var(--text-caption--line-height);letter-spacing:var(--text-caption--letter-spacing)}
+.acpmux-host-line-message{flex:0 1 auto;min-width:0;margin:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;user-select:text;-webkit-user-select:text}
+.acpmux-host-line button{flex:none;height:22px;padding:0 8px;border:0;border-radius:6px;background:color-mix(in srgb,var(--agent-text) 8%,transparent);color:var(--agent-text);font:inherit}
+.acpmux-host-line button:hover:not(:disabled){background:color-mix(in srgb,var(--agent-text) 13%,transparent)}
+.acpmux-host-line button:disabled{opacity:.6}
+.acpmux-host-line button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
 .acpmux-unavailable-detail{margin:0;max-width:420px;color:var(--agent-muted);font-size:var(--text-body);line-height:var(--text-body--line-height);overflow-wrap:anywhere;letter-spacing:var(--text-body--letter-spacing)}
 .acpmux-unavailable-actions{display:flex;flex-wrap:wrap;justify-content:center;gap:8px;margin-top:6px}
 .acpmux-unavailable-action{height:28px;padding:0 12px;border:0;border-radius:8px;background:color-mix(in srgb,var(--agent-text) 8%,transparent);color:var(--agent-text);font:inherit;font-size:var(--text-body);letter-spacing:var(--text-body--letter-spacing)}
