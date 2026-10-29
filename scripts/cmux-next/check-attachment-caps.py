@@ -38,6 +38,11 @@ ADMISSION_PATHS = {
 }
 # This cache budget is unrelated to chat-upload admission and is deliberately retained.
 RETAINED_BOUNDS = {
+    "cmux-tui/crates/cmux-conversation/src/attachments.rs": {
+        "MAX_POSTER_BYTES": "Derived video-poster representation budget, not original admission.",
+        "MAX_PREVIEW_IMAGE_BYTES": "Derived image-preview representation budget, not original admission.",
+        "max_bytes": "DerivedVariant representation budget only; original upload is uncapped.",
+    },
     "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneRequest+Decoding.swift": {
         "maximumWarmBytes": "New Tab warm-cache budget, unrelated to chat.upload decoding.",
     },

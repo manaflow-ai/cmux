@@ -7,6 +7,10 @@
 
 use crate::types::{DerivedImage, Part};
 
+/// A video's poster: at most this size, JPEG or WebP.
+pub const MAX_POSTER_BYTES: u64 = 2_000_000;
+/// An image's preview: at most this size, JPEG or WebP.
+pub const MAX_PREVIEW_IMAGE_BYTES: u64 = 512_000;
 /// Longest attachment name, in characters (Unicode scalars).
 pub const MAX_ATTACHMENT_NAME_CHARS: usize = 255;
 /// Largest width or height of a part.
@@ -36,6 +40,13 @@ impl DerivedVariant {
         match self {
             Self::Poster => AttachmentClass::Video,
             Self::Preview => AttachmentClass::Image,
+        }
+    }
+
+    pub fn max_bytes(self) -> u64 {
+        match self {
+            Self::Poster => MAX_POSTER_BYTES,
+            Self::Preview => MAX_PREVIEW_IMAGE_BYTES,
         }
     }
 
@@ -103,6 +114,8 @@ pub enum AttachmentReject {
     Invalid,
     /// Not one of the owner's types.
     TypeRefused,
+    /// Over a derived image's representation budget.
+    TooLarge,
     /// A poster on a non-video or a preview on a non-image.
     DerivedRefused(DerivedVariant),
 }
@@ -112,6 +125,7 @@ impl AttachmentReject {
         match self {
             Self::Invalid => "validation_invalid",
             Self::TypeRefused => "type_refused",
+            Self::TooLarge => "too_large",
             Self::DerivedRefused(DerivedVariant::Poster) => "poster_refused",
             Self::DerivedRefused(DerivedVariant::Preview) => "preview_refused",
         }
@@ -164,6 +178,9 @@ pub fn validate_derived(
     }
     if !is_derived_image_type(&image.mime_type) {
         return Err(AttachmentReject::TypeRefused);
+    }
+    if image.byte_count > variant.max_bytes() {
+        return Err(AttachmentReject::TooLarge);
     }
     Ok(())
 }

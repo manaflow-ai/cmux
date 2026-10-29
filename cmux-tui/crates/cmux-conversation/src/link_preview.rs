@@ -5,10 +5,10 @@
 //!
 //! The image is an ordinary attachment record the sender uploaded to this
 //! conversation (`conversation-attachment-upload`): JPEG or WebP, at most
-//! attachment record. The host checks that record like an
+//! [`MAX_PREVIEW_IMAGE_BYTES`]. The host checks that record like an
 //! `attachment` part's hash; this module checks only the shape.
 
-use crate::attachments::{is_derived_image_type, is_sha256};
+use crate::attachments::{MAX_PREVIEW_IMAGE_BYTES, is_derived_image_type, is_sha256};
 use crate::types::Part;
 
 /// Longest URL, in UTF-8 bytes.
@@ -59,7 +59,9 @@ pub fn valid_link_preview_part(part: &Part) -> bool {
         return false;
     };
     let image_ok = image.as_ref().is_none_or(|image| {
-        is_sha256(&image.hash) && is_derived_image_type(&image.mime_type) && image.byte_count > 0
+        is_sha256(&image.hash)
+            && is_derived_image_type(&image.mime_type)
+            && (1..=MAX_PREVIEW_IMAGE_BYTES).contains(&image.byte_count)
     });
     valid_link_url(url)
         && valid_label(title.as_deref(), MAX_LINK_TITLE_CHARS)
