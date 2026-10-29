@@ -6,8 +6,8 @@
 // dispatching NSApp's events made activate succeed (active, key and main window), also with a system alert
 // frontmost. Linked into the test bundle only: when the bundle loads, this queues one setup on the main
 // queue that dispatches NSApp's pending events on every main run-loop turn, as NSApplication.run would (harmless
-// on any Mac). Only a run that asks for a GUI (`CMUX_TEST_REQUIRE_GUI=1`, which the fleet's gui-session-v1 steps
-// set) also finishes launching as a regular app and activates: a person running `swift test` on their own Mac
+// on any Mac). Only a run that asks for a GUI (`CMUX_CI_CONSOLE_SESSION=1`, which the fleet worker sets on every
+// gui-session-v1 step, or `CMUX_TEST_REQUIRE_GUI=1`) also finishes launching as a regular app and activates: a person running `swift test` on their own Mac
 // keeps their focus. A listing run (`swift test list`) does nothing.
 #import <AppKit/AppKit.h>
 #include <crt_externs.h>
@@ -19,10 +19,16 @@
 static int running;
 static int activated;
 
-/// The run asked for a GUI: the fleet's gui-session-v1 steps, or a person who opts in.
-static int requires_gui(void) {
-    const char *value = getenv("CMUX_TEST_REQUIRE_GUI");
+static int env_is_one(const char *name) {
+    const char *value = getenv(name);
     return value != NULL && strcmp(value, "1") == 0;
+}
+
+/// The run is in a console session meant for GUI tests: the fleet worker sets CMUX_CI_CONSOLE_SESSION=1 on every
+/// gui-session-v1 step; CMUX_TEST_REQUIRE_GUI=1 is the strict opt-in (a person, or a step that wants every skip
+/// to fail).
+static int requires_gui(void) {
+    return env_is_one("CMUX_CI_CONSOLE_SESSION") || env_is_one("CMUX_TEST_REQUIRE_GUI");
 }
 
 /// Sends every event NSApp has queued now; never waits.
