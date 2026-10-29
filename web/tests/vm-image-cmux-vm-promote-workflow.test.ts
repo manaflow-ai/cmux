@@ -66,6 +66,11 @@ describe("cloud-vm-image-promote.yml trust boundary", () => {
     expect(job.if).toBe("${{ !cancelled() && (needs.prod-gate.result == 'success' || (inputs.channel == 'dev' && needs.prod-gate.result == 'skipped')) }}");
   });
 
+  test("production has no manually maintained Freestyle anchor", () => {
+    expect(workflowText).not.toContain("FREESTYLE_PROD_ANCHOR");
+    expect(step("Promote (fresh-clone smoke on the channel's account)").env).not.toHaveProperty("FREESTYLE_PROD_ANCHOR");
+  });
+
   test("never cancels a running promotion", () => {
     expect(workflow.concurrency["cancel-in-progress"]).toBe(false);
   });
