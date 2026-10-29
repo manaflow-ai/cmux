@@ -504,6 +504,20 @@ Each environment needs:
 
 Production migration runs staging migration first on the same commit, then waits on the protected production environment approval.
 
+### Cloud VM image production environment
+
+The production image bake and promote workflows use the protected GitHub environment
+`cmux-next-vm-image-prod`. Create it with a custom deployment branch policy allowing only
+`feat-cmux-next`, then add the production `FREESTYLE_API_KEY`. The production compat gate also
+needs the team-owned production Stack test profile, `CMUX_UITEST_STACK_EMAIL` and
+`CMUX_UITEST_STACK_PASSWORD`; these are separate from Leo's Freestyle key and must not be
+copied from the staging cloud-capture account.
+
+The first production run refuses the dev Freestyle key, then trusts the key supplied through this
+protected environment. Its production snapshot is recorded in the channel data. Later runs must
+resolve that recorded production snapshot with the same account, so a third account is refused.
+There is no `FREESTYLE_PROD_ANCHOR` environment variable to maintain.
+
 ## Local database development
 
 Use `CMUX_PORT` to run multiple isolated web and database environments on one machine:

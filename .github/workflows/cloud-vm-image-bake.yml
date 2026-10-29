@@ -92,7 +92,7 @@ jobs:
           set -euo pipefail
           refuse() { echo "::error title=Production environment::$1"; exit 1; }
           [ "$GITHUB_REF" = refs/heads/feat-cmux-next ] || refuse "dispatch from feat-cmux-next, not $GITHUB_REF"
-          inert="production stays off until $PROD_ENV exists, allows branch feat-cmux-next only, and holds FREESTYLE_API_KEY (production account), CMUX_UITEST_STACK_EMAIL and CMUX_UITEST_STACK_PASSWORD, plus variable FREESTYLE_PROD_ANCHOR (<slug> <sh-id> of a production account snapshot) until a production snapshot is recorded; nothing ran"
+          inert="production stays off until $PROD_ENV exists, allows branch feat-cmux-next only, and holds FREESTYLE_API_KEY (production account) plus the team-owned production Stack test profile (CMUX_UITEST_STACK_EMAIL and CMUX_UITEST_STACK_PASSWORD); the first protected production key is trusted after the dev key is refused and its first snapshot is recorded for later account checks; nothing ran"
           gh api "repos/$GITHUB_REPOSITORY/environments/$PROD_ENV" > "$RUNNER_TEMP/prod-env.json" 2> /dev/null || refuse "$PROD_ENV does not exist or cannot be read: $inert"
           [ "$(jq -r '.deployment_branch_policy | "\(.custom_branch_policies // false) \(.protected_branches // false)"' "$RUNNER_TEMP/prod-env.json")" = "true false" ] || refuse "$PROD_ENV has no custom branch policy (or also allows protected branches): $inert"
           gh api "repos/$GITHUB_REPOSITORY/environments/$PROD_ENV/deployment-branch-policies" --jq '[.branch_policies[] | "\(.type // "branch"):\(.name)"] | sort | join(",")' > "$RUNNER_TEMP/prod-env-branches.txt" || refuse "cannot read the branch policies of $PROD_ENV: $inert"
@@ -225,9 +225,9 @@ jobs:
             > "$OUT_DIR/channel-dev.json"
           cat "$OUT_DIR/channel-dev.json"
 
-      # The copy repeats the dev image's lock and flags, and the key must be the production account's
-      # (prod-copy.ts account-check: it resolves the environment's FREESTYLE_PROD_ANCHOR or a recorded
-      # production snapshot to its id, and is not the dev key). In every prod-copy step the key reaches
+      # The copy repeats the dev image's lock and flags. The key must not be the dev account's
+      # (prod-copy.ts account-check: after the first protected production run, it resolves a recorded
+      # production snapshot to its id, and refuses a third account). In every prod-copy step the key reaches
       # bun only as a 0600 file (FREESTYLE_API_KEY_FILE), never in a child's environment.
       - name: Plan the production copy
         if: inputs.mode == 'prod-copy'
@@ -235,7 +235,6 @@ jobs:
         env:
           FREESTYLE_KEY_SECRET: ${{ secrets.FREESTYLE_API_KEY }}
           DEV_SNAPSHOT: ${{ inputs.dev_snapshot }}
-          FREESTYLE_PROD_ANCHOR: ${{ vars.FREESTYLE_PROD_ANCHOR }}
         run: |
           set -euo pipefail
           # First: the key moves to an unexported shell variable, so no child process inherits it.

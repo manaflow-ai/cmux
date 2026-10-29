@@ -15,9 +15,9 @@
  *     dev account's key: it resolves the dev channel's snapshot name to its recorded id. Once a production
  *     snapshot is recorded (channels/production.json, or names.production in dev.json history), the key must
  *     also resolve one of them to its recorded id, so a third account's key is refused too. The first
- *     production copy has no such record, so the environment names one: FREESTYLE_PROD_ANCHOR, a variable
- *     (not a secret) of cmux-next-vm-image-prod set next to the key, `<slug> <sh-id>` of any snapshot on
- *     the production account. Without an anchor of either kind it refuses. Read-only GETs.
+ *     production copy has no such record: after refusing the dev account's key, the protected production
+ *     environment is the trust-on-first-use boundary. Its first production snapshot is then recorded as
+ *     names.production on the dev history entry, giving later runs an account anchor. Read-only GETs.
  */
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
@@ -91,27 +91,19 @@ export function productionAnchors(root: string): Pointer[] {
 
 /**
  * Throws unless `resolve` (one account's view of snapshot names) is the production account's: it must not resolve
- * the dev channel's snapshot to its recorded id, and, once production snapshots are recorded, must resolve one of them.
+ * the dev channel's snapshot to its recorded id, and, once production snapshots are recorded, must resolve one
+ * of them. Before the first production snapshot, the protected environment provides the trust-on-first-use
+ * boundary; the first production snapshot becomes the recorded anchor for every later run.
  */
-/** FREESTYLE_PROD_ANCHOR: `<slug> <sh-id>` of a snapshot on the production account; undefined when unset, throws when malformed. */
-export function parseAnchor(raw: string | undefined): Pointer | undefined {
-  const value = raw?.trim();
-  if (!value) return undefined;
-  const m = value.match(/^([a-z0-9][a-z0-9-]*) (sh-[0-9a-f]{32})$/);
-  if (!m) throw new Error("FREESTYLE_PROD_ANCHOR must be `<snapshot slug> <sh-id>` of a snapshot on the production account; refusing");
-  if (m[1]!.startsWith("cmuxnp-dev-")) throw new Error("FREESTYLE_PROD_ANCHOR names a cmuxnp-dev- snapshot, which lives on the dev account; refusing");
-  return { snapshot: m[1]!, snapshot_id: m[2]! };
-}
-
-export async function accountCheck(root: string, resolve: (name: string) => Promise<string | undefined>, anchor?: Pointer): Promise<string> {
+export async function accountCheck(root: string, resolve: (name: string) => Promise<string | undefined>): Promise<string> {
   const dev = readDev(root);
   if (!isPointer(dev, "cmuxnp-dev-vmimg-")) throw new Error(`${DEV} has no dev snapshot name and id to check the key against; refusing`);
   if ((await resolve(dev.snapshot)) === dev.snapshot_id) {
     throw new Error(`the Freestyle key resolves the dev channel's ${dev.snapshot} to ${dev.snapshot_id}: it is the dev account's key, not production's; refusing`);
   }
-  const anchors = [...(anchor ? [anchor] : []), ...productionAnchors(root).filter((a) => a.snapshot_id !== anchor?.snapshot_id)];
+  const anchors = productionAnchors(root);
   if (!anchors.length) {
-    throw new Error("nothing identifies the production account: no production snapshot is recorded and cmux-next-vm-image-prod sets no FREESTYLE_PROD_ANCHOR (`<slug> <sh-id>` of a snapshot on that account); refusing");
+    return "account check passed: the dev account's key was refused; trusting the protected production environment on first use, whose first production snapshot will be recorded";
   }
   for (const a of anchors) if ((await resolve(a.snapshot)) === a.snapshot_id) return `account check passed: not the dev account, and ${a.snapshot} resolves to the recorded ${a.snapshot_id}`;
   throw new Error(`the Freestyle key resolves none of the ${anchors.length} known production snapshots (${anchors.map((a) => a.snapshot).join(", ")}) to its id: it is not the production account's key; refusing`);
@@ -136,7 +128,7 @@ if (process.argv[1] !== undefined && path.resolve(process.argv[1]) === fileURLTo
       console.log(`FLAGS ${plan.flags.join(" ")}`);
       console.log(`VAR ${plan.var}`);
     } else if (command === "account-check") {
-      console.log(await accountCheck(REPO_ROOT, (name) => freestyleResolve(name), parseAnchor(process.env.FREESTYLE_PROD_ANCHOR)));
+      console.log(await accountCheck(REPO_ROOT, (name) => freestyleResolve(name)));
     } else {
       console.error("usage: prod-copy.ts plan --dev-snapshot <sh-id> | account-check");
       process.exit(2);
