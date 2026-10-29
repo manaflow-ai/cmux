@@ -896,10 +896,10 @@ export type SessionDetail = {
    * may omit this field.
    */
   titleSource?: (string | null);
-  /** The chat's tools (`hub/tools.rs`). */
-  tools: ToolSummary[];
-  /** `_acpmux/set_tools` can change them. */
-  toolsMutable: boolean;
+  /** The chat's tools (`hub/tools.rs`), present on per-session reads and attachments. */
+  tools?: (ToolSummary[] | null);
+  /** `_acpmux/set_tools` can change them; omitted from census rows. */
+  toolsMutable?: (boolean | null);
   turn?: (TurnSummary | null);
   turnCount: number;
   unread: boolean;
@@ -1095,10 +1095,10 @@ export type SessionSummary = {
    * may omit this field.
    */
   titleSource?: (string | null);
-  /** The chat's tools (`hub/tools.rs`). */
-  tools: ToolSummary[];
-  /** `_acpmux/set_tools` can change them. */
-  toolsMutable: boolean;
+  /** The chat's tools (`hub/tools.rs`), present on per-session reads and attachments. */
+  tools?: (ToolSummary[] | null);
+  /** `_acpmux/set_tools` can change them; omitted from census rows. */
+  toolsMutable?: (boolean | null);
   turn?: (TurnSummary | null);
   turnCount: number;
   unread: boolean;

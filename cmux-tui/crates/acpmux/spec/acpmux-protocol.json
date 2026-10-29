@@ -3977,15 +3977,21 @@
           ]
         },
         "tools": {
-          "description": "The chat's tools (`hub/tools.rs`).",
+          "description": "The chat's tools (`hub/tools.rs`), present on per-session reads and attachments.",
           "items": {
             "$ref": "#/types/ToolSummary"
           },
-          "type": "array"
+          "type": [
+            "array",
+            "null"
+          ]
         },
         "toolsMutable": {
-          "description": "`_acpmux/set_tools` can change them.",
-          "type": "boolean"
+          "description": "`_acpmux/set_tools` can change them; omitted from census rows.",
+          "type": [
+            "boolean",
+            "null"
+          ]
         },
         "turn": {
           "anyOf": [
@@ -4064,8 +4070,6 @@
         "unread",
         "attached",
         "shown",
-        "tools",
-        "toolsMutable",
         "pending"
       ],
       "type": "object"
@@ -4487,15 +4491,21 @@
           ]
         },
         "tools": {
-          "description": "The chat's tools (`hub/tools.rs`).",
+          "description": "The chat's tools (`hub/tools.rs`), present on per-session reads and attachments.",
           "items": {
             "$ref": "#/types/ToolSummary"
           },
-          "type": "array"
+          "type": [
+            "array",
+            "null"
+          ]
         },
         "toolsMutable": {
-          "description": "`_acpmux/set_tools` can change them.",
-          "type": "boolean"
+          "description": "`_acpmux/set_tools` can change them; omitted from census rows.",
+          "type": [
+            "boolean",
+            "null"
+          ]
         },
         "turn": {
           "anyOf": [
@@ -4572,9 +4582,7 @@
         "stateSeq",
         "unread",
         "attached",
-        "shown",
-        "tools",
-        "toolsMutable"
+        "shown"
       ],
       "type": "object"
     },
