@@ -48,8 +48,10 @@ import Testing
             probe.onLeaveWindow = { done.resume() }
             // task-owner: releases the last entry reference off main, then ends
             Task.detached {
-                #expect(!Thread.isMainThread)
-                owner.withLock { $0 = nil }
+                owner.withLock {
+                    #expect(!Thread.isMainThread)
+                    $0 = nil
+                }
             }
         }
         #expect(page.isClosed)
