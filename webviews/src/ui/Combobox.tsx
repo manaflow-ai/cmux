@@ -117,10 +117,18 @@ export function Combobox({
       native?.onEvent?.(event);
       const action = native && popupAction(native.model, event.id);
       const suggestion = action ? (action.value ?? event.id) : undefined;
-      if ((event.type === "search" || event.type === "change") && event.value !== undefined) changeQuery(event.value);
+      if (event.type === "pick" && action && !action.keepOpen) setNativeSessionOpen(false);
+      const query = native?.model.search;
+      if (
+        (event.type === "search" || event.type === "change") &&
+        query &&
+        !query.disabled &&
+        event.id === query.id &&
+        event.value !== undefined
+      )
+        changeQuery(event.value);
       else if (suggestion !== undefined && suggestions.includes(suggestion) && !isItemDisabled?.(suggestion)) {
         if (event.type === "pick") {
-          if (!action?.keepOpen) setNativeSessionOpen(false);
           onSubmit(suggestion);
         } else if (event.type === "highlight") onHighlight?.(suggestion, "pointer");
       } else if (event.type === "highlight" && event.id === undefined) onHighlight?.(undefined, "pointer");

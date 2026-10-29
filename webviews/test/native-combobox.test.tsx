@@ -214,7 +214,12 @@ test.each(["footer", "actions"] as const)(
             onQuery={() => {}}
             onSubmit={(value) => submitted.push(value)}
             onCancel={() => {}}
-            native={{ model, onEvent: (event) => { if (event.type === "pick") picked.push(event.id!); } }}
+            native={{
+              model,
+              onEvent: (event) => {
+                if (event.type === "pick") picked.push(event.id!);
+              },
+            }}
           />
         </UiProvider>,
       );
@@ -276,10 +281,15 @@ test.each(["toggle", "slider", "textField"] as const)(
     });
     const sent = shown[0]!;
     const event: NativePopupEvent = {
-      type: "change", popupId: sent.id, revision: sent.revision, id: "secondary",
+      type: "change",
+      popupId: sent.id,
+      revision: sent.revision,
+      id: "secondary",
       value: kind === "toggle" ? "true" : kind === "slider" ? "42" : "other text",
     };
-    await act(async () => { for (const listener of listeners) listener(event); });
+    await act(async () => {
+      for (const listener of listeners) listener(event);
+    });
     expect(delegated).toEqual([event]);
     expect(queries).toEqual([]);
     expect(container.querySelector<HTMLInputElement>("input")!.value).toBe("alpha");
