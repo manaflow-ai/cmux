@@ -365,6 +365,42 @@ struct Host {
     grid: (u16, u16),
     position: (u64, u64),
     ready: Vec<u8>,
+    text: String,
+    cursor: Option<(u16, u16)>,
+}
+
+/// Where two READY snapshots differ in what the digest compares: the first
+/// SCREEN, PAGE or CONTINUATION record that differs, by index and tag.
+fn record_diff(viewer: &[u8], host: &[u8]) -> String {
+    let compared = |snapshot: &[u8]| {
+        ghostty_vt::snapshot_records(snapshot)
+            .filter(|record| {
+                use ghostty_vt::snapshot_tag::{CONTINUATION, PAGE, SCREEN};
+                matches!(record.tag, SCREEN | PAGE | CONTINUATION)
+            })
+            .map(|record| {
+                let mut payload = record.payload().to_vec();
+                // The SCREEN history extent (payload bytes 4..12) differs by
+                // design: the viewer restored no history.
+                if record.tag == ghostty_vt::snapshot_tag::SCREEN && payload.len() >= 12 {
+                    payload[4..12].fill(0);
+                }
+                (record.tag, payload)
+            })
+            .collect::<Vec<_>>()
+    };
+    if ghostty_vt::snapshot_digest_input(viewer) == ghostty_vt::snapshot_digest_input(host) {
+        return "equal".into();
+    }
+    let (viewer, host) = (compared(viewer), compared(host));
+    let first = viewer.iter().zip(&host).position(|(a, b)| a != b);
+    format!(
+        "DIFFERS ({} records vs the daemon's {}; first differing record {:?}, tag {:?})",
+        viewer.len(),
+        host.len(),
+        first,
+        first.map(|index| viewer[index].0)
+    )
 }
 
 #[derive(Debug, Clone)]
@@ -620,6 +656,8 @@ impl Case {
                 grid: (term.cols(), term.rows()),
                 position: surface.snapshot_stream_position().unwrap_or_default(),
                 ready: term.encode_snapshot(ghostty_vt::SnapshotPhase::Ready).unwrap_or_default(),
+                text: term.viewport_text().unwrap_or_default(),
+                cursor: term.cursor_position(),
             })
             .unwrap()
     }
@@ -784,7 +822,7 @@ impl Case {
                 viewer.window_size_states, self.applied
             ));
         }
-        let screen = match ghostty_vt::restore_ready_then_write(&ready.data, &viewer.after_cut) {
+        let mut screen = match ghostty_vt::Terminal::from_ready_snapshot(&ready.data, SCROLLBACK) {
             Ok(screen) => screen,
             Err(error) => {
                 return Some(format!(
@@ -793,17 +831,19 @@ impl Case {
                 ));
             }
         };
-        if ghostty_vt::snapshot_digest_input(&screen) == host_digest {
+        screen.vt_write(&viewer.after_cut);
+        let text = screen.viewport_text().unwrap_or_default();
+        let cursor = screen.cursor_position();
+        let encoded = screen.encode_snapshot(ghostty_vt::SnapshotPhase::Ready).unwrap_or_default();
+        let digest = ghostty_vt::snapshot_digest_input(&encoded);
+        if digest == host_digest && text == host.text && cursor == host.cursor {
             return None;
         }
-        let host_text = self
-            .surface
-            .try_with_terminal(|term| term.viewport_text().unwrap_or_default())
-            .unwrap();
         let after = &viewer.after_cut;
         Some(format!(
-            "its screen (READY g{} o{} {:?}{}, then {} bytes) differs from the daemon's at g{} o{}\n  \
-             daemon screen: {host_text:?}\n  bytes after the cut (last 300): {:?}",
+            "its screen (READY g{} o{} {:?}{}, then {} bytes) differs from the daemon's at g{} o{}: \
+             text {}, cursor {:?} vs the daemon's {:?}, digest input {}\n  daemon screen: {:?}\n  \
+             viewer screen: {text:?}\n  bytes after the cut (last 300): {:?}",
             ready.generation,
             ready.offset,
             ready.grid,
@@ -811,6 +851,11 @@ impl Case {
             after.len(),
             host.position.0,
             host.position.1,
+            if text == host.text { "equal" } else { "DIFFERS" },
+            cursor,
+            host.cursor,
+            record_diff(&encoded, &host.ready),
+            host.text,
             String::from_utf8_lossy(&after[after.len().saturating_sub(300)..])
         ))
     }

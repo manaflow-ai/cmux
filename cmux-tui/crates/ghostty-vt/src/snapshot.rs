@@ -278,69 +278,6 @@ pub fn reencode_ready(complete: &[u8]) -> Result<Vec<u8>> {
     result
 }
 
-/// The screen of a snapshot viewer: restore the READY prefix of `snapshot`
-/// into a fresh terminal (what a viewer shows on READY, before any history
-/// page), write `output` to it (the stream bytes after the READY's cut) and
-/// encode that terminal's READY. [`snapshot_digest_input`] of the result
-/// equals the host's when the viewer's screens match the host's, the same
-/// test as the idle `digest`; stream checkers use it. The SCREEN history
-/// extent differs by design (no history is restored), and the digest input
-/// zeroes it.
-pub fn restore_ready_then_write(snapshot: &[u8], output: &[u8]) -> Result<Vec<u8>> {
-    let mut decoder: sys::GhosttySnapshotDecoder = std::ptr::null_mut();
-    // SAFETY: `decoder` is a writable local; the decoder borrows `snapshot`
-    // without copying, and `snapshot` outlives it (freed below).
-    check(unsafe {
-        sys::ghostty_snapshot_decoder_new_buf(
-            std::ptr::null(),
-            &mut decoder,
-            snapshot.as_ptr(),
-            snapshot.len(),
-        )
-    })?;
-    // The host tracks its unfinished sequence with this limit, so the
-    // restored terminal's READY carries the same CONTINUATION record.
-    let max_continuation = crate::SNAPSHOT_CONTINUATION_MAX_BYTES;
-    let retain = true;
-    let mut restored: sys::GhosttyTerminal = std::ptr::null_mut();
-    // SAFETY: `decoder` is live; the options read a size_t and a bool from
-    // the live locals `max_continuation` and `retain`.
-    let result = check(unsafe {
-        sys::ghostty_snapshot_decoder_set(
-            decoder,
-            sys::GHOSTTY_SNAPSHOT_DECODER_OPT_MAX_CONTINUATION_BYTES,
-            (&max_continuation as *const usize).cast(),
-        )
-    })
-    .and_then(|()| {
-        // SAFETY: as above.
-        check(unsafe {
-            sys::ghostty_snapshot_decoder_set(
-                decoder,
-                sys::GHOSTTY_SNAPSHOT_DECODER_OPT_RETAIN_CONTINUATION,
-                (&retain as *const bool).cast(),
-            )
-        })
-    })
-    // SAFETY: `decoder` is live and `restored` a writable local.
-    .and_then(|()| check(unsafe { sys::ghostty_snapshot_decoder_ready(decoder, &mut restored) }))
-    .and_then(|()| {
-        if !output.is_empty() {
-            // SAFETY: `restored` is the live terminal READY returned, and
-            // `output` is readable for `output.len()` bytes for the call.
-            unsafe { sys::ghostty_terminal_vt_write(restored, output.as_ptr(), output.len()) };
-        }
-        encode_raw(restored, SnapshotPhase::Ready)
-    });
-    // SAFETY: the decoder borrows `restored` until it is freed, so it goes
-    // first; each is freed once (`restored` may be null, which is allowed).
-    unsafe {
-        sys::ghostty_snapshot_decoder_free(decoder);
-        sys::ghostty_terminal_free(restored);
-    }
-    result
-}
-
 /// One HISTORY page of the primary screen with the rows it covers.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SnapshotHistoryPage {
