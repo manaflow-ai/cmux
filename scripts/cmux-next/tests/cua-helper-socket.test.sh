@@ -47,6 +47,7 @@ def start(socket_path, host_socket=None):
            "acpmux_cdhashes": [], "acpmux_requirement": None}
     if host_socket:
         msg["host_socket"] = host_socket
+        msg["host_secret"] = uuid.uuid4().hex * 2
     proc.stdin.write((json.dumps(msg) + "\n").encode())
     proc.stdin.flush()
     # The helper answers configure at once; never block the lane on it.

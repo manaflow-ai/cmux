@@ -18,7 +18,7 @@ private let controlLogger = Logger(subsystem: "com.cmuxterm.cua", category: "con
 /// by audit token; a `machine_consent` line here is ignored.
 ///
 /// host -> helper:
-///   {"type":"configure","socket":PATH,"host_socket":PATH,"secret":HEX,"acpmux_cdhashes":[HEX],"acpmux_requirement":STRING|null}
+///   {"type":"configure","socket":PATH,"host_socket":PATH,"host_secret":HEX,"secret":HEX,"acpmux_cdhashes":[HEX],"acpmux_requirement":STRING|null}
 ///   {"type":"register_acpmux","pid":N,"start_sec":N,"start_usec":N}
 ///   {"type":"request_permission","permission":"accessibility"|"screen_recording"}
 /// helper -> host:
@@ -132,9 +132,11 @@ public final class HelperController: Sendable {
                                             acpmuxDaemons: [], secret: secret))
         let socketServer = HelperSocketServer(path: path, admission: admission, inspector: inspector, tools: tools,
                                               consent: consent ?? UnavailableConsent())
+        // No host server without both: every consent check then refuses with host_unverified.
         let hostPath = (message["host_socket"] as? String).flatMap { $0.hasPrefix("/") && $0 != path ? $0 : nil }
-        let hostServer: HostConsentServer? = if let hostPath, let consent {
-            HostConsentServer(path: hostPath, channel: consent, check: hostCheck)
+        let hostSecret = (message["host_secret"] as? String).flatMap(HelperWire.unhex).flatMap { $0.count >= 16 ? $0 : nil }
+        let hostServer: HostConsentServer? = if let hostPath, let hostSecret, let consent {
+            HostConsentServer(path: hostPath, secret: hostSecret, channel: consent, check: hostCheck)
         } else {
             nil
         }

@@ -289,6 +289,29 @@ import Testing
         #expect(channel.refusalReason == .hostUnverified)
     }
 
+    /// Another signed cmux install passes the code check but does not hold
+    /// this launch's host secret: a wrong secret, or no secret line at all,
+    /// is refused, it never becomes the host, and the grant it sends in the
+    /// same write is never read as an answer.
+    @Test(.timeLimit(.minutes(1)), arguments: [true, false])
+    func aCodeValidPeerWithoutThisLaunchsSecretIsRefused(wrongSecret: Bool) async throws {
+        let channel = HostConsentChannel(timeout: .milliseconds(200))
+        let tools = GatedTools(gate: ConsentGate(authority: channel))
+        let grant: [String: Any] = ["type": "machine_consent", "id": 1, "ok": true,
+                                    "result": ["consentRequired": false,
+                                               "consent": ["screen": "granted", "control": "granted"]]]
+        let first: [[String: Any]] = wrongSecret ? [["secret": HelperWire.hex(Data(repeating: 8, count: 32))], grant] : [grant]
+        let link = try HostLink(channel: channel, check: RecordingCheck(.verified), first: first)
+        let line = try await link.host.nextLine()
+        #expect(line["error"] as? String == "refused")
+        #expect(line["reason"] as? String == "host_unverified")
+        await link.close()
+        #expect(channel.refusalReason == .hostUnverified)
+        let reply = try Client(tools: tools, consent: channel).call("click")
+        #expect(reply["reason"] as? String == "host_unverified")
+        #expect(tools.executed.withLock { $0 }.isEmpty)
+    }
+
     /// Real, no seam: this test process is not a team-signed cmux app, so
     /// its own audit token (a socketpair peer) fails the real SecCode check,
     /// and the real server refuses it.
@@ -390,12 +413,21 @@ import Testing
         private let descriptor: Int32
         private let served: AsyncStream<Void>
 
-        init(channel: HostConsentChannel, check: any HostCodeChecking) throws {
+        /// This launch's host secret, as `configure` would set it.
+        static let secret = Data(repeating: 7, count: 32)
+
+        /// `first`: the lines the app sends at once on connecting (by
+        /// default, the right secret).
+        init(channel: HostConsentChannel, check: any HostCodeChecking,
+             first: [[String: Any]] = [["secret": HelperWire.hex(HostLink.secret)]]) throws {
             var descriptors: [Int32] = [-1, -1]
             try #require(socketpair(AF_UNIX, SOCK_STREAM, 0, &descriptors) == 0)
             descriptor = descriptors[0]
+            var noSigPipe: Int32 = 1
+            setsockopt(descriptor, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, socklen_t(MemoryLayout<Int32>.size))
             host = Host(toHelper: FileHandle(fileDescriptor: descriptors[0]), fromHelper: descriptors[0])
-            let server = HostConsentServer(path: "unused", channel: channel, check: check)
+            try host.toHelper.write(contentsOf: first.reduce(into: Data()) { $0 += HelperWire.line($1) })
+            let server = HostConsentServer(path: "unused", secret: Self.secret, channel: channel, check: check)
             let serverEnd = descriptors[1]
             let (served, finished) = AsyncStream<Void>.makeStream()
             self.served = served

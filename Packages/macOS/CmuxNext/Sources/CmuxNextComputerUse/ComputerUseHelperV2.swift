@@ -226,12 +226,14 @@ public final class ComputerUseHelperV2 {
             return unavailable("the running helper pid \(spawned.pid) failed its signature check")
         }
         let secret = Self.makeSecret()
+        // The host link's own secret: sent only on the helper's stdin, never written to disk.
+        let hostSecret = Self.makeSecret()
         let acpmux = self.acpmux()
         let admission: (hashes: [String], requirement: String?) = acpmux.map {
             Self.acpmuxAdmission(executable: $0.executable)
         } ?? (hashes: [], requirement: nil)
         await spawned.send(Self.line(["type": "configure", "socket": socketPath, "host_socket": hostSocketPath,
-                                "secret": Self.hex(secret),
+                                "host_secret": Self.hex(hostSecret), "secret": Self.hex(secret),
                                 "acpmux_cdhashes": admission.hashes,
                                 "acpmux_requirement": admission.requirement.map { $0 as Any } ?? NSNull()]))
         let readySocket = await Self.readySocket(of: spawned, within: readyTimeout, clock: clock)
@@ -246,7 +248,7 @@ public final class ComputerUseHelperV2 {
             return unavailable("the helper did not report ready")
         }
         let link = await ComputerUseHelperV2HostLink.connect(path: hostSocketPath, helperPID: spawned.pid,
-                                                             executable: executable)
+                                                             executable: executable, secret: hostSecret)
         guard current == generation else {
             link?.close()
             spawned.closeInput()

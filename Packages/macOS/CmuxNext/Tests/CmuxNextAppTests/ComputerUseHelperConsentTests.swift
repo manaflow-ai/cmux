@@ -58,6 +58,7 @@ struct ComputerUseHelperConsentTests {
 
     /// The host link checks the server on its own connection: the helper
     /// pid this app started (here: this process listens), else no link.
+    /// Its first line is the host secret, and it needs the helper's ok.
     @Test(.timeLimit(.minutes(1))) func theHostLinkConnectsOnlyToTheHelperItStarted() async throws {
         let directory = FileManager.default.temporaryDirectory.appending(path: "cul-\(UUID().uuidString.prefix(8))")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -76,14 +77,32 @@ struct ComputerUseHelperConsentTests {
             $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(listener, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) }
         }
         try #require(bound == 0 && listen(listener, 4) == 0)
+        // The helper's end: the first connection that sends a line gets `{"ok":true}`.
+        let (received, firstLine) = AsyncStream<String>.makeStream()
+        Thread {
+            while true {
+                let client = accept(listener, nil, nil)
+                guard client >= 0 else { return }
+                var bytes = [UInt8](repeating: 0, count: 256)
+                let count = read(client, &bytes, bytes.count)
+                guard count > 0 else { close(client); continue }
+                firstLine.yield(String(decoding: bytes.prefix(count), as: UTF8.self))
+                _ = "{\"ok\":true}\n".utf8CString.withUnsafeBufferPointer { write(client, $0.baseAddress, $0.count - 1) }
+                return
+            }
+        }.start()
         let executable = URL(fileURLWithPath: "/usr/bin/true")
-        let other = await ComputerUseHelperV2HostLink.connect(path: path, helperPID: getppid(), executable: executable, team: nil)
+        let secret = Data(repeating: 0xA5, count: 32)
+        let other = await ComputerUseHelperV2HostLink.connect(path: path, helperPID: getppid(), executable: executable,
+                                                              secret: secret, team: nil)
         #expect(other == nil, "a socket another process serves is not the helper")
         let link = try #require(await ComputerUseHelperV2HostLink.connect(path: path, helperPID: getpid(),
-                                                                          executable: executable, team: nil))
+                                                                          executable: executable, secret: secret, team: nil))
+        var lines = received.makeAsyncIterator()
+        #expect(await lines.next() == "{\"secret\":\"\(ComputerUseHelperV2.hex(secret))\"}\n")
         link.close()
         #expect(await link.send(Data("x\n".utf8)) == false, "closed")
         #expect(await ComputerUseHelperV2HostLink.connect(path: path + ".missing", helperPID: getpid(),
-                                                          executable: executable, team: nil) == nil)
+                                                          executable: executable, secret: secret, team: nil) == nil)
     }
 }

@@ -31,15 +31,17 @@ import Testing
         defer { controller.shutdown() }
         let pipe = MachineConsentTests.Host(toHelper: input.fileHandleForWriting,
                                             fromHelper: output.fileHandleForReading.fileDescriptor)
-        let secret = String(repeating: "ab", count: 32)
+        let secret = String(repeating: "ab", count: 32), hostSecret = String(repeating: "cd", count: 32)
         try pipe.send(["type": "configure", "socket": directory + "/h.sock", "host_socket": directory + "/c.sock",
-                       "secret": secret, "acpmux_cdhashes": ["01"], "acpmux_requirement": NSNull()])
+                       "host_secret": hostSecret, "secret": secret, "acpmux_cdhashes": ["01"],
+                       "acpmux_requirement": NSNull()])
         let ready = try await pipe.nextLine()
         #expect(ready["type"] as? String == "ready", "\(ready)")
+        #expect(ready["host_secret"] == nil, "ready never echoes the host secret")
         try pipe.send(["type": "register_acpmux", "pid": 10, "start_sec": 1, "start_usec": 0])
         #expect(try await pipe.nextLine()["ok"] as? Bool == true)
 
-        let app = try FakeApp(path: directory + "/c.sock")
+        let app = try FakeApp(path: directory + "/c.sock", secret: hostSecret)
         defer { app.close() }
         let bridge = try Bridge(path: directory + "/h.sock", secret: secret)
 
@@ -132,9 +134,10 @@ import Testing
         private let refused: AsyncStream<String>.Continuation
         private let socket: LineSocket
 
-        init(path: String) throws {
+        init(path: String, secret: String) throws {
             (refusals, refused) = AsyncStream<String>.makeStream()
             socket = try LineSocket(connecting: path, receiveTimeout: 0)
+            try socket.send(["secret": secret])
             #expect(try socket.read()["ok"] as? Bool == true, "the helper accepted the app")
             Thread { [self] in answer() }.start()
         }
