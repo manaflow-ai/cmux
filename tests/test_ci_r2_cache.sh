@@ -190,6 +190,21 @@ echo "PASS: a corrupt archive is a miss and leaves no partial directory"
 if output_of restore "$WORK/dst" 'bad/key' >/dev/null; then fail "a key with a slash must be rejected"; fi
 echo "PASS: keys outside [A-Za-z0-9._-] are rejected"
 
+# A Linux job saves what a macOS build packed (test-ios.yml's
+# ios-simulator-cache-save): the archive goes under the build's platform, where
+# that build's restores look, not under this runner's.
+CI_CACHE_R2_PLATFORM=OtherOS-OtherArch output_of save "$WORK/src" platform-one >/dev/null
+ls "$WORK/store/bucket/v1/OtherOS-OtherArch/objects/" 2>/dev/null | grep -q '^platform-one\.tar\.' \
+  || fail "CI_CACHE_R2_PLATFORM must name the namespace a save writes"
+ls "$NS/objects/" | grep -q '^platform-one' && fail "a save for another platform must not land in this runner's"
+rm -rf "$WORK/dst"
+out="$(CI_CACHE_R2_PLATFORM=OtherOS-OtherArch output_of restore "$WORK/dst" platform-one)"
+grep -q '^cache-hit=true$' <<<"$out" || fail "a restore for that platform must find it, got: $out"
+if CI_CACHE_R2_PLATFORM='../x' output_of save "$WORK/src" platform-two >/dev/null; then
+  fail "a platform outside [A-Za-z0-9._-] must be rejected"
+fi
+echo "PASS: CI_CACHE_R2_PLATFORM names the platform a save or restore uses"
+
 unset AWS_SECRET_ACCESS_KEY
 output_of save "$WORK/src" family-tool-four >/dev/null || fail "a save without credentials must not fail the job"
 ls "$NS/objects/" | grep -q '^family-tool-four' && fail "a save without credentials must upload nothing"

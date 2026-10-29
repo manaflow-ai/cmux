@@ -319,8 +319,6 @@ SECRET_RUNNER_EXCEPTIONS = {
     ("seed-derived-data.yml", "seed"):
         "open: CI_CACHE_R2 on the pools seed_decide.py names, owned Macs included, by design "
         "(it seeds their DerivedData)",
-    ("test-ios.yml", "ios-simulator-build"):
-        "open: CI_CACHE_R2 on ios_runner_pool.py's pick, an owned simulator Mac when CI_IOS_OWNED is 1",
     ("ios-screenshots.yml", "screenshots"):
         "open: the App Store Connect API key on ios_runner_pool.py's pick, an owned simulator Mac "
         "when CI_IOS_OWNED is 1",
