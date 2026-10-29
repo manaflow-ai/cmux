@@ -29,6 +29,13 @@ impl Hub {
             }
         }
         self.save_meta(session);
-        self.append(session, "mux", "tags", json!({"tags": live_tags(&session.meta())}));
+        // With each tag's expiry, so a restart rebuilds the tags from this record (`meta_replay.rs`).
+        let m = session.meta();
+        let expires: serde_json::Map<String, Value> = m
+            .tags
+            .iter()
+            .filter_map(|(k, t)| t.expires_at.map(|at| (k.clone(), json!(at))))
+            .collect();
+        self.append(session, "mux", "tags", json!({"tags": live_tags(&m), "expires": expires}));
     }
 }

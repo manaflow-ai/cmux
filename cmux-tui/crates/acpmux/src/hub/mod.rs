@@ -48,6 +48,7 @@ pub use subagent_transcript::FEATURE as SUBAGENT_TRANSCRIPT_FEATURE;
 mod config_writer;
 mod hosts;
 mod lifecycle;
+mod meta_replay;
 pub(crate) mod meta_writer;
 pub(crate) mod model_availability;
 mod model_options;
@@ -765,7 +766,19 @@ impl Hub {
         if let Ok((extra, last)) = self.store.tail_after(&session.id, last_seq)
             && extra > 0
         {
+            // The settings the saved record may be behind on, from the log (`meta_replay.rs`).
+            let mut changes = Vec::new();
+            // Only the tail past the saved record is read (`Store::scan` skips the rest).
+            let _ = self.store.scan(&session.id, last_seq, &mut |rec| {
+                if meta_replay::KINDS.contains(&rec.kind.as_str()) {
+                    changes.push(rec);
+                }
+                true
+            });
             let mut meta = session.meta.lock_or_recover();
+            for rec in &changes {
+                meta_replay::apply(&mut meta, rec);
+            }
             meta.event_count += extra;
             meta.last_seq = last;
             // The log ran ahead of the saved session (a hard stop): a newer command list may be

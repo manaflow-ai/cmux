@@ -67,6 +67,12 @@ fn fallback_title_fields(
 
 /// A rename of a chat no title has settled yet (by its prompt, or by a request that came back
 /// empty and may ask again, `wants_title`) makes it `NAMED`: no title is generated after it.
+/// A generated title the log names (`titled`), applied at start (`meta_replay.rs`).
+pub(super) fn title_generated(m: &mut SessionMeta, title: &str) {
+    m.title = Some(title.to_owned());
+    m.title_source = Some(GENERATED.to_owned());
+}
+
 pub(super) fn title_renamed(m: &mut SessionMeta) {
     if renamed_source(&mut m.title_source) {
         m.title_prompt = None;
