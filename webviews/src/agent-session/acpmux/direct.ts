@@ -3875,7 +3875,12 @@ export class AcpmuxDirectClient {
       this.stoppingEnded();
       return;
     }
-    if (turnId) this.stoppedTurnId = turnId;
+    if (turnId) {
+      this.stoppedTurnId = turnId;
+      // Stop may precede its first opener. Bind its newly learned identity before the
+      // running turn starts so duplicate Stop and send-now keep the same attribution.
+      if (this.stoppedTurnOpener === "pending" && this.stopTurnId === undefined) this.stopTurnId = turnId;
+    }
     if (this.turnOpen) return;
     if (this.stoppedTurnOpener === "pending") this.stoppedTurnOpener = event.seq;
     else if (this.stoppedTurnOpener === undefined || event.seq > this.stoppedTurnOpener) this.stoppingEnded();
