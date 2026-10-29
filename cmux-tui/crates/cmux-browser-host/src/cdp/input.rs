@@ -183,14 +183,18 @@ impl Inner {
                         event.set("text", json!(text));
                         event.set("unmodifiedText", json!(text));
                     }
-                    None => event.set("type", json!("rawKeyDown")),
+                    None => {
+                        event.set("type", json!("rawKeyDown"));
+                    }
                 }
                 let commands = editing_commands(code, modifiers);
                 if !commands.is_empty() {
                     event.set("commands", json!(commands));
                 }
             }
-            "up" => event.set("type", json!("keyUp")),
+            "up" => {
+                event.set("type", json!("keyUp"));
+            }
             other => return Err(DriverError::invalid(format!("Unknown key event {other}"))),
         }
         self.send_until(&session, "Input.dispatchKeyEvent", event, deadline)?;

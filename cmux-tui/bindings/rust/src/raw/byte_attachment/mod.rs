@@ -422,7 +422,9 @@ impl Handshake<'_> {
             "id": 3, "cmd": ATTACH, "mode": "bytes", "cols": size.cols, "rows": size.rows
         });
         match target {
-            AttachTarget::Surface(surface) => attach.set("surface", json!(surface)),
+            AttachTarget::Surface(surface) => {
+                attach.set("surface", json!(surface));
+            }
             AttachTarget::Terminal { id, generation } => {
                 attach.set("expected_terminal_id", json!(id.as_str()));
                 attach.set("expected_generation", json!(generation));

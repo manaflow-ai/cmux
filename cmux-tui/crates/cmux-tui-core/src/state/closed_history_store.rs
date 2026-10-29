@@ -332,7 +332,9 @@ fn tab_record(connection: &Connection, tab_id: &str) -> anyhow::Result<Option<Va
                         .map_or(Value::Null, |history| privacy::strip_history(&history)),
                 );
             }
-            None => record.set("url", json!(url.map(|url| privacy::strip_url(&url)))),
+            None => {
+                record.set("url", json!(url.map(|url| privacy::strip_url(&url))));
+            }
         }
         // A conversation tab reopens as one, from this record.
         if let Some(conversation) =

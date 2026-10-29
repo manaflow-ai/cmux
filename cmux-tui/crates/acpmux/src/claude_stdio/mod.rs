@@ -15,7 +15,6 @@
 use crate::config::HarnessProfile;
 use crate::no_panic::JsonExt;
 use crate::rpc::{Id, Message, RpcError, method};
-use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;

@@ -30,8 +30,9 @@ pub trait JsonSet {
     /// `self[key] = value` it replaces.
     ///
     /// A null value first becomes an empty object (as with `IndexMut`). Any
-    /// other non-object value is left unchanged and `value` is dropped.
-    fn set(&mut self, key: impl Into<String>, value: Value);
+    /// other non-object value is left unchanged, `value` is dropped and
+    /// `false` is returned; most callers ignore the result.
+    fn set(&mut self, key: impl Into<String>, value: Value) -> bool;
 
     /// Sets the member at `path`, like `self[path[0]][path[1]]... = value`.
     ///
@@ -39,13 +40,19 @@ pub trait JsonSet {
     /// or a member on the path is neither an object nor null, nothing changes.
     /// An empty `path` changes nothing.
     fn set_path(&mut self, path: &[&str], value: Value);
+
+    /// The object map, turning null into an empty object first; `None` for
+    /// any other non-object value.
+    fn object_mut(&mut self) -> Option<&mut Map<String, Value>>;
 }
 
 impl JsonSet for Value {
-    fn set(&mut self, key: impl Into<String>, value: Value) {
-        if let Some(object) = object_mut(self) {
-            object.insert(key.into(), value);
-        }
+    fn set(&mut self, key: impl Into<String>, value: Value) -> bool {
+        let Some(object) = object_mut(self) else {
+            return false;
+        };
+        object.insert(key.into(), value);
+        true
     }
 
     fn set_path(&mut self, path: &[&str], value: Value) {
@@ -53,11 +60,20 @@ impl JsonSet for Value {
             object.set_path(path, value);
         }
     }
+
+    fn object_mut(&mut self) -> Option<&mut Map<String, Value>> {
+        object_mut(self)
+    }
 }
 
 impl JsonSet for Map<String, Value> {
-    fn set(&mut self, key: impl Into<String>, value: Value) {
+    fn set(&mut self, key: impl Into<String>, value: Value) -> bool {
         self.insert(key.into(), value);
+        true
+    }
+
+    fn object_mut(&mut self) -> Option<&mut Map<String, Value>> {
+        Some(self)
     }
 
     fn set_path(&mut self, path: &[&str], value: Value) {
@@ -97,7 +113,7 @@ mod tests {
         assert_eq!(object, json!({ "a": [3], "b": "two" }));
 
         let mut null = Value::Null;
-        null.set("k", json!(true));
+        assert!(null.set("k", json!(true)));
         assert_eq!(null, json!({ "k": true }));
     }
 
@@ -105,7 +121,8 @@ mod tests {
     fn set_leaves_non_objects_unchanged() {
         for start in [json!([1]), json!("s"), json!(4), json!(false)] {
             let mut value = start.clone();
-            value.set("k", json!(1));
+            assert!(!value.set("k", json!(1)));
+            assert!(value.object_mut().is_none());
             value.set_path(&["k", "j"], json!(1));
             assert_eq!(value, start);
         }

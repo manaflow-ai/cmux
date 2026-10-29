@@ -912,8 +912,12 @@ impl Session {
                                     "expected_revision": revision,
                                 });
                                 match target["key"].as_str() {
-                                    Some(key) if !key.is_empty() => request.set("key", json!(key)),
-                                    _ => request.set("workspace", target["id"].clone()),
+                                    Some(key) if !key.is_empty() => {
+                                        request.set("key", json!(key));
+                                    }
+                                    _ => {
+                                        request.set("workspace", target["id"].clone());
+                                    }
                                 }
                                 Some(remote.request(with_size(request, size)).map(|_| ()))
                             }

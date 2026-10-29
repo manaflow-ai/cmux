@@ -235,12 +235,16 @@ impl From<CompleteError> for RpcError {
     fn from(e: CompleteError) -> Self {
         let mut data = json!({"reason": e.reason()});
         match &e {
-            CompleteError::UnknownHarness(h) => data.set("harness", json!(h)),
+            CompleteError::UnknownHarness(h) => {
+                data.set("harness", json!(h));
+            }
             CompleteError::Unsupported { harness, .. }
             | CompleteError::NotInstalled { harness, .. }
             | CompleteError::SignedOut { harness }
             | CompleteError::EmptyOutput { harness }
-            | CompleteError::Failed { harness, .. } => data.set("harness", json!(harness)),
+            | CompleteError::Failed { harness, .. } => {
+                data.set("harness", json!(harness));
+            }
             CompleteError::Timeout { harness, ms } => {
                 data.set("harness", json!(harness));
                 data.set("timeoutMs", json!(ms));

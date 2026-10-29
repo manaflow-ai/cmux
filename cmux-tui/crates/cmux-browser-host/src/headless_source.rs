@@ -501,7 +501,9 @@ impl TabSource for SharedHeadless {
         }
         if method.starts_with("cookies.") {
             match self.0.cookie_store_of(session) {
-                Ok(Some(context)) => params.set("browserContextId", json!(context)),
+                Ok(Some(context)) => {
+                    params.set("browserContextId", json!(context));
+                }
                 Ok(None) => {}
                 Err(error) => return Some(Err(error)),
             }
