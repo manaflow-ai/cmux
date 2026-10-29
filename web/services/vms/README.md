@@ -608,19 +608,32 @@ a machine whose agent is mid-turn and quiet). The server pauses idle machines in
 - Freestyle's own timer stays off as well, not as a backstop: it would pause a quiet build that
   our probe sees on CPU, and a finite `idleTimeoutSeconds` makes the health sweep skip the
   machine (`skipped_idle`).
-- Work that is quiet on CPU, has no terminal and only talks outbound counts as idle and gets
-  paused: a `nohup` bot holding a websocket open, a long `curl` download, or `claude -p` started
-  through exec outside acpmux. Run such work in a terminal (a foreground command keeps the
-  machine awake) or set the machine's idle pause to Off.
+- Quiet background work can be paused. A job with no terminal, under 0.05 cores and with no
+  inbound connection reads as idle, whatever it is doing: a `nohup` bot holding a websocket open,
+  a long `curl` download, or `claude -p` started through exec outside acpmux. The escape is to
+  create the machine with `cmux cloud new-machine --persistent` or set its idle pause to Off;
+  running the job in a terminal also keeps the machine awake (a foreground command is busy).
+  Established outbound TCP connections are deliberately not counted: the machine's own daemons
+  (cmux-tui, acpmux, language servers, package mirrors) hold long-lived outbound connections on
+  an idle machine, so counting them would keep almost every machine awake, and telling a user's
+  job from those by process would be a per-image allowlist we would have to keep in step with
+  the image.
 - A person's exec, files or attach call (`execVm`, the file workflows, `openAttachEndpoint`,
   `openVmCmuxRemote`) records its time on the row (`cmuxLastApiActivityAt`, at most once a minute,
   without touching `updated_at`). The cron's own probe and the resource sampler call the provider
   directly and record nothing.
 - It pauses once every probe for the whole timeout said idle and the activity times (a person's
   input, an agent action, an acpmux session change, the last API call) are as old, through the
-  same `pauseVm` path as the Pause Machine action, with `pauseReason: "idle"`. Just before the
-  pause the cron re-reads the row and skips the pause if it changed (an attach, a resume, an
-  exec) since it was read.
+  same pause path as the Pause Machine action, with `pauseReason: "idle"`.
+- Every write that can change the verdict moves the row's idle fence (`cmuxIdleEpoch`): the
+  cron's observation, API activity, the idle setting, any status write and a resume. The
+  cron's observation write requires the fence it read, so a probe that overlapped another
+  run, an exec, or a pause and resume stores nothing instead of bringing back an old
+  `idleSince`. Before the provider pause the cron re-reads the row and claims the fence
+  (`claimIdlePause`); after it, the pause is recorded only if the row is still running at the
+  claimed fence. If an exec, files or attach call or a switch to Off landed during the provider
+  call, the record loses and the cron resumes the machine through the open path's resume; if a
+  person's pause landed, it stays theirs. Both are logged and counted as `aborted`.
 - Every pause, resume or other status write drops the stored idle observation, so a resumed
   machine starts a new stretch and gets the whole timeout again.
 - The timeout is per machine (`PUT /api/vm/:id/idle-pause`; `idlePauseMinutes` in the list and
