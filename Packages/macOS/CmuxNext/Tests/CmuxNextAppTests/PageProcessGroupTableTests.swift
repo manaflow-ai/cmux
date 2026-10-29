@@ -1,4 +1,4 @@
-import CmuxNextAgentPane
+@testable import CmuxNextAgentPane
 @testable import CmuxNextApp
 import CmuxNextBrowser
 @testable import CmuxNextChiefViews
@@ -142,8 +142,10 @@ import Testing
             MarkdownPageResource.library, AppsPageNativeOps.glyphPrefix, IconPickerSymbols.prefix,
             SettingsBackdropThumbnails.prefix, SettingsIconAssets.prefix,
         ])
+        // The agent page's granted media and its render frame carry an agent's files and HTML.
         let outside: Set<String> = [
             MarkdownPageResource.asset, MarkdownPageResource.remoteImage, DiffPatchResolver.prefix, MuseumArtSession.thumbnailPrefix,
+            AgentPaneMediaGrants.prefix, AgentPaneRenderFrame.prefix,
         ]
         let served = Set(Self.shipped.flatMap(\.dynamicPrefixes))
         #expect(PageCapability.appOnlyPrefixes.isDisjoint(with: outside))

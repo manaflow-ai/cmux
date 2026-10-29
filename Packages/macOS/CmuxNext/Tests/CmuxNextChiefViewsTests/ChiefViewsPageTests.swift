@@ -17,10 +17,11 @@ struct ChiefViewsPageTests {
     private static let page = PageCallContext(page: "cmux.chief-views")
     private static let click = PageCallContext(page: "cmux.chief-views", userGesture: true, gestureEvent: 1)
 
-    /// The gallery renders repository text and PR titles with no host-power op: the viewer group
-    /// (its row of PageProcessGroupTableTests).
-    @Test func theGalleryIsInTheViewerGroup() {
-        #expect(PageDescriptor.chiefViews.processGroup == .viewer)
+    /// The gallery renders repository text and PR titles and acts on them (`set_fleet_url`, `open`,
+    /// `open_url`), so it shares a renderer with no other page: the solo group (task 087's capability
+    /// audit, its row of PageProcessGroupTableTests).
+    @Test func theGalleryIsInTheSoloGroup() {
+        #expect(PageDescriptor.chiefViews.processGroup == .solo)
     }
 
     @Test func lanesMapToTheFourStatesAndKeepTheirSummaryFields() throws {

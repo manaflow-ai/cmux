@@ -8,8 +8,8 @@ import Testing
         let expected: [(PageDescriptor, PageProcessGroup)] = [
             (.cloud, .privileged), (.apps, .privileged), (.coderouter, .privileged),
             (.history, .privileged), (.stats, .privileged), (.chiefUsage, .privileged),
-            (.files, .viewer),
-            (.diff, .solo), (.editor, .solo), (.changelog, .solo), (.markdown, .solo), (.settings, .solo),
+            // Files acts (`open`) while it shows repository text, so task 087's audit makes it solo.
+            (.diff, .solo), (.editor, .solo), (.changelog, .solo), (.markdown, .solo), (.settings, .solo), (.files, .solo),
         ]
         for (page, group) in expected {
             #expect(page.processGroup == group, "\(page.id) is in \(page.processGroup)")

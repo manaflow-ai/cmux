@@ -46,14 +46,14 @@ memory-pressure subscription shared with BrowserHibernation. Page statics move i
 
 A page shares a renderer only with pages of the same capability class, computed from its descriptor's namespaces,
 native ops, actions, confirmed ops, CSP remote sources and dynamic prefixes. A unit test computes the table; when it
-disagrees with this table, the test wins.
+disagrees with this table, the test wins. The table below is task 087's audit (PageProcessGroupTableTests).
 
 | Group | Pages | Why |
 | --- | --- | --- |
 | `agent` | agent (New Tab and every chat, one origin `cmux-page://cmux.agent`) | Same op set on every instance, as Chrome's NTP runs process-per-site |
-| `privileged` | settings, cloud, apps, coderouter, keybindings, debugSettings, mobilePairing, history, stats, chiefUsage | Write ops on app state, no repository text or remote content |
-| `viewer` | markdown, files, iconPicker, chiefViews, homeChannels, agentActivity, chiefInspector | Read or display ops only; they render repository text or remote images |
-| `solo` | diff (`git.push`), editor (file save), changelog (remote media) | Host power or remote content with no peer of the same class: one process per page kind, each with a host label of its own (section 3.2) |
+| `privileged` | cloud, apps, coderouter, keybindings, debugSettings, mobilePairing, history, stats, chiefUsage, iconPicker | Write ops on app state, no repository text or remote content |
+| `viewer` | chiefInspector | Read or display ops only; it renders remote text |
+| `solo` | diff (`git.push`), editor (file save), changelog (remote media), markdown (save), settings and homeChannels (undeclared ops, harness add and doctor), files, chiefViews and agentActivity (they act while they show outside text) | Host power, undeclared ops, or actions beside outside content: one process per page kind, each with a host label of its own (section 3.2) |
 | `secrets` | passwords | Never shared (own host label, no process-per-site); discarded 60 s after it hides |
 
 The group is not "renders untrusted text": that grouping put the agent page (`shell.run`, `git.push`) in one process
