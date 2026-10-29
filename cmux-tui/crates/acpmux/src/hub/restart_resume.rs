@@ -65,8 +65,6 @@ impl OmittedTools {
     fn remove(&mut self, id: &[u8; 32]) {
         if self.ids.remove(id) || self.overflow.remove(id) {
             self.retire(*id);
-        } else if self.retired.contains(id) {
-            return;
         }
     }
     fn retire(&mut self, id: [u8; 32]) {
