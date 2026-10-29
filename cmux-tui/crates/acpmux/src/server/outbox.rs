@@ -64,12 +64,15 @@ pub(super) async fn handle(
         .filter(|t| !t.is_empty())
         .ok_or_else(|| RpcError::invalid_params("request.sessionId is required"))?
         .to_owned();
-    // A session here or one a peer lists is delivered directly. A peer-qualified session whose
-    // link is down fails over to the durable mesh relay when it is configured; without the relay,
-    // the local outbox keeps its existing retry path.
-    if hub.resolve(&target).is_err()
-        && hub.resolve_remote(&target).is_none()
-    {
+    // A peer-qualified session whose link is down fails over to the durable mesh relay even when
+    // its stale cache row is still present. Without the relay, the local outbox keeps its retry path.
+    if hub.peer_down_for(&target).is_some() {
+        if let Some(mesh) = hub.mesh.get()
+            && hub.mesh_may_route(&target)
+        {
+            return super::mesh_send::send(hub, conn, mesh, &request, &target).await;
+        }
+    } else if hub.resolve(&target).is_err() && hub.resolve_remote(&target).is_none() {
         // With the mesh relay on, the team hub may know a name nothing here or on a peer matches,
         // or may carry a durable delivery for a peer whose direct link is down. A name several
         // sessions here or on peers match stays this daemon's refusal.

@@ -272,6 +272,10 @@ mod tests {
         // A name the peer never listed here: still the peer, not no_session.
         let e = hub.peer_down_for("huge-blue/other").expect("peer is down");
         assert!(e.message.starts_with("peer_unreachable: huge-blue"), "{}", e.message);
+        assert!(
+            hub.mesh_may_route("huge-blue/lane"),
+            "a stale known row can fail over to the relay"
+        );
         assert!(hub.mesh_may_route("huge-blue/other"), "a down peer can fail over to the relay");
         assert!(hub.peer_down_for("nopeer/lane").is_none());
         assert!(hub.peer_down_for("lane").is_none());

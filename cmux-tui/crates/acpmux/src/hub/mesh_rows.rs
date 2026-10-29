@@ -61,8 +61,9 @@ impl Hub {
     /// for the direct peer link. An ambiguous name stays this daemon's refusal; the hub is never
     /// asked to pick.
     pub fn mesh_may_route(&self, target: &str) -> bool {
+        let peer_down = self.peer_down_for(target).is_some();
         self.resolve(target).is_err_and(|e| e.code == RpcError::not_found("").code)
-            && self.remote_matches(target) == 0
+            && (self.remote_matches(target) == 0 || peer_down)
     }
 
     /// Whether a relayed message is for this daemon: refused when it names another host, or a
