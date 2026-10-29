@@ -84,8 +84,12 @@ extension TerminalSession {
         return (drawn, grid.locked ? TerminalGridSize(columns: Int(grid.columns), rows: Int(grid.rows)) : nil)
     }
 
-    /// The frame hold's invariant (D2, ``TerminalFrameHold/invariantViolation``); nil when it holds.
-    package var frameHoldViolation: String? { frameHold.invariantViolation }
+    /// The draw invariants this session breaks now (principled-audit restoreFrameHold R3), by `InputInvariant` code:
+    /// D1 its surface draws iff its nodes are shown (``TerminalSurfaceView/drawTruthMismatch``), D2 its held frame is up
+    /// iff its content is not presented yet (``TerminalFrameHold/invariantViolation``).
+    package var drawingViolations: [(code: String, detail: String)] {
+        [surfaceView.drawTruthMismatch.map { ("D1", $0) }, frameHold.invariantViolation.map { ("D2", $0) }].compactMap { $0 }
+    }
 
     public var diagnostics: TerminalSurfaceDiagnostics {
         let surface = surfaceView

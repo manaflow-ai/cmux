@@ -106,18 +106,14 @@ extension AppServices {
     /// terminals and pages; with `occludedWindowDiscard` the hibernation hears the same judgments of its windows.
     func startHibernationMeasurements() {
         memoryFootprints.start()
-        let hibernation = features.isEnabled(.occludedWindowDiscard) ? cache.hibernation : nil
-        let feedsFamilies = features.isEnabled(.windowOcclusionFamily)
-        guard feedsFamilies || hibernation != nil else { return }
-        let ownsWindow: @MainActor (ObjectIdentifier) -> Bool = { [weak self] id in
-            self?.windows.controllers.contains { controller in controller.window.map { ObjectIdentifier($0) } == id } ?? false
-        }
-        let checker = WindowOcclusionChecker.feedingFamilies(
-            feedsFamilies: feedsFamilies, workspaceEvents: workspaceEvents, mainWork: mainWork,
-            listener: { [weak hibernation] id, offScreen in if ownsWindow(id) { hibernation?.windowDidChangeOnScreen(id, offScreen: offScreen) } },
-            closed: { [weak hibernation] id in hibernation?.offScreenWindowDidClose(id) })
-        windowOcclusionFamilies = checker
-        hibernation?.follow(checker)
+        let discards = features.isEnabled(.occludedWindowDiscard) && cache.hibernation != nil, families = features.isEnabled(.windowOcclusionFamily)
+        guard discards || families else { return }
+        windowOcclusionFamilies = WindowOcclusionChecker.feedingFamilies(
+            feedsFamilies: families, workspaceEvents: workspaceEvents, mainWork: mainWork,
+            listener: { [weak self] id, offScreen in  // the hibernation hears its own windows only, as its checker did
+                guard discards, let self, windows.controllers.contains(where: { controller in controller.window.map { ObjectIdentifier($0) } == id }) else { return }
+                cache.windowDidChangeOnScreen(id, offScreen: offScreen)
+            }, closed: { [weak self] id in if discards { self?.cache.offScreenWindowDidClose(id) } })
     }
 
     /// Each tab script opened with a live `window.opener` and its opener, by key (`BrowserScriptOpeners`): the opener groups'

@@ -26,11 +26,18 @@ import IOSurface
 /// not come back by itself end it (``end()``).
 ///
 /// Every frame it compares is the one the renderer reports presented (``TerminalFrameSource``): the
-/// fresh surface's layer is only the container of the renderer's leaf, so its contents say nothing. A swapped-in
-/// surface never drew before its replay (``prepare(_:)``); a session's first surface paused at the hold's start, and
-/// Ghostty's hide waits for the frames in flight then (`setVisible(false)`), so no frame drawn before the parse
-/// presents after it. With renderer-owned frames (`GHOSTTY_RENDERER_FRAMES`) the presented callback's frame id can
-/// replace the identity compare.
+/// fresh surface's layer is only the container of the renderer's leaf, so its contents say nothing.
+///
+/// INTERIM (principled-audit R5, follow-up named in cp/redesign-restore-frame-hold): "presented" is a presented frame
+/// other than the one on screen at the parse. A swapped-in surface never drew before its replay (``prepare(_:)``), so
+/// for a swap that is exact. A session's first surface paused at the hold's start, and the rule then rests on
+/// Ghostty's hide waiting for the frames in flight (`setVisible(false)`, at most 100 ms), a timing assumption. The
+/// principled end is a content mark: Ghostty stamps the mark the lane set after the parse into the frame whose cell
+/// update copied that state (under the terminal lock) and reports it with the frame it presents; the hold ends when
+/// the presented mark >= the target. That needs ghostty-next's renderer-owned frames (cp/p03-rendering-080, the
+/// `presented_cb` frame id, `GHOSTTY_RENDERER_FRAMES`) on its main, a content mark API added there, and a GhosttyNextKit
+/// release and pin bump; the frame id alone is taken at encode, after the cell copy, so it does not order a frame
+/// against the parse.
 @MainActor
 final class TerminalFrameHold {
     private let view = HeldFrameView()

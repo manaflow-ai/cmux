@@ -418,9 +418,8 @@ import Testing
             hibernation.start()
             // The app's one checker reports to the hibernation as AppServices.startHibernationMeasurements wires it.
             if follows {
-                checker.onChange = { [weak hibernation] id, offScreen in hibernation?.windowDidChangeOnScreen(id, offScreen: offScreen) }
-                checker.onClose = { [weak hibernation] id in hibernation?.offScreenWindowDidClose(id) }
-                hibernation.follow(checker)
+                checker.onChange = { [weak cache = services.cache] id, offScreen in cache?.windowDidChangeOnScreen(id, offScreen: offScreen) }
+                checker.onClose = { [weak cache = services.cache] id in cache?.offScreenWindowDidClose(id) }
             }
             checker.start()
         }
