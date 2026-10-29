@@ -25,6 +25,7 @@ import Testing
         let page = SettingsPageProvider(settings: settings)
         let recorder = Recorder()
         page.setDeviceFullAccess = { id, on in recorder.sets.append("\(id) \(on)"); return nil }
+        page.personBacksGesture = { _ in true } // the click's origin: SettingsWideningSwitchPersonGateTests
         return (page, recorder, directory)
     }
 
