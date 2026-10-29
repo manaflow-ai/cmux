@@ -167,4 +167,51 @@ import Testing
         #expect((second.rowView(id: "text") as? NSTextField)?.stringValue == "second")
     }
 
+    @Test func retiredRowsAndReentrantSliderCommitCannotActOnReplacement() throws {
+        let content = NativePopupContent()
+        let descriptor = NativePopupSlider(stops: [NativePopupSliderStop(value: "low", label: "Low"),
+                                                   NativePopupSliderStop(value: "high", label: "High")], selectedValue: "low")
+        var model = NativePopupModel(schemaVersion: 1, id: "same", revision: 1,
+                                     anchor: NativePopupAnchor(left: 0, top: 0, right: 20, bottom: 20),
+                                     side: .bottom, align: .start, width: 320,
+                                     rows: [NativePopupRow(id: "slider", kind: .slider, label: "Slider", value: "0", minimum: 0, maximum: 1, step: 1, slider: descriptor),
+                                            NativePopupRow(id: "action", kind: .action, label: "Old action"),
+                                            NativePopupRow(id: "toggle", kind: .toggle, label: "Toggle")])
+        content.update(model)
+        let oldSlider = try #require(content.rowView(id: "slider") as? NativePopupSliderView)
+        let oldAction = try #require(content.rowView(id: "action") as? PopupRowView)
+        func descendants(_ view: NSView) -> [NSView] { view.subviews.flatMap { [$0] + descendants($0) } }
+        let oldToggle = try #require(descendants(content).compactMap { $0 as? NSSwitch }.first)
+        let oldTarget = try #require(oldToggle.target as? NativePopupControlTarget)
+        var events = 0
+        var closes = 0
+        content.emit = { _, _, _ in events += 1 }
+        content.commit = { closes += 1 }
+        content.dismiss = { closes += 1 }
+        model.revision += 1
+        model.rows[0].slider?.stops[1].value = "replacement"
+        model.rows[1].label = "Replacement action"
+        content.update(model)
+        oldSlider.slider.doubleValue = 1
+        oldSlider.slider.commitValue(true)
+        oldSlider.escape()
+        _ = oldSlider.slider.navigate(125)
+        oldAction.onHover?()
+        oldAction.onActivate?()
+        oldTarget.controlChanged(oldToggle)
+        #expect(events == 0 && closes == 0)
+        let current = try #require(content.rowView(id: "slider") as? NativePopupSliderView)
+        content.emit = { _, _, _ in
+            events += 1
+            content.beginPresentation()
+            var replacement = model
+            replacement.id = "replacement"
+            content.update(replacement)
+        }
+        current.slider.doubleValue = 1
+        current.slider.commitValue(true)
+        #expect(events == 1 && closes == 0)
+        #expect(content.model?.id == "replacement")
+    }
+
 }
