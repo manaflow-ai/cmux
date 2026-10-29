@@ -61,11 +61,11 @@ extension AgentHandlers {
 
     static func createOnHost(_ wanted: String, invocation: ActionInvocation, destinations: AgentChatDestinations,
                              context: AppActionContext) async -> Result<[String: ActionResultValue], ActionWorkFailure> {
-        // This Mac is a statically known, ready destination. Resolve it before asking acpmux or
-        // Cloud for inventories, so an offline peer or slow account cannot stall local creation.
+        // Only the canonical local id is unambiguous without inventory. A peer id can equal
+        // this Mac's display title, so title aliases still use the full catalog's precedence.
         let destination: AgentChatDestinations.Destination
-        if let local = AgentChatDestinations.resolve(wanted, in: [destinations.local]) {
-            destination = local
+        if wanted == destinations.local.id {
+            destination = destinations.local
         } else {
             let rows = await destinations.load()
             guard let remote = AgentChatDestinations.resolve(wanted, in: rows) else {
