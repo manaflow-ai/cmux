@@ -193,6 +193,12 @@ class StuckRun(unittest.TestCase):
         self.assertEqual(gh.writes(), ["repos/o/r/actions/runs/7/cancel"],
                          "a newly current tip with no recovery path must not be force-cancelled")
 
+    def test_a_runner_starting_during_the_final_tip_read_blocks_cancel(self):
+        started = [job("decide", runner="bs-1")]
+        gh = FakeGh(runs=[run(7)], jobs={7: [STUCK, STUCK, started]})
+        tick(gh)
+        self.assertEqual(gh.writes(), [], "a runner assigned during final validation must be observed")
+
     def test_only_a_main_promotion_with_an_active_replacement_path_is_cancelled(self):
         title = f"Promote nightly-next to tick:{TIP}"
         for train, branch in (("on", "main"), ("off", "nightly-next")):
