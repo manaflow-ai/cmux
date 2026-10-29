@@ -25,6 +25,18 @@ const compactCommand = { name: "compact", description: "Clear conversation histo
 const contextFull =
   'API Error: 400 {"type":"error","error":{"type":"invalid_request_error","message":"prompt is too long: 212043 tokens > 200000 maximum"}}';
 
+const cloudFailed = (error: string) => {
+  const snapshot = chat([
+    user(prompt, 6, { id: "cloud-request" }),
+    summary(5.5, { status: "failed", error, prompt, retryRowId: "cloud-request" }),
+  ]);
+  if (snapshot.summary) {
+    delete snapshot.summary.host;
+    delete snapshot.summary.hostKind;
+  }
+  return snapshot;
+};
+
 export default agentPaneEntry({
   id: "agent-pane.turn-error-card",
   title: "Turn error card",
@@ -33,6 +45,21 @@ export default agentPaneEntry({
   covers: ["agent-session/acpmux/conversation/TurnRows.tsx#TurnFooter", "agent-session/acpmux/failureCopy.ts"],
   keywords: ["error", "failure", "disk full", "tailscale", "agent process closed", "context window", "compact"],
   variants: {
+    "cloud-missing": {
+      note: "Owner VM without a Claude login: explains the missing credential and offers confirmed setup. Compare the three existing surfaces; keep the glass card.",
+      ready: { cloudMachineID: "gallery-vm", cloudCredentialRecoveryAvailable: true },
+      snapshot: cloudFailed("Claude failed to authenticate: credential is missing"),
+    },
+    "cloud-expired": {
+      note: "Expired login: the cause and the same setup action, with no provider output in the sentence.",
+      ready: { cloudMachineID: "gallery-vm", cloudCredentialRecoveryAvailable: true },
+      snapshot: cloudFailed("OAuth token expired (HTTP 401)"),
+    },
+    "cloud-rejected": {
+      note: "Rejected login: preserves the HTTP status and offers setup on this Cloud machine.",
+      ready: { cloudMachineID: "gallery-vm", cloudCredentialRecoveryAvailable: true },
+      snapshot: cloudFailed("HTTP 403 Forbidden"),
+    },
     "agent-closed": {
       note: 'Leo\'s screenshot: "agent process closed" reads as the agent quitting, with Retry and the raw words under Details.',
       snapshot: failed("agent process closed"),

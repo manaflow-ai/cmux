@@ -130,6 +130,17 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case chatsPage(AgentPaneChatsQuery)
     /// `environment.list|save|remove`: the New Tab page's saved environments (``AgentPaneEnvironmentRequest``).
     case environment(AgentPaneEnvironmentRequest)
+    /// `sandbox.run {task, agent?, key}`: a new chat's Sandboxed send (hq#3367): one task on a
+    /// throwaway Cloud VM, answered with its receipt (``AgentPaneModel/onSandboxRun``). `key` names
+    /// the page's send, so its retry after an unclear failure finds the same Run.
+    case sandboxRun(task: String, agent: String?, key: String)
+    /// `sandbox.state {wait?}`: this pane's Sandboxed send, for a page that reloaded while it ran
+    /// (``AgentPaneSandboxRuns/state(wait:)``).
+    case sandboxState(wait: Bool)
+    /// `cloudMachine.list|open|resume`: the account's Cloud machines in the environment picker (``AgentPaneCloudMachineRequest``).
+    case cloudMachine(AgentPaneCloudMachineRequest)
+    /// A user-confirmed provider credential transfer for one Cloud chat.
+    case cloudCredentialTransfer(AgentPaneCloudCredentialTransferRequest)
     /// The new-tab omnibar invoked a host-owned action id.
     case appAction(String)
     /// The chat header's tools and "..." menu: run app action `id` (one of
@@ -155,6 +166,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `pane.tabRowTools {width}`: the chat header's tools take `width` CSS pixels at the trailing
     /// end of the pane's tab row (``AgentPaneTabRow``), 0 when the page draws none there.
     case tabRowTools(width: Double)
+    /// `/btw <question>` asks acpmux for one bounded inline side answer.
+    case btwInline(question: String, sessionId: String)
     /// New side chat: open the fork `sessionId` the page just made beside this chat.
     case sideChat(String)
     /// A chat this one made (a fork, a Continue In…), opened at a destination of its own: a tab,
@@ -275,6 +288,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `chat.toolCard.respond {id, action, value?}`: a click on a button of a tool card (``AgentPaneToolCard``),
     /// with what the person typed in its field.
     case toolCard(card: String, action: String, value: AgentPaneToolCard.Entered?)
+    /// `chat.computerUsePreview {action}`: a click on the live preview card (``AgentPaneComputerUsePreview``).
+    case computerUsePreview(AgentPaneComputerUsePreview.Action)
     /// `chat.upload {files: [{name, data}]}`: files the person dropped or pasted, for the chat's Cloud machine (``AgentPaneUpload``).
     case upload([AgentPaneUpload])
     case uploadStage(AgentPaneUploadStageRequest)
@@ -315,6 +330,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     public static let maximumPacingFrames = 640
     /// Longest `tab.open` text kept; a command or address is far shorter.
     public static let maximumOpenTabText = 8192
+    /// Longest `sandbox.run` task: the Run API's own cap (web/services/runs/model.ts).
+    public static let maximumSandboxTask = 16_000
     /// The page keeps about 2M characters of wire log; JSON escaping and
     /// multi-byte text can grow that, but not past this.
     public static let maximumLogBytes = 16 * 1024 * 1024

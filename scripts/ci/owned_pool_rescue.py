@@ -236,7 +236,7 @@ from pathlib import Path
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from pr_runner_pool import MAX_QUEUE_ROUNDS, QUEUE_ROUND_MINUTES, parse_queue_rounds, persistent  # noqa: E402
+from pr_runner_pool import MAX_QUEUE_ROUNDS, QUEUE_ROUND_MINUTES, nightly_dedicated, parse_queue_rounds, persistent  # noqa: E402
 
 CI_WORKFLOW_PATH = ".github/workflows/ci.yml"
 IOS_TEST_WORKFLOW_PATH = ".github/workflows/test-ios.yml"
@@ -279,6 +279,8 @@ SIDE_WORKFLOW_PATHS = frozenset({
     ".github/workflows/cmux-tui-artifacts.yml",
     ".github/workflows/cmux-tui.yml",
     ".github/workflows/iroh-v2.yml",
+    # The post-publish launch smoke's Mac job takes the side label on attempt 1.
+    ".github/workflows/nightly-next-launch-smoke.yml",
     ".github/workflows/relay-tls.yml",
     ".github/workflows/reload-build.yml",
     ".github/workflows/remote-daemon.yml",
@@ -440,7 +442,7 @@ def parse_time(value: object) -> dt.datetime | None:
 def job_pool(job: Mapping[str, Any]) -> str | None:
     """The owned pool a job asked for, if any: a pull request pool or the trusted one."""
     for label in job.get("labels") or []:
-        if persistent(str(label)) or TRUSTED_LABEL.fullmatch(str(label)):
+        if persistent(str(label)) or TRUSTED_LABEL.fullmatch(str(label)) or nightly_dedicated(str(label)):
             return str(label)
     return None
 

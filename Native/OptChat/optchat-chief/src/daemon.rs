@@ -116,6 +116,19 @@ pub trait ConversationPort: Send {
         let _ = (conversation, hash, variant, bytes);
         Err(OpError::Rejected("attachments_unsupported".into()))
     }
+    /// Streams a variant into a destination without retaining the original in RAM.
+    /// Ports must reject premature EOF, oversized chunks and a mismatched length.
+    fn attachment_into(
+        &mut self,
+        conversation: &str,
+        hash: &str,
+        variant: &str,
+        bytes: u64,
+        out: &mut dyn std::io::Write,
+    ) -> Result<(), OpError> {
+        let _ = (conversation, hash, variant, bytes, out);
+        Err(OpError::Rejected("attachments_unsupported".into()))
+    }
     /// `cloud-mux-ack`: the chief handled the wakes of `conversation` up to
     /// `seq` (the lease's chief; the request names no chief). Only the
     /// cloud port has a wake queue.
@@ -558,37 +571,56 @@ impl ConversationPort for SdkConversations {
         bytes: u64,
     ) -> Result<String, OpError> {
         use base64::Engine as _;
-        let b64 = base64::engine::general_purpose::STANDARD;
+        // Only bounded model-image callers use the in-memory API. Files use
+        // attachment_into directly, regardless of their original size.
+        let mut whole = Vec::new();
+        self.attachment_into(conversation, hash, variant, bytes, &mut whole)?;
+        Ok(base64::engine::general_purpose::STANDARD.encode(whole))
+    }
+
+    fn attachment_into(
+        &mut self,
+        conversation: &str,
+        hash: &str,
+        variant: &str,
+        bytes: u64,
+        out: &mut dyn std::io::Write,
+    ) -> Result<(), OpError> {
+        use base64::Engine as _;
         let mut offset = 0u64;
-        let mut whole: Option<Vec<u8>> = None;
         loop {
+            let length = bytes.saturating_sub(offset).min(ATTACHMENT_CHUNK_BYTES);
             let data = self
                 .client
                 .conversation_attachment_read(ConversationAttachmentReadRequest {
                     conversation: conversation.into(),
                     hash: hash.into(),
-                    length: Optional::Value(
-                        bytes.saturating_sub(offset).min(ATTACHMENT_CHUNK_BYTES),
-                    ),
+                    length: Optional::Value(length),
                     offset: Optional::Value(offset),
                     variant: Optional::Value(variant.into()),
                 })
                 .map_err(sdk_error)?;
-            // One read is the common case: its base64 goes on as is.
-            if offset == 0 && data.eof {
-                return Ok(data.data);
+            if data.data.len() as u64 > length.div_ceil(3) * 4 {
+                return Err(OpError::Rejected("attachment_length_mismatch".into()));
             }
-            let chunk = b64
+            let chunk = base64::engine::general_purpose::STANDARD
                 .decode(data.data.as_bytes())
                 .map_err(|e| OpError::Rejected(format!("attachment_bad_base64: {e}")))?;
-            let buffer = whole.get_or_insert_with(Vec::new);
-            buffer.extend_from_slice(&chunk);
+            if chunk.len() as u64 > length {
+                return Err(OpError::Rejected("attachment_length_mismatch".into()));
+            }
             offset += chunk.len() as u64;
+            out.write_all(&chunk)
+                .map_err(|e| OpError::Transport(format!("attachment_write: {e}")))?;
             if data.eof {
-                return Ok(b64.encode(buffer));
+                return if offset == bytes {
+                    Ok(())
+                } else {
+                    Err(OpError::Rejected("attachment_ended_early".into()))
+                };
             }
             if chunk.is_empty() || offset >= bytes {
-                return Err(OpError::Rejected("attachment_ended_early".into()));
+                return Err(OpError::Rejected("attachment_length_mismatch".into()));
             }
         }
     }

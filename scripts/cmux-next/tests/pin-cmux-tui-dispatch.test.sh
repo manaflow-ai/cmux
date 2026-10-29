@@ -91,7 +91,10 @@ resolve() { # <commit> [env...]: resolve-commit at <commit>
   git -C "$src" checkout -q "$at"
   : > "$TMP/curl.log"
   status=0
-  out=$(cd "$src" && env -u GITHUB_STEP_SUMMARY -u GITHUB_OUTPUT PATH="$TMP/bin:$PATH" GH_TOKEN=test-token \
+  # Not the CI job's event: on a pull_request run each dispatch miss waited the
+  # 90 s outside-publisher wait for real (201 s for the test).
+  out=$(cd "$src" && env -u GITHUB_STEP_SUMMARY -u GITHUB_OUTPUT -u GITHUB_EVENT_NAME -u GITHUB_REF \
+    -u CMUX_TUI_TREE_PUBLISHER_SHA -u CMUX_TUI_TREE_KEY PATH="$TMP/bin:$PATH" GH_TOKEN=test-token \
     CMUX_TUI_TREE_WAIT_SECONDS=1 CMUX_TUI_TREE_POLL_SECONDS=1 CMUX_TUI_TREE_DISPATCH_SETTLE_SECONDS=0 \
     CMUX_TUI_TREE_ACTIVE_WAIT_SECONDS=0 "$@" \
     bash scripts/cmux-next/pin-cmux-tui.sh resolve-commit 2>"$TMP/err") || status=$?

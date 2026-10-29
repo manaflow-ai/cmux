@@ -27,6 +27,8 @@ extension KeyRouter {
         guard let controller, kind == .content else { return false }
         // Only a page whose context bits include ``ActionContext/bareKeyOwners`` owns bare keys.
         guard let page = focusedPage(in: controller)?.descriptor.id, Self.pageMayOwnBareKeys(page) else { return false }
+        // Another page's window has the key (a chat beside a read-only Markdown page): it is typing there (#25666).
+        if keyInOtherPage(window, controller: controller) { return false }
         let facts = facts(in: window, controller: controller)
         if Self.belongsToInputMethod(event, facts: facts) { return false }
         let context = keyContext(for: controller.focus.state, facts: facts)
