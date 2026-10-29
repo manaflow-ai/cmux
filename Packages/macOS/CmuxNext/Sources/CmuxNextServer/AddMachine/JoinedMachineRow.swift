@@ -74,8 +74,10 @@ final class JoinedMachineRowView: NSView {
     let add = NSButton(title: "", target: nil, action: nil)
     private(set) var snapshot: Snapshot?
     private var actions = Actions()
+    /// Hover from where the pointer and the row are now, not from enter and exit events alone: a
+    /// row laid out, scrolled or shown under a still pointer gets no enter (cx-ww20).
+    private var pointerHover: PointerHover?
     private var hovered = false
-    private var tracking: NSTrackingArea?
     private var heldOpen = false
 
     init() {
@@ -97,7 +99,7 @@ final class JoinedMachineRowView: NSView {
         let present = more.presentMenu
         more.presentMenu = { [weak self] menu, button in
             present(menu, button)
-            self?.followPointer()
+            self?.pointerHover?.refresh()
         }
         spinner.spin(true)
         text.setAccessibilityElement(true)
@@ -107,6 +109,7 @@ final class JoinedMachineRowView: NSView {
         }
         ([name, healthMark, caption] as [NSView]).forEach(text.addSubview)
         ([icon, text, more, spinner, add] as [NSView]).forEach(addSubview)
+        pointerHover = PointerHover(self) { [weak self] hovering in self?.setHovered(hovering) }
     }
 
     @available(*, unavailable)
@@ -158,18 +161,15 @@ final class JoinedMachineRowView: NSView {
         name.frame = NSRect(x: 0, y: top - nameHeight, width: nameWidth, height: nameHeight)
         healthMark.frame = NSRect(x: name.frame.maxX + Metrics.space2, y: name.frame.midY - dot / 2, width: dot, height: dot)
         caption.frame = NSRect(x: 0, y: name.frame.minY - 1 - captionHeight, width: text.frame.width, height: captionHeight)
+        // The row may have moved under a still pointer.
+        pointerHover?.refresh()
     }
 
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let tracking { removeTrackingArea(tracking) }
-        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self, userInfo: nil)
-        addTrackingArea(area)
-        tracking = area
+    /// A row put in a window (the section showing) or taken out reads the pointer again.
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        pointerHover?.refresh()
     }
-
-    override func mouseEntered(with event: NSEvent) { setHovered(true) }
-    override func mouseExited(with event: NSEvent) { setHovered(false) }
 
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
@@ -178,16 +178,11 @@ final class JoinedMachineRowView: NSView {
 
     @objc private func newWorkspace() { actions.newWorkspace() }
 
-    private func setHovered(_ on: Bool) {
+    /// `PointerHover`'s answer (tests set it as a pointer would).
+    func setHovered(_ on: Bool) {
         guard on != hovered else { return }
         hovered = on
         reveal()
-    }
-
-    /// The pointer's place now (after a menu closed).
-    private func followPointer() {
-        guard let window else { return setHovered(false) }
-        setHovered(bounds.contains(convert(window.mouseLocationOutsideOfEventStream, from: nil)))
     }
 
     /// The more button shows on hover and while its menu is open; a running change shows the spinner.
