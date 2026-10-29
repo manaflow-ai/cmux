@@ -143,10 +143,12 @@ describe("forkVm provider capability", () => {
     expect(legacy.snapshot).toBeNull();
     expect(legacy.fork.providerVmId).toBe("vm-child");
     expect(legacy.forkMethod).toBe("unknown");
+    expect(legacy.fork.forkMethod).toBeUndefined();
     recordedMethod = "snapshot-create";
     const newReceipt = await replay();
     expect(newReceipt.snapshot).toBeNull();
     expect(newReceipt.forkMethod).toBe("snapshot-create");
+    expect(newReceipt.fork.forkMethod).toBe("snapshot-create");
   });
 
 });
