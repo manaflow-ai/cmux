@@ -130,19 +130,12 @@ fn a_send_during_a_daemon_handover_waits_for_the_next_daemon_and_is_delivered() 
     let started = Instant::now();
     let mut send = cli_command(
         &dir,
-        &[
-            "send",
-            "--no-wait",
-            "--prompt-id",
-            "handover-prompt",
-            "lane",
-            "across the handover",
-        ],
+        &["send", "--no-wait", "--prompt-id", "handover-prompt", "lane", "across the handover"],
     )
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap();
+    .stdout(Stdio::piped())
+    .stderr(Stdio::piped())
+    .spawn()
+    .unwrap();
     // Let the replacement client attempt the handover before releasing the lock.
     std::thread::sleep(Duration::from_millis(500));
     // The old daemon exits.
