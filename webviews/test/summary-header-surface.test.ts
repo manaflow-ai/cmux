@@ -115,10 +115,19 @@ await requireBrowserLane("summary-header-surface.test.ts", async () => {
           const actual = await page.evaluate(() => {
             const shell = document.querySelector(".acpmux-shell")!.getBoundingClientRect();
             const panel = document.querySelector(".acpmux-artifact")!.getBoundingClientRect();
-            return { top: panel.top - shell.top, bottom: panel.bottom - shell.bottom };
+            const tools = document.querySelector<HTMLElement>(".acpmux-header-tools")!.getBoundingClientRect();
+            return {
+              top: panel.top - shell.top,
+              bottom: panel.bottom - shell.bottom,
+              toolsWidth: tools.width,
+              toolsRight: tools.right,
+              shellRight: shell.right,
+            };
           });
           expect(actual.top).toBe(height);
           expect(actual.bottom).toBeLessThanOrEqual(0);
+          expect(actual.toolsWidth).toBeGreaterThan(0);
+          expect(actual.toolsRight).toBe(actual.shellRight);
         } finally {
           await page.close();
         }
