@@ -96,6 +96,14 @@ use_pinned_cargo() { # DIR
   export PATH
   echo "cargo: $cargo_bin"
 }
+# Puts the cargo rustup selects in ROOT first on PATH, for the rest of the step.
+use_root_cargo() { # ROOT
+  local cargo_bin
+  cargo_bin="$(cd "$root/$1" && rustup which cargo)" || { echo "error: rustup which cargo failed in $1" >&2; return 3; }
+  PATH="$(dirname "$cargo_bin"):$PATH"
+  export PATH
+  echo "cargo: $cargo_bin"
+}
 # As cmux-tui-rust-check.sh: a synced copy without the gitlink uses the files present;
 # otherwise the commit's gitlink, with init-submodule.sh's retries.
 ghostty_next() {
@@ -155,6 +163,11 @@ print(("1" if j.get("ghostty") else "0") + "\t" + (j.get("apt") or ""))
   else
     step "toolchain" bash -c 'cd "$1" && rustup toolchain install && rustup component add clippy && cargo --version' _ "$workspace"
   fi
+  # The toolchain's own cargo first on PATH (its bin dir holds cargo-clippy and cargo-fmt): the
+  # cargo on a fleet step's PATH is not always the rustup proxy, and then `cargo clippy` finds no
+  # cargo-clippy (2026-10-29, step dbb2c454 on cmux8s). rustup picks the root's pin, or
+  # RUSTUP_TOOLCHAIN for an unpinned root, from the root's folder.
+  step "toolchain cargo" use_root_cargo "$workspace"
   step "clippy and tests" python3 .github/scripts/rust-workspaces.py run "$workspace"
   finish
 fi
