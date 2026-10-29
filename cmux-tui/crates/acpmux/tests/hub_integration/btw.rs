@@ -286,6 +286,96 @@ async fn idle_claude_inline_btw_uses_the_one_shot_fallback() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+/// A memory store that refuses to save an inline side question's session (its name has
+/// `-btw-`), as a full disk or a store error would.
+struct RefusingBtwStore(Box<dyn acpmux::store::Store>);
+
+impl acpmux::store::Store for RefusingBtwStore {
+    fn list(&self) -> anyhow::Result<Vec<acpmux::store::SessionMeta>> {
+        self.0.list()
+    }
+    fn load(&self, id: &str) -> anyhow::Result<Option<acpmux::store::SessionMeta>> {
+        self.0.load(id)
+    }
+    fn save(&self, meta: &acpmux::store::SessionMeta) -> anyhow::Result<()> {
+        if meta.name.contains("-btw-") {
+            anyhow::bail!("the store refused the side question's session");
+        }
+        self.0.save(meta)
+    }
+    fn append(&self, id: &str, record: &acpmux::store::EventRecord) -> anyhow::Result<()> {
+        self.0.append(id, record)
+    }
+    fn events(
+        &self,
+        id: &str,
+        after: u64,
+        limit: usize,
+    ) -> anyhow::Result<Vec<acpmux::store::EventRecord>> {
+        self.0.events(id, after, limit)
+    }
+    fn delete(&self, id: &str) -> anyhow::Result<()> {
+        self.0.delete(id)
+    }
+}
+
+#[tokio::test]
+async fn inline_btw_fork_that_fails_to_save_leaves_no_copied_transcript() {
+    let root = std::env::temp_dir().join(format!("acpmux-btw-save-{}", uuid::Uuid::now_v7()));
+    let claude = root.join("claude");
+    std::fs::create_dir_all(&claude).unwrap();
+    let fake_claude = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_claude.py");
+    let profile = HarnessProfile {
+        kind: acpmux::config::HarnessKind::ClaudeStdio,
+        argv: vec!["python3".into(), fake_claude.into()],
+        env: BTreeMap::from([(
+            "CLAUDE_CONFIG_DIR".to_owned(),
+            claude.to_string_lossy().into_owned(),
+        )]),
+        description: None,
+        fallback: None,
+        family: None,
+        models: vec![],
+        model: None,
+        effort: None,
+        policy: None,
+    };
+    let mut cfg = Config {
+        harnesses: BTreeMap::from([("claude".to_owned(), profile)]),
+        default_harness: Some("claude".into()),
+        ..Default::default()
+    };
+    cfg.store.mode = StoreMode::Memory;
+    cfg.permission_policy = PermissionPolicy::ApproveAll;
+    let store = acpmux::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+    let hub = Hub::new(cfg, Box::new(RefusingBtwStore(store)));
+    // Connected as `claude_setup` (fork_through.rs) connects the pane.
+    let (in_tx, in_rx) = mpsc::channel(64);
+    let (out_tx, out_rx) = mpsc::channel(4096);
+    tokio::spawn(serve_connection(hub.clone(), in_rx, out_tx));
+    let mut c = TestClient { tx: in_tx, rx: out_rx, next: 0 };
+    c.request(method::INITIALIZE, json!({"protocolVersion": 1, "clientInfo": {"name": "pane"}}))
+        .await
+        .unwrap();
+    let id = new_chat(&mut c).await;
+    c.request(method::SESSION_PROMPT, prompt(&id, "finished context")).await.unwrap();
+    let transcripts_before = claude_transcript_files(&claude);
+
+    // The idle chat's inline question forks it through its finished turn: the fork copies
+    // Claude's transcript, then its session cannot be saved.
+    let refused =
+        c.request(BTW, json!({"sessionId": id, "question": "history-probe", "inline": true})).await;
+    assert!(refused.is_err(), "the refused save fails the question: {refused:?}");
+    assert_eq!(hub.sessions().len(), 1, "no side session is left");
+    assert_eq!(
+        claude_transcript_files(&claude),
+        transcripts_before,
+        "the fork's copied transcript is removed with its failed creation"
+    );
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 #[tokio::test]
 async fn unsupported_claude_side_question_falls_back_while_parent_turn_runs() {
     let root =

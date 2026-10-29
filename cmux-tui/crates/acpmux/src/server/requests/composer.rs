@@ -52,7 +52,8 @@ pub(super) async fn handle(
             Some(Value::Bool(inline)) => *inline,
             Some(_) => return Err(RpcError::invalid_params("inline must be a boolean")),
         };
-        return hub.btw(&s, question, model, &conn.label(), inline, opts()).await;
+        // Boxed: the side-question state machine is too large for a debug build's request stack.
+        return Box::pin(hub.btw(&s, question, model, &conn.label(), inline, opts())).await;
     }
     if m == method::MUX_COMPOSERS {
         return Ok(hub.composers_view(&s));
