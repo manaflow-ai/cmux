@@ -4127,6 +4127,11 @@ article.acpmux-row:empty {
 .cv-user__take-back:hover:not(:disabled) {
   color: var(--cv-text);
 }
+/* What an X acpmux refused leaves in its place (PendingSteer.tsx): quiet text, spaced from Send now
+   and Copy as the X's glyph sat in its slot. */
+.cv-user__kept {
+  padding-inline: calc((var(--cv-footer-control-slot) - var(--cv-glyph-slot)) / 2);
+}
 /* Reply on another agent's message (IncomingMessageCard.tsx): the editor under the opened
    message and its Details, and a quiet line once sent or when it was not. */
 .cv-message__note {
