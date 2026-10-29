@@ -41,7 +41,8 @@ ALWAYS |= OWN_PROCESS
 # Suites the frame scan finds that stay in the shared pass. WindowScreenshotTests commits one frame of its own two
 # small windows per test (5 s in all), so it never held the main thread. In the shared pass it passes on CI
 # (feat-cmux-next runs 40905054694 and 40914924429); in a fresh process of its own on a CI mini its pane crop reads
-# a transparent corner (aPaneIsCroppedFromItsWindow, WindowScreenshotTests.swift:199) on every #26809 run.
+# a transparent corner (aPaneIsCroppedFromItsWindow, WindowScreenshotTests.swift:199) on every #26809 run, and in a
+# shard its first capture threw .blank: its settledImage now waits for the whole frame.
 SHARED = {("CmuxNextDesignTests", "WindowScreenshotTests")}
 # The heavy step's watchdog limits for one suite's process (swift-test-with-hang-sampler.sh): the whole run, and
 # how long no test may finish. A suite that declares its own `.timeLimit(.minutes(N))` gets limits above it, so
