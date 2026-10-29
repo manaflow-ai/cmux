@@ -54,6 +54,7 @@ type HarnessChoice = {
     family?: string;
     unavailable?: string;
     efforts?: string[];
+    effortsDeclared?: boolean;
     fast?: boolean;
     inlineFast?: boolean;
     release?: string;
@@ -75,6 +76,7 @@ type ModelChoice = {
   family?: string;
   unavailable?: string;
   efforts?: string[];
+  effortsDeclared?: boolean;
   fast?: boolean;
   /** The catalog release an alias row stands for, which the curated list names. */
   release?: string;
@@ -138,9 +140,14 @@ function sectionsFor(entry: HarnessChoice | undefined): {
         id: model.id,
         name: model.shortName || model.name || model.id,
         ...(model.family ? { family: model.family } : {}),
-        unavailable: model.unavailable,
-        efforts: model.efforts,
-        fast: model.fast,
+        ...(model.unavailable ? { unavailable: model.unavailable } : {}),
+        // Catalog normalization materializes omitted capabilities as [] and marks them false;
+        // direct catalog entries without provenance retain their explicit empty declaration.
+        ...((model.efforts?.length ?? 0) > 0 || (model.effortsDeclared !== false && model.efforts !== undefined)
+          ? { efforts: model.efforts }
+          : {}),
+        ...(model.effortsDeclared !== undefined ? { effortsDeclared: model.effortsDeclared } : {}),
+        ...(model.fast !== undefined ? { fast: model.fast } : {}),
         ...(model.release ? { release: model.release } : {}),
       },
     ];
@@ -255,6 +262,9 @@ function quickRow(family: string, model: ModelChoice): QuickModel {
     id: model.id,
     name: model.name,
     family,
+    ...((model.efforts?.length ?? 0) > 0 || (model.effortsDeclared !== false && model.efforts !== undefined)
+      ? { efforts: model.efforts }
+      : {}),
     ...(model.unavailable ? { disabled: true } : {}),
     ...(model.tag ? { tag: model.tag } : {}),
     ...(model.provider ? { provider: model.provider } : {}),
@@ -484,6 +494,9 @@ export function ModelPicker(props: ModelPickerProps) {
   // The compact menu's pick does the same once the menu has closed: while it is open it keeps the
   // keyboard on its rows, and its close leaves focus where the pick put it (ui/Menu.tsx).
   const quickPicked = useRef(false);
+  // Inline effort picks use the compact menu's close path, so the prompt receives focus after
+  // the harness option update just like a model pick.
+  const quickEffort = quick?.effort;
   const menuId = useId();
   const allHarnesses = useMemo(
     () => uniqueHarnesses(catalog.filter((entry) => entry.id !== "unii" || harness === "unii")),
@@ -1186,6 +1199,17 @@ export function ModelPicker(props: ModelPickerProps) {
             }}
             menu={{
               ...quick,
+              ...(quickEffort
+                ? {
+                    effort: {
+                      ...quickEffort,
+                      onPick: (value: string) => {
+                        quickPicked.current = true;
+                        quickEffort.onPick(value);
+                      },
+                    },
+                  }
+                : {}),
               ...(props.sessionAuth
                 ? {
                     auth: {
@@ -1207,6 +1231,10 @@ export function ModelPicker(props: ModelPickerProps) {
               onModel: (id) => {
                 quickPicked.current = true;
                 onLand(id);
+              },
+              inlineEffort: onCombo !== undefined,
+              onModelEffort: (id, effort) => {
+                if (current) pickQuickToPrompt({ id, name: id, family: current.id, effort });
               },
               search: { find: quickSearch, pick: pickQuickToPrompt },
               ...(quickFamilies

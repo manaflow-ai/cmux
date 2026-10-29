@@ -71,7 +71,7 @@ pub fn parse_token_text(text: &str) -> Result<String> {
     if !token.starts_with("cmj_")
         || token.len() <= 4
         || token.len() > MAX_TOKEN_BYTES
-        || token[4..].bytes().any(|b| !(b.is_ascii_alphanumeric() || b == b'_' || b == b'-'))
+        || token.bytes().skip(4).any(|b| !(b.is_ascii_alphanumeric() || b == b'_' || b == b'-'))
     {
         return Err(anyhow!("join token is malformed"));
     }
@@ -115,6 +115,7 @@ fn configure_mesh_relay(hub: &str) -> Result<()> {
         url: hub.to_owned(),
         token_command: Vec::new(),
         credential: Some("join".to_owned()),
+        control_from: Vec::new(),
     });
     config.save_with_writer(|path, bytes| recovery::write_durable(path, bytes, true))
 }

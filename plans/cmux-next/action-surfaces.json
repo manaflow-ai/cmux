@@ -1,7 +1,7 @@
 {
   "actions" : [
     {
-      "cli" : "offered",
+      "cli" : "guiOnly",
       "cli_name" : "app settings",
       "context_menu" : "noObject",
       "context_menus" : [
@@ -19,7 +19,7 @@
       },
       "id" : "openSettings",
       "main_menu" : "app",
-      "mcp" : "offered",
+      "mcp" : "guiOnly",
       "palette" : "offered",
       "palette_section" : {
         "id" : "category.window",
@@ -22406,6 +22406,34 @@
       "palette_suggested" : 3,
       "title" : "New Agent Chat",
       "title_key" : "action.palette.newAgentChat",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action palette-new-agent-chat-on",
+      "context_menu" : "guiOnly",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "palette.newAgentChatOn",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "New Agent Chat on…",
+      "title_key" : "action.palette.newAgentChatOn",
       "title_table" : "ActionCatalog"
     },
     {

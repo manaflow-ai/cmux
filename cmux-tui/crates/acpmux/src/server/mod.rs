@@ -1697,6 +1697,7 @@ mod ephemeral;
 mod fanout;
 mod forum;
 mod media_forward;
+mod mesh_control_send;
 pub mod mesh_relay;
 mod mesh_send;
 pub use conn_auth::ConnAuth;

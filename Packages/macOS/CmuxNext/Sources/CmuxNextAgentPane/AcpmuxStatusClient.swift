@@ -30,6 +30,10 @@ nonisolated enum AcpmuxStatusClient {
         return AcpmuxStatus(result)
     }
 
+    @concurrent static func chatPeers(socketPath: String) async throws -> [AgentChatPeer] {
+        AgentChatPeer.read(try await call(socketPath: socketPath, method: "_acpmux/status", deadline: .seconds(2)))
+    }
+
     /// `_acpmux/chat_open`: the daemon's open plan for one device-wide chat
     /// (nil when the answer is not a plan this build reads).
     @concurrent static func chatOpen(socketPath: String, key: String, cwd: String? = nil,

@@ -116,6 +116,12 @@ export type AcpmuxHostConfig = {
   draft?: string;
   /** A new chat's first prompt, sent once the client connects (onboarding's first task). */
   prompt?: string;
+  /** The model a new chat starts on before its first prompt. */
+  model?: string;
+  /** Explicit startup harness; omitted uses the existing daemon default. */
+  harness?: string;
+  /** Validated peer selected by the host's New Agent Chat action. */
+  peer?: string;
   /** An outside Claude Code or Codex chat this pane resumes once it connects. */
   adopt?: AcpmuxAdopt;
   /** A chat opened for its workspace (Cmd-I's chat dock): its first prompt carries the workspace
@@ -4891,7 +4897,10 @@ export class AcpmuxDirectClient {
     // This send belongs to the requested chat. A refused or empty start must not send it to
     // the previous chat, or start the default harness instead of the one the person picked.
     if (this.creating || !this.selectedSessionId) {
-      const sessionId = await (this.creating ?? this.create());
+      // A rejected seeded peer start stays sessionless. The next Send retries that peer,
+      // with its own folder, instead of silently falling back to a local session.
+      const sessionId = await (this.creating ??
+        this.create(this.host.harness, this.host.peer ? this.host.cwd : undefined, this.host.peer));
       // The app also calls this before send(): an empty result must stop that preflight,
       // otherwise send() would ensure again after the failed creation has been cleared.
       if (!sessionId) throw new Error(translate("error.notOpen"));
@@ -6148,11 +6157,11 @@ export class AcpmuxDirectClient {
   /// `noProject` starts it in no project: the host's agent-home folder, never the inherited cwd.
   /// `model`: the model to start on (a chat on another machine starts on the one the page showed).
   create(
-    harness?: string,
+    harness: string | undefined = this.host.harness,
     cwd?: string,
     peer?: string,
     noProject = false,
-    model?: string,
+    model: string | undefined = this.host.model,
   ): Promise<string | undefined> {
     const started = (async () => {
       const sessionId = await this.startSession(
@@ -6188,8 +6197,19 @@ export class AcpmuxDirectClient {
       newSessionParams(newSessionHost(this.host, cwd, peer, noProject), harness, noProject, model),
       again,
     );
-    // The inherited cwd is the first default chat's; later ones start where acpmux defaults.
-    if (result?.sessionId && !cwd) this.host = { ...this.host, cwd: undefined };
+    // Startup picks handed to this new-chat page are one-shot defaults: consume them only after
+    // session/new succeeds, so a failed start can retry with the same picks. The inherited cwd
+    // keeps its existing first-chat behavior for local starts. A peer's explicit folder is
+    // remote, so it must leave with the startup peer before a later local chat can inherit it.
+    if (result?.sessionId) {
+      this.host = {
+        ...this.host,
+        ...(cwd && !peer && !this.host.peer ? {} : { cwd: undefined }),
+        harness: undefined,
+        model: undefined,
+        peer: undefined,
+      };
+    }
     return result?.sessionId ? String(result.sessionId) : undefined;
   }
   /// Fences delayed Trust answers/replays when selection changes before the next snapshot paints.
@@ -6344,7 +6364,7 @@ export class AcpmuxDirectClient {
     return this.origin === "remote";
   }
   get prewarmSupported(): boolean {
-    return this.localOrigin && this.extensions.includes(PREWARM_METHOD);
+    return !this.host.peer && this.localOrigin && this.extensions.includes(PREWARM_METHOD);
   }
   /// Hints acpmux's session pool that `harness` is likely next, in `cwd` when known. Never
   /// awaited; a refusal (the pool is off, a failed start) is ignored.
@@ -6360,6 +6380,10 @@ export class AcpmuxDirectClient {
   /// inherited one); undefined when acpmux picks it or the chat starts on another machine.
   newChatCwd(): string | undefined {
     return this.startsOnSend ? undefined : this.host.cwd;
+  }
+  /// A seeded peer remains the destination until its first chat starts successfully.
+  newChatPeer(): string | undefined {
+    return this.host.peer;
   }
   /// The typing prewarm of a new chat (newChatPrewarm.ts): hints acpmux's pool like `prewarm`,
   /// without a harness for acpmux's default. Silent: a folder without a Trust answer asks nothing
