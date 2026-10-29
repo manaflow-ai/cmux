@@ -98,8 +98,18 @@ name is not a claim: write it as "not measured".
    2026-11-04 at the latest; a dogfood build then has no list of its own. `benchOnly` switches in the list
    (`cefHelperHost`, `chromiumHostIdleExit`) do not count toward that condition: rule 7 never turns them on.
 7. **Never on by default** (lead's additions, 2026-10-28): bench-only switches (`benchOnly`, for example
-   `perfLabCanary`, which delays every key), except `perfLabKillProbe`, which changes nothing and is on so that a
-   remote document can prove the kill path by turning it off; switches whose own description says to wait for something (for
+   `perfLabCanary`, which delays every key). Every `perfLab` switch is off by default in every channel, `perfLabKillProbe`
+   too (cmux-ad, 2026-10-29: a kill probe on in release must never reach feat-cmux-next); a bench turns it on for one
+   launch, and FeatureRegistryGeneratedTests.noPerfLabSwitchIsOnByDefaultInAnyChannel keeps it so.
+   What the kill switch proof (p12 done check 13) loses: with the probe off by default, a remote `off` turns off a switch
+   that is already off, so the proof no longer shows that a remote `off` beats a default that is on, which is what a
+   real kill switch must do. Turning the probe on for one launch with `CMUX_ENABLE_FEATURES` does not restore it: the
+   environment (resolution layer 2) beats the remote document (layer 4), so the remote `off` would lose. Proposed path
+   (not built): a perf lab build-default set at layer 6, under the remote document. A `FeatureDogfoodSet` with its own tag
+   prefix for the lab's bench builds (for example `perf-lab-`), holding only `perfLabKillProbe`, composed in
+   AppServices beside `chromeParity`. In a lab bench build the probe then resolves `on source=buildDefault`, the off
+   document turns it `off source=remote`, and the proof again shows a remote `off` overriding a default that is on. Every
+   channel default stays off, and no shipped build has the set or the probe (benchOnly). Switches whose own description says to wait for something (for
    example `hangReportsSchema3` waits for the server); and switches that change socket, relay, permission or
    auth policy, until they have the `risk:high` review receipt.
 
