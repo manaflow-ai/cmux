@@ -123,6 +123,11 @@ extension Motion {
         CATransaction.commit()
     }
 
+    /// Writes the model value with no implicit action. A `set` brackets this and its `add` in one
+    /// outer transaction: on its own each commits to the render server, and with no
+    /// transaction already open (a socket or timer turn) a frame could show the new model value before
+    /// the animation that starts from the old one: a dialog flashed in at full opacity for one frame,
+    /// then faded in from zero (debug.dialog_strip, 1 open in 5).
     static func setModel(_ layer: CALayer, _ keyPath: String, _ value: Any) {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -240,6 +245,9 @@ extension MotionGate {
     @discardableResult
     public func set(_ layer: CALayer, _ keyPath: String, to value: Any, spring token: MotionSpring, from: Any? = nil) -> CAAnimation? {
         let start = from ?? presentationValue(layer, keyPath)
+        // One commit for the model value and its animation (see `Motion.setModel`).
+        CATransaction.begin()
+        defer { CATransaction.commit() }
         Motion.setModel(layer, keyPath, value)
         guard animatesMovement, let start else {
             layer.removeAnimation(forKey: keyPath)
@@ -289,6 +297,9 @@ extension MotionGate {
     @discardableResult
     public func set(_ layer: CALayer, _ keyPath: String, to value: Any, fade token: MotionFade, from: Any? = nil) -> CAAnimation? {
         let start = from ?? presentationValue(layer, keyPath)
+        // One commit for the model value and its animation (see `Motion.setModel`).
+        CATransaction.begin()
+        defer { CATransaction.commit() }
         Motion.setModel(layer, keyPath, value)
         let duration = self.duration(token)
         guard duration > 0, let start else {
@@ -311,6 +322,9 @@ extension MotionGate {
     @discardableResult
     func set(_ layer: CALayer, _ keyPath: String, to value: Any, duration: TimeInterval, from: Any? = nil) -> CAAnimation? {
         let start = from ?? presentationValue(layer, keyPath)
+        // One commit for the model value and its animation (see `Motion.setModel`).
+        CATransaction.begin()
+        defer { CATransaction.commit() }
         Motion.setModel(layer, keyPath, value)
         guard duration > 0, let start else {
             layer.removeAnimation(forKey: keyPath)
