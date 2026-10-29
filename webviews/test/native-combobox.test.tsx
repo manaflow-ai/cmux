@@ -328,6 +328,127 @@ test.each(["actions", "rail"] as const)(
 );
 
 test.each([
+  { suggestions: [] as string[], policy: false as const, highlighted: false, expected: "free text" },
+  { suggestions: ["alpha"], policy: false as const, highlighted: false, expected: "free text" },
+  { suggestions: ["alpha"], policy: false as const, highlighted: true, expected: "alpha" },
+  { suggestions: ["alpha"], policy: true as const, highlighted: true, expected: "alpha" },
+  { suggestions: ["alpha"], policy: "always" as const, highlighted: true, expected: "alpha" },
+])("native search Return preserves Combobox submission %j", async (scenario) => {
+  const container = installDom();
+  const { host, shown, listeners } = nativeHost();
+  const submitted: string[] = [];
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <UiProvider container={container} popupHost={host}>
+        <Combobox
+          inline
+          defaultValue="free text"
+          label="Projects"
+          suggestions={scenario.suggestions}
+          autoHighlight={scenario.policy}
+          onQuery={() => {}}
+          onSubmit={(value) => submitted.push(value)}
+          onCancel={() => {}}
+          native={{ model: comboboxDescription({ suggestions: scenario.suggestions }) }}
+        />
+      </UiProvider>,
+    );
+  });
+  const sent = shown[0]!;
+  expect(sent.search?.value).toBe("free text");
+  expect(sent.search?.submitOnReturn).toBe(true);
+  expect(sent.search?.autoHighlight).toBe(
+    scenario.policy === "always" ? "always" : scenario.policy ? "first" : "none",
+  );
+  expect(container.querySelector('[role="option"]')).toBeNull();
+  await act(async () => {
+    for (const listener of listeners)
+      listener({
+        type: "submit",
+        popupId: sent.id,
+        revision: sent.revision,
+        value: "free text",
+        ...(scenario.highlighted ? { id: sent.rows[0]!.id } : {}),
+        reason: scenario.policy === false ? "keyboard" : "none",
+      });
+  });
+  expect(submitted).toEqual([scenario.expected]);
+  expect(listeners.size).toBe(0);
+});
+
+test.each(["none", "keyboard"] as const)(
+  "native search Return preserves pinned-action highlight provenance %s",
+  async (reason) => {
+    const container = installDom();
+    const { host, shown, listeners } = nativeHost();
+    const submitted: string[] = [];
+    await act(async () => {
+      root = createRoot(container);
+      root.render(
+        <UiProvider container={container} popupHost={host}>
+          <Combobox
+            inline
+            defaultValue="unmatched query"
+            label="Projects"
+            suggestions={["create"]}
+            pinnedSuggestions={["create"]}
+            autoHighlight="always"
+            onQuery={() => {}}
+            onSubmit={(value) => submitted.push(value)}
+            onCancel={() => {}}
+            native={{ model: comboboxDescription({ suggestions: ["create"] }) }}
+          />
+        </UiProvider>,
+      );
+    });
+    const sent = shown[0]!;
+    await act(async () => {
+      for (const listener of listeners)
+        listener({ type: "submit", popupId: sent.id, revision: sent.revision, id: sent.rows[0]!.id, value: "unmatched query", reason });
+    });
+    expect(submitted).toEqual([reason === "none" ? "unmatched query" : "create"]);
+    expect(listeners.size).toBe(0);
+  },
+);
+
+test.each(["actions", "rail", "footer"] as const)(
+  "native select does not treat an auxiliary %s ID as an option value",
+  async (location) => {
+    const container = installDom();
+    const { host, shown, listeners } = nativeHost();
+    const changed: string[] = [];
+    const options = [{ value: "dark", label: "Dark" }];
+    const model = selectDescription({ options, value: "system" });
+    const auxiliary = { id: "dark", label: "Details", keepOpen: true };
+    if (location === "actions") model.rows.push({ id: "details", kind: "text", label: "Details", actions: [auxiliary] });
+    else model[location] = [{ ...auxiliary, kind: "action" }];
+    await act(async () => {
+      root = createRoot(container);
+      root.render(
+        <UiProvider container={container} popupHost={host}>
+          <Select label="Theme" value="system" options={options} onChange={(value) => changed.push(value)} closeOnPick={false} native={{ model }} />
+        </UiProvider>,
+      );
+    });
+    const button = container.querySelector<HTMLButtonElement>("button")!;
+    await act(async () => button.click());
+    const sent = shown[0]!;
+    await act(async () => {
+      for (const listener of listeners)
+        listener({ type: "pick", popupId: sent.id, revision: sent.revision, id: "dark" });
+    });
+    expect(changed).toEqual([]);
+    expect(button.getAttribute("aria-expanded")).toBe("true");
+    await act(async () => {
+      for (const listener of listeners)
+        listener({ type: "pick", popupId: sent.id, revision: sent.revision, id: sent.rows[0]!.id });
+    });
+    expect(changed).toEqual(["dark"]);
+  },
+);
+
+test.each([
   { key: "ArrowDown", ctrlKey: false },
   { key: "ArrowUp", ctrlKey: false },
   { key: "n", ctrlKey: true },
