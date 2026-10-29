@@ -142,6 +142,8 @@ pub(crate) mod outbox;
 #[cfg(test)]
 mod panic_free_tests;
 pub mod rules;
+#[cfg(test)]
+mod status_close_tests;
 mod transcript;
 mod transfer;
 mod transfer_guard;
@@ -1255,9 +1257,31 @@ impl Hub {
     }
 
     pub(super) fn set_status(&self, session: &Session, status: SessionStatus) {
+        self.set_status_if(session, status, |_| true);
+    }
+
+    /// `status`, unless the session is closed: a turn's end or an agent that went away never
+    /// reopens a session its close already ended. Decided under the meta lock the close writes
+    /// under, so a close between a caller's read and this write is never overwritten (a read of
+    /// `status()` then `set_status` was a check-then-act race).
+    pub(super) fn set_status_unless_closed(&self, session: &Session, status: SessionStatus) {
+        self.set_status_if(session, status, |was| was != SessionStatus::Closed)
+    }
+
+    /// `set_status` when `allowed(current status)`, read and written under one hold of the
+    /// meta lock.
+    fn set_status_if(
+        &self,
+        session: &Session,
+        status: SessionStatus,
+        allowed: impl FnOnce(SessionStatus) -> bool,
+    ) {
         let (was, link) = {
             let mut m = session.meta.lock_or_recover();
             let was = m.status;
+            if !allowed(was) {
+                return;
+            }
             m.status = status;
             m.updated_at = now_ms();
             // The parent's slot follows the status under the same lock, so

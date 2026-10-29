@@ -758,7 +758,8 @@ impl Hub {
             // waiting on nothing.
             let state = session.permissions.lock().unwrap_or_else(|e| e.into_inner());
             let asking = !state.pending.is_empty() || self.secrets.waiting_in(&session.id);
-            self.set_status(
+            // A close may have landed during the probe above: it stays closed.
+            self.set_status_unless_closed(
                 session,
                 match (alive, asking) {
                     (false, _) => SessionStatus::Disconnected,
@@ -827,9 +828,7 @@ impl Hub {
         self.record_last_turn(session, &msg);
         self.append(session, "mux", "turn_result", msg);
         self.reset_stream(session);
-        if session.status() != SessionStatus::Closed {
-            self.set_status(session, SessionStatus::Disconnected);
-        }
+        self.set_status_unless_closed(session, SessionStatus::Disconnected);
         self.save_meta(session);
     }
 
@@ -1206,8 +1205,6 @@ impl Hub {
             child.kill().await;
         }
         *session.turn.lock_or_recover() = None;
-        if session.status() != SessionStatus::Closed {
-            self.set_status(session, SessionStatus::Idle);
-        }
+        self.set_status_unless_closed(session, SessionStatus::Idle);
     }
 }
