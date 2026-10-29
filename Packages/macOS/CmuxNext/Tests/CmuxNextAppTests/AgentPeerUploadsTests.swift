@@ -113,7 +113,7 @@ import Testing
             let reply = await stager(.begin(name: "slow.bin", size: 1, batchToken: nil, batch: nil), session)
             let token = try #require((reply["value"] as? [String: Any])?["token"] as? String)
             _ = await stager(.chunk(token: token, offset: 0, data: Data([1])), session)
-            let finishing = Task { await stager(.finish(token: token), session) }
+            let finishing = Task { @MainActor in _ = await stager(.finish(token: token), session) }
             let staged = await host.waitForFile()
             #expect(FileManager.default.fileExists(atPath: staged.path))
             _ = await stager(.cancel(token: token), session)
