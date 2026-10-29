@@ -211,11 +211,20 @@ test("a row's answer sends that ask's own option for its chat, once, and the row
 
 test("a refused answer says so on its row, and the row answers again", async () => {
   const inbox = await mount();
+  const initial = inbox.rowOf("Run the payment tests");
+  expect(initial.querySelector('[role="alert"]')).toBeNull();
+  expect(initial.querySelector('.acpmux-home-inbox-error[aria-hidden="true"]')?.textContent).toBe(
+    translate("permission.error.refused"),
+  );
+  expect(inbox.rowOf("Which sign-in?").querySelector(".acpmux-home-inbox-error")).toBeNull();
+  expect(inbox.rowOf("Release notes").querySelector(".acpmux-home-inbox-error")).toBeNull();
   await inbox.click(inbox.rowOf("Run the payment tests"), allow);
   await inbox.settle(0, "refused");
   const row = inbox.rowOf("Run the payment tests");
   expect(row.querySelector('[role="alert"]')?.textContent).toBe(translate("permission.error.refused"));
   await inbox.click(row, allow);
+  expect(row.querySelector('[role="alert"]')).toBeNull();
+  expect(row.querySelector('.acpmux-home-inbox-error[aria-hidden="true"]')).not.toBeNull();
   expect(inbox.sent.map(({ optionId }) => optionId)).toEqual(["p-tests-yes", "p-tests-yes"]);
   await inbox.unmount();
 });

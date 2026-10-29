@@ -351,6 +351,18 @@ export default componentEntry<Props>({
       props: { ...baseline, onAnswer: () => Promise.reject(new Error("no pending permission")) },
       play: refusedAnswer,
     },
+    "refusal-ready": {
+      note: "An answerable inbox before a refusal; click Allow once to exercise the error footprint.",
+      props: { ...baseline, onAnswer: () => Promise.reject(new Error("no pending permission")) },
+    },
+    "refusal-ready-compact": {
+      note: "The compact inbox before a refusal, with the same inline answer path.",
+      props: { ...baseline, look: "compact", onAnswer: () => Promise.reject(new Error("no pending permission")) },
+    },
+    "refusal-ready-grouped": {
+      note: "The grouped inbox before a refusal, with the same inline answer path.",
+      props: { ...baseline, look: "grouped", onAnswer: () => Promise.reject(new Error("no pending permission")) },
+    },
     empty: {
       note: "A clean new chat has no home lists when every other session is current, archived, side, or not ready.",
       props: empty,
