@@ -1114,10 +1114,11 @@ def start_guardrails(repo: Path, ranges: list, trusted_scripts: Path | None):
 def guardrails(repo: Path, ranges: list, started) -> bool:
     """Print the guardrail warnings and refusals (line rules and arch ratchet) for RANGES; True when they refuse.
 
-    STARTED is start_guardrails()'s result. The rules are advisory debt checks in every agent's hook: a bug in
-    one rule turns off only that rule (guardrails.check warns and runs the rest); a bug outside the rules (a
-    failed load or git call, a parse edge) prints a warning and lets the push through instead of blocking
-    every push with a traceback. RANGES are the gate's push_range.OwnRange values, so the guardrails judge the
+    STARTED is start_guardrails()'s result. The rules are debt checks in every agent's hook: a rule that raises
+    refuses the push with its name and error (guardrails.measure fails closed and runs the rest, so a broken rule
+    never passes a push unjudged; its skip reason lets the push through); a bug outside the rules (a failed load
+    or git call, a parse edge) prints a warning and lets the push through instead of blocking every push with a
+    traceback. RANGES are the gate's push_range.OwnRange values, so the guardrails judge the
     same own commits as the scanners: what a push only brings in from origin/feat-cmux-next (a merge of it, or a
     rebase onto it and a force push) never counts, because CI never runs these rules and that base can carry
     debt.
