@@ -530,11 +530,34 @@ class SigningOwnedMacTests(unittest.TestCase):
         owned, why = signing_runner.owned_pick(env, read, jobs)
         self.assertEqual(owned, "", why)
         self.assertIn("already hold an owned Mac", why)
-        for status in ("queued", "waiting", "pending", "requested"):  # every unfinished run status is read
+        for status in ("waiting", "pending", "requested"):  # every unfinished run status a started run can have
             with self.subTest(run_status=status):
                 run_status[0] = status
                 self.assertEqual(signing_runner.owned_pick(env, read, jobs)[0], "")
+        run_status[0] = "queued"  # no job of a queued run has started, so none carries a pin: never read
+        self.assertTrue(signing_runner.owned_pick(env, read, jobs)[0])
+        reads: list[str] = []
+        signing_runner.owned_signing_jobs(lambda path: reads.append(path) or {"workflow_runs": [], "jobs": []})
+        self.assertFalse([path for path in reads if "status=queued" in path],
+                         "over 100 queued runs failed every pick closed (runs 40897459413, 40905688542)")
         run_status[0] = "in_progress"
+        fails = [502]
+
+        def flaky(path: str) -> dict:
+            if fails:
+                import urllib.error  # noqa: PLC0415
+                raise urllib.error.HTTPError(path, fails.pop(), "Bad Gateway", {}, None)
+            return jobs(path)
+
+        kept = list(held)
+        held.clear()
+        self.assertTrue(signing_runner.owned_pick(env, read, flaky)[0], "one 502 is retried, and the count goes on")
+        self.assertEqual(fails, [])
+        fails[:] = [404]
+        self.assertEqual(signing_runner.owned_pick(env, read, flaky)[0], "", "a 4xx is not retried: fails closed")
+        fails[:] = [502, 502, 502]
+        self.assertEqual(signing_runner.owned_pick(env, read, flaky)[0], "", "persistent 5xx fails closed")
+        held[:] = kept
 
         def truncated(path: str) -> dict:
             if "/runs?" in path:
