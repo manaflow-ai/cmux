@@ -36,7 +36,7 @@ export function HostError({
         <Spinner size={14} loading className="acpmux-reconnecting-spinner" />
         <span>{t("header.reconnecting")}…</span>
         {onRestart && (
-          <button type="button" onClick={onRestart} disabled={restarting}>
+          <button type="button" onClick={onRestart} disabled={restarting || retrying}>
             {t(restarting ? "host.restarting" : "host.restart")}
           </button>
         )}
