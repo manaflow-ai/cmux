@@ -437,6 +437,8 @@ button.acpmux-chat-inspector-port:hover,
 }
 .acpmux-chat-inspector-row > svg {
   flex: none;
+  width: var(--acpmux-glyph-slot);
+  height: var(--acpmux-glyph-slot);
   color: var(--agent-muted);
 }
 .acpmux-chat-inspector-row--button {

@@ -16,6 +16,7 @@ import { UserBubble } from "../../src/agent-session/acpmux/conversation/UserBubb
 import { ReadReceipt, ReceivedActions } from "../../src/agent-session/acpmux/conversation/MessageActions";
 import { TurnActionsContext, type TurnActions } from "../../src/agent-session/acpmux/conversation/turnActions";
 import { InspectorSection } from "../../src/agent-session/acpmux/inspector/InspectorSection";
+import { EnvironmentSection } from "../../src/agent-session/acpmux/inspector/EnvironmentSection";
 import strings from "../../src/agent-session/acpmux/generated/strings.json";
 import type { AcpmuxActivity, AcpmuxRow } from "../../src/agent-session/acpmux/model";
 
@@ -166,6 +167,7 @@ function App() {
           <PlanList ended entries={[{ content: "The completed plan step", status: "completed" }]} />
         </div>
         <div data-glyph-row="session-info">
+          <EnvironmentSection machineName="Studio" />
           <InspectorSection
             id="glyph-session-info"
             title="Session Info"

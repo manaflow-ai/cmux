@@ -32,11 +32,11 @@ await requireBrowserLane("transcript-glyph-alignment-browser.test.ts", async () 
       try {
         const port = (vite.httpServer!.address() as { port: number }).port;
         await page.goto(`http://127.0.0.1:${port}/test/browser/transcript-glyph-alignment.html?theme=${theme}&narrow`);
-        await page.locator(".cv-turn-auth-action").first().waitFor();
+        await page.locator(".cv-turn-actions .cv-turn-auth-action").first().waitFor();
         await page.evaluate(() => document.fonts.ready);
         const recovery = await page.evaluate(() => {
           const row = document.querySelector("[data-auth-footer]")!.getBoundingClientRect();
-          return [...document.querySelectorAll(".cv-turn-auth-action")].map((button) => {
+          return [...document.querySelectorAll(".cv-turn-actions .cv-turn-auth-action")].map((button) => {
             const box = button.getBoundingClientRect();
             return {
               left: box.left - row.left,
@@ -114,12 +114,20 @@ await requireBrowserLane("transcript-glyph-alignment-browser.test.ts", async () 
             );
             const retry = (kind: string) =>
               getComputedStyle(document.querySelector(`[data-received-row="${kind}"] .cv-message-retry`)!).display;
+            const sessionInfo = document.querySelector('[data-glyph-row="session-info"]')!;
+            const sectionTitle = sessionInfo
+              .querySelector(".acpmux-chat-inspector-section__title")!
+              .getBoundingClientRect();
+            const environmentName = sessionInfo
+              .querySelector(".acpmux-chat-inspector-row__name")!
+              .getBoundingClientRect();
             return {
               rows,
               footer,
               versionFooter,
               retryHidden: retry("nonretryable"),
               retryShown: retry("retryable"),
+              inspectorColumnDelta: Math.abs(sectionTitle.left - environmentName.left),
             };
           });
           console.log(`GLYPH_METRICS ${JSON.stringify({ theme, height, ...measurements })}`);
@@ -131,6 +139,7 @@ await requireBrowserLane("transcript-glyph-alignment-browser.test.ts", async () 
           }
           expect(errors).toEqual([]);
           expect(measurements.rows).toHaveLength(7);
+          expect(measurements.inspectorColumnDelta).toBeLessThanOrEqual(0.5);
           for (const row of measurements.rows) {
             expect(row.glyphs.length, row.kind).toBeGreaterThan(0);
             for (const glyph of row.glyphs) expect(glyph.delta, row.kind).toBeLessThanOrEqual(0.5);
