@@ -5,7 +5,9 @@ from __future__ import annotations
 
 import logging
 import os
+import shlex
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -49,14 +51,19 @@ def _workspace_exists(c: cmux, workspace_id: str) -> bool:
 
 
 def main() -> int:
-    with cmux(SOCKET_PATH) as c:
+    with tempfile.TemporaryDirectory(prefix="cmux-background-close-") as directory, cmux(SOCKET_PATH) as c:
+        exit_signal = Path(directory) / "exit.fifo"
+        os.mkfifo(exit_signal, 0o600)
+        # Keep both ends open so releasing the shell never blocks, even if it
+        # has not reached its read yet. The unread signal remains buffered.
+        signal_fd = os.open(exit_signal, os.O_RDWR | os.O_NONBLOCK)
         created_workspace = ""
         try:
-            # The shell exits on its own a few seconds later, so the close
-            # happens with no socket call in flight to refresh the snapshot.
+            # Hold the shell until the initial snapshot is recorded, then let
+            # it exit without a socket mutation that could refresh the snapshot.
             payload = c._call(
                 "workspace.create",
-                {"focus": False, "initial_command": "sleep 3; exit"},
+                {"focus": False, "initial_command": f"read -r cmux_close_signal < {shlex.quote(str(exit_signal))}; exit"},
             ) or {}
             created_workspace = str(payload.get("workspace_id") or "")
             _must(bool(created_workspace), f"workspace.create returned no workspace_id: {payload}")
@@ -77,6 +84,7 @@ def main() -> int:
             _must(len(before) > 1, f"the new workspace is the only one, so closing it closes the window: {before}")
             expected = [row for row in before if row[0] != created_workspace]
 
+            os.write(signal_fd, b"close\n")
             if not _wait_until(lambda: _listed_rows(c) == expected, 20.0):
                 listed = _listed_rows(c)
                 # This live read publishes a fresh snapshot, so it only runs after the wait.
@@ -93,6 +101,7 @@ def main() -> int:
                     c.close_workspace(created_workspace)
                 except Exception:
                     logging.exception("Failed to clean up workspace %s", created_workspace)
+            os.close(signal_fd)
 
     print("PASS: workspace.list drops a workspace that closed in the background")
     return 0
