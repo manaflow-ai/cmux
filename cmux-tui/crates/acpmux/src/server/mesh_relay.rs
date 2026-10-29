@@ -405,7 +405,9 @@ fn sender_name(message: &InMessage) -> String {
     if let Some(address) =
         message.from.team_address.as_deref().map(str::trim).filter(|v| !v.is_empty())
     {
-        return clean(address).chars().take(crate::hub::MAX_FROM_AGENT_CHARS).collect();
+        let address = clean(address);
+        let address = if address.starts_with('@') { address } else { format!("@{address}") };
+        return address.chars().take(crate::hub::MAX_FROM_AGENT_CHARS).collect();
     }
     let (host, name) = (field(&message.from.host), field(&message.from.name));
     let named = match (host.is_empty(), name.is_empty()) {
