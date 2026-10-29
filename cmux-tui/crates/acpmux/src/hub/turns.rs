@@ -825,17 +825,11 @@ impl Hub {
         // What the agent said, before `finish_turn` adds a dead process's last stderr line; a
         // model switch (`detach_child`) that ended the turn is no connection error.
         let agent_error = result.as_ref().err().map(|e| e.message.clone());
-        let running = session.turn().filter(|t| t.turn_id == turn_id);
-        let detached = running.is_none();
+        let detached = session.turn().is_none_or(|t| t.turn_id != turn_id);
         // Its agent ended the turn and runs on with steers it read after: the next turn starts
-        // as this one ends (`carried_turn.rs`).
-        let carried = super::carried_turn::carried(&result)
-            .filter(|_| !detached && !self.shutting_down())
-            .map(|c| {
-                let next = self.carried_turn(session, running.as_ref(), &c);
-                (c, next)
-            });
-        let next = carried.as_ref().map(|(_, next)| next.clone());
+        // as this one ends (`carried_turn.rs`). Boxed: this future stays small.
+        let carried = self.next_carried(session, &turn_id, &result);
+        let next = carried.as_ref().map(|c| c.next.clone());
         let mut result = self
             .finish_turn(
                 session,
@@ -848,8 +842,8 @@ impl Hub {
                 next,
             )
             .await;
-        if let Some((c, next)) = &carried {
-            self.start_carried(session, &child, &turn_id, next.clone(), c);
+        if let Some(c) = &carried {
+            self.start_carried(session, &child, &turn_id, c);
         }
         // A rule counts as told once the agent answered the prompt that carried it.
         self.forum_turn_end(session, &told, result.is_ok());

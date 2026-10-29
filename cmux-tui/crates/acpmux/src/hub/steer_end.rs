@@ -200,7 +200,8 @@ impl Hub {
         // Read after the turn it was steered into ended: it went into the next one, which that
         // turn named as it ended (`carried_turn.rs`).
         let into = match super::carried_turn::steer_carry(&answer) {
-            Some(seq) => Self::carried_into(session, &prompt_id, seq).await,
+            // Boxed: this future stays small (it runs inside a prompt's, `steer_queued`).
+            Some(seq) => Box::pin(Self::carried_into(session, &prompt_id, seq)).await,
             None => None,
         };
         {

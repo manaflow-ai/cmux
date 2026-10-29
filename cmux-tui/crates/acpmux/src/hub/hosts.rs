@@ -1126,21 +1126,16 @@ impl Hub {
                         };
                         // Its agent ended it and runs on with steers it read after: the next turn
                         // starts as this one ends (`carried_turn.rs`).
-                        let carried = super::carried_turn::carried(&result)
-                            .filter(|_| s.turn().is_some_and(|t| t.turn_id == turn_id))
-                            .map(|c| {
-                                let next = hub.carried_turn(&s, s.turn().as_ref(), &c);
-                                (c, next)
-                            });
-                        let next = carried.as_ref().map(|(_, next)| next.clone());
+                        let carried = hub.next_carried(&s, &turn_id, &result);
+                        let next = carried.as_ref().map(|c| c.next.clone());
                         let _ = hub
                             .finish_turn(&s, &c, result, &prompt_id, &turn_id, turn_seq, None, next)
                             .await;
                         // A recovered turn is not continued (`auto_resume.rs`); settle its mark.
                         hub.schedule_auto_resume(&s, &turn_id, None);
-                        if let Some((carried, next)) = &carried {
+                        if let Some(carried) = &carried {
                             // Its task takes the turn lock once this one lets it go.
-                            hub.start_carried(&s, &c, &turn_id, next.clone(), carried);
+                            hub.start_carried(&s, &c, &turn_id, carried);
                             drop(guard);
                             return;
                         }

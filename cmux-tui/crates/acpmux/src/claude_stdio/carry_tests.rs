@@ -135,7 +135,15 @@ async fn a_steer_read_during_the_turn_joins_it() {
     let ended = answer(&t.inbound(&done("both")).await, 1).expect("the turn ends");
     assert_eq!(ended["stopReason"], "end_turn");
     assert!(ended["_meta"]["claude"].get("carried").is_none(), "{ended}");
-    // Nothing is owed: a stray carried prompt ends at once.
+}
+
+/// A carried turn's prompt with no carried turn owed ends at once, writing nothing.
+#[tokio::test]
+async fn a_carried_prompt_with_none_owed_ends_at_once() {
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    let line = turn_with_a_steer(&t).await;
+    t.inbound(&echo(&line)).await;
+    assert!(answer(&t.inbound(&done("both")).await, 1).is_some());
     let Outbound::Reply(reply) = t.outbound(&carried(3)).await else { panic!("it waited") };
     assert_eq!(answer(&[reply], 3).unwrap()["stopReason"], "end_turn");
 }

@@ -37,6 +37,12 @@ pub(super) struct Carried {
     pub(super) prompt_ids: Vec<String>,
 }
 
+/// The turn that takes a turn's place as it ends (`Hub::next_carried`).
+pub(super) struct NextTurn {
+    pub(super) carried: Carried,
+    pub(super) next: TurnInfo,
+}
+
 /// How long a steer read after a carry waits for its turn to be named: the turn that carried
 /// it names the next one before it ends, so this is only a bound.
 const CARRIED_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
@@ -60,6 +66,23 @@ pub(super) fn steer_carry(answer: &Result<Value, RpcError>) -> Option<u64> {
 }
 
 impl Hub {
+    /// The turn that takes `turn_id`'s place as it ends, when the agent's `result` carried
+    /// steers and `turn_id` is still the session's turn (a detached one carries nothing), boxed.
+    pub(super) fn next_carried(
+        &self,
+        session: &Session,
+        turn_id: &str,
+        result: &Result<Value, RpcError>,
+    ) -> Option<Box<NextTurn>> {
+        let carried = carried(result)?;
+        let running = session.turn().filter(|t| t.turn_id == turn_id)?;
+        if self.shutting_down() {
+            return None;
+        }
+        let next = self.carried_turn(session, Some(&running), &carried);
+        Some(Box::new(NextTurn { carried, next }))
+    }
+
     /// The turn after `from` (the session's turn still) for what `carried` names: a new turn id,
     /// the first carried steer as its prompt, and a Web turn if any of them, or `from`, was one.
     /// Each carried steer is named as in it now, before `from` ends (`carried_into`).
@@ -103,15 +126,15 @@ impl Hub {
         session: &Arc<Session>,
         child: &Arc<ChildAgent>,
         from: &str,
-        mut turn: TurnInfo,
-        carried: &Carried,
+        next: &NextTurn,
     ) {
+        let mut turn = next.next.clone();
         if session.turn().is_none_or(|t| t.turn_id != turn.turn_id) {
             return;
         }
-        turn.turn_seq = self.begin_carried(session, from, &turn, carried);
+        turn.turn_seq = self.begin_carried(session, from, &turn, &next.carried);
         let (hub, session, child) = (self.clone(), session.clone(), child.clone());
-        tokio::spawn(async move { hub.run_carried(session, child, turn).await });
+        tokio::spawn(Box::pin(async move { hub.run_carried(session, child, turn).await }));
     }
 
     /// The carried turn's start: counted, and logged as `turn_started` after `from`'s end.
@@ -168,11 +191,8 @@ impl Hub {
                 }
                 None => Err(RpcError::internal("no agent session")),
             };
-            let next = carried(&result).filter(|_| !self.shutting_down()).map(|c| {
-                let next = self.carried_turn(&session, session.turn().as_ref(), &c);
-                (c, next)
-            });
-            let in_place = next.as_ref().map(|(_, t)| t.clone());
+            let next = self.next_carried(&session, &turn.turn_id, &result);
+            let in_place = next.as_ref().map(|n| n.next.clone());
             let (prompt_id, turn_id) = (&turn.prompt_id, &turn.turn_id);
             let _ = self
                 .finish_turn(
@@ -187,12 +207,13 @@ impl Hub {
                 )
                 .await;
             self.schedule_auto_resume(&session, turn_id, None);
-            let Some((c, mut next)) = next else { break };
-            if session.turn().is_none_or(|t| t.turn_id != next.turn_id) {
+            let Some(next) = next else { break };
+            let NextTurn { carried, next: mut next_turn } = *next;
+            if session.turn().is_none_or(|t| t.turn_id != next_turn.turn_id) {
                 break;
             }
-            next.turn_seq = self.begin_carried(&session, turn_id, &next, &c);
-            turn = next;
+            next_turn.turn_seq = self.begin_carried(&session, turn_id, &next_turn, &carried);
+            turn = next_turn;
         }
         // A route switch asked during these turns moves the chat now (`route_switch.rs`).
         if session.route_switch.load(Ordering::SeqCst) {
