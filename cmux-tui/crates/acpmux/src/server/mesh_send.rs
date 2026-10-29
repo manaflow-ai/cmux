@@ -223,7 +223,7 @@ pub(super) fn valid_team_address(address: &str) -> bool {
         && scope.len() <= 128
         && name.len() <= 128
         && scope.bytes().all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b))
-        && name.bytes().all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b))
+        && name.bytes().all(|b| b.is_ascii_alphanumeric() || b"._:-".contains(&b))
 }
 
 #[cfg(test)]
@@ -244,6 +244,7 @@ mod tests {
             Some("@lawrence/coordinator")
         );
         assert!(valid_team_address("@team/role"));
+        assert!(valid_team_address("@member/reviewer:backend"));
         assert!(!valid_team_address("@team"));
     }
 }
