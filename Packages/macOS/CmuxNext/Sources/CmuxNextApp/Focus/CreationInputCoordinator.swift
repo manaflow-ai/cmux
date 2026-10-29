@@ -291,7 +291,10 @@ final class CreationInputCoordinator {
         }
         guard let ticket, let window, let hold = holds[window.windowNumber],
               let creation = hold.creations.resolve(ticket, landed: landed, workspace: workspace) else { return }
-        if !creation.landed { drop([creation], .targetFailed, in: hold) }
+        if !creation.landed {
+            drop([creation], .targetFailed, in: hold)
+            settleFocusAfterFailure(in: window)
+        }
         // Where its focus lands, read in the reply's turn: the expectation it asked for, or the tab that expectation
         // already landed on (the topology listed it). A new workspace's lands once the window shows it.
         if creation.landed, !creation.newWorkspace, let state = router?.focus(for: window).0?.focus.currentState(),
@@ -304,6 +307,16 @@ final class CreationInputCoordinator {
         }
         syncMode()
         scheduleReconcile(in: window)
+    }
+
+    /// R3 at a failed creation (principled audit, lagFirstKey step 6): in the failure's turn the window's content follows
+    /// the store (the failed pane or tab is gone from it) and the focus model reduces that topology, so the model names a
+    /// target that exists (the close-focus successor) and applies it to the responder. No window keeps a dead keyboard
+    /// until a later turn, a timer or the next key.
+    private func settleFocusAfterFailure(in window: NSWindow) {
+        guard let controller = router?.focus(for: window).0 else { return }
+        controller.workspaceContent?.applyCurrent()
+        _ = controller.focus.currentState()
     }
 
     /// Whether `event`'s binding in `controller`'s focus is a close action (Close Tab, Cmd-W).
