@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import itertools
 import json
 import re
 import unittest
@@ -154,17 +153,8 @@ BOUNDED_SELECTOR_JOBS = {
     ("iroh-release-gate.yml", "runner"), ("nightly-next-train.yml", "pick-train-runner"),
     ("sdk-release-cut.yml", "cut-tags"), ("test-e2e.yml", "runner"), ("test-ios.yml", "runner"),
 }
-EPHEMERAL_LITERAL = re.compile(r"blacksmith-[a-z0-9-]+|ubuntu-\d{2}\.\d{2}|macos-\d+")
-# What each context a runs-on may read is tried with. A repository variable gets every
-# value below and every label the expression names: no value may yield a label the
-# expression does not name, or a non-Blacksmith one inside manaflow-ai.
-RUNNER_CONTEXT_VALUES = {
-    "github.repository_owner": ("manaflow-ai", "someone"),
-    "github.repository": ("manaflow-ai/cmux",),
-    "github.event_name": ("pull_request", "push", "schedule", "workflow_dispatch", "workflow_run"),
-    "github.event.pull_request.head.repo.full_name": ("manaflow-ai/cmux", "someone/cmux"),
-    "inputs.owned_head_repos": ("[]", '["someone/cmux"]'),
-}
+HOSTED_LITERAL_LABEL = re.compile(r"ubuntu-latest|ubuntu-\d{2}\.\d{2}(?:-arm)?|macos-\d+(?:-intel)?|windows-\d{4}")
+# Values the selector test tries for LINUX_RUNNER: owned and hosted labels, case and list forms.
 ADVERSARIAL_VARIABLE_VALUES = (
     "", "glaeda-std-xcode-26.6", "glaeda-gui-xcode-26.6", "self-hosted", "cmux-lawrence", "ubuntu-24.04",
     "macos-26", "BLACKSMITH-32VCPU-UBUNTU-2404", "blacksmith-4vcpu-ubuntu-2404-arm", "blacksmith-6vcpu-macos-26",
@@ -174,10 +164,6 @@ ADVERSARIAL_VARIABLE_VALUES = (
 
 class _Unsupported(ValueError):
     pass
-
-
-class _Fails(ValueError):
-    """The expression errors for this context, so the job fails instead of picking a runner."""
 
 
 def _truthy(value: object) -> bool:
@@ -222,10 +208,7 @@ def evaluate_runs_on(node: tuple, context: dict[str, str]) -> object:
             raise _Unsupported(f"comparison of {type(left).__name__} with {type(right).__name__}")
         return (left.lower() == right.lower()) == (node[1] == "==")
     if kind == "call" and node[1] == "fromJSON" and len(node[2]) == 1:
-        try:
-            return json.loads(str(evaluate_runs_on(node[2][0], context)))
-        except json.JSONDecodeError as error:
-            raise _Fails(str(error)) from error
+        return json.loads(str(evaluate_runs_on(node[2][0], context)))
     if kind == "call" and node[1] in ("contains", "startsWith") and len(node[2]) == 2:
         haystack, needle = (evaluate_runs_on(arg, context) for arg in node[2])
         if isinstance(haystack, list):
@@ -237,112 +220,73 @@ def evaluate_runs_on(node: tuple, context: dict[str, str]) -> object:
     raise _Unsupported(repr(node))
 
 
-def _ref_name(node: tuple) -> str | None:
-    return _refs(node)[0] if node[0] == "ref" else None
+def _alternatives(node: tuple) -> list[tuple]:
+    """The operands of a top-level || chain, in order (a lone term is a chain of one)."""
+    return [leaf for child in node[1] for leaf in _alternatives(child)] if node[0] == "or" else [node]
 
 
-def _compared_literals(node: tuple, found: dict[str, set[str]] | None = None) -> dict[str, set[str]]:
-    """ref -> the string literals it is compared with by == or !=."""
-    found = {} if found is None else found
-    if node[0] == "cmp":
-        for side, other in ((node[2], node[3]), (node[3], node[2])):
-            name = _ref_name(side)
-            if name and other[0] == "literal" and other[1].startswith("'"):
-                found.setdefault(name, set()).add(other[1][1:-1].replace("''", "'"))
-    for child in (node[1] if node[0] in ("or", "and") else node[2] if node[0] == "call"
-                  else (node[1],) if node[0] == "not" else (node[2], node[3]) if node[0] == "cmp" else ()):
-        _compared_literals(child, found)
-    return found
+def _string(node: tuple) -> str | None:
+    return node[1][1:-1].replace("''", "'") if node[0] == "literal" and node[1].startswith("'") else None
 
 
-def _free_refs(node: tuple, inside: str = "") -> set[str]:
-    """Refs used other than as a side of == or !=, or as the needle of contains(fromJSON(..), ref)."""
-    kind = node[0]
-    if kind == "ref":
-        return set() if inside == "cmp" else {_refs(node)[0]}
-    if kind == "cmp":
-        return {ref for side in (node[2], node[3]) for ref in _free_refs(side, "cmp")}
-    if kind == "call":
-        args = node[2]
-        if node[1] == "contains" and len(args) == 2 and args[0][0] == "call" and args[0][1] == "fromJSON":
-            return _free_refs(args[0]) | _free_refs(args[1], "cmp")
-        return {ref for arg in args for ref in _free_refs(arg)}
-    if kind in ("or", "and"):
-        return {ref for child in node[1] for ref in _free_refs(child)}
-    if kind == "not":
-        return _free_refs(node[1])
-    return set()
-
-
-# The only places a key-holding runs-on may read a repository variable, as exact text. The
-# evaluator below then checks what the whole expression yields; this allowlist is what makes the
-# check complete, since no enumeration of values covers every form (review of #27631).
-ALLOWED_VARIABLE_READS = (
-    re.escape(BOUNDED_LINUX_SELECTOR),
-    r"vars\.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-[a-z0-9-]+' \|\|",
-)
-VARIABLE_READ = re.compile(r"\bvars\s*[.\[]", re.IGNORECASE)
+def _bounded_pick(conditions: list[tuple], picked: tuple) -> list[str]:
+    """The labels `... && contains(fromJSON('[labels]'), R) && R` can yield: R only when it equals
+    (ignoring case) one of the listed labels. [] when no such contains() guards R."""
+    name = _refs(picked)[0] if picked[0] == "ref" else None
+    for condition in conditions:
+        if (name and condition[0] == "call" and condition[1] == "contains" and len(condition[2]) == 2
+                and condition[2][0][0] == "call" and condition[2][0][1] == "fromJSON"
+                and len(condition[2][0][2]) == 1 and _string(condition[2][0][2][0]) is not None
+                and condition[2][1][0] == "ref" and _refs(condition[2][1]) == [name]):
+            try:
+                labels = json.loads(_string(condition[2][0][2][0]))
+            except json.JSONDecodeError:
+                return []
+            if isinstance(labels, list) and labels and all(isinstance(label, str) for label in labels):
+                return labels
+    return []
 
 
 def runner_label_errors(runs_on: str) -> list[str]:
-    """Why a runs-on could put a key on a machine it does not name; [] when it never can."""
+    """Why a runs-on could put a secret on a machine it does not name; [] when it never can.
+
+    Structural, so complete without enumerating values: the runs-on is a || chain whose every
+    operand yields a Blacksmith label the expression writes out, whatever its conditions are:
+    a string literal, `conditions && 'literal'` (a false condition only passes on to the next
+    operand), or a bounded pick `conditions && contains(fromJSON('[labels]'), R) && R`. The chain
+    ends with a literal, so it never yields a falsy value. The one exception is the fork branch
+    `github.repository_owner != 'manaflow-ai' && '<hosted label>'`, first, which never runs in
+    manaflow-ai. The exact CI_TRUSTED_RUNNER selector is accepted too: its list is ephemeral.
+    """
     if runs_on == TRUSTED_RUNNER_EXPRESSION:
         return []
-    remainder = runs_on
-    for allowed in ALLOWED_VARIABLE_READS:
-        remainder = re.sub(allowed, "", remainder)
-    if VARIABLE_READ.search(remainder):
-        return [f"{runs_on!r} reads a variable outside the bounded selector"]
     expression = re.fullmatch(r"\$\{\{(.*)\}\}", runs_on.strip(), re.DOTALL)
     if expression is None:
-        return [] if re.fullmatch(r"blacksmith-[a-z0-9-]+", runs_on) else [f"{runs_on!r} is not a Blacksmith label"]
+        if re.fullmatch(r"blacksmith-[a-z0-9-]+", runs_on) or HOSTED_LITERAL_LABEL.fullmatch(runs_on):
+            return []  # One fixed ephemeral label: a Blacksmith VM or a GitHub-hosted one.
+        return [f"{runs_on!r} is not an ephemeral label"]
     try:
-        tree = parse_expression(expression.group(1))
+        chain = _alternatives(parse_expression(expression.group(1)))
     except ExpressionSyntaxError as error:
         return [f"cannot parse {runs_on!r}: {error}"]
-    literals: set[str] = set()
-    for kind, text in _TOKENS(expression.group(1)):
-        if kind != "string":
-            continue
-        value = text[1:-1].replace("''", "'")
-        literals.add(value.lower())
-        # The labels of a fromJSON('[...]') list are named by the expression too.
-        if value.startswith("["):
-            literals.update(str(item).lower() for item in json.loads(value))
-    named = {label for label in literals if EPHEMERAL_LITERAL.fullmatch(label)}
-    refs = sorted(set(_refs(tree)))
-    # Each literal, and values that extend it, so a startsWith or substring pick is tried too.
-    near = sorted({variant for literal in literals
-                   for variant in (literal, literal + "-x", "glaeda-" + literal, literal.upper())})
-    compared = _compared_literals(tree)
-    choices = []
-    for ref in refs:
-        if ref in RUNNER_CONTEXT_VALUES:
-            # Its listed values, every literal it is compared with, and one value outside them,
-            # so a branch for an event or a repository not listed here is still evaluated. A
-            # context used other than in a comparison (returned, or searched) gets every
-            # literal and its extensions, as a variable does.
-            values = (*RUNNER_CONTEXT_VALUES[ref], *sorted(compared.get(ref, ())), "zz-unlisted")
-            if ref in _free_refs(tree):
-                values += tuple(near)
-            choices.append(tuple(dict.fromkeys(values)))
-        elif ref.lower().startswith("vars."):
-            choices.append(tuple(dict.fromkeys((*ADVERSARIAL_VARIABLE_VALUES, *near))))
-        else:
-            return [f"{runs_on!r} reads {ref}, which this check cannot enumerate"]
+    blacksmith = re.compile(r"blacksmith-[a-z0-9-]+", re.IGNORECASE)
     errors: list[str] = []
-    for values in itertools.product(*choices):
-        context = dict(zip(refs, values))
-        try:
-            label = str(evaluate_runs_on(tree, context) or "").lower()
-        except _Unsupported as error:
-            return [f"{runs_on!r} uses {error}, which this check cannot evaluate"]
-        except _Fails:
-            continue  # runs-on errors in this context: the job fails, it runs nowhere
-        inside = context.get("github.repository_owner", "manaflow-ai") == "manaflow-ai"
-        if label not in named or (inside and not label.startswith("blacksmith-")):
-            errors.append(f"{runs_on!r} yields {label!r} when {context}")
-            break
+    for index, operand in enumerate(chain):
+        conditions, result = (operand[1][:-1], operand[1][-1]) if operand[0] == "and" else ([], operand)
+        label = _string(result)
+        if label is not None and blacksmith.fullmatch(label):
+            continue
+        if (label is not None and index == 0 and HOSTED_LITERAL_LABEL.fullmatch(label) and len(conditions) == 1
+                and conditions[0][0] == "cmp" and conditions[0][1] == "!="
+                and {_refs(side)[0] if side[0] == "ref" else _string(side) for side in conditions[0][2:]}
+                == {"github.repository_owner", "manaflow-ai"}):
+            continue
+        picked = _bounded_pick(conditions, result) if label is None else []
+        if picked and all(blacksmith.fullmatch(item) for item in picked):
+            continue
+        errors.append(f"{runs_on!r}: operand {index + 1} can yield something other than a Blacksmith label it names")
+    if not errors and _string(chain[-1]) is None:
+        errors.append(f"{runs_on!r} does not end with a literal label")
     return errors
 
 
@@ -575,10 +519,6 @@ class _Parser:
                 self._take("]")
                 path += f"[{inner[1]}]"
         return path
-
-
-def _TOKENS(source: str) -> list[tuple[str, str]]:
-    return _tokenize(source)
 
 
 def parse_expression(source: str) -> tuple:
@@ -1383,12 +1323,36 @@ class ForkRunnerRoutingTests(unittest.TestCase):
                         f"${{{{ {fork}vars['LINUX_RUNNER'] || 'blacksmith-4vcpu-ubuntu-2404' }}}}",
                         f"${{{{ {fork}{BOUNDED_LINUX_SELECTOR} || vars.LINUX_RUNNER }}}}",
                         f"${{{{ {fork}github.head_ref || 'blacksmith-4vcpu-ubuntu-2404' }}}}",
-                        "${{ 'ubuntu-24.04' }}", "glaeda-std-xcode-26.6", "ubuntu-24.04"):
+                        # Third review of #27631: an owned literal behind any condition.
+                        f"${{{{ {fork}contains(fromJSON('[\"merge_group\"]'), github.event_name) && "
+                        f"'glaeda-std-xcode-26.6' || {BOUNDED_LINUX_SELECTOR} }}}}",
+                        f"${{{{ {fork}contains(fromJSON('[\"merge_group\"]'), github.event_name) && "
+                        f"format('glaeda-{{0}}', 'x') || {BOUNDED_LINUX_SELECTOR} }}}}",
+                        f"${{{{ {fork}contains(fromJSON('[\"manaflow-ai/evil\"]'), "
+                        "github.event.pull_request.head.repo.full_name) && 'glaeda-std-xcode-26.6' || "
+                        "'blacksmith-4vcpu-ubuntu-2404' }}",
+                        f"${{{{ {fork}github.event_name != vars.CI_CLOUD_OVERFLOW_SAVED && "
+                        "'blacksmith-4vcpu-ubuntu-2404' || 'glaeda-std-xcode-26.6' }}",
+                        f"${{{{ {fork}github.event_name == 'push' && 'blacksmith-4vcpu-ubuntu-2404' }}}}",
+                        f"${{{{ 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}}}",
+                        f"${{{{ github.event_name != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}}}",
+                        f"${{{{ {fork}contains(fromJSON('[\"glaeda-std-xcode-26.6\"]'), vars.X) && vars.X || "
+                        "'blacksmith-4vcpu-ubuntu-2404' }}",
+                        f"${{{{ {fork}contains(fromJSON('[\"blacksmith-4vcpu-ubuntu-2404\"]'), vars.X) && vars.Y || "
+                        "'blacksmith-4vcpu-ubuntu-2404' }}",
+                        "${{ 'ubuntu-24.04' }}", "glaeda-std-xcode-26.6", "self-hosted"):
             self.assertNotEqual(runner_label_errors(refused), [], refused)
         for allowed in ("blacksmith-6vcpu-macos-26", f"${{{{ {fork}'blacksmith-4vcpu-ubuntu-2404' }}}}",
                         f"${{{{ {fork}vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || "
                         "'blacksmith-4vcpu-ubuntu-2404' }}",
-                        f"${{{{ {fork}{BOUNDED_LINUX_SELECTOR} }}}}", TRUSTED_RUNNER_EXPRESSION):
+                        f"${{{{ {fork}{BOUNDED_LINUX_SELECTOR} }}}}", TRUSTED_RUNNER_EXPRESSION,
+                        # A GitHub-hosted VM is ephemeral too (check_no_github_hosted_runners rules on cost).
+                        "ubuntu-24.04",
+                        # Any condition may choose among Blacksmith labels the expression names.
+                        f"${{{{ {fork}github.event_name == 'merge_group' && 'blacksmith-32vcpu-ubuntu-2404' || "
+                        f"{BOUNDED_LINUX_SELECTOR} }}}}",
+                        f"${{{{ {fork}vars.MACOS_RUNNER_PR == 'blacksmith-6vcpu-macos-26' && "
+                        "'blacksmith-12vcpu-macos-26' || 'blacksmith-6vcpu-macos-15' }}"):
             self.assertEqual(runner_label_errors(allowed), [], allowed)
 
     def test_trusted_runner_selector_admits_only_ephemeral_labels(self) -> None:
