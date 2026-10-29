@@ -7,6 +7,7 @@
 
 use super::subsession_runs::{TurnGuard, WaitMark};
 use super::*;
+use cmux_json::JsonSet as _;
 use std::sync::atomic::Ordering;
 
 // A prompt dequeued for a turn that never started goes back at the head (`restore_queue`).
@@ -278,7 +279,7 @@ impl Hub {
                 && let Some(running) = running
                 && p.interrupt_turn.is_none_or(|aimed| aimed == running)
             {
-                self.cancel_turn(session, &running).await;
+                self.cancel_turn_for_replacement(session, &running, p.prompt_id).await;
             }
         }
         // A queued prompt `remove_queued` withdraws answers at once, not when the turn ends.
@@ -351,6 +352,20 @@ impl Hub {
         }
     }
 
+    /// Stops only the targeted turn and preserves the prompt that requested its replacement.
+    pub(super) async fn cancel_turn_for_replacement(
+        &self,
+        session: &Arc<Session>,
+        turn_id: &str,
+        prompt_id: &str,
+    ) {
+        if session.turn().is_some_and(|t| t.turn_id == turn_id)
+            && let Err(e) = self.cancel_preserving_queued(session, Some(prompt_id)).await
+        {
+            tracing::warn!(session = %session.id, "interrupt for a queued prompt: {}", e.message);
+        }
+    }
+
     /// Puts a prompt that waits for the running turn in the queue and tells every client right
     /// away. The returned `Notify` fires when `remove_queued` withdraws it or it joins an earlier
     /// agent message's turn (then `joined` is set, `digest.rs`).
@@ -418,16 +433,16 @@ impl Hub {
         // run it (`restore_queues`).
         let mut queued = json!({"text": p.text, "client": p.client, "position": position, "promptId": p.prompt_id, "turnId": turn_id, "prompt": p.blocks, "control": p.control.as_str(), "trustGate": p.trust_gate});
         if let Some(agent) = p.agent {
-            queued["fromAgent"] = json!(agent);
+            queued.set("fromAgent", json!(agent));
         }
         if let Some(key) = p.supersede {
-            queued["supersede"] = json!(key);
+            queued.set("supersede", json!(key));
         }
         // Its images are kept now and named, so its row shows them before it runs
         // (`prompt_images.rs`).
         let images = super::prompt_images::keep(p.blocks);
         if !images.is_empty() {
-            queued["images"] = Value::Array(images);
+            queued.set("images", Value::Array(images));
         }
         let inline_parts = super::prompt_images::inline_parts(
             p.blocks,
@@ -435,10 +450,10 @@ impl Hub {
             p.display_parts,
         );
         if !inline_parts.is_empty() {
-            queued["inlineParts"] = Value::Array(inline_parts);
+            queued.set("inlineParts", Value::Array(inline_parts));
         }
         if let Some(display_parts) = p.display_parts {
-            queued["displayParts"] = display_parts.clone();
+            queued.set("displayParts", display_parts.clone());
         }
         super::session::mark_pasted(&mut queued, p.blocks);
         self.append(
@@ -610,7 +625,8 @@ impl Hub {
             let Some(from) = queue.iter().position(|q| q.prompt_id == prompt_id) else {
                 return Ok(false);
             };
-            crate::author::may_change(editor, queue[from].sender())?;
+            let Some(item) = queue.get(from) else { return Ok(false) };
+            crate::author::may_change(editor, item.sender())?;
             // Only the last prompt sent now: one sent before it is a queued prompt again.
             queue.iter_mut().for_each(|q| q.sent_now = false);
             let mut q = queue.remove(from);
@@ -695,7 +711,8 @@ impl Hub {
             let Some(i) = queue.iter().position(|q| q.prompt_id == prompt_id) else {
                 return Ok(false);
             };
-            crate::author::may_change(editor, queue[i].sender())?;
+            let Some(item) = queue.get(i) else { return Ok(false) };
+            crate::author::may_change(editor, item.sender())?;
             // Pin the identity before it leaves the queue: its runner may settle it meanwhile.
             let ledger = session.prompts.lock().unwrap_or_else(|e| e.into_inner());
             session.queued.fetch_sub(1, Ordering::SeqCst);
