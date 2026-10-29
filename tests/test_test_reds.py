@@ -499,6 +499,22 @@ class WebviewTestsAcrossJobs(unittest.TestCase):
         self.assertIsNotNone(verdict)
         self.assertTrue(verdict.own)
 
+    def test_a_later_invocation_needs_its_own_completion(self):
+        shared = web_job((CAPSULES, [(CAPSULE_TEST, CAPSULE_ERROR, 87)]))
+        later = shared + "\n" + log("START test/other.test.ts (hard limit 120s)")
+        self.assertTrue(reds.classify_web([later], [later]).own)
+        later += "\n" + log("PASS test/other.test.ts (raw log retained for the final bounded summary)")
+        self.assertTrue(reds.classify_web([later], [later]).own)
+
+    def test_a_pass_does_not_erase_an_unnamed_error(self):
+        shared = web_job((CAPSULES, [(CAPSULE_TEST, CAPSULE_ERROR, 87)]))
+        extra = shared.replace("--- first run: FAIL ---", "--- first run: FAIL ---\nerror: unhandled failure\n(pass) unrelated test")
+        self.assertTrue(reds.classify_web([extra], [shared]).own)
+
+    def test_missing_auxiliary_head_evidence_is_own(self):
+        shared = web_job((CAPSULES, [(CAPSULE_TEST, CAPSULE_ERROR, 87)]))
+        self.assertTrue(reds.classify_web([shared, None], [shared]).own)
+
     def test_a_job_that_names_no_webview_test_is_not_this_classifiers(self):
         self.assertIsNone(reds.classify_web([log("error: oxlint found 3 problems")], [replay()]))
 
