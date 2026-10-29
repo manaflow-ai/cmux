@@ -87,9 +87,14 @@ jobs:
     # every later scheduled run was evicted with no jobs and nothing decided.
     # The probes ask for the Blacksmith Linux sizes, so the watch sits on
     # Blacksmith macOS: it never queues behind its own probes and can put
-    # overflow back however the Linux sizes fare. CI_CONTROL_RUNNER, when set,
-    # moves it (an owned Mac label, for one).
-    runs-on: ${{ vars.CI_CONTROL_RUNNER || 'blacksmith-6vcpu-macos-26' }}
+    # overflow back however the Linux sizes fare.
+    # A literal ephemeral label, never a variable (not CI_CONTROL_RUNNER, as the
+    # nightly control jobs take): this job holds the App key that writes
+    # repository variables, so a variable must not move it to a reused machine,
+    # where the key could outlive the job, nor may it write its own runner.
+    # Hosted runners are refused (check_no_github_hosted_runners), so in an
+    # outage of all Blacksmith this waits and the values are set by hand.
+    runs-on: blacksmith-6vcpu-macos-26
     timeout-minutes: 25
     permissions:
       actions: write
