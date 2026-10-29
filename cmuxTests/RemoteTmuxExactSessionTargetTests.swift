@@ -77,6 +77,41 @@ struct RemoteTmuxExactSessionTargetTests {
         }
     }
 
+    /// The beta multiplexer scopes each session through a channel, which checks a
+    /// window reorder with `list-windows -t <session>` and pushes the session's identity
+    /// with `set-environment -t <session>`. Without a session id yet, both fall back to
+    /// the name, and `@dev` must still be read as that session, not as a window id.
+    @Test(.timeLimit(.minutes(2)))
+    func multiplexChannelTargetsASessionWhoseNameStartsWithAtByName() async throws {
+        try await withLocalTmuxHost(sessions: ["@dev"]) { controller, host, _, tmux in
+            _ = try await controller.attachControlStreamWhenReady(host: host, sessionName: "@dev")
+            let connection = try #require(controller.connection(host: host, sessionName: "@dev"))
+            let windowIds = try tmux(["list-windows", "-t", "=@dev", "-F", "#{window_id}"])
+                .split(separator: "\n")
+                .compactMap { Int($0.dropFirst()) }
+            try #require(!windowIds.isEmpty)
+            let channel = RemoteTmuxSessionChannel(
+                underlying: connection, sessionName: "@dev", sessionId: nil, windowIds: windowIds)
+            defer { channel.detach() }
+            channel.sharedStream = connection
+
+            let verified = await withCheckedContinuation { continuation in
+                let sent = channel.sendWindowReorder(["refresh-client"]) { continuation.resume(returning: $0) }
+                if !sent { continuation.resume(returning: false) }
+            }
+            #expect(verified, "the reorder check did not find the session @dev")
+
+            channel.setMirrorEnvironment(["CMUX_EXACT_TARGET_PROBE": "1"])
+            var pushed = ""
+            for _ in 0..<50 {
+                pushed = try tmux(["show-environment", "-t", "=@dev", "CMUX_EXACT_TARGET_PROBE"])
+                if pushed == "CMUX_EXACT_TARGET_PROBE=1" { break }
+                try await Task.sleep(nanoseconds: 100_000_000)
+            }
+            #expect(pushed == "CMUX_EXACT_TARGET_PROBE=1", "the identity push missed the session @dev")
+        }
+    }
+
     private func withLocalTmuxHost(
         sessions: [String],
         _ body: @MainActor (
