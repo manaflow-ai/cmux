@@ -15,7 +15,7 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
     private var editableControls: [String: NSControl] = [:]
     var selected: String?
     private var searchHasInput = false
-    private(set) var selectionReason = "none"
+    var selectionReason = "none"
     var search: NSSearchField?
     private var title: ThemedLabel?
     private var pendingCompositionModel: NativePopupModel?
@@ -140,6 +140,7 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
             view.change = { [weak self] value in self?.emit(.change, row.id, value) }
             view.commit = { [weak self] in self?.commit() }
             view.escape = { [weak self] in self?.dismiss() }
+            view.slider.navigate = { [weak self] key in self?.navigateFromSlider(row.id, key: key) ?? false }
             editableControls[row.id] = view.slider
             return view
         }
@@ -265,7 +266,7 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
         else { window?.makeFirstResponder(editableControls[row.id] ?? view) }
     }
 
-    private func paintSelection() {
+    func paintSelection() {
         for (row, view) in rowViews { (view as? PopupRowView)?.isHighlighted = row.id == selected }
         if let view = rowViews.first(where: { $0.0.id == selected })?.1 { scrollToVisible(view.frame) }
     }
@@ -340,6 +341,9 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
             selected = enabled[(index + (key == 125 ? 1 : -1) + enabled.count) % enabled.count].0.id
             selectionReason = "keyboard"
             paintSelection()
+            if search == nil, let view = enabled.first(where: { $0.0.id == selected })?.1 as? NativePopupSliderView {
+                window?.makeFirstResponder(view.slider)
+            }
             emit(.highlight, selected, nil)
             return true
         }

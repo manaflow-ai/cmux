@@ -1,6 +1,19 @@
 import AppKit
 
 extension NativePopupContent {
+    func navigateFromSlider(_ id: String, key: UInt16) -> Bool {
+        let enabled = enabledRows
+        guard let index = enabled.firstIndex(where: { $0.0.id == id }),
+              let following = enabled.dropFirst(index + 1).first(where: { $0.0.kind == .action }) else { return false }
+        if key == 125 {
+            selected = following.0.id; selectionReason = "keyboard"
+            paintSelection()
+            window?.makeFirstResponder(self)
+            emit(.highlight, selected, nil)
+        }
+        return true
+    }
+
     func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
         if textView.hasMarkedText() { return false }
         switch commandSelector {

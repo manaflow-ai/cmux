@@ -101,6 +101,7 @@ final class NativePopupSliderView: NSView {
 @MainActor
 final class NativePopupDiscreteSlider: NSSlider {
     var commitValue: (Bool) -> Void = { _ in }
+    var navigate: (UInt16) -> Bool = { _ in false }
     var escape: () -> Void = {}
 
     override func mouseDown(with event: NSEvent) {
@@ -111,6 +112,7 @@ final class NativePopupDiscreteSlider: NSSlider {
 
     override func keyDown(with event: NSEvent) {
         guard isEnabled else { return }
+        if [125, 126].contains(event.keyCode), navigate(event.keyCode) { return }
         switch event.keyCode {
         case 36, 76: commitValue(true)
         case 53: escape()
