@@ -644,9 +644,13 @@ def main() -> int:
             # No cmux-tui terminal child gets TERM_PROGRAM_VERSION (cmux#22585:
             # a child that reads a Ghostty version turns its own copy-on-select
             # drag fallback off), so ssh-env has nothing to forward either.
-            term_program_version = _read_probe_payload(client, surface_id, "printf '%s' \"${TERM_PROGRAM_VERSION:-}\"")
+            # _read_probe_payload only returns a non-empty payload, so probe
+            # through a sentinel that stands in for an unset or empty value.
+            term_program_version = _read_probe_payload(
+                client, surface_id, "printf '%s' \"${TERM_PROGRAM_VERSION:-cmux-unset}\""
+            )
             _must(
-                not term_program_version,
+                term_program_version == "cmux-unset",
                 f"ssh-env must not propagate TERM_PROGRAM_VERSION, got: {term_program_version!r}",
             )
 
