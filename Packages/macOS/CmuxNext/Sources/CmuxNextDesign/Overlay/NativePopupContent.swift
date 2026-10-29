@@ -16,7 +16,7 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
     var allocateEditSequence: ((Int) -> Int)?
     var lastEditSequence: Int? { inputState.lastSequence }
     var emittingRevision: Int?
-    private var editableControls: [String: NSControl] = [:]
+    var editableControls: [String: NSControl] = [:]
     var selected: String?
     var searchHasInput = false
     var selectionReason = "none"

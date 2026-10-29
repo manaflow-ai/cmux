@@ -34,7 +34,7 @@ extension NativePopupContent {
     }
 
     func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
-        if textView.hasMarkedText() { return false }
+        guard control.isEnabled, fields.values.contains(where: { $0 === control }), !textView.hasMarkedText() else { return false }
         switch commandSelector {
         case #selector(NSResponder.moveDown(_:)): return handleKey(125)
         case #selector(NSResponder.moveUp(_:)): return handleKey(126)
