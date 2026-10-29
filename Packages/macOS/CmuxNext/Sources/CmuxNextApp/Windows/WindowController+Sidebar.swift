@@ -11,11 +11,11 @@ extension WindowController {
         // toolbar band; strips under it follow in the same layout pass.
         root.onToolbarBandPresenceChange = { [weak self] in
             for pane in self?.content?.panes.values.map({ $0 }) ?? [] { pane.view.stripView.updateWindowControlsAvoidance() }
-            self?.homePageWindowControlsChanged()
         }
-        // The Home page's header follows the lights after any top-row layout and at the landing
-        // of a sidebar slide (the page rides the slide with no resize of its list).
-        root.onWindowControlsMayHaveMoved = { [weak self] in self?.homePageWindowControlsChanged() }
+        // The Home page rides the sidebar's slide inside the main pane card with no layout of its
+        // own (a hide sizes it once at the start): every move of the card, its last frame
+        // included, has its header re-read the traffic lights (no change, no work).
+        root.onMainPaneMove = { [weak self] in self?.homePageWindowControlsChanged() }
         // The host pressure indicator joins the top row after the band and badge (cmuxterm-hq#2995).
         root.hostPressureIndicator = HostPressureIndicatorView(services: services) { [weak self] in
             // Shown or hidden: the top row places it (layoutTitlebarAccessories), then strips avoid it.

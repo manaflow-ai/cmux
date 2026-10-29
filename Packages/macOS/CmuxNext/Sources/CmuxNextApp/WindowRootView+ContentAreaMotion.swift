@@ -27,9 +27,6 @@ extension WindowRootView {
             // laid out now, or a terminal would settle at the held width and report a stale grid.
             contentHost.contentHold = nil
             layoutSubtreeIfNeeded()
-            // A hide sized the content once at its start, so nothing in it lays out at the landing:
-            // what avoids the traffic lights reads where the content came to rest.
-            onWindowControlsMayHaveMoved?()
             notifyPaneMotionSettled()
         }
     }
