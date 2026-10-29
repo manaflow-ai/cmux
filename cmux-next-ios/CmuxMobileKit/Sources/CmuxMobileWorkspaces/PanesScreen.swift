@@ -192,8 +192,8 @@ struct PanesScreen: View {
         }
         if source.canEditPanes {
             Section {
-                // The daemon splits a tab out only of a pane that keeps another tab.
-                if pane.tabIDs.count > 1 {
+                // The daemon splits a tab out only of a pane that keeps another tab (one the iPhone doesn't list counts too).
+                if pane.tabCount > 1 {
                     Menu("Move Tab to New Split", systemImage: "rectangle.split.2x1") {
                         ForEach(TabSplitEdge.allCases, id: \.self) { edge in
                             Button(edge.title, systemImage: edge.systemImage) { Task { await source.moveTab(tab, toNewSplit: edge) } }
