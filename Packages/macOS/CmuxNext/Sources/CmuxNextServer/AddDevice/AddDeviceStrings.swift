@@ -18,7 +18,7 @@ public nonisolated struct AddDeviceStrings {
         case .network: s("addDevice.way.network", "On your network")
         case .code: s("addDevice.way.code", "It shows a code")
         case .newDevice: s("addDevice.way.newDevice", "Set up a new device")
-        case .joinLine: s("addDevice.way.joinLine", "Any machine: one line")
+        case .joinLine: s("addDevice.way.joinLine", "Any machine")
         }
     }
 

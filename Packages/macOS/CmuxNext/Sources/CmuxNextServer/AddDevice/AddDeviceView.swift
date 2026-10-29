@@ -14,9 +14,12 @@ public final class AddDeviceView: NSView {
     public var onResize: (NSSize) -> Void = { _ in }
 
     static let width: CGFloat = 440
+    /// With Labs `labs.machineJoin` on the card has four ways; it widens so each reads whole.
+    static let wideWidth: CGFloat = 540
     static let listMaxHeight: CGFloat = 228
 
     let stack = NSStackView()
+    private var widthConstraint: NSLayoutConstraint?
     /// The "Any machine: one line" way's look (the gallery draws every one; the app uses ``JoinLineLayout/card``).
     public let joinLineLayout: JoinLineLayout
     private var actions: [AddDeviceAction] = []
@@ -38,8 +41,10 @@ public final class AddDeviceView: NSView {
             stack.trailingAnchor.constraint(equalTo: trailingAnchor),
             stack.topAnchor.constraint(equalTo: topAnchor),
             stack.bottomAnchor.constraint(equalTo: bottomAnchor),
-            widthAnchor.constraint(equalToConstant: Self.width),
         ])
+        let widthConstraint = widthAnchor.constraint(equalToConstant: Self.width)
+        widthConstraint.isActive = true
+        self.widthConstraint = widthConstraint
         render()
     }
 
@@ -58,12 +63,17 @@ public final class AddDeviceView: NSView {
     private func build() {
         actions.removeAll()
         stack.arrangedSubviews.forEach { $0.removeFromSuperview() }
-        let width = Self.width - 2 * Metrics.space6
+        // Three ways keep the card's width; the Labs fourth way widens it so every way reads whole.
+        let wide = model.ways.count > 3
+        let cardWidth = wide ? Self.wideWidth : Self.width
+        widthConstraint?.constant = cardWidth
+        let width = cardWidth - 2 * Metrics.space6
         stack.addArrangedSubview(label(AddDeviceStrings.title, font: Typography.system(size: TypeScale.title, weight: TypeScale.emphasis),
                                        color: Palette.textPrimary, width: width, header: true))
         stack.addArrangedSubview(label(AddDeviceStrings.subtitle, font: Typography.body, color: Palette.textSecondary, width: width))
         let ways = segmented(model.ways.map(AddDeviceStrings.way), selected: model.ways.firstIndex(of: model.way) ?? 0,
                              action: #selector(wayChanged(_:)), id: "cmux.addDevice.way")
+        if wide { ways.segmentDistribution = .fit }
         stack.addArrangedSubview(ways)
         ways.widthAnchor.constraint(equalToConstant: width).isActive = true
         switch model.way {
