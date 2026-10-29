@@ -147,7 +147,12 @@ impl Hub {
                 true
             })
             .map_err(|e| refused("fork.unreconstructable", &e.to_string()))?;
-        if !complete || next != meta.last_seq + 1 || !trusted_start || external {
+        if !complete
+            || next != meta.last_seq + 1
+            || !trusted_start
+            || external
+            || !self.complete_ancestry(&meta)
+        {
             return Err(refused(
                 "fork.unreconstructable",
                 "the complete original conversation cannot be proven from this log",
@@ -184,6 +189,46 @@ impl Hub {
             through_seq: through,
             ready: false,
         })
+    }
+
+    // Ordinary forks copy conversation records, not adoption/import markers. A verified
+    // parent link proves ownership, not that its inherited history starts at the first turn.
+    // Follow every link and fail closed when any ancestor is missing or incomplete.
+    fn complete_ancestry(&self, source: &SessionMeta) -> bool {
+        let mut meta = source.clone();
+        let mut seen = std::collections::HashSet::from([meta.id.clone()]);
+        while let Some(parent) = meta.parent_id.as_deref() {
+            if meta.fork_parent_verified != Some(true) || !seen.insert(parent.to_owned()) {
+                return false;
+            }
+            let Ok(Some(ancestor)) = self.store.load(parent) else { return false };
+            let mut next = 1;
+            let mut origin = false;
+            let mut complete = true;
+            if self
+                .store
+                .scan_strict(parent, 0, &mut |event| {
+                    if event.seq > ancestor.last_seq {
+                        return false;
+                    }
+                    complete &= event.seq == next;
+                    next = event.seq + 1;
+                    if event.dir == "mux" {
+                        origin |= matches!(event.kind.as_str(), "created" | "forked");
+                        complete &= !matches!(event.kind.as_str(), "adopted" | "imported");
+                    }
+                    true
+                })
+                .is_err()
+                || !complete
+                || !origin
+                || next != ancestor.last_seq + 1
+            {
+                return false;
+            }
+            meta = ancestor;
+        }
+        true
     }
 
     fn reconstructable_prompt(&self, source: &str, msg: &Value) -> bool {

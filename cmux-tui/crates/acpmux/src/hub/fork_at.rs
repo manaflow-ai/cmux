@@ -48,6 +48,10 @@ pub(super) fn claude_transcript_through_checked(
         };
         if is_prompt(&record) {
             anyhow::ensure!(
+                expected.is_none() || prompts == 0 || answered,
+                "native history omits a retained answer"
+            );
+            anyhow::ensure!(
                 expected.is_none() || written_ms(&record).is_some(),
                 "native prompt has no boundary timestamp"
             );

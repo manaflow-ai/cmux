@@ -61,10 +61,12 @@ async fn fork_before_first_and_later_prompt_preserves_native_history_and_source(
         std::fs::create_dir_all(&root).unwrap();
         let (hub, mut c) =
             if codex { codex_setup(&root).await } else { claude_setup(&root, &[]).await };
+        // Use a fresh authenticated connection: person proof follows initialize immediately.
+        if codex {
+            c = connect(&hub).await;
+        }
         let id = source(&hub, &mut c).await;
         if codex {
-            hold_person_key(&hub);
-            c.become_person().await;
             c.request(method::SESSION_SET_MODE, json!({"sessionId": id, "modeId": "strict"}))
                 .await
                 .unwrap();
@@ -113,6 +115,19 @@ async fn fork_before_first_and_later_prompt_preserves_native_history_and_source(
             claude_history(&hub, &mut c, &id).await["prompts"],
             json!(["first", "second", "third"])
         );
+        if !codex {
+            // Verified ordinary ancestry is valid: inherited first means first in the
+            // whole conversation, not merely the first prompt authored in this child.
+            let ordinary = c.request(method::SESSION_FORK, json!({"sessionId": id})).await.unwrap();
+            let ordinary_id = ordinary["sessionId"].as_str().unwrap();
+            let empty =
+                c.request(FORK_OP, boundary(ordinary_id, "first", "ordinary-first")).await.unwrap();
+            let empty_id = empty["sessionId"].as_str().unwrap();
+            let meta = hub.resolve(empty_id).unwrap().meta();
+            assert_eq!(meta.parent_id.as_deref(), Some(ordinary_id));
+            assert_eq!(meta.turn_count, 0);
+            assert_eq!(claude_history(&hub, &mut c, empty_id).await["prompts"], json!([]));
+        }
         hub.shutdown_all().await;
         std::fs::remove_dir_all(root).unwrap();
     }
@@ -123,7 +138,25 @@ async fn fork_before_retry_after_lost_reply_and_restart_reuses_configured_child(
     let root = std::env::temp_dir().join(format!("acpmux-before-retry-{}", uuid::Uuid::now_v7()));
     std::fs::create_dir_all(&root).unwrap();
     let (seed, mut c) = claude_setup(&root.join("native"), &[]).await;
+    c = connect(&seed).await;
     let id = source(&seed, &mut c).await;
+    c.request(method::SESSION_SET_MODE, json!({"sessionId": id, "modeId": "default"}))
+        .await
+        .unwrap();
+    let source_meta = seed.resolve(&id).unwrap().meta();
+    assert_eq!(source_meta.modes.as_ref().unwrap()["currentModeId"], "default");
+    assert_eq!(
+        source_meta
+            .config_options
+            .as_ref()
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|option| option["id"] == "mode")
+            .unwrap()["currentValue"],
+        "default"
+    );
     let (cfg, hub) = snapshot(&seed, &id, &root.join("store"), |meta, _| {
         meta.tools.off = vec!["Bash".into()];
         // Keep the spawn request coherent with the model the source actually recorded.
