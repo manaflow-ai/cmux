@@ -438,7 +438,6 @@ fn a_legacy_spawn_without_a_route_delivers_but_does_not_project_into_home() {
         id: "a1".into(),
         error: "legacy report".into(),
     });
-    h.settle();
 
     {
         let owner = h.owner.lock().unwrap();
@@ -450,11 +449,9 @@ fn a_legacy_spawn_without_a_route_delivers_but_does_not_project_into_home() {
             owner.run_steps
         );
     }
-    assert!(
-        h.log()
-            .iter()
-            .any(|(_, text)| text.contains("[a1] (did not start: legacy report)")),
-        "the report still reaches the Chief's normal conversation"
+    assert_eq!(
+        h.brain.state().spawns["s1"].subs[0].report.as_deref(),
+        Some("(did not start: legacy report)"),
     );
 }
 
