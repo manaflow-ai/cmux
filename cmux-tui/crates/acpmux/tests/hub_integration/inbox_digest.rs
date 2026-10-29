@@ -256,6 +256,37 @@ async fn a_digest_groups_results_by_sender_folds_repeats_and_a_dry_run_changes_n
     assert_eq!(digests, 0, "a dry run queued a digest");
 }
 
+/// A message's class (`acpmux send --class`, `prompt_class.rs`) orders it: blocks and questions
+/// first, then results, then FYIs; a message that named none is a result.
+#[tokio::test]
+async fn a_digest_puts_blocks_and_questions_first_and_fyis_last_by_the_class_sent() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let mut agents = connect(&hub).await;
+    let (id, _) = busy(&mut c).await;
+    for (prompt_id, agent, class, text) in [
+        ("p-fyi", "lane-a", Some("fyi"), "heads up"),
+        ("p-plain", "lane-b", None, "done Z"),
+        ("p-block", "lane-c", Some("block"), "stuck on CI"),
+        ("p-q", "lane-a", Some("question"), "which base?"),
+    ] {
+        let mut params = from_agent(&id, prompt_id, agent, text);
+        if let Some(class) = class {
+            params["_meta"]["acpmux"]["class"] = json!(class);
+        }
+        queue(&mut agents, params).await;
+    }
+    let made = c.request(DIGEST, json!({"sessionId": id, "dryRun": true})).await.unwrap();
+    let text = made["text"].as_str().unwrap();
+    let at = |s: &str| text.find(s).unwrap_or_else(|| panic!("{s:?} missing from {text}"));
+    assert!(text.contains("(1 block, 1 question, 1 result, 1 FYI)"), "{text}");
+    assert!(at("[block] from lane-c, promptId p-block") < at("[question] from lane-a"));
+    assert!(at("which base?") < at("## Results"));
+    assert!(at("[result] promptId p-plain") < at("## FYIs"));
+    assert!(text.ends_with("- lane-a (promptId p-fyi): heads up"), "{text}");
+    let counts = &made["provenance"]["counts"];
+    assert_eq!(*counts, json!({"block": 1, "question": 1, "result": 1, "fyi": 1}));
+}
+
 #[tokio::test]
 async fn past_its_budget_a_digest_points_at_the_full_text() {
     let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
