@@ -1497,6 +1497,75 @@ describe("a Go machine's runtime budget after an idle pause recovery", () => {
     expect(rows[0].status).toBe("running");
   });
 
+  /** A person's Pause started now and held at its provider pause (intent written, cap zero set); release() lets it finish. */
+  const heldUserPause = (ctx: { userPause: (id: string) => Effect.Effect<void> }, hold: { armed: boolean; reached: Deferred.Deferred<void>; release: Deferred.Deferred<void> }) =>
+    Effect.gen(function* () {
+      hold.armed = true;
+      const fiber = yield* Effect.forkDaemon(ctx.userPause("row-1"));
+      yield* Deferred.await(hold.reached);
+      return fiber;
+    });
+  const newHold = () => ({ armed: false, reached: Effect.runSync(Deferred.make<void>()), release: Effect.runSync(Deferred.make<void>()) });
+  const holdOnce = (hold: ReturnType<typeof newHold>) => () => {
+    if (!hold.armed) return undefined;
+    hold.armed = false;
+    return Deferred.succeed(hold.reached, undefined).pipe(Effect.andThen(Deferred.await(hold.release)));
+  };
+
+  test("a person's Pause in flight before the next run reads its candidates: the left claim waits, the zero cap stays", async () => {
+    const hold = newHold();
+    const fakes = setup({ pauseFails: "refused", holdPause: holdOnce(hold) });
+    const { rows, runAt, recorded, providerState } = fakes;
+    await runAt(T0);
+    expect(rows[0].providerMetadata.cmuxIdlePauseClaim).toBeDefined();
+    const fiber = await Effect.runPromise(heldUserPause(fakes, hold));
+    expect(rows[0].providerMetadata.cmuxPendingPause).toBeDefined();
+    await runAt(T0 + 5 * MIN);
+    await Effect.runPromise(Deferred.succeed(hold.release, undefined).pipe(Effect.andThen(Fiber.join(fiber))));
+    expect(rows[0]).toMatchObject({ status: "paused" });
+    expect(rows[0].providerMetadata.cmuxPauseReason).toBe("user");
+    expect(providerState.get(VM)).toBe("paused");
+    expect(recorded.budgets.at(-1)).toBe(0);
+    expect(recorded.resumed).toEqual([]);
+  });
+
+  test("an idle claim is never taken over a person's Pause in flight", async () => {
+    const hold = newHold();
+    // The person's provider pause is the first one, so the first-pause hook holds it.
+    const fakes = setup({ duringPause: holdOnce(hold) });
+    const { rows, runAt, recorded } = fakes;
+    const fiber = await Effect.runPromise(heldUserPause(fakes, hold));
+    expect(await runAt(T0)).toMatchObject({ paused: 0 });
+    expect(rows[0].providerMetadata.cmuxIdlePauseClaim).toBeUndefined();
+    expect(recorded.paused).toEqual([VM]);
+    await Effect.runPromise(Deferred.succeed(hold.release, undefined).pipe(Effect.andThen(Fiber.join(fiber))));
+    expect(rows[0].providerMetadata.cmuxPauseReason).toBe("user");
+    expect(recorded.budgets.at(-1)).toBe(0);
+    expect(recorded.resumed).toEqual([]);
+  });
+
+  test("a left claim newer than a pending pause, fence moved (Off): the compensation leaves the pause and its cap alone", async () => {
+    const pending = { cause: "user", epoch: 2, requestedAt: Date.now() - MIN };
+    const row = goRow({ status: "paused", providerMetadata: { networkIpv4: "10.192.0.5", cmuxIdleEpoch: 5, cmuxIdlePauseClaim: 3, cmuxPendingPause: pending } });
+    const { rows, runAt, recorded, providerState } = setup({}, row);
+    providerState.set(VM, "paused");
+    await runAt(T0);
+    expect(recorded.resumed).toEqual([]);
+    expect(recorded.budgets).toEqual([]);
+    expect(providerState.get(VM)).toBe("paused");
+    expect(rows[0].status).toBe("paused");
+  });
+
+  test("an abandoned pending pause (older than the intent's lifetime) no longer holds the recovery back", async () => {
+    const pending = { cause: "user", epoch: 2, requestedAt: Date.now() - 2 * 60 * MIN };
+    const row = goRow({ status: "paused", providerMetadata: { networkIpv4: "10.192.0.5", cmuxIdleEpoch: 5, cmuxIdlePauseClaim: 3, cmuxPendingPause: pending } });
+    const { rows, runAt, recorded, providerState } = setup({}, row);
+    providerState.set(VM, "paused");
+    await runAt(T0);
+    expect(recorded.resumed).toEqual([VM]);
+    expect(rows[0].status).toBe("running");
+  });
+
   test("a person's Pause in flight (cap zero, provider pause not back) during the left-claim recovery keeps its zero cap", async () => {
     let armed = false;
     let inFlight: Fiber.RuntimeFiber<void> | null = null;
