@@ -10,7 +10,6 @@ export interface Env {
    */
   readonly STACK_PROJECTS: string
   readonly TEAM_HUB: DurableObjectNamespace<TeamHub>
-  /** Absent in tests: the memory store is used instead. */
   /** PlanetScale MySQL cmux-next-vitess (readwriter) through Hyperdrive; absent in tests (memory store). */
   readonly PS_MYSQL?: Hyperdrive
   /** Optional: the primary project's server key. Membership and invites then use the Stack server API for that project's users. */

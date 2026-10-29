@@ -85,6 +85,9 @@ Each slice is test-first (red commit, then green) and lands on `feat-cmux-next`.
    `projection.compare.diff`: `PROJECTION_READS=mysql`, then `PROJECTION_PRIMARY=mysql` with
    `PROJECTION_SHADOW=postgres` (Postgres stays current for rollback; repairs then flow MySQL to
    Postgres, a later slice). Rollback: flip the variables back, one deploy.
+   Development goes first with the same flip (2026-10-29: full verify 13/13 tables equal; a
+   preview with the flipped config passed the e2e). Until the MySQL-to-Postgres repair exists, a
+   rollback is safe only while `projection.shadow.failed` and `projection.shadow.dead` stayed 0.
 4. **Production expand**: the `release-<sha12>` deploy request of `db-migrations-DESIGN.md`
    section 5 creates the schema on Vitess `main` (empty today), with `CMUX_NEXT_PRODUCTION_HOLD`
    set. Then production `PS_MYSQL`/`PS_MYSQL_RO` Hyperdrive configs (reader/writer passwords on

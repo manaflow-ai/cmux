@@ -14,8 +14,10 @@ parts of [`../PROTOCOL.md`](../PROTOCOL.md), which is the contract.
   (`locationHintFor` in `src/index.ts`), since a hub never moves and
   free-plan requests are sometimes received in a far colo.
   `GET /v1/teams/:teamId/hub` reports the ingress colo and the hub's colo.
-- `src/store.ts`, `src/schema.ts`, `drizzle/`: PlanetScale Postgres through
-  Hyperdrive (Drizzle). Tests use an in-memory store.
+- `src/store.ts`, `src/store-mysql.ts`: the cmux-next database, PlanetScale
+  `cmux/cmux-next-vitess` (tables `mobile_*`), through the Hyperdrive binding
+  `PS_MYSQL`. The mobile service has no database of its own. Tests use an
+  in-memory store.
 - `src/stack.ts`: Stack team membership and invitations.
 - `src/ice.ts`: Cloudflare Realtime TURN credentials (1 h TTL; `turn:false` in the answer when none could be included).
 - `src/push.ts`: APNs sender for `POST /v1/devices/:deviceId/notify` (fixed text per event kind; never agent output).
@@ -25,8 +27,13 @@ parts of [`../PROTOCOL.md`](../PROTOCOL.md), which is the contract.
 
 | Env | Worker | URL | Database |
 | --- | --- | --- | --- |
-| `dev` | `cmux-mobile-api-dev` | https://cmux-mobile-api-dev.debussy.workers.dev | PlanetScale Postgres `cmux/cmux-mobile-dev`, branch `main`, role `cmux-mobile-api`, Hyperdrive `cmux-mobile-dev` (`e4fd2e88cfcd4f00841ddc5b49c3ee06`, caching disabled) |
-| `prod` | `cmux-mobile-api-prod` | https://mobile-api.cmux.dev (custom domain; also https://cmux-mobile-api-prod.debussy.workers.dev) | PlanetScale Postgres `cmux/cmux-mobile-prod` (its own database, single node, us-east), branch `main`, role `cmux-mobile-api`, Hyperdrive `cmux-mobile-prod` (`11158756425f41469964743aab2f6319`, caching disabled). Accepts only the production Stack project |
+| `dev` | `cmux-mobile-api-dev` | https://cmux-mobile-api-dev.debussy.workers.dev | `cmux/cmux-next-vitess` branch `development`, Hyperdrive `cmux-next-vitess-development` (`60893ba4eaef437a91a77da71730ea9b`, caching disabled, shared with `cmux-api-development`) |
+| `prod` | `cmux-mobile-api-prod` | https://mobile-api.cmux.dev (custom domain; also https://cmux-mobile-api-prod.debussy.workers.dev) | `cmux/cmux-next-vitess` branch `main`, Hyperdrive `cmux-next-vitess-production` (`0533eedddc1e4195adf0d42a4c325fce`, caching disabled, shared with `cmux-api`). Accepts only the production Stack project |
+
+The Postgres databases `cmux/cmux-mobile-dev` and `cmux/cmux-mobile-prod` and their
+Hyperdrive configs (`e4fd2e88…`, `11158756…`) are retired: no Worker binds them and their
+rows were copied into `mobile_*` (`backend/db/copy-mobile-to-vitess.ts`). They are kept
+read-only until their deletion is approved.
 
 ### Resource names
 
@@ -85,32 +92,16 @@ op read "op://Shared/lqvg75d4awzbveq7ny5gyfeyd4/credential" | tr -d '\n' \
 `--env prod` takes the same two TURN secrets (set 2026-10-13). Check `op whoami` first: a failed `op` call pipes an empty value and wrangler
 stores it.
 
-The database URL is only in the Hyperdrive config. To create one:
+The database is reached only through the Hyperdrive binding `PS_MYSQL`; no credential
+is a Worker secret.
 
-```bash
-pscale role create cmux-mobile-<env> main cmux-mobile-api --org cmux --inherited-roles postgres --format json > /private/path/role.json
-bunx wrangler@4 hyperdrive create cmux-mobile-<env> --connection-string="$(jq -r '.database_url | split("?")[0]' /private/path/role.json)"
-```
+## Schema changes
 
-## Migrations
-
-```bash
-bun install
-bunx drizzle-kit generate --name <change>       # after editing src/schema.ts
-DATABASE_URL="$(jq -r .database_url /private/path/role.json)" bunx drizzle-kit migrate
-```
-
-Run migrations as the Worker's own role (`cmux-mobile-api`): it owns the tables and the
-`drizzle` schema, and a role with only `--inherited-roles postgres` is refused. drizzle
-applies only migrations whose journal `when` is later than the last one applied, so two
-branches that each add a migration must not both land with the same index: the second to
-land renumbers its migration (file, journal `idx`, snapshot `prevId`) and takes a later `when`.
-
-Apply a migration to a database before deploying the Worker that reads it.
-API 0.13.0 needs `drizzle/0004_push_settings.sql` (the `muted_macs` and
-`previews` columns of `push_tokens`): a 0.13.0 Worker on a database without
-them fails every `PUT /v1/devices/:id/push` and every notify. The migration
-only adds columns, so the 0.12.0 Worker keeps working on a migrated database.
+The `mobile_*` tables are part of the cmux-next schema: change them in
+`backend/db/schema-mysql/` with a new `backend/db/drizzle-mysql/` migration, following
+`plans/cmux-next/db-migrations-DESIGN.md` (expand first; production through a deploy
+request into `main`). Apply a migration before deploying the
+Worker that reads it.
 
 ## Test and deploy
 

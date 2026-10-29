@@ -14,5 +14,5 @@
     "isolatedModules": true,
     "resolveJsonModule": true
   },
-  "include": ["src", "test", "scripts", "drizzle.config.ts", "vitest.config.ts"]
+  "include": ["src", "test", "scripts", "vitest.config.ts"]
 }

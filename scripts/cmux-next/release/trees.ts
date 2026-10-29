@@ -5,7 +5,7 @@
  * here.
  *
  *   cmux-vm  workers/cmux-vm/migrations   database cmux-prod, schema cmux_vm (the cmux VM API Worker)
- *   backend  backend/db/migrations        database cmux-next, schema public  (the cmux-next API Worker)
+ *   backend  backend/db/migrations        database cmux-next-deprecated (Postgres), schema public  (the cmux-next API Worker)
  */
 import { join } from "node:path"
 
@@ -69,7 +69,8 @@ export const TREES: Readonly<Record<TreeName, Tree>> = {
   backend: {
     name: "backend",
     dir: "backend/db/migrations",
-    database: "cmux-next",
+    // Postgres `cmux-next`, renamed `cmux-next-deprecated` (2026-10-28) while the projection moves to cmux-next-vitess.
+    database: "cmux-next-deprecated",
     branches: { development: "development", staging: "staging", production: "main" },
     branchIds: { development: "2o41eh2nrsw8", staging: "qxst3kra77vx", production: "8ih62d5neek9" },
     schema: "public",

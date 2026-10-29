@@ -45,6 +45,15 @@ describe("projection switches in wrangler.jsonc", () => {
     expect(doc.env.production!.triggers?.crons ?? []).not.toContain("7 * * * *")
   })
 
+  // Every environment is cut over to Vitess (vitess-migration-DESIGN.md 4, slices 3 and 5): MySQL is the
+  // primary and serves reads; Postgres stays the best-effort write shadow until the contract step.
+  for (const name of ["development", "staging", "production"]) {
+    it(`${name} reads and writes cmux-next-vitess, with Postgres as the write shadow`, () => {
+      const vars = doc.env[name]!.vars ?? {}
+      expect([vars.PROJECTION_PRIMARY, vars.PROJECTION_READS, vars.PROJECTION_SHADOW]).toEqual(["mysql", "mysql", "postgres"])
+    })
+  }
+
   it("a MySQL switch without the PlanetScale bindings is refused", () => {
     expect(neededBindings({})).toEqual(["HYPERDRIVE", "HYPERDRIVE_RO"])
     expect(neededBindings({ PROJECTION_SHADOW: "mysql", PROJECTION_READS: "shadow" })).toEqual(["HYPERDRIVE", "HYPERDRIVE_RO", "PS_MYSQL", "PS_MYSQL_RO"])
