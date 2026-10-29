@@ -900,8 +900,9 @@ pub struct Config {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stalled_turn_end_ms: Option<u64>,
     /// `autoResumeDelaysMs`: the wait before each automatic continuation of a turn a
-    /// connection or capacity error cut off (`hub/auto_resume.rs`), one entry per attempt. Default
-    /// `[10000, 60000, 300000, 1200000]`; `[]` turns it off. Checked on load: at most 4
+    /// connection or capacity error cut off (`hub/auto_resume.rs`), one entry per attempt, so its
+    /// length is how many attempts run, a chain of daemon restarts included. Default
+    /// `[10000, 60000, 300000, 1200000]`; `[]` turns it off. Checked on load: at most 12
     /// entries of 1 s to 1 h; anything else falls back to the default with a warning.
     #[serde(
         default,
@@ -1270,6 +1271,20 @@ impl Config {
                     .collect();
                 cfg.auto_prefer = Some(entry.prefer.clone());
             }
+        }
+        // Without a CodeRouter route, Claude falls back to the cmux router on DeepSeek V4 Flash
+        // (its profile default). The free tier serves it to a signed-out attested Mac, and a
+        // signed-in account pays under its plan (paid-plan.md §2). Only when no route took the slot.
+        let claude_has_no_fallback = cfg
+            .harnesses
+            .get("claude")
+            .is_some_and(|c| c.kind == HarnessKind::ClaudeStdio && c.fallback.is_none());
+        if cfg.discovered.contains(discover::CMUX_ROUTER_PROFILE)
+            && claude_has_no_fallback
+            && let Some(c) = cfg.harnesses.get_mut("claude")
+        {
+            c.fallback = Some(discover::CMUX_ROUTER_PROFILE.into());
+            cfg.auto_fallback = Some(("claude".into(), discover::CMUX_ROUTER_PROFILE.into()));
         }
     }
 

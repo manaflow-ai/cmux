@@ -174,6 +174,14 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Decodable {
         declaredCapabilities?.supports(operation) ?? true
     }
 
+    /// Whether New Cloud Workspace with no machine named may open on this machine instead
+    /// of starting (and billing) a new VM: it runs or starts, or the idle timer paused it
+    /// (opening resumes it). A failed machine, a destroyed one or one a person paused is
+    /// never picked (Lawrence msg 1334: Cloud workspaces sit in their machine's one group).
+    public var takesUnnamedWorkspaces: Bool {
+        status.isLive || (status == .paused && pauseReason == .idle)
+    }
+
     /// Sidebar and menu title: the user's name, else the slug, else the id.
     public var title: String { displayName?.nonEmpty ?? slug?.nonEmpty ?? id }
 

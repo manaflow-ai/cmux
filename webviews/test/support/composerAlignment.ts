@@ -25,6 +25,8 @@ export type ComposerAlignment = {
   modelText: Center | null;
   ring: Center | null;
   ringGlyph: Center | null;
+  /// Computed layout facts behind the numbers (display, grid placement, child lists): diagnostics.
+  dom: Record<string, string>;
 };
 
 /** Runs in the page. */
@@ -70,8 +72,89 @@ export function measureComposerAlignment(): ComposerAlignment {
   const foot = q(".acpmux-composer-foot");
   const mode = q(".acpmux-composer-foot .acpmux-access-trigger");
   const model = q(".acpmux-composer-foot .acpmux-model .acpmux-picker-button");
+  /** The first of a chip's labels the reader sees (visible, drawn), or null. */
+  const visibleOf = (chip: Element | null | undefined, selectors: string[]): Element | null => {
+    if (!chip) return null;
+    for (const selector of selectors)
+      for (const element of chip.querySelectorAll(selector)) {
+        if (getComputedStyle(element).visibility !== "visible") continue;
+        if (element.getBoundingClientRect().width === 0) continue;
+        return element;
+      }
+    return null;
+  };
   const ring = q(".acpmux-composer-foot .acpmux-context-ring");
+  const css = (element: Element | null | undefined, prop: string): string => {
+    if (!element) return "none";
+    return getComputedStyle(element).getPropertyValue(prop);
+  };
+  const kids = (element: Element | null | undefined): string =>
+    element
+      ? [...element.children].map((child) => `${child.tagName.toLowerCase()}.${child.className}`).join(" | ")
+      : "";
+  const chrome = q(".acpmux-composer-box > .acpmux-chrome-area");
+  const bar = q(".acpmux-composer-box .acpmux-composer-bar");
+  const plusRoot = q(".acpmux-composer-bar .acpmux-composer-plus");
+  const fieldMenu = q(".acpmux-composer-box > .acpmux-composer-field-menu");
+  const field = q(".acpmux-composer-box .acpmux-md-field");
+  const actions = q(".acpmux-composer-box .acpmux-composer-actions");
+  const dom: Record<string, string> = {
+    boxClass: box?.className ?? "",
+    boxDisplay: css(box, "display"),
+    boxGridColumns: css(box, "grid-template-columns"),
+    boxKids: kids(box),
+    chromeClass: chrome?.className ?? "",
+    chromeDisplay: css(chrome, "display"),
+    chromeKids: kids(chrome),
+    barClass: bar?.className ?? "",
+    barDisplay: css(bar, "display"),
+    barKids: kids(bar),
+    fieldMenuDisplay: css(fieldMenu, "display"),
+    plusRootClass: plusRoot?.className ?? "",
+    plusRootDisplay: css(plusRoot, "display"),
+    plusRootGridRow: css(plusRoot, "grid-row-start"),
+    plusRootGridColumn: css(plusRoot, "grid-column-start"),
+    fieldGridRow: css(field, "grid-row-start"),
+    fieldGridColumn: `${css(field, "grid-column-start")} / ${css(field, "grid-column-end")}`,
+    actionsGridRow: css(actions, "grid-row-start"),
+    actionsGridColumn: css(actions, "grid-column-start"),
+    actionsDisplay: css(actions, "display"),
+    modeChipDisplay: css(mode, "display"),
+    modeChipAlignItems: css(mode, "align-items"),
+    modeChipHeight: css(mode, "height"),
+    modeChipPadding: css(mode, "padding-top") + " " + css(mode, "padding-bottom"),
+    modeLabelDisplay: css(q(".acpmux-composer-foot .acpmux-mode-text"), "display"),
+    modeLabelPosition: css(q(".acpmux-composer-foot .acpmux-mode-text"), "position"),
+    modeLabelTopBottom:
+      css(q(".acpmux-composer-foot .acpmux-mode-text"), "top") +
+      " " +
+      css(q(".acpmux-composer-foot .acpmux-mode-text"), "bottom"),
+    modeLabelMargin:
+      css(q(".acpmux-composer-foot .acpmux-mode-text"), "margin-top") +
+      " " +
+      css(q(".acpmux-composer-foot .acpmux-mode-text"), "margin-bottom"),
+    modeLabelPadding:
+      css(q(".acpmux-composer-foot .acpmux-mode-text"), "padding-top") +
+      " " +
+      css(q(".acpmux-composer-foot .acpmux-mode-text"), "padding-bottom"),
+    modeLabelLineHeight: css(q(".acpmux-composer-foot .acpmux-mode-text"), "line-height"),
+    modeLabelFont: css(q(".acpmux-composer-foot .acpmux-mode-text"), "font-size"),
+    modeChipKids: kids(mode),
+    modelChipKids: kids(q(".acpmux-composer-foot .acpmux-model .acpmux-picker-button")),
+    modelChipAlignItems: css(q(".acpmux-composer-foot .acpmux-model .acpmux-picker-button"), "align-items"),
+    modelDetailMargin:
+      css(q(".acpmux-composer-foot .acpmux-model-detail"), "margin-top") +
+      " " +
+      css(q(".acpmux-composer-foot .acpmux-model-detail"), "margin-bottom") +
+      " pos " +
+      css(q(".acpmux-composer-foot .acpmux-model-detail"), "position") +
+      " top " +
+      css(q(".acpmux-composer-foot .acpmux-model-detail"), "top"),
+    plusGlyphDisplay: css(plusGlyph, "display"),
+    plusGlyphVerticalAlign: css(plusGlyph, "vertical-align"),
+  };
   return {
+    dom,
     box: boxOf(box)!,
     plusButton: boxOf(plus),
     plusGlyph: boxOf(plusGlyph),
@@ -81,15 +164,12 @@ export function measureComposerAlignment(): ComposerAlignment {
     send: boxOf(send),
     foot: boxOf(foot),
     mode: boxOf(mode),
-    modeText: textOf(
-      mode?.querySelector(".acpmux-mode-text") ?? mode?.querySelector(":scope > span:not(.acpmux-icon)"),
-    ),
+    // A label's own box (its line). The fit steps (composerLocation.css) hide a label that does not fit
+    // with visibility hidden and keep its layout, so only a label the reader sees counts.
+    modeText: boxOf(visibleOf(mode, [".acpmux-mode-text"])),
     modeGlyph: boxOf(mode?.querySelector("svg") ?? null),
     model: boxOf(model),
-    modelText: textOf(
-      q(".acpmux-composer-foot .acpmux-model .acpmux-model-detail") ??
-        q(".acpmux-composer-foot .acpmux-model .acpmux-model-name"),
-    ),
+    modelText: boxOf(visibleOf(model, [".acpmux-model-detail", ".acpmux-model-name", ".acpmux-model-short"])),
     ring: boxOf(ring),
     ringGlyph: boxOf(ring?.querySelector("svg") ?? null),
   };

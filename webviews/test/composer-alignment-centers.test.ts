@@ -2,8 +2,8 @@
 //   - the box's row: + (its button and glyph), the prompt's placeholder line and the mic (and Send
 //     when a draft shows it) share one vertical center, and each glyph sits in the center of its button;
 //   - the box's columns: + sits as far from the box's left edge as the mic's glyph sits from its right
-//     edge, and the placeholder starts one row group gap (10 px) after the + button, so the caret
-//     lines up with that column;
+//     edge (8 px and 8 px: + and the mic glyphs' centers both sit 22 px in), and the placeholder
+//     starts the prompt's 7 px inset after the + button, so the caret lines up with that column;
 //   - the quiet row under the box: the permission mode (button, text, shield), the model (button,
 //     text) and the context ring (the spinner before usage is reported) share one vertical center.
 // Measured in Chromium on the gallery's composer row (agent-pane.composer-row, the idle chat with an
@@ -20,8 +20,8 @@ import { measureComposerAlignment, type Center, type ComposerAlignment } from ".
 await requireBrowserLane("composer-alignment-centers.test.ts", async () => {
   /** Half a pixel: the subpixel rounding a centered 28 px control and its 16 px glyph can show. */
   const TOLERANCE = 0.5;
-  /** The placeholder starts one row group gap (--acpmux-row-group-gap, 10 px) after the + button. */
-  const TEXT_GAP = 10;
+  /** The placeholder starts the prompt's own 7 px inset (markdownField's padding; the placeholder's left) after the + button's box. */
+  const TEXT_GAP = 7;
   setDefaultTimeout(180_000);
   try {
     await (await chromium.launch({ headless: true })).close();
@@ -96,6 +96,15 @@ await requireBrowserLane("composer-alignment-centers.test.ts", async () => {
       if (off(leading, trailing))
         out.push(`+ glyph sits ${f(leading)} px from the box's left, the mic glyph ${f(trailing)} px from its right`);
     }
+    // The quiet row's columns: the mode's shield under the + glyph, the context ring's glyph under the mic's.
+    if (m.foot && m.modeGlyph && plusGlyph && m.box && off(m.modeGlyph.cx - m.box.left, plusGlyph.cx - m.box.left))
+      out.push(
+        `quiet row: mode shield center ${f(m.modeGlyph.cx - m.box.left)} px from the box's left, + glyph ${f(plusGlyph.cx - m.box.left)} px`,
+      );
+    if (m.foot && m.ringGlyph && micGlyph && m.box && off(m.box.right - m.ringGlyph.cx, m.box.right - micGlyph.cx))
+      out.push(
+        `quiet row: context ring glyph center ${f(m.box.right - m.ringGlyph.cx)} px from the box's right, mic glyph ${f(m.box.right - micGlyph.cx)} px`,
+      );
     if (plus && placeholder && off(placeholder.left - plus.right, TEXT_GAP))
       out.push(`placeholder starts ${f(placeholder.left - plus.right)} px after the + button, not ${TEXT_GAP} px`);
     if (m.foot && m.mode && m.model) {
