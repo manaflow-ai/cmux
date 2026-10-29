@@ -601,8 +601,8 @@ button.acpmux-chat-inspector-port:hover,
   flex: none;
   display: grid;
   place-items: center;
-  width: var(--grid-icon-box);
-  height: var(--grid-pill);
+  width: 20px;
+  height: 20px;
   padding: 0;
   border: 0;
   border-radius: 5px;
@@ -1129,4 +1129,10 @@ button.acpmux-chat-inspector-scope__parent:focus-visible {
 
 .acpmux-chat-inspector-fold:not(:has(> svg)) {
   padding-left: calc(var(--grid-gap) + var(--grid-icon-box) + var(--grid-gap));
+}
+
+/* StopButton also appears in the running tray; only panel rows take these slots. */
+.acpmux-chat-inspector__body .acpmux-chat-inspector-icon-button {
+  width: var(--grid-icon-box);
+  height: var(--grid-pill);
 }
