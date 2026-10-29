@@ -719,9 +719,16 @@ button.cv-subagent > :last-child {
   margin-inline-start: 4px;
   opacity: 0;
 }
+/* They fade as a message's hover row does (conversation.css --cv-actions-*, #23769). */
 @media (prefers-reduced-motion: no-preference) {
   .cv-subagent-done__actions {
-    transition: opacity 120ms ease-out;
+    transition: opacity var(--cv-actions-out, 80ms) var(--cv-actions-ease, ease-out);
+  }
+  .cv-subagent-done-row:hover .cv-subagent-done__actions {
+    transition: opacity var(--cv-actions-in, 120ms) var(--cv-actions-ease, ease-out) var(--cv-actions-in-delay, 100ms);
+  }
+  .cv-subagent-done__actions:focus-within {
+    transition: opacity var(--cv-actions-in, 120ms) var(--cv-actions-ease, ease-out);
   }
 }
 .cv-subagent-done-row:hover .cv-subagent-done__actions,
