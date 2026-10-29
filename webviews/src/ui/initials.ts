@@ -1,11 +1,20 @@
-const segmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+const segmenter =
+  typeof Intl.Segmenter === "function" ? new Intl.Segmenter(undefined, { granularity: "grapheme" }) : undefined;
 
-/** A prefix of whole visible characters, including combining marks and joined emoji. */
+function* characters(text: string): IterableIterator<string> {
+  if (segmenter) {
+    for (const part of segmenter.segment(text)) yield part.segment;
+  } else {
+    yield* Array.from(text);
+  }
+}
+
+/** Whole graphemes when supported; otherwise code points, never split surrogate pairs. */
 export function graphemePrefix(text: string, count: number): string {
   let prefix = "";
-  for (const part of segmenter.segment(text)) {
+  for (const character of characters(text)) {
     if (count-- <= 0) break;
-    prefix += part.segment;
+    prefix += character;
   }
   return prefix;
 }
@@ -16,6 +25,6 @@ export function initials(name: string, count = 2): string {
   const letters =
     words.length > 1
       ? [graphemePrefix(words[0]!, 1), graphemePrefix(words[1]!, 1)]
-      : Array.from(segmenter.segment(graphemePrefix(words[0] ?? "?", 2)), (part) => part.segment);
+      : Array.from(characters(graphemePrefix(words[0] ?? "?", 2)));
   return letters.slice(0, count).join("").toUpperCase();
 }

@@ -6,6 +6,7 @@ test("Home avatars limit complete initials at both display sizes", () => {
   for (const [name, small, large] of [
     ["🦊 Fox", "🦊", "🦊F"],
     ["👩🏽‍💻 Priya", "👩🏽‍💻", "👩🏽‍💻P"],
+    ["🇯🇵 Japan", "🇯🇵", "🇯🇵J"],
     ["𠮷田", "𠮷", "𠮷田"],
     ["e\u0301lodie", "E\u0301", "E\u0301L"],
     ["  Sam Lee", "S", "SL"],
