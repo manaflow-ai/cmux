@@ -130,19 +130,22 @@ fn when_settled_runs_each_hook_once_and_at_once_when_settled() {
     mux.close_surface(surface.id).unwrap();
 }
 
-/// A connection's requests run on its request sequence, not on the
-/// sequenced pool's control or input workers (which disallow blocking): a
-/// fresh mux starts none of them for a ping. The person's pump runs at
-/// `UserBlocking`, so an agent's burst of requests never queues ahead of a
-/// key; any other connection's at its request's cause.
+/// A connection's requests run on its pump, a may-block `work` item, not
+/// on the sequenced pool's control or input workers (which disallow
+/// blocking): a fresh mux starts none of them for a ping. The person's pump
+/// takes the User lane at `UserBlocking`, so its requests never queue behind
+/// automation's on the System lane.
 #[test]
-fn a_connections_requests_run_on_its_request_sequence_at_its_class_priority() {
+fn a_connections_requests_run_on_its_pump_and_the_persons_on_the_user_lane() {
     use super::super::sequenced_pool::SequencePriority;
     use super::connection_qos::{ConnectionClass, ConnectionClassCell};
     use crate::event_cause::EventCause;
-    use cmux_threads::work::Priority;
+    use crate::mux::mux_work::ConnectionRoute;
+    use cmux_threads::work::{Lane, Priority};
 
-    for class in [ConnectionClass::Automation, ConnectionClass::Person] {
+    for (class, lane) in
+        [(ConnectionClass::Automation, Lane::System), (ConnectionClass::Person, Lane::User)]
+    {
         let mux =
             crate::Mux::new_for_test("connection-person-input", crate::SurfaceOptions::default());
         let outbound = Arc::new(BoundedOutbound::default());
@@ -160,11 +163,66 @@ fn a_connections_requests_run_on_its_request_sequence_at_its_class_priority() {
         assert_eq!(reply["ok"], true, "{reply}");
         assert_eq!(pool.worker_count(SequencePriority::Input), 0, "{class:?}");
         assert_eq!(pool.worker_count(SequencePriority::Control), 0, "{class:?}");
+        let posted = |lane| {
+            mux.work.stats().into_iter().find(|row| row.lane == lane).map_or(0, |row| row.posted)
+        };
+        assert!(posted(lane) > 0, "{class:?}: the pump ran on {lane}");
+        if class == ConnectionClass::Automation {
+            assert_eq!(posted(Lane::User), 0, "automation took the person's lane");
+        }
         scheduler.finish_and_wait();
     }
-    use super::pump_priority;
     for cause in [EventCause::Frontend, EventCause::Automation, EventCause::Program] {
-        assert_eq!(pump_priority(ConnectionClass::Person, cause), Priority::UserBlocking);
-        assert_eq!(pump_priority(ConnectionClass::Automation, cause), cause.work_priority());
+        assert_eq!(
+            ConnectionRoute::of(true, cause),
+            ConnectionRoute { lane: Lane::User, priority: Priority::UserBlocking }
+        );
+        assert_eq!(
+            ConnectionRoute::of(false, cause),
+            ConnectionRoute { lane: Lane::System, priority: cause.work_priority() }
+        );
     }
+}
+
+/// The person's request is answered while the System lane is full of
+/// blocking work (automation's requests, a slow host, a reap): the person's
+/// pump takes the User lane, a queue of its own, so a key never waits behind
+/// background or scripted blocking work.
+#[test]
+fn the_persons_request_answers_while_the_system_lane_is_full() {
+    use super::connection_qos::{ConnectionClass, ConnectionClassCell};
+    use cmux_threads::work::{Lane, Priority, Shutdown};
+
+    let mux = crate::Mux::new_for_test("connection-person-lane", crate::SurfaceOptions::default());
+    let (release, released) = std::sync::mpsc::channel::<()>();
+    let released = Arc::new(std::sync::Mutex::new(released));
+    // Every System slot, UserBlocking ones included, holds a blocking item.
+    for _ in 0..6 {
+        let released = released.clone();
+        mux.work
+            .post(Priority::UserBlocking, Lane::System, Shutdown::SkipOnShutdown, move || {
+                let _ = released.lock().unwrap_or_else(std::sync::PoisonError::into_inner).recv();
+            })
+            .unwrap();
+    }
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while mux.work.stats().into_iter().find(|row| row.lane == Lane::System).unwrap().running < 6 {
+        assert!(Instant::now() < deadline, "the System items never started");
+        std::thread::yield_now();
+    }
+    let outbound = Arc::new(BoundedOutbound::default());
+    let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
+    let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+    let cell = Arc::new(ConnectionClassCell::default());
+    cell.set(ConnectionClass::Person);
+    let scheduler = Arc::new(
+        ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()).classed(cell),
+    );
+    let mut ping = Some(Request { id: Some(json!(1)), cmd: Command::Ping });
+    assert_eq!(scheduler.dispatch(mux.clone(), client, &mut ping, 0, writer), Some(true));
+    let reply = pop_within(&outbound, Duration::from_secs(5));
+    drop(release);
+    let reply = reply.expect("the person's ping answers while System is full");
+    assert_eq!(reply["ok"], true, "{reply}");
+    scheduler.finish_and_wait();
 }

@@ -11,10 +11,12 @@
 //! (mojo/public/cpp/bindings/lib/multiplex_router.cc, `Accept` posting to
 //! the endpoint's task runner).
 //!
-//! A connection holds no thread of its own. Its one pump is a task on the
-//! connection's request sequence (`Mux::post_connection_request`, a
-//! System-lane `work` item inside `will_block`, at the person's
-//! `UserBlocking` or the request's cause priority): the pump takes one
+//! A connection holds no thread of its own. Its one pump is a `work` item
+//! inside `will_block` (`Mux::post_connection_request`): the person's on
+//! the User lane at `UserBlocking`, a may-block lane of its own so a key's
+//! request never queues behind automation or background work; any other
+//! connection's on the System lane at its request's cause priority
+//! (`mux_work::ConnectionRoute`). The pump takes one
 //! runnable request and runs it there, where it may read and commit
 //! SQLite, read files and wait on a terminal host, as Chrome's IO thread
 //! routes a message and a task runner that may block runs it
@@ -191,7 +193,7 @@ pub(super) enum SequencedItem {
     /// A request whose line parsed as a `Command`.
     Request(PendingSurfaceRequest),
     /// Any other line (connection_frame.rs): its handler runs on the
-    /// connection's request sequence, in arrival order with the
+    /// connection's pump, in arrival order with the
     /// connection's `Command`s.
     Line(PendingLine),
 }
@@ -296,10 +298,10 @@ pub(super) struct ConnectionSurfaceState {
     /// Terminal creates handed to the terminal work pool and not yet answered (`terminal_create`).
     pub(super) active_creations: usize,
     pub(super) context: Option<ControlContext>,
-    /// A pump task (one request) is posted or running on the connection's
-    /// request sequence ([`ConnectionSurfaceScheduler::requests`]). It is
-    /// the only thing that orders the connection's requests: one pump at a
-    /// time runs one request at a time.
+    /// A pump (one request) is posted or running
+    /// (`Mux::post_connection_request`). It is the only thing that orders
+    /// the connection's requests: one pump at a time runs one request at a
+    /// time.
     pub(super) pump_scheduled: bool,
     /// The connection's open streams.
     pub(super) streams: StreamLanes,
@@ -310,7 +312,7 @@ pub(super) struct ConnectionSurfaceState {
     pub(super) closed: bool,
     /// Run once the scheduler is settled ([`ConnectionSurfaceScheduler::when_settled`]).
     pub(super) settled_hooks: Vec<SettledHook>,
-    /// A line runs on the request sequence (tests wait for it to answer).
+    /// A line runs on the pump (tests wait for it to answer).
     #[cfg(test)]
     pub(super) line_running: bool,
 }
@@ -396,12 +398,6 @@ pub(super) struct ConnectionSurfaceScheduler {
     /// The connection's client class, set by its registry record; its
     /// request tasks rest at it (connection_qos.rs).
     pub(super) class: Arc<ConnectionClassCell>,
-    /// Where the connection's pump runs, and with it every request it takes
-    /// (`Mux::post_connection_request`, a System-lane work item inside
-    /// `will_block`): the connection's reader disallows blocking, and a
-    /// request may read and commit SQLite, read files and wait on a
-    /// terminal host. The reader only routes to it.
-    pub(super) requests: Arc<crate::mux::mux_work::Sequence>,
 }
 
 impl Default for ConnectionSurfaceScheduler {
@@ -435,7 +431,6 @@ impl ConnectionSurfaceScheduler {
             connection_permit: Mutex::new(connection_permit),
             creations: terminal_create::ConnectionCreations::default(),
             class: Arc::default(),
-            requests: Arc::default(),
         }
     }
 
@@ -624,9 +619,10 @@ impl ConnectionSurfaceScheduler {
         let index = Self::next_runnable_index(state)?;
         let mux = state.context.as_ref()?.mux.clone();
         let cause = state.requests.get(index).map_or(EventCause::Program, SequencedItem::cause);
-        let priority = pump_priority(self.class.get(), cause);
+        let person = self.class.get() == connection_qos::ConnectionClass::Person;
+        let route = crate::mux::mux_work::ConnectionRoute::of(person, cause);
         state.pump_scheduled = true;
-        Some(PumpPost { ticket: PumpTicket { scheduler: self.clone(), ran: false }, mux, priority })
+        Some(PumpPost { ticket: PumpTicket { scheduler: self.clone(), ran: false }, mux, route })
     }
 
     /// [`Self::schedule_locked`] after a change that may let a request run
@@ -720,7 +716,7 @@ impl ConnectionSurfaceScheduler {
         Some(Drained { _context: state.context.take() })
     }
 
-    /// One task of the connection's request sequence: runs the next
+    /// The connection's pump, a may-block `work` item: runs the next
     /// runnable item, here. A handler may block (SQLite, files, a terminal
     /// host), and this thread may: the reader only routed the item.
     fn pump(self: &Arc<Self>) {
@@ -964,8 +960,6 @@ impl ConnectionSurfaceScheduler {
         {
             state = self.changed.wait(state).recover_poison();
         }
-        drop(state);
-        self.wait_requests_idle();
     }
 
     pub(super) fn wait_for_completion(&self, timeout: Option<Duration>) -> bool {
@@ -1006,33 +1000,22 @@ struct Drained {
     _context: Option<ControlContext>,
 }
 
-/// The work priority of a connection's pump: the person's requests are
-/// `UserBlocking`, so an agent's burst never queues ahead of a key; any
-/// other connection's run at the cause of the request the pump runs next.
-pub(super) fn pump_priority(class: connection_qos::ConnectionClass, cause: EventCause) -> Priority {
-    if class == connection_qos::ConnectionClass::Person {
-        return Priority::UserBlocking;
-    }
-    cause.work_priority()
-}
-
 /// A pump [`ConnectionSurfaceScheduler::schedule_locked`] marked
 /// scheduled, to post once the state lock is released.
 #[must_use]
 struct PumpPost {
     ticket: PumpTicket,
     mux: Arc<Mux>,
-    priority: Priority,
+    route: crate::mux::mux_work::ConnectionRoute,
 }
 
 impl PumpPost {
-    /// Posts the pump on the connection's request sequence. A refused post
+    /// Posts the pump ([`Mux::post_connection_request`]). A refused post
     /// drops its ticket, which answers the queued requests and ends the
     /// connection.
     fn post(self) {
-        let PumpPost { ticket, mux, priority } = self;
-        let sequence = ticket.scheduler.requests.clone();
-        let _ = mux.post_connection_request(&sequence, priority, move || ticket.run());
+        let PumpPost { ticket, mux, route } = self;
+        let _ = mux.post_connection_request(route, move || ticket.run());
     }
 }
 
@@ -1193,8 +1176,7 @@ pub(super) fn run_pending_request(
 
 /// Runs one request the pump took: a clear-history or a long read on its
 /// own work item, a create on the terminal work pool, anything else here,
-/// on the connection's request sequence. False when the connection must
-/// close.
+/// on the connection's pump. False when the connection must close.
 fn run_dispatched_request(
     scheduler: &Arc<ConnectionSurfaceScheduler>,
     mux: &Arc<Mux>,
@@ -1267,18 +1249,6 @@ fn run_clear_history(
     // Refused (shutdown began): the dropped item answered the request, and
     // the connection closes.
     posted.is_ok()
-}
-
-impl ConnectionSurfaceScheduler {
-    /// Waits until the connection's request sequence is idle (tests that
-    /// read a reply right after handing a line over).
-    #[cfg(test)]
-    pub(super) fn wait_requests_idle(&self) {
-        let deadline = Instant::now() + Duration::from_secs(30);
-        while !self.requests.is_idle() && Instant::now() < deadline {
-            std::thread::sleep(Duration::from_millis(1));
-        }
-    }
 }
 
 #[cfg(test)]

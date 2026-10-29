@@ -288,6 +288,7 @@ impl LaneRow {
                 Lane::Files => "files",
                 Lane::System => "system",
                 Lane::Cpu => "cpu",
+                Lane::User => "user",
             },
             pending: stats.pending,
             running: stats.running,
@@ -312,7 +313,7 @@ fn threads_snapshot(
     darwin_bg: Option<DarwinBackground>,
     threads: Vec<ThreadInfo>,
     connections: &HashMap<u64, ConnectionFacts>,
-    lanes: [LaneStats; 3],
+    lanes: [LaneStats; 4],
     lines: ConnectionLines,
 ) -> ServerThreadsSnapshot {
     let mut threads: Vec<ThreadRow> =

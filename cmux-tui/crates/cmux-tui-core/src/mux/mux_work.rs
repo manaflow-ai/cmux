@@ -90,32 +90,32 @@ impl Mux {
         self.post_sequenced(sequence, priority, lane, Shutdown::SkipOnShutdown, Box::new(body))
     }
 
-    /// Queues a connection's pump on that connection's `sequence`
-    /// (`server::connection_scheduler`): it takes the connection's next
-    /// request and runs it on the System lane at `priority`, inside
+    /// Queues a connection's pump (`server::connection_scheduler`): it
+    /// takes the connection's next request and runs it on `lane` at
+    /// `priority` ([`ConnectionRoute`]), inside
     /// [`cmux_threads::work::will_block`] as [`Mux::post_request_wait`]'s
     /// items are (a request may wait on a terminal host or a child
-    /// process). A connection's reader disallows blocking (p02-threads 210,
-    /// 211), so a request's SQLite, file and process work runs here, as
-    /// Chrome's IO thread only routes a message and a task runner that may
-    /// block runs it (content/browser/browser_thread_impl.cc,
-    /// base/task/task_traits.h). Shutdown never waits for a request (one of
-    /// them is the shutdown request). A refused or dropped drain drops the
-    /// queued body, whose drop answers the requests it would have run.
+    /// process). A connection has one pump at a time, so its requests keep
+    /// their order with no sequence. A connection's reader disallows
+    /// blocking (p02-threads 210, 211), so a request's SQLite, file and
+    /// process work runs here, as Chrome's IO thread only routes a message
+    /// and a task runner that may block runs it
+    /// (content/browser/browser_thread_impl.cc, base/task/task_traits.h).
+    /// Shutdown never waits for a request (one of them is the shutdown
+    /// request). A refused or dropped item drops `body`, whose drop answers
+    /// the requests it would have run.
     pub(crate) fn post_connection_request(
         &self,
-        sequence: &Arc<Sequence>,
-        priority: Priority,
+        route: ConnectionRoute,
         body: impl FnOnce() + Send + 'static,
     ) -> Result<(), Refused> {
-        let body = move |_: &Weak<Mux>| cmux_threads::work::will_block(body);
-        self.post_sequenced(
-            sequence,
-            priority,
-            Lane::System,
-            Shutdown::ContinueOnShutdown,
-            Box::new(body),
-        )
+        debug_assert!(
+            route.lane != Lane::User || route.priority == Priority::UserBlocking,
+            "only the person's UserBlocking requests take the User lane"
+        );
+        self.work.post(route.priority, route.lane, Shutdown::ContinueOnShutdown, move || {
+            cmux_threads::work::will_block(body)
+        })
     }
 
     fn post_sequenced(
@@ -132,6 +132,27 @@ impl Mux {
         let drain = SequenceDrain { sequence: Arc::clone(sequence), finished: false };
         // A refused post drops `drain`, which drops the queued bodies.
         self.post_mux_work(priority, lane, shutdown, move |mux| drain.run(mux))
+    }
+}
+
+/// Where a connection's requests run. The person's connection takes the
+/// User lane at `UserBlocking`, a may-block lane of its own, so a key's
+/// request never queues behind automation's or background blocking work
+/// (the repo rule: the person's input first, in a queue of its own, as
+/// Chrome's `kUserInput` queue). Every other connection takes the System
+/// lane at its request's cause (`EventCause::work_priority`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct ConnectionRoute {
+    pub(crate) lane: Lane,
+    pub(crate) priority: Priority,
+}
+
+impl ConnectionRoute {
+    pub(crate) fn of(person: bool, cause: crate::event_cause::EventCause) -> Self {
+        if person {
+            return Self { lane: Lane::User, priority: Priority::UserBlocking };
+        }
+        Self { lane: Lane::System, priority: cause.work_priority() }
     }
 }
 

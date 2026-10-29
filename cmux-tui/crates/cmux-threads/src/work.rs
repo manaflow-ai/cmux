@@ -7,7 +7,8 @@
 //! - **Admission.** A lane runs at most `limit(priority)` items at once, counted over every priority:
 //!   Files 4/3/2/1 (UserBlocking/UserVisible/BestEffort/Idle), System 6/5/2/1 with one slot only
 //!   UserBlocking may take (Chrome's `kDefaultMaxSystemTasks`, net/dns/host_resolver_manager.cc), Cpu
-//!   the performance cores minus one (at least 2) with BestEffort at 2 and Idle at 1. So BestEffort
+//!   the performance cores minus one (at least 2) with BestEffort at 2 and Idle at 1, User 4 for the
+//!   person's UserBlocking requests only (its own lane, so they never queue behind System). So BestEffort
 //!   plus Idle never hold more than 2 slots of a lane and Idle never more than 1 (Chrome's
 //!   `kMaxBestEffortTasks`, base/task/thread_pool/thread_pool_impl.cc). Limits rise with priority, so
 //!   a lower item never starts while a higher one waits. An item inside [`will_block`] (Chrome's
@@ -115,11 +116,17 @@ pub enum Lane {
     System,
     /// CPU-bound work too long for a request thread. It must not block.
     Cpu,
+    /// Work a person waits on now that may block (a SQLite commit, a file, a terminal host): the
+    /// requests of the person's own connection, at [`Priority::UserBlocking`]. A lane of its own, so
+    /// input from the person never queues behind automation's or background blocking work on
+    /// [`Lane::System`] (the person's queue goes first, as Chrome's `kUserInput` queue). Nothing else
+    /// posts here.
+    User,
 }
 
 impl Lane {
     /// Every lane.
-    pub const ALL: [Lane; 3] = [Lane::Files, Lane::System, Lane::Cpu];
+    pub const ALL: [Lane; 4] = [Lane::Files, Lane::System, Lane::Cpu, Lane::User];
 
     fn index(self) -> usize {
         self as usize
@@ -130,6 +137,7 @@ impl Lane {
             Lane::Files => "files",
             Lane::System => "sys",
             Lane::Cpu => "cpu",
+            Lane::User => "user",
         }
     }
 
@@ -142,6 +150,9 @@ impl Lane {
                 let width = cpu_width.max(2);
                 [1, 2.min(width - 1), width, width]
             }
+            // Only UserBlocking items are posted; the lower limits keep the lane's rules (they rise
+            // with priority, best effort and idle at most 2 and 1) for an item posted there by mistake.
+            Lane::User => [1, 2, 2, 4],
         }
     }
 }
@@ -374,7 +385,7 @@ pub struct LaneStats {
 
 /// Blocking work lanes. Build one per process and pass it by reference; tests build their own.
 pub struct Work {
-    lanes: [Arc<LaneShared>; 3],
+    lanes: [Arc<LaneShared>; 4],
     /// Items posted with a delay, until they are due ([`Work::post_delayed`]).
     delayed: delayed::Delayed,
 }
@@ -486,7 +497,7 @@ impl Work {
     }
 
     /// One row per lane.
-    pub fn stats(&self) -> [LaneStats; 3] {
+    pub fn stats(&self) -> [LaneStats; 4] {
         self.lanes.each_ref().map(|lane| lane.stats())
     }
 
