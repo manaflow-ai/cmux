@@ -124,24 +124,80 @@ export const githubToken = (h: LedgerHost, p: Principal, ask: TokenAsk, now: num
   return work
 }
 
-type RepoCursor = { readonly installation: number; readonly page: number }
-const encodeRepoCursor = (cursor: RepoCursor) => {
-  const raw = btoa(JSON.stringify(cursor))
-  return raw.replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "")
+/** Cursor includes its original connection and a fence for the selected caller/query/policy/list. */
+export type RepoPageSelection = {
+  readonly ok: true
+  readonly index: number
+  readonly connectionId: string
+  readonly page: number
+  readonly fence: string
 }
+type RepoCursor = { readonly version: 2; readonly connectionId: string; readonly page: number; readonly fence: string }
+type RepoConnection = { readonly id: string }
+const CONNECTION_ID = /^conn_[a-z0-9]{20}$/
+const FENCE = /^[0-9a-f]{64}$/
+const MAX_REPO_CURSOR_BYTES = 4096
+const normalizedRepoQuery = (query?: string) => query?.trim().toLowerCase() ?? ""
+export const repoPageFence = (
+  connections: ReadonlyArray<RepoConnection>, principal: string, query: string | undefined, policy: string,
+): string => sha256hex(canonicalJson([
+  "cmux.github.repos.cursor/v2", principal, normalizedRepoQuery(query), policy, connections.map((c) => c.id),
+]))
+const encodeRepoCursor = (cursor: RepoCursor): string =>
+  btoa(JSON.stringify(cursor)).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "")
 const decodeRepoCursor = (value: string): RepoCursor | TokenFail => {
+  if (!value || value.length > MAX_REPO_CURSOR_BYTES || !/^[A-Za-z0-9_-]+$/.test(value))
+    return fail(400, "request.invalid", "cursor is invalid")
   try {
-    const padded = value.replaceAll("-", "+").replaceAll("_", "/") + "===".slice((value.length + 3) % 4)
-    const parsed = JSON.parse(atob(padded)) as { installation?: unknown; page?: unknown }
-    if (!Number.isSafeInteger(parsed.installation) || parsed.installation < 0 || !Number.isSafeInteger(parsed.page) || parsed.page < 1)
+    const body = value.replaceAll("-", "+").replaceAll("_", "/").padEnd(Math.ceil(value.length / 4) * 4, "=")
+    const parsed = JSON.parse(atob(body)) as Record<string, unknown>
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed) ||
+      parsed.version !== 2 || typeof parsed.connectionId !== "string" || !CONNECTION_ID.test(parsed.connectionId) ||
+      !Number.isSafeInteger(parsed.page) || (parsed.page as number) < 1 || (parsed.page as number) > 100_000 ||
+      typeof parsed.fence !== "string" || !FENCE.test(parsed.fence) ||
+      Object.keys(parsed).sort().join(",") !== "connectionId,fence,page,version")
       return fail(400, "request.invalid", "cursor is invalid")
-    return { installation: parsed.installation, page: parsed.page }
+    return { version: 2, connectionId: parsed.connectionId, page: parsed.page as number, fence: parsed.fence }
   } catch {
     return fail(400, "request.invalid", "cursor is invalid")
   }
 }
 
-/** Lists one bounded upstream page at a time; the cursor carries installation and page. */
+/** A changed account list, principal, query or policy always refuses rather than switching accounts. */
+export const selectRepoPage = (
+  connections: ReadonlyArray<RepoConnection>,
+  principal: string,
+  query: string | undefined,
+  policy: string,
+  cursor?: string,
+): RepoPageSelection | TokenFail => {
+  const decoded = cursor === undefined ? null : decodeRepoCursor(cursor)
+  if (decoded && "ok" in decoded) return decoded
+  if (!connections.length) return decoded ? fail(409, "cursor_stale", "repository selection changed; list again") :
+    fail(404, "integration.not_found", "this team has no GitHub connection")
+  const fence = repoPageFence(connections, principal, query, policy)
+  if (decoded && decoded.fence !== fence) return fail(409, "cursor_stale", "repository selection changed; list again")
+  const connectionId = decoded?.connectionId ?? connections[0]!.id
+  const index = connections.findIndex((c) => c.id === connectionId)
+  if (index < 0) return fail(409, "cursor_stale", "repository selection changed; list again")
+  return { ok: true, index, connectionId, page: decoded?.page ?? 1, fence }
+}
+
+/** Advance within the same installation, then move to the next exact selected connection. */
+export const followingRepoPage = (
+  selection: RepoPageSelection,
+  connections: ReadonlyArray<RepoConnection>,
+  hasNext: boolean,
+): string | null => {
+  if (connections[selection.index]?.id !== selection.connectionId) return null
+  if (hasNext) return encodeRepoCursor({
+    version: 2, connectionId: selection.connectionId, page: selection.page + 1, fence: selection.fence,
+  })
+  const connectionId = connections[selection.index + 1]?.id
+  return connectionId ? encodeRepoCursor({ version: 2, connectionId, page: 1, fence: selection.fence }) : null
+}
+
+/** Lists one bounded upstream page at a time, fencing the exact selected connection. */
 export const githubRepos = async (
   h: { readonly env: Env; readonly http: Http; readonly state: () => ConnectionsState },
   p: Principal,
@@ -151,13 +207,20 @@ export const githubRepos = async (
   if (!github.configured(h.env) || !h.env.INTEGRATIONS_KEK) return fail(503, "integration.unavailable", "the cmux GitHub App is not configured on this deployment")
   const state = h.state()
   if (!providerAllowed(policyOf(state), "github")) return fail(403, "policy.denied", "the team policy does not allow GitHub")
-  const connections = Object.values(state.connections).filter((c) => c.provider === "github" && c.status === "active" && mayUse(c, p))
-  if (connections.length === 0) return fail(404, "integration.not_found", "this team has no GitHub connection")
-  const cursor = query.cursor === undefined ? { installation: 0, page: 1 } : decodeRepoCursor(query.cursor)
-  if ("ok" in cursor) return cursor
-  if (cursor.installation >= connections.length) return fail(400, "request.invalid", "cursor is invalid")
-  const connection = connections[cursor.installation]
-  if (!connection) return fail(400, "request.invalid", "cursor is invalid")
+  // Sort by immutable connection id: incidental object insertion order never changes pagination.
+  const active = (state: ConnectionsState) =>
+    Object.values(state.connections)
+      .filter((c) => c.provider === "github" && c.status === "active" && mayUse(c, p))
+      .sort((a, b) => a.id.localeCompare(b.id))
+  const connections = active(state)
+  const snapshot = (state: ConnectionsState) => sha256hex(canonicalJson([
+    policyOf(state),
+    active(state).map((c) => [c.id, c.status, c.updated_at, c.sharing, c.resources ?? null, c.account?.key ?? null]),
+  ]))
+  const selected = selectRepoPage(connections, principalKey(p), query.query, snapshot(state), query.cursor)
+  if (!selected.ok) return selected
+  const connection = connections[selected.index]
+  if (!connection) return fail(409, "cursor_stale", "repository selection changed; list again")
   {
     const installation = Number(/^github:installation:(\d+)$/.exec(connection.account?.key ?? "")?.[1])
     if (!Number.isSafeInteger(installation)) return fail(503, "integration.unavailable", "the GitHub connection has no installation")
@@ -167,7 +230,7 @@ export const githubRepos = async (
     } catch {
       return fail(503, "integration.unavailable", "GitHub did not answer; retry")
     }
-    const response = await h.http(new Request(`https://api.github.com/installation/repositories?per_page=100&page=${cursor.page}`, { headers: { authorization: `Bearer ${token}`, accept: "application/vnd.github+json", "x-github-api-version": "2022-11-28", "user-agent": "cmux-cloud" } })).catch(() => null)
+    const response = await h.http(new Request(`https://api.github.com/installation/repositories?per_page=100&page=${selected.page}`, { headers: { authorization: `Bearer ${token}`, accept: "application/vnd.github+json", "x-github-api-version": "2022-11-28", "user-agent": "cmux-cloud" } })).catch(() => null)
     if (!response) return fail(503, "integration.unavailable", "GitHub did not answer; retry")
     if (!response.ok) return response.status === 401 ? fail(409, "needs_reauth", "the GitHub App installation needs to be linked again") : fail(503, "integration.unavailable", "GitHub repository listing failed")
     const body = (await response.json().catch(() => undefined)) as { repositories?: unknown; total_count?: unknown } | undefined
@@ -180,24 +243,20 @@ export const githubRepos = async (
         ? [{ full_name: fullName, private: repo.private === true }]
         : []
     })
-    const hasNext = body.repositories.length >= 100 && (typeof body.total_count !== "number" || cursor.page * 100 < body.total_count)
-    const next = hasNext
-      ? { installation: cursor.installation, page: cursor.page + 1 }
-      : cursor.installation + 1 < connections.length
-        ? { installation: cursor.installation + 1, page: 1 }
-        : null
+    const hasNext = body.repositories.length >= 100 && (typeof body.total_count !== "number" || selected.page * 100 < body.total_count)
     const current = h.state()
     if (!providerAllowed(policyOf(current), "github")) return fail(403, "policy.denied", "the team policy does not allow GitHub")
-    const stillAllowed = Object.values(current.connections).some(
+    // Revalidate even when the selected page has zero matching repos. A policy change during
+    // an awaited GitHub call must never produce a cursor leading to another installation.
+    if (repoPageFence(active(current), principalKey(p), query.query, snapshot(current)) !== selected.fence)
+      return fail(409, "cursor_stale", "repository selection changed; list again")
+    const stillAllowed = active(current).some(
       (candidate) =>
         candidate.id === connection.id &&
-        candidate.provider === "github" &&
-        candidate.status === "active" &&
-        mayUse(candidate, p) &&
         repos.every((repo) => githubRepoAllowed(candidate, policyOf(current), repo.full_name)),
     )
-    if (repos.length > 0 && !stillAllowed) return fail(403, "policy.denied", "the team's GitHub connection changed; retry")
-    return { ok: true, value: { repos, cursor: next ? encodeRepoCursor(next) : null } }
+    if (!stillAllowed) return fail(403, "policy.denied", "the team's GitHub connection changed; retry")
+    return { ok: true, value: { repos, cursor: followingRepoPage(selected, connections, hasNext) } }
   }
 }
 
