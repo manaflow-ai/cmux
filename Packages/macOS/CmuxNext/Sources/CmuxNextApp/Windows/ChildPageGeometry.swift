@@ -98,7 +98,7 @@ extension ChildPageGeometry {
     /// host and no page window is checked and clean, so a G1 from before its pages closed clears.
     static func declareInvariants(in registry: InvariantRegistry, services: AppServices) {
         registry.declare(InvariantRule(
-            id: "G1", row: "p11-11", statement: InputInvariant.chromiumGeometry.summary, owner: "Windows",
+            id: "G1", row: "p06-20", statement: InputInvariant.chromiumGeometry.summary, owner: "Windows",
             reads: [.paneFrame, .presentation], points: .harness, cost: .walk, parity: false,
             interim: "harness only (after each journey step) until the Chromium geometry in-flight ledger exists",
             read: { [weak services] (pass: InvariantPass) -> [WindowSample]? in
