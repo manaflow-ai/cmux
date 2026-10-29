@@ -822,6 +822,9 @@ pub struct TransportConfig {
     /// false no UDP socket is bound by acpmux.
     #[serde(default)]
     pub wireguard: bool,
+    /// Static Labs mesh interface; ignored while wireguard is disabled.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wireguard_static: Option<crate::wireguard::StaticConfig>,
 }
 
 impl TitlesConfig {
