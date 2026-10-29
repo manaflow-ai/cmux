@@ -150,8 +150,9 @@ jobs:
           JOIN_USER: ${{ steps.user.outputs.user }}
           JOIN_BASE: ${{ steps.user.outputs.base }}
           JOIN_HOME: ${{ steps.user.outputs.home }}
+        # exec: bun is the step's process, so a cancel's SIGINT reaches it and it revokes at once.
         run: |
-          bun scripts/cmux-next/machine-join-e2e.ts --origin "$HUB_ORIGIN" --acpmux "$JOIN_BASE/bin/acpmux" \
+          exec bun scripts/cmux-next/machine-join-e2e.ts --origin "$HUB_ORIGIN" --acpmux "$JOIN_BASE/bin/acpmux" \
             --user "$JOIN_USER" --home "$JOIN_HOME" --name "$JOIN_NAME" \
             --evidence "$RUNNER_TEMP/machine-join-e2e/evidence.json" --run "$GITHUB_RUN_ID" --sha "$GITHUB_SHA"
 
