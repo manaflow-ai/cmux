@@ -21,4 +21,16 @@ struct FeatureRegistryGeneratedTests {
     @Test func theLaunchRegistryBuilds() {
         #expect(FeatureRegistry().count == Feature.registered.count)
     }
+
+    /// A perf lab switch exists only to be turned on by a bench (the canary's 2 ms key spin, the kill probe), so its
+    /// default is off in every channel and a bench turns it on for one launch (cmux-ad, 2026-10-29: a kill probe that is on
+    /// in release must never reach feat-cmux-next). The perf lab switches are the `perfLab` names; this test declares them
+    /// (DEBUG builds compile the bench-only ones), so the rule is never checked against an empty list.
+    @Test func noPerfLabSwitchIsOnByDefaultInAnyChannel() {
+        let lab = Feature.registered.filter { $0.name.hasPrefix("perfLab") }
+        #expect(!lab.isEmpty, "the perf lab switches are declared in DEBUG builds")
+        let on = lab.filter { $0.defaults.dev || $0.defaults.nightly || $0.defaults.release }
+            .map { "\($0.name): dev \($0.defaults.dev) nightly \($0.defaults.nightly) release \($0.defaults.release)" }
+        #expect(on.isEmpty, "turn it off in its schemas/features/features.d JSON and enable it per launch: \(on)")
+    }
 }

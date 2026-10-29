@@ -98,10 +98,10 @@ struct PerfLabProbesTests {
         #expect(clock.readings.load(ordering: .relaxed) == 3)
     }
 
-    @Test func killProbeIsOnAndCanaryOffByDefaultOnEveryChannel() {
+    @Test func killProbeAndCanaryAreOffByDefaultOnEveryChannel() {
         for channel in Feature.Channel.allCases {
             let report = PerfLabFeatureReport(FeatureList(registry: FeatureRegistry(), channel: channel))
-            #expect(report.killProbe == Feature.Resolution(isEnabled: true, source: .channelDefault))
+            #expect(report.killProbe == Feature.Resolution(isEnabled: false, source: .channelDefault))
             #expect(report.canary == Feature.Resolution(isEnabled: false, source: .channelDefault))
         }
     }
