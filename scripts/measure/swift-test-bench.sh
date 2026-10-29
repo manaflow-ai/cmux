@@ -106,10 +106,14 @@ main() {
   trap back_to_step_ref EXIT
   trap 'exit 143' TERM
   trap 'exit 130' INT
+  # --depth only in a shallow clone: in a worktree of a full warm checkout it
+  # would make the shared repository shallow.
+  local depth=()
+  [[ "$(git rev-parse --is-shallow-repository)" == true ]] && depth=(--depth=1)
   for sha in "$source_sha" "$restore_sha"; do
     [[ -n "$sha" ]] || continue
     if ! git cat-file -e "$sha^{commit}" 2>/dev/null; then
-      git fetch -q --no-tags --depth=1 https://github.com/manaflow-ai/cmux.git "$sha" ||
+      git fetch -q --no-tags ${depth[@]+"${depth[@]}"} https://github.com/manaflow-ai/cmux.git "$sha" ||
         { echo "swift-test-bench.sh: could not fetch $sha" >&2; exit 3; }
     fi
   done
