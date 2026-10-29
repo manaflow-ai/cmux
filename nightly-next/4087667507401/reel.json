@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "build": "4087667507401",
+  "notes": "notes/4087667507401.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 27372,
+      "title": "test(ios): capture running jump control with offline chat",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27408,
+      "title": "ci(signing): a nightly signing job drains a busy mini through its nightly slot; accept the minis' current glaeda hooks",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26971,
+      "title": "fix(composer): align attached queue in narrow panes",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26619,
+      "title": "Make conversation forking one step across entry points",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27384,
+      "title": "cmux NEXT iOS: Panes page (repairs #26644)",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
