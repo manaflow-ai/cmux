@@ -34,7 +34,7 @@ pub(super) async fn scope<F: Future>(id: Value, request: F) -> (F::Output, Optio
 /// List filters absent, null or empty: the whole list.
 fn whole(params: &Value) -> bool {
     let unset = |k: &str| params.get(k).is_none_or(|v| v.is_null() || v.as_str() == Some(""));
-    ["limit", "cursor", "peer", "status", "localOnly", "excludeStatus"].into_iter().all(unset)
+    ["limit", "cursor", "peer", "status", "localOnly", "excludeStatus", "orderBy"].into_iter().all(unset)
 }
 
 /// Waits out this connection's pace, then sends `make` of the shared list as the reply,

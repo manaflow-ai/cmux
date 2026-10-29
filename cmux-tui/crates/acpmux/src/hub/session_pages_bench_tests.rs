@@ -59,7 +59,7 @@ async fn seeded_narrow_reads_exclude_peers_and_keep_closed_links() {
         full["sessions"].as_array().unwrap().iter().filter(|s| s["status"] == "closed").count(),
         1500
     );
-    let mut params = json!({"localOnly": true, "excludeStatus": ["closed"], "limit": 64});
+    let mut params = json!({"localOnly": true, "excludeStatus": ["closed"], "orderBy": "sessionId", "limit": 64});
     let (mut count, mut bytes, mut ms, mut pages) = (0, 0, 0.0, 0);
     loop {
         let (page, size, time) = read(&hub, "_acpmux/sessions", params.clone()).await;

@@ -84,7 +84,7 @@ public nonisolated struct AcpmuxQuit {
         // and disk, so it must not consume the quit census deadline.
         let rows = try await AcpmuxStatusClient.sessionPages(
             socketPath: socketPath,
-            params: ["localOnly": true, "excludeStatus": ["closed"]],
+            params: ["localOnly": true, "excludeStatus": ["closed"], "orderBy": "sessionId"],
             requiredCapability: "session-list-filters-v1",
             deadline: deadline
         )
