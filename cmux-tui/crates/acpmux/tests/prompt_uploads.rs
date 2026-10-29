@@ -613,12 +613,28 @@ async fn a_screenshots_copy_is_logged_neither_written_to_claude_nor_echoed_back(
     }
 }
 
+/// This stand-in advertises normal/strict modes. Explicitly declare only its
+/// strict mode as asking; production Codex mode policy remains untouched.
+fn web_upload_hub() -> Arc<Hub> {
+    home();
+    let mut cfg: Config = serde_json::from_value(json!({
+        "harnesses": {"fake": {"argv": ["python3", FAKE], "family": "fake"}},
+        "defaultHarness": "fake",
+        "permissionPolicy": "ask",
+        "webAskingModes": {"fake": ["strict"]}
+    }))
+    .unwrap();
+    cfg.store.mode = StoreMode::Memory;
+    let store = acpmux::store::open(&cfg.store, Path::new("/nonexistent")).unwrap();
+    Hub::new(cfg, store)
+}
+
 /// A dashboard sends its own original across a real peer link in bounded chunks,
 /// then names that upload in a prompt. The former 8 MiB UI and 15 MiB RPC limits
 /// must not truncate or refuse this 12 MiB source.
 #[tokio::test]
 async fn web_staged_original_crosses_peer_boundary_without_inline_overflow() {
-    let b = hub();
+    let b = web_upload_hub();
     let dir = std::env::temp_dir().join(format!("web-upload-peer-{}", v7()));
     let auth = PeerAuth::create(&dir).unwrap();
     let token = std::fs::read_to_string(acpmux::server::peer_auth::token_path(&dir)).unwrap();
@@ -639,6 +655,18 @@ async fn web_staged_original_crosses_peer_boundary_without_inline_overflow() {
         )
         .await;
     let session = made["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{made}"));
+    let modes = &made["result"]["modes"]["availableModes"];
+    assert!(
+        modes.as_array().is_some_and(|items| items.iter().any(|m| m["id"] == "strict")),
+        "{made}"
+    );
+    let set = local
+        .call(method::SESSION_SET_MODE, json!({"sessionId": session, "modeId": "strict"}))
+        .await;
+    assert!(
+        set.get("error").is_none(),
+        "the local owner selects the advertised asking mode: {set}"
+    );
     let a = hub();
     a.add_peer(
         "web-upload-peer",
