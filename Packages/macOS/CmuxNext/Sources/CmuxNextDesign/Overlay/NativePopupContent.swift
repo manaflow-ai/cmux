@@ -72,6 +72,7 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
             }
             retireComposition = true
         }
+        pendingCompositionModel = nil
         let selection = (focused?.value.currentEditor() as? NSTextView)?.selectedRange()
         let reset = next.search?.autoHighlight != model?.search?.autoHighlight ||
             (next.search?.autoHighlight != nil && model?.search?.value.isEmpty == false && next.search?.value.isEmpty == true)

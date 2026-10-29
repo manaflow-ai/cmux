@@ -73,7 +73,7 @@ extension NativePopupContent {
             selected = nil; selectionReason = "none"
             paintSelection()
         }
-        if var pending = pendingCompositionModel {
+        if var pending = pendingCompositionModel, pending.revision >= (model?.revision ?? 0) {
             pendingCompositionModel = nil
             if isSearch {
                 if pending.search?.id == id { pending.search?.value = value }

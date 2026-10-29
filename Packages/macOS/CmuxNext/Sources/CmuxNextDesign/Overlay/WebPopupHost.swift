@@ -193,6 +193,7 @@ public final class WebPopupHost {
 
     /// Ends the menu from this side (its tab hid or closed): the page closes its own as well.
     public func dismiss() {
+        presentationGeneration += 1
         if model != nil {
             hide()
             send(["type": "dismiss"])

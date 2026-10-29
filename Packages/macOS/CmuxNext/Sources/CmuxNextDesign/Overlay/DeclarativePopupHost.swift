@@ -22,6 +22,7 @@ final class DeclarativePopupHost {
     private var sideBySide = false
     private var retired: [String: Int] = [:]
     private var editSequence = 0
+    private var pendingEdits = NativePopupInputState()
     private var presentationGeneration = 0
     private var openingGeneration = 0
 
@@ -77,8 +78,9 @@ final class DeclarativePopupHost {
         return window === panel || child?.contains(window) == true
     }
 
-    func show(_ next: NativePopupModel, screenAnchor: CGRect? = nil, in parentWindow: NSWindow? = nil,
+    func show(_ incoming: NativePopupModel, screenAnchor: CGRect? = nil, in parentWindow: NSWindow? = nil,
               sideBySide: Bool = false, preserveKey: Bool = false) -> [String: Any] {
+        var next = incoming
         guard next.isValid, let webView, let window = parentWindow ?? webView.window, window.isVisible else { return ["shown": false] }
         self.sideBySide = sideBySide
         guard next.revision > (retired[next.id] ?? -1) else { return ["shown": false] }
@@ -97,13 +99,14 @@ final class DeclarativePopupHost {
         }
         if opening {
             openingGeneration += 1
-            if parent == nil { editSequence = 0 }
+            if parent == nil { editSequence = 0; pendingEdits = NativePopupInputState() }
             content.beginPresentation()
             child?.hide()
             child = nil
             returnWindow = window
             returnResponder = window.firstResponder
         }
+        if parent == nil { next = pendingEdits.preservingLocalEdits(in: next) }
         model = next
         content.setFrameSize(NSSize(width: next.width * zoom(), height: content.frame.height))
         content.update(next)
@@ -137,6 +140,7 @@ final class DeclarativePopupHost {
         let childWasKey = child?.panel.isKeyWindow == true
         _ = show(next, screenAnchor: screenAnchor ?? (parent == nil ? nil : shownAnchor), in: shownParent,
                  sideBySide: sideBySide, preserveKey: preserveKey)
+        guard let next = model else { return }
         let enabled = Self.enabledRows((next.rail ?? []) + next.rows + (next.footer ?? []))
         if let child, let childRowID,
            let row = enabled.first(where: { $0.id == childRowID && $0.kind == .submenu }),
@@ -185,7 +189,7 @@ final class DeclarativePopupHost {
     }
 
     func dismiss(reason: String) {
-        guard let model else { return }
+        guard let model else { hide(); return }
         // Children share the root's action identity, but closing one is a local navigation
         // operation. Only the root may dismiss the consumer's React popup state.
         if parent != nil { hide(); return }
@@ -223,6 +227,10 @@ final class DeclarativePopupHost {
         }
         let opening = root.openingGeneration
         let editSequence: Int? = type == .search || (type == .change && row?.kind == .textField) ? content.lastEditSequence : nil
+        if let editSequence, let id, let value {
+            root.pendingEdits.record(id: id, value: value, model: current, allocate: { _ in editSequence })
+            root.model = root.pendingEdits.preservingLocalEdits(in: current)
+        }
         deliver(NativePopupEvent(type: type, popupId: model.id, revision: content.emittingRevision ?? content.model?.revision ?? model.revision, id: id, value: value,
                                  reason: type == .submit || type == .highlight ? reason : nil,
                                  editSequence: editSequence))
@@ -239,8 +247,8 @@ final class DeclarativePopupHost {
     }
 
     private func open(_ row: NativePopupRow, from view: NSView) {
-        guard let model, let webView,
-              let row = Self.enabledRows((model.rail ?? []) + model.rows + (model.footer ?? []))
+        guard let model, let current = root.model, let webView,
+              let row = Self.enabledRows((current.rail ?? []) + current.rows + (current.footer ?? []))
                 .first(where: { $0.id == row.id && $0.kind == .submenu }),
               let rows = row.children, !rows.isEmpty else { return }
         child?.hide()
