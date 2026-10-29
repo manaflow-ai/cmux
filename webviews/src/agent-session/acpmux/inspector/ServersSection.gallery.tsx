@@ -32,18 +32,20 @@ function ServerPorts({ ports }: Props) {
   );
 }
 
-const portsFit = (count: number): Play => async (ctx) => {
-  await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-chat-inspector-port").length === count);
-  const line = ctx.find({ selector: ".acpmux-chat-inspector-server__line" }).getBoundingClientRect();
-  for (const port of ctx.document.querySelectorAll(".acpmux-chat-inspector-port")) {
-    const box = port.getBoundingClientRect();
-    if (box.left < line.left - 0.5 || box.right > line.right + 0.5 || box.bottom > line.bottom + 0.5) {
-      throw new Error(`Port ${port.textContent} extends outside the server detail line`);
+const portsFit =
+  (count: number): Play =>
+  async (ctx) => {
+    await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-chat-inspector-port").length === count);
+    const line = ctx.find({ selector: ".acpmux-chat-inspector-server__line" }).getBoundingClientRect();
+    for (const port of ctx.document.querySelectorAll(".acpmux-chat-inspector-port")) {
+      const box = port.getBoundingClientRect();
+      if (box.left < line.left - 0.5 || box.right > line.right + 0.5 || box.bottom > line.bottom + 0.5) {
+        throw new Error(`Port ${port.textContent} extends outside the server detail line`);
+      }
+      const hit = ctx.document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+      if (!hit || !port.contains(hit)) throw new Error(`Port ${port.textContent} is covered or clipped`);
     }
-    const hit = ctx.document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
-    if (!hit || !port.contains(hit)) throw new Error(`Port ${port.textContent} is covered or clipped`);
-  }
-};
+  };
 
 export default componentEntry<Props>({
   id: "agent-pane.session-info-server-ports",
@@ -52,10 +54,7 @@ export default componentEntry<Props>({
   pane: true,
   height: 260,
   widths: { narrow: 284, normal: 320 },
-  covers: [
-    "agent-session/acpmux/inspector/ServersSection.tsx",
-    "agent-session/acpmux/inspector/inspector.css",
-  ],
+  covers: ["agent-session/acpmux/inspector/ServersSection.tsx", "agent-session/acpmux/inspector/inspector.css"],
   load: async () => ServerPorts,
   variants: {
     "six-ports": {
