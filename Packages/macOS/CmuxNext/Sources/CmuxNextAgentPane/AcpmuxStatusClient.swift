@@ -122,9 +122,13 @@ nonisolated enum AcpmuxStatusClient {
             // Attached DEV daemons can be older than the app. Their resolver
             // accepts `query` but rejects the opt-in exact-session parameter;
             // query by the complete mux id and retain only an exact match.
-            let fallback = try await call(socketPath: socketPath, method: "_acpmux/resolve",
-                                          params: ["query": sessionId], deadline: deadline, detailed: true)
-            return sessionSummary(sessionId, in: fallback)
+            do {
+                let fallback = try await call(socketPath: socketPath, method: "_acpmux/resolve",
+                                              params: ["query": sessionId], deadline: deadline, detailed: true)
+                return sessionSummary(sessionId, in: fallback)
+            } catch let fallbackError as AcpmuxRPCError where fallbackError.code == -32002 {
+                return nil
+            }
         }
         return sessionSummary(sessionId, in: result)
     }
