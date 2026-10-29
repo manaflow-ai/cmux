@@ -664,15 +664,17 @@ a machine whose agent is mid-turn and quiet). The server pauses idle machines in
   that still holds a claim, even one the reconciler already marked paused. A compensating
   resume that loses its own claim gives up only to a person's or the allowance enforcer's
   later pause, a delete or a replace; after any other write (Off, activity, the reconciler) it
-  keeps the claim and the next run tries again. If that resume woke the machine but its running write lost, the next
-  run finds the provider running under a paused row and repairs the row to running through a
-  fenced write, which settles the claim. Every recovery that leaves the machine running (that
-  repair, a compensation that finds it already running, a refused pause the next run clears)
-  first clears the zero runtime cap the idle pause put on a Plus (go) machine, as the re-pause
-  race does. That is best effort: a failed write is logged and the recovery still finishes, and
-  the compensating resume takes no plan gate. A person's Pause landing during the repair wins
-  the row, and the running machine is paused again. A person's Pause on a row already marked
-  paused still records their decision.
+  keeps the claim and the next run tries again. If that resume woke the machine but its
+  running write lost, the next run finds the provider running under a paused row and repairs
+  the row to running through a fenced write, which settles the claim. Every recovery that
+  leaves the machine running (that repair, a compensation that finds it already running, a
+  refused pause the next run clears) takes the idle-resume fence, then clears the zero runtime
+  cap the idle pause put on a Plus (go) machine, as the re-pause race does. A newer write that
+  moved the fence first keeps its own cap, and a person's or the allowance enforcer's pause
+  that wins after the cap was cleared is put back (cap zero, then pause). Clearing the cap is
+  best effort: a failed write is logged and the recovery still finishes, and the compensating
+  resume takes no plan gate. A person's Pause on a row already marked paused still records
+  their decision.
 - The allowance enforcer's pause (`goPause.ts`, Plus and the Pro and Max budgets) stores the
   cause `allowance`. It settles the claim and stamps the fence like a person's pause, so no
   idle recovery resumes a machine past its allowance, whether the allowance runs out during the

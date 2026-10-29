@@ -4238,10 +4238,24 @@ export function repairRunningAfterLostIdlePause(vm: CloudVmRow, providerVmId: st
       if (vm.status === "paused") yield* recordResumeUsageEvent(repo, vm, "idle_pause_lost");
       return true;
     }
-    // A person's Pause since the claim won the row, but the machine still runs: pause it, as the compensation does.
-    const current = yield* repo.findUserVm({ userId: vm.userId, billingTeamId: vm.ownerTeamId, providerVmId, provider: vm.provider });
-    if (current && isDeliberatePauseSince(current, epoch)) yield* bestEffortPause(yield* VmProviderGateway, current, providerVmId);
+    yield* repauseIfDeliberateSince(vm, providerVmId, epoch);
     return false;
+  });
+}
+
+/**
+ * A recovery that took the idle-resume fence `epoch` and cleared the runtime
+ * cap, then lost its write: if a person's or the allowance enforcer's pause
+ * since won the row, the machine may be running with no cap, so put that
+ * pause back (cap zero for Plus, then pause), as the compensation does.
+ */
+export function repauseIfDeliberateSince(vm: CloudVmRow, providerVmId: string, epoch: number) {
+  return Effect.gen(function* () {
+    const repo = yield* VmRepository;
+    const current = yield* repo.findUserVm({ userId: vm.userId, billingTeamId: vm.ownerTeamId, providerVmId, provider: vm.provider });
+    if (!current || !isDeliberatePauseSince(current, epoch)) return false;
+    yield* bestEffortPause(yield* VmProviderGateway, current, providerVmId);
+    return true;
   });
 }
 

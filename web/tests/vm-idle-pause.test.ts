@@ -1508,6 +1508,26 @@ describe("a Go machine's runtime budget after an idle pause recovery", () => {
     expect(recorded.resumed).toEqual([]);
   });
 
+  test("a person's Pause after the left claim's fence and cap clear: their pause and zero cap are put back", async () => {
+    let armed = false;
+    const { rows, runAt, recorded, providerState } = setup({
+      pauseFails: "refused",
+      afterResumeClaim: (_repo, ctx) => {
+        if (!armed) return;
+        armed = false;
+        return ctx.userPause("row-1");
+      },
+    });
+    await runAt(T0);
+    armed = true;
+    await runAt(T0 + 5 * MIN);
+    expect(rows[0].status).toBe("paused");
+    expect(rows[0].providerMetadata.cmuxPauseReason).toBe("user");
+    expect(providerState.get(VM)).toBe("paused");
+    expect(recorded.budgets.at(-1)).toBe(0);
+    expect(recorded.resumed).toEqual([]);
+  });
+
   test("a refused pause zeroed the budget: the next run gives it back before clearing the claim", async () => {
     const { rows, runAt, recorded } = setup({ pauseFails: "refused" });
     expect(await runAt(T0)).toMatchObject({ paused: 0, errors: 1 });

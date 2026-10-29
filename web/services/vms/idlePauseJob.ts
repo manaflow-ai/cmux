@@ -22,6 +22,7 @@ import {
   readIdleProviderState,
   recordIdlePauseAt,
   repairRunningAfterLostIdlePause,
+  repauseIfDeliberateSince,
   restoreIdlePauseBudget,
   resumeAfterLostIdlePause,
 } from "./workflows";
@@ -218,12 +219,7 @@ function settleLeftClaim(vm: CloudVmRow, providerVmId: string, checkedAt: number
     const state = yield* readIdleProviderState(vm, providerVmId);
     console.info("[VM] idle pause claim left by an earlier run", JSON.stringify({ vmId: vm.id, claim, provider: state ?? "unreadable" }));
     if (state === null) return "unknown" as const;
-    if (state === "running" && vm.status === "running") {
-      // The pause may have zeroed a Go machine's budget before the provider call failed.
-      yield* restoreIdlePauseBudget(vm, providerVmId);
-      yield* recordObservation(vm, providerVmId, null, checkedAt, vmIdleEpochFromRow(vm));
-      return "unknown" as const;
-    }
+    if (state === "running" && vm.status === "running") return yield* settleRunningClaim(vm, providerVmId, checkedAt);
     if (state === "running") {
       // A paused row on a running machine: a compensating resume woke it but its running write lost.
       // Repair the row (fenced, so a newer write retries next run) before the reconciler re-pauses it.
@@ -236,12 +232,35 @@ function settleLeftClaim(vm: CloudVmRow, providerVmId: string, checkedAt: number
   });
 }
 
+/**
+ * A left claim on a running row whose machine still runs: the pause never
+ * happened, but it may have zeroed a Plus machine's runtime cap first. Take
+ * the idle-resume fence before clearing that cap, so a newer write (a
+ * person's Pause with its own zero cap, Off, activity) is never undone from
+ * this run's snapshot; lost, the claim stays for the next run. If a
+ * deliberate pause wins after the cap is cleared, it is put back.
+ */
+function settleRunningClaim(vm: CloudVmRow, providerVmId: string, checkedAt: number) {
+  return Effect.gen(function* () {
+    const repo = yield* VmRepository;
+    const epoch = yield* repo.claimIdleResume!({ id: vm.id, providerVmId, epoch: vmIdleEpochFromRow(vm) });
+    if (epoch === null) {
+      console.info("[VM] idle pause claim: the row moved before the claim was settled; next run", JSON.stringify({ vmId: vm.id }));
+      return "unknown" as const;
+    }
+    yield* restoreIdlePauseBudget(vm, providerVmId);
+    if (!(yield* recordObservation(vm, providerVmId, null, checkedAt, epoch))) yield* repauseIfDeliberateSince(vm, providerVmId, epoch);
+    return "unknown" as const;
+  });
+}
+
 /** Fenced on `epoch` (the idle epoch the cron read, or its claim): a probe that overlapped any newer write stores nothing. */
 function recordObservation(vm: CloudVmRow, providerVmId: string, observation: VmIdleDecision["observation"], probedAt: number, epoch: number) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
     const stored = yield* repo.recordIdleObservation!({ id: vm.id, providerVmId, observation, probedAt, epoch });
     if (!stored) console.info("[VM] idle observation dropped: the row moved during the probe", JSON.stringify({ vmId: vm.id }));
+    return stored;
   });
 }
 
