@@ -27,9 +27,9 @@ public final class CrashForwarders: Sendable {
     /// hang-report sink once attached (``setHangEntries(_:)``), so the forwarder made later gets it too. One lock for
     /// both, so each forwarder gets the sink exactly once whichever comes first.
     private let acpmux = Mutex<(forwarder: OwnerPanicForwarder?, hangEntries: OwnerPanicForwarder.HangEntries?)>((nil, nil))
-    /// Whether the forwarders started, whether the helper crash forwarder was released and whether it started: it
-    /// starts once, at whichever of the two comes last.
-    private let systemGate: Mutex<(started: Bool, released: Bool, systemStarted: Bool)>
+    /// Whether the forwarders started, whether the helper crash forwarder was released and how many times it started:
+    /// once, at whichever of the two comes last.
+    private let systemGate: Mutex<(started: Bool, released: Bool, systemStarts: Int)>
 
     /// - Parameters:
     ///   - system: The helper crash report forwarder.
@@ -43,7 +43,7 @@ public final class CrashForwarders: Sendable {
         self.system = system
         self.ownerPanics = ownerPanics
         makeAcpmuxPanics = acpmuxPanics
-        systemGate = Mutex((started: false, released: !systemWaitsForRelease, systemStarted: false))
+        systemGate = Mutex((started: false, released: !systemWaitsForRelease, systemStarts: 0))
     }
 
     /// Lets the helper crash forwarder start: now on its own queue if the forwarders started, else with them. Only the
@@ -55,6 +55,10 @@ public final class CrashForwarders: Sendable {
         }
         if startNow { system.start() }
     }
+
+    /// How many helper crash forwarder passes the gate started (0 or 1), set in the same lock turn as the decision, so a
+    /// test reads it level-triggered, with no timer.
+    var systemPassesStarted: Int { systemGate.withLock { $0.systemStarts } }
 
     /// The acpmux daemon's panic log forwarder, once ``start()`` made it.
     public var acpmuxPanics: OwnerPanicForwarder? { acpmux.withLock { $0.forwarder } }
@@ -85,9 +89,9 @@ public final class CrashForwarders: Sendable {
         }
     }
 
-    private static func claimSystem(_ gate: inout (started: Bool, released: Bool, systemStarted: Bool)) -> Bool {
-        guard !gate.systemStarted else { return false }
-        gate.systemStarted = true
+    private static func claimSystem(_ gate: inout (started: Bool, released: Bool, systemStarts: Int)) -> Bool {
+        guard gate.systemStarts == 0 else { return false }
+        gate.systemStarts += 1
         return true
     }
 

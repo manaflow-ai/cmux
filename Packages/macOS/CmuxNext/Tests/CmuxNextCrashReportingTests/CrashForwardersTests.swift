@@ -5,11 +5,10 @@ import Testing
 /// ``CrashForwarders/start()`` starts each forwarder on its own queue, so a panic and a helper crash report the last
 /// run left are sent there, and acpmux is found once, on the calling thread. A helper crash forwarder that waits for
 /// its release (the hang-reports controller's first decision) does its one pass at whichever of the start and the
-/// release comes last. Each test waits on the forwarders' own sends (their capture callbacks), never on a timer.
-/// That no helper pass runs before the release is the gate's synchronous decision in ``CrashForwarders``; with
-/// `start()` asynchronous, a test could see an early pass only through a timer, so none checks it.
+/// release comes last. Each test waits on the forwarders' own sends (their capture callbacks) and reads the gate's
+/// started-pass count (``CrashForwarders/systemPassesStarted``), never a timer.
 @Suite(.timeLimit(.minutes(1))) struct CrashForwardersTests {
-    @Test func aSystemForwarderReleasedAfterTheStartDoesItsPassThen() async throws {
+    @Test func aSystemForwarderThatWaitsForItsReleaseDoesNoPassBeforeIt() async throws {
         let dir = try CrashForwardersScratch()
         defer { dir.remove() }
         let (seen, report) = AsyncStream.makeStream(of: String.self)
@@ -19,8 +18,12 @@ import Testing
         var before: Set<String> = []
         for _ in 0..<2 { before.insert(try #require(await reports.next())) }
         #expect(before == ["acpmux.made", "owner: boom"])
+        #expect(forwarders.systemPassesStarted == 0, "the helper forwarder started before its release")
         forwarders.releaseSystem()
+        #expect(forwarders.systemPassesStarted == 1)
         #expect(await reports.next() == "system")
+        forwarders.releaseSystem()
+        #expect(forwarders.systemPassesStarted == 1, "a second release started a second pass")
     }
 
     @Test func aSystemForwarderReleasedBeforeTheStartDoesItsPassWithTheOthers() async throws {
@@ -29,7 +32,9 @@ import Testing
         let (seen, report) = AsyncStream.makeStream(of: String.self)
         let forwarders = dir.forwarders(systemWaitsForRelease: true) { report.yield($0) }
         forwarders.releaseSystem()
+        #expect(forwarders.systemPassesStarted == 0, "the release alone started the helper forwarder")
         forwarders.start()
+        #expect(forwarders.systemPassesStarted == 1)
         var reports = seen.makeAsyncIterator()
         var values: Set<String> = []
         for _ in 0..<3 { values.insert(try #require(await reports.next())) }
