@@ -33,6 +33,7 @@ import {
 } from "../account/deletionLock";
 import type { ProviderId } from "./drivers";
 import { allocateVmSlug } from "./vmNaming";
+import { VM_FORK_METHOD_METADATA_KEY, type PersistedVmForkMethod } from "./forkMethod";
 import {
   beginSnapshotRequest,
   finishSnapshotRequest,
@@ -509,6 +510,8 @@ export type VmRepositoryShape = Partial<VmHealthRepositoryMethods> & {
     readonly resourceReservation?: VmResourceReservation;
     /** Mark an unfinished provider clone for shape reconciliation. */
     readonly forkPending?: boolean;
+    /** Original fork method, persisted atomically with the idempotency row. */
+    readonly forkMethod?: PersistedVmForkMethod;
     /** Minimum source shape retained when a temporary fork claim is recovered. */
     readonly forkMinimumResourceReservation?: VmResourceReservation;
     /** "latest" opts the machine into coding-agent updates; absent keeps the image's pins. */
@@ -2445,6 +2448,7 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
                     input.forkPending,
                     input.forkMinimumResourceReservation ?? input.resourceReservation,
                   ),
+                  ...(input.forkMethod ? { [VM_FORK_METHOD_METADATA_KEY]: input.forkMethod } : {}),
                   ...(input.idlePauseMinutes === undefined ? {} : { [VM_IDLE_PAUSE_MINUTES_KEY]: input.idlePauseMinutes }),
                 },
                 slug: await allocateSlugInTx(tx, input.billingTeamId),
