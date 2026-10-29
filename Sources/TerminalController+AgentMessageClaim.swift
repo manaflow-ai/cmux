@@ -7,7 +7,10 @@ import Foundation
 extension TerminalController {
     /// Used by synchronous hooks (prompt submit, Codex stop): hands over every
     /// queued message for the caller's surface.
-    nonisolated func agentMessageClaim(params: [String: Any]) async -> V2CallResult {
+    nonisolated func agentMessageClaim(
+        params: [String: Any],
+        deadline: ContinuousClock.Instant = .now.advanced(by: .seconds(2))
+    ) async -> V2CallResult {
         guard let surfaceId = Self.agentMessageSurfaceUUID(params["surface_id"]) else {
             return Self.agentMessageMissingSurface()
         }
@@ -28,18 +31,34 @@ extension TerminalController {
                 startSeconds: Int64(key.startSeconds),
                 startMicroseconds: Int64(key.startMicroseconds)
             )
-            let isCurrentAgent = await MainActor.run {
-                guard let appDelegate = AppDelegate.shared,
-                      let target = appDelegate.liveAgentDeliveryTarget(for: evidence, resolution: .corroborated),
-                      target.surfaceId.uuidString == surfaceId else { return false }
-                return appDelegate.liveKiroAgentProcessMatchesSurface(identity: identity, surfaceID: target.surfaceId)
+            // Hook claims have a three-second client timeout, shorter than
+            // ordinary socket commands. The hop is read-only: an abandoned
+            // or late result must never consume the inbox.
+            let ownership = await ControlBoundedHop(deadlineMilliseconds: 1_000).run(
+                schedule: { job in Task { @MainActor in job() } },
+                body: {
+                    MainActor.assumeIsolated {
+                        guard let appDelegate = AppDelegate.shared,
+                              let target = appDelegate.liveAgentDeliveryTarget(for: evidence, resolution: .corroborated),
+                              target.surfaceId.uuidString == surfaceId else { return false }
+                        return appDelegate.liveKiroAgentProcessMatchesSurface(identity: identity, surfaceID: target.surfaceId)
+                    }
+                }
+            )
+            guard case .completed(true) = ownership else {
+                return .ok(["messages": [], "text": ""])
             }
             // The actor hop may wait behind a UI turn. Validate the same birth
             // time again on the worker before consuming any queued message.
             let currentIdentity = await runSocketWorkerBlockingBody { AgentPIDProcessIdentity(pid: pid) }
-            guard isCurrentAgent, currentIdentity == identity else {
+            guard currentIdentity == identity else {
                 return .ok(["messages": [], "text": ""])
             }
+        }
+        // No suspension follows this check before the store mutation. A slow
+        // worker or executor hop leaves messages queued for the next hook.
+        guard !Task.isCancelled, ContinuousClock.now < deadline else {
+            return .ok(["messages": [], "text": ""])
         }
         let store = AgentMessageCenter.store
         if params["mark_delivered_read"] as? Bool == true {

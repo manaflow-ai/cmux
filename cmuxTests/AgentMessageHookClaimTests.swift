@@ -142,6 +142,20 @@ struct AgentMessageHookClaimTests {
         #expect(!runtime.ownsKiroProcess(identity))
     }
 
+    @Test("Expired claims do not acknowledge or consume inbox messages")
+    func expiredClaimPreservesMessages() async throws {
+        let surfaceID = UUID()
+        let previous = try appendMessage(to: surfaceID, body: "delivered")
+        _ = AgentMessageCenter.store.claimQueued(recipientSurfaceId: surfaceID.uuidString, via: "kiro.stop")
+        let queued = try appendMessage(to: surfaceID, body: "waiting")
+        _ = await TerminalController.shared.agentMessageClaim(
+            params: ["surface_id": surfaceID.uuidString, "mark_delivered_read": true, "via": "kiro.stop"],
+            deadline: .now
+        )
+        #expect(AgentMessageCenter.store.message(id: previous.id)?.state == .delivered)
+        #expect(AgentMessageCenter.store.message(id: queued.id)?.state == .queued)
+    }
+
     private func appendMessage(to surfaceID: UUID, body: String) throws -> AgentMessage {
         try AgentMessageCenter.store.append(AgentMessageDraft(
             senderName: "test",
