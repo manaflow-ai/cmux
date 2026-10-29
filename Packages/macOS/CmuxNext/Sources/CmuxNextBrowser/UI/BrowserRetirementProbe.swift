@@ -13,7 +13,7 @@ public struct BrowserRetirementProbe {
     public func run(makeOwner: (any BrowserTab) -> (owner: AnyObject, chrome: BrowserChromeView)) async throws -> [String: Bool] {
         guard let url = URL(string: "about:blank"),
               let page = try await engine.makeTab(BrowserTabConfiguration(initialURL: url)) as? CEFTab else {
-            throw BrowserTabError.unsupported
+            throw BrowserTabError.unsupported("Chromium page unavailable")
         }
         defer { page.close() }
         var mounted = Optional(makeOwner(page))
