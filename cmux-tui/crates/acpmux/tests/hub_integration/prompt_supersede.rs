@@ -58,14 +58,17 @@ fn prompt(session: &str, prompt_id: &str, text: &str, from: &str, key: Option<&s
     json!({"sessionId": session, "prompt": [{"type": "text", "text": text}], "_meta": {"acpmux": mux}})
 }
 
-struct Client(mpsc::Sender<String>, mpsc::Receiver<String>, i64);
+/// A connection: its requests, its lines, the last request id, and the replies read while
+/// waiting for something else. Replies to concurrent requests come in any order (JSON-RPC
+/// matches them by id), so one read past is kept for its `reply_to`, never dropped.
+struct Client(mpsc::Sender<String>, mpsc::Receiver<String>, i64, Vec<Value>);
 
 impl Client {
     fn open(hub: &Arc<Hub>) -> Self {
         let (in_tx, in_rx) = mpsc::channel(64);
         let (out_tx, out_rx) = mpsc::channel(4096);
         tokio::spawn(serve_connection_with(hub.clone(), in_rx, out_tx, Origin::Local));
-        Self(in_tx, out_rx, 0)
+        Self(in_tx, out_rx, 0, Vec::new())
     }
 
     async fn send(&mut self, method: &str, params: Value) -> i64 {
@@ -75,6 +78,9 @@ impl Client {
     }
 
     async fn until(&mut self, pred: impl Fn(&Value) -> bool) -> Value {
+        if let Some(i) = self.3.iter().position(|reply| pred(reply)) {
+            return self.3.remove(i);
+        }
         loop {
             let line = tokio::time::timeout(Duration::from_secs(30), self.1.recv())
                 .await
@@ -83,6 +89,10 @@ impl Client {
             let value: Value = serde_json::from_str(&line).unwrap();
             if pred(&value) {
                 return value;
+            }
+            // A reply (an id, no method) waits for its own `reply_to`.
+            if value.get("id").is_some() && value.get("method").is_none() {
+                self.3.push(value);
             }
         }
     }
