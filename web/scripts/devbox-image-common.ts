@@ -49,6 +49,7 @@ export const DEVBOX_TEMPLATE_FILES = [
   "chrome-managed-policy.json",
   "cmux-bashrc",
   "cmux-devbox-boot",
+  "cmux-dns",
   "cmux-tui-state-mount",
   "cmux-motd",
   "cmux-prompt.bash",
@@ -460,6 +461,7 @@ export function devboxSourceManifest(
     cuaDriver: devboxCuaDriverVersion(dockerfile),
     ghosttyVersion: devboxGhosttyVersion(dockerfile),
     files,
+    dns: { units: DEVBOX_DNS_UNITS, install: devboxDnsInstallCommand },
   };
   if (schema >= 2) {
     shell.dockerfileInstructions = createHash("sha256").update(normalizedDockerfileInstructions(dockerfile)).digest("hex");
@@ -1583,7 +1585,7 @@ export const DEVBOX_DNS_UNITS: Readonly<Record<string, string>> = {
     "Wants=nss-lookup.target",
     "",
     "[Service]",
-    "Type=simple",
+    "Type=notify",
     // The distribution interpreter, not whichever python3 is first on PATH.
     `ExecStart=/usr/bin/python3 ${DEVBOX_DNS_PATH} serve`,
     "Restart=always",
@@ -1629,7 +1631,7 @@ export const devboxDnsInstallCommand = [
   "systemctl start cmux-dns-guard.service",
   // The stub itself must answer: libc would hide a dead one behind the
   // platform resolvers listed after it.
-  `{ for i in $(seq 1 20); do /usr/bin/python3 ${DEVBOX_DNS_PATH} probe && break; sleep 0.5; done; /usr/bin/python3 ${DEVBOX_DNS_PATH} probe; }`,
+  `/usr/bin/python3 ${DEVBOX_DNS_PATH} probe`,
 ].join(" && ");
 
 /** The fallback is installed, answers on its own, and resolv.conf points at it first. */

@@ -13,8 +13,10 @@ every TLS rule change and on resume.
 names the platform steers to its edge keep resolving to the edge. When they
 fail it answers from the last good platform answer for the question (at most
 a day old, and only since the platform last wrote resolv.conf), then over
-DNS-over-HTTPS to resolvers addressed by IP on 443, which the interception
-does not touch. It never turns a platform failure into NXDOMAIN.
+DNS-over-HTTPS to resolvers addressed by IP on 443 when TLS steering is
+inactive. While steering is active, a cache miss fails closed: the guest
+cannot distinguish steered names from public ones. It never turns a platform
+failure into NXDOMAIN.
 
 `guard` (run by cmux-dns-guard.path whenever resolv.conf changes) points
 resolv.conf at the stub and keeps the platform's resolvers after it, so a
@@ -35,6 +37,7 @@ import time
 
 LISTEN = "127.0.0.2"
 RESOLV_CONF = "/etc/resolv.conf"
+TLS_DNS_SERVERS = "/run/freestyle/tls-dns-servers"
 MARKER = "# cmux-dns"
 UPSTREAM_PREFIX = "# cmux-dns upstream "
 # Freestyle's base resolvers (/etc/systemd/resolved.conf.d/60-freestyle-vms.conf).
@@ -217,6 +220,22 @@ def resolv_conf_source(path=RESOLV_CONF):
     return generation, upstreams_from(read_resolv_conf(path))
 
 
+def platform_steering(path=TLS_DNS_SERVERS):
+    """The provider publishes resolver IPs here while TLS steering is active.
+
+    It does not publish the steered names. Public answers could bypass TLS
+    routing (including credential injection), so an unreadable marker also
+    fails closed. An absent or empty marker means steering is inactive.
+    """
+    try:
+        with open(path) as stream:
+            return bool(stream.read().strip())
+    except FileNotFoundError:
+        return False
+    except OSError:
+        return True
+
+
 _POOL = concurrent.futures.ThreadPoolExecutor(max_workers=64)
 
 
@@ -226,16 +245,18 @@ def bounded(function, timeout, *args):
     try:
         return future.result(timeout=max(timeout, 0.001))
     except concurrent.futures.TimeoutError:
+        future.cancel()
         return None
 
 
 class Resolver:
     """Platform first, then the last good platform answer, then DNS-over-HTTPS."""
 
-    def __init__(self, upstreams=None, doh=None, clock=time.monotonic, exchange=None, doh_exchange=None, source=None):
+    def __init__(self, upstreams=None, doh=None, clock=time.monotonic, exchange=None, doh_exchange=None, source=None, steering=platform_steering):
         if source is None:
             source = (lambda: (None, upstreams())) if upstreams else resolv_conf_source
         self._source = source
+        self._steering = steering
         self._doh = DOH_ENDPOINTS if doh is None else doh
         self._clock = clock
         self._exchange = exchange or exchange_dns
@@ -271,7 +292,9 @@ class Resolver:
         deadline = self._clock() + QUERY_BUDGET
         stamp, servers = self._source()
         generation = (stamp, tuple(servers))
-        attempts = (list(servers) * UPSTREAM_TRIES)[:UPSTREAM_TRIES]
+        # Match libc's fallback order: not every machine routes IPv6.
+        ordered = sorted(servers, key=lambda server: ":" in server)
+        attempts = (ordered * UPSTREAM_TRIES)[:UPSTREAM_TRIES]
         for server in attempts:
             remaining = deadline - self._clock()
             if remaining <= 0:
@@ -285,6 +308,10 @@ class Resolver:
         stale = self._cached(generation, key)
         if stale is not None:
             return with_id(stale, query)
+        # The provider exports resolver IPs, but no guest-readable name set.
+        # Conservatively preserve every possible TLS route on a cold miss.
+        if self._steering():
+            return failure(query)
         for host, path in self._doh:
             remaining = deadline - self._clock()
             if remaining <= 0:
@@ -400,6 +427,18 @@ def probe(name="github.com"):
     return 0 if found(reply) and answers(reply, query) else 1
 
 
+def notify_ready():
+    """Tell systemd both DNS listeners are bound before it starts dependents."""
+    path = os.environ.get("NOTIFY_SOCKET")
+    if not path:
+        return
+    if path.startswith("@"):
+        path = "\0" + path[1:]
+    with socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM) as notify:
+        notify.connect(path)
+        notify.send(b"READY=1")
+
+
 def main(argv):
     command = argv[1] if len(argv) > 1 else ""
     if command == "guard":
@@ -407,6 +446,7 @@ def main(argv):
         return 0
     if command == "serve":
         udp, _ = serve(Resolver())
+        notify_ready()
         udp.serve_forever()
         return 0
     if command == "probe":

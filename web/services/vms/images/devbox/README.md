@@ -341,14 +341,19 @@ rule change and on resume anyway.
 `CAP_NET_BIND_SERVICE`) listens on `127.0.0.2:53`, UDP and TCP, and per
 query:
 
-1. asks the platform's resolvers (two tries of 1 s: the first two resolvers,
+1. asks the platform's resolvers (two tries of 1 s: the first two, IPv4 first,
    or a lone one twice), so steered names keep resolving to the edge and
    NXDOMAIN stays the platform's;
 2. on SERVFAIL, REFUSED or silence, answers with the platform's last good
    answer for that exact question, at most a day old. The cache starts over
    whenever resolv.conf is written (a TLS rule, a resume, a clone's first
    boot), so a stale answer never outlives a steering change;
-3. otherwise asks DNS-over-HTTPS at `1.1.1.1` then `8.8.8.8`, addressed by IP
+3. while the provider's `/run/freestyle/tls-dns-servers` marker is nonempty,
+   returns SERVFAIL on a cache miss. The provider exports resolver IPs but no
+   steered-name list to the guest, so a public answer could bypass a required
+   TLS route or credential injection, even with full public egress. This
+   conservatively covers all names until the platform answers again;
+4. when TLS steering is inactive, asks DNS-over-HTTPS at `1.1.1.1` then `8.8.8.8`, addressed by IP
    on 443, which the interception does not touch, and accepts only NOERROR:
    a public NXDOMAIN for a name only the platform knows comes back as
    SERVFAIL, never as a missing name. A machine whose network policy blocks
@@ -367,8 +372,9 @@ first), keeps its `search` line and options other than `timeout`/`attempts`
 resolver on a `# cmux-dns upstream` line the stub reads. A stopped stub
 therefore costs one refused packet before libc asks the platform directly.
 Between a platform rewrite and the guard (under a second) the machine
-resolves the old way. The bake installs it after the prompt sync and waits
-until the stub itself answers (`cmux-dns probe`; a libc lookup would pass
+resolves the old way. The bake installs it after the prompt sync; systemd
+waits for `READY=1` after both listeners bind, then checks that the stub itself
+answers (`cmux-dns probe`; a libc lookup would pass
 through the fallback resolvers), every later bake step resolves through it,
 and `verify-devbox-image.ts` checks the same contract. The container recipe
 has none: Docker owns its resolv.conf. Machines baked before it keep
