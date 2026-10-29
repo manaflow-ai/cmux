@@ -19,13 +19,15 @@ fn rec(seq: u64, kind: &str, msg: serde_json::Value) -> EventRecord {
 #[test]
 fn meta_replay_rebuilds_the_settings_in_log_order() {
     let mut m = meta();
+    // The title first: a rename of an untitled chat names it, and a name keeps its title
+    // (`meta_replay_a_generated_title_keeps_a_harness_title_and_a_name`).
     for r in [
-        rec(1, "renamed", json!({"from": "old", "to": "first"})),
-        rec(2, "renamed", json!({"from": "first", "to": "second"})),
-        rec(3, "tags", json!({"tags": {"lane": "fast", "k": "v"}, "expires": {"k": 99}})),
-        rec(4, "policy", json!({"policy": "deny-all"})),
-        rec(5, "rules", json!({"rules": {"autoApprove": ["execute"]}})),
-        rec(6, "titled", json!({"title": "A title"})),
+        rec(1, "titled", json!({"title": "A title"})),
+        rec(2, "renamed", json!({"from": "old", "to": "first"})),
+        rec(3, "renamed", json!({"from": "first", "to": "second"})),
+        rec(4, "tags", json!({"tags": {"lane": "fast", "k": "v"}, "expires": {"k": 99}})),
+        rec(5, "policy", json!({"policy": "deny-all"})),
+        rec(6, "rules", json!({"rules": {"autoApprove": ["execute"]}})),
     ] {
         apply(&mut m, &r);
     }

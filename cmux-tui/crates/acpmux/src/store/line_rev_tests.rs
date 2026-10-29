@@ -47,7 +47,7 @@ fn tail_after_hands_the_meta_replay_kinds_oldest_first_and_counts_the_tail() {
         serde_json::to_string(&rec).unwrap()
     };
     let kinds = [(1, "renamed"), (2, "agent"), (3, "renamed"), (4, "agent"), (5, "policy")];
-    let mut text: String = kinds.iter().map(|(seq, kind)| line(*seq, *kind) + "\n").collect();
+    let mut text: String = kinds.iter().map(|(seq, kind)| line(*seq, kind) + "\n").collect();
     let torn = line(6, "agent");
     text.push_str(&torn[..torn.find("\"msg\"").unwrap() + 4]);
     let segment = events.join("000001.ndjson");
