@@ -224,10 +224,13 @@ public final class ChiefCloudBackend: ConversationBackend, ChiefLiveSource, @unc
         }
 
         func markRead(_ seq: Int) async {
-            lastReadHere = max(lastReadHere ?? 0, seq)
-            // Send Read Receipts off: the read position stays on this phone.
+            lastReadHere = max(lastReadHere ?? preferences.readHere(conversationID) ?? 0, seq)
+            // Send Read Receipts off: the read position stays on this phone
+            // (kept, so a reconnect or relaunch still knows it).
             if preferences.sendsReadReceipts(conversationID) {
                 _ = try? await op("read_cursor.set", ["seq": seq])
+            } else if let lastReadHere, preferences.readHere(conversationID) != lastReadHere {
+                preferences.setReadHere(lastReadHere, conversationID)
             }
             yieldReadState(lastRead: seq)
         }
@@ -237,7 +240,7 @@ public final class ChiefCloudBackend: ConversationBackend, ChiefLiveSource, @unc
             if let receipts = change.sendReadReceipts {
                 preferences.setSendsReadReceipts(receipts, conversationID)
                 // Turning receipts back on reports where this phone has read to.
-                if receipts, let lastRead = lastReadHere { await markRead(lastRead) }
+                if receipts, let lastRead = lastReadHere ?? preferences.readHere(conversationID) { await markRead(lastRead) }
             }
             guard var info = info ?? wire.info(["id": conversationID]) else {
                 throw ConversationBackendError(code: -4, message: "no conversation")
@@ -579,7 +582,8 @@ public final class ChiefCloudBackend: ConversationBackend, ChiefLiveSource, @unc
             takeChiefCursor(head)
             // With receipts off the service's cursor lags what this phone read.
             let server = wire.readCursor(head, of: identity.meID)
-            yieldReadState(lastRead: preferences.sendsReadReceipts(conversationID) ? server : max(server, lastReadHere ?? 0))
+            let here = lastReadHere ?? preferences.readHere(conversationID) ?? 0
+            yieldReadState(lastRead: preferences.sendsReadReceipts(conversationID) ? server : max(server, here))
         }
 
         private func requestSnapshot(on task: URLSessionWebSocketTask) async throws {

@@ -250,20 +250,33 @@ pub fn usage(question: &Value, session: &str) -> String {
 }
 
 /// What `acpmux pending` and a streaming turn print as the way to answer a
-/// pending request: the `answer` command for a question (an allow would be
-/// refused), else allow with the offered option ids, and deny for both.
+/// pending request. The CLI is never the person (`hub/person.rs`): the
+/// daemon refuses it an allow and a question's answer, so those are named
+/// in the app, and deny and cancel, which it may run, as commands.
 pub fn pending_hint(request: &Value, session: &str) -> String {
-    if let Some(first) = question(request).and_then(|q| items(q).first()) {
-        return format!(
-            "acpmux session answer {session} --answer \"{}=<choice>\" | acpmux session deny {session}",
-            item_name(first)
-        );
+    let deny = format!("acpmux session deny {session} | acpmux session cancel {session}");
+    if question(request).is_some() {
+        return format!("answer it in the cmux app (the chat's question card) | {deny}");
     }
-    let ids: Vec<&str> = request["options"]
-        .as_array()
-        .map(|a| a.iter().filter_map(|o| o["optionId"].as_str()).collect())
-        .unwrap_or_default();
-    format!("acpmux session allow {session} [{}] | acpmux session deny {session}", ids.join("|"))
+    format!("allow it in the cmux app (the chat's permission card) | {deny}")
+}
+
+/// The note `acpmux new` and `send` print before a session works: its
+/// policy asks before some tools run, and only the cmux app can allow
+/// those (the CLI may deny or cancel). None when its policy never asks
+/// (approve-all) or denies by itself (deny-all), or is not known.
+pub fn app_allow_note(info: &Value, session: &str) -> Option<String> {
+    use crate::config::PermissionPolicy;
+    // A session's own policy, else the daemon default it runs under.
+    let policy = info.get("policy").and_then(Value::as_str);
+    let policy = policy.or_else(|| info.pointer("/enforcement/policy").and_then(Value::as_str));
+    let policy: PermissionPolicy = policy?.parse().ok()?;
+    if matches!(policy, PermissionPolicy::ApproveAll | PermissionPolicy::DenyAll) {
+        return None;
+    }
+    Some(format!(
+        "note: {session} asks before some tools run (policy {policy}); only the cmux app can allow that (the chat's permission card). From here, `acpmux session deny {session}` or `acpmux session cancel {session}`."
+    ))
 }
 
 #[cfg(test)]
@@ -292,5 +305,51 @@ mod tests {
              "options": [{"label": "Red"}, {"label": "Blue"}]}]});
         let answers = parse_answers(&question, &["q1=blue, red, teal".into()]).unwrap();
         assert_eq!(answers, json!({"Pick?": "Red, Blue, teal"}));
+    }
+
+    /// The CLI is never the person (`hub/person.rs`): the daemon refuses its
+    /// allow and its answer. The way to answer a pending ask it prints (the
+    /// send reply, `acpmux pending`) names the app for those, and only the
+    /// commands the CLI may run (ergo-walk, 2026-10-25).
+    #[test]
+    fn the_pending_hint_offers_only_what_the_cli_may_run() {
+        let permission = json!({"toolCall": {"title": "Read README.md"}, "options": [
+            {"optionId": "accept", "kind": "allow_once"},
+            {"optionId": "cancel", "kind": "reject_once"}]});
+        let hint = pending_hint(&permission, "my-linux/api-work");
+        assert!(!hint.contains("session allow"), "{hint}");
+        assert!(hint.contains("allow it in the cmux app (the chat's permission card)"), "{hint}");
+        assert!(hint.contains("acpmux session deny my-linux/api-work"), "{hint}");
+        assert!(hint.contains("acpmux session cancel my-linux/api-work"), "{hint}");
+
+        let question = json!({"toolCall": {"_meta": {"acpmux": {"question": {"items": [
+            {"id": "q1", "prompt": "Pick?", "options": [{"label": "Red"}]}]}}}},
+            "options": [{"optionId": "allow", "kind": "allow_once"}]});
+        let hint = pending_hint(&question, "s");
+        assert!(!hint.contains("session answer"), "{hint}");
+        assert!(hint.contains("answer it in the cmux app (the chat's question card)"), "{hint}");
+        assert!(hint.contains("acpmux session deny s"), "{hint}");
+        assert!(hint.contains("acpmux session cancel s"), "{hint}");
+    }
+
+    /// `new` and `send` say before the work starts that an allow needs the
+    /// app, only for a policy that asks.
+    #[test]
+    fn the_app_allow_note_is_only_for_a_policy_that_asks() {
+        for policy in ["ask", "approve-reads", "approve-edits"] {
+            let note = app_allow_note(&json!({"policy": policy}), "api-work").expect(policy);
+            assert!(note.contains("only the cmux app can allow"), "{note}");
+            assert!(note.contains("`acpmux session deny api-work`"), "{note}");
+            assert!(!note.contains("session allow"), "{note}");
+        }
+        // A session on the daemon default has no policy of its own: the
+        // default it runs under counts (`enforcement.policy`).
+        let default = json!({"policy": null, "enforcement": {"policy": "ask"}});
+        assert!(app_allow_note(&default, "api-work").is_some());
+        let own = json!({"policy": "approve-all", "enforcement": {"policy": "approve-all"}});
+        assert_eq!(app_allow_note(&own, "api-work"), None);
+        for info in [json!({"policy": "approve-all"}), json!({"policy": "deny-all"}), json!({})] {
+            assert_eq!(app_allow_note(&info, "api-work"), None, "{info}");
+        }
     }
 }

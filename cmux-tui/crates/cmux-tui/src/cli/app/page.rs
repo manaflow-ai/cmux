@@ -12,6 +12,7 @@ use serde_json::{Map, Value, json};
 
 use super::super::OutputMode;
 use super::{AppCommand, Options, READ_TIMEOUT, UsageError, WAITING_RUN_TIMEOUT, failure};
+use cmux_json::JsonSet as _;
 
 /// `browser.page.wait` answers by its own timeout (default 5 s, the old
 /// `cmux browser wait`); the CLI waits that long plus this margin.
@@ -213,6 +214,21 @@ pub(super) fn parse_page(target: &str, args: &[String]) -> Result<AppCommand, Us
         ("download" | "downloads", _) => {
             download(rest, &mut params, &mut timeout).ok_or_else(usage)??
         }
+        // `mirror [--pane P] [--off]`: the tab shows in a second pane too (default: right of the
+        // Home chat), the same live page (plans/cmux-next/shared-browser-tabs.md).
+        ("mirror", _) => {
+            let (words, options) = words_and_options(rest, &["pane"], &["off"])?;
+            if !words.is_empty() {
+                return Err(usage());
+            }
+            if let Some(pane) = options.value("pane") {
+                params.insert("pane".into(), json!(pane));
+            }
+            if options.flag("off") {
+                params.insert("off".into(), json!(true));
+            }
+            "browser.page.mirror"
+        }
         ("cookies", _) => cookies(rest, &mut params).ok_or_else(usage)??,
         ("storage", _) => storage(rest, &mut params).ok_or_else(usage)?,
         _ => return Err(usage()),
@@ -239,6 +255,7 @@ pub(super) fn parse_page(target: &str, args: &[String]) -> Result<AppCommand, Us
         "upload",
         "download",
         "downloads",
+        "mirror",
     ];
     if !flagged.contains(&verb.as_str()) && words.len() != rest.len() {
         return Err(usage());
@@ -508,7 +525,7 @@ pub(super) fn save_screenshot(mut result: Value, out: Option<&str>, output: Outp
     match output {
         OutputMode::Human => super::super::wire::print_local_success(&Value::String(path), output),
         _ => {
-            result["path"] = json!(path);
+            result.set("path", json!(path));
             super::super::wire::print_local_success(&result, output)
         }
     }

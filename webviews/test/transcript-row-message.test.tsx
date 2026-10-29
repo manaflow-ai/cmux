@@ -95,7 +95,12 @@ test("opening it grows the message in place: the card holds the text and nothing
   await act(async () => toggle().click());
   expect(toggle().getAttribute("aria-expanded")).toBe("true");
   const card = host.querySelector(".cv-agentmsg__card")!;
-  expect(card.textContent).toBe("first line\nsecond line");
+  // Markdown represents the source newline with a line break, not a text node.
+  expect(card.textContent).toBe("first linesecond line");
+  const breaks = card.querySelectorAll("br");
+  expect(breaks).toHaveLength(1);
+  expect(breaks[0]?.previousSibling?.textContent).toBe("first line");
+  expect(breaks[0]?.nextSibling?.textContent).toBe("second line");
   expect(card.classList.contains("selectable")).toBe(true);
   expect(toggle().getAttribute("aria-controls")).toBe(card.id);
   // One scroller in the card, the message's text, capped by the stylesheet (conversation.css).
@@ -285,4 +290,35 @@ test("the shared row draws a received message too: the caller's icon, a chip tha
   expect(host.querySelector(".cv-agentmsg__card")).toBeNull();
   await act(async () => toggle().click());
   expect(host.querySelector(".cv-agentmsg__card")?.textContent).toBe("the whole message");
+});
+
+test("an acpmux_send call draws as the same collapsed message line, never an MCP row", async () => {
+  // Agents message lanes with the acpmux MCP server (acpmux_mcp.rs) instead of piping text into
+  // `acpmux send` in a shell.
+  const row = {
+    id: "activity-2",
+    kind: "activity",
+    at: 1_000,
+    settled: true,
+    items: [
+      {
+        kind: "tool",
+        text: "mcp__cmux__acpmux_send",
+        tool: {
+          id: "t2",
+          title: "mcp__cmux__acpmux_send",
+          kind: "other",
+          status: "completed",
+          inputSummary: JSON.stringify({ to: "build-box/lane-a", text: "Rebase on main.\nThen push." }),
+          output: "Sent to lane-a: steered into its running turn (promptId 0199).",
+        },
+      },
+    ],
+  };
+  await render(row);
+  const message = host.querySelector(".cv-agentmsg")!;
+  expect(message.getAttribute("data-direction")).toBe("sent");
+  expect(message.querySelector(".cv-agentmsg__name")?.textContent).toBe("build-box/lane-a");
+  expect(message.querySelector(".cv-agentmsg__preview")?.textContent).toBe("Rebase on main.");
+  expect(toggle().getAttribute("aria-expanded")).toBe("false");
 });

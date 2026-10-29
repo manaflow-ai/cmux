@@ -5,7 +5,7 @@
 //! still refuses a replayed older manifest. `<root>/.lock` is held with an
 //! exclusive `flock` for the whole apply, flip or GC, so one runs at a time.
 
-use std::fs::{File, OpenOptions, TryLockError};
+use std::fs::{OpenOptions, TryLockError};
 use std::path::Path;
 
 use cmux_server_core::manifest::Applied;
@@ -61,7 +61,7 @@ pub fn save_applied(path: &Path, applied: Applied) -> Result<()> {
 /// An exclusive lock on the store root, released on drop.
 #[derive(Debug)]
 pub struct StoreLock {
-    _file: File,
+    _file: fsx::FileLock,
 }
 
 impl StoreLock {
@@ -90,8 +90,8 @@ impl StoreLock {
             .write(true)
             .open(&path)
             .ctx(path.display())?;
-        match file.try_lock() {
-            Ok(()) => Ok(StoreLock { _file: file }),
+        match fsx::FileLock::try_acquire(file) {
+            Ok(lock) => Ok(StoreLock { _file: lock }),
             Err(TryLockError::WouldBlock) => Err(Error::unreachable(format!(
                 "another cmux server apply holds {}; try again when it ends",
                 path.display()
