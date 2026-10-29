@@ -11,7 +11,7 @@
  * list (2026-10-10, read with our keys); a model a provider does not list has no route there.
  */
 
-export const PROVIDERS = ["openrouter", "vercel", "workers-ai", "fireworks", "baseten", "deepinfra", "azure", "custom"] as const
+export const PROVIDERS = ["openrouter", "vercel", "workers-ai", "fireworks", "baseten", "deepinfra", "azure", "custom", "openai"] as const
 export type ProviderId = (typeof PROVIDERS)[number]
 
 /** Budget lines of the spend guard: one per provider, plus the free tier's own line. */
@@ -80,6 +80,22 @@ export const MODELS: ReadonlyArray<ModelEntry> = [
       { provider: "workers-ai", id: "@cf/deepseek-ai/deepseek-v4.1-flash-1017", list: { input: 0.3, output: 1.2 } },
       { provider: "custom", id: "deepseek/deepseek-v4.1-flash-1017" },
       { provider: "azure", id: "deepseek-v4.1-flash" }
+    ]
+  },
+  {
+    // OpenAI's own API (user 2026-10-28: ChatGPT API credits). Not in the deployments' allowlist yet
+    // (DeepSeek only); a deployment opts in with INFERENCE_MODEL_ALLOWLIST. List prices 2026-10-28.
+    id: "openai/gpt-5.4-mini",
+    name: "GPT-5.4 mini",
+    card: { input: 0.75, output: 4.5 },
+    context: 400_000,
+    maxOutput: 128_000,
+    defaultMaxTokens: 16_384,
+    tools: true,
+    vision: { maxImages: 8, tokensPerImage: 4_096 },
+    routes: [
+      { provider: "openai", id: "gpt-5.4-mini", list: { input: 0.75, output: 4.5 } },
+      { provider: "vercel", id: "openai/gpt-5.4-mini", list: { input: 0.75, output: 4.5 } }
     ]
   },
   {

@@ -55,6 +55,13 @@ const clientError = (status: number) =>
 
 const headersOut = (id: string, contentType: string, provider: string) => ({ "content-type": contentType, "cache-control": "no-cache", "x-cmux-request-id": id, "x-cmux-provider": provider })
 
+/** OpenAI's GPT-5 models refuse `max_tokens`; they take the same bound as `max_completion_tokens`. */
+const forProvider = (provider: string, body: Record<string, unknown>): Record<string, unknown> => {
+  if (provider !== "openai" || body.max_tokens === undefined) return body
+  const { max_tokens, ...rest } = body
+  return { ...rest, max_completion_tokens: max_tokens }
+}
+
 export const callUpstream = async (env: Env, ctx: ExecutionContext, a: Attempt): Promise<Outcome> => {
   const target = providerTarget(env, a.route.provider)
   if (!target) return { kind: "failed", status: "not_configured" }
@@ -82,7 +89,7 @@ export const callUpstream = async (env: Env, ctx: ExecutionContext, a: Attempt):
     upstream = await fetch(target.url, {
       method: "POST",
       headers: { ...(target.auth === "api-key" ? { "api-key": target.key } : { authorization: `Bearer ${target.key}` }), "content-type": "application/json", ...target.extraHeaders },
-      body: JSON.stringify({ ...a.body, ...target.extraBody, ...(a.route.provider === "openrouter" ? { provider: { data_collection: "deny", max_price: { prompt: a.model.card.input, completion: a.model.card.output } } } : {}), model: a.route.id }),
+      body: JSON.stringify({ ...forProvider(a.route.provider, a.body), ...target.extraBody, ...(a.route.provider === "openrouter" ? { provider: { data_collection: "deny", max_price: { prompt: a.model.card.input, completion: a.model.card.output } } } : {}), model: a.route.id }),
       signal: abort.signal
     })
   } catch {

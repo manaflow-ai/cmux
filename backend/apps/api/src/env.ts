@@ -454,6 +454,7 @@ export interface Env {
   readonly INFERENCE_DAILY_CAP_USD_DEEPINFRA?: string
   readonly INFERENCE_DAILY_CAP_USD_AZURE?: string
   readonly INFERENCE_DAILY_CAP_USD_CUSTOM?: string
+  readonly INFERENCE_DAILY_CAP_USD_OPENAI?: string
   /** Hard USD cap per UTC day for all free-tier requests together. Missing = 0 = refuse. */
   readonly INFERENCE_FREE_DAILY_CAP_USD?: string
   /** Open requests per team (default 4) and per free device (default 1). */
@@ -477,6 +478,8 @@ export interface Env {
   /** Azure AI Foundry resource endpoint (https://<resource>.services.ai.azure.com) and its key (secret). */
   readonly INFERENCE_AZURE_ENDPOINT?: string
   readonly INFERENCE_AZURE_KEY?: string
+  /** OpenAI's own API key (secret). */
+  readonly INFERENCE_OPENAI_KEY?: string
   /** Our own OpenAI-compatible chat/completions URL and its bearer key (secret, optional). */
   readonly INFERENCE_CUSTOM_URL?: string
   readonly INFERENCE_CUSTOM_KEY?: string
