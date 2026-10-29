@@ -145,8 +145,9 @@ typedef enum {
   CMUX_SHIM_BOOKMARKS_EVENT = 39,
   // A main-frame navigation to a scheme neither Chromium nor cmux loads
   // (mailto:, an app's own scheme; CEFShim/src/external_url.h). The shim
-  // cancelled it; s1 = url, a = 1 when the user's gesture started it. The
-  // host opens it in its app or asks first (BrowserExternalApps).
+  // cancelled it; s1 = url, a = 1 when the user's gesture started it, b = 1
+  // when a server redirect led there. The host opens it in its app or asks
+  // first (BrowserExternalApps).
   CMUX_SHIM_EXTERNAL_URL = 40,
   // A page asks for a permission the host decides (location;
   // CEFShim/src/shim_permissions.mm). Chromium waits for

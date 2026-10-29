@@ -104,7 +104,7 @@ extension CEFTab {
             emit(.close)
         case .navigationReroute(_, let url, _): if let url = URL(string: url) { emit(.rerouteStore(url)) }
         case .localFileHandoff(_, let url): if let url = URL(string: url) { emit(.openLocalFile(url)) }
-        case .externalURL(_, let url, true): if let url = URL(string: url) { BrowserExternalApps.shared.open(url, from: committedURL, ask: enqueuePrompt) }
+        case .externalURL(_, let url, let userGesture, let isRedirect): openExternalApp(url, userGesture: userGesture, isRedirect: isRedirect)
         case .keyUnhandled(_, let keyCode, let shift):
             if keyCode == 0x1B {
                 emit(.unhandledEscape)
@@ -148,6 +148,17 @@ extension CEFTab {
     static let chromiumDrawsEmptyPage: Set<Int> = [
         -338, // ERR_INVALID_AUTH_CREDENTIALS
     ]
+
+    /// A page's link to another app: a click opens it or asks first. A server redirect asks
+    /// first, one question at a time, as Chrome does; a sign-in hands its result to its app
+    /// that way (cmux.com redirects to cmux://auth-callback). A script's navigation does nothing.
+    private func openExternalApp(_ string: String, userGesture: Bool, isRedirect: Bool) {
+        guard let url = URL(string: string) else { return }
+        if userGesture { return BrowserExternalApps.shared.open(url, from: committedURL, ask: enqueuePrompt) }
+        let asking = pendingPrompts.contains { if case .openExternalApp = $0.kind { true } else { false } }
+        guard isRedirect, !asking else { return }
+        BrowserExternalApps.shared.open(url, from: committedURL, redirected: true, ask: enqueuePrompt)
+    }
 
     private func loadFavicon(_ url: URL?) {
         faviconTask?.cancel()

@@ -297,7 +297,7 @@ class Client : public CefClient,
       return true;
     }
     if (IsExternalAppURL(url)) {
-      Emit(CMUX_SHIM_EXTERNAL_URL, id, 0, user_gesture && !is_redirect ? 1 : 0, 0, url);
+      Emit(CMUX_SHIM_EXTERNAL_URL, id, 0, user_gesture && !is_redirect ? 1 : 0, is_redirect ? 1 : 0, url);
       return true;
     }
     if (!NavigationViolatesGuard(id, url)) return false;

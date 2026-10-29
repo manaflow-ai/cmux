@@ -54,8 +54,9 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
     /// The shim cancelled a main-frame navigation to a local file cmux shows
     /// elsewhere (`LocalFileHandoff`).
     case localFileHandoff(browser: Int32, url: String)
-    /// A link to another app (EXTERNAL_URL); `userGesture`: the user's click started it.
-    case externalURL(browser: Int32, url: String, userGesture: Bool)
+    /// A link to another app (EXTERNAL_URL); `userGesture`: the user's click started it;
+    /// `isRedirect`: a server redirect led there (a sign-in returning to its app).
+    case externalURL(browser: Int32, url: String, userGesture: Bool, isRedirect: Bool)
     /// A permission request the host decides (PERMISSION_PROMPT; `permissions`
     /// are `cef_permission_request_types_t` bits), answered with
     /// `cmux_shim_permission_continue(token, …)`; Chromium may end it first
@@ -156,7 +157,7 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
             self = download.map(Self.download) ?? .unknown(kind: kind)
         case 38: self = .localFileHandoff(browser: browser, url: s1)
         case 39: self = .bookmarks(json: s1, profilePath: s2)
-        case 40: self = .externalURL(browser: browser, url: s1, userGesture: a != 0)
+        case 40: self = .externalURL(browser: browser, url: s1, userGesture: a != 0, isRedirect: b != 0)
         case 41: self = .permissionPrompt(browser: browser, token: request, permissions: a, origin: s1)
         case 42: self = .permissionDismissed(browser: browser, token: request)
         case 43: self = .passwordPrompt(browser: browser, promptID: request, json: s1)

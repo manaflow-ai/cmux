@@ -8,7 +8,8 @@ import CmuxNextCompat
 /// inline over the page, never a dialog: Open, Cancel, and "Always allow"
 /// for the site, remembered (user defaults; never for a page with no
 /// origin, which would share one choice). A scheme no app opens does
-/// nothing. In DEBUG builds launched with
+/// nothing. In a Chromium tab a server redirect to another app (a sign-in
+/// returning to its app) always asks. In DEBUG builds launched with
 /// `CMUX_NEXT_TEST_RECORD_EXTERNAL_OPENS=1` opens are recorded instead, so a
 /// live test never starts Mail (`debug.browser.external_opens`).
 @MainActor
@@ -40,12 +41,15 @@ public final class BrowserExternalApps {
     }
 
     /// Opens `url`, clicked on the page at `page`, in its app, or asks first
-    /// through `ask` (the tab's prompt bar: kind, origin, answer).
-    func open(_ url: URL, from page: URL?,
+    /// through `ask` (the tab's prompt bar: kind, origin, answer). A server
+    /// redirect led there when `redirected` (a sign-in returning to its app):
+    /// no click started it, so it always asks, even for a well-known scheme,
+    /// and offers no "Always allow" (the page that redirected is not `page`).
+    func open(_ url: URL, from page: URL?, redirected: Bool = false,
               ask: (BrowserPromptKind, String, @escaping (BrowserPromptResponse) -> Void) -> Void) {
         guard let scheme = url.scheme?.lowercased(), let app = NSWorkspace.shared.urlForApplication(toOpen: url) else { return }
-        let site = page.flatMap(PageInfoSite.origin(of:)) ?? ""
-        guard !Self.wellKnownSchemes.contains(scheme), !alwaysAllowed(scheme, for: site) else { return launch(url) }
+        let site = redirected ? "" : page.flatMap(PageInfoSite.origin(of:)) ?? ""
+        if !redirected, Self.wellKnownSchemes.contains(scheme) || alwaysAllowed(scheme, for: site) { return launch(url) }
         let name = FileManager.default.displayName(atPath: app.path).replacingOccurrences(of: ".app", with: "")
         ask(.openExternalApp(app: name, scheme: scheme), site) { [weak self] response in
             switch response {
