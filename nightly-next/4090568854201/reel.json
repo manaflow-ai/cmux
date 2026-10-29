@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "build": "4090568854201",
+  "notes": "notes/4090568854201.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 27425,
+      "title": "ci(webviews): every timed-out file gets its alone retry before it counts as red",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24144,
+      "title": "Agent pane: a trust.pending refusal always shows the folder's Trust button",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26499,
+      "title": "PR3: remove top-right header icon plates",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
