@@ -12,6 +12,8 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
   });
 }
 
+import { CodeBlock } from "@/app/[locale]/components/code-block";
+
 export default async function CloudTroubleshootingPage({
   params,
 }: {
@@ -23,54 +25,33 @@ export default async function CloudTroubleshootingPage({
   return (
     <>
       <DocsSchema namespace="docs.cloudTroubleshooting" path="/docs/cloud/troubleshooting" />
-      <DocsHeading level={1} id="title">{t("title")}</DocsHeading>
-      <p>{t("intro")}</p>
-
-      <DocsHeading level={2} id="security-model">{t("securityTitle")}</DocsHeading>
-      <ul>
-        <li>{t("secNoPorts")}</li>
-        <li>{t("secSignOut")}</li>
-        <li>{t("secNoTokens")}</li>
-        <li>{t("secSecrets")}</li>
-        <li>{t("secTransfers")}</li>
-        <li>{t("secOneUser")}</li>
-        <li>{t("secDiagnostics")}</li>
-        <li>{t("secAdmins")}</li>
-      </ul>
-
-      <DocsHeading level={2} id="common-problems">{t("errorsTitle")}</DocsHeading>
+      <DocsHeading level={1} id="title">{t("nextTitle")}</DocsHeading>
+      <p>{t("nextIntro")}</p>
       <table>
-        <thead>
-          <tr>
-            <th>{t("symptomColumn")}</th>
-            <th>{t("fixColumn")}</th>
-          </tr>
-        </thead>
+        <thead><tr><th>{t("nextSymptom")}</th><th>{t("nextFix")}</th></tr></thead>
         <tbody>
-          <tr><td>{t("errNotSeen")}</td><td>{t("fixNotSeen")}</td></tr>
-          <tr><td>{t("errUnavailable")}</td><td>{t("fixUnavailable")}</td></tr>
-          <tr><td>{t("errSignIn")}</td><td>{t("fixSignIn")}</td></tr>
-          <tr><td>{t("errPlan")}</td><td>{t("fixPlan")}</td></tr>
-          <tr><td>{t("errSize")}</td><td>{t("fixSize")}</td></tr>
-          <tr><td>{t("errLimit")}</td><td>{t("fixLimit")}</td></tr>
-          <tr><td>{t("errPool")}</td><td>{t("fixPool")}</td></tr>
-          <tr><td>{t("errLocked")}</td><td>{t("fixLocked")}</td></tr>
-          <tr><td>{t("errAgentMissing")}</td><td>{t("fixAgentMissing")}</td></tr>
-          <tr><td>{t("errExecTimeout")}</td><td>{t("fixExecTimeout")}</td></tr>
-          <tr><td>{t("errSlowFirst")}</td><td>{t("fixSlowFirst")}</td></tr>
-          <tr><td>{t("errSnapshot")}</td><td>{t("fixSnapshot")}</td></tr>
-          <tr><td>{t("errSsh")}</td><td>{t("fixSsh")}</td></tr>
-          <tr><td>{t("errPushLarge")}</td><td>{t("fixPushLarge")}</td></tr>
-          <tr><td>{t("errGitMissing")}</td><td>{t("fixGitMissing")}</td></tr>
-          <tr><td>{t("errDisconnected")}</td><td>{t("fixDisconnected")}</td></tr>
-          <tr><td>{t("errDomain")}</td><td>{t("fixDomain")}</td></tr>
-          <tr><td>{t("errViewer")}</td><td>{t("fixViewer")}</td></tr>
-          <tr><td>{t("errTransferDisabled")}</td><td>{t("fixTransferDisabled")}</td></tr>
+          <tr><td><code>{"new-machine: pending: true"}</code></td><td>{t("nextPendingFix")}</td></tr>
+          <tr><td><code>{"No Cloud machine is selected. Right-click a machine or pass --target machine:<id>"}</code></td><td>{t("nextTargetFix")}</td></tr>
+          <tr><td><code>{"cmux cloud open-machine is not a CLI verb; run it with: cmux action run cloudOpenMachine"}</code></td><td>{t("nextOpenFix")}</td></tr>
+          <tr><td><code>{"start-session: cannot hold agent chat tabs yet: update it"}</code></td><td>{t("nextAgentFix")}</td></tr>
+          <tr><td><code>{"open-browser: its cmux is too old"}</code></td><td>{t("nextBrowserFix")}</td></tr>
+          <tr><td><code>{"port-list / port-forward: uses the classic Cloud link, which keeps no port forwards on this Mac"}</code></td><td>{t("nextPortFix")}</td></tr>
+          <tr><td><code>{"fork-machine: This action is unavailable for this Cloud machine."}</code></td><td>{t("nextForkFix")}</td></tr>
+          <tr><td><code>{"set-idle-pause: cmux Cloud does not pause idle machines yet"}</code></td><td>{t("nextIdleFix")}</td></tr>
+          <tr><td><code>{"This machine has no finished machine config yet. Run cmux cloud apply-machine-config first"}</code></td><td>{t("nextSecretsFix")}</td></tr>
+          <tr><td><code>{"setup-github: gh_status: failed, ok: false"}</code></td><td>{t("nextGithubFix")}</td></tr>
+          <tr><td><code>{"exec: 25 s"}</code></td><td>{t("nextExecFix")}</td></tr>
         </tbody>
       </table>
+      <CodeBlock lang="bash">{`cmux cloud list-machines
+cmux cloud new-terminal-on-machine --target 'machine:<id>' --focus
+cmux cloud machine-link --target 'machine:<id>' --port 3000
+cmux cloud pause-machine --target 'machine:<id>'
+cmux cloud resume-machine --target 'machine:<id>'`}</CodeBlock>
 
-      <DocsHeading level={2} id="get-help">{t("supportTitle")}</DocsHeading>
-      <p>{t("supportDesc")}</p>
+      <DocsHeading level={2} id="get-help">{t("nextSupport")}</DocsHeading>
+      <p>{t("nextSupportBody")}</p>
+      <CodeBlock lang="bash">{`cmux cloud diagnostics`}</CodeBlock>
     </>
   );
 }
