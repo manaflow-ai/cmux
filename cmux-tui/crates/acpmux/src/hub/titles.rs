@@ -10,6 +10,7 @@
 //! latest prompt (`wants_title`). A harness title, then or later, always wins.
 
 use super::*;
+use cmux_json::JsonSet as _;
 use std::process::Stdio;
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -379,7 +380,7 @@ impl Hub {
         }
         let mut params = json!({"prompt": request, "harness": harness, "maxTokens": 16});
         if let Some(model) = model {
-            params["model"] = json!(model);
+            params.set("model", json!(model));
         }
         if session.meta.lock().unwrap_or_else(|e| e.into_inner()).title_source.as_deref()
             != Some(ASKED)
@@ -508,7 +509,10 @@ fn is_thin_prompt(prompt: &str) -> bool {
     let words: Vec<_> = prompt.split_whitespace().collect();
     words.is_empty()
         || words.len() <= 1
-        || (words.len() <= 2 && words[0].trim_matches(|c: char| !c.is_alphanumeric()).len() <= 12)
+        || (words.len() <= 2
+            && words
+                .first()
+                .is_some_and(|w| w.trim_matches(|c: char| !c.is_alphanumeric()).len() <= 12))
         || words.iter().any(|word| {
             matches!(
                 word.trim_matches(|c: char| !c.is_alphanumeric()).to_ascii_lowercase().as_str(),

@@ -376,11 +376,17 @@ async function measured(
         if (isSubpixelLayoutShift(sources)) continue;
         shifts.push({
           value: entry.value,
-          sources: sources.map((source) =>
-            source.node instanceof Element
-              ? `${source.node.tagName.toLowerCase()}${source.node.className ? `.${String(source.node.className).split(" ")[0]}` : ""}`
-              : "#text",
-          ),
+          sources: sources.map((source) => {
+            const name =
+              source.node instanceof Element
+                ? `${source.node.tagName.toLowerCase()}${source.node.className ? `.${String(source.node.className).split(" ")[0]}` : ""}`
+                : "#text";
+            // How far it moved, so a red tells a nudge from a jump: its rect's change, x y w h.
+            const { previousRect: was, currentRect: now } = source;
+            if (!was || !now) return name;
+            const moved = [now.x - was.x, now.y - was.y, now.width - was.width, now.height - was.height];
+            return `${name} [${moved.map((delta) => Math.round(delta * 10) / 10).join(" ")}]`;
+          }),
         });
       }
     });

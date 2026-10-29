@@ -118,7 +118,7 @@ Recommended Swift launch path:
   | `TERM` | `xterm-ghostty`; `xterm-256color` when the bundle has no terminfo | Prompt themes and tools branch on the name. oh-my-zsh `half-life` uses the theme palette (`%F{magenta}`) under `xterm-ghostty` but the fixed 256-color cube (`%F{135}`) under `*256color`, so the same prompt showed a different purple. |
   | `TERMINFO` | `<app>/Contents/Resources/terminfo` (sibling of `ghostty/`) | macOS has no `xterm-ghostty` entry. The bundled entry includes cmux's overlay (`Resources/terminfo-overlay`). |
   | `COLORTERM` | `truecolor` | 24-bit SGR is drawn losslessly. The daemon also sets it (`surface.rs`), so it holds for older apps. |
-  | `TERM_PROGRAM`, `TERM_PROGRAM_VERSION` | `ghostty`, libghostty's `ghostty_info` version | Feature detection (neovim and others) as in Ghostty and the old cmux. |
+  | `TERM_PROGRAM` | `ghostty` | Feature detection (neovim and others) as in Ghostty and the old cmux. `TERM_PROGRAM_VERSION` stays unset because cmux forwards full-screen TUI mouse reports instead of providing Ghostty's native selection path; advertising a version makes Codex disable its copy-on-select fallback. |
   | `GHOSTTY_RESOURCES_DIR` | the resolved Ghostty resources directory | Theme and shell-integration lookups. |
 
   Shell integration (`GhosttyShellIntegration`, applied last by
