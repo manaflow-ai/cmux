@@ -5155,7 +5155,12 @@ RULES += AWAITED_LOW_PRIORITY_RULES
 # none (the first push of the file, a slice onto a base without it), from the push's first commit that adds it, never
 # from the head (quality_reference): a json rewritten after new debt lists that debt, and `quality-baseline` refuses
 # a head json with a site its reference lacks, so the baseline only goes down. A reference that does not parse
-# allows nothing. Local only, like every guardrail.
+# allows nothing, and so does a base without the json when no commit of the push adds it (the base deleted it).
+# Trusted by design: the commit that first adds the json is trusted as written. Its sites are the baseline for the
+# whole push, so debt that this commit, or an earlier commit of the same push, adds and lists passes as old. That
+# trust is what lets a slice of perf/chrome-parity (the json's own branch) onto origin/feat-cmux-next bring its old
+# lines; a reviewer of a push that adds the json checks that the json was measured at the push's base side
+# (`measured_rev`), not after new debt. Local only, like every guardrail.
 # The block owns its lines from here to `RULES += QUALITY_RULES`.
 QUALITY_BASELINE = "plans/cmux-next/quality-ratchet.json"
 QUALITY_MEMO = "quality-baseline"
@@ -5317,14 +5322,16 @@ def quality_allowance(changes: list[FileChange], rule: str) -> dict[str, collect
 
 
 def quality_origin(repo: Path, base: str, head: str, head_text: str | None) -> str | None:
-    """The baseline json as the first commit of BASE..HEAD that adds it wrote it (None when HEAD has none)."""
+    """The baseline json as the first commit of BASE..HEAD that adds it wrote it. None (nothing old is allowed)
+    when HEAD has none, and when no commit of the range adds it (the base deleted it after the branch was made):
+    the head's own json is never the reference."""
     if head_text is None:
         return None
     added = git(repo, "log", "--diff-filter=A", "--format=%H", "--reverse", f"{base}..{head}", "--",
                 QUALITY_BASELINE, check=False).split()
     if not added:
-        return head_text
-    return blobs(repo, [(added[0], QUALITY_BASELINE)]).get((added[0], QUALITY_BASELINE), head_text)
+        return None
+    return blobs(repo, [(added[0], QUALITY_BASELINE)]).get((added[0], QUALITY_BASELINE))
 
 
 def quality_rule(kind: QualityKind) -> Callable[[list[FileChange], collections.Counter], list[Added]]:
