@@ -510,6 +510,8 @@ function cronFakes(
     readonly beforeResumeClaim?: FakeHook;
     /** Runs inside each provider status read, before it answers. */
     readonly duringStatus?: FakeHook;
+    /** Runs inside each provider status read, after it has its answer (the caller acts on a stale read). */
+    readonly afterStatus?: FakeHook;
     /** Runs right after the provider resumes, before the caller records it. */
     readonly afterResume?: FakeHook;
     /** Runs right after a compensating resume's fence claim succeeds. */
@@ -659,7 +661,8 @@ function cronFakes(
         statusFailures -= 1;
         return Effect.fail(new Error("status: timed out"));
       }
-      return Effect.succeed(providerState.get(vmId) ?? "running");
+      const answer = providerState.get(vmId) ?? "running";
+      return runHook(fakeOptions.afterStatus).pipe(Effect.as(answer));
     }))),
     setRuntimeBudget: (_provider: string, _vmId: string, seconds: number | null) => Effect.suspend(() => {
       if (fakeOptions.budgetFails && seconds !== 0) return Effect.fail(new Error("runtime limit: connection reset"));
@@ -1479,6 +1482,30 @@ describe("a Go machine's runtime budget after an idle pause recovery", () => {
     expect(recorded.budgets).toEqual([0, null]);
     expect(restoredBefore(recorded.log, "status:running")).toBe(true);
     expect(rows[0].status).toBe("running");
+  });
+
+  test("a person's Pause after the left claim's provider read: their zero cap stays and the machine stays paused", async () => {
+    let armed = false;
+    const { rows, runAt, recorded, providerState } = setup({
+      pauseFails: "refused",
+      // Next run: the recovery reads the provider as running, then the person's Pause lands
+      // (cap zero, provider paused, claim settled) before it acts on that read.
+      afterStatus: (_repo, ctx) => {
+        if (!armed) return;
+        armed = false;
+        return ctx.userPause("row-1");
+      },
+    });
+    await runAt(T0);
+    expect(rows[0].providerMetadata.cmuxIdlePauseClaim).toBeDefined();
+    armed = true;
+    await runAt(T0 + 5 * MIN);
+    expect(rows[0].status).toBe("paused");
+    expect(rows[0].providerMetadata.cmuxPauseReason).toBe("user");
+    expect(providerState.get(VM)).toBe("paused");
+    // The person's pause set the cap to zero last; nothing cleared it after.
+    expect(recorded.budgets.at(-1)).toBe(0);
+    expect(recorded.resumed).toEqual([]);
   });
 
   test("a refused pause zeroed the budget: the next run gives it back before clearing the claim", async () => {
