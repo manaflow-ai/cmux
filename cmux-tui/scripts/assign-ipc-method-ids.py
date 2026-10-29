@@ -498,7 +498,7 @@ def grep_names(pattern: str, name: str, *pathspecs: str) -> set[str]:
     """Group 1 of `name` on each line that `git grep -E PATTERN -- PATHSPECS` prints."""
 
     result = subprocess.run(
-        ["git", "grep", "-h", "-E", pattern, "--", *pathspecs],
+        ["git", "grep", "--no-color", "-h", "-E", pattern, "--", *pathspecs],
         cwd=ROOT, capture_output=True, text=True, check=False,
     )
     if result.returncode not in (0, 1):

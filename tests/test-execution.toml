@@ -1922,7 +1922,7 @@ reason = "Lawrence 2026-10-23: no new CI tests. bench_renderer_sharing.py is the
 [[test]]
 path = "tests/test_bench_daemon_latency.py"
 lane = "manual"
-reason = "Lawrence 2026-10-23: no new CI tests. bench-daemon-latency.py is a fleet bench, not a gate; run python3 -I tests/test_bench_daemon_latency.py yourself after changing the bench or its runtime.Q16 record (about 1 s, no daemon, no build)."
+reason = "Lawrence 2026-10-23: no new CI tests. bench-daemon-latency.py is a fleet bench, not a gate; run python3 -I tests/test_bench_daemon_latency.py yourself after changing the bench (about 1 s, no daemon, no build)."
 
 [[test]]
 path = "tests/test_render_done_checks.py"
