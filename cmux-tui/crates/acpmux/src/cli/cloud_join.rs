@@ -2,6 +2,7 @@
 //! placed in argv, the environment, a URL, or a diagnostic message.
 
 use anyhow::{Context, Result, anyhow};
+use base64::Engine as _;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::io::{IsTerminal, Read};
@@ -24,8 +25,8 @@ pub struct MachineCredential {
     pub hub_origin: String,
     pub last_heartbeat: Option<String>,
     pub revoked: bool,
-    #[serde(rename = "meshPeerId")]
-    pub mesh_identity: String,
+    #[serde(rename = "wgPublicKey")]
+    pub wg_public_key: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -81,10 +82,6 @@ fn local_name(name: Option<String>) -> String {
     name.filter(|v| !v.trim().is_empty()).unwrap_or_else(|| std::process::Command::new("hostname").output().ok().and_then(|v| String::from_utf8(v.stdout).ok()).map(|v| v.trim().to_owned()).filter(|v| !v.is_empty()).unwrap_or_else(|| "cmux-machine".to_owned()))
 }
 
-fn mesh_identity() -> String {
-    format!("daemon_{}", uuid::Uuid::now_v7().simple())
-}
-
 fn save(record: &MachineCredential) -> Result<()> {
     crate::config::private_state_dir(&state_dir())?;
     crate::config::write_atomic(&credential_path(), &serde_json::to_vec_pretty(record)?)
@@ -112,10 +109,12 @@ pub async fn join(hub: Option<String>, name: Option<String>, replace: bool, json
     let token = read_token().map_err(|e| crate::cli::errors::AppError::new(crate::cli::errors::Code::Usage, "join.malformed", e.to_string()).with_exit(2))?;
     let hub = origin(hub).map_err(|_| crate::cli::errors::AppError::new(crate::cli::errors::Code::Usage, "join.malformed", "hub origin is malformed").with_exit(2))?;
     let name = local_name(name);
-    let identity = load().ok().flatten().map(|r| r.mesh_identity).unwrap_or_else(mesh_identity);
+    let wg_public_key = crate::cli::mesh_node_key::load_or_create()
+        .map_err(|_| crate::cli::errors::AppError::new(crate::cli::errors::Code::Runtime, "join.store", "node key unavailable").with_exit(5))?
+        .public_key_b64();
     let platform = if cfg!(target_os = "macos") { "macos" } else { "linux" };
     let response = http_client().map_err(|_| crate::cli::errors::AppError::new(crate::cli::errors::Code::Runtime, "join.hub", "hub unreachable").with_exit(4))?.post(format!("{hub}/v1/machines/join-tokens/redeem"))
-        .json(&json!({"token": token, "platform": platform, "hostname": name, "name": name, "meshPeerId": identity}))
+        .json(&json!({"token": token, "platform": platform, "hostname": name, "name": name, "wgPublicKey": wg_public_key}))
         .send().await.map_err(|_| crate::cli::errors::AppError::new(crate::cli::errors::Code::Runtime, "join.hub", "hub unreachable").with_exit(4))?;
     let status = response.status();
     let body: Value = response.json().await.unwrap_or_else(|_| json!({}));
@@ -131,7 +130,12 @@ pub async fn join(hub: Option<String>, name: Option<String>, replace: bool, json
     }
     let machine_id = body.get("machineId").and_then(Value::as_str).ok_or_else(|| crate::cli::errors::AppError::new(crate::cli::errors::Code::Runtime, "join.hub", "hub returned an invalid response").with_exit(4))?;
     let team_id = body.get("teamId").and_then(Value::as_str).ok_or_else(|| crate::cli::errors::AppError::new(crate::cli::errors::Code::Runtime, "join.hub", "hub returned an invalid response").with_exit(4))?;
-    let record = MachineCredential { credential: credential.to_owned(), machine_id: machine_id.to_owned(), team_id: team_id.to_owned(), name, hub_origin: hub.clone(), last_heartbeat: None, revoked: false, mesh_identity: body.get("meshPeerId").and_then(Value::as_str).unwrap_or(&identity).to_owned() };
+    let returned_key = body.get("wgPublicKey").and_then(Value::as_str).unwrap_or(&wg_public_key);
+    let key_ok = returned_key.len() == 44 && returned_key.ends_with('=') && base64::engine::general_purpose::STANDARD.decode(returned_key).map(|bytes| bytes.len() == 32).unwrap_or(false);
+    if !key_ok {
+        return Err(crate::cli::errors::AppError::new(crate::cli::errors::Code::Runtime, "join.hub", "hub returned an invalid response").with_exit(4).into());
+    }
+    let record = MachineCredential { credential: credential.to_owned(), machine_id: machine_id.to_owned(), team_id: team_id.to_owned(), name, hub_origin: hub.clone(), last_heartbeat: None, revoked: false, wg_public_key: returned_key.to_owned() };
     save(&record).map_err(|e| crate::cli::errors::AppError::new(crate::cli::errors::Code::Runtime, "join.store", e.to_string()).with_exit(5))?;
     if json_out { crate::cli::output::print_json(&json!({"joined":true,"alreadyJoined":false,"machineId":record.machine_id,"teamId":record.team_id,"name":record.name,"hubOrigin":hub})); }
     else { println!("joined {} ({})", record.name, record.machine_id); }
@@ -140,8 +144,8 @@ pub async fn join(hub: Option<String>, name: Option<String>, replace: bool, json
 
 pub async fn status(hub: Option<String>, json_out: bool) -> Result<()> {
     let fallback_hub = origin(hub)?;
-    let record = load()?.unwrap_or(MachineCredential { credential: String::new(), machine_id: String::new(), team_id: String::new(), name: local_name(None), hub_origin: fallback_hub, last_heartbeat: None, revoked: false, mesh_identity: String::new() });
-    let mut out = json!({"credentialPresent": !record.credential.is_empty(), "machineId": record.machine_id, "teamId": record.team_id, "hubOrigin": record.hub_origin, "hubReachable": false, "lastHeartbeat": record.last_heartbeat, "revoked": record.revoked, "consent": load_consent(), "credentialStore":"file", "credentialPath":credential_path(), "credentialMode":"0600", "daemonRunning":false, "meshRelayConfigured":state_dir().join("mesh-relay.json").exists(), "build": crate::hub::BUILD, "channel":"feat-cmux-next"});
+    let record = load()?.unwrap_or(MachineCredential { credential: String::new(), machine_id: String::new(), team_id: String::new(), name: local_name(None), hub_origin: fallback_hub, last_heartbeat: None, revoked: false, wg_public_key: String::new() });
+    let mut out = json!({"credentialPresent": !record.credential.is_empty(), "machineId": record.machine_id, "teamId": record.team_id, "hubOrigin": record.hub_origin, "hubReachable": false, "lastHeartbeat": record.last_heartbeat, "revoked": record.revoked, "wgPublicKey": record.wg_public_key, "consent": load_consent(), "credentialStore":"file", "credentialPath":credential_path(), "credentialMode":"0600", "daemonRunning":false, "meshRelayConfigured":state_dir().join("mesh-relay.json").exists(), "build": crate::hub::BUILD, "channel":"feat-cmux-next"});
     if !record.credential.is_empty() {
         if let Ok(res) = http_client()?.post(format!("{}/v1/mesh/heartbeat", record.hub_origin.trim_end_matches('/')))
             .bearer_auth(&record.credential)

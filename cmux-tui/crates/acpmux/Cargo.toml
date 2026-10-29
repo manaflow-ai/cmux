@@ -70,6 +70,7 @@ unicode-width = "0.2"
 unicode-normalization.workspace = true
 wait-timeout.workspace = true
 zeroize.workspace = true
+x25519-dalek.workspace = true
 regex = "1"
 # Log lines a reader passes on their head are searched, not parsed (src/store.rs `scan_heads`).
 memchr.workspace = true
