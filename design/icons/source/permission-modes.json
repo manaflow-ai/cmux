@@ -30,6 +30,26 @@
    "note": "Existing ComposerPickers mode glyph, unchanged paths and stroke; normalized from its 16-unit viewBox to the shared 24-unit grid. Both styles retain the same approval semantics.",
    "sf": "exclamationmark.shield",
    "replaces": []
+  },
+  {
+   "name": "permission.shield",
+   "meaning": "Permission mode with a plain shield: existing auto/accept mode glyph.",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.25' stroke-linecap='round' stroke-linejoin='round'><g transform='scale(1.5)'><path d='M8 1.9 13 3.7v4.1c0 3.1-2.3 5.3-5 6.3-2.7-1-5-3.2-5-6.3V3.7Z'/></g></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.25' stroke-linecap='round' stroke-linejoin='round'><g transform='scale(1.5)'><path d='M8 1.9 13 3.7v4.1c0 3.1-2.3 5.3-5 6.3-2.7-1-5-3.2-5-6.3V3.7Z'/></g></svg>",
+   "alts": [],
+   "note": "Existing ComposerPickers mode glyph, unchanged paths normalized to the shared 24-unit grid.",
+   "sf": "shield",
+   "replaces": []
+  },
+  {
+   "name": "permission.checked",
+   "meaning": "Permission mode with a checked shield: existing approval mode glyph.",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.25' stroke-linecap='round' stroke-linejoin='round'><g transform='scale(1.5)'><path d='M8 1.9 13 3.7v4.1c0 3.1-2.3 5.3-5 6.3-2.7-1-5-3.2-5-6.3V3.7Z'/><path d='m5.9 8.1 1.5 1.5 2.8-2.9'/></g></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.25' stroke-linecap='round' stroke-linejoin='round'><g transform='scale(1.5)'><path d='M8 1.9 13 3.7v4.1c0 3.1-2.3 5.3-5 6.3-2.7-1-5-3.2-5-6.3V3.7Z'/><path d='m5.9 8.1 1.5 1.5 2.8-2.9'/></g></svg>",
+   "alts": [],
+   "note": "Existing ComposerPickers mode glyph, unchanged paths normalized to the shared 24-unit grid.",
+   "sf": "checkmark.shield",
+   "replaces": []
   }
  ]
 }
