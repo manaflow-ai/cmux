@@ -161,6 +161,7 @@ import Testing
         #expect(host.activeID == "same")
         let second = try openChild()
         let secondField = try #require(second.rowView(id: "text") as? NSTextField)
+        #expect(secondField.stringValue == "first", "reopening must preserve an unacknowledged edit")
         secondField.stringValue = "second"
         second.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: secondField))
         let secondSequence = try #require(events.last?["editSequence"] as? Int)
@@ -302,7 +303,7 @@ import Testing
         #expect(host.activeID == nil)
     }
 
-    @Test(.enabled("needs an awake display") { !NSScreen.screens.isEmpty }, arguments: ["replace", "dismiss", "legacy", "hide"])
+    @Test(.enabled("needs an awake display") { !NSScreen.screens.isEmpty }, arguments: ["replace", "dismiss", "legacy", "hide", "owner"])
     func legacyReplacementCannotOverwriteAReentrantDeclaration(_ operation: String) throws {
         let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 500, height: 400),
                               styleMask: [.titled], backing: .buffered, defer: false)
@@ -329,12 +330,14 @@ import Testing
             if count == 1 {
                 if operation == "legacy" { _ = host.show(legacy) }
                 else if operation == "hide" { host.hideRequest([:]) }
+                else if operation == "owner" { host.dismiss() }
                 else { _ = host.show(newest) }
             }
         })
         defer { host.hide() }
         #expect(host.show(legacy)["shown"] as? Bool == true)
         if operation == "dismiss" { host.dismiss() } else { _ = host.show(try declaration("outer")) }
+        if operation == "owner" { #expect(host.shownFrame == nil && count == 1); return }
         let panel = try #require(window.childWindows?.compactMap { $0 as? NativePopupPanel }.first)
         func descendants(_ view: NSView) -> [NSView] { view.subviews.flatMap { [$0] + descendants($0) } }
         let rootView = try #require(panel.contentView)
@@ -369,6 +372,23 @@ import Testing
         #expect(host.show(declaration)["shown"] as? Bool == true)
         host.dismiss()
         #expect(count == 1 && host.shownFrame != nil)
+    }
+
+    @Test func newerDescriptorRetiresAnObsoleteDeferredComposition() throws {
+        let content = NativePopupContent()
+        var model = NativePopupModel(schemaVersion: 1, id: "same", revision: 1,
+                                     anchor: NativePopupAnchor(left: 0, top: 0, right: 20, bottom: 20),
+                                     side: .bottom, align: .start, width: 320, rows: [],
+                                     search: NativePopupField(id: "query", value: "", placeholder: "Search"))
+        content.update(model)
+        model.revision = 2; model.title = "Deferred"
+        content.pendingCompositionModel = model
+        model.revision = 3; model.title = "Newest"
+        content.update(model)
+        let field = try #require(content.search)
+        field.stringValue = "typed"
+        content.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: field))
+        #expect(content.model?.revision == 3 && content.model?.title == "Newest")
     }
 
 }
