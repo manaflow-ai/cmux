@@ -207,6 +207,19 @@ public struct EternalTerminalCommandBuilder: Sendable {
     ///
     /// - Returns: A complete `/bin/sh -c` terminal startup command.
     public func command() -> String {
+        let resolver = SSHAgentSocketResolver()
+        // ET resolves its TCP route and enables agent forwarding from its own
+        // SSH config parser, independently of --ssh-option. Preserve explicit
+        // cmux overrides through SSH when ET cannot honor their semantics.
+        let overridesRoute = ["HostName", "ProxyJump", "ProxyCommand"].contains {
+            resolver.optionValue(named: $0, in: sessionSSHOptions) != nil
+        }
+        let disablesAgent = resolver.optionValue(named: "ForwardAgent", in: sessionSSHOptions)
+            .map { resolver.agentSocketPath(forForwardAgentValue: $0) == nil } ?? false
+        if overridesRoute || disablesAgent {
+            let script = "printf '%s\\n' \(messages.remoteProbeFailed.remoteCommandShellQuoted) >&2; exec /bin/sh -c \(sshFallbackCommand.remoteCommandShellQuoted)"
+            return "/bin/sh -c \(script.remoteCommandShellQuoted)"
+        }
         let localResolver = RemoteExecutableCommandBuilder(
             executableName: localEternalTerminalExecutableName,
             notFoundSentinel: "cmux-et: local et not found"
@@ -326,13 +339,11 @@ public struct EternalTerminalCommandBuilder: Sendable {
             "cmux_et_lifecycle_cli=\"${CMUX_BUNDLED_CLI_PATH:-}\"",
             "if [ -z \"$cmux_et_lifecycle_cli\" ] || [ ! -x \"$cmux_et_lifecycle_cli\" ]; then cmux_et_lifecycle_cli=\"$(command -v cmux 2>/dev/null || true)\"; fi",
             "if [ -z \"$cmux_et_lifecycle_cli\" ] || [ -z \"${CMUX_SOCKET_PATH:-}\" ] || [ -z \"${CMUX_WORKSPACE_ID:-}\" ] || [ -z \"${CMUX_SURFACE_ID:-}\" ] || [ -z \"${CMUX_TERMINAL_LIFECYCLE_ID:-}\" ]; then cmux_et_fallback; fi",
-            "cmux_et_lifecycle_rpc() { cmux_et_lifecycle_method=\"$1\"; cmux_et_lifecycle_payload=\"$2\"; cmux_et_lifecycle_retry=0; while ! CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=2 \"$cmux_et_lifecycle_cli\" --socket \"$CMUX_SOCKET_PATH\" rpc \"$cmux_et_lifecycle_method\" \"$cmux_et_lifecycle_payload\" >/dev/null 2>&1; do cmux_et_lifecycle_retry=$((cmux_et_lifecycle_retry + 1)); if [ \"$cmux_et_lifecycle_retry\" -ge 4 ]; then return 1; fi; /bin/sleep 0.1; done; }",
             "cmux_et_launch_payload=\"{\\\"workspace_id\\\":\\\"$CMUX_WORKSPACE_ID\\\",\\\"surface_id\\\":\\\"$CMUX_SURFACE_ID\\\",\\\"terminal_lifecycle_id\\\":\\\"$CMUX_TERMINAL_LIFECYCLE_ID\\\",\\\"attempt_id\\\":\\\"$CMUX_SSH_ATTEMPT_ID\\\"}\"",
             // ET exposes no post-connect callback, so like Mosh this launcher
             // registers the attempt but never claims connected readiness.
-            "cmux_et_lifecycle_rpc workspace.remote.terminal_session_launching \"$cmux_et_launch_payload\" || cmux_et_fallback",
-            "unset cmux_et_launch_payload cmux_et_lifecycle_cli cmux_et_lifecycle_method cmux_et_lifecycle_payload cmux_et_lifecycle_retry",
-            "unset -f cmux_et_lifecycle_rpc 2>/dev/null || true",
+            "CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=2 \"$cmux_et_lifecycle_cli\" --socket \"$CMUX_SOCKET_PATH\" rpc workspace.remote.terminal_session_launching \"$cmux_et_launch_payload\" >/dev/null 2>&1 || cmux_et_fallback",
+            "unset cmux_et_launch_payload cmux_et_lifecycle_cli",
         ]
     }
 }

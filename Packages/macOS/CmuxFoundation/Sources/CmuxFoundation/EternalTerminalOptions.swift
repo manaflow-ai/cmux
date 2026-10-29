@@ -30,10 +30,10 @@ public struct EternalTerminalOptions: Codable, Equatable, Sendable {
     /// Returns `nil` for a port outside 1-65535, for a terminal path that is
     /// not absolute (a remote `~` cannot be expanded locally), for any value
     /// that is empty or contains control characters (each value becomes one
-    /// argument of a terminal startup command), or for repeated tunnels that
-    /// are not all in ET's `port:port` / `start-end:start-end` form. ET joins
-    /// repeated tunnels with commas and parses each comma part only in that
-    /// form, so a mixed list would make `et` exit after the SSH fallback.
+    /// argument of a terminal startup command), or for comma-separated tunnels
+    /// that are not ET-style source/destination pairs. Pairs may name ports,
+    /// equal-length port ranges, sockets, or environment variables. ET's
+    /// four-part SSH syntax is supported only as a single tunnel without commas.
     ///
     /// - Parameters:
     ///   - serverPort: Remote `etserver` port.
@@ -68,13 +68,30 @@ public struct EternalTerminalOptions: Codable, Equatable, Sendable {
     }
 
     private static func canJoinTunnels(_ tunnels: [String]) -> Bool {
-        tunnels.count < 2 || tunnels.allSatisfy { tunnel in
+        guard tunnels.count > 1 || tunnels.first?.contains(",") == true else { return true }
+        return tunnels.flatMap { $0.split(separator: ",", omittingEmptySubsequences: false) }.allSatisfy { tunnel in
             let sides = tunnel.split(separator: ":", omittingEmptySubsequences: false)
-            return sides.count == 2 && sides.allSatisfy { side in
-                let bounds = side.split(separator: "-", omittingEmptySubsequences: false)
-                return (1...2).contains(bounds.count)
-                    && bounds.allSatisfy { !$0.isEmpty && $0.allSatisfy(\.isASCIIDigit) }
+            guard sides.count == 2, sides.allSatisfy({ !$0.isEmpty }) else { return false }
+            let numeric = sides.map { $0.allSatisfy { $0.isASCIIDigit || $0 == "-" } }
+            // ET accepts named sockets/environment variables in the same
+            // comma list as numeric pairs. Socket-to-port pairs require ET 7.
+            if !numeric[0] && !numeric[1] { return true }
+            if sides[0].hasPrefix("/") || sides[1].hasPrefix("/") {
+                let port = sides[sides[0].hasPrefix("/") ? 1 : 0]
+                return !port.isEmpty && port.allSatisfy(\.isASCIIDigit) && Int(port) != nil
             }
+            guard numeric.allSatisfy({ $0 }) else { return false }
+            let bounds = sides.map { $0.split(separator: "-", omittingEmptySubsequences: false) }
+            guard bounds[0].count == bounds[1].count, (1...2).contains(bounds[0].count),
+                  bounds.flatMap({ $0 }).allSatisfy({ !$0.isEmpty && $0.allSatisfy(\.isASCIIDigit) && Int($0) != nil }) else {
+                return false
+            }
+            if bounds[0].count == 1 { return true }
+            // Both ranges must expand to the same number of ports.
+            let source = bounds[0].compactMap { Int($0) }
+            let destination = bounds[1].compactMap { Int($0) }
+            return source[1] >= source[0] && destination[1] >= destination[0]
+                && source[1] - source[0] == destination[1] - destination[0]
         }
     }
 
