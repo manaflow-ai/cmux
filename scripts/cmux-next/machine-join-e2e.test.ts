@@ -100,6 +100,8 @@ interface Knobs {
   listHeartbeat?: (ms: number) => unknown
   /** Status reads take this long once the daemon runs; from the second such read on, the daemon beats as each returns. */
   statusDelayMs?: number
+  /** Per status read once the daemon runs: how long each takes (overrides statusDelayMs). */
+  statusDelays?: number[]
   /** tar archives everything but warns on stderr (as it does for a socket), exiting 0. */
   tarWarning?: string
   /** The join is this shell script, run as a real child by realDeps (its exit code and output are the join's). */
@@ -262,16 +264,23 @@ function world(k: Knobs = {}) {
   }
 
   let daemonStatusReads = 0
+  let daemonStartedAt: number | null = null
+  // Once the daemon runs: when each status read started and ended.
+  const statusReads: Array<{ start: number; end: number }> = []
   const acpmux = async (args: string[], stdin: string | undefined, signal?: AbortSignal, timeoutMs = 60_000): Promise<ChildResult> => {
     if (args.join(" ") === "host join --status --json") {
-      if (k.statusDelayMs && daemonUp) {
+      const delay = daemonUp ? (k.statusDelays?.[daemonStatusReads] ?? k.statusDelayMs) : undefined
+      if (delay !== undefined) {
         daemonStatusReads += 1
+        const start = clock
         // A read past its timeout is killed, as realDeps kills it.
-        if (k.statusDelayMs > timeoutMs) {
+        if (delay > timeoutMs) {
           await after(timeoutMs)
+          statusReads.push({ start, end: clock })
           return { code: null, stdout: "", stderr: "" }
         }
-        await after(k.statusDelayMs)
+        await after(delay)
+        statusReads.push({ start, end: clock })
         if (daemonStatusReads >= 2) lastHeartbeat = clock
       }
       if (k.statusFailsWithDaemon && daemonUp) return { code: 1, stdout: "", stderr: "status failed\n" }
@@ -352,6 +361,7 @@ function world(k: Knobs = {}) {
     start: (argv, o) => {
       runs.push({ argv, env: o.env })
       daemonUp = true
+      daemonStartedAt = clock
       return {
         stop: async () => {
           if (k.daemonHangs) await new Promise<never>(() => undefined)
@@ -394,6 +404,8 @@ function world(k: Knobs = {}) {
     revokeAt,
     aborted: () => aborted,
     releasedAt: () => releasedAt,
+    daemonStartedAt: () => daemonStartedAt,
+    statusReads,
     now: () => clock,
     evidenceText: () => files[`written:${opts.evidence}`] ?? ""
   }
@@ -995,6 +1007,19 @@ describe("non-ASCII held values", () => {
 })
 
 describe("heartbeats", () => {
+  test("a status read that times out at the heartbeat deadline is not retried past it", async () => {
+    // Read 1 takes 40 s (no beat); after the 3 s pause, read 2 hangs and is cut at the deadline (90 s).
+    const w = world({ heartbeat: false, statusDelays: [40_000, 600_000, 1_000] })
+    const e = await runE2E(opts, env, w.deps)
+    expect(e.result).toBe("fail")
+    expect(e.status.heartbeatAgeSeconds).toBeNull()
+    const deadline = w.daemonStartedAt()! + 90_000
+    expect(w.statusReads.length).toBe(2)
+    expect(w.statusReads[1]!.end).toBe(deadline)
+    for (const r of w.statusReads) expect(r.end).toBeLessThanOrEqual(deadline)
+    assertNoSecretEscaped(w)
+  })
+
   test("slow status reads cannot carry the check past its deadline", async () => {
     const w = world({ statusDelayMs: 55_000 })
     const e = await runE2E(opts, env, w.deps)

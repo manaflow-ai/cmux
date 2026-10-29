@@ -408,12 +408,16 @@ export async function runE2E(
     return (r.json.machines as any[]).find((m) => m?.joinTokenId === evidence.joinTokenId)
   }
   // One retry: status records a revoke under the join lock, which the daemon's heartbeat may hold for a moment.
-  const status = async (timeoutMs = 60_000) => {
+  // `by` is an absolute deadline: each read gets only what is left of it (60 s at most), and the one retry
+  // (after 1 s) runs only if more than that second is left. Nothing here runs past `by`.
+  const status = async (by = Infinity) => {
     for (let attempt = 0; ; attempt++) {
-      const r = await acpmux(["host", "join", "--status", "--json"], undefined, undefined, timeoutMs)
+      const left = by - deps.now()
+      if (left <= 0) throw new Failed("status: no time left")
+      const r = await acpmux(["host", "join", "--status", "--json"], undefined, undefined, Math.min(60_000, left))
       const s = lastJson(r.stdout)
       if (r.code === 0 && s) return s
-      if (attempt >= 1) throw new Failed(`status: exit ${r.code}`)
+      if (attempt >= 1 || by - deps.now() <= 1_000) throw new Failed(`status: exit ${r.code}`)
       await within(new Promise(() => undefined), 1_000, false)
     }
   }
@@ -656,11 +660,9 @@ export async function runE2E(
     let s: any = pre
     let strangeBeat = false
     for (;;) {
-      // Each status read gets only what is left of the heartbeat budget, so a slow one cannot carry the
-      // check past it.
-      const remaining = deadline - deps.now()
-      if (remaining <= 0) break
-      s = await status(Math.min(60_000, Math.max(1_000, remaining)))
+      // Status reads (and their retry) end by the heartbeat deadline, so a slow one cannot carry the check past it.
+      if (deadline - deps.now() <= 0) break
+      s = await status(deadline)
       // acpmux records ms since the epoch on this machine's clock (a string): a beat counts only when it
       // falls in this daemon's first HEARTBEAT_LIMIT_S (1 s of slack before its start), and not in the future.
       const beat = typeof s.lastHeartbeat === "string" && /^\d{1,16}$/.test(s.lastHeartbeat) ? Number(s.lastHeartbeat) : NaN
