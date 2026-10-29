@@ -296,6 +296,39 @@ import Testing
         #expect(stream.tab.wakeCoverPixels != nil, "the streamed page did not take the last frame over")
     }
 
+    /// A machine's not-ready page hidden past its discard rule was held until its tab closed: it was no
+    /// `BrowserHibernationSource`, so the planner could never release it. Now it goes through the same
+    /// cmux page discard as History or Bookmarks (`memoryDiscardPageTabs`): it hibernates to its record
+    /// with the address the person typed, and a show builds the not-ready page again from that record.
+    @Test func aHiddenMachineTabPastItsDiscardRuleIsReleasedAndWakesWithItsAddress() async throws {
+        let rig = PageBrowserTabDiscardTests.Rig(path: .pressure)
+        defer { rig.close() }
+        let typed = try #require(URL(string: "https://example.com/typed"))
+        let record = MachineBrowserRecord(machine: "m1", initialURL: try #require(URL(string: "https://example.com/")))
+        let key: String
+        weak var oldPage: MachineBrowserPageTab?
+        do {
+            let (opened, page) = try rig.open(record.url)
+            key = opened
+            let machinePage = try #require(page as? MachineBrowserPageTab, "the record made no machine page")
+            machinePage.load(typed)
+            oldPage = machinePage
+        }
+        rig.hide(key)
+        try await rig.until("the hidden machine tab was released") { rig.isHibernated(key) }
+        let asleep = try #require(rig.services.cache.browsers[key]?.tab as? HibernatedBrowserTab)
+        #expect(asleep.restoreState == .appPage(BrowserAppPageState(url: MachineBrowserRecord(machine: "m1", initialURL: typed).url)),
+                "the released tab forgot the address the person typed")
+        await rig.nextRunLoopTurn()
+        #expect(oldPage == nil, "the machine page outlived its release")
+
+        rig.services.cache.present(key, by: rig.pane, presence: .visible)
+        try await rig.until("the machine tab woke") { !rig.isHibernated(key) }
+        let woken = try #require(rig.services.cache.browsers[key]?.tab as? MachineBrowserPageTab, "the wake made no machine page")
+        #expect(woken.queuedURL == typed, "the woken page lost the typed address")
+        #expect(woken.record.machine == "m1")
+    }
+
     @Test func aMachinesBrowserThatFailsToStartDropsTheLastFrame() throws {
         let page = Self.machinePage()
         page.phase = .starting("m1")
