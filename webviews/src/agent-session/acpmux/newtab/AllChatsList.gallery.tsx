@@ -35,10 +35,12 @@ const waitForRetry = async (ctx: PlayContext) => {
   await ctx.waitFor(() => ctx.document.querySelector(".nt-chats-retry") !== null);
 };
 
-const pageLoad = (failed: boolean): LoadChatsPage => async ({ cursor }) => {
-  if (!cursor) return first;
-  return failed ? undefined : second;
-};
+const pageLoad =
+  (failed: boolean): LoadChatsPage =>
+  async ({ cursor }) => {
+    if (!cursor) return first;
+    return failed ? undefined : second;
+  };
 
 export default componentEntry<ComponentProps<typeof AllChatsList>>({
   id: "agent-pane.all-chats-list",

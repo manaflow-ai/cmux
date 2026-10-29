@@ -208,7 +208,11 @@ test("Enter on a failed history-page retry keeps the selection shortcut out of t
   const opened: string[] = [];
   const brought: string[][] = [];
   root = createRoot(host);
-  await act(async () => root!.render(<AllChatsList load={load} onOpen={(key) => opened.push(key)} onBring={(keys) => brought.push(keys)} />));
+  await act(async () =>
+    root!.render(
+      <AllChatsList load={load} onOpen={(key) => opened.push(key)} onBring={(keys) => brought.push(keys)} />,
+    ),
+  );
   await act(async () => requests[0]!.resolve({ chats: pageRows, nextCursor: "page-2", ready: true }));
   await settle();
   expect(requests).toHaveLength(2);

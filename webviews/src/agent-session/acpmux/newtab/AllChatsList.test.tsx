@@ -19,7 +19,16 @@ const saved = new Map<string, unknown>();
 
 beforeEach(() => {
   dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>", { url: "http://localhost/" });
-  for (const key of ["window", "document", "navigator", "Node", "HTMLElement", "Element", "localStorage", "IS_REACT_ACT_ENVIRONMENT"])
+  for (const key of [
+    "window",
+    "document",
+    "navigator",
+    "Node",
+    "HTMLElement",
+    "Element",
+    "localStorage",
+    "IS_REACT_ACT_ENVIRONMENT",
+  ])
     saved.set(key, scope[key]);
   Object.assign(scope, {
     window: dom.window,
@@ -54,11 +63,9 @@ function Probe({ load }: { load: LoadChatsPage }) {
   return (
     <div>
       <output data-loaded={state.loaded} data-cursor={state.nextCursor ?? ""} data-failed={state.failedCursor ?? ""} />
-      <button
-        type="button"
-        data-more
-        onClick={() => state.nextCursor && fetchPage(state.query, state.nextCursor)}
-      />
+      <button type="button" data-more onClick={() => state.nextCursor && fetchPage(state.query, state.nextCursor)}>
+        Load more
+      </button>
     </div>
   );
 }
