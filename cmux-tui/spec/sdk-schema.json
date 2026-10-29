@@ -9451,6 +9451,13 @@
     }
    },
    "additional_properties": false
+  },
+  "ColumnSide": {
+   "kind": "enum",
+   "values": [
+    "left",
+    "right"
+   ]
   }
  },
  "commands": {
@@ -12835,6 +12842,17 @@
       "presence": "optional",
       "nullable": true,
       "default": null
+     },
+     "side": {
+      "type": {
+       "kind": "ref",
+       "name": "ColumnSide"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "column-left-v1"
      },
      "cwd": {
       "type": {
