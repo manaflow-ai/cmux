@@ -57,6 +57,9 @@ pub(crate) fn session_list_reply(sorted: Vec<Value>, params: &Value) -> Result<V
     let peer = text_filter(params, "peer")?;
     let status = text_filter(params, "status")?;
     let local_only = bool_filter(params, "localOnly")?;
+    if order.is_some() && !local_only {
+        return Err(RpcError::invalid_params("orderBy sessionId requires localOnly"));
+    }
     let excluded = status_filter(params, "excludeStatus")?;
     let sorted: Vec<Value> =
         if peer.is_none() && status.is_none() && !local_only && excluded.is_empty() {
@@ -93,11 +96,16 @@ pub(crate) fn session_list_reply(sorted: Vec<Value>, params: &Value) -> Result<V
 }
 
 /// IDs are immutable: an unread session updating between pages cannot be lost.
-fn session_id_page(mut rows: Vec<Value>, params: &Value, limit: Option<u64>) -> Result<Value, RpcError> {
+fn session_id_page(
+    mut rows: Vec<Value>,
+    params: &Value,
+    limit: Option<u64>,
+) -> Result<Value, RpcError> {
     let after = match params.get("cursor") {
         None | Some(Value::Null) => None,
         Some(Value::String(text)) => Some(
-            text.strip_prefix("s:").filter(|id| !id.is_empty())
+            text.strip_prefix("s:")
+                .filter(|id| !id.is_empty())
                 .ok_or_else(|| RpcError::invalid_params("cursor is not a sessionId cursor"))?,
         ),
         Some(_) => return Err(RpcError::invalid_params("cursor must be a string")),
@@ -280,6 +288,7 @@ mod tests {
         assert_eq!(ids(&last), ["c"]);
         assert!(last["nextCursor"].is_null());
         assert!(refuse_watch_filters(&json!({"orderBy": "sessionId"})).is_err());
+        assert!(session_list_reply(list(), &json!({"orderBy": "sessionId"})).is_err());
     }
 
     fn list() -> Vec<Value> {

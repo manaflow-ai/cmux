@@ -150,8 +150,7 @@ nonisolated enum AcpmuxStatusClient {
     static func sessionSummary(_ sessionId: String, in result: [String: Any]) -> [String: Any]? {
         let summary = (result["session"] as? [String: Any]).flatMap { $0["sessionId"] as? String == sessionId ? $0 : nil }
             ?? (result["matches"] as? [[String: Any]])?.first { $0["sessionId"] as? String == sessionId }
-        guard let summary else { return nil }
-        var summary = summary
+        guard var summary else { return nil }
         // Legacy resolver cards name the local machine in `host`; exact cards
         // use the absence of `peer` as the local marker. Do not turn that
         // display name into a remote folder target.
