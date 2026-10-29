@@ -32,6 +32,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pr_runner_pool import PR_XCODE_VARIABLE, SLOTS_VARIABLE, slot_problems  # noqa: E402
 from runner_label_policy import PolicyUnreadable, drifted_runner_variables  # noqa: E402
 from cloud_overflow_switch import RECORD_VARIABLE, parse_record  # noqa: E402
+from signing_runner_variables import allowed_value  # noqa: E402
 
 RUNNER_VARIABLES_ENV = "CMUX_CI_RUNNER_VARIABLES"
 # Blacksmith's 12 vCPU macOS 26 label stalls for hours at a time (2026-10-20, -26, -28: no job started from
@@ -73,8 +74,10 @@ def problems(env: dict[str, str]) -> list[str]:
         try:
             variables = {k: v for k, v in parse_runner_variables(raw).items() if v.strip()}
             for name, value, reason in drifted_runner_variables(variables):
-                if switched.get(name) == value:
-                    continue  # the overflow switch's failover while Blacksmith is down
+                if switched.get(name) == value and allowed_value(name, value):
+                    # The overflow switch's failover while Blacksmith is down. A variable signing
+                    # jobs read is never excused for naming a reused machine, record or not.
+                    continue
                 found.append(f"{name}={value!r}: {reason}")
             for name in LAST_RESORT_VARIABLES:
                 if variables.get(name, "").strip() == LARGE_MAC and switched.get(name) != LARGE_MAC:

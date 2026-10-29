@@ -32,6 +32,18 @@ GITHUB_REPOSITORY_ID, GITHUB_RUN_ID, SHA, SIDE_LABEL, OVERFLOW_LABEL, WAIT_SECON
 GAP_REPO and GAP_REMOTE (a bare repository and the remote to fetch commits into it).
 `gap FROM TO` prints the commits between two commits (either direction), or nothing; every fetch
 has a deadline, so a stalled network never holds the job.
+
+`place` with FRESH_LABEL set places a DEV daily's Release compile (cmux-next.yml, dev-daily-place, for
+cmux-scheme-compile; place_daily()). Of 15 DEV compiles on 2026-10-28, 4 hit a warm cache, every one on
+the same host: the DEV slot label went to whichever slot was idle. It reads one runner listing, nothing
+else, and never waits:
+1. a host is occupied while any of its runners is busy: whatever holds the host lock runs on one of them,
+   so the busy flags cover every holder, with no job names to keep in step;
+2. a pick claims a host only when its label resolves to exactly one idle runner: an idle DEV slot or root
+   runner pinned by its static label, or the one idle DEV slot when there is only one; the nearest record
+   wins, a slot first at equal distance;
+3. otherwise the shared DEV slot label when a slot is idle, then the side label, at once; with nothing
+   owned idle, or the runners unreadable, it prints an empty runs_on and the compile keeps its route.
 """
 from __future__ import annotations
 
@@ -53,6 +65,8 @@ HOLDER_PREFIX = "cmux-next-dev-cas-holder-"
 BRANCH = "feat-cmux-next"
 COMPILE_JOB = "cmux NEXT DEV Release compile (landing)"
 RUNNER_LABEL_PREFIX = "glaeda-runner-"
+# A DEV daily placement that places nothing: the compile keeps macos-placement's route.
+DAILY_KEEP = {"runs_on": "", "runner_label": "", "pool": "", "host": "", "holder_sha": "", "gap": ""}
 SHA = re.compile(r"^[0-9a-f]{40}$")
 FETCH_SECONDS = 45
 # In-flight landings older than this are not read (a compile takes minutes).
@@ -230,13 +244,15 @@ def place(env: Mapping[str, str], read_runners: Callable[[], Sequence[Mapping[st
           read_snapshot: Callable[[], Mapping[str, Any] | None] = lambda: None,
           now: dt.datetime | None = None) -> dict[str, str]:
     side_label = env.get("SIDE_LABEL", "")
-
     def overflowed(reason: str) -> dict[str, str]:
         label, why = overflow_label(env.get("OVERFLOW_LABEL") or "blacksmith-12vcpu-macos-26", read_snapshot, now)
         return {"runs_on": json.dumps(label), "runner_label": label, "pool": "blacksmith",
                 "host": "", "holder_sha": "", "gap": "", "reason": reason + why}
 
+    fresh_label = (env.get("FRESH_LABEL") or "").strip()
     if not side_label.startswith("glaeda-side-"):
+        if fresh_label:  # a DEV daily keeps the route its run already has
+            return {**DAILY_KEEP, "reason": f"owned pools are off for this run (side route {side_label or 'unset'})"}
         return overflowed(f"owned pools are off for this run (side route {side_label or 'unset'})")
     head, repo_id = env.get("SHA", ""), env.get("GITHUB_REPOSITORY_ID", "")
     gap_repo, gap_remote = env.get("GAP_REPO", ""), env.get("GAP_REMOTE", "")
@@ -253,6 +269,8 @@ def place(env: Mapping[str, str], read_runners: Callable[[], Sequence[Mapping[st
             holders[host] = (sha, git_distance(gap_repo, sha, head, gap_remote) if sha else None)
         return holders[host]
 
+    if fresh_label:
+        return place_daily(side_label, fresh_label, read_runners, distance_of)
     try:
         taken, busy_hosts = read_in_flight()
     except Exception as error:  # noqa: BLE001 - unknown in-flight landings: place on the live state
@@ -272,6 +290,48 @@ def place(env: Mapping[str, str], read_runners: Callable[[], Sequence[Mapping[st
         if clock() - started + poll > wait:
             return overflowed(f"no owned runner was free in {reads} looks over {int(clock() - started)}s")
         sleep(poll)
+
+
+def place_daily(side_label: str, fresh_label: str, read_runners: Callable[[], Sequence[Mapping[str, Any]]],
+                distance_of: Callable[[str], tuple[str, int | None]]) -> dict[str, str]:
+    """A DEV daily's compile: the idle runner nearest its cache, from one runner listing (see the module doc)."""
+    root_label = side_label.replace("glaeda-side-", "glaeda-root-", 1)
+    try:
+        runners = list(read_runners())
+    except Exception as error:  # noqa: BLE001 - nobody saw an owned runner idle: keep the route
+        return {**DAILY_KEEP, "reason": f"owned runners unreadable ({error}); the compile keeps its route"}
+    online = [runner for runner in runners if runner.get("name") and runner.get("status") == "online"]
+    occupied = {host_of(str(runner["name"])) for runner in online if runner.get("busy")}
+    idle = [(str(runner["name"]), {str(label.get("name")) for label in runner.get("labels") or []
+                                   if isinstance(label, Mapping)}) for runner in online if not runner.get("busy")]
+    slots = [(name, labels) for name, labels in idle if fresh_label in labels]
+    sides = [name for name, labels in idle if side_label in labels]
+    scored = []
+    for name, labels in idle:
+        if host_of(name) in occupied:
+            continue
+        pinned = static_label(name) in labels
+        if fresh_label in labels and (pinned or len(slots) == 1):
+            kind, label, runs_on = 0, fresh_label, [fresh_label, static_label(name)] if pinned else fresh_label
+        elif root_label in labels and pinned:
+            kind, label, runs_on = 1, root_label, [root_label, static_label(name)]
+        else:
+            continue
+        holder, distance = distance_of(host_of(name))
+        if distance is not None:
+            scored.append(((distance, kind, name), holder, label, runs_on))
+    if scored:
+        (distance, _, name), holder, label, runs_on = min(scored, key=lambda item: item[0])
+        return {"runs_on": json.dumps(runs_on), "runner_label": label, "pool": "owned", "host": host_of(name),
+                "holder_sha": holder, "gap": str(distance),
+                "reason": f"{name} is idle on {host_of(name)}, whose cache is {distance} commits from this commit"}
+    if slots:
+        return {**DAILY_KEEP, "runs_on": json.dumps(fresh_label), "runner_label": fresh_label, "pool": "owned",
+                "reason": f"no idle runner on a free host with a cache record; {len(slots)} DEV slots are idle"}
+    if sides:
+        return {**DAILY_KEEP, "runs_on": json.dumps(side_label), "runner_label": side_label, "pool": "owned",
+                "reason": f"no idle runner on a free host with a cache record; {len(sides)} side runners are idle"}
+    return {**DAILY_KEEP, "reason": "no owned runner is idle; the compile keeps its route"}
 
 
 def gap_main(source: str, head: str) -> int:

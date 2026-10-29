@@ -2,11 +2,15 @@
 // (a count, a percent), folding its body. Without `onOpenChange` the head is plain text (Context
 // before the agent reports usage). With `icon`, the head starts with it, so a section that is one
 // line lines up with the rows above it (the rail's top block, ChatInspector.tsx `RAIL_LAYOUT`).
-// `bare` draws the body alone, with no head: rows that need no title over them.
+// `bare` draws the body alone, with no head: rows that need no title over them. Inside a block
+// (InspectorGroup.tsx) it also has the six-dot handle that moves it.
 import type { ReactNode } from "react";
 import { Disclosure } from "../../../ui/Disclosure";
+import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
+import { useReorder } from "./InspectorGroup";
+import type { InspectorSectionId } from "./inspectorState";
 
 const ROW_ICON = rowIconSize(12);
 
@@ -31,6 +35,35 @@ export function InspectorFold({
       onClick={onToggle}
     >
       {children}
+    </button>
+  );
+}
+
+/// Six dots, drawn here: the icon pack has no grip glyph.
+const GRIP_DOTS = [3, 7, 11].flatMap((y) => [1.25, 4.75].map((x) => ({ x, y })));
+
+function ReorderHandle({ id, title }: { id: InspectorSectionId; title: string }) {
+  const reorder = useReorder();
+  const t = useT();
+  if (!reorder) return null;
+  return (
+    <button
+      type="button"
+      className="acpmux-chat-inspector-section__handle"
+      aria-label={t("chatInspector.reorderSection", { section: title })}
+      aria-keyshortcuts="ArrowUp ArrowDown"
+      onPointerDown={(event) => reorder.start(id, event)}
+      onKeyDown={(event) => {
+        if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+        event.preventDefault();
+        reorder.step(id, event.key === "ArrowUp" ? -1 : 1);
+      }}
+    >
+      <svg width="6" height="14" viewBox="0 0 6 14" aria-hidden="true">
+        {GRIP_DOTS.map(({ x, y }) => (
+          <circle key={`${x}-${y}`} cx={x} cy={y} r="0.9" fill="currentColor" />
+        ))}
+      </svg>
     </button>
   );
 }
@@ -68,13 +101,16 @@ export function InspectorSection({
       {meta && <span className="acpmux-chat-inspector-section__meta">{meta}</span>}
     </>
   );
+  const dragging = useReorder()?.dragging === id;
   return (
     <section
       className="acpmux-chat-inspector-section"
       data-section={id}
       data-bare={bare || undefined}
+      data-dragging={dragging || undefined}
       aria-label={title}
     >
+      <ReorderHandle id={id as InspectorSectionId} title={title} />
       {bare ? (
         children
       ) : onOpenChange ? (

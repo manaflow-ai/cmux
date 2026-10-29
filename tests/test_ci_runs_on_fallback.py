@@ -49,14 +49,9 @@ import runs_on_labels  # noqa: E402
 LARGE_MAC = "blacksmith-12vcpu-macos-26"
 # What a picker job, an input or a matrix leg gives a runs-on; '' when the picker answered nothing.
 PICKER_CONTEXTS = ("needs", "inputs", "steps", "matrix", "env", "jobs", "strategy")
-# Jobs that keep the label as their literal last resort, and why. Keyed signing takes a literal Blacksmith label by
-# policy (tests/test_ci_release_sdk_lane.sh: "never a repository variable"); a stall-aware Blacksmith pick for it
-# needs a new `actions: read` picker job, which is a workflow-permission change for Leo, not this test.
-LARGE_MAC_LAST_RESORT = {
-    "release.yml#build-sign-notarize": "keyed release signing on a literal Blacksmith label; runs from main",
-    "repair-v0-64-25-helper-rpaths.yml#repair": "keyed one-off repair, dispatch from main only",
-    "cmux-next-dev-daily.yml#sign": "keyed DEV signing; main's copy, which runs, picks a moving label",
-}
+# Jobs that keep the label as their literal last resort, and why. None today: the keyed signing jobs read a
+# stall-aware picker since cmux#27066. A new entry needs a reason; one no job needs any more fails the test.
+LARGE_MAC_LAST_RESORT: dict[str, str] = {}
 
 # One machine: a per-runner glaeda label, or a mini or perf host's name.
 SINGLE_HOST = re.compile(
