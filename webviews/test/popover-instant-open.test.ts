@@ -5,7 +5,13 @@
 // Panels that slide in from an edge, browser and pane motion, dialogs and tooltips are not popovers
 // and keep their own motion.
 // - Every lane: no stylesheet under webviews/src starts an animation on a popup or menu surface, or
-//   draws a starting style for one to enter from (outside its exit state).
+//   draws a starting style for one to enter from (outside its exit state). A popup surface is one of
+//   the listed classes, any class named like one (`-menu`, `-popover`, `-popup`, `-dropdown`,
+//   `-picker`, `-listbox`), or an ARIA menu or listbox.
+// - No component gives a menu or listbox a `data-enter` entrance, and no script fades a popup in
+//   with `.animate()`.
+// - Palettes are exempt (Leo: "Command palette gets a pass"): the quick-open and jump palettes keep
+//   their entrance, and each is named in PALETTES.
 // popover-instant-open-pane.test.ts opens the real agent pane's ... menu in Chromium.
 import { describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync, statSync } from "node:fs";
@@ -32,7 +38,21 @@ const POPUP_CLASSES = [
   "acpmux-file-menu-list",
   "acpmux-effort-menu",
 ];
-const POPUP = new RegExp(`\\.(${POPUP_CLASSES.join("|")})(?![\\w-])`);
+/// Any other surface named like a popup: a class ending in one of these words, or an ARIA popup role.
+const POPUP_SUFFIXES = ["menu", "popover", "popup", "dropdown", "picker", "listbox"];
+const POPUP = new RegExp(
+  `\\.(${POPUP_CLASSES.join("|")})(?![\\w-])` +
+    `|\\.[\\w-]+-(${POPUP_SUFFIXES.join("|")})(?![\\w-])` +
+    `|\\[role=["']?(menu|listbox)["']?\\]`,
+);
+/// Palettes keep their entrance (Leo 2026-10-24: "Command palette gets a pass"). Each is a
+/// keyboard-summoned, centered quick-open surface, not a menu a control drops down.
+const PALETTES = [
+  "acpmux-file-search", // Search files: the chat's quick-open palette (FileSearch.tsx).
+  "lg-palette", // the ledger's command palette (home-channels/ledger.css).
+  "jump-palette", // the diff viewer's jump-to-file palette (DiffToolbar.tsx).
+];
+const PALETTE = new RegExp(`\\.(${PALETTES.join("|")})(?![\\w-])`);
 /// A state the surface leaves through: its fade out is allowed.
 const EXIT_STATE = /\[data-ending-style\]|\[data-closed\]|\[data-state="?closed|\[data-presence="?leaving|closing/;
 
@@ -80,7 +100,10 @@ function splitTop(text: string, separator: RegExp): string[] {
 
 /// The selectors in a rule whose subject is a popup or menu surface (not one of its rows).
 function popupSubjects(selector: string): string[] {
-  return splitTop(selector, /,/).filter((one) => POPUP.test(splitTop(one, /[\s>+~]/).at(-1) ?? ""));
+  return splitTop(selector, /,/).filter((one) => {
+    const subject = splitTop(one, /[\s>+~]/).at(-1) ?? "";
+    return POPUP.test(subject) && !PALETTE.test(subject);
+  });
 }
 
 /// What a rule does to a popup or menu as it opens, as `line why`.
@@ -108,14 +131,40 @@ function popupEntrances(source: string): string[] {
   return found;
 }
 
-function stylesheets(dir: string): string[] {
+function sources(dir: string, test: (file: string) => boolean): string[] {
   const found: string[] = [];
   for (const name of readdirSync(dir)) {
     const full = path.join(dir, name);
-    if (statSync(full).isDirectory()) found.push(...stylesheets(full));
-    else if (full.endsWith(".css")) found.push(full);
+    if (statSync(full).isDirectory()) found.push(...sources(full, test));
+    else if (test(full)) found.push(full);
   }
   return found;
+}
+const stylesheets = (dir: string) => sources(dir, (file) => file.endsWith(".css"));
+/// Component and script sources, without tests, galleries and prototypes.
+const scripts = (dir: string) =>
+  sources(dir, (file) => /\.tsx?$/.test(file) && !/\.(test|gallery)\.tsx?$/.test(file) && !file.includes("/prototypes/"));
+
+/// A JSX element that is a menu or listbox, by role or by a popup-named class, and asks for a
+/// `data-enter` entrance (ui/popupSurface.css), as `line why`.
+function scriptEntrances(source: string): string[] {
+  const found: string[] = [];
+  const lineAt = (index: number) => source.slice(0, index).split("\n").length;
+  for (const tag of source.matchAll(/<[A-Za-z][\w.]*\b[^<>]*?\bdata-enter\b[^<>]*>/g)) {
+    const role = /\brole=["'{]+(menu|listbox)\b/.exec(tag[0]);
+    const named = new RegExp(`\\bclassName=["'{\`][^"'}\`]*\\b[\\w-]+-(${POPUP_SUFFIXES.join("|")})(?![\\w-])`).exec(tag[0]);
+    if (role || named) found.push(`${lineAt(tag.index)} a ${role ? `role=${role[1]}` : "popup-named"} element enters with data-enter`);
+  }
+  return found;
+}
+
+/// A file named for a menu, popover or picker that fades something in with `.animate()`.
+function scriptFadeIns(file: string, source: string): string[] {
+  if (!/(menu|popover|popup|picker|dropdown)/i.test(path.basename(file))) return [];
+  const lineAt = (index: number) => source.slice(0, index).split("\n").length;
+  return [...source.matchAll(/\.animate\(\s*\[\s*\{\s*opacity:\s*0\b/g)].map(
+    (match) => `${lineAt(match.index)} fades in with .animate()`,
+  );
 }
 
 describe("popovers and menus open in one frame", () => {
@@ -146,6 +195,52 @@ describe("popovers and menus open in one frame", () => {
       "3 `:where(.ui-popup)` starts `animation: ui-popup-fade 120ms`",
       "4 `.ui-popover[data-starting-style]` draws a starting style to enter from",
     ]);
+  });
+
+  test("the scan covers popup-named classes and ARIA menus, and passes palettes", () => {
+    expect(
+      popupEntrances(`
+        .nt-edit-add-menu { animation: ui-enter 120ms both }
+        .file-tree-context-menu { animation: ui-enter 120ms both }
+        .model-dropdown, .color-picker { animation: ui-enter 120ms both }
+        [role=listbox] { animation: ui-enter 120ms both }
+        .acpmux-file-search { animation: ui-enter 120ms both }
+        .lg-palette { animation: ui-enter 120ms both }
+        .nt-edit-add-menu-item { animation: row-in 80ms }`),
+    ).toEqual([
+      "2 `.nt-edit-add-menu` starts `animation: ui-enter 120ms both`",
+      "3 `.file-tree-context-menu` starts `animation: ui-enter 120ms both`",
+      "4 `.model-dropdown, .color-picker` starts `animation: ui-enter 120ms both`",
+      "5 `[role=listbox]` starts `animation: ui-enter 120ms both`",
+    ]);
+  });
+
+  test("the script scan catches a menu that enters, and passes a panel that does", () => {
+    expect(
+      scriptEntrances(`
+        <div role="menu" data-enter="top">
+        <ul className="nt-add-popover" data-enter="bottom">
+        <section className="acpmux-inspector" data-enter="right">`),
+    ).toEqual(["2 a role=menu element enters with data-enter", "3 a popup-named element enters with data-enter"]);
+    expect(scriptFadeIns("src/ui/ModelMenu.tsx", "el.animate([{ opacity: 0 }, { opacity: 1 }], 80)")).toEqual([
+      "1 fades in with .animate()",
+    ]);
+    expect(scriptFadeIns("src/ui/ModelMenu.tsx", "el.animate([{ opacity: 1 }, { opacity: 0 }], 80)")).toEqual([]);
+  });
+
+  test("no component or script animates a popup or menu in", () => {
+    const found: string[] = [];
+    for (const file of scripts(path.join(WEBVIEWS, "src"))) {
+      const source = readFileSync(file, "utf8");
+      for (const entrance of [...scriptEntrances(source), ...scriptFadeIns(file, source)])
+        found.push(`${path.relative(WEBVIEWS, file)}:${entrance}`);
+    }
+    expect(found).toEqual([]);
+  });
+
+  test("every exempt palette is still drawn by a stylesheet", () => {
+    const css = stylesheets(path.join(WEBVIEWS, "src")).map((file) => readFileSync(file, "utf8")).join("\n");
+    expect(PALETTES.filter((name) => !new RegExp(`\\.${name}(?![\\w-])`).test(css))).toEqual([]);
   });
 
   test("no stylesheet animates a popup or menu in", () => {
