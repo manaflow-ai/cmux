@@ -8788,20 +8788,23 @@ function AcpmuxPane() {
     inspectorOpenRef.current = false;
     setInspectorOpen(false);
   }, [inspectorHiddenSurface]);
-  const importFile = useCallback(async (file: File) => {
-    setImportError(undefined);
-    try {
-      const session = parseImportedSession(await file.text(), file.name || "transcript.jsonl");
-      if (!session.messages.length) {
-        setImportError(t("composer.cmuxImportFailed"));
-        return;
+  const importFile = useCallback(
+    async (file: File) => {
+      setImportError(undefined);
+      try {
+        const session = parseImportedSession(await file.text(), file.name || "transcript.jsonl");
+        if (!session.messages.length) {
+          setImportError(t("composer.cmuxImportFailed"));
+          return;
+        }
+        await callNative("chat.new", session.cwd ? { cwd: session.cwd } : {});
+        await callNative("chat.send", { text: importedPrompt(session), attachments: [] });
+      } catch (error) {
+        setImportError(errorMessage(error) || t("composer.cmuxImportFailed"));
       }
-      await callNative("chat.new", session.cwd ? { cwd: session.cwd } : {});
-      await callNative("chat.send", { text: importedPrompt(session), attachments: [] });
-    } catch (error) {
-      setImportError(errorMessage(error) || t("composer.cmuxImportFailed"));
-    }
-  }, [t]);
+    },
+    [t],
+  );
   /// The classic page's chat: a terminal or browser tab opens through `newTabPageSubmit`.
   const chatFromNewTab = (text: string, cwd?: string, attachments: ComposerAttachment[] = [], chat?: NewTabChat) => {
     const inherited = newTab?.cwd;
