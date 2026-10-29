@@ -37,3 +37,5 @@ pub mod sealed_notify;
 pub mod services;
 pub mod size_release;
 pub mod surface;
+
+mod workspace_cache;
