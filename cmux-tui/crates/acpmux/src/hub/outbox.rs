@@ -199,7 +199,10 @@ impl Outbox {
         if let Some(first) = book.deliveries.values().find(|d| {
             d.prompt_id() == prompt_id
                 && d.request.pointer("/_meta/acpmux/forwardProjection").is_some() == scoped
-                && (!scoped || (d.caller == delivery.caller && d.target == delivery.target))
+                && (!scoped
+                    || (d.caller == delivery.caller
+                        && d.target == delivery.target
+                        && projected_message(d) == projected_message(&delivery)))
         }) {
             let first = first.clone();
             // The first add may still be writing: answer once the file holds it too.
@@ -383,6 +386,12 @@ pub fn local_only() -> RpcError {
         .with_data(json!({"reason": "outbox.local_only"}))
 }
 
+/// The message id a forward intent records (`server/outbox.rs` `remember_forward`): a direct
+/// send and its `send_queue` retry share a prompt id but are two messages, each its own intent.
+fn projected_message(d: &Delivery) -> Option<&Value> {
+    d.request.pointer("/_meta/acpmux/forwardProjection/messageId")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -419,7 +428,14 @@ mod tests {
         assert_eq!(outbox.remember_forward(intent.clone()).unwrap().id, "intent-2");
         intent.caller = Some("another-sender".into());
         intent.id = "intent-3".into();
-        assert_eq!(outbox.remember_forward(intent).unwrap().id, "intent-3");
+        assert_eq!(outbox.remember_forward(intent.clone()).unwrap().id, "intent-3");
+        // A `send_queue` retry of the same prompt id is another message: its own intent, so a
+        // restart reads the receiver's journal for the retry's delivery id too.
+        intent.request["_meta"]["acpmux"]["forwardProjection"]["messageId"] = json!("delivery-1");
+        intent.id = "intent-4".into();
+        assert_eq!(outbox.remember_forward(intent.clone()).unwrap().id, "intent-4");
+        intent.id = "unused-retry-id".into();
+        assert_eq!(outbox.remember_forward(intent).unwrap().id, "intent-4");
         assert_eq!(outbox.add(delivery(1)).id, "d-1");
     }
 

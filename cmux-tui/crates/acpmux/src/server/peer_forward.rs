@@ -115,11 +115,14 @@ fn is_duplicate(v: &Value) -> bool {
         || v.pointer("/_meta/acpmux/duplicate").and_then(Value::as_bool) == Some(true)
 }
 
-/// The peer's acceptance names the message its journal kept (`hub/message_events.rs`
-/// `name_message`), and it is not `ours`. A peer from before that names none: nothing to check.
-fn kept_another(v: &Value, ours: Option<&str>) -> bool {
-    let kept = v.get("messageId").and_then(Value::as_str);
-    matches!((kept, ours), (Some(kept), Some(ours)) if kept != ours)
+/// The peer's acceptance names the message its journal kept and that message's sender session
+/// (`hub/message_events.rs` `name_message`), and either is not ours (`(sender, message id)`).
+/// A peer from before that names neither: nothing to check.
+fn kept_another(v: &Value, ours: Option<(&str, &str)>) -> bool {
+    let Some((sender, message_id)) = ours else { return false };
+    let differs =
+        |key: &str, ours: &str| v.get(key).and_then(Value::as_str).is_some_and(|k| k != ours);
+    differs("messageId", message_id) || differs("messageSenderId", sender)
 }
 
 /// `e` with `data.peer` = `peer`, this daemon's own name for the peer that
@@ -371,7 +374,9 @@ async fn forward_inner(
                 &id,
                 prompt_id,
                 Box::new(move |mut v| {
-                    let ours = sender_message.as_ref().map(|(.., message_id)| message_id.as_str());
+                    let ours = sender_message
+                        .as_ref()
+                        .map(|(sender, _, _, message_id)| (sender.as_str(), message_id.as_str()));
                     if is_duplicate(&v) || kept_another(&v, ours) {
                         // The peer ran this prompt id before, or kept another send's message
                         // under it (a direct send and its `send_queue` retry both hear the one
@@ -697,10 +702,14 @@ mod message_identity_tests {
     /// when that acceptance is no duplicate; a peer that names none is taken at its word.
     #[test]
     fn an_acceptance_confirms_only_the_message_it_names() {
-        let named = json!({"sessionId": "t", "promptId": "p", "messageId": "p"});
-        assert!(!kept_another(&named, Some("p")));
-        assert!(kept_another(&named, Some("delivery-1")));
-        assert!(!kept_another(&json!({"sessionId": "t", "promptId": "p"}), Some("delivery-1")));
+        let named = json!({"sessionId": "t", "promptId": "p", "messageId": "p",
+                           "messageSenderId": "sender-a"});
+        assert!(!kept_another(&named, Some(("sender-a", "p"))));
+        assert!(kept_another(&named, Some(("sender-a", "delivery-1"))));
+        // Another session's send of the same prompt id is not ours either.
+        assert!(kept_another(&named, Some(("sender-b", "p"))));
+        let unnamed = json!({"sessionId": "t", "promptId": "p"});
+        assert!(!kept_another(&unnamed, Some(("sender-a", "delivery-1"))));
         assert!(!kept_another(&named, None));
         assert!(is_duplicate(&json!({"promptId": "p", "duplicate": true, "turnId": "t1"})));
         assert!(is_duplicate(&json!({"stopReason": "end_turn",
