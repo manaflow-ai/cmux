@@ -1843,6 +1843,55 @@ async fn an_answered_queue_removal_survives_a_crash_right_after_its_answer() {
     std::fs::write(&gate, b"go").unwrap();
 }
 
+/// The same rule for a permission answer: its `permission_decision` record is appended by the
+/// task that asked, after the answer wakes it, so the answer must wait for that task's record.
+/// Lost, the restarted daemon finds the agent's ask unanswered and asks the person again
+/// (`permission_reissued`).
+#[tokio::test]
+async fn an_answered_permission_survives_a_crash_right_after_its_answer() {
+    let slow = [("ACPMUX_TEST_LOG_WRITE_DELAY_MS", "400")];
+    let mut daemon = Daemon::with_env("perm-slow", "ask", &slow);
+    let session = new_session(&daemon).await;
+    let mut client = daemon.rpc().await;
+    client
+        .send(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": [{"type": "text", "text": "ask: deploy"}]}),
+        )
+        .await;
+    let asked =
+        daemon.wait_event(&session, "permission_request", |e| e["kind"] == "permission_request");
+    let permission_id = asked["msg"]["permissionId"].clone();
+    let mut rpc = daemon.rpc().await;
+    rpc.call(
+        "_acpmux/permission_respond",
+        json!({"sessionId": session, "permissionId": permission_id, "optionId": "no"}),
+    )
+    .await;
+    // At once after the answer: the decision it acknowledged must be on disk already.
+    daemon.sigkill();
+    drop((client, rpc));
+    daemon.start();
+    let first = daemon.wait_event(&session, "the decision or a second ask", |e| {
+        matches!(e["kind"].as_str(), Some("permission_decision" | "permission_reissued"))
+            && e["msg"]["permissionId"] == permission_id
+    });
+    assert_eq!(
+        first["kind"],
+        "permission_decision",
+        "an answered permission was lost and asked again: {:#}",
+        json!(daemon.events(&session))
+    );
+    let result = daemon.wait_event(&session, "turn_result", |e| e["kind"] == "turn_result");
+    assert_eq!(result["msg"]["status"], "completed", "{:#}", json!(daemon.events(&session)));
+    let events = daemon.events(&session);
+    assert!(
+        !events.iter().any(|e| e["kind"] == "permission_reissued"),
+        "the person was asked again: {:#}",
+        json!(events)
+    );
+}
+
 /// A queued prompt that left the queue for its turn (`dequeued`) when the daemon died, before
 /// its turn started, runs once after the restart: a client that resends it gets its real
 /// outcome, not `interrupted`. `ACPMUX_TEST_EXIT_AFTER_DEQUEUE` stops the first daemon there.
