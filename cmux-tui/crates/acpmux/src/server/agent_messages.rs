@@ -64,7 +64,8 @@ pub(super) async fn handle(
 /// `_acpmux/inbox_digest`: the unix socket only (`remote_guard.rs` refuses every other origin
 /// first), and never for another session's agent. A connection that says it runs in a session
 /// proves it with that session's caller token (one this run issued) and drains only that
-/// session's inbox; one that names no session is the person's terminal (`hub/inbox_digest.rs`).
+/// session's inbox; one that names no session is trusted as the socket trusts it for every queue
+/// change (`hub/inbox_digest.rs` module docs).
 async fn inbox_digest(hub: &Arc<Hub>, conn: &Arc<Conn>, params: &Value) -> Result<Value, RpcError> {
     if conn.origin != Origin::Local {
         return Err(Hub::inbox_digest_origin_refused());

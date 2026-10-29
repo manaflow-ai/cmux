@@ -67,6 +67,20 @@ impl Waiting {
         }
     }
 
+    /// Whether the record of the turn `turn_id` waiting is an inbox digest's
+    /// (`inbox_digest.rs`).
+    pub(super) fn is_digest_turn(&self, turn_id: Option<&Value>) -> bool {
+        let Some(slots) = turn_id.and_then(Value::as_str).and_then(|t| self.by_turn.get(t)) else {
+            return false;
+        };
+        slots.iter().any(|&i| {
+            self.slots
+                .get(i)
+                .and_then(Option::as_ref)
+                .is_some_and(|q| super::digest::inbox_digest::is_digest_record(&q.msg))
+        })
+    }
+
     /// Takes out every record of the prompt `prompt_id`.
     pub(super) fn remove_prompt(&mut self, prompt_id: &str) {
         for i in self.by_prompt.get(prompt_id).cloned().unwrap_or_default() {

@@ -893,10 +893,17 @@ impl Hub {
                             order.prioritize_restart(id);
                         }
                         // An inbox digest names the messages it took: none runs on its own
-                        // again, even one whose `dequeued` record the stop cut off.
+                        // again, even one whose `dequeued` record the stop cut off. It holds the
+                        // queue's order with it in it too, as its `queue_order` record does.
                         for id in super::digest::inbox_digest::took(&e.msg) {
                             waiting.remove_prompt(&id);
                             order.remove(&json!(id));
+                        }
+                        if super::digest::inbox_digest::is_digest_record(&e.msg)
+                            && let Some(ids) = e.msg.get("order").and_then(Value::as_array)
+                        {
+                            order.set(ids.iter());
+                            unstarted.lead(&mut order);
                         }
                         waiting.push(e);
                     }
@@ -912,6 +919,13 @@ impl Hub {
                     // back ahead of the queue.
                     "dequeued" | "user_message" if unstarted.holds(turn_id) => {
                         unstarted.lead(&mut order);
+                    }
+                    // An inbox digest steered in leaves the queue before its steer is written:
+                    // it still waits until its `user_message` (another turn's, so it goes by its
+                    // prompt id above) or a refusal says it went or never will.
+                    "dequeued" if waiting.is_digest_turn(turn_id) => {}
+                    "prompt_refused" if waiting.is_digest_turn(turn_id) => {
+                        waiting.remove_turn(turn_id);
                     }
                     "dequeued" | "queue_removed" | "user_message" | "turn_started" => {
                         waiting.remove_turn(turn_id);

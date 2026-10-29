@@ -112,6 +112,18 @@ impl Hub {
                     digest = field("digestPromptId").map(str::to_owned);
                     turn_id = field("digestTurnId").map(str::to_owned);
                 }
+                // The digest's own record names it too, so a stop that cut its `dequeued`
+                // record still finds that turn.
+                ("queued", Some(_))
+                    if digest.is_none()
+                        && super::digest::inbox_digest::took(&rec.msg)
+                            .iter()
+                            .any(|id| id == prompt_id) =>
+                {
+                    digest = field("promptId").map(str::to_owned);
+                    turn_id = field("turnId").map(str::to_owned);
+                    ended = None;
+                }
                 ("user_message", Some(_))
                     if digest.is_some() && field("promptId") == digest.as_deref() =>
                 {

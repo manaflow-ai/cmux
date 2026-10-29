@@ -33,9 +33,13 @@
 //!
 //! Only the unix socket asks for a drain (`server/agent_messages.rs`): never Web, LocalApp or a
 //! peer. A connection that names a session must prove it with that session's caller token, and
-//! drains only that session's inbox; one that names none is the person's terminal, trusted as
-//! the socket trusts `acpmux send`. A drain loses no message: each one's text stays in the log
-//! and its sender gets the digest's answer.
+//! drains only that session's inbox. The acpmux client names its session by itself when it runs
+//! in one (`client.rs`, from the caller token in its environment), so another session's agent is
+//! refused. One that names none is trusted as the unix socket trusts it for every queue change:
+//! the same connection may already remove, edit or reorder any queued prompt, stop the turn, or
+//! kill the chat (`_acpmux/queue_remove`, `_acpmux/queue_edit`, `session/cancel`,
+//! `_acpmux/kill`). A drain is milder than those: it loses no message (each one's text stays in
+//! the log under its promptId, and its sender gets the digest's answer).
 
 use super::super::queue::{PromptRun, QueuedPrompt};
 use super::super::*;
@@ -57,11 +61,16 @@ pub(crate) fn is_digest(provenance: Option<&Value>) -> bool {
     provenance.and_then(|p| p.get("kind")).and_then(Value::as_str) == Some(KIND)
 }
 
+/// Whether a `queued` record is an inbox digest's.
+pub(crate) fn is_digest_record(record: &Value) -> bool {
+    is_digest(record.pointer("/_meta/provenance"))
+}
+
 /// The prompts an inbox digest's `queued` record took: its provenance's parts. None for any
 /// other record.
 pub(crate) fn took(record: &Value) -> Vec<String> {
     let provenance = record.pointer("/_meta/provenance");
-    if !is_digest(provenance) {
+    if !is_digest_record(record) {
         return Vec::new();
     }
     let parts = provenance.and_then(|p| p.get("parts")).and_then(Value::as_array);
@@ -254,7 +263,12 @@ fn part_of(q: &QueuedPrompt) -> Part {
         from_name: name,
         class: q.run.class.unwrap_or(Class::Result),
         received_at: q.queued_at,
-        text: prompt_text(&q.run.blocks),
+        // Its words: the part's header names its sender, so not a cmux envelope's own header.
+        text: super::super::prompt_line::agent_words(
+            &prompt_text(&q.run.blocks),
+            q.run.provenance.as_ref(),
+        )
+        .to_owned(),
     }
 }
 
@@ -390,7 +404,9 @@ impl Hub {
         drop(queue);
 
         // The digest is logged before the originals leave, so the log never loses them.
-        let queued = json!({"text": text, "client": client, "position": at + 1, "promptId": digest_id, "turnId": turn_id, "prompt": blocks, "control": control.as_str(), "trustGate": false, "fromAgent": SENDER});
+        // It holds the queue's new order too, so a stop before the `queue_order` record below keeps
+        // its place (`queue.rs` `restore_queue`).
+        let queued = json!({"text": text, "client": client, "position": at + 1, "promptId": digest_id, "turnId": turn_id, "prompt": blocks, "control": control.as_str(), "trustGate": false, "fromAgent": SENDER, "order": order});
         let queued = crate::prompt_provenance::marked(queued, Some(&provenance));
         self.append(session, "mux", "queued", queued);
         self.append(session, "mux", "queue_order", json!({"promptId": digest_id, "order": order}));

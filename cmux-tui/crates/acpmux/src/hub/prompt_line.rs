@@ -76,6 +76,13 @@ fn senders<'a>(names: impl Iterator<Item = &'a str>) -> Option<String> {
     }
 }
 
+/// The sender's own words in another agent's message: inside the envelope cmux wraps a cmux
+/// agent message in (`rendered_body`), else the whole text (`inbox_digest.rs`).
+pub(super) fn agent_words<'a>(text: &'a str, provenance: Option<&Value>) -> &'a str {
+    let msg_id = provenance.and_then(|p| p.get("msgId")).and_then(Value::as_str);
+    msg_id.and_then(|id| rendered_body(text, id)).unwrap_or(text)
+}
+
 /// The sender's words in a message as cmux renders it for the agent (`agent_message_prompt.rs`
 /// `render`): what lies between the `---` line after its header and `--- end of message <id> ---`.
 fn rendered_body<'a>(text: &'a str, msg_id: &str) -> Option<&'a str> {
