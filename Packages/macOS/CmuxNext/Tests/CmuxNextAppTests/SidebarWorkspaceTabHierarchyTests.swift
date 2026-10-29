@@ -130,7 +130,9 @@ struct SidebarWorkspaceTabHierarchyTests {
             let workspaceXs = [loose, grouped, nested].map { (workspace: WorkspaceRowView) in Self.listX(list, workspace, workspace.titleFrame.minX) }
             #expect(workspaceXs[1] > workspaceXs[0],
                     "\(c.testDescription): grouped workspace icon did not move its title column")
-            #expect(workspaceXs[2] > workspaceXs[1],
+            // Compare nested lineage with the iconless baseline: the grouped icon's title
+            // column is intentionally farther right than one tree-indent step.
+            #expect(workspaceXs[2] > workspaceXs[0],
                     "\(c.testDescription): nested workspace lost its lineage offset")
             let trailing = list.bounds.width - list.inset - SidebarStyle.rowTrailingTrim
             for row in list.displayed.rows where row.key == .workspace(Self.loose) || row.key == .workspace(Self.grouped) || row.key == .workspace(Self.nested) {
