@@ -20,7 +20,7 @@ import Testing
             "displayBackgroundRotations": .object([first: "15m", second: "hourly"]),
         ]]
         let app = ThemeScope(level: .room)
-        app.setBackdropSelection(.art(.degasHalevy))
+        app.setBackdropSelection(.art(.munchScream))
         let left = ThemeScope(level: .room, parent: app)
         let right = ThemeScope(level: .room, parent: app)
         let window = NSWindow()
@@ -59,7 +59,7 @@ import Testing
 
     @Test func defaultsOptOutWorkspacePriorityAndCleanup() async {
         let app = ThemeScope(level: .room)
-        app.setBackdropSelection(.art(.degasHalevy))
+        app.setBackdropSelection(.art(.munchScream))
         let room = ThemeScope(level: .room, parent: app)
         let window = NSWindow()
         let center = NotificationCenter()
@@ -70,9 +70,9 @@ import Testing
         binding.apply(["appearance": ["displayBackgrounds": .object([first: "none", second: "daily"]) ]])
         #expect(room.backdropSelection == nil)
         let workspace = ThemeScope(level: .workspace, parent: room)
-        workspace.pinBackdrop(.selection(.art(.degasHalevy)))
+        workspace.pinBackdrop(.selection(.art(.munchScream)))
         room.show(workspace)
-        #expect(room.backdropSelection == .art(.degasHalevy))
+        #expect(room.backdropSelection == .art(.munchScream))
         workspace.pinBackdrop(.none)
         #expect(room.backdropSelection == nil)
         room.show(nil)
