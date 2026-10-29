@@ -39,6 +39,7 @@
 #![cfg(unix)]
 
 use super::*;
+use crate::mux::host_policy::HostSizeMode;
 use std::collections::VecDeque;
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
@@ -418,10 +419,19 @@ impl Case {
             // Room for a burst at most grids, so a marker leaves the
             // history only where check_burst says it may.
             scrollback: SCROLLBACK,
+            cols: 80,
+            rows: 24,
             ..SurfaceOptions::default()
         };
-        let mux = Mux::new_for_test(format!("resize-fuzz-{seed:x}"), options);
-        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let mux = Mux::new_for_test(format!("resize-fuzz-{seed:x}"), SurfaceOptions::default());
+        // The settings file's default (spec/commands.md, set-host-size-policy):
+        // fit the smallest viewer. Before the settings owner publishes one,
+        // terminals use `latest`.
+        mux.set_host_size_policy(HostSizeMode::Smallest, None).unwrap();
+        // A terminal in a pane, as the app shows it, whose test runtime is
+        // replaced by a real child on a real PTY.
+        let id = mux.new_workspace(None, Some((80, 24))).unwrap().id;
+        let surface = mux.respawn_with_real_child_for_test(id, options).unwrap();
         let mut case = Self {
             seed,
             step: 0,
