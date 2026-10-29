@@ -587,7 +587,7 @@ test("switching machines clears a picked saved environment", async () => {
   }
 });
 
-for (const target of ["studio", "oldbox"] as const) {
+for (const target of ["studio", "oldbox", "no-project"] as const) {
   test(`picking ${target} in the headline replaces a saved environment on the same or another machine`, async () => {
     const snapshot = { ...noChat([]), peers: ["oldbox"], peerKinds: { oldbox: "ssh" as const } };
     const asked: unknown[][] = [];
@@ -613,12 +613,21 @@ for (const target of ["studio", "oldbox"] as const) {
       )!;
       await act(async () => savedRow.dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true })));
       expect(host.querySelector(".nt-headline-machine-label")?.textContent).toBe("oldbox");
-      await act(async () => host.querySelector<HTMLElement>(".nt-headline-machine-label")!.click());
+      if (target === "no-project") {
+        await act(async () => host.querySelector<HTMLButtonElement>(".nt-headline-choose button")!.click());
+      } else {
+        await act(async () => host.querySelector<HTMLElement>(".nt-headline-machine-label")!.click());
+      }
       const row = [...window.document.querySelectorAll<HTMLElement>("[role=option]")].find((row) =>
-        row.textContent?.includes(target),
+        target === "no-project"
+          ? row.textContent?.includes("Do not work in a project")
+          : row.textContent?.includes(target),
       )!;
       await act(async () => row.dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true })));
       expect(host.querySelector(".nt-location")?.textContent).not.toContain("Old box");
+      expect(host.querySelector(".nt-headline-machine-label")?.textContent).toBe(
+        target === "studio" ? "studio" : "oldbox",
+      );
       const field = host.querySelector<HTMLTextAreaElement>(".nt-field")!;
       const setValue = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(field), "value")!.set!;
       await act(async () => {

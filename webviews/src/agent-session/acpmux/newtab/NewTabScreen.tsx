@@ -1145,6 +1145,7 @@ export function NewTabScreen(props: Props) {
     touch();
     projectChoice.current += 1;
     saved.pick(undefined);
+    setHeadlineMachineSelection(headlineMachineId);
     setPicked(true);
     setNone(true);
     setProject(undefined);
