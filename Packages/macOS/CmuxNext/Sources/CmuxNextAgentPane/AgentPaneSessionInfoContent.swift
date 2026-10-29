@@ -53,7 +53,7 @@ struct SessionInfoLine: Equatable {
 /// The keys that press a focused line or button, as a push button's: Space and Return.
 enum SessionInfoKeys {
     static func presses(_ event: NSEvent) -> Bool {
-        guard event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.numericPad, .function]).isEmpty else { return false }
+        guard event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.numericPad, .function, .capsLock]).isEmpty else { return false }
         return event.charactersIgnoringModifiers == " " || event.charactersIgnoringModifiers == "\r"
     }
 }

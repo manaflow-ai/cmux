@@ -185,6 +185,11 @@ struct AgentPaneNativeSessionInfoTests {
                                                   isARepeat: false, keyCode: 49))
         stop.keyDown(with: space)
         #expect(sent == ["tasks.stop:1"])
+        let capsReturn = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [.capsLock], timestamp: 0,
+                                                       windowNumber: 0, context: nil, characters: "\r", charactersIgnoringModifiers: "\r",
+                                                       isARepeat: false, keyCode: 36))
+        stop.keyDown(with: capsReturn)
+        #expect(sent == ["tasks.stop:1", "tasks.stop:1"])
         #expect(stop.acceptsFirstResponder)
     }
 
