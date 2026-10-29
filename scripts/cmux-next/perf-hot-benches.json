@@ -1,6 +1,11 @@
 {
   "_doc": "Hot-path ids for `// perf-hot: <budget> <path-id>` markers (plans/cmux-next/codebase-health.md section 6). scripts/cmux-next/guardrails.py warns when a push changes a marked function and names the bench here. `trace` lists the SignpostName catalog names (Packages/macOS/CmuxNext/Sources/CmuxNextSignposts/SignpostName.swift) whose records show the path in a Release trace ring or signpost recording. An id with no `trace` has no catalog name that shows its own cost yet (observability-audit.py MQ5 lists it). Run it yourself on the fleet (nx-remote --needs gui), light and STRESS (perf-lead-brief), before and after; never add it to CI.",
   "paths": {
+    "invariants-turn": {
+      "what": "the invariant pass at the end of a committed main turn (InvariantRegistry.runTurn, Debug and opted-in bench builds only; Release has no pass): one test on an idle turn, else the rules whose keys the turn touched, on the dirty subjects",
+      "bench": "a tagged Debug build, light and STRESS (8 windows x 20 panes): scripts/journeys/run.py --priority P0, then debug.invariants {rules: true}: pass_us (p50/p95/p99/max, target p95 <= 1 ms) and each rule's us (p95 <= 250 us, else INV-COST); never perf evidence for Release",
+      "owner": "PL-invariants"
+    },
     "cef-host-input": {
       "what": "one input event forwarded to the Chromium host app (prototype, browserHost.helper): encode and one non-blocking write",
       "bench": "scripts/cmux-next/chromium-host-bench.py (hop_us, ping_us)",
