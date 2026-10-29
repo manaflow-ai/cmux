@@ -412,10 +412,11 @@ struct EarlyTerminalKeysTests {
         }
     }
 
-    /// The focus model moves to another target while keys wait (the person focuses the other pane): the held keys go to
-    /// the target the model names now, that pane's terminal, once its view has the keyboard, in order; never into the
-    /// new terminal they were typed after, and never by a timer (principled-audit R5).
-    @Test func heldKeysGoToTheTargetTheModelMovedTo() async throws {
+    /// The person moves the focus model to another target while keys wait for a new terminal (they focus the other
+    /// pane): the keys typed for the new terminal drop (reason focusMovedAway) and never run anywhere, not later in that
+    /// terminal as a late command and not in the pane the person moved to (Chrome drops input for a node that lost
+    /// focus). The next key goes to the target the model names now, at once (principled audit, lagFirstKey).
+    @Test func keysTypedForATargetThePersonLeftDropAndTheNextKeyGoesToTheNewTarget() async throws {
         try await Self.withTerminal(panes: 2) { h in
             let (controller, window, tab) = (h.controller, h.window, h.tab)
             let router = h.services.keyRouter
@@ -443,9 +444,9 @@ struct EarlyTerminalKeysTests {
                                                       within: .seconds(5), report: { "focus never named the other pane: \(Self.held(h))" })
             window.makeFirstResponder(otherEntry.session.surfaceView)
             let next = router.interceptKeyDown(try Self.key("c", keyCode: 8, in: window), in: window)
-            #expect(coordinator.replayedCount == before + 2, "the held keys did not go to the target the model moved to: \(Self.held(h))")
+            #expect(coordinator.replayedCount == before, "keys typed for the terminal the person left ran somewhere: \(Self.held(h))")
             #expect(!next, "the key after the move waited: \(Self.held(h))")
-            #expect(coordinator.heldCount(in: window) == 0, "keys still wait after the model's target took the keyboard: \(Self.held(h))")
+            #expect(coordinator.heldCount(in: window) == 0, "keys typed for the terminal the person left still wait: \(Self.held(h))")
         }
     }
 
