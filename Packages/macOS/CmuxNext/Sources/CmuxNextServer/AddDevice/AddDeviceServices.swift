@@ -15,11 +15,13 @@ public struct AddDeviceServices {
     public var machineJoin: () -> MachineJoinService?
     /// Copies a secret line: plain text marked concealed and transient, so clipboard managers skip it.
     public var copyConcealed: (String) -> Void
+    /// Shows the Machines sidebar section, where the joined machine is listed (Show in Machines).
+    public var showMachines: () -> Void
 
     public init(list: @escaping () async -> DeviceListing?, addComputer: @escaping (String, String) -> Void,
                 addByName: @escaping () -> Void, enterCode: @escaping () -> Void, newCloudMachine: @escaping () -> Void = {},
                 copy: @escaping (String) -> Void, machineJoin: @escaping () -> MachineJoinService? = { nil },
-                copyConcealed: @escaping (String) -> Void = { _ in }) {
+                copyConcealed: @escaping (String) -> Void = { _ in }, showMachines: @escaping () -> Void = {}) {
         self.list = list
         self.addComputer = addComputer
         self.addByName = addByName
@@ -28,5 +30,6 @@ public struct AddDeviceServices {
         self.copy = copy
         self.machineJoin = machineJoin
         self.copyConcealed = copyConcealed
+        self.showMachines = showMachines
     }
 }
