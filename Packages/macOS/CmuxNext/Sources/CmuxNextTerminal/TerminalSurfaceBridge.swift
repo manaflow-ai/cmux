@@ -3,16 +3,16 @@ import CmuxNextWakeups
 import GhosttyNextKit
 
 /// Per-surface userdata handed to Ghostty as `userdata`, `io_write_userdata`,
-/// with renderer-owned frames `presented_userdata`, on external vsync
-/// `vsync_userdata`, and with an external cursor `cursor_userdata` (ghostty.h).
+/// with renderer-owned frames `presented_userdata`, and on external vsync
+/// `vsync_userdata` (ghostty.h).
 ///
 /// Retained for the surface's lifetime and released only after
 /// `ghostty_surface_free` returns, because free joins the IO thread that may
 /// still be inside `io_write_cb` and waits for a running `presented_cb`.
 ///
 /// Checked Sendable: Ghostty's IO, renderer and Core Animation threads read only the
-/// immutable `input`, `linkFilter`, `frames`, `frameMarks`, `keySlots`, `vsync` (itself
-/// Sendable) and `cursor`, and an input lock wait report only the immutable `lockWait`;
+/// immutable `input`, `linkFilter`, `frames`, `frameMarks`, `keySlots` and `vsync` (itself
+/// Sendable), and an input lock wait report only the immutable `lockWait`;
 /// everything mutable is main-actor isolated.
 nonisolated final class SurfaceBridge: Sendable {
     let input: TerminalInputSink
@@ -44,19 +44,15 @@ nonisolated final class SurfaceBridge: Sendable {
     /// Paces the surface from its display's ``VSyncHub`` thread on external vsync (``TerminalVSync``). Owned here
     /// so it lives exactly as long as the `vsync_userdata` Ghostty holds, past `ghostty_surface_free`.
     let vsync = TerminalVSync()
-    /// Where Ghostty's present puts the surface's cursor cell (``ghosttySurfaceCursor(_:_:)``); nil: Ghostty draws
-    /// the cursor.
-    let cursor: TerminalCursorPresenter?
     /// Where the surface's input waits for Ghostty's terminal lock go (``GhosttyLockWaitSignpost``): one handle
     /// for the surface's life, so a report builds nothing.
     let lockWait = GhosttyLockWaitSignpost()
 
     init(input: TerminalInputSink, echoStage: TerminalEchoStage? = nil, frameMarks: GhosttyTraceHook.Recorder? = nil,
-         keySlots: TerminalEchoStages? = nil, cursor: TerminalCursorPresenter? = nil) {
+         keySlots: TerminalEchoStages? = nil) {
         self.input = input
         self.frameMarks = frameMarks
         self.keySlots = keySlots
-        self.cursor = cursor
         frames = GhosttyTraceHook.Surface(key: input.typingSurface, echoStage: echoStage)
     }
 

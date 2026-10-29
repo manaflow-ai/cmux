@@ -25,8 +25,6 @@ final class GhosttyScaleTarget: TerminalScaleTarget {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         view?.layer?.contentsScale = scale
-        // The cursor layer shows Ghostty's cell pixels at the same scale (``TerminalCursorLayer/setScale(_:)``).
-        (view as? TerminalSurfaceView)?.cursorLayer?.setScale(scale)
         CATransaction.commit()
     }
 
