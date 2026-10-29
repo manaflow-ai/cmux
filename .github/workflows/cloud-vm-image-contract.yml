@@ -127,11 +127,14 @@ jobs:
           printf 'source ref: %s\nsource sha: %s\n' "$GITHUB_REF" "$(git rev-parse HEAD)"
 
       - name: Bake, verify, derive, and stage the manifest
+        id: bake
         env:
           CMUX_BAKE_ALLOW_BRANCH: "1"
           FREESTYLE_API_KEY: ${{ secrets.FREESTYLE_API_KEY }}
           PROMOTION_OUT: ${{ runner.temp }}/devbox-promotion.json
-          SLUG: cmux-devbox-${{ github.run_id }}
+          # The attempt keeps a re-run's snapshots apart from the first
+          # attempt's, so the cleanup below never touches another attempt.
+          SLUG: cmux-devbox-${{ github.run_id }}-${{ github.run_attempt }}
         run: |
           set -euo pipefail
           bun run devbox:promote -- freestyle \
@@ -140,6 +143,34 @@ jobs:
             --out "$PROMOTION_OUT"
           bun run devbox:manifest:check
           cp services/vms/images/manifest.json "$RUNNER_TEMP/devbox-manifest.json"
+
+      # Runs after a failure, a cancel, or a timeout too. Deletes every machine
+      # this run created (the builder, and the verify and derive machines) and
+      # every snapshot it made that nothing references: the staged manifest
+      # (the promotion candidate, kept for review) and the manifests deployed on
+      # main and feat-cmux-next are protected. A failed or cancelled run leaves
+      # no image behind.
+      - name: Delete this run's machines and unreferenced snapshots
+        if: always() && steps.bake.outcome != 'skipped' && steps.bake.outcome != ''
+        env:
+          FREESTYLE_API_KEY: ${{ secrets.FREESTYLE_API_KEY }}
+          SLUG: cmux-devbox-${{ github.run_id }}-${{ github.run_attempt }}
+          STAGED: ${{ runner.temp }}/devbox-manifest.json
+        run: |
+          set -uo pipefail
+          status=0
+          bun scripts/cloud-vm/ci-leftovers.ts vms --builder-of "$SLUG" || status=1
+          # promote writes the checkout's manifest before the staged copy; a
+          # cancel between the two still keeps what it promoted.
+          args=(--manifest services/vms/images/manifest.json)
+          for branch in main feat-cmux-next; do
+            git fetch --quiet origin "$branch" || { echo "::error::could not read the $branch manifest; keeping every snapshot"; exit 1; }
+            git show "origin/$branch:web/services/vms/images/manifest.json" > "$RUNNER_TEMP/manifest-$branch.json"
+            args+=(--manifest "$RUNNER_TEMP/manifest-$branch.json")
+          done
+          if [ -s "$STAGED" ]; then args+=(--manifest "$STAGED"); fi
+          bun scripts/cloud-vm/ci-leftovers.ts snapshots --slug "$SLUG" "${args[@]}" || status=1
+          exit "$status"
 
       - name: Summarize the staged promotion
         if: success()
