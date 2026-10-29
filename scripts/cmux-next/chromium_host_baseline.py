@@ -25,7 +25,7 @@ BUDGETS = [
         "parts": [
             ("holder", "PTY master and the resident pages of its 1 MiB byte ring (one mapping, also mapped by the daemon)", 0.60,
              "terminal_host 2.1-2.5 MB footprint per host (new-terminal-100x, aws-m4pro-6)"),
-            ("daemon / vt_worker", "VT state: screen, bounded scrollback, modes (vt-pool in phase A, cmux-vt-worker in phase B)", 0.55,
+            ("daemon", "VT state: screen, bounded scrollback, modes (the daemon's in-process parser)", 0.55,
              "daemon about 1.5 MB per workspace, a full VT mirror (speed-of-sound-DESIGN.md gap 11)"),
             ("daemon", "model: session tree, journal entry, stream state", 0.10, "in the 1.5 MB above"),
             ("app", "app surface after the 30 s hidden grace (task 140): model, stream offset, view state; no Ghostty surface", 0.25,
@@ -38,11 +38,10 @@ BUDGETS = [
         "unit": "threads", "target": 400, "check": "done check 13",
         "parts": [
             ("app", "UI, render and IO threads of the visible surfaces, Chromium client", 120, "91 (p07-memory.md, cmux20)"),
-            ("daemon", "O(cores) pools, mux-io, child-exit, pty-writer; peak too (agent burst, restart)", 64, "797"),
+            ("daemon", "O(cores) pools (the VT parse pool included), mux-io, child-exit, pty-writer; peak too (agent burst, restart)", 64, "797"),
             ("holder", "one poll loop, signals, spawn", 8, "0 (holder off; 172 terminal hosts x 7-9 threads)"),
-            ("vt_worker", "4 shards x 8", 32, "0 (no workers)"),
             ("chromium_host", "Chromium's browser process (UI, IO, ThreadPool, crashpad, hang watcher)", 100, "0 (in the app process)"),
-            ("daemon children", "acpmux helper per chat, the remote-browser host, VS Code serve-web", 76, "not counted yet"),
+            ("daemon children", "acpmux helper per chat, the remote-browser host, VS Code serve-web", 108, "not counted yet"),
         ],
     },
     {
@@ -51,9 +50,8 @@ BUDGETS = [
         "unit": "wakes/s", "target": 1.0, "check": "done check 12",
         "parts": [
             ("app", "every thread of the app process; its main thread <= 0.5 by itself", 0.5, "89/s app kernel wakeups, 1 tab (perf-lead.md 2026-10-25 PL-cefhost row)"),
-            ("daemon", "all daemon threads", 0.2, "not measured"),
+            ("daemon", "all daemon threads, VT parsing included", 0.3, "not measured"),
             ("holder", "the poll loop", 0.1, "not measured"),
-            ("vt_worker", "all shards together", 0.1, "no workers"),
             ("chromium_host", "Chromium's browser process", 0.1, "in the app process (3.3/s pump wakes on main, 1 tab)"),
         ],
     },
@@ -69,8 +67,7 @@ BUDGETS = [
     },
 ]
 
-PROCESS_COUNTS = [("app", 1), ("daemon", 1), ("holder", 1), ("vt_worker", "<= 4 (+1 per extra trust class)"),
-                  ("terminal_host", 0), ("chromium_host", 1)]
+PROCESS_COUNTS = [("app", 1), ("daemon", 1), ("holder", 1), ("terminal_host", 0), ("chromium_host", 1)]
 
 
 def check_sums(budgets=BUDGETS):

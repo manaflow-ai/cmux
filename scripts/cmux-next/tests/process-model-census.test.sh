@@ -2,7 +2,7 @@
 # process-model-census.py (p01-process task 004): a canned census directory (ps.txt, threads.txt,
 # memory.txt, samples.txt, session.json) gives every role its processes by executable path and owner,
 # leaves another tag's processes and the user's shells out, folds thread names, takes peaks from the
-# samples, counts a ring shared by the holder and a VT worker once, and checks names and QoS against a
+# samples, counts a ring shared by the holder and a terminal host once, and checks names and QoS against a
 # thread doc. Then one live census of this shell (Linux /proc or macOS libproc). Portable, no app.
 set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/../../.." && pwd)"
@@ -27,8 +27,6 @@ cat > "$dir/ps.txt" <<EOF
   120     1   3000 $HX/def/cmux-tui-host __terminal-host --bootstrap-stdio --owner cmux_DEV_t1:t1@99
   121   120   2000 /bin/zsh -l
   122   102   3000 $HX/def/cmux-tui-host __terminal-host --bootstrap-stdio
-  130   110   4000 $HX/aaa/cmux-vt-worker --shard 0
-  131   110   4000 $HX/aaa/cmux-vt-worker --shard 1
   140   100  90000 $B/Contents/MacOS/cmux DEV Chromium Host --data x
   141   140  50000 $B/Contents/Frameworks/cmux DEV Helper (Renderer).app/Contents/MacOS/cmux DEV Helper (Renderer) --type=renderer
   142   140  50000 $B/Contents/Frameworks/cmux DEV Helper (Renderer).app/Contents/MacOS/cmux DEV Helper (Renderer) --type=renderer
@@ -51,8 +49,8 @@ printf '%s\n' \
   $'141\tdefault\tThreadPoolForegroundWorker' $'111\tdefault\t' $'200\tdefault\tcmux-next main-thread watchdog' \
   > "$dir/threads.txt"
 printf '%s\n' \
-  $'100\t300000\t200000\tsurface:2048' $'110\t4000\t3000\tring1:1024,ring2:1024' $'130\t3000\t2000\tring1:1024' \
-  $'131\t3000\t2000\tring2:1024' $'120\t2000\t1500\t' $'122\t2000\t1500\t' $'102\t50000\t40000\t' \
+  $'100\t300000\t200000\tsurface:2048' $'110\t4000\t3000\tring1:1024,ring2:1024' \
+  $'120\t2000\t1500\tring1:1024' $'122\t2000\t1500\tring2:1024' $'102\t50000\t40000\t' \
   $'140\t80000\t60000\tsurface:2048' $'111\t1000\t1000\t' $'101\t12000\t10000\t' $'141\t25000\t20000\t' \
   $'142\t25000\t20000\t' $'150\t6000\t5000\t' $'151\t2000\t1000\t' $'152\t2000\t1000\t' > "$dir/memory.txt"
 # A daemon restart: the old daemon's threads grow, then the next daemon (103) starts with 20.
@@ -73,13 +71,13 @@ assert report == json.load(open(sys.argv[2])), "--out and --json differ"
 roles = report["roles"]
 def eq(what, got, want):
     assert got == want, f"{what}: {got!r}, want {want!r}"
-for role in ("app", "daemon", "holder", "vt_worker", "terminal_host", "chromium_host", "chromium_helper"):
+for role in ("app", "daemon", "holder", "terminal_host", "chromium_host", "chromium_helper"):
     for key in ("processes", "threads", "rss_mb", "peak_threads"):
         assert key in roles[role], f"roles.{role}.{key} missing"
 eq("app pid", report["app_pid"], 100)
 # The daemon by its resolved binary (bin/cmux) and owner argv; the Chief daemon (ppid 1) is not counted, a CLI
 # call and the cloud link under the app are `other`.
-want = {"app": [100], "daemon": [102], "holder": [110], "vt_worker": [130, 131], "terminal_host": [120, 122],
+want = {"app": [100], "daemon": [102], "holder": [110], "terminal_host": [120, 122],
         "chromium_host": [140], "chromium_helper": [101, 141, 142], "other": [150, 151, 152]}
 for role, pids in want.items():
     eq(f"{role} pids", roles[role]["pids"], pids)
@@ -91,21 +89,21 @@ eq("app peak (sampled above now)", roles["app"]["peak_threads"], 6)
 eq("daemon names", roles["daemon"]["threads_by_name"], {"mux-seq-control": 2, "surface-<n>-reader": 2, "main": 1})
 eq("daemon qos", roles["daemon"]["threads_by_qos"], {"default": 3, "user-initiated": 2})
 eq("app unnamed", roles["app"]["threads_by_name"]["<unnamed>"], 2)
-eq("rss", roles["vt_worker"]["rss_mb"], round(8000 / 1024, 1))
+eq("rss", roles["terminal_host"]["rss_mb"], round(6000 / 1024, 1))
 eq("folded name over roles", report["threads_by_name"]["surface-<n>-reader"], {"count": 2, "roles": {"daemon": 2}, "qos": {"default": 2}})
 assert "cmux-next main-thread watchdog" in report["threads_by_name"]
 eq("other tag's app not counted", report["threads_by_name"]["cmux-next main-thread watchdog"]["count"], 1)
 eq("per-object threads", report["per_object_threads"], {"surface-<n>-reader": 2})
 eq("threads excluding helpers", report["totals"]["cmux_threads_excluding_helpers"], 13)
-# The holder and the VT workers map the same two rings: each counts once.
-eq("terminal roles shared", roles["vt_worker"]["shared_mb"], 2.0)
-terminal_kb = 3000 + 2000 + 2000 + 1500 + 1500 + 2048
+# The holder and the terminal hosts map the same two rings: each counts once.
+eq("terminal roles shared", roles["terminal_host"]["shared_mb"], 2.0)
+terminal_kb = 3000 + 1500 + 1500 + 2048
 # No baseline: no per-hidden-terminal figure; the terminal roles' memory under its own name.
 eq("per hidden terminal without a baseline", report["per_hidden_terminal_mb"], None)
 assert report["per_hidden_terminal_basis"].startswith("no baseline"), report["per_hidden_terminal_basis"]
 eq("terminal roles memory", report["terminal_roles_unique_mb"], round(terminal_kb / 1024, 1))
 eq("memory read in full", report["memory"]["regions_missing_pids"], [])
-private = 200000 + 3000 + 2000 + 2000 + 1500 + 1500 + 40000 + 60000 + 10000 + 20000 + 20000 + 5000 + 1000 + 1000
+private = 200000 + 3000 + 1500 + 1500 + 40000 + 60000 + 10000 + 20000 + 20000 + 5000 + 1000 + 1000
 eq("unique (rings and the surface once)", report["totals"]["unique_mb"], round((private + 2048 + 2048) / 1024, 1))
 eq("shared objects", report["totals"]["shared_objects"], 3)
 EOF
@@ -171,20 +169,20 @@ grep -q $'^102\t.*/bin/cmux$' "$tmp/again/exe.txt" || { echo "FAIL: --dump lost 
 # A region walk that did not run (`-`) or a process with no memory row: the sums are null, never partial.
 partial="$tmp/partial"
 cp -R "$dir" "$partial"
-grep -v $'^150\t' "$dir/memory.txt" | sed $'s/^130\t3000\t2000\t/130\t3000\t-\t/' > "$partial/memory.txt"
+grep -v $'^150\t' "$dir/memory.txt" | sed $'s/^120\t2000\t1500\t/120\t2000\t-\t/' > "$partial/memory.txt"
 python3 -I "$CENSUS" --from "$partial" --json --baseline "$tmp/base.json" > "$tmp/partial.json"
 python3 -I - "$tmp/partial.json" <<'EOF'
 import json, sys
 r = json.load(open(sys.argv[1]))
 roles = r["roles"]
-assert roles["vt_worker"]["unique_mb"] is None and roles["vt_worker"]["private_mb"] is None, roles["vt_worker"]
-assert roles["vt_worker"]["footprint_mb"] is not None, roles["vt_worker"]
+assert roles["terminal_host"]["unique_mb"] is None and roles["terminal_host"]["private_mb"] is None, roles["terminal_host"]
+assert roles["terminal_host"]["footprint_mb"] is not None, roles["terminal_host"]
 assert roles["other"]["footprint_mb"] is None and roles["other"]["unique_mb"] is None, roles["other"]
 assert roles["daemon"]["unique_mb"] is not None, roles["daemon"]
 assert r["totals"]["unique_mb"] is None and r["totals"]["footprint_mb"] is None, r["totals"]
 assert r["terminal_roles_unique_mb"] is None, r["terminal_roles_unique_mb"]
 assert r["per_hidden_terminal_mb"] is None and r["per_hidden_terminal_basis"].startswith("unknown"), r
-assert r["memory"]["regions_missing_pids"] == [130, 150], r["memory"]
+assert r["memory"]["regions_missing_pids"] == [120, 150], r["memory"]
 assert r["memory"]["footprint_missing_pids"] == [150], r["memory"]
 EOF
 

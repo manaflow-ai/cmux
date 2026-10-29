@@ -6,10 +6,9 @@ Finds the tagged app and every process of its process model, by executable path 
   app              the app's own process (`<bundle>/Contents/MacOS/<exe>`)
   daemon           `<bundle>/Contents/Resources/bin/cmux-tui` or `bin/cmux` (cmux-tui is a symlink to cmux, and
                    proc_pidpath reads the resolved file) running the owner's argv (`--headless --session
-                   cmux-app[-<tag>]`, local_owner.rs spawn_detached_owner, or `server run`): not a host, holder or
-                   VT worker, not the Chief daemon (`--session cmux-chief`), not a CLI call or `link serve`
+                   cmux-app[-<tag>]`, local_owner.rs spawn_detached_owner, or `server run`): not a host or holder,
+                   not the Chief daemon (`--session cmux-chief`), not a CLI call or `link serve`
   holder           `cmux-holder` (a host-exe copy) or the built-in `__holder`, owned by this tag
-  vt_worker        `cmux-vt-worker` (or `__vt-worker`), owned by this tag or under its daemon or holder
   terminal_host    `__terminal-host`, owned by this tag (`--owner <bundle>:<tag>@<daemon pid>`) or under its daemon
   chromium_host    `<bundle>/Contents/MacOS/<product> Chromium Host`
   chromium_helper  `<bundle>/Contents/Frameworks/<product> Helper*.app/...` (CEF helpers of the app or the host)
@@ -94,12 +93,12 @@ ROOT = os.path.dirname(os.path.dirname(HERE))
 THREAD_DOC = os.path.join(ROOT, "plans/cmux-next/threading-model.md")
 THREAD_DOC_SECTION = "## Registered threads and queues"
 THREAD_DOC_TABLE = "thread / queue"  # the owner table's first header cell
-ROLES = ("app", "daemon", "holder", "vt_worker", "terminal_host", "chromium_host", "chromium_helper", "other")
+ROLES = ("app", "daemon", "holder", "terminal_host", "chromium_host", "chromium_helper", "other")
 CMUX_ROLES = ROLES  # what totals count; `children` (shells, agents) never
-TERMINAL_ROLES = ("holder", "vt_worker", "terminal_host")
-RUST_ROLES = ("daemon", "holder", "vt_worker", "terminal_host")
-HOST_ARG, HOLDER_ARG, VT_WORKER_ARG, OWNER_FLAG = "__terminal-host", "__holder", "__vt-worker", "--owner"
-TERMINAL_ARGS = {HOST_ARG, HOLDER_ARG, VT_WORKER_ARG}
+TERMINAL_ROLES = ("holder", "terminal_host")
+RUST_ROLES = ("daemon", "holder", "terminal_host")
+HOST_ARG, HOLDER_ARG, OWNER_FLAG = "__terminal-host", "__holder", "--owner"
+TERMINAL_ARGS = {HOST_ARG, HOLDER_ARG}
 CHIEF_SESSION = "cmux-chief"
 # macOS links /tmp, /var and /etc into /private; proc_pidpath returns the /private spelling.
 PRIVATE_ROOTS = ("/tmp/", "/var/", "/etc/")
@@ -610,17 +609,15 @@ def classify(procs, target):
             role = "terminal_host"
         elif HOLDER_ARG in tokens or runs(command, "cmux-holder"):
             role = "holder"
-        elif VT_WORKER_ARG in tokens or runs(command, "cmux-vt-worker"):
-            role = "vt_worker"
         else:
             continue
         if owned(p) or under(p, by_pid, {pid for pid, r in roles.items() if r in ("daemon", "holder", "app")}):
             roles[p.pid] = role
-    # A VT worker or host the holder started, with no owner argument of its own.
+    # A host the holder started, with no owner argument of its own.
     for p in procs:
-        if p.pid not in roles and (HOST_ARG in p.args.split() or runs(p.command, "cmux-vt-worker")):
+        if p.pid not in roles and HOST_ARG in p.args.split():
             if under(p, by_pid, {pid for pid, r in roles.items() if r in ("daemon", "holder")}):
-                roles[p.pid] = "terminal_host" if HOST_ARG in p.args.split() else "vt_worker"
+                roles[p.pid] = "terminal_host"
     cmux = set(roles)
     for p in procs:
         if p.pid in roles:
@@ -643,11 +640,10 @@ def under(proc, by_pid, ancestors):
 
 
 def foreign_hosts(procs, roles):
-    """Hosts, holders and VT workers the census did not count (another tag's or an older build's)."""
+    """Hosts and holders the census did not count (another tag's or an older build's)."""
     count = 0
     for p in procs:
-        if p.pid not in roles and (TERMINAL_ARGS & set(p.args.split())
-                                    or runs(p.command, "cmux-holder") or runs(p.command, "cmux-vt-worker")):
+        if p.pid not in roles and (TERMINAL_ARGS & set(p.args.split()) or runs(p.command, "cmux-holder")):
             count += 1
     return count
 
