@@ -309,7 +309,7 @@ public final class HomeStore {
             let keys = Set(log.entries.map(\.intent.key))
             for key in Array(offlineDeadlines.keys) where !keys.contains(key) { endOfflineDeadline(key) }
         }
-        guard !uploads.isEmpty || !sendQueue.isEmpty else { return }
+        guard !uploads.isEmpty || !sendQueue.isEmpty || !sendChains.isEmpty else { return }
         let keys = Set(log.entries.map(\.intent.key))
         for key in uploads.keys where !keys.contains(key) { uploads[key] = nil }
         for conversation in Array(sendQueue.keys) { removeFromSendQueue(conversation) { !keys.contains($0) } }

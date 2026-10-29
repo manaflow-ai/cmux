@@ -95,6 +95,32 @@ import UniformTypeIdentifiers
         #expect(try await committed() == [files[0..<16].map(\.ref.hash), files[16..<32].map(\.ref.hash), files[32..<40].map(\.ref.hash)])
     }
 
+    /// Review finding: a split send whose messages were all cancelled left its chain behind, and a
+    /// later split send that reused its first key then stalled after its first message.
+    @MainActor @Test func aReusedKeyAfterACancelledSplitSendStillSendsEveryMessage() async throws {
+        let (store, source) = try await started()
+        var files: [LocalAttachment] = []
+        for index in 0..<20 {
+            files.append(try await store.prepareAttachment(data: Data("reuse \(index)".utf8), typeIdentifier: UTType.plainText.identifier))
+        }
+        let key = IdempotencyKey("reused-split-send")
+        await source.setOnline(false)
+        await waitUntil { !store.isOnline }
+        _ = try? await store.send(conversation: conversation, text: "", attachments: files, key: key)
+        for entry in store.log.entries { #expect(store.cancelSend(entry.intent.key)) }
+        #expect(store.log.isEmpty)
+        await source.setOnline(true)
+        await waitUntil { store.isOnline }
+
+        try await store.send(conversation: conversation, text: "", attachments: files, key: key)
+        await waitUntil { store.log.isEmpty }
+        let hashes = Set(files.map(\.ref.hash))
+        let sent = try await source.snapshot(of: conversation, tail: 20).messages.filter { message in
+            message.parts.contains { if case .attachment(let ref) = $0 { hashes.contains(ref.hash) } else { false } }
+        }
+        #expect(sent.count == 2)
+    }
+
     @MainActor @Test func sixtyFiveFilesSendAsMessagesWithinThePartLimitInOrder() async throws {
         let (store, source) = try await started()
 

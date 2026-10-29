@@ -61,7 +61,7 @@ afterAll(() => {
   dom.window.close();
 });
 
-const { HomeChannelsStore } = await import("../src/pages/home-channels/store");
+const { HomeChannelsStore, PendingCarry } = await import("../src/pages/home-channels/store");
 const { DaemonHomeClient } = await import("../src/pages/home-channels/daemonHome");
 const { Composer } = await import("../src/pages/home-channels/Composer");
 const { messageGroups } = await import("../src/pages/home-channels/attachmentService");
@@ -125,8 +125,15 @@ function ownerSocket(refuseOnce?: string) {
   return { socket, sent };
 }
 
-async function openStore(socket: DaemonSocket) {
+interface StoreOptions {
+  carry?: InstanceType<typeof PendingCarry>;
+  /** Called with each send before the owner answers it (an owner event can come first). */
+  beforeAnswer?: (params: Record<string, unknown>, emit: (batch: unknown) => void) => void;
+}
+
+async function openStore(socket: DaemonSocket, options: StoreOptions = {}) {
   const home = new DaemonHomeClient(socket);
+  let emit: (batch: unknown) => void = () => {};
   const me = { id: "me", kind: "human" as const, name: "Me", chief: false };
   const conversation = {
     id: "conv_local",
@@ -144,17 +151,21 @@ async function openStore(socket: DaemonSocket) {
   };
   const client = {
     async call(op: string, params: Record<string, unknown>) {
-      if (op === HomeOps.send) return home.call(op, params);
+      if (op === HomeOps.send) {
+        options.beforeAnswer?.(params, emit);
+        return home.call(op, params);
+      }
       if (op === HomeOps.inbox) return { me, conversations: [conversation], rev: 1 };
       if (op === HomeOps.page) return { conversation, messages: [] };
       return {};
     },
-    async subscribe() {
+    async subscribe(stream: string, onEvent: (data: unknown) => void) {
+      if (stream === HomeOps.events) emit = onEvent;
       return () => {};
     },
     handle: () => () => {},
   };
-  const store = new HomeChannelsStore(client as never);
+  const store = new HomeChannelsStore(client as never, options.carry);
   const stop = store.subscribe(() => {});
   await store.start();
   expect(store.getSnapshot().selected).toBe("conv_local");
@@ -245,6 +256,88 @@ test("a failed middle message holds the rest until its retry is taken, so the ow
     files.slice(16, 32).map((file) => file.hash),
     files.slice(32, 40).map((file) => file.hash),
   ]);
+  expect(store.getSnapshot().pending.filter((entry) => entry.failed)).toEqual([]);
+  stop();
+});
+
+const hashesOf = (files: readonly HomeAttachment[]) => files.map((file) => file.hash);
+
+// Review finding: the held messages lost their order when the page reconnected (a new store).
+test("after a reconnect, a Retry of a held message still goes on from the failed one, in order", async () => {
+  const files = Array.from({ length: 40 }, (_, index) => attachment(index));
+  const { socket, sent } = ownerSocket(files[20]!.hash);
+  const carry = new PendingCarry();
+  const first = await openStore(socket, { carry });
+  await first.store.send("", undefined, undefined, files);
+  await settle();
+  first.stop();
+
+  const second = await openStore(socket, { carry });
+  const pending = second.store.getSnapshot().pending;
+  const last = pending.find((entry) => entry.attachments?.[0]?.hash === files[32]!.hash)!;
+  second.store.retry(last.key);
+  await settle();
+  const groups = sent.map((message) => message.parts.map((part) => part.hash));
+  // The first message went before the reconnect; the new store cannot know it was taken, so it
+  // goes again under its own key (the owner applies a key once), then the rest in order.
+  expect(groups).toEqual([
+    hashesOf(files.slice(0, 16)),
+    hashesOf(files.slice(0, 16)),
+    hashesOf(files.slice(16, 32)),
+    hashesOf(files.slice(32, 40)),
+  ]);
+  expect(new Set(sent.slice(0, 2).map((message) => message.key)).size).toBe(1);
+  second.stop();
+});
+
+// Review finding: Retry clicked twice sent the failed message twice at once.
+test("a second Retry while the send goes again does nothing", async () => {
+  const files = Array.from({ length: 40 }, (_, index) => attachment(index));
+  const { socket, sent } = ownerSocket(files[20]!.hash);
+  const { store, stop } = await openStore(socket);
+  await store.send("", undefined, undefined, files);
+  await settle();
+  const failed = store.getSnapshot().pending.filter((entry) => entry.failed);
+  store.retry(failed[0]!.key);
+  store.retry(failed[1]!.key);
+  store.retry(failed[0]!.key);
+  await settle();
+  expect(sent.map((message) => message.parts[0]!.hash)).toEqual([files[0]!.hash, files[16]!.hash, files[32]!.hash]);
+  stop();
+});
+
+// Review finding: the owner's event can settle a message whose answer is then lost; the rest of
+// the send must still go, not wait behind a message that is no longer there.
+test("a message the owner's event settled before its answer failed does not strand the rest", async () => {
+  const files = Array.from({ length: 40 }, (_, index) => attachment(index));
+  const { socket, sent } = ownerSocket();
+  let lost = false;
+  const { store, stop } = await openStore(socket, {
+    beforeAnswer: (params, emit) => {
+      const named = (params.attachments as HomeAttachment[] | undefined)?.[0]?.hash;
+      if (lost || named !== files[16]!.hash) return;
+      lost = true;
+      emit({
+        messages: [
+          {
+            id: "m-settled",
+            conversation: "conv_local",
+            seq: 1,
+            author: "me",
+            createdAt: 1,
+            retracted: false,
+            parts: [],
+            reactions: [],
+            clientMessageId: params.idempotencyKey,
+          },
+        ],
+      });
+      throw new Error("answer lost");
+    },
+  });
+  await store.send("", undefined, undefined, files);
+  await settle();
+  expect(sent.map((message) => message.parts[0]!.hash)).toEqual([files[0]!.hash, files[32]!.hash]);
   expect(store.getSnapshot().pending.filter((entry) => entry.failed)).toEqual([]);
   stop();
 });

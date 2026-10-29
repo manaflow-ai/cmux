@@ -151,6 +151,12 @@ extension HomeStore {
         // One message at a time: each later one starts when the one before it
         // commits (`advanceSendChain`), so the owner commits them in order; a
         // failure holds the rest until its retry commits (`holdSendChain`).
+        // A key the caller reused leaves any older chain that still names it.
+        let fresh = Set(keys)
+        for index in sendChains.indices.reversed() {
+            sendChains[index].removeAll { fresh.contains($0) }
+            if sendChains[index].isEmpty { sendChains.remove(at: index) }
+        }
         sendChains.append(keys)
         for later in keys.dropFirst() { log.setQueued(later, true) }
         guard isOnline else { try queueUploadWhileOffline(key) }
