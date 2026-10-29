@@ -274,6 +274,9 @@
    "27.0.1": true,
    "27.0": true
   },
+  "NSControl call:viewDidChangeEffectiveAppearance/0": {
+   "27.0.1": true
+  },
   "NSGlassEffectView call:layout/0": {
    "27.0.1": true
   },
