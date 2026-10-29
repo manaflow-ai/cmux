@@ -168,6 +168,15 @@ fn picker_models(reported: &[(String, String)], models: &[Value]) -> Vec<String>
     top
 }
 
+/// Whether pickers leave out the profile `name` (`pickerHidden` on its `_acpmux/models` and
+/// `_acpmux/harnesses` rows): the discovered `cmux` profile, Claude Code on the cmux model
+/// router, is Claude's automatic fallback, not an agent to pick. It showed as a "Cmux" harness
+/// above Claude Code (user, 2026-10-28). The row stays, so a chat that failed over to it keeps
+/// its name, icon and models. A `cmux` profile the person wrote in their config is pickable.
+pub(super) fn picker_hidden(cfg: &crate::config::Config, name: &str) -> bool {
+    name == crate::config::CMUX_ROUTER_PROFILE && cfg.discovered.contains(name)
+}
+
 /// The harness-level catalog fields a picker shows.
 fn harness_catalog_json(curated: &CatalogHarness) -> Value {
     let mut v = json!({"id": curated.id, "name": curated.name, "brand": curated.brand, "families": curated.families, "modelSource": curated.model_source});
@@ -228,6 +237,9 @@ impl Hub {
             }
             if let Some(reason) = probe_errors.get(name) {
                 entry["probeError"] = json!(reason);
+            }
+            if picker_hidden(&cfg, name) {
+                entry["pickerHidden"] = json!(true);
             }
             if let Some(curated) = &curated {
                 entry["catalog"] = harness_catalog_json(curated);
